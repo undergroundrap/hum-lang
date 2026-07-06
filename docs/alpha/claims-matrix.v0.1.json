@@ -1,0 +1,194 @@
+{
+  "schema": "hum.alpha_claims.v0",
+  "alpha": "offline-tool@0.1",
+  "date": "2026-07-06",
+  "status_values": [
+    "planned",
+    "chartered",
+    "in_progress",
+    "blocked",
+    "proven",
+    "deferred"
+  ],
+  "claims": [
+    {
+      "id": "HA01",
+      "status": "chartered",
+      "scope": "public-alpha",
+      "claim": "Hum 0.1-alpha is an offline evidence-producing profile, not a general-purpose replacement claim.",
+      "current_evidence": [
+        "docs/ALPHA_CHARTER_0_1.md",
+        "docs/ADOPTION_STRATEGY_2026.md",
+        "docs/OFFLINE_TOOL_ALPHA_0_1.md"
+      ],
+      "future_evidence": [
+        "docs/release/alpha-0.1-announcement.md"
+      ],
+      "acceptance": [
+        "Public docs state the narrow alpha scope.",
+        "Public docs avoid claiming Hum replaces Rust, C++, Go, or Python in 0.1-alpha."
+      ]
+    },
+    {
+      "id": "HA02",
+      "status": "chartered",
+      "scope": "profile-policy",
+      "claim": "offline-tool@0.1 denies network, process execution, unsafe, FFI, threads, hidden mutation, and undeclared IO.",
+      "current_evidence": [
+        "docs/ALPHA_THREAT_MODEL_0_1.md",
+        "docs/OFFLINE_TOOL_ALPHA_0_1.md"
+      ],
+      "future_evidence": [
+        "tests/profile_offline_tool_denials",
+        "docs/PROFILE_REPORT_SCHEMA_0_1.md"
+      ],
+      "acceptance": [
+        "Every denied authority has at least one negative fixture.",
+        "Denied authority produces a stable diagnostic code and profile report entry."
+      ]
+    },
+    {
+      "id": "HA03",
+      "status": "planned",
+      "scope": "runtime",
+      "claim": "Alpha runs are deterministic for fixed inputs, source, toolchain, and output directory.",
+      "current_evidence": [
+        "docs/ALPHA_CHARTER_0_1.md",
+        "docs/ALPHA_THREAT_MODEL_0_1.md"
+      ],
+      "future_evidence": [
+        "docs/REPRODUCIBILITY_REPORT_0_1.md",
+        "tests/deterministic_run"
+      ],
+      "acceptance": [
+        "The same fixture produces byte-identical evidence across three runs.",
+        "Any allowed nondeterminism is named in the evidence bundle."
+      ]
+    },
+    {
+      "id": "HA04",
+      "status": "planned",
+      "scope": "semantic-graph",
+      "claim": "Alpha evidence includes semantic graph output for every accepted Hum source file.",
+      "current_evidence": [
+        "docs/SEMANTIC_GRAPH_SCHEMA.md",
+        "docs/OFFLINE_TOOL_ALPHA_0_1.md"
+      ],
+      "future_evidence": [
+        "docs/SEMANTIC_GRAPH_SCHEMA_0_1.md",
+        "tests/alpha_graph_golden"
+      ],
+      "acceptance": [
+        "Every accepted fixture has a golden graph artifact.",
+        "Graph output records profile, source spans, declared effects, and evidence obligations."
+      ]
+    },
+    {
+      "id": "HA05",
+      "status": "planned",
+      "scope": "diagnostics",
+      "claim": "Alpha diagnostics are stable and machine-readable.",
+      "current_evidence": [
+        "docs/DIAGNOSTICS.md",
+        "docs/OFFLINE_TOOL_ALPHA_0_1.md"
+      ],
+      "future_evidence": [
+        "docs/DIAGNOSTICS_SCHEMA_0_1.md",
+        "tests/alpha_diagnostics_json"
+      ],
+      "acceptance": [
+        "Every alpha denial has a stable diagnostic code.",
+        "Diagnostics JSON includes code, title, severity, message, span, and help."
+      ]
+    },
+    {
+      "id": "HA06",
+      "status": "planned",
+      "scope": "effects",
+      "claim": "Alpha evidence includes declared versus observed effects and profile status.",
+      "current_evidence": [
+        "docs/ALPHA_THREAT_MODEL_0_1.md",
+        "docs/OFFLINE_TOOL_ALPHA_0_1.md"
+      ],
+      "future_evidence": [
+        "docs/EFFECT_REPORT_SCHEMA_0_1.md",
+        "docs/PROFILE_REPORT_SCHEMA_0_1.md",
+        "tests/effect_report_golden"
+      ],
+      "acceptance": [
+        "Effect reports show declared reads and writes next to observed reads and writes.",
+        "Profile reports show allowed, denied, and unresolved authority facts."
+      ]
+    },
+    {
+      "id": "HA07",
+      "status": "planned",
+      "scope": "evidence-bundle",
+      "claim": "Alpha evidence includes hashes, SBOM/provenance comparison, and run trace artifacts for HumGate.",
+      "current_evidence": [
+        "docs/OFFLINE_TOOL_ALPHA_0_1.md",
+        "docs/ALPHA_CLAIMS_MATRIX_0_1.md"
+      ],
+      "future_evidence": [
+        "docs/EVIDENCE_BUNDLE_LAYOUT_0_1.md",
+        "examples/humgate/golden/evidence"
+      ],
+      "acceptance": [
+        "HumGate emits a complete evidence directory.",
+        "The evidence directory can be checked against golden outputs."
+      ]
+    },
+    {
+      "id": "HA08",
+      "status": "planned",
+      "scope": "demo",
+      "claim": "HumGate is the first killer demo and has fixed fixtures plus golden evidence outputs.",
+      "current_evidence": [
+        "docs/OFFLINE_TOOL_ALPHA_0_1.md"
+      ],
+      "future_evidence": [
+        "examples/humgate",
+        "docs/HUMGATE_DEMO_0_1.md"
+      ],
+      "acceptance": [
+        "HumGate has accepted and rejected release-bundle fixtures.",
+        "HumGate expected evidence is checked in as golden output."
+      ]
+    },
+    {
+      "id": "HA09",
+      "status": "chartered",
+      "scope": "public-copy",
+      "claim": "Public alpha copy must avoid Rust/C++ performance superiority and production-service claims.",
+      "current_evidence": [
+        "docs/ALPHA_CHARTER_0_1.md",
+        "docs/ADOPTION_STRATEGY_2026.md"
+      ],
+      "future_evidence": [
+        "docs/release/alpha-0.1-announcement.md"
+      ],
+      "acceptance": [
+        "Release copy names non-promises.",
+        "Release copy separates proven claims from roadmap claims."
+      ]
+    },
+    {
+      "id": "HA10",
+      "status": "chartered",
+      "scope": "governance",
+      "claim": "A public claim is not allowed unless it appears in this matrix with evidence and acceptance criteria.",
+      "current_evidence": [
+        "docs/ALPHA_CLAIMS_MATRIX_0_1.md",
+        "docs/alpha/claims-matrix.v0.1.json",
+        "tools/check_alpha_claims.ps1"
+      ],
+      "future_evidence": [
+        "tools/check_release_readiness.ps1"
+      ],
+      "acceptance": [
+        "The claims matrix check passes.",
+        "Release readiness runs the claims matrix check."
+      ]
+    }
+  ]
+}

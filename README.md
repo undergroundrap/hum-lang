@@ -89,6 +89,9 @@ Current artifacts:
 - [docs/RESEARCH_MAP_2026.md](docs/RESEARCH_MAP_2026.md): papers and systems that gate Hum language, compiler, stdlib, profile, and verification design
 - [docs/ADOPTION_STRATEGY_2026.md](docs/ADOPTION_STRATEGY_2026.md): evidence-native adoption thesis, early wedges, alpha gate, and demo strategy
 - [docs/OFFLINE_TOOL_ALPHA_0_1.md](docs/OFFLINE_TOOL_ALPHA_0_1.md): `offline-tool@0.1` alpha profile, HumGate demo, and alpha cut line
+- [docs/ALPHA_CHARTER_0_1.md](docs/ALPHA_CHARTER_0_1.md): `0.1-alpha` promise, non-promises, public artifact gate, and claim rule
+- [docs/ALPHA_THREAT_MODEL_0_1.md](docs/ALPHA_THREAT_MODEL_0_1.md): `offline-tool@0.1` protected assets, boundaries, attacker model, and denied authority
+- [docs/ALPHA_CLAIMS_MATRIX_0_1.md](docs/ALPHA_CLAIMS_MATRIX_0_1.md): human-readable alpha claims matrix backed by JSON validation
 - [docs/research/README.md](docs/research/README.md): repeatable research workflow, prompts, and normalized snapshots
 - [docs/COMPUTING_LESSONS_SWEEP_2026.md](docs/COMPUTING_LESSONS_SWEEP_2026.md): 2026 sweep across hardware, Docker/OCI, Kubernetes, WASI, MCP, observability, networking, storage, and deployment lessons
 - [docs/OPTIMIZATION_AND_DSA_STRATEGY.md](docs/OPTIMIZATION_AND_DSA_STRATEGY.md): research-gated optimization and data-structure strategy

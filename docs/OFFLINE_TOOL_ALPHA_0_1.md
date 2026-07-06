@@ -11,6 +11,13 @@ Primary research snapshot:
 
 - [research/2026-07-06-offline-tool-alpha.md](research/2026-07-06-offline-tool-alpha.md)
 
+Alpha gate artifacts:
+
+- [ALPHA_CHARTER_0_1.md](ALPHA_CHARTER_0_1.md)
+- [ALPHA_THREAT_MODEL_0_1.md](ALPHA_THREAT_MODEL_0_1.md)
+- [ALPHA_CLAIMS_MATRIX_0_1.md](ALPHA_CLAIMS_MATRIX_0_1.md)
+- [alpha/claims-matrix.v0.1.json](alpha/claims-matrix.v0.1.json)
+
 ## Competition Stance
 
 Hum should eventually compete with Rust, C++, Go, and other serious systems

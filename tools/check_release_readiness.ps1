@@ -52,6 +52,11 @@ foreach ($required in @('Visual Studio', 'Eclipse', 'Jupyter', 'VS Code', 'Curso
   }
 }
 
+& (Join-Path $PSScriptRoot 'check_alpha_claims.ps1')
+if (-not $?) {
+  Add-Failure 'alpha claims check failed'
+}
+
 if ($Failures.Count -gt 0) {
   Write-Host 'Release readiness check failed:'
   foreach ($failure in $Failures) {
