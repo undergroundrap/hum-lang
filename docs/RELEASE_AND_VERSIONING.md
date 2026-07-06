@@ -21,6 +21,27 @@ The version must match in:
 
 Do not add a third version source unless a release tool owns synchronization across all version files.
 
+## Distribution Stance
+
+Hum's bootstrap compiler is a Rust package because Rust is the current
+implementation language. That is normal and useful for early development.
+
+Cargo can help Rust developers build and install the bootstrap CLI, but it
+should not define Hum's identity or adoption plan. Hum itself is a language and
+toolchain, not merely a Cargo crate.
+
+Long-term distribution should include:
+
+- prebuilt signed or checksummed binaries
+- Windows, macOS, and Linux installer/package paths
+- editor adapters that invoke first-party Hum tools
+- private-release smoke tests from a clean clone
+- a public package only after naming, license, security posture, and release
+  evidence are ready
+
+Do not publish to a public package registry until the release checklist says the
+repo is ready for that channel.
+
 ## SemVer Policy
 
 Hum follows Semantic Versioning 2.0.0 once public APIs exist.

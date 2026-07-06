@@ -26,6 +26,22 @@ cargo run -- check examples
 
 If `cargo` is not found, fix the shell or editor environment so Cargo is on `PATH`. Do not copy a machine-specific Cargo path into docs, examples, scripts, or committed editor settings.
 
+## Distribution Stance
+
+Cargo is normal for the Rust bootstrap compiler. It gives early contributors a
+boring way to build, test, and eventually install the CLI.
+
+Cargo is not the whole adoption strategy. Hum should eventually offer:
+
+- prebuilt toolchains for Windows, macOS, and Linux
+- OS package manager paths such as winget, Homebrew, Scoop, and Linux packages
+- first-party `hum`, `humfmt`, `hum lsp`, `hum graph`, and `nectar` binaries
+- editor adapters that call the same first-party tools
+- setup docs that do not require Rust knowledge for beginners
+
+Do not publish a public Cargo package until naming, license, README, security
+posture, release checks, and the first tag are intentional.
+
 ## Full Local Verification
 
 Run this before opening a pull request, publishing a snapshot, or making a release-style commit:

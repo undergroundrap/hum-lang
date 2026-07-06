@@ -125,6 +125,10 @@ Current artifacts:
 
 The first compiler front-end is written in Rust with `#![forbid(unsafe_code)]` and no third-party crates.
 
+Cargo is the bootstrap build and install path for now. Hum itself should not be
+positioned as "just a Cargo crate"; long-term distribution needs prebuilt
+toolchains, OS package managers, editor adapters, and first-party Hum tools.
+
 For editor and environment setup, see [docs/SETUP.md](docs/SETUP.md).
 
 With Rust installed and Cargo on `PATH`, commands can be run as:
