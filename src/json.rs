@@ -1,7 +1,8 @@
 use crate::ast::{Item, Program, Section, Task};
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::{
-    TestCoverage, collect_test_coverages, linked_test_count, normalize_coverage, test_obligations,
+    TestCoverage, collect_test_coverages, is_meaningful_line_text, linked_test_count,
+    normalize_coverage, test_obligations,
 };
 
 pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
@@ -168,17 +169,50 @@ fn write_sections_field(out: &mut String, sections: &[Section], indent: usize) {
         if index > 0 {
             out.push_str(", ");
         }
+        out.push_str(&format!("{{\"name\": {}, \"span\": ", quote(&section.name)));
+        write_span(out, &section.span);
         out.push_str(&format!(
-            "{{\"name\": {}, \"lines\": {}}}",
-            quote(&section.name),
-            section
-                .lines
-                .iter()
-                .filter(|line| !line.text.is_empty())
-                .count()
+            ", \"lines\": {}, \"line_items\": [",
+            section_line_count(section)
         ));
+        write_section_line_items(out, section);
+        out.push_str("]}");
     }
     out.push(']');
+}
+
+fn section_line_count(section: &Section) -> usize {
+    section
+        .lines
+        .iter()
+        .filter(|line| !line.text.is_empty())
+        .count()
+}
+
+fn write_section_line_items(out: &mut String, section: &Section) {
+    for (index, line) in section
+        .lines
+        .iter()
+        .filter(|line| !line.text.is_empty())
+        .enumerate()
+    {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push('{');
+        out.push_str(&format!("\"text\": {}, ", quote(&line.text)));
+        out.push_str("\"span\": ");
+        write_span(out, &line.span);
+        out.push_str(&format!(
+            ", \"meaningful\": {}",
+            if is_meaningful_line_text(&line.text) {
+                "true"
+            } else {
+                "false"
+            }
+        ));
+        out.push('}');
+    }
 }
 
 fn write_test_obligations_field(
@@ -438,5 +472,29 @@ test add task saves nonempty title property {
         assert!(json.contains("\"linked_tests\": [{\"name\": \"add task saves nonempty title\""));
         assert!(json.contains("\"modifiers\": [\"property\"]"));
         assert!(json.contains("\"covers\": \"add task ensures new task is saved\""));
+    }
+
+    #[test]
+    fn section_json_includes_line_items_with_spans() {
+        let source = r#"task add task(title: Text) -> Task {
+  why:
+    save a task
+    // explain later
+
+  does:
+    return task
+}
+"#;
+        let parsed = parse_source("demo.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = program_to_json(&program, &[]);
+
+        assert!(json.contains("\"name\": \"why\", \"span\": {\"file\": \"demo.hum\", \"line\": 2"));
+        assert!(json.contains("\"line_items\": [{\"text\": \"save a task\", \"span\": {\"file\": \"demo.hum\", \"line\": 3"));
+        assert!(json.contains("\"meaningful\": true"));
+        assert!(json.contains("\"text\": \"// explain later\""));
+        assert!(json.contains("\"meaningful\": false"));
     }
 }

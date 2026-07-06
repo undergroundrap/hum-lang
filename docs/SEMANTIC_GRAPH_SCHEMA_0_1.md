@@ -64,6 +64,7 @@ Each executable alpha task should expose:
 - source span
 - params and result
 - declared sections
+- section line facts with text, span, and meaningful/comment status
 - declared capabilities from `uses:` and `changes:`
 - inferred capability needs where the checker can see them
 - declared tests

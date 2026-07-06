@@ -91,10 +91,15 @@ pub fn test_obligations(task: &Task) -> Vec<TestObligation<'_>> {
 }
 
 pub fn meaningful_lines(section: &Section) -> impl Iterator<Item = &SectionLine> {
-    section.lines.iter().filter(|line| {
-        let text = line.text.trim();
-        !text.is_empty() && !text.starts_with('#') && !text.starts_with("//")
-    })
+    section
+        .lines
+        .iter()
+        .filter(|line| is_meaningful_line_text(&line.text))
+}
+
+pub fn is_meaningful_line_text(text: &str) -> bool {
+    let text = text.trim();
+    !text.is_empty() && !text.starts_with('#') && !text.starts_with("//")
 }
 
 pub fn normalize_coverage(text: &str) -> String {

@@ -137,10 +137,19 @@ Known modifiers in Milestone 0:
 Each section contains:
 
 - `name`
+- `span`
 - `lines`: count of non-empty captured lines
+- `line_items`: non-empty captured section lines
 
-Milestone 0 intentionally keeps this compact. Future versions should expose
-section line spans and normalized contracts separately.
+Each `line_items` entry contains:
+
+- `text`
+- `span`
+- `meaningful`: `false` for comment-only lines that start with `#` or `//`; `true` for lines that feed graph facts such as obligations and coverage
+
+Milestone 0 keeps normalized contract facts, such as `test_obligations`, separate
+from raw section lines so tools can choose either source-faithful or normalized
+views.
 
 ## Diagnostics
 

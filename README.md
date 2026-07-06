@@ -156,7 +156,7 @@ cargo run -- test-skeletons examples
 Current CLI:
 
 - `hum check <file-or-dir>...`: parse Hum and run Milestone 0 intent checks
-- `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including task test obligations and exact `covers:` links
+- `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including section line facts, task test obligations, and exact `covers:` links
 - `hum test-skeletons <file-or-dir>...`: print Hum `test` blocks for unlinked test obligations without executing code or writing files
 - add `--timings` to print read/parse/check timing data
 
