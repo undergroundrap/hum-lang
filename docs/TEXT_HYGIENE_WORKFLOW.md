@@ -69,6 +69,17 @@ When the hygiene check fails:
 
 Repo-local agent instructions in `AGENTS.md` make this workflow part of future Codex turns. A separate global Codex skill can come later if this pattern proves useful across multiple repos; the repo-level guardrail is the first source of truth for Hum.
 
+## Editor Portability
+
+Hum should open cleanly in VS Code, Cursor, PyCharm, IntelliJ, Neovim, Helix, Zed, or a plain terminal without committing editor-local state.
+
+The repo uses:
+
+- `.editorconfig` for editor-neutral charset, line ending, indentation, and final-newline defaults
+- `.gitattributes` for repository-level line-ending normalization
+- `.gitignore` for local editor workspace directories and user-state files
+
+Do not commit editor workspace folders, per-user launch tasks, absolute interpreter paths, local tool paths, or generated IDE project metadata. Keep those local, or document the portable equivalent in [SETUP.md](SETUP.md).
 ## Public Snapshot Check
 
 Before an initial commit meant to become the public baseline, or before publishing the repository, run:

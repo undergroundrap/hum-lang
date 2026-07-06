@@ -17,6 +17,9 @@ This repo is the Hum language design seed and Milestone 0 Rust bootstrap.
 - Do not use long interactive PowerShell here-strings for docs; terminal line wrapping and pasted control characters can corrupt files.
 - Do not use `Set-Content -Encoding UTF8` in Windows PowerShell 5.1 for repo text files because it writes a UTF-8 BOM.
 - Default to ASCII unless a file already requires non-ASCII.
+- Keep setup docs editor-agnostic. Prefer `.editorconfig`, `.gitattributes`, Cargo commands on `PATH`, and repo-relative paths.
+- Do not commit local editor state such as `.vscode/`, `.cursor/`, `.idea/`, `.vs/`, `.fleet/`, `*.code-workspace`, or `*.iml`.
+- Use forward slashes for repo-relative paths in public docs unless documenting a platform-specific boundary.
 
 ## Text Hygiene
 

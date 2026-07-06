@@ -3,14 +3,23 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ExcludedDirectories = @('.git', 'target')
 $TextExtensions = @(
+  '.code-workspace',
   '.hum',
+  '.iml',
+  '.ini',
+  '.json',
+  '.jsonc',
   '.md',
   '.ps1',
   '.rs',
   '.toml',
-  '.txt'
+  '.txt',
+  '.xml',
+  '.yaml',
+  '.yml'
 )
 $TextFileNames = @(
+  '.editorconfig',
   '.gitattributes',
   '.gitignore',
   'Cargo.lock',
@@ -88,28 +97,90 @@ function Get-LineNumber {
   return $line
 }
 
-$UserProfileEnvName = '$env:USER' + 'PROFILE'
+function Join-LiteralPattern {
+  param([string[]] $Values)
+
+  return (($Values | ForEach-Object { [regex]::Escape($_) }) -join '|')
+}
+
+$Slash = [string] [char] 47
+$Backslash = [string] [char] 92
+$Dot = [string] [char] 46
+$SingleQuote = [string] [char] 39
+
+$ShellWinCargoHome = '$env:USER' + 'PROFILE'
+$WinProfileEnv = '%' + 'USER' + 'PROFILE' + '%'
+$ShellHomeEnv = '$' + 'HOME'
+$WinRoamEnv = '%' + 'APP' + 'DATA' + '%'
+$WinLocalRoamEnv = '%' + 'LOCAL' + 'APP' + 'DATA' + '%'
 $PrivateProjectRoot = 'Anti' + 'gravity' + 'Projects'
 $PendingRepoPlaceholder = 'repository URL ' + 'pending'
 $LocalMachinePhrase = 'On this ' + 'machine'
 $LocalMachinePhraseLower = 'on this ' + 'machine'
-$NamedMachinePhrase = 'Ocean' + [char]39 + 's ' + 'machine'
-$NamedMainMachinePhrase = 'Ocean' + [char]39 + 's main ' + 'machine'
+$NamedMachinePhrase = 'Ocean' + $SingleQuote + 's ' + 'machine'
+$NamedMainMachinePhrase = 'Ocean' + $SingleQuote + 's main ' + 'machine'
 $NoReplyNumericId = '204' + '957' + '658'
 $NoReplyHandle = 'under' + 'ground' + 'rap'
-$NoReplyDomain = 'users' + [char]46 + 'noreply' + [char]46 + 'github' + [char]46 + 'com'
+$NoReplyDomain = 'users' + $Dot + 'noreply' + $Dot + 'github' + $Dot + 'com'
+$SyncMarkerA = 'One' + 'Drive'
+$SyncMarkerB = 'Drop' + 'box'
+$SyncMarkerC = 'iCloud' + 'Drive'
+$WinInstallMarkerA = 'App' + 'Data'
+$WinInstallMarkerB = 'Program ' + 'Files'
 
-$PublicBlockers = @(
-  @{ Name = 'Windows user home path'; Pattern = '[A-Za-z]:[\\/]Users[\\/][^\\/\s)<>]+' },
-  @{ Name = 'private project root path'; Pattern = $PrivateProjectRoot },
-  @{ Name = 'hardcoded user-profile cargo path'; Pattern = [regex]::Escape($UserProfileEnvName) + '\\\.cargo' },
-  @{ Name = 'pending repository placeholder'; Pattern = $PendingRepoPlaceholder },
-  @{ Name = 'local machine phrasing'; Pattern = (($LocalMachinePhrase, $LocalMachinePhraseLower, $NamedMachinePhrase, $NamedMainMachinePhrase | ForEach-Object { [regex]::Escape($_) }) -join '|') },
-  @{ Name = 'GitHub account identity artifact'; Pattern = (($NoReplyNumericId, $NoReplyHandle, $NoReplyDomain | ForEach-Object { [regex]::Escape($_) }) -join '|') }
+$VsCodeDir = $Dot + 'vscode'
+$CursorDir = $Dot + 'cursor'
+$JetBrainsDir = $Dot + 'idea'
+$VisualStudioDir = $Dot + 'vs'
+$FleetDir = $Dot + 'fleet'
+$CodeWorkspaceExt = $Dot + 'code-workspace'
+$JetBrainsModuleExt = $Dot + 'iml'
+$PathSeparatorPattern = '[' + [regex]::Escape($Backslash) + [regex]::Escape($Slash) + ']'
+$PathBoundary = '(^|' + $PathSeparatorPattern + ')'
+$PathEnd = '(' + $PathSeparatorPattern + '|$)'
+
+$PublicPathBlockers = @(
+  @{ Name = 'VS Code or Cursor workspace directory'; Pattern = $PathBoundary + '(' + (Join-LiteralPattern @($VsCodeDir, $CursorDir)) + ')' + $PathEnd },
+  @{ Name = 'JetBrains project directory'; Pattern = $PathBoundary + [regex]::Escape($JetBrainsDir) + $PathEnd },
+  @{ Name = 'Visual Studio user-state directory'; Pattern = $PathBoundary + [regex]::Escape($VisualStudioDir) + $PathEnd },
+  @{ Name = 'Fleet project directory'; Pattern = $PathBoundary + [regex]::Escape($FleetDir) + $PathEnd },
+  @{ Name = 'editor workspace or module file'; Pattern = '(' + (Join-LiteralPattern @($CodeWorkspaceExt, $JetBrainsModuleExt)) + ')$' }
+)
+
+$PathPrefix = '(^|[\s"' + $SingleQuote + '(=])'
+$NotPathSeparatorOrSpace = '[^' + [regex]::Escape($Backslash) + [regex]::Escape($Slash) + '\s]+'
+$WindowsDrivePathPattern = $PathPrefix + '[A-Za-z]:' + $PathSeparatorPattern
+$UncPathPattern = [regex]::Escape($Backslash + $Backslash) + $NotPathSeparatorOrSpace + $PathSeparatorPattern
+$UnixHomePathPattern = $PathPrefix + [regex]::Escape($Slash) + '(Users|home)' + [regex]::Escape($Slash) + '[^' + [regex]::Escape($Slash) + '\s)<>]+'
+$WslWindowsHomePattern = [regex]::Escape($Slash + 'mnt' + $Slash) + '[A-Za-z]' + [regex]::Escape($Slash + 'Users' + $Slash) + '[^' + [regex]::Escape($Slash) + '\s)<>]+'
+$TildeHomePattern = $PathPrefix + '~' + $PathSeparatorPattern
+
+$PublicContentBlockers = @(
+  @{ Name = 'Windows drive-root absolute path'; Pattern = $WindowsDrivePathPattern },
+  @{ Name = 'Windows network-share absolute path'; Pattern = $UncPathPattern },
+  @{ Name = 'macOS or Linux home absolute path'; Pattern = $UnixHomePathPattern },
+  @{ Name = 'WSL Windows home absolute path'; Pattern = $WslWindowsHomePattern },
+  @{ Name = 'tilde home path'; Pattern = $TildeHomePattern },
+  @{ Name = 'hardcoded user-profile Cargo path'; Pattern = [regex]::Escape($ShellWinCargoHome) + '\\\.cargo' },
+  @{ Name = 'user-profile environment path'; Pattern = Join-LiteralPattern @($WinProfileEnv, $ShellHomeEnv) },
+  @{ Name = 'application data environment path'; Pattern = Join-LiteralPattern @($WinRoamEnv, $WinLocalRoamEnv) },
+  @{ Name = 'private project root path'; Pattern = [regex]::Escape($PrivateProjectRoot) },
+  @{ Name = 'pending repository placeholder'; Pattern = [regex]::Escape($PendingRepoPlaceholder) },
+  @{ Name = 'local machine phrasing'; Pattern = Join-LiteralPattern @($LocalMachinePhrase, $LocalMachinePhraseLower, $NamedMachinePhrase, $NamedMainMachinePhrase) },
+  @{ Name = 'GitHub account identity artifact'; Pattern = Join-LiteralPattern @($NoReplyNumericId, $NoReplyHandle, $NoReplyDomain) },
+  @{ Name = 'personal sync-folder path marker'; Pattern = Join-LiteralPattern @($SyncMarkerA, $SyncMarkerB, $SyncMarkerC) },
+  @{ Name = 'Windows per-user install path marker'; Pattern = Join-LiteralPattern @($WinInstallMarkerA, $WinInstallMarkerB) }
 )
 $files = Get-ChildItem -LiteralPath $RepoRoot -Recurse -File -Force | Where-Object { Test-TextFile $_ }
 
 foreach ($file in $files) {
+  $relativePath = Get-RepoRelativePath $file.FullName
+  foreach ($blocker in $PublicPathBlockers) {
+    if ([regex]::IsMatch($relativePath, $blocker.Pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
+      Add-Failure $file.FullName ("public-readiness path blocker: {0}" -f $blocker.Name)
+    }
+  }
+
   try {
     $text = $Utf8Strict.GetString([System.IO.File]::ReadAllBytes($file.FullName))
   } catch {
@@ -117,11 +188,11 @@ foreach ($file in $files) {
     continue
   }
 
-  foreach ($blocker in $PublicBlockers) {
-    $match = [regex]::Match($text, $blocker.Pattern)
+  foreach ($blocker in $PublicContentBlockers) {
+    $match = [regex]::Match($text, $blocker.Pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     if ($match.Success) {
       $line = Get-LineNumber $text $match.Index
-      Add-Failure $file.FullName ("public-readiness blocker on line {0}: {1}" -f $line, $blocker.Name)
+      Add-Failure $file.FullName ("public-readiness content blocker on line {0}: {1}" -f $line, $blocker.Name)
     }
   }
 }

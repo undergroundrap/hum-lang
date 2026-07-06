@@ -3,14 +3,23 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ExcludedDirectories = @('.git', 'target')
 $TextExtensions = @(
+  '.code-workspace',
   '.hum',
+  '.iml',
+  '.ini',
+  '.json',
+  '.jsonc',
   '.md',
   '.ps1',
   '.rs',
   '.toml',
-  '.txt'
+  '.txt',
+  '.xml',
+  '.yaml',
+  '.yml'
 )
 $TextFileNames = @(
+  '.editorconfig',
   '.gitattributes',
   '.gitignore',
   'Cargo.lock',

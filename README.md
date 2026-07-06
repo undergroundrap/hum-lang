@@ -63,6 +63,7 @@ Current artifacts:
 
 - [SPEC.md](SPEC.md): core language direction
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): unifying architecture ground truth across language, graph, tools, profiles, stdlib, backend, and platform design
+- [docs/SETUP.md](docs/SETUP.md): portable setup for beginners, experts, terminals, and editors
 - [docs/LANGUAGE_CONSTITUTION.md](docs/LANGUAGE_CONSTITUTION.md): rules Hum must not violate
 - [docs/BDFR_SCOPE_AND_SAFETY_DIRECTIVE.md](docs/BDFR_SCOPE_AND_SAFETY_DIRECTIVE.md): BDFR safety, scope, offline-first, interop, and portability directive
 - [docs/SAFETY_OF_MAKER_AND_USER.md](docs/SAFETY_OF_MAKER_AND_USER.md): two-sided safety philosophy for makers, users, maintainers, and agents
@@ -119,6 +120,8 @@ Current artifacts:
 ## Bootstrap Compiler
 
 The first compiler front-end is written in Rust with `#![forbid(unsafe_code)]` and no third-party crates.
+
+For editor and environment setup, see [docs/SETUP.md](docs/SETUP.md).
 
 With Rust installed and Cargo on `PATH`, commands can be run as:
 

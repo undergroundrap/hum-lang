@@ -7,7 +7,19 @@
 
 # Editor and OS noise
 .vscode/
+.cursor/
 .idea/
+.vs/
+.fleet/
+*.code-workspace
+*.iml
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.swp
+*.swo
+*.tmp
 .DS_Store
 Thumbs.db
 
