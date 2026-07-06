@@ -1,0 +1,103 @@
+module examples.control_flow
+
+task find active session(user: UserId, sessions: Sessions) -> Result Session, SessionError {
+  why:
+    find the first non-expired session for a user
+
+  uses:
+    sessions
+    clock.now
+
+  needs:
+    sessions belongs to trusted store
+
+  ensures:
+    returned session belongs to user
+    returned session is not expired
+
+  fails when:
+    no active session exists
+
+  watch for:
+    sessions may be empty
+    expired sessions must not authenticate
+
+  cost:
+    time: O(sessions)
+    space: O(1)
+    allocates: nothing
+    check: compile
+
+  avoids:
+    nested scan over users and sessions
+    allocation inside loop
+
+  tradeoffs:
+    linear scan is acceptable for small local session lists
+
+  does:
+    for each session in sessions {
+      if session.user == user and session.expires_at > clock.now {
+        return session
+      }
+    }
+
+    fail SessionError.not_found
+}
+
+task make unique token(random: SecureRandom, sessions: Sessions) -> Result SessionToken, TokenError {
+  why:
+    create a token that is not already present in the session store
+
+  uses:
+    random
+    sessions
+
+  needs:
+    random is cryptographically secure
+
+  ensures:
+    token is not already in sessions
+
+  protects:
+    attacker cannot predict token
+
+  fails when:
+    unique token is not found within bounded attempts
+
+  watch for:
+    random source may repeat values
+    loop must remain bounded
+
+  cost:
+    time: O(1)
+    space: O(1)
+    allocates: up to 16 token candidates
+    check: compile
+
+  avoids:
+    unbounded retry loop
+    predictable token generation
+
+  does:
+    change attempts: UInt = 0
+
+    while attempts < 16 {
+      keeps:
+        attempts <= 16
+
+      changes:
+        attempts
+
+      does:
+        let token = random token()
+
+        if sessions does not contain token {
+          return token
+        }
+
+        set attempts = attempts + 1
+    }
+
+    fail TokenError.too_many_collisions
+}

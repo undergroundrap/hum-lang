@@ -1,0 +1,84 @@
+module examples.task_list
+
+type Task {
+  title: Text
+  done: Bool
+}
+
+store tasks: list Task {
+  why:
+    remember the user's tasks
+}
+
+task add task(title: Text) -> Result Task, TaskError {
+  why:
+    let the user remember something to do
+
+  changes:
+    tasks
+
+  needs:
+    title is not empty
+
+  ensures:
+    new task is saved
+    new task is not done
+
+  fails when:
+    title is empty
+
+  watch for:
+    title may be only spaces
+
+  cost:
+    time: O(1)
+    space: O(1)
+    allocates: one task
+    check: warn
+
+  avoids:
+    saving empty titles
+
+  does:
+    if title is empty {
+      fail TaskError.empty_title
+    }
+
+    let task = Task {
+      title: title
+      done: false
+    }
+
+    save task in tasks
+    return task
+}
+
+task show tasks() {
+  why:
+    let the user see what they need to do
+
+  uses:
+    tasks
+    screen
+
+  needs:
+    task store can be read
+
+  cost:
+    time: O(tasks)
+    space: O(1)
+    allocates: nothing
+    check: warn
+
+  tradeoffs:
+    linear display is expected because every visible task must be shown
+
+  does:
+    for each task in tasks {
+      if task.done {
+        show task.title as completed
+      } else {
+        show task.title as active
+      }
+    }
+}

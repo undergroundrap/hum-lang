@@ -1,0 +1,80 @@
+module examples.task_list_tests
+
+test add task rejects empty title {
+  why:
+    empty tasks should never be saved
+
+  uses:
+    fake tasks
+
+  covers:
+    add task fails when title is empty
+    TaskError.empty_title
+
+  does:
+    expect add task("") fails with TaskError.empty_title
+}
+
+test add task saves nonempty title(title: Text) property {
+  why:
+    any meaningful title should become a saved active task
+
+  uses:
+    fake tasks
+
+  needs:
+    title is not empty
+    title is not only spaces
+
+  covers:
+    add task ensures new task is saved
+    add task ensures new task is not done
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    let result = add task(title)
+    expect result is ok
+    expect tasks contains task with title
+    expect saved task is not done
+}
+
+test fuzz task titles(title bytes: Bytes) fuzz {
+  why:
+    user text may contain unusual bytes or whitespace
+
+  uses:
+    fake tasks
+
+  covers:
+    add task watch for title may be only spaces
+
+  avoids:
+    panic on invalid text input
+
+  does:
+    let title = decode text title bytes or ""
+    call add task(title)
+    expect no panic
+}
+
+test empty title with spaces is rejected regression {
+  why:
+    prevent blank-looking tasks from being saved again
+
+  uses:
+    fake tasks
+
+  regression:
+    found when title "   " was accepted as nonempty
+
+  covers:
+    add task watch for title may be only spaces
+    TaskError.empty_title
+
+  does:
+    expect add task("   ") fails with TaskError.empty_title
+}

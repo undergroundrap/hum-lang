@@ -1,0 +1,281 @@
+use crate::ast::{Item, Program, Section};
+use crate::diagnostic::{Diagnostic, Severity, Span};
+
+pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
+    let mut out = String::new();
+    let errors = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+        .count();
+    let warnings = diagnostics.len().saturating_sub(errors);
+
+    out.push_str("{\n");
+    out.push_str("  \"schema\": \"hum.semantic_graph.v0\",\n");
+    out.push_str("  \"summary\": {");
+    out.push_str(&format!(
+        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"errors\": {}, \"warnings\": {}",
+        program.files.len(),
+        count_items(program),
+        count_kind(program, "task"),
+        count_kind(program, "test"),
+        errors,
+        warnings
+    ));
+    out.push_str("},\n");
+
+    out.push_str("  \"files\": [\n");
+    for (file_index, file) in program.files.iter().enumerate() {
+        comma_line(&mut out, file_index, 4);
+        out.push_str("    {\n");
+        out.push_str(&format!("      \"path\": {},\n", quote(&file.path)));
+        out.push_str(&format!(
+            "      \"module\": {},\n",
+            file.module
+                .as_ref()
+                .map_or("null".to_string(), |module| quote(module))
+        ));
+        out.push_str("      \"items\": [\n");
+        write_items(&mut out, &file.items, 0, 8);
+        out.push_str("\n      ]\n");
+        out.push_str("    }");
+    }
+    out.push_str("\n  ],\n");
+
+    out.push_str("  \"diagnostics\": [\n");
+    for (index, diagnostic) in diagnostics.iter().enumerate() {
+        comma_line(&mut out, index, 4);
+        write_diagnostic(&mut out, diagnostic, 4);
+    }
+    out.push_str("\n  ]\n");
+    out.push_str("}\n");
+    out
+}
+
+fn write_items(out: &mut String, items: &[Item], start_index: usize, indent: usize) {
+    for (offset, item) in items.iter().enumerate() {
+        comma_line(out, start_index + offset, indent);
+        write_item(out, item, indent);
+    }
+}
+
+fn write_item(out: &mut String, item: &Item, indent: usize) {
+    let pad = " ".repeat(indent);
+    out.push_str(&format!("{pad}{{\n"));
+    out.push_str(&format!("{pad}  \"kind\": {},\n", quote(item.kind())));
+    out.push_str(&format!("{pad}  \"name\": {},\n", quote(item.name())));
+    out.push_str(&format!("{pad}  \"span\": "));
+    write_span(out, item.span());
+
+    match item {
+        Item::App(app) => {
+            out.push_str(",\n");
+            write_sections_field(out, &app.sections, indent + 2);
+            out.push_str(",\n");
+            out.push_str(&format!("{pad}  \"items\": [\n"));
+            write_items(out, &app.items, 0, indent + 4);
+            out.push_str(&format!("\n{pad}  ]\n"));
+        }
+        Item::Type(type_def) => {
+            out.push_str(",\n");
+            out.push_str(&format!("{pad}  \"fields\": ["));
+            for (index, field) in type_def.fields.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&format!(
+                    "{{\"name\": {}, \"type\": {}, \"span\": ",
+                    quote(&field.name),
+                    quote(&field.ty)
+                ));
+                write_span(out, &field.span);
+                out.push('}');
+            }
+            out.push_str("],\n");
+            write_sections_field(out, &type_def.sections, indent + 2);
+            out.push('\n');
+        }
+        Item::Store(store) => {
+            out.push_str(",\n");
+            out.push_str(&format!("{pad}  \"type\": {},\n", quote(&store.ty)));
+            write_sections_field(out, &store.sections, indent + 2);
+            out.push('\n');
+        }
+        Item::Task(task) => {
+            out.push_str(",\n");
+            out.push_str(&format!("{pad}  \"params\": ["));
+            write_params(out, &task.params);
+            out.push_str("],\n");
+            out.push_str(&format!(
+                "{pad}  \"result\": {},\n",
+                task.result
+                    .as_ref()
+                    .map_or("null".to_string(), |result| quote(result))
+            ));
+            write_sections_field(out, &task.sections, indent + 2);
+            out.push('\n');
+        }
+        Item::Test(test) => {
+            out.push_str(",\n");
+            out.push_str(&format!("{pad}  \"params\": ["));
+            write_params(out, &test.params);
+            out.push_str("],\n");
+            out.push_str(&format!("{pad}  \"modifiers\": ["));
+            for (index, modifier) in test.modifiers.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&quote(modifier));
+            }
+            out.push_str("],\n");
+            write_sections_field(out, &test.sections, indent + 2);
+            out.push('\n');
+        }
+    }
+    out.push_str(&format!("{pad}}}"));
+}
+
+fn write_params(out: &mut String, params: &[crate::ast::Param]) {
+    for (index, param) in params.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&format!(
+            "{{\"name\": {}, \"type\": {}, \"span\": ",
+            quote(&param.name),
+            quote(&param.ty)
+        ));
+        write_span(out, &param.span);
+        out.push('}');
+    }
+}
+
+fn write_sections_field(out: &mut String, sections: &[Section], indent: usize) {
+    let pad = " ".repeat(indent);
+    out.push_str(&format!("{pad}\"sections\": ["));
+    for (index, section) in sections.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&format!(
+            "{{\"name\": {}, \"lines\": {}}}",
+            quote(&section.name),
+            section
+                .lines
+                .iter()
+                .filter(|line| !line.text.is_empty())
+                .count()
+        ));
+    }
+    out.push(']');
+}
+
+fn write_diagnostic(out: &mut String, diagnostic: &Diagnostic, indent: usize) {
+    let pad = " ".repeat(indent);
+    out.push_str(&format!("{pad}{{"));
+    out.push_str(&format!(
+        "\"code\": {}, \"title\": {}, \"severity\": {}, \"message\": {}",
+        quote(diagnostic.code.as_str()),
+        quote(diagnostic.code.title()),
+        quote(diagnostic.severity.as_str()),
+        quote(&diagnostic.message)
+    ));
+    if let Some(span) = &diagnostic.span {
+        out.push_str(", \"span\": ");
+        write_span(out, span);
+    }
+    if let Some(help) = &diagnostic.help {
+        out.push_str(&format!(", \"help\": {}", quote(help)));
+    }
+    out.push('}');
+}
+
+fn write_span(out: &mut String, span: &Span) {
+    out.push_str(&format!(
+        "{{\"file\": {}, \"line\": {}, \"column\": {}}}",
+        quote(&span.file),
+        span.line,
+        span.column
+    ));
+}
+
+fn comma_line(out: &mut String, index: usize, indent: usize) {
+    if index > 0 {
+        out.push_str(",\n");
+    }
+    out.push_str(&" ".repeat(indent));
+}
+
+fn count_items(program: &Program) -> usize {
+    program
+        .files
+        .iter()
+        .map(|file| count_items_slice(&file.items))
+        .sum()
+}
+
+fn count_items_slice(items: &[Item]) -> usize {
+    items
+        .iter()
+        .map(|item| match item {
+            Item::App(app) => 1 + count_items_slice(&app.items),
+            _ => 1,
+        })
+        .sum()
+}
+
+fn count_kind(program: &Program, kind: &str) -> usize {
+    program
+        .files
+        .iter()
+        .map(|file| count_kind_slice(&file.items, kind))
+        .sum()
+}
+
+fn count_kind_slice(items: &[Item], kind: &str) -> usize {
+    items
+        .iter()
+        .map(|item| {
+            let nested = match item {
+                Item::App(app) => count_kind_slice(&app.items, kind),
+                _ => 0,
+            };
+            usize::from(item.kind() == kind) + nested
+        })
+        .sum()
+}
+
+fn quote(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if ch.is_control() => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+#[cfg(test)]
+mod tests {
+    use super::program_to_json;
+    use crate::ast::Program;
+    use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+
+    #[test]
+    fn diagnostic_json_includes_code_and_title() {
+        let diagnostic = Diagnostic::warning(
+            DiagnosticCode::SECTION_OUT_OF_ORDER,
+            "section is out of order",
+            Some(Span::new("bad.hum", 5, 1)),
+        );
+        let json = program_to_json(&Program::default(), &[diagnostic]);
+
+        assert!(json.contains("\"code\": \"H0108\""));
+        assert!(json.contains("\"title\": \"section out of order\""));
+    }
+}

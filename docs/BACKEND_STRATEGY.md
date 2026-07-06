@@ -1,0 +1,247 @@
+# Hum Backend Strategy
+
+Date: 2026-07-06
+
+## Video Takeaway
+
+The Fireship "LLVM in 100 Seconds" transcript is useful because it names the
+standard compiler pipeline:
+
+```text
+source -> lexer -> parser -> AST -> IR -> optimizer -> backend -> machine code
+```
+
+That framing helps, but it leaves out the part that matters most for Hum:
+
+```text
+source -> Hum semantic graph -> Hum IR -> verifier/effect/ownership passes -> backend IR
+```
+
+Hum cannot lower directly from a Python-like readable surface into LLVM IR and
+call the language designed. If we lower too early, we lose the information that
+makes Hum different.
+
+## Brutal Conclusion
+
+LLVM should be a backend target, not Hum's soul.
+
+LLVM is excellent for mature native code generation, optimization, link-time
+optimization, sanitizers, debug info, and target coverage. It is not where Hum
+should represent `why:`, `watch for:`, `protects:`, store intent, blame
+semantics, ownership, effects, or verification obligations.
+
+Hum needs its own semantic IR first.
+
+## Recommended Pipeline
+
+```text
+.hum source
+  -> tokens
+  -> concrete syntax tree
+  -> AST
+  -> Hum semantic graph
+  -> Hum IR
+  -> checks:
+       types
+       effects
+       ownership
+       allocation policy
+       contracts
+       blame semantics
+       security obligations
+  -> optimization planning
+  -> backend lowering:
+       Cranelift for early native/JIT experiments
+       LLVM for mature optimized AOT builds
+       MLIR for future accelerator/data-layout dialects
+       C or Wasm as portability escape hatches
+```
+
+The first compiler milestone should stop at Hum semantic graph plus JSON
+diagnostics. The second can interpret or lower a tiny core. Native code comes
+after we can prove the frontend understands Hum.
+
+## Backend Options
+
+### LLVM
+
+Use LLVM when we want mature optimized native code.
+
+Strengths:
+
+- broad target support
+- strong optimizer and code generator
+- debug info ecosystem
+- sanitizers and compiler runtime support
+- linkers, tooling, and production history
+
+Risks:
+
+- huge complexity
+- C++ API and build weight
+- undefined-behavior assumptions can fight Hum's safety model
+- lowering too early destroys high-level semantic intent
+- agents are weak at patching compiler-scale LLVM issues without strong harnesses
+
+Hum should target LLVM through a small lowering layer only after Hum IR is
+stable.
+
+### MLIR
+
+Use MLIR when Hum needs multiple abstraction levels, domain-specific lowering,
+accelerator work, data layout transformations, or hardware-aware optimizations.
+
+Strengths:
+
+- dialects can preserve higher-level meaning longer
+- good fit for tensor, vector, GPU, sparse, affine, and hardware paths
+- designed for reusable compiler infrastructure
+- can eventually lower toward LLVM
+
+Risks:
+
+- more compiler-infrastructure complexity up front
+- easy to over-engineer before the language exists
+- not a machine-code backend by itself
+
+Hum should not start with MLIR as the first implementation unless the first goal
+is compiler research instead of a working language seed. But Hum's own IR should
+be MLIR-shaped in spirit: explicit, verifiable, printable, and pass-driven.
+
+### Cranelift
+
+Use Cranelift when we want a smaller Rust-native codegen path.
+
+Strengths:
+
+- written in Rust
+- designed as a library
+- fast compilation
+- simpler than LLVM
+- strong security/correctness culture
+- no undefined behavior in its IR by design
+- suitable for JIT and AOT experiments
+
+Risks:
+
+- less peak optimization than LLVM
+- fewer targets
+- less mature debug/tooling ecosystem
+- not a full compiler infrastructure replacement
+
+Cranelift is the best first native backend candidate for Hum because it lets us
+build the compiler in Rust without swallowing LLVM's complexity on day one.
+
+### C Backend
+
+Use C as a temporary portability and debugging target, not as the flagship.
+
+Strengths:
+
+- easy to inspect generated output
+- portable through existing C compilers
+- useful for bootstrapping
+
+Risks:
+
+- C has undefined behavior traps
+- hard to preserve Hum safety semantics
+- poor fit for precise ownership/effects unless generated very carefully
+
+### Interpreter
+
+Use an interpreter first if it speeds semantic validation.
+
+Strengths:
+
+- simplest execution path
+- easy diagnostics
+- deterministic testing
+- good for contract experiments
+
+Risks:
+
+- no performance story
+- can hide backend problems
+
+An interpreter is useful for milestone 1, but should not become the identity of
+the language.
+
+## Hum IR Requirements
+
+Hum IR must preserve:
+
+- task names and source spans
+- `why:` rationale
+- `uses:` capabilities
+- `changes:` permissions
+- `needs:` preconditions
+- `ensures:` postconditions
+- `keeps:` invariants
+- `protects:` security obligations
+- `trusts:` boundaries
+- `watch for:` hazards
+- `allocates:` policy
+- ownership and aliasing facts
+- effect facts
+- store intent
+- blame targets
+- generated test/proof obligations
+
+This IR should be:
+
+- printable as text
+- serializable as JSON
+- stable enough for agents
+- small enough for humans to read
+- validated by an IR verifier
+- fuzzed independently of the parser
+
+## What LLVM Does Not Solve
+
+LLVM does not design Hum's:
+
+- syntax
+- type system
+- borrow or ownership model
+- effect model
+- security model
+- contract language
+- package model
+- standard library API
+- agent-facing diagnostics
+- semantic graph
+
+It only helps once Hum has already answered those questions well enough to lower
+them.
+
+## Brutal Risk
+
+The fastest way to make a mediocre language is to build a parser, emit LLVM IR,
+and celebrate too early.
+
+That proves we can make code run. It does not prove Hum is readable, safe,
+verifiable, optimizable, or worth existing.
+
+## Near-Term Decision
+
+For Hum v0:
+
+1. Build parser and semantic graph first.
+2. Define Hum IR before choosing final native codegen.
+3. Use Rust for the compiler implementation.
+4. Prefer an interpreter or Cranelift for first executable prototypes.
+5. Keep LLVM as the serious optimized AOT backend target.
+6. Keep MLIR as the future path for data layout, SIMD, GPU, tensor, sparse, and
+   accelerator work.
+7. Keep all backend experiments local-only until the BDFR safety directive allows
+   generated-code execution.
+
+## Sources
+
+- LLVM overview: https://llvm.org/
+- LLVM Kaleidoscope frontend tutorial: https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html
+- MLIR overview: https://mlir.llvm.org/
+- Cranelift overview: https://cranelift.dev/
+- LLVM-Bench, 2026: https://arxiv.org/abs/2607.00700
+- IRFuzzer, 2024/2025: https://arxiv.org/abs/2402.05256

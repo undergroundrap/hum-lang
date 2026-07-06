@@ -1,0 +1,100 @@
+app SessionServer {
+  why:
+    accept trusted users and keep their sessions fast, safe, and memory efficient
+
+  uses:
+    network
+    clock
+    random.secure
+
+  store sessions: map SessionId -> Session {
+    expects:
+      up to 20 million active sessions
+
+    optimizes:
+      lookup speed
+      memory density
+      collision resistance
+
+    protects:
+      session ids cannot be guessed
+      expired sessions cannot be reused
+
+    hides:
+      hash layout
+      bucket metadata
+      resize strategy
+  }
+
+  type Session {
+    user: UserId
+    created_at: Time
+    expires_at: Time
+
+    keeps:
+      expires_at is after created_at
+  }
+
+  task create session(user: User, device: Device) -> SessionToken {
+    why:
+      let a verified user stay signed in without sending their password again
+
+    uses:
+      user.id
+      device.fingerprint
+      clock.now
+      random.secure
+      sessions
+
+    changes:
+      sessions
+
+    needs:
+      user is verified
+      device is allowed
+
+    ensures:
+      token belongs to user
+      token expires in 30 days
+      token does not reveal user secrets
+
+    protects:
+      session id cannot be guessed
+      expired token cannot work
+
+    trusts:
+      random.secure is cryptographically strong
+      clock.now does not move backward by more than 5 minutes
+
+    watch for:
+      attacker may create many sessions quickly
+      hash collisions must not make lookup slow
+      memory use must stay bounded
+      clock skew must not create immortal sessions
+
+    cost:
+      time: O(1)
+      space: O(1)
+      check: warn
+
+    allocates:
+      one session record
+      no unbounded temporary buffers
+
+    optimizes:
+      lookup speed
+      memory density
+      secure randomness over raw speed
+
+    tests:
+      many users creating sessions at once
+      expired token is rejected
+      repeated random collision attempts stay bounded
+
+    does:
+      make secure token
+      create session for user
+      save session by token id in sessions
+      return token
+  }
+}

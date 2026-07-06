@@ -1,0 +1,257 @@
+#![forbid(unsafe_code)]
+
+mod ast;
+mod check;
+mod diagnostic;
+mod json;
+mod parser;
+
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::time::{Duration, Instant};
+
+use ast::Program;
+use diagnostic::{Diagnostic, Severity};
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(code) => code,
+        Err(message) => {
+            eprintln!("error: {message}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn run() -> Result<ExitCode, String> {
+    let args = env::args().skip(1).collect::<Vec<_>>();
+    if args.is_empty() || args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_help();
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let options = parse_cli(args)?;
+    let loaded = load_program(&options.inputs)?;
+    let program = loaded.program;
+    let diagnostics = loaded.diagnostics;
+    let has_errors = diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error);
+
+    match options.command.as_str() {
+        "check" => {
+            print_diagnostics(&diagnostics);
+            println!(
+                "checked {} file(s): {} error(s), {} warning(s)",
+                program.files.len(),
+                diagnostics
+                    .iter()
+                    .filter(|diagnostic| diagnostic.severity == Severity::Error)
+                    .count(),
+                diagnostics
+                    .iter()
+                    .filter(|diagnostic| diagnostic.severity == Severity::Warning)
+                    .count()
+            );
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            Ok(if has_errors {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
+        "graph" => {
+            println!("{}", json::program_to_json(&program, &diagnostics));
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            Ok(if has_errors {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
+        other => Err(format!(
+            "unknown command `{other}`; expected `check` or `graph`"
+        )),
+    }
+}
+
+struct CliOptions {
+    command: String,
+    inputs: Vec<PathBuf>,
+    show_timings: bool,
+}
+
+struct LoadedProgram {
+    program: Program,
+    diagnostics: Vec<Diagnostic>,
+    timings: Vec<FileTiming>,
+    total: Duration,
+}
+
+struct FileTiming {
+    path: String,
+    read: Duration,
+    parse: Duration,
+    check: Duration,
+}
+
+fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
+    let command = args[0].clone();
+    if !matches!(command.as_str(), "check" | "graph") {
+        return Err(format!(
+            "unknown command `{command}`; expected `check` or `graph`"
+        ));
+    }
+
+    let mut show_timings = false;
+    let mut raw_inputs = Vec::new();
+
+    for arg in args.into_iter().skip(1) {
+        match arg.as_str() {
+            "--timings" => show_timings = true,
+            flag if flag.starts_with("--") => return Err(format!("unknown flag `{flag}`")),
+            _ => raw_inputs.push(arg),
+        }
+    }
+
+    Ok(CliOptions {
+        command,
+        inputs: collect_inputs(&raw_inputs)?,
+        show_timings,
+    })
+}
+
+fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
+    let total_start = Instant::now();
+    let mut program = Program::default();
+    let mut diagnostics = Vec::new();
+    let mut timings = Vec::new();
+
+    for path in paths {
+        let read_start = Instant::now();
+        let source = fs::read_to_string(path)
+            .map_err(|error| format!("failed to read `{}`: {error}", path.display()))?;
+        let read = read_start.elapsed();
+
+        let parse_start = Instant::now();
+        let parsed = parser::parse_source(path.display().to_string(), &source);
+        let parse = parse_start.elapsed();
+
+        let check_start = Instant::now();
+        let file_diagnostics = check::check_file(&parsed.file);
+        let check = check_start.elapsed();
+
+        diagnostics.extend(parsed.diagnostics);
+        diagnostics.extend(file_diagnostics);
+        timings.push(FileTiming {
+            path: path.display().to_string(),
+            read,
+            parse,
+            check,
+        });
+        program.files.push(parsed.file);
+    }
+
+    Ok(LoadedProgram {
+        program,
+        diagnostics,
+        timings,
+        total: total_start.elapsed(),
+    })
+}
+
+fn collect_inputs(raw_inputs: &[String]) -> Result<Vec<PathBuf>, String> {
+    if raw_inputs.is_empty() {
+        return Err("pass a .hum file or directory".to_string());
+    }
+
+    let mut inputs = Vec::new();
+    for raw_input in raw_inputs {
+        let path = PathBuf::from(raw_input);
+        if path.is_dir() {
+            collect_hum_files(&path, &mut inputs)?;
+        } else if path.is_file() {
+            inputs.push(path);
+        } else {
+            return Err(format!("input `{raw_input}` does not exist"));
+        }
+    }
+
+    inputs.sort();
+    inputs.dedup();
+    Ok(inputs)
+}
+
+fn collect_hum_files(path: &Path, inputs: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries = fs::read_dir(path)
+        .map_err(|error| format!("failed to read directory `{}`: {error}", path.display()))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!(
+                "failed to read directory entry in `{}`: {error}",
+                path.display()
+            )
+        })?;
+        let child = entry.path();
+        if child.is_dir() {
+            collect_hum_files(&child, inputs)?;
+        } else if child
+            .extension()
+            .is_some_and(|extension| extension == "hum")
+        {
+            inputs.push(child);
+        }
+    }
+    Ok(())
+}
+
+fn print_diagnostics(diagnostics: &[Diagnostic]) {
+    for diagnostic in diagnostics {
+        eprintln!("{}", diagnostic.render());
+    }
+}
+
+fn print_timings(timings: &[FileTiming], total: Duration) {
+    eprintln!("timings:");
+    for timing in timings {
+        eprintln!(
+            "  {} read={} parse={} check={}",
+            timing.path,
+            format_duration(timing.read),
+            format_duration(timing.parse),
+            format_duration(timing.check)
+        );
+    }
+    eprintln!("  total={}", format_duration(total));
+}
+
+fn format_duration(duration: Duration) -> String {
+    let micros = duration.as_micros();
+    if micros < 1_000 {
+        format!("{micros}us")
+    } else {
+        format!("{:.2}ms", micros as f64 / 1_000.0)
+    }
+}
+
+fn print_help() {
+    println!("Hum compiler front-end");
+    println!();
+    println!("Usage:");
+    println!("  hum check [--timings] <file-or-dir>...");
+    println!("  hum graph [--timings] <file-or-dir>...");
+    println!();
+    println!("Commands:");
+    println!("  check   Parse Hum files and run milestone-0 intent checks");
+    println!("  graph   Emit hum.semantic_graph.v0 JSON for agents and tools");
+    println!();
+    println!("Options:");
+    println!("  --timings   Print read/parse/check timings per input file");
+}
