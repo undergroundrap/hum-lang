@@ -19,7 +19,7 @@ agent prompts. Do not treat every permissive parser behavior here as a stable
 language promise.
 
 For the human-facing language overview, see [LANGUAGE_REFERENCE.md](LANGUAGE_REFERENCE.md).
-For the machine-readable Milestone 0 syntax surface, run `hum syntax`.
+For the machine-readable Milestone 0 syntax surface, run `hum syntax`. For the generated TextMate grammar, run `hum syntax --format textmate`.
 
 ## Notation
 
@@ -255,7 +255,7 @@ Before Hum claims a stable language grammar, it needs:
 
 - a lossless concrete syntax tree or equivalent token/trivia model
 - golden malformed-source tests
-- syntax-highlight keyword list generated from `hum syntax` and this grammar surface
+- syntax-highlight keyword list generated from `hum syntax --format textmate` and this grammar surface
 - TextMate and Tree-sitter grammar design notes
 - a formal surface-to-core lowering map
 - exact identifier, path, type, and expression grammar

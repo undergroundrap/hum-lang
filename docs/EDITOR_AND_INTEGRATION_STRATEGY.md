@@ -44,6 +44,7 @@ Plugins should be adapters, not alternate implementations of Hum semantics.
 - stable CLI output
 - stable semantic graph JSON
 - stable syntax surface JSON from `hum syntax`
+- generated TextMate grammar at [../editors/textmate/hum.tmLanguage.json](../editors/textmate/hum.tmLanguage.json)
 
 This tier makes Hum usable in plain terminals, basic editors, and enterprise source scanners.
 
@@ -128,7 +129,7 @@ Rules:
 2. stable spans and semantic graph node IDs
 3. `hum graph` schema versioning
 4. `hum syntax` as the first editor-neutral syntax surface
-5. TextMate grammar generated from `hum syntax`
+5. TextMate grammar generated from `hum syntax --format textmate` and refreshed with `tools/update_textmate_grammar.ps1`
 6. `hum lsp` with diagnostics, symbols, folding, hover, and formatting hooks
 7. VS Code/Cursor adapter because it reaches the most users fastest
 8. Neovim/Helix/Zed docs because LSP users can self-serve

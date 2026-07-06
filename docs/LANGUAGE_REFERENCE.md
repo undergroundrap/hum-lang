@@ -422,6 +422,7 @@ hum check <file-or-dir>...
 hum graph <file-or-dir>...
 hum test-skeletons <file-or-dir>...
 hum syntax
+hum syntax --format textmate
 ```
 
 Bootstrap examples:
@@ -431,6 +432,7 @@ cargo run -- check examples
 cargo run -- graph examples
 cargo run -- test-skeletons examples
 cargo run -- syntax
+cargo run -- syntax --format textmate
 ```
 
 ## Open Reference Gaps
@@ -443,7 +445,7 @@ This reference is intentionally incomplete. The next gaps to close are:
 - import and visibility rules
 - formal lowering from surface constructs into Core Hum
 - stable examples for every accepted syntax form
-- generated editor grammar and syntax-highlight keyword list beyond `hum syntax`
+- generated editor grammar and syntax-highlight keyword list beyond the current TextMate snapshot
 
 Until those are pinned, broad syntax expansion should stay in design docs, not
 in stable Hum.

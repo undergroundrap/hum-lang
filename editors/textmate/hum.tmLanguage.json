@@ -1,0 +1,40 @@
+{
+  "name": "Hum",
+  "scopeName": "source.hum",
+  "fileTypes": ["hum"],
+  "patterns": [
+    {"include": "#comments"},
+    {"include": "#module"},
+    {"include": "#items"},
+    {"include": "#sections"},
+    {"include": "#test-modifiers"}
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {"name": "comment.line.number-sign.hum", "match": "#.*$"},
+        {"name": "comment.line.double-slash.hum", "match": "/{2}.*$"}
+      ]
+    },
+    "module": {
+      "patterns": [
+        {"name": "keyword.control.module.hum", "match": "^[[:space:]]*(module)(?=[^[:alnum:]_]|$)"}
+      ]
+    },
+    "items": {
+      "patterns": [
+        {"name": "keyword.declaration.item.hum", "match": "^[[:space:]]*(app|type|store|task|test)(?=[^[:alnum:]_]|$)"}
+      ]
+    },
+    "sections": {
+      "patterns": [
+        {"name": "keyword.other.section.hum", "match": "^[[:space:]]*(why|uses|changes|needs|ensures|protects|trusts|fails[[:space:]]+when|watch[[:space:]]+for|cost|allocates|avoids|tradeoffs|optimizes|tests|does|regression|covers)[[:space:]]*:"}
+      ]
+    },
+    "test-modifiers": {
+      "patterns": [
+        {"name": "storage.modifier.test.hum", "match": "(^|[^[:alnum:]_])(unit|property|fuzz|regression|integration|model)($|[^[:alnum:]_])"}
+      ]
+    }
+  }
+}

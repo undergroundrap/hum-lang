@@ -37,7 +37,10 @@ fn run() -> Result<ExitCode, String> {
 
     let options = parse_cli(args)?;
     if options.command == "syntax" {
-        print!("{}", syntax::syntax_json());
+        match options.syntax_format {
+            SyntaxFormat::Json => print!("{}", syntax::syntax_json()),
+            SyntaxFormat::TextMate => print!("{}", syntax::textmate_json()),
+        }
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -108,11 +111,18 @@ fn run() -> Result<ExitCode, String> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SyntaxFormat {
+    Json,
+    TextMate,
+}
+
 #[derive(Debug)]
 struct CliOptions {
     command: String,
     inputs: Vec<PathBuf>,
     show_timings: bool,
+    syntax_format: SyntaxFormat,
 }
 
 struct LoadedProgram {
@@ -142,10 +152,22 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
 
     let mut show_timings = false;
     let mut raw_inputs = Vec::new();
+    let mut syntax_format = SyntaxFormat::Json;
+    let mut args = args.into_iter().skip(1);
 
-    for arg in args.into_iter().skip(1) {
+    while let Some(arg) = args.next() {
         match arg.as_str() {
             "--timings" => show_timings = true,
+            "--format" if command == "syntax" => {
+                let Some(value) = args.next() else {
+                    return Err("`syntax --format` requires `json` or `textmate`".to_string());
+                };
+                syntax_format = parse_syntax_format(&value)?;
+            }
+            flag if command == "syntax" && flag.starts_with("--format=") => {
+                let value = flag.trim_start_matches("--format=");
+                syntax_format = parse_syntax_format(value)?;
+            }
             flag if flag.starts_with("--") => return Err(format!("unknown flag `{flag}`")),
             _ => raw_inputs.push(arg),
         }
@@ -162,6 +184,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             show_timings,
+            syntax_format,
         });
     }
 
@@ -169,7 +192,18 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         command,
         inputs: collect_inputs(&raw_inputs)?,
         show_timings,
+        syntax_format,
     })
+}
+
+fn parse_syntax_format(value: &str) -> Result<SyntaxFormat, String> {
+    match value {
+        "json" => Ok(SyntaxFormat::Json),
+        "textmate" => Ok(SyntaxFormat::TextMate),
+        other => Err(format!(
+            "unknown syntax format `{other}`; expected `json` or `textmate`"
+        )),
+    }
 }
 
 fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
@@ -293,20 +327,20 @@ fn print_help() {
     println!("  hum check [--timings] <file-or-dir>...");
     println!("  hum graph [--timings] <file-or-dir>...");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
-    println!("  hum syntax");
+    println!("  hum syntax [--format json|textmate]");
     println!();
     println!("Commands:");
     println!("  check   Parse Hum files and run milestone-0 intent checks");
     println!("  graph           Emit hum.semantic_graph.v0 JSON for agents and tools");
     println!("  test-skeletons  Print Hum test skeletons for unlinked obligations");
-    println!("  syntax          Emit hum.syntax_surface.v0 JSON for editor/tool adapters");
+    println!("  syntax          Emit syntax JSON or generated TextMate grammar");
     println!();
     println!("Options:");
     println!("  --timings   Print read/parse/check timings per input file");
 }
 #[cfg(test)]
 mod tests {
-    use super::parse_cli;
+    use super::{SyntaxFormat, parse_cli};
 
     #[test]
     fn parses_syntax_command_without_inputs() {
@@ -314,6 +348,33 @@ mod tests {
         assert_eq!(options.command, "syntax");
         assert!(options.inputs.is_empty());
         assert!(!options.show_timings);
+        assert_eq!(options.syntax_format, SyntaxFormat::Json);
+    }
+
+    #[test]
+    fn parses_syntax_textmate_format() {
+        let options = parse_cli(vec![
+            "syntax".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+        ])
+        .expect("syntax textmate command");
+        assert_eq!(options.command, "syntax");
+        assert_eq!(options.syntax_format, SyntaxFormat::TextMate);
+    }
+
+    #[test]
+    fn rejects_unknown_syntax_format() {
+        let error = parse_cli(vec![
+            "syntax".to_string(),
+            "--format".to_string(),
+            "yaml".to_string(),
+        ])
+        .expect_err("syntax should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown syntax format `yaml`; expected `json` or `textmate`"
+        );
     }
 
     #[test]

@@ -84,6 +84,7 @@ Current prototype status:
 - `hum graph` emits task-level `test_obligations` from `needs:`, `ensures:`, `watch for:`, and `tests:` lines, with exact `covers:` links to top-level `test` blocks when present.
 - `hum test-skeletons` prints Hum `test` blocks for unlinked obligations without executing code or writing files.
 - `hum syntax` emits `hum.syntax_surface.v0` JSON for editor and tool adapters.
+- `hum syntax --format textmate` and `editors/textmate/hum.tmLanguage.json` provide the first generated highlighting surface.
 
 Still missing before Milestone 0 is complete:
 

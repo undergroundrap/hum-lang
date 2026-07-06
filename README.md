@@ -107,6 +107,7 @@ Current artifacts:
 - [docs/HASH_TABLE_RESEARCH_2501_02305.md](docs/HASH_TABLE_RESEARCH_2501_02305.md): deep note on elastic/funnel hashing and Hum's `Map` research path
 - [docs/ERGONOMICS_AND_OPERATORS.md](docs/ERGONOMICS_AND_OPERATORS.md): operator, QoL, and Bevy-inspired data-access strategy
 - [docs/TOOLCHAIN_2050.md](docs/TOOLCHAIN_2050.md): LSP, debugger, highlighting, profiler, and long-horizon toolchain strategy
+- [editors/textmate/hum.tmLanguage.json](editors/textmate/hum.tmLanguage.json): generated TextMate grammar for basic `.hum` highlighting
 - [docs/TOOLING.md](docs/TOOLING.md): `humfmt`, `chirp`, and first-party tooling principles
 - [docs/FORMATTER.md](docs/FORMATTER.md): canonical formatting rules for `humfmt`
 - [docs/NECTAR_PACKAGE_MANAGER.md](docs/NECTAR_PACKAGE_MANAGER.md): working plan for Nectar, Hum's package manager
@@ -155,6 +156,7 @@ cargo run -- check examples
 cargo run -- graph examples/task_list.hum
 cargo run -- test-skeletons examples
 cargo run -- syntax
+cargo run -- syntax --format textmate
 ```
 
 Current CLI:
@@ -163,6 +165,7 @@ Current CLI:
 - `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including section line facts, task test obligations, and exact `covers:` links
 - `hum test-skeletons <file-or-dir>...`: print Hum `test` blocks for unlinked test obligations without executing code or writing files
 - `hum syntax`: emit `hum.syntax_surface.v0` JSON for editor and tool adapters
+- `hum syntax --format textmate`: emit a generated TextMate grammar from the same syntax surface
 - add `--timings` to print read/parse/check timing data
 
 ## Text Hygiene
