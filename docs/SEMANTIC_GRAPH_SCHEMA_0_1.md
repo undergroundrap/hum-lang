@@ -71,6 +71,22 @@ Each executable alpha task should expose:
 - declared cost facts
 - profile restrictions that apply
 
+## Test Obligation Facts
+
+Alpha graph `test_obligations` should contain:
+
+- `id`
+- `kind`
+- `source_section`
+- `text`
+- `span`
+- `covers`
+- `suggested_test`
+- future link status to top-level `test` blocks
+
+Milestone 0 currently emits unlinked task-level obligations. Linking them to
+actual top-level tests is later alpha work.
+
 ## Effect Facts
 
 Graph effect facts should use the same vocabulary as

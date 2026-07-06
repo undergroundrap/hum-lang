@@ -86,12 +86,29 @@ Tasks contain:
 - `params`
 - `result`
 - `sections`
+- `test_obligations`
 
 Params contain:
 
 - `name`
 - `type`
 - `span`
+
+### Test Obligations
+
+Task `test_obligations` are generated from meaningful lines in `needs:`,
+`ensures:`, `watch for:`, and `tests:` sections. Each obligation contains:
+
+- `id`: stable-ish source-derived obligation ID
+- `kind`: `precondition`, `postcondition`, `edge_case`, or `declared_test`
+- `source_section`
+- `text`
+- `span`
+- `covers`: coverage phrase a test can use
+- `suggested_test`: human-readable generated test name
+
+These are not executable tests yet. They are graph facts that future Hum test
+generation, LSP actions, CI, and agents can use.
 
 ### Test
 
@@ -158,7 +175,7 @@ V0 does not yet promise:
 - full type checking
 - ownership checking
 - borrow checking
-- generated tests
+- executable generated tests
 - stable JSON formatting
 - final package/module semantics
 

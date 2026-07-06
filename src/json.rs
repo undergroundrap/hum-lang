@@ -1,4 +1,4 @@
-use crate::ast::{Item, Program, Section};
+use crate::ast::{Item, Program, Section, SectionLine, Task};
 use crate::diagnostic::{Diagnostic, Severity, Span};
 
 pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
@@ -112,6 +112,8 @@ fn write_item(out: &mut String, item: &Item, indent: usize) {
                     .map_or("null".to_string(), |result| quote(result))
             ));
             write_sections_field(out, &task.sections, indent + 2);
+            out.push_str(",\n");
+            write_test_obligations_field(out, task, indent + 2);
             out.push('\n');
         }
         Item::Test(test) => {
@@ -167,6 +169,101 @@ fn write_sections_field(out: &mut String, sections: &[Section], indent: usize) {
         ));
     }
     out.push(']');
+}
+
+fn write_test_obligations_field(out: &mut String, task: &Task, indent: usize) {
+    let pad = " ".repeat(indent);
+    out.push_str(&format!("{pad}\"test_obligations\": ["));
+    let obligations = test_obligations(task);
+    for (index, obligation) in obligations.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push('{');
+        out.push_str(&format!("\"id\": {}, ", quote(&obligation.id)));
+        out.push_str(&format!("\"kind\": {}, ", quote(obligation.kind)));
+        out.push_str(&format!(
+            "\"source_section\": {}, ",
+            quote(obligation.source_section)
+        ));
+        out.push_str(&format!("\"text\": {}, ", quote(&obligation.line.text)));
+        out.push_str("\"span\": ");
+        write_span(out, &obligation.line.span);
+        out.push_str(&format!(", \"covers\": {}", quote(&obligation.covers)));
+        out.push_str(&format!(
+            ", \"suggested_test\": {}",
+            quote(&obligation.suggested_test)
+        ));
+        out.push('}');
+    }
+    out.push(']');
+}
+
+struct TestObligation<'a> {
+    id: String,
+    kind: &'static str,
+    source_section: &'static str,
+    line: &'a SectionLine,
+    covers: String,
+    suggested_test: String,
+}
+
+fn test_obligations(task: &Task) -> Vec<TestObligation<'_>> {
+    let mut obligations = Vec::new();
+    for (section_name, kind) in [
+        ("needs", "precondition"),
+        ("ensures", "postcondition"),
+        ("watch for", "edge_case"),
+        ("tests", "declared_test"),
+    ] {
+        for section in task
+            .sections
+            .iter()
+            .filter(|section| section.name == section_name)
+        {
+            for line in meaningful_lines(section) {
+                obligations.push(TestObligation {
+                    id: format!(
+                        "{}:task:{}:{}:{}",
+                        line.span.file, task.name, section_name, line.span.line
+                    ),
+                    kind,
+                    source_section: section_name,
+                    line,
+                    covers: format!("{} {} {}", task.name, section_name, line.text),
+                    suggested_test: suggested_test_name(&task.name, kind, &line.text),
+                });
+            }
+        }
+    }
+    obligations
+}
+
+fn meaningful_lines(section: &Section) -> impl Iterator<Item = &SectionLine> {
+    section.lines.iter().filter(|line| {
+        let text = line.text.trim();
+        !text.is_empty() && !text.starts_with('#') && !text.starts_with("//")
+    })
+}
+
+fn suggested_test_name(task_name: &str, kind: &str, text: &str) -> String {
+    let label = match kind {
+        "precondition" => "requires",
+        "postcondition" => "ensures",
+        "edge_case" => "handles",
+        "declared_test" => "covers",
+        _ => "covers",
+    };
+    let summary = text
+        .split_whitespace()
+        .take(6)
+        .collect::<Vec<_>>()
+        .join(" ");
+    if summary.is_empty() {
+        format!("{task_name} {label}")
+    } else {
+        format!("{task_name} {label} {summary}")
+    }
 }
 
 fn write_diagnostic(out: &mut String, diagnostic: &Diagnostic, indent: usize) {
@@ -265,6 +362,7 @@ mod tests {
     use super::program_to_json;
     use crate::ast::Program;
     use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+    use crate::parser::parse_source;
 
     #[test]
     fn diagnostic_json_includes_code_and_title() {
@@ -277,5 +375,41 @@ mod tests {
 
         assert!(json.contains("\"code\": \"H0108\""));
         assert!(json.contains("\"title\": \"section out of order\""));
+    }
+
+    #[test]
+    fn task_json_includes_test_obligations() {
+        let source = r#"task add task(title: Text) -> Result Task, TaskError {
+  why:
+    save a task
+
+  needs:
+    title is not empty
+
+  ensures:
+    new task is saved
+
+  watch for:
+    title may be only spaces
+
+  tests:
+    empty title is rejected
+
+  does:
+    return task
+}
+"#;
+        let parsed = parse_source("demo.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = program_to_json(&program, &[]);
+
+        assert!(json.contains("\"test_obligations\""));
+        assert!(json.contains("\"kind\": \"precondition\""));
+        assert!(json.contains("\"kind\": \"postcondition\""));
+        assert!(json.contains("\"kind\": \"edge_case\""));
+        assert!(json.contains("\"kind\": \"declared_test\""));
+        assert!(json.contains("\"suggested_test\": \"add task requires title is not empty\""));
     }
 }
