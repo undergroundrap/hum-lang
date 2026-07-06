@@ -26,6 +26,17 @@ Validation:
 - `proven`: acceptance criteria pass with evidence
 - `deferred`: intentionally outside the alpha
 
+## Schema Artifacts
+
+The current alpha schema targets are:
+
+- [LANGUAGE_SUBSET_0_1.md](LANGUAGE_SUBSET_0_1.md)
+- [SEMANTIC_GRAPH_SCHEMA_0_1.md](SEMANTIC_GRAPH_SCHEMA_0_1.md)
+- [DIAGNOSTICS_SCHEMA_0_1.md](DIAGNOSTICS_SCHEMA_0_1.md)
+- [EFFECT_REPORT_SCHEMA_0_1.md](EFFECT_REPORT_SCHEMA_0_1.md)
+- [PROFILE_REPORT_SCHEMA_0_1.md](PROFILE_REPORT_SCHEMA_0_1.md)
+- [EVIDENCE_BUNDLE_LAYOUT_0_1.md](EVIDENCE_BUNDLE_LAYOUT_0_1.md)
+
 ## Current Claims
 
 | ID | Status | Claim |

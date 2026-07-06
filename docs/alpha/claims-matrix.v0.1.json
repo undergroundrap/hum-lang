@@ -36,11 +36,11 @@
       "claim": "offline-tool@0.1 denies network, process execution, unsafe, FFI, threads, hidden mutation, and undeclared IO.",
       "current_evidence": [
         "docs/ALPHA_THREAT_MODEL_0_1.md",
-        "docs/OFFLINE_TOOL_ALPHA_0_1.md"
+        "docs/OFFLINE_TOOL_ALPHA_0_1.md",
+        "docs/PROFILE_REPORT_SCHEMA_0_1.md"
       ],
       "future_evidence": [
-        "tests/profile_offline_tool_denials",
-        "docs/PROFILE_REPORT_SCHEMA_0_1.md"
+        "tests/profile_offline_tool_denials"
       ],
       "acceptance": [
         "Every denied authority has at least one negative fixture.",
@@ -72,10 +72,10 @@
       "claim": "Alpha evidence includes semantic graph output for every accepted Hum source file.",
       "current_evidence": [
         "docs/SEMANTIC_GRAPH_SCHEMA.md",
-        "docs/OFFLINE_TOOL_ALPHA_0_1.md"
+        "docs/OFFLINE_TOOL_ALPHA_0_1.md",
+        "docs/SEMANTIC_GRAPH_SCHEMA_0_1.md"
       ],
       "future_evidence": [
-        "docs/SEMANTIC_GRAPH_SCHEMA_0_1.md",
         "tests/alpha_graph_golden"
       ],
       "acceptance": [
@@ -90,10 +90,10 @@
       "claim": "Alpha diagnostics are stable and machine-readable.",
       "current_evidence": [
         "docs/DIAGNOSTICS.md",
-        "docs/OFFLINE_TOOL_ALPHA_0_1.md"
+        "docs/OFFLINE_TOOL_ALPHA_0_1.md",
+        "docs/DIAGNOSTICS_SCHEMA_0_1.md"
       ],
       "future_evidence": [
-        "docs/DIAGNOSTICS_SCHEMA_0_1.md",
         "tests/alpha_diagnostics_json"
       ],
       "acceptance": [
@@ -108,11 +108,11 @@
       "claim": "Alpha evidence includes declared versus observed effects and profile status.",
       "current_evidence": [
         "docs/ALPHA_THREAT_MODEL_0_1.md",
-        "docs/OFFLINE_TOOL_ALPHA_0_1.md"
+        "docs/OFFLINE_TOOL_ALPHA_0_1.md",
+        "docs/EFFECT_REPORT_SCHEMA_0_1.md",
+        "docs/PROFILE_REPORT_SCHEMA_0_1.md"
       ],
       "future_evidence": [
-        "docs/EFFECT_REPORT_SCHEMA_0_1.md",
-        "docs/PROFILE_REPORT_SCHEMA_0_1.md",
         "tests/effect_report_golden"
       ],
       "acceptance": [
@@ -127,10 +127,10 @@
       "claim": "Alpha evidence includes hashes, SBOM/provenance comparison, and run trace artifacts for HumGate.",
       "current_evidence": [
         "docs/OFFLINE_TOOL_ALPHA_0_1.md",
-        "docs/ALPHA_CLAIMS_MATRIX_0_1.md"
+        "docs/ALPHA_CLAIMS_MATRIX_0_1.md",
+        "docs/EVIDENCE_BUNDLE_LAYOUT_0_1.md"
       ],
       "future_evidence": [
-        "docs/EVIDENCE_BUNDLE_LAYOUT_0_1.md",
         "examples/humgate/golden/evidence"
       ],
       "acceptance": [
@@ -180,10 +180,10 @@
       "current_evidence": [
         "docs/ALPHA_CLAIMS_MATRIX_0_1.md",
         "docs/alpha/claims-matrix.v0.1.json",
-        "tools/check_alpha_claims.ps1"
+        "tools/check_alpha_claims.ps1",
+        "tools/check_release_readiness.ps1"
       ],
       "future_evidence": [
-        "tools/check_release_readiness.ps1"
       ],
       "acceptance": [
         "The claims matrix check passes.",

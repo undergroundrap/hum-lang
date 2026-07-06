@@ -63,12 +63,12 @@ Before any public alpha announcement, the repo must include:
 - alpha charter
 - alpha threat model
 - alpha claims matrix
-- pinned alpha language subset
-- diagnostics schema notes for alpha
-- semantic graph schema notes for alpha
-- effect report schema
-- profile report schema
-- evidence bundle layout
+- [LANGUAGE_SUBSET_0_1.md](LANGUAGE_SUBSET_0_1.md)
+- [DIAGNOSTICS_SCHEMA_0_1.md](DIAGNOSTICS_SCHEMA_0_1.md)
+- [SEMANTIC_GRAPH_SCHEMA_0_1.md](SEMANTIC_GRAPH_SCHEMA_0_1.md)
+- [EFFECT_REPORT_SCHEMA_0_1.md](EFFECT_REPORT_SCHEMA_0_1.md)
+- [PROFILE_REPORT_SCHEMA_0_1.md](PROFILE_REPORT_SCHEMA_0_1.md)
+- [EVIDENCE_BUNDLE_LAYOUT_0_1.md](EVIDENCE_BUNDLE_LAYOUT_0_1.md)
 - HumGate fixtures and golden outputs
 - reproducibility and benchmark report
 
