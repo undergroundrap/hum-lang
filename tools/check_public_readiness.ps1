@@ -4,16 +4,27 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ExcludedDirectories = @('.git', 'target')
 $TextExtensions = @(
   '.code-workspace',
+  '.classpath',
+  '.csproj',
+  '.factorypath',
+  '.fsproj',
   '.hum',
   '.iml',
   '.ini',
+  '.ipynb',
   '.json',
   '.jsonc',
+  '.launch',
   '.md',
+  '.project',
+  '.props',
   '.ps1',
   '.rs',
+  '.sln',
+  '.targets',
   '.toml',
   '.txt',
+  '.vbproj',
   '.xml',
   '.yaml',
   '.yml'
@@ -24,7 +35,8 @@ $TextFileNames = @(
   '.gitignore',
   'Cargo.lock',
   'LICENSE',
-  'NOTICE.md'
+  'NOTICE.md',
+  'VERSION'
 )
 
 $Utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
@@ -133,8 +145,19 @@ $CursorDir = $Dot + 'cursor'
 $JetBrainsDir = $Dot + 'idea'
 $VisualStudioDir = $Dot + 'vs'
 $FleetDir = $Dot + 'fleet'
+$EclipseMetadataDir = $Dot + 'metadata'
+$EclipseSettingsDir = $Dot + 'settings'
+$NotebookCheckpointDir = $Dot + 'ipynb_checkpoints'
+$RProjectUserDir = $Dot + 'Rproj' + $Dot + 'user'
 $CodeWorkspaceExt = $Dot + 'code-workspace'
 $JetBrainsModuleExt = $Dot + 'iml'
+$VisualStudioUserExtA = $Dot + 'suo'
+$VisualStudioUserExtB = $Dot + 'user'
+$VisualStudioUserExtC = $Dot + 'rsuser'
+$EclipseLaunchExt = $Dot + 'launch'
+$EclipseProjectFile = $Dot + 'project'
+$EclipseClasspathFile = $Dot + 'classpath'
+$EclipseFactoryPathFile = $Dot + 'factorypath'
 $PathSeparatorPattern = '[' + [regex]::Escape($Backslash) + [regex]::Escape($Slash) + ']'
 $PathBoundary = '(^|' + $PathSeparatorPattern + ')'
 $PathEnd = '(' + $PathSeparatorPattern + '|$)'
@@ -144,7 +167,11 @@ $PublicPathBlockers = @(
   @{ Name = 'JetBrains project directory'; Pattern = $PathBoundary + [regex]::Escape($JetBrainsDir) + $PathEnd },
   @{ Name = 'Visual Studio user-state directory'; Pattern = $PathBoundary + [regex]::Escape($VisualStudioDir) + $PathEnd },
   @{ Name = 'Fleet project directory'; Pattern = $PathBoundary + [regex]::Escape($FleetDir) + $PathEnd },
-  @{ Name = 'editor workspace or module file'; Pattern = '(' + (Join-LiteralPattern @($CodeWorkspaceExt, $JetBrainsModuleExt)) + ')$' }
+  @{ Name = 'Eclipse workspace metadata directory'; Pattern = $PathBoundary + '(' + (Join-LiteralPattern @($EclipseMetadataDir, $EclipseSettingsDir)) + ')' + $PathEnd },
+  @{ Name = 'Jupyter checkpoint directory'; Pattern = $PathBoundary + [regex]::Escape($NotebookCheckpointDir) + $PathEnd },
+  @{ Name = 'R project user-state directory'; Pattern = $PathBoundary + [regex]::Escape($RProjectUserDir) + $PathEnd },
+  @{ Name = 'editor workspace or module file'; Pattern = '(' + (Join-LiteralPattern @($CodeWorkspaceExt, $JetBrainsModuleExt, $VisualStudioUserExtA, $VisualStudioUserExtB, $VisualStudioUserExtC, $EclipseLaunchExt)) + ')$' },
+  @{ Name = 'Eclipse project metadata file'; Pattern = '(^|[\/])(' + (Join-LiteralPattern @($EclipseProjectFile, $EclipseClasspathFile, $EclipseFactoryPathFile)) + ')$' }
 )
 
 $PathPrefix = '(^|[\s"' + $SingleQuote + '(=])'

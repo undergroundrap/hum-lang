@@ -56,6 +56,8 @@ task create session(user: User, device: Device) -> SessionToken {
 
 This repository is a language design seed with a Milestone 0 Rust bootstrap compiler front-end.
 
+Current version: `0.0.1` pre-alpha.
+
 Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the ground-truth map
 of how the design docs fit together.
 
@@ -64,6 +66,8 @@ Current artifacts:
 - [SPEC.md](SPEC.md): core language direction
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): unifying architecture ground truth across language, graph, tools, profiles, stdlib, backend, and platform design
 - [docs/SETUP.md](docs/SETUP.md): portable setup for beginners, experts, terminals, and editors
+- [docs/EDITOR_AND_INTEGRATION_STRATEGY.md](docs/EDITOR_AND_INTEGRATION_STRATEGY.md): editor, LSP, plugin, Visual Studio, Eclipse, and Jupyter integration strategy
+- [docs/RELEASE_AND_VERSIONING.md](docs/RELEASE_AND_VERSIONING.md): SemVer, `0.0.1`, release checks, and tag policy
 - [docs/LANGUAGE_CONSTITUTION.md](docs/LANGUAGE_CONSTITUTION.md): rules Hum must not violate
 - [docs/BDFR_SCOPE_AND_SAFETY_DIRECTIVE.md](docs/BDFR_SCOPE_AND_SAFETY_DIRECTIVE.md): BDFR safety, scope, offline-first, interop, and portability directive
 - [docs/SAFETY_OF_MAKER_AND_USER.md](docs/SAFETY_OF_MAKER_AND_USER.md): two-sided safety philosophy for makers, users, maintainers, and agents

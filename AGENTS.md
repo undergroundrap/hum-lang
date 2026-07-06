@@ -39,3 +39,10 @@ For implementation details, see `docs/TEXT_HYGIENE_WORKFLOW.md`.
 ```powershell
 .\tools\check_public_readiness.ps1
 ```
+- Before a release commit or tag decision, run:
+
+```powershell
+.\tools\check_release_readiness.ps1
+```
+
+- Never create or push remote tags without explicit user approval.

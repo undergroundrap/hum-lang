@@ -53,9 +53,12 @@ Use an editor that can:
 
 Recommended editor behavior:
 
-- VS Code and Cursor: open the repo folder, install `rust-analyzer`, and keep local `.vscode/` or workspace files untracked.
-- PyCharm and IntelliJ: open the repo folder with Rust support enabled and keep `.idea/` and `*.iml` files untracked.
-- Neovim, Helix, Zed, and similar editors: use `rust-analyzer` for Rust files and keep editor caches outside the repo.
+- VS Code and Cursor: open the repo folder, install `rust-analyzer`, and keep local `.vscode/`, `.cursor/`, or workspace files untracked.
+- Visual Studio: use the integrated terminal or external tools for Cargo today. Keep `.vs/`, `*.suo`, `*.user`, and per-user launch state untracked. A VSIX should wait until `hum lsp` exists.
+- PyCharm, IntelliJ, Rider, RustRover, and other JetBrains IDEs: open the repo folder with Rust support enabled and keep `.idea/` and `*.iml` files untracked.
+- Eclipse: use terminal Cargo commands today. Keep `.metadata/`, `.settings/`, `.project`, `.classpath`, `.factorypath`, and per-user `.launch` files untracked unless a future dedicated Eclipse adapter repo owns them.
+- Jupyter Notebook and JupyterLab: useful later for data and finance demos, but Milestone 0 has no execution kernel. Keep `.ipynb_checkpoints/` untracked and do not commit exploratory notebooks to the core repo.
+- Neovim, Helix, Zed, Vim, Sublime Text, and similar editors: use `rust-analyzer` for Rust files and keep editor caches outside the repo.
 - Plain terminal users: Cargo commands are enough for Milestone 0.
 
 Hum syntax highlighting is not stable yet. Until `humfmt`, `chirp`, and `hum lsp` exist, `.hum` files are source sketches checked by the Rust bootstrap CLI.
@@ -88,3 +91,15 @@ If Cargo works in a terminal but not in an editor, restart the editor after inst
 If Git warns about line endings, keep `.gitattributes` and `.editorconfig` in place. The repo normalizes text files to LF while allowing Windows batch files to use CRLF.
 
 If a hygiene or public-readiness check fails, fix the named file and line before committing. These checks are meant to catch setup and pathing problems before new contributors inherit them.
+
+## Version And Tags
+
+Current version: `0.0.1` pre-alpha.
+
+Before creating a release tag, run:
+
+```powershell
+.\tools\check_release_readiness.ps1
+```
+
+See [RELEASE_AND_VERSIONING.md](RELEASE_AND_VERSIONING.md) for SemVer and tag policy.

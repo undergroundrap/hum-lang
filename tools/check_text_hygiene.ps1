@@ -4,16 +4,27 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ExcludedDirectories = @('.git', 'target')
 $TextExtensions = @(
   '.code-workspace',
+  '.classpath',
+  '.csproj',
+  '.factorypath',
+  '.fsproj',
   '.hum',
   '.iml',
   '.ini',
+  '.ipynb',
   '.json',
   '.jsonc',
+  '.launch',
   '.md',
+  '.project',
+  '.props',
   '.ps1',
   '.rs',
+  '.sln',
+  '.targets',
   '.toml',
   '.txt',
+  '.vbproj',
   '.xml',
   '.yaml',
   '.yml'
@@ -24,7 +35,8 @@ $TextFileNames = @(
   '.gitignore',
   'Cargo.lock',
   'LICENSE',
-  'NOTICE.md'
+  'NOTICE.md',
+  'VERSION'
 )
 
 $Utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)

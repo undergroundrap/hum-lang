@@ -232,6 +232,18 @@ A decision record should include:
 - alternatives rejected
 - BDFL note
 
+## Versioning And Tags
+
+Hum follows the local release policy in [RELEASE_AND_VERSIONING.md](RELEASE_AND_VERSIONING.md).
+
+Rules:
+
+- keep `VERSION` and `Cargo.toml` in sync
+- use SemVer-shaped versions from the beginning
+- treat `0.0.x` as pre-alpha snapshots, not compatibility promises
+- use annotated `vX.Y.Z` Git tags only after release-readiness checks pass
+- do not push tags or remotes without explicit human approval
+
 ## Release Rhythm
 
 Early Hum should move in milestones, not calendar promises.

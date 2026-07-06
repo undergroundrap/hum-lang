@@ -60,7 +60,7 @@ Example sketch:
 ```toml
 [package]
 name = "session-server"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2026"
 why = "safe session storage example for Hum"
 

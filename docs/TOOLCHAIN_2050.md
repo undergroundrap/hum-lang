@@ -171,6 +171,21 @@ Late LSP features:
 LSP should be protocol-compatible, but Hum-specific powers should flow through
 stable extension methods documented in the semantic graph schema.
 
+## Editor Integration Strategy
+
+Hum should not make every editor plugin reimplement the language. The compiler, `hum graph`, `humfmt`, and `hum lsp` should be the authority; editor integrations should be thin adapters.
+
+Priority editor surfaces:
+
+- VS Code and Cursor for reach and fast extension distribution
+- Visual Studio for Windows, C++, C#, enterprise, regulated, and Microsoft-platform teams
+- JetBrains IDEs for IntelliJ, PyCharm, Rider, WebStorm, and RustRover users
+- Eclipse for Java-heavy enterprise teams
+- Jupyter Notebook and JupyterLab for data, finance research, AI/ML, and literate demos once Hum can execute safely
+- Neovim, Vim, Helix, Zed, and Sublime Text through LSP and grammar packages
+
+See [EDITOR_AND_INTEGRATION_STRATEGY.md](EDITOR_AND_INTEGRATION_STRATEGY.md).
+
 ## Debugger Strategy
 
 Hum needs a Debug Adapter Protocol implementation, but a normal line debugger is
@@ -267,14 +282,15 @@ Before Hum is called alpha, it should have:
 
 1. `hum lsp`
 2. `tree-sitter-hum`
-3. VS Code extension
-4. Neovim/Helix/Zed support path
-5. DAP debug adapter prototype
-6. semantic tokens
-7. rename and go-to-definition
-8. code actions for common intent mistakes
-9. test/proof/benchmark code lens
-10. `nectar` workspace indexing
+3. VS Code/Cursor extension
+4. Visual Studio adapter plan
+5. Neovim/Helix/Zed support path
+6. DAP debug adapter prototype
+7. semantic tokens
+8. rename and go-to-definition
+9. code actions for common intent mistakes
+10. test/proof/benchmark code lens
+11. `nectar` workspace indexing
 
 ## 2050 Toolchain Tests
 
