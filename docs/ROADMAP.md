@@ -80,13 +80,13 @@ Current prototype status:
 - Diagnostics have stable `H####` codes in terminal output and `hum graph` JSON.
 - Known task and test sections get canonical-order warnings.
 - Current examples check cleanly.
-- `hum graph` emits task-level `test_obligations` from `needs:`, `ensures:`, `watch for:`, and `tests:` lines.
+- `hum graph` emits task-level `test_obligations` from `needs:`, `ensures:`, `watch for:`, and `tests:` lines, with exact `covers:` links to top-level `test` blocks when present.
 
 Still missing before Milestone 0 is complete:
 
 - generated test skeleton files or commands
 - richer graph entries for individual section lines
-- normalized links between `tests:` obligations and top-level `test` blocks
+- fuzzy or semantic obligation matching beyond exact `covers:` lines
 
 Milestone 0 is about truth, not speed.
 

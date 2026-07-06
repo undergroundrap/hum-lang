@@ -82,10 +82,13 @@ Alpha graph `test_obligations` should contain:
 - `span`
 - `covers`
 - `suggested_test`
-- future link status to top-level `test` blocks
+- `link_status`
+- `linked_tests`
 
-Milestone 0 currently emits unlinked task-level obligations. Linking them to
-actual top-level tests is later alpha work.
+Milestone 0 emits task-level obligations and links them to actual top-level
+tests when a meaningful `covers:` line exactly matches the obligation coverage
+phrase after whitespace normalization. Fuzzy matching, richer traceability, and
+semantic proof of coverage remain later alpha work.
 
 ## Effect Facts
 

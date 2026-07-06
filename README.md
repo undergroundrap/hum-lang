@@ -155,7 +155,7 @@ cargo run -- graph examples/task_list.hum
 Current CLI:
 
 - `hum check <file-or-dir>...`: parse Hum and run Milestone 0 intent checks
-- `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents
+- `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including task test obligations and exact `covers:` links
 - add `--timings` to print read/parse/check timing data
 
 ## Text Hygiene

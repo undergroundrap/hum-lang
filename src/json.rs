@@ -1,4 +1,4 @@
-use crate::ast::{Item, Program, Section, SectionLine, Task};
+use crate::ast::{Item, Program, Section, SectionLine, Task, Test};
 use crate::diagnostic::{Diagnostic, Severity, Span};
 
 pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
@@ -8,6 +8,7 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
         .count();
     let warnings = diagnostics.len().saturating_sub(errors);
+    let test_coverages = collect_test_coverages(program);
 
     out.push_str("{\n");
     out.push_str("  \"schema\": \"hum.semantic_graph.v0\",\n");
@@ -35,7 +36,7 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
                 .map_or("null".to_string(), |module| quote(module))
         ));
         out.push_str("      \"items\": [\n");
-        write_items(&mut out, &file.items, 0, 8);
+        write_items(&mut out, &file.items, 0, 8, &test_coverages);
         out.push_str("\n      ]\n");
         out.push_str("    }");
     }
@@ -51,14 +52,20 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
     out
 }
 
-fn write_items(out: &mut String, items: &[Item], start_index: usize, indent: usize) {
+fn write_items(
+    out: &mut String,
+    items: &[Item],
+    start_index: usize,
+    indent: usize,
+    test_coverages: &[TestCoverage<'_>],
+) {
     for (offset, item) in items.iter().enumerate() {
         comma_line(out, start_index + offset, indent);
-        write_item(out, item, indent);
+        write_item(out, item, indent, test_coverages);
     }
 }
 
-fn write_item(out: &mut String, item: &Item, indent: usize) {
+fn write_item(out: &mut String, item: &Item, indent: usize, test_coverages: &[TestCoverage<'_>]) {
     let pad = " ".repeat(indent);
     out.push_str(&format!("{pad}{{\n"));
     out.push_str(&format!("{pad}  \"kind\": {},\n", quote(item.kind())));
@@ -72,7 +79,7 @@ fn write_item(out: &mut String, item: &Item, indent: usize) {
             write_sections_field(out, &app.sections, indent + 2);
             out.push_str(",\n");
             out.push_str(&format!("{pad}  \"items\": [\n"));
-            write_items(out, &app.items, 0, indent + 4);
+            write_items(out, &app.items, 0, indent + 4, test_coverages);
             out.push_str(&format!("\n{pad}  ]\n"));
         }
         Item::Type(type_def) => {
@@ -113,7 +120,7 @@ fn write_item(out: &mut String, item: &Item, indent: usize) {
             ));
             write_sections_field(out, &task.sections, indent + 2);
             out.push_str(",\n");
-            write_test_obligations_field(out, task, indent + 2);
+            write_test_obligations_field(out, task, indent + 2, test_coverages);
             out.push('\n');
         }
         Item::Test(test) => {
@@ -171,7 +178,54 @@ fn write_sections_field(out: &mut String, sections: &[Section], indent: usize) {
     out.push(']');
 }
 
-fn write_test_obligations_field(out: &mut String, task: &Task, indent: usize) {
+struct TestCoverage<'a> {
+    test_name: &'a str,
+    modifiers: &'a [String],
+    line: &'a SectionLine,
+    covers: String,
+}
+
+fn collect_test_coverages(program: &Program) -> Vec<TestCoverage<'_>> {
+    let mut coverages = Vec::new();
+    for file in &program.files {
+        collect_test_coverages_from_items(&file.items, &mut coverages);
+    }
+    coverages
+}
+
+fn collect_test_coverages_from_items<'a>(items: &'a [Item], coverages: &mut Vec<TestCoverage<'a>>) {
+    for item in items {
+        match item {
+            Item::App(app) => collect_test_coverages_from_items(&app.items, coverages),
+            Item::Test(test) => collect_test_coverages_from_test(test, coverages),
+            _ => {}
+        }
+    }
+}
+
+fn collect_test_coverages_from_test<'a>(test: &'a Test, coverages: &mut Vec<TestCoverage<'a>>) {
+    for section in test
+        .sections
+        .iter()
+        .filter(|section| section.name == "covers")
+    {
+        for line in meaningful_lines(section) {
+            coverages.push(TestCoverage {
+                test_name: &test.name,
+                modifiers: &test.modifiers,
+                line,
+                covers: normalize_coverage(&line.text),
+            });
+        }
+    }
+}
+
+fn write_test_obligations_field(
+    out: &mut String,
+    task: &Task,
+    indent: usize,
+    test_coverages: &[TestCoverage<'_>],
+) {
     let pad = " ".repeat(indent);
     out.push_str(&format!("{pad}\"test_obligations\": ["));
     let obligations = test_obligations(task);
@@ -179,6 +233,7 @@ fn write_test_obligations_field(out: &mut String, task: &Task, indent: usize) {
         if index > 0 {
             out.push_str(", ");
         }
+        let linked_test_count = linked_test_count(&obligation.covers, test_coverages);
         out.push('{');
         out.push_str(&format!("\"id\": {}, ", quote(&obligation.id)));
         out.push_str(&format!("\"kind\": {}, ", quote(obligation.kind)));
@@ -194,9 +249,59 @@ fn write_test_obligations_field(out: &mut String, task: &Task, indent: usize) {
             ", \"suggested_test\": {}",
             quote(&obligation.suggested_test)
         ));
+        out.push_str(&format!(
+            ", \"link_status\": {}",
+            quote(if linked_test_count == 0 {
+                "unlinked"
+            } else {
+                "linked"
+            })
+        ));
+        out.push_str(", \"linked_tests\": [");
+        write_linked_tests(out, &obligation.covers, test_coverages);
+        out.push(']');
         out.push('}');
     }
     out.push(']');
+}
+
+fn linked_test_count(covers: &str, test_coverages: &[TestCoverage<'_>]) -> usize {
+    let normalized_covers = normalize_coverage(covers);
+    test_coverages
+        .iter()
+        .filter(|coverage| coverage.covers == normalized_covers)
+        .count()
+}
+
+fn write_linked_tests(out: &mut String, covers: &str, test_coverages: &[TestCoverage<'_>]) {
+    let normalized_covers = normalize_coverage(covers);
+    for (written, coverage) in test_coverages
+        .iter()
+        .filter(|coverage| coverage.covers == normalized_covers)
+        .enumerate()
+    {
+        if written > 0 {
+            out.push_str(", ");
+        }
+        out.push('{');
+        out.push_str(&format!("\"name\": {}, ", quote(coverage.test_name)));
+        out.push_str("\"modifiers\": [");
+        for (index, modifier) in coverage.modifiers.iter().enumerate() {
+            if index > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&quote(modifier));
+        }
+        out.push_str("], ");
+        out.push_str(&format!("\"covers\": {}, ", quote(&coverage.covers)));
+        out.push_str("\"span\": ");
+        write_span(out, &coverage.line.span);
+        out.push('}');
+    }
+}
+
+fn normalize_coverage(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 struct TestObligation<'a> {
@@ -411,5 +516,45 @@ mod tests {
         assert!(json.contains("\"kind\": \"edge_case\""));
         assert!(json.contains("\"kind\": \"declared_test\""));
         assert!(json.contains("\"suggested_test\": \"add task requires title is not empty\""));
+    }
+
+    #[test]
+    fn task_obligations_link_to_covering_tests() {
+        let source = r#"task add task(title: Text) -> Task {
+  why:
+    save a task
+
+  needs:
+    title is not empty
+
+  ensures:
+    new task is saved
+
+  does:
+    return task
+}
+
+test add task saves nonempty title property {
+  why:
+    prove saving behavior
+
+  covers:
+    add task ensures new task is saved
+
+  does:
+    expect task saved
+}
+"#;
+        let parsed = parse_source("demo.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = program_to_json(&program, &[]);
+
+        assert!(json.contains("\"link_status\": \"linked\""));
+        assert!(json.contains("\"link_status\": \"unlinked\""));
+        assert!(json.contains("\"linked_tests\": [{\"name\": \"add task saves nonempty title\""));
+        assert!(json.contains("\"modifiers\": [\"property\"]"));
+        assert!(json.contains("\"covers\": \"add task ensures new task is saved\""));
     }
 }

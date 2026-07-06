@@ -106,9 +106,14 @@ Task `test_obligations` are generated from meaningful lines in `needs:`,
 - `span`
 - `covers`: coverage phrase a test can use
 - `suggested_test`: human-readable generated test name
+- `link_status`: `linked` when at least one exact `covers:` line matches, otherwise `unlinked`
+- `linked_tests`: covering test references with `name`, `modifiers`, `covers`, and `span`
 
 These are not executable tests yet. They are graph facts that future Hum test
-generation, LSP actions, CI, and agents can use.
+generation, LSP actions, CI, and agents can use. Milestone 0 links obligations
+to top-level `test` items when a meaningful `covers:` line exactly matches the
+obligation `covers` phrase after whitespace normalization; it does not infer
+semantic equivalence.
 
 ### Test
 
