@@ -191,6 +191,12 @@ foreach ($file in $files) {
     Add-Failure $file.FullName ("control character found on line {0}" -f $line)
   }
 
+  $privateUseMatch = [regex]::Match($text, '[\uE000-\uF8FF]')
+  if ($privateUseMatch.Success) {
+    $line = Get-LineNumber $text $privateUseMatch.Index
+    Add-Failure $file.FullName ("private-use Unicode character found on line {0}" -f $line)
+  }
+
   foreach ($pattern in $MojibakePatterns) {
     $index = $text.IndexOf($pattern, [System.StringComparison]::Ordinal)
     if ($index -ge 0) {

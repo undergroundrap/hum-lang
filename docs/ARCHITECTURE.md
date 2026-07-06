@@ -10,13 +10,20 @@ If another Hum doc disagrees with this one, treat that as a design bug to resolv
 
 ## North Star
 
-Hum is an intent-first systems language:
+Hum is an intent-first, evidence-native systems language:
 
 ```text
 human-readable intent -> precise formal core -> semantic graph -> checks, profiles, evidence, and tools -> portable backends and platform artifacts
 ```
 
 Hum should be readable enough for beginners, strict enough for systems engineers, and structured enough for compilers, IDEs, debuggers, profilers, package tools, and coding agents.
+
+Evidence-native means Hum's output is not only a binary. The language and
+toolchain should also emit machine-checkable intent, effect reports,
+capability boundaries, diagnostics, profile facts, provenance, SBOMs, and
+deployment evidence.
+
+See [ADOPTION_STRATEGY_2026.md](ADOPTION_STRATEGY_2026.md).
 
 ## Architecture Layers
 
@@ -91,6 +98,7 @@ See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md).
 - Containers, OS sandboxes, and agent tools do not replace language safety.
 - Windows is the first tested platform, but platform-specific details stay behind explicit capability boundaries.
 - No feature enters stable Hum without semantics, diagnostics, graph facts, tooling impact, profile impact, verification story, performance story, and pedagogy story.
+- No parser-only or checker-only milestone should be presented as a credible public alpha; public adoption requires executable artifacts and evidence bundles.
 
 ## Current Build Order
 

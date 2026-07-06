@@ -91,6 +91,18 @@ Milestone 0 is about truth, not speed.
 
 Milestone 0 is also about local safety. Per [BDFR_SCOPE_AND_SAFETY_DIRECTIVE.md](BDFR_SCOPE_AND_SAFETY_DIRECTIVE.md), this milestone must stay offline, must not execute Hum programs, must not run generated code, must not download packages, and must not mutate files outside approved fixtures.
 
+## Public Alpha Gate
+
+Milestone 0 is not a public alpha. It is the evidence and semantic graph seed
+that makes a future alpha coherent.
+
+A credible public alpha must include executable artifacts, an explicit safe
+profile, basic standard library coverage, formatter and LSP paths, structured
+diagnostics, offline rebuild support, interop, and evidence outputs such as
+effect reports, provenance, and SBOMs.
+
+See [ADOPTION_STRATEGY_2026.md](ADOPTION_STRATEGY_2026.md).
+
 ## Milestone 1: Executable Core
 
 Goal: run a tiny precise subset.

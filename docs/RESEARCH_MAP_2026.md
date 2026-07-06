@@ -31,6 +31,25 @@ small formal core
 
 Any feature that cannot fit that stack should stay experimental.
 
+## Current Adoption Snapshot
+
+The current adoption research snapshot is:
+
+- [research/2026-07-06-evidence-native-systems-language.md](research/2026-07-06-evidence-native-systems-language.md)
+
+It sharpens the product thesis: Hum should not compete as nicer syntax alone.
+It should compete as an evidence-native systems language that turns checked
+intent into semantic graph facts, effect reports, provenance, SBOMs, profile
+reports, review packets, and deployable artifacts.
+
+The near-term adoption wedges are cybersecurity tools, DevOps/SRE utilities,
+and defense or air-gapped offline tooling. These wedges fit Hum's current
+architecture because they value auditability, explicit effects, offline
+operation, provenance, and safe defaults before they demand a huge ecosystem.
+
+See [ADOPTION_STRATEGY_2026.md](ADOPTION_STRATEGY_2026.md) and
+[research/README.md](research/README.md).
+
 ## Research Clusters
 
 ### 1. Verified Compilers And Small Cores

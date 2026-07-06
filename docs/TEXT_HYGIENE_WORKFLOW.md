@@ -34,6 +34,7 @@ The check scans repo text files, excluding `.git` and `target`, for:
 - UTF-8 BOM
 - invalid UTF-8 byte sequences
 - terminal or binary control characters
+- private-use Unicode characters, including UI-only citation glyphs
 - Unicode replacement characters
 - common mojibake marker characters produced by encoding mixups
 - broken local Markdown links
@@ -54,6 +55,22 @@ $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 ```
 
 Avoid `Set-Content -Encoding UTF8` in Windows PowerShell 5.1 for repo text. It writes a BOM.
+
+## Research Imports
+
+Markdown exports from research tools may be UTF-8 without BOM and may contain
+UI-only citation glyphs. Do not inspect or import them with default
+Windows PowerShell 5.1 text decoding.
+
+Use:
+
+```powershell
+.\tools\import_research_report.ps1 -SourcePath <export.md> -Slug <topic> -Date <yyyy-mm-dd>
+```
+
+Then run the text hygiene and public readiness checks. If a research export only
+contains UI-local citation markers, keep it as a snapshot and run a follow-up
+prompt that asks for direct source URLs.
 
 ## Repair Routine
 

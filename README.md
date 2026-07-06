@@ -87,6 +87,8 @@ Current artifacts:
 - [docs/LANGUAGE_PAIN_SWEEP_2026.md](docs/LANGUAGE_PAIN_SWEEP_2026.md): researched pain sweep across Rust, Zig, C++, Python, Go, TypeScript, Verse, and more
 - [docs/PRACTITIONER_PAIN_SWEEP_2026.md](docs/PRACTITIONER_PAIN_SWEEP_2026.md): sysadmin, DevOps, network, low-level, AI/ML, and numeric workload pain sweep
 - [docs/RESEARCH_MAP_2026.md](docs/RESEARCH_MAP_2026.md): papers and systems that gate Hum language, compiler, stdlib, profile, and verification design
+- [docs/ADOPTION_STRATEGY_2026.md](docs/ADOPTION_STRATEGY_2026.md): evidence-native adoption thesis, early wedges, alpha gate, and demo strategy
+- [docs/research/README.md](docs/research/README.md): repeatable research workflow, prompts, and normalized snapshots
 - [docs/COMPUTING_LESSONS_SWEEP_2026.md](docs/COMPUTING_LESSONS_SWEEP_2026.md): 2026 sweep across hardware, Docker/OCI, Kubernetes, WASI, MCP, observability, networking, storage, and deployment lessons
 - [docs/OPTIMIZATION_AND_DSA_STRATEGY.md](docs/OPTIMIZATION_AND_DSA_STRATEGY.md): research-gated optimization and data-structure strategy
 - [docs/HASH_TABLE_RESEARCH_2501_02305.md](docs/HASH_TABLE_RESEARCH_2501_02305.md): deep note on elastic/funnel hashing and Hum's `Map` research path
