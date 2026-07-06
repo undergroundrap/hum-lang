@@ -154,6 +154,7 @@ cargo clippy --all-targets -- -D warnings
 cargo run -- check examples
 cargo run -- graph examples/task_list.hum
 cargo run -- test-skeletons examples
+cargo run -- syntax
 ```
 
 Current CLI:
@@ -161,6 +162,7 @@ Current CLI:
 - `hum check <file-or-dir>...`: parse Hum and run Milestone 0 intent checks
 - `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including section line facts, task test obligations, and exact `covers:` links
 - `hum test-skeletons <file-or-dir>...`: print Hum `test` blocks for unlinked test obligations without executing code or writing files
+- `hum syntax`: emit `hum.syntax_surface.v0` JSON for editor and tool adapters
 - add `--timings` to print read/parse/check timing data
 
 ## Text Hygiene

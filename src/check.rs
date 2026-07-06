@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::ast::{Item, Section, SourceFile, Task, Test};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+use crate::syntax;
 
 pub fn check_file(file: &SourceFile) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -80,24 +81,7 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
         "task",
         &task.name,
         &task.sections,
-        &[
-            "why",
-            "uses",
-            "changes",
-            "needs",
-            "ensures",
-            "protects",
-            "trusts",
-            "fails when",
-            "watch for",
-            "cost",
-            "allocates",
-            "avoids",
-            "tradeoffs",
-            "optimizes",
-            "tests",
-            "does",
-        ],
+        syntax::TASK_SECTION_ORDER,
         diagnostics,
     );
 
@@ -149,16 +133,7 @@ fn check_test(test: &Test, diagnostics: &mut Vec<Diagnostic>) {
         "test",
         &test.name,
         &test.sections,
-        &[
-            "why",
-            "uses",
-            "needs",
-            "regression",
-            "covers",
-            "avoids",
-            "cost",
-            "does",
-        ],
+        syntax::TEST_SECTION_ORDER,
         diagnostics,
     );
 

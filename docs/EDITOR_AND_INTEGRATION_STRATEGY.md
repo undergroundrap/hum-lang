@@ -24,6 +24,7 @@ Hum should own these tools:
 
 - `hum check`: diagnostics and local validation
 - `hum graph`: semantic graph JSON for tools, agents, and docs
+- `hum syntax`: syntax surface JSON for highlighting, grammar generation, and adapters
 - `humfmt`: canonical formatting
 - `hum lsp`: language intelligence through the Language Server Protocol
 - `hum debug`: future Debug Adapter Protocol bridge
@@ -42,6 +43,7 @@ Plugins should be adapters, not alternate implementations of Hum semantics.
 - line-ending normalization
 - stable CLI output
 - stable semantic graph JSON
+- stable syntax surface JSON from `hum syntax`
 
 This tier makes Hum usable in plain terminals, basic editors, and enterprise source scanners.
 
@@ -125,13 +127,14 @@ Rules:
 1. stable CLI diagnostics
 2. stable spans and semantic graph node IDs
 3. `hum graph` schema versioning
-4. TextMate grammar generated from the syntax list
-5. `hum lsp` with diagnostics, symbols, folding, hover, and formatting hooks
-6. VS Code/Cursor adapter because it reaches the most users fastest
-7. Neovim/Helix/Zed docs because LSP users can self-serve
-8. Visual Studio adapter when Windows enterprise workflows justify it
-9. JetBrains/Eclipse adapter docs and package shells
-10. Jupyter kernel only after executable Hum exists
+4. `hum syntax` as the first editor-neutral syntax surface
+5. TextMate grammar generated from `hum syntax`
+6. `hum lsp` with diagnostics, symbols, folding, hover, and formatting hooks
+7. VS Code/Cursor adapter because it reaches the most users fastest
+8. Neovim/Helix/Zed docs because LSP users can self-serve
+9. Visual Studio adapter when Windows enterprise workflows justify it
+10. JetBrains/Eclipse adapter docs and package shells
+11. Jupyter kernel only after executable Hum exists
 
 ## Sources
 

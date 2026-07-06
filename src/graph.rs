@@ -1,4 +1,5 @@
 use crate::ast::{Item, Program, Section, SectionLine, Task, Test};
+use crate::syntax;
 
 pub struct TestCoverage<'a> {
     pub test_name: &'a str,
@@ -61,12 +62,7 @@ pub fn linked_test_count(covers: &str, test_coverages: &[TestCoverage<'_>]) -> u
 
 pub fn test_obligations(task: &Task) -> Vec<TestObligation<'_>> {
     let mut obligations = Vec::new();
-    for (section_name, kind) in [
-        ("needs", "precondition"),
-        ("ensures", "postcondition"),
-        ("watch for", "edge_case"),
-        ("tests", "declared_test"),
-    ] {
+    for &(section_name, kind) in syntax::TEST_OBLIGATION_SECTIONS {
         for section in task
             .sections
             .iter()

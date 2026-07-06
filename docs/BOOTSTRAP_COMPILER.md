@@ -109,6 +109,8 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 cargo run -- check examples
 cargo run -- graph examples/task_list.hum
+cargo run -- test-skeletons examples
+cargo run -- syntax
 ```
 
 Use the equivalent full path to Cargo only in a local shell when Cargo is not on `PATH`; do not commit machine-specific Cargo paths.

@@ -421,6 +421,7 @@ Delayed until the formal core, graph, diagnostics, and tooling can explain them:
 hum check <file-or-dir>...
 hum graph <file-or-dir>...
 hum test-skeletons <file-or-dir>...
+hum syntax
 ```
 
 Bootstrap examples:
@@ -429,6 +430,7 @@ Bootstrap examples:
 cargo run -- check examples
 cargo run -- graph examples
 cargo run -- test-skeletons examples
+cargo run -- syntax
 ```
 
 ## Open Reference Gaps
@@ -441,7 +443,7 @@ This reference is intentionally incomplete. The next gaps to close are:
 - import and visibility rules
 - formal lowering from surface constructs into Core Hum
 - stable examples for every accepted syntax form
-- generated editor grammar and syntax-highlight keyword list
+- generated editor grammar and syntax-highlight keyword list beyond `hum syntax`
 
 Until those are pinned, broad syntax expansion should stay in design docs, not
 in stable Hum.

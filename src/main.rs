@@ -6,6 +6,7 @@ mod diagnostic;
 mod graph;
 mod json;
 mod parser;
+mod syntax;
 mod test_skeletons;
 
 use std::env;
@@ -35,6 +36,11 @@ fn run() -> Result<ExitCode, String> {
     }
 
     let options = parse_cli(args)?;
+    if options.command == "syntax" {
+        print!("{}", syntax::syntax_json());
+        return Ok(ExitCode::SUCCESS);
+    }
+
     let loaded = load_program(&options.inputs)?;
     let program = loaded.program;
     let diagnostics = loaded.diagnostics;
@@ -97,11 +103,12 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, or `test-skeletons`"
+            "unknown command `{other}`; expected `check`, `graph`, `test-skeletons`, or `syntax`"
         )),
     }
 }
 
+#[derive(Debug)]
 struct CliOptions {
     command: String,
     inputs: Vec<PathBuf>,
@@ -124,9 +131,12 @@ struct FileTiming {
 
 fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let command = args[0].clone();
-    if !matches!(command.as_str(), "check" | "graph" | "test-skeletons") {
+    if !matches!(
+        command.as_str(),
+        "check" | "graph" | "test-skeletons" | "syntax"
+    ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, or `test-skeletons`"
+            "unknown command `{command}`; expected `check`, `graph`, `test-skeletons`, or `syntax`"
         ));
     }
 
@@ -139,6 +149,20 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             flag if flag.starts_with("--") => return Err(format!("unknown flag `{flag}`")),
             _ => raw_inputs.push(arg),
         }
+    }
+
+    if command == "syntax" {
+        if show_timings {
+            return Err("`syntax` does not support `--timings`".to_string());
+        }
+        if !raw_inputs.is_empty() {
+            return Err("`syntax` does not accept input files".to_string());
+        }
+        return Ok(CliOptions {
+            command,
+            inputs: Vec::new(),
+            show_timings,
+        });
     }
 
     Ok(CliOptions {
@@ -269,12 +293,33 @@ fn print_help() {
     println!("  hum check [--timings] <file-or-dir>...");
     println!("  hum graph [--timings] <file-or-dir>...");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
+    println!("  hum syntax");
     println!();
     println!("Commands:");
     println!("  check   Parse Hum files and run milestone-0 intent checks");
     println!("  graph           Emit hum.semantic_graph.v0 JSON for agents and tools");
     println!("  test-skeletons  Print Hum test skeletons for unlinked obligations");
+    println!("  syntax          Emit hum.syntax_surface.v0 JSON for editor/tool adapters");
     println!();
     println!("Options:");
     println!("  --timings   Print read/parse/check timings per input file");
+}
+#[cfg(test)]
+mod tests {
+    use super::parse_cli;
+
+    #[test]
+    fn parses_syntax_command_without_inputs() {
+        let options = parse_cli(vec!["syntax".to_string()]).expect("syntax command");
+        assert_eq!(options.command, "syntax");
+        assert!(options.inputs.is_empty());
+        assert!(!options.show_timings);
+    }
+
+    #[test]
+    fn rejects_syntax_command_inputs() {
+        let error = parse_cli(vec!["syntax".to_string(), "examples".to_string()])
+            .expect_err("syntax should reject inputs");
+        assert_eq!(error, "`syntax` does not accept input files");
+    }
 }

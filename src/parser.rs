@@ -2,6 +2,7 @@ use crate::ast::{
     App, Field, Item, Param, Section, SectionLine, SourceFile, Store, Task, Test, TypeDef,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+use crate::syntax;
 
 #[derive(Debug, Clone)]
 pub struct ParseOutput {
@@ -71,7 +72,7 @@ impl Parser {
                     continue;
                 }
 
-                if is_item_start(trimmed) {
+                if syntax::is_item_start(trimmed) {
                     match self.parse_item_at(index) {
                         Some((item, next_index)) => {
                             items.push(item);
@@ -111,7 +112,7 @@ impl Parser {
                 continue;
             }
 
-            if count_indent(&line_text) == item_indent && is_item_start(trimmed) {
+            if count_indent(&line_text) == item_indent && syntax::is_item_start(trimmed) {
                 match self.parse_item_at(index) {
                     Some((item, next_index)) if next_index <= end + 1 => {
                         items.push(item);
@@ -271,7 +272,7 @@ impl Parser {
                     let candidate_indent = count_indent(&candidate.text);
                     if candidate_indent == section_indent
                         && (is_section_header(candidate_trimmed)
-                            || is_item_start(candidate_trimmed))
+                            || syntax::is_item_start(candidate_trimmed))
                     {
                         break;
                     }
@@ -304,7 +305,7 @@ impl Parser {
             if is_ignorable(trimmed) || count_indent(&line.text) != field_indent {
                 continue;
             }
-            if is_section_header(trimmed) || is_item_start(trimmed) {
+            if is_section_header(trimmed) || syntax::is_item_start(trimmed) {
                 continue;
             }
             if let Some((name, ty)) = trimmed.split_once(':') {
@@ -357,7 +358,7 @@ impl Parser {
             let mut words = rest.split_whitespace().collect::<Vec<_>>();
             let mut modifiers = Vec::new();
             while let Some(last) = words.last().copied() {
-                if is_test_modifier(last) {
+                if syntax::is_test_modifier(last) {
                     modifiers.insert(0, last.to_string());
                     words.pop();
                 } else {
@@ -445,27 +446,12 @@ fn is_ignorable(trimmed: &str) -> bool {
     trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//")
 }
 
-fn is_item_start(trimmed: &str) -> bool {
-    trimmed.starts_with("app ")
-        || trimmed.starts_with("type ")
-        || trimmed.starts_with("store ")
-        || trimmed.starts_with("task ")
-        || trimmed.starts_with("test ")
-}
-
 fn is_section_header(trimmed: &str) -> bool {
     if !trimmed.ends_with(':') || trimmed.len() <= 1 {
         return false;
     }
     let name = trimmed.trim_end_matches(':').trim();
     !name.is_empty() && name.chars().all(|ch| ch.is_ascii_alphabetic() || ch == ' ')
-}
-
-fn is_test_modifier(word: &str) -> bool {
-    matches!(
-        word,
-        "property" | "fuzz" | "regression" | "integration" | "model" | "unit"
-    )
 }
 
 #[cfg(test)]
