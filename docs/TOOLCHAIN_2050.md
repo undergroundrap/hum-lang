@@ -270,13 +270,14 @@ Milestone 0 should produce:
 1. stable diagnostic shape
 2. stable source spans
 3. `hum graph` with node ids
-4. syntax highlight keyword list
-5. TextMate grammar sketch
-6. Tree-sitter grammar design note
-7. LSP capability plan
-8. debugger data model sketch
-9. golden tests for incomplete/broken source
-10. editor-fixture `.hum` files
+4. [MILESTONE_0_GRAMMAR.md](MILESTONE_0_GRAMMAR.md) as the bootstrap grammar contract
+5. syntax highlight keyword list
+6. TextMate grammar sketch
+7. Tree-sitter grammar design note
+8. LSP capability plan
+9. debugger data model sketch
+10. golden tests for incomplete/broken source
+11. editor-fixture `.hum` files
 
 Before Hum is called alpha, it should have:
 

@@ -31,7 +31,7 @@ See [ADOPTION_STRATEGY_2026.md](ADOPTION_STRATEGY_2026.md).
 
 ### 1. Surface Hum
 
-Surface Hum is what people write: `task`, `type`, `store`, `test`, and checked intent blocks such as `why:`, `uses:`, `changes:`, `needs:`, `ensures:`, `fails when:`, `watch for:`, `protects:`, `trusts:`, `cost:`, `avoids:`, `tradeoffs:`, `tests:`, `proves:`, and `does:`.
+Surface Hum is what people write: `task`, `type`, `store`, `test`, and checked intent blocks such as `why:`, `uses:`, `changes:`, `needs:`, `ensures:`, `fails when:`, `watch for:`, `protects:`, `trusts:`, `cost:`, `allocates:`, `avoids:`, `tradeoffs:`, `optimizes:`, `tests:`, `proves:`, and `does:`.
 
 The surface rule is controlled obviousness: no headers, no semicolons in normal source, no hidden effects, no hidden mutation, no hidden unsafe, and no correctness-critical comments without a checked home.
 

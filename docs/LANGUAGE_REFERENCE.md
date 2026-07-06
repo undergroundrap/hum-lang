@@ -40,6 +40,7 @@ foreign code.
 - [ARCHITECTURE.md](ARCHITECTURE.md): ground-truth map
 - [PAVED_ROAD_DOCTRINE.md](PAVED_ROAD_DOCTRINE.md): default-path doctrine
 - [LANGUAGE_CONSTITUTION.md](LANGUAGE_CONSTITUTION.md): rules Hum must not violate
+- [MILESTONE_0_GRAMMAR.md](MILESTONE_0_GRAMMAR.md): current Rust bootstrap parser grammar contract
 - [FORMAL_CORE.md](FORMAL_CORE.md): precise executable core direction
 - [LANGUAGE_SUBSET_0_1.md](LANGUAGE_SUBSET_0_1.md): pinned alpha subset
 - [SEMANTIC_GRAPH_SCHEMA.md](SEMANTIC_GRAPH_SCHEMA.md): graph JSON emitted today
@@ -78,7 +79,8 @@ Current rules:
 
 Current parser behavior is intentionally small. It captures many section body
 lines as text for graph facts and future lowering. It is not the final grammar
-engine.
+engine. See [MILESTONE_0_GRAMMAR.md](MILESTONE_0_GRAMMAR.md) for the exact
+Milestone 0 parser contract.
 
 ## Top-Level Forms
 
@@ -240,22 +242,24 @@ Common task sections:
 | `fails when:` | current | explicit failure modes |
 | `watch for:` | current | edge cases and generated test obligations |
 | `cost:` | current | time, space, allocation, and check claims |
+| `allocates:` | current | visible allocation expectations and limits |
 | `avoids:` | current | implementation shapes to avoid |
 | `tradeoffs:` | current | accepted engineering compromises |
+| `optimizes:` | current | performance or quality priorities when tradeoffs conflict |
 | `tests:` | current | declared test obligations |
 | `proves:` | reference | formal or semi-formal proof obligations |
 | `does:` | current | captured body text; executable semantics are future work |
 
 Additional sections such as `creates:`, `deletes:`, `assumes:`, `keeps:`,
-`protects:`, `trusts:`, `benchmarks:`, `allocates:`, and `calls:` are part of
-the broader design direction and appear in design docs. They require more
-checker and graph work before becoming stable executable promises.
+`benchmarks:`, and `calls:` are part of the broader design direction and appear
+in design docs. They require more checker and graph work before becoming stable
+executable promises.
 
 ## Canonical Section Order
 
 Milestone 0 warns when known task and test sections are out of canonical order.
 
-Preferred task order follows [FORMATTER.md](FORMATTER.md):
+Preferred task order follows [FORMATTER.md](FORMATTER.md). The current checker warning order is narrower and is listed in [DIAGNOSTICS.md](DIAGNOSTICS.md):
 
 ```text
 why
@@ -272,8 +276,10 @@ trusts
 fails when
 watch for
 cost
+allocates
 avoids
 tradeoffs
+optimizes
 tests
 benchmarks
 proves
@@ -429,7 +435,7 @@ cargo run -- test-skeletons examples
 
 This reference is intentionally incomplete. The next gaps to close are:
 
-- exact identifier and path grammar
+- final identifier and path grammar beyond the Milestone 0 parser contract
 - exact expression grammar for the first executable subset
 - type grammar for records, results, options, lists, and maps
 - import and visibility rules

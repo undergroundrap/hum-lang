@@ -124,6 +124,8 @@ See [SELF_HOSTING_PLAN.md](SELF_HOSTING_PLAN.md).
 
 The Milestone 0 parser is intentionally small. It is line/block-oriented and
 built to validate the language shape, not to be the final grammar engine.
+See [MILESTONE_0_GRAMMAR.md](MILESTONE_0_GRAMMAR.md) for the current bootstrap
+parser contract.
 
 The next parser upgrade should either become a deliberate hand-written recursive
 descent parser with a lossless token stream, or adopt a proven incremental

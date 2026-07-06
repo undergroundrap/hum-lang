@@ -80,12 +80,14 @@ Humfmt should prefer this task section order:
 12. `fails when:`
 13. `watch for:`
 14. `cost:`
-15. `avoids:`
-16. `tradeoffs:`
-17. `tests:`
-18. `benchmarks:`
-19. `proves:`
-20. `does:`
+15. `allocates:`
+16. `avoids:`
+17. `tradeoffs:`
+18. `optimizes:`
+19. `tests:`
+20. `benchmarks:`
+21. `proves:`
+22. `does:`
 
 Early humfmt may warn about order before auto-reordering. Reordering prose-heavy
 blocks can surprise users, so automatic movement should wait until the parser can
