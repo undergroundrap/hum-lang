@@ -57,6 +57,8 @@ function Convert-ToRepoText {
     @{ Code = 0x2015; Value = '-' },
     @{ Code = 0x2212; Value = '-' },
     @{ Code = 0x2026; Value = '...' },
+    @{ Code = 0x2022; Value = '-' },
+    @{ Code = 0x25CF; Value = '-' },
     @{ Code = 0x00A0; Value = ' ' },
     @{ Code = 0x2190; Value = '<-' },
     @{ Code = 0x2192; Value = '->' },

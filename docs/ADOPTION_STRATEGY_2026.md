@@ -11,6 +11,7 @@ world will demand before Hum can be taken seriously.
 Primary research snapshot:
 
 - [research/2026-07-06-evidence-native-systems-language.md](research/2026-07-06-evidence-native-systems-language.md)
+- [research/2026-07-06-offline-tool-alpha.md](research/2026-07-06-offline-tool-alpha.md)
 
 ## Thesis
 
@@ -28,6 +29,22 @@ That means the language should produce more than binaries:
 - deployable artifacts for real environments
 
 Readable syntax is necessary. It is not enough.
+
+## Competition Stance
+
+Hum should eventually compete with Rust, C++, Go, and other serious systems
+tools. The alpha strategy should not pretend that has already happened.
+
+The right posture is:
+
+```text
+compete later as a full systems language;
+win first as an evidence-native offline tool profile.
+```
+
+That means Hum should avoid premature "Rust replacement" claims while still
+building toward a language that can challenge incumbents on safety, evidence,
+readability, performance truth, and toolchain coherence.
 
 ## First Adoption Wedges
 
@@ -50,8 +67,11 @@ center.
 
 Milestone 0 is not a public alpha. It is a semantics and evidence seed.
 
-A credible public alpha needs:
+A credible public alpha should start with
+[OFFLINE_TOOL_ALPHA_0_1.md](OFFLINE_TOOL_ALPHA_0_1.md): a deterministic
+`offline-tool@0.1` profile for local security and change-review tools.
 
+It needs:
 - one executable safe profile
 - native Windows output
 - one portable artifact path, preferably WASI or a component-style target

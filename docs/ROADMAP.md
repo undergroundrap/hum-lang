@@ -101,7 +101,11 @@ profile, basic standard library coverage, formatter and LSP paths, structured
 diagnostics, offline rebuild support, interop, and evidence outputs such as
 effect reports, provenance, and SBOMs.
 
-See [ADOPTION_STRATEGY_2026.md](ADOPTION_STRATEGY_2026.md).
+The recommended first alpha profile is `offline-tool@0.1`: deterministic,
+file-only, no-network, no-unsafe local tooling that emits evidence artifacts.
+
+See [ADOPTION_STRATEGY_2026.md](ADOPTION_STRATEGY_2026.md) and
+[OFFLINE_TOOL_ALPHA_0_1.md](OFFLINE_TOOL_ALPHA_0_1.md).
 
 ## Milestone 1: Executable Core
 
