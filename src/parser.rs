@@ -71,7 +71,7 @@ impl Parser {
                     continue;
                 }
 
-                if is_item_header(trimmed) {
+                if is_item_start(trimmed) {
                     match self.parse_item_at(index) {
                         Some((item, next_index)) => {
                             items.push(item);
@@ -111,7 +111,7 @@ impl Parser {
                 continue;
             }
 
-            if count_indent(&line_text) == item_indent && is_item_header(trimmed) {
+            if count_indent(&line_text) == item_indent && is_item_start(trimmed) {
                 match self.parse_item_at(index) {
                     Some((item, next_index)) if next_index <= end + 1 => {
                         items.push(item);
@@ -271,7 +271,7 @@ impl Parser {
                     let candidate_indent = count_indent(&candidate.text);
                     if candidate_indent == section_indent
                         && (is_section_header(candidate_trimmed)
-                            || is_item_header(candidate_trimmed))
+                            || is_item_start(candidate_trimmed))
                     {
                         break;
                     }
@@ -304,7 +304,7 @@ impl Parser {
             if is_ignorable(trimmed) || count_indent(&line.text) != field_indent {
                 continue;
             }
-            if is_section_header(trimmed) || is_item_header(trimmed) {
+            if is_section_header(trimmed) || is_item_start(trimmed) {
                 continue;
             }
             if let Some((name, ty)) = trimmed.split_once(':') {
@@ -445,13 +445,12 @@ fn is_ignorable(trimmed: &str) -> bool {
     trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//")
 }
 
-fn is_item_header(trimmed: &str) -> bool {
-    trimmed.ends_with('{')
-        && (trimmed.starts_with("app ")
-            || trimmed.starts_with("type ")
-            || trimmed.starts_with("store ")
-            || trimmed.starts_with("task ")
-            || trimmed.starts_with("test "))
+fn is_item_start(trimmed: &str) -> bool {
+    trimmed.starts_with("app ")
+        || trimmed.starts_with("type ")
+        || trimmed.starts_with("store ")
+        || trimmed.starts_with("task ")
+        || trimmed.starts_with("test ")
 }
 
 fn is_section_header(trimmed: &str) -> bool {
@@ -473,7 +472,7 @@ fn is_test_modifier(word: &str) -> bool {
 mod tests {
     use super::parse_source;
     use crate::ast::Item;
-    use crate::diagnostic::DiagnosticCode;
+    use crate::diagnostic::{DiagnosticCode, Severity};
 
     #[test]
     fn parses_task_with_sections() {
@@ -537,5 +536,116 @@ task add task(title: Text) -> Result Task, TaskError {
                 .iter()
                 .any(|diagnostic| diagnostic.code == DiagnosticCode::PARAMETER_MISSING_TYPE)
         );
+    }
+
+    #[test]
+    fn reports_stable_codes_for_malformed_sources() {
+        let cases = [
+            (
+                "missing-open-brace.hum",
+                "task save task()\n  why:\n    save it\n",
+                DiagnosticCode::ITEM_HEADER_MISSING_OPEN_BRACE,
+                Severity::Error,
+            ),
+            (
+                "missing-close-brace.hum",
+                "task save task() {\n  why:\n    save it\n",
+                DiagnosticCode::ITEM_BLOCK_MISSING_CLOSE_BRACE,
+                Severity::Error,
+            ),
+            (
+                "missing-close-paren.hum",
+                "task save task(title: Text {\n  why:\n    save it\n}\n",
+                DiagnosticCode::CALLABLE_SIGNATURE_MISSING_CLOSE_PAREN,
+                Severity::Error,
+            ),
+            (
+                "unexpected-top-level.hum",
+                "does:\n  orphan body line\n",
+                DiagnosticCode::UNEXPECTED_TOP_LEVEL_LINE,
+                Severity::Warning,
+            ),
+        ];
+
+        for (path, source, expected_code, expected_severity) in cases {
+            let parsed = parse_source(path, source);
+            assert!(
+                parsed.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.code == expected_code
+                        && diagnostic.severity == expected_severity
+                        && diagnostic
+                            .span
+                            .as_ref()
+                            .is_some_and(|span| span.file == path)
+                }),
+                "expected {expected_code:?} in {path}, got {:?}",
+                parsed.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn reports_missing_brace_for_nested_item_headers() {
+        let source = r#"app Demo {
+  why:
+    show nested parsing
+
+  task nested task()
+    why:
+      missing brace
+}
+"#;
+        let parsed = parse_source("nested-bad.hum", source);
+        assert!(parsed.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DiagnosticCode::ITEM_HEADER_MISSING_OPEN_BRACE
+                && diagnostic.span.as_ref().is_some_and(|span| span.line == 5)
+        }));
+    }
+
+    #[test]
+    fn parses_nested_app_items_from_contract() {
+        let source = r#"app Demo {
+  why:
+    group the demo
+
+  task add task(title: Text) {
+    why:
+      add the task
+
+    does:
+      return title
+  }
+}
+"#;
+        let parsed = parse_source("nested.hum", source);
+        assert!(parsed.diagnostics.is_empty());
+        match &parsed.file.items[0] {
+            Item::App(app) => {
+                assert_eq!(app.items.len(), 1);
+                assert!(matches!(&app.items[0], Item::Task(task) if task.name == "add task"));
+            }
+            other => panic!("expected app, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn preserves_comment_lines_inside_sections() {
+        let source = r#"task explain() {
+  why:
+    # keep this visible to graph consumers
+    explain the thing
+
+  does:
+    return
+}
+"#;
+        let parsed = parse_source("comments.hum", source);
+        let task = match &parsed.file.items[0] {
+            Item::Task(task) => task,
+            other => panic!("expected task, got {other:?}"),
+        };
+        let why = task.section("why").expect("why section");
+        assert_eq!(why.lines[0].text, "# keep this visible to graph consumers");
+        assert_eq!(why.lines[1].text, "explain the thing");
     }
 }
