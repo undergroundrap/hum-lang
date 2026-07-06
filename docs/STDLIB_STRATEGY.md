@@ -56,7 +56,7 @@ different container tradeoffs before they can store data.
 See [OPTIMIZATION_AND_DSA_STRATEGY.md](OPTIMIZATION_AND_DSA_STRATEGY.md) for the
 research intake pipeline and optimization admission gate.
 
-See [STDLIB_CONSTITUTION.md](STDLIB_CONSTITUTION.md) for stable `std` admission rules and [STDLIB_PRIMITIVE_RESEARCH_2026.md](STDLIB_PRIMITIVE_RESEARCH_2026.md) for the first primitive research sweep.
+See [PAVED_ROAD_DOCTRINE.md](PAVED_ROAD_DOCTRINE.md) for the default-path philosophy, [STDLIB_CONSTITUTION.md](STDLIB_CONSTITUTION.md) for stable `std` admission rules, and [STDLIB_PRIMITIVE_RESEARCH_2026.md](STDLIB_PRIMITIVE_RESEARCH_2026.md) for the first primitive research sweep.
 
 ## What The 2026 Research Actually Means
 
@@ -245,7 +245,8 @@ Should include:
 - constant-time comparisons
 - secret memory wrappers
 
-Do not expose footgun primitives as the default path.
+Do not expose footgun primitives as the default path. Crypto should have a paved
+road for ordinary secure use, not a tray of sharp primitives with equal status.
 
 ### `std.parse`
 
@@ -308,6 +309,7 @@ Before implementing containers, write the rules:
 - every data structure documents pointer stability, iteration order, memory use,
   and adversarial behavior
 - every structure-facing API passes the optimization and DSA admission gate
+- every primitive names its paved-road default and any explicit side roads
 
 ### Phase 1: Reference Implementations Outside Hum
 

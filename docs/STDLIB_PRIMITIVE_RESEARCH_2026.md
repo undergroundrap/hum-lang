@@ -114,7 +114,8 @@ Rust hashbrown show the practical value of dense cache-aware maps.
 
 ### Hum Lesson
 
-Hum needs map profiles, not one magical map.
+Hum needs one paved `Map` API whose internal strategy can be selected or
+rejected from profile-backed evidence.
 
 Map contracts must separate:
 
@@ -373,7 +374,8 @@ The best standard library is not the one with the most features.
 
 It is the one where the default path is safe, the fast path is honest, the weird
 path is explicit, and every important cost can be found by a human, compiler,
-profiler, or agent.
+profiler, or agent. This is the [Paved Road Doctrine](PAVED_ROAD_DOCTRINE.md)
+applied to `std`.
 
 ## Sources
 

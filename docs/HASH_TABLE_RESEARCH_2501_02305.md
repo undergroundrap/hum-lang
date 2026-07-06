@@ -107,10 +107,14 @@ So the right conclusion is not "Hum has solved maps".
 The right conclusion is:
 
 ```text
-Hum needs map profiles, not one magical Map.
+Hum needs one paved Map API with profile-backed strategies, not many equal-looking map defaults.
 ```
 
 ## Hum Map Profiles
+
+Profiles are not a request to expose 50 public map types. They are the evidence
+surface that lets the compiler and stdlib choose or reject a strategy while the
+ordinary user still reaches for `Map` first.
 
 Hum should eventually let programmers express map intent like this:
 

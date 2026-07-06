@@ -23,6 +23,10 @@ and explainable.
 Hum should prefer a small standard library with excellent contracts over a large
 standard library full of clever APIs that nobody can safely remove.
 
+The standard library follows the [Paved Road Doctrine](PAVED_ROAD_DOCTRINE.md):
+one obvious default API for ordinary use, explicit side roads for specialized
+constraints, and evidence before any specialized path becomes stable.
+
 ## Stability Tiers
 
 ### sketch
@@ -94,6 +98,7 @@ Stable `std` APIs should default to:
 - deterministic behavior when the docs promise determinism
 - readable examples that survive `humfmt`
 - semantic graph facts agents can consume
+- one obvious paved-road API before specialized variants
 
 A fast API that hides risk is not a Hum default. It can be a trusted or unsafe
 specialization if the source says so.
@@ -130,6 +135,7 @@ Rules:
 
 Rules:
 
+- provide one paved-road `Map` API for ordinary use before exposing specialized variants
 - separate present-key lookup, missing-key lookup, insert, delete, resize, and
   iteration costs
 - document memory overhead and load-factor behavior

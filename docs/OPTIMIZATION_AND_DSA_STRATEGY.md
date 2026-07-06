@@ -8,7 +8,9 @@ Hum should treat algorithms and data structures as language design, not as a
 later library chore.
 
 The goal is not to chase every new paper. The goal is to make modern
-optimization evidence part of the path from syntax to standard library.
+optimization evidence part of the path from syntax to standard library, under
+the [Paved Road Doctrine](PAVED_ROAD_DOCTRINE.md): one safe default path, with
+explicit evidence-backed side roads only when needed.
 
 Hum should be designed so a programmer can state:
 

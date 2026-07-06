@@ -69,6 +69,7 @@ Current artifacts:
 - [docs/EDITOR_AND_INTEGRATION_STRATEGY.md](docs/EDITOR_AND_INTEGRATION_STRATEGY.md): editor, LSP, plugin, Visual Studio, Eclipse, and Jupyter integration strategy
 - [docs/RELEASE_AND_VERSIONING.md](docs/RELEASE_AND_VERSIONING.md): SemVer, `0.0.1`, release checks, and tag policy
 - [docs/LANGUAGE_CONSTITUTION.md](docs/LANGUAGE_CONSTITUTION.md): rules Hum must not violate
+- [docs/PAVED_ROAD_DOCTRINE.md](docs/PAVED_ROAD_DOCTRINE.md): one obvious default path, explicit side roads, and evidence-backed optimization doctrine
 - [docs/BDFR_SCOPE_AND_SAFETY_DIRECTIVE.md](docs/BDFR_SCOPE_AND_SAFETY_DIRECTIVE.md): BDFR safety, scope, offline-first, interop, and portability directive
 - [docs/SAFETY_OF_MAKER_AND_USER.md](docs/SAFETY_OF_MAKER_AND_USER.md): two-sided safety philosophy for makers, users, maintainers, and agents
 - [docs/LANGUAGE_PROJECT_RISK_REGISTER_2026.md](docs/LANGUAGE_PROJECT_RISK_REGISTER_2026.md): ground-truth failure modes and safety gates for building Hum itself

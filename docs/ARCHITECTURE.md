@@ -18,6 +18,8 @@ human-readable intent -> precise formal core -> semantic graph -> checks, profil
 
 Hum should be readable enough for beginners, strict enough for systems engineers, and structured enough for compilers, IDEs, debuggers, profilers, package tools, and coding agents.
 
+Hum should have paved roads, not endless knobs: one obvious safe default path, explicit side roads only when evidence and source-visible intent justify them, and diagnostics that guide users back to the better path. See [PAVED_ROAD_DOCTRINE.md](PAVED_ROAD_DOCTRINE.md).
+
 Evidence-native means Hum's output is not only a binary. The language and
 toolchain should also emit machine-checkable intent, effect reports,
 capability boundaries, diagnostics, profile facts, provenance, SBOMs, and
@@ -81,7 +83,7 @@ The stdlib rule is:
 algorithm > data layout > allocation > cache behavior > compiler lowering > instruction tricks
 ```
 
-See [STDLIB_CONSTITUTION.md](STDLIB_CONSTITUTION.md), [STDLIB_PRIMITIVE_RESEARCH_2026.md](STDLIB_PRIMITIVE_RESEARCH_2026.md), and [OPTIMIZATION_AND_DSA_STRATEGY.md](OPTIMIZATION_AND_DSA_STRATEGY.md).
+See [PAVED_ROAD_DOCTRINE.md](PAVED_ROAD_DOCTRINE.md), [STDLIB_CONSTITUTION.md](STDLIB_CONSTITUTION.md), [STDLIB_PRIMITIVE_RESEARCH_2026.md](STDLIB_PRIMITIVE_RESEARCH_2026.md), and [OPTIMIZATION_AND_DSA_STRATEGY.md](OPTIMIZATION_AND_DSA_STRATEGY.md).
 
 ### 9. Backends
 
@@ -98,6 +100,7 @@ See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md).
 - Containers, OS sandboxes, and agent tools do not replace language safety.
 - Windows is the first tested platform, but platform-specific details stay behind explicit capability boundaries.
 - No feature enters stable Hum without semantics, diagnostics, graph facts, tooling impact, profile impact, verification story, performance story, and pedagogy story.
+- Defaults must be paved roads; non-default power requires explicit source intent and evidence.
 - No parser-only or checker-only milestone should be presented as a credible public alpha; public adoption requires executable artifacts and evidence bundles.
 
 ## Current Build Order
