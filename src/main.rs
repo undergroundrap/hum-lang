@@ -3,8 +3,10 @@
 mod ast;
 mod check;
 mod diagnostic;
+mod graph;
 mod json;
 mod parser;
+mod test_skeletons;
 
 use std::env;
 use std::fs;
@@ -75,8 +77,27 @@ fn run() -> Result<ExitCode, String> {
                 ExitCode::SUCCESS
             })
         }
+        "test-skeletons" => {
+            print_diagnostics(&diagnostics);
+            if !has_errors {
+                let skeletons = test_skeletons::program_to_test_skeletons(&program);
+                if skeletons.is_empty() {
+                    eprintln!("no unlinked test obligations");
+                } else {
+                    print!("{skeletons}");
+                }
+            }
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            Ok(if has_errors {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
         other => Err(format!(
-            "unknown command `{other}`; expected `check` or `graph`"
+            "unknown command `{other}`; expected `check`, `graph`, or `test-skeletons`"
         )),
     }
 }
@@ -103,9 +124,9 @@ struct FileTiming {
 
 fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let command = args[0].clone();
-    if !matches!(command.as_str(), "check" | "graph") {
+    if !matches!(command.as_str(), "check" | "graph" | "test-skeletons") {
         return Err(format!(
-            "unknown command `{command}`; expected `check` or `graph`"
+            "unknown command `{command}`; expected `check`, `graph`, or `test-skeletons`"
         ));
     }
 
@@ -247,10 +268,12 @@ fn print_help() {
     println!("Usage:");
     println!("  hum check [--timings] <file-or-dir>...");
     println!("  hum graph [--timings] <file-or-dir>...");
+    println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!();
     println!("Commands:");
     println!("  check   Parse Hum files and run milestone-0 intent checks");
-    println!("  graph   Emit hum.semantic_graph.v0 JSON for agents and tools");
+    println!("  graph           Emit hum.semantic_graph.v0 JSON for agents and tools");
+    println!("  test-skeletons  Print Hum test skeletons for unlinked obligations");
     println!();
     println!("Options:");
     println!("  --timings   Print read/parse/check timings per input file");

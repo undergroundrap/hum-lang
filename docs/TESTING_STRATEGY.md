@@ -217,8 +217,9 @@ A stale test is one whose covered contract changed since the test was written.
 
 ## Milestone 0 Scope
 
-Milestone 0 should parse top-level `test` blocks and emit them into the semantic
-graph. It does not need to run them yet.
+Milestone 0 should parse top-level `test` blocks, emit them into the semantic
+graph, and print generated Hum `test` skeletons for obligations that do not yet
+have exact `covers:` links. It does not need to run them yet.
 
 Milestone 1 can execute basic tests against the interpreter or tiny executable
 core.

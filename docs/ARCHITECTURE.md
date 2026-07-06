@@ -102,7 +102,7 @@ See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md).
 
 ## Current Build Order
 
-1. Finish Milestone 0 semantic graph, diagnostics, and generated test skeletons.
+1. Finish Milestone 0 semantic graph, diagnostics, richer section facts, and generated test skeleton hardening.
 2. Keep docs honest by linking every new doctrine back to this architecture.
 3. Add executable core only after the formal core gate is clear.
 4. Add ownership/effects before serious unsafe, FFI, or native backend work.
