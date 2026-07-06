@@ -63,7 +63,8 @@ of how the design docs fit together.
 
 Current artifacts:
 
-- [SPEC.md](SPEC.md): core language direction
+- [SPEC.md](SPEC.md): broad language design draft
+- [docs/LANGUAGE_REFERENCE.md](docs/LANGUAGE_REFERENCE.md): traditional reference spine for source files, items, sections, and current language status
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): unifying architecture ground truth across language, graph, tools, profiles, stdlib, backend, and platform design
 - [docs/SETUP.md](docs/SETUP.md): portable setup for beginners, experts, terminals, and editors
 - [docs/EDITOR_AND_INTEGRATION_STRATEGY.md](docs/EDITOR_AND_INTEGRATION_STRATEGY.md): editor, LSP, plugin, Visual Studio, Eclipse, and Jupyter integration strategy

@@ -35,6 +35,8 @@ Surface Hum is what people write: `task`, `type`, `store`, `test`, and checked i
 
 The surface rule is controlled obviousness: no headers, no semicolons in normal source, no hidden effects, no hidden mutation, no hidden unsafe, and no correctness-critical comments without a checked home.
 
+See [LANGUAGE_REFERENCE.md](LANGUAGE_REFERENCE.md) for the traditional reference spine for source files, items, sections, and current language status.
+
 ### 2. Formal Core
 
 Surface Hum lowers into Core Hum. Core Hum defines values, places, mutation, expressions, statements, typed failure, effects, contracts, profiles, loops, and backend-preservation rules. New syntax is not stable until it lowers into the core and preserves graph facts.

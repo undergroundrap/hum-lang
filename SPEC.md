@@ -20,8 +20,10 @@ The compiler enforces promises.
 Agents fill, review, optimize, and explain from structured context.
 ```
 
-See [docs/LANGUAGE_CONSTITUTION.md](docs/LANGUAGE_CONSTITUTION.md) for the rules
-Hum must not violate, and [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) for the cybersecurity threat model.
+See [docs/LANGUAGE_REFERENCE.md](docs/LANGUAGE_REFERENCE.md) for the
+traditional reference spine, [docs/LANGUAGE_CONSTITUTION.md](docs/LANGUAGE_CONSTITUTION.md)
+for the rules Hum must not violate, and [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md)
+for the cybersecurity threat model.
 
 ## Design Principles
 
