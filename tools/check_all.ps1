@@ -361,6 +361,13 @@ try {
   $Graph = $GraphJson | ConvertFrom-Json
   if (-not $GraphJson.Contains('"folding_ranges"')) { throw 'reference fixture graph JSON is missing folding_ranges' }
   if (-not $GraphJson.Contains('"symbols"')) { throw 'reference fixture graph JSON is missing symbols' }
+  if (-not $GraphJson.Contains('"portability"')) { throw 'reference fixture graph JSON is missing portability reservation' }
+  if (-not $GraphJson.Contains('"status": "reserved_v0"')) { throw 'reference fixture graph JSON is missing reserved portability status' }
+  if (-not $GraphJson.Contains('"mode": "source_analysis_only_no_target_selection"')) { throw 'reference fixture graph JSON must not select a target in V0' }
+  if (-not $GraphJson.Contains('"target_facts_schema": "hum.target_facts.v0"')) { throw 'reference fixture graph JSON is missing target facts schema link' }
+  if (-not $GraphJson.Contains('"target_fact_record_schema": "hum.target_fact_record.v0"')) { throw 'reference fixture graph JSON is missing target fact record schema link' }
+  if (-not $GraphJson.Contains('"target_fact_records": []')) { throw 'reference fixture graph JSON should have empty target fact records in V0' }
+  if (-not $GraphJson.Contains('"no target selected"')) { throw 'reference fixture graph JSON must keep portability non-claim' }
   Assert-ReferenceEvidenceCoverage $Graph
 
   Invoke-RepoScript 'editor fixture recovery' 'check_editor_fixtures.ps1'
@@ -393,12 +400,19 @@ try {
   if (-not $PortabilityBoundaryText.Contains('Absence Is A First-Class Case')) { throw 'portability boundary model is missing absence rule' }
   if (-not $PortabilityBoundaryText.Contains('Artifact Evidence')) { throw 'portability boundary model is missing artifact evidence rule' }
   if (-not $PortabilityBoundaryText.Contains('TARGET_FACTS_SCHEMA.md')) { throw 'portability boundary model is missing target facts schema link' }
+  $SemanticGraphSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\SEMANTIC_GRAPH_SCHEMA.md'))
+  if (-not $SemanticGraphSchemaText.Contains('"portability": {}')) { throw 'semantic graph schema doc is missing portability top-level shape' }
+  if (-not $SemanticGraphSchemaText.Contains('source_analysis_only_no_target_selection')) { throw 'semantic graph schema doc is missing source-analysis portability mode' }
+  if (-not $SemanticGraphSchemaText.Contains('target_facts_schema')) { throw 'semantic graph schema doc is missing target_facts_schema field' }
+  if (-not $SemanticGraphSchemaText.Contains('target_fact_record_schema')) { throw 'semantic graph schema doc is missing target_fact_record_schema field' }
+  if (-not $SemanticGraphSchemaText.Contains('reserved_v0')) { throw 'semantic graph schema doc is missing reserved portability status' }
   $TargetFactsSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\TARGET_FACTS_SCHEMA.md'))
   if (-not $TargetFactsSchemaText.Contains('hum.target_facts.v0')) { throw 'target facts schema doc is missing hum.target_facts.v0' }
   if (-not $TargetFactsSchemaText.Contains('hum.target_fact_record.v0')) { throw 'target facts schema doc is missing hum.target_fact_record.v0' }
   if (-not $TargetFactsSchemaText.Contains('contract_only_no_host_probe')) { throw 'target facts schema doc is missing no-probe mode' }
   if (-not $TargetFactsSchemaText.Contains('unknown_fails_closed')) { throw 'target facts schema doc is missing fail-closed policy' }
   if (-not $TargetFactsSchemaText.Contains('../fixtures/target_facts')) { throw 'target facts schema doc is missing fixture link' }
+  if (-not $TargetFactsSchemaText.Contains('Semantic Graph Link')) { throw 'target facts schema doc is missing semantic graph link section' }
   $DebugDoctrineText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\DEBUGGABILITY_DOCTRINE.md'))
   if (-not $DebugDoctrineText.Contains('hum.debug_info.v0')) { throw 'debuggability doctrine is missing debug info schema direction' }
   if (-not $DebugDoctrineText.Contains('faster and clearer than adding `printf`')) { throw 'debuggability doctrine is missing debugger speed rule' }

@@ -26,6 +26,7 @@ cargo run -- graph examples/task_list.hum
 {
   "schema": "hum.semantic_graph.v0",
   "summary": {},
+  "portability": {},
   "files": [],
   "diagnostics": []
 }
@@ -60,6 +61,39 @@ visible source column for line-oriented constructs such as item headers,
 sections, section lines, fields, and diagnostics. It does not yet emit full
 start/end token ranges.
 
+## Portability
+
+`portability` is a reserved, non-executing bridge to
+[TARGET_FACTS_SCHEMA.md](TARGET_FACTS_SCHEMA.md) and
+[PORTABILITY_BOUNDARY_MODEL.md](PORTABILITY_BOUNDARY_MODEL.md).
+
+Milestone 0 emits the object so adapters, agents, CI, and future package tools
+have a stable place to look for target-sensitive facts. It does not mean Hum has
+selected a target, probed the host, enforced a runtime profile, or generated an
+artifact.
+
+Current fields:
+
+- `status`: currently `reserved_v0`
+- `mode`: currently `source_analysis_only_no_target_selection`
+- `target_facts_schema`: currently `hum.target_facts.v0`
+- `target_fact_record_schema`: currently `hum.target_fact_record.v0`
+- `boundary_model`: owning portability doctrine document
+- `default_policy`: currently `unknown_fails_closed`
+- `target_fact_records`: empty until source or build inputs name target facts
+- `required_capability_families`: empty until source/profile analysis can infer
+  required families
+- `denied_capability_families`: empty until profiles exist in the graph
+- `unavailable_capability_families`: empty until target matching exists
+- `source_target_declarations`: empty until target/profile syntax is pinned
+- `adapter_identities`: empty until backend/platform adapters exist
+- `artifact_evidence`: empty until artifact generation exists
+- `non_claims`: explicit reminders that V0 does not select targets, probe host
+  capabilities, enforce profiles, or generate artifacts
+
+The reserved object is intentionally boring. It is the graph slot future
+portability diagnostics and evidence should fill, not a claim of current
+portability enforcement.
 ## Files
 
 Each file contains:
@@ -315,6 +349,7 @@ agents, verifiers, debuggers, and profilers to work without guessing:
 - call nodes
 - failure variants
 - profile restrictions
+- target facts and capability absence
 - proof and test obligations
 - debug info ids
 - source-map provenance ids

@@ -317,7 +317,8 @@ auditable release.
 
 ## Semantic Graph Requirements
 
-Future semantic graph versions should expose:
+The current `hum.semantic_graph.v0` now reserves a top-level `portability`
+object. Future semantic graph versions should fill it with:
 
 - target facts used by analysis or build
 - required capability families
@@ -392,7 +393,8 @@ Milestone 0 must not:
    model, and interop strategy.
 2. Keep `hum target-facts --format json` and fixture records in sync with this
    boundary.
-3. Reserve future semantic graph fields for target facts and capability absence.
+3. Keep the current semantic graph `portability` reservation in sync with
+   target facts and capability absence.
 4. Add non-executing fixtures for path, clock, random, filesystem, process, and
    network declarations once syntax is pinned.
 5. Add profile diagnostics only after the graph can represent the relevant

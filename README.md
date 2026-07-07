@@ -257,7 +257,7 @@ Current CLI:
 - `hum backend-contract [--format human|json]`: emit `hum.backend_contract.v0` backend ladder and adapter preservation facts without selecting or running a backend
 - `hum lsp --capabilities [--format human|json]`: list `hum.lsp_capabilities.v0` LSP adapter-preview facts without starting server mode
 - `hum doctor [--format human|json]`: emit `hum.doctor.v0` setup health facts for portable repo guardrails
-- `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including source-derived node IDs, source columns, folding ranges, document symbols, section line facts, task test obligations, and exact or conservative canonical `covers:` links
+- `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including source-derived node IDs, source columns, folding ranges, document symbols, section line facts, task test obligations, exact or conservative canonical `covers:` links, and a reserved non-executing portability object
 - `hum test-skeletons <file-or-dir>...`: print Hum `test` blocks for unlinked test obligations without executing code or writing files
 - `hum syntax`: emit `hum.syntax_surface.v0` JSON for editor and tool adapters, including section hover metadata and a semantic-token legend
 - `hum syntax --format textmate`: emit a generated TextMate grammar from the same syntax surface

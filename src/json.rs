@@ -5,6 +5,7 @@ use crate::graph::{
     is_meaningful_line_text, linked_test_count, test_obligations,
 };
 use crate::node_id;
+use crate::target_facts;
 
 pub const SEMANTIC_GRAPH_SCHEMA: &str = "hum.semantic_graph.v0";
 
@@ -33,6 +34,8 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
         warnings
     ));
     out.push_str("},\n");
+
+    write_portability_reservation(&mut out);
 
     out.push_str("  \"files\": [\n");
     for (file_index, file) in program.files.iter().enumerate() {
@@ -72,6 +75,33 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
     out
 }
 
+fn write_portability_reservation(out: &mut String) {
+    out.push_str("  \"portability\": {\n");
+    out.push_str("    \"status\": \"reserved_v0\",\n");
+    out.push_str("    \"mode\": \"source_analysis_only_no_target_selection\",\n");
+    out.push_str("    \"target_facts_schema\": ");
+    out.push_str(&quote(target_facts::TARGET_FACTS_SCHEMA));
+    out.push_str(",\n");
+    out.push_str("    \"target_fact_record_schema\": ");
+    out.push_str(&quote(target_facts::TARGET_FACT_RECORD_SCHEMA));
+    out.push_str(",\n");
+    out.push_str("    \"boundary_model\": \"docs/PORTABILITY_BOUNDARY_MODEL.md\",\n");
+    out.push_str("    \"default_policy\": \"unknown_fails_closed\",\n");
+    out.push_str("    \"target_fact_records\": [],\n");
+    out.push_str("    \"required_capability_families\": [],\n");
+    out.push_str("    \"denied_capability_families\": [],\n");
+    out.push_str("    \"unavailable_capability_families\": [],\n");
+    out.push_str("    \"source_target_declarations\": [],\n");
+    out.push_str("    \"adapter_identities\": [],\n");
+    out.push_str("    \"artifact_evidence\": [],\n");
+    out.push_str("    \"non_claims\": [\n");
+    out.push_str("      \"no target selected\",\n");
+    out.push_str("      \"no host capability probing\",\n");
+    out.push_str("      \"no profile enforcement\",\n");
+    out.push_str("      \"no artifact generated\"\n");
+    out.push_str("    ]\n");
+    out.push_str("  },\n");
+}
 struct SectionFold<'a> {
     owner: &'a Item,
     section: &'a Section,
@@ -641,6 +671,21 @@ mod tests {
         assert!(json.contains("\"title\": \"section out of order\""));
     }
 
+    #[test]
+    fn graph_json_includes_portability_reservation() {
+        let json = program_to_json(&Program::default(), &[]);
+
+        assert!(json.contains("\"portability\""));
+        assert!(json.contains("\"status\": \"reserved_v0\""));
+        assert!(json.contains("\"mode\": \"source_analysis_only_no_target_selection\""));
+        assert!(json.contains("\"target_facts_schema\": \"hum.target_facts.v0\""));
+        assert!(json.contains("\"target_fact_record_schema\": \"hum.target_fact_record.v0\""));
+        assert!(json.contains("\"default_policy\": \"unknown_fails_closed\""));
+        assert!(json.contains("\"target_fact_records\": []"));
+        assert!(json.contains("\"required_capability_families\": []"));
+        assert!(json.contains("\"no target selected\""));
+        assert!(json.contains("\"no artifact generated\""));
+    }
     #[test]
     fn task_json_includes_test_and_evidence_obligations() {
         let source = r#"task add task(title: Text) -> Result Task, TaskError {
