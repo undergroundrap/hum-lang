@@ -16,6 +16,7 @@ use crate::runtime_profiles;
 use crate::state_model;
 use crate::syntax;
 use crate::target_facts;
+use crate::type_env;
 use crate::version;
 
 pub const CAPABILITIES_SCHEMA: &str = "hum.capabilities.v0";
@@ -84,6 +85,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: resolve::RESOLVE_REPORT_SCHEMA,
         status: "adapter-ready",
         purpose: "checked scopes, definitions, references, and mutable place links",
+    },
+    CommandCapability {
+        name: "type_env_json",
+        command: "hum type-env --format json <file-or-dir>...",
+        schema: type_env::TYPE_ENV_SCHEMA,
+        status: "adapter-ready",
+        purpose: "declared type environment facts without full type checking",
     },
     CommandCapability {
         name: "ir_readiness_json",
@@ -295,9 +303,10 @@ pub fn capabilities_text() -> String {
         resource_report::RESOURCE_REPORT_SCHEMA
     ));
     out.push_str(&format!(
-        "  core_preview: {}\n  resolve_report: {}\n  ir_readiness: {}\n",
+        "  core_preview: {}\n  resolve_report: {}\n  type_env: {}\n  ir_readiness: {}\n",
         core_preview::CORE_PREVIEW_SCHEMA,
         resolve::RESOLVE_REPORT_SCHEMA,
+        type_env::TYPE_ENV_SCHEMA,
         ir_readiness::IR_READINESS_SCHEMA
     ));
     out.push_str(&format!(
@@ -446,6 +455,7 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         resolve::RESOLVE_REPORT_SCHEMA,
         true,
     );
+    push_string_field(out, indent + 2, "type_env", type_env::TYPE_ENV_SCHEMA, true);
     push_string_field(
         out,
         indent + 2,
@@ -647,6 +657,7 @@ mod tests {
         assert!(json.contains("\"ir_readiness\": \"hum.ir_readiness.v0\""));
         assert!(json.contains("\"core_preview\": \"hum.core_preview.v0\""));
         assert!(json.contains("\"resolve_report\": \"hum.resolve.v0\""));
+        assert!(json.contains("\"type_env\": \"hum.type_env.v0\""));
         assert!(json.contains("\"semantic_graph\": \"hum.semantic_graph.v0\""));
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
@@ -674,6 +685,7 @@ mod tests {
         assert!(json.contains("\"name\": \"ir_readiness_json\""));
         assert!(json.contains("\"name\": \"core_preview_json\""));
         assert!(json.contains("\"name\": \"resolve_json\""));
+        assert!(json.contains("\"name\": \"type_env_json\""));
         assert!(json.contains("\"name\": \"folding_ranges\""));
         assert!(json.contains("\"status\": \"adapter-ready\""));
     }

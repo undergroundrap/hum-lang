@@ -181,6 +181,8 @@ try {
   if (-not $CapabilitiesJson.Contains('"core_preview"')) { throw 'capabilities JSON is missing core_preview schema' }
   if (-not $CapabilitiesJson.Contains('"resolve_report"')) { throw 'capabilities JSON is missing resolve_report schema' }
   if (-not $CapabilitiesJson.Contains('"resolve_json"')) { throw 'capabilities JSON is missing resolve_json command' }
+  if (-not $CapabilitiesJson.Contains('"type_env"')) { throw 'capabilities JSON is missing type_env schema' }
+  if (-not $CapabilitiesJson.Contains('"type_env_json"')) { throw 'capabilities JSON is missing type_env_json command' }
   if (-not $CapabilitiesJson.Contains('"ir_readiness"')) { throw 'capabilities JSON is missing ir_readiness schema' }
   if (-not $CapabilitiesJson.Contains('"core_contract"')) { throw 'capabilities JSON is missing core_contract schema' }
   if (-not $CapabilitiesJson.Contains('"ir_contract"')) { throw 'capabilities JSON is missing ir_contract schema' }
@@ -399,6 +401,19 @@ try {
   if (-not $ResolveJson.Contains('"no borrow checking"')) { throw 'resolve JSON must not claim borrow checking' }
   if (-not $ResolveJson.Contains('"no executable semantics"')) { throw 'resolve JSON must not claim execution' }
 
+  $TypeEnvJson = Read-NativeOutput 'type environment JSON' $Hum @('type-env', '--format', 'json', 'examples/reference_surface.hum')
+  Assert-Json 'type environment JSON' $TypeEnvJson
+  if (-not $TypeEnvJson.Contains('"schema": "hum.type_env.v0"')) { throw 'type environment JSON is missing hum.type_env.v0 schema' }
+  if (-not $TypeEnvJson.Contains('"mode": "declaration_inventory_no_type_check"')) { throw 'type environment JSON is missing declaration-inventory mode' }
+  if (-not $TypeEnvJson.Contains('"resolver"')) { throw 'type environment JSON is missing resolver summary' }
+  if (-not $TypeEnvJson.Contains('"schema": "hum.resolve.v0"')) { throw 'type environment JSON is missing resolver schema link' }
+  if (-not $TypeEnvJson.Contains('"type_names"')) { throw 'type environment JSON is missing type_names' }
+  if (-not $TypeEnvJson.Contains('"declarations"')) { throw 'type environment JSON is missing declarations' }
+  if (-not $TypeEnvJson.Contains('"resolver_definition_id"')) { throw 'type environment JSON is missing resolver definition links' }
+  if (-not $TypeEnvJson.Contains('"unknown_type_name_v0"')) { throw 'type environment JSON should report unknown type names as facts' }
+  if (-not $TypeEnvJson.Contains('"no full type checking"')) { throw 'type environment JSON must not claim full type checking' }
+  if (-not $TypeEnvJson.Contains('"no executable semantics"')) { throw 'type environment JSON must not claim execution' }
+
   $IrReadinessJson = Read-NativeOutput 'IR readiness JSON' $Hum @('ir-readiness', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'IR readiness JSON' $IrReadinessJson
   if (-not $IrReadinessJson.Contains('"schema": "hum.ir_readiness.v0"')) { throw 'IR readiness JSON is missing hum.ir_readiness.v0 schema' }
@@ -547,6 +562,10 @@ try {
   if (-not $ResolveSchemaText.Contains('source_analysis_only_no_type_or_borrow_check')) { throw 'resolve schema doc is missing source-analysis mode' }
   if (-not $ResolveSchemaText.Contains('H0604')) { throw 'resolve schema doc is missing resolver diagnostics' }
   if (-not $ResolveSchemaText.Contains('blocked_by_resolver_errors')) { throw 'resolve schema doc is missing IR readiness link' }
+  $TypeEnvSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_TYPE_ENV_SCHEMA.md'))
+  if (-not $TypeEnvSchemaText.Contains('hum.type_env.v0')) { throw 'type environment schema doc is missing hum.type_env.v0' }
+  if (-not $TypeEnvSchemaText.Contains('declaration_inventory_no_type_check')) { throw 'type environment schema doc is missing no-type-check mode' }
+  if (-not $TypeEnvSchemaText.Contains('unknown_type_name_v0')) { throw 'type environment schema doc is missing unknown type status' }
   $IrReadinessSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_IR_READINESS_SCHEMA.md'))
   if (-not $IrReadinessSchemaText.Contains('hum.resolve.v0')) { throw 'IR readiness schema doc is missing resolver schema link' }
   if (-not $IrReadinessSchemaText.Contains('checked_resolver_errors')) { throw 'IR readiness schema doc is missing resolver blocker' }

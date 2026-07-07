@@ -25,7 +25,7 @@ Every executable phrase must eventually lower to a small set of precise
 operations:
 
 ```text
-surface Hum -> parsed AST -> checked intent -> checked resolution -> typed core -> backend IR
+surface Hum -> parsed AST -> checked intent -> checked resolution -> type environment -> typed core -> backend IR
 ```
 
 The surface language may be friendly. The core must be boring.

@@ -42,6 +42,19 @@ pub struct ResolveReadinessSummary {
     pub resolver_warnings: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolveDefinitionSummary {
+    pub id: String,
+    pub name: String,
+    pub normalized_name: String,
+    pub definition_kind: &'static str,
+    pub scope_id: String,
+    pub mutable: bool,
+    pub state_kind: &'static str,
+    pub source_span: Span,
+    pub status: &'static str,
+}
+
 #[derive(Debug, Clone)]
 struct ResolveScope {
     id: String,
@@ -154,6 +167,28 @@ pub fn resolve_readiness_summary(
         resolver_errors: report.error_count(),
         resolver_warnings: report.warning_count(),
     }
+}
+
+pub fn resolve_definition_summaries(
+    program: &Program,
+    source_diagnostics: &[Diagnostic],
+) -> Vec<ResolveDefinitionSummary> {
+    let report = build_report(program, source_diagnostics);
+    report
+        .definitions
+        .iter()
+        .map(|definition| ResolveDefinitionSummary {
+            id: definition.id.clone(),
+            name: definition.name.clone(),
+            normalized_name: definition.normalized_name.clone(),
+            definition_kind: definition.definition_kind,
+            scope_id: definition.scope_id.clone(),
+            mutable: definition.mutable,
+            state_kind: definition.state_kind,
+            source_span: definition.source_span.clone(),
+            status: definition.status,
+        })
+        .collect()
 }
 
 pub fn resolve_text(program: &Program, source_diagnostics: &[Diagnostic]) -> String {

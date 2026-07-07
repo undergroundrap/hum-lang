@@ -495,10 +495,12 @@ field initializers, and test expectations. `hum core-preview` maps those recogni
 lines into Core Hum candidate operations and explicit blockers without executing,
 type-checking, effect-checking, or emitting IR. `hum resolve` performs the first
 checked pass over scopes, definitions, references, and mutable-place targets.
-`hum ir-readiness` consumes the checked resolver summary and marks candidates as
-blocked by resolver errors before any future lowering claim. Any executable syntax
-must resolve, then lower into [FORMAL_CORE.md](FORMAL_CORE.md) before it becomes
-stable.
+`hum type-env` records declared type names and annotations with resolver
+identity, but does not type-check expressions. `hum ir-readiness` consumes the
+checked resolver summary and marks candidates as blocked by resolver errors
+before any future lowering claim. Any executable syntax must resolve, enter the
+type environment, then lower into [FORMAL_CORE.md](FORMAL_CORE.md) before it
+becomes stable.
 
 Starter executable forms are tracked in [CORE_LANGUAGE_SHAPE.md](CORE_LANGUAGE_SHAPE.md).
 
@@ -679,6 +681,8 @@ hum core-preview <file-or-dir>...
 hum core-preview --format json <file-or-dir>...
 hum resolve <file-or-dir>...
 hum resolve --format json <file-or-dir>...
+hum type-env <file-or-dir>...
+hum type-env --format json <file-or-dir>...
 hum core-contract
 hum core-contract --format json
 hum ir-contract
@@ -726,6 +730,8 @@ cargo run -- core-preview examples/reference_surface.hum
 cargo run -- core-preview --format json examples/reference_surface.hum
 cargo run -- resolve examples/reference_surface.hum
 cargo run -- resolve --format json examples/reference_surface.hum
+cargo run -- type-env examples/reference_surface.hum
+cargo run -- type-env --format json examples/reference_surface.hum
 cargo run -- core-contract
 cargo run -- core-contract --format json
 cargo run -- ir-contract
