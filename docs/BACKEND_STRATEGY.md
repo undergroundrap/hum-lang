@@ -37,6 +37,12 @@ modern hardware, accelerators, NUMA, SIMD, matrix units, and domain lowering
 need the right abstractions to survive long enough for the compiler to optimize
 them. Use LLVM's good parts; do not make LLVM the language design.
 
+Backend ladder doctrine: interpreter first, Cranelift for the first native proof,
+LLVM for mature optimized AOT, MLIR only when Hum has real multi-level lowering
+facts, and custom backend work only after evidence shows existing backends cannot
+use Hum's facts well. See
+[decisions/0008-adopt-swappable-backend-ladder.md](decisions/0008-adopt-swappable-backend-ladder.md).
+
 ## Recommended Pipeline
 
 ```text
@@ -55,22 +61,46 @@ them. Use LLVM's good parts; do not make LLVM the language design.
        blame semantics
        security obligations
   -> optimization planning
+  -> backend adapter contract
   -> backend lowering:
-       Cranelift for early native/JIT experiments
+       interpreter for first executable semantics
+       Cranelift for first native/JIT/AOT experiments
        LLVM for mature optimized AOT builds
        MLIR for future accelerator/data-layout dialects
        C or Wasm as portability escape hatches
+       custom Hum backend only if later evidence justifies it
 ```
 
 The first compiler milestone should stop at Hum semantic graph plus JSON
-diagnostics. The second can interpret or lower a tiny core. Native code comes
-after we can prove the frontend understands Hum.
+diagnostics. The second should interpret a tiny core before native backend work.
+Native code comes after we can prove the frontend understands Hum.
+
+## Backend Adapter Contract
+
+Backends are replaceable consumers of checked Hum IR. No backend may become the
+owner of Hum source semantics.
+
+Every backend adapter should preserve or explicitly report loss of:
+
+- source spans and semantic graph node IDs
+- task, test, type, and store identity
+- typed failure behavior
+- effect and capability facts
+- ownership and aliasing assumptions
+- allocation and resource facts
+- profile restrictions
+- unsafe and foreign boundaries
+- debug/profiling provenance
+- unsupported features or weakened guarantees
+
+This contract is what lets Hum move from interpreter to Cranelift to LLVM to
+MLIR or a future custom backend without rewriting the language.
 
 ## Backend Options
 
 ### LLVM
 
-Use LLVM when we want mature optimized native code.
+Use LLVM when we want mature optimized native AOT code.
 
 Strengths:
 
@@ -89,7 +119,9 @@ Risks:
 - agents are weak at patching compiler-scale LLVM issues without strong harnesses
 
 Hum should target LLVM through a small lowering layer only after Hum IR is
-stable.
+stable enough to preserve source spans, profile facts, ownership/effect facts,
+and debug/profiling provenance. LLVM is a production backend target, not the
+first proof that Hum can run.
 
 ### MLIR
 
@@ -115,7 +147,9 @@ be MLIR-shaped in spirit: explicit, verifiable, printable, and pass-driven.
 
 ### Cranelift
 
-Use Cranelift when we want a smaller Rust-native codegen path.
+Use Cranelift when we want a smaller Rust-native codegen path. Cranelift is not
+a newer LLVM; it is a different backend with a smaller integration surface and a
+better fit for Hum's first native proof.
 
 Strengths:
 
@@ -136,6 +170,26 @@ Risks:
 
 Cranelift is the best first native backend candidate for Hum because it lets us
 build the compiler in Rust without swallowing LLVM's complexity on day one.
+
+### Custom Hum Backend
+
+A custom Hum backend or custom optimization stack is a future option, not a
+near-term promise.
+
+Use it only if Hum eventually has measured, backend-relevant facts that existing
+backends cannot exploit well, such as resource proofs, layout guarantees,
+profile-specific subsets, deterministic replay facts, verified allocation
+freedom, or domain-specific lowering shapes.
+
+Risks:
+
+- enormous compiler maintenance burden
+- target coverage and debug info start from zero
+- easy to spend years rebuilding commodity backend machinery
+- safety-critical credibility requires evidence, not custom code pride
+
+Hum should earn a custom backend by first making the swappable backend contract
+real with interpreter, Cranelift, and LLVM.
 
 ### C Backend
 
@@ -235,14 +289,18 @@ For Hum v0:
 1. Build parser and semantic graph first.
 2. Define Hum IR before choosing final native codegen.
 3. Use Rust for the compiler implementation.
-4. Prefer an interpreter or Cranelift for first executable prototypes.
-5. Keep LLVM as the serious optimized AOT backend target.
-6. Keep MLIR as the future path for data layout, SIMD, GPU, tensor, sparse, and
+4. Build an interpreter for the first executable semantics proof.
+5. Use Cranelift as the first native backend candidate after the interpreter.
+6. Keep LLVM as the serious optimized AOT backend target for mature native
+   releases.
+7. Keep MLIR as the future path for data layout, SIMD, GPU, tensor, sparse, and
    accelerator work.
-7. Validate hard backend hypotheses with targeted kernels, reproducible
+8. Keep custom backend work future-only until Hum has measured facts existing
+   backends cannot use well.
+9. Validate hard backend hypotheses with targeted kernels, reproducible
    benchmarks, and resource reports before making performance claims.
-8. Keep all backend experiments local-only until the BDFR safety directive allows
-   generated-code execution.
+10. Keep all backend experiments local-only until the BDFR safety directive
+    allows generated-code execution.
 
 ## Sources
 

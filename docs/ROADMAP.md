@@ -299,15 +299,21 @@ See [COMPILE_TIME_STRATEGY.md](COMPILE_TIME_STRATEGY.md), [NECTAR_PACKAGE_MANAGE
 
 ## Milestone 6: Native Backend
 
-Goal: compile useful code.
+Goal: compile useful code without letting a backend own Hum's semantics.
 
 Preferred path:
 
-1. Cranelift for first native backend.
-2. LLVM for optimized AOT builds.
-3. MLIR later for hardware-aware, vector, tensor, sparse, and accelerator paths.
+1. Interpreter proof in Milestone 1 for executable semantics.
+2. Cranelift for the first native backend proof.
+3. LLVM for mature optimized AOT builds.
+4. MLIR later for hardware-aware, vector, tensor, sparse, and accelerator paths.
+5. Custom Hum backend or custom optimization stack only after Hum has measured
+   facts existing backends cannot use well.
 
-The backend comes after Hum IR can preserve intent.
+The backend comes after Hum IR can preserve intent, source spans, effects,
+ownership, resource facts, profile restrictions, and debug/profiling provenance.
+See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md) and
+[decisions/0008-adopt-swappable-backend-ladder.md](decisions/0008-adopt-swappable-backend-ladder.md).
 
 ## Milestone 7: Self-Hosting Preparation
 

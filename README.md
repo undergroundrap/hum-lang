@@ -80,6 +80,7 @@ Current artifacts:
 - [docs/decisions/README.md](docs/decisions/README.md): accepted design decision record index
 - [docs/decisions/0006-make-resource-layout-and-comptime-explicit.md](docs/decisions/0006-make-resource-layout-and-comptime-explicit.md): accepted rule that resource, layout, compile-time, interop, and agent-facing power must stay explicit and evidence-backed
 - [docs/decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md](docs/decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md): accepted rule that Hum must stay progressively teachable, incrementally adoptable, and evidence-backed before backend claims
+- [docs/decisions/0008-adopt-swappable-backend-ladder.md](docs/decisions/0008-adopt-swappable-backend-ladder.md): accepted staged backend rule: interpreter first, Cranelift for first native proof, LLVM for mature optimized AOT, MLIR/custom only when justified by Hum facts
 - [docs/SETUP.md](docs/SETUP.md): portable setup for beginners, experts, terminals, and editors
 - [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow, design gates, commit style, and PR rules
 - [SECURITY.md](SECURITY.md): supported security scope, reporting path, and claim limits
@@ -154,7 +155,7 @@ Current artifacts:
 - [docs/STDLIB_PRIMITIVE_RESEARCH_2026.md](docs/STDLIB_PRIMITIVE_RESEARCH_2026.md): primitive-by-primitive stdlib research sweep
 - [docs/SAFETY_CRITICAL_AND_ENGINE_EDGECASES.md](docs/SAFETY_CRITICAL_AND_ENGINE_EDGECASES.md): safety-critical, realtime, and engine-grade edge-case audit
 - [docs/RUNTIME_PROFILES.md](docs/RUNTIME_PROFILES.md): named profile model for normal, realtime, engine, and certified builds
-- [docs/BACKEND_STRATEGY.md](docs/BACKEND_STRATEGY.md): LLVM, MLIR, and Cranelift strategy
+- [docs/BACKEND_STRATEGY.md](docs/BACKEND_STRATEGY.md): swappable backend ladder across interpreter, Cranelift, LLVM, MLIR, Wasm/C, and future custom backend options
 - [examples/session_server.hum](examples/session_server.hum): first syntax sketch
 - [examples/control_flow.hum](examples/control_flow.hum): loop and control-flow sketch
 - [examples/task_list.hum](examples/task_list.hum): beginner-friendly program sketch

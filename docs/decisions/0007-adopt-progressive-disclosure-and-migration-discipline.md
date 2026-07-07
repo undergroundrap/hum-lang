@@ -50,9 +50,10 @@ systems power.
 The project can keep changing quickly before public stability, but it must be
 honest about that instability and build the tools that help users move.
 
-The backend plan stays staged: semantic graph and Hum IR first, interpreter or
-Cranelift experiments next, LLVM for mature optimized AOT, and MLIR only when
-layout, vector, tensor, sparse, GPU, or accelerator work justifies it.
+The backend plan stays staged: semantic graph and Hum IR first, interpreter for
+executable semantics, Cranelift for first native proof, LLVM for mature optimized
+AOT, and MLIR only when layout, vector, tensor, sparse, GPU, or accelerator work
+justifies it. See [0008](0008-adopt-swappable-backend-ladder.md).
 
 The standard library and language surface should resist local sugar unless the
 underlying mechanism is general enough to preserve diagnostics, formatting,

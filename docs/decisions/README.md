@@ -24,6 +24,7 @@ standard library direction, backend strategy, or release posture.
 | [0005](0005-keep-verifiers-as-evidence-producers.md) | accepted | Keep external verifiers as evidence producers, not compiler authority. |
 | [0006](0006-make-resource-layout-and-comptime-explicit.md) | accepted | Make resource, layout, and compile-time power explicit. |
 | [0007](0007-adopt-progressive-disclosure-and-migration-discipline.md) | accepted | Adopt progressive disclosure and migration discipline. |
+| [0008](0008-adopt-swappable-backend-ladder.md) | accepted | Adopt a swappable backend ladder. |
 
 ## Template
 

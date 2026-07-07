@@ -101,9 +101,9 @@ See [PAVED_ROAD_DOCTRINE.md](PAVED_ROAD_DOCTRINE.md), [STDLIB_CONSTITUTION.md](S
 
 ### 9. Backends
 
-The backend order is Rust bootstrap front end, interpreter or Cranelift prototype, LLVM for mature optimized native builds, MLIR for vector/tensor/accelerator work, and Wasm/WASI for sandboxed portable components. Backends are targets; they are not Hum's semantic soul.
+The backend order is Rust bootstrap front end, interpreter for first executable semantics, Cranelift for first native proof, LLVM for mature optimized native AOT builds, MLIR for vector/tensor/accelerator work, Wasm/WASI for sandboxed portable components, and custom backend work only if later evidence justifies it. Backends are swappable targets; they are not Hum's semantic soul.
 
-See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md).
+See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md) and [decisions/0008-adopt-swappable-backend-ladder.md](decisions/0008-adopt-swappable-backend-ladder.md).
 
 ## Non-Negotiable Decisions
 
