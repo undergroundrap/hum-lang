@@ -78,6 +78,7 @@ Alpha graph `test_obligations` should contain:
 
 - `id`
 - `kind`
+- `blame`
 - `source_section`
 - `text`
 - `span`

@@ -13,6 +13,7 @@ pub struct TestCoverage<'a> {
 pub struct TestObligation<'a> {
     pub id: String,
     pub kind: &'static str,
+    pub blame: &'static str,
     pub source_section: &'static str,
     pub line: &'a SectionLine,
     pub covers: String,
@@ -78,24 +79,29 @@ pub fn coverage_match_kind(covers: &str, coverage: &TestCoverage<'_>) -> Option<
 
 pub fn test_obligations(task: &Task) -> Vec<TestObligation<'_>> {
     let mut obligations = Vec::new();
-    for &(section_name, kind) in syntax::TEST_OBLIGATION_SECTIONS {
+    for obligation_section in syntax::TEST_OBLIGATION_SECTIONS {
         for section in task
             .sections
             .iter()
-            .filter(|section| section.name == section_name)
+            .filter(|section| section.name == obligation_section.name)
         {
             for line in meaningful_lines(section) {
                 obligations.push(TestObligation {
                     id: node_id::span(
                         "obligation",
                         &line.span,
-                        &format!("{} {} {}", task.name, section_name, line.text),
+                        &format!("{} {} {}", task.name, obligation_section.name, line.text),
                     ),
-                    kind,
-                    source_section: section_name,
+                    kind: obligation_section.kind,
+                    blame: obligation_section.blame,
+                    source_section: obligation_section.name,
                     line,
-                    covers: format!("{} {} {}", task.name, section_name, line.text),
-                    suggested_test: suggested_test_name(&task.name, kind, &line.text),
+                    covers: format!("{} {} {}", task.name, obligation_section.name, line.text),
+                    suggested_test: suggested_test_name(
+                        &task.name,
+                        obligation_section.kind,
+                        &line.text,
+                    ),
                 });
             }
         }

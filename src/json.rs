@@ -394,6 +394,7 @@ fn write_test_obligations_field(
         out.push('{');
         out.push_str(&format!("\"id\": {}, ", quote(&obligation.id)));
         out.push_str(&format!("\"kind\": {}, ", quote(obligation.kind)));
+        out.push_str(&format!("\"blame\": {}, ", quote(obligation.blame)));
         out.push_str(&format!(
             "\"source_section\": {}, ",
             quote(obligation.source_section)
@@ -598,9 +599,12 @@ mod tests {
 
         assert!(json.contains("\"test_obligations\""));
         assert!(json.contains("\"kind\": \"precondition\""));
+        assert!(json.contains("\"blame\": \"caller\""));
         assert!(json.contains("\"kind\": \"postcondition\""));
+        assert!(json.contains("\"blame\": \"callee\""));
         assert!(json.contains("\"kind\": \"edge_case\""));
         assert!(json.contains("\"kind\": \"declared_test\""));
+        assert!(json.contains("\"blame\": \"evidence\""));
         assert!(json.contains("\"suggested_test\": \"add task requires title is not empty\""));
         assert!(
             json.contains("\"id\": \"obligation:demo.hum:6:5:add-task-needs-title-is-not-empty\"")

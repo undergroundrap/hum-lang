@@ -41,12 +41,34 @@ pub const TEST_SECTION_ORDER: &[&str] = &[
     "cost",
     "does",
 ];
-pub const TEST_OBLIGATION_SECTIONS: &[(&str, &str)] = &[
-    ("needs", "precondition"),
-    ("ensures", "postcondition"),
-    ("watch for", "edge_case"),
-    ("tests", "declared_test"),
+pub const TEST_OBLIGATION_SECTIONS: &[TaskObligationSection] = &[
+    TaskObligationSection {
+        name: "needs",
+        kind: "precondition",
+        blame: "caller",
+    },
+    TaskObligationSection {
+        name: "ensures",
+        kind: "postcondition",
+        blame: "callee",
+    },
+    TaskObligationSection {
+        name: "watch for",
+        kind: "edge_case",
+        blame: "evidence",
+    },
+    TaskObligationSection {
+        name: "tests",
+        kind: "declared_test",
+        blame: "evidence",
+    },
 ];
+
+pub struct TaskObligationSection {
+    pub name: &'static str,
+    pub kind: &'static str,
+    pub blame: &'static str,
+}
 
 pub struct SectionHelp {
     pub name: &'static str,
@@ -533,20 +555,22 @@ fn push_obligation_sections(
     out: &mut String,
     indent: usize,
     key: &str,
-    values: &[(&str, &str)],
+    values: &[TaskObligationSection],
     trailing_comma: bool,
 ) {
     push_indent(out, indent);
     push_json_string(out, key);
     out.push_str(": [");
-    for (index, (name, kind)) in values.iter().enumerate() {
+    for (index, section) in values.iter().enumerate() {
         if index > 0 {
             out.push_str(", ");
         }
         out.push_str("{\"name\": ");
-        push_json_string(out, name);
+        push_json_string(out, section.name);
         out.push_str(", \"kind\": ");
-        push_json_string(out, kind);
+        push_json_string(out, section.kind);
+        out.push_str(", \"blame\": ");
+        push_json_string(out, section.blame);
         out.push('}');
     }
     out.push(']');
@@ -683,7 +707,9 @@ mod tests {
             json.contains("\"item_kinds\": [\"app\", \"type\", \"store\", \"task\", \"test\"]")
         );
         assert!(json.contains("\"task_order\": [\"why\", \"uses\", \"changes\""));
-        assert!(json.contains("{\"name\": \"watch for\", \"kind\": \"edge_case\"}"));
+        assert!(json.contains(
+            "{\"name\": \"watch for\", \"kind\": \"edge_case\", \"blame\": \"evidence\"}"
+        ));
         assert!(json.contains("\"section_catalog\": ["));
         assert!(json.contains(
             "{\"name\": \"cost\", \"applies_to\": [\"task\", \"test\"], \"hover\": \"States time, space, allocation, and check expectations.\"}"

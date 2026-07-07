@@ -345,6 +345,19 @@ The principle should be: Hum may allow more power than Vow, but every added powe
 9. Explore region or arena inference under readable ownership syntax.
 10. Make `store` declarations a signature feature of Hum.
 
+## Current Repo Follow-Through
+
+As of 2026-07-07, Hum has started turning this comparison into behavior:
+
+- `H0110` warns on hollow contract-like lines before they become fake evidence.
+- `hum.syntax_surface.v0` exposes task obligation `blame` mappings for tools.
+- `hum.semantic_graph.v0` emits `blame` on generated task obligations.
+- Hosted CI uses current official GitHub actions and cache discipline.
+
+Still open from this list: `protects:` and `trusts:` need their own
+evidence-obligation lane, `hum agent docs` needs a generated command, and
+arena/region inference remains design work before implementation.
+
 ## Hum Positioning
 
 Vow asks: what language should agents write?

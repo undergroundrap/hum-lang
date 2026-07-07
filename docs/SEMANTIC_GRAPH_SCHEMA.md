@@ -163,6 +163,8 @@ Task `test_obligations` are generated from meaningful lines in `needs:`,
 
 - `id`: stable-ish source-derived obligation ID
 - `kind`: `precondition`, `postcondition`, `edge_case`, or `declared_test`
+- `blame`: current owner category for the obligation; `caller` for `needs:`,
+  `callee` for `ensures:`, and `evidence` for `watch for:` or `tests:`
 - `source_section`
 - `text`
 - `span`
@@ -173,7 +175,9 @@ Task `test_obligations` are generated from meaningful lines in `needs:`,
 - `linked_tests`: covering test references with `name`, `modifiers`, `covers`, `coverage_key`, `match`, and `span`
 
 These are not executable tests yet. They are graph facts that future Hum test
-generation, LSP actions, CI, and agents can use. Milestone 0 links obligations
+generation, LSP actions, CI, and agents can use. The `blame` field is not a full
+proof verdict; it is the current repair owner a future checker, test runner, or
+agent should start from when that obligation is missing or violated. Milestone 0 links obligations
 to top-level `test` items when a meaningful `covers:` line either exactly
 matches the obligation `covers` phrase after whitespace normalization or shares
 the same conservative `coverage_key`. Canonical matching tolerates case,
@@ -240,6 +244,7 @@ Milestone 0 currently checks:
 - duplicate sections produce warnings
 - tasks returning values should have `ensures:`
 - tasks should declare `needs:`
+- obviously hollow contract-like lines produce `H0110` warnings
 - tasks should declare `cost:`
 - `save ... in resource` requires `resource` under `changes:`
 - `set name = ...` requires a local `change name: ...` or top-level `changes:` entry
