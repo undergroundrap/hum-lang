@@ -278,7 +278,7 @@ Milestone 0 should produce:
 2. stable source spans
 3. `hum graph` with source-derived node ids
 4. [MILESTONE_0_GRAMMAR.md](MILESTONE_0_GRAMMAR.md) as the bootstrap grammar contract
-5. `hum syntax` machine-readable syntax surface
+5. `hum syntax` machine-readable syntax surface documented at [SYNTAX_SURFACE_SCHEMA.md](SYNTAX_SURFACE_SCHEMA.md)
 6. generated TextMate grammar sketch at [../editors/textmate/hum.tmLanguage.json](../editors/textmate/hum.tmLanguage.json)
 7. Tree-sitter grammar design note
 8. LSP capability matrix at [LSP_CAPABILITY_MATRIX.md](LSP_CAPABILITY_MATRIX.md)

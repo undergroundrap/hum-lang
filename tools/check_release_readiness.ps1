@@ -56,6 +56,9 @@ if (-not $readme.Contains('docs/RELEASE_AND_VERSIONING.md')) {
 if (-not $readme.Contains('docs/LSP_CAPABILITY_MATRIX.md')) {
   Add-Failure 'README.md does not link docs/LSP_CAPABILITY_MATRIX.md'
 }
+if (-not $readme.Contains('docs/SYNTAX_SURFACE_SCHEMA.md')) {
+  Add-Failure 'README.md does not link docs/SYNTAX_SURFACE_SCHEMA.md'
+}
 if (-not $readme.Contains('SECURITY.md')) {
   Add-Failure 'README.md does not link SECURITY.md'
 }
@@ -120,6 +123,13 @@ $lspMatrixDoc = Read-RepoText 'docs\LSP_CAPABILITY_MATRIX.md'
 foreach ($required in @('hum.check.v0', 'hum.semantic_graph.v0', 'hum.syntax_surface.v0', 'folding_ranges', 'section_catalog', 'semantic_tokens', 'VS Code', 'Visual Studio', 'JetBrains', 'Eclipse', 'Jupyter')) {
   if (-not $lspMatrixDoc.Contains($required)) {
     Add-Failure "docs/LSP_CAPABILITY_MATRIX.md does not mention $required"
+  }
+}
+
+$syntaxSurfaceDoc = Read-RepoText 'docs\SYNTAX_SURFACE_SCHEMA.md'
+foreach ($required in @('hum.syntax_surface.v0', 'section_catalog', 'semantic_tokens', 'TextMate', 'hum graph', 'hum check --format json')) {
+  if (-not $syntaxSurfaceDoc.Contains($required)) {
+    Add-Failure "docs/SYNTAX_SURFACE_SCHEMA.md does not mention $required"
   }
 }
 
