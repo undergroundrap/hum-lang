@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$ClaimsPath = Join-Path $RepoRoot 'docs\alpha\claims-matrix.v0.1.json'
+$ClaimsPath = Join-Path (Join-Path $RepoRoot 'docs') (Join-Path 'alpha' 'claims-matrix.v0.1.json')
 $Failures = New-Object System.Collections.Generic.List[string]
 
 function Add-Failure {

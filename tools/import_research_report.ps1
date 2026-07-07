@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$ResearchDir = Join-Path $RepoRoot 'docs\research'
+$ResearchDir = Join-Path (Join-Path $RepoRoot 'docs') 'research'
 $Utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 

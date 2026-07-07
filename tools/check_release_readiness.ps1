@@ -33,7 +33,7 @@ if (-not $cargoVersionMatch.Success) {
   Add-Failure ("Cargo.toml version {0} does not match VERSION {1}" -f $cargoVersionMatch.Groups[1].Value, $version)
 }
 
-$releaseDoc = Read-RepoText 'docs\RELEASE_AND_VERSIONING.md'
+$releaseDoc = Read-RepoText 'docs/RELEASE_AND_VERSIONING.md'
 $markdownTick = [string] [char] 96
 $expectedVersionText = 'Current repo version: ' + $markdownTick + $version + $markdownTick
 if (-not $releaseDoc.Contains($expectedVersionText)) {
@@ -82,7 +82,7 @@ foreach ($required in @("## [$version]", 'Status: pre-alpha', '### Added', '### 
   }
 }
 
-$releaseNotePath = "docs\releases\v$version.md"
+$releaseNotePath = "docs/releases/v$version.md"
 $releaseNote = Read-RepoText $releaseNotePath
 foreach ($required in @("Hum v$version Release Notes", 'Status: pre-alpha', 'Commit hash', 'Manifest:', 'v0.0.1.manifest.json', '## Highlights', '## Compatibility Notes', '## Known Risks', '## Verification Commands', 'tools/check_tag_readiness.ps1')) {
   if (-not $releaseNote.Contains($required)) {
@@ -111,7 +111,7 @@ if ($null -ne $manifest) {
   if ($manifest.tag -ne ("v$version")) { Add-Failure "$manifestPath tag does not match v$version" }
   if ($manifest.status -ne 'pre-alpha') { Add-Failure "$manifestPath status is not pre-alpha" }
   if ($manifest.source_artifacts.changelog -ne 'CHANGELOG.md') { Add-Failure "$manifestPath does not point at CHANGELOG.md" }
-  if ($manifest.source_artifacts.release_notes -ne $releaseNotePath.Replace('\', '/')) { Add-Failure "$manifestPath does not point at $releaseNotePath" }
+  if ($manifest.source_artifacts.release_notes -ne $releaseNotePath) { Add-Failure "$manifestPath does not point at $releaseNotePath" }
   foreach ($command in @('tools/check_all.ps1', 'tools/check_clean_checkout.ps1', 'tools/check_tag_readiness.ps1')) {
     $found = $false
     foreach ($entry in $manifest.verification) {
@@ -182,7 +182,7 @@ if (-not $readme.Contains('check_tag_readiness.ps1')) {
   Add-Failure 'README.md does not mention check_tag_readiness.ps1'
 }
 
-$diagnosticsDoc = Read-RepoText 'docs\DIAGNOSTICS.md'
+$diagnosticsDoc = Read-RepoText 'docs/DIAGNOSTICS.md'
 if (-not $diagnosticsDoc.Contains('hum explain')) {
   Add-Failure 'docs/DIAGNOSTICS.md does not mention hum explain'
 }
@@ -202,7 +202,7 @@ if (-not $diagnosticsDoc.Contains('hum.check.v0')) {
   Add-Failure 'docs/DIAGNOSTICS.md does not mention hum.check.v0'
 }
 
-$semanticGraphDoc = Read-RepoText 'docs\SEMANTIC_GRAPH_SCHEMA.md'
+$semanticGraphDoc = Read-RepoText 'docs/SEMANTIC_GRAPH_SCHEMA.md'
 if (-not $semanticGraphDoc.Contains('source-derived handles')) {
   Add-Failure 'docs/SEMANTIC_GRAPH_SCHEMA.md does not describe source-derived node IDs'
 }
@@ -213,12 +213,12 @@ if (-not $semanticGraphDoc.Contains('File `symbols`')) {
   Add-Failure 'docs/SEMANTIC_GRAPH_SCHEMA.md does not describe graph symbols'
 }
 
-$editorFixturesDoc = Read-RepoText 'docs\EDITOR_FIXTURES.md'
+$editorFixturesDoc = Read-RepoText 'docs/EDITOR_FIXTURES.md'
 if (-not $editorFixturesDoc.Contains('check_editor_fixtures.ps1')) {
   Add-Failure 'docs/EDITOR_FIXTURES.md does not mention check_editor_fixtures.ps1'
 }
 
-$editorStrategyDoc = Read-RepoText 'docs\EDITOR_AND_INTEGRATION_STRATEGY.md'
+$editorStrategyDoc = Read-RepoText 'docs/EDITOR_AND_INTEGRATION_STRATEGY.md'
 if (-not $editorStrategyDoc.Contains('section hover metadata')) {
   Add-Failure 'docs/EDITOR_AND_INTEGRATION_STRATEGY.md does not describe syntax section hover metadata'
 }
@@ -229,35 +229,35 @@ if (-not $editorStrategyDoc.Contains('LSP_CAPABILITY_MATRIX.md')) {
   Add-Failure 'docs/EDITOR_AND_INTEGRATION_STRATEGY.md does not link docs/LSP_CAPABILITY_MATRIX.md'
 }
 
-$lspMatrixDoc = Read-RepoText 'docs\LSP_CAPABILITY_MATRIX.md'
+$lspMatrixDoc = Read-RepoText 'docs/LSP_CAPABILITY_MATRIX.md'
 foreach ($required in @('hum.capabilities.v0', 'hum.lsp_capabilities.v0', 'hum.check.v0', 'hum.semantic_graph.v0', 'hum.syntax_surface.v0', 'folding_ranges', 'section_catalog', 'semantic_tokens', 'VS Code', 'Visual Studio', 'JetBrains', 'Eclipse', 'Jupyter')) {
   if (-not $lspMatrixDoc.Contains($required)) {
     Add-Failure "docs/LSP_CAPABILITY_MATRIX.md does not mention $required"
   }
 }
 
-$syntaxSurfaceDoc = Read-RepoText 'docs\SYNTAX_SURFACE_SCHEMA.md'
+$syntaxSurfaceDoc = Read-RepoText 'docs/SYNTAX_SURFACE_SCHEMA.md'
 foreach ($required in @('hum.syntax_surface.v0', 'section_catalog', 'semantic_tokens', 'TextMate', 'hum graph', 'hum check --format json')) {
   if (-not $syntaxSurfaceDoc.Contains($required)) {
     Add-Failure "docs/SYNTAX_SURFACE_SCHEMA.md does not mention $required"
   }
 }
 
-$capabilitiesDoc = Read-RepoText 'docs\CAPABILITIES_SCHEMA.md'
+$capabilitiesDoc = Read-RepoText 'docs/CAPABILITIES_SCHEMA.md'
 foreach ($required in @('hum.capabilities.v0', 'hum.lsp_capabilities.v0', 'hum.doctor.v0', 'hum capabilities --format json', 'hum lsp --capabilities --format json', 'hum doctor --format json', 'toolchain discovery', 'not Hum''s runtime authority model', 'editor_capabilities', 'hum.syntax_surface.v0')) {
   if (-not $capabilitiesDoc.Contains($required)) {
     Add-Failure "docs/CAPABILITIES_SCHEMA.md does not mention $required"
   }
 }
 
-$lspCapabilitiesDoc = Read-RepoText 'docs\LSP_CAPABILITIES_SCHEMA.md'
+$lspCapabilitiesDoc = Read-RepoText 'docs/LSP_CAPABILITIES_SCHEMA.md'
 foreach ($required in @('hum.lsp_capabilities.v0', 'hum lsp --capabilities --format json', 'json_rpc_server', 'false', 'textDocument/publishDiagnostics', 'textDocument/documentSymbol')) {
   if (-not $lspCapabilitiesDoc.Contains($required)) {
     Add-Failure "docs/LSP_CAPABILITIES_SCHEMA.md does not mention $required"
   }
 }
 
-$doctorDoc = Read-RepoText 'docs\DOCTOR_SCHEMA.md'
+$doctorDoc = Read-RepoText 'docs/DOCTOR_SCHEMA.md'
 foreach ($required in @('hum.doctor.v0', 'hum doctor --format json', 'current_directory', 'text_hygiene_policy', 'public_readiness_policy', 'preflight_script', 'clean_checkout_smoke', 'tag_readiness', 'tools/check_clean_checkout.ps1', 'tools/check_tag_readiness.ps1')) {
   if (-not $doctorDoc.Contains($required)) {
     Add-Failure "docs/DOCTOR_SCHEMA.md does not mention $required"
@@ -270,7 +270,7 @@ foreach ($required in @('Supported Versions', 'How To Report', 'Security Claims'
   }
 }
 
-$setup = Read-RepoText 'docs\SETUP.md'
+$setup = Read-RepoText 'docs/SETUP.md'
 foreach ($required in @('Visual Studio', 'Eclipse', 'Jupyter', 'VS Code', 'Cursor', 'PyCharm', 'hum doctor', 'check_clean_checkout.ps1', 'check_tag_readiness.ps1')) {
   if (-not $setup.Contains($required)) {
     Add-Failure "docs/SETUP.md does not mention $required"
