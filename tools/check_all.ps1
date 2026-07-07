@@ -337,6 +337,7 @@ try {
   Assert-Json 'Core preview JSON' $CorePreviewJson
   if (-not $CorePreviewJson.Contains('"schema": "hum.core_preview.v0"')) { throw 'Core preview JSON is missing hum.core_preview.v0 schema' }
   if (-not $CorePreviewJson.Contains('"core_contract_schema": "hum.core_contract.v0"')) { throw 'Core preview JSON is missing Core Hum contract schema' }
+  if (-not $CorePreviewJson.Contains('"type_check_schema": "hum.type_check.v0"')) { throw 'Core preview JSON is missing type check schema provenance' }
   if (-not $CorePreviewJson.Contains('"execution_ready": 0')) { throw 'Core preview JSON must not claim execution readiness' }
   if (-not $CorePreviewJson.Contains('"core_operation": "return"')) { throw 'Core preview JSON is missing return operation preview' }
   if (-not $CorePreviewJson.Contains('"core_operation": "store_write_deferred"')) { throw 'Core preview JSON is missing deferred store write blocker' }
@@ -377,12 +378,18 @@ try {
   if (-not $CorePreviewJson.Contains('"ast"')) { throw 'Core preview JSON is missing expression AST previews' }
   if (-not $CorePreviewJson.Contains('"node_count"')) { throw 'Core preview JSON is missing expression AST node_count' }
   if (-not $CorePreviewJson.Contains('"form": "binary_operation_candidate"')) { throw 'Core preview JSON is missing binary operation AST form' }
-  if (-not $CorePreviewJson.Contains('"type_status": "not_type_checked_v0"')) { throw 'Core preview JSON must keep expression AST type status unchecked' }
+  if (-not $CorePreviewJson.Contains('"typed_expression_previews"')) { throw 'Core preview JSON is missing typed expression preview counts' }
+  if (-not $CorePreviewJson.Contains('"type_status": "not_type_checked_v0"')) { throw 'Core preview JSON must keep unchecked expression AST type slots where no checked return fact exists' }
+  if (-not $CorePreviewJson.Contains('"type_status": "checked_trivial_return_type_v0"')) { throw 'Core preview JSON is missing checked return expression type status' }
+  if (-not $CorePreviewJson.Contains('"type_text": "WorkItem"')) { throw 'Core preview JSON is missing checked return expression type text' }
+  if (-not $CorePreviewJson.Contains('"type_source": "record_literal_constructor_v0"')) { throw 'Core preview JSON is missing checked return expression type source' }
   if (-not $CorePreviewJson.Contains('"effect_status": "not_effect_checked_v0"')) { throw 'Core preview JSON must keep expression AST effect status unchecked' }
   if (-not $CorePreviewJson.Contains('"status": "compound_preview_v0"')) { throw 'Core preview JSON is missing compound expression preview status' }
   if (-not $CorePreviewJson.Contains('"kind": "path_or_field_read"')) { throw 'Core preview JSON is missing path or field read expression kind' }
   if (-not $CorePreviewJson.Contains('surface_save_requires_store_lowering')) { throw 'Core preview JSON is missing store save lowering blocker' }
   if (-not $CorePreviewJson.Contains('no executable semantics')) { throw 'Core preview JSON must keep V0 non-execution claim' }
+  if (-not $CorePreviewJson.Contains('no independent type checking')) { throw 'Core preview JSON must keep type-check provenance honesty claim' }
+  if (-not $CorePreviewJson.Contains('no broad expression type checking')) { throw 'Core preview JSON must keep broad expression type-checking non-goal' }
   if (-not $CorePreviewJson.Contains('no module or global name resolution')) { throw 'Core preview JSON must keep V0 name-resolution non-goal' }
   if (-not $CorePreviewJson.Contains('no checked name resolution')) { throw 'Core preview JSON must keep V0 checked name-resolution non-goal' }
 

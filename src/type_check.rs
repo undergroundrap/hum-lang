@@ -50,6 +50,21 @@ pub struct TypeCheckSummary {
     pub type_warnings: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckedReturnSummary {
+    pub id: String,
+    pub owner_kind: &'static str,
+    pub owner_name: String,
+    pub source_span: Span,
+    pub expression_text: String,
+    pub expected_type: Option<String>,
+    pub expected_value_type: Option<String>,
+    pub actual_type: Option<String>,
+    pub type_source: Option<&'static str>,
+    pub status: &'static str,
+    pub reason: Option<&'static str>,
+}
+
 #[derive(Debug, Clone)]
 struct CheckedDeclaration {
     id: String,
@@ -137,6 +152,17 @@ pub fn type_check_summary(program: &Program, diagnostics: &[Diagnostic]) -> Type
         type_errors: report.type_error_count(),
         type_warnings: report.type_warning_count(),
     }
+}
+
+pub fn checked_return_summaries(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> Vec<CheckedReturnSummary> {
+    build_report(program, diagnostics)
+        .checked_returns
+        .iter()
+        .map(CheckedReturnSummary::from)
+        .collect()
 }
 
 pub fn type_check_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
@@ -505,6 +531,24 @@ fn checked_return(
         type_source: actual.map(|fact| fact.source),
         status,
         reason,
+    }
+}
+
+impl From<&CheckedReturn> for CheckedReturnSummary {
+    fn from(checked_return: &CheckedReturn) -> Self {
+        Self {
+            id: checked_return.id.clone(),
+            owner_kind: checked_return.owner_kind,
+            owner_name: checked_return.owner_name.clone(),
+            source_span: checked_return.source_span.clone(),
+            expression_text: checked_return.expression_text.clone(),
+            expected_type: checked_return.expected_type.clone(),
+            expected_value_type: checked_return.expected_value_type.clone(),
+            actual_type: checked_return.actual_type.clone(),
+            type_source: checked_return.type_source,
+            status: checked_return.status,
+            reason: checked_return.reason,
+        }
     }
 }
 

@@ -20,6 +20,8 @@ pub struct ExpressionAtom {
 pub struct CoreExpressionAstPreview {
     pub status: &'static str,
     pub type_status: &'static str,
+    pub type_text: Option<String>,
+    pub type_source: Option<&'static str>,
     pub effect_status: &'static str,
     pub node_count: usize,
     pub root: CoreExpressionNode,
@@ -32,6 +34,8 @@ pub struct CoreExpressionNode {
     pub text: String,
     pub operator: Option<&'static str>,
     pub type_status: &'static str,
+    pub type_text: Option<String>,
+    pub type_source: Option<&'static str>,
     pub effect_status: &'static str,
     pub children: Vec<CoreExpressionNode>,
     pub reason: Option<&'static str>,
@@ -41,6 +45,10 @@ pub const CORE_EXPRESSION_AST_STATUS: &str = "ast_preview_v0";
 pub const CORE_EXPRESSION_CONTEXTUAL_AST_STATUS: &str = "contextual_ast_preview_v0";
 pub const CORE_EXPRESSION_SURFACE_AST_STATUS: &str = "surface_ast_preview_v0";
 pub const CORE_EXPRESSION_TYPE_STATUS: &str = "not_type_checked_v0";
+pub const CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_TYPE_STATUS: &str =
+    "checked_trivial_return_type_v0";
+pub const CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_MISMATCH_STATUS: &str =
+    "checked_trivial_return_type_mismatch_v0";
 pub const CORE_EXPRESSION_EFFECT_STATUS: &str = "not_effect_checked_v0";
 
 const OPERATOR_PATTERNS: &[(&str, &str)] = &[
@@ -184,6 +192,8 @@ fn build_ast_preview(
     CoreExpressionAstPreview {
         status: ast_status(status),
         type_status: CORE_EXPRESSION_TYPE_STATUS,
+        type_text: None,
+        type_source: None,
         effect_status: CORE_EXPRESSION_EFFECT_STATUS,
         node_count: count_nodes(&root),
         root,
@@ -254,6 +264,8 @@ fn branch_node(
         text: text.to_string(),
         operator,
         type_status: CORE_EXPRESSION_TYPE_STATUS,
+        type_text: None,
+        type_source: None,
         effect_status: CORE_EXPRESSION_EFFECT_STATUS,
         children,
         reason,
@@ -267,6 +279,20 @@ fn leaf_node(
     reason: Option<&'static str>,
 ) -> CoreExpressionNode {
     branch_node(prefix, form, text, None, Vec::new(), reason)
+}
+
+pub fn annotate_expression_type(
+    preview: &mut CoreExpressionPreview,
+    type_status: &'static str,
+    type_text: Option<&str>,
+    type_source: Option<&'static str>,
+) {
+    preview.ast.type_status = type_status;
+    preview.ast.type_text = type_text.map(str::to_string);
+    preview.ast.type_source = type_source;
+    preview.ast.root.type_status = type_status;
+    preview.ast.root.type_text = type_text.map(str::to_string);
+    preview.ast.root.type_source = type_source;
 }
 
 fn ast_status(status: &str) -> &'static str {
@@ -429,6 +455,8 @@ mod tests {
         assert_eq!(expression.ast.root.form, "binary_operation_candidate");
         assert_eq!(expression.ast.root.operator, Some("add"));
         assert_eq!(expression.ast.root.type_status, "not_type_checked_v0");
+        assert_eq!(expression.ast.root.type_text, None);
+        assert_eq!(expression.ast.root.type_source, None);
         assert_eq!(expression.ast.root.effect_status, "not_effect_checked_v0");
 
         let condition = analyze_expression("title is empty");

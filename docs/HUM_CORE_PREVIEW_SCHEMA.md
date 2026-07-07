@@ -10,13 +10,15 @@ Current schema: `hum.core_preview.v0`
 lines. It sits between the partial body grammar in `hum ir-readiness` and future
 true Core Hum lowering.
 
-This command is intentionally not an interpreter, not a type checker, not an
-effect checker, not Hum IR, and not a backend. It reports conservative candidate
-operations, candidate-local name previews, block previews, expression preview
-atoms, AST previews, operators, and blockers so humans, agents, and future
-compiler passes can see what the
-current bootstrap can map toward Core Hum without pretending the body has
-executable meaning.
+This command is intentionally not an interpreter, not an independent type
+checker, not an effect checker, not Hum IR, and not a backend. It reports
+conservative candidate operations, candidate-local name previews, block previews,
+expression preview atoms, AST previews, operators, and blockers so humans,
+agents, and future compiler passes can see what the current bootstrap can map
+toward Core Hum without pretending the body has executable meaning. When
+`hum.type_check.v0` has already checked a trivial task return expression,
+`core-preview` may copy that checked fact into the expression AST type slots with
+explicit provenance.
 
 ## Command
 
@@ -44,6 +46,7 @@ compiler-roadmap checks, and future Core Hum lowering/verifier work.
   "status": "pre-alpha",
   "milestone": "0 semantic graph",
   "core_contract_schema": "hum.core_contract.v0",
+  "type_check_schema": "hum.type_check.v0",
   "summary": {},
   "core_candidates": [],
   "non_goals_v0": []
@@ -58,9 +61,12 @@ compiler-roadmap checks, and future Core Hum lowering/verifier work.
 - `status`: maturity label such as `pre-alpha`
 - `milestone`: current implementation milestone
 - `core_contract_schema`: Core Hum contract this report targets
+- `type_check_schema`: checked return fact schema this report may consume for
+  selected expression type slots
 - `summary`: file, item, task, test, candidate, execution-ready, diagnostic,
   statement-preview, block-preview, name-preview, expression-preview,
-  expression-atom, expression-AST-node, and compound-expression preview counts
+  expression-atom, expression-AST-node, compound-expression, and typed-expression
+  preview counts
 - `core_candidates`: task or test bodies with a `does:` section
 - `non_goals_v0`: claims this command must not make
 
@@ -78,7 +84,8 @@ Each `core_candidates` entry has:
 - `grammar_status`: body grammar maturity, currently `partial_v0`
 - `summary`: meaningful body lines, statement status counts, expression preview
   counts, block preview counts, name definition/reference counts, expression atom
-  counts, expression AST node counts, and compound expression preview counts
+  counts, expression AST node counts, compound expression preview counts, and
+  typed expression preview counts
 - `source_sections`: sections seen on the source item
 - `name_status`: aggregate status for candidate-local name preview facts
 - `name_preview`: conservative definition/reference preview over the candidate body
@@ -88,7 +95,8 @@ Each `core_candidates` entry has:
 Current candidate statuses:
 
 - `lowerable_preview_v0`: all meaningful body lines map to Core Hum candidate
-  operations, but are not typed or executable
+  operations, but are not executable; selected return expression type slots may
+  reflect checked facts from `hum.type_check.v0`
 - `contextual_preview_v0`: the body contains lines that need surrounding context,
   such as record fields or test expectations
 - `preview_with_blockers`: at least one meaningful line is blocked before Core
@@ -330,10 +338,12 @@ Named V0 blockers include:
 
 ## Expression Preview Shape
 
-`expression_preview` is a syntax preview only. It does not type-check, evaluate,
-resolve names by itself, prove effects, or choose overloads. Candidate-level
-`name_preview` consumes expression atoms separately to report conservative local
-binding/reference facts.
+`expression_preview` is primarily a syntax preview. It does not independently
+type-check, evaluate, resolve names by itself, prove effects, or choose
+overloads. Candidate-level `name_preview` consumes expression atoms separately to
+report conservative local binding/reference facts. V0 may also expose checked
+return-expression type slots copied from `hum.type_check.v0`; these are
+provenance-bearing facts, not broad expression inference.
 
 ```json
 {
@@ -348,6 +358,8 @@ binding/reference facts.
   "ast": {
     "status": "ast_preview_v0",
     "type_status": "not_type_checked_v0",
+    "type_text": null,
+    "type_source": null,
     "effect_status": "not_effect_checked_v0",
     "node_count": 3,
     "root": {
@@ -356,6 +368,8 @@ binding/reference facts.
       "text": "title is empty",
       "operator": "is",
       "type_status": "not_type_checked_v0",
+      "type_text": null,
+      "type_source": null,
       "effect_status": "not_effect_checked_v0",
       "reason": null,
       "children": [
@@ -365,6 +379,8 @@ binding/reference facts.
           "text": "title",
           "operator": null,
           "type_status": "not_type_checked_v0",
+          "type_text": null,
+          "type_source": null,
           "effect_status": "not_effect_checked_v0",
           "reason": null,
           "children": []
@@ -375,6 +391,8 @@ binding/reference facts.
           "text": "empty",
           "operator": null,
           "type_status": "not_type_checked_v0",
+          "type_text": null,
+          "type_source": null,
           "effect_status": "not_effect_checked_v0",
           "reason": null,
           "children": []
@@ -396,7 +414,8 @@ Expression fields:
 - `atoms`: syntax atoms found inside the expression preview
 - `operators`: recognized operator families such as `returns`, `fails_with`,
   `is`, `does`, arithmetic operators, comparisons, `and`, or `or`
-- `ast`: Core expression AST preview with explicit unchecked type/effect slots
+- `ast`: Core expression AST preview with explicit type/effect slots; type slots
+  are unchecked unless populated from checked return facts
 - `reason`: optional context or limitation reason
 
 Expression statuses:
@@ -427,7 +446,10 @@ AST fields:
 
 - `status`: `ast_preview_v0`, `contextual_ast_preview_v0`, or
   `surface_ast_preview_v0`
-- `type_status`: currently always `not_type_checked_v0`
+- `type_status`: `not_type_checked_v0`, `checked_trivial_return_type_v0`, or
+  `checked_trivial_return_type_mismatch_v0`
+- `type_text`: checked expression type text when available, otherwise `null`
+- `type_source`: source of the checked type fact when available, otherwise `null`
 - `effect_status`: currently always `not_effect_checked_v0`
 - `node_count`: total root plus child node count
 - `root`: root `CoreExpressionNode` preview
@@ -440,7 +462,11 @@ Node fields:
   `surface_phrase`
 - `text`: source expression slice represented by this node
 - `operator`: operator family for compound nodes, or `null`
-- `type_status`: currently always `not_type_checked_v0`
+- `type_status`: `not_type_checked_v0`, `checked_trivial_return_type_v0`, or
+  `checked_trivial_return_type_mismatch_v0`
+- `type_text`: checked node type text when available, otherwise `null`
+- `type_source`: source of the checked node type fact when available, otherwise
+  `null`
 - `effect_status`: currently always `not_effect_checked_v0`
 - `reason`: optional context or limitation reason
 - `children`: child expression nodes
@@ -451,7 +477,10 @@ AST honesty rules:
   candidate shape.
 - It does not resolve names or fields; candidate `name_preview` reports separate
   candidate-local preview facts.
-- It does not type-check calls, literals, paths, records, or operators.
+- It does not independently type-check calls, literals, paths, records, or
+  operators.
+- It may copy `hum.type_check.v0` checked return facts onto the expression root
+  when statement text and source span match.
 - It does not infer effects or prove purity.
 - It is allowed to preserve surface phrases as `surface_phrase` nodes when V0
   cannot honestly lower the text yet.
@@ -459,12 +488,13 @@ AST honesty rules:
 ## Honesty Rules
 
 - `hum core-preview` must not execute code.
-- It must not claim type checking, effect checking, ownership checking,
-  optimization, or backend readiness.
+- It must not claim independent type checking, broad expression type inference,
+  effect checking, ownership checking, optimization, or backend readiness.
 - It must not emit Hum IR.
 - It may report Core Hum candidate operation families, source spans, coarse
   expression kinds, candidate-local name previews, block previews, expression
-  preview atoms, expression AST previews, operators, and explicit blockers.
+  preview atoms, expression AST previews, selected checked return-expression type
+  slots, operators, and explicit blockers.
 - It must not claim module, global, type, overload, field, or lexical block name
   resolution.
 - It must stay in sync with `hum.core_contract.v0`, `hum.ir_readiness.v0`, `hum
@@ -484,6 +514,7 @@ The command is local-first:
 ## Non-Goals For V0
 
 V0 does not produce executable Core Hum, Hum IR, bytecode, machine code, backend
-adapter input, proof artifacts, optimized code, executable behavior, module or
-global name resolution, or checked name resolution. It is a conservative preview of
-what the next true lowering pass must make precise.
+adapter input, proof artifacts, optimized code, executable behavior, independent
+type checking, broad expression type inference, module or global name resolution,
+or checked name resolution. It is a conservative preview of what the next true
+lowering pass must make precise.

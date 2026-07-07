@@ -6,6 +6,7 @@ use crate::core_expr::{
 };
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::is_meaningful_line_text;
+use crate::type_check::{self, CheckedReturnSummary};
 use crate::version;
 
 pub const CORE_PREVIEW_SCHEMA: &str = "hum.core_preview.v0";
@@ -37,6 +38,7 @@ struct CoreCandidate {
     expression_atoms: usize,
     expression_ast_nodes: usize,
     compound_expression_previews: usize,
+    typed_expression_previews: usize,
     block_status: &'static str,
     block_count: usize,
     max_block_depth: usize,
@@ -194,7 +196,7 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         core_contract::CORE_CONTRACT_SCHEMA
     ));
     out.push_str(&format!(
-        "summary: files={} items={} tasks={} tests={} core_candidates={} execution_ready=0 errors={} warnings={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={} block_count={} max_block_depth={} unmatched_block_closes={} unclosed_blocks={} name_definitions={} name_references={} resolved_name_references={} unresolved_name_references={} external_name_references={} shadowed_name_definitions={}\n",
+        "summary: files={} items={} tasks={} tests={} core_candidates={} execution_ready=0 errors={} warnings={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={} typed_expression_previews={} block_count={} max_block_depth={} unmatched_block_closes={} unclosed_blocks={} name_definitions={} name_references={} resolved_name_references={} unresolved_name_references={} external_name_references={} shadowed_name_definitions={}\n",
         report.files,
         report.items,
         report.tasks,
@@ -209,6 +211,7 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.expression_atoms(),
         report.expression_ast_nodes(),
         report.compound_expression_previews(),
+        report.typed_expression_previews(),
         report.block_count(),
         report.max_block_depth(),
         report.unmatched_block_closes(),
@@ -238,7 +241,7 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
             candidate.name
         ));
         out.push_str(&format!(
-            "    body: {} grammar={} block_status={} name_status={} meaningful_lines={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={} block_count={} max_block_depth={} unmatched_block_closes={} unclosed_blocks={} name_definitions={} name_references={} resolved_name_references={} unresolved_name_references={} external_name_references={} shadowed_name_definitions={}\n",
+            "    body: {} grammar={} block_status={} name_status={} meaningful_lines={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={} typed_expression_previews={} block_count={} max_block_depth={} unmatched_block_closes={} unclosed_blocks={} name_definitions={} name_references={} resolved_name_references={} unresolved_name_references={} external_name_references={} shadowed_name_definitions={}\n",
             candidate.body_status,
             candidate.grammar_status,
             candidate.block_status,
@@ -251,6 +254,7 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
             candidate.expression_atoms,
             candidate.expression_ast_nodes,
             candidate.compound_expression_previews,
+            candidate.typed_expression_previews,
             candidate.block_count,
             candidate.max_block_depth,
             candidate.unmatched_block_closes,
@@ -294,6 +298,13 @@ pub fn core_preview_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         core_contract::CORE_CONTRACT_SCHEMA,
         true,
     );
+    push_string_field(
+        &mut out,
+        2,
+        "type_check_schema",
+        type_check::TYPE_CHECK_SCHEMA,
+        true,
+    );
     push_summary(&mut out, &report, 2, true);
     push_candidates(&mut out, &report.candidates, 2, true);
     push_string_array(
@@ -302,7 +313,8 @@ pub fn core_preview_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         "non_goals_v0",
         &[
             "no executable semantics",
-            "no type checking",
+            "no independent type checking",
+            "no broad expression type checking",
             "no effect checking",
             "no interpreter",
             "no backend IR",
@@ -319,8 +331,9 @@ pub fn core_preview_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CorePreviewReport {
     let mut candidates = Vec::new();
+    let checked_returns = type_check::checked_return_summaries(program, diagnostics);
     for file in &program.files {
-        collect_candidates_from_items(&file.items, diagnostics, &mut candidates);
+        collect_candidates_from_items(&file.items, diagnostics, &checked_returns, &mut candidates);
     }
 
     let errors = diagnostics
@@ -343,24 +356,29 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CorePreviewRep
 fn collect_candidates_from_items(
     items: &[Item],
     diagnostics: &[Diagnostic],
+    checked_returns: &[CheckedReturnSummary],
     candidates: &mut Vec<CoreCandidate>,
 ) {
     for item in items {
-        if let Some(candidate) = core_candidate(item, diagnostics) {
+        if let Some(candidate) = core_candidate(item, diagnostics, checked_returns) {
             candidates.push(candidate);
         }
         if let Item::App(app) = item {
-            collect_candidates_from_items(&app.items, diagnostics, candidates);
+            collect_candidates_from_items(&app.items, diagnostics, checked_returns, candidates);
         }
     }
 }
 
-fn core_candidate(item: &Item, diagnostics: &[Diagnostic]) -> Option<CoreCandidate> {
+fn core_candidate(
+    item: &Item,
+    diagnostics: &[Diagnostic],
+    checked_returns: &[CheckedReturnSummary],
+) -> Option<CoreCandidate> {
     let section = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
     let body = core_body::analyze_does_section(section);
-    let statements = core_statement_previews(&body.statements);
+    let statements = core_statement_previews(item, &body.statements, checked_returns);
     let has_errors = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
@@ -395,6 +413,11 @@ fn core_candidate(item: &Item, diagnostics: &[Diagnostic]) -> Option<CoreCandida
         .filter_map(|statement| statement.expression_preview.as_ref())
         .filter(|expression| expression.status == "compound_preview_v0")
         .count();
+    let typed_expression_previews = statements
+        .iter()
+        .filter_map(|statement| statement.expression_preview.as_ref())
+        .filter(|expression| expression.ast.type_status != core_expr::CORE_EXPRESSION_TYPE_STATUS)
+        .count();
     let id = preview_id(item);
     let block_preview = core_block_preview(&id, &statements);
     let block_status = block_preview.status;
@@ -427,6 +450,7 @@ fn core_candidate(item: &Item, diagnostics: &[Diagnostic]) -> Option<CoreCandida
         expression_atoms,
         expression_ast_nodes,
         compound_expression_previews,
+        typed_expression_previews,
         block_status,
         block_count,
         max_block_depth,
@@ -443,12 +467,20 @@ fn core_candidate(item: &Item, diagnostics: &[Diagnostic]) -> Option<CoreCandida
     })
 }
 
-fn core_statement_previews(statements: &[BodyStatement]) -> Vec<CoreStatementPreview> {
+fn core_statement_previews(
+    item: &Item,
+    statements: &[BodyStatement],
+    checked_returns: &[CheckedReturnSummary],
+) -> Vec<CoreStatementPreview> {
     let mut previews = Vec::new();
     let mut in_record_literal = false;
 
     for statement in statements {
         let mut preview = core_statement_preview(statement);
+        if let Some(checked_return) = checked_return_for_statement(item, statement, checked_returns)
+        {
+            annotate_return_expression_type(&mut preview, checked_return);
+        }
         if in_record_literal && statement.kind == "block_close" {
             preview.core_operation = "record_construction_close";
             preview.status = "contextual_preview_v0";
@@ -520,6 +552,58 @@ fn core_statement_preview(statement: &BodyStatement) -> CoreStatementPreview {
     }
 }
 
+fn checked_return_for_statement<'a>(
+    item: &Item,
+    statement: &BodyStatement,
+    checked_returns: &'a [CheckedReturnSummary],
+) -> Option<&'a CheckedReturnSummary> {
+    if item.kind() != "task" || statement.kind != "return" {
+        return None;
+    }
+    let expression_text = strip_keyword(&statement.text, "return")?.trim();
+    let span = portable_span(&statement.span);
+    checked_returns.iter().find(|checked_return| {
+        checked_return.owner_kind == "task"
+            && checked_return.owner_name == item.name()
+            && checked_return.source_span.file == span.file
+            && checked_return.source_span.line == span.line
+            && checked_return.source_span.column == span.column
+            && checked_return.expression_text == expression_text
+    })
+}
+
+fn annotate_return_expression_type(
+    preview: &mut CoreStatementPreview,
+    checked_return: &CheckedReturnSummary,
+) {
+    let Some(expression) = preview.expression_preview.as_mut() else {
+        return;
+    };
+    let Some(actual_type) = checked_return.actual_type.as_deref() else {
+        return;
+    };
+    let Some(type_status) = checked_return_type_status(checked_return.status) else {
+        return;
+    };
+    core_expr::annotate_expression_type(
+        expression,
+        type_status,
+        Some(actual_type),
+        checked_return.type_source,
+    );
+}
+
+fn checked_return_type_status(status: &str) -> Option<&'static str> {
+    match status {
+        "accepted_return_expression_v0" => {
+            Some(core_expr::CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_TYPE_STATUS)
+        }
+        "rejected_return_type_mismatch_v0" => {
+            Some(core_expr::CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_MISMATCH_STATUS)
+        }
+        _ => None,
+    }
+}
 fn expression_text_for_statement(statement: &BodyStatement) -> Option<&str> {
     match statement.kind {
         "return" => strip_keyword(&statement.text, "return"),
@@ -1360,6 +1444,13 @@ impl CorePreviewReport {
             .sum()
     }
 
+    fn typed_expression_previews(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.typed_expression_previews)
+            .sum()
+    }
+
     fn block_count(&self) -> usize {
         self.candidates
             .iter()
@@ -1532,7 +1623,7 @@ fn push_summary(out: &mut String, report: &CorePreviewReport, indent: usize, com
     push_indent(out, indent);
     out.push_str("\"summary\": {");
     out.push_str(&format!(
-        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"core_candidates\": {}, \"execution_ready\": 0, \"errors\": {}, \"warnings\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}, \"block_count\": {}, \"max_block_depth\": {}, \"unmatched_block_closes\": {}, \"unclosed_blocks\": {}, \"name_definitions\": {}, \"name_references\": {}, \"resolved_name_references\": {}, \"unresolved_name_references\": {}, \"external_name_references\": {}, \"shadowed_name_definitions\": {}",
+        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"core_candidates\": {}, \"execution_ready\": 0, \"errors\": {}, \"warnings\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}, \"typed_expression_previews\": {}, \"block_count\": {}, \"max_block_depth\": {}, \"unmatched_block_closes\": {}, \"unclosed_blocks\": {}, \"name_definitions\": {}, \"name_references\": {}, \"resolved_name_references\": {}, \"unresolved_name_references\": {}, \"external_name_references\": {}, \"shadowed_name_definitions\": {}",
         report.files,
         report.items,
         report.tasks,
@@ -1547,6 +1638,7 @@ fn push_summary(out: &mut String, report: &CorePreviewReport, indent: usize, com
         report.expression_atoms(),
         report.expression_ast_nodes(),
         report.compound_expression_previews(),
+        report.typed_expression_previews(),
         report.block_count(),
         report.max_block_depth(),
         report.unmatched_block_closes(),
@@ -1612,7 +1704,7 @@ fn push_candidate(out: &mut String, candidate: &CoreCandidate, indent: usize) {
     push_indent(out, indent + 2);
     out.push_str("\"summary\": {");
     out.push_str(&format!(
-        "\"meaningful_lines\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}, \"block_count\": {}, \"max_block_depth\": {}, \"unmatched_block_closes\": {}, \"unclosed_blocks\": {}, \"name_definitions\": {}, \"name_references\": {}, \"resolved_name_references\": {}, \"unresolved_name_references\": {}, \"external_name_references\": {}, \"shadowed_name_definitions\": {}",
+        "\"meaningful_lines\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}, \"typed_expression_previews\": {}, \"block_count\": {}, \"max_block_depth\": {}, \"unmatched_block_closes\": {}, \"unclosed_blocks\": {}, \"name_definitions\": {}, \"name_references\": {}, \"resolved_name_references\": {}, \"unresolved_name_references\": {}, \"external_name_references\": {}, \"shadowed_name_definitions\": {}",
         candidate.meaningful_lines,
         candidate.lowerable_preview_statements,
         candidate.contextual_preview_statements,
@@ -1621,6 +1713,7 @@ fn push_candidate(out: &mut String, candidate: &CoreCandidate, indent: usize) {
         candidate.expression_atoms,
         candidate.expression_ast_nodes,
         candidate.compound_expression_previews,
+        candidate.typed_expression_previews,
         candidate.block_count,
         candidate.max_block_depth,
         candidate.unmatched_block_closes,
@@ -2152,6 +2245,8 @@ fn push_expression_ast(
     out.push_str(": {\n");
     push_string_field(out, indent + 2, "status", ast.status, true);
     push_string_field(out, indent + 2, "type_status", ast.type_status, true);
+    push_optional_string_field(out, indent + 2, "type_text", ast.type_text.as_deref(), true);
+    push_optional_string_field(out, indent + 2, "type_source", ast.type_source, true);
     push_string_field(out, indent + 2, "effect_status", ast.effect_status, true);
     push_usize_field(out, indent + 2, "node_count", ast.node_count, true);
     push_indent(out, indent + 2);
@@ -2171,6 +2266,14 @@ fn push_expression_node(out: &mut String, indent: usize, node: &CoreExpressionNo
     push_string_field(out, indent + 2, "text", &node.text, true);
     push_optional_string_field(out, indent + 2, "operator", node.operator, true);
     push_string_field(out, indent + 2, "type_status", node.type_status, true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "type_text",
+        node.type_text.as_deref(),
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "type_source", node.type_source, true);
     push_string_field(out, indent + 2, "effect_status", node.effect_status, true);
     push_optional_string_field(out, indent + 2, "reason", node.reason, true);
     push_expression_node_children(out, indent + 2, &node.children, false);
@@ -2342,7 +2445,8 @@ mod tests {
 
         assert!(text.contains("Hum Core preview (hum.core_preview.v0)"));
         assert!(text.contains("core_contract_schema: hum.core_contract.v0"));
-        assert!(text.contains("core_candidates=2 execution_ready=0"));
+        assert!(text.contains("core_candidates=1 execution_ready=0"));
+        assert!(text.contains("typed_expression_previews="));
         assert!(text.contains("expression_previews="));
         assert!(text.contains("expression_atoms="));
         assert!(text.contains("expression_ast_nodes="));
@@ -2361,11 +2465,13 @@ mod tests {
 
         assert!(json.contains("\"schema\": \"hum.core_preview.v0\""));
         assert!(json.contains("\"core_contract_schema\": \"hum.core_contract.v0\""));
+        assert!(json.contains("\"type_check_schema\": \"hum.type_check.v0\""));
         assert!(json.contains("\"execution_ready\": 0"));
         assert!(json.contains("\"status\": \"preview_with_blockers\""));
         assert!(json.contains("\"source_kind\": \"return\""));
         assert!(json.contains("\"core_operation\": \"return\""));
         assert!(json.contains("\"expression_previews\""));
+        assert!(json.contains("\"typed_expression_previews\""));
         assert!(json.contains("\"block_status\": \"block_preview_v0\""));
         assert!(json.contains("\"name_status\": \"name_preview_v0\""));
         assert!(json.contains("\"name_preview\""));
@@ -2392,6 +2498,9 @@ mod tests {
         assert!(json.contains("\"ast\""));
         assert!(json.contains("\"form\": \"binary_operation_candidate\""));
         assert!(json.contains("\"type_status\": \"not_type_checked_v0\""));
+        assert!(json.contains("\"type_status\": \"checked_trivial_return_type_v0\""));
+        assert!(json.contains("\"type_text\": \"WorkItem\""));
+        assert!(json.contains("\"type_source\": \"record_literal_constructor_v0\""));
         assert!(json.contains("\"effect_status\": \"not_effect_checked_v0\""));
         assert!(json.contains("\"status\": \"compound_preview_v0\""));
         assert!(json.contains("\"status\": \"lowerable_preview_v0\""));
@@ -2401,6 +2510,8 @@ mod tests {
         assert!(json.contains("\"core_operation\": \"store_write_deferred\""));
         assert!(json.contains("\"reason\": \"surface_save_requires_store_lowering\""));
         assert!(json.contains("\"no executable semantics\""));
+        assert!(json.contains("\"no independent type checking\""));
+        assert!(json.contains("\"no broad expression type checking\""));
         assert!(json.contains("\"no interpreter\""));
     }
 
@@ -2501,29 +2612,41 @@ mod tests {
     }
 
     fn demo_program() -> Program {
-        let source = r#"type Task {
+        let source = r#"type WorkItem {
   title: Text
+  done: Bool
 }
 
-task add task(title: Text) -> Task {
+type WorkError {
+  code: Text
+}
+
+store work items: list WorkItem {
   why:
-    save a task
+    keep test work items
+}
+
+task remember work item(title: Text) -> Result WorkItem, WorkError {
+  why:
+    save a work item
+
+  changes:
+    work items
 
   does:
-    let task = Task {
-      title: title
+    if title is empty {
+      fail WorkError.empty_title
     }
-    save task in tasks
-    return task
+
+    let item = WorkItem {
+      title: title
+      done: false
+    }
+    save item in work items
+    return item
 }
 
-test add task unit {
-  covers:
-    add task returns task
 
-  does:
-    expect add task("demo") returns Task
-}
 "#;
         let parsed = parse_source("demo.hum", source);
         Program {
