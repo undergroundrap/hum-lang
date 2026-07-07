@@ -115,7 +115,7 @@ JSON shape in `hum diagnostics --format json`:
 ```json
 {
   "schema": "hum.diagnostic_catalog.v0",
-  "count": 32,
+  "count": 33,
   "diagnostics": [
     {
       "code": "H0201",
@@ -230,6 +230,7 @@ Future ranges should be reserved before broad use:
 | `H1201` | error | unknown target fact record | `targets:` names a target record Hum does not publish. |
 | `H1202` | error | unknown capability family | `targets:` names a capability family Hum does not publish. |
 | `H1203` | error | unsupported target declaration | `targets:` contains a meaningful line with no current formal key. |
+| `H1204` | error | required capability unavailable on target | `targets:` requires a capability that a declared target marks absent or unavailable. |
 
 ## Contract Quality Warnings
 

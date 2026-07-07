@@ -86,7 +86,8 @@ Current fields:
   `targets:` lines such as `requires: os.filesystem`
 - `denied_capability_families`: source-declared capability families from
   `targets:` lines such as `denies: os.network`
-- `unavailable_capability_families`: empty until target matching exists
+- `unavailable_capability_families`: required capability families that declared
+  target fact records mark unavailable through explicit absence or omission
 - `source_target_declarations`: normalized source lines recognized from
   `targets:` sections
 - `adapter_identities`: empty until backend/platform adapters exist
@@ -110,9 +111,9 @@ Only the formal line keys `triple:`, `record:`, `target:`, `requires:`, and
 `denies:` produce normalized portability declarations in V0. Other section text
 remains available through normal `sections[].line_items` graph output.
 
-The reserved object is intentionally boring. It is the graph slot future
-portability diagnostics and evidence should fill, not a claim of current
-portability enforcement.
+The reserved object is intentionally boring. V0 name and explicit absence checks
+are useful source analysis, not a claim of backend target selection, runtime
+profile enforcement, or artifact portability.
 
 ## Files
 

@@ -91,6 +91,10 @@ fn write_portability_reservation(out: &mut String, program: &Program) {
         portability_values(&source_target_declarations, "required_capability_family");
     let denied_capability_families =
         portability_values(&source_target_declarations, "denied_capability_family");
+    let unavailable_capability_families = target_facts::unavailable_required_capability_families(
+        &target_fact_records,
+        &required_capability_families,
+    );
 
     out.push_str("  \"portability\": {\n");
     out.push_str("    \"status\": \"reserved_v0\",\n");
@@ -118,7 +122,13 @@ fn write_portability_reservation(out: &mut String, program: &Program) {
         &denied_capability_families,
         true,
     );
-    out.push_str("    \"unavailable_capability_families\": [],\n");
+    write_string_array_field(
+        out,
+        4,
+        "unavailable_capability_families",
+        &unavailable_capability_families,
+        true,
+    );
     write_source_target_declarations(out, &source_target_declarations);
     out.push_str(",\n");
     out.push_str("    \"adapter_identities\": [],\n");
@@ -868,6 +878,39 @@ mod tests {
         assert!(json.contains("\"owner\": {\"id\": \"item:portable.hum:1:1:task-read-manifest\""));
         assert!(json.contains("\"no target selected\""));
     }
+
+    #[test]
+    fn graph_json_reports_unavailable_required_capability_families() {
+        let source = r#"task open socket() {
+  why:
+    show target capability absence
+
+  targets:
+    triple: wasm32-wasi-preview1
+    requires: os.network
+
+  needs:
+    endpoint is declared
+
+  cost:
+    time: O(1)
+    check: warn
+
+  does:
+    return socket
+}
+"#;
+        let parsed = parse_source("portable.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = program_to_json(&program, &[]);
+
+        assert!(json.contains("\"target_fact_records\": [\"wasm32-wasi-preview1\"]"));
+        assert!(json.contains("\"required_capability_families\": [\"os.network\"]"));
+        assert!(json.contains("\"unavailable_capability_families\": [\"os.network\"]"));
+    }
+
     #[test]
     fn task_json_includes_test_and_evidence_obligations() {
         let source = r#"task add task(title: Text) -> Result Task, TaskError {

@@ -179,10 +179,15 @@ fn check_target_declarations(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for section in sections.iter().filter(|section| section.name == "targets") {
+        let mut target_records = Vec::new();
+        let mut required_capability_families = Vec::new();
+
         for line in meaningful_lines(section) {
             match target_facts::parse_source_target_declaration_line(&line.text) {
                 Some((target_facts::SourceTargetDeclarationKind::TargetFactRecord, value)) => {
-                    if !target_facts::is_known_target_fact_record(&value) {
+                    if target_facts::is_known_target_fact_record(&value) {
+                        target_records.push(value);
+                    } else {
                         diagnostics.push(
                             Diagnostic::error(
                                 DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
@@ -197,11 +202,25 @@ fn check_target_declarations(
                         );
                     }
                 }
-                Some((
-                    target_facts::SourceTargetDeclarationKind::RequiredCapabilityFamily
-                    | target_facts::SourceTargetDeclarationKind::DeniedCapabilityFamily,
-                    value,
-                )) => {
+                Some((target_facts::SourceTargetDeclarationKind::RequiredCapabilityFamily, value)) => {
+                    if target_facts::is_known_capability_family(&value) {
+                        required_capability_families.push((value, line.span.clone()));
+                    } else {
+                        diagnostics.push(
+                            Diagnostic::error(
+                                DiagnosticCode::UNKNOWN_CAPABILITY_FAMILY,
+                                format!(
+                                    "{kind} `{item_name}` names unknown capability family `{value}`"
+                                ),
+                                Some(line.span.clone()),
+                            )
+                            .with_help(
+                                "Use a capability family from `hum target-facts --format json` or add the family before depending on it.",
+                            ),
+                        );
+                    }
+                }
+                Some((target_facts::SourceTargetDeclarationKind::DeniedCapabilityFamily, value)) => {
                     if !target_facts::is_known_capability_family(&value) {
                         diagnostics.push(
                             Diagnostic::error(
@@ -230,6 +249,41 @@ fn check_target_declarations(
                         "Use `triple:`, `record:`, `target:`, `requires:`, or `denies:` in `targets:` for Milestone 0.",
                     ),
                 ),
+            }
+        }
+
+        let mut emitted_unavailable = BTreeSet::new();
+        for target_record in &target_records {
+            for (family, span) in &required_capability_families {
+                let Some(status) =
+                    target_facts::target_required_capability_status(target_record, family)
+                else {
+                    continue;
+                };
+                if status.is_unavailable()
+                    && emitted_unavailable.insert((
+                        status.target_id.to_string(),
+                        family.clone(),
+                        span.file.clone(),
+                        span.line,
+                        span.column,
+                    ))
+                {
+                    diagnostics.push(
+                        Diagnostic::error(
+                            DiagnosticCode::REQUIRED_CAPABILITY_UNAVAILABLE,
+                            format!(
+                                "{kind} `{item_name}` requires capability `{family}` but target `{}` reports `{}`",
+                                status.target_id, status.availability
+                            ),
+                            Some(span.clone()),
+                        )
+                        .with_help(format!(
+                            "Target note: {}. Choose a different target, remove the requirement, or add an adapter/profile design before relying on it.",
+                            status.note
+                        )),
+                    );
+                }
             }
         }
     }
@@ -680,6 +734,38 @@ mod tests {
                 && diagnostic.message.contains("unsupported `targets:` line")
         }));
     }
+    #[test]
+    fn rejects_required_capability_unavailable_on_declared_target() {
+        let source = r#"task bad target() {
+  why:
+    show target capability matching
+  targets:
+    triple: wasm32-wasi-preview1
+    requires: os.network
+  needs:
+    manifest exists
+  cost:
+    time: O(1)
+    check: warn
+  does:
+    return manifest
+}
+"#;
+        let parsed = parse_source("bad-target-capability.hum", source);
+        let diagnostics = check_file(&parsed.file);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == Severity::Error
+                && diagnostic.code == DiagnosticCode::REQUIRED_CAPABILITY_UNAVAILABLE
+                && diagnostic
+                    .message
+                    .contains("requires capability `os.network`")
+                && diagnostic
+                    .message
+                    .contains("target `wasm32-wasi-preview1` reports `absent_by_default`")
+        }));
+    }
+
     #[test]
     fn warns_on_hollow_contract_lines() {
         let source = r#"task prove nothing() -> Bool {

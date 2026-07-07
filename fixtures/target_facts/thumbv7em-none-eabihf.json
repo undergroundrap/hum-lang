@@ -37,6 +37,21 @@
       "note": "no native filesystem path model"
     },
     {
+      "family": "os.filesystem",
+      "availability": "absent_by_default",
+      "note": "no native filesystem authority"
+    },
+    {
+      "family": "os.clock",
+      "availability": "device_specific",
+      "note": "time depends on explicit hardware timer authority"
+    },
+    {
+      "family": "os.random",
+      "availability": "device_specific",
+      "note": "entropy depends on explicit hardware or seed authority"
+    },
+    {
       "family": "os.process",
       "availability": "absent_by_default",
       "note": "no general process model"

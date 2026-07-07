@@ -204,6 +204,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         explanation: "A meaningful `targets:` line does not use a current formal key, so Hum would otherwise ignore a portability promise.",
         repair: "Use `triple:`, `record:`, `target:`, `requires:`, or `denies:` for Milestone 0 target declarations.",
     },
+    DiagnosticInfo {
+        code: DiagnosticCode::REQUIRED_CAPABILITY_UNAVAILABLE,
+        default_severity: Severity::Error,
+        explanation: "A `targets:` section requires a capability family that a declared target fact record marks absent or unavailable.",
+        repair: "Choose a target that provides the capability, remove the requirement, or add an adapter/profile design before depending on it.",
+    },
 ];
 
 pub fn all() -> &'static [DiagnosticInfo] {
@@ -235,6 +241,10 @@ mod tests {
         assert_eq!(
             find("H1201").map(|info| info.code),
             Some(DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD)
+        );
+        assert_eq!(
+            find("H1204").map(|info| info.code),
+            Some(DiagnosticCode::REQUIRED_CAPABILITY_UNAVAILABLE)
         );
         assert!(find("H9999").is_none());
     }

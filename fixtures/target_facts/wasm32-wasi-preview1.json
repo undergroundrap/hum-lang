@@ -37,6 +37,16 @@
       "note": "preopened directories define authority"
     },
     {
+      "family": "os.clock",
+      "availability": "host_import_profile_gated",
+      "note": "clock depends on host imports and deterministic profile policy"
+    },
+    {
+      "family": "os.random",
+      "availability": "host_import_profile_gated",
+      "note": "randomness depends on host imports and reproducibility policy"
+    },
+    {
       "family": "os.process",
       "availability": "mostly_absent",
       "note": "process behavior is host-defined and must be declared"

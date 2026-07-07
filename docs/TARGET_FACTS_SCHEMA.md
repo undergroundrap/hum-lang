@@ -162,7 +162,9 @@ Each record `capabilities` entry has:
 - `note`: short explanation for tools and reviewers
 
 Availability is not permission. A target may have a filesystem, process model,
-or network stack while a strict Hum profile denies it.
+or network stack while a strict Hum profile denies it. For Milestone 0,
+`absent_by_default`, `mostly_absent`, and omitted capability entries are treated
+as unavailable for source `requires:` checks.
 
 ## Semantic Graph Link
 
@@ -175,11 +177,12 @@ In Milestone 0 that graph object records `reserved_v0`,
 source declarations from `targets:` sections. Recognized `targets:` lines can
 fill `target_fact_records`, `required_capability_families`,
 `denied_capability_families`, and `source_target_declarations`. `hum check`
-validates those source names against this catalog and emits `H1201`, `H1202`, or
-`H1203` for unknown or unsupported declarations, but they do not select a
-backend target, probe the host, enforce a profile, or prove an artifact is
-portable. Future source/profile analysis should add unavailable capability
-families, adapter identities, artifact evidence, and portability diagnostics.
+validates those source names against this catalog and emits `H1201`, `H1202`,
+`H1203`, or `H1204` for unknown, unsupported, or unavailable declarations, but
+they do not select a backend target, probe the host, enforce a profile, or prove
+an artifact is portable. Future source/profile analysis should add adapter
+identities, profile-granted capabilities, artifact evidence, and deeper
+portability diagnostics.
 
 ## Adapter Rules
 

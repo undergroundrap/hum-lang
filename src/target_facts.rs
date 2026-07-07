@@ -40,6 +40,19 @@ struct CapabilityAvailability {
     note: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TargetCapabilityStatus {
+    pub target_id: &'static str,
+    pub availability: &'static str,
+    pub note: &'static str,
+}
+
+impl TargetCapabilityStatus {
+    pub fn is_unavailable(self) -> bool {
+        is_unavailable_availability(self.availability)
+    }
+}
+
 struct TargetFixture {
     id: &'static str,
     status: &'static str,
@@ -241,6 +254,16 @@ const WINDOWS_CAPABILITIES: &[CapabilityAvailability] = &[
         note: "strict profiles still require declared roots",
     },
     CapabilityAvailability {
+        family: "os.clock",
+        availability: "monotonic_and_wall_available_profile_gated",
+        note: "clock authority must stay visible to deterministic profiles",
+    },
+    CapabilityAvailability {
+        family: "os.random",
+        availability: "system_available_profile_gated",
+        note: "system entropy is available but reproducibility profiles must gate it",
+    },
+    CapabilityAvailability {
         family: "os.process",
         availability: "available_profile_gated",
         note: "process spawning must remain explicit authority",
@@ -267,6 +290,16 @@ const LINUX_CAPABILITIES: &[CapabilityAvailability] = &[
         family: "os.filesystem",
         availability: "available_profile_gated",
         note: "strict profiles still require declared roots",
+    },
+    CapabilityAvailability {
+        family: "os.clock",
+        availability: "monotonic_and_wall_available_profile_gated",
+        note: "clock authority must stay visible to deterministic profiles",
+    },
+    CapabilityAvailability {
+        family: "os.random",
+        availability: "system_available_profile_gated",
+        note: "system entropy is available but reproducibility profiles must gate it",
     },
     CapabilityAvailability {
         family: "os.process",
@@ -297,6 +330,16 @@ const WASI_CAPABILITIES: &[CapabilityAvailability] = &[
         note: "preopened directories define authority",
     },
     CapabilityAvailability {
+        family: "os.clock",
+        availability: "host_import_profile_gated",
+        note: "clock depends on host imports and deterministic profile policy",
+    },
+    CapabilityAvailability {
+        family: "os.random",
+        availability: "host_import_profile_gated",
+        note: "randomness depends on host imports and reproducibility policy",
+    },
+    CapabilityAvailability {
         family: "os.process",
         availability: "mostly_absent",
         note: "process behavior is host-defined and must be declared",
@@ -323,6 +366,21 @@ const EMBEDDED_CAPABILITIES: &[CapabilityAvailability] = &[
         family: "target.path",
         availability: "absent_by_default",
         note: "no native filesystem path model",
+    },
+    CapabilityAvailability {
+        family: "os.filesystem",
+        availability: "absent_by_default",
+        note: "no native filesystem authority",
+    },
+    CapabilityAvailability {
+        family: "os.clock",
+        availability: "device_specific",
+        note: "time depends on explicit hardware timer authority",
+    },
+    CapabilityAvailability {
+        family: "os.random",
+        availability: "device_specific",
+        note: "entropy depends on explicit hardware or seed authority",
     },
     CapabilityAvailability {
         family: "os.process",
@@ -475,6 +533,65 @@ pub fn is_known_capability_family(value: &str) -> bool {
     CAPABILITY_FAMILIES
         .iter()
         .any(|family| family.family == value)
+}
+
+pub fn target_required_capability_status(
+    target_record: &str,
+    family: &str,
+) -> Option<TargetCapabilityStatus> {
+    if !is_known_capability_family(family) {
+        return None;
+    }
+
+    let fixture = find_target_fixture(target_record)?;
+    let capability = fixture
+        .capabilities
+        .iter()
+        .find(|capability| capability.family == family);
+
+    Some(match capability {
+        Some(capability) => TargetCapabilityStatus {
+            target_id: fixture.id,
+            availability: capability.availability,
+            note: capability.note,
+        },
+        None => TargetCapabilityStatus {
+            target_id: fixture.id,
+            availability: "absent_by_policy",
+            note: "target fact record omits this capability family",
+        },
+    })
+}
+
+pub fn unavailable_required_capability_families(
+    target_records: &[String],
+    required_capability_families: &[String],
+) -> Vec<String> {
+    required_capability_families
+        .iter()
+        .filter(|family| {
+            target_records.iter().any(|target_record| {
+                target_required_capability_status(target_record, family)
+                    .is_some_and(TargetCapabilityStatus::is_unavailable)
+            })
+        })
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn find_target_fixture(value: &str) -> Option<&'static TargetFixture> {
+    TARGET_FIXTURES
+        .iter()
+        .find(|fixture| fixture.id == value || fixture.triple == value)
+}
+
+fn is_unavailable_availability(availability: &str) -> bool {
+    matches!(
+        availability,
+        "absent_by_default" | "mostly_absent" | "absent_by_policy"
+    )
 }
 
 const NON_GOALS_V0: &[&str] = &[
@@ -785,6 +902,7 @@ mod tests {
     use super::{
         SourceTargetDeclarationKind, is_known_capability_family, is_known_target_fact_record,
         parse_source_target_declaration_line, target_facts_json, target_facts_text,
+        target_required_capability_status, unavailable_required_capability_families,
     };
 
     #[test]
@@ -832,6 +950,35 @@ mod tests {
         assert!(!is_known_target_fact_record("mars32-secret"));
         assert!(is_known_capability_family("os.network"));
         assert!(!is_known_capability_family("os.telepathy"));
+    }
+
+    #[test]
+    fn classifies_required_capability_availability_for_fixture_targets() {
+        let network = target_required_capability_status("wasm32-wasi-preview1", "os.network")
+            .expect("known WASI fixture");
+        assert_eq!(network.availability, "absent_by_default");
+        assert!(network.is_unavailable());
+
+        let clock = target_required_capability_status("wasm32-wasi-preview1", "os.clock")
+            .expect("known WASI fixture");
+        assert_eq!(clock.availability, "host_import_profile_gated");
+        assert!(!clock.is_unavailable());
+
+        let cpu = target_required_capability_status("wasm32-wasi-preview1", "target.cpu")
+            .expect("known WASI fixture");
+        assert_eq!(cpu.availability, "absent_by_policy");
+        assert!(cpu.is_unavailable());
+        assert!(
+            target_required_capability_status("wasm32-wasi-preview1", "os.telepathy").is_none()
+        );
+
+        assert_eq!(
+            unavailable_required_capability_families(
+                &["wasm32-wasi-preview1".to_string()],
+                &["os.clock".to_string(), "os.network".to_string()]
+            ),
+            vec!["os.network".to_string()]
+        );
     }
 
     #[test]

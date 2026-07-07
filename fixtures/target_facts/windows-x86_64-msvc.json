@@ -37,6 +37,16 @@
       "note": "strict profiles still require declared roots"
     },
     {
+      "family": "os.clock",
+      "availability": "monotonic_and_wall_available_profile_gated",
+      "note": "clock authority must stay visible to deterministic profiles"
+    },
+    {
+      "family": "os.random",
+      "availability": "system_available_profile_gated",
+      "note": "system entropy is available but reproducibility profiles must gate it"
+    },
+    {
       "family": "os.process",
       "availability": "available_profile_gated",
       "note": "process spawning must remain explicit authority"

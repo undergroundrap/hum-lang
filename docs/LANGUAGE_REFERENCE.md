@@ -351,9 +351,11 @@ Current graph meaning:
 Milestone 0 validates named target fact records and capability families against
 `hum target-facts`. Unknown record IDs or target triples emit `H1201`; unknown
 capability families emit `H1202`; meaningful lines that do not use a current
-formal key emit `H1203`. Milestone 0 still does not match required capabilities
-against target fixtures and does not emit unavailable-capability diagnostics.
-Unknown or absent target facts still fail closed in future enforcement.
+formal key emit `H1203`. When a known `requires:` family is absent or omitted in
+a declared target fact record, Hum emits `H1204` and lists the family under
+`unavailable_capability_families` in `hum graph`. Milestone 0 still does not
+select a backend target, enforce runtime profiles, or prove artifact
+portability.
 
 ## Effects And Capabilities
 
@@ -735,7 +737,7 @@ This reference is intentionally incomplete. The next gaps to close are:
 - exact expression grammar for the first executable subset
 - type grammar for records, results, options, lists, and maps
 - import and visibility rules
-- unavailable-capability diagnostics and profile matching
+- profile matching and adapter-backed capability grants
 - formal lowering from surface constructs into Core Hum
 - stable examples for every accepted syntax form beyond `examples/reference_surface.hum`
 - generated editor grammar and syntax-highlight keyword list beyond the current TextMate snapshot

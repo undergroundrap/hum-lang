@@ -160,6 +160,7 @@ try {
   if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
   if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
   if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
+  if (-not $DiagnosticsJson.Contains('"code": "H1204"')) { throw 'diagnostic catalog JSON is missing H1204' }
 
   $CapabilitiesJson = Read-NativeOutput 'capabilities JSON' $Hum @('capabilities', '--format', 'json')
   Assert-Json 'capabilities JSON' $CapabilitiesJson
@@ -241,6 +242,8 @@ try {
   if (-not $TargetFactsJson.Contains('"default_policy": "unknown_fails_closed"')) { throw 'target facts JSON is missing fail-closed policy' }
   if (-not $TargetFactsJson.Contains('"field_catalog"')) { throw 'target facts JSON is missing field catalog' }
   if (-not $TargetFactsJson.Contains('"capability_families"')) { throw 'target facts JSON is missing capability families' }
+  if (-not $TargetFactsJson.Contains('"family": "os.clock"')) { throw 'target facts JSON is missing clock capability family' }
+  if (-not $TargetFactsJson.Contains('"availability": "host_import_profile_gated"')) { throw 'target facts JSON is missing WASI clock/random availability' }
   if (-not $TargetFactsJson.Contains('"id": "windows-x86_64-msvc"')) { throw 'target facts JSON is missing Windows fixture' }
   if (-not $TargetFactsJson.Contains('"id": "wasm32-wasi-preview1"')) { throw 'target facts JSON is missing WASI fixture' }
   if (-not $TargetFactsJson.Contains('"no host capability probing"')) { throw 'target facts JSON must reject host probing claims' }
@@ -372,6 +375,7 @@ try {
   if (-not $GraphJson.Contains('"target_fact_records": ["wasm32-wasi-preview1"]')) { throw 'reference fixture graph JSON is missing source-declared target fact record' }
   if (-not $GraphJson.Contains('"required_capability_families": ["os.clock", "os.filesystem"]')) { throw 'reference fixture graph JSON is missing source-declared required capability families' }
   if (-not $GraphJson.Contains('"denied_capability_families": ["os.network"]')) { throw 'reference fixture graph JSON is missing source-declared denied capability family' }
+  if (-not $GraphJson.Contains('"unavailable_capability_families": []')) { throw 'reference fixture graph JSON should have no unavailable capability families' }
   if (-not $GraphJson.Contains('"source_target_declarations"')) { throw 'reference fixture graph JSON is missing source target declarations' }
   if (-not $GraphJson.Contains('"status": "declared_not_enforced_v0"')) { throw 'reference fixture graph JSON must mark source target declarations unenforced' }
   if (-not $GraphJson.Contains('"source_section": "targets"')) { throw 'reference fixture graph JSON is missing targets source section links' }
@@ -404,7 +408,7 @@ try {
   $LanguageReferenceText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\LANGUAGE_REFERENCE.md'))
   if (-not $LanguageReferenceText.Contains('traditional language reference spine')) { throw 'language reference is missing reference spine marker' }
   if (-not $LanguageReferenceText.Contains('PORTABILITY_BOUNDARY_MODEL.md')) { throw 'language reference is missing portability boundary link' }
-  if (-not $LanguageReferenceText.Contains('H1201')) { throw 'language reference is missing target declaration diagnostics' }
+  if (-not $LanguageReferenceText.Contains('H1204')) { throw 'language reference is missing target declaration diagnostics' }
   $PortabilityBoundaryText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\PORTABILITY_BOUNDARY_MODEL.md'))
   if (-not $PortabilityBoundaryText.Contains('Hum Portability Boundary Model')) { throw 'portability boundary model is missing title' }
   if (-not $PortabilityBoundaryText.Contains('Absence Is A First-Class Case')) { throw 'portability boundary model is missing absence rule' }
@@ -417,6 +421,7 @@ try {
   if (-not $SemanticGraphSchemaText.Contains('target_fact_record_schema')) { throw 'semantic graph schema doc is missing target_fact_record_schema field' }
   if (-not $SemanticGraphSchemaText.Contains('reserved_v0')) { throw 'semantic graph schema doc is missing reserved portability status' }
   if (-not $SemanticGraphSchemaText.Contains('declared_not_enforced_v0')) { throw 'semantic graph schema doc is missing source target declaration status' }
+  if (-not $SemanticGraphSchemaText.Contains('unavailable_capability_families')) { throw 'semantic graph schema doc is missing unavailable capability families' }
   $TargetFactsSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\TARGET_FACTS_SCHEMA.md'))
   if (-not $TargetFactsSchemaText.Contains('hum.target_facts.v0')) { throw 'target facts schema doc is missing hum.target_facts.v0' }
   if (-not $TargetFactsSchemaText.Contains('hum.target_fact_record.v0')) { throw 'target facts schema doc is missing hum.target_fact_record.v0' }
@@ -425,7 +430,7 @@ try {
   if (-not $TargetFactsSchemaText.Contains('../fixtures/target_facts')) { throw 'target facts schema doc is missing fixture link' }
   if (-not $TargetFactsSchemaText.Contains('Semantic Graph Link')) { throw 'target facts schema doc is missing semantic graph link section' }
   if (-not $TargetFactsSchemaText.Contains('targets:')) { throw 'target facts schema doc is missing targets section link' }
-  if (-not $TargetFactsSchemaText.Contains('H1201')) { throw 'target facts schema doc is missing target declaration diagnostics' }
+  if (-not $TargetFactsSchemaText.Contains('H1204')) { throw 'target facts schema doc is missing target declaration diagnostics' }
   $DebugDoctrineText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\DEBUGGABILITY_DOCTRINE.md'))
   if (-not $DebugDoctrineText.Contains('hum.debug_info.v0')) { throw 'debuggability doctrine is missing debug info schema direction' }
   if (-not $DebugDoctrineText.Contains('faster and clearer than adding `printf`')) { throw 'debuggability doctrine is missing debugger speed rule' }
