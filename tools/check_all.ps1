@@ -162,6 +162,7 @@ try {
   if (-not $DiagnosticsJson.Contains('"code": "H0603"')) { throw 'diagnostic catalog JSON is missing H0603' }
   if (-not $DiagnosticsJson.Contains('"code": "H0604"')) { throw 'diagnostic catalog JSON is missing H0604' }
   if (-not $DiagnosticsJson.Contains('"code": "H0605"')) { throw 'diagnostic catalog JSON is missing H0605' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0606"')) { throw 'diagnostic catalog JSON is missing H0606' }
   if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
   if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
   if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
@@ -421,12 +422,15 @@ try {
   $TypeCheckJson = Read-NativeOutput 'type check JSON' $Hum @('type-check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'type check JSON' $TypeCheckJson
   if (-not $TypeCheckJson.Contains('"schema": "hum.type_check.v0"')) { throw 'type check JSON is missing hum.type_check.v0 schema' }
-  if (-not $TypeCheckJson.Contains('"mode": "declaration_annotation_check_no_expression_inference"')) { throw 'type check JSON is missing declaration-only mode' }
+  if (-not $TypeCheckJson.Contains('"mode": "declaration_annotation_and_trivial_return_check_v0"')) { throw 'type check JSON is missing declaration-and-return mode' }
   if (-not $TypeCheckJson.Contains('"schema": "hum.type_env.v0"')) { throw 'type check JSON is missing type-env schema link' }
-  if (-not $TypeCheckJson.Contains('"status": "declaration_annotations_checked_v0"')) { throw 'type check JSON should pass for reference fixture' }
+  if (-not $TypeCheckJson.Contains('"status": "declaration_annotations_and_trivial_returns_checked_v0"')) { throw 'type check JSON should pass for reference fixture' }
   if (-not $TypeCheckJson.Contains('"type_errors": 0')) { throw 'type check JSON should have zero type errors for reference fixture' }
+  if (-not $TypeCheckJson.Contains('"checked_returns"')) { throw 'type check JSON is missing checked return rows' }
+  if (-not $TypeCheckJson.Contains('"accepted_return_expression_v0"')) { throw 'type check JSON is missing accepted return check status' }
+  if (-not $TypeCheckJson.Contains('"expected_value_type": "WorkItem"')) { throw 'type check JSON is missing Result success value type' }
   if (-not $TypeCheckJson.Contains('"accepted_type_reference_v0"')) { throw 'type check JSON is missing accepted type references' }
-  if (-not $TypeCheckJson.Contains('"no expression type inference"')) { throw 'type check JSON must not claim expression inference' }
+  if (-not $TypeCheckJson.Contains('"no full expression type inference"')) { throw 'type check JSON must not claim full expression inference' }
   if (-not $TypeCheckJson.Contains('"no executable semantics"')) { throw 'type check JSON must not claim execution' }
 
   $IrReadinessJson = Read-NativeOutput 'IR readiness JSON' $Hum @('ir-readiness', '--format', 'json', 'examples/reference_surface.hum')
@@ -441,9 +445,11 @@ try {
   if (-not $IrReadinessJson.Contains('"resolver_errors": 0')) { throw 'IR readiness JSON should have zero resolver errors for reference fixture' }
   if (-not $IrReadinessJson.Contains('"type_check"')) { throw 'IR readiness JSON is missing type_check summary' }
   if (-not $IrReadinessJson.Contains('"schema": "hum.type_check.v0"')) { throw 'IR readiness JSON is missing hum.type_check.v0 schema link' }
-  if (-not $IrReadinessJson.Contains('"status": "declaration_annotations_checked_v0"')) { throw 'IR readiness JSON should include clean type-check status for reference fixture' }
+  if (-not $IrReadinessJson.Contains('"status": "declaration_annotations_and_trivial_returns_checked_v0"')) { throw 'IR readiness JSON should include clean type-check status for reference fixture' }
   if (-not $IrReadinessJson.Contains('"type_errors": 0')) { throw 'IR readiness JSON should have zero type errors for reference fixture' }
   if (-not $IrReadinessJson.Contains('"unknown_type_references": 0')) { throw 'IR readiness JSON should have zero unknown type refs for reference fixture' }
+  if (-not $IrReadinessJson.Contains('"checked_returns"')) { throw 'IR readiness JSON is missing type-check return counters' }
+  if (-not $IrReadinessJson.Contains('"trivial_return_checks_v0"')) { throw 'IR readiness JSON is missing trivial return fact' }
   if (-not $IrReadinessJson.Contains('"type_check_summary_v0"')) { throw 'IR readiness JSON is missing type check summary fact' }
   if (-not $IrReadinessJson.Contains('"name": "resolve"')) { throw 'IR readiness JSON is missing resolve pass status' }
   if (-not $IrReadinessJson.Contains('"checked_report_available"')) { throw 'IR readiness JSON is missing checked resolver pass availability' }
@@ -454,7 +460,7 @@ try {
   if (-not $IrReadinessJson.Contains('"body_grammar_unsupported_lines"')) { throw 'IR readiness JSON is missing body grammar unsupported count' }
   if (-not $IrReadinessJson.Contains('"surface_save_requires_store_lowering"')) { throw 'IR readiness JSON is missing store save lowering blocker' }
   if (-not $IrReadinessJson.Contains('"core_lowering"')) { throw 'IR readiness JSON is missing core_lowering pass status' }
-  if (-not $IrReadinessJson.Contains('"declaration_annotation_check_available"')) { throw 'IR readiness JSON is missing type-check pass availability' }
+  if (-not $IrReadinessJson.Contains('"declaration_and_trivial_return_check_available"')) { throw 'IR readiness JSON is missing type-check pass availability' }
   if (-not $IrReadinessJson.Contains('"full_type_check"')) { throw 'IR readiness JSON is missing full_type_check blocker' }
   if (-not $IrReadinessJson.Contains('"full_type_check_not_implemented"')) { throw 'IR readiness JSON is missing full type-check non-implementation reason' }
   if (-not $IrReadinessJson.Contains('"not_implemented"')) { throw 'IR readiness JSON is missing not_implemented blockers' }
@@ -592,14 +598,16 @@ try {
   if (-not $TypeEnvSchemaText.Contains('unknown_type_name_v0')) { throw 'type environment schema doc is missing unknown type status' }
   $TypeCheckSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_TYPE_CHECK_SCHEMA.md'))
   if (-not $TypeCheckSchemaText.Contains('hum.type_check.v0')) { throw 'type check schema doc is missing hum.type_check.v0' }
-  if (-not $TypeCheckSchemaText.Contains('declaration_annotation_check_no_expression_inference')) { throw 'type check schema doc is missing declaration-only mode' }
+  if (-not $TypeCheckSchemaText.Contains('declaration_annotation_and_trivial_return_check_v0')) { throw 'type check schema doc is missing declaration-and-return mode' }
   if (-not $TypeCheckSchemaText.Contains('H0605')) { throw 'type check schema doc is missing H0605' }
+  if (-not $TypeCheckSchemaText.Contains('H0606')) { throw 'type check schema doc is missing H0606' }
+  if (-not $TypeCheckSchemaText.Contains('checked_returns')) { throw 'type check schema doc is missing checked_returns' }
   $IrReadinessSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_IR_READINESS_SCHEMA.md'))
   if (-not $IrReadinessSchemaText.Contains('hum.resolve.v0')) { throw 'IR readiness schema doc is missing resolver schema link' }
   if (-not $IrReadinessSchemaText.Contains('checked_resolver_errors')) { throw 'IR readiness schema doc is missing resolver blocker' }
   if (-not $IrReadinessSchemaText.Contains('hum.type_check.v0')) { throw 'IR readiness schema doc is missing type-check schema link' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_type_errors')) { throw 'IR readiness schema doc is missing type-error blocker' }
-  if (-not $IrReadinessSchemaText.Contains('declaration_annotation_check_available')) { throw 'IR readiness schema doc is missing type-check pass status' }
+  if (-not $IrReadinessSchemaText.Contains('declaration_and_trivial_return_check_available')) { throw 'IR readiness schema doc is missing type-check pass status' }
   $ResolveDecisionText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\decisions\0011-add-checked-resolver-before-execution.md'))
   if (-not $ResolveDecisionText.Contains('checked resolver')) { throw 'checked resolver ADR is missing decision language' }
   $StateModelSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_STATE_MODEL_SCHEMA.md'))

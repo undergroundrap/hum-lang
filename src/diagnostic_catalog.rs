@@ -217,6 +217,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Declare the type, use a reserved type root, or wait for imports/packages before relying on external type names.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::RETURN_TYPE_MISMATCH,
+        default_severity: Severity::Error,
+        explanation: "A task return expression has a trivial source-visible type that does not match the task result type or Result/Option/Maybe success type.",
+        repair: "Return the expected value type, change the task result annotation, or keep complex expressions unchecked until full expression typing exists.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
         default_severity: Severity::Error,
         explanation: "A `targets:` section names a target fact record that Hum does not publish in `hum target-facts`.",
@@ -285,6 +291,10 @@ mod tests {
         assert_eq!(
             find("H0605").map(|info| info.code),
             Some(DiagnosticCode::UNKNOWN_TYPE_NAME)
+        );
+        assert_eq!(
+            find("H0606").map(|info| info.code),
+            Some(DiagnosticCode::RETURN_TYPE_MISMATCH)
         );
         assert_eq!(
             find("H1201").map(|info| info.code),

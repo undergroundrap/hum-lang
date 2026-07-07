@@ -53,7 +53,7 @@ emitted by `hum core-preview --format json`; checked scope, definition,
 reference, and mutable-place identity is reported by [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md),
 emitted by `hum resolve --format json`; declared type-environment facts are reported by
 [HUM_TYPE_ENV_SCHEMA.md](HUM_TYPE_ENV_SCHEMA.md), emitted by `hum type-env --format json`;
-declaration annotation type checking is reported by [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md),
+declaration annotation and trivial return type checking is reported by [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md),
 emitted by `hum type-check --format json`; the Hum IR ownership contract is
 [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md), emitted by `hum ir-contract --format json`;
 source progress toward those contracts is reported by [HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md),

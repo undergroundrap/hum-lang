@@ -1,13 +1,18 @@
+use std::collections::BTreeMap;
+
+use crate::ast::{Item, Program, Task};
+use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
 use crate::type_env::{self, TypeDeclaration, TypeEnvReport};
 use crate::version;
 
 pub const TYPE_CHECK_SCHEMA: &str = "hum.type_check.v0";
-pub const TYPE_CHECK_MODE: &str = "declaration_annotation_check_no_expression_inference";
+pub const TYPE_CHECK_MODE: &str = "declaration_annotation_and_trivial_return_check_v0";
 
 const NON_CLAIMS: &[&str] = &[
-    "no expression type inference",
-    "no body statement type checking",
+    "no full expression type inference",
+    "no broad body statement type checking",
+    "no call, overload, field, or operator type checking",
     "no generic arity validation",
     "no trait or interface checking",
     "no layout or ABI proof",
@@ -20,6 +25,7 @@ const NON_CLAIMS: &[&str] = &[
 struct TypeCheckReport {
     type_env: TypeEnvReport,
     checked_declarations: Vec<CheckedDeclaration>,
+    checked_returns: Vec<CheckedReturn>,
     diagnostics: Vec<TypeCheckDiagnostic>,
 }
 
@@ -36,6 +42,10 @@ pub struct TypeCheckSummary {
     pub rejected_declarations: usize,
     pub checked_type_references: usize,
     pub unknown_type_references: usize,
+    pub checked_returns: usize,
+    pub accepted_returns: usize,
+    pub rejected_returns: usize,
+    pub unchecked_returns: usize,
     pub type_errors: usize,
     pub type_warnings: usize,
 }
@@ -65,6 +75,27 @@ struct CheckedTypeReference {
 }
 
 #[derive(Debug, Clone)]
+struct CheckedReturn {
+    id: String,
+    owner_kind: &'static str,
+    owner_name: String,
+    source_span: Span,
+    expression_text: String,
+    expected_type: Option<String>,
+    expected_value_type: Option<String>,
+    actual_type: Option<String>,
+    type_source: Option<&'static str>,
+    status: &'static str,
+    reason: Option<&'static str>,
+}
+
+#[derive(Debug, Clone)]
+struct TypeFact {
+    type_text: String,
+    source: &'static str,
+}
+
+#[derive(Debug, Clone)]
 struct TypeCheckDiagnostic {
     code: DiagnosticCode,
     severity: Severity,
@@ -72,19 +103,20 @@ struct TypeCheckDiagnostic {
     message: String,
     source_span: Span,
     help: &'static str,
-    declaration_id: String,
-    type_name: String,
+    declaration_id: Option<String>,
+    type_name: Option<String>,
+    return_id: Option<String>,
+    expression_text: Option<String>,
+    expected_type: Option<String>,
+    actual_type: Option<String>,
 }
 
-pub fn type_check_has_errors(program: &crate::ast::Program, diagnostics: &[Diagnostic]) -> bool {
+pub fn type_check_has_errors(program: &Program, diagnostics: &[Diagnostic]) -> bool {
     let summary = type_check_summary(program, diagnostics);
     summary.source_errors > 0 || summary.resolver_errors > 0 || summary.type_errors > 0
 }
 
-pub fn type_check_summary(
-    program: &crate::ast::Program,
-    diagnostics: &[Diagnostic],
-) -> TypeCheckSummary {
+pub fn type_check_summary(program: &Program, diagnostics: &[Diagnostic]) -> TypeCheckSummary {
     let report = build_report(program, diagnostics);
     TypeCheckSummary {
         schema: TYPE_CHECK_SCHEMA,
@@ -98,12 +130,16 @@ pub fn type_check_summary(
         rejected_declarations: report.rejected_declarations(),
         checked_type_references: report.checked_type_references(),
         unknown_type_references: report.type_env.unknown_type_references(),
+        checked_returns: report.checked_returns.len(),
+        accepted_returns: report.accepted_returns(),
+        rejected_returns: report.rejected_returns(),
+        unchecked_returns: report.unchecked_returns(),
         type_errors: report.type_error_count(),
         type_warnings: report.type_warning_count(),
     }
 }
 
-pub fn type_check_text(program: &crate::ast::Program, diagnostics: &[Diagnostic]) -> String {
+pub fn type_check_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
     let report = build_report(program, diagnostics);
     let mut out = String::new();
     out.push_str(&format!("Hum type check ({TYPE_CHECK_SCHEMA})\n"));
@@ -126,13 +162,17 @@ pub fn type_check_text(program: &crate::ast::Program, diagnostics: &[Diagnostic]
         report.resolver_errors()
     ));
     out.push_str(&format!(
-        "summary: files={} items={} checked_declarations={} accepted_declarations={} rejected_declarations={} checked_type_references={} type_errors={} source_errors={} resolver_errors={}\n",
+        "summary: files={} items={} checked_declarations={} accepted_declarations={} rejected_declarations={} checked_type_references={} checked_returns={} accepted_returns={} rejected_returns={} unchecked_returns={} type_errors={} source_errors={} resolver_errors={}\n",
         report.type_env.files,
         report.type_env.items,
         report.checked_declarations.len(),
         report.accepted_declarations(),
         report.rejected_declarations(),
         report.checked_type_references(),
+        report.checked_returns.len(),
+        report.accepted_returns(),
+        report.rejected_returns(),
+        report.unchecked_returns(),
         report.type_error_count(),
         report.source_errors(),
         report.resolver_errors()
@@ -182,6 +222,30 @@ pub fn type_check_text(program: &crate::ast::Program, diagnostics: &[Diagnostic]
         }
     }
 
+    if report.checked_returns.is_empty() {
+        out.push_str("checked_returns: none\n");
+    } else {
+        out.push_str("checked_returns:\n");
+        for checked_return in &report.checked_returns {
+            out.push_str(&format!(
+                "  {}:{}:{} [{}] {} `{}` return `{}` expected={} value={} actual={}\n",
+                checked_return.source_span.file,
+                checked_return.source_span.line,
+                checked_return.source_span.column,
+                checked_return.status,
+                checked_return.owner_kind,
+                checked_return.owner_name,
+                checked_return.expression_text,
+                checked_return.expected_type.as_deref().unwrap_or("none"),
+                checked_return
+                    .expected_value_type
+                    .as_deref()
+                    .unwrap_or("none"),
+                checked_return.actual_type.as_deref().unwrap_or("unknown")
+            ));
+        }
+    }
+
     out.push_str("non_claims:\n");
     for non_claim in NON_CLAIMS {
         out.push_str(&format!("  - {non_claim}\n"));
@@ -190,7 +254,7 @@ pub fn type_check_text(program: &crate::ast::Program, diagnostics: &[Diagnostic]
     out
 }
 
-pub fn type_check_json(program: &crate::ast::Program, diagnostics: &[Diagnostic]) -> String {
+pub fn type_check_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
     let report = build_report(program, diagnostics);
     let mut out = String::new();
     out.push_str("{\n");
@@ -203,13 +267,14 @@ pub fn type_check_json(program: &crate::ast::Program, diagnostics: &[Diagnostic]
     push_type_environment(&mut out, &report, 2, true);
     push_summary(&mut out, &report, 2, true);
     push_checked_declarations(&mut out, &report.checked_declarations, 2, true);
+    push_checked_returns(&mut out, &report.checked_returns, 2, true);
     push_diagnostics(&mut out, &report.diagnostics, 2, true);
     push_string_array(&mut out, 2, "non_claims_v0", NON_CLAIMS, false);
     out.push_str("}\n");
     out
 }
 
-fn build_report(program: &crate::ast::Program, diagnostics: &[Diagnostic]) -> TypeCheckReport {
+fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeCheckReport {
     let type_env_report = type_env::type_env_report(program, diagnostics);
     let blocked =
         type_env_report.source_errors > 0 || type_env_report.resolver_summary.resolver_errors > 0;
@@ -218,15 +283,21 @@ fn build_report(program: &crate::ast::Program, diagnostics: &[Diagnostic]) -> Ty
         .iter()
         .map(|declaration| checked_declaration(declaration, blocked))
         .collect::<Vec<_>>();
-    let diagnostics = if blocked {
+    let mut diagnostics = if blocked {
         Vec::new()
     } else {
         type_diagnostics(&type_env_report.declarations)
     };
+    let returns_blocked = blocked || !diagnostics.is_empty();
+    let checked_returns = collect_checked_returns(program, returns_blocked);
+    if !returns_blocked {
+        diagnostics.extend(return_diagnostics(&checked_returns));
+    }
 
     TypeCheckReport {
         type_env: type_env_report,
         checked_declarations,
+        checked_returns,
         diagnostics,
     }
 }
@@ -302,14 +373,337 @@ fn type_diagnostics(declarations: &[TypeDeclaration]) -> Vec<TypeCheckDiagnostic
                 ),
                 source_span: declaration.source_span.clone(),
                 help: "Declare the type, use a reserved type root, or wait for imports/packages before relying on external type names.",
-                declaration_id: declaration.id.clone(),
-                type_name: reference.text.clone(),
+                declaration_id: Some(declaration.id.clone()),
+                type_name: Some(reference.text.clone()),
+                return_id: None,
+                expression_text: None,
+                expected_type: None,
+                actual_type: None,
             });
         }
     }
     diagnostics
 }
 
+fn collect_checked_returns(program: &Program, blocked: bool) -> Vec<CheckedReturn> {
+    let mut checked_returns = Vec::new();
+    for file in &program.files {
+        collect_checked_returns_from_items(&file.items, blocked, &mut checked_returns);
+    }
+    checked_returns
+}
+
+fn collect_checked_returns_from_items(
+    items: &[Item],
+    blocked: bool,
+    checked_returns: &mut Vec<CheckedReturn>,
+) {
+    for item in items {
+        match item {
+            Item::App(app) => {
+                collect_checked_returns_from_items(&app.items, blocked, checked_returns)
+            }
+            Item::Task(task) => checked_returns.extend(checked_returns_for_task(task, blocked)),
+            _ => {}
+        }
+    }
+}
+
+fn checked_returns_for_task(task: &Task, blocked: bool) -> Vec<CheckedReturn> {
+    let Some(section) = task.section("does") else {
+        return Vec::new();
+    };
+    let body = core_body::analyze_does_section(section);
+    let mut environment = initial_task_type_environment(task);
+    let mut checked_returns = Vec::new();
+
+    for statement in &body.statements {
+        if statement.kind == "return" {
+            checked_returns.push(checked_return(task, statement, &environment, blocked));
+        }
+        if let Some((name, fact)) = binding_type_fact(statement, &environment) {
+            environment.insert(name_key(&name), fact);
+        }
+    }
+
+    checked_returns
+}
+
+fn initial_task_type_environment(task: &Task) -> BTreeMap<String, TypeFact> {
+    let mut environment = BTreeMap::new();
+    for param in &task.params {
+        let type_text = param.ty.trim();
+        if !type_text.is_empty() {
+            environment.insert(
+                name_key(&param.name),
+                TypeFact {
+                    type_text: type_text.to_string(),
+                    source: "parameter_annotation_v0",
+                },
+            );
+        }
+    }
+    environment
+}
+
+fn checked_return(
+    task: &Task,
+    statement: &BodyStatement,
+    environment: &BTreeMap<String, TypeFact>,
+    blocked: bool,
+) -> CheckedReturn {
+    let expression_text = strip_keyword(&statement.text, "return")
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let expected_type = task.result.as_ref().map(|result| result.trim().to_string());
+    let expected_value_type = expected_type.as_deref().map(expected_return_value_type);
+    let actual = infer_expression_type(&expression_text, environment);
+    let (status, reason) = if blocked {
+        (
+            "not_checked_blocked_by_prior_errors_v0",
+            Some("prior_source_resolver_or_declaration_type_errors"),
+        )
+    } else if expected_type.is_none() {
+        (
+            "skipped_no_result_annotation_v0",
+            Some("task_has_no_result_annotation"),
+        )
+    } else if actual.is_none() {
+        (
+            "unchecked_return_expression_v0",
+            Some("return_expression_type_unknown_v0"),
+        )
+    } else if return_types_compatible(
+        expected_type.as_deref().unwrap_or_default(),
+        expected_value_type.as_deref().unwrap_or_default(),
+        actual
+            .as_ref()
+            .map(|fact| fact.type_text.as_str())
+            .unwrap_or_default(),
+    ) {
+        ("accepted_return_expression_v0", None)
+    } else {
+        (
+            "rejected_return_type_mismatch_v0",
+            Some("return_expression_type_mismatch"),
+        )
+    };
+
+    CheckedReturn {
+        id: prefixed_id(
+            "hum_type_check_return",
+            &format!("{}_{}", task.name, statement.span.line),
+        ),
+        owner_kind: "task",
+        owner_name: task.name.clone(),
+        source_span: statement.span.clone(),
+        expression_text,
+        expected_type,
+        expected_value_type,
+        actual_type: actual.as_ref().map(|fact| fact.type_text.clone()),
+        type_source: actual.map(|fact| fact.source),
+        status,
+        reason,
+    }
+}
+
+fn binding_type_fact(
+    statement: &BodyStatement,
+    environment: &BTreeMap<String, TypeFact>,
+) -> Option<(String, TypeFact)> {
+    let keyword = match statement.kind {
+        "let_binding" => "let",
+        "mutable_binding" => "change",
+        _ => return None,
+    };
+    let rest = strip_keyword(&statement.text, keyword)?;
+    let (left, value) = rest.split_once('=')?;
+    let (name, explicit_type) = binding_left_parts(left)?;
+    let fact = if let Some(type_text) = explicit_type {
+        TypeFact {
+            type_text,
+            source: "binding_annotation_v0",
+        }
+    } else {
+        infer_expression_type(value.trim(), environment)?
+    };
+    Some((name, fact))
+}
+
+fn binding_left_parts(left: &str) -> Option<(String, Option<String>)> {
+    let left = left.trim();
+    if left.is_empty() {
+        return None;
+    }
+    if let Some((name, type_text)) = left.split_once(':') {
+        let name = name.trim();
+        let type_text = type_text.trim();
+        if name.is_empty() || type_text.is_empty() {
+            return None;
+        }
+        Some((name.to_string(), Some(type_text.to_string())))
+    } else {
+        Some((left.to_string(), None))
+    }
+}
+
+fn infer_expression_type(
+    expression_text: &str,
+    environment: &BTreeMap<String, TypeFact>,
+) -> Option<TypeFact> {
+    let text = expression_text.trim();
+    if text.is_empty() {
+        return Some(TypeFact {
+            type_text: "Unit".to_string(),
+            source: "unit_expression_v0",
+        });
+    }
+    if text == "true" || text == "false" {
+        return Some(TypeFact {
+            type_text: "Bool".to_string(),
+            source: "bool_literal_v0",
+        });
+    }
+    if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
+        return Some(TypeFact {
+            type_text: "Text".to_string(),
+            source: "text_literal_v0",
+        });
+    }
+    if text.chars().all(|ch| ch.is_ascii_digit()) {
+        return Some(TypeFact {
+            type_text: "integer_literal".to_string(),
+            source: "integer_literal_v0",
+        });
+    }
+    if let Some(type_name) = record_literal_type_name(text) {
+        return Some(TypeFact {
+            type_text: type_name,
+            source: "record_literal_constructor_v0",
+        });
+    }
+    if let Some(root) = path_root_type_name(text) {
+        return Some(TypeFact {
+            type_text: root,
+            source: "path_root_type_v0",
+        });
+    }
+    environment.get(&name_key(text)).cloned()
+}
+
+fn record_literal_type_name(text: &str) -> Option<String> {
+    let constructor = text.trim().strip_suffix('{')?.trim();
+    if is_type_like_name(constructor) {
+        Some(constructor.to_string())
+    } else {
+        None
+    }
+}
+
+fn path_root_type_name(text: &str) -> Option<String> {
+    let (root, _field) = text.split_once('.')?;
+    let root = root.trim();
+    if is_type_like_name(root) {
+        Some(root.to_string())
+    } else {
+        None
+    }
+}
+
+fn is_type_like_name(text: &str) -> bool {
+    text.chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_uppercase())
+        && text
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == ' ')
+}
+
+fn expected_return_value_type(expected_type: &str) -> String {
+    let tokens = type_tokens(expected_type);
+    if matches!(
+        tokens.first().map(String::as_str),
+        Some("Result" | "Option" | "Maybe")
+    ) && tokens.len() >= 2
+    {
+        tokens[1].clone()
+    } else {
+        expected_type.trim().to_string()
+    }
+}
+
+fn return_types_compatible(
+    expected_type: &str,
+    expected_value_type: &str,
+    actual_type: &str,
+) -> bool {
+    let actual_key = name_key(actual_type);
+    if actual_key.is_empty() {
+        return false;
+    }
+    if actual_key == name_key(expected_type) || actual_key == name_key(expected_value_type) {
+        return true;
+    }
+    actual_key == "integer_literal"
+        && matches!(
+            name_key(expected_value_type).as_str(),
+            "int" | "uint" | "float"
+        )
+}
+
+fn return_diagnostics(checked_returns: &[CheckedReturn]) -> Vec<TypeCheckDiagnostic> {
+    checked_returns
+        .iter()
+        .filter(|checked_return| checked_return.status == "rejected_return_type_mismatch_v0")
+        .map(|checked_return| TypeCheckDiagnostic {
+            code: DiagnosticCode::RETURN_TYPE_MISMATCH,
+            severity: Severity::Error,
+            title: DiagnosticCode::RETURN_TYPE_MISMATCH.title(),
+            message: format!(
+                "return expression `{}` has type `{}` but task `{}` returns `{}`",
+                checked_return.expression_text,
+                checked_return.actual_type.as_deref().unwrap_or("unknown"),
+                checked_return.owner_name,
+                checked_return.expected_type.as_deref().unwrap_or("none")
+            ),
+            source_span: checked_return.source_span.clone(),
+            help: "Return a value that matches the task result type, change the task result annotation, or leave complex cases unchecked until full expression typing exists.",
+            declaration_id: None,
+            type_name: None,
+            return_id: Some(checked_return.id.clone()),
+            expression_text: Some(checked_return.expression_text.clone()),
+            expected_type: checked_return.expected_type.clone(),
+            actual_type: checked_return.actual_type.clone(),
+        })
+        .collect()
+}
+
+fn type_tokens(type_text: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    for ch in type_text.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            current.push(ch);
+        } else if !current.is_empty() {
+            tokens.push(current.clone());
+            current.clear();
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
+    if text == keyword {
+        return Some("");
+    }
+    text.strip_prefix(keyword)
+        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
+        .map(str::trim)
+}
 impl TypeCheckReport {
     fn status(&self) -> &'static str {
         if self.source_errors() > 0 {
@@ -319,7 +713,7 @@ impl TypeCheckReport {
         } else if self.type_error_count() > 0 {
             "type_errors_v0"
         } else {
-            "declaration_annotations_checked_v0"
+            "declaration_annotations_and_trivial_returns_checked_v0"
         }
     }
 
@@ -364,6 +758,34 @@ impl TypeCheckReport {
             .map(|declaration| declaration.type_references.len())
             .sum()
     }
+
+    fn accepted_returns(&self) -> usize {
+        self.checked_returns
+            .iter()
+            .filter(|checked_return| checked_return.status == "accepted_return_expression_v0")
+            .count()
+    }
+
+    fn rejected_returns(&self) -> usize {
+        self.checked_returns
+            .iter()
+            .filter(|checked_return| checked_return.status == "rejected_return_type_mismatch_v0")
+            .count()
+    }
+
+    fn unchecked_returns(&self) -> usize {
+        self.checked_returns
+            .iter()
+            .filter(|checked_return| {
+                matches!(
+                    checked_return.status,
+                    "unchecked_return_expression_v0"
+                        | "skipped_no_result_annotation_v0"
+                        | "not_checked_blocked_by_prior_errors_v0"
+                )
+            })
+            .count()
+    }
 }
 
 fn prefixed_id(prefix: &str, text: &str) -> String {
@@ -378,6 +800,9 @@ fn prefixed_id(prefix: &str, text: &str) -> String {
     format!("{prefix}_{body}")
 }
 
+fn name_key(name: &str) -> String {
+    snake_identifier(name)
+}
 fn snake_identifier(text: &str) -> String {
     let mut out = String::new();
     let mut previous_was_separator = false;
@@ -493,6 +918,34 @@ fn push_summary(out: &mut String, report: &TypeCheckReport, indent: usize, comma
         indent + 2,
         "checked_type_references",
         report.checked_type_references(),
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "checked_returns",
+        report.checked_returns.len(),
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "accepted_returns",
+        report.accepted_returns(),
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "rejected_returns",
+        report.rejected_returns(),
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unchecked_returns",
+        report.unchecked_returns(),
         true,
     );
     push_usize_field(
@@ -637,6 +1090,90 @@ fn push_checked_type_references(
     push_comma_newline(out, comma);
 }
 
+fn push_checked_returns(out: &mut String, returns: &[CheckedReturn], indent: usize, comma: bool) {
+    push_indent(out, indent);
+    push_json_string(out, "checked_returns");
+    out.push_str(": [");
+    if !returns.is_empty() {
+        out.push('\n');
+        for (index, checked_return) in returns.iter().enumerate() {
+            if index > 0 {
+                out.push_str(",\n");
+            }
+            push_checked_return(out, checked_return, indent + 2);
+        }
+        out.push('\n');
+        push_indent(out, indent);
+    }
+    out.push(']');
+    push_comma_newline(out, comma);
+}
+
+fn push_checked_return(out: &mut String, checked_return: &CheckedReturn, indent: usize) {
+    push_indent(out, indent);
+    out.push_str("{\n");
+    push_string_field(out, indent + 2, "id", &checked_return.id, true);
+    push_string_field(
+        out,
+        indent + 2,
+        "owner_kind",
+        checked_return.owner_kind,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "owner_name",
+        &checked_return.owner_name,
+        true,
+    );
+    push_span_field(
+        out,
+        indent + 2,
+        "source_span",
+        &checked_return.source_span,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "expression_text",
+        &checked_return.expression_text,
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "expected_type",
+        checked_return.expected_type.as_deref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "expected_value_type",
+        checked_return.expected_value_type.as_deref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "actual_type",
+        checked_return.actual_type.as_deref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "type_source",
+        checked_return.type_source,
+        true,
+    );
+    push_string_field(out, indent + 2, "status", checked_return.status, true);
+    push_optional_string_field(out, indent + 2, "reason", checked_return.reason, false);
+    push_indent(out, indent);
+    out.push('}');
+}
 fn push_diagnostics(
     out: &mut String,
     diagnostics: &[TypeCheckDiagnostic],
@@ -682,14 +1219,48 @@ fn push_diagnostic(out: &mut String, diagnostic: &TypeCheckDiagnostic, indent: u
         true,
     );
     push_string_field(out, indent + 2, "help", diagnostic.help, true);
-    push_string_field(
+    push_optional_string_field(
         out,
         indent + 2,
         "declaration_id",
-        &diagnostic.declaration_id,
+        diagnostic.declaration_id.as_deref(),
         true,
     );
-    push_string_field(out, indent + 2, "type_name", &diagnostic.type_name, false);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "type_name",
+        diagnostic.type_name.as_deref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "return_id",
+        diagnostic.return_id.as_deref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "expression_text",
+        diagnostic.expression_text.as_deref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "expected_type",
+        diagnostic.expected_type.as_deref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "actual_type",
+        diagnostic.actual_type.as_deref(),
+        false,
+    );
     push_indent(out, indent);
     out.push('}');
 }
@@ -798,27 +1369,54 @@ mod tests {
 
         assert!(type_check_has_errors(&program, &[]));
         assert!(json.contains("\"schema\": \"hum.type_check.v0\""));
-        assert!(
-            json.contains("\"mode\": \"declaration_annotation_check_no_expression_inference\"")
-        );
+        assert!(json.contains("\"mode\": \"declaration_annotation_and_trivial_return_check_v0\""));
         assert!(json.contains("\"schema\": \"hum.type_env.v0\""));
         assert!(json.contains("\"status\": \"type_errors_v0\""));
         assert!(json.contains("\"code\": \"H0605\""));
         assert!(json.contains("\"type_name\": \"WorkError\""));
         assert!(json.contains("\"check_status\": \"rejected_unknown_type_name_v0\""));
-        assert!(json.contains("\"no expression type inference\""));
+        assert!(json.contains("\"no full expression type inference\""));
     }
 
     #[test]
-    fn json_accepts_declared_and_reserved_annotation_names() {
+    fn json_accepts_declarations_and_trivial_result_return() {
         let program = demo_program_without_unknown();
         let json = type_check_json(&program, &[]);
 
         assert!(!type_check_has_errors(&program, &[]));
-        assert!(json.contains("\"status\": \"declaration_annotations_checked_v0\""));
+        assert!(
+            json.contains("\"status\": \"declaration_annotations_and_trivial_returns_checked_v0\"")
+        );
         assert!(json.contains("\"type_errors\": 0"));
         assert!(json.contains("\"accepted_declaration_annotation_v0\""));
         assert!(json.contains("\"accepted_type_reference_v0\""));
+        assert!(json.contains("\"checked_returns\""));
+        assert!(json.contains("\"expected_type\": \"Result WorkItem, WorkError\""));
+        assert!(json.contains("\"expected_value_type\": \"WorkItem\""));
+        assert!(json.contains("\"actual_type\": \"WorkItem\""));
+        assert!(json.contains("\"status\": \"accepted_return_expression_v0\""));
+        assert!(json.contains("\"type_source\": \"record_literal_constructor_v0\""));
+    }
+
+    #[test]
+    fn json_rejects_trivial_return_type_mismatch() {
+        let program = parse_program(
+            r#"task bad return(title: Text) -> UInt {
+  does:
+    return title
+}
+"#,
+        );
+        let json = type_check_json(&program, &[]);
+
+        assert!(type_check_has_errors(&program, &[]));
+        assert!(json.contains("\"status\": \"type_errors_v0\""));
+        assert!(json.contains("\"code\": \"H0606\""));
+        assert!(json.contains("\"title\": \"return type mismatch\""));
+        assert!(json.contains("\"expected_type\": \"UInt\""));
+        assert!(json.contains("\"actual_type\": \"Text\""));
+        assert!(json.contains("\"status\": \"rejected_return_type_mismatch_v0\""));
+        assert!(json.contains("\"rejected_returns\": 1"));
     }
 
     #[test]
@@ -830,13 +1428,15 @@ mod tests {
         assert_eq!(summary.status, "type_errors_v0");
         assert_eq!(
             summary.mode,
-            "declaration_annotation_check_no_expression_inference"
+            "declaration_annotation_and_trivial_return_check_v0"
         );
         assert_eq!(summary.source_errors, 0);
         assert_eq!(summary.resolver_errors, 0);
         assert_eq!(summary.type_errors, 1);
         assert_eq!(summary.unknown_type_references, 1);
         assert_eq!(summary.rejected_declarations, 1);
+        assert_eq!(summary.checked_returns, 1);
+        assert_eq!(summary.unchecked_returns, 1);
     }
 
     #[test]
@@ -903,7 +1503,11 @@ task remember work item(title: Text) -> Result WorkItem, WorkError {
     work items
 
   does:
-    return title
+    let item = WorkItem {
+      title: title
+      done: false
+    }
+    return item
 }
 "#,
         )

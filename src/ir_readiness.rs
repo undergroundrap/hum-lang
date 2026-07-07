@@ -76,7 +76,7 @@ const PASS_STATUSES: &[PassStatus] = &[
     },
     PassStatus {
         name: "type_check",
-        status: "declaration_annotation_check_available",
+        status: "declaration_and_trivial_return_check_available",
         source: type_check::TYPE_CHECK_SCHEMA,
     },
     PassStatus {
@@ -132,7 +132,7 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         version::HUM_STATUS
     ));
     out.push_str(&format!(
-        "summary: files={} items={} tasks={} tests={} lowering_candidates={} ready_for_ir=0 blocked={} errors={} warnings={} body_grammar_candidates={} body_grammar_recognized_lines={} body_grammar_unsupported_lines={} resolver_status={} resolver_errors={} unresolved_references={} type_check_status={} type_errors={} unknown_type_references={}\n",
+        "summary: files={} items={} tasks={} tests={} lowering_candidates={} ready_for_ir=0 blocked={} errors={} warnings={} body_grammar_candidates={} body_grammar_recognized_lines={} body_grammar_unsupported_lines={} resolver_status={} resolver_errors={} unresolved_references={} type_check_status={} type_errors={} unknown_type_references={} checked_returns={} rejected_returns={} unchecked_returns={}\n",
         report.files,
         report.items,
         report.tasks,
@@ -149,7 +149,10 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.resolve_summary.unresolved_references,
         report.type_check_summary.status,
         report.type_check_summary.type_errors,
-        report.type_check_summary.unknown_type_references
+        report.type_check_summary.unknown_type_references,
+        report.type_check_summary.checked_returns,
+        report.type_check_summary.rejected_returns,
+        report.type_check_summary.unchecked_returns
     ));
     out.push_str(&format!(
         "core_contract_schema: {}\n",
@@ -176,12 +179,15 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.resolve_summary.resolver_warnings
     ));
     out.push_str(&format!(
-        "type_check: schema={} status={} mode={} checked_declarations={} rejected_declarations={} type_errors={} unknown_type_references={}\n",
+        "type_check: schema={} status={} mode={} checked_declarations={} rejected_declarations={} checked_returns={} rejected_returns={} unchecked_returns={} type_errors={} unknown_type_references={}\n",
         report.type_check_summary.schema,
         report.type_check_summary.status,
         report.type_check_summary.mode,
         report.type_check_summary.checked_declarations,
         report.type_check_summary.rejected_declarations,
+        report.type_check_summary.checked_returns,
+        report.type_check_summary.rejected_returns,
+        report.type_check_summary.unchecked_returns,
         report.type_check_summary.type_errors,
         report.type_check_summary.unknown_type_references
     ));
@@ -411,6 +417,7 @@ fn facts_available(
         resolve_summary.status,
         "type_check_summary_v0",
         type_check_summary.status,
+        "trivial_return_checks_v0",
     ];
 
     let sections = item_sections(item);
@@ -792,6 +799,34 @@ fn push_type_check_summary(
         summary.unknown_type_references,
         true,
     );
+    push_usize_field(
+        out,
+        indent + 2,
+        "checked_returns",
+        summary.checked_returns,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "accepted_returns",
+        summary.accepted_returns,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "rejected_returns",
+        summary.rejected_returns,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unchecked_returns",
+        summary.unchecked_returns,
+        true,
+    );
     push_usize_field(out, indent + 2, "type_errors", summary.type_errors, true);
     push_usize_field(
         out,
@@ -809,7 +844,7 @@ fn push_summary(out: &mut String, report: &IrReadinessReport, indent: usize, com
     push_indent(out, indent);
     out.push_str("\"summary\": {");
     out.push_str(&format!(
-        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"lowering_candidates\": {}, \"ready_for_ir\": 0, \"blocked\": {}, \"errors\": {}, \"warnings\": {}, \"type_errors\": {}, \"unknown_type_references\": {}, \"body_grammar_candidates\": {}, \"body_grammar_recognized_lines\": {}, \"body_grammar_unsupported_lines\": {}",
+        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"lowering_candidates\": {}, \"ready_for_ir\": 0, \"blocked\": {}, \"errors\": {}, \"warnings\": {}, \"type_errors\": {}, \"unknown_type_references\": {}, \"checked_returns\": {}, \"rejected_returns\": {}, \"unchecked_returns\": {}, \"body_grammar_candidates\": {}, \"body_grammar_recognized_lines\": {}, \"body_grammar_unsupported_lines\": {}",
         report.files,
         report.items,
         report.tasks,
@@ -820,6 +855,9 @@ fn push_summary(out: &mut String, report: &IrReadinessReport, indent: usize, com
         report.warnings,
         report.type_check_summary.type_errors,
         report.type_check_summary.unknown_type_references,
+        report.type_check_summary.checked_returns,
+        report.type_check_summary.rejected_returns,
+        report.type_check_summary.unchecked_returns,
         report.body_grammar_candidates(),
         report.body_grammar_recognized_lines(),
         report.body_grammar_unsupported_lines()
@@ -1132,12 +1170,16 @@ mod tests {
         assert!(text.contains("resolver: schema=hum.resolve.v0 status=checked_resolver_v0"));
         assert!(text.contains("lowering_candidates=4 ready_for_ir=0 blocked=4"));
         assert!(text.contains("body_grammar_candidates=2"));
-        assert!(text.contains("type_check_status=declaration_annotations_checked_v0"));
+        assert!(
+            text.contains(
+                "type_check_status=declaration_annotations_and_trivial_returns_checked_v0"
+            )
+        );
         assert!(text.contains("type_errors=0 unknown_type_references=0"));
         assert!(text.contains("type_check: schema=hum.type_check.v0"));
         assert!(text.contains("pass_status:"));
         assert!(text.contains("body_grammar [partial_v0]"));
-        assert!(text.contains("type_check [declaration_annotation_check_available]"));
+        assert!(text.contains("type_check [declaration_and_trivial_return_check_available]"));
         assert!(text.contains("core_lowering [not_implemented]"));
         assert!(text.contains("task `add task`"));
         assert!(text.contains("missing_passes: core_lowering"));
@@ -1159,12 +1201,14 @@ mod tests {
         assert!(json.contains("\"resolver_errors\": 0"));
         assert!(json.contains("\"type_check\""));
         assert!(json.contains("\"schema\": \"hum.type_check.v0\""));
-        assert!(json.contains("\"status\": \"declaration_annotations_checked_v0\""));
+        assert!(
+            json.contains("\"status\": \"declaration_annotations_and_trivial_returns_checked_v0\"")
+        );
         assert!(json.contains("\"type_errors\": 0"));
         assert!(json.contains("\"unknown_type_references\": 0"));
         assert!(json.contains("\"checked_resolver_v0\""));
         assert!(json.contains("\"type_check_summary_v0\""));
-        assert!(json.contains("\"declaration_annotations_checked_v0\""));
+        assert!(json.contains("\"declaration_annotations_and_trivial_returns_checked_v0\""));
         assert!(json.contains("\"ready_for_ir\": 0"));
         assert!(json.contains("\"body_grammar_candidates\": 2"));
         assert!(json.contains("\"body_grammar_unsupported_lines\": 1"));
@@ -1177,7 +1221,7 @@ mod tests {
         assert!(json.contains("\"body_grammar_partial_v0\""));
         assert!(json.contains("\"name\": \"semantic_graph_build\""));
         assert!(json.contains("\"name\": \"type_check\""));
-        assert!(json.contains("\"status\": \"declaration_annotation_check_available\""));
+        assert!(json.contains("\"status\": \"declaration_and_trivial_return_check_available\""));
         assert!(json.contains("\"full_type_check\""));
         assert!(json.contains("\"full_type_check_not_implemented\""));
         assert!(json.contains("\"status\": \"report_available_not_ir_pass\""));

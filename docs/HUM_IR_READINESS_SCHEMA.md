@@ -96,16 +96,16 @@ point is to show the next honest blocker, not to emit IR.
 readiness:
 
 - `schema`: currently `hum.type_check.v0`
-- `status`: `declaration_annotations_checked_v0`, `type_errors_v0`,
+- `status`: `declaration_annotations_and_trivial_returns_checked_v0`, `type_errors_v0`,
   `blocked_by_resolver_errors`, or `blocked_by_source_errors`
-- `mode`: currently `declaration_annotation_check_no_expression_inference`
+- `mode`: currently `declaration_annotation_and_trivial_return_check_v0`
 - `source_errors`, `source_warnings`, and `resolver_errors`
 - `checked_declarations`, `accepted_declarations`, and `rejected_declarations`
-- `checked_type_references` and `unknown_type_references`
+- `checked_type_references`, `unknown_type_references`, `checked_returns`, `accepted_returns`, `rejected_returns`, and `unchecked_returns`
 - `type_errors` and `type_warnings`
 
 A nonzero `type_errors` value blocks every V0 lowering candidate with
-`type_check_errors`. V0 type checking is declaration-annotation checking only;
+`type_check_errors`. V0 type checking covers declaration annotations and trivial task returns only;
 full expression, body, generic, trait, ownership, effect, layout, and ABI checks
 remain future blockers.
 
@@ -133,7 +133,7 @@ Current candidate statuses:
 - `blocked_before_core_lowering`: source parsed and resolved, but no Core Hum lowering exists
 - `blocked_by_source_errors`: source diagnostics include errors
 - `blocked_by_resolver_errors`: `hum.resolve.v0` reported name, duplicate, or mutable-place errors
-- `blocked_by_type_errors`: `hum.type_check.v0` reported declaration annotation type errors
+- `blocked_by_type_errors`: `hum.type_check.v0` reported declaration annotation or trivial return type errors
 
 ## Facts Available
 
@@ -147,8 +147,9 @@ V0 may report facts such as:
 - `checked_resolver_v0`
 - `checked_resolver_with_errors_v0`
 - `type_check_summary_v0`
-- `declaration_annotations_checked_v0`
+- `declaration_annotations_and_trivial_returns_checked_v0`
 - `type_errors_v0`
+- `trivial_return_checks_v0`
 - `source_sections`
 - `section_line_spans`
 - `signature_params`
@@ -220,7 +221,7 @@ V0 reports these pass statuses:
 - `resolve`: `checked_report_available`
 - `body_grammar`: `partial_v0`
 - `core_lowering`: `not_implemented`
-- `type_check`: `declaration_annotation_check_available`
+- `type_check`: `declaration_and_trivial_return_check_available`
 - `effect_check`: `not_implemented`
 - `ownership_alias_check`: `not_implemented`
 - `allocation_resource_check`: `not_implemented`
@@ -239,7 +240,7 @@ V0 reports these pass statuses:
 - It must block V0 lowering candidates when `hum.resolve.v0` reports resolver
   errors.
 - It must block V0 lowering candidates when `hum.type_check.v0` reports
-  declaration annotation type errors.
+  declaration annotation or trivial return type errors.
 - It must stay in sync with `hum.core_contract.v0`, `hum.ir_contract.v0`, `hum
   capabilities --format json`, and `hum version --format json`.
 
