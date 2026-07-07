@@ -53,6 +53,9 @@ $readme = Read-RepoText 'README.md'
 if (-not $readme.Contains('docs/RELEASE_AND_VERSIONING.md')) {
   Add-Failure 'README.md does not link docs/RELEASE_AND_VERSIONING.md'
 }
+if (-not $readme.Contains('docs/LSP_CAPABILITY_MATRIX.md')) {
+  Add-Failure 'README.md does not link docs/LSP_CAPABILITY_MATRIX.md'
+}
 if (-not $readme.Contains('SECURITY.md')) {
   Add-Failure 'README.md does not link SECURITY.md'
 }
@@ -109,6 +112,16 @@ if (-not $editorStrategyDoc.Contains('section hover metadata')) {
 if (-not $editorStrategyDoc.Contains('semantic-token legend')) {
   Add-Failure 'docs/EDITOR_AND_INTEGRATION_STRATEGY.md does not describe syntax semantic-token metadata'
 }
+if (-not $editorStrategyDoc.Contains('LSP_CAPABILITY_MATRIX.md')) {
+  Add-Failure 'docs/EDITOR_AND_INTEGRATION_STRATEGY.md does not link docs/LSP_CAPABILITY_MATRIX.md'
+}
+
+$lspMatrixDoc = Read-RepoText 'docs\LSP_CAPABILITY_MATRIX.md'
+foreach ($required in @('hum.check.v0', 'hum.semantic_graph.v0', 'hum.syntax_surface.v0', 'folding_ranges', 'section_catalog', 'semantic_tokens', 'VS Code', 'Visual Studio', 'JetBrains', 'Eclipse', 'Jupyter')) {
+  if (-not $lspMatrixDoc.Contains($required)) {
+    Add-Failure "docs/LSP_CAPABILITY_MATRIX.md does not mention $required"
+  }
+}
 
 $securityPolicy = Read-RepoText 'SECURITY.md'
 foreach ($required in @('Supported Versions', 'How To Report', 'Security Claims')) {
@@ -116,7 +129,6 @@ foreach ($required in @('Supported Versions', 'How To Report', 'Security Claims'
     Add-Failure "SECURITY.md does not mention $required"
   }
 }
-
 
 $setup = Read-RepoText 'docs\SETUP.md'
 foreach ($required in @('Visual Studio', 'Eclipse', 'Jupyter', 'VS Code', 'Cursor', 'PyCharm')) {

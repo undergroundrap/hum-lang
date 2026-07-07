@@ -32,6 +32,10 @@ Hum should own these tools:
 
 Plugins should be adapters, not alternate implementations of Hum semantics.
 
+The current adapter contract is tracked in
+[LSP_CAPABILITY_MATRIX.md](LSP_CAPABILITY_MATRIX.md). That matrix is the
+ground-truth bridge between first-party CLI/schema output and editor features.
+
 ## Editor Priority Tiers
 
 ### Tier 0: Editor-Neutral Foundation
@@ -132,12 +136,13 @@ Rules:
 3. `hum graph` schema versioning
 4. `hum syntax` as the first editor-neutral syntax surface
 5. TextMate grammar generated from `hum syntax --format textmate` and refreshed with `tools/update_textmate_grammar.ps1`
-6. `hum lsp` with diagnostics, symbols, folding, hover, and formatting hooks
-7. VS Code/Cursor adapter because it reaches the most users fastest
-8. Neovim/Helix/Zed docs because LSP users can self-serve
-9. Visual Studio adapter when Windows enterprise workflows justify it
-10. JetBrains/Eclipse adapter docs and package shells
-11. Jupyter kernel only after executable Hum exists
+6. LSP capability matrix tied to first-party CLI/schema facts
+7. `hum lsp` with diagnostics, symbols, folding, hover, and formatting hooks
+8. VS Code/Cursor adapter because it reaches the most users fastest
+9. Neovim/Helix/Zed docs because LSP users can self-serve
+10. Visual Studio adapter when Windows enterprise workflows justify it
+11. JetBrains/Eclipse adapter docs and package shells
+12. Jupyter kernel only after executable Hum exists
 
 ## Sources
 

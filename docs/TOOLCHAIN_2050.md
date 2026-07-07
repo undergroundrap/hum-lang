@@ -173,6 +173,11 @@ Late LSP features:
 LSP should be protocol-compatible, but Hum-specific powers should flow through
 stable extension methods documented in the semantic graph schema.
 
+The current and planned LSP/editor capability contract is tracked in
+[LSP_CAPABILITY_MATRIX.md](LSP_CAPABILITY_MATRIX.md). A capability should not be
+treated as adapter-ready until the matrix names the first-party Hum command or
+schema that owns it.
+
 ## Editor Integration Strategy
 
 Hum should not make every editor plugin reimplement the language. The compiler, `hum graph`, `humfmt`, and `hum lsp` should be the authority; editor integrations should be thin adapters.
@@ -276,7 +281,7 @@ Milestone 0 should produce:
 5. `hum syntax` machine-readable syntax surface
 6. generated TextMate grammar sketch at [../editors/textmate/hum.tmLanguage.json](../editors/textmate/hum.tmLanguage.json)
 7. Tree-sitter grammar design note
-8. LSP capability plan
+8. LSP capability matrix at [LSP_CAPABILITY_MATRIX.md](LSP_CAPABILITY_MATRIX.md)
 9. debugger data model sketch
 10. golden checks for incomplete/broken source through [EDITOR_FIXTURES.md](EDITOR_FIXTURES.md)
 11. editor-fixture `.hum` files under [../fixtures/editor](../fixtures/editor)

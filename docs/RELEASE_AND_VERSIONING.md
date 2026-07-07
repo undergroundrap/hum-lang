@@ -127,7 +127,7 @@ Before Hum is presented like a serious new language from a Microsoft-scale or Go
 
 - versioned CLI behavior through `hum version` and `hum version --format json`
 - versioned semantic graph schema
-- documented LSP capability matrix
+- documented LSP capability matrix at [LSP_CAPABILITY_MATRIX.md](LSP_CAPABILITY_MATRIX.md)
 - editor integration strategy
 - supported platform tiers
 - security policy
