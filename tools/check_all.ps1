@@ -359,6 +359,10 @@ try {
   $DebugDoctrineText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\DEBUGGABILITY_DOCTRINE.md'))
   if (-not $DebugDoctrineText.Contains('hum.debug_info.v0')) { throw 'debuggability doctrine is missing debug info schema direction' }
   if (-not $DebugDoctrineText.Contains('faster and clearer than adding `printf`')) { throw 'debuggability doctrine is missing debugger speed rule' }
+  if (-not $DebugDoctrineText.Contains('type-attached visualizers')) { throw 'debuggability doctrine is missing type-attached visualizer rule' }
+  if (-not $DebugDoctrineText.Contains('debug probe sites')) { throw 'debuggability doctrine is missing debug probe site rule' }
+  $ResearchMapText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\RESEARCH_MAP_2026.md'))
+  if (-not $ResearchMapText.Contains('2026-07-07-rad-debugger-lessons.md')) { throw 'research map is missing RAD Debugger lessons' }
 
   Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
   Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'

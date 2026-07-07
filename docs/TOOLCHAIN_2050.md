@@ -202,6 +202,11 @@ Hum needs a Debug Adapter Protocol implementation, but a normal line debugger is
 not enough. The doctrine that keeps debug data from becoming an afterthought is
 [DEBUGGABILITY_DOCTRINE.md](DEBUGGABILITY_DOCTRINE.md).
 
+The RAD Debugger lesson is sharper: a debugger is only worth building if it is
+faster and more reliable than manual instrumentation. Hum should therefore treat
+debug-info shape, linker/backend output, visualizer metadata, probe sites, and
+optimizer provenance as toolchain design, not plugin polish.
+
 A Hum debugger should answer:
 
 - what task am I in?
@@ -222,6 +227,10 @@ Required layers:
 5. replay hooks for deterministic tests
 6. schedule visualization for concurrent/data-oriented tasks
 7. source maps from Hum to Hum IR, bytecode, Cranelift, LLVM, or native debug info
+8. type-attached visualizers for slices, spans, maps, text, bytes, memory,
+   geometry, tensors, pointer graphs, and evidence bundles
+9. debug probe sites for conditional breakpoints, profile samples, contract
+   checks, allocation checks, and effect tracing where profiles allow them
 
 The debugger should make intent visible, not just variables.
 
@@ -253,8 +262,16 @@ Every lowering stage should carry:
 - intent section id
 - generated code origin
 - optimization provenance when code moves or disappears
+- call, return, inline, tail-call, and generated-check provenance
+- many-to-many source-line to instruction-range mappings
+- type-to-visualizer association ids
+- debug probe site ids for contract, profile, allocation, and effect inspection
 
 Debug info is not only for humans. Agents and profilers need it too.
+
+Hum's first-party debug info should be large-project safe and indexed for reads.
+Native DWARF and PDB are compatibility targets; `hum.debug_info.v0` should be the
+authority for Hum-specific facts.
 
 ## Tooling-Driven Syntax Constraints
 
@@ -318,6 +335,8 @@ Every release should test:
 - rename correctness
 - debugger source mapping
 - profiler source mapping
+- visualizer association stability
+- release profiles that forbid debug probe sites
 - agent graph consumption
 
 This is how Hum avoids becoming a language whose compiler works but whose daily

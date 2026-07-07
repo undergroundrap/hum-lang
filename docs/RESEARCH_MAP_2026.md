@@ -38,6 +38,7 @@ The current adoption research snapshot is:
 - [research/2026-07-06-evidence-native-systems-language.md](research/2026-07-06-evidence-native-systems-language.md)
 - [research/2026-07-07-time-space-simulation.md](research/2026-07-07-time-space-simulation.md)
 - [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md)
+- [research/2026-07-07-rad-debugger-lessons.md](research/2026-07-07-rad-debugger-lessons.md)
 
 It sharpens the product thesis: Hum should not compete as nicer syntax alone.
 It should compete as an evidence-native systems language that turns checked
@@ -364,7 +365,48 @@ Concrete design gates:
 - Add memory-pressure profile vocabulary before recompute/cache optimization.
 - Never market theoretical results as direct real-hardware guarantees.
 
-### 11. Deployment, Containers, Observability, And Agent Tools
+### 11. Debuggers, Visualizers, And Source-Mapped Toolchains
+
+Research signals:
+
+- RAD Debugger practice shows that debugger quality depends on high-density UI,
+  fast debug-info reads, process control, linker/debug-info strategy, and domain
+  visualizers.
+- Existing platform debug formats such as DWARF and PDB are necessary for
+  compatibility, but supporting them directly can create expensive abstraction
+  layers.
+- Large projects can hit real debug-info scale limits, especially through type
+  expansion, templates, generated code, closures, lambdas, and generic-heavy
+  code.
+- Stepping optimized native code is a many-to-many source map problem, not a
+  simple line-to-address lookup.
+- Conditional breakpoints, dynamic profiling, and manual instrumentation are
+  closely related observation workflows.
+
+Hum lessons:
+
+- Debuggability is part of language semantics and backend design, not an editor
+  extra.
+- Hum should design `hum.debug_info.v0` as the first-party authority for Hum
+  facts, with DWARF/PDB as compatibility bridges.
+- Type-attached visualizers should be language-visible metadata so packages can
+  make domain values inspectable without per-machine debugger setup.
+- Debug probe sites should be explicit profile artifacts, source-linked, and
+  absent from release profiles that forbid them.
+- Optimizers must preserve enough provenance to make stepping, profiling, and
+  debugging honest under inlining, reordering, generated checks, and removed
+  code.
+
+Concrete design gates:
+
+- Keep [DEBUGGABILITY_DOCTRINE.md](DEBUGGABILITY_DOCTRINE.md) current before
+  adding native backend claims.
+- Write `DEBUG_INFO_AND_VISUALIZER_MODEL.md` before a DAP implementation.
+- Add semantic graph slots for debug info ids, visualizer ids, source-map
+  provenance, and probe-site ids before lowering becomes executable.
+- Treat "debugger faster than logging" as a user-experience gate, not a slogan.
+
+### 12. Deployment, Containers, Observability, And Agent Tools
 
 Research signals:
 
@@ -424,6 +466,8 @@ Concrete design gates:
     verifier, a debugger, an operator, and an agent, it is not ready.
 13. Progressive disclosure, migration tooling, and staged compatibility are part
     of language design, not post-launch cleanup.
+14. Debuggability, visualizers, profiling, and source maps must be designed with
+    the language and backend, not postponed to editor plugins.
 
 ## Research Debt Still Open
 
@@ -439,7 +483,7 @@ Hum still needs deeper study before hardening these areas:
 - package trust and dependency evidence
 - proof language versus external verifier integration
 - compiler IR and optimization correctness strategy
-- debug/profiler/source-map model
+- debug/profiler/source-map, visualizer, and probe-site model
 - data-oriented scheduling and ECS-like storage contracts
 - operations model for dry-run, rollback, idempotence, drift, and telemetry
 - network model for typed addresses, protocol parsing, transactions, and
@@ -472,15 +516,17 @@ After the first formal-core and unsafe/security pass, do this order:
    format versioning, and migration rules.
 7. Write `docs/NUMERIC_AND_TENSOR_MODEL.md` with units, exact/approx values,
    shape, dtype, device, tolerance, determinism, and accelerator lowering.
-8. Write `docs/PACKAGE_AND_BUILD.md` with Nectar profiles, reproducibility, and
+8. Write `docs/DEBUG_INFO_AND_VISUALIZER_MODEL.md` with source maps, optimized
+   code honesty states, visualizer hints, and debug probe sites.
+9. Write `docs/PACKAGE_AND_BUILD.md` with Nectar profiles, reproducibility, and
    evidence packets.
-9. Write `docs/FFI_AND_ABI.md` with layout, panic, ownership, callback, and
-   compartment rules.
-10. Write `docs/CONCURRENCY_MODEL.md` with memory-ordering names, lock ordering,
+10. Write `docs/FFI_AND_ABI.md` with layout, panic, ownership, callback, and
+    compartment rules.
+11. Write `docs/CONCURRENCY_MODEL.md` with memory-ordering names, lock ordering,
     cancellation, and scheduling assumptions.
-11. Write `docs/DATA_ORIENTED_SCHEDULING.md` with Bevy/ECS lessons translated
+12. Write `docs/DATA_ORIENTED_SCHEDULING.md` with Bevy/ECS lessons translated
     into Hum's `uses:` and `changes:` model.
-12. Only then expand syntax beyond Milestone 1.
+13. Only then expand syntax beyond Milestone 1.
 
 ## Brutal Assessment
 
@@ -530,3 +576,4 @@ reckless.
 - Asadi and Cleve, withdrawn "Polynomial-Time Almost Log-Space Tree Evaluation by Catalytic Pebbling", 2026: https://arxiv.org/abs/2604.02606
 - Practitioner pain sweep sources: see [PRACTITIONER_PAIN_SWEEP_2026.md](PRACTITIONER_PAIN_SWEEP_2026.md)
 - Computing lessons sweep sources: see [COMPUTING_LESSONS_SWEEP_2026.md](COMPUTING_LESSONS_SWEEP_2026.md)
+- RAD Debugger lessons: see [research/2026-07-07-rad-debugger-lessons.md](research/2026-07-07-rad-debugger-lessons.md)
