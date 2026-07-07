@@ -216,11 +216,14 @@ See [STDLIB_CONSTITUTION.md](STDLIB_CONSTITUTION.md) for the full admission pack
 
 ## Decision Records
 
-Every accepted or rejected major decision should get a short decision record:
+Every accepted or rejected major decision should get a short decision record.
+The active index is [decisions/README.md](decisions/README.md).
+
+Example paths:
 
 ```text
-docs/decisions/0001-use-task-not-fn.md
-docs/decisions/0002-tests-are-top-level-test-kind.md
+docs/decisions/0001-adopt-evidence-native-architecture.md
+docs/decisions/0002-use-rust-bootstrap-until-self-hosting.md
 ```
 
 A decision record should include:
