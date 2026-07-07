@@ -235,3 +235,7 @@ rare clever code nicer.
 
 Hum should make ordinary correct systems code fast to write, fast to check, and
 fast to understand.
+
+Bellard-style constraint engineering adds one more warning: fast checks should
+not require a huge hidden runtime, heavyweight daemon, or opaque cache service.
+The fast path should remain small enough to rebuild, inspect, and run offline.

@@ -66,6 +66,27 @@ Rules:
 This follows the value-semantics and modern-hardware lesson captured in
 [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md).
 
+## Bellard Constraint Rule
+
+Bellard-style systems work treats smallness as a feature, not a side effect.
+Hum optimization reports should eventually make these costs visible when they
+matter:
+
+- binary size
+- startup time
+- memory floor
+- peak memory
+- dependency count
+- optional runtime services
+- deterministic artifact status
+- portability boundary
+
+A feature that is fast only by assuming a huge runtime, hidden service, hidden
+cache, or unbounded memory floor is not a paved-road systems feature. It may be a
+profile-specific side road, but it must say so.
+
+See [research/2026-07-07-bellard-systems-lessons.md](research/2026-07-07-bellard-systems-lessons.md).
+
 ## Research Intake Pipeline
 
 New DSA or compiler optimization research enters Hum through a lab, not straight
@@ -234,11 +255,13 @@ answers:
 5. What memory layout does it require?
 6. What are its adversarial inputs?
 7. What hardware assumptions does it make?
-8. What safety or security claims does it depend on?
-9. What does the semantic graph expose?
-10. How does `chirp` catch misuse?
-11. How does `humfmt` keep examples readable?
-12. How does Nectar benchmark it reproducibly?
+8. What footprint budget does it require?
+9. What deterministic artifact guarantees does it preserve or weaken?
+10. What safety or security claims does it depend on?
+11. What does the semantic graph expose?
+12. How does `chirp` catch misuse?
+13. How does `humfmt` keep examples readable?
+14. How does Nectar benchmark it reproducibly?
 
 If the answer is not clear, the feature belongs in a lab, not `std`.
 

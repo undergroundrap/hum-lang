@@ -39,6 +39,7 @@ The current adoption research snapshot is:
 - [research/2026-07-07-time-space-simulation.md](research/2026-07-07-time-space-simulation.md)
 - [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md)
 - [research/2026-07-07-rad-debugger-lessons.md](research/2026-07-07-rad-debugger-lessons.md)
+- [research/2026-07-07-bellard-systems-lessons.md](research/2026-07-07-bellard-systems-lessons.md)
 
 It sharpens the product thesis: Hum should not compete as nicer syntax alone.
 It should compete as an evidence-native systems language that turns checked
@@ -407,7 +408,51 @@ Concrete design gates:
   provenance, and probe-site ids before lowering becomes executable.
 - Treat "debugger faster than logging" as a user-experience gate, not a slogan.
 
-### 12. Deployment, Containers, Observability, And Agent Tools
+### 12. Bellard-Style Small Infrastructure And Constraint Engineering
+
+Research signals:
+
+- Bellard's public project index spans small compilers, JavaScript engines,
+  emulators, codecs, compression, telecommunications, and numeric computation,
+  with many projects built around compact, portable, dependency-light artifacts.
+- QuickJS demonstrates that a small embeddable runtime can still target strong
+  language compatibility, low startup time, and simple distribution.
+- MicroQuickJS demonstrates that strict subsets can be a strength for embedded
+  budgets when they reject expensive or error-prone behavior.
+- TCC demonstrates that integrated compiler pipelines can make compile/run loops
+  dramatically faster and usable as dynamic-code infrastructure.
+- JSLinux, TinyEMU, QEMU, and FFmpeg show that foundational infrastructure can be
+  both portable and useful far beyond its original author.
+- TSAC highlights deterministic artifacts across hardware and software
+  configurations as a product requirement, not a nice-to-have.
+
+Hum lessons:
+
+- Smallness is a systems feature. Binary size, memory floor, startup time,
+  dependency count, and artifact determinism should be reportable facts.
+- A strict subset can make Hum stronger when tied to a named profile and useful
+  diagnostics.
+- Foundational infrastructure beats flashy demos: interpreter, graph, profiler,
+  debug info, package/build evidence, and portable runtime artifacts compound.
+- Dynamic compilation, eval-like behavior, and native plugins need explicit
+  capability and profile boundaries before they become Hum power.
+- Portability should eventually be proved by executable artifacts, not only by
+  architecture prose.
+
+Concrete design gates:
+
+- Add a `footprint constrained` profile before claiming embedded or tiny-runtime
+  credibility.
+- Add binary-size, startup-time, memory-floor, dependency-count, and deterministic
+  artifact vocabulary to future backend/profile reports.
+- Keep early executable semantics small enough that one expert can audit the
+  critical path.
+- Require serious baselines and hardware details before performance or footprint
+  claims.
+- Prefer portable process/Wasm/interpreter boundaries before native plugin or
+  eval-like power.
+
+### 13. Deployment, Containers, Observability, And Agent Tools
 
 Research signals:
 
@@ -469,6 +514,8 @@ Concrete design gates:
     of language design, not post-launch cleanup.
 14. Debuggability, visualizers, profiling, and source maps must be designed with
     the language and backend, not postponed to editor plugins.
+15. Smallness, startup time, memory floor, dependency count, and deterministic
+    artifacts are systems-language requirements, not polish.
 
 ## Research Debt Still Open
 
@@ -485,6 +532,7 @@ Hum still needs deeper study before hardening these areas:
 - proof language versus external verifier integration
 - compiler IR and optimization correctness strategy
 - executable debug/profiler implementation and source-map validation
+- footprint-constrained profile and deterministic artifact model
 - data-oriented scheduling and ECS-like storage contracts
 - operations model for dry-run, rollback, idempotence, drift, and telemetry
 - network model for typed addresses, protocol parsing, transactions, and
@@ -579,3 +627,4 @@ reckless.
 - Practitioner pain sweep sources: see [PRACTITIONER_PAIN_SWEEP_2026.md](PRACTITIONER_PAIN_SWEEP_2026.md)
 - Computing lessons sweep sources: see [COMPUTING_LESSONS_SWEEP_2026.md](COMPUTING_LESSONS_SWEEP_2026.md)
 - RAD Debugger lessons: see [research/2026-07-07-rad-debugger-lessons.md](research/2026-07-07-rad-debugger-lessons.md)
+- Bellard systems lessons: see [research/2026-07-07-bellard-systems-lessons.md](research/2026-07-07-bellard-systems-lessons.md)

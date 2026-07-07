@@ -371,6 +371,15 @@ try {
   $ResearchMapText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\RESEARCH_MAP_2026.md'))
   if (-not $ResearchMapText.Contains('2026-07-07-rad-debugger-lessons.md')) { throw 'research map is missing RAD Debugger lessons' }
   if (-not $ResearchMapText.Contains('DEBUG_INFO_AND_VISUALIZER_MODEL.md')) { throw 'research map is missing debug info model gate' }
+  if (-not $ResearchMapText.Contains('2026-07-07-bellard-systems-lessons.md')) { throw 'research map is missing Bellard systems lessons' }
+  $BellardResearchText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\research\2026-07-07-bellard-systems-lessons.md'))
+  if (-not $BellardResearchText.Contains('Bellard Test For Hum')) { throw 'Bellard research note is missing Bellard Test' }
+  if (-not $BellardResearchText.Contains('footprint')) { throw 'Bellard research note is missing footprint pressure' }
+  if (-not $BellardResearchText.Contains('deterministic artifacts')) { throw 'Bellard research note is missing deterministic artifact rule' }
+  $RuntimeProfilesText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\RUNTIME_PROFILES.md'))
+  if (-not $RuntimeProfilesText.Contains('footprint constrained')) { throw 'runtime profiles are missing footprint constrained profile' }
+  $OptimizationText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\OPTIMIZATION_AND_DSA_STRATEGY.md'))
+  if (-not $OptimizationText.Contains('Bellard Constraint Rule')) { throw 'optimization strategy is missing Bellard constraint rule' }
 
   Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
   Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'

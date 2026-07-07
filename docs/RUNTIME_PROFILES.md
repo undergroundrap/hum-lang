@@ -137,6 +137,31 @@ Requires:
 - memory, locking, DMA, and lifetime evidence where applicable
 - Driver Verifier, CodeQL, HLK, signing, and release evidence before any real release
 
+### `footprint constrained`
+
+For small tools, embedded runtimes, bootstraps, browser/VM demos, rescue tools,
+plugins, and constrained deployment targets where size and startup are product
+facts.
+
+Forbids by default:
+
+- hidden runtime services
+- hidden dynamic code loading
+- hidden background threads
+- hidden network or cloud dependency
+- unbounded startup work
+- unbudgeted binary-size growth
+
+Requires:
+
+- binary-size budget
+- startup-time budget
+- memory floor
+- dependency count
+- deterministic artifact policy
+- optional debug-info size policy
+- portability boundary: native, interpreter, process, Wasm, or emulator
+
 ### `embedded no heap`
 
 For microcontrollers, firmware, drivers, and constrained devices.
@@ -296,6 +321,11 @@ help: use bounded arena reclamation or move this task outside the realtime loop
 - OS/platform authority
 - service/driver/install/update metadata
 - runtime resource budgets
+- binary-size budget
+- startup-time budget
+- memory floor
+- dependency count
+- deterministic artifact policy
 - exposed ports and protocols
 - observability signal schema
 - agent tool schemas and capabilities
@@ -335,7 +365,7 @@ If a feature cannot be profiled, it is not ready.
 
 1. Add profile names to the semantic graph schema as future fields.
 2. Add diagnostics code range for profile violations.
-3. Create `.hum` fixtures for `engine hot path`, `hard realtime`, `safety critical`, `containerized service`, and `agent tool sandbox`.
+3. Create `.hum` fixtures for `engine hot path`, `hard realtime`, `safety critical`, `containerized service`, `agent tool sandbox`, and `footprint constrained`.
 4. Define `panic`/`abort`/`safe stop` behavior in the core language spec.
 5. Define allocation policy sections for profiles.
 6. Add Nectar profile metadata design.

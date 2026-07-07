@@ -133,6 +133,7 @@ Current artifacts:
 - [docs/research/README.md](docs/research/README.md): repeatable research workflow, prompts, and normalized snapshots
 - [docs/research/2026-07-07-lattner-compiler-lessons.md](docs/research/2026-07-07-lattner-compiler-lessons.md): distilled LLVM, Swift, MLIR, and Mojo lessons for Hum's adoption, backend, and complexity discipline
 - [docs/research/2026-07-07-rad-debugger-lessons.md](docs/research/2026-07-07-rad-debugger-lessons.md): distilled RAD Debugger lessons for Hum debug info, visualizers, stepping, and probe-site design
+- [docs/research/2026-07-07-bellard-systems-lessons.md](docs/research/2026-07-07-bellard-systems-lessons.md): distilled Bellard lessons for small, deterministic, portable infrastructure under real constraints
 - [docs/COMPUTING_LESSONS_SWEEP_2026.md](docs/COMPUTING_LESSONS_SWEEP_2026.md): 2026 sweep across hardware, Docker/OCI, Kubernetes, WASI, MCP, observability, networking, storage, and deployment lessons
 - [docs/OPTIMIZATION_AND_DSA_STRATEGY.md](docs/OPTIMIZATION_AND_DSA_STRATEGY.md): research-gated optimization and data-structure strategy
 - [docs/HASH_TABLE_RESEARCH_2501_02305.md](docs/HASH_TABLE_RESEARCH_2501_02305.md): deep note on elastic/funnel hashing and Hum's `Map` research path
