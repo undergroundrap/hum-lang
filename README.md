@@ -137,6 +137,7 @@ Current artifacts:
 - [docs/HASH_TABLE_RESEARCH_2501_02305.md](docs/HASH_TABLE_RESEARCH_2501_02305.md): deep note on elastic/funnel hashing and Hum's `Map` research path
 - [docs/ERGONOMICS_AND_OPERATORS.md](docs/ERGONOMICS_AND_OPERATORS.md): operator, QoL, and Bevy-inspired data-access strategy
 - [docs/TOOLCHAIN_2050.md](docs/TOOLCHAIN_2050.md): LSP, debugger, highlighting, profiler, and long-horizon toolchain strategy
+- [docs/DEBUGGABILITY_DOCTRINE.md](docs/DEBUGGABILITY_DOCTRINE.md): rules that preserve source/value/layout/effect identity so a fast Hum debugger can exist later
 - [editors/textmate/hum.tmLanguage.json](editors/textmate/hum.tmLanguage.json): generated TextMate grammar for basic `.hum` highlighting
 - [docs/TOOLING.md](docs/TOOLING.md): `humfmt`, `chirp`, and first-party tooling principles
 - [docs/FORMATTER.md](docs/FORMATTER.md): canonical formatting rules for `humfmt`

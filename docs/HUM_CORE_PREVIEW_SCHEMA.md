@@ -124,6 +124,9 @@ checked name resolution.
   "status": "name_preview_v0",
   "scope_model": "lexical_block_scope_preview_v0",
   "scope_id": "hum_core_preview_task_add_task_4_1_scope_root",
+  "checked_resolver_status": "not_run_v0",
+  "resolver_diagnostic_status": "preview_facts_only_v0",
+  "resolver_diagnostic_count": 0,
   "scope_count": 2,
   "definition_count": 2,
   "reference_count": 3,
@@ -143,6 +146,12 @@ Name preview fields:
   `name_preview_with_unresolved_v0`
 - `scope_model`: currently `lexical_block_scope_preview_v0`
 - `scope_id`: source-derived root scope identifier for this preview candidate
+- `checked_resolver_status`: currently `not_run_v0`; this command has not run
+  the future checked name resolver
+- `resolver_diagnostic_status`: currently `preview_facts_only_v0`; name preview
+  rows are facts for later passes, not compiler diagnostics
+- `resolver_diagnostic_count`: currently `0`; checked resolver diagnostics must
+  come from a future resolver pass, not from preview rows
 - `scope_count`: number of preview lexical scopes reported
 - `definition_count`: number of preview definitions reported
 - `reference_count`: number of preview references reported
@@ -205,6 +214,8 @@ Reference rows include:
 
 Name preview honesty rules:
 
+- `resolution_status` values are preview facts only. `unresolved_preview_v0` is
+  not a compiler error until a future checked resolver emits a diagnostic.
 - It previews lexical scopes for explicit control-flow blocks: `if`, `while`,
   `for each`, `for index`, and `loop`.
 - It does not treat record-construction braces as lexical scopes.

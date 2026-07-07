@@ -199,7 +199,8 @@ See [EDITOR_AND_INTEGRATION_STRATEGY.md](EDITOR_AND_INTEGRATION_STRATEGY.md).
 ## Debugger Strategy
 
 Hum needs a Debug Adapter Protocol implementation, but a normal line debugger is
-not enough.
+not enough. The doctrine that keeps debug data from becoming an afterthought is
+[DEBUGGABILITY_DOCTRINE.md](DEBUGGABILITY_DOCTRINE.md).
 
 A Hum debugger should answer:
 

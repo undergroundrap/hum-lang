@@ -84,6 +84,8 @@ Formal-readability doctrine: Hum should be easy to scan because its structure is
 
 Language-builder doctrine: Hum should grow by small proofs, written lessons, graph/report/check surfaces, migration paths, and then public claims. See [LANGUAGE_BUILDER_OPERATING_MODEL.md](LANGUAGE_BUILDER_OPERATING_MODEL.md).
 
+Debuggability doctrine: Hum must preserve source identity, value identity, layout facts, effect facts, profile facts, contract facts, and provenance so a fast intent-aware debugger can exist later. Native debug formats are bridges; Hum debug facts remain the authority for Hum intent. See [DEBUGGABILITY_DOCTRINE.md](DEBUGGABILITY_DOCTRINE.md).
+
 ### 5. Runtime Profiles
 
 Profiles are policy bundles for normal apps, containers, agent tools, Windows services, driver candidates, embedded no-heap code, hard realtime code, engine hot paths, safety-critical code, and certified toolchains. Profiles can forbid features, require evidence, narrow stdlib APIs, and change release artifacts.
@@ -100,7 +102,7 @@ See [OS_AND_PLATFORM_MODEL.md](OS_AND_PLATFORM_MODEL.md).
 
 The tools are part of the language: `hum`, `humfmt`, `chirp`, `nectar`, `hum lsp`, `hum debug`, and `hum graph`. No serious feature is stable until the tools have a story for it.
 
-See [TOOLING.md](TOOLING.md), [FORMATTER.md](FORMATTER.md), [TOOLCHAIN_2050.md](TOOLCHAIN_2050.md), and [NECTAR_PACKAGE_MANAGER.md](NECTAR_PACKAGE_MANAGER.md).
+See [TOOLING.md](TOOLING.md), [FORMATTER.md](FORMATTER.md), [TOOLCHAIN_2050.md](TOOLCHAIN_2050.md), [DEBUGGABILITY_DOCTRINE.md](DEBUGGABILITY_DOCTRINE.md), and [NECTAR_PACKAGE_MANAGER.md](NECTAR_PACKAGE_MANAGER.md).
 
 ### 8. Standard Library Labs
 

@@ -266,6 +266,9 @@ try {
   if (-not $CorePreviewJson.Contains('"name_status": "name_preview_v0"')) { throw 'Core preview JSON is missing name preview status' }
   if (-not $CorePreviewJson.Contains('"name_preview"')) { throw 'Core preview JSON is missing name_preview facts' }
   if (-not $CorePreviewJson.Contains('"scope_model": "lexical_block_scope_preview_v0"')) { throw 'Core preview JSON is missing lexical block scope model' }
+  if (-not $CorePreviewJson.Contains('"checked_resolver_status": "not_run_v0"')) { throw 'Core preview JSON must keep checked resolver status separate from preview facts' }
+  if (-not $CorePreviewJson.Contains('"resolver_diagnostic_status": "preview_facts_only_v0"')) { throw 'Core preview JSON must mark name facts as non-diagnostic preview facts' }
+  if (-not $CorePreviewJson.Contains('"resolver_diagnostic_count": 0')) { throw 'Core preview JSON must not emit checked resolver diagnostics yet' }
   if (-not $CorePreviewJson.Contains('"scope_count"')) { throw 'Core preview JSON is missing name scope counts' }
   if (-not $CorePreviewJson.Contains('"scopes"')) { throw 'Core preview JSON is missing name scope list' }
   if (-not $CorePreviewJson.Contains('"scope_kind": "root"')) { throw 'Core preview JSON is missing root name scope' }
@@ -352,6 +355,10 @@ try {
   if (-not $DecisionIndex.Contains('0009-adopt-formal-readability-not-english-mimicry.md')) { throw 'decision index is missing formal readability ADR' }
   $ArchitectureText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\ARCHITECTURE.md'))
   if (-not $ArchitectureText.Contains('Formal-readability doctrine')) { throw 'architecture is missing formal-readability doctrine' }
+  if (-not $ArchitectureText.Contains('Debuggability doctrine')) { throw 'architecture is missing debuggability doctrine' }
+  $DebugDoctrineText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\DEBUGGABILITY_DOCTRINE.md'))
+  if (-not $DebugDoctrineText.Contains('hum.debug_info.v0')) { throw 'debuggability doctrine is missing debug info schema direction' }
+  if (-not $DebugDoctrineText.Contains('faster and clearer than adding `printf`')) { throw 'debuggability doctrine is missing debugger speed rule' }
 
   Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
   Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'

@@ -95,6 +95,9 @@ struct CoreNamePreview {
     status: &'static str,
     scope_model: &'static str,
     scope_id: String,
+    checked_resolver_status: &'static str,
+    resolver_diagnostic_status: &'static str,
+    resolver_diagnostic_count: usize,
     scope_count: usize,
     definition_count: usize,
     reference_count: usize,
@@ -868,6 +871,9 @@ impl<'a> NamePreviewContext<'a> {
             status,
             scope_model: "lexical_block_scope_preview_v0",
             scope_id: root_scope_id,
+            checked_resolver_status: "not_run_v0",
+            resolver_diagnostic_status: "preview_facts_only_v0",
+            resolver_diagnostic_count: 0,
             scope_count: self.scopes.len(),
             definition_count,
             reference_count,
@@ -1771,6 +1777,27 @@ fn push_name_preview(out: &mut String, indent: usize, preview: &CoreNamePreview,
     push_string_field(out, indent + 2, "status", preview.status, true);
     push_string_field(out, indent + 2, "scope_model", preview.scope_model, true);
     push_string_field(out, indent + 2, "scope_id", &preview.scope_id, true);
+    push_string_field(
+        out,
+        indent + 2,
+        "checked_resolver_status",
+        preview.checked_resolver_status,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "resolver_diagnostic_status",
+        preview.resolver_diagnostic_status,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "resolver_diagnostic_count",
+        preview.resolver_diagnostic_count,
+        true,
+    );
     push_usize_field(out, indent + 2, "scope_count", preview.scope_count, true);
     push_usize_field(
         out,
@@ -2343,6 +2370,9 @@ mod tests {
         assert!(json.contains("\"name_status\": \"name_preview_v0\""));
         assert!(json.contains("\"name_preview\""));
         assert!(json.contains("\"scope_model\": \"lexical_block_scope_preview_v0\""));
+        assert!(json.contains("\"checked_resolver_status\": \"not_run_v0\""));
+        assert!(json.contains("\"resolver_diagnostic_status\": \"preview_facts_only_v0\""));
+        assert!(json.contains("\"resolver_diagnostic_count\": 0"));
         assert!(json.contains("\"scope_count\""));
         assert!(json.contains("\"scopes\""));
         assert!(json.contains("\"scope_kind\": \"root\""));
