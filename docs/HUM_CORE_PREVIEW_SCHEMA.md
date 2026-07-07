@@ -12,9 +12,9 @@ true Core Hum lowering.
 
 This command is intentionally not an interpreter, not a type checker, not an
 effect checker, not Hum IR, and not a backend. It reports conservative candidate
-operations and blockers so humans, agents, and future compiler passes can see
-what the current bootstrap can map toward Core Hum without pretending the body
-has executable meaning.
+operations, expression preview atoms, operators, and blockers so humans, agents,
+and future compiler passes can see what the current bootstrap can map toward Core
+Hum without pretending the body has executable meaning.
 
 ## Command
 
@@ -57,7 +57,8 @@ compiler-roadmap checks, and future Core Hum lowering/verifier work.
 - `milestone`: current implementation milestone
 - `core_contract_schema`: Core Hum contract this report targets
 - `summary`: file, item, task, test, candidate, execution-ready, diagnostic,
-  and statement-preview counts
+  statement-preview, expression-preview, expression-atom, and compound-expression
+  preview counts
 - `core_candidates`: task or test bodies with a `does:` section
 - `non_goals_v0`: claims this command must not make
 
@@ -73,7 +74,8 @@ Each `core_candidates` entry has:
 - `core_contract_schema`: owning Core Hum contract schema
 - `body_status`: partial body grammar aggregate status
 - `grammar_status`: body grammar maturity, currently `partial_v0`
-- `summary`: meaningful body lines and statement status counts
+- `summary`: meaningful body lines, statement status counts, expression preview
+  counts, expression atom counts, and compound expression preview counts
 - `source_sections`: sections seen on the source item
 - `statements`: one row per meaningful `does:` body line
 
@@ -99,7 +101,9 @@ Each `statements` row has:
   `unsupported_v0`
 - `core_operation`: candidate Core Hum operation family
 - `status`: statement preview status
-- `expression_kind`: coarse expression shape when available
+- `expression_kind`: coarse expression shape from the body grammar when available
+- `expression_preview`: structured expression preview, or `null` when the row has
+  no standalone expression text
 - `reason`: optional blocker or context reason
 
 Statement statuses:
@@ -129,6 +133,55 @@ Named V0 blockers include:
 - `store_write_deferred` with `surface_save_requires_store_lowering`
 - `unknown` with `not_in_core_preview_v0`
 
+## Expression Preview Shape
+
+`expression_preview` is a syntax preview only. It does not type-check, evaluate,
+resolve names, prove effects, or choose overloads.
+
+```json
+{
+  "text": "title is empty",
+  "kind": "condition_or_surface_binary",
+  "status": "compound_preview_v0",
+  "atoms": [
+    { "text": "title", "kind": "name", "status": "atom_preview_v0" },
+    { "text": "empty", "kind": "name", "status": "atom_preview_v0" }
+  ],
+  "operators": ["is"],
+  "reason": null
+}
+```
+
+Expression fields:
+
+- `text`: expression text extracted from the statement
+- `kind`: preview family such as `name`, `bool_literal`, `int_literal`,
+  `text_literal`, `path_or_field_read`, `call_like`, `record_literal_start`,
+  `binary_expression`, `condition_or_surface_binary`, or `surface_text`
+- `status`: expression preview maturity
+- `atoms`: syntax atoms found inside the expression preview
+- `operators`: recognized operator families such as `returns`, `fails_with`,
+  `is`, `does`, arithmetic operators, comparisons, `and`, or `or`
+- `reason`: optional context or limitation reason
+
+Expression statuses:
+
+- `atom_preview_v0`: single syntax atom, with no type or name resolution claim
+- `compound_preview_v0`: split into preview atoms and operator families, with no
+  precedence, type, or executable semantics claim
+- `contextual_preview_v0`: needs surrounding statement or block context, such as a
+  record literal start
+- `surface_phrase_preview_v0`: human-oriented surface phrase preserved as text
+  because V0 cannot honestly lower it yet
+
+Atom fields:
+
+- `text`: atom text
+- `kind`: preview kind such as `name`, `callee_name`, `bool_literal`,
+  `int_literal`, `text_literal`, `path_or_field_read`, `call_like`, or
+  `surface_text`
+- `status`: atom preview status
+
 ## Honesty Rules
 
 - `hum core-preview` must not execute code.
@@ -136,7 +189,7 @@ Named V0 blockers include:
   optimization, or backend readiness.
 - It must not emit Hum IR.
 - It may report Core Hum candidate operation families, source spans, coarse
-  expression kinds, and explicit blockers.
+  expression kinds, expression preview atoms, operators, and explicit blockers.
 - It must stay in sync with `hum.core_contract.v0`, `hum.ir_readiness.v0`, `hum
   capabilities --format json`, and `hum version --format json`.
 

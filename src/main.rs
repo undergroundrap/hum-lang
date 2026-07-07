@@ -6,6 +6,7 @@ mod capabilities;
 mod check;
 mod core_body;
 mod core_contract;
+mod core_expr;
 mod core_preview;
 mod diagnostic;
 mod diagnostic_catalog;
