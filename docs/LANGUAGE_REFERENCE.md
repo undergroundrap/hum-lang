@@ -50,6 +50,7 @@ foreign code.
 - [INTEROP_AND_PORTABILITY.md](INTEROP_AND_PORTABILITY.md): foreign, platform, and adoption boundaries
 - [PERFORMANCE_CONTRACTS.md](PERFORMANCE_CONTRACTS.md): benchmark and optimization claim discipline
 - [MATH_OBLIGATIONS_SCHEMA.md](MATH_OBLIGATIONS_SCHEMA.md): external-validator obligation export surface
+- [RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md): resource and optimization claim report surface
 
 ## Checked Reference Fixture
 
@@ -337,9 +338,11 @@ Current source-visible resource blocks include:
 - `tradeoffs:`
 - `optimizes:`
 
-Milestone 0 preserves these lines in graph facts and performs small honesty
-checks. It also exports conservative external-validator math obligations for
-explicit allocation-free claims such as `allocates: nothing`. See
+Milestone 0 preserves these lines in graph facts, exposes them through
+`hum.resource_report.v0`, and performs small honesty checks. It also exports
+conservative external-validator math obligations for explicit allocation-free
+claims such as `allocates: nothing`. See
+[RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md) and
 [MATH_OBLIGATIONS_SCHEMA.md](MATH_OBLIGATIONS_SCHEMA.md).
 
 Reference rule: the compiler may optimize from declared intent only when it can
@@ -601,6 +604,8 @@ hum evidence --format json <file-or-dir>...
 hum math-obligations <file-or-dir>...
 hum math-obligations --format json <file-or-dir>...
 hum math-obligations --out-dir <dir> <file-or-dir>...
+hum resource-report <file-or-dir>...
+hum resource-report --format json <file-or-dir>...
 hum test-skeletons <file-or-dir>...
 hum syntax
 hum syntax --format textmate
@@ -630,6 +635,8 @@ cargo run -- evidence --format json examples/reference_surface.hum
 cargo run -- math-obligations examples/control_flow.hum
 cargo run -- math-obligations --format json examples/control_flow.hum
 cargo run -- math-obligations --out-dir target/hum-math-obligations examples/control_flow.hum
+cargo run -- resource-report examples/control_flow.hum
+cargo run -- resource-report --format json examples/control_flow.hum
 cargo run -- test-skeletons examples
 cargo run -- syntax
 cargo run -- syntax --format textmate

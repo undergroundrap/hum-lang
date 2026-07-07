@@ -4,6 +4,7 @@ use crate::doctor;
 use crate::json;
 use crate::lsp;
 use crate::math_obligations;
+use crate::resource_report;
 use crate::syntax;
 
 pub const HUM_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -12,7 +13,7 @@ pub const HUM_MILESTONE: &str = "0 semantic graph";
 
 pub fn version_text() -> String {
     format!(
-        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\nlsp_capabilities_schema: {}\nmath_obligations_report_schema: {}\nmath_obligation_schema: {}\ndoctor_schema: {}\n",
+        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\nlsp_capabilities_schema: {}\nmath_obligations_report_schema: {}\nmath_obligation_schema: {}\nresource_report_schema: {}\ndoctor_schema: {}\n",
         target_name(),
         json::SEMANTIC_GRAPH_SCHEMA,
         syntax::SYNTAX_SCHEMA,
@@ -22,6 +23,7 @@ pub fn version_text() -> String {
         lsp::LSP_CAPABILITIES_SCHEMA,
         math_obligations::MATH_OBLIGATIONS_REPORT_SCHEMA,
         math_obligations::MATH_OBLIGATION_SCHEMA,
+        resource_report::RESOURCE_REPORT_SCHEMA,
         doctor::DOCTOR_SCHEMA
     )
 }
@@ -84,6 +86,13 @@ pub fn version_json() -> String {
         4,
         "math_obligation",
         math_obligations::MATH_OBLIGATION_SCHEMA,
+        true,
+    );
+    push_string_field(
+        &mut out,
+        4,
+        "resource_report",
+        resource_report::RESOURCE_REPORT_SCHEMA,
         true,
     );
     push_string_field(&mut out, 4, "doctor", doctor::DOCTOR_SCHEMA, false);
@@ -184,6 +193,7 @@ mod tests {
         assert!(text.contains("lsp_capabilities_schema: hum.lsp_capabilities.v0"));
         assert!(text.contains("math_obligations_report_schema: hum.math_obligations.v0"));
         assert!(text.contains("math_obligation_schema: hum.math_obligation.v0"));
+        assert!(text.contains("resource_report_schema: hum.resource_report.v0"));
         assert!(text.contains("doctor_schema: hum.doctor.v0"));
     }
 
@@ -201,6 +211,7 @@ mod tests {
         assert!(json.contains("\"lsp_capabilities\": \"hum.lsp_capabilities.v0\""));
         assert!(json.contains("\"math_obligations_report\": \"hum.math_obligations.v0\""));
         assert!(json.contains("\"math_obligation\": \"hum.math_obligation.v0\""));
+        assert!(json.contains("\"resource_report\": \"hum.resource_report.v0\""));
         assert!(json.contains("\"doctor\": \"hum.doctor.v0\""));
     }
 }
