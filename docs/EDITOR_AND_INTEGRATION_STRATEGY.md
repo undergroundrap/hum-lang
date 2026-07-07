@@ -27,7 +27,7 @@ Hum should own these tools:
 - `hum syntax`: syntax surface JSON for highlighting, grammar generation, and adapters
 - `hum capabilities`: toolchain surface discovery for adapters, agents, and CI wrappers
 - `humfmt`: canonical formatting
-- `hum lsp`: language intelligence through the Language Server Protocol
+- `hum lsp`: language intelligence through the Language Server Protocol, starting with `hum lsp --capabilities` preview output
 - `hum debug`: future Debug Adapter Protocol bridge
 - `nectar`: package, profile, evidence, and workspace metadata
 

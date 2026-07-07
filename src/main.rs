@@ -9,6 +9,7 @@ mod diagnostics;
 mod explain;
 mod graph;
 mod json;
+mod lsp;
 mod node_id;
 mod parser;
 mod syntax;
@@ -57,6 +58,13 @@ fn run() -> Result<ExitCode, String> {
         match options.capabilities_format {
             CapabilitiesFormat::Human => print!("{}", capabilities::capabilities_text()),
             CapabilitiesFormat::Json => print!("{}", capabilities::capabilities_json()),
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    if options.command == "lsp" {
+        match options.lsp_format {
+            LspFormat::Human => print!("{}", lsp::lsp_capabilities_text()),
+            LspFormat::Json => print!("{}", lsp::lsp_capabilities_json()),
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -153,7 +161,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, or `capabilities`"
+            "unknown command `{other}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, or `lsp`"
         )),
     }
 }
@@ -194,6 +202,12 @@ enum CapabilitiesFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LspFormat {
+    Human,
+    Json,
+}
+
 #[derive(Debug)]
 struct CliOptions {
     command: String,
@@ -205,6 +219,7 @@ struct CliOptions {
     explain_format: ExplainFormat,
     diagnostics_format: DiagnosticsFormat,
     capabilities_format: CapabilitiesFormat,
+    lsp_format: LspFormat,
     explain_code: Option<String>,
 }
 
@@ -234,9 +249,10 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "explain"
             | "diagnostics"
             | "capabilities"
+            | "lsp"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, or `capabilities`"
+            "unknown command `{command}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, or `lsp`"
         ));
     }
 
@@ -248,15 +264,24 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut explain_format = ExplainFormat::Human;
     let mut diagnostics_format = DiagnosticsFormat::Human;
     let mut capabilities_format = CapabilitiesFormat::Human;
+    let mut lsp_format = LspFormat::Human;
+    let mut lsp_show_capabilities = false;
     let mut args = args.into_iter().skip(1);
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--timings" => show_timings = true,
+            "--capabilities" if command == "lsp" => lsp_show_capabilities = true,
             "--format"
                 if matches!(
                     command.as_str(),
-                    "check" | "syntax" | "version" | "explain" | "diagnostics" | "capabilities"
+                    "check"
+                        | "syntax"
+                        | "version"
+                        | "explain"
+                        | "diagnostics"
+                        | "capabilities"
+                        | "lsp"
                 ) =>
             {
                 let Some(value) = args.next() else {
@@ -269,12 +294,13 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "explain" => explain_format = parse_explain_format(&value)?,
                     "diagnostics" => diagnostics_format = parse_diagnostics_format(&value)?,
                     "capabilities" => capabilities_format = parse_capabilities_format(&value)?,
+                    "lsp" => lsp_format = parse_lsp_format(&value)?,
                     _ => unreachable!(),
                 }
             }
             flag if matches!(
                 command.as_str(),
-                "check" | "syntax" | "version" | "explain" | "diagnostics" | "capabilities"
+                "check" | "syntax" | "version" | "explain" | "diagnostics" | "capabilities" | "lsp"
             ) && flag.starts_with("--format=") =>
             {
                 let value = flag.trim_start_matches("--format=");
@@ -285,6 +311,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "explain" => explain_format = parse_explain_format(value)?,
                     "diagnostics" => diagnostics_format = parse_diagnostics_format(value)?,
                     "capabilities" => capabilities_format = parse_capabilities_format(value)?,
+                    "lsp" => lsp_format = parse_lsp_format(value)?,
                     _ => unreachable!(),
                 }
             }
@@ -310,6 +337,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            lsp_format,
             explain_code: None,
         });
     }
@@ -331,6 +359,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            lsp_format,
             explain_code: None,
         });
     }
@@ -352,6 +381,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            lsp_format,
             explain_code: raw_inputs.first().cloned(),
         });
     }
@@ -373,6 +403,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            lsp_format,
             explain_code: None,
         });
     }
@@ -394,6 +425,35 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            lsp_format,
+            explain_code: None,
+        });
+    }
+
+    if command == "lsp" {
+        if show_timings {
+            return Err("`lsp` does not support `--timings`".to_string());
+        }
+        if !raw_inputs.is_empty() {
+            return Err("`lsp` does not accept input files".to_string());
+        }
+        if !lsp_show_capabilities {
+            return Err(
+                "`lsp` server mode is not implemented yet; use `hum lsp --capabilities`"
+                    .to_string(),
+            );
+        }
+        return Ok(CliOptions {
+            command,
+            inputs: Vec::new(),
+            show_timings,
+            check_format,
+            syntax_format,
+            version_format,
+            explain_format,
+            diagnostics_format,
+            capabilities_format,
+            lsp_format,
             explain_code: None,
         });
     }
@@ -408,6 +468,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         explain_format,
         diagnostics_format,
         capabilities_format,
+        lsp_format,
         explain_code: None,
     })
 }
@@ -467,6 +528,16 @@ fn parse_capabilities_format(value: &str) -> Result<CapabilitiesFormat, String> 
         "json" => Ok(CapabilitiesFormat::Json),
         other => Err(format!(
             "unknown capabilities format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
+fn parse_lsp_format(value: &str) -> Result<LspFormat, String> {
+    match value {
+        "human" => Ok(LspFormat::Human),
+        "json" => Ok(LspFormat::Json),
+        other => Err(format!(
+            "unknown lsp format `{other}`; expected `human` or `json`"
         )),
     }
 }
@@ -597,6 +668,7 @@ fn print_help() {
     println!("  hum explain <H####> [--format human|json]");
     println!("  hum diagnostics [--format human|json]");
     println!("  hum capabilities [--format human|json]");
+    println!("  hum lsp --capabilities [--format human|json]");
     println!();
     println!("Commands:");
     println!("  check           Parse Hum files and run milestone-0 intent checks");
@@ -607,6 +679,7 @@ fn print_help() {
     println!("  explain         Explain a stable diagnostic code");
     println!("  diagnostics     List stable diagnostic codes");
     println!("  capabilities    List machine-readable tool and editor surfaces");
+    println!("  lsp             Preview LSP adapter capabilities");
     println!();
     println!("Options:");
     println!("  --timings   Print read/parse/check timings per input file");
@@ -618,7 +691,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        CapabilitiesFormat, CheckFormat, DiagnosticsFormat, ExplainFormat, SyntaxFormat,
+        CapabilitiesFormat, CheckFormat, DiagnosticsFormat, ExplainFormat, LspFormat, SyntaxFormat,
         VersionFormat, load_program, parse_cli,
     };
 
@@ -850,6 +923,61 @@ mod tests {
         let error = parse_cli(vec!["capabilities".to_string(), "examples".to_string()])
             .expect_err("capabilities should reject inputs");
         assert_eq!(error, "`capabilities` does not accept input files");
+    }
+
+    #[test]
+    fn parses_lsp_capabilities_command() {
+        let options = parse_cli(vec!["lsp".to_string(), "--capabilities".to_string()])
+            .expect("lsp capabilities command");
+        assert_eq!(options.command, "lsp");
+        assert_eq!(options.lsp_format, LspFormat::Human);
+    }
+
+    #[test]
+    fn parses_lsp_capabilities_json_format() {
+        let options = parse_cli(vec![
+            "lsp".to_string(),
+            "--capabilities".to_string(),
+            "--format=json".to_string(),
+        ])
+        .expect("lsp capabilities json command");
+        assert_eq!(options.command, "lsp");
+        assert_eq!(options.lsp_format, LspFormat::Json);
+    }
+
+    #[test]
+    fn rejects_lsp_without_capabilities_flag() {
+        let error = parse_cli(vec!["lsp".to_string()]).expect_err("lsp should require mode");
+        assert_eq!(
+            error,
+            "`lsp` server mode is not implemented yet; use `hum lsp --capabilities`"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_lsp_format() {
+        let error = parse_cli(vec![
+            "lsp".to_string(),
+            "--capabilities".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+        ])
+        .expect_err("lsp should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown lsp format `textmate`; expected `human` or `json`"
+        );
+    }
+
+    #[test]
+    fn rejects_lsp_command_inputs() {
+        let error = parse_cli(vec![
+            "lsp".to_string(),
+            "--capabilities".to_string(),
+            "examples".to_string(),
+        ])
+        .expect_err("lsp should reject inputs");
+        assert_eq!(error, "`lsp` does not accept input files");
     }
 
     #[test]

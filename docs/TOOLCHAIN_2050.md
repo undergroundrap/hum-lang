@@ -140,7 +140,7 @@ This is where Hum can feel unlike every older language.
 
 ## LSP Strategy
 
-Hum needs `hum lsp` as a first-party server.
+Hum needs `hum lsp` as a first-party server. Until server mode exists, `hum lsp --capabilities --format json` exposes the honest preview contract.
 
 Early LSP features:
 

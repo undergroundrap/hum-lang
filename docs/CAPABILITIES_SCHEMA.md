@@ -68,6 +68,7 @@ Current `schemas` includes:
 - `diagnostic_explain`: `hum.diagnostic_explain.v0`
 - `diagnostic_catalog`: `hum.diagnostic_catalog.v0`
 - `capabilities`: `hum.capabilities.v0`
+- `lsp_capabilities`: `hum.lsp_capabilities.v0`
 
 ## Commands
 
@@ -88,6 +89,7 @@ Current entries include:
 - `hum explain --format json`
 - `hum diagnostics --format json`
 - `hum capabilities --format json`
+- `hum lsp --capabilities --format json`
 
 ## Editor Capabilities
 

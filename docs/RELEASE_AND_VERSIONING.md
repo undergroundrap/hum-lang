@@ -29,6 +29,7 @@ hum version --format json
 hum explain H0201 --format json
 hum diagnostics --format json
 hum capabilities --format json
+hum lsp --capabilities --format json
 ```
 
 ## Distribution Stance

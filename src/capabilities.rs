@@ -1,6 +1,7 @@
 use crate::diagnostic_catalog;
 use crate::diagnostics;
 use crate::json;
+use crate::lsp;
 use crate::syntax;
 use crate::version;
 
@@ -70,6 +71,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: CAPABILITIES_SCHEMA,
         status: "current",
         purpose: "toolchain surface discovery for adapters and agents",
+    },
+    CommandCapability {
+        name: "lsp_capabilities_json",
+        command: "hum lsp --capabilities --format json",
+        schema: lsp::LSP_CAPABILITIES_SCHEMA,
+        status: "current",
+        purpose: "LSP adapter capability preview without starting server mode",
     },
 ];
 
@@ -175,6 +183,10 @@ pub fn capabilities_text() -> String {
         diagnostic_catalog::DIAGNOSTIC_CATALOG_SCHEMA
     ));
     out.push_str(&format!("  capabilities: {}\n", CAPABILITIES_SCHEMA));
+    out.push_str(&format!(
+        "  lsp_capabilities: {}\n",
+        lsp::LSP_CAPABILITIES_SCHEMA
+    ));
     out.push_str("commands:\n");
     for command in COMMANDS {
         out.push_str(&format!(
@@ -245,7 +257,14 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         diagnostic_catalog::DIAGNOSTIC_CATALOG_SCHEMA,
         true,
     );
-    push_string_field(out, indent + 2, "capabilities", CAPABILITIES_SCHEMA, false);
+    push_string_field(out, indent + 2, "capabilities", CAPABILITIES_SCHEMA, true);
+    push_string_field(
+        out,
+        indent + 2,
+        "lsp_capabilities",
+        lsp::LSP_CAPABILITIES_SCHEMA,
+        false,
+    );
     push_indent(out, indent);
     out.push('}');
     push_comma_newline(out, comma);
@@ -356,6 +375,7 @@ mod tests {
         assert!(json.contains("\"semantic_graph\": \"hum.semantic_graph.v0\""));
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
+        assert!(json.contains("\"lsp_capabilities\": \"hum.lsp_capabilities.v0\""));
         assert!(json.contains("\"name\": \"folding_ranges\""));
         assert!(json.contains("\"status\": \"adapter-ready\""));
     }
