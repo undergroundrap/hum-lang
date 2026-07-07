@@ -340,7 +340,9 @@ fn print_help() {
 }
 #[cfg(test)]
 mod tests {
-    use super::{SyntaxFormat, parse_cli};
+    use std::path::PathBuf;
+
+    use super::{SyntaxFormat, load_program, parse_cli};
 
     #[test]
     fn parses_syntax_command_without_inputs() {
@@ -382,5 +384,23 @@ mod tests {
         let error = parse_cli(vec!["syntax".to_string(), "examples".to_string()])
             .expect_err("syntax should reject inputs");
         assert_eq!(error, "`syntax` does not accept input files");
+    }
+
+    #[test]
+    fn reference_surface_fixture_stays_clean() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("examples")
+            .join("reference_surface.hum");
+        let loaded = load_program(&[fixture]).expect("load reference surface fixture");
+        assert!(
+            loaded.diagnostics.is_empty(),
+            "reference surface diagnostics: {:#?}",
+            loaded.diagnostics
+        );
+        assert_eq!(
+            crate::test_skeletons::program_to_test_skeletons(&loaded.program),
+            "",
+            "reference surface should not have unlinked test obligations"
+        );
     }
 }
