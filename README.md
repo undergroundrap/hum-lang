@@ -74,6 +74,7 @@ Current artifacts:
 - [docs/MATH_ENGINE_BOUNDARY.md](docs/MATH_ENGINE_BOUNDARY.md): boundary for Truth Harness-style verifier integrations
 - [docs/MATH_OBLIGATIONS_SCHEMA.md](docs/MATH_OBLIGATIONS_SCHEMA.md): `hum.math_obligations.v0` and `hum.math_obligation.v0` export surface for external validators
 - [docs/RESOURCE_REPORT_SCHEMA.md](docs/RESOURCE_REPORT_SCHEMA.md): `hum.resource_report.v0` source-declared resource, layout, and optimization claim inventory
+- [docs/HUM_CORE_CONTRACT_SCHEMA.md](docs/HUM_CORE_CONTRACT_SCHEMA.md): `hum.core_contract.v0` Core Hum executable subset and surface-to-core acceptance contract
 - [docs/HUM_IR_CONTRACT_SCHEMA.md](docs/HUM_IR_CONTRACT_SCHEMA.md): `hum.ir_contract.v0` Hum IR ownership, carried-fact, and pass-boundary contract
 - [docs/HUM_IR_READINESS_SCHEMA.md](docs/HUM_IR_READINESS_SCHEMA.md): `hum.ir_readiness.v0` source readiness and blocker report for future Core Hum and Hum IR lowering
 - [docs/BACKEND_CONTRACT_SCHEMA.md](docs/BACKEND_CONTRACT_SCHEMA.md): `hum.backend_contract.v0` backend ladder and adapter preservation contract
@@ -194,6 +195,8 @@ cargo run -- diagnostics
 cargo run -- diagnostics --format json
 cargo run -- capabilities
 cargo run -- capabilities --format json
+cargo run -- core-contract
+cargo run -- core-contract --format json
 cargo run -- ir-contract
 cargo run -- ir-contract --format json
 cargo run -- backend-contract
@@ -233,6 +236,7 @@ Current CLI:
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents
 - `hum capabilities [--format human|json]`: list `hum.capabilities.v0` toolchain surfaces for editors, agents, and CI wrappers
+- `hum core-contract [--format human|json]`: emit `hum.core_contract.v0` Core Hum executable subset and surface-to-core acceptance facts
 - `hum ir-contract [--format human|json]`: emit `hum.ir_contract.v0` Hum IR ownership, carried-fact, pass-boundary, and non-execution facts
 - `hum backend-contract [--format human|json]`: emit `hum.backend_contract.v0` backend ladder and adapter preservation facts without selecting or running a backend
 - `hum lsp --capabilities [--format human|json]`: list `hum.lsp_capabilities.v0` LSP adapter-preview facts without starting server mode

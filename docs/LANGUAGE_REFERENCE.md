@@ -42,6 +42,7 @@ foreign code.
 - [LANGUAGE_CONSTITUTION.md](LANGUAGE_CONSTITUTION.md): rules Hum must not violate
 - [MILESTONE_0_GRAMMAR.md](MILESTONE_0_GRAMMAR.md): current Rust bootstrap parser grammar contract
 - [FORMAL_CORE.md](FORMAL_CORE.md): precise executable core direction
+- [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md): machine-readable Core Hum contract
 - [LANGUAGE_SUBSET_0_1.md](LANGUAGE_SUBSET_0_1.md): pinned alpha subset
 - [SEMANTIC_GRAPH_SCHEMA.md](SEMANTIC_GRAPH_SCHEMA.md): graph JSON emitted today
 - [DIAGNOSTICS.md](DIAGNOSTICS.md): stable diagnostic code contract
@@ -541,6 +542,7 @@ Agents should receive compact, current, schema-backed facts:
 - math obligation exports
 - source spans and document symbols
 - setup health facts
+- Core Hum, Hum IR, and backend contract facts
 
 Agents should not scrape terminal prose when a JSON schema exists. Agent-facing
 docs should be small, versioned, and tied to the current CLI surface so generated
@@ -606,6 +608,14 @@ hum math-obligations --format json <file-or-dir>...
 hum math-obligations --out-dir <dir> <file-or-dir>...
 hum resource-report <file-or-dir>...
 hum resource-report --format json <file-or-dir>...
+hum ir-readiness <file-or-dir>...
+hum ir-readiness --format json <file-or-dir>...
+hum core-contract
+hum core-contract --format json
+hum ir-contract
+hum ir-contract --format json
+hum backend-contract
+hum backend-contract --format json
 hum test-skeletons <file-or-dir>...
 hum syntax
 hum syntax --format textmate
@@ -637,6 +647,14 @@ cargo run -- math-obligations --format json examples/control_flow.hum
 cargo run -- math-obligations --out-dir target/hum-math-obligations examples/control_flow.hum
 cargo run -- resource-report examples/control_flow.hum
 cargo run -- resource-report --format json examples/control_flow.hum
+cargo run -- ir-readiness examples/reference_surface.hum
+cargo run -- ir-readiness --format json examples/reference_surface.hum
+cargo run -- core-contract
+cargo run -- core-contract --format json
+cargo run -- ir-contract
+cargo run -- ir-contract --format json
+cargo run -- backend-contract
+cargo run -- backend-contract --format json
 cargo run -- test-skeletons examples
 cargo run -- syntax
 cargo run -- syntax --format textmate

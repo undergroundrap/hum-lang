@@ -1,3 +1,4 @@
+use crate::core_contract;
 use crate::version;
 
 pub const IR_CONTRACT_SCHEMA: &str = "hum.ir_contract.v0";
@@ -116,10 +117,11 @@ const NON_GOALS_V0: &[&str] = &[
 pub fn ir_contract_text() -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "Hum IR contract ({IR_CONTRACT_SCHEMA})\ntool: hum {} {}\nmilestone: {}\nsemantic_owner: {SEMANTIC_OWNER}\nbackend_contract_schema: {BACKEND_CONTRACT_SCHEMA}\n",
+        "Hum IR contract ({IR_CONTRACT_SCHEMA})\ntool: hum {} {}\nmilestone: {}\nsemantic_owner: {SEMANTIC_OWNER}\ncore_contract_schema: {}\nbackend_contract_schema: {BACKEND_CONTRACT_SCHEMA}\n",
         version::HUM_VERSION,
         version::HUM_STATUS,
-        version::HUM_MILESTONE
+        version::HUM_MILESTONE,
+        core_contract::CORE_CONTRACT_SCHEMA
     ));
     out.push_str("ir_layers:\n");
     for layer in IR_LAYERS {
@@ -160,6 +162,13 @@ pub fn ir_contract_json() -> String {
     push_string_field(&mut out, 2, "status", version::HUM_STATUS, true);
     push_string_field(&mut out, 2, "milestone", version::HUM_MILESTONE, true);
     push_string_field(&mut out, 2, "semantic_owner", SEMANTIC_OWNER, true);
+    push_string_field(
+        &mut out,
+        2,
+        "core_contract_schema",
+        core_contract::CORE_CONTRACT_SCHEMA,
+        true,
+    );
     push_string_field(
         &mut out,
         2,
@@ -276,6 +285,7 @@ mod tests {
 
         assert!(text.contains("Hum IR contract (hum.ir_contract.v0)"));
         assert!(text.contains("semantic_owner: hum_ir"));
+        assert!(text.contains("core_contract_schema: hum.core_contract.v0"));
         assert!(text.contains("1. surface_hum [current]"));
         assert!(text.contains("4. hum_ir [planned]"));
         assert!(text.contains("required_carried_facts"));
@@ -287,6 +297,7 @@ mod tests {
 
         assert!(json.contains("\"schema\": \"hum.ir_contract.v0\""));
         assert!(json.contains("\"semantic_owner\": \"hum_ir\""));
+        assert!(json.contains("\"core_contract_schema\": \"hum.core_contract.v0\""));
         assert!(json.contains("\"backend_contract_schema\": \"hum.backend_contract.v0\""));
         assert!(json.contains("\"id\": \"core_hum\""));
         assert!(json.contains("\"id\": \"hum_ir\""));

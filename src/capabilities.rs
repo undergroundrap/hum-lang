@@ -1,4 +1,5 @@
 use crate::backend_contract;
+use crate::core_contract;
 use crate::diagnostic_catalog;
 use crate::diagnostics;
 use crate::doctor;
@@ -106,6 +107,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: CAPABILITIES_SCHEMA,
         status: "current",
         purpose: "toolchain surface discovery for adapters and agents",
+    },
+    CommandCapability {
+        name: "core_contract_json",
+        command: "hum core-contract --format json",
+        schema: core_contract::CORE_CONTRACT_SCHEMA,
+        status: "current",
+        purpose: "Core Hum executable subset and surface-to-core acceptance contract",
     },
     CommandCapability {
         name: "ir_contract_json",
@@ -260,6 +268,10 @@ pub fn capabilities_text() -> String {
     ));
     out.push_str(&format!("  capabilities: {}\n", CAPABILITIES_SCHEMA));
     out.push_str(&format!(
+        "  core_contract: {}\n",
+        core_contract::CORE_CONTRACT_SCHEMA
+    ));
+    out.push_str(&format!(
         "  ir_contract: {}\n",
         ir_contract::IR_CONTRACT_SCHEMA
     ));
@@ -378,6 +390,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         true,
     );
     push_string_field(out, indent + 2, "capabilities", CAPABILITIES_SCHEMA, true);
+    push_string_field(
+        out,
+        indent + 2,
+        "core_contract",
+        core_contract::CORE_CONTRACT_SCHEMA,
+        true,
+    );
     push_string_field(
         out,
         indent + 2,
@@ -516,11 +535,13 @@ mod tests {
         assert!(json.contains("\"semantic_graph\": \"hum.semantic_graph.v0\""));
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
+        assert!(json.contains("\"core_contract\": \"hum.core_contract.v0\""));
         assert!(json.contains("\"ir_contract\": \"hum.ir_contract.v0\""));
         assert!(json.contains("\"backend_contract\": \"hum.backend_contract.v0\""));
         assert!(json.contains("\"lsp_capabilities\": \"hum.lsp_capabilities.v0\""));
         assert!(json.contains("\"doctor\": \"hum.doctor.v0\""));
         assert!(json.contains("\"name\": \"doctor_json\""));
+        assert!(json.contains("\"name\": \"core_contract_json\""));
         assert!(json.contains("\"name\": \"ir_contract_json\""));
         assert!(json.contains("\"name\": \"backend_contract_json\""));
         assert!(json.contains("\"name\": \"evidence_json\""));

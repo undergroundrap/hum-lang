@@ -10,8 +10,9 @@ Current schema: `hum.ir_readiness.v0`
 future Core Hum and Hum IR lowering.
 
 This is not an IR emitter. It is a readiness and blocker inventory built from
-the parser, AST, semantic graph facts, diagnostics, and the contract in
-[HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md). It exists so humans,
+the parser, AST, semantic graph facts, diagnostics, the Core Hum contract in
+[HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md), and the Hum IR
+contract in [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md). It exists so humans,
 agents, and CI can see which source facts are already visible and which compiler
 passes still block honest IR/backend claims.
 
@@ -40,6 +41,7 @@ compiler-roadmap checks, and future IR verifier work.
   "version": "0.0.1",
   "status": "pre-alpha",
   "milestone": "0 semantic graph",
+  "core_contract_schema": "hum.core_contract.v0",
   "ir_contract_schema": "hum.ir_contract.v0",
   "summary": {},
   "pass_status": [],
@@ -55,6 +57,7 @@ compiler-roadmap checks, and future IR verifier work.
 - `version`: package version reported by the build
 - `status`: maturity label such as `pre-alpha`
 - `milestone`: current implementation milestone
+- `core_contract_schema`: Core Hum contract this report is measured against
 - `ir_contract_schema`: Hum IR contract this report is measured against
 - `summary`: file, item, task, test, candidate, ready, blocked, error, and
   warning counts
@@ -131,8 +134,8 @@ V0 reports these pass statuses:
 - It must not claim type safety, memory safety, optimization, backend readiness,
   or executable semantics.
 - It may report source-visible facts and missing compiler passes.
-- It must stay in sync with `hum.ir_contract.v0`, `hum capabilities --format
-  json`, and `hum version --format json`.
+- It must stay in sync with `hum.core_contract.v0`, `hum.ir_contract.v0`, `hum
+  capabilities --format json`, and `hum version --format json`.
 
 ## Privacy And Dependency Rules
 

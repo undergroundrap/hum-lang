@@ -10,7 +10,10 @@ The formal core is the small language that Hum source lowers into after parsing,
 intent checking, and type checking. It is the thing we can specify, test, fuzz,
 interpret, compile, and eventually verify.
 
-This document is not a proof. It is the boundary that keeps Hum honest.
+This document is not a proof. It is the boundary that keeps Hum honest. The
+machine-readable version of the first Core Hum boundary is
+[HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md), emitted by
+`hum core-contract --format json`.
 
 ## Brutal Thesis
 

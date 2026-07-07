@@ -1,4 +1,5 @@
 use crate::ast::{App, Item, Program, Section, Store, Task, Test, TypeDef};
+use crate::core_contract;
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::is_meaningful_line_text;
 use crate::ir_contract;
@@ -55,27 +56,27 @@ const PASS_STATUSES: &[PassStatus] = &[
     PassStatus {
         name: "core_lowering",
         status: "not_implemented",
-        source: "hum.ir_contract.v0",
+        source: core_contract::CORE_CONTRACT_SCHEMA,
     },
     PassStatus {
         name: "type_check",
         status: "not_implemented",
-        source: "hum.ir_contract.v0",
+        source: core_contract::CORE_CONTRACT_SCHEMA,
     },
     PassStatus {
         name: "effect_check",
         status: "not_implemented",
-        source: "hum.ir_contract.v0",
+        source: core_contract::CORE_CONTRACT_SCHEMA,
     },
     PassStatus {
         name: "ownership_alias_check",
         status: "not_implemented",
-        source: "hum.ir_contract.v0",
+        source: ir_contract::IR_CONTRACT_SCHEMA,
     },
     PassStatus {
         name: "allocation_resource_check",
         status: "not_implemented",
-        source: "hum.ir_contract.v0",
+        source: core_contract::CORE_CONTRACT_SCHEMA,
     },
     PassStatus {
         name: "contract_evidence_linking",
@@ -85,12 +86,12 @@ const PASS_STATUSES: &[PassStatus] = &[
     PassStatus {
         name: "profile_check",
         status: "not_implemented",
-        source: "hum.ir_contract.v0",
+        source: core_contract::CORE_CONTRACT_SCHEMA,
     },
     PassStatus {
         name: "ir_verify",
         status: "not_implemented",
-        source: "hum.ir_contract.v0",
+        source: ir_contract::IR_CONTRACT_SCHEMA,
     },
 ];
 
@@ -124,6 +125,10 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         blocked,
         report.errors,
         report.warnings
+    ));
+    out.push_str(&format!(
+        "core_contract_schema: {}\n",
+        core_contract::CORE_CONTRACT_SCHEMA
     ));
     out.push_str(&format!(
         "ir_contract_schema: {}\n",
@@ -181,6 +186,13 @@ pub fn ir_readiness_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
     push_string_field(&mut out, 2, "version", version::HUM_VERSION, true);
     push_string_field(&mut out, 2, "status", version::HUM_STATUS, true);
     push_string_field(&mut out, 2, "milestone", version::HUM_MILESTONE, true);
+    push_string_field(
+        &mut out,
+        2,
+        "core_contract_schema",
+        core_contract::CORE_CONTRACT_SCHEMA,
+        true,
+    );
     push_string_field(
         &mut out,
         2,
@@ -688,6 +700,7 @@ mod tests {
         let text = ir_readiness_text(&program, &[]);
 
         assert!(text.contains("Hum IR readiness (hum.ir_readiness.v0)"));
+        assert!(text.contains("core_contract_schema: hum.core_contract.v0"));
         assert!(text.contains("lowering_candidates=3 ready_for_ir=0 blocked=3"));
         assert!(text.contains("pass_status:"));
         assert!(text.contains("core_lowering [not_implemented]"));
@@ -701,6 +714,7 @@ mod tests {
         let json = ir_readiness_json(&program, &[]);
 
         assert!(json.contains("\"schema\": \"hum.ir_readiness.v0\""));
+        assert!(json.contains("\"core_contract_schema\": \"hum.core_contract.v0\""));
         assert!(json.contains("\"ir_contract_schema\": \"hum.ir_contract.v0\""));
         assert!(json.contains("\"ready_for_ir\": 0"));
         assert!(json.contains("\"status\": \"blocked_before_core_lowering\""));

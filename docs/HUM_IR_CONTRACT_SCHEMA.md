@@ -9,8 +9,10 @@ Current schema: `hum.ir_contract.v0`
 `hum ir-contract` publishes the contract for the compiler-owned Hum IR layer.
 This is the semantic owner named by
 [BACKEND_CONTRACT_SCHEMA.md](BACKEND_CONTRACT_SCHEMA.md): backends consume
-verified Hum IR instead of raw surface Hum. Source progress toward this contract
-is reported by [HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md).
+verified Hum IR instead of raw surface Hum. Core Hum is named by
+[HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md), and source progress
+toward these contracts is reported by
+[HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md).
 
 This command exists before actual IR emission so humans, agents, backend
 experiments, and future compiler passes have one target to satisfy. It is not a
@@ -43,6 +45,7 @@ backend adapters, release tooling, and future IR verifier work.
   "status": "pre-alpha",
   "milestone": "0 semantic graph",
   "semantic_owner": "hum_ir",
+  "core_contract_schema": "hum.core_contract.v0",
   "backend_contract_schema": "hum.backend_contract.v0",
   "ir_layers": [],
   "required_carried_facts": [],
@@ -61,6 +64,7 @@ backend adapters, release tooling, and future IR verifier work.
 - `status`: maturity label such as `pre-alpha`
 - `milestone`: current implementation milestone
 - `semantic_owner`: stable owner name, currently `hum_ir`
+- `core_contract_schema`: Core Hum contract this IR contract consumes
 - `backend_contract_schema`: backend contract that consumes this semantic owner
 - `ir_layers`: ordered lowering layers from surface Hum toward backend adapter
   input
@@ -137,8 +141,9 @@ order, docs, agents, and future compiler diagnostics.
 - It must not claim Hum has executable semantics.
 - It must not pretend type checking, ownership checking, optimization, or backend
   lowering exists.
-- It must stay in sync with `hum backend-contract --format json`, `hum
-  capabilities --format json`, and `hum version --format json`.
+- It must stay in sync with `hum core-contract --format json`, `hum
+  backend-contract --format json`, `hum capabilities --format json`, and `hum
+  version --format json`.
 
 ## Privacy And Dependency Rules
 
