@@ -26,6 +26,7 @@ standard library direction, backend strategy, or release posture.
 | [0007](0007-adopt-progressive-disclosure-and-migration-discipline.md) | accepted | Adopt progressive disclosure and migration discipline. |
 | [0008](0008-adopt-swappable-backend-ladder.md) | accepted | Adopt a swappable backend ladder. |
 | [0009](0009-adopt-formal-readability-not-english-mimicry.md) | accepted | Adopt formal readability, not English mimicry. |
+| [0010](0010-adopt-explicit-state-model.md) | accepted | Adopt an explicit state model. |
 
 ## Template
 

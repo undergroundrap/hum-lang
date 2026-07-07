@@ -182,6 +182,9 @@ try {
   if (-not $CapabilitiesJson.Contains('"runtime_profiles"')) { throw 'capabilities JSON is missing runtime_profiles schema' }
   if (-not $CapabilitiesJson.Contains('"runtime_profile"')) { throw 'capabilities JSON is missing runtime_profile schema' }
   if (-not $CapabilitiesJson.Contains('"runtime_profiles_json"')) { throw 'capabilities JSON is missing runtime_profiles_json command' }
+  if (-not $CapabilitiesJson.Contains('"state_model"')) { throw 'capabilities JSON is missing state_model schema' }
+  if (-not $CapabilitiesJson.Contains('"state_permission"')) { throw 'capabilities JSON is missing state_permission schema' }
+  if (-not $CapabilitiesJson.Contains('"state_model_json"')) { throw 'capabilities JSON is missing state_model_json command' }
   if (-not $CapabilitiesJson.Contains('"doctor"')) { throw 'capabilities JSON is missing doctor schema' }
   if (-not $CapabilitiesJson.Contains('"target_facts"')) { throw 'capabilities JSON is missing target_facts schema' }
   if (-not $CapabilitiesJson.Contains('"target_fact_record"')) { throw 'capabilities JSON is missing target_fact_record schema' }
@@ -233,6 +236,18 @@ try {
   if (-not $RuntimeProfilesJson.Contains('"os.network"')) { throw 'runtime profiles JSON is missing network capability policy' }
   if (-not $RuntimeProfilesJson.Contains('"no profile syntax enforcement"')) { throw 'runtime profiles JSON must keep V0 enforcement non-claim' }
   if (-not $RuntimeProfilesJson.Contains('"no certification claim"')) { throw 'runtime profiles JSON must not claim certification' }
+
+  $StateModelJson = Read-NativeOutput 'state model JSON' $Hum @('state-model', '--format', 'json')
+  Assert-Json 'state model JSON' $StateModelJson
+  if (-not $StateModelJson.Contains('"schema": "hum.state_model.v0"')) { throw 'state model JSON is missing hum.state_model.v0 schema' }
+  if (-not $StateModelJson.Contains('"permission_schema": "hum.state_permission.v0"')) { throw 'state model JSON is missing hum.state_permission.v0 schema link' }
+  if (-not $StateModelJson.Contains('"mode": "contract_only_partial_declared_mutation_check"')) { throw 'state model JSON must keep V0 contract-only mode' }
+  if (-not $StateModelJson.Contains('"id": "immutable_value"')) { throw 'state model JSON is missing immutable_value kind' }
+  if (-not $StateModelJson.Contains('"id": "mutable_local"')) { throw 'state model JSON is missing mutable_local kind' }
+  if (-not $StateModelJson.Contains('"id": "linear_resource"')) { throw 'state model JSON is missing linear_resource kind' }
+  if (-not $StateModelJson.Contains('"id": "borrow_check"')) { throw 'state model JSON is missing borrow_check gate' }
+  if (-not $StateModelJson.Contains('"no borrow checker implementation"')) { throw 'state model JSON must not claim borrow checking' }
+  if (-not $StateModelJson.Contains('"no concurrency or memory-order model"')) { throw 'state model JSON must not claim concurrency checking' }
 
   $LspCapabilitiesJson = Read-NativeOutput 'LSP capabilities JSON' $Hum @('lsp', '--capabilities', '--format', 'json')
   Assert-Json 'LSP capabilities JSON' $LspCapabilitiesJson
@@ -418,13 +433,18 @@ try {
 
   $DecisionIndex = [System.IO.File]::ReadAllText((Join-Path (Join-Path $RepoRoot 'docs') 'decisions\README.md'))
   if (-not $DecisionIndex.Contains('0009-adopt-formal-readability-not-english-mimicry.md')) { throw 'decision index is missing formal readability ADR' }
+  if (-not $DecisionIndex.Contains('0010-adopt-explicit-state-model.md')) { throw 'decision index is missing explicit state model ADR' }
   $ArchitectureText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\ARCHITECTURE.md'))
   if (-not $ArchitectureText.Contains('Formal-readability doctrine')) { throw 'architecture is missing formal-readability doctrine' }
   if (-not $ArchitectureText.Contains('Debuggability doctrine')) { throw 'architecture is missing debuggability doctrine' }
+  if (-not $ArchitectureText.Contains('State-management doctrine')) { throw 'architecture is missing state-management doctrine' }
+  if (-not $ArchitectureText.Contains('STATE_MODEL.md')) { throw 'architecture is missing state model link' }
   if (-not $ArchitectureText.Contains('PORTABILITY_BOUNDARY_MODEL.md')) { throw 'architecture is missing portability boundary model link' }
   $LanguageReferenceText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\LANGUAGE_REFERENCE.md'))
   if (-not $LanguageReferenceText.Contains('traditional language reference spine')) { throw 'language reference is missing reference spine marker' }
   if (-not $LanguageReferenceText.Contains('PORTABILITY_BOUNDARY_MODEL.md')) { throw 'language reference is missing portability boundary link' }
+  if (-not $LanguageReferenceText.Contains('STATE_MODEL.md')) { throw 'language reference is missing state model link' }
+  if (-not $LanguageReferenceText.Contains('hum state-model --format json')) { throw 'language reference is missing state-model command' }
   if (-not $LanguageReferenceText.Contains('H1205')) { throw 'language reference is missing target declaration diagnostics' }
   $PortabilityBoundaryText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\PORTABILITY_BOUNDARY_MODEL.md'))
   if (-not $PortabilityBoundaryText.Contains('Hum Portability Boundary Model')) { throw 'portability boundary model is missing title' }
@@ -477,6 +497,17 @@ try {
   if (-not $RuntimeProfilesSchemaText.Contains('hum.runtime_profiles.v0')) { throw 'runtime profile schema doc is missing catalog schema' }
   if (-not $RuntimeProfilesSchemaText.Contains('hum.runtime_profile.v0')) { throw 'runtime profile schema doc is missing entry schema' }
   if (-not $RuntimeProfilesSchemaText.Contains('contract_only_no_profile_enforcement')) { throw 'runtime profile schema doc is missing contract-only mode' }
+  $StateModelText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\STATE_MODEL.md'))
+  if (-not $StateModelText.Contains('Hum State Model')) { throw 'state model doc is missing title' }
+  if (-not $StateModelText.Contains('hum.state_model.v0')) { throw 'state model doc is missing state model schema' }
+  if (-not $StateModelText.Contains('contract_only_partial_declared_mutation_check')) { throw 'state model doc is missing contract-only mode' }
+  if (-not $StateModelText.Contains('No new Hum feature is allowed to hide state')) { throw 'state model doc is missing brutal state rule' }
+  $StateModelSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_STATE_MODEL_SCHEMA.md'))
+  if (-not $StateModelSchemaText.Contains('hum.state_model.v0')) { throw 'state model schema doc is missing catalog schema' }
+  if (-not $StateModelSchemaText.Contains('hum.state_permission.v0')) { throw 'state model schema doc is missing permission schema' }
+  if (-not $StateModelSchemaText.Contains('contract_only_partial_declared_mutation_check')) { throw 'state model schema doc is missing contract-only mode' }
+  $StateModelDecisionText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\decisions\0010-adopt-explicit-state-model.md'))
+  if (-not $StateModelDecisionText.Contains('Hum adopts a source-visible state model')) { throw 'state model ADR is missing decision statement' }
   $OptimizationText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\OPTIMIZATION_AND_DSA_STRATEGY.md'))
   if (-not $OptimizationText.Contains('Bellard Constraint Rule')) { throw 'optimization strategy is missing Bellard constraint rule' }
   if (-not $ResearchMapText.Contains('2026-07-07-systems-legends-lessons.md')) { throw 'research map is missing systems legends lessons' }

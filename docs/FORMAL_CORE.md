@@ -164,6 +164,12 @@ set count = count + 1
 Surface `changes:` blocks declare external mutable places. Local `change`
 declares local mutable places.
 
+The broader state doctrine is [STATE_MODEL.md](STATE_MODEL.md), emitted as
+`hum.state_model.v0` by `hum state-model --format json`. Core Hum must preserve
+state facts for immutable values, mutable locals, places, stores, ownership,
+borrows, linear resources, shared state, and external authority before those
+features become executable guarantees.
+
 ## Core Expressions
 
 Starter expressions:

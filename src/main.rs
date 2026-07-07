@@ -24,6 +24,7 @@ mod node_id;
 mod parser;
 mod resource_report;
 mod runtime_profiles;
+mod state_model;
 mod syntax;
 mod target_facts;
 mod test_skeletons;
@@ -99,6 +100,13 @@ fn run() -> Result<ExitCode, String> {
         match options.runtime_profiles_format {
             RuntimeProfilesFormat::Human => print!("{}", runtime_profiles::runtime_profiles_text()),
             RuntimeProfilesFormat::Json => print!("{}", runtime_profiles::runtime_profiles_json()),
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    if options.command == "state-model" {
+        match options.state_model_format {
+            StateModelFormat::Human => print!("{}", state_model::state_model_text()),
+            StateModelFormat::Json => print!("{}", state_model::state_model_json()),
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -346,7 +354,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         )),
     }
 }
@@ -418,6 +426,12 @@ enum RuntimeProfilesFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StateModelFormat {
+    Human,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LspFormat {
     Human,
     Json,
@@ -475,6 +489,7 @@ struct CliOptions {
     ir_contract_format: IrContractFormat,
     backend_contract_format: BackendContractFormat,
     runtime_profiles_format: RuntimeProfilesFormat,
+    state_model_format: StateModelFormat,
     lsp_format: LspFormat,
     doctor_format: DoctorFormat,
     target_facts_format: TargetFactsFormat,
@@ -521,12 +536,13 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "ir-contract"
             | "backend-contract"
             | "profiles"
+            | "state-model"
             | "lsp"
             | "doctor"
             | "target-facts"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         ));
     }
 
@@ -543,6 +559,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut ir_contract_format = IrContractFormat::Human;
     let mut backend_contract_format = BackendContractFormat::Human;
     let mut runtime_profiles_format = RuntimeProfilesFormat::Human;
+    let mut state_model_format = StateModelFormat::Human;
     let mut lsp_format = LspFormat::Human;
     let mut doctor_format = DoctorFormat::Human;
     let mut target_facts_format = TargetFactsFormat::Human;
@@ -584,6 +601,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         | "ir-contract"
                         | "backend-contract"
                         | "profiles"
+                        | "state-model"
                         | "lsp"
                         | "doctor"
                         | "target-facts"
@@ -610,6 +628,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         backend_contract_format = parse_backend_contract_format(&value)?
                     }
                     "profiles" => runtime_profiles_format = parse_runtime_profiles_format(&value)?,
+                    "state-model" => state_model_format = parse_state_model_format(&value)?,
                     "lsp" => lsp_format = parse_lsp_format(&value)?,
                     "doctor" => doctor_format = parse_doctor_format(&value)?,
                     "target-facts" => target_facts_format = parse_target_facts_format(&value)?,
@@ -637,6 +656,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     | "ir-contract"
                     | "backend-contract"
                     | "profiles"
+                    | "state-model"
                     | "lsp"
                     | "doctor"
                     | "target-facts"
@@ -661,6 +681,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         backend_contract_format = parse_backend_contract_format(value)?
                     }
                     "profiles" => runtime_profiles_format = parse_runtime_profiles_format(value)?,
+                    "state-model" => state_model_format = parse_state_model_format(value)?,
                     "lsp" => lsp_format = parse_lsp_format(value)?,
                     "doctor" => doctor_format = parse_doctor_format(value)?,
                     "target-facts" => target_facts_format = parse_target_facts_format(value)?,
@@ -703,6 +724,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
+            state_model_format,
             lsp_format,
             doctor_format,
             target_facts_format,
@@ -737,6 +759,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
+            state_model_format,
             lsp_format,
             doctor_format,
             target_facts_format,
@@ -771,6 +794,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
+            state_model_format,
             lsp_format,
             doctor_format,
             target_facts_format,
@@ -805,6 +829,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
+            state_model_format,
             lsp_format,
             doctor_format,
             target_facts_format,
@@ -839,6 +864,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
+            state_model_format,
             lsp_format,
             doctor_format,
             target_facts_format,
@@ -873,6 +899,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
+            state_model_format,
             lsp_format,
             doctor_format,
             target_facts_format,
@@ -907,6 +934,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
+            state_model_format,
             lsp_format,
             doctor_format,
             target_facts_format,
@@ -941,6 +969,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
+            state_model_format,
             lsp_format,
             doctor_format,
             target_facts_format,
@@ -975,6 +1004,42 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
+            state_model_format,
+            lsp_format,
+            doctor_format,
+            target_facts_format,
+            evidence_format,
+            math_obligations_format,
+            resource_report_format,
+            ir_readiness_format,
+            math_obligations_out_dir: math_obligations_out_dir.clone(),
+            explain_code: None,
+        });
+    }
+
+    if command == "state-model" {
+        if show_timings {
+            return Err("`state-model` does not support `--timings`".to_string());
+        }
+        if !raw_inputs.is_empty() {
+            return Err("`state-model` does not accept input files".to_string());
+        }
+        return Ok(CliOptions {
+            command,
+            inputs: Vec::new(),
+            show_timings,
+            check_format,
+            syntax_format,
+            version_format,
+            explain_format,
+            diagnostics_format,
+            capabilities_format,
+            core_contract_format,
+            core_preview_format,
+            ir_contract_format,
+            backend_contract_format,
+            runtime_profiles_format,
+            state_model_format,
             lsp_format,
             doctor_format,
             target_facts_format,
@@ -1015,6 +1080,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
+            state_model_format,
             lsp_format,
             doctor_format,
             target_facts_format,
@@ -1049,6 +1115,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
+            state_model_format,
             lsp_format,
             doctor_format,
             target_facts_format,
@@ -1083,6 +1150,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
+            state_model_format,
             lsp_format,
             doctor_format,
             target_facts_format,
@@ -1110,6 +1178,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         ir_contract_format,
         backend_contract_format,
         runtime_profiles_format,
+        state_model_format,
         lsp_format,
         doctor_format,
         target_facts_format,
@@ -1226,6 +1295,16 @@ fn parse_runtime_profiles_format(value: &str) -> Result<RuntimeProfilesFormat, S
         "json" => Ok(RuntimeProfilesFormat::Json),
         other => Err(format!(
             "unknown profiles format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
+fn parse_state_model_format(value: &str) -> Result<StateModelFormat, String> {
+    match value {
+        "human" => Ok(StateModelFormat::Human),
+        "json" => Ok(StateModelFormat::Json),
+        other => Err(format!(
+            "unknown state-model format `{other}`; expected `human` or `json`"
         )),
     }
 }
@@ -1459,6 +1538,7 @@ fn print_help() {
     println!("  hum ir-contract [--format human|json]");
     println!("  hum backend-contract [--format human|json]");
     println!("  hum profiles [--format human|json]");
+    println!("  hum state-model [--format human|json]");
     println!("  hum lsp --capabilities [--format human|json]");
     println!("  hum doctor [--format human|json]");
     println!("  hum target-facts [--format human|json]");
@@ -1481,6 +1561,7 @@ fn print_help() {
     println!("  ir-contract     Emit the Hum IR ownership and preservation contract");
     println!("  backend-contract  Emit the backend adapter contract and staged backend ladder");
     println!("  profiles          Emit the runtime profile policy catalog");
+    println!("  state-model       Emit the state and mutation permission model");
     println!("  lsp             Preview LSP adapter capabilities");
     println!("  doctor          Check portable repo setup and guardrails");
     println!("  target-facts    Emit target fact fields and portability fixtures");
@@ -1499,8 +1580,8 @@ mod tests {
         BackendContractFormat, CapabilitiesFormat, CheckFormat, CoreContractFormat,
         CorePreviewFormat, DiagnosticsFormat, DoctorFormat, EvidenceFormat, ExplainFormat,
         IrContractFormat, IrReadinessFormat, LspFormat, MathObligationsFormat,
-        ResourceReportFormat, RuntimeProfilesFormat, SyntaxFormat, TargetFactsFormat,
-        VersionFormat, load_program, parse_cli,
+        ResourceReportFormat, RuntimeProfilesFormat, StateModelFormat, SyntaxFormat,
+        TargetFactsFormat, VersionFormat, load_program, parse_cli,
     };
 
     #[test]
@@ -1852,6 +1933,35 @@ mod tests {
         assert_eq!(
             error,
             "unknown profiles format `textmate`; expected `human` or `json`"
+        );
+    }
+
+    #[test]
+    fn parses_state_model_json_format() {
+        let options = parse_cli(vec!["state-model".to_string(), "--format=json".to_string()])
+            .expect("state-model json command");
+        assert_eq!(options.command, "state-model");
+        assert_eq!(options.state_model_format, StateModelFormat::Json);
+    }
+
+    #[test]
+    fn rejects_state_model_inputs() {
+        let error = parse_cli(vec!["state-model".to_string(), "examples".to_string()])
+            .expect_err("state-model should reject inputs");
+        assert_eq!(error, "`state-model` does not accept input files");
+    }
+
+    #[test]
+    fn rejects_unknown_state_model_format() {
+        let error = parse_cli(vec![
+            "state-model".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+        ])
+        .expect_err("state-model should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown state-model format `textmate`; expected `human` or `json`"
         );
     }
 

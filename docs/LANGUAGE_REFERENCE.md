@@ -54,6 +54,8 @@ foreign code.
 - [PERFORMANCE_CONTRACTS.md](PERFORMANCE_CONTRACTS.md): benchmark and optimization claim discipline
 - [MATH_OBLIGATIONS_SCHEMA.md](MATH_OBLIGATIONS_SCHEMA.md): external-validator obligation export surface
 - [RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md): resource and optimization claim report surface
+- [STATE_MODEL.md](STATE_MODEL.md): state, mutation, ownership, borrowing, and linear resource doctrine
+- [HUM_STATE_MODEL_SCHEMA.md](HUM_STATE_MODEL_SCHEMA.md): machine-readable state model contract
 
 ## Checked Reference Fixture
 
@@ -362,6 +364,8 @@ artifact portability.
 
 Hum does not intend to hide IO, mutation, allocation, randomness, time, network,
 or unsafe behavior behind innocent-looking calls.
+
+The current state model contract is [STATE_MODEL.md](STATE_MODEL.md), emitted by `hum state-model --format json` as `hum.state_model.v0`.
 
 Current Milestone 0 checks are small:
 
@@ -674,6 +678,8 @@ hum backend-contract
 hum backend-contract --format json
 hum profiles
 hum profiles --format json
+hum state-model
+hum state-model --format json
 hum test-skeletons <file-or-dir>...
 hum syntax
 hum syntax --format textmate
@@ -717,6 +723,8 @@ cargo run -- backend-contract
 cargo run -- backend-contract --format json
 cargo run -- profiles
 cargo run -- profiles --format json
+cargo run -- state-model
+cargo run -- state-model --format json
 cargo run -- test-skeletons examples
 cargo run -- syntax
 cargo run -- syntax --format textmate

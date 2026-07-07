@@ -82,6 +82,8 @@ Progressive-disclosure doctrine: Hum should keep ordinary code small at the poin
 
 Formal-readability doctrine: Hum should be easy to scan because its structure is precise, not because it imitates casual English. Stable syntax gets one canonical spelling per concept, no arbitrary English execution, and no prose-only executable authority. See [decisions/0009-adopt-formal-readability-not-english-mimicry.md](decisions/0009-adopt-formal-readability-not-english-mimicry.md).
 
+State-management doctrine: Hum treats state as visible, permissioned, profile-aware, and evidence-producing. Immutable values are the paved road; mutation, ownership, borrowing, stores, linear resources, shared state, and external authority must have source-visible facts before they become stable power. The current machine-readable state contract is `hum.state_model.v0`, emitted by `hum state-model --format json`. See [STATE_MODEL.md](STATE_MODEL.md) and [decisions/0010-adopt-explicit-state-model.md](decisions/0010-adopt-explicit-state-model.md).
+
 Language-builder doctrine: Hum should grow by small proofs, written lessons, graph/report/check surfaces, migration paths, and then public claims. See [LANGUAGE_BUILDER_OPERATING_MODEL.md](LANGUAGE_BUILDER_OPERATING_MODEL.md).
 
 Debuggability doctrine: Hum must preserve source identity, value identity, layout facts, effect facts, profile facts, contract facts, and provenance so a fast intent-aware debugger can exist later. Native debug formats are bridges; Hum debug facts remain the authority for Hum intent. The target debug-info shape is `hum.debug_info.v0`: source maps, step honesty, visualizers, debug probe sites, native debug links, and local-first privacy. See [DEBUGGABILITY_DOCTRINE.md](DEBUGGABILITY_DOCTRINE.md) and [DEBUG_INFO_AND_VISUALIZER_MODEL.md](DEBUG_INFO_AND_VISUALIZER_MODEL.md).
@@ -134,7 +136,7 @@ See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md) and [decisions/0008-adopt-swappab
 - Unsafe and foreign code require review packets and profile gates.
 - Containers, OS sandboxes, and agent tools do not replace language safety.
 - Windows is the first tested platform, but platform-specific details stay behind explicit capability boundaries.
-- No feature enters stable Hum without semantics, diagnostics, graph facts, tooling impact, profile impact, verification story, performance story, and pedagogy story.
+- No feature enters stable Hum without semantics, state-model impact, diagnostics, graph facts, tooling impact, profile impact, verification story, performance story, and pedagogy story.
 - Defaults must be paved roads; non-default power requires explicit source intent and evidence.
 - Resource, layout, compile-time, interop, and agent-facing power must be explicit and graph-visible before it is stable.
 - Progressive disclosure and migration discipline are language requirements, not polish.

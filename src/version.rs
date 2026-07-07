@@ -11,6 +11,7 @@ use crate::lsp;
 use crate::math_obligations;
 use crate::resource_report;
 use crate::runtime_profiles;
+use crate::state_model;
 use crate::syntax;
 use crate::target_facts;
 
@@ -20,7 +21,7 @@ pub const HUM_MILESTONE: &str = "0 semantic graph";
 
 pub fn version_text() -> String {
     format!(
-        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\ncore_contract_schema: {}\ncore_preview_schema: {}\nir_contract_schema: {}\nbackend_contract_schema: {}\nruntime_profiles_schema: {}\nruntime_profile_schema: {}\nlsp_capabilities_schema: {}\nmath_obligations_report_schema: {}\nmath_obligation_schema: {}\nresource_report_schema: {}\nir_readiness_schema: {}\ndoctor_schema: {}\ntarget_facts_schema: {}\ntarget_fact_record_schema: {}\n",
+        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\ncore_contract_schema: {}\ncore_preview_schema: {}\nir_contract_schema: {}\nbackend_contract_schema: {}\nruntime_profiles_schema: {}\nruntime_profile_schema: {}\nstate_model_schema: {}\nstate_permission_schema: {}\nlsp_capabilities_schema: {}\nmath_obligations_report_schema: {}\nmath_obligation_schema: {}\nresource_report_schema: {}\nir_readiness_schema: {}\ndoctor_schema: {}\ntarget_facts_schema: {}\ntarget_fact_record_schema: {}\n",
         target_name(),
         json::SEMANTIC_GRAPH_SCHEMA,
         syntax::SYNTAX_SCHEMA,
@@ -33,6 +34,8 @@ pub fn version_text() -> String {
         backend_contract::BACKEND_CONTRACT_SCHEMA,
         runtime_profiles::RUNTIME_PROFILES_SCHEMA,
         runtime_profiles::RUNTIME_PROFILE_SCHEMA,
+        state_model::STATE_MODEL_SCHEMA,
+        state_model::STATE_PERMISSION_SCHEMA,
         lsp::LSP_CAPABILITIES_SCHEMA,
         math_obligations::MATH_OBLIGATIONS_REPORT_SCHEMA,
         math_obligations::MATH_OBLIGATION_SCHEMA,
@@ -123,6 +126,20 @@ pub fn version_json() -> String {
         4,
         "runtime_profile",
         runtime_profiles::RUNTIME_PROFILE_SCHEMA,
+        true,
+    );
+    push_string_field(
+        &mut out,
+        4,
+        "state_model",
+        state_model::STATE_MODEL_SCHEMA,
+        true,
+    );
+    push_string_field(
+        &mut out,
+        4,
+        "state_permission",
+        state_model::STATE_PERMISSION_SCHEMA,
         true,
     );
     push_string_field(
@@ -275,6 +292,8 @@ mod tests {
         assert!(text.contains("backend_contract_schema: hum.backend_contract.v0"));
         assert!(text.contains("runtime_profiles_schema: hum.runtime_profiles.v0"));
         assert!(text.contains("runtime_profile_schema: hum.runtime_profile.v0"));
+        assert!(text.contains("state_model_schema: hum.state_model.v0"));
+        assert!(text.contains("state_permission_schema: hum.state_permission.v0"));
         assert!(text.contains("lsp_capabilities_schema: hum.lsp_capabilities.v0"));
         assert!(text.contains("math_obligations_report_schema: hum.math_obligations.v0"));
         assert!(text.contains("math_obligation_schema: hum.math_obligation.v0"));
@@ -302,6 +321,8 @@ mod tests {
         assert!(json.contains("\"backend_contract\": \"hum.backend_contract.v0\""));
         assert!(json.contains("\"runtime_profiles\": \"hum.runtime_profiles.v0\""));
         assert!(json.contains("\"runtime_profile\": \"hum.runtime_profile.v0\""));
+        assert!(json.contains("\"state_model\": \"hum.state_model.v0\""));
+        assert!(json.contains("\"state_permission\": \"hum.state_permission.v0\""));
         assert!(json.contains("\"lsp_capabilities\": \"hum.lsp_capabilities.v0\""));
         assert!(json.contains("\"math_obligations_report\": \"hum.math_obligations.v0\""));
         assert!(json.contains("\"math_obligation\": \"hum.math_obligation.v0\""));
