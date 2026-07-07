@@ -82,6 +82,7 @@ Compiler-level truth:
 - parse
 - check
 - graph
+- version and schema identity
 - explain diagnostics
 - eventually run single-file experiments
 - serve LSP facts through `hum lsp`

@@ -1,0 +1,137 @@
+use crate::json;
+use crate::syntax;
+
+pub const HUM_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const HUM_STATUS: &str = "pre-alpha";
+pub const HUM_MILESTONE: &str = "0 semantic graph";
+
+pub fn version_text() -> String {
+    format!(
+        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\n",
+        target_name(),
+        json::SEMANTIC_GRAPH_SCHEMA,
+        syntax::SYNTAX_SCHEMA
+    )
+}
+
+pub fn version_json() -> String {
+    let mut out = String::new();
+    out.push_str("{\n");
+    push_string_field(&mut out, 2, "tool", "hum", true);
+    push_string_field(&mut out, 2, "version", HUM_VERSION, true);
+    push_string_field(&mut out, 2, "status", HUM_STATUS, true);
+    push_string_field(&mut out, 2, "milestone", HUM_MILESTONE, true);
+    push_string_field(&mut out, 2, "target", &target_name(), true);
+    push_indent(&mut out, 2);
+    out.push_str("\"schemas\": {\n");
+    push_string_field(
+        &mut out,
+        4,
+        "semantic_graph",
+        json::SEMANTIC_GRAPH_SCHEMA,
+        true,
+    );
+    push_string_field(&mut out, 4, "syntax_surface", syntax::SYNTAX_SCHEMA, false);
+    push_indent(&mut out, 2);
+    out.push_str("},\n");
+    push_indent(&mut out, 2);
+    out.push_str("\"build\": {\n");
+    push_optional_string_field(
+        &mut out,
+        4,
+        "commit",
+        option_env!("HUM_BUILD_COMMIT"),
+        false,
+    );
+    push_indent(&mut out, 2);
+    out.push_str("}\n");
+    out.push_str("}\n");
+    out
+}
+
+fn target_name() -> String {
+    format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS)
+}
+
+fn push_string_field(out: &mut String, indent: usize, key: &str, value: &str, comma: bool) {
+    push_indent(out, indent);
+    push_json_string(out, key);
+    out.push_str(": ");
+    push_json_string(out, value);
+    push_comma_newline(out, comma);
+}
+
+fn push_optional_string_field(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    value: Option<&str>,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    push_json_string(out, key);
+    out.push_str(": ");
+    match value {
+        Some(value) => push_json_string(out, value),
+        None => out.push_str("null"),
+    }
+    push_comma_newline(out, comma);
+}
+
+fn push_json_string(out: &mut String, value: &str) {
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if ch.is_control() => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+}
+
+fn push_indent(out: &mut String, indent: usize) {
+    for _ in 0..indent {
+        out.push(' ');
+    }
+}
+
+fn push_comma_newline(out: &mut String, comma: bool) {
+    if comma {
+        out.push(',');
+    }
+    out.push('\n');
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HUM_VERSION, version_json, version_text};
+
+    #[test]
+    fn cargo_version_matches_repo_version_file() {
+        assert_eq!(HUM_VERSION, include_str!("../VERSION").trim());
+    }
+
+    #[test]
+    fn text_version_reports_hum_version_and_schemas() {
+        let text = version_text();
+
+        assert!(text.contains("Hum 0.0.1 pre-alpha"));
+        assert!(text.contains("semantic_graph_schema: hum.semantic_graph.v0"));
+        assert!(text.contains("syntax_surface_schema: hum.syntax_surface.v0"));
+    }
+
+    #[test]
+    fn json_version_reports_machine_readable_identity() {
+        let json = version_json();
+
+        assert!(json.contains("\"tool\": \"hum\""));
+        assert!(json.contains("\"version\": \"0.0.1\""));
+        assert!(json.contains("\"semantic_graph\": \"hum.semantic_graph.v0\""));
+        assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
+    }
+}

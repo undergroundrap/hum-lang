@@ -8,6 +8,7 @@ mod json;
 mod parser;
 mod syntax;
 mod test_skeletons;
+mod version;
 
 use std::env;
 use std::fs;
@@ -34,12 +35,23 @@ fn run() -> Result<ExitCode, String> {
         print_help();
         return Ok(ExitCode::SUCCESS);
     }
+    if args.len() == 1 && matches!(args[0].as_str(), "--version" | "-V") {
+        print!("{}", version::version_text());
+        return Ok(ExitCode::SUCCESS);
+    }
 
     let options = parse_cli(args)?;
     if options.command == "syntax" {
         match options.syntax_format {
             SyntaxFormat::Json => print!("{}", syntax::syntax_json()),
             SyntaxFormat::TextMate => print!("{}", syntax::textmate_json()),
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    if options.command == "version" {
+        match options.version_format {
+            VersionFormat::Human => print!("{}", version::version_text()),
+            VersionFormat::Json => print!("{}", version::version_json()),
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -106,7 +118,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `test-skeletons`, or `syntax`"
+            "unknown command `{other}`; expected `check`, `graph`, `test-skeletons`, `syntax`, or `version`"
         )),
     }
 }
@@ -117,12 +129,19 @@ enum SyntaxFormat {
     TextMate,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VersionFormat {
+    Human,
+    Json,
+}
+
 #[derive(Debug)]
 struct CliOptions {
     command: String,
     inputs: Vec<PathBuf>,
     show_timings: bool,
     syntax_format: SyntaxFormat,
+    version_format: VersionFormat,
 }
 
 struct LoadedProgram {
@@ -143,30 +162,41 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let command = args[0].clone();
     if !matches!(
         command.as_str(),
-        "check" | "graph" | "test-skeletons" | "syntax"
+        "check" | "graph" | "test-skeletons" | "syntax" | "version"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `test-skeletons`, or `syntax`"
+            "unknown command `{command}`; expected `check`, `graph`, `test-skeletons`, `syntax`, or `version`"
         ));
     }
 
     let mut show_timings = false;
     let mut raw_inputs = Vec::new();
     let mut syntax_format = SyntaxFormat::Json;
+    let mut version_format = VersionFormat::Human;
     let mut args = args.into_iter().skip(1);
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--timings" => show_timings = true,
-            "--format" if command == "syntax" => {
+            "--format" if command == "syntax" || command == "version" => {
                 let Some(value) = args.next() else {
-                    return Err("`syntax --format` requires `json` or `textmate`".to_string());
+                    return Err(format!("`{command} --format` requires a format value"));
                 };
-                syntax_format = parse_syntax_format(&value)?;
+                if command == "syntax" {
+                    syntax_format = parse_syntax_format(&value)?;
+                } else {
+                    version_format = parse_version_format(&value)?;
+                }
             }
-            flag if command == "syntax" && flag.starts_with("--format=") => {
+            flag if (command == "syntax" || command == "version")
+                && flag.starts_with("--format=") =>
+            {
                 let value = flag.trim_start_matches("--format=");
-                syntax_format = parse_syntax_format(value)?;
+                if command == "syntax" {
+                    syntax_format = parse_syntax_format(value)?;
+                } else {
+                    version_format = parse_version_format(value)?;
+                }
             }
             flag if flag.starts_with("--") => return Err(format!("unknown flag `{flag}`")),
             _ => raw_inputs.push(arg),
@@ -185,6 +215,23 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             show_timings,
             syntax_format,
+            version_format,
+        });
+    }
+
+    if command == "version" {
+        if show_timings {
+            return Err("`version` does not support `--timings`".to_string());
+        }
+        if !raw_inputs.is_empty() {
+            return Err("`version` does not accept input files".to_string());
+        }
+        return Ok(CliOptions {
+            command,
+            inputs: Vec::new(),
+            show_timings,
+            syntax_format,
+            version_format,
         });
     }
 
@@ -193,6 +240,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         inputs: collect_inputs(&raw_inputs)?,
         show_timings,
         syntax_format,
+        version_format,
     })
 }
 
@@ -206,6 +254,15 @@ fn parse_syntax_format(value: &str) -> Result<SyntaxFormat, String> {
     }
 }
 
+fn parse_version_format(value: &str) -> Result<VersionFormat, String> {
+    match value {
+        "human" => Ok(VersionFormat::Human),
+        "json" => Ok(VersionFormat::Json),
+        other => Err(format!(
+            "unknown version format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
 fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
     let total_start = Instant::now();
     let mut program = Program::default();
@@ -328,21 +385,24 @@ fn print_help() {
     println!("  hum graph [--timings] <file-or-dir>...");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!("  hum syntax [--format json|textmate]");
+    println!("  hum version [--format human|json]");
     println!();
     println!("Commands:");
     println!("  check   Parse Hum files and run milestone-0 intent checks");
     println!("  graph           Emit hum.semantic_graph.v0 JSON for agents and tools");
     println!("  test-skeletons  Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
+    println!("  version         Print toolchain identity and schema versions");
     println!();
     println!("Options:");
     println!("  --timings   Print read/parse/check timings per input file");
+    println!("  --version   Print toolchain identity");
 }
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
-    use super::{SyntaxFormat, load_program, parse_cli};
+    use super::{SyntaxFormat, VersionFormat, load_program, parse_cli};
 
     #[test]
     fn parses_syntax_command_without_inputs() {
@@ -379,6 +439,47 @@ mod tests {
         );
     }
 
+    #[test]
+    fn parses_version_command_without_inputs() {
+        let options = parse_cli(vec!["version".to_string()]).expect("version command");
+        assert_eq!(options.command, "version");
+        assert!(options.inputs.is_empty());
+        assert!(!options.show_timings);
+        assert_eq!(options.version_format, VersionFormat::Human);
+    }
+
+    #[test]
+    fn parses_version_json_format() {
+        let options = parse_cli(vec![
+            "version".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ])
+        .expect("version json command");
+        assert_eq!(options.command, "version");
+        assert_eq!(options.version_format, VersionFormat::Json);
+    }
+
+    #[test]
+    fn rejects_unknown_version_format() {
+        let error = parse_cli(vec![
+            "version".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+        ])
+        .expect_err("version should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown version format `textmate`; expected `human` or `json`"
+        );
+    }
+
+    #[test]
+    fn rejects_version_command_inputs() {
+        let error = parse_cli(vec!["version".to_string(), "examples".to_string()])
+            .expect_err("version should reject inputs");
+        assert_eq!(error, "`version` does not accept input files");
+    }
     #[test]
     fn rejects_syntax_command_inputs() {
         let error = parse_cli(vec!["syntax".to_string(), "examples".to_string()])

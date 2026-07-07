@@ -39,6 +39,9 @@ $expectedVersionText = 'Current repo version: ' + $markdownTick + $version + $ma
 if (-not $releaseDoc.Contains($expectedVersionText)) {
   Add-Failure "docs/RELEASE_AND_VERSIONING.md does not mention current version $version"
 }
+if (-not $releaseDoc.Contains('hum version')) {
+  Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention hum version'
+}
 
 $readme = Read-RepoText 'README.md'
 if (-not $readme.Contains('docs/RELEASE_AND_VERSIONING.md')) {
@@ -46,6 +49,9 @@ if (-not $readme.Contains('docs/RELEASE_AND_VERSIONING.md')) {
 }
 if (-not $readme.Contains('SECURITY.md')) {
   Add-Failure 'README.md does not link SECURITY.md'
+}
+if (-not $readme.Contains('hum version')) {
+  Add-Failure 'README.md does not mention hum version'
 }
 
 $securityPolicy = Read-RepoText 'SECURITY.md'

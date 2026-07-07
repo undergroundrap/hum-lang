@@ -21,6 +21,7 @@ portable defaults in the repo, personal editor state outside the repo
 
 ```powershell
 cargo test
+cargo run -- version
 cargo run -- check examples
 ```
 
@@ -51,7 +52,7 @@ Run this before opening a pull request, publishing a snapshot, or making a relea
 ```
 
 The script runs Rust formatting, tests, clippy, example checks, reference fixture
-coverage, graph and syntax JSON parsing, TextMate snapshot drift detection,
+coverage, version, graph, and syntax JSON parsing, TextMate snapshot drift detection,
 whitespace checks, text hygiene, public readiness, and release readiness.
 
 Hosted CI should call the same script. The current GitHub Actions workflow in
@@ -113,7 +114,12 @@ If a hygiene or public-readiness check fails, fix the named file and line before
 
 ## Version And Tags
 
-Current version: `0.0.1` pre-alpha.
+Current version: `0.0.1` pre-alpha. The bootstrap CLI reports this with:
+
+```powershell
+cargo run -- version
+cargo run -- version --format json
+```
 
 Before creating a release tag, run:
 

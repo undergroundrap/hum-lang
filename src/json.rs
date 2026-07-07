@@ -5,6 +5,8 @@ use crate::graph::{
     is_meaningful_line_text, linked_test_count, test_obligations,
 };
 
+pub const SEMANTIC_GRAPH_SCHEMA: &str = "hum.semantic_graph.v0";
+
 pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
     let mut out = String::new();
     let errors = diagnostics
@@ -15,7 +17,10 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
     let test_coverages = collect_test_coverages(program);
 
     out.push_str("{\n");
-    out.push_str("  \"schema\": \"hum.semantic_graph.v0\",\n");
+    out.push_str(&format!(
+        "  \"schema\": {},\n",
+        quote(SEMANTIC_GRAPH_SCHEMA)
+    ));
     out.push_str("  \"summary\": {");
     out.push_str(&format!(
         "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"errors\": {}, \"warnings\": {}",

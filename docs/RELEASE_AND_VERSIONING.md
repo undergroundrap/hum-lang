@@ -21,6 +21,13 @@ The version must match in:
 
 Do not add a third version source unless a release tool owns synchronization across all version files.
 
+The bootstrap CLI reports the Cargo package version and schema identity:
+
+```powershell
+hum version
+hum version --format json
+```
+
 ## Distribution Stance
 
 Hum's bootstrap compiler is a Rust package because Rust is the current
@@ -116,7 +123,7 @@ Every release tag should have a short note containing:
 
 Before Hum is presented like a serious new language from a Microsoft-scale or Google-scale team, it should have:
 
-- versioned CLI behavior
+- versioned CLI behavior through `hum version` and `hum version --format json`
 - versioned semantic graph schema
 - documented LSP capability matrix
 - editor integration strategy

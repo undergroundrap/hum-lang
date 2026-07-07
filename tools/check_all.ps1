@@ -106,6 +106,9 @@ try {
   $HumName = if ($env:OS -eq 'Windows_NT') { 'hum.exe' } else { 'hum' }
   $Hum = Join-Path (Join-Path (Join-Path $RepoRoot 'target') 'debug') $HumName
 
+  $VersionJson = Read-NativeOutput 'version JSON' $Hum @('version', '--format', 'json')
+  Assert-Json 'version JSON' $VersionJson
+
   Invoke-Native 'hum check examples' $Hum @('check', 'examples')
 
   Invoke-Native 'reference fixture coverage smoke' $Hum @('test-skeletons', 'examples/reference_surface.hum')
