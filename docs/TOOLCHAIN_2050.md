@@ -143,7 +143,7 @@ Hum needs `hum lsp` as a first-party server.
 
 Early LSP features:
 
-- diagnostics from `hum check`
+- diagnostics from `hum check --format json` using `hum.check.v0`
 - document symbols from `hum graph` for apps, tasks, types, stores, tests, and type fields
 - folding ranges from `hum graph` for intent sections
 - hover explanations for section keywords from `hum syntax` and declared names from `hum graph`

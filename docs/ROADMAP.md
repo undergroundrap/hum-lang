@@ -77,7 +77,7 @@ Current prototype status:
 - `hum graph` emits `hum.semantic_graph.v0` JSON.
 - `--timings` reports file read, parse, check, and total time.
 - AST items, sections, fields, params, and diagnostics keep source spans.
-- Diagnostics have stable `H####` codes in terminal output and `hum graph` JSON.
+- Diagnostics have stable `H####` codes in terminal output, `hum check --format json`, and `hum graph` JSON.
 - Known task and test sections get canonical-order warnings.
 - Current examples check cleanly.
 - `hum graph` emits source-derived node IDs for files, items, params, fields, sections, and section lines.

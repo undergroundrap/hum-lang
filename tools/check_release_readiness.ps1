@@ -79,6 +79,12 @@ if (-not $diagnosticsDoc.Contains('hum diagnostics')) {
 if (-not $diagnosticsDoc.Contains('hum.diagnostic_catalog.v0')) {
   Add-Failure 'docs/DIAGNOSTICS.md does not mention hum.diagnostic_catalog.v0'
 }
+if (-not $diagnosticsDoc.Contains('hum check --format json')) {
+  Add-Failure 'docs/DIAGNOSTICS.md does not document hum check --format json'
+}
+if (-not $diagnosticsDoc.Contains('hum.check.v0')) {
+  Add-Failure 'docs/DIAGNOSTICS.md does not mention hum.check.v0'
+}
 
 $semanticGraphDoc = Read-RepoText 'docs\SEMANTIC_GRAPH_SCHEMA.md'
 if (-not $semanticGraphDoc.Contains('source-derived handles')) {

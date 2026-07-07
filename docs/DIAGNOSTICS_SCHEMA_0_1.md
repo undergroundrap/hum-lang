@@ -7,8 +7,9 @@ Date: 2026-07-06
 This document defines the machine-readable diagnostic target for
 `offline-tool@0.1`.
 
-The current compiler already emits stable codes in terminal and graph output.
-The alpha schema narrows what evidence bundles must preserve.
+The current compiler emits stable codes in terminal output, `hum check --format
+json`, and graph output. The alpha schema narrows what evidence bundles must
+preserve.
 
 ## Schema Name
 

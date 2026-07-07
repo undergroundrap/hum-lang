@@ -182,6 +182,7 @@ cargo run -- syntax --format textmate
 Current CLI:
 
 - `hum check <file-or-dir>...`: parse Hum and run Milestone 0 intent checks
+- `hum check --format json <file-or-dir>...`: emit `hum.check.v0` diagnostics JSON for editors, CI, and agents
 - `hum version [--format human|json]`: print toolchain identity, version, target, and schema names
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents

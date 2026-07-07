@@ -87,19 +87,24 @@ fn run() -> Result<ExitCode, String> {
 
     match options.command.as_str() {
         "check" => {
-            print_diagnostics(&diagnostics);
-            println!(
-                "checked {} file(s): {} error(s), {} warning(s)",
-                program.files.len(),
-                diagnostics
-                    .iter()
-                    .filter(|diagnostic| diagnostic.severity == Severity::Error)
-                    .count(),
-                diagnostics
-                    .iter()
-                    .filter(|diagnostic| diagnostic.severity == Severity::Warning)
-                    .count()
-            );
+            match options.check_format {
+                CheckFormat::Human => {
+                    print_diagnostics(&diagnostics);
+                    println!(
+                        "checked {} file(s): {} error(s), {} warning(s)",
+                        program.files.len(),
+                        diagnostics
+                            .iter()
+                            .filter(|diagnostic| diagnostic.severity == Severity::Error)
+                            .count(),
+                        diagnostics
+                            .iter()
+                            .filter(|diagnostic| diagnostic.severity == Severity::Warning)
+                            .count()
+                    );
+                }
+                CheckFormat::Json => print!("{}", diagnostics::check_json(&program, &diagnostics)),
+            }
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
@@ -146,6 +151,12 @@ fn run() -> Result<ExitCode, String> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckFormat {
+    Human,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SyntaxFormat {
     Json,
     TextMate,
@@ -174,6 +185,7 @@ struct CliOptions {
     command: String,
     inputs: Vec<PathBuf>,
     show_timings: bool,
+    check_format: CheckFormat,
     syntax_format: SyntaxFormat,
     version_format: VersionFormat,
     explain_format: ExplainFormat,
@@ -208,6 +220,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
 
     let mut show_timings = false;
     let mut raw_inputs = Vec::new();
+    let mut check_format = CheckFormat::Human;
     let mut syntax_format = SyntaxFormat::Json;
     let mut version_format = VersionFormat::Human;
     let mut explain_format = ExplainFormat::Human;
@@ -220,13 +233,14 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             "--format"
                 if matches!(
                     command.as_str(),
-                    "syntax" | "version" | "explain" | "diagnostics"
+                    "check" | "syntax" | "version" | "explain" | "diagnostics"
                 ) =>
             {
                 let Some(value) = args.next() else {
                     return Err(format!("`{command} --format` requires a format value"));
                 };
                 match command.as_str() {
+                    "check" => check_format = parse_check_format(&value)?,
                     "syntax" => syntax_format = parse_syntax_format(&value)?,
                     "version" => version_format = parse_version_format(&value)?,
                     "explain" => explain_format = parse_explain_format(&value)?,
@@ -236,11 +250,12 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             }
             flag if matches!(
                 command.as_str(),
-                "syntax" | "version" | "explain" | "diagnostics"
+                "check" | "syntax" | "version" | "explain" | "diagnostics"
             ) && flag.starts_with("--format=") =>
             {
                 let value = flag.trim_start_matches("--format=");
                 match command.as_str() {
+                    "check" => check_format = parse_check_format(value)?,
                     "syntax" => syntax_format = parse_syntax_format(value)?,
                     "version" => version_format = parse_version_format(value)?,
                     "explain" => explain_format = parse_explain_format(value)?,
@@ -264,6 +279,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             show_timings,
+            check_format,
             syntax_format,
             version_format,
             explain_format,
@@ -283,6 +299,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             show_timings,
+            check_format,
             syntax_format,
             version_format,
             explain_format,
@@ -302,6 +319,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             show_timings,
+            check_format,
             syntax_format,
             version_format,
             explain_format,
@@ -321,6 +339,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             show_timings,
+            check_format,
             syntax_format,
             version_format,
             explain_format,
@@ -333,12 +352,23 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         command,
         inputs: collect_inputs(&raw_inputs)?,
         show_timings,
+        check_format,
         syntax_format,
         version_format,
         explain_format,
         diagnostics_format,
         explain_code: None,
     })
+}
+
+fn parse_check_format(value: &str) -> Result<CheckFormat, String> {
+    match value {
+        "human" => Ok(CheckFormat::Human),
+        "json" => Ok(CheckFormat::Json),
+        other => Err(format!(
+            "unknown check format `{other}`; expected `human` or `json`"
+        )),
+    }
 }
 
 fn parse_syntax_format(value: &str) -> Result<SyntaxFormat, String> {
@@ -498,7 +528,7 @@ fn print_help() {
     println!("Hum compiler front-end");
     println!();
     println!("Usage:");
-    println!("  hum check [--timings] <file-or-dir>...");
+    println!("  hum check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum graph [--timings] <file-or-dir>...");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!("  hum syntax [--format json|textmate]");
@@ -507,7 +537,7 @@ fn print_help() {
     println!("  hum diagnostics [--format human|json]");
     println!();
     println!("Commands:");
-    println!("  check   Parse Hum files and run milestone-0 intent checks");
+    println!("  check           Parse Hum files and run milestone-0 intent checks");
     println!("  graph           Emit hum.semantic_graph.v0 JSON for agents and tools");
     println!("  test-skeletons  Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
@@ -525,8 +555,36 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        DiagnosticsFormat, ExplainFormat, SyntaxFormat, VersionFormat, load_program, parse_cli,
+        CheckFormat, DiagnosticsFormat, ExplainFormat, SyntaxFormat, VersionFormat, load_program,
+        parse_cli,
     };
+
+    #[test]
+    fn parses_check_json_format() {
+        let options = parse_cli(vec![
+            "check".to_string(),
+            "--format=json".to_string(),
+            "examples".to_string(),
+        ])
+        .expect("check json command");
+        assert_eq!(options.command, "check");
+        assert_eq!(options.check_format, CheckFormat::Json);
+    }
+
+    #[test]
+    fn rejects_unknown_check_format() {
+        let error = parse_cli(vec![
+            "check".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+            "examples".to_string(),
+        ])
+        .expect_err("check should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown check format `textmate`; expected `human` or `json`"
+        );
+    }
 
     #[test]
     fn parses_syntax_command_without_inputs() {

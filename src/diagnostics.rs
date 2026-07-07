@@ -1,4 +1,8 @@
+use crate::ast::Program;
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::diagnostic_catalog::{self, DIAGNOSTIC_CATALOG_SCHEMA, DiagnosticInfo};
+
+pub const CHECK_DIAGNOSTICS_SCHEMA: &str = "hum.check.v0";
 
 pub fn diagnostics_text() -> String {
     let diagnostics = diagnostic_catalog::all();
@@ -35,6 +39,40 @@ pub fn diagnostics_json() -> String {
     out
 }
 
+pub fn check_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
+    let errors = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+        .count();
+    let warnings = diagnostics.len().saturating_sub(errors);
+
+    let mut out = String::new();
+    out.push_str("{\n");
+    push_string_field(&mut out, 2, "schema", CHECK_DIAGNOSTICS_SCHEMA, true);
+    push_indent(&mut out, 2);
+    out.push_str(&format!(
+        "\"summary\": {{\"files\": {}, \"errors\": {}, \"warnings\": {}}},\n",
+        program.files.len(),
+        errors,
+        warnings
+    ));
+    push_indent(&mut out, 2);
+    if diagnostics.is_empty() {
+        out.push_str("\"diagnostics\": []\n");
+    } else {
+        out.push_str("\"diagnostics\": [\n");
+        for (index, diagnostic) in diagnostics.iter().enumerate() {
+            if index > 0 {
+                out.push_str(",\n");
+            }
+            push_source_diagnostic(&mut out, diagnostic, 4);
+        }
+        out.push_str("\n  ]\n");
+    }
+    out.push_str("}\n");
+    out
+}
+
 fn push_diagnostic_info(out: &mut String, info: &DiagnosticInfo, indent: usize) {
     push_indent(out, indent);
     out.push_str("{\n");
@@ -53,6 +91,45 @@ fn push_diagnostic_info(out: &mut String, info: &DiagnosticInfo, indent: usize) 
     out.push('}');
 }
 
+fn push_source_diagnostic(out: &mut String, diagnostic: &Diagnostic, indent: usize) {
+    push_indent(out, indent);
+    out.push_str("{\n");
+    push_string_field(out, indent + 2, "code", diagnostic.code.as_str(), true);
+    push_string_field(out, indent + 2, "title", diagnostic.code.title(), true);
+    push_string_field(
+        out,
+        indent + 2,
+        "severity",
+        diagnostic.severity.as_str(),
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "message",
+        &diagnostic.message,
+        diagnostic.span.is_some() || diagnostic.help.is_some(),
+    );
+    if let Some(span) = &diagnostic.span {
+        push_indent(out, indent + 2);
+        out.push_str(&format!(
+            "\"span\": {{\"file\": {}, \"line\": {}, \"column\": {}}}",
+            json_string(&span.file),
+            span.line,
+            span.column
+        ));
+        if diagnostic.help.is_some() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    if let Some(help) = &diagnostic.help {
+        push_string_field(out, indent + 2, "help", help, false);
+    }
+    push_indent(out, indent);
+    out.push('}');
+}
+
 fn push_string_field(out: &mut String, indent: usize, key: &str, value: &str, comma: bool) {
     push_indent(out, indent);
     push_json_string(out, key);
@@ -62,6 +139,12 @@ fn push_string_field(out: &mut String, indent: usize, key: &str, value: &str, co
         out.push(',');
     }
     out.push('\n');
+}
+
+fn json_string(value: &str) -> String {
+    let mut out = String::new();
+    push_json_string(&mut out, value);
+    out
 }
 
 fn push_json_string(out: &mut String, value: &str) {
@@ -88,7 +171,9 @@ fn push_indent(out: &mut String, indent: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{diagnostics_json, diagnostics_text};
+    use super::{check_json, diagnostics_json, diagnostics_text};
+    use crate::ast::Program;
+    use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
 
     #[test]
     fn text_catalog_lists_known_codes() {
@@ -107,5 +192,23 @@ mod tests {
         assert!(json.contains("\"code\": \"H0201\""));
         assert!(json.contains("\"default_severity\": \"error\""));
         assert!(json.contains("\"repair\": \"Add the resource under `changes:`"));
+    }
+
+    #[test]
+    fn check_json_lists_source_diagnostics() {
+        let diagnostic = Diagnostic::error(
+            DiagnosticCode::UNDECLARED_SAVE_TARGET,
+            "save target is not declared",
+            Some(Span::new("bad.hum", 7, 5)),
+        )
+        .with_help("Add the target under `changes:`.");
+        let program = Program::default();
+        let json = check_json(&program, &[diagnostic]);
+
+        assert!(json.contains("\"schema\": \"hum.check.v0\""));
+        assert!(json.contains("\"summary\": {\"files\": 0, \"errors\": 1, \"warnings\": 0}"));
+        assert!(json.contains("\"code\": \"H0201\""));
+        assert!(json.contains("\"span\": {\"file\": \"bad.hum\", \"line\": 7, \"column\": 5}"));
+        assert!(json.contains("\"help\": \"Add the target under `changes:`.\""));
     }
 }

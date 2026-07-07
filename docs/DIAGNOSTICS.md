@@ -48,7 +48,7 @@ examples/task.hum:14:1: error[H0201]: task `save task` saves into `tasks` withou
   help: Add `tasks` under `changes:` or avoid mutating it.
 ```
 
-JSON shape in `hum graph`:
+JSON shape in `hum check --format json` and `hum graph`:
 
 ```json
 {
@@ -56,25 +56,46 @@ JSON shape in `hum graph`:
   "title": "save target not declared in changes",
   "severity": "error",
   "message": "task `save task` saves into `tasks` without listing it in `changes:`",
-  "span": { "file": "examples/task.hum", "line": 14, "column": 1 },
+  "span": { "file": "examples/task.hum", "line": 14, "column": 3 },
   "help": "Add `tasks` under `changes:` or avoid mutating it."
 }
 ```
 
-Diagnostic explanation commands:
+Diagnostic JSON commands:
 
 ```powershell
+hum check --format json examples
 hum explain H0201
 hum explain H0201 --format json
 hum diagnostics
 hum diagnostics --format json
 ```
 
-`hum explain` and `hum diagnostics` are offline and do not read source files.
-`hum explain` returns the stable code title, default severity, plain-language
-explanation, and repair guidance for one code. `hum diagnostics` returns the
-whole current catalog. The JSON schemas are `hum.diagnostic_explain.v0` and
-`hum.diagnostic_catalog.v0`.
+`hum check --format json` reads source and emits source-backed diagnostics as
+`hum.check.v0` for editors, CI, and agents. `hum explain` and `hum diagnostics`
+are offline and do not read source files. `hum explain` returns the stable code
+title, default severity, plain-language explanation, and repair guidance for one
+code. `hum diagnostics` returns the whole current catalog. The JSON schemas are
+`hum.check.v0`, `hum.diagnostic_explain.v0`, and `hum.diagnostic_catalog.v0`.
+
+JSON shape in `hum check --format json`:
+
+```json
+{
+  "schema": "hum.check.v0",
+  "summary": { "files": 1, "errors": 1, "warnings": 0 },
+  "diagnostics": [
+    {
+      "code": "H0201",
+      "title": "save target not declared in changes",
+      "severity": "error",
+      "message": "task `save task` saves into `tasks` without listing it in `changes:`",
+      "span": { "file": "examples/task.hum", "line": 14, "column": 3 },
+      "help": "Add `tasks` under `changes:` or avoid mutating it."
+    }
+  ]
+}
+```
 
 JSON shape in `hum explain --format json`:
 

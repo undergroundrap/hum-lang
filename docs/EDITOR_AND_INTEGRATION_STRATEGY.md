@@ -22,7 +22,7 @@ Hum should therefore avoid editor-specific truth. Editor support should consume 
 
 Hum should own these tools:
 
-- `hum check`: diagnostics and local validation
+- `hum check`: diagnostics and local validation, including `hum.check.v0` JSON
 - `hum graph`: semantic graph JSON for tools, agents, and docs
 - `hum syntax`: syntax surface JSON for highlighting, grammar generation, and adapters
 - `humfmt`: canonical formatting
