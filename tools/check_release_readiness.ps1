@@ -84,6 +84,9 @@ $semanticGraphDoc = Read-RepoText 'docs\SEMANTIC_GRAPH_SCHEMA.md'
 if (-not $semanticGraphDoc.Contains('source-derived handles')) {
   Add-Failure 'docs/SEMANTIC_GRAPH_SCHEMA.md does not describe source-derived node IDs'
 }
+if (-not $semanticGraphDoc.Contains('File `folding_ranges`')) {
+  Add-Failure 'docs/SEMANTIC_GRAPH_SCHEMA.md does not describe graph folding ranges'
+}
 if (-not $semanticGraphDoc.Contains('File `symbols`')) {
   Add-Failure 'docs/SEMANTIC_GRAPH_SCHEMA.md does not describe graph symbols'
 }

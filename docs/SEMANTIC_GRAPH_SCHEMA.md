@@ -62,8 +62,30 @@ Each file contains:
 - `id`: source-derived file node ID
 - `path`: source path
 - `module`: module name or `null`
+- `folding_ranges`: section ranges for editor and LSP adapters
 - `symbols`: document-symbol outline for editor and LSP adapters
 - `items`: parsed top-level items
+
+## Folding Ranges
+
+File `folding_ranges` are editor-friendly ranges for collapsing intent sections.
+They are derived from section headers and captured section lines, not from a
+second parser.
+
+Each folding range contains:
+
+- `id`: section node ID
+- `kind`: currently `section`
+- `name`: section name, such as `why`, `does`, or `cost`
+- `owner`: item `id`, `kind`, and `name`
+- `span`: section header source location
+- `start_line`: one-based source line where the section starts
+- `end_line`: one-based source line where the captured section body ends
+
+Milestone 0 folding ranges cover intent sections only. Item-body ranges need
+item end spans and should wait until the parser records them honestly. LSP
+adapters should convert these one-based graph lines to protocol-specific ranges
+at the adapter boundary.
 
 ## Symbols
 

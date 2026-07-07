@@ -49,6 +49,9 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
                 .as_ref()
                 .map_or("null".to_string(), |module| quote(module))
         ));
+        out.push_str("      \"folding_ranges\": [\n");
+        write_folding_ranges(&mut out, &file.items, 8);
+        out.push_str("\n      ],\n");
         out.push_str("      \"symbols\": [\n");
         write_symbols(&mut out, &file.items, 8);
         out.push_str("\n      ],\n");
@@ -69,6 +72,82 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
     out
 }
 
+struct SectionFold<'a> {
+    owner: &'a Item,
+    section: &'a Section,
+}
+
+fn write_folding_ranges(out: &mut String, items: &[Item], indent: usize) {
+    let folds = collect_section_folds(items);
+    for (index, fold) in folds.iter().enumerate() {
+        comma_line(out, index, indent);
+        write_folding_range(out, fold, indent);
+    }
+}
+
+fn collect_section_folds(items: &[Item]) -> Vec<SectionFold<'_>> {
+    let mut folds = Vec::new();
+    collect_section_folds_from_items(items, &mut folds);
+    folds
+}
+
+fn collect_section_folds_from_items<'a>(items: &'a [Item], folds: &mut Vec<SectionFold<'a>>) {
+    for item in items {
+        let sections = item_sections(item);
+        for section in sections {
+            folds.push(SectionFold {
+                owner: item,
+                section,
+            });
+        }
+        if let Item::App(app) = item {
+            collect_section_folds_from_items(&app.items, folds);
+        }
+    }
+}
+
+fn write_folding_range(out: &mut String, fold: &SectionFold<'_>, indent: usize) {
+    let pad = " ".repeat(indent);
+    let section = fold.section;
+    out.push_str(&format!("{pad}{{"));
+    out.push_str(&format!(
+        "\"id\": {}, ",
+        quote(&node_id::span("section", &section.span, &section.name))
+    ));
+    out.push_str("\"kind\": \"section\", ");
+    out.push_str(&format!("\"name\": {}, ", quote(&section.name)));
+    out.push_str(&format!(
+        "\"owner\": {{\"id\": {}, \"kind\": {}, \"name\": {}}}, ",
+        quote(&item_node_id(fold.owner)),
+        quote(fold.owner.kind()),
+        quote(fold.owner.name())
+    ));
+    out.push_str("\"span\": ");
+    write_span(out, &section.span);
+    out.push_str(&format!(
+        ", \"start_line\": {}, \"end_line\": {}",
+        section.span.line,
+        section_end_line(section)
+    ));
+    out.push('}');
+}
+
+fn item_sections(item: &Item) -> &[Section] {
+    match item {
+        Item::App(app) => &app.sections,
+        Item::Type(type_def) => &type_def.sections,
+        Item::Store(store) => &store.sections,
+        Item::Task(task) => &task.sections,
+        Item::Test(test) => &test.sections,
+    }
+}
+
+fn section_end_line(section: &Section) -> usize {
+    section
+        .lines
+        .last()
+        .map_or(section.span.line, |line| line.span.line)
+}
 fn write_symbols(out: &mut String, items: &[Item], indent: usize) {
     for (index, item) in items.iter().enumerate() {
         comma_line(out, index, indent);
@@ -601,6 +680,30 @@ test add task rejects empty title unit {
         assert!(json.contains("\"coverage_key\": \"add task needs title not empty\""));
         assert!(json.contains("\"match\": \"canonical\""));
         assert!(json.contains("\"covers\": \"Add Task REQUIRES: the title is non-empty.\""));
+    }
+
+    #[test]
+    fn graph_json_includes_section_folding_ranges() {
+        let source = r#"task add task(title: Text) -> Task {
+  why:
+    save a task
+    preserve intent folding
+
+  does:
+    return task
+}
+"#;
+        let parsed = parse_source("demo.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = program_to_json(&program, &[]);
+
+        assert!(json.contains("\"folding_ranges\""));
+        assert!(json.contains("\"id\": \"section:demo.hum:2:1:why\""));
+        assert!(json.contains("\"owner\": {\"id\": \"item:demo.hum:1:1:task-add-task\""));
+        assert!(json.contains("\"start_line\": 2, \"end_line\": 5"));
+        assert!(json.contains("\"id\": \"section:demo.hum:6:1:does\""));
     }
 
     #[test]

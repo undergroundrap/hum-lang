@@ -121,6 +121,7 @@ try {
 
   $GraphJson = Read-NativeOutput 'reference fixture graph JSON' $Hum @('graph', 'examples/reference_surface.hum')
   Assert-Json 'reference fixture graph JSON' $GraphJson
+  if (-not $GraphJson.Contains('"folding_ranges"')) { throw 'reference fixture graph JSON is missing folding_ranges' }
   if (-not $GraphJson.Contains('"symbols"')) { throw 'reference fixture graph JSON is missing symbols' }
 
   Invoke-RepoScript 'editor fixture recovery' 'check_editor_fixtures.ps1'

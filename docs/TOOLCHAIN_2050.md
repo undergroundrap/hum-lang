@@ -144,7 +144,7 @@ Early LSP features:
 
 - diagnostics from `hum check`
 - document symbols from `hum graph` for apps, tasks, types, stores, tests, and type fields
-- folding ranges for intent blocks
+- folding ranges from `hum graph` for intent sections
 - hover explanations for section keywords and declared names
 - semantic tokens
 - formatting via `humfmt`
