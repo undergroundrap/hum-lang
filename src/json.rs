@@ -280,7 +280,7 @@ fn write_item(out: &mut String, item: &Item, indent: usize, test_coverages: &[Te
             out.push_str(",\n");
             write_test_obligations_field(out, task, indent + 2, test_coverages);
             out.push_str(",\n");
-            write_evidence_obligations_field(out, task, indent + 2);
+            write_evidence_obligations_field(out, task, indent + 2, test_coverages);
             out.push('\n');
         }
         Item::Test(test) => {
@@ -429,7 +429,12 @@ fn write_test_obligations_field(
     out.push(']');
 }
 
-fn write_evidence_obligations_field(out: &mut String, task: &Task, indent: usize) {
+fn write_evidence_obligations_field(
+    out: &mut String,
+    task: &Task,
+    indent: usize,
+    test_coverages: &[TestCoverage<'_>],
+) {
     let pad = " ".repeat(indent);
     out.push_str(&format!("{pad}\"evidence_obligations\": ["));
     let obligations = evidence_obligations(task);
@@ -437,6 +442,7 @@ fn write_evidence_obligations_field(out: &mut String, task: &Task, indent: usize
         if index > 0 {
             out.push_str(", ");
         }
+        let linked_evidence_count = linked_test_count(&obligation.covers, test_coverages);
         out.push('{');
         out.push_str(&format!("\"id\": {}, ", quote(&obligation.id)));
         out.push_str(&format!("\"kind\": {}, ", quote(obligation.kind)));
@@ -448,14 +454,45 @@ fn write_evidence_obligations_field(out: &mut String, task: &Task, indent: usize
         out.push_str(&format!("\"text\": {}, ", quote(&obligation.line.text)));
         out.push_str("\"span\": ");
         write_span(out, &obligation.line.span);
+        out.push_str(&format!(", \"covers\": {}", quote(&obligation.covers)));
+        out.push_str(&format!(
+            ", \"coverage_key\": {}",
+            quote(&coverage_key(&obligation.covers))
+        ));
         out.push_str(&format!(
             ", \"suggested_evidence\": {}",
             quote(&obligation.suggested_evidence)
         ));
-        out.push_str(", \"verification_status\": \"unverified\"");
+        out.push_str(&format!(
+            ", \"verification_status\": {}",
+            quote(if linked_evidence_count == 0 {
+                "unverified"
+            } else {
+                "linked"
+            })
+        ));
+        out.push_str(", \"linked_evidence\": [");
+        write_linked_evidence(out, &obligation.covers, test_coverages);
+        out.push(']');
         out.push('}');
     }
     out.push(']');
+}
+
+fn write_linked_evidence(out: &mut String, covers: &str, test_coverages: &[TestCoverage<'_>]) {
+    for (written, (coverage, match_kind)) in test_coverages
+        .iter()
+        .filter_map(|coverage| coverage_match_kind(covers, coverage).map(|kind| (coverage, kind)))
+        .enumerate()
+    {
+        if written > 0 {
+            out.push_str(", ");
+        }
+        out.push('{');
+        out.push_str("\"kind\": \"test\", ");
+        write_linked_test_fields(out, coverage, match_kind);
+        out.push('}');
+    }
 }
 
 fn write_linked_tests(out: &mut String, covers: &str, test_coverages: &[TestCoverage<'_>]) {
@@ -468,25 +505,29 @@ fn write_linked_tests(out: &mut String, covers: &str, test_coverages: &[TestCove
             out.push_str(", ");
         }
         out.push('{');
-        out.push_str(&format!("\"name\": {}, ", quote(coverage.test_name)));
-        out.push_str("\"modifiers\": [");
-        for (index, modifier) in coverage.modifiers.iter().enumerate() {
-            if index > 0 {
-                out.push_str(", ");
-            }
-            out.push_str(&quote(modifier));
-        }
-        out.push_str("], ");
-        out.push_str(&format!("\"covers\": {}, ", quote(&coverage.covers)));
-        out.push_str(&format!(
-            "\"coverage_key\": {}, ",
-            quote(&coverage.coverage_key)
-        ));
-        out.push_str(&format!("\"match\": {}, ", quote(match_kind)));
-        out.push_str("\"span\": ");
-        write_span(out, &coverage.line.span);
+        write_linked_test_fields(out, coverage, match_kind);
         out.push('}');
     }
+}
+
+fn write_linked_test_fields(out: &mut String, coverage: &TestCoverage<'_>, match_kind: &str) {
+    out.push_str(&format!("\"name\": {}, ", quote(coverage.test_name)));
+    out.push_str("\"modifiers\": [");
+    for (index, modifier) in coverage.modifiers.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&quote(modifier));
+    }
+    out.push_str("], ");
+    out.push_str(&format!("\"covers\": {}, ", quote(&coverage.covers)));
+    out.push_str(&format!(
+        "\"coverage_key\": {}, ",
+        quote(&coverage.coverage_key)
+    ));
+    out.push_str(&format!("\"match\": {}, ", quote(match_kind)));
+    out.push_str("\"span\": ");
+    write_span(out, &coverage.line.span);
 }
 
 fn write_diagnostic(out: &mut String, diagnostic: &Diagnostic, indent: usize) {
@@ -648,6 +689,9 @@ mod tests {
         assert!(json.contains("\"kind\": \"trust_boundary\""));
         assert!(json.contains("\"blame\": \"trust_boundary\""));
         assert!(json.contains("\"verification_status\": \"unverified\""));
+        assert!(json.contains("\"covers\": \"add task protects user data remains private\""));
+        assert!(json.contains("\"coverage_key\": \"add task protects user data remains private\""));
+        assert!(json.contains("\"linked_evidence\": []"));
         assert!(
             json.contains("\"suggested_evidence\": \"add task proves user data remains private\"")
         );
@@ -658,6 +702,52 @@ mod tests {
         assert!(json.contains(
             "\"id\": \"evidence:demo.hum:12:5:add-task-protects-user-data-remains-private\""
         ));
+    }
+
+    #[test]
+    fn evidence_obligations_link_to_covering_tests() {
+        let source = r#"task add task(title: Text) -> Task {
+  why:
+    save a task
+
+  protects:
+    user data remains private
+
+  trusts:
+    local profile storage is durable
+
+  does:
+    return task
+}
+
+test add task privacy evidence unit {
+  why:
+    prove visible security and trust evidence links
+
+  covers:
+    add task protects user data remains private
+    Add Task ASSUMES: local profile storage is durable.
+
+  does:
+    expect security review recorded
+}
+"#;
+        let parsed = parse_source("demo.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = program_to_json(&program, &[]);
+
+        assert!(json.contains("\"verification_status\": \"linked\""));
+        assert!(json.contains(
+            "\"linked_evidence\": [{\"kind\": \"test\", \"name\": \"add task privacy evidence\""
+        ));
+        assert!(json.contains("\"covers\": \"add task protects user data remains private\""));
+        assert!(json.contains("\"match\": \"exact\""));
+        assert!(
+            json.contains("\"covers\": \"Add Task ASSUMES: local profile storage is durable.\"")
+        );
+        assert!(json.contains("\"match\": \"canonical\""));
     }
 
     #[test]

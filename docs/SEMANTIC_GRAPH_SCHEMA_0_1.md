@@ -119,7 +119,9 @@ The graph should list obligations created by source promises:
 - missing benchmark evidence for checked `cost:`
 
 Current `hum.semantic_graph.v0` emits task-level `evidence_obligations` from
-meaningful `protects:` and `trusts:` lines. Alpha graph evidence obligations
+meaningful `protects:` and `trusts:` lines and links them to top-level `test`
+blocks when a meaningful `covers:` line matches either the generated `covers`
+phrase or its conservative `coverage_key`. Alpha graph evidence obligations
 should contain:
 
 - `id`
@@ -128,8 +130,16 @@ should contain:
 - `source_section`
 - `text`
 - `span`
+- `covers`
+- `coverage_key`
 - `suggested_evidence`
 - `verification_status`
+- `linked_evidence`
+
+`verification_status` is `linked` when at least one evidence artifact matches
+and `unverified` when none do. Current `linked_evidence` entries are test
+artifacts; proof, review, sanitizer, and profile artifacts can join the same
+array later.
 
 The alpha target can later move or aggregate these at the top level, but tools
 should already treat security and trust claims as evidence work items rather

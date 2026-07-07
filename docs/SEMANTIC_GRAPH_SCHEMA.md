@@ -198,15 +198,24 @@ and `trusts:` sections. Each obligation contains:
 - `source_section`
 - `text`
 - `span`
+- `covers`: generated coverage phrase, such as `<task> protects <claim>`
+- `coverage_key`: conservative canonical form used for non-exact coverage
+  matching
 - `suggested_evidence`: human-readable starting point for a proof, test,
   review packet, or threat-model note
-- `verification_status`: currently `unverified`
+- `verification_status`: `linked` when at least one evidence artifact matches
+  the coverage phrase; otherwise `unverified`
+- `linked_evidence`: array of matching evidence artifacts; current entries have
+  `kind: test` plus the same test coverage fields used by `linked_tests`
 
-These are not proof results yet. They make security and trust promises visible
-as machine facts so future test generation, proof export, CI, IDE actions, and
-agents do not have to scrape prose. Milestone 0 emits declared obligations and
-marks them `unverified` until a later evidence linker can connect them to
-specific tests, proofs, reviews, sanitizer runs, or profile facts.
+These are not proof results yet. A linked test means the test names the same
+coverage target; it does not prove the protection or trust boundary is fully
+verified. The fields make security and trust promises visible as machine facts
+so future test generation, proof export, CI, IDE actions, and agents do not
+have to scrape prose. Milestone 0 links declared security and trust obligations
+to top-level `test` blocks through meaningful `covers:` lines using the same
+exact/canonical matching rule as test obligations. Proof exports, reviews,
+sanitizer runs, and profile facts remain future evidence kinds.
 
 ### Test
 

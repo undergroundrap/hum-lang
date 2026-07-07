@@ -365,12 +365,19 @@ Milestone 0 generates task `evidence_obligations` from meaningful lines in:
 `protects:` lines become `security_property` obligations with
 `security_boundary` blame. `trusts:` lines become `trust_boundary` obligations
 with `trust_boundary` blame. Current obligations include source spans,
-`suggested_evidence`, and `verification_status: unverified`.
+generated `covers` phrases, canonical `coverage_key` values,
+`suggested_evidence`, `verification_status`, and `linked_evidence`.
 
-This is intentionally not a proof claim. It means Hum now exposes security and
-trust promises as machine-readable work items so future tools can connect them
-to tests, proof exports, threat-model notes, review packets, sanitizer runs, or
-profile evidence.
+`hum graph` links evidence obligations to top-level tests when a meaningful
+`covers:` line exactly matches the generated coverage phrase after whitespace
+normalization or shares its conservative coverage key. `verification_status` is
+`linked` when at least one evidence artifact matches and `unverified` when none
+do.
+
+This is intentionally not a proof claim. A linked test means the test names the
+same coverage target; it does not prove the protection or trust boundary is
+fully verified. Future evidence kinds include proof exports, threat-model
+notes, review packets, sanitizer runs, and profile evidence.
 
 ## Executable Body Status
 

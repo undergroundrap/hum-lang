@@ -136,3 +136,26 @@ test remember work item saves valid title unit {
   does:
     expect remember work item("ship Hum docs") returns WorkItem
 }
+
+test remember work item records security evidence unit {
+  why:
+    prove the reference task records security and trust evidence links
+
+  uses:
+    remember work item
+
+  covers:
+    remember work item protects user work history
+    remember work item trusts local profile storage
+
+  avoids:
+    depending on real storage or network behavior
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    expect evidence links are present in graph output
+}

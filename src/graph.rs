@@ -26,6 +26,7 @@ pub struct EvidenceObligation<'a> {
     pub blame: &'static str,
     pub source_section: &'static str,
     pub line: &'a SectionLine,
+    pub covers: String,
     pub suggested_evidence: String,
 }
 
@@ -137,6 +138,7 @@ pub fn evidence_obligations(task: &Task) -> Vec<EvidenceObligation<'_>> {
                     blame: obligation_section.blame,
                     source_section: obligation_section.name,
                     line,
+                    covers: format!("{} {} {}", task.name, obligation_section.name, line.text),
                     suggested_evidence: suggested_evidence_name(
                         &task.name,
                         obligation_section.kind,
@@ -198,6 +200,10 @@ fn push_canonical_token(tokens: &mut Vec<String>, token: &str) {
         | "precondition" | "preconditions" => tokens.push("needs".to_string()),
         "ensure" | "ensured" | "ensuring" | "postcondition" | "postconditions" | "promise"
         | "promises" => tokens.push("ensures".to_string()),
+        "protect" | "protects" | "protected" | "protecting" | "protection" | "security"
+        | "secure" | "safety" => tokens.push("protects".to_string()),
+        "trust" | "trusts" | "trusted" | "trusting" | "assume" | "assumes" | "assumed"
+        | "assumption" | "assumptions" => tokens.push("trusts".to_string()),
         "handle" | "handles" | "handled" | "handling" | "risk" | "risks" | "edge" => {
             tokens.push("watch".to_string());
         }
@@ -262,6 +268,18 @@ mod tests {
         assert_eq!(
             coverage_key("Add Task REQUIRES: the title is non-empty."),
             "add task needs title not empty"
+        );
+    }
+
+    #[test]
+    fn coverage_key_normalizes_security_and_trust_aliases() {
+        assert_eq!(
+            coverage_key("Add Task SECURITY: user data stays private."),
+            "add task protects user data stays private"
+        );
+        assert_eq!(
+            coverage_key("Add Task ASSUMES: local profile storage is durable."),
+            "add task trusts local profile storage durable"
         );
     }
 
