@@ -1,3 +1,4 @@
+use crate::core_body;
 use crate::ir_contract;
 use crate::json;
 use crate::version;
@@ -187,8 +188,8 @@ const ACCEPTANCE_GATES: &[AcceptanceGate] = &[
     },
     AcceptanceGate {
         id: "body_grammar",
-        status: "planned",
-        requirement: "does blocks parse into typed candidate expressions and statements",
+        status: core_body::CORE_BODY_GRAMMAR_STATUS,
+        requirement: "does blocks expose first recognized statement and expression candidates",
     },
     AcceptanceGate {
         id: "core_lowering",
@@ -451,6 +452,7 @@ mod tests {
         assert!(text.contains("lowers_to_schema: hum.ir_contract.v0"));
         assert!(text.contains("statements [design]"));
         assert!(text.contains("set_place"));
+        assert!(text.contains("body_grammar [partial_v0]"));
         assert!(text.contains("core_lowering [planned]"));
         assert!(text.contains("no interpreter implementation"));
     }
@@ -465,6 +467,8 @@ mod tests {
         assert!(json.contains("\"name\": \"statements\""));
         assert!(json.contains("\"set_place\""));
         assert!(json.contains("\"section\": \"needs\""));
+        assert!(json.contains("\"id\": \"body_grammar\""));
+        assert!(json.contains("\"status\": \"partial_v0\""));
         assert!(json.contains("\"id\": \"core_lowering\""));
         assert!(json.contains("\"no executable semantics\""));
     }

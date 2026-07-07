@@ -182,6 +182,8 @@ try {
   if (-not $CoreContractJson.Contains('"lowers_to_schema": "hum.ir_contract.v0"')) { throw 'Core contract JSON is missing Hum IR target schema' }
   if (-not $CoreContractJson.Contains('"name": "statements"')) { throw 'Core contract JSON is missing statements catalog' }
   if (-not $CoreContractJson.Contains('"set_place"')) { throw 'Core contract JSON is missing set_place statement' }
+  if (-not $CoreContractJson.Contains('"id": "body_grammar"')) { throw 'Core contract JSON is missing body_grammar gate' }
+  if (-not $CoreContractJson.Contains('"status": "partial_v0"')) { throw 'Core contract JSON is missing partial_v0 body grammar status' }
   if (-not $CoreContractJson.Contains('"id": "core_lowering"')) { throw 'Core contract JSON is missing core_lowering gate' }
   if (-not $CoreContractJson.Contains('"no executable semantics"')) { throw 'Core contract JSON must keep V0 non-execution claim' }
 
@@ -256,6 +258,10 @@ try {
   if (-not $IrReadinessJson.Contains('"core_contract_schema": "hum.core_contract.v0"')) { throw 'IR readiness JSON is missing Core Hum contract schema' }
   if (-not $IrReadinessJson.Contains('"ir_contract_schema": "hum.ir_contract.v0"')) { throw 'IR readiness JSON is missing Hum IR contract schema' }
   if (-not $IrReadinessJson.Contains('"ready_for_ir": 0')) { throw 'IR readiness JSON must not claim IR readiness yet' }
+  if (-not $IrReadinessJson.Contains('"body_grammar"')) { throw 'IR readiness JSON is missing body_grammar facts' }
+  if (-not $IrReadinessJson.Contains('"body_grammar_partial_v0"')) { throw 'IR readiness JSON is missing partial body grammar fact' }
+  if (-not $IrReadinessJson.Contains('"body_grammar_unsupported_lines"')) { throw 'IR readiness JSON is missing body grammar unsupported count' }
+  if (-not $IrReadinessJson.Contains('"surface_save_requires_store_lowering"')) { throw 'IR readiness JSON is missing store save lowering blocker' }
   if (-not $IrReadinessJson.Contains('"core_lowering"')) { throw 'IR readiness JSON is missing core_lowering pass status' }
   if (-not $IrReadinessJson.Contains('"not_implemented"')) { throw 'IR readiness JSON is missing not_implemented blockers' }
   if (-not $IrReadinessJson.Contains('"no IR emission"')) { throw 'IR readiness JSON must keep V0 non-emission claim' }

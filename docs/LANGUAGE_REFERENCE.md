@@ -435,8 +435,11 @@ notes, review packets, sanitizer runs, and profile evidence.
 The `does:` block is the future executable body.
 
 In Milestone 0, body lines are parsed as section text for checks and graph
-facts. They are not executed. Any executable syntax must lower into
-[FORMAL_CORE.md](FORMAL_CORE.md) before it becomes stable.
+facts. `hum ir-readiness` also classifies a partial V0 body grammar for first
+forms such as `return`, `fail`, `let`, `change`, `set`, control headers, record
+field initializers, and test expectations. These lines are not executed. Any
+executable syntax must lower into [FORMAL_CORE.md](FORMAL_CORE.md) before it
+becomes stable.
 
 Starter executable forms are tracked in [CORE_LANGUAGE_SHAPE.md](CORE_LANGUAGE_SHAPE.md).
 

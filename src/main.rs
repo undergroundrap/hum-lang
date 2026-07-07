@@ -4,6 +4,7 @@ mod ast;
 mod backend_contract;
 mod capabilities;
 mod check;
+mod core_body;
 mod core_contract;
 mod diagnostic;
 mod diagnostic_catalog;

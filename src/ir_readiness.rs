@@ -1,4 +1,5 @@
 use crate::ast::{App, Item, Program, Section, Store, Task, Test, TypeDef};
+use crate::core_body::{self, BodyGrammarReport, BodyStatement};
 use crate::core_contract;
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::is_meaningful_line_text;
@@ -31,6 +32,7 @@ struct LoweringCandidate {
     missing_passes: Vec<&'static str>,
     blocking_reasons: Vec<&'static str>,
     section_names: Vec<String>,
+    body_grammar: Option<BodyGrammarReport>,
 }
 
 struct PassStatus {
@@ -52,6 +54,11 @@ const PASS_STATUSES: &[PassStatus] = &[
         name: "semantic_graph_build",
         status: "current",
         source: "hum graph",
+    },
+    PassStatus {
+        name: "body_grammar",
+        status: core_body::CORE_BODY_GRAMMAR_STATUS,
+        source: core_contract::CORE_CONTRACT_SCHEMA,
     },
     PassStatus {
         name: "core_lowering",
@@ -116,7 +123,7 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         version::HUM_STATUS
     ));
     out.push_str(&format!(
-        "summary: files={} items={} tasks={} tests={} lowering_candidates={} ready_for_ir=0 blocked={} errors={} warnings={}\n",
+        "summary: files={} items={} tasks={} tests={} lowering_candidates={} ready_for_ir=0 blocked={} errors={} warnings={} body_grammar_candidates={} body_grammar_recognized_lines={} body_grammar_unsupported_lines={}\n",
         report.files,
         report.items,
         report.tasks,
@@ -124,7 +131,10 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.candidates.len(),
         blocked,
         report.errors,
-        report.warnings
+        report.warnings,
+        report.body_grammar_candidates(),
+        report.body_grammar_recognized_lines(),
+        report.body_grammar_unsupported_lines()
     ));
     out.push_str(&format!(
         "core_contract_schema: {}\n",
@@ -172,6 +182,15 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
             "    blocking_reasons: {}\n",
             candidate.blocking_reasons.join(", ")
         ));
+        if let Some(body_grammar) = &candidate.body_grammar {
+            out.push_str(&format!(
+                "    body_grammar: {} meaningful_lines={} recognized_lines={} unsupported_lines={}\n",
+                body_grammar.status,
+                body_grammar.meaningful_lines,
+                body_grammar.recognized_lines,
+                body_grammar.unsupported_lines
+            ));
+        }
     }
 
     out
@@ -278,6 +297,7 @@ fn lowering_candidate(item: &Item, diagnostics: &[Diagnostic]) -> LoweringCandid
         .iter()
         .map(|section| section.name.clone())
         .collect::<Vec<_>>();
+    let body_grammar = body_grammar_for_item(item);
 
     LoweringCandidate {
         id: readiness_id(item),
@@ -296,6 +316,7 @@ fn lowering_candidate(item: &Item, diagnostics: &[Diagnostic]) -> LoweringCandid
         missing_passes: MISSING_IR_PASSES.to_vec(),
         blocking_reasons,
         section_names,
+        body_grammar,
     }
 }
 
@@ -393,6 +414,21 @@ fn add_section_family_facts(sections: &[Section], facts: &mut Vec<&'static str>)
     if has_any_section(sections, &["does"]) {
         facts.push("body_text_captured");
     }
+    if sections
+        .iter()
+        .find(|section| section.name == "does")
+        .map(core_body::analyze_does_section)
+        .is_some_and(|report| report.recognized_lines > 0)
+    {
+        facts.push("body_grammar_partial_v0");
+    }
+}
+
+fn body_grammar_for_item(item: &Item) -> Option<BodyGrammarReport> {
+    item_sections(item)
+        .iter()
+        .find(|section| section.name == "does")
+        .map(core_body::analyze_does_section)
 }
 
 fn has_any_section(sections: &[Section], names: &[&str]) -> bool {
@@ -436,6 +472,29 @@ impl IrReadinessReport {
             .iter()
             .filter(|candidate| candidate.status.starts_with("blocked"))
             .count()
+    }
+
+    fn body_grammar_candidates(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.body_grammar.is_some())
+            .count()
+    }
+
+    fn body_grammar_recognized_lines(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter_map(|candidate| candidate.body_grammar.as_ref())
+            .map(|report| report.recognized_lines)
+            .sum()
+    }
+
+    fn body_grammar_unsupported_lines(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter_map(|candidate| candidate.body_grammar.as_ref())
+            .map(|report| report.unsupported_lines)
+            .sum()
     }
 }
 
@@ -491,7 +550,7 @@ fn push_summary(out: &mut String, report: &IrReadinessReport, indent: usize, com
     push_indent(out, indent);
     out.push_str("\"summary\": {");
     out.push_str(&format!(
-        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"lowering_candidates\": {}, \"ready_for_ir\": 0, \"blocked\": {}, \"errors\": {}, \"warnings\": {}",
+        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"lowering_candidates\": {}, \"ready_for_ir\": 0, \"blocked\": {}, \"errors\": {}, \"warnings\": {}, \"body_grammar_candidates\": {}, \"body_grammar_recognized_lines\": {}, \"body_grammar_unsupported_lines\": {}",
         report.files,
         report.items,
         report.tasks,
@@ -499,7 +558,10 @@ fn push_summary(out: &mut String, report: &IrReadinessReport, indent: usize, com
         report.candidates.len(),
         report.blocked_count(),
         report.errors,
-        report.warnings
+        report.warnings,
+        report.body_grammar_candidates(),
+        report.body_grammar_recognized_lines(),
+        report.body_grammar_unsupported_lines()
     ));
     out.push('}');
     push_comma_newline(out, comma);
@@ -591,6 +653,9 @@ fn push_candidate(out: &mut String, candidate: &LoweringCandidate, indent: usize
         &candidate.blocking_reasons,
         true,
     );
+    if let Some(body_grammar) = &candidate.body_grammar {
+        push_body_grammar(out, indent + 2, body_grammar, true);
+    }
     push_owned_string_array(
         out,
         indent + 2,
@@ -598,6 +663,84 @@ fn push_candidate(out: &mut String, candidate: &LoweringCandidate, indent: usize
         &candidate.section_names,
         false,
     );
+    push_indent(out, indent);
+    out.push('}');
+}
+
+fn push_body_grammar(out: &mut String, indent: usize, report: &BodyGrammarReport, comma: bool) {
+    push_indent(out, indent);
+    out.push_str("\"body_grammar\": {\n");
+    push_string_field(out, indent + 2, "status", report.status, true);
+    push_string_field(
+        out,
+        indent + 2,
+        "grammar_status",
+        report.grammar_status,
+        true,
+    );
+    push_usize_field(out, indent + 2, "total_lines", report.total_lines, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "meaningful_lines",
+        report.meaningful_lines,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "recognized_lines",
+        report.recognized_lines,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unsupported_lines",
+        report.unsupported_lines,
+        true,
+    );
+    push_body_statements(out, indent + 2, &report.statements, false);
+    push_indent(out, indent);
+    out.push('}');
+    push_comma_newline(out, comma);
+}
+
+fn push_body_statements(
+    out: &mut String,
+    indent: usize,
+    statements: &[BodyStatement],
+    comma: bool,
+) {
+    push_indent(out, indent);
+    out.push_str("\"statements\": [\n");
+    for (index, statement) in statements.iter().enumerate() {
+        if index > 0 {
+            out.push_str(",\n");
+        }
+        push_body_statement(out, indent + 2, statement);
+    }
+    out.push('\n');
+    push_indent(out, indent);
+    out.push(']');
+    push_comma_newline(out, comma);
+}
+
+fn push_body_statement(out: &mut String, indent: usize, statement: &BodyStatement) {
+    push_indent(out, indent);
+    out.push_str("{\n");
+    push_span_field(out, indent + 2, "source_span", &statement.span, true);
+    push_string_field(out, indent + 2, "text", &statement.text, true);
+    push_string_field(out, indent + 2, "kind", statement.kind, true);
+    push_string_field(out, indent + 2, "status", statement.status, true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "expression_kind",
+        statement.expression_kind,
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "reason", statement.reason, false);
     push_indent(out, indent);
     out.push('}');
 }
@@ -647,6 +790,30 @@ fn push_owned_string_array(
         push_json_string(out, value);
     }
     out.push(']');
+    push_comma_newline(out, comma);
+}
+
+fn push_usize_field(out: &mut String, indent: usize, key: &str, value: usize, comma: bool) {
+    push_indent(out, indent);
+    push_json_string(out, key);
+    out.push_str(&format!(": {value}"));
+    push_comma_newline(out, comma);
+}
+
+fn push_optional_string_field(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    value: Option<&str>,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    push_json_string(out, key);
+    out.push_str(": ");
+    match value {
+        Some(value) => push_json_string(out, value),
+        None => out.push_str("null"),
+    }
     push_comma_newline(out, comma);
 }
 
@@ -702,7 +869,9 @@ mod tests {
         assert!(text.contains("Hum IR readiness (hum.ir_readiness.v0)"));
         assert!(text.contains("core_contract_schema: hum.core_contract.v0"));
         assert!(text.contains("lowering_candidates=3 ready_for_ir=0 blocked=3"));
+        assert!(text.contains("body_grammar_candidates=2"));
         assert!(text.contains("pass_status:"));
+        assert!(text.contains("body_grammar [partial_v0]"));
         assert!(text.contains("core_lowering [not_implemented]"));
         assert!(text.contains("task `add task`"));
         assert!(text.contains("missing_passes: core_lowering"));
@@ -717,7 +886,15 @@ mod tests {
         assert!(json.contains("\"core_contract_schema\": \"hum.core_contract.v0\""));
         assert!(json.contains("\"ir_contract_schema\": \"hum.ir_contract.v0\""));
         assert!(json.contains("\"ready_for_ir\": 0"));
+        assert!(json.contains("\"body_grammar_candidates\": 2"));
+        assert!(json.contains("\"body_grammar_unsupported_lines\": 1"));
         assert!(json.contains("\"status\": \"blocked_before_core_lowering\""));
+        assert!(json.contains("\"name\": \"body_grammar\""));
+        assert!(json.contains("\"status\": \"partial_v0\""));
+        assert!(json.contains("\"body_grammar\""));
+        assert!(json.contains("\"kind\": \"return\""));
+        assert!(json.contains("\"reason\": \"surface_save_requires_store_lowering\""));
+        assert!(json.contains("\"body_grammar_partial_v0\""));
         assert!(json.contains("\"name\": \"semantic_graph_build\""));
         assert!(json.contains("\"status\": \"report_available_not_ir_pass\""));
         assert!(json.contains("\"effect_hints\""));
@@ -745,7 +922,7 @@ task add task(title: Text) -> Task {
     task is visible
 
   does:
-    save task
+    save task in tasks
     return task
 }
 
