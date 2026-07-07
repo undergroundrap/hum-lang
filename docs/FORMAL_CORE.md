@@ -25,7 +25,7 @@ Every executable phrase must eventually lower to a small set of precise
 operations:
 
 ```text
-surface Hum -> parsed AST -> checked intent -> typed core -> backend IR
+surface Hum -> parsed AST -> checked intent -> checked resolution -> typed core -> backend IR
 ```
 
 The surface language may be friendly. The core must be boring.
@@ -165,10 +165,12 @@ Surface `changes:` blocks declare external mutable places. Local `change`
 declares local mutable places.
 
 The broader state doctrine is [STATE_MODEL.md](STATE_MODEL.md), emitted as
-`hum.state_model.v0` by `hum state-model --format json`. Core Hum must preserve
-state facts for immutable values, mutable locals, places, stores, ownership,
-borrows, linear resources, shared state, and external authority before those
-features become executable guarantees.
+`hum.state_model.v0` by `hum state-model --format json`. Checked source place
+links begin in [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md), emitted as
+`hum.resolve.v0` by `hum resolve --format json`. Core Hum must preserve state
+facts for immutable values, mutable locals, places, stores, ownership, borrows,
+linear resources, shared state, and external authority before those features
+become executable guarantees.
 
 ## Core Expressions
 
@@ -436,7 +438,7 @@ Agents do not define core Hum.
 Agent-generated code must pass through:
 
 ```text
-parse -> check -> type -> lower -> test/fuzz/prove/bench
+parse -> check -> resolve -> type -> lower -> test/fuzz/prove/bench
 ```
 
 The compiler should hand agents the formal core facts through `hum graph`,

@@ -49,7 +49,9 @@ core and preserves graph facts.
 The machine-readable Core Hum contract is [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md),
 emitted by `hum core-contract --format json`; the first non-executing Core Hum
 candidate preview is [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md),
-emitted by `hum core-preview --format json`; the Hum IR ownership contract is
+emitted by `hum core-preview --format json`; checked scope, definition,
+reference, and mutable-place identity is reported by [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md),
+emitted by `hum resolve --format json`; the Hum IR ownership contract is
 [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md), emitted by `hum ir-contract --format json`;
 source progress toward those contracts is reported by [HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md),
 emitted by `hum ir-readiness --format json`.
@@ -82,7 +84,9 @@ Progressive-disclosure doctrine: Hum should keep ordinary code small at the poin
 
 Formal-readability doctrine: Hum should be easy to scan because its structure is precise, not because it imitates casual English. Stable syntax gets one canonical spelling per concept, no arbitrary English execution, and no prose-only executable authority. See [decisions/0009-adopt-formal-readability-not-english-mimicry.md](decisions/0009-adopt-formal-readability-not-english-mimicry.md).
 
-State-management doctrine: Hum treats state as visible, permissioned, profile-aware, and evidence-producing. Immutable values are the paved road; mutation, ownership, borrowing, stores, linear resources, shared state, and external authority must have source-visible facts before they become stable power. The current machine-readable state contract is `hum.state_model.v0`, emitted by `hum state-model --format json`. See [STATE_MODEL.md](STATE_MODEL.md) and [decisions/0010-adopt-explicit-state-model.md](decisions/0010-adopt-explicit-state-model.md).
+State-management doctrine: Hum treats state as visible, permissioned, profile-aware, and evidence-producing. Immutable values are the paved road; mutation, ownership, borrowing, stores, linear resources, shared state, and external authority must have source-visible facts before they become stable power. The current machine-readable state contract is `hum.state_model.v0`, emitted by `hum state-model --format json`. Checked source places begin in `hum.resolve.v0`, emitted by `hum resolve --format json`. See [STATE_MODEL.md](STATE_MODEL.md) and [decisions/0010-adopt-explicit-state-model.md](decisions/0010-adopt-explicit-state-model.md).
+
+Resolution doctrine: checked scope, definition, reference, and place identity comes before execution, type checking, effect checking, ownership, borrowing, editor go-to-definition, debugger facts, and IR emission. See [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md) and [decisions/0011-add-checked-resolver-before-execution.md](decisions/0011-add-checked-resolver-before-execution.md).
 
 Language-builder doctrine: Hum should grow by small proofs, written lessons, graph/report/check surfaces, migration paths, and then public claims. See [LANGUAGE_BUILDER_OPERATING_MODEL.md](LANGUAGE_BUILDER_OPERATING_MODEL.md).
 
@@ -149,7 +153,7 @@ See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md) and [decisions/0008-adopt-swappab
 1. Finish Milestone 0 semantic graph, diagnostics, generated test skeleton hardening, and coverage matching.
 2. Keep docs honest by linking every new doctrine back to this architecture.
 3. Add executable core only after the formal core gate is clear.
-4. Add ownership/effects before serious unsafe, FFI, or native backend work.
+4. Add checked resolution before executable core, then ownership/effects before serious unsafe, FFI, or native backend work.
 5. Add package/build/profile evidence before networked package behavior.
 6. Defer drivers, installers, Windows Update publishing, and kernel work until strict profiles and proof infrastructure exist.
 

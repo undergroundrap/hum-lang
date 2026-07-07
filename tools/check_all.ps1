@@ -157,6 +157,10 @@ try {
 
   $DiagnosticsJson = Read-NativeOutput 'diagnostic catalog JSON' $Hum @('diagnostics', '--format', 'json')
   Assert-Json 'diagnostic catalog JSON' $DiagnosticsJson
+  if (-not $DiagnosticsJson.Contains('"code": "H0601"')) { throw 'diagnostic catalog JSON is missing H0601' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0602"')) { throw 'diagnostic catalog JSON is missing H0602' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0603"')) { throw 'diagnostic catalog JSON is missing H0603' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0604"')) { throw 'diagnostic catalog JSON is missing H0604' }
   if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
   if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
   if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
@@ -175,6 +179,8 @@ try {
   if (-not $CapabilitiesJson.Contains('"math_obligation"')) { throw 'capabilities JSON is missing math_obligation schema' }
   if (-not $CapabilitiesJson.Contains('"resource_report"')) { throw 'capabilities JSON is missing resource_report schema' }
   if (-not $CapabilitiesJson.Contains('"core_preview"')) { throw 'capabilities JSON is missing core_preview schema' }
+  if (-not $CapabilitiesJson.Contains('"resolve_report"')) { throw 'capabilities JSON is missing resolve_report schema' }
+  if (-not $CapabilitiesJson.Contains('"resolve_json"')) { throw 'capabilities JSON is missing resolve_json command' }
   if (-not $CapabilitiesJson.Contains('"ir_readiness"')) { throw 'capabilities JSON is missing ir_readiness schema' }
   if (-not $CapabilitiesJson.Contains('"core_contract"')) { throw 'capabilities JSON is missing core_contract schema' }
   if (-not $CapabilitiesJson.Contains('"ir_contract"')) { throw 'capabilities JSON is missing ir_contract schema' }
@@ -373,6 +379,26 @@ try {
   if (-not $CorePreviewJson.Contains('no executable semantics')) { throw 'Core preview JSON must keep V0 non-execution claim' }
   if (-not $CorePreviewJson.Contains('no module or global name resolution')) { throw 'Core preview JSON must keep V0 name-resolution non-goal' }
   if (-not $CorePreviewJson.Contains('no checked name resolution')) { throw 'Core preview JSON must keep V0 checked name-resolution non-goal' }
+
+  $ResolveJson = Read-NativeOutput 'resolve JSON' $Hum @('resolve', '--format', 'json', 'examples/reference_surface.hum')
+  Assert-Json 'resolve JSON' $ResolveJson
+  if (-not $ResolveJson.Contains('"schema": "hum.resolve.v0"')) { throw 'resolve JSON is missing hum.resolve.v0 schema' }
+  if (-not $ResolveJson.Contains('"mode": "source_analysis_only_no_type_or_borrow_check"')) { throw 'resolve JSON is missing source-analysis mode' }
+  if (-not $ResolveJson.Contains('"status": "checked_resolver_v0"')) { throw 'resolve JSON should pass for reference fixture' }
+  if (-not $ResolveJson.Contains('"resolver_errors": 0')) { throw 'resolve JSON should have zero resolver errors for reference fixture' }
+  if (-not $ResolveJson.Contains('"scopes"')) { throw 'resolve JSON is missing scopes' }
+  if (-not $ResolveJson.Contains('"definitions"')) { throw 'resolve JSON is missing definitions' }
+  if (-not $ResolveJson.Contains('"references"')) { throw 'resolve JSON is missing references' }
+  if (-not $ResolveJson.Contains('"definition_kind": "store"')) { throw 'resolve JSON is missing store definition' }
+  if (-not $ResolveJson.Contains('"definition_kind": "declared_change_permission"')) { throw 'resolve JSON is missing declared change permission' }
+  if (-not $ResolveJson.Contains('"reference_kind": "declared_change"')) { throw 'resolve JSON is missing declared change reference' }
+  if (-not $ResolveJson.Contains('"reference_kind": "store_write_target"')) { throw 'resolve JSON is missing store write target reference' }
+  if (-not $ResolveJson.Contains('"resolution_status": "resolved_v0"')) { throw 'resolve JSON is missing resolved references' }
+  if (-not $ResolveJson.Contains('"duplicate_definitions": 0')) { throw 'resolve JSON should have zero duplicate definitions for reference fixture' }
+  if (-not $ResolveJson.Contains('"no type checking"')) { throw 'resolve JSON must not claim type checking' }
+  if (-not $ResolveJson.Contains('"no borrow checking"')) { throw 'resolve JSON must not claim borrow checking' }
+  if (-not $ResolveJson.Contains('"no executable semantics"')) { throw 'resolve JSON must not claim execution' }
+
   $IrReadinessJson = Read-NativeOutput 'IR readiness JSON' $Hum @('ir-readiness', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'IR readiness JSON' $IrReadinessJson
   if (-not $IrReadinessJson.Contains('"schema": "hum.ir_readiness.v0"')) { throw 'IR readiness JSON is missing hum.ir_readiness.v0 schema' }
@@ -434,17 +460,22 @@ try {
   $DecisionIndex = [System.IO.File]::ReadAllText((Join-Path (Join-Path $RepoRoot 'docs') 'decisions\README.md'))
   if (-not $DecisionIndex.Contains('0009-adopt-formal-readability-not-english-mimicry.md')) { throw 'decision index is missing formal readability ADR' }
   if (-not $DecisionIndex.Contains('0010-adopt-explicit-state-model.md')) { throw 'decision index is missing explicit state model ADR' }
+  if (-not $DecisionIndex.Contains('0011-add-checked-resolver-before-execution.md')) { throw 'decision index is missing checked resolver ADR' }
   $ArchitectureText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\ARCHITECTURE.md'))
   if (-not $ArchitectureText.Contains('Formal-readability doctrine')) { throw 'architecture is missing formal-readability doctrine' }
   if (-not $ArchitectureText.Contains('Debuggability doctrine')) { throw 'architecture is missing debuggability doctrine' }
   if (-not $ArchitectureText.Contains('State-management doctrine')) { throw 'architecture is missing state-management doctrine' }
+  if (-not $ArchitectureText.Contains('Resolution doctrine')) { throw 'architecture is missing resolution doctrine' }
   if (-not $ArchitectureText.Contains('STATE_MODEL.md')) { throw 'architecture is missing state model link' }
+  if (-not $ArchitectureText.Contains('HUM_RESOLVE_SCHEMA.md')) { throw 'architecture is missing resolve schema link' }
   if (-not $ArchitectureText.Contains('PORTABILITY_BOUNDARY_MODEL.md')) { throw 'architecture is missing portability boundary model link' }
   $LanguageReferenceText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\LANGUAGE_REFERENCE.md'))
   if (-not $LanguageReferenceText.Contains('traditional language reference spine')) { throw 'language reference is missing reference spine marker' }
   if (-not $LanguageReferenceText.Contains('PORTABILITY_BOUNDARY_MODEL.md')) { throw 'language reference is missing portability boundary link' }
   if (-not $LanguageReferenceText.Contains('STATE_MODEL.md')) { throw 'language reference is missing state model link' }
+  if (-not $LanguageReferenceText.Contains('HUM_RESOLVE_SCHEMA.md')) { throw 'language reference is missing resolve schema link' }
   if (-not $LanguageReferenceText.Contains('hum state-model --format json')) { throw 'language reference is missing state-model command' }
+  if (-not $LanguageReferenceText.Contains('hum resolve --format json')) { throw 'language reference is missing resolve command' }
   if (-not $LanguageReferenceText.Contains('H1205')) { throw 'language reference is missing target declaration diagnostics' }
   $PortabilityBoundaryText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\PORTABILITY_BOUNDARY_MODEL.md'))
   if (-not $PortabilityBoundaryText.Contains('Hum Portability Boundary Model')) { throw 'portability boundary model is missing title' }
@@ -502,6 +533,13 @@ try {
   if (-not $StateModelText.Contains('hum.state_model.v0')) { throw 'state model doc is missing state model schema' }
   if (-not $StateModelText.Contains('contract_only_partial_declared_mutation_check')) { throw 'state model doc is missing contract-only mode' }
   if (-not $StateModelText.Contains('No new Hum feature is allowed to hide state')) { throw 'state model doc is missing brutal state rule' }
+  if (-not $StateModelText.Contains('hum resolve --format json')) { throw 'state model doc is missing resolver link' }
+  $ResolveSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_RESOLVE_SCHEMA.md'))
+  if (-not $ResolveSchemaText.Contains('hum.resolve.v0')) { throw 'resolve schema doc is missing hum.resolve.v0' }
+  if (-not $ResolveSchemaText.Contains('source_analysis_only_no_type_or_borrow_check')) { throw 'resolve schema doc is missing source-analysis mode' }
+  if (-not $ResolveSchemaText.Contains('H0604')) { throw 'resolve schema doc is missing resolver diagnostics' }
+  $ResolveDecisionText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\decisions\0011-add-checked-resolver-before-execution.md'))
+  if (-not $ResolveDecisionText.Contains('checked resolver')) { throw 'checked resolver ADR is missing decision language' }
   $StateModelSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_STATE_MODEL_SCHEMA.md'))
   if (-not $StateModelSchemaText.Contains('hum.state_model.v0')) { throw 'state model schema doc is missing catalog schema' }
   if (-not $StateModelSchemaText.Contains('hum.state_permission.v0')) { throw 'state model schema doc is missing permission schema' }

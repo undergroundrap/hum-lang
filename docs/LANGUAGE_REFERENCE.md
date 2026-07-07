@@ -44,6 +44,7 @@ foreign code.
 - [FORMAL_CORE.md](FORMAL_CORE.md): precise executable core direction
 - [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md): machine-readable Core Hum contract
 - [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md): non-executing Core Hum candidate preview
+- [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md): checked scope, definition, reference, and mutable-place report
 - [LANGUAGE_SUBSET_0_1.md](LANGUAGE_SUBSET_0_1.md): pinned alpha subset
 - [SEMANTIC_GRAPH_SCHEMA.md](SEMANTIC_GRAPH_SCHEMA.md): graph JSON emitted today
 - [DIAGNOSTICS.md](DIAGNOSTICS.md): stable diagnostic code contract
@@ -215,9 +216,11 @@ be tokenized, deterministic, formatter-owned, and lowerable where executable.
 Hum should prefer one canonical spelling per concept instead of English synonym
 sets.
 
-Milestone 0 stores names as parsed source text. Later grammar work must pin the
-exact identifier rules for modules, item names, fields, parameters, variants,
-and paths before editor grammars and self-hosting depend on them.
+Milestone 0 stores names as parsed source text. `hum resolve --format json`
+emits the first checked scope, definition, reference, and mutable-place report as
+`hum.resolve.v0`. Later grammar work must pin the exact identifier rules for
+modules, item names, fields, parameters, variants, and paths before editor
+grammars and self-hosting depend on them.
 
 See [decisions/0009-adopt-formal-readability-not-english-mimicry.md](decisions/0009-adopt-formal-readability-not-english-mimicry.md).
 
@@ -367,13 +370,14 @@ or unsafe behavior behind innocent-looking calls.
 
 The current state model contract is [STATE_MODEL.md](STATE_MODEL.md), emitted by `hum state-model --format json` as `hum.state_model.v0`.
 
-Current Milestone 0 checks are small:
+Current Milestone 0 checks and reports are small:
 
 - save-like mutation in `does:` should refer to declared `changes:` targets
 - known sections should appear in canonical order
 - tasks should have important context such as `why:` and `does:`
 - contract-like lines should not be obviously hollow, tautological, or placeholder-shaped
 - simple cost claims should not contradict visible loop shape
+- `hum resolve` should link scopes, definitions, references, and mutable-place targets without claiming type or borrow checking
 
 Future effect reports are tracked in [EFFECT_REPORT_SCHEMA_0_1.md](EFFECT_REPORT_SCHEMA_0_1.md).
 
@@ -489,9 +493,10 @@ facts. `hum ir-readiness` also classifies a partial V0 body grammar for first
 forms such as `return`, `fail`, `let`, `change`, `set`, control headers, record
 field initializers, and test expectations. `hum core-preview` maps those recognized
 lines into Core Hum candidate operations and explicit blockers without executing,
-type-checking, effect-checking, or emitting IR. Any
-executable syntax must lower into [FORMAL_CORE.md](FORMAL_CORE.md) before it
-becomes stable.
+type-checking, effect-checking, or emitting IR. `hum resolve` performs the first
+checked pass over scopes, definitions, references, and mutable-place targets.
+Any executable syntax must resolve, then lower into [FORMAL_CORE.md](FORMAL_CORE.md)
+before it becomes stable.
 
 Starter executable forms are tracked in [CORE_LANGUAGE_SHAPE.md](CORE_LANGUAGE_SHAPE.md).
 
@@ -670,6 +675,8 @@ hum ir-readiness <file-or-dir>...
 hum ir-readiness --format json <file-or-dir>...
 hum core-preview <file-or-dir>...
 hum core-preview --format json <file-or-dir>...
+hum resolve <file-or-dir>...
+hum resolve --format json <file-or-dir>...
 hum core-contract
 hum core-contract --format json
 hum ir-contract
@@ -715,6 +722,8 @@ cargo run -- ir-readiness examples/reference_surface.hum
 cargo run -- ir-readiness --format json examples/reference_surface.hum
 cargo run -- core-preview examples/reference_surface.hum
 cargo run -- core-preview --format json examples/reference_surface.hum
+cargo run -- resolve examples/reference_surface.hum
+cargo run -- resolve --format json examples/reference_surface.hum
 cargo run -- core-contract
 cargo run -- core-contract --format json
 cargo run -- ir-contract

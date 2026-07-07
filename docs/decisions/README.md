@@ -27,6 +27,7 @@ standard library direction, backend strategy, or release posture.
 | [0008](0008-adopt-swappable-backend-ladder.md) | accepted | Adopt a swappable backend ladder. |
 | [0009](0009-adopt-formal-readability-not-english-mimicry.md) | accepted | Adopt formal readability, not English mimicry. |
 | [0010](0010-adopt-explicit-state-model.md) | accepted | Adopt an explicit state model. |
+| [0011](0011-add-checked-resolver-before-execution.md) | accepted | Add checked resolver before execution. |
 
 ## Template
 

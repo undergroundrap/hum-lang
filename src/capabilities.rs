@@ -10,6 +10,7 @@ use crate::ir_readiness;
 use crate::json;
 use crate::lsp;
 use crate::math_obligations;
+use crate::resolve;
 use crate::resource_report;
 use crate::runtime_profiles;
 use crate::state_model;
@@ -76,6 +77,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: core_preview::CORE_PREVIEW_SCHEMA,
         status: "adapter-ready",
         purpose: "Core Hum preview candidates and blockers without execution",
+    },
+    CommandCapability {
+        name: "resolve_json",
+        command: "hum resolve --format json <file-or-dir>...",
+        schema: resolve::RESOLVE_REPORT_SCHEMA,
+        status: "adapter-ready",
+        purpose: "checked scopes, definitions, references, and mutable place links",
     },
     CommandCapability {
         name: "ir_readiness_json",
@@ -287,8 +295,9 @@ pub fn capabilities_text() -> String {
         resource_report::RESOURCE_REPORT_SCHEMA
     ));
     out.push_str(&format!(
-        "  core_preview: {}\n  ir_readiness: {}\n",
+        "  core_preview: {}\n  resolve_report: {}\n  ir_readiness: {}\n",
         core_preview::CORE_PREVIEW_SCHEMA,
+        resolve::RESOLVE_REPORT_SCHEMA,
         ir_readiness::IR_READINESS_SCHEMA
     ));
     out.push_str(&format!(
@@ -428,6 +437,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         indent + 2,
         "core_preview",
         core_preview::CORE_PREVIEW_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "resolve_report",
+        resolve::RESOLVE_REPORT_SCHEMA,
         true,
     );
     push_string_field(
@@ -630,6 +646,7 @@ mod tests {
         assert!(json.contains("\"resource_report\": \"hum.resource_report.v0\""));
         assert!(json.contains("\"ir_readiness\": \"hum.ir_readiness.v0\""));
         assert!(json.contains("\"core_preview\": \"hum.core_preview.v0\""));
+        assert!(json.contains("\"resolve_report\": \"hum.resolve.v0\""));
         assert!(json.contains("\"semantic_graph\": \"hum.semantic_graph.v0\""));
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
@@ -656,6 +673,7 @@ mod tests {
         assert!(json.contains("\"name\": \"resource_report_json\""));
         assert!(json.contains("\"name\": \"ir_readiness_json\""));
         assert!(json.contains("\"name\": \"core_preview_json\""));
+        assert!(json.contains("\"name\": \"resolve_json\""));
         assert!(json.contains("\"name\": \"folding_ranges\""));
         assert!(json.contains("\"status\": \"adapter-ready\""));
     }

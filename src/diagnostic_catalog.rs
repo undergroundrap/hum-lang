@@ -187,6 +187,30 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Add a `regression:` section describing the old failure mode.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::UNRESOLVED_NAME,
+        default_severity: Severity::Error,
+        explanation: "A checked resolver found a name that is not visible from the current lexical scope or declared dependency boundary.",
+        repair: "Declare the name before use, add a matching item, or list the external dependency under `uses:` when it is intentional.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::DUPLICATE_NAME_IN_SCOPE,
+        default_severity: Severity::Error,
+        explanation: "Two definitions in one scope normalize to the same name, so references would be ambiguous.",
+        repair: "Rename one binding or move it into a narrower block so the scope has one definition for the name.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::SET_TARGET_IMMUTABLE,
+        default_severity: Severity::Error,
+        explanation: "A `set` target resolves to a visible definition, but that definition is not a mutable place or declared change permission.",
+        repair: "Declare the local with `change`, target a declared `changes:` permission, or keep the value immutable.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::READ_BEFORE_DECLARE,
+        default_severity: Severity::Error,
+        explanation: "A name is read before its later local declaration, which makes the data dependency order unclear.",
+        repair: "Move the declaration above the read or pass the value in through an explicit parameter.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
         default_severity: Severity::Error,
         explanation: "A `targets:` section names a target fact record that Hum does not publish in `hum target-facts`.",
@@ -243,6 +267,14 @@ mod tests {
         assert_eq!(
             find("h0502").map(|info| info.code),
             Some(DiagnosticCode::REGRESSION_MISSING_NOTE)
+        );
+        assert_eq!(
+            find("H0601").map(|info| info.code),
+            Some(DiagnosticCode::UNRESOLVED_NAME)
+        );
+        assert_eq!(
+            find("H0604").map(|info| info.code),
+            Some(DiagnosticCode::READ_BEFORE_DECLARE)
         );
         assert_eq!(
             find("H1201").map(|info| info.code),

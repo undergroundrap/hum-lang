@@ -151,11 +151,11 @@ Current ranges:
 - `H030x`: cost and performance contracts
 - `H040x`: security and trust boundaries
 - `H050x`: tests and regression obligations
+- `H060x`: checked resolution and type checking
 - `H120x`: backend, target, and debug metadata
 
 Future ranges should be reserved before broad use:
 
-- `H060x`: type checking
 - `H070x`: ownership and borrowing
 - `H080x`: packages, capabilities, and Nectar
 - `H090x`: unsafe, FFI, ABI, and provenance
@@ -222,6 +222,15 @@ Future ranges should be reserved before broad use:
 |---|---|---|---|
 | `H0501` | warning | test missing covers section | A test does not say what promise it covers. |
 | `H0502` | warning | regression test missing regression note | A regression test does not record the bug shape. |
+
+### Checked Resolution And Type Checking
+
+| Code | Severity | Title | Meaning |
+|---|---|---|---|
+| `H0601` | error | unresolved name | `hum resolve` found a name that is not visible in scope. |
+| `H0602` | error | duplicate name in scope | Two definitions in one scope normalize to the same name. |
+| `H0603` | error | set target is immutable | A `set` target resolves to a non-mutable definition. |
+| `H0604` | error | read before declaration | A name is read before its later local declaration. |
 
 ### Target And Backend Metadata
 

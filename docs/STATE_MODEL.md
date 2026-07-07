@@ -178,11 +178,12 @@ If state is not central, every later subsystem invents its own half-model.
 ## Near-Term Work
 
 1. Keep `hum state-model --format json` in preflight.
-2. Add graph links for local mutable declarations and `set` targets.
-3. Add an effect report that compares declared `uses:`/`changes:` with inferred reads and writes.
-4. Add simple move and no-use-after-move experiments only after the executable core exists.
-5. Add linear-resource fixtures for handles, transactions, locks, and capabilities.
-6. Delay concurrency syntax until the state model can explain ownership and memory-order facts.
+2. Keep `hum resolve --format json` in preflight as the first checked source-place link report.
+3. Add graph links for local mutable declarations and `set` targets once the resolver shape is stable.
+4. Add an effect report that compares declared `uses:`/`changes:` with inferred reads and writes.
+5. Add simple move and no-use-after-move experiments only after the executable core exists.
+6. Add linear-resource fixtures for handles, transactions, locks, and capabilities.
+7. Delay concurrency syntax until the state model can explain ownership and memory-order facts.
 
 ## Brutal Rule
 
