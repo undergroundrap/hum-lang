@@ -170,7 +170,7 @@ Current section line capture:
 - every line after a section header belongs to that section until the next
   section or item header at the same indentation
 - captured text is trimmed
-- spans point to the physical source line
+- spans point to the physical source line and first visible source column
 - empty captured lines count as section lines internally but are omitted from
   `hum graph` `line_items`
 - comment-only lines are preserved in graph output and marked not meaningful

@@ -55,6 +55,11 @@ node label stay stable. Moving code, renaming a node, or changing the line that
 declares it may change the ID. Keep using `span` for display and blame; use
 `id` when a tool needs to refer back to the same graph node.
 
+Lines and columns are one-based. The Milestone 0 parser reports the first
+visible source column for line-oriented constructs such as item headers,
+sections, section lines, fields, and diagnostics. It does not yet emit full
+start/end token ranges.
+
 ## Files
 
 Each file contains:

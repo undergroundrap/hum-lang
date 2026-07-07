@@ -603,7 +603,7 @@ mod tests {
         assert!(json.contains("\"kind\": \"declared_test\""));
         assert!(json.contains("\"suggested_test\": \"add task requires title is not empty\""));
         assert!(
-            json.contains("\"id\": \"obligation:demo.hum:6:1:add-task-needs-title-is-not-empty\"")
+            json.contains("\"id\": \"obligation:demo.hum:6:5:add-task-needs-title-is-not-empty\"")
         );
     }
 
@@ -700,10 +700,10 @@ test add task rejects empty title unit {
         let json = program_to_json(&program, &[]);
 
         assert!(json.contains("\"folding_ranges\""));
-        assert!(json.contains("\"id\": \"section:demo.hum:2:1:why\""));
+        assert!(json.contains("\"id\": \"section:demo.hum:2:3:why\""));
         assert!(json.contains("\"owner\": {\"id\": \"item:demo.hum:1:1:task-add-task\""));
         assert!(json.contains("\"start_line\": 2, \"end_line\": 5"));
-        assert!(json.contains("\"id\": \"section:demo.hum:6:1:does\""));
+        assert!(json.contains("\"id\": \"section:demo.hum:6:3:does\""));
     }
 
     #[test]
@@ -735,10 +735,10 @@ type WorkItem {
         assert!(json.contains("\"symbols\""));
         assert!(json.contains("\"id\": \"item:demo.hum:1:1:app-demo\", \"kind\": \"app\""));
         assert!(
-            json.contains("\"id\": \"item:demo.hum:5:1:task-nested-task\", \"kind\": \"task\"")
+            json.contains("\"id\": \"item:demo.hum:5:3:task-nested-task\", \"kind\": \"task\"")
         );
         assert!(json.contains("\"id\": \"item:demo.hum:14:1:type-workitem\", \"kind\": \"type\""));
-        assert!(json.contains("\"id\": \"field:demo.hum:15:1:0-id\", \"kind\": \"field\""));
+        assert!(json.contains("\"id\": \"field:demo.hum:15:3:0-id\", \"kind\": \"field\""));
     }
 
     #[test]
@@ -760,8 +760,8 @@ type WorkItem {
         assert!(json.contains("\"id\": \"file:demo.hum\""));
         assert!(json.contains("\"id\": \"item:demo.hum:1:1:task-add-task\""));
         assert!(json.contains("\"id\": \"param:demo.hum:1:1:0-title\""));
-        assert!(json.contains("\"id\": \"section:demo.hum:2:1:why\""));
-        assert!(json.contains("\"id\": \"line:demo.hum:3:1\""));
+        assert!(json.contains("\"id\": \"section:demo.hum:2:3:why\""));
+        assert!(json.contains("\"id\": \"line:demo.hum:3:5\""));
     }
 
     #[test]

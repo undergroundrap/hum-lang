@@ -425,9 +425,20 @@ impl Parser {
         params
     }
 
-    fn span(&self, line: usize) -> Span {
-        Span::new(self.path.clone(), line, 1)
+    fn span(&self, line_number: usize) -> Span {
+        let column = self
+            .lines
+            .iter()
+            .find(|line| line.number == line_number)
+            .map_or(1, |line| first_visible_column(&line.text));
+        Span::new(self.path.clone(), line_number, column)
     }
+}
+
+fn first_visible_column(text: &str) -> usize {
+    text.chars()
+        .position(|ch| !ch.is_whitespace())
+        .map_or(1, |index| index + 1)
 }
 
 fn parse_store_header(header: &str) -> (String, String) {

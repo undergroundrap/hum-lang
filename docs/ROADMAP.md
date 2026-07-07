@@ -81,6 +81,7 @@ Current prototype status:
 - Known task and test sections get canonical-order warnings.
 - Current examples check cleanly.
 - `hum graph` emits source-derived node IDs for files, items, params, fields, sections, and section lines.
+- Parser spans report one-based first visible columns for line-oriented constructs.
 - `hum graph` emits per-file document symbols for editor and LSP adapters.
 - `hum graph` emits section folding ranges for editor and LSP adapters.
 - `fixtures/editor` covers broken and half-written source that must still emit graph JSON and stable diagnostics.
