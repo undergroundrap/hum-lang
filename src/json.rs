@@ -49,6 +49,9 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
                 .as_ref()
                 .map_or("null".to_string(), |module| quote(module))
         ));
+        out.push_str("      \"symbols\": [\n");
+        write_symbols(&mut out, &file.items, 8);
+        out.push_str("\n      ],\n");
         out.push_str("      \"items\": [\n");
         write_items(&mut out, &file.items, 0, 8, &test_coverages);
         out.push_str("\n      ]\n");
@@ -66,6 +69,64 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
     out
 }
 
+fn write_symbols(out: &mut String, items: &[Item], indent: usize) {
+    for (index, item) in items.iter().enumerate() {
+        comma_line(out, index, indent);
+        write_symbol(out, item, indent);
+    }
+}
+
+fn write_symbol(out: &mut String, item: &Item, indent: usize) {
+    let pad = " ".repeat(indent);
+    out.push_str(&format!("{pad}{{"));
+    out.push_str(&format!("\"id\": {}, ", quote(&item_node_id(item))));
+    out.push_str(&format!("\"kind\": {}, ", quote(item.kind())));
+    out.push_str(&format!("\"name\": {}, ", quote(item.name())));
+    out.push_str("\"span\": ");
+    write_span(out, item.span());
+    out.push_str(", \"children\": [");
+
+    match item {
+        Item::App(app) => {
+            if !app.items.is_empty() {
+                out.push('\n');
+                write_symbols(out, &app.items, indent + 2);
+                out.push_str(&format!("\n{pad}"));
+            }
+        }
+        Item::Type(type_def) => {
+            for (index, field) in type_def.fields.iter().enumerate() {
+                if index == 0 {
+                    out.push('\n');
+                }
+                comma_line(out, index, indent + 2);
+                let field_id =
+                    node_id::span("field", &field.span, &format!("{index} {}", field.name));
+                out.push_str(&format!(
+                    "{{\"id\": {}, \"kind\": \"field\", \"name\": {}, \"span\": ",
+                    quote(&field_id),
+                    quote(&field.name)
+                ));
+                write_span(out, &field.span);
+                out.push_str(", \"children\": []}");
+            }
+            if !type_def.fields.is_empty() {
+                out.push_str(&format!("\n{pad}"));
+            }
+        }
+        _ => {}
+    }
+
+    out.push_str("]}");
+}
+
+fn item_node_id(item: &Item) -> String {
+    node_id::span(
+        "item",
+        item.span(),
+        &format!("{} {}", item.kind(), item.name()),
+    )
+}
 fn write_items(
     out: &mut String,
     items: &[Item],
@@ -82,14 +143,7 @@ fn write_items(
 fn write_item(out: &mut String, item: &Item, indent: usize, test_coverages: &[TestCoverage<'_>]) {
     let pad = " ".repeat(indent);
     out.push_str(&format!("{pad}{{\n"));
-    out.push_str(&format!(
-        "{pad}  \"id\": {},\n",
-        quote(&node_id::span(
-            "item",
-            item.span(),
-            &format!("{} {}", item.kind(), item.name())
-        ))
-    ));
+    out.push_str(&format!("{pad}  \"id\": {},\n", quote(&item_node_id(item))));
     out.push_str(&format!("{pad}  \"kind\": {},\n", quote(item.kind())));
     out.push_str(&format!("{pad}  \"name\": {},\n", quote(item.name())));
     out.push_str(&format!("{pad}  \"span\": "));
@@ -547,6 +601,41 @@ test add task rejects empty title unit {
         assert!(json.contains("\"coverage_key\": \"add task needs title not empty\""));
         assert!(json.contains("\"match\": \"canonical\""));
         assert!(json.contains("\"covers\": \"Add Task REQUIRES: the title is non-empty.\""));
+    }
+
+    #[test]
+    fn graph_json_includes_document_symbols() {
+        let source = r#"app Demo {
+  why:
+    group tasks
+
+  task nested task(title: Text) {
+    why:
+      prove nested symbol output
+
+    does:
+      return title
+  }
+}
+
+type WorkItem {
+  id: Text
+  title: Text
+}
+"#;
+        let parsed = parse_source("demo.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = program_to_json(&program, &[]);
+
+        assert!(json.contains("\"symbols\""));
+        assert!(json.contains("\"id\": \"item:demo.hum:1:1:app-demo\", \"kind\": \"app\""));
+        assert!(
+            json.contains("\"id\": \"item:demo.hum:5:1:task-nested-task\", \"kind\": \"task\"")
+        );
+        assert!(json.contains("\"id\": \"item:demo.hum:14:1:type-workitem\", \"kind\": \"type\""));
+        assert!(json.contains("\"id\": \"field:demo.hum:15:1:0-id\", \"kind\": \"field\""));
     }
 
     #[test]

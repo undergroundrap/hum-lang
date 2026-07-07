@@ -44,16 +44,16 @@ cargo run -- graph examples/task_list.hum
 
 ## Node IDs
 
-id fields are source-derived handles for tools, editor sessions, agents, and
-future debugger facts. They are local to hum.semantic_graph.v0; they are not
+`id` fields are source-derived handles for tools, editor sessions, agents, and
+future debugger facts. They are local to `hum.semantic_graph.v0`; they are not
 cryptographic hashes, package-global identities, or proof that a renamed node is
 semantically unchanged.
 
 Current IDs use a normalized source path plus line, column, kind, and label
 where useful. They should remain stable while the path, source location, and
 node label stay stable. Moving code, renaming a node, or changing the line that
-declares it may change the ID. Keep using span for display and blame; use
-id when a tool needs to refer back to the same graph node.
+declares it may change the ID. Keep using `span` for display and blame; use
+`id` when a tool needs to refer back to the same graph node.
 
 ## Files
 
@@ -62,7 +62,25 @@ Each file contains:
 - `id`: source-derived file node ID
 - `path`: source path
 - `module`: module name or `null`
+- `symbols`: document-symbol outline for editor and LSP adapters
 - `items`: parsed top-level items
+
+## Symbols
+
+File `symbols` are an editor-friendly outline derived from the same AST as
+`items`. They are not a second parser or alternate source of truth.
+
+Each symbol contains:
+
+- `id`: source-derived graph node ID
+- `kind`: `app`, `type`, `store`, `task`, `test`, or `field`
+- `name`: display name
+- `span`: source location
+- `children`: nested symbols
+
+Milestone 0 symbols contain top-level items, nested app items, and type fields.
+Module names remain file metadata until module declarations carry their own
+source spans.
 
 ## Items
 
