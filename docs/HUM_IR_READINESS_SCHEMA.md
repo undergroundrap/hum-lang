@@ -11,11 +11,12 @@ future Core Hum and Hum IR lowering.
 
 This is not an IR emitter. It is a readiness and blocker inventory built from
 the parser, AST, semantic graph facts, diagnostics, the checked resolver report
-in [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md), the Core Hum contract in
-[HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md), and the Hum IR
-contract in [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md). It exists so humans,
-agents, and CI can see which source facts are already visible and which compiler
-passes still block honest IR/backend claims.
+in [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md), the declaration annotation
+type-check report in [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md), the
+Core Hum contract in [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md),
+and the Hum IR contract in [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md).
+It exists so humans, agents, and CI can see which source facts are already
+visible and which compiler passes still block honest IR/backend claims.
 
 ## Command
 
@@ -45,6 +46,7 @@ compiler-roadmap checks, and future IR verifier work.
   "core_contract_schema": "hum.core_contract.v0",
   "ir_contract_schema": "hum.ir_contract.v0",
   "resolver": {},
+  "type_check": {},
   "summary": {},
   "pass_status": [],
   "lowering_candidates": [],
@@ -62,8 +64,9 @@ compiler-roadmap checks, and future IR verifier work.
 - `core_contract_schema`: Core Hum contract this report is measured against
 - `ir_contract_schema`: Hum IR contract this report is measured against
 - `resolver`: checked `hum.resolve.v0` summary consumed as an IR-readiness gate
+- `type_check`: checked `hum.type_check.v0` summary consumed as an IR-readiness gate
 - `summary`: file, item, task, test, candidate, ready, blocked, error, warning,
-  and body-grammar counts
+  type-error, and body-grammar counts
 - `pass_status`: current status for the pass names in `hum.ir_contract.v0`
 - `lowering_candidates`: parsed source items that future lowering must handle
 - `non_goals_v0`: claims this command must not make
@@ -86,6 +89,25 @@ readiness:
 A nonzero `resolver_errors` value blocks every V0 lowering candidate with
 `checked_resolver_errors`. The command still reports the candidates because the
 point is to show the next honest blocker, not to emit IR.
+
+## Type Check Summary Shape
+
+`type_check` contains the summary fields from `hum.type_check.v0` needed by IR
+readiness:
+
+- `schema`: currently `hum.type_check.v0`
+- `status`: `declaration_annotations_checked_v0`, `type_errors_v0`,
+  `blocked_by_resolver_errors`, or `blocked_by_source_errors`
+- `mode`: currently `declaration_annotation_check_no_expression_inference`
+- `source_errors`, `source_warnings`, and `resolver_errors`
+- `checked_declarations`, `accepted_declarations`, and `rejected_declarations`
+- `checked_type_references` and `unknown_type_references`
+- `type_errors` and `type_warnings`
+
+A nonzero `type_errors` value blocks every V0 lowering candidate with
+`type_check_errors`. V0 type checking is declaration-annotation checking only;
+full expression, body, generic, trait, ownership, effect, layout, and ABI checks
+remain future blockers.
 
 ## Candidate Shape
 
@@ -111,6 +133,7 @@ Current candidate statuses:
 - `blocked_before_core_lowering`: source parsed and resolved, but no Core Hum lowering exists
 - `blocked_by_source_errors`: source diagnostics include errors
 - `blocked_by_resolver_errors`: `hum.resolve.v0` reported name, duplicate, or mutable-place errors
+- `blocked_by_type_errors`: `hum.type_check.v0` reported declaration annotation type errors
 
 ## Facts Available
 
@@ -123,6 +146,9 @@ V0 may report facts such as:
 - `resolver_summary_v0`
 - `checked_resolver_v0`
 - `checked_resolver_with_errors_v0`
+- `type_check_summary_v0`
+- `declaration_annotations_checked_v0`
+- `type_errors_v0`
 - `source_sections`
 - `section_line_spans`
 - `signature_params`
@@ -138,7 +164,7 @@ V0 may report facts such as:
 - `test_modifiers`
 - `test_coverage_hints`
 
-These facts are not type checking, effect checking, ownership checking, or IR
+These facts are not full type checking, effect checking, ownership checking, or IR
 verification. They are the source-visible material those future passes must use.
 
 ## Body Grammar Shape
@@ -180,7 +206,7 @@ Unsupported but intentionally named V0 blockers include:
   `surface_save_requires_store_lowering`
 - `unknown_body_line`: not in the partial body grammar
 
-This is grammar visibility only. It is not Core Hum lowering, type checking,
+This is grammar visibility only. It is not Core Hum lowering, full type checking,
 effect checking, test execution, or interpretation. `hum core-preview` consumes
 the same partial body grammar to emit Core Hum candidate operations and blockers
 without crossing into executable semantics.
@@ -194,7 +220,7 @@ V0 reports these pass statuses:
 - `resolve`: `checked_report_available`
 - `body_grammar`: `partial_v0`
 - `core_lowering`: `not_implemented`
-- `type_check`: `not_implemented`
+- `type_check`: `declaration_annotation_check_available`
 - `effect_check`: `not_implemented`
 - `ownership_alias_check`: `not_implemented`
 - `allocation_resource_check`: `not_implemented`
@@ -208,10 +234,12 @@ V0 reports these pass statuses:
 - It must not execute generated code.
 - It must not claim type safety, memory safety, optimization, backend readiness,
   or executable semantics.
-- It may report source-visible facts, checked resolver facts, partial body
-  grammar facts, and missing compiler passes.
+- It may report source-visible facts, checked resolver facts, declaration
+  type-check facts, partial body grammar facts, and missing compiler passes.
 - It must block V0 lowering candidates when `hum.resolve.v0` reports resolver
   errors.
+- It must block V0 lowering candidates when `hum.type_check.v0` reports
+  declaration annotation type errors.
 - It must stay in sync with `hum.core_contract.v0`, `hum.ir_contract.v0`, `hum
   capabilities --format json`, and `hum version --format json`.
 

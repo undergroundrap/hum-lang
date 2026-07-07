@@ -243,7 +243,7 @@ const RULES: &[&str] = &[
 const NON_GOALS_V0: &[&str] = &[
     "no source-to-core lowering",
     "no executable semantics",
-    "no type checker implementation",
+    "no full type checker implementation",
     "no effect checker implementation",
     "no interpreter implementation",
     "no optimizer implementation",

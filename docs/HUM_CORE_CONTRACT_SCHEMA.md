@@ -136,7 +136,7 @@ lower, type check, execute, or verify them.
   Core Hum.
 - It must not run generated code.
 - It must not claim executable semantics.
-- It must not pretend type checking, effect checking, optimization, or backend
+- It must not pretend full type checking, effect checking, optimization, or backend
   lowering exists.
 - It must stay in sync with `hum ir-contract --format json`, `hum
   ir-readiness --format json`, `hum capabilities --format json`, and `hum

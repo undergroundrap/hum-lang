@@ -108,7 +108,7 @@ const RULES: &[&str] = &[
 const NON_GOALS_V0: &[&str] = &[
     "no IR emission for source files",
     "no executable semantics",
-    "no type checker implementation",
+    "no full type checker implementation",
     "no optimizer implementation",
     "no backend lowering",
     "no generated artifact",

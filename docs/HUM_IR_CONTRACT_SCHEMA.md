@@ -139,7 +139,7 @@ order, docs, agents, and future compiler diagnostics.
 - `hum ir-contract` is a discovery command, not IR emission.
 - It must not run generated code.
 - It must not claim Hum has executable semantics.
-- It must not pretend type checking, ownership checking, optimization, or backend
+- It must not pretend full type checking, ownership checking, optimization, or backend
   lowering exists.
 - It must stay in sync with `hum core-contract --format json`, `hum
   backend-contract --format json`, `hum capabilities --format json`, and `hum

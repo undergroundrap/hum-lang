@@ -439,6 +439,12 @@ try {
   if (-not $IrReadinessJson.Contains('"status": "checked_resolver_v0"')) { throw 'IR readiness JSON should include checked resolver status for reference fixture' }
   if (-not $IrReadinessJson.Contains('"mode": "source_analysis_only_no_type_or_borrow_check"')) { throw 'IR readiness JSON is missing resolver source-analysis mode' }
   if (-not $IrReadinessJson.Contains('"resolver_errors": 0')) { throw 'IR readiness JSON should have zero resolver errors for reference fixture' }
+  if (-not $IrReadinessJson.Contains('"type_check"')) { throw 'IR readiness JSON is missing type_check summary' }
+  if (-not $IrReadinessJson.Contains('"schema": "hum.type_check.v0"')) { throw 'IR readiness JSON is missing hum.type_check.v0 schema link' }
+  if (-not $IrReadinessJson.Contains('"status": "declaration_annotations_checked_v0"')) { throw 'IR readiness JSON should include clean type-check status for reference fixture' }
+  if (-not $IrReadinessJson.Contains('"type_errors": 0')) { throw 'IR readiness JSON should have zero type errors for reference fixture' }
+  if (-not $IrReadinessJson.Contains('"unknown_type_references": 0')) { throw 'IR readiness JSON should have zero unknown type refs for reference fixture' }
+  if (-not $IrReadinessJson.Contains('"type_check_summary_v0"')) { throw 'IR readiness JSON is missing type check summary fact' }
   if (-not $IrReadinessJson.Contains('"name": "resolve"')) { throw 'IR readiness JSON is missing resolve pass status' }
   if (-not $IrReadinessJson.Contains('"checked_report_available"')) { throw 'IR readiness JSON is missing checked resolver pass availability' }
   if (-not $IrReadinessJson.Contains('"resolver_summary_v0"')) { throw 'IR readiness JSON is missing resolver summary fact' }
@@ -448,6 +454,9 @@ try {
   if (-not $IrReadinessJson.Contains('"body_grammar_unsupported_lines"')) { throw 'IR readiness JSON is missing body grammar unsupported count' }
   if (-not $IrReadinessJson.Contains('"surface_save_requires_store_lowering"')) { throw 'IR readiness JSON is missing store save lowering blocker' }
   if (-not $IrReadinessJson.Contains('"core_lowering"')) { throw 'IR readiness JSON is missing core_lowering pass status' }
+  if (-not $IrReadinessJson.Contains('"declaration_annotation_check_available"')) { throw 'IR readiness JSON is missing type-check pass availability' }
+  if (-not $IrReadinessJson.Contains('"full_type_check"')) { throw 'IR readiness JSON is missing full_type_check blocker' }
+  if (-not $IrReadinessJson.Contains('"full_type_check_not_implemented"')) { throw 'IR readiness JSON is missing full type-check non-implementation reason' }
   if (-not $IrReadinessJson.Contains('"not_implemented"')) { throw 'IR readiness JSON is missing not_implemented blockers' }
   if (-not $IrReadinessJson.Contains('"no IR emission"')) { throw 'IR readiness JSON must keep V0 non-emission claim' }
 
@@ -588,6 +597,9 @@ try {
   $IrReadinessSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_IR_READINESS_SCHEMA.md'))
   if (-not $IrReadinessSchemaText.Contains('hum.resolve.v0')) { throw 'IR readiness schema doc is missing resolver schema link' }
   if (-not $IrReadinessSchemaText.Contains('checked_resolver_errors')) { throw 'IR readiness schema doc is missing resolver blocker' }
+  if (-not $IrReadinessSchemaText.Contains('hum.type_check.v0')) { throw 'IR readiness schema doc is missing type-check schema link' }
+  if (-not $IrReadinessSchemaText.Contains('blocked_by_type_errors')) { throw 'IR readiness schema doc is missing type-error blocker' }
+  if (-not $IrReadinessSchemaText.Contains('declaration_annotation_check_available')) { throw 'IR readiness schema doc is missing type-check pass status' }
   $ResolveDecisionText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\decisions\0011-add-checked-resolver-before-execution.md'))
   if (-not $ResolveDecisionText.Contains('checked resolver')) { throw 'checked resolver ADR is missing decision language' }
   $StateModelSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_STATE_MODEL_SCHEMA.md'))

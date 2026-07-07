@@ -6,6 +6,7 @@ use crate::graph::is_meaningful_line_text;
 use crate::ir_contract;
 use crate::node_id;
 use crate::resolve;
+use crate::type_check;
 use crate::version;
 
 pub const IR_READINESS_SCHEMA: &str = "hum.ir_readiness.v0";
@@ -18,6 +19,7 @@ struct IrReadinessReport {
     errors: usize,
     warnings: usize,
     resolve_summary: resolve::ResolveReadinessSummary,
+    type_check_summary: type_check::TypeCheckSummary,
     candidates: Vec<LoweringCandidate>,
 }
 
@@ -74,8 +76,8 @@ const PASS_STATUSES: &[PassStatus] = &[
     },
     PassStatus {
         name: "type_check",
-        status: "not_implemented",
-        source: core_contract::CORE_CONTRACT_SCHEMA,
+        status: "declaration_annotation_check_available",
+        source: type_check::TYPE_CHECK_SCHEMA,
     },
     PassStatus {
         name: "effect_check",
@@ -111,7 +113,7 @@ const PASS_STATUSES: &[PassStatus] = &[
 
 const MISSING_IR_PASSES: &[&str] = &[
     "core_lowering",
-    "type_check",
+    "full_type_check",
     "effect_check",
     "ownership_alias_check",
     "allocation_resource_check",
@@ -130,7 +132,7 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         version::HUM_STATUS
     ));
     out.push_str(&format!(
-        "summary: files={} items={} tasks={} tests={} lowering_candidates={} ready_for_ir=0 blocked={} errors={} warnings={} body_grammar_candidates={} body_grammar_recognized_lines={} body_grammar_unsupported_lines={} resolver_status={} resolver_errors={} unresolved_references={}\n",
+        "summary: files={} items={} tasks={} tests={} lowering_candidates={} ready_for_ir=0 blocked={} errors={} warnings={} body_grammar_candidates={} body_grammar_recognized_lines={} body_grammar_unsupported_lines={} resolver_status={} resolver_errors={} unresolved_references={} type_check_status={} type_errors={} unknown_type_references={}\n",
         report.files,
         report.items,
         report.tasks,
@@ -144,7 +146,10 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.body_grammar_unsupported_lines(),
         report.resolve_summary.status,
         report.resolve_summary.resolver_errors,
-        report.resolve_summary.unresolved_references
+        report.resolve_summary.unresolved_references,
+        report.type_check_summary.status,
+        report.type_check_summary.type_errors,
+        report.type_check_summary.unknown_type_references
     ));
     out.push_str(&format!(
         "core_contract_schema: {}\n",
@@ -169,6 +174,16 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.resolve_summary.mutable_place_errors,
         report.resolve_summary.resolver_errors,
         report.resolve_summary.resolver_warnings
+    ));
+    out.push_str(&format!(
+        "type_check: schema={} status={} mode={} checked_declarations={} rejected_declarations={} type_errors={} unknown_type_references={}\n",
+        report.type_check_summary.schema,
+        report.type_check_summary.status,
+        report.type_check_summary.mode,
+        report.type_check_summary.checked_declarations,
+        report.type_check_summary.rejected_declarations,
+        report.type_check_summary.type_errors,
+        report.type_check_summary.unknown_type_references
     ));
     out.push_str("pass_status:\n");
     for pass in PASS_STATUSES {
@@ -246,6 +261,7 @@ pub fn ir_readiness_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         true,
     );
     push_resolver_summary(&mut out, &report.resolve_summary, 2, true);
+    push_type_check_summary(&mut out, &report.type_check_summary, 2, true);
     push_summary(&mut out, &report, 2, true);
     push_pass_status(&mut out, 2, true);
     push_candidates(&mut out, &report.candidates, 2, true);
@@ -268,9 +284,16 @@ pub fn ir_readiness_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessReport {
     let resolve_summary = resolve::resolve_readiness_summary(program, diagnostics);
+    let type_check_summary = type_check::type_check_summary(program, diagnostics);
     let mut candidates = Vec::new();
     for file in &program.files {
-        collect_candidates_from_items(&file.items, diagnostics, &resolve_summary, &mut candidates);
+        collect_candidates_from_items(
+            &file.items,
+            diagnostics,
+            &resolve_summary,
+            &type_check_summary,
+            &mut candidates,
+        );
     }
 
     let errors = diagnostics
@@ -295,6 +318,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         errors,
         warnings,
         resolve_summary,
+        type_check_summary,
         candidates,
     }
 }
@@ -303,12 +327,24 @@ fn collect_candidates_from_items(
     items: &[Item],
     diagnostics: &[Diagnostic],
     resolve_summary: &resolve::ResolveReadinessSummary,
+    type_check_summary: &type_check::TypeCheckSummary,
     candidates: &mut Vec<LoweringCandidate>,
 ) {
     for item in items {
-        candidates.push(lowering_candidate(item, diagnostics, resolve_summary));
+        candidates.push(lowering_candidate(
+            item,
+            diagnostics,
+            resolve_summary,
+            type_check_summary,
+        ));
         if let Item::App(app) = item {
-            collect_candidates_from_items(&app.items, diagnostics, resolve_summary, candidates);
+            collect_candidates_from_items(
+                &app.items,
+                diagnostics,
+                resolve_summary,
+                type_check_summary,
+                candidates,
+            );
         }
     }
 }
@@ -317,6 +353,7 @@ fn lowering_candidate(
     item: &Item,
     diagnostics: &[Diagnostic],
     resolve_summary: &resolve::ResolveReadinessSummary,
+    type_check_summary: &type_check::TypeCheckSummary,
 ) -> LoweringCandidate {
     let graph_node_id = node_id::span(
         "item",
@@ -327,7 +364,8 @@ fn lowering_candidate(
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
     let has_resolver_errors = resolve_summary.resolver_errors > 0;
-    let blocking_reasons = blocking_reasons(has_errors, has_resolver_errors);
+    let has_type_errors = type_check_summary.type_errors > 0;
+    let blocking_reasons = blocking_reasons(has_errors, has_resolver_errors, has_type_errors);
     let section_names = item_sections(item)
         .iter()
         .map(|section| section.name.clone())
@@ -344,12 +382,14 @@ fn lowering_candidate(
             "blocked_by_source_errors"
         } else if has_resolver_errors {
             "blocked_by_resolver_errors"
+        } else if has_type_errors {
+            "blocked_by_type_errors"
         } else {
             "blocked_before_core_lowering"
         },
         current_layer: CURRENT_LAYER,
         target_layer: TARGET_LAYER,
-        facts_available: facts_available(item, resolve_summary),
+        facts_available: facts_available(item, resolve_summary, type_check_summary),
         missing_passes: MISSING_IR_PASSES.to_vec(),
         blocking_reasons,
         section_names,
@@ -360,6 +400,7 @@ fn lowering_candidate(
 fn facts_available(
     item: &Item,
     resolve_summary: &resolve::ResolveReadinessSummary,
+    type_check_summary: &type_check::TypeCheckSummary,
 ) -> Vec<&'static str> {
     let mut facts = vec![
         "source_span",
@@ -368,6 +409,8 @@ fn facts_available(
         "item_name",
         "resolver_summary_v0",
         resolve_summary.status,
+        "type_check_summary_v0",
+        type_check_summary.status,
     ];
 
     let sections = item_sections(item);
@@ -496,7 +539,11 @@ fn item_sections(item: &Item) -> &[Section] {
     }
 }
 
-fn blocking_reasons(has_errors: bool, has_resolver_errors: bool) -> Vec<&'static str> {
+fn blocking_reasons(
+    has_errors: bool,
+    has_resolver_errors: bool,
+    has_type_errors: bool,
+) -> Vec<&'static str> {
     let mut reasons = Vec::new();
     if has_errors {
         reasons.push("source_diagnostics_include_errors");
@@ -504,8 +551,11 @@ fn blocking_reasons(has_errors: bool, has_resolver_errors: bool) -> Vec<&'static
     if has_resolver_errors {
         reasons.push("checked_resolver_errors");
     }
+    if has_type_errors {
+        reasons.push("type_check_errors");
+    }
     reasons.push("core_lowering_not_implemented");
-    reasons.push("type_check_not_implemented");
+    reasons.push("full_type_check_not_implemented");
     reasons.push("effect_check_not_implemented");
     reasons.push("ir_verify_not_implemented");
     reasons
@@ -675,11 +725,91 @@ fn push_resolver_summary(
     push_comma_newline(out, comma);
 }
 
+fn push_type_check_summary(
+    out: &mut String,
+    summary: &type_check::TypeCheckSummary,
+    indent: usize,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    out.push_str("\"type_check\": {\n");
+    push_string_field(out, indent + 2, "schema", summary.schema, true);
+    push_string_field(out, indent + 2, "status", summary.status, true);
+    push_string_field(out, indent + 2, "mode", summary.mode, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "source_errors",
+        summary.source_errors,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "source_warnings",
+        summary.source_warnings,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "resolver_errors",
+        summary.resolver_errors,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "checked_declarations",
+        summary.checked_declarations,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "accepted_declarations",
+        summary.accepted_declarations,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "rejected_declarations",
+        summary.rejected_declarations,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "checked_type_references",
+        summary.checked_type_references,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unknown_type_references",
+        summary.unknown_type_references,
+        true,
+    );
+    push_usize_field(out, indent + 2, "type_errors", summary.type_errors, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "type_warnings",
+        summary.type_warnings,
+        false,
+    );
+    push_indent(out, indent);
+    out.push('}');
+    push_comma_newline(out, comma);
+}
+
 fn push_summary(out: &mut String, report: &IrReadinessReport, indent: usize, comma: bool) {
     push_indent(out, indent);
     out.push_str("\"summary\": {");
     out.push_str(&format!(
-        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"lowering_candidates\": {}, \"ready_for_ir\": 0, \"blocked\": {}, \"errors\": {}, \"warnings\": {}, \"body_grammar_candidates\": {}, \"body_grammar_recognized_lines\": {}, \"body_grammar_unsupported_lines\": {}",
+        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"lowering_candidates\": {}, \"ready_for_ir\": 0, \"blocked\": {}, \"errors\": {}, \"warnings\": {}, \"type_errors\": {}, \"unknown_type_references\": {}, \"body_grammar_candidates\": {}, \"body_grammar_recognized_lines\": {}, \"body_grammar_unsupported_lines\": {}",
         report.files,
         report.items,
         report.tasks,
@@ -688,6 +818,8 @@ fn push_summary(out: &mut String, report: &IrReadinessReport, indent: usize, com
         report.blocked_count(),
         report.errors,
         report.warnings,
+        report.type_check_summary.type_errors,
+        report.type_check_summary.unknown_type_references,
         report.body_grammar_candidates(),
         report.body_grammar_recognized_lines(),
         report.body_grammar_unsupported_lines()
@@ -1000,11 +1132,16 @@ mod tests {
         assert!(text.contains("resolver: schema=hum.resolve.v0 status=checked_resolver_v0"));
         assert!(text.contains("lowering_candidates=4 ready_for_ir=0 blocked=4"));
         assert!(text.contains("body_grammar_candidates=2"));
+        assert!(text.contains("type_check_status=declaration_annotations_checked_v0"));
+        assert!(text.contains("type_errors=0 unknown_type_references=0"));
+        assert!(text.contains("type_check: schema=hum.type_check.v0"));
         assert!(text.contains("pass_status:"));
         assert!(text.contains("body_grammar [partial_v0]"));
+        assert!(text.contains("type_check [declaration_annotation_check_available]"));
         assert!(text.contains("core_lowering [not_implemented]"));
         assert!(text.contains("task `add task`"));
         assert!(text.contains("missing_passes: core_lowering"));
+        assert!(text.contains("full_type_check"));
     }
 
     #[test]
@@ -1020,7 +1157,14 @@ mod tests {
         assert!(json.contains("\"status\": \"checked_resolver_v0\""));
         assert!(json.contains("\"mode\": \"source_analysis_only_no_type_or_borrow_check\""));
         assert!(json.contains("\"resolver_errors\": 0"));
+        assert!(json.contains("\"type_check\""));
+        assert!(json.contains("\"schema\": \"hum.type_check.v0\""));
+        assert!(json.contains("\"status\": \"declaration_annotations_checked_v0\""));
+        assert!(json.contains("\"type_errors\": 0"));
+        assert!(json.contains("\"unknown_type_references\": 0"));
         assert!(json.contains("\"checked_resolver_v0\""));
+        assert!(json.contains("\"type_check_summary_v0\""));
+        assert!(json.contains("\"declaration_annotations_checked_v0\""));
         assert!(json.contains("\"ready_for_ir\": 0"));
         assert!(json.contains("\"body_grammar_candidates\": 2"));
         assert!(json.contains("\"body_grammar_unsupported_lines\": 1"));
@@ -1032,6 +1176,10 @@ mod tests {
         assert!(json.contains("\"reason\": \"surface_save_requires_store_lowering\""));
         assert!(json.contains("\"body_grammar_partial_v0\""));
         assert!(json.contains("\"name\": \"semantic_graph_build\""));
+        assert!(json.contains("\"name\": \"type_check\""));
+        assert!(json.contains("\"status\": \"declaration_annotation_check_available\""));
+        assert!(json.contains("\"full_type_check\""));
+        assert!(json.contains("\"full_type_check_not_implemented\""));
         assert!(json.contains("\"status\": \"report_available_not_ir_pass\""));
         assert!(json.contains("\"effect_hints\""));
         assert!(json.contains("\"contract_hints\""));
@@ -1039,6 +1187,33 @@ mod tests {
         assert!(json.contains("\"no IR emission\""));
     }
 
+    #[test]
+    fn json_blocks_on_type_errors_before_lowering() {
+        let source = r#"type Box {
+  value: MissingType
+}
+
+task pass box(item: Box) -> Box {
+  does:
+    return item
+}
+"#;
+        let parsed = parse_source("bad_type.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = ir_readiness_json(&program, &[]);
+
+        assert!(json.contains("\"type_check\""));
+        assert!(json.contains("\"schema\": \"hum.type_check.v0\""));
+        assert!(json.contains("\"status\": \"type_errors_v0\""));
+        assert!(json.contains("\"type_errors\": 1"));
+        assert!(json.contains("\"unknown_type_references\": 1"));
+        assert!(json.contains("\"status\": \"blocked_by_type_errors\""));
+        assert!(json.contains("\"type_check_errors\""));
+        assert!(json.contains("\"full_type_check_not_implemented\""));
+        assert!(json.contains("\"ready_for_ir\": 0"));
+    }
     #[test]
     fn json_blocks_on_resolver_errors_before_lowering() {
         let source = r#"task bad names() -> UInt {

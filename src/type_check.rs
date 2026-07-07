@@ -23,6 +23,23 @@ struct TypeCheckReport {
     diagnostics: Vec<TypeCheckDiagnostic>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TypeCheckSummary {
+    pub schema: &'static str,
+    pub status: &'static str,
+    pub mode: &'static str,
+    pub source_errors: usize,
+    pub source_warnings: usize,
+    pub resolver_errors: usize,
+    pub checked_declarations: usize,
+    pub accepted_declarations: usize,
+    pub rejected_declarations: usize,
+    pub checked_type_references: usize,
+    pub unknown_type_references: usize,
+    pub type_errors: usize,
+    pub type_warnings: usize,
+}
+
 #[derive(Debug, Clone)]
 struct CheckedDeclaration {
     id: String,
@@ -60,8 +77,30 @@ struct TypeCheckDiagnostic {
 }
 
 pub fn type_check_has_errors(program: &crate::ast::Program, diagnostics: &[Diagnostic]) -> bool {
+    let summary = type_check_summary(program, diagnostics);
+    summary.source_errors > 0 || summary.resolver_errors > 0 || summary.type_errors > 0
+}
+
+pub fn type_check_summary(
+    program: &crate::ast::Program,
+    diagnostics: &[Diagnostic],
+) -> TypeCheckSummary {
     let report = build_report(program, diagnostics);
-    report.source_errors() > 0 || report.resolver_errors() > 0 || report.type_error_count() > 0
+    TypeCheckSummary {
+        schema: TYPE_CHECK_SCHEMA,
+        status: report.status(),
+        mode: TYPE_CHECK_MODE,
+        source_errors: report.source_errors(),
+        source_warnings: report.type_env.source_warnings,
+        resolver_errors: report.resolver_errors(),
+        checked_declarations: report.checked_declarations.len(),
+        accepted_declarations: report.accepted_declarations(),
+        rejected_declarations: report.rejected_declarations(),
+        checked_type_references: report.checked_type_references(),
+        unknown_type_references: report.type_env.unknown_type_references(),
+        type_errors: report.type_error_count(),
+        type_warnings: report.type_warning_count(),
+    }
 }
 
 pub fn type_check_text(program: &crate::ast::Program, diagnostics: &[Diagnostic]) -> String {
@@ -780,6 +819,24 @@ mod tests {
         assert!(json.contains("\"type_errors\": 0"));
         assert!(json.contains("\"accepted_declaration_annotation_v0\""));
         assert!(json.contains("\"accepted_type_reference_v0\""));
+    }
+
+    #[test]
+    fn summary_reports_type_check_gate_counts() {
+        let program = demo_program_with_unknown();
+        let summary = super::type_check_summary(&program, &[]);
+
+        assert_eq!(summary.schema, "hum.type_check.v0");
+        assert_eq!(summary.status, "type_errors_v0");
+        assert_eq!(
+            summary.mode,
+            "declaration_annotation_check_no_expression_inference"
+        );
+        assert_eq!(summary.source_errors, 0);
+        assert_eq!(summary.resolver_errors, 0);
+        assert_eq!(summary.type_errors, 1);
+        assert_eq!(summary.unknown_type_references, 1);
+        assert_eq!(summary.rejected_declarations, 1);
     }
 
     #[test]
