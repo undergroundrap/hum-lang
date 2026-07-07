@@ -265,7 +265,7 @@ foreach ($required in @('hum.doctor.v0', 'hum doctor --format json', 'current_di
 }
 
 $ciWorkflow = Read-RepoText '.github/workflows/ci.yml'
-foreach ($required in @('workflow_dispatch:', 'branches:', '- main', 'tags:', "- 'v*'", 'concurrency:', 'cancel-in-progress: true', 'timeout-minutes: 15', 'tools/check_all.ps1', 'windows-latest', 'ubuntu-latest')) {
+foreach ($required in @('workflow_dispatch:', 'branches:', '- main', 'tags:', "- 'v*'", 'concurrency:', 'cancel-in-progress: true', 'timeout-minutes: 15', 'actions/checkout@v5', 'tools/check_all.ps1', 'windows-latest', 'ubuntu-latest')) {
   if (-not $ciWorkflow.Contains($required)) {
     Add-Failure ".github/workflows/ci.yml does not mention $required"
   }
