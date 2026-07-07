@@ -46,6 +46,10 @@ foreign code.
 - [SEMANTIC_GRAPH_SCHEMA.md](SEMANTIC_GRAPH_SCHEMA.md): graph JSON emitted today
 - [DIAGNOSTICS.md](DIAGNOSTICS.md): stable diagnostic code contract
 - [FORMATTER.md](FORMATTER.md): canonical formatting direction
+- [COMPILE_TIME_STRATEGY.md](COMPILE_TIME_STRATEGY.md): check/build/comptime discipline
+- [INTEROP_AND_PORTABILITY.md](INTEROP_AND_PORTABILITY.md): foreign, platform, and adoption boundaries
+- [PERFORMANCE_CONTRACTS.md](PERFORMANCE_CONTRACTS.md): benchmark and optimization claim discipline
+- [MATH_OBLIGATIONS_SCHEMA.md](MATH_OBLIGATIONS_SCHEMA.md): external-validator obligation export surface
 
 ## Checked Reference Fixture
 
@@ -321,6 +325,48 @@ Current Milestone 0 checks are small:
 
 Future effect reports are tracked in [EFFECT_REPORT_SCHEMA_0_1.md](EFFECT_REPORT_SCHEMA_0_1.md).
 
+## Resources, Layout, And Optimization
+
+Hum treats resources as language facts, not folklore.
+
+Current source-visible resource blocks include:
+
+- `cost:`
+- `allocates:`
+- `avoids:`
+- `tradeoffs:`
+- `optimizes:`
+
+Milestone 0 preserves these lines in graph facts and performs small honesty
+checks. It also exports conservative external-validator math obligations for
+explicit allocation-free claims such as `allocates: nothing`. See
+[MATH_OBLIGATIONS_SCHEMA.md](MATH_OBLIGATIONS_SCHEMA.md).
+
+Reference rule: the compiler may optimize from declared intent only when it can
+emit evidence for the choice or clearly mark the claim as unverified. Hum should
+not claim that every program becomes faster, that a compiler can always find the
+optimal algorithm, or that benchmarks are proofs.
+
+Future layout rules should make memory representation inspectable:
+
+- records, arrays, maps, packets, tensors, and FFI structs should expose layout
+  assumptions when layout matters
+- ABI, alignment, endian, pointer-width, shape, dtype, and device assumptions
+  should become semantic graph facts
+- changing layout-sensitive code should change the evidence that depends on it
+
+Future space/time strategy rules should distinguish program shapes:
+
+- streaming and sequential code can receive the strongest space guarantees
+- tree, DAG, and circuit-like code may support recompute-heavy lowering
+- oblivious access patterns may support bounded simulation strategies
+- arbitrary pointer mutation, I/O, concurrency, and hardware effects require
+  explicit effects and weaker claims
+
+The practical Hum promise is not magic speed. The promise is source-visible
+resource intent, compiler classification, generated obligations, measured
+benchmarks, and reviewable optimization evidence.
+
 ## Contracts And Blame
 
 Contract sections assign responsibility:
@@ -390,6 +436,29 @@ facts. They are not executed. Any executable syntax must lower into
 
 Starter executable forms are tracked in [CORE_LANGUAGE_SHAPE.md](CORE_LANGUAGE_SHAPE.md).
 
+## Compile-Time Execution
+
+Compile-time execution is `future`, not part of Milestone 0.
+
+Hum should eventually support compile-time constants, assertions,
+specialization, generated tests, and bounded code generation. These features
+must remain explainable to humans, tools, and agents.
+
+Reference rules:
+
+- compile-time work must be explicit in source
+- compile-time work must have effect and resource limits
+- imports must not execute arbitrary code
+- package metadata must stay declarative and cacheable
+- compile-time I/O, network access, process execution, and foreign calls require
+  separate profile gates
+- compile-time output must preserve source spans, provenance, and graph facts
+- expensive compile-time features need timing budgets and diagnostics
+
+Hum should prefer declarative checked sections and compiler-known generation
+before user-defined macro systems. A macro or compile-time feature that defeats
+diagnostics, formatting, semantic graphs, or agent tooling is not ready.
+
 ## Diagnostics
 
 Milestone 0 diagnostics have stable `H####` codes, severity, message, optional
@@ -439,6 +508,40 @@ cargo run -- evidence --format json examples/reference_surface.hum
 ```
 
 See [EVIDENCE_REPORT_SCHEMA.md](EVIDENCE_REPORT_SCHEMA.md).
+
+## Interop And Adoption Boundaries
+
+Interop is a future adoption requirement, not a Milestone 0 execution feature.
+
+Milestone 0 has no FFI, no generated code execution, no package downloads, no
+foreign build scripts, and no network registry access.
+
+Reference rule: foreign code must be source-visible and graph-visible. C, C++,
+Rust, Python, Wasm, process boundaries, platform APIs, and accelerator runtimes
+must enter Hum through explicit trust, ownership, layout, effect, failure, and
+profile contracts. See [INTEROP_AND_PORTABILITY.md](INTEROP_AND_PORTABILITY.md).
+
+Hum should adopt existing ecosystems by wrapping them safely, not by pretending
+foreign code has Hum's safety model.
+
+## Agent And Tooling Contract
+
+Hum is designed for humans and agents, but agents are not trusted.
+
+Agents should receive compact, current, schema-backed facts:
+
+- stable diagnostics
+- syntax surface metadata
+- semantic graphs
+- capability reports
+- evidence reports
+- math obligation exports
+- source spans and document symbols
+- setup health facts
+
+Agents should not scrape terminal prose when a JSON schema exists. Agent-facing
+docs should be small, versioned, and tied to the current CLI surface so generated
+code follows the language that exists rather than an older memory of Hum.
 
 ## Formatting
 
@@ -491,25 +594,57 @@ Delayed until the formal core, graph, diagnostics, and tooling can explain them:
 
 ```powershell
 hum check <file-or-dir>...
+hum check --format json <file-or-dir>...
 hum graph <file-or-dir>...
 hum evidence <file-or-dir>...
 hum evidence --format json <file-or-dir>...
+hum math-obligations <file-or-dir>...
+hum math-obligations --format json <file-or-dir>...
+hum math-obligations --out-dir <dir> <file-or-dir>...
 hum test-skeletons <file-or-dir>...
 hum syntax
 hum syntax --format textmate
+hum capabilities
+hum capabilities --format json
+hum diagnostics
+hum diagnostics --format json
+hum doctor
+hum doctor --format json
+hum explain <H####>
+hum explain <H####> --format json
+hum lsp --capabilities
+hum lsp --capabilities --format json
+hum version
+hum version --format json
 ```
 
 Bootstrap examples:
 
 ```powershell
 cargo run -- check examples
+cargo run -- check --format json examples
 cargo run -- graph examples/reference_surface.hum
 cargo run -- graph examples
 cargo run -- evidence examples/reference_surface.hum
 cargo run -- evidence --format json examples/reference_surface.hum
+cargo run -- math-obligations examples/control_flow.hum
+cargo run -- math-obligations --format json examples/control_flow.hum
+cargo run -- math-obligations --out-dir target/hum-math-obligations examples/control_flow.hum
 cargo run -- test-skeletons examples
 cargo run -- syntax
 cargo run -- syntax --format textmate
+cargo run -- capabilities
+cargo run -- capabilities --format json
+cargo run -- diagnostics
+cargo run -- diagnostics --format json
+cargo run -- doctor
+cargo run -- doctor --format json
+cargo run -- explain H0201
+cargo run -- explain H0201 --format json
+cargo run -- lsp --capabilities
+cargo run -- lsp --capabilities --format json
+cargo run -- version
+cargo run -- version --format json
 ```
 
 ## Open Reference Gaps

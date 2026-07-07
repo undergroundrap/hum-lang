@@ -76,6 +76,7 @@ Current artifacts:
 - [docs/DOCTOR_SCHEMA.md](docs/DOCTOR_SCHEMA.md): `hum.doctor.v0` setup health schema for portable repo guardrails
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): unifying architecture ground truth across language, graph, tools, profiles, stdlib, backend, and platform design
 - [docs/decisions/README.md](docs/decisions/README.md): accepted design decision record index
+- [docs/decisions/0006-make-resource-layout-and-comptime-explicit.md](docs/decisions/0006-make-resource-layout-and-comptime-explicit.md): accepted rule that resource, layout, compile-time, interop, and agent-facing power must stay explicit and evidence-backed
 - [docs/SETUP.md](docs/SETUP.md): portable setup for beginners, experts, terminals, and editors
 - [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow, design gates, commit style, and PR rules
 - [SECURITY.md](SECURITY.md): supported security scope, reporting path, and claim limits

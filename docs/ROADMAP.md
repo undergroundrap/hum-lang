@@ -35,8 +35,10 @@ Hum should be taught in this order:
 15. Unsafe boundaries.
 16. Concurrency and cancellation.
 17. Performance contracts and benchmarks.
-18. Backend lowering.
-19. Self-hosting only after the compiler can prove itself against the Rust bootstrap.
+18. Layout-sensitive data and resource strategy.
+19. Compile-time execution discipline.
+20. Backend lowering.
+21. Self-hosting only after the compiler can prove itself against the Rust bootstrap.
 
 This order teaches the mental model before the machinery.
 
@@ -106,6 +108,7 @@ Deferred beyond Milestone 0:
 
 - broad semantic paraphrase proof for coverage; Milestone 0 now supports exact links plus conservative canonical matching for case, punctuation, filler words, hyphenation, and small section aliases
 - Truth Harness-style verifier execution and receipt import wait on schema-first receipts; Hum may export conservative obligation candidates, but it should not depend on an external verifier until result handling is stable
+- resource, layout, compile-time execution, interop, and agent-facing power follow [decisions/0006-make-resource-layout-and-comptime-explicit.md](decisions/0006-make-resource-layout-and-comptime-explicit.md) before entering stable language claims
 
 Milestone 0 is about truth, not speed.
 

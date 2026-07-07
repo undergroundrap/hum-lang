@@ -63,6 +63,8 @@ Strong-contract doctrine: a verified contract is valuable only when it would rej
 
 External-verifier doctrine: Truth Harness-style math engines, SMT tools, model checkers, proof assistants, and benchmark harnesses are evidence producers, not compiler authority. Hum emits obligations and records receipts; external engines may prove, refute, or return unknown under explicit assumptions. See [MATH_ENGINE_BOUNDARY.md](MATH_ENGINE_BOUNDARY.md) and [decisions/0005-keep-verifiers-as-evidence-producers.md](decisions/0005-keep-verifiers-as-evidence-producers.md).
 
+Resource-layout-comptime doctrine: resource intent, layout-sensitive representation, compile-time execution, interop, and agent-facing facts must be explicit, graph-visible, profile-aware, and evidence-backed before they become stable Hum power. See [decisions/0006-make-resource-layout-and-comptime-explicit.md](decisions/0006-make-resource-layout-and-comptime-explicit.md).
+
 ### 5. Runtime Profiles
 
 Profiles are policy bundles for normal apps, containers, agent tools, Windows services, driver candidates, embedded no-heap code, hard realtime code, engine hot paths, safety-critical code, and certified toolchains. Profiles can forbid features, require evidence, narrow stdlib APIs, and change release artifacts.
@@ -109,6 +111,7 @@ See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md).
 - Windows is the first tested platform, but platform-specific details stay behind explicit capability boundaries.
 - No feature enters stable Hum without semantics, diagnostics, graph facts, tooling impact, profile impact, verification story, performance story, and pedagogy story.
 - Defaults must be paved roads; non-default power requires explicit source intent and evidence.
+- Resource, layout, compile-time, interop, and agent-facing power must be explicit and graph-visible before it is stable.
 - Caches optimize development speed but do not certify correctness, safety, performance, or release readiness.
 - No parser-only or checker-only milestone should be presented as a credible public alpha; public adoption requires executable artifacts and evidence bundles.
 

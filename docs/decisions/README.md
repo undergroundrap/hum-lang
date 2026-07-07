@@ -22,6 +22,7 @@ standard library direction, backend strategy, or release posture.
 | [0003](0003-keep-milestone-0-local-non-executing.md) | accepted | Keep Milestone 0 local, offline-first, and non-executing. |
 | [0004](0004-make-tests-first-class-evidence.md) | accepted | Make tests first-class evidence with graph-linked obligations. |
 | [0005](0005-keep-verifiers-as-evidence-producers.md) | accepted | Keep external verifiers as evidence producers, not compiler authority. |
+| [0006](0006-make-resource-layout-and-comptime-explicit.md) | accepted | Make resource, layout, and compile-time power explicit. |
 
 ## Template
 

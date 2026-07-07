@@ -97,6 +97,15 @@ layout work. It should not be part of the early compiler path.
 
 Hum should avoid features that create unbounded compiler work.
 
+Compile-time execution is future power, not a shortcut around language design.
+When Hum adds compile-time constants, assertions, specialization, generated
+code, or macro-like facilities, the work must be explicit, effect-limited,
+budgeted, provenance-preserving, and visible in graph facts. Compile-time I/O,
+network access, process execution, foreign calls, or generated artifacts require
+separate profile gates.
+
+See [decisions/0006-make-resource-layout-and-comptime-explicit.md](decisions/0006-make-resource-layout-and-comptime-explicit.md).
+
 ### Keep Module Boundaries Explicit
 
 A module should have a stable public interface. A private implementation change
@@ -122,7 +131,7 @@ state.
 ### Keep Macros Limited
 
 Macros are compile-time code execution. They can destroy incremental builds,
-diagnostics, and agent readability.
+diagnostics, semantic graph stability, and agent readability.
 
 Hum should delay macros and prefer:
 
