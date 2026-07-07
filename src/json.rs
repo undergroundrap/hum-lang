@@ -1,8 +1,8 @@
 use crate::ast::{Item, Program, Section, Task};
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::{
-    TestCoverage, collect_test_coverages, is_meaningful_line_text, linked_test_count,
-    normalize_coverage, test_obligations,
+    TestCoverage, collect_test_coverages, coverage_key, coverage_match_kind,
+    is_meaningful_line_text, linked_test_count, test_obligations,
 };
 
 pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
@@ -241,6 +241,10 @@ fn write_test_obligations_field(
         write_span(out, &obligation.line.span);
         out.push_str(&format!(", \"covers\": {}", quote(&obligation.covers)));
         out.push_str(&format!(
+            ", \"coverage_key\": {}",
+            quote(&coverage_key(&obligation.covers))
+        ));
+        out.push_str(&format!(
             ", \"suggested_test\": {}",
             quote(&obligation.suggested_test)
         ));
@@ -261,10 +265,9 @@ fn write_test_obligations_field(
 }
 
 fn write_linked_tests(out: &mut String, covers: &str, test_coverages: &[TestCoverage<'_>]) {
-    let normalized_covers = normalize_coverage(covers);
-    for (written, coverage) in test_coverages
+    for (written, (coverage, match_kind)) in test_coverages
         .iter()
-        .filter(|coverage| coverage.covers == normalized_covers)
+        .filter_map(|coverage| coverage_match_kind(covers, coverage).map(|kind| (coverage, kind)))
         .enumerate()
     {
         if written > 0 {
@@ -281,6 +284,11 @@ fn write_linked_tests(out: &mut String, covers: &str, test_coverages: &[TestCove
         }
         out.push_str("], ");
         out.push_str(&format!("\"covers\": {}, ", quote(&coverage.covers)));
+        out.push_str(&format!(
+            "\"coverage_key\": {}, ",
+            quote(&coverage.coverage_key)
+        ));
+        out.push_str(&format!("\"match\": {}, ", quote(match_kind)));
         out.push_str("\"span\": ");
         write_span(out, &coverage.line.span);
         out.push('}');
@@ -474,6 +482,40 @@ test add task saves nonempty title property {
         assert!(json.contains("\"covers\": \"add task ensures new task is saved\""));
     }
 
+    #[test]
+    fn task_obligations_report_canonical_test_links() {
+        let source = r#"task add task(title: Text) -> Task {
+  why:
+    save a task
+
+  needs:
+    title is not empty
+
+  does:
+    return task
+}
+
+test add task rejects empty title unit {
+  why:
+    prove input validation
+
+  covers:
+    Add Task REQUIRES: the title is non-empty.
+
+  does:
+    expect empty title rejected
+}
+"#;
+        let parsed = parse_source("demo.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = program_to_json(&program, &[]);
+
+        assert!(json.contains("\"coverage_key\": \"add task needs title not empty\""));
+        assert!(json.contains("\"match\": \"canonical\""));
+        assert!(json.contains("\"covers\": \"Add Task REQUIRES: the title is non-empty.\""));
+    }
     #[test]
     fn section_json_includes_line_items_with_spans() {
         let source = r#"task add task(title: Text) -> Task {

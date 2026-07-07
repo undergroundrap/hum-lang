@@ -145,7 +145,7 @@ test add task saves nonempty title property {
     prove saving behavior
 
   covers:
-    add task ensures new task is saved
+    ADD TASK ENSURES: the new task is saved.
 
   does:
     expect task saved

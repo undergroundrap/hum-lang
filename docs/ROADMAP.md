@@ -81,14 +81,14 @@ Current prototype status:
 - Known task and test sections get canonical-order warnings.
 - Current examples check cleanly.
 - `hum graph` emits section `line_items` with text, spans, and meaningful/comment status.
-- `hum graph` emits task-level `test_obligations` from `needs:`, `ensures:`, `watch for:`, and `tests:` lines, with exact `covers:` links to top-level `test` blocks when present.
+- `hum graph` emits task-level `test_obligations` from `needs:`, `ensures:`, `watch for:`, and `tests:` lines, with exact or conservative canonical `covers:` links to top-level `test` blocks when present.
 - `hum test-skeletons` prints Hum `test` blocks for unlinked obligations without executing code or writing files.
 - `hum syntax` emits `hum.syntax_surface.v0` JSON for editor and tool adapters.
 - `hum syntax --format textmate` and `editors/textmate/hum.tmLanguage.json` provide the first generated highlighting surface.
 
-Still missing before Milestone 0 is complete:
+Deferred beyond Milestone 0:
 
-- fuzzy or semantic obligation matching beyond exact `covers:` lines
+- broad semantic paraphrase proof for coverage; Milestone 0 now supports exact links plus conservative canonical matching for case, punctuation, filler words, hyphenation, and small section aliases
 
 Milestone 0 is about truth, not speed.
 

@@ -182,7 +182,7 @@ test add task rejects empty title regression {
 ```
 
 A `test` is first-class evidence. Milestone 0 parses tests, modifiers, `covers:`
-lines, and links exact coverage phrases to generated task obligations.
+lines, and links exact or conservative canonical coverage phrases to generated task obligations.
 
 Known current test modifiers:
 
@@ -338,7 +338,10 @@ Milestone 0 generates task `test_obligations` from meaningful lines in:
 
 `hum graph` links obligations to top-level tests when a meaningful `covers:`
 line exactly matches the generated coverage phrase after whitespace
-normalization.
+normalization or shares its conservative coverage key. The canonical key absorbs
+case, punctuation, filler words, hyphenation such as `non-empty`, and small
+section aliases such as `requires` for `needs`; it does not prove broad semantic
+paraphrases.
 
 `hum test-skeletons` prints Hum `test` blocks for unlinked obligations. It does
 not execute code or write files.

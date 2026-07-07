@@ -105,15 +105,19 @@ Task `test_obligations` are generated from meaningful lines in `needs:`,
 - `text`
 - `span`
 - `covers`: coverage phrase a test can use
+- `coverage_key`: conservative canonical key used for non-exact matching
 - `suggested_test`: human-readable generated test name
-- `link_status`: `linked` when at least one exact `covers:` line matches, otherwise `unlinked`
-- `linked_tests`: covering test references with `name`, `modifiers`, `covers`, and `span`
+- `link_status`: `linked` when at least one exact or canonical `covers:` line matches, otherwise `unlinked`
+- `linked_tests`: covering test references with `name`, `modifiers`, `covers`, `coverage_key`, `match`, and `span`
 
 These are not executable tests yet. They are graph facts that future Hum test
 generation, LSP actions, CI, and agents can use. Milestone 0 links obligations
-to top-level `test` items when a meaningful `covers:` line exactly matches the
-obligation `covers` phrase after whitespace normalization; it does not infer
-semantic equivalence.
+to top-level `test` items when a meaningful `covers:` line either exactly
+matches the obligation `covers` phrase after whitespace normalization or shares
+the same conservative `coverage_key`. Canonical matching tolerates case,
+punctuation, filler words, hyphenation such as `non-empty`, and small section
+aliases such as `requires` for `needs`; it does not prove broad semantic
+paraphrase equivalence.
 
 ### Test
 

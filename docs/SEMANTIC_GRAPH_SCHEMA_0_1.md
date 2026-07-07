@@ -82,14 +82,16 @@ Alpha graph `test_obligations` should contain:
 - `text`
 - `span`
 - `covers`
+- `coverage_key`
 - `suggested_test`
 - `link_status`
-- `linked_tests`
+- `linked_tests` with `match` set to `exact` or `canonical`
 
 Milestone 0 emits task-level obligations and links them to actual top-level
-tests when a meaningful `covers:` line exactly matches the obligation coverage
-phrase after whitespace normalization. Fuzzy matching, richer traceability, and
-semantic proof of coverage remain later alpha work.
+tests when a meaningful `covers:` line either exactly matches the obligation
+coverage phrase after whitespace normalization or shares its conservative
+`coverage_key`. Richer traceability and semantic proof of paraphrased coverage
+remain later alpha work.
 
 ## Effect Facts
 

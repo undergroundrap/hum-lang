@@ -17,7 +17,7 @@ obligations.
 
 `test` is a first-class top-level item, and test coverage is part of the
 semantic graph. Task obligations generated from meaningful section lines must
-link to exact `covers:` lines when present.
+link to exact or conservative canonical `covers:` lines when present.
 
 The checked reference fixture must keep its obligations linked so the current
 surface has a healthy example.
@@ -33,7 +33,7 @@ surface has a healthy example.
 
 - Treat tests as external files only.
 - Leave `needs:` and `ensures:` as unchecked documentation.
-- Let agents infer coverage from similar wording instead of exact graph links.
+- Let agents infer coverage from unconstrained similar wording instead of explicit graph links.
 
 ## BDFL Note
 

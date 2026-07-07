@@ -51,7 +51,7 @@ See [SEMANTIC_GRAPH_SCHEMA.md](SEMANTIC_GRAPH_SCHEMA.md) and [DIAGNOSTICS.md](DI
 
 ### 4. Checks And Evidence
 
-Milestone 0 checks stay small: parse files, validate sections, preserve spans, enforce first mutation and cost promises, emit stable diagnostics, and emit graph JSON with exact `covers:` links between task obligations and tests.
+Milestone 0 checks stay small: parse files, validate sections, preserve spans, enforce first mutation and cost promises, emit stable diagnostics, and emit graph JSON with exact or conservative canonical `covers:` links between task obligations and tests.
 
 Later checks add generated tests, ownership, borrowing, effect propagation, unsafe review packets, foreign/ABI boundaries, profile restrictions, performance contracts, package evidence, supply-chain evidence, and platform authority checks.
 
