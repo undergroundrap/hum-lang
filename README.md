@@ -108,6 +108,7 @@ Current artifacts:
 - [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md): cybersecurity threat model and secure-by-default language rules
 - [docs/UNSAFE_POLICY.md](docs/UNSAFE_POLICY.md): unsafe review packets, profile bans, provenance, and FFI-adjacent rules
 - [docs/INTEROP_AND_PORTABILITY.md](docs/INTEROP_AND_PORTABILITY.md): C/C++/Rust/Python/Wasm interop and target portability strategy
+- [docs/PORTABILITY_BOUNDARY_MODEL.md](docs/PORTABILITY_BOUNDARY_MODEL.md): target facts, platform adapters, capability absence, and artifact portability evidence
 - [docs/OS_AND_PLATFORM_MODEL.md](docs/OS_AND_PLATFORM_MODEL.md): Windows-first, portable-by-design OS authority and platform model
 - [docs/TEXT_HYGIENE_WORKFLOW.md](docs/TEXT_HYGIENE_WORKFLOW.md): UTF-8, no-BOM, mojibake, control-character, and local-link hygiene workflow
 - [docs/BOOTSTRAP_COMPILER.md](docs/BOOTSTRAP_COMPILER.md): Rust bootstrap rules and compiler architecture

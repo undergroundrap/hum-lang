@@ -96,6 +96,8 @@ See [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md).
 
 Hum is Windows-first for proof on the primary development platform and portable-by-design for architecture. Windows APIs, services, drivers, registry, devices, installers, updates, telemetry, and process authority must be modeled as explicit platform capabilities, not hidden globals.
 
+Target portability is a boundary contract, not a backend marketing claim. Target facts, capability absence, path/time/randomness policy, backend adapters, platform adapters, and artifact evidence are owned by [PORTABILITY_BOUNDARY_MODEL.md](PORTABILITY_BOUNDARY_MODEL.md).
+
 See [OS_AND_PLATFORM_MODEL.md](OS_AND_PLATFORM_MODEL.md).
 
 ### 7. Ecosystem Tools

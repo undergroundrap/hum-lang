@@ -50,6 +50,7 @@ foreign code.
 - [FORMATTER.md](FORMATTER.md): canonical formatting direction
 - [COMPILE_TIME_STRATEGY.md](COMPILE_TIME_STRATEGY.md): check/build/comptime discipline
 - [INTEROP_AND_PORTABILITY.md](INTEROP_AND_PORTABILITY.md): foreign, platform, and adoption boundaries
+- [PORTABILITY_BOUNDARY_MODEL.md](PORTABILITY_BOUNDARY_MODEL.md): target facts, platform adapters, capability absence, and artifact portability evidence
 - [PERFORMANCE_CONTRACTS.md](PERFORMANCE_CONTRACTS.md): benchmark and optimization claim discipline
 - [MATH_OBLIGATIONS_SCHEMA.md](MATH_OBLIGATIONS_SCHEMA.md): external-validator obligation export surface
 - [RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md): resource and optimization claim report surface
@@ -537,7 +538,10 @@ foreign build scripts, and no network registry access.
 Reference rule: foreign code must be source-visible and graph-visible. C, C++,
 Rust, Python, Wasm, process boundaries, platform APIs, and accelerator runtimes
 must enter Hum through explicit trust, ownership, layout, effect, failure, and
-profile contracts. See [INTEROP_AND_PORTABILITY.md](INTEROP_AND_PORTABILITY.md).
+profile contracts. Target-sensitive code must also expose target facts,
+capability absence, adapter identity, and artifact evidence. See
+[INTEROP_AND_PORTABILITY.md](INTEROP_AND_PORTABILITY.md) and
+[PORTABILITY_BOUNDARY_MODEL.md](PORTABILITY_BOUNDARY_MODEL.md).
 
 Hum should adopt existing ecosystems by wrapping them safely, not by pretending
 foreign code has Hum's safety model.
@@ -698,6 +702,7 @@ This reference is intentionally incomplete. The next gaps to close are:
 - exact expression grammar for the first executable subset
 - type grammar for records, results, options, lists, and maps
 - import and visibility rules
+- target fact and capability declarations once portability syntax is pinned
 - formal lowering from surface constructs into Core Hum
 - stable examples for every accepted syntax form beyond `examples/reference_surface.hum`
 - generated editor grammar and syntax-highlight keyword list beyond the current TextMate snapshot

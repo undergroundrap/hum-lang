@@ -8,7 +8,10 @@ Hum should be practical enough to adopt the existing world and strict enough not
 to inherit its worst risks silently.
 
 This document defines how Hum should approach C, C++, Rust, Python, Wasm, system
-libraries, and target portability.
+libraries, and target portability. The general target-boundary contract is
+owned by [PORTABILITY_BOUNDARY_MODEL.md](PORTABILITY_BOUNDARY_MODEL.md): target
+facts, capability absence, platform adapters, backend adapters, and artifact
+evidence.
 
 ## Brutal Thesis
 

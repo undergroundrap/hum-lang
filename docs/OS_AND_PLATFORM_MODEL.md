@@ -28,7 +28,7 @@ Hum should still avoid baking Windows assumptions into the language core:
 - telemetry is a declared signal schema, not random logging
 - installers and update behavior are generated artifacts with evidence
 
-The language core should model capabilities. Platform adapters should map those capabilities to Windows, Linux, macOS, WASI, embedded, and future targets.
+The language core should model capabilities. Platform adapters should map those capabilities to Windows, Linux, macOS, WASI, embedded, and future targets. The general target fact and adapter boundary is owned by [PORTABILITY_BOUNDARY_MODEL.md](PORTABILITY_BOUNDARY_MODEL.md).
 
 ## Research Anchors
 
