@@ -125,6 +125,26 @@ Hum response:
 - require deterministic fallback where possible
 - require benchmark profiles that include transfer cost
 
+### Space-Time Simulation And Recompute Policy
+
+Williams' 2025 square-root-space simulation result belongs in Hum's optimization
+research stack because it challenges the lazy assumption that a long computation
+must store a near-linear trace to be recoverable.
+
+Hum response:
+
+- treat peak space, scratch space, caching, checkpointing, and recomputation as
+  source-visible resource facts
+- allow future memory-pressure profiles to prefer recomputation over storage for
+  pure deterministic subgraphs
+- forbid hidden recomputation across IO, randomness, time, mutation, or foreign
+  authority
+- expose dependency graphs before attempting smart space-time optimization
+- require benchmark or proof evidence before claiming a space-time win
+- track withdrawals and confidence for fast-moving theory results
+
+See [research/2026-07-07-time-space-simulation.md](research/2026-07-07-time-space-simulation.md).
+
 ### Constraint Solving And Prover Internals
 
 Compiler verification is also a data-structure problem.
@@ -215,6 +235,9 @@ vision.
 
 ## Sources
 
+- Williams, "Simulating Time With Square-Root Space": https://arxiv.org/abs/2502.17779
+- Shalunov, "Improved Bounds on the Space Complexity of Circuit Evaluation": https://arxiv.org/abs/2504.20950
+- Henzinger, Pyne, Ragavan, "Catalytic Tree Evaluation From Matching Vectors": https://arxiv.org/abs/2602.14320
 - Krapivin, Farach-Colton, Kuszmaul, "Optimal Bounds for Open Addressing Without Reordering": https://arxiv.org/abs/2501.02305
 - Krapivin, Przybocki, Subercaseaux, "Near-Optimal Encodings of Cardinality Constraints": https://arxiv.org/abs/2603.28954
 - OpenJDK Project Valhalla: https://openjdk.org/projects/valhalla/

@@ -36,6 +36,7 @@ Any feature that cannot fit that stack should stay experimental.
 The current adoption research snapshot is:
 
 - [research/2026-07-06-evidence-native-systems-language.md](research/2026-07-06-evidence-native-systems-language.md)
+- [research/2026-07-07-time-space-simulation.md](research/2026-07-07-time-space-simulation.md)
 
 It sharpens the product thesis: Hum should not compete as nicer syntax alone.
 It should compete as an evidence-native systems language that turns checked
@@ -331,7 +332,38 @@ Concrete design gates:
 - Reserve graph fields for practitioner facts before building codegen around
   them.
 
-### 10. Deployment, Containers, Observability, And Agent Tools
+### 10. Time-Space Tradeoffs And Resource Evidence
+
+Research signals:
+
+- Williams' 2025 square-root-space simulation shows that deterministic
+  multitape Turing-machine time `t` can be simulated in `O(sqrt(t log t))`
+  space by reducing time-bounded computation to Tree Evaluation.
+- Shalunov's 2025 circuit-evaluation follow-up reinforces that many resource
+  questions are dependency-graph questions.
+- Some 2025 and 2026 strengthening attempts have already been withdrawn, so Hum
+  must track research confidence and source status instead of adopting exciting
+  claims blindly.
+
+Hum lessons:
+
+- `cost:` should eventually separate time, peak space, scratch space,
+  allocations, cache policy, checkpoint policy, and recomputation policy.
+- Recompute-heavy optimization is valid only for pure, deterministic,
+  replayable subgraphs under explicit profile policy.
+- The semantic graph is also performance infrastructure: it should preserve
+  dependency facts so tools can explain resource tradeoffs.
+- Research-native branding is credible only if Hum records dates, withdrawals,
+  caveats, and evidence links.
+
+Concrete design gates:
+
+- Keep [research/2026-07-07-time-space-simulation.md](research/2026-07-07-time-space-simulation.md) current before adding any automatic space-time optimizer.
+- Add resource evidence linking after security/trust evidence linking exists.
+- Add memory-pressure profile vocabulary before recompute/cache optimization.
+- Never market theoretical results as direct real-hardware guarantees.
+
+### 11. Deployment, Containers, Observability, And Agent Tools
 
 Research signals:
 
@@ -383,10 +415,11 @@ Concrete design gates:
 7. Deterministic replay before engine claims.
 8. Verified or auditable stdlib internals before stable `std` prestige.
 9. Compiler trust boundaries must be documented.
-10. Real-world authority, mutation, hardware, network, storage, deployment,
+10. Research claims need source status, dates, caveats, and confidence labels.
+11. Real-world authority, mutation, hardware, network, storage, deployment,
     container, observability, agent-tool, and numeric facts must be typed before
     they are optimized.
-11. If a feature cannot explain its behavior to a beginner, a senior engineer, a
+12. If a feature cannot explain its behavior to a beginner, a senior engineer, a
     verifier, a debugger, an operator, and an agent, it is not ready.
 
 ## Research Debt Still Open
@@ -412,6 +445,8 @@ Hum still needs deeper study before hardening these areas:
   determinism, and accelerator lowering
 - deployment and container model for Docker/OCI/Kubernetes, runtime authority,
   resource budgets, image evidence, and observability
+- space-time resource model for peak space, scratch space, checkpointing,
+  recomputation, cache policy, and memory-pressure profiles
 - agent tool security model for MCP/CLI schemas, consent, capabilities, dry-run,
   sandboxing, and audit trails
 
@@ -485,5 +520,10 @@ reckless.
 - On Determinism of Game Engines used for Simulation-based Autonomous Vehicle Verification: https://arxiv.org/abs/2104.06262
 - The Verse Calculus: https://simon.peytonjones.org/assets/pdfs/verse-conf.pdf
 - SECOMP, 2024/2025: https://arxiv.org/abs/2401.16277
+- Williams, "Simulating Time With Square-Root Space", 2025: https://arxiv.org/abs/2502.17779
+- Shalunov, "Improved Bounds on the Space Complexity of Circuit Evaluation", 2025: https://arxiv.org/abs/2504.20950
+- Henzinger, Pyne, Ragavan, "Catalytic Tree Evaluation From Matching Vectors", 2026: https://arxiv.org/abs/2602.14320
+- Nye, withdrawn "TIME[t] subset SPACE[O(sqrt(t))] via Tree Height Compression", 2025/2026: https://arxiv.org/abs/2508.14831
+- Asadi and Cleve, withdrawn "Polynomial-Time Almost Log-Space Tree Evaluation by Catalytic Pebbling", 2026: https://arxiv.org/abs/2604.02606
 - Practitioner pain sweep sources: see [PRACTITIONER_PAIN_SWEEP_2026.md](PRACTITIONER_PAIN_SWEEP_2026.md)
 - Computing lessons sweep sources: see [COMPUTING_LESSONS_SWEEP_2026.md](COMPUTING_LESSONS_SWEEP_2026.md)

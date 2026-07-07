@@ -164,9 +164,15 @@ This is where Hum starts sounding like a senior reviewer.
 
 - `optimizes:` says what we want better.
 - `cost:` says what we believe the current shape costs.
+- `allocates:` says what memory behavior is allowed.
 - `avoids:` says what implementation shapes are forbidden or suspicious.
 - `tradeoffs:` says why the accepted shape is reasonable.
 - `watch for:` says what future failures or edge cases deserve attention.
+
+The time-space simulation research in
+[research/2026-07-07-time-space-simulation.md](research/2026-07-07-time-space-simulation.md)
+adds one more senior-engineer question: should this code store intermediate
+state, recompute it, or expose a bounded cache/checkpoint policy?
 
 These blocks should work together, not replace each other.
 

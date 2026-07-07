@@ -199,6 +199,36 @@ fix:
 
 That is exactly the kind of clean-code enforcement Hum should provide.
 
+## Space-Time Tradeoffs
+
+Williams' 2025 square-root-space simulation result is a design signal, not a
+magic compiler feature. It says that for deterministic multitape Turing machines,
+time-bounded computation has much stronger space-efficient simulation than was
+known before. It does not say arbitrary real-world programs should silently be
+recomputed under memory pressure.
+
+Hum should still learn the right lesson: resource claims are multidimensional.
+A future `cost:` vocabulary should be able to distinguish time, peak space,
+scratch memory, allocation policy, recomputation, caching, and checkpointing:
+
+```text
+cost:
+  time: O(work)
+  peak space: O(boundary)
+  scratch: bounded
+  allocates: nothing in hot path
+  recomputes: pure derived values only
+  caches: bounded by profile memory budget
+  check: bench
+```
+
+Recomputation is safe only for pure, deterministic, replayable work whose
+effects are visible in the semantic graph. It must not replay IO, time,
+randomness, mutation, or external authority unless the source explicitly captures
+that boundary.
+
+See [research/2026-07-07-time-space-simulation.md](research/2026-07-07-time-space-simulation.md).
+
 ## Static Benchmarks, Carefully Defined
 
 "Statically typed benchmarks" is a good instinct but a dangerous phrase.
