@@ -201,6 +201,7 @@ Milestone 0 checker recognizes this canonical task order for diagnostics:
 
 ```text
 why
+targets
 uses
 changes
 needs
@@ -218,6 +219,9 @@ tests
 does
 ```
 
+The current graph emitter gives `targets:` a narrow structured interpretation
+when lines use `triple:`, `requires:`, or `denies:`. Other `targets:` lines are
+preserved as normal section text but are not portability facts in V0.
 See [DIAGNOSTICS.md](DIAGNOSTICS.md), [FORMATTER.md](FORMATTER.md), and
 [LANGUAGE_REFERENCE.md](LANGUAGE_REFERENCE.md).
 

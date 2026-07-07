@@ -366,7 +366,12 @@ try {
   if (-not $GraphJson.Contains('"mode": "source_analysis_only_no_target_selection"')) { throw 'reference fixture graph JSON must not select a target in V0' }
   if (-not $GraphJson.Contains('"target_facts_schema": "hum.target_facts.v0"')) { throw 'reference fixture graph JSON is missing target facts schema link' }
   if (-not $GraphJson.Contains('"target_fact_record_schema": "hum.target_fact_record.v0"')) { throw 'reference fixture graph JSON is missing target fact record schema link' }
-  if (-not $GraphJson.Contains('"target_fact_records": []')) { throw 'reference fixture graph JSON should have empty target fact records in V0' }
+  if (-not $GraphJson.Contains('"target_fact_records": ["wasm32-wasi-preview1"]')) { throw 'reference fixture graph JSON is missing source-declared target fact record' }
+  if (-not $GraphJson.Contains('"required_capability_families": ["os.clock", "os.filesystem"]')) { throw 'reference fixture graph JSON is missing source-declared required capability families' }
+  if (-not $GraphJson.Contains('"denied_capability_families": ["os.network"]')) { throw 'reference fixture graph JSON is missing source-declared denied capability family' }
+  if (-not $GraphJson.Contains('"source_target_declarations"')) { throw 'reference fixture graph JSON is missing source target declarations' }
+  if (-not $GraphJson.Contains('"status": "declared_not_enforced_v0"')) { throw 'reference fixture graph JSON must mark source target declarations unenforced' }
+  if (-not $GraphJson.Contains('"source_section": "targets"')) { throw 'reference fixture graph JSON is missing targets source section links' }
   if (-not $GraphJson.Contains('"no target selected"')) { throw 'reference fixture graph JSON must keep portability non-claim' }
   Assert-ReferenceEvidenceCoverage $Graph
 
@@ -375,6 +380,7 @@ try {
   $SyntaxJson = Read-NativeOutput 'syntax surface JSON' $Hum @('syntax')
   Assert-Json 'syntax surface JSON' $SyntaxJson
   if (-not $SyntaxJson.Contains('"section_catalog"')) { throw 'syntax surface JSON is missing section_catalog' }
+  if (-not $SyntaxJson.Contains('"targets"')) { throw 'syntax surface JSON is missing targets section' }
   if (-not $SyntaxJson.Contains('"hover"')) { throw 'syntax surface JSON is missing hover metadata' }
   if (-not $SyntaxJson.Contains('"semantic_tokens"')) { throw 'syntax surface JSON is missing semantic_tokens' }
   if (-not $SyntaxJson.Contains('"token_types"')) { throw 'syntax surface JSON is missing semantic token types' }
@@ -406,6 +412,7 @@ try {
   if (-not $SemanticGraphSchemaText.Contains('target_facts_schema')) { throw 'semantic graph schema doc is missing target_facts_schema field' }
   if (-not $SemanticGraphSchemaText.Contains('target_fact_record_schema')) { throw 'semantic graph schema doc is missing target_fact_record_schema field' }
   if (-not $SemanticGraphSchemaText.Contains('reserved_v0')) { throw 'semantic graph schema doc is missing reserved portability status' }
+  if (-not $SemanticGraphSchemaText.Contains('declared_not_enforced_v0')) { throw 'semantic graph schema doc is missing source target declaration status' }
   $TargetFactsSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\TARGET_FACTS_SCHEMA.md'))
   if (-not $TargetFactsSchemaText.Contains('hum.target_facts.v0')) { throw 'target facts schema doc is missing hum.target_facts.v0' }
   if (-not $TargetFactsSchemaText.Contains('hum.target_fact_record.v0')) { throw 'target facts schema doc is missing hum.target_fact_record.v0' }
@@ -413,6 +420,7 @@ try {
   if (-not $TargetFactsSchemaText.Contains('unknown_fails_closed')) { throw 'target facts schema doc is missing fail-closed policy' }
   if (-not $TargetFactsSchemaText.Contains('../fixtures/target_facts')) { throw 'target facts schema doc is missing fixture link' }
   if (-not $TargetFactsSchemaText.Contains('Semantic Graph Link')) { throw 'target facts schema doc is missing semantic graph link section' }
+  if (-not $TargetFactsSchemaText.Contains('targets:')) { throw 'target facts schema doc is missing targets section link' }
   $DebugDoctrineText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\DEBUGGABILITY_DOCTRINE.md'))
   if (-not $DebugDoctrineText.Contains('hum.debug_info.v0')) { throw 'debuggability doctrine is missing debug info schema direction' }
   if (-not $DebugDoctrineText.Contains('faster and clearer than adding `printf`')) { throw 'debuggability doctrine is missing debugger speed rule' }

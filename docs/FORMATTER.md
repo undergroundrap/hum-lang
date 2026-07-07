@@ -67,27 +67,28 @@ task add task(title: Text) -> Result Task, TaskError {
 Humfmt should prefer this task section order:
 
 1. `why:`
-2. `uses:`
-3. `changes:`
-4. `creates:`
-5. `deletes:`
-6. `needs:`
-7. `assumes:`
-8. `ensures:`
-9. `keeps:`
-10. `protects:`
-11. `trusts:`
-12. `fails when:`
-13. `watch for:`
-14. `cost:`
-15. `allocates:`
-16. `avoids:`
-17. `tradeoffs:`
-18. `optimizes:`
-19. `tests:`
-20. `benchmarks:`
-21. `proves:`
-22. `does:`
+2. `targets:`
+3. `uses:`
+4. `changes:`
+5. `creates:`
+6. `deletes:`
+7. `needs:`
+8. `assumes:`
+9. `ensures:`
+10. `keeps:`
+11. `protects:`
+12. `trusts:`
+13. `fails when:`
+14. `watch for:`
+15. `cost:`
+16. `allocates:`
+17. `avoids:`
+18. `tradeoffs:`
+19. `optimizes:`
+20. `tests:`
+21. `benchmarks:`
+22. `proves:`
+23. `does:`
 
 Early humfmt may warn about order before auto-reordering. Reordering prose-heavy
 blocks can surprise users, so automatic movement should wait until the parser can

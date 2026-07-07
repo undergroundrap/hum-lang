@@ -15,6 +15,7 @@ pub const TEST_MODIFIERS: &[&str] = &[
 ];
 pub const TASK_SECTION_ORDER: &[&str] = &[
     "why",
+    "targets",
     "uses",
     "changes",
     "needs",
@@ -33,6 +34,7 @@ pub const TASK_SECTION_ORDER: &[&str] = &[
 ];
 pub const TEST_SECTION_ORDER: &[&str] = &[
     "why",
+    "targets",
     "uses",
     "needs",
     "regression",
@@ -183,6 +185,12 @@ pub const SEMANTIC_TOKEN_RULES: &[SemanticTokenRule] = &[
         hum_role: "intent",
     },
     SemanticTokenRule {
+        source: "section:targets",
+        token_type: "keyword",
+        modifiers: &["documentation"],
+        hum_role: "portability",
+    },
+    SemanticTokenRule {
         source: "section:uses",
         token_type: "keyword",
         modifiers: &["documentation", "readonly"],
@@ -243,6 +251,11 @@ pub const SECTION_CATALOG: &[SectionHelp] = &[
         name: "why",
         applies_to: &["app", "type", "store", "task", "test"],
         hover: "Explains why this item exists and what value it should provide.",
+    },
+    SectionHelp {
+        name: "targets",
+        applies_to: &["app", "task", "test"],
+        hover: "Declares target fact records and capability families without selecting or probing a target.",
     },
     SectionHelp {
         name: "uses",
@@ -726,7 +739,7 @@ mod tests {
         assert!(
             json.contains("\"item_kinds\": [\"app\", \"type\", \"store\", \"task\", \"test\"]")
         );
-        assert!(json.contains("\"task_order\": [\"why\", \"uses\", \"changes\""));
+        assert!(json.contains("\"task_order\": [\"why\", \"targets\", \"uses\""));
         assert!(json.contains(
             "{\"name\": \"watch for\", \"kind\": \"edge_case\", \"blame\": \"evidence\"}"
         ));
@@ -734,6 +747,9 @@ mod tests {
             "{\"name\": \"protects\", \"kind\": \"security_property\", \"blame\": \"security_boundary\"}"
         ));
         assert!(json.contains("\"section_catalog\": ["));
+        assert!(json.contains(
+            "{\"name\": \"targets\", \"applies_to\": [\"app\", \"task\", \"test\"], \"hover\": \"Declares target fact records and capability families without selecting or probing a target.\"}"
+        ));
         assert!(json.contains(
             "{\"name\": \"cost\", \"applies_to\": [\"task\", \"test\"], \"hover\": \"States time, space, allocation, and check expectations.\"}"
         ));
@@ -753,6 +769,7 @@ mod tests {
         let json = textmate_json();
         assert!(json.contains("\"scopeName\": \"source.hum\""));
         assert!(json.contains("app|type|store|task|test"));
+        assert!(json.contains("targets"));
         assert!(json.contains("fails[[:space:]]+when"));
         assert!(json.contains("watch[[:space:]]+for"));
         assert!(json.contains("unit|property|fuzz|regression|integration|model"));

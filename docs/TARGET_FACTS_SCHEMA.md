@@ -170,11 +170,15 @@ or network stack while a strict Hum profile denies it.
 points back to this schema through `target_facts_schema` and
 `target_fact_record_schema`.
 
-In Milestone 0 that graph object is empty on purpose: it records
-`reserved_v0`, `source_analysis_only_no_target_selection`, and explicit
-non-claims. Future source/profile analysis should fill that object with target
-fact record IDs, required capability families, denied capability families,
-unavailable capability families, adapter identities, and artifact evidence.
+In Milestone 0 that graph object records `reserved_v0`,
+`source_analysis_only_no_target_selection`, explicit non-claims, and normalized
+source declarations from `targets:` sections. Recognized `targets:` lines can
+fill `target_fact_records`, `required_capability_families`,
+`denied_capability_families`, and `source_target_declarations`, but they do not
+select a backend target, probe the host, enforce a profile, or prove an artifact
+is portable. Future source/profile analysis should add unavailable capability
+families, adapter identities, artifact evidence, and portability diagnostics.
+
 ## Adapter Rules
 
 - Query `hum target-facts --format json` before assuming a target fact field or

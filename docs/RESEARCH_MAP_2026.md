@@ -581,7 +581,7 @@ Hum still needs deeper study before hardening these areas:
 - compiler IR and optimization correctness strategy
 - executable debug/profiler implementation and source-map validation
 - footprint-constrained profile and deterministic artifact model
-- profile diagnostics and real source-derived target declarations
+- profile diagnostics and target/capability declaration validation
 - data-oriented scheduling and ECS-like storage contracts
 - operations model for dry-run, rollback, idempotence, drift, and telemetry
 - network model for typed addresses, protocol parsing, transactions, and

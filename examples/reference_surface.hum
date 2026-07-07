@@ -21,6 +21,12 @@ task remember work item(title: Text) -> Result WorkItem, WorkError {
     let a user capture work without losing the reason it matters
     # comments inside sections are preserved as section facts
 
+  targets:
+    triple: wasm32-wasi-preview1
+    requires: os.clock
+    requires: os.filesystem
+    denies: os.network
+
   uses:
     clock
 

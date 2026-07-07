@@ -28,7 +28,7 @@
     },
     "sections": {
       "patterns": [
-        {"name": "keyword.other.section.hum", "match": "^[[:space:]]*(why|uses|changes|needs|ensures|protects|trusts|fails[[:space:]]+when|watch[[:space:]]+for|cost|allocates|avoids|tradeoffs|optimizes|tests|does|regression|covers)[[:space:]]*:"}
+        {"name": "keyword.other.section.hum", "match": "^[[:space:]]*(why|targets|uses|changes|needs|ensures|protects|trusts|fails[[:space:]]+when|watch[[:space:]]+for|cost|allocates|avoids|tradeoffs|optimizes|tests|does|regression|covers)[[:space:]]*:"}
       ]
     },
     "test-modifiers": {

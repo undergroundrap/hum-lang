@@ -269,6 +269,7 @@ Common task sections:
 | Section | Status | Meaning |
 | --- | --- | --- |
 | `why:` | current | human and agent purpose |
+| `targets:` | current | target fact records and capability-family declarations |
 | `uses:` | current | read dependencies and capabilities |
 | `changes:` | current | mutation/write permissions |
 | `needs:` | current | preconditions and generated test obligations |
@@ -299,6 +300,7 @@ Preferred task order follows [FORMATTER.md](FORMATTER.md). The current checker w
 
 ```text
 why
+targets
 uses
 changes
 creates
@@ -321,6 +323,35 @@ benchmarks
 proves
 does
 ```
+
+## Target Declarations
+
+`targets:` is the current source-visible portability section. It lets source say
+which target fact records or capability families matter without selecting a
+backend target, probing the host, enforcing a runtime profile, or claiming an
+artifact exists.
+
+Milestone 0 recognizes only these formal line keys inside `targets:`:
+
+```hum
+targets:
+  triple: wasm32-wasi-preview1
+  requires: os.filesystem
+  denies: os.network
+```
+
+Current graph meaning:
+
+- `triple:` adds a source-declared `target_fact_records` value
+- `requires:` adds a source-declared `required_capability_families` value
+- `denies:` adds a source-declared `denied_capability_families` value
+- every recognized line also appears in `source_target_declarations` with a
+  source span and `declared_not_enforced_v0` status
+
+Milestone 0 does not yet validate whether a named record or capability family is
+known, does not match required capabilities against target fixtures, and does
+not emit unavailable-capability diagnostics. Unknown or absent target facts
+still fail closed in future enforcement.
 
 ## Effects And Capabilities
 
@@ -702,7 +733,7 @@ This reference is intentionally incomplete. The next gaps to close are:
 - exact expression grammar for the first executable subset
 - type grammar for records, results, options, lists, and maps
 - import and visibility rules
-- target fact and capability declarations once portability syntax is pinned
+- validation diagnostics for unknown target fact records and capability families
 - formal lowering from surface constructs into Core Hum
 - stable examples for every accepted syntax form beyond `examples/reference_surface.hum`
 - generated editor grammar and syntax-highlight keyword list beyond the current TextMate snapshot

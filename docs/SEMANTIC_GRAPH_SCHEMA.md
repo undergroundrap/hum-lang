@@ -80,20 +80,40 @@ Current fields:
 - `target_fact_record_schema`: currently `hum.target_fact_record.v0`
 - `boundary_model`: owning portability doctrine document
 - `default_policy`: currently `unknown_fails_closed`
-- `target_fact_records`: empty until source or build inputs name target facts
-- `required_capability_families`: empty until source/profile analysis can infer
-  required families
-- `denied_capability_families`: empty until profiles exist in the graph
+- `target_fact_records`: source-declared target fact record IDs from `targets:`
+  lines such as `triple: wasm32-wasi-preview1`
+- `required_capability_families`: source-declared capability families from
+  `targets:` lines such as `requires: os.filesystem`
+- `denied_capability_families`: source-declared capability families from
+  `targets:` lines such as `denies: os.network`
 - `unavailable_capability_families`: empty until target matching exists
-- `source_target_declarations`: empty until target/profile syntax is pinned
+- `source_target_declarations`: normalized source lines recognized from
+  `targets:` sections
 - `adapter_identities`: empty until backend/platform adapters exist
 - `artifact_evidence`: empty until artifact generation exists
 - `non_claims`: explicit reminders that V0 does not select targets, probe host
   capabilities, enforce profiles, or generate artifacts
 
+`source_target_declarations` entries currently contain:
+
+- `id`: source-derived declaration node ID
+- `kind`: `target_fact_record`, `required_capability_family`, or
+  `denied_capability_family`
+- `value`: declared record ID or capability family
+- `status`: currently `declared_not_enforced_v0`
+- `source_section`: currently `targets`
+- `text`: original recognized line text
+- `owner`: item `id`, `kind`, and `name`
+- `span`: source location of the declaration line
+
+Only the formal line keys `triple:`, `record:`, `target:`, `requires:`, and
+`denies:` produce normalized portability declarations in V0. Other section text
+remains available through normal `sections[].line_items` graph output.
+
 The reserved object is intentionally boring. It is the graph slot future
 portability diagnostics and evidence should fill, not a claim of current
 portability enforcement.
+
 ## Files
 
 Each file contains:

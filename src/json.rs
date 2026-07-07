@@ -1,4 +1,6 @@
-use crate::ast::{Item, Program, Section, Task};
+use std::collections::BTreeSet;
+
+use crate::ast::{Item, Program, Section, SectionLine, Task};
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::{
     TestCoverage, collect_test_coverages, coverage_key, coverage_match_kind, evidence_obligations,
@@ -35,7 +37,7 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
     ));
     out.push_str("},\n");
 
-    write_portability_reservation(&mut out);
+    write_portability_reservation(&mut out, program);
 
     out.push_str("  \"files\": [\n");
     for (file_index, file) in program.files.iter().enumerate() {
@@ -75,7 +77,21 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
     out
 }
 
-fn write_portability_reservation(out: &mut String) {
+struct SourceTargetDeclaration<'a> {
+    owner: &'a Item,
+    line: &'a SectionLine,
+    kind: &'static str,
+    value: String,
+}
+
+fn write_portability_reservation(out: &mut String, program: &Program) {
+    let source_target_declarations = collect_source_target_declarations(program);
+    let target_fact_records = portability_values(&source_target_declarations, "target_fact_record");
+    let required_capability_families =
+        portability_values(&source_target_declarations, "required_capability_family");
+    let denied_capability_families =
+        portability_values(&source_target_declarations, "denied_capability_family");
+
     out.push_str("  \"portability\": {\n");
     out.push_str("    \"status\": \"reserved_v0\",\n");
     out.push_str("    \"mode\": \"source_analysis_only_no_target_selection\",\n");
@@ -87,11 +103,24 @@ fn write_portability_reservation(out: &mut String) {
     out.push_str(",\n");
     out.push_str("    \"boundary_model\": \"docs/PORTABILITY_BOUNDARY_MODEL.md\",\n");
     out.push_str("    \"default_policy\": \"unknown_fails_closed\",\n");
-    out.push_str("    \"target_fact_records\": [],\n");
-    out.push_str("    \"required_capability_families\": [],\n");
-    out.push_str("    \"denied_capability_families\": [],\n");
+    write_string_array_field(out, 4, "target_fact_records", &target_fact_records, true);
+    write_string_array_field(
+        out,
+        4,
+        "required_capability_families",
+        &required_capability_families,
+        true,
+    );
+    write_string_array_field(
+        out,
+        4,
+        "denied_capability_families",
+        &denied_capability_families,
+        true,
+    );
     out.push_str("    \"unavailable_capability_families\": [],\n");
-    out.push_str("    \"source_target_declarations\": [],\n");
+    write_source_target_declarations(out, &source_target_declarations);
+    out.push_str(",\n");
     out.push_str("    \"adapter_identities\": [],\n");
     out.push_str("    \"artifact_evidence\": [],\n");
     out.push_str("    \"non_claims\": [\n");
@@ -101,6 +130,134 @@ fn write_portability_reservation(out: &mut String) {
     out.push_str("      \"no artifact generated\"\n");
     out.push_str("    ]\n");
     out.push_str("  },\n");
+}
+
+fn collect_source_target_declarations(program: &Program) -> Vec<SourceTargetDeclaration<'_>> {
+    let mut declarations = Vec::new();
+    for file in &program.files {
+        collect_source_target_declarations_from_items(&file.items, &mut declarations);
+    }
+    declarations
+}
+
+fn collect_source_target_declarations_from_items<'a>(
+    items: &'a [Item],
+    declarations: &mut Vec<SourceTargetDeclaration<'a>>,
+) {
+    for item in items {
+        for section in item_sections(item) {
+            if section.name != "targets" {
+                continue;
+            }
+
+            for line in section
+                .lines
+                .iter()
+                .filter(|line| is_meaningful_line_text(&line.text))
+            {
+                if let Some((kind, value)) = parse_target_declaration_line(&line.text) {
+                    declarations.push(SourceTargetDeclaration {
+                        owner: item,
+                        line,
+                        kind,
+                        value,
+                    });
+                }
+            }
+        }
+
+        if let Item::App(app) = item {
+            collect_source_target_declarations_from_items(&app.items, declarations);
+        }
+    }
+}
+
+fn parse_target_declaration_line(text: &str) -> Option<(&'static str, String)> {
+    let (key, value) = text.split_once(':')?;
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    match key.trim() {
+        "triple" | "record" | "target" => Some(("target_fact_record", value.to_string())),
+        "requires" | "requires capability" | "requires capability family" => {
+            Some(("required_capability_family", value.to_string()))
+        }
+        "denies" | "denies capability" | "denies capability family" => {
+            Some(("denied_capability_family", value.to_string()))
+        }
+        _ => None,
+    }
+}
+
+fn portability_values(declarations: &[SourceTargetDeclaration<'_>], kind: &str) -> Vec<String> {
+    declarations
+        .iter()
+        .filter(|declaration| declaration.kind == kind)
+        .map(|declaration| declaration.value.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn write_source_target_declarations(
+    out: &mut String,
+    declarations: &[SourceTargetDeclaration<'_>],
+) {
+    out.push_str("    \"source_target_declarations\": [");
+    for (index, declaration) in declarations.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+
+        out.push('{');
+        out.push_str(&format!(
+            "\"id\": {}, ",
+            quote(&node_id::span(
+                "target-declaration",
+                &declaration.line.span,
+                &format!("{} {}", declaration.kind, declaration.value)
+            ))
+        ));
+        out.push_str(&format!("\"kind\": {}, ", quote(declaration.kind)));
+        out.push_str(&format!("\"value\": {}, ", quote(&declaration.value)));
+        out.push_str("\"status\": \"declared_not_enforced_v0\", ");
+        out.push_str("\"source_section\": \"targets\", ");
+        out.push_str(&format!("\"text\": {}, ", quote(&declaration.line.text)));
+        out.push_str(&format!(
+            "\"owner\": {{\"id\": {}, \"kind\": {}, \"name\": {}}}, ",
+            quote(&item_node_id(declaration.owner)),
+            quote(declaration.owner.kind()),
+            quote(declaration.owner.name())
+        ));
+        out.push_str("\"span\": ");
+        write_span(out, &declaration.line.span);
+        out.push('}');
+    }
+    out.push(']');
+}
+
+fn write_string_array_field(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    values: &[String],
+    comma: bool,
+) {
+    let pad = " ".repeat(indent);
+    out.push_str(&format!("{pad}{}: [", quote(key)));
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&quote(value));
+    }
+    out.push(']');
+    if comma {
+        out.push(',');
+    }
+    out.push('\n');
 }
 struct SectionFold<'a> {
     owner: &'a Item,
@@ -683,8 +840,50 @@ mod tests {
         assert!(json.contains("\"default_policy\": \"unknown_fails_closed\""));
         assert!(json.contains("\"target_fact_records\": []"));
         assert!(json.contains("\"required_capability_families\": []"));
+        assert!(json.contains("\"source_target_declarations\": []"));
         assert!(json.contains("\"no target selected\""));
         assert!(json.contains("\"no artifact generated\""));
+    }
+
+    #[test]
+    fn graph_json_includes_source_target_declarations() {
+        let source = r#"task read manifest() {
+  why:
+    read a release manifest without assuming host powers
+
+  targets:
+    triple: wasm32-wasi-preview1
+    requires: os.filesystem
+    denies: os.network
+
+  needs:
+    manifest path is inside the declared root
+
+  cost:
+    time: O(1)
+    check: warn
+
+  does:
+    return manifest
+}
+"#;
+        let parsed = parse_source("portable.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = program_to_json(&program, &[]);
+
+        assert!(json.contains("\"target_fact_records\": [\"wasm32-wasi-preview1\"]"));
+        assert!(json.contains("\"required_capability_families\": [\"os.filesystem\"]"));
+        assert!(json.contains("\"denied_capability_families\": [\"os.network\"]"));
+        assert!(json.contains("\"source_target_declarations\": ["));
+        assert!(json.contains("\"kind\": \"target_fact_record\""));
+        assert!(json.contains("\"kind\": \"required_capability_family\""));
+        assert!(json.contains("\"kind\": \"denied_capability_family\""));
+        assert!(json.contains("\"status\": \"declared_not_enforced_v0\""));
+        assert!(json.contains("\"source_section\": \"targets\""));
+        assert!(json.contains("\"owner\": {\"id\": \"item:portable.hum:1:1:task-read-manifest\""));
+        assert!(json.contains("\"no target selected\""));
     }
     #[test]
     fn task_json_includes_test_and_evidence_obligations() {
