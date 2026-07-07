@@ -82,6 +82,8 @@ Current artifacts:
 - [docs/RELEASE_AND_VERSIONING.md](docs/RELEASE_AND_VERSIONING.md): SemVer, `0.0.1`, release checks, and tag policy
 - [CHANGELOG.md](CHANGELOG.md): human-readable release history
 - [docs/releases/v0.0.1.md](docs/releases/v0.0.1.md): draft `v0.0.1` pre-alpha release notes
+- [docs/RELEASE_MANIFEST_SCHEMA.md](docs/RELEASE_MANIFEST_SCHEMA.md): `hum.release_manifest.v0` schema for machine-readable release manifests
+- [docs/releases/v0.0.1.manifest.json](docs/releases/v0.0.1.manifest.json): machine-readable `v0.0.1` release candidate manifest
 - [.github/workflows/ci.yml](.github/workflows/ci.yml): hosted preflight workflow for pushes and pull requests
 - [docs/LANGUAGE_CONSTITUTION.md](docs/LANGUAGE_CONSTITUTION.md): rules Hum must not violate
 - [docs/PAVED_ROAD_DOCTRINE.md](docs/PAVED_ROAD_DOCTRINE.md): one obvious default path, explicit side roads, and evidence-backed optimization doctrine

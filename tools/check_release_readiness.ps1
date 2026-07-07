@@ -69,6 +69,12 @@ if (-not $releaseDoc.Contains('CHANGELOG.md')) {
 if (-not $releaseDoc.Contains('releases/v0.0.1.md')) {
   Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention releases/v0.0.1.md'
 }
+if (-not $releaseDoc.Contains('RELEASE_MANIFEST_SCHEMA.md')) {
+  Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention RELEASE_MANIFEST_SCHEMA.md'
+}
+if (-not $releaseDoc.Contains('releases/v0.0.1.manifest.json')) {
+  Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention releases/v0.0.1.manifest.json'
+}
 $changelog = Read-RepoText 'CHANGELOG.md'
 foreach ($required in @("## [$version]", 'Status: pre-alpha', '### Added', '### Known Risks', '### Verification', 'tools/check_tag_readiness.ps1')) {
   if (-not $changelog.Contains($required)) {
@@ -78,12 +84,45 @@ foreach ($required in @("## [$version]", 'Status: pre-alpha', '### Added', '### 
 
 $releaseNotePath = "docs\releases\v$version.md"
 $releaseNote = Read-RepoText $releaseNotePath
-foreach ($required in @("Hum v$version Release Notes", 'Status: pre-alpha', 'Commit hash', '## Highlights', '## Compatibility Notes', '## Known Risks', '## Verification Commands', 'tools/check_tag_readiness.ps1')) {
+foreach ($required in @("Hum v$version Release Notes", 'Status: pre-alpha', 'Commit hash', 'Manifest:', 'v0.0.1.manifest.json', '## Highlights', '## Compatibility Notes', '## Known Risks', '## Verification Commands', 'tools/check_tag_readiness.ps1')) {
   if (-not $releaseNote.Contains($required)) {
     Add-Failure "$releaseNotePath does not mention $required"
   }
 }
 
+$manifestSchemaDoc = Read-RepoText 'docs/RELEASE_MANIFEST_SCHEMA.md'
+foreach ($required in @('hum.release_manifest.v0', 'releases/v0.0.1.manifest.json', 'tools/check_tag_readiness.ps1', 'tag_created', 'remote_touched', 'public_package_published')) {
+  if (-not $manifestSchemaDoc.Contains($required)) {
+    Add-Failure "docs/RELEASE_MANIFEST_SCHEMA.md does not mention $required"
+  }
+}
+
+$manifestPath = "docs/releases/v$version.manifest.json"
+$manifestText = Read-RepoText $manifestPath
+try {
+  $manifest = $manifestText | ConvertFrom-Json
+} catch {
+  Add-Failure "$manifestPath is not valid JSON: $_"
+  $manifest = $null
+}
+if ($null -ne $manifest) {
+  if ($manifest.schema -ne 'hum.release_manifest.v0') { Add-Failure "$manifestPath schema is not hum.release_manifest.v0" }
+  if ($manifest.version -ne $version) { Add-Failure "$manifestPath version does not match VERSION $version" }
+  if ($manifest.tag -ne ("v$version")) { Add-Failure "$manifestPath tag does not match v$version" }
+  if ($manifest.status -ne 'pre-alpha') { Add-Failure "$manifestPath status is not pre-alpha" }
+  if ($manifest.source_artifacts.changelog -ne 'CHANGELOG.md') { Add-Failure "$manifestPath does not point at CHANGELOG.md" }
+  if ($manifest.source_artifacts.release_notes -ne $releaseNotePath.Replace('\', '/')) { Add-Failure "$manifestPath does not point at $releaseNotePath" }
+  foreach ($command in @('tools/check_all.ps1', 'tools/check_clean_checkout.ps1', 'tools/check_tag_readiness.ps1')) {
+    $found = $false
+    foreach ($entry in $manifest.verification) {
+      if ($entry.command -eq $command -and $entry.required -eq $true) { $found = $true }
+    }
+    if (-not $found) { Add-Failure "$manifestPath verification does not require $command" }
+  }
+  if ($manifest.publishing.tag_created -ne $false) { Add-Failure "$manifestPath should say tag_created is false before tag creation" }
+  if ($manifest.publishing.remote_touched -ne $false) { Add-Failure "$manifestPath should say remote_touched is false before publication" }
+  if ($manifest.publishing.public_package_published -ne $false) { Add-Failure "$manifestPath should say public_package_published is false before publication" }
+}
 $readme = Read-RepoText 'README.md'
 if (-not $readme.Contains('docs/RELEASE_AND_VERSIONING.md')) {
   Add-Failure 'README.md does not link docs/RELEASE_AND_VERSIONING.md'
@@ -93,6 +132,12 @@ if (-not $readme.Contains('CHANGELOG.md')) {
 }
 if (-not $readme.Contains('docs/releases/v0.0.1.md')) {
   Add-Failure 'README.md does not link docs/releases/v0.0.1.md'
+}
+if (-not $readme.Contains('docs/RELEASE_MANIFEST_SCHEMA.md')) {
+  Add-Failure 'README.md does not link docs/RELEASE_MANIFEST_SCHEMA.md'
+}
+if (-not $readme.Contains('docs/releases/v0.0.1.manifest.json')) {
+  Add-Failure 'README.md does not link docs/releases/v0.0.1.manifest.json'
 }
 if (-not $readme.Contains('docs/LSP_CAPABILITY_MATRIX.md')) {
   Add-Failure 'README.md does not link docs/LSP_CAPABILITY_MATRIX.md'

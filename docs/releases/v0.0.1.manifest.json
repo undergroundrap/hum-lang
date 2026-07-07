@@ -1,0 +1,46 @@
+{
+  "schema": "hum.release_manifest.v0",
+  "version": "0.0.1",
+  "tag": "v0.0.1",
+  "date": "2026-07-07",
+  "status": "pre-alpha",
+  "commit": {
+    "verified_by": "tools/check_tag_readiness.ps1",
+    "hash_source": "printed by tools/check_tag_readiness.ps1 immediately before tag creation",
+    "committed_hash": null
+  },
+  "source_artifacts": {
+    "version_file": "VERSION",
+    "cargo_manifest": "Cargo.toml",
+    "changelog": "CHANGELOG.md",
+    "release_notes": "docs/releases/v0.0.1.md"
+  },
+  "verification": [
+    {
+      "command": "tools/check_all.ps1",
+      "required": true,
+      "purpose": "full local preflight"
+    },
+    {
+      "command": "tools/check_clean_checkout.ps1",
+      "required": true,
+      "purpose": "fresh committed-checkout preflight"
+    },
+    {
+      "command": "tools/check_tag_readiness.ps1",
+      "required": true,
+      "purpose": "non-publishing tag gate"
+    }
+  ],
+  "publishing": {
+    "tag_created": false,
+    "remote_touched": false,
+    "public_package_published": false
+  },
+  "compatibility": {
+    "public_api_stable": false,
+    "schemas_stable": false,
+    "source_syntax_stable": false,
+    "notes": "0.0.1 is a pre-alpha local release snapshot, not a compatibility promise."
+  }
+}

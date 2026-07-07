@@ -25,7 +25,7 @@ Status: pre-alpha.
   toolchain capabilities, LSP capability preview, and setup health.
 - Editor-neutral TextMate grammar generation and editor recovery fixtures.
 - Portable setup, text hygiene, public-readiness, release-readiness,
-  clean-checkout, and tag-readiness guardrails.
+  clean-checkout, tag-readiness, and release-manifest guardrails.
 - Architecture, language reference, release, security, governance, setup,
   editor, stdlib, backend, platform, research, and alpha planning docs.
 
