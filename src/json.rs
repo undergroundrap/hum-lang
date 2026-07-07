@@ -1,7 +1,7 @@
 use crate::ast::{Item, Program, Section, Task};
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::{
-    TestCoverage, collect_test_coverages, coverage_key, coverage_match_kind,
+    TestCoverage, collect_test_coverages, coverage_key, coverage_match_kind, evidence_obligations,
     is_meaningful_line_text, linked_test_count, test_obligations,
 };
 use crate::node_id;
@@ -279,6 +279,8 @@ fn write_item(out: &mut String, item: &Item, indent: usize, test_coverages: &[Te
             write_sections_field(out, &task.sections, indent + 2);
             out.push_str(",\n");
             write_test_obligations_field(out, task, indent + 2, test_coverages);
+            out.push_str(",\n");
+            write_evidence_obligations_field(out, task, indent + 2);
             out.push('\n');
         }
         Item::Test(test) => {
@@ -427,6 +429,35 @@ fn write_test_obligations_field(
     out.push(']');
 }
 
+fn write_evidence_obligations_field(out: &mut String, task: &Task, indent: usize) {
+    let pad = " ".repeat(indent);
+    out.push_str(&format!("{pad}\"evidence_obligations\": ["));
+    let obligations = evidence_obligations(task);
+    for (index, obligation) in obligations.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push('{');
+        out.push_str(&format!("\"id\": {}, ", quote(&obligation.id)));
+        out.push_str(&format!("\"kind\": {}, ", quote(obligation.kind)));
+        out.push_str(&format!("\"blame\": {}, ", quote(obligation.blame)));
+        out.push_str(&format!(
+            "\"source_section\": {}, ",
+            quote(obligation.source_section)
+        ));
+        out.push_str(&format!("\"text\": {}, ", quote(&obligation.line.text)));
+        out.push_str("\"span\": ");
+        write_span(out, &obligation.line.span);
+        out.push_str(&format!(
+            ", \"suggested_evidence\": {}",
+            quote(&obligation.suggested_evidence)
+        ));
+        out.push_str(", \"verification_status\": \"unverified\"");
+        out.push('}');
+    }
+    out.push(']');
+}
+
 fn write_linked_tests(out: &mut String, covers: &str, test_coverages: &[TestCoverage<'_>]) {
     for (written, (coverage, match_kind)) in test_coverages
         .iter()
@@ -570,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn task_json_includes_test_obligations() {
+    fn task_json_includes_test_and_evidence_obligations() {
         let source = r#"task add task(title: Text) -> Result Task, TaskError {
   why:
     save a task
@@ -580,6 +611,12 @@ mod tests {
 
   ensures:
     new task is saved
+
+  protects:
+    user data remains private
+
+  trusts:
+    local profile storage is durable
 
   watch for:
     title may be only spaces
@@ -605,10 +642,22 @@ mod tests {
         assert!(json.contains("\"kind\": \"edge_case\""));
         assert!(json.contains("\"kind\": \"declared_test\""));
         assert!(json.contains("\"blame\": \"evidence\""));
+        assert!(json.contains("\"evidence_obligations\""));
+        assert!(json.contains("\"kind\": \"security_property\""));
+        assert!(json.contains("\"blame\": \"security_boundary\""));
+        assert!(json.contains("\"kind\": \"trust_boundary\""));
+        assert!(json.contains("\"blame\": \"trust_boundary\""));
+        assert!(json.contains("\"verification_status\": \"unverified\""));
+        assert!(
+            json.contains("\"suggested_evidence\": \"add task proves user data remains private\"")
+        );
         assert!(json.contains("\"suggested_test\": \"add task requires title is not empty\""));
         assert!(
             json.contains("\"id\": \"obligation:demo.hum:6:5:add-task-needs-title-is-not-empty\"")
         );
+        assert!(json.contains(
+            "\"id\": \"evidence:demo.hum:12:5:add-task-protects-user-data-remains-private\""
+        ));
     }
 
     #[test]

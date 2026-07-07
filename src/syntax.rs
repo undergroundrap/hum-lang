@@ -64,6 +64,19 @@ pub const TEST_OBLIGATION_SECTIONS: &[TaskObligationSection] = &[
     },
 ];
 
+pub const EVIDENCE_OBLIGATION_SECTIONS: &[TaskObligationSection] = &[
+    TaskObligationSection {
+        name: "protects",
+        kind: "security_property",
+        blame: "security_boundary",
+    },
+    TaskObligationSection {
+        name: "trusts",
+        kind: "trust_boundary",
+        blame: "trust_boundary",
+    },
+];
+
 pub struct TaskObligationSection {
     pub name: &'static str,
     pub kind: &'static str,
@@ -353,6 +366,13 @@ pub fn syntax_json() -> String {
         4,
         "task_obligations",
         TEST_OBLIGATION_SECTIONS,
+        true,
+    );
+    push_obligation_sections(
+        &mut out,
+        4,
+        "evidence_obligations",
+        EVIDENCE_OBLIGATION_SECTIONS,
         true,
     );
     push_section_catalog(&mut out, 4, "section_catalog", SECTION_CATALOG, false);
@@ -709,6 +729,9 @@ mod tests {
         assert!(json.contains("\"task_order\": [\"why\", \"uses\", \"changes\""));
         assert!(json.contains(
             "{\"name\": \"watch for\", \"kind\": \"edge_case\", \"blame\": \"evidence\"}"
+        ));
+        assert!(json.contains(
+            "{\"name\": \"protects\", \"kind\": \"security_property\", \"blame\": \"security_boundary\"}"
         ));
         assert!(json.contains("\"section_catalog\": ["));
         assert!(json.contains(

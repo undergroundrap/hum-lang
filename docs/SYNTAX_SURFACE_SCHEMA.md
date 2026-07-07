@@ -71,6 +71,9 @@ TextMate grammar built from the same syntax surface.
   "task_obligations": [
     { "name": "needs", "kind": "precondition", "blame": "caller" }
   ],
+  "evidence_obligations": [
+    { "name": "protects", "kind": "security_property", "blame": "security_boundary" }
+  ],
   "section_catalog": [
     {
       "name": "why",
@@ -89,6 +92,11 @@ is mandatory.
 first blame owner. Current kinds are `precondition`, `postcondition`,
 `edge_case`, and `declared_test`. Current blame values are `caller`, `callee`,
 and `evidence`.
+
+`evidence_obligations` maps task sections to generated evidence-obligation
+kinds and a first blame owner. Current kinds are `security_property` for
+`protects:` and `trust_boundary` for `trusts:`. Current blame values are
+`security_boundary` and `trust_boundary`.
 
 `section_catalog` is the source of truth for section hover text. Adapters should
 use it instead of copying prose into each plugin.

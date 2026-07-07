@@ -256,6 +256,8 @@ Common task sections:
 | `changes:` | current | mutation/write permissions |
 | `needs:` | current | preconditions and generated test obligations |
 | `ensures:` | current | postconditions and generated test obligations |
+| `protects:` | current | safety/security promises and evidence obligations |
+| `trusts:` | current | trust assumptions and evidence obligations |
 | `fails when:` | current | explicit failure modes |
 | `watch for:` | current | edge cases and generated test obligations |
 | `cost:` | current | time, space, allocation, and check claims |
@@ -352,6 +354,23 @@ paraphrases.
 
 `hum test-skeletons` prints Hum `test` blocks for unlinked obligations. It does
 not execute code or write files.
+
+## Evidence Obligations
+
+Milestone 0 generates task `evidence_obligations` from meaningful lines in:
+
+- `protects:`
+- `trusts:`
+
+`protects:` lines become `security_property` obligations with
+`security_boundary` blame. `trusts:` lines become `trust_boundary` obligations
+with `trust_boundary` blame. Current obligations include source spans,
+`suggested_evidence`, and `verification_status: unverified`.
+
+This is intentionally not a proof claim. It means Hum now exposes security and
+trust promises as machine-readable work items so future tools can connect them
+to tests, proof exports, threat-model notes, review packets, sanitizer runs, or
+profile evidence.
 
 ## Executable Body Status
 

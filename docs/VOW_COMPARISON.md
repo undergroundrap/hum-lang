@@ -352,11 +352,13 @@ As of 2026-07-07, Hum has started turning this comparison into behavior:
 - `H0110` warns on hollow contract-like lines before they become fake evidence.
 - `hum.syntax_surface.v0` exposes task obligation `blame` mappings for tools.
 - `hum.semantic_graph.v0` emits `blame` on generated task obligations.
+- `hum.syntax_surface.v0` exposes evidence obligation mappings for `protects:` and `trusts:`.
+- `hum.semantic_graph.v0` emits task-level `evidence_obligations` from `protects:` and `trusts:` with `verification_status: unverified`.
 - Hosted CI uses current official GitHub actions and cache discipline.
 
-Still open from this list: `protects:` and `trusts:` need their own
-evidence-obligation lane, `hum agent docs` needs a generated command, and
-arena/region inference remains design work before implementation.
+Still open from this list: evidence obligations need links to proof, test,
+review, sanitizer, and profile artifacts; `hum agent docs` needs a generated
+command; and arena/region inference remains design work before implementation.
 
 ## Hum Positioning
 

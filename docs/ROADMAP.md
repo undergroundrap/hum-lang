@@ -60,6 +60,7 @@ Must do:
 12. Record research gates for features that touch safety, unsafe, profiles, scheduling, or verification.
 13. Reserve graph fields for dry-run, rollback, idempotence, telemetry, desired/observed state, numeric tolerance, shape, dtype, device, OS/platform authority, deployment, container, agent-tool, and reproducibility facts.
 14. Check new feature work against `LANGUAGE_PROJECT_RISK_REGISTER_2026.md`.
+15. Expose `protects:` and `trusts:` as evidence obligations instead of prose.
 
 Must not do:
 
@@ -88,6 +89,7 @@ Current prototype status:
 - `fixtures/editor` covers broken and half-written source that must still emit graph JSON and stable diagnostics.
 - `hum graph` emits section `line_items` with text, spans, and meaningful/comment status.
 - `hum graph` emits task-level `test_obligations` from `needs:`, `ensures:`, `watch for:`, and `tests:` lines, with exact or conservative canonical `covers:` links to top-level `test` blocks when present.
+- `hum graph` emits task-level `evidence_obligations` from `protects:` and `trusts:` lines, with blame owners and `verification_status: unverified` until evidence linking exists.
 - `hum test-skeletons` prints Hum `test` blocks for unlinked obligations without executing code or writing files.
 - `hum syntax` emits `hum.syntax_surface.v0` JSON for editor and tool adapters, documented in [SYNTAX_SURFACE_SCHEMA.md](SYNTAX_SURFACE_SCHEMA.md).
 - `hum syntax` emits section hover metadata so adapters can explain intent blocks from one source.

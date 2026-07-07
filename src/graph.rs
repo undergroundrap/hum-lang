@@ -20,6 +20,15 @@ pub struct TestObligation<'a> {
     pub suggested_test: String,
 }
 
+pub struct EvidenceObligation<'a> {
+    pub id: String,
+    pub kind: &'static str,
+    pub blame: &'static str,
+    pub source_section: &'static str,
+    pub line: &'a SectionLine,
+    pub suggested_evidence: String,
+}
+
 pub fn collect_test_coverages(program: &Program) -> Vec<TestCoverage<'_>> {
     let mut coverages = Vec::new();
     for file in &program.files {
@@ -109,6 +118,37 @@ pub fn test_obligations(task: &Task) -> Vec<TestObligation<'_>> {
     obligations
 }
 
+pub fn evidence_obligations(task: &Task) -> Vec<EvidenceObligation<'_>> {
+    let mut obligations = Vec::new();
+    for obligation_section in syntax::EVIDENCE_OBLIGATION_SECTIONS {
+        for section in task
+            .sections
+            .iter()
+            .filter(|section| section.name == obligation_section.name)
+        {
+            for line in meaningful_lines(section) {
+                obligations.push(EvidenceObligation {
+                    id: node_id::span(
+                        "evidence",
+                        &line.span,
+                        &format!("{} {} {}", task.name, obligation_section.name, line.text),
+                    ),
+                    kind: obligation_section.kind,
+                    blame: obligation_section.blame,
+                    source_section: obligation_section.name,
+                    line,
+                    suggested_evidence: suggested_evidence_name(
+                        &task.name,
+                        obligation_section.kind,
+                        &line.text,
+                    ),
+                });
+            }
+        }
+    }
+    obligations
+}
+
 pub fn meaningful_lines(section: &Section) -> impl Iterator<Item = &SectionLine> {
     section
         .lines
@@ -169,6 +209,24 @@ fn push_canonical_token(tokens: &mut Vec<String>, token: &str) {
         }
         "cannot" => tokens.push("not".to_string()),
         _ => tokens.push(token.to_string()),
+    }
+}
+
+fn suggested_evidence_name(task_name: &str, kind: &str, text: &str) -> String {
+    let label = match kind {
+        "security_property" => "proves",
+        "trust_boundary" => "reviews",
+        _ => "documents",
+    };
+    let summary = text
+        .split_whitespace()
+        .take(6)
+        .collect::<Vec<_>>()
+        .join(" ");
+    if summary.is_empty() {
+        format!("{task_name} {label}")
+    } else {
+        format!("{task_name} {label} {summary}")
     }
 }
 

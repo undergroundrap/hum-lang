@@ -114,8 +114,26 @@ The graph should list obligations created by source promises:
 - missing test for `ensures:`
 - missing negative fixture for `watch for:`
 - missing protection evidence for `protects:`
+- missing trust-boundary review evidence for `trusts:`
 - missing profile evidence for denied authority
 - missing benchmark evidence for checked `cost:`
+
+Current `hum.semantic_graph.v0` emits task-level `evidence_obligations` from
+meaningful `protects:` and `trusts:` lines. Alpha graph evidence obligations
+should contain:
+
+- `id`
+- `kind`
+- `blame`
+- `source_section`
+- `text`
+- `span`
+- `suggested_evidence`
+- `verification_status`
+
+The alpha target can later move or aggregate these at the top level, but tools
+should already treat security and trust claims as evidence work items rather
+than comments.
 
 ## Stability Rule
 

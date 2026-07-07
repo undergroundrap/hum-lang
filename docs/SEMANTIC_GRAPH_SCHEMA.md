@@ -148,6 +148,7 @@ Tasks contain:
 - `result`
 - `sections`
 - `test_obligations`
+- `evidence_obligations`
 
 Params contain:
 
@@ -185,6 +186,28 @@ punctuation, filler words, hyphenation such as `non-empty`, and small section
 aliases such as `requires` for `needs`; it does not prove broad semantic
 paraphrase equivalence.
 
+### Evidence Obligations
+
+Task `evidence_obligations` are generated from meaningful lines in `protects:`
+and `trusts:` sections. Each obligation contains:
+
+- `id`: stable-ish source-derived evidence obligation ID
+- `kind`: `security_property` for `protects:` or `trust_boundary` for `trusts:`
+- `blame`: current owner category for the obligation; `security_boundary` for
+  `protects:` and `trust_boundary` for `trusts:`
+- `source_section`
+- `text`
+- `span`
+- `suggested_evidence`: human-readable starting point for a proof, test,
+  review packet, or threat-model note
+- `verification_status`: currently `unverified`
+
+These are not proof results yet. They make security and trust promises visible
+as machine facts so future test generation, proof export, CI, IDE actions, and
+agents do not have to scrape prose. Milestone 0 emits declared obligations and
+marks them `unverified` until a later evidence linker can connect them to
+specific tests, proofs, reviews, sanitizer runs, or profile facts.
+
 ### Test
 
 Tests contain:
@@ -219,9 +242,9 @@ Each `line_items` entry contains:
 - `span`
 - `meaningful`: `false` for comment-only lines that start with `#` or `//`; `true` for lines that feed graph facts such as obligations and coverage
 
-Milestone 0 keeps normalized contract facts, such as `test_obligations`, separate
-from raw section lines so tools can choose either source-faithful or normalized
-views.
+Milestone 0 keeps normalized contract facts, such as `test_obligations` and
+`evidence_obligations`, separate from raw section lines so tools can choose
+either source-faithful or normalized views.
 
 ## Diagnostics
 
