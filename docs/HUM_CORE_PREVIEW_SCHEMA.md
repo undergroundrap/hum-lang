@@ -12,9 +12,9 @@ true Core Hum lowering.
 
 This command is intentionally not an interpreter, not a type checker, not an
 effect checker, not Hum IR, and not a backend. It reports conservative candidate
-operations, expression preview atoms, operators, and blockers so humans, agents,
-and future compiler passes can see what the current bootstrap can map toward Core
-Hum without pretending the body has executable meaning.
+operations, expression preview atoms, AST previews, operators, and blockers so
+humans, agents, and future compiler passes can see what the current bootstrap can
+map toward Core Hum without pretending the body has executable meaning.
 
 ## Command
 
@@ -57,8 +57,8 @@ compiler-roadmap checks, and future Core Hum lowering/verifier work.
 - `milestone`: current implementation milestone
 - `core_contract_schema`: Core Hum contract this report targets
 - `summary`: file, item, task, test, candidate, execution-ready, diagnostic,
-  statement-preview, expression-preview, expression-atom, and compound-expression
-  preview counts
+  statement-preview, expression-preview, expression-atom, expression-AST-node, and
+  compound-expression preview counts
 - `core_candidates`: task or test bodies with a `does:` section
 - `non_goals_v0`: claims this command must not make
 
@@ -75,7 +75,8 @@ Each `core_candidates` entry has:
 - `body_status`: partial body grammar aggregate status
 - `grammar_status`: body grammar maturity, currently `partial_v0`
 - `summary`: meaningful body lines, statement status counts, expression preview
-  counts, expression atom counts, and compound expression preview counts
+  counts, expression atom counts, expression AST node counts, and compound
+  expression preview counts
 - `source_sections`: sections seen on the source item
 - `statements`: one row per meaningful `does:` body line
 
@@ -148,6 +149,43 @@ resolve names, prove effects, or choose overloads.
     { "text": "empty", "kind": "name", "status": "atom_preview_v0" }
   ],
   "operators": ["is"],
+  "ast": {
+    "status": "ast_preview_v0",
+    "type_status": "not_type_checked_v0",
+    "effect_status": "not_effect_checked_v0",
+    "node_count": 3,
+    "root": {
+      "id": "expr_root_title_is_empty",
+      "form": "binary_operation_candidate",
+      "text": "title is empty",
+      "operator": "is",
+      "type_status": "not_type_checked_v0",
+      "effect_status": "not_effect_checked_v0",
+      "reason": null,
+      "children": [
+        {
+          "id": "expr_atom_0_title",
+          "form": "name_ref",
+          "text": "title",
+          "operator": null,
+          "type_status": "not_type_checked_v0",
+          "effect_status": "not_effect_checked_v0",
+          "reason": null,
+          "children": []
+        },
+        {
+          "id": "expr_atom_1_empty",
+          "form": "name_ref",
+          "text": "empty",
+          "operator": null,
+          "type_status": "not_type_checked_v0",
+          "effect_status": "not_effect_checked_v0",
+          "reason": null,
+          "children": []
+        }
+      ]
+    }
+  },
   "reason": null
 }
 ```
@@ -162,6 +200,7 @@ Expression fields:
 - `atoms`: syntax atoms found inside the expression preview
 - `operators`: recognized operator families such as `returns`, `fails_with`,
   `is`, `does`, arithmetic operators, comparisons, `and`, or `or`
+- `ast`: Core expression AST preview with explicit unchecked type/effect slots
 - `reason`: optional context or limitation reason
 
 Expression statuses:
@@ -182,6 +221,44 @@ Atom fields:
   `surface_text`
 - `status`: atom preview status
 
+## Expression AST Preview Shape
+
+The expression AST preview is a syntax tree boundary, not a checked Core Hum
+expression. It exists so later passes can fill in type, effect, name-resolution,
+and lowering facts without changing the JSON shape again.
+
+AST fields:
+
+- `status`: `ast_preview_v0`, `contextual_ast_preview_v0`, or
+  `surface_ast_preview_v0`
+- `type_status`: currently always `not_type_checked_v0`
+- `effect_status`: currently always `not_effect_checked_v0`
+- `node_count`: total root plus child node count
+- `root`: root `CoreExpressionNode` preview
+
+Node fields:
+
+- `id`: source-derived expression node identifier, stable enough for preview use
+- `form`: node family such as `name_ref`, `path_or_field_read`, `call_candidate`,
+  `record_construction_candidate`, `binary_operation_candidate`, or
+  `surface_phrase`
+- `text`: source expression slice represented by this node
+- `operator`: operator family for compound nodes, or `null`
+- `type_status`: currently always `not_type_checked_v0`
+- `effect_status`: currently always `not_effect_checked_v0`
+- `reason`: optional context or limitation reason
+- `children`: child expression nodes
+
+AST honesty rules:
+
+- The AST preview does not define precedence beyond the recognized V0 binary
+  candidate shape.
+- It does not resolve names or fields.
+- It does not type-check calls, literals, paths, records, or operators.
+- It does not infer effects or prove purity.
+- It is allowed to preserve surface phrases as `surface_phrase` nodes when V0
+  cannot honestly lower the text yet.
+
 ## Honesty Rules
 
 - `hum core-preview` must not execute code.
@@ -189,7 +266,8 @@ Atom fields:
   optimization, or backend readiness.
 - It must not emit Hum IR.
 - It may report Core Hum candidate operation families, source spans, coarse
-  expression kinds, expression preview atoms, operators, and explicit blockers.
+  expression kinds, expression preview atoms, expression AST previews, operators,
+  and explicit blockers.
 - It must stay in sync with `hum.core_contract.v0`, `hum.ir_readiness.v0`, `hum
   capabilities --format json`, and `hum version --format json`.
 

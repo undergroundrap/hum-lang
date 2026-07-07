@@ -264,8 +264,14 @@ try {
   if (-not $CorePreviewJson.Contains('"core_operation": "store_write_deferred"')) { throw 'Core preview JSON is missing deferred store write blocker' }
   if (-not $CorePreviewJson.Contains('"expression_previews"')) { throw 'Core preview JSON is missing expression preview counts' }
   if (-not $CorePreviewJson.Contains('"expression_preview"')) { throw 'Core preview JSON is missing statement expression previews' }
+  if (-not $CorePreviewJson.Contains('"expression_ast_nodes"')) { throw 'Core preview JSON is missing expression AST node counts' }
   if (-not $CorePreviewJson.Contains('"atoms"')) { throw 'Core preview JSON is missing expression atoms' }
   if (-not $CorePreviewJson.Contains('"operators"')) { throw 'Core preview JSON is missing expression operators' }
+  if (-not $CorePreviewJson.Contains('"ast"')) { throw 'Core preview JSON is missing expression AST previews' }
+  if (-not $CorePreviewJson.Contains('"node_count"')) { throw 'Core preview JSON is missing expression AST node_count' }
+  if (-not $CorePreviewJson.Contains('"form": "binary_operation_candidate"')) { throw 'Core preview JSON is missing binary operation AST form' }
+  if (-not $CorePreviewJson.Contains('"type_status": "not_type_checked_v0"')) { throw 'Core preview JSON must keep expression AST type status unchecked' }
+  if (-not $CorePreviewJson.Contains('"effect_status": "not_effect_checked_v0"')) { throw 'Core preview JSON must keep expression AST effect status unchecked' }
   if (-not $CorePreviewJson.Contains('"status": "compound_preview_v0"')) { throw 'Core preview JSON is missing compound expression preview status' }
   if (-not $CorePreviewJson.Contains('"kind": "path_or_field_read"')) { throw 'Core preview JSON is missing path or field read expression kind' }
   if (-not $CorePreviewJson.Contains('surface_save_requires_store_lowering')) { throw 'Core preview JSON is missing store save lowering blocker' }

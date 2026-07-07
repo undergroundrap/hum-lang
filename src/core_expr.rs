@@ -5,6 +5,7 @@ pub struct CoreExpressionPreview {
     pub status: &'static str,
     pub atoms: Vec<ExpressionAtom>,
     pub operators: Vec<&'static str>,
+    pub ast: CoreExpressionAstPreview,
     pub reason: Option<&'static str>,
 }
 
@@ -14,6 +15,33 @@ pub struct ExpressionAtom {
     pub kind: &'static str,
     pub status: &'static str,
 }
+
+#[derive(Debug, Clone)]
+pub struct CoreExpressionAstPreview {
+    pub status: &'static str,
+    pub type_status: &'static str,
+    pub effect_status: &'static str,
+    pub node_count: usize,
+    pub root: CoreExpressionNode,
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreExpressionNode {
+    pub id: String,
+    pub form: &'static str,
+    pub text: String,
+    pub operator: Option<&'static str>,
+    pub type_status: &'static str,
+    pub effect_status: &'static str,
+    pub children: Vec<CoreExpressionNode>,
+    pub reason: Option<&'static str>,
+}
+
+pub const CORE_EXPRESSION_AST_STATUS: &str = "ast_preview_v0";
+pub const CORE_EXPRESSION_CONTEXTUAL_AST_STATUS: &str = "contextual_ast_preview_v0";
+pub const CORE_EXPRESSION_SURFACE_AST_STATUS: &str = "surface_ast_preview_v0";
+pub const CORE_EXPRESSION_TYPE_STATUS: &str = "not_type_checked_v0";
+pub const CORE_EXPRESSION_EFFECT_STATUS: &str = "not_effect_checked_v0";
 
 const OPERATOR_PATTERNS: &[(&str, &str)] = &[
     (" fails with ", "fails_with"),
@@ -99,14 +127,170 @@ fn expression(
     operators: Vec<&'static str>,
     reason: Option<&'static str>,
 ) -> CoreExpressionPreview {
+    let ast = build_ast_preview(kind, status, text, &atoms, &operators, reason);
     CoreExpressionPreview {
         text: text.to_string(),
         kind,
         status,
         atoms,
         operators,
+        ast,
         reason,
     }
+}
+
+fn build_ast_preview(
+    kind: &'static str,
+    status: &'static str,
+    text: &str,
+    atoms: &[ExpressionAtom],
+    operators: &[&'static str],
+    reason: Option<&'static str>,
+) -> CoreExpressionAstPreview {
+    let root = if !operators.is_empty() {
+        compound_node(text, atoms, operators)
+    } else if kind == "record_literal_start" {
+        branch_node(
+            "root",
+            "record_construction_candidate",
+            text,
+            None,
+            atoms
+                .iter()
+                .enumerate()
+                .map(|(index, atom)| atom_node(index, atom))
+                .collect(),
+            reason,
+        )
+    } else if kind == "call_like" {
+        branch_node(
+            "root",
+            "call_candidate",
+            text,
+            None,
+            atoms
+                .iter()
+                .enumerate()
+                .map(|(index, atom)| atom_node(index, atom))
+                .collect(),
+            reason,
+        )
+    } else if let Some(atom) = atoms.first() {
+        atom_node(0, atom)
+    } else {
+        leaf_node("root", "unit_literal", text, reason)
+    };
+
+    CoreExpressionAstPreview {
+        status: ast_status(status),
+        type_status: CORE_EXPRESSION_TYPE_STATUS,
+        effect_status: CORE_EXPRESSION_EFFECT_STATUS,
+        node_count: count_nodes(&root),
+        root,
+    }
+}
+
+fn compound_node(
+    text: &str,
+    atoms: &[ExpressionAtom],
+    operators: &[&'static str],
+) -> CoreExpressionNode {
+    let form = if operators.len() == 1 && atoms.len() == 2 {
+        "binary_operation_candidate"
+    } else {
+        "compound_expression_candidate"
+    };
+    let reason = if operators.len() > 1 {
+        Some("operator_precedence_not_resolved")
+    } else {
+        None
+    };
+    branch_node(
+        "root",
+        form,
+        text,
+        operators.first().copied(),
+        atoms
+            .iter()
+            .enumerate()
+            .map(|(index, atom)| atom_node(index, atom))
+            .collect(),
+        reason,
+    )
+}
+
+fn atom_node(index: usize, atom: &ExpressionAtom) -> CoreExpressionNode {
+    let form = match atom.kind {
+        "unit" => "unit_literal",
+        "bool_literal" => "bool_literal",
+        "int_literal" => "int_literal",
+        "text_literal" => "text_literal",
+        "callee_name" => "callee_name",
+        "name" => "name_ref",
+        "path_or_field_read" => "path_or_field_read",
+        "call_like" => "call_candidate_atom",
+        "surface_text" => "surface_phrase",
+        _ => "unknown_atom",
+    };
+    let reason = if atom.status == "surface_phrase_preview_v0" {
+        Some("surface_phrase_not_lowered")
+    } else {
+        None
+    };
+    leaf_node(&format!("atom_{index}"), form, &atom.text, reason)
+}
+
+fn branch_node(
+    prefix: &str,
+    form: &'static str,
+    text: &str,
+    operator: Option<&'static str>,
+    children: Vec<CoreExpressionNode>,
+    reason: Option<&'static str>,
+) -> CoreExpressionNode {
+    CoreExpressionNode {
+        id: ast_node_id(prefix, text),
+        form,
+        text: text.to_string(),
+        operator,
+        type_status: CORE_EXPRESSION_TYPE_STATUS,
+        effect_status: CORE_EXPRESSION_EFFECT_STATUS,
+        children,
+        reason,
+    }
+}
+
+fn leaf_node(
+    prefix: &str,
+    form: &'static str,
+    text: &str,
+    reason: Option<&'static str>,
+) -> CoreExpressionNode {
+    branch_node(prefix, form, text, None, Vec::new(), reason)
+}
+
+fn ast_status(status: &str) -> &'static str {
+    match status {
+        "contextual_preview_v0" => CORE_EXPRESSION_CONTEXTUAL_AST_STATUS,
+        "surface_phrase_preview_v0" => CORE_EXPRESSION_SURFACE_AST_STATUS,
+        _ => CORE_EXPRESSION_AST_STATUS,
+    }
+}
+
+fn count_nodes(node: &CoreExpressionNode) -> usize {
+    1 + node.children.iter().map(count_nodes).sum::<usize>()
+}
+
+fn ast_node_id(prefix: &str, text: &str) -> String {
+    let mut body = snake_identifier(text);
+    if body.is_empty() {
+        body.push_str("unit");
+    }
+    if body.len() > 64 {
+        body.truncate(64);
+        body = body.trim_matches('_').to_string();
+    }
+    format!("expr_{prefix}_{body}")
 }
 
 fn operators_in_expression(text: &str) -> Vec<&'static str> {
@@ -193,6 +377,21 @@ fn is_identifier_like(text: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
+fn snake_identifier(text: &str) -> String {
+    let mut out = String::new();
+    let mut previous_was_separator = false;
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            previous_was_separator = false;
+        } else if !previous_was_separator && !out.is_empty() {
+            out.push('_');
+            previous_was_separator = true;
+        }
+    }
+    out.trim_matches('_').to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::analyze_expression;
@@ -211,11 +410,13 @@ mod tests {
         let record = analyze_expression("WorkItem {");
         assert_eq!(record.kind, "record_literal_start");
         assert_eq!(record.status, "contextual_preview_v0");
+        assert_eq!(record.ast.status, "contextual_ast_preview_v0");
+        assert_eq!(record.ast.root.form, "record_construction_candidate");
         assert_eq!(record.reason, Some("record_literal_context_required"));
     }
 
     #[test]
-    fn recognizes_compound_expression_atoms_and_operators() {
+    fn recognizes_compound_expression_atoms_operators_and_ast() {
         let expression = analyze_expression("attempts + 1");
         assert_eq!(expression.kind, "binary_expression");
         assert_eq!(expression.status, "compound_preview_v0");
@@ -223,23 +424,33 @@ mod tests {
         assert_eq!(expression.atoms.len(), 2);
         assert_eq!(expression.atoms[0].kind, "name");
         assert_eq!(expression.atoms[1].kind, "int_literal");
+        assert_eq!(expression.ast.status, "ast_preview_v0");
+        assert_eq!(expression.ast.node_count, 3);
+        assert_eq!(expression.ast.root.form, "binary_operation_candidate");
+        assert_eq!(expression.ast.root.operator, Some("add"));
+        assert_eq!(expression.ast.root.type_status, "not_type_checked_v0");
+        assert_eq!(expression.ast.root.effect_status, "not_effect_checked_v0");
 
         let condition = analyze_expression("title is empty");
         assert_eq!(condition.kind, "condition_or_surface_binary");
         assert_eq!(condition.operators, vec!["is"]);
+        assert_eq!(condition.ast.root.form, "binary_operation_candidate");
     }
 
     #[test]
-    fn recognizes_call_like_expression_atoms() {
+    fn recognizes_call_like_expression_atoms_and_ast() {
         let expression = analyze_expression("remember(\"demo\")");
         assert_eq!(expression.kind, "call_like");
         assert_eq!(expression.status, "atom_preview_v0");
         assert_eq!(expression.atoms.len(), 2);
         assert_eq!(expression.atoms[0].kind, "callee_name");
         assert_eq!(expression.atoms[1].kind, "text_literal");
+        assert_eq!(expression.ast.root.form, "call_candidate");
+        assert_eq!(expression.ast.node_count, 3);
 
         let surface = analyze_expression("remember(\"demo\") returns WorkItem");
         assert_eq!(surface.kind, "condition_or_surface_binary");
         assert_eq!(surface.operators, vec!["returns"]);
+        assert_eq!(surface.ast.root.form, "binary_operation_candidate");
     }
 }

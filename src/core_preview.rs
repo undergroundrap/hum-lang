@@ -1,7 +1,9 @@
 use crate::ast::{Item, Program, Section};
 use crate::core_body::{self, BodyGrammarReport, BodyStatement};
 use crate::core_contract;
-use crate::core_expr::{self, CoreExpressionPreview, ExpressionAtom};
+use crate::core_expr::{
+    self, CoreExpressionAstPreview, CoreExpressionNode, CoreExpressionPreview, ExpressionAtom,
+};
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::version;
 
@@ -32,6 +34,7 @@ struct CoreCandidate {
     blocked_statements: usize,
     expression_previews: usize,
     expression_atoms: usize,
+    expression_ast_nodes: usize,
     compound_expression_previews: usize,
     source_sections: Vec<String>,
     statements: Vec<CoreStatementPreview>,
@@ -64,7 +67,7 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         core_contract::CORE_CONTRACT_SCHEMA
     ));
     out.push_str(&format!(
-        "summary: files={} items={} tasks={} tests={} core_candidates={} execution_ready=0 errors={} warnings={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} compound_expression_previews={}\n",
+        "summary: files={} items={} tasks={} tests={} core_candidates={} execution_ready=0 errors={} warnings={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={}\n",
         report.files,
         report.items,
         report.tasks,
@@ -77,6 +80,7 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.blocked_statements(),
         report.expression_previews(),
         report.expression_atoms(),
+        report.expression_ast_nodes(),
         report.compound_expression_previews()
     ));
 
@@ -97,7 +101,7 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
             candidate.name
         ));
         out.push_str(&format!(
-            "    body: {} grammar={} meaningful_lines={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} compound_expression_previews={}\n",
+            "    body: {} grammar={} meaningful_lines={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={}\n",
             candidate.body_status,
             candidate.grammar_status,
             candidate.meaningful_lines,
@@ -106,6 +110,7 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
             candidate.blocked_statements,
             candidate.expression_previews,
             candidate.expression_atoms,
+            candidate.expression_ast_nodes,
             candidate.compound_expression_previews
         ));
         for statement in &candidate.statements {
@@ -229,6 +234,11 @@ fn core_candidate(item: &Item, diagnostics: &[Diagnostic]) -> Option<CoreCandida
         .filter_map(|statement| statement.expression_preview.as_ref())
         .map(|expression| expression.atoms.len())
         .sum();
+    let expression_ast_nodes = statements
+        .iter()
+        .filter_map(|statement| statement.expression_preview.as_ref())
+        .map(|expression| expression.ast.node_count)
+        .sum();
     let compound_expression_previews = statements
         .iter()
         .filter_map(|statement| statement.expression_preview.as_ref())
@@ -255,6 +265,7 @@ fn core_candidate(item: &Item, diagnostics: &[Diagnostic]) -> Option<CoreCandida
         blocked_statements,
         expression_previews,
         expression_atoms,
+        expression_ast_nodes,
         compound_expression_previews,
         source_sections: item_sections(item)
             .iter()
@@ -438,6 +449,13 @@ impl CorePreviewReport {
             .sum()
     }
 
+    fn expression_ast_nodes(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.expression_ast_nodes)
+            .sum()
+    }
+
     fn compound_expression_previews(&self) -> usize {
         self.candidates
             .iter()
@@ -547,7 +565,7 @@ fn push_summary(out: &mut String, report: &CorePreviewReport, indent: usize, com
     push_indent(out, indent);
     out.push_str("\"summary\": {");
     out.push_str(&format!(
-        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"core_candidates\": {}, \"execution_ready\": 0, \"errors\": {}, \"warnings\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"compound_expression_previews\": {}",
+        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"core_candidates\": {}, \"execution_ready\": 0, \"errors\": {}, \"warnings\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}",
         report.files,
         report.items,
         report.tasks,
@@ -560,6 +578,7 @@ fn push_summary(out: &mut String, report: &CorePreviewReport, indent: usize, com
         report.blocked_statements(),
         report.expression_previews(),
         report.expression_atoms(),
+        report.expression_ast_nodes(),
         report.compound_expression_previews()
     ));
     out.push('}');
@@ -607,13 +626,14 @@ fn push_candidate(out: &mut String, candidate: &CoreCandidate, indent: usize) {
     push_indent(out, indent + 2);
     out.push_str("\"summary\": {");
     out.push_str(&format!(
-        "\"meaningful_lines\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"compound_expression_previews\": {}",
+        "\"meaningful_lines\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}",
         candidate.meaningful_lines,
         candidate.lowerable_preview_statements,
         candidate.contextual_preview_statements,
         candidate.blocked_statements,
         candidate.expression_previews,
         candidate.expression_atoms,
+        candidate.expression_ast_nodes,
         candidate.compound_expression_previews
     ));
     out.push_str("},\n");
@@ -706,6 +726,7 @@ fn push_expression_preview(out: &mut String, indent: usize, expression: &CoreExp
     push_string_field(out, indent + 2, "status", expression.status, true);
     push_expression_atoms(out, indent + 2, &expression.atoms, true);
     push_string_slice_array(out, indent + 2, "operators", &expression.operators, true);
+    push_expression_ast(out, indent + 2, &expression.ast, true);
     push_optional_string_field(out, indent + 2, "reason", expression.reason, false);
     push_indent(out, indent);
     out.push('}');
@@ -751,6 +772,75 @@ fn push_string_slice_array(
     push_comma_newline(out, comma);
 }
 
+fn push_expression_ast(
+    out: &mut String,
+    indent: usize,
+    ast: &CoreExpressionAstPreview,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    push_json_string(out, "ast");
+    out.push_str(": {\n");
+    push_string_field(out, indent + 2, "status", ast.status, true);
+    push_string_field(out, indent + 2, "type_status", ast.type_status, true);
+    push_string_field(out, indent + 2, "effect_status", ast.effect_status, true);
+    push_usize_field(out, indent + 2, "node_count", ast.node_count, true);
+    push_indent(out, indent + 2);
+    push_json_string(out, "root");
+    out.push_str(": ");
+    push_expression_node(out, indent + 2, &ast.root);
+    out.push('\n');
+    push_indent(out, indent);
+    out.push('}');
+    push_comma_newline(out, comma);
+}
+
+fn push_expression_node(out: &mut String, indent: usize, node: &CoreExpressionNode) {
+    out.push_str("{\n");
+    push_string_field(out, indent + 2, "id", &node.id, true);
+    push_string_field(out, indent + 2, "form", node.form, true);
+    push_string_field(out, indent + 2, "text", &node.text, true);
+    push_optional_string_field(out, indent + 2, "operator", node.operator, true);
+    push_string_field(out, indent + 2, "type_status", node.type_status, true);
+    push_string_field(out, indent + 2, "effect_status", node.effect_status, true);
+    push_optional_string_field(out, indent + 2, "reason", node.reason, true);
+    push_expression_node_children(out, indent + 2, &node.children, false);
+    push_indent(out, indent);
+    out.push('}');
+}
+
+fn push_expression_node_children(
+    out: &mut String,
+    indent: usize,
+    children: &[CoreExpressionNode],
+    comma: bool,
+) {
+    push_indent(out, indent);
+    push_json_string(out, "children");
+    out.push_str(": [");
+    if !children.is_empty() {
+        out.push('\n');
+        for (index, child) in children.iter().enumerate() {
+            if index > 0 {
+                out.push_str(",\n");
+            }
+            push_indent(out, indent + 2);
+            push_expression_node(out, indent + 2, child);
+        }
+        out.push('\n');
+        push_indent(out, indent);
+    }
+    out.push(']');
+    push_comma_newline(out, comma);
+}
+
+fn push_usize_field(out: &mut String, indent: usize, key: &str, value: usize, comma: bool) {
+    push_indent(out, indent);
+    push_json_string(out, key);
+    out.push_str(": ");
+    out.push_str(&value.to_string());
+    push_comma_newline(out, comma);
+}
 fn push_span_field(out: &mut String, indent: usize, key: &str, span: &Span, comma: bool) {
     push_indent(out, indent);
     push_json_string(out, key);
@@ -870,6 +960,7 @@ mod tests {
         assert!(text.contains("core_candidates=2 execution_ready=0"));
         assert!(text.contains("expression_previews="));
         assert!(text.contains("expression_atoms="));
+        assert!(text.contains("expression_ast_nodes="));
         assert!(text.contains("return -> return"));
         assert!(text.contains("save_in_store -> store_write_deferred"));
     }
@@ -889,6 +980,10 @@ mod tests {
         assert!(json.contains("\"expression_preview\""));
         assert!(json.contains("\"atoms\""));
         assert!(json.contains("\"operators\""));
+        assert!(json.contains("\"ast\""));
+        assert!(json.contains("\"form\": \"binary_operation_candidate\""));
+        assert!(json.contains("\"type_status\": \"not_type_checked_v0\""));
+        assert!(json.contains("\"effect_status\": \"not_effect_checked_v0\""));
         assert!(json.contains("\"status\": \"compound_preview_v0\""));
         assert!(json.contains("\"status\": \"lowerable_preview_v0\""));
         assert!(json.contains("\"source_kind\": \"record_field_initializer\""));
