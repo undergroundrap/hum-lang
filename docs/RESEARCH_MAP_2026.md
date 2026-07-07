@@ -37,6 +37,7 @@ The current adoption research snapshot is:
 
 - [research/2026-07-06-evidence-native-systems-language.md](research/2026-07-06-evidence-native-systems-language.md)
 - [research/2026-07-07-time-space-simulation.md](research/2026-07-07-time-space-simulation.md)
+- [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md)
 
 It sharpens the product thesis: Hum should not compete as nicer syntax alone.
 It should compete as an evidence-native systems language that turns checked
@@ -421,6 +422,8 @@ Concrete design gates:
     they are optimized.
 12. If a feature cannot explain its behavior to a beginner, a senior engineer, a
     verifier, a debugger, an operator, and an agent, it is not ready.
+13. Progressive disclosure, migration tooling, and staged compatibility are part
+    of language design, not post-launch cleanup.
 
 ## Research Debt Still Open
 

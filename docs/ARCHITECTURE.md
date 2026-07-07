@@ -65,6 +65,8 @@ External-verifier doctrine: Truth Harness-style math engines, SMT tools, model c
 
 Resource-layout-comptime doctrine: resource intent, layout-sensitive representation, compile-time execution, interop, and agent-facing facts must be explicit, graph-visible, profile-aware, and evidence-backed before they become stable Hum power. `hum resource-report` is the current source-declared inventory for these claims. See [RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md) and [decisions/0006-make-resource-layout-and-comptime-explicit.md](decisions/0006-make-resource-layout-and-comptime-explicit.md).
 
+Progressive-disclosure doctrine: Hum should keep ordinary code small at the point of use, add power only behind explicit need, avoid special-case syntax, and make adoption incremental through interop and migration tooling. See [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md) and [decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md](decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md).
+
 ### 5. Runtime Profiles
 
 Profiles are policy bundles for normal apps, containers, agent tools, Windows services, driver candidates, embedded no-heap code, hard realtime code, engine hot paths, safety-critical code, and certified toolchains. Profiles can forbid features, require evidence, narrow stdlib APIs, and change release artifacts.
@@ -112,6 +114,7 @@ See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md).
 - No feature enters stable Hum without semantics, diagnostics, graph facts, tooling impact, profile impact, verification story, performance story, and pedagogy story.
 - Defaults must be paved roads; non-default power requires explicit source intent and evidence.
 - Resource, layout, compile-time, interop, and agent-facing power must be explicit and graph-visible before it is stable.
+- Progressive disclosure and migration discipline are language requirements, not polish.
 - Caches optimize development speed but do not certify correctness, safety, performance, or release readiness.
 - No parser-only or checker-only milestone should be presented as a credible public alpha; public adoption requires executable artifacts and evidence bundles.
 

@@ -40,6 +40,26 @@ Correct order:
 
 This gives Hum adoption before total ecosystem ownership.
 
+## Migration Discipline
+
+Hum should make adoption incremental enough that a team can try it on one module,
+one tool, one wrapper boundary, one hot path, or one safety-critical component
+without rewriting the whole system.
+
+Rules:
+
+- no all-or-nothing rewrite cliff
+- source editions and schema versions must be explicit
+- intentional breaking changes need release notes and a migration path
+- future `hum migrate` or `nectar migrate` tools should handle mechanical syntax,
+  edition, wrapper, and schema upgrades where possible
+- interop examples should show mixed systems, not only pure Hum programs
+- early public artifacts must be clear about what is unstable
+
+This follows the adoption lesson captured in
+[research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md)
+and [decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md](decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md).
+
 ## Milestone Policy
 
 ### Milestone 0
@@ -359,7 +379,9 @@ Before writing real FFI code:
 3. Create local examples for safe wrapper contracts without executing foreign
    code.
 4. Add diagnostics for missing `trusts:`, `protects:`, ownership, and layout.
-5. Keep all tests local.
+5. Sketch `hum migrate` / `nectar migrate` responsibilities before promising
+   source compatibility.
+6. Keep all tests local.
 
 ## BDFR Decision
 

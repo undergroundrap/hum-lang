@@ -78,6 +78,7 @@ Current artifacts:
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): unifying architecture ground truth across language, graph, tools, profiles, stdlib, backend, and platform design
 - [docs/decisions/README.md](docs/decisions/README.md): accepted design decision record index
 - [docs/decisions/0006-make-resource-layout-and-comptime-explicit.md](docs/decisions/0006-make-resource-layout-and-comptime-explicit.md): accepted rule that resource, layout, compile-time, interop, and agent-facing power must stay explicit and evidence-backed
+- [docs/decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md](docs/decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md): accepted rule that Hum must stay progressively teachable, incrementally adoptable, and evidence-backed before backend claims
 - [docs/SETUP.md](docs/SETUP.md): portable setup for beginners, experts, terminals, and editors
 - [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow, design gates, commit style, and PR rules
 - [SECURITY.md](SECURITY.md): supported security scope, reporting path, and claim limits
@@ -122,6 +123,7 @@ Current artifacts:
 - [docs/PROFILE_REPORT_SCHEMA_0_1.md](docs/PROFILE_REPORT_SCHEMA_0_1.md): `offline-tool@0.1` profile pass/fail report shape
 - [docs/EVIDENCE_BUNDLE_LAYOUT_0_1.md](docs/EVIDENCE_BUNDLE_LAYOUT_0_1.md): HumGate alpha evidence directory layout
 - [docs/research/README.md](docs/research/README.md): repeatable research workflow, prompts, and normalized snapshots
+- [docs/research/2026-07-07-lattner-compiler-lessons.md](docs/research/2026-07-07-lattner-compiler-lessons.md): distilled LLVM, Swift, MLIR, and Mojo lessons for Hum's adoption, backend, and complexity discipline
 - [docs/COMPUTING_LESSONS_SWEEP_2026.md](docs/COMPUTING_LESSONS_SWEEP_2026.md): 2026 sweep across hardware, Docker/OCI, Kubernetes, WASI, MCP, observability, networking, storage, and deployment lessons
 - [docs/OPTIMIZATION_AND_DSA_STRATEGY.md](docs/OPTIMIZATION_AND_DSA_STRATEGY.md): research-gated optimization and data-structure strategy
 - [docs/HASH_TABLE_RESEARCH_2501_02305.md](docs/HASH_TABLE_RESEARCH_2501_02305.md): deep note on elastic/funnel hashing and Hum's `Map` research path

@@ -32,6 +32,11 @@ semantics, ownership, effects, or verification obligations.
 
 Hum needs its own semantic IR first.
 
+The Chris Lattner compiler lessons reinforce the same rule from another angle:
+modern hardware, accelerators, NUMA, SIMD, matrix units, and domain lowering
+need the right abstractions to survive long enough for the compiler to optimize
+them. Use LLVM's good parts; do not make LLVM the language design.
+
 ## Recommended Pipeline
 
 ```text
@@ -234,7 +239,9 @@ For Hum v0:
 5. Keep LLVM as the serious optimized AOT backend target.
 6. Keep MLIR as the future path for data layout, SIMD, GPU, tensor, sparse, and
    accelerator work.
-7. Keep all backend experiments local-only until the BDFR safety directive allows
+7. Validate hard backend hypotheses with targeted kernels, reproducible
+   benchmarks, and resource reports before making performance claims.
+8. Keep all backend experiments local-only until the BDFR safety directive allows
    generated-code execution.
 
 ## Sources
@@ -245,3 +252,4 @@ For Hum v0:
 - Cranelift overview: https://cranelift.dev/
 - LLVM-Bench, 2026: https://arxiv.org/abs/2607.00700
 - IRFuzzer, 2024/2025: https://arxiv.org/abs/2402.05256
+- Lattner compiler lessons: [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md)

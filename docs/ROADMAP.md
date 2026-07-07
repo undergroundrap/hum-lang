@@ -42,6 +42,10 @@ Hum should be taught in this order:
 
 This order teaches the mental model before the machinery.
 
+Progressive disclosure is a hard roadmap rule: advanced features should appear
+only after ordinary Hum remains readable, diagnosable, and teachable without
+forcing every user to learn the entire systems model at once.
+
 ## Milestone 0: Semantic Graph
 
 Goal: prove Hum source can become structured meaning.
@@ -124,6 +128,10 @@ A credible public alpha must include executable artifacts, an explicit safe
 profile, basic standard library coverage, formatter and LSP paths, structured
 diagnostics, offline rebuild support, interop, and evidence outputs such as
 effect reports, provenance, and SBOMs.
+
+It must also be honest about instability: intentional breaking changes need
+explicit versions, release notes, and a migration path before users are asked to
+trust the alpha.
 
 The recommended first alpha profile is `offline-tool@0.1`: deterministic,
 file-only, no-network, no-unsafe local tooling that emits evidence artifacts.
@@ -254,6 +262,8 @@ Add:
 - `chirp`
 - `hum lsp`
 - `hum debug` protocol sketch
+- `hum migrate` responsibilities for mechanical syntax, edition, and schema
+  upgrades
 - TextMate grammar sketch
 - Tree-sitter grammar design note
 - semantic tokens
@@ -262,6 +272,8 @@ Add:
 - `nectar.toml`
 - `nectar.lock`
 - `nectar check`
+- `nectar migrate` responsibilities for package, lockfile, wrapper, and schema
+  upgrades
 - `nectar timings`
 - package graph caching
 - semantic graph cache keys

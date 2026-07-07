@@ -21,6 +21,10 @@ external research snapshot -> distilled Hum doctrine -> architecture and roadmap
 
 Store raw exports outside the repo until they pass import and hygiene checks.
 
+For interviews, videos, and transcripts, commit distilled research notes and
+design consequences instead of raw transcript text unless the license and
+copyright status are explicit.
+
 ## Import Rule
 
 Use the repo import tool for Markdown exports:

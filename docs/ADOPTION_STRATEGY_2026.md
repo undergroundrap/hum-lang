@@ -12,6 +12,7 @@ Primary research snapshot:
 
 - [research/2026-07-06-evidence-native-systems-language.md](research/2026-07-06-evidence-native-systems-language.md)
 - [research/2026-07-06-offline-tool-alpha.md](research/2026-07-06-offline-tool-alpha.md)
+- [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md)
 
 ## Thesis
 
@@ -84,6 +85,10 @@ It needs:
 
 Do not call a parser-only or checker-only state a public alpha.
 
+Do not call an unstable alpha stable by implication. If source, schemas, or
+tool outputs may break, say so plainly and provide a migration path for
+intentional breaks.
+
 ## Top Blockers
 
 The highest-risk blockers are:
@@ -133,6 +138,10 @@ Defer these until the narrow alpha is credible:
 Every major feature proposal must say which evidence it improves. If it cannot
 improve evidence, safety, portability, performance truth, or beginner clarity,
 it should wait.
+
+Every adoption proposal must also say how a team can try Hum incrementally:
+one module, one tool, one wrapper boundary, one hot path, or one
+safety-critical component at a time.
 
 Hum can still be playful and readable, but the product promise is serious:
 
