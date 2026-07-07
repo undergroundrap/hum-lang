@@ -4,6 +4,7 @@ use crate::doctor;
 use crate::evidence;
 use crate::json;
 use crate::lsp;
+use crate::math_obligations;
 use crate::syntax;
 use crate::version;
 
@@ -45,6 +46,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: evidence::EVIDENCE_REPORT_SCHEMA,
         status: "adapter-ready",
         purpose: "security and trust evidence obligation report for humans, agents, and CI",
+    },
+    CommandCapability {
+        name: "math_obligations_json",
+        command: "hum math-obligations --format json <file-or-dir>...",
+        schema: math_obligations::MATH_OBLIGATIONS_REPORT_SCHEMA,
+        status: "adapter-ready",
+        purpose: "external-validator math obligation candidates without running solvers",
     },
     CommandCapability {
         name: "syntax",
@@ -195,6 +203,14 @@ pub fn capabilities_text() -> String {
         evidence::EVIDENCE_REPORT_SCHEMA
     ));
     out.push_str(&format!(
+        "  math_obligations_report: {}\n",
+        math_obligations::MATH_OBLIGATIONS_REPORT_SCHEMA
+    ));
+    out.push_str(&format!(
+        "  math_obligation: {}\n",
+        math_obligations::MATH_OBLIGATION_SCHEMA
+    ));
+    out.push_str(&format!(
         "  diagnostic_explain: {}\n",
         diagnostic_catalog::DIAGNOSTIC_EXPLAIN_SCHEMA
     ));
@@ -269,6 +285,20 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         indent + 2,
         "evidence_report",
         evidence::EVIDENCE_REPORT_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "math_obligations_report",
+        math_obligations::MATH_OBLIGATIONS_REPORT_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "math_obligation",
+        math_obligations::MATH_OBLIGATION_SCHEMA,
         true,
     );
     push_string_field(
@@ -403,6 +433,8 @@ mod tests {
         assert!(json.contains("\"schema\": \"hum.capabilities.v0\""));
         assert!(json.contains("\"check_diagnostics\": \"hum.check.v0\""));
         assert!(json.contains("\"evidence_report\": \"hum.evidence.v0\""));
+        assert!(json.contains("\"math_obligations_report\": \"hum.math_obligations.v0\""));
+        assert!(json.contains("\"math_obligation\": \"hum.math_obligation.v0\""));
         assert!(json.contains("\"semantic_graph\": \"hum.semantic_graph.v0\""));
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
@@ -410,6 +442,7 @@ mod tests {
         assert!(json.contains("\"doctor\": \"hum.doctor.v0\""));
         assert!(json.contains("\"name\": \"doctor_json\""));
         assert!(json.contains("\"name\": \"evidence_json\""));
+        assert!(json.contains("\"name\": \"math_obligations_json\""));
         assert!(json.contains("\"name\": \"folding_ranges\""));
         assert!(json.contains("\"status\": \"adapter-ready\""));
     }

@@ -30,7 +30,7 @@ rewrite Hum semantics, or make an uncheckable claim true.
 
 ## What Hum Emits
 
-Hum may eventually export math obligations with:
+Hum may export math obligations with:
 
 - source span
 - graph node id
@@ -51,8 +51,10 @@ The first useful obligation kinds should stay small:
 - `peak_memory_bound`
 - `purity_replayability`
 
-Resource optimization and standard-library proof work should wait until these
-basic obligations have stable receipts.
+Milestone 0 now exports a conservative `allocation_freedom` subset from explicit
+`allocates: nothing` claims through `hum math-obligations`. Resource
+optimization, deeper static proof, result import, and standard-library proof work
+should wait until these basic obligations have stable receipts.
 
 ## What A Math Engine Returns
 
@@ -152,8 +154,11 @@ The safe sequence is:
 
 1. Let the external engine define schema fixtures and local receipts.
 2. Review the schemas against Hum's graph and evidence policy.
-3. Add a Hum obligation export only after the schema boundary is stable.
-4. Import verifier receipts into `hum evidence` as evidence artifacts.
+3. Keep Hum obligation export conservative and schema-shaped. The current V0
+   export is `hum math-obligations` for explicit allocation-freedom candidates
+   only.
+4. Import verifier receipts into `hum evidence` as evidence artifacts only after
+   receipt handling is stable.
 5. Add CI fixtures that prove `proved`, `refuted`, `unknown`, `unsupported`, and
    `timeout` remain distinct.
 

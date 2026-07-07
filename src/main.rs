@@ -12,6 +12,7 @@ mod explain;
 mod graph;
 mod json;
 mod lsp;
+mod math_obligations;
 mod node_id;
 mod parser;
 mod syntax;
@@ -171,6 +172,42 @@ fn run() -> Result<ExitCode, String> {
                 ExitCode::SUCCESS
             })
         }
+        "math-obligations" => {
+            if options.math_obligations_format == MathObligationsFormat::Human {
+                print_diagnostics(&diagnostics);
+            }
+            if let Some(out_dir) = &options.math_obligations_out_dir {
+                if has_errors {
+                    eprintln!(
+                        "not writing math obligation files because source diagnostics include errors"
+                    );
+                } else {
+                    let written = write_math_obligation_files(&program, out_dir)?;
+                    eprintln!(
+                        "wrote {written} math obligation file(s) to {}",
+                        out_dir.display()
+                    );
+                }
+            }
+            match options.math_obligations_format {
+                MathObligationsFormat::Human => print!(
+                    "{}",
+                    math_obligations::math_obligations_text(&program, &diagnostics)
+                ),
+                MathObligationsFormat::Json => print!(
+                    "{}",
+                    math_obligations::math_obligations_json(&program, &diagnostics)
+                ),
+            }
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            Ok(if has_errors {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
         "test-skeletons" => {
             print_diagnostics(&diagnostics);
             if !has_errors {
@@ -191,7 +228,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `lsp`, or `doctor`"
+            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `lsp`, or `doctor`"
         )),
     }
 }
@@ -250,6 +287,12 @@ enum EvidenceFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MathObligationsFormat {
+    Human,
+    Json,
+}
+
 #[derive(Debug)]
 struct CliOptions {
     command: String,
@@ -264,6 +307,8 @@ struct CliOptions {
     lsp_format: LspFormat,
     doctor_format: DoctorFormat,
     evidence_format: EvidenceFormat,
+    math_obligations_format: MathObligationsFormat,
+    math_obligations_out_dir: Option<PathBuf>,
     explain_code: Option<String>,
 }
 
@@ -289,6 +334,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "graph"
             | "test-skeletons"
             | "evidence"
+            | "math-obligations"
             | "syntax"
             | "version"
             | "explain"
@@ -298,7 +344,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "doctor"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `lsp`, or `doctor`"
+            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `lsp`, or `doctor`"
         ));
     }
 
@@ -313,6 +359,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut lsp_format = LspFormat::Human;
     let mut doctor_format = DoctorFormat::Human;
     let mut evidence_format = EvidenceFormat::Human;
+    let mut math_obligations_format = MathObligationsFormat::Human;
+    let mut math_obligations_out_dir = None;
     let mut lsp_show_capabilities = false;
     let mut args = args.into_iter().skip(1);
 
@@ -320,6 +368,19 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         match arg.as_str() {
             "--timings" => show_timings = true,
             "--capabilities" if command == "lsp" => lsp_show_capabilities = true,
+            "--out-dir" if command == "math-obligations" => {
+                let Some(value) = args.next() else {
+                    return Err("`math-obligations --out-dir` requires a directory".to_string());
+                };
+                math_obligations_out_dir = Some(PathBuf::from(value));
+            }
+            flag if command == "math-obligations" && flag.starts_with("--out-dir=") => {
+                let value = flag.trim_start_matches("--out-dir=");
+                if value.is_empty() {
+                    return Err("`math-obligations --out-dir` requires a directory".to_string());
+                }
+                math_obligations_out_dir = Some(PathBuf::from(value));
+            }
             "--format"
                 if matches!(
                     command.as_str(),
@@ -332,6 +393,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         | "lsp"
                         | "doctor"
                         | "evidence"
+                        | "math-obligations"
                 ) =>
             {
                 let Some(value) = args.next() else {
@@ -347,6 +409,9 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "lsp" => lsp_format = parse_lsp_format(&value)?,
                     "doctor" => doctor_format = parse_doctor_format(&value)?,
                     "evidence" => evidence_format = parse_evidence_format(&value)?,
+                    "math-obligations" => {
+                        math_obligations_format = parse_math_obligations_format(&value)?
+                    }
                     _ => unreachable!(),
                 }
             }
@@ -361,6 +426,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     | "lsp"
                     | "doctor"
                     | "evidence"
+                    | "math-obligations"
             ) && flag.starts_with("--format=") =>
             {
                 let value = flag.trim_start_matches("--format=");
@@ -374,6 +440,9 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "lsp" => lsp_format = parse_lsp_format(value)?,
                     "doctor" => doctor_format = parse_doctor_format(value)?,
                     "evidence" => evidence_format = parse_evidence_format(value)?,
+                    "math-obligations" => {
+                        math_obligations_format = parse_math_obligations_format(value)?
+                    }
                     _ => unreachable!(),
                 }
             }
@@ -402,6 +471,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             lsp_format,
             doctor_format,
             evidence_format,
+            math_obligations_format,
+            math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
     }
@@ -426,6 +497,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             lsp_format,
             doctor_format,
             evidence_format,
+            math_obligations_format,
+            math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
     }
@@ -450,6 +523,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             lsp_format,
             doctor_format,
             evidence_format,
+            math_obligations_format,
+            math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: raw_inputs.first().cloned(),
         });
     }
@@ -474,6 +549,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             lsp_format,
             doctor_format,
             evidence_format,
+            math_obligations_format,
+            math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
     }
@@ -498,6 +575,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             lsp_format,
             doctor_format,
             evidence_format,
+            math_obligations_format,
+            math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
     }
@@ -528,6 +607,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             lsp_format,
             doctor_format,
             evidence_format,
+            math_obligations_format,
+            math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
     }
@@ -552,6 +633,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             lsp_format,
             doctor_format,
             evidence_format,
+            math_obligations_format,
+            math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
     }
@@ -569,6 +652,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         lsp_format,
         doctor_format,
         evidence_format,
+        math_obligations_format,
+        math_obligations_out_dir,
         explain_code: None,
     })
 }
@@ -662,6 +747,16 @@ fn parse_evidence_format(value: &str) -> Result<EvidenceFormat, String> {
     }
 }
 
+fn parse_math_obligations_format(value: &str) -> Result<MathObligationsFormat, String> {
+    match value {
+        "human" => Ok(MathObligationsFormat::Human),
+        "json" => Ok(MathObligationsFormat::Json),
+        other => Err(format!(
+            "unknown math-obligations format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
 fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
     let total_start = Instant::now();
     let mut program = Program::default();
@@ -699,6 +794,28 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
         timings,
         total: total_start.elapsed(),
     })
+}
+
+fn write_math_obligation_files(program: &Program, out_dir: &Path) -> Result<usize, String> {
+    fs::create_dir_all(out_dir).map_err(|error| {
+        format!(
+            "failed to create math obligations directory `{}`: {error}",
+            out_dir.display()
+        )
+    })?;
+
+    let files = math_obligations::obligation_files(program);
+    for file in &files {
+        let path = out_dir.join(&file.file_name);
+        fs::write(&path, file.json.as_bytes()).map_err(|error| {
+            format!(
+                "failed to write math obligation `{}`: {error}",
+                path.display()
+            )
+        })?;
+    }
+
+    Ok(files.len())
 }
 
 fn collect_inputs(raw_inputs: &[String]) -> Result<Vec<PathBuf>, String> {
@@ -783,6 +900,9 @@ fn print_help() {
     println!("  hum check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum graph [--timings] <file-or-dir>...");
     println!("  hum evidence [--format human|json] [--timings] <file-or-dir>...");
+    println!(
+        "  hum math-obligations [--format human|json] [--out-dir <dir>] [--timings] <file-or-dir>..."
+    );
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!("  hum syntax [--format json|textmate]");
     println!("  hum version [--format human|json]");
@@ -795,8 +915,9 @@ fn print_help() {
     println!("Commands:");
     println!("  check           Parse Hum files and run milestone-0 intent checks");
     println!("  graph           Emit hum.semantic_graph.v0 JSON for agents and tools");
-    println!("  evidence        Summarize security and trust evidence obligations");
-    println!("  test-skeletons  Print Hum test skeletons for unlinked obligations");
+    println!("  evidence          Summarize security and trust evidence obligations");
+    println!("  math-obligations  Export V0 math obligations for external validators");
+    println!("  test-skeletons    Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
     println!("  version         Print toolchain identity and schema versions");
     println!("  explain         Explain a stable diagnostic code");
@@ -809,6 +930,7 @@ fn print_help() {
     println!("  --timings   Print read/parse/check timings per input file");
     println!("  --version   Print toolchain identity");
     println!("  --format    Choose command output format where supported");
+    println!("  --out-dir   Write one math obligation JSON file per obligation");
 }
 #[cfg(test)]
 mod tests {
@@ -816,7 +938,8 @@ mod tests {
 
     use super::{
         CapabilitiesFormat, CheckFormat, DiagnosticsFormat, DoctorFormat, EvidenceFormat,
-        ExplainFormat, LspFormat, SyntaxFormat, VersionFormat, load_program, parse_cli,
+        ExplainFormat, LspFormat, MathObligationsFormat, SyntaxFormat, VersionFormat, load_program,
+        parse_cli,
     };
 
     #[test]
@@ -1131,6 +1254,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn parses_math_obligations_json_format_and_out_dir() {
+        let options = parse_cli(vec![
+            "math-obligations".to_string(),
+            "--format=json".to_string(),
+            "--out-dir".to_string(),
+            "target/math-obligations".to_string(),
+            "examples".to_string(),
+        ])
+        .expect("math-obligations json command");
+        assert_eq!(options.command, "math-obligations");
+        assert_eq!(options.math_obligations_format, MathObligationsFormat::Json);
+        assert_eq!(
+            options.math_obligations_out_dir.as_deref(),
+            Some(std::path::Path::new("target/math-obligations"))
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_math_obligations_format() {
+        let error = parse_cli(vec![
+            "math-obligations".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+            "examples".to_string(),
+        ])
+        .expect_err("math-obligations should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown math-obligations format `textmate`; expected `human` or `json`"
+        );
+    }
     #[test]
     fn parses_doctor_command_without_inputs() {
         let options = parse_cli(vec!["doctor".to_string()]).expect("doctor command");

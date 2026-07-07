@@ -92,6 +92,7 @@ Current prototype status:
 - `hum graph` emits task-level `test_obligations` from `needs:`, `ensures:`, `watch for:`, and `tests:` lines, with exact or conservative canonical `covers:` links to top-level `test` blocks when present.
 - `hum graph` emits task-level `evidence_obligations` from `protects:` and `trusts:` lines, with blame owners plus exact or conservative canonical `covers:` links to top-level `test` blocks when present.
 - `hum evidence --format json` emits `hum.evidence.v0`, a focused security/trust evidence report over the same graph facts.
+- `hum math-obligations --format json` emits `hum.math_obligations.v0`, a conservative report of external-validator math obligation candidates; `--out-dir` writes individual `hum.math_obligation.v0` files.
 - `hum test-skeletons` prints Hum `test` blocks for unlinked obligations without executing code or writing files.
 - `hum syntax` emits `hum.syntax_surface.v0` JSON for editor and tool adapters, documented in [SYNTAX_SURFACE_SCHEMA.md](SYNTAX_SURFACE_SCHEMA.md).
 - `hum syntax` emits section hover metadata so adapters can explain intent blocks from one source.
@@ -104,7 +105,7 @@ Current prototype status:
 Deferred beyond Milestone 0:
 
 - broad semantic paraphrase proof for coverage; Milestone 0 now supports exact links plus conservative canonical matching for case, punctuation, filler words, hyphenation, and small section aliases
-- Truth Harness-style math-engine integration waits on schema-first receipts; Hum should not depend on an external verifier until the obligation/result boundary is stable
+- Truth Harness-style verifier execution and receipt import wait on schema-first receipts; Hum may export conservative obligation candidates, but it should not depend on an external verifier until result handling is stable
 
 Milestone 0 is about truth, not speed.
 
