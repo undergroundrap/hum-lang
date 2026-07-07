@@ -1,0 +1,6 @@
+task draft unfinished(title: Text) {
+  why:
+    keep a graph diagnostic available before the closing brace exists
+
+  does:
+    return title

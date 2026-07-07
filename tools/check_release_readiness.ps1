@@ -85,6 +85,11 @@ if (-not $semanticGraphDoc.Contains('source-derived handles')) {
   Add-Failure 'docs/SEMANTIC_GRAPH_SCHEMA.md does not describe source-derived node IDs'
 }
 
+$editorFixturesDoc = Read-RepoText 'docs\EDITOR_FIXTURES.md'
+if (-not $editorFixturesDoc.Contains('check_editor_fixtures.ps1')) {
+  Add-Failure 'docs/EDITOR_FIXTURES.md does not mention check_editor_fixtures.ps1'
+}
+
 $securityPolicy = Read-RepoText 'SECURITY.md'
 foreach ($required in @('Supported Versions', 'How To Report', 'Security Claims')) {
   if (-not $securityPolicy.Contains($required)) {

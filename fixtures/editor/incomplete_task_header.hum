@@ -1,0 +1,7 @@
+task draft save(title: Text {
+  why:
+    keep parser recovery visible while the user is still typing a header
+
+  does:
+    return title
+}

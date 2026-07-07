@@ -81,6 +81,7 @@ Current prototype status:
 - Known task and test sections get canonical-order warnings.
 - Current examples check cleanly.
 - `hum graph` emits source-derived node IDs for files, items, params, fields, sections, and section lines.
+- `fixtures/editor` covers broken and half-written source that must still emit graph JSON and stable diagnostics.
 - `hum graph` emits section `line_items` with text, spans, and meaningful/comment status.
 - `hum graph` emits task-level `test_obligations` from `needs:`, `ensures:`, `watch for:`, and `tests:` lines, with exact or conservative canonical `covers:` links to top-level `test` blocks when present.
 - `hum test-skeletons` prints Hum `test` blocks for unlinked obligations without executing code or writing files.

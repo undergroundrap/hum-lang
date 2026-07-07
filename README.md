@@ -73,6 +73,7 @@ Current artifacts:
 - [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow, design gates, commit style, and PR rules
 - [SECURITY.md](SECURITY.md): supported security scope, reporting path, and claim limits
 - [docs/EDITOR_AND_INTEGRATION_STRATEGY.md](docs/EDITOR_AND_INTEGRATION_STRATEGY.md): editor, LSP, plugin, Visual Studio, Eclipse, and Jupyter integration strategy
+- [docs/EDITOR_FIXTURES.md](docs/EDITOR_FIXTURES.md): broken and half-written source fixtures for editor/LSP recovery
 - [docs/RELEASE_AND_VERSIONING.md](docs/RELEASE_AND_VERSIONING.md): SemVer, `0.0.1`, release checks, and tag policy
 - [.github/workflows/ci.yml](.github/workflows/ci.yml): hosted preflight workflow for pushes and pull requests
 - [docs/LANGUAGE_CONSTITUTION.md](docs/LANGUAGE_CONSTITUTION.md): rules Hum must not violate
@@ -171,6 +172,7 @@ cargo run -- explain H0201 --format json
 cargo run -- diagnostics
 cargo run -- diagnostics --format json
 cargo run -- graph examples/reference_surface.hum
+.\tools\check_editor_fixtures.ps1
 cargo run -- graph examples/task_list.hum
 cargo run -- test-skeletons examples
 cargo run -- syntax

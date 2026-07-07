@@ -122,6 +122,8 @@ try {
   $GraphJson = Read-NativeOutput 'reference fixture graph JSON' $Hum @('graph', 'examples/reference_surface.hum')
   Assert-Json 'reference fixture graph JSON' $GraphJson
 
+  Invoke-RepoScript 'editor fixture recovery' 'check_editor_fixtures.ps1'
+
   $SyntaxJson = Read-NativeOutput 'syntax surface JSON' $Hum @('syntax')
   Assert-Json 'syntax surface JSON' $SyntaxJson
 

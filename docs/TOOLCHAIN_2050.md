@@ -277,8 +277,8 @@ Milestone 0 should produce:
 7. Tree-sitter grammar design note
 8. LSP capability plan
 9. debugger data model sketch
-10. golden tests for incomplete/broken source
-11. editor-fixture `.hum` files
+10. golden checks for incomplete/broken source through [EDITOR_FIXTURES.md](EDITOR_FIXTURES.md)
+11. editor-fixture `.hum` files under [../fixtures/editor](../fixtures/editor)
 
 Before Hum is called alpha, it should have:
 

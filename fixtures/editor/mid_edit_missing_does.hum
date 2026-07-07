@@ -1,0 +1,7 @@
+task draft reminder(title: Text) {
+  why:
+    keep a half-written task useful for editor diagnostics
+
+  needs:
+    title is not empty
+}
