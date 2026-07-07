@@ -79,6 +79,7 @@ Current prototype status:
 - AST items, sections, fields, params, and diagnostics keep source spans.
 - Diagnostics have stable `H####` codes in terminal output, `hum check --format json`, and `hum graph` JSON.
 - Known task and test sections get canonical-order warnings.
+- Obviously hollow contract-like lines get `H0110` warnings before they become fake evidence.
 - Current examples check cleanly.
 - `hum graph` emits source-derived node IDs for files, items, params, fields, sections, and section lines.
 - Parser spans report one-based first visible columns for line-oriented constructs.

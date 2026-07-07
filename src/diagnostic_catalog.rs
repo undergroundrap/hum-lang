@@ -115,6 +115,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Add `ensures:` lines that describe what the returned value or changed state must satisfy.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::HOLLOW_CONTRACT_LINE,
+        default_severity: Severity::Warning,
+        explanation: "A contract-like section contains a line that is too generic, tautological, or placeholder-shaped to reject a meaningful wrong implementation.",
+        repair: "Replace it with a specific claim, edge case, boundary, allocation limit, or success condition that could catch a real mistake.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNDECLARED_SAVE_TARGET,
         default_severity: Severity::Error,
         explanation: "A `does:` body saves into a resource that is not listed under `changes:`, so mutation would be hidden from readers and tools.",

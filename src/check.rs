@@ -103,6 +103,7 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
         ));
     }
 
+    check_contract_quality(task, diagnostics);
     check_declared_mutation(task, diagnostics);
     check_cost_contract(task, diagnostics);
     check_security_contracts(task, diagnostics);
@@ -238,6 +239,104 @@ fn warn_section_order(
             last_section = Some(section.name.as_str());
         }
     }
+}
+
+fn check_contract_quality(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
+    for section_name in [
+        "needs",
+        "ensures",
+        "protects",
+        "trusts",
+        "watch for",
+        "allocates",
+        "optimizes",
+    ] {
+        let Some(section) = task.section(section_name) else {
+            continue;
+        };
+
+        for line in meaningful_lines(section) {
+            let Some(reason) = hollow_contract_reason(&line.text) else {
+                continue;
+            };
+            diagnostics.push(
+                Diagnostic::warning(
+                    DiagnosticCode::HOLLOW_CONTRACT_LINE,
+                    format!(
+                        "task `{}` has a hollow `{section_name}:` line: {}",
+                        task.name, line.text
+                    ),
+                    Some(line.span.clone()),
+                )
+                .with_help(format!(
+                    "{reason}; write a specific claim that could reject a wrong implementation."
+                )),
+            );
+        }
+    }
+}
+
+fn hollow_contract_reason(text: &str) -> Option<&'static str> {
+    let lower = text.trim().to_ascii_lowercase();
+    let compact = lower.split_whitespace().collect::<String>();
+    if matches!(
+        compact.as_str(),
+        "result==result" | "value==value" | "item==item" | "state==state"
+    ) {
+        return Some("the claim is tautological");
+    }
+
+    let normalized = normalize_contract_text(&lower);
+    if normalized.is_empty() {
+        return None;
+    }
+
+    if normalized.starts_with("todo")
+        || normalized.starts_with("tbd")
+        || normalized.starts_with("fix later")
+    {
+        return Some("the claim is still a placeholder");
+    }
+
+    if matches!(
+        normalized.as_str(),
+        "true"
+            | "always"
+            | "always true"
+            | "ok"
+            | "okay"
+            | "works"
+            | "it works"
+            | "valid"
+            | "correct"
+            | "safe"
+            | "secure"
+            | "fast"
+            | "optimized"
+            | "good"
+            | "good enough"
+            | "must work"
+            | "everything works"
+    ) {
+        return Some("the claim is too generic to test or prove");
+    }
+
+    None
+}
+
+fn normalize_contract_text(text: &str) -> String {
+    let mut normalized = String::new();
+    let mut previous_was_space = false;
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch);
+            previous_was_space = false;
+        } else if !previous_was_space {
+            normalized.push(' ');
+            previous_was_space = true;
+        }
+    }
+    normalized.trim().to_string()
 }
 
 fn check_declared_mutation(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
@@ -470,6 +569,72 @@ mod tests {
     use super::check_file;
     use crate::diagnostic::{DiagnosticCode, Severity};
     use crate::parser::parse_source;
+
+    #[test]
+    fn warns_on_hollow_contract_lines() {
+        let source = r#"task prove nothing() -> Bool {
+  why:
+    demonstrate hollow claims
+  needs:
+    true
+  ensures:
+    result == result
+  protects:
+    safe
+  cost:
+    time: O(1)
+    check: warn
+  does:
+    return true
+}
+"#;
+        let parsed = parse_source("bad.hum", source);
+        let diagnostics = check_file(&parsed.file);
+        let hollow_count = diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.severity == Severity::Warning
+                    && diagnostic.code == DiagnosticCode::HOLLOW_CONTRACT_LINE
+            })
+            .count();
+        assert_eq!(hollow_count, 3, "got diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn keeps_specific_contract_lines_quiet() {
+        let source = r#"task save session(token: Text) -> Session {
+  why:
+    keep a security-sensitive session alive
+  uses:
+    random.secure
+  changes:
+    sessions
+  needs:
+    token has at least 128 bits of entropy
+  ensures:
+    session is saved with a future expiry
+  protects:
+    expired session cannot authenticate
+  trusts:
+    operating system isolates process memory
+  watch for:
+    token collision with an existing session
+  cost:
+    time: O(1)
+    check: warn
+  does:
+    save session in sessions
+    return session
+}
+"#;
+        let parsed = parse_source("good.hum", source);
+        let diagnostics = check_file(&parsed.file);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| { diagnostic.code != DiagnosticCode::HOLLOW_CONTRACT_LINE })
+        );
+    }
 
     #[test]
     fn rejects_undeclared_save_target() {

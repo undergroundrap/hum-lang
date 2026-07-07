@@ -115,7 +115,7 @@ JSON shape in `hum diagnostics --format json`:
 ```json
 {
   "schema": "hum.diagnostic_catalog.v0",
-  "count": 28,
+  "count": 29,
   "diagnostics": [
     {
       "code": "H0201",
@@ -190,6 +190,7 @@ Future ranges should be reserved before broad use:
 | `H0107` | warning | task missing needs section | A task lacks preconditions. |
 | `H0108` | warning | section out of order | A known section appears after a later canonical section. |
 | `H0109` | warning | task return missing ensures section | A returning task lacks postconditions. |
+| `H0110` | warning | hollow contract line | A contract-like line is too generic, tautological, or placeholder-shaped to catch a wrong implementation. |
 
 ### Effects And Mutation
 
@@ -221,6 +222,12 @@ Future ranges should be reserved before broad use:
 |---|---|---|---|
 | `H0501` | warning | test missing covers section | A test does not say what promise it covers. |
 | `H0502` | warning | regression test missing regression note | A regression test does not record the bug shape. |
+
+## Contract Quality Warnings
+
+`H0110` is a Milestone 0 warning for obviously hollow claims in contract-like task sections such as `needs:`, `ensures:`, `protects:`, `trusts:`, `watch for:`, `allocates:`, and `optimizes:`.
+
+The checker does not try to prove contracts yet. It only catches shapes that are visibly too weak to be useful, such as `true`, `works`, `safe`, `todo`, or `result == result`. The repair is not to add more words. The repair is to state a claim that could reject a real mistake.
 
 ## Canonical Section Order
 

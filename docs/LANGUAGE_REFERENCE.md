@@ -313,6 +313,7 @@ Current Milestone 0 checks are small:
 - save-like mutation in `does:` should refer to declared `changes:` targets
 - known sections should appear in canonical order
 - tasks should have important context such as `why:` and `does:`
+- contract-like lines should not be obviously hollow, tautological, or placeholder-shaped
 - simple cost claims should not contradict visible loop shape
 
 Future effect reports are tracked in [EFFECT_REPORT_SCHEMA_0_1.md](EFFECT_REPORT_SCHEMA_0_1.md).
@@ -329,7 +330,9 @@ Contract sections assign responsibility:
 - `protects:` and `trusts:`: security boundaries must be named
 
 Full blame semantics are still design work, but the reference rule is simple:
-important claims belong in checked sections, not comments.
+important claims belong in checked sections, not comments. A checked section line
+should be specific enough that a future verifier, test, or reviewer could notice
+when an implementation breaks it.
 
 ## Test Obligations And Coverage
 

@@ -51,6 +51,7 @@ impl DiagnosticCode {
     pub const SECTION_OUT_OF_ORDER: Self = Self::new("H0108", "section out of order");
     pub const TASK_MISSING_ENSURES: Self =
         Self::new("H0109", "task return missing ensures section");
+    pub const HOLLOW_CONTRACT_LINE: Self = Self::new("H0110", "hollow contract line");
 
     pub const UNDECLARED_SAVE_TARGET: Self =
         Self::new("H0201", "save target not declared in changes");
