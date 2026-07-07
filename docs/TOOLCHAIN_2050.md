@@ -200,7 +200,8 @@ See [EDITOR_AND_INTEGRATION_STRATEGY.md](EDITOR_AND_INTEGRATION_STRATEGY.md).
 
 Hum needs a Debug Adapter Protocol implementation, but a normal line debugger is
 not enough. The doctrine that keeps debug data from becoming an afterthought is
-[DEBUGGABILITY_DOCTRINE.md](DEBUGGABILITY_DOCTRINE.md).
+[DEBUGGABILITY_DOCTRINE.md](DEBUGGABILITY_DOCTRINE.md). The target artifact model
+is [DEBUG_INFO_AND_VISUALIZER_MODEL.md](DEBUG_INFO_AND_VISUALIZER_MODEL.md).
 
 The RAD Debugger lesson is sharper: a debugger is only worth building if it is
 faster and more reliable than manual instrumentation. Hum should therefore treat
@@ -271,7 +272,9 @@ Debug info is not only for humans. Agents and profilers need it too.
 
 Hum's first-party debug info should be large-project safe and indexed for reads.
 Native DWARF and PDB are compatibility targets; `hum.debug_info.v0` should be the
-authority for Hum-specific facts.
+authority for Hum-specific facts. The first DAP milestone should wait until the
+model can expose source-map edges, visualizer ids, probe-site ids, and native
+debug links honestly.
 
 ## Tooling-Driven Syntax Constraints
 

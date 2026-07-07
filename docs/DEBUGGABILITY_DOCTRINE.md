@@ -35,10 +35,11 @@ evidence from a running program. Hum's job is to make the structured path faster
 than editing source, rebuilding, rerunning, and hoping the same state happens
 again.
 
-Hum should eventually emit a first-party debug-info artifact, likely
+Hum should eventually emit a first-party debug-info artifact,
 `hum.debug_info.v0`, that is separate from but linkable to native debug formats
 such as DWARF and PDB. Native formats are bridges to host tools; Hum facts remain
-the authority for Hum intent.
+the authority for Hum intent. The target shape is tracked in
+[DEBUG_INFO_AND_VISUALIZER_MODEL.md](DEBUG_INFO_AND_VISUALIZER_MODEL.md).
 
 Hum should also design for type-attached visualizers. Standard-library and domain
 types should be able to carry local, source-controlled display hints so future
@@ -131,6 +132,7 @@ Before stabilizing a feature, ask:
 
 - [ARCHITECTURE.md](ARCHITECTURE.md)
 - [TOOLCHAIN_2050.md](TOOLCHAIN_2050.md)
+- [DEBUG_INFO_AND_VISUALIZER_MODEL.md](DEBUG_INFO_AND_VISUALIZER_MODEL.md)
 - [TOOLING.md](TOOLING.md)
 - [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md)
 - [SEMANTIC_GRAPH_SCHEMA.md](SEMANTIC_GRAPH_SCHEMA.md)

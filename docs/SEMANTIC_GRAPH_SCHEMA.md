@@ -316,3 +316,21 @@ agents, verifiers, debuggers, and profilers to work without guessing:
 - failure variants
 - profile restrictions
 - proof and test obligations
+- debug info ids
+- source-map provenance ids
+- visualizer ids
+- probe-site ids
+- generated-check ids
+- optimized-code explanation ids
+
+## Future Debug Graph Links
+
+[DEBUG_INFO_AND_VISUALIZER_MODEL.md](DEBUG_INFO_AND_VISUALIZER_MODEL.md) defines
+the target `hum.debug_info.v0` artifact. Future semantic graph versions should
+link to that artifact without pretending the Milestone 0 graph is executable
+debug info.
+
+The graph should eventually expose stable links for source-map provenance,
+visualizers, debug probe sites, generated checks, contract/effect/profile ids,
+and optimized-code explanations. Until Core Hum and Hum IR lowering exist, these
+remain reserved future links.

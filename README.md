@@ -139,6 +139,7 @@ Current artifacts:
 - [docs/ERGONOMICS_AND_OPERATORS.md](docs/ERGONOMICS_AND_OPERATORS.md): operator, QoL, and Bevy-inspired data-access strategy
 - [docs/TOOLCHAIN_2050.md](docs/TOOLCHAIN_2050.md): LSP, debugger, highlighting, profiler, and long-horizon toolchain strategy
 - [docs/DEBUGGABILITY_DOCTRINE.md](docs/DEBUGGABILITY_DOCTRINE.md): rules that preserve source/value/layout/effect identity so a fast Hum debugger can exist later
+- [docs/DEBUG_INFO_AND_VISUALIZER_MODEL.md](docs/DEBUG_INFO_AND_VISUALIZER_MODEL.md): target `hum.debug_info.v0` model for source maps, visualizers, probe sites, and native debug links
 - [editors/textmate/hum.tmLanguage.json](editors/textmate/hum.tmLanguage.json): generated TextMate grammar for basic `.hum` highlighting
 - [docs/TOOLING.md](docs/TOOLING.md): `humfmt`, `chirp`, and first-party tooling principles
 - [docs/FORMATTER.md](docs/FORMATTER.md): canonical formatting rules for `humfmt`

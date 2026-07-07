@@ -361,8 +361,16 @@ try {
   if (-not $DebugDoctrineText.Contains('faster and clearer than adding `printf`')) { throw 'debuggability doctrine is missing debugger speed rule' }
   if (-not $DebugDoctrineText.Contains('type-attached visualizers')) { throw 'debuggability doctrine is missing type-attached visualizer rule' }
   if (-not $DebugDoctrineText.Contains('debug probe sites')) { throw 'debuggability doctrine is missing debug probe site rule' }
+  if (-not $DebugDoctrineText.Contains('DEBUG_INFO_AND_VISUALIZER_MODEL.md')) { throw 'debuggability doctrine is missing debug info model link' }
+  $DebugInfoModelText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\DEBUG_INFO_AND_VISUALIZER_MODEL.md'))
+  if (-not $DebugInfoModelText.Contains('Target schema: `hum.debug_info.v0`')) { throw 'debug info model is missing target schema' }
+  if (-not $DebugInfoModelText.Contains('many-to-many provenance')) { throw 'debug info model is missing source-map provenance rule' }
+  if (-not $DebugInfoModelText.Contains('Probe sites unify')) { throw 'debug info model is missing probe-site model' }
+  if (-not $DebugInfoModelText.Contains('Visualizers must be reversible')) { throw 'debug info model is missing reversible visualizer rule' }
+  if (-not $DebugInfoModelText.Contains('Native DWARF and PDB are compatibility targets')) { throw 'debug info model is missing native debug bridge rule' }
   $ResearchMapText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\RESEARCH_MAP_2026.md'))
   if (-not $ResearchMapText.Contains('2026-07-07-rad-debugger-lessons.md')) { throw 'research map is missing RAD Debugger lessons' }
+  if (-not $ResearchMapText.Contains('DEBUG_INFO_AND_VISUALIZER_MODEL.md')) { throw 'research map is missing debug info model gate' }
 
   Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
   Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'

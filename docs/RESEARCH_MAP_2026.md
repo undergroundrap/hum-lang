@@ -401,7 +401,8 @@ Concrete design gates:
 
 - Keep [DEBUGGABILITY_DOCTRINE.md](DEBUGGABILITY_DOCTRINE.md) current before
   adding native backend claims.
-- Write `DEBUG_INFO_AND_VISUALIZER_MODEL.md` before a DAP implementation.
+- Keep [DEBUG_INFO_AND_VISUALIZER_MODEL.md](DEBUG_INFO_AND_VISUALIZER_MODEL.md)
+  current before a DAP implementation.
 - Add semantic graph slots for debug info ids, visualizer ids, source-map
   provenance, and probe-site ids before lowering becomes executable.
 - Treat "debugger faster than logging" as a user-experience gate, not a slogan.
@@ -483,7 +484,7 @@ Hum still needs deeper study before hardening these areas:
 - package trust and dependency evidence
 - proof language versus external verifier integration
 - compiler IR and optimization correctness strategy
-- debug/profiler/source-map, visualizer, and probe-site model
+- executable debug/profiler implementation and source-map validation
 - data-oriented scheduling and ECS-like storage contracts
 - operations model for dry-run, rollback, idempotence, drift, and telemetry
 - network model for typed addresses, protocol parsing, transactions, and
@@ -516,8 +517,9 @@ After the first formal-core and unsafe/security pass, do this order:
    format versioning, and migration rules.
 7. Write `docs/NUMERIC_AND_TENSOR_MODEL.md` with units, exact/approx values,
    shape, dtype, device, tolerance, determinism, and accelerator lowering.
-8. Write `docs/DEBUG_INFO_AND_VISUALIZER_MODEL.md` with source maps, optimized
-   code honesty states, visualizer hints, and debug probe sites.
+8. Keep `docs/DEBUG_INFO_AND_VISUALIZER_MODEL.md` current as source maps,
+   optimized-code honesty states, visualizer hints, and debug probe sites become
+   executable facts.
 9. Write `docs/PACKAGE_AND_BUILD.md` with Nectar profiles, reproducibility, and
    evidence packets.
 10. Write `docs/FFI_AND_ABI.md` with layout, panic, ownership, callback, and
