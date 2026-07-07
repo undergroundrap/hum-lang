@@ -258,9 +258,21 @@ foreach ($required in @('hum.lsp_capabilities.v0', 'hum lsp --capabilities --for
 }
 
 $doctorDoc = Read-RepoText 'docs/DOCTOR_SCHEMA.md'
-foreach ($required in @('hum.doctor.v0', 'hum doctor --format json', 'current_directory', 'text_hygiene_policy', 'public_readiness_policy', 'preflight_script', 'clean_checkout_smoke', 'tag_readiness', 'tools/check_clean_checkout.ps1', 'tools/check_tag_readiness.ps1')) {
+foreach ($required in @('hum.doctor.v0', 'hum doctor --format json', 'current_directory', 'text_hygiene_policy', 'public_readiness_policy', 'preflight_script', 'clean_checkout_smoke', 'tag_readiness', 'tag-gated hosted preflight', 'tools/check_clean_checkout.ps1', 'tools/check_tag_readiness.ps1')) {
   if (-not $doctorDoc.Contains($required)) {
     Add-Failure "docs/DOCTOR_SCHEMA.md does not mention $required"
+  }
+}
+
+$ciWorkflow = Read-RepoText '.github/workflows/ci.yml'
+foreach ($required in @('workflow_dispatch:', 'tags:', "- 'v*'", 'tools/check_all.ps1', 'windows-latest', 'ubuntu-latest')) {
+  if (-not $ciWorkflow.Contains($required)) {
+    Add-Failure ".github/workflows/ci.yml does not mention $required"
+  }
+}
+foreach ($forbidden in @('pull_request:', 'branches:')) {
+  if ($ciWorkflow.Contains($forbidden)) {
+    Add-Failure ".github/workflows/ci.yml should not contain $forbidden while private CI is tag-gated"
   }
 }
 $securityPolicy = Read-RepoText 'SECURITY.md'

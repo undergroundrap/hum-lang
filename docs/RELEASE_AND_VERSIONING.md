@@ -65,6 +65,8 @@ During `0.0.x`:
 - tags are snapshots, not compatibility promises
 - release notes must say `pre-alpha`
 
+It is acceptable to do substantial private work between tags. With no users, `0.0.1` can remain the latest snapshot until the repo earns a meaningful `0.1.0` alpha checkpoint.
+
 During `0.x.y`:
 
 - minor bumps mark meaningful new preview capabilities
@@ -114,6 +116,24 @@ Recommended sequence:
 5. Delay public release until the README, setup, license, security posture, and first demos explain what Hum is and is not.
 
 No remote push is part of the local release check. Publishing is a separate human decision.
+
+## Hosted CI Policy
+
+While Hum is private and has no users, hosted CI is intentionally tag-gated to conserve private GitHub Actions minutes. The workflow runs automatically only for `v*` tag pushes, plus manual `workflow_dispatch` when a human explicitly asks for it.
+
+Normal `main` pushes do not run hosted CI. They should be protected by local checks instead:
+
+```powershell
+.\tools\check_all.ps1
+```
+
+Before creating a tag, run the stricter gate:
+
+```powershell
+.\tools\check_tag_readiness.ps1
+```
+
+When Hum becomes public or has real external users, revisit this policy and restore branch and pull-request CI if the adoption and contribution model needs it.
 
 ## Release Notes
 

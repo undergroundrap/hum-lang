@@ -84,7 +84,7 @@ Current artifacts:
 - [docs/releases/v0.0.1.md](docs/releases/v0.0.1.md): draft `v0.0.1` pre-alpha release notes
 - [docs/RELEASE_MANIFEST_SCHEMA.md](docs/RELEASE_MANIFEST_SCHEMA.md): `hum.release_manifest.v0` schema for machine-readable release manifests
 - [docs/releases/v0.0.1.manifest.json](docs/releases/v0.0.1.manifest.json): machine-readable `v0.0.1` release candidate manifest
-- [.github/workflows/ci.yml](.github/workflows/ci.yml): hosted preflight workflow for pushes and pull requests
+- [.github/workflows/ci.yml](.github/workflows/ci.yml): hosted preflight workflow for `v*` release tags and manual runs
 - [docs/LANGUAGE_CONSTITUTION.md](docs/LANGUAGE_CONSTITUTION.md): rules Hum must not violate
 - [docs/PAVED_ROAD_DOCTRINE.md](docs/PAVED_ROAD_DOCTRINE.md): one obvious default path, explicit side roads, and evidence-backed optimization doctrine
 - [docs/BDFR_SCOPE_AND_SAFETY_DIRECTIVE.md](docs/BDFR_SCOPE_AND_SAFETY_DIRECTIVE.md): BDFR safety, scope, offline-first, interop, and portability directive

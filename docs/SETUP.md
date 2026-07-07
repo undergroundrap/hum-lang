@@ -46,7 +46,7 @@ posture, release checks, and the first tag are intentional.
 
 ## Full Local Verification
 
-Run `hum doctor` first when you want a quick portable checkout health report. Run the full script before opening a pull request, publishing a snapshot, or making a release-style commit:
+Run `hum doctor` first when you want a quick portable checkout health report. Run the full script before a serious commit, private push, public snapshot, or release-style handoff:
 
 ```powershell
 .\tools\check_all.ps1
@@ -76,9 +76,7 @@ That tag gate does not create a tag and does not touch remotes; it prints the ex
 coverage, version, diagnostic-explain, diagnostic-catalog, graph, editor fixture recovery, and syntax JSON parsing, TextMate snapshot drift detection,
 whitespace checks, text hygiene, public readiness, and release readiness.
 
-Hosted CI should call the same script. The current GitHub Actions workflow in
-[../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs it on Windows
-and Linux for pushes and pull requests.
+Hosted CI should call the same script, but the private pre-user repo is deliberately tag-gated to conserve hosted minutes. The current GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs on Windows and Linux for `v*` tag pushes and manual `workflow_dispatch` runs only. Normal `main` pushes rely on local verification.
 
 ## Editor Setup
 

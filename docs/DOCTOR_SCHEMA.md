@@ -81,7 +81,7 @@ Current `checks` includes:
 - `preflight_script`: `tools/check_all.ps1`
 - `clean_checkout_smoke`: `tools/check_clean_checkout.ps1`
 - `tag_readiness`: `tools/check_tag_readiness.ps1`
-- `hosted_ci`: `.github/workflows/ci.yml`
+- `hosted_ci`: `.github/workflows/ci.yml` tag-gated hosted preflight
 - `setup_docs`: `docs/SETUP.md` and `docs/TEXT_HYGIENE_WORKFLOW.md`
 - `editor_assets`: editor strategy, LSP matrix, and generated TextMate grammar
 - `reference_fixtures`: reference source and editor recovery fixtures
