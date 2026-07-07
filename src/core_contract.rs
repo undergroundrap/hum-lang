@@ -1,4 +1,5 @@
 use crate::core_body;
+use crate::core_preview;
 use crate::ir_contract;
 use crate::json;
 use crate::version;
@@ -190,6 +191,11 @@ const ACCEPTANCE_GATES: &[AcceptanceGate] = &[
         id: "body_grammar",
         status: core_body::CORE_BODY_GRAMMAR_STATUS,
         requirement: "does blocks expose first recognized statement and expression candidates",
+    },
+    AcceptanceGate {
+        id: "core_preview",
+        status: core_preview::CORE_PREVIEW_STATUS,
+        requirement: "body grammar emits Core Hum candidate operations and blockers without executable meaning",
     },
     AcceptanceGate {
         id: "core_lowering",
@@ -453,6 +459,7 @@ mod tests {
         assert!(text.contains("statements [design]"));
         assert!(text.contains("set_place"));
         assert!(text.contains("body_grammar [partial_v0]"));
+        assert!(text.contains("core_preview [preview_v0]"));
         assert!(text.contains("core_lowering [planned]"));
         assert!(text.contains("no interpreter implementation"));
     }
@@ -469,6 +476,8 @@ mod tests {
         assert!(json.contains("\"section\": \"needs\""));
         assert!(json.contains("\"id\": \"body_grammar\""));
         assert!(json.contains("\"status\": \"partial_v0\""));
+        assert!(json.contains("\"id\": \"core_preview\""));
+        assert!(json.contains("\"status\": \"preview_v0\""));
         assert!(json.contains("\"id\": \"core_lowering\""));
         assert!(json.contains("\"no executable semantics\""));
     }

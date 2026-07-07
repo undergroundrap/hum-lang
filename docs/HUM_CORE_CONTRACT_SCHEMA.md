@@ -16,9 +16,10 @@ contract-lowering, and acceptance-gate families the first executable subset must
 satisfy.
 
 This command is not a source-to-core lowering implementation, not an interpreter,
-not a type checker, and not an optimizer. V0 now includes a partial body-grammar
-classifier used by `hum ir-readiness`; it recognizes first statement candidates
-without assigning executable meaning.
+not a type checker, and not an optimizer. V0 now includes a partial
+body-grammar classifier used by `hum ir-readiness` and a non-executing
+Core Hum candidate preview emitted by `hum core-preview`; these recognize
+first statement candidates and blockers without assigning executable meaning.
 
 ## Command
 
@@ -108,6 +109,7 @@ V0 reports these gate statuses:
 - `parse`: `current`
 - `semantic_graph_build`: `current`
 - `body_grammar`: `partial_v0`
+- `core_preview`: `preview_v0`
 - `core_lowering`: `planned`
 - `type_check`: `planned`
 - `effect_check`: `planned`
@@ -118,11 +120,15 @@ V0 reports these gate statuses:
 These are roadmap facts, not implementation APIs. They keep build order honest.
 `partial_v0` means the compiler recognizes a conservative line-oriented subset
 of `does:` body shapes for readiness reporting only; it does not lower, type
-check, execute, or verify those lines.
+check, execute, or verify those lines. `preview_v0` means the compiler can emit
+Core Hum candidate operation families and blockers from those lines for roadmap
+and adapter use, but it still does not lower, type check, execute, or verify
+them.
 
 ## Honesty Rules
 
 - `hum core-contract` is a discovery command, not Core Hum emission.
+- `hum core-preview` is a candidate and blocker report, not executable Core Hum.
 - It must not run generated code.
 - It must not claim executable semantics.
 - It must not pretend type checking, effect checking, optimization, or backend

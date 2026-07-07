@@ -43,6 +43,7 @@ foreign code.
 - [MILESTONE_0_GRAMMAR.md](MILESTONE_0_GRAMMAR.md): current Rust bootstrap parser grammar contract
 - [FORMAL_CORE.md](FORMAL_CORE.md): precise executable core direction
 - [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md): machine-readable Core Hum contract
+- [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md): non-executing Core Hum candidate preview
 - [LANGUAGE_SUBSET_0_1.md](LANGUAGE_SUBSET_0_1.md): pinned alpha subset
 - [SEMANTIC_GRAPH_SCHEMA.md](SEMANTIC_GRAPH_SCHEMA.md): graph JSON emitted today
 - [DIAGNOSTICS.md](DIAGNOSTICS.md): stable diagnostic code contract
@@ -437,7 +438,9 @@ The `does:` block is the future executable body.
 In Milestone 0, body lines are parsed as section text for checks and graph
 facts. `hum ir-readiness` also classifies a partial V0 body grammar for first
 forms such as `return`, `fail`, `let`, `change`, `set`, control headers, record
-field initializers, and test expectations. These lines are not executed. Any
+field initializers, and test expectations. `hum core-preview` maps those recognized
+lines into Core Hum candidate operations and explicit blockers without executing,
+type-checking, effect-checking, or emitting IR. Any
 executable syntax must lower into [FORMAL_CORE.md](FORMAL_CORE.md) before it
 becomes stable.
 
@@ -613,6 +616,8 @@ hum resource-report <file-or-dir>...
 hum resource-report --format json <file-or-dir>...
 hum ir-readiness <file-or-dir>...
 hum ir-readiness --format json <file-or-dir>...
+hum core-preview <file-or-dir>...
+hum core-preview --format json <file-or-dir>...
 hum core-contract
 hum core-contract --format json
 hum ir-contract
@@ -652,6 +657,8 @@ cargo run -- resource-report examples/control_flow.hum
 cargo run -- resource-report --format json examples/control_flow.hum
 cargo run -- ir-readiness examples/reference_surface.hum
 cargo run -- ir-readiness --format json examples/reference_surface.hum
+cargo run -- core-preview examples/reference_surface.hum
+cargo run -- core-preview --format json examples/reference_surface.hum
 cargo run -- core-contract
 cargo run -- core-contract --format json
 cargo run -- ir-contract

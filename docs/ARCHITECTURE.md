@@ -39,7 +39,18 @@ See [LANGUAGE_REFERENCE.md](LANGUAGE_REFERENCE.md) for the traditional reference
 
 ### 2. Formal Core
 
-Surface Hum lowers into Core Hum. Core Hum defines values, places, mutation, expressions, statements, typed failure, effects, contracts, profiles, loops, and backend-preservation rules. New syntax is not stable until it lowers into the core and preserves graph facts. The machine-readable Core Hum contract is [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md), emitted by `hum core-contract --format json`; the Hum IR ownership contract is [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md), emitted by `hum ir-contract --format json`; source progress toward those contracts is reported by [HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md), emitted by `hum ir-readiness --format json`.
+Surface Hum lowers into Core Hum. Core Hum defines values, places, mutation,
+expressions, statements, typed failure, effects, contracts, profiles, loops, and
+backend-preservation rules. New syntax is not stable until it lowers into the
+core and preserves graph facts.
+
+The machine-readable Core Hum contract is [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md),
+emitted by `hum core-contract --format json`; the first non-executing Core Hum
+candidate preview is [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md),
+emitted by `hum core-preview --format json`; the Hum IR ownership contract is
+[HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md), emitted by `hum ir-contract --format json`;
+source progress toward those contracts is reported by [HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md),
+emitted by `hum ir-readiness --format json`.
 
 See [FORMAL_CORE.md](FORMAL_CORE.md).
 

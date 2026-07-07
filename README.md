@@ -75,6 +75,7 @@ Current artifacts:
 - [docs/MATH_OBLIGATIONS_SCHEMA.md](docs/MATH_OBLIGATIONS_SCHEMA.md): `hum.math_obligations.v0` and `hum.math_obligation.v0` export surface for external validators
 - [docs/RESOURCE_REPORT_SCHEMA.md](docs/RESOURCE_REPORT_SCHEMA.md): `hum.resource_report.v0` source-declared resource, layout, and optimization claim inventory
 - [docs/HUM_CORE_CONTRACT_SCHEMA.md](docs/HUM_CORE_CONTRACT_SCHEMA.md): `hum.core_contract.v0` Core Hum executable subset and surface-to-core acceptance contract
+- [docs/HUM_CORE_PREVIEW_SCHEMA.md](docs/HUM_CORE_PREVIEW_SCHEMA.md): `hum.core_preview.v0` Core Hum candidate operation and blocker preview
 - [docs/HUM_IR_CONTRACT_SCHEMA.md](docs/HUM_IR_CONTRACT_SCHEMA.md): `hum.ir_contract.v0` Hum IR ownership, carried-fact, and pass-boundary contract
 - [docs/HUM_IR_READINESS_SCHEMA.md](docs/HUM_IR_READINESS_SCHEMA.md): `hum.ir_readiness.v0` source readiness and blocker report for future Core Hum and Hum IR lowering
 - [docs/BACKEND_CONTRACT_SCHEMA.md](docs/BACKEND_CONTRACT_SCHEMA.md): `hum.backend_contract.v0` backend ladder and adapter preservation contract
@@ -197,6 +198,8 @@ cargo run -- capabilities
 cargo run -- capabilities --format json
 cargo run -- core-contract
 cargo run -- core-contract --format json
+cargo run -- core-preview examples/reference_surface.hum
+cargo run -- core-preview --format json examples/reference_surface.hum
 cargo run -- ir-contract
 cargo run -- ir-contract --format json
 cargo run -- backend-contract
@@ -237,6 +240,7 @@ Current CLI:
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents
 - `hum capabilities [--format human|json]`: list `hum.capabilities.v0` toolchain surfaces for editors, agents, and CI wrappers
 - `hum core-contract [--format human|json]`: emit `hum.core_contract.v0` Core Hum executable subset and surface-to-core acceptance facts
+- `hum core-preview [--format human|json] <file-or-dir>...`: emit `hum.core_preview.v0` Core Hum candidate operations and blockers without execution
 - `hum ir-contract [--format human|json]`: emit `hum.ir_contract.v0` Hum IR ownership, carried-fact, pass-boundary, and non-execution facts
 - `hum backend-contract [--format human|json]`: emit `hum.backend_contract.v0` backend ladder and adapter preservation facts without selecting or running a backend
 - `hum lsp --capabilities [--format human|json]`: list `hum.lsp_capabilities.v0` LSP adapter-preview facts without starting server mode

@@ -155,7 +155,9 @@ Unsupported but intentionally named V0 blockers include:
 - `unknown_body_line`: not in the partial body grammar
 
 This is grammar visibility only. It is not Core Hum lowering, type checking,
-effect checking, test execution, or interpretation.
+effect checking, test execution, or interpretation. `hum core-preview` consumes
+the same partial body grammar to emit Core Hum candidate operations and blockers
+without crossing into executable semantics.
 
 ## Pass Status
 

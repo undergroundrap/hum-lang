@@ -6,6 +6,7 @@ mod capabilities;
 mod check;
 mod core_body;
 mod core_contract;
+mod core_preview;
 mod diagnostic;
 mod diagnostic_catalog;
 mod diagnostics;
@@ -258,6 +259,33 @@ fn run() -> Result<ExitCode, String> {
                 ExitCode::SUCCESS
             })
         }
+        "core-preview" => {
+            if options.core_preview_format == CorePreviewFormat::Human {
+                print_diagnostics(&diagnostics);
+            }
+            match options.core_preview_format {
+                CorePreviewFormat::Human => {
+                    print!(
+                        "{}",
+                        core_preview::core_preview_text(&program, &diagnostics)
+                    )
+                }
+                CorePreviewFormat::Json => {
+                    print!(
+                        "{}",
+                        core_preview::core_preview_json(&program, &diagnostics)
+                    )
+                }
+            }
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            Ok(if has_errors {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
         "ir-readiness" => {
             if options.ir_readiness_format == IrReadinessFormat::Human {
                 print_diagnostics(&diagnostics);
@@ -301,7 +329,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `lsp`, or `doctor`"
+            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `lsp`, or `doctor`"
         )),
     }
 }
@@ -344,6 +372,12 @@ enum CapabilitiesFormat {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CoreContractFormat {
+    Human,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CorePreviewFormat {
     Human,
     Json,
 }
@@ -408,6 +442,7 @@ struct CliOptions {
     diagnostics_format: DiagnosticsFormat,
     capabilities_format: CapabilitiesFormat,
     core_contract_format: CoreContractFormat,
+    core_preview_format: CorePreviewFormat,
     ir_contract_format: IrContractFormat,
     backend_contract_format: BackendContractFormat,
     lsp_format: LspFormat,
@@ -444,6 +479,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "evidence"
             | "math-obligations"
             | "resource-report"
+            | "core-preview"
             | "ir-readiness"
             | "syntax"
             | "version"
@@ -457,7 +493,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "doctor"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `lsp`, or `doctor`"
+            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `lsp`, or `doctor`"
         ));
     }
 
@@ -470,6 +506,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut diagnostics_format = DiagnosticsFormat::Human;
     let mut capabilities_format = CapabilitiesFormat::Human;
     let mut core_contract_format = CoreContractFormat::Human;
+    let mut core_preview_format = CorePreviewFormat::Human;
     let mut ir_contract_format = IrContractFormat::Human;
     let mut backend_contract_format = BackendContractFormat::Human;
     let mut lsp_format = LspFormat::Human;
@@ -516,6 +553,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         | "evidence"
                         | "math-obligations"
                         | "resource-report"
+                        | "core-preview"
                         | "ir-readiness"
                 ) =>
             {
@@ -543,6 +581,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "resource-report" => {
                         resource_report_format = parse_resource_report_format(&value)?
                     }
+                    "core-preview" => core_preview_format = parse_core_preview_format(&value)?,
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(&value)?,
                     _ => unreachable!(),
                 }
@@ -563,6 +602,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     | "evidence"
                     | "math-obligations"
                     | "resource-report"
+                    | "core-preview"
                     | "ir-readiness"
             ) && flag.starts_with("--format=") =>
             {
@@ -588,6 +628,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "resource-report" => {
                         resource_report_format = parse_resource_report_format(value)?
                     }
+                    "core-preview" => core_preview_format = parse_core_preview_format(value)?,
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(value)?,
                     _ => unreachable!(),
                 }
@@ -615,6 +656,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             core_contract_format,
+            core_preview_format,
             ir_contract_format,
             backend_contract_format,
             lsp_format,
@@ -646,6 +688,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             core_contract_format,
+            core_preview_format,
             ir_contract_format,
             backend_contract_format,
             lsp_format,
@@ -677,6 +720,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             core_contract_format,
+            core_preview_format,
             ir_contract_format,
             backend_contract_format,
             lsp_format,
@@ -708,6 +752,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             core_contract_format,
+            core_preview_format,
             ir_contract_format,
             backend_contract_format,
             lsp_format,
@@ -739,6 +784,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             core_contract_format,
+            core_preview_format,
             ir_contract_format,
             backend_contract_format,
             lsp_format,
@@ -770,6 +816,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             core_contract_format,
+            core_preview_format,
             ir_contract_format,
             backend_contract_format,
             lsp_format,
@@ -801,6 +848,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             core_contract_format,
+            core_preview_format,
             ir_contract_format,
             backend_contract_format,
             lsp_format,
@@ -832,6 +880,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             core_contract_format,
+            core_preview_format,
             ir_contract_format,
             backend_contract_format,
             lsp_format,
@@ -869,6 +918,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             core_contract_format,
+            core_preview_format,
             ir_contract_format,
             backend_contract_format,
             lsp_format,
@@ -900,6 +950,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             core_contract_format,
+            core_preview_format,
             ir_contract_format,
             backend_contract_format,
             lsp_format,
@@ -924,6 +975,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         diagnostics_format,
         capabilities_format,
         core_contract_format,
+        core_preview_format,
         ir_contract_format,
         backend_contract_format,
         lsp_format,
@@ -1006,6 +1058,15 @@ fn parse_core_contract_format(value: &str) -> Result<CoreContractFormat, String>
     }
 }
 
+fn parse_core_preview_format(value: &str) -> Result<CorePreviewFormat, String> {
+    match value {
+        "human" => Ok(CorePreviewFormat::Human),
+        "json" => Ok(CorePreviewFormat::Json),
+        other => Err(format!(
+            "unknown core-preview format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
 fn parse_ir_contract_format(value: &str) -> Result<IrContractFormat, String> {
     match value {
         "human" => Ok(IrContractFormat::Human),
@@ -1233,6 +1294,7 @@ fn print_help() {
         "  hum math-obligations [--format human|json] [--out-dir <dir>] [--timings] <file-or-dir>..."
     );
     println!("  hum resource-report [--format human|json] [--timings] <file-or-dir>...");
+    println!("  hum core-preview [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum ir-readiness [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!("  hum syntax [--format json|textmate]");
@@ -1252,6 +1314,7 @@ fn print_help() {
     println!("  evidence          Summarize security and trust evidence obligations");
     println!("  math-obligations  Export V0 math obligations for external validators");
     println!("  resource-report   Classify source-declared resource and optimization claims");
+    println!("  core-preview      Emit Core Hum preview candidates without execution");
     println!("  ir-readiness      Report source readiness for future Core Hum and Hum IR lowering");
     println!("  test-skeletons    Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
@@ -1277,9 +1340,9 @@ mod tests {
 
     use super::{
         BackendContractFormat, CapabilitiesFormat, CheckFormat, CoreContractFormat,
-        DiagnosticsFormat, DoctorFormat, EvidenceFormat, ExplainFormat, IrContractFormat,
-        IrReadinessFormat, LspFormat, MathObligationsFormat, ResourceReportFormat, SyntaxFormat,
-        VersionFormat, load_program, parse_cli,
+        CorePreviewFormat, DiagnosticsFormat, DoctorFormat, EvidenceFormat, ExplainFormat,
+        IrContractFormat, IrReadinessFormat, LspFormat, MathObligationsFormat,
+        ResourceReportFormat, SyntaxFormat, VersionFormat, load_program, parse_cli,
     };
 
     #[test]
@@ -1732,6 +1795,32 @@ mod tests {
         assert_eq!(options.resource_report_format, ResourceReportFormat::Json);
     }
 
+    #[test]
+    fn parses_core_preview_json_format() {
+        let options = parse_cli(vec![
+            "core-preview".to_string(),
+            "--format=json".to_string(),
+            "examples".to_string(),
+        ])
+        .expect("core-preview json command");
+        assert_eq!(options.command, "core-preview");
+        assert_eq!(options.core_preview_format, CorePreviewFormat::Json);
+    }
+
+    #[test]
+    fn rejects_unknown_core_preview_format() {
+        let error = parse_cli(vec![
+            "core-preview".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+            "examples".to_string(),
+        ])
+        .expect_err("core-preview should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown core-preview format `textmate`; expected `human` or `json`"
+        );
+    }
     #[test]
     fn parses_ir_readiness_json_format() {
         let options = parse_cli(vec![

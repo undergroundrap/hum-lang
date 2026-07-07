@@ -69,6 +69,7 @@ Current `schemas` includes:
 - `math_obligations_report`: `hum.math_obligations.v0`
 - `math_obligation`: `hum.math_obligation.v0`
 - `resource_report`: `hum.resource_report.v0`
+- `core_preview`: `hum.core_preview.v0`
 - `ir_readiness`: `hum.ir_readiness.v0`
 - `core_contract`: `hum.core_contract.v0`
 - `ir_contract`: `hum.ir_contract.v0`
@@ -96,6 +97,7 @@ Current entries include:
 - `hum evidence --format json`
 - `hum math-obligations --format json`
 - `hum resource-report --format json`
+- `hum core-preview --format json`
 - `hum ir-readiness --format json`
 - `hum core-contract --format json`
 - `hum ir-contract --format json`
