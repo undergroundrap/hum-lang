@@ -47,6 +47,19 @@ foreign code.
 - [DIAGNOSTICS.md](DIAGNOSTICS.md): stable diagnostic code contract
 - [FORMATTER.md](FORMATTER.md): canonical formatting direction
 
+## Checked Reference Fixture
+
+[../examples/reference_surface.hum](../examples/reference_surface.hum) is the
+canonical Milestone 0 reference fixture. It is intentionally small and should
+stay parseable by the Rust bootstrap CLI.
+
+Use it when changing this reference, the grammar contract, syntax highlighting,
+or graph facts. If prose says a current construct exists, the fixture should
+show the ordinary spelling unless a smaller focused example owns that case.
+
+A healthy reference fixture passes `hum check` without diagnostics and produces no
+unlinked obligations from `hum test-skeletons`.
+
 ## Source Files
 
 A Hum source file uses the `.hum` extension.
@@ -429,6 +442,7 @@ Bootstrap examples:
 
 ```powershell
 cargo run -- check examples
+cargo run -- graph examples/reference_surface.hum
 cargo run -- graph examples
 cargo run -- test-skeletons examples
 cargo run -- syntax
@@ -444,7 +458,7 @@ This reference is intentionally incomplete. The next gaps to close are:
 - type grammar for records, results, options, lists, and maps
 - import and visibility rules
 - formal lowering from surface constructs into Core Hum
-- stable examples for every accepted syntax form
+- stable examples for every accepted syntax form beyond `examples/reference_surface.hum`
 - generated editor grammar and syntax-highlight keyword list beyond the current TextMate snapshot
 
 Until those are pinned, broad syntax expansion should stay in design docs, not

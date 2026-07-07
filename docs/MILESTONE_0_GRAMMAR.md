@@ -20,6 +20,7 @@ language promise.
 
 For the human-facing language overview, see [LANGUAGE_REFERENCE.md](LANGUAGE_REFERENCE.md).
 For the machine-readable Milestone 0 syntax surface, run `hum syntax`. For the generated TextMate grammar, run `hum syntax --format textmate`.
+For the checked reference fixture, see [../examples/reference_surface.hum](../examples/reference_surface.hum).
 
 ## Notation
 

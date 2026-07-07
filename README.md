@@ -63,6 +63,7 @@ of how the design docs fit together.
 
 Current artifacts:
 
+- [examples/reference_surface.hum](examples/reference_surface.hum): checked Milestone 0 source fixture covering the current reference surface
 - [SPEC.md](SPEC.md): broad language design draft
 - [docs/LANGUAGE_REFERENCE.md](docs/LANGUAGE_REFERENCE.md): traditional reference spine for source files, items, sections, and current language status
 - [docs/MILESTONE_0_GRAMMAR.md](docs/MILESTONE_0_GRAMMAR.md): current Rust bootstrap parser grammar contract
@@ -153,6 +154,7 @@ With Rust installed and Cargo on `PATH`, commands can be run as:
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo run -- check examples
+cargo run -- graph examples/reference_surface.hum
 cargo run -- graph examples/task_list.hum
 cargo run -- test-skeletons examples
 cargo run -- syntax

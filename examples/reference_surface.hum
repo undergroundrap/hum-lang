@@ -1,0 +1,138 @@
+module examples.reference_surface
+
+app Reference Surface {
+  why:
+    show every current Milestone 0 top-level form in one checked file
+}
+
+type WorkItem {
+  id: Text
+  title: Text
+  done: Bool
+}
+
+store work items: list WorkItem {
+  why:
+    keep the user's work items available between tasks
+}
+
+task remember work item(title: Text) -> Result WorkItem, WorkError {
+  why:
+    let a user capture work without losing the reason it matters
+    # comments inside sections are preserved as section facts
+
+  uses:
+    clock
+
+  changes:
+    work items
+
+  needs:
+    title is not empty
+
+  ensures:
+    new work item is saved
+    new work item is not done
+
+  protects:
+    user work history
+
+  trusts:
+    local profile storage
+
+  fails when:
+    title is empty
+
+  watch for:
+    title may contain only spaces
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  allocates:
+    one work item
+
+  avoids:
+    saving empty work items
+
+  tradeoffs:
+    local persistence is enough for the reference surface
+
+  optimizes:
+    clear review facts over clever implementation
+
+  tests:
+    remember work item rejects empty title
+
+  does:
+    if title is empty {
+      fail WorkError.empty_title
+    }
+
+    let item = WorkItem {
+      id: clock.now_text
+      title: title
+      done: false
+    }
+
+    save item in work items
+    return item
+}
+
+test remember work item rejects empty title regression {
+  why:
+    prove the reference task records its visible failure mode
+
+  uses:
+    remember work item
+
+  needs:
+    empty title input is available
+
+  regression:
+    empty titles used to be saved as blank work items
+
+  covers:
+    remember work item needs title is not empty
+    remember work item watch for title may contain only spaces
+    remember work item tests remember work item rejects empty title
+
+  avoids:
+    depending on real storage or network behavior
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    expect remember work item("") fails with WorkError.empty_title
+}
+
+test remember work item saves valid title unit {
+  why:
+    prove the reference task records its success promises
+
+  uses:
+    remember work item
+
+  needs:
+    non-empty title input is available
+
+  covers:
+    remember work item ensures new work item is saved
+    remember work item ensures new work item is not done
+
+  avoids:
+    depending on real storage or network behavior
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    expect remember work item("ship Hum docs") returns WorkItem
+}
