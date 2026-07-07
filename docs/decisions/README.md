@@ -21,6 +21,7 @@ standard library direction, backend strategy, or release posture.
 | [0002](0002-use-rust-bootstrap-until-self-hosting.md) | accepted | Use Rust bootstrap until staged self-hosting is proven. |
 | [0003](0003-keep-milestone-0-local-non-executing.md) | accepted | Keep Milestone 0 local, offline-first, and non-executing. |
 | [0004](0004-make-tests-first-class-evidence.md) | accepted | Make tests first-class evidence with graph-linked obligations. |
+| [0005](0005-keep-verifiers-as-evidence-producers.md) | accepted | Keep external verifiers as evidence producers, not compiler authority. |
 
 ## Template
 

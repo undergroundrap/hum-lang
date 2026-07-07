@@ -70,6 +70,7 @@ Must not do:
 - async
 - full borrow checking
 - LLVM integration
+- external verifier downloads or hard dependencies
 
 Current prototype status:
 
@@ -103,6 +104,7 @@ Current prototype status:
 Deferred beyond Milestone 0:
 
 - broad semantic paraphrase proof for coverage; Milestone 0 now supports exact links plus conservative canonical matching for case, punctuation, filler words, hyphenation, and small section aliases
+- Truth Harness-style math-engine integration waits on schema-first receipts; Hum should not depend on an external verifier until the obligation/result boundary is stable
 
 Milestone 0 is about truth, not speed.
 

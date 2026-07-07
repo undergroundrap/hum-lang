@@ -70,6 +70,7 @@ Current artifacts:
 - [docs/SYNTAX_SURFACE_SCHEMA.md](docs/SYNTAX_SURFACE_SCHEMA.md): `hum.syntax_surface.v0` schema for editor-neutral syntax metadata
 - [docs/CAPABILITIES_SCHEMA.md](docs/CAPABILITIES_SCHEMA.md): `hum.capabilities.v0` schema for toolchain surface discovery
 - [docs/EVIDENCE_REPORT_SCHEMA.md](docs/EVIDENCE_REPORT_SCHEMA.md): `hum.evidence.v0` security/trust evidence report schema
+- [docs/MATH_ENGINE_BOUNDARY.md](docs/MATH_ENGINE_BOUNDARY.md): boundary for Truth Harness-style verifier integrations
 - [docs/LSP_CAPABILITIES_SCHEMA.md](docs/LSP_CAPABILITIES_SCHEMA.md): `hum.lsp_capabilities.v0` preview schema for LSP adapter support
 - [docs/DOCTOR_SCHEMA.md](docs/DOCTOR_SCHEMA.md): `hum.doctor.v0` setup health schema for portable repo guardrails
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): unifying architecture ground truth across language, graph, tools, profiles, stdlib, backend, and platform design

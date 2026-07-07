@@ -61,6 +61,8 @@ Cache doctrine: caches can speed builds, semantic graph reads, package checks, p
 
 Strong-contract doctrine: a verified contract is valuable only when it would reject meaningful wrong implementations. Hum should eventually detect tautological, vacuous, weak, verifier-shaped, or benchmark-shaped claims and report them as diagnostics or profile gates.
 
+External-verifier doctrine: Truth Harness-style math engines, SMT tools, model checkers, proof assistants, and benchmark harnesses are evidence producers, not compiler authority. Hum emits obligations and records receipts; external engines may prove, refute, or return unknown under explicit assumptions. See [MATH_ENGINE_BOUNDARY.md](MATH_ENGINE_BOUNDARY.md) and [decisions/0005-keep-verifiers-as-evidence-producers.md](decisions/0005-keep-verifiers-as-evidence-producers.md).
+
 ### 5. Runtime Profiles
 
 Profiles are policy bundles for normal apps, containers, agent tools, Windows services, driver candidates, embedded no-heap code, hard realtime code, engine hot paths, safety-critical code, and certified toolchains. Profiles can forbid features, require evidence, narrow stdlib APIs, and change release artifacts.
