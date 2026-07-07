@@ -23,44 +23,48 @@ const NON_CLAIMS: &[&str] = &[
     "no executable semantics",
 ];
 
-struct TypeEnvReport {
-    files: usize,
-    items: usize,
-    source_errors: usize,
-    source_warnings: usize,
-    resolver_summary: resolve::ResolveReadinessSummary,
-    resolver_definitions: Vec<resolve::ResolveDefinitionSummary>,
-    type_names: Vec<TypeNameFact>,
-    declarations: Vec<TypeDeclaration>,
+#[derive(Debug, Clone)]
+pub struct TypeEnvReport {
+    pub files: usize,
+    pub items: usize,
+    pub source_errors: usize,
+    pub source_warnings: usize,
+    pub resolver_summary: resolve::ResolveReadinessSummary,
+    pub resolver_definitions: Vec<resolve::ResolveDefinitionSummary>,
+    pub type_names: Vec<TypeNameFact>,
+    pub declarations: Vec<TypeDeclaration>,
 }
 
-struct TypeNameFact {
-    id: String,
-    name: String,
-    normalized_name: String,
-    resolver_definition_id: Option<String>,
-    source_span: Span,
-    status: &'static str,
+#[derive(Debug, Clone)]
+pub struct TypeNameFact {
+    pub id: String,
+    pub name: String,
+    pub normalized_name: String,
+    pub resolver_definition_id: Option<String>,
+    pub source_span: Span,
+    pub status: &'static str,
 }
 
-struct TypeDeclaration {
-    id: String,
-    declaration_kind: &'static str,
-    owner_kind: &'static str,
-    owner_name: String,
-    name: String,
-    resolver_definition_id: Option<String>,
-    source_span: Span,
-    type_text: String,
-    type_references: Vec<TypeReferenceFact>,
-    status: &'static str,
+#[derive(Debug, Clone)]
+pub struct TypeDeclaration {
+    pub id: String,
+    pub declaration_kind: &'static str,
+    pub owner_kind: &'static str,
+    pub owner_name: String,
+    pub name: String,
+    pub resolver_definition_id: Option<String>,
+    pub source_span: Span,
+    pub type_text: String,
+    pub type_references: Vec<TypeReferenceFact>,
+    pub status: &'static str,
 }
 
-struct TypeReferenceFact {
-    text: String,
-    normalized_name: String,
-    role: &'static str,
-    status: &'static str,
+#[derive(Debug, Clone)]
+pub struct TypeReferenceFact {
+    pub text: String,
+    pub normalized_name: String,
+    pub role: &'static str,
+    pub status: &'static str,
 }
 
 struct DeclarationInput<'a> {
@@ -76,6 +80,10 @@ struct DeclarationInput<'a> {
 pub fn type_env_has_errors(program: &Program, diagnostics: &[Diagnostic]) -> bool {
     let summary = resolve::resolve_readiness_summary(program, diagnostics);
     summary.source_errors > 0 || summary.resolver_errors > 0
+}
+
+pub fn type_env_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeEnvReport {
+    build_report(program, diagnostics)
 }
 
 pub fn type_env_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
@@ -595,7 +603,7 @@ fn count_items_in(items: &[Item]) -> usize {
 }
 
 impl TypeEnvReport {
-    fn status(&self) -> &'static str {
+    pub fn status(&self) -> &'static str {
         if self.source_errors > 0 {
             "blocked_by_source_errors"
         } else if self.resolver_summary.resolver_errors > 0 {
@@ -607,14 +615,14 @@ impl TypeEnvReport {
         }
     }
 
-    fn type_reference_count(&self) -> usize {
+    pub fn type_reference_count(&self) -> usize {
         self.declarations
             .iter()
             .map(|declaration| declaration.type_references.len())
             .sum()
     }
 
-    fn unknown_type_references(&self) -> usize {
+    pub fn unknown_type_references(&self) -> usize {
         self.declarations
             .iter()
             .flat_map(|declaration| declaration.type_references.iter())

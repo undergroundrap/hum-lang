@@ -16,6 +16,7 @@ use crate::runtime_profiles;
 use crate::state_model;
 use crate::syntax;
 use crate::target_facts;
+use crate::type_check;
 use crate::type_env;
 use crate::version;
 
@@ -92,6 +93,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: type_env::TYPE_ENV_SCHEMA,
         status: "adapter-ready",
         purpose: "declared type environment facts without full type checking",
+    },
+    CommandCapability {
+        name: "type_check_json",
+        command: "hum type-check --format json <file-or-dir>...",
+        schema: type_check::TYPE_CHECK_SCHEMA,
+        status: "adapter-ready",
+        purpose: "declaration annotation type errors without expression inference",
     },
     CommandCapability {
         name: "ir_readiness_json",
@@ -303,10 +311,11 @@ pub fn capabilities_text() -> String {
         resource_report::RESOURCE_REPORT_SCHEMA
     ));
     out.push_str(&format!(
-        "  core_preview: {}\n  resolve_report: {}\n  type_env: {}\n  ir_readiness: {}\n",
+        "  core_preview: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  ir_readiness: {}\n",
         core_preview::CORE_PREVIEW_SCHEMA,
         resolve::RESOLVE_REPORT_SCHEMA,
         type_env::TYPE_ENV_SCHEMA,
+        type_check::TYPE_CHECK_SCHEMA,
         ir_readiness::IR_READINESS_SCHEMA
     ));
     out.push_str(&format!(
@@ -456,6 +465,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         true,
     );
     push_string_field(out, indent + 2, "type_env", type_env::TYPE_ENV_SCHEMA, true);
+    push_string_field(
+        out,
+        indent + 2,
+        "type_check",
+        type_check::TYPE_CHECK_SCHEMA,
+        true,
+    );
     push_string_field(
         out,
         indent + 2,
@@ -658,6 +674,7 @@ mod tests {
         assert!(json.contains("\"core_preview\": \"hum.core_preview.v0\""));
         assert!(json.contains("\"resolve_report\": \"hum.resolve.v0\""));
         assert!(json.contains("\"type_env\": \"hum.type_env.v0\""));
+        assert!(json.contains("\"type_check\": \"hum.type_check.v0\""));
         assert!(json.contains("\"semantic_graph\": \"hum.semantic_graph.v0\""));
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
@@ -686,6 +703,7 @@ mod tests {
         assert!(json.contains("\"name\": \"core_preview_json\""));
         assert!(json.contains("\"name\": \"resolve_json\""));
         assert!(json.contains("\"name\": \"type_env_json\""));
+        assert!(json.contains("\"name\": \"type_check_json\""));
         assert!(json.contains("\"name\": \"folding_ranges\""));
         assert!(json.contains("\"status\": \"adapter-ready\""));
     }

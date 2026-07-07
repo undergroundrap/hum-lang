@@ -11,6 +11,10 @@ type WorkItem {
   done: Bool
 }
 
+type WorkError {
+  code: Text
+}
+
 store work items: list WorkItem {
   why:
     keep the user's work items available between tasks

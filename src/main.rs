@@ -29,6 +29,7 @@ mod state_model;
 mod syntax;
 mod target_facts;
 mod test_skeletons;
+mod type_check;
 mod type_env;
 mod version;
 
@@ -357,6 +358,28 @@ fn run() -> Result<ExitCode, String> {
                 ExitCode::SUCCESS
             })
         }
+        "type-check" => {
+            if options.type_check_format == TypeCheckFormat::Human {
+                print_diagnostics(&diagnostics);
+            }
+            let has_type_check_errors = type_check::type_check_has_errors(&program, &diagnostics);
+            match options.type_check_format {
+                TypeCheckFormat::Human => {
+                    print!("{}", type_check::type_check_text(&program, &diagnostics))
+                }
+                TypeCheckFormat::Json => {
+                    print!("{}", type_check::type_check_json(&program, &diagnostics))
+                }
+            }
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            Ok(if has_errors || has_type_check_errors {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
         "ir-readiness" => {
             if options.ir_readiness_format == IrReadinessFormat::Human {
                 print_diagnostics(&diagnostics);
@@ -400,7 +423,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `resolve`, `type-env`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `resolve`, `type-env`, `type-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         )),
     }
 }
@@ -461,6 +484,12 @@ enum ResolveFormat {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TypeEnvFormat {
+    Human,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TypeCheckFormat {
     Human,
     Json,
 }
@@ -546,6 +575,7 @@ struct CliOptions {
     core_preview_format: CorePreviewFormat,
     resolve_format: ResolveFormat,
     type_env_format: TypeEnvFormat,
+    type_check_format: TypeCheckFormat,
     ir_contract_format: IrContractFormat,
     backend_contract_format: BackendContractFormat,
     runtime_profiles_format: RuntimeProfilesFormat,
@@ -588,6 +618,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "core-preview"
             | "resolve"
             | "type-env"
+            | "type-check"
             | "ir-readiness"
             | "syntax"
             | "version"
@@ -604,7 +635,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "target-facts"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `resolve`, `type-env`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `resolve`, `type-env`, `type-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         ));
     }
 
@@ -620,6 +651,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut core_preview_format = CorePreviewFormat::Human;
     let mut resolve_format = ResolveFormat::Human;
     let mut type_env_format = TypeEnvFormat::Human;
+    let mut type_check_format = TypeCheckFormat::Human;
     let mut ir_contract_format = IrContractFormat::Human;
     let mut backend_contract_format = BackendContractFormat::Human;
     let mut runtime_profiles_format = RuntimeProfilesFormat::Human;
@@ -675,6 +707,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         | "core-preview"
                         | "resolve"
                         | "type-env"
+                        | "type-check"
                         | "ir-readiness"
                 ) =>
             {
@@ -708,6 +741,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "core-preview" => core_preview_format = parse_core_preview_format(&value)?,
                     "resolve" => resolve_format = parse_resolve_format(&value)?,
                     "type-env" => type_env_format = parse_type_env_format(&value)?,
+                    "type-check" => type_check_format = parse_type_check_format(&value)?,
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(&value)?,
                     _ => unreachable!(),
                 }
@@ -734,6 +768,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     | "core-preview"
                     | "resolve"
                     | "type-env"
+                    | "type-check"
                     | "ir-readiness"
             ) && flag.starts_with("--format=") =>
             {
@@ -765,6 +800,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "core-preview" => core_preview_format = parse_core_preview_format(value)?,
                     "resolve" => resolve_format = parse_resolve_format(value)?,
                     "type-env" => type_env_format = parse_type_env_format(value)?,
+                    "type-check" => type_check_format = parse_type_check_format(value)?,
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(value)?,
                     _ => unreachable!(),
                 }
@@ -795,6 +831,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -832,6 +869,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -869,6 +907,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -906,6 +945,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -943,6 +983,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -980,6 +1021,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -1017,6 +1059,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -1054,6 +1097,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -1091,6 +1135,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -1128,6 +1173,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -1171,6 +1217,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -1208,6 +1255,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -1245,6 +1293,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             core_preview_format,
             resolve_format,
             type_env_format,
+            type_check_format,
             ir_contract_format,
             backend_contract_format,
             runtime_profiles_format,
@@ -1275,6 +1324,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         core_preview_format,
         resolve_format,
         type_env_format,
+        type_check_format,
         ir_contract_format,
         backend_contract_format,
         runtime_profiles_format,
@@ -1386,6 +1436,16 @@ fn parse_type_env_format(value: &str) -> Result<TypeEnvFormat, String> {
         "json" => Ok(TypeEnvFormat::Json),
         other => Err(format!(
             "unknown type-env format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
+fn parse_type_check_format(value: &str) -> Result<TypeCheckFormat, String> {
+    match value {
+        "human" => Ok(TypeCheckFormat::Human),
+        "json" => Ok(TypeCheckFormat::Json),
+        other => Err(format!(
+            "unknown type-check format `{other}`; expected `human` or `json`"
         )),
     }
 }
@@ -1650,6 +1710,7 @@ fn print_help() {
     println!("  hum core-preview [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum resolve [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum type-env [--format human|json] [--timings] <file-or-dir>...");
+    println!("  hum type-check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum ir-readiness [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!("  hum syntax [--format json|textmate]");
@@ -1675,6 +1736,7 @@ fn print_help() {
     println!("  core-preview      Emit Core Hum preview candidates without execution");
     println!("  resolve           Emit checked scopes, definitions, references, and place links");
     println!("  type-env          Emit declared type environment facts without type checking");
+    println!("  type-check        Validate declaration annotations without expression inference");
     println!("  ir-readiness      Report source readiness for future Core Hum and Hum IR lowering");
     println!("  test-skeletons    Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
@@ -1706,7 +1768,7 @@ mod tests {
         CorePreviewFormat, DiagnosticsFormat, DoctorFormat, EvidenceFormat, ExplainFormat,
         IrContractFormat, IrReadinessFormat, LspFormat, MathObligationsFormat, ResolveFormat,
         ResourceReportFormat, RuntimeProfilesFormat, StateModelFormat, SyntaxFormat,
-        TargetFactsFormat, TypeEnvFormat, VersionFormat, load_program, parse_cli,
+        TargetFactsFormat, TypeCheckFormat, TypeEnvFormat, VersionFormat, load_program, parse_cli,
     };
 
     #[test]
@@ -2298,6 +2360,33 @@ mod tests {
         );
     }
 
+    #[test]
+    fn parses_type_check_json_format() {
+        let options = parse_cli(vec![
+            "type-check".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+            "examples".to_string(),
+        ])
+        .expect("type-check json command");
+        assert_eq!(options.command, "type-check");
+        assert_eq!(options.type_check_format, TypeCheckFormat::Json);
+    }
+
+    #[test]
+    fn rejects_unknown_type_check_format() {
+        let error = parse_cli(vec![
+            "type-check".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+            "examples".to_string(),
+        ])
+        .expect_err("type-check should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown type-check format `textmate`; expected `human` or `json`"
+        );
+    }
     #[test]
     fn parses_ir_readiness_json_format() {
         let options = parse_cli(vec![

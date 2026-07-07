@@ -161,6 +161,7 @@ try {
   if (-not $DiagnosticsJson.Contains('"code": "H0602"')) { throw 'diagnostic catalog JSON is missing H0602' }
   if (-not $DiagnosticsJson.Contains('"code": "H0603"')) { throw 'diagnostic catalog JSON is missing H0603' }
   if (-not $DiagnosticsJson.Contains('"code": "H0604"')) { throw 'diagnostic catalog JSON is missing H0604' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0605"')) { throw 'diagnostic catalog JSON is missing H0605' }
   if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
   if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
   if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
@@ -183,6 +184,8 @@ try {
   if (-not $CapabilitiesJson.Contains('"resolve_json"')) { throw 'capabilities JSON is missing resolve_json command' }
   if (-not $CapabilitiesJson.Contains('"type_env"')) { throw 'capabilities JSON is missing type_env schema' }
   if (-not $CapabilitiesJson.Contains('"type_env_json"')) { throw 'capabilities JSON is missing type_env_json command' }
+  if (-not $CapabilitiesJson.Contains('"type_check"')) { throw 'capabilities JSON is missing type_check schema' }
+  if (-not $CapabilitiesJson.Contains('"type_check_json"')) { throw 'capabilities JSON is missing type_check_json command' }
   if (-not $CapabilitiesJson.Contains('"ir_readiness"')) { throw 'capabilities JSON is missing ir_readiness schema' }
   if (-not $CapabilitiesJson.Contains('"core_contract"')) { throw 'capabilities JSON is missing core_contract schema' }
   if (-not $CapabilitiesJson.Contains('"ir_contract"')) { throw 'capabilities JSON is missing ir_contract schema' }
@@ -410,9 +413,21 @@ try {
   if (-not $TypeEnvJson.Contains('"type_names"')) { throw 'type environment JSON is missing type_names' }
   if (-not $TypeEnvJson.Contains('"declarations"')) { throw 'type environment JSON is missing declarations' }
   if (-not $TypeEnvJson.Contains('"resolver_definition_id"')) { throw 'type environment JSON is missing resolver definition links' }
-  if (-not $TypeEnvJson.Contains('"unknown_type_name_v0"')) { throw 'type environment JSON should report unknown type names as facts' }
+  if (-not $TypeEnvJson.Contains('"status": "type_environment_v0"')) { throw 'type environment JSON should pass for reference fixture' }
+  if (-not $TypeEnvJson.Contains('"unknown_type_references": 0')) { throw 'type environment JSON should have zero unknown type references for reference fixture' }
   if (-not $TypeEnvJson.Contains('"no full type checking"')) { throw 'type environment JSON must not claim full type checking' }
   if (-not $TypeEnvJson.Contains('"no executable semantics"')) { throw 'type environment JSON must not claim execution' }
+
+  $TypeCheckJson = Read-NativeOutput 'type check JSON' $Hum @('type-check', '--format', 'json', 'examples/reference_surface.hum')
+  Assert-Json 'type check JSON' $TypeCheckJson
+  if (-not $TypeCheckJson.Contains('"schema": "hum.type_check.v0"')) { throw 'type check JSON is missing hum.type_check.v0 schema' }
+  if (-not $TypeCheckJson.Contains('"mode": "declaration_annotation_check_no_expression_inference"')) { throw 'type check JSON is missing declaration-only mode' }
+  if (-not $TypeCheckJson.Contains('"schema": "hum.type_env.v0"')) { throw 'type check JSON is missing type-env schema link' }
+  if (-not $TypeCheckJson.Contains('"status": "declaration_annotations_checked_v0"')) { throw 'type check JSON should pass for reference fixture' }
+  if (-not $TypeCheckJson.Contains('"type_errors": 0')) { throw 'type check JSON should have zero type errors for reference fixture' }
+  if (-not $TypeCheckJson.Contains('"accepted_type_reference_v0"')) { throw 'type check JSON is missing accepted type references' }
+  if (-not $TypeCheckJson.Contains('"no expression type inference"')) { throw 'type check JSON must not claim expression inference' }
+  if (-not $TypeCheckJson.Contains('"no executable semantics"')) { throw 'type check JSON must not claim execution' }
 
   $IrReadinessJson = Read-NativeOutput 'IR readiness JSON' $Hum @('ir-readiness', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'IR readiness JSON' $IrReadinessJson
@@ -566,6 +581,10 @@ try {
   if (-not $TypeEnvSchemaText.Contains('hum.type_env.v0')) { throw 'type environment schema doc is missing hum.type_env.v0' }
   if (-not $TypeEnvSchemaText.Contains('declaration_inventory_no_type_check')) { throw 'type environment schema doc is missing no-type-check mode' }
   if (-not $TypeEnvSchemaText.Contains('unknown_type_name_v0')) { throw 'type environment schema doc is missing unknown type status' }
+  $TypeCheckSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_TYPE_CHECK_SCHEMA.md'))
+  if (-not $TypeCheckSchemaText.Contains('hum.type_check.v0')) { throw 'type check schema doc is missing hum.type_check.v0' }
+  if (-not $TypeCheckSchemaText.Contains('declaration_annotation_check_no_expression_inference')) { throw 'type check schema doc is missing declaration-only mode' }
+  if (-not $TypeCheckSchemaText.Contains('H0605')) { throw 'type check schema doc is missing H0605' }
   $IrReadinessSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_IR_READINESS_SCHEMA.md'))
   if (-not $IrReadinessSchemaText.Contains('hum.resolve.v0')) { throw 'IR readiness schema doc is missing resolver schema link' }
   if (-not $IrReadinessSchemaText.Contains('checked_resolver_errors')) { throw 'IR readiness schema doc is missing resolver blocker' }

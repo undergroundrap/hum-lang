@@ -78,6 +78,7 @@ impl DiagnosticCode {
     pub const DUPLICATE_NAME_IN_SCOPE: Self = Self::new("H0602", "duplicate name in scope");
     pub const SET_TARGET_IMMUTABLE: Self = Self::new("H0603", "set target is immutable");
     pub const READ_BEFORE_DECLARE: Self = Self::new("H0604", "read before declaration");
+    pub const UNKNOWN_TYPE_NAME: Self = Self::new("H0605", "unknown type name");
 
     pub const UNKNOWN_TARGET_FACT_RECORD: Self = Self::new("H1201", "unknown target fact record");
     pub const UNKNOWN_CAPABILITY_FAMILY: Self = Self::new("H1202", "unknown capability family");

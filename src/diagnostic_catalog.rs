@@ -211,6 +211,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Move the declaration above the read or pass the value in through an explicit parameter.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::UNKNOWN_TYPE_NAME,
+        default_severity: Severity::Error,
+        explanation: "A declaration annotation names a type that is neither declared in the source nor reserved by the current Hum type environment.",
+        repair: "Declare the type, use a reserved type root, or wait for imports/packages before relying on external type names.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
         default_severity: Severity::Error,
         explanation: "A `targets:` section names a target fact record that Hum does not publish in `hum target-facts`.",
@@ -275,6 +281,10 @@ mod tests {
         assert_eq!(
             find("H0604").map(|info| info.code),
             Some(DiagnosticCode::READ_BEFORE_DECLARE)
+        );
+        assert_eq!(
+            find("H0605").map(|info| info.code),
+            Some(DiagnosticCode::UNKNOWN_TYPE_NAME)
         );
         assert_eq!(
             find("H1201").map(|info| info.code),

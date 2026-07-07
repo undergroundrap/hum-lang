@@ -62,9 +62,9 @@ cargo run -- type-env --format json examples/reference_surface.hum
 - `blocked_by_source_errors`: source diagnostics include parse or Milestone 0
   check errors
 
-Unknown type names are facts in V0, not type errors. Later type-checking work
-can decide which unknowns are legal external types, imports, packages, builtins,
-or diagnostics.
+Unknown type names are facts in `hum type-env`, not type-env errors. The
+separate `hum type-check` gate consumes this report and currently rejects those
+unknowns as `H0605` until imports, packages, or external type authority exist.
 
 ## Resolver Dependency
 

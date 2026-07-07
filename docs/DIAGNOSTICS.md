@@ -231,6 +231,7 @@ Future ranges should be reserved before broad use:
 | `H0602` | error | duplicate name in scope | Two definitions in one scope normalize to the same name. |
 | `H0603` | error | set target is immutable | A `set` target resolves to a non-mutable definition. |
 | `H0604` | error | read before declaration | A name is read before its later local declaration. |
+| `H0605` | error | unknown type name | A declaration annotation names a type that is not declared or reserved. |
 
 ### Target And Backend Metadata
 
