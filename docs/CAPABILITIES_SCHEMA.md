@@ -79,6 +79,8 @@ Current `schemas` includes:
 - `capabilities`: `hum.capabilities.v0`
 - `lsp_capabilities`: `hum.lsp_capabilities.v0`
 - `doctor`: `hum.doctor.v0`
+- `target_facts`: `hum.target_facts.v0`
+- `target_fact_record`: `hum.target_fact_record.v0`
 
 ## Commands
 
@@ -109,6 +111,7 @@ Current entries include:
 - `hum capabilities --format json`
 - `hum lsp --capabilities --format json`
 - `hum doctor --format json`
+- `hum target-facts --format json`
 
 ## Editor Capabilities
 

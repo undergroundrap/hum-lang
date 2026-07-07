@@ -29,6 +29,7 @@ hum version --format json
 hum explain H0201 --format json
 hum diagnostics --format json
 hum capabilities --format json
+hum target-facts --format json
 hum lsp --capabilities --format json
 hum doctor --format json
 ```
@@ -156,7 +157,7 @@ Every release tag should have a short note containing:
 
 Before Hum is presented like a serious new language from a Microsoft-scale or Google-scale team, it should have:
 
-- versioned CLI behavior through `hum version`, `hum version --format json`, `hum capabilities --format json`, and `hum doctor --format json`
+- versioned CLI behavior through `hum version`, `hum version --format json`, `hum capabilities --format json`, `hum target-facts --format json`, and `hum doctor --format json`
 - versioned semantic graph schema
 - documented LSP capability matrix at [LSP_CAPABILITY_MATRIX.md](LSP_CAPABILITY_MATRIX.md)
 - editor integration strategy

@@ -175,6 +175,8 @@ try {
   if (-not $CapabilitiesJson.Contains('"ir_contract"')) { throw 'capabilities JSON is missing ir_contract schema' }
   if (-not $CapabilitiesJson.Contains('"backend_contract"')) { throw 'capabilities JSON is missing backend_contract schema' }
   if (-not $CapabilitiesJson.Contains('"doctor"')) { throw 'capabilities JSON is missing doctor schema' }
+  if (-not $CapabilitiesJson.Contains('"target_facts"')) { throw 'capabilities JSON is missing target_facts schema' }
+  if (-not $CapabilitiesJson.Contains('"target_fact_record"')) { throw 'capabilities JSON is missing target_fact_record schema' }
 
   $CoreContractJson = Read-NativeOutput 'Core contract JSON' $Hum @('core-contract', '--format', 'json')
   Assert-Json 'Core contract JSON' $CoreContractJson
@@ -227,6 +229,32 @@ try {
   if (-not $DoctorJson.Contains('"public_readiness_policy"')) { throw 'doctor JSON is missing public_readiness_policy check' }
   if (-not $DoctorJson.Contains('"clean_checkout_smoke"')) { throw 'doctor JSON is missing clean_checkout_smoke check' }
   if (-not $DoctorJson.Contains('"tag_readiness"')) { throw 'doctor JSON is missing tag_readiness check' }
+
+  $TargetFactsJson = Read-NativeOutput 'target facts JSON' $Hum @('target-facts', '--format', 'json')
+  Assert-Json 'target facts JSON' $TargetFactsJson
+  if (-not $TargetFactsJson.Contains('"schema": "hum.target_facts.v0"')) { throw 'target facts JSON is missing hum.target_facts.v0 schema' }
+  if (-not $TargetFactsJson.Contains('"record_schema": "hum.target_fact_record.v0"')) { throw 'target facts JSON is missing target fact record schema' }
+  if (-not $TargetFactsJson.Contains('"mode": "contract_only_no_host_probe"')) { throw 'target facts JSON must stay non-probing in V0' }
+  if (-not $TargetFactsJson.Contains('"default_policy": "unknown_fails_closed"')) { throw 'target facts JSON is missing fail-closed policy' }
+  if (-not $TargetFactsJson.Contains('"field_catalog"')) { throw 'target facts JSON is missing field catalog' }
+  if (-not $TargetFactsJson.Contains('"capability_families"')) { throw 'target facts JSON is missing capability families' }
+  if (-not $TargetFactsJson.Contains('"id": "windows-x86_64-msvc"')) { throw 'target facts JSON is missing Windows fixture' }
+  if (-not $TargetFactsJson.Contains('"id": "wasm32-wasi-preview1"')) { throw 'target facts JSON is missing WASI fixture' }
+  if (-not $TargetFactsJson.Contains('"no host capability probing"')) { throw 'target facts JSON must reject host probing claims' }
+
+  $TargetFactFixtureDir = Join-Path (Join-Path $RepoRoot 'fixtures') 'target_facts'
+  $TargetFactFixtures = @(Get-ChildItem -LiteralPath $TargetFactFixtureDir -Filter '*.json' -File)
+  if ($TargetFactFixtures.Count -lt 4) { throw 'target fact fixture directory must contain at least four JSON fixtures' }
+  foreach ($Fixture in $TargetFactFixtures) {
+    $FixtureText = [System.IO.File]::ReadAllText($Fixture.FullName)
+    $FixtureJson = $FixtureText | ConvertFrom-Json
+    if ($FixtureJson.schema -ne 'hum.target_fact_record.v0') { throw "target fact fixture $($Fixture.Name) has wrong schema" }
+    if ($FixtureJson.status -ne 'fixture') { throw "target fact fixture $($Fixture.Name) must have fixture status" }
+    if ($FixtureJson.absence_policy -ne 'unknown_or_absent_capabilities_fail_closed') { throw "target fact fixture $($Fixture.Name) must fail closed" }
+    if ($null -eq $FixtureJson.facts.triple) { throw "target fact fixture $($Fixture.Name) is missing facts.triple" }
+    if ($null -eq $FixtureJson.capabilities -or @($FixtureJson.capabilities).Count -eq 0) { throw "target fact fixture $($Fixture.Name) is missing capabilities" }
+    if ($null -eq $FixtureJson.non_claims -or @($FixtureJson.non_claims).Count -eq 0) { throw "target fact fixture $($Fixture.Name) is missing non_claims" }
+  }
 
   Invoke-Native 'hum check examples' $Hum @('check', 'examples')
 
@@ -364,6 +392,13 @@ try {
   if (-not $PortabilityBoundaryText.Contains('Hum Portability Boundary Model')) { throw 'portability boundary model is missing title' }
   if (-not $PortabilityBoundaryText.Contains('Absence Is A First-Class Case')) { throw 'portability boundary model is missing absence rule' }
   if (-not $PortabilityBoundaryText.Contains('Artifact Evidence')) { throw 'portability boundary model is missing artifact evidence rule' }
+  if (-not $PortabilityBoundaryText.Contains('TARGET_FACTS_SCHEMA.md')) { throw 'portability boundary model is missing target facts schema link' }
+  $TargetFactsSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\TARGET_FACTS_SCHEMA.md'))
+  if (-not $TargetFactsSchemaText.Contains('hum.target_facts.v0')) { throw 'target facts schema doc is missing hum.target_facts.v0' }
+  if (-not $TargetFactsSchemaText.Contains('hum.target_fact_record.v0')) { throw 'target facts schema doc is missing hum.target_fact_record.v0' }
+  if (-not $TargetFactsSchemaText.Contains('contract_only_no_host_probe')) { throw 'target facts schema doc is missing no-probe mode' }
+  if (-not $TargetFactsSchemaText.Contains('unknown_fails_closed')) { throw 'target facts schema doc is missing fail-closed policy' }
+  if (-not $TargetFactsSchemaText.Contains('../fixtures/target_facts')) { throw 'target facts schema doc is missing fixture link' }
   $DebugDoctrineText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\DEBUGGABILITY_DOCTRINE.md'))
   if (-not $DebugDoctrineText.Contains('hum.debug_info.v0')) { throw 'debuggability doctrine is missing debug info schema direction' }
   if (-not $DebugDoctrineText.Contains('faster and clearer than adding `printf`')) { throw 'debuggability doctrine is missing debugger speed rule' }

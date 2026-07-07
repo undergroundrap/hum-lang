@@ -12,6 +12,7 @@ use crate::lsp;
 use crate::math_obligations;
 use crate::resource_report;
 use crate::syntax;
+use crate::target_facts;
 use crate::version;
 
 pub const CAPABILITIES_SCHEMA: &str = "hum.capabilities.v0";
@@ -150,6 +151,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: doctor::DOCTOR_SCHEMA,
         status: "current",
         purpose: "portable repo setup and guardrail health report",
+    },
+    CommandCapability {
+        name: "target_facts_json",
+        command: "hum target-facts --format json",
+        schema: target_facts::TARGET_FACTS_SCHEMA,
+        status: "current",
+        purpose: "target-fact field catalog and portability fixture records",
     },
 ];
 
@@ -293,6 +301,11 @@ pub fn capabilities_text() -> String {
         lsp::LSP_CAPABILITIES_SCHEMA
     ));
     out.push_str(&format!("  doctor: {}\n", doctor::DOCTOR_SCHEMA));
+    out.push_str(&format!(
+        "  target_facts: {}\n  target_fact_record: {}\n",
+        target_facts::TARGET_FACTS_SCHEMA,
+        target_facts::TARGET_FACT_RECORD_SCHEMA
+    ));
     out.push_str("commands:\n");
     for command in COMMANDS {
         out.push_str(&format!(
@@ -434,7 +447,21 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         lsp::LSP_CAPABILITIES_SCHEMA,
         true,
     );
-    push_string_field(out, indent + 2, "doctor", doctor::DOCTOR_SCHEMA, false);
+    push_string_field(out, indent + 2, "doctor", doctor::DOCTOR_SCHEMA, true);
+    push_string_field(
+        out,
+        indent + 2,
+        "target_facts",
+        target_facts::TARGET_FACTS_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "target_fact_record",
+        target_facts::TARGET_FACT_RECORD_SCHEMA,
+        false,
+    );
     push_indent(out, indent);
     out.push('}');
     push_comma_newline(out, comma);
@@ -557,7 +584,10 @@ mod tests {
         assert!(json.contains("\"backend_contract\": \"hum.backend_contract.v0\""));
         assert!(json.contains("\"lsp_capabilities\": \"hum.lsp_capabilities.v0\""));
         assert!(json.contains("\"doctor\": \"hum.doctor.v0\""));
+        assert!(json.contains("\"target_facts\": \"hum.target_facts.v0\""));
+        assert!(json.contains("\"target_fact_record\": \"hum.target_fact_record.v0\""));
         assert!(json.contains("\"name\": \"doctor_json\""));
+        assert!(json.contains("\"name\": \"target_facts_json\""));
         assert!(json.contains("\"name\": \"core_contract_json\""));
         assert!(json.contains("\"name\": \"ir_contract_json\""));
         assert!(json.contains("\"name\": \"backend_contract_json\""));

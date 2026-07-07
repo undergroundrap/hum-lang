@@ -1,0 +1,55 @@
+{
+  "schema": "hum.target_fact_record.v0",
+  "id": "thumbv7em-none-eabihf",
+  "status": "fixture",
+  "absence_policy": "unknown_or_absent_capabilities_fail_closed",
+  "facts": {
+    "triple": "thumbv7em-none-eabihf",
+    "os": "none",
+    "arch": "thumbv7em",
+    "abi": "eabihf",
+    "endian": "little",
+    "pointer_width_bits": 32,
+    "path_kind": "absent",
+    "newline_policy": "preserve",
+    "filesystem": "absent_by_default",
+    "process": "absent_by_default",
+    "network": "device_specific",
+    "clock": "device_specific",
+    "random": "device_specific",
+    "atomics": "profile_dependent",
+    "simd": "profile_dependent"
+  },
+  "capabilities": [
+    {
+      "family": "target.layout",
+      "availability": "known_fixture",
+      "note": "little-endian ARM with 32-bit pointers"
+    },
+    {
+      "family": "target.memory",
+      "availability": "profile_required",
+      "note": "heap, stack, and static regions must be explicit"
+    },
+    {
+      "family": "target.path",
+      "availability": "absent_by_default",
+      "note": "no native filesystem path model"
+    },
+    {
+      "family": "os.process",
+      "availability": "absent_by_default",
+      "note": "no general process model"
+    },
+    {
+      "family": "os.network",
+      "availability": "device_specific",
+      "note": "network requires explicit device or bus authority"
+    }
+  ],
+  "non_claims": [
+    "not probed by this binary",
+    "not firmware support",
+    "not safety-critical qualification"
+  ]
+}

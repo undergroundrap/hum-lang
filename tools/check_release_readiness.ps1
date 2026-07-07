@@ -51,6 +51,9 @@ if (-not $releaseDoc.Contains('hum diagnostics')) {
 if (-not $releaseDoc.Contains('hum capabilities')) {
   Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention hum capabilities'
 }
+if (-not $releaseDoc.Contains('hum target-facts')) {
+  Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention hum target-facts'
+}
 if (-not $releaseDoc.Contains('hum lsp --capabilities')) {
   Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention hum lsp --capabilities'
 }
@@ -169,6 +172,9 @@ if (-not $readme.Contains('hum diagnostics')) {
 if (-not $readme.Contains('hum capabilities')) {
   Add-Failure 'README.md does not mention hum capabilities'
 }
+if (-not $readme.Contains('hum target-facts')) {
+  Add-Failure 'README.md does not mention hum target-facts'
+}
 if (-not $readme.Contains('hum lsp --capabilities')) {
   Add-Failure 'README.md does not mention hum lsp --capabilities'
 }
@@ -244,7 +250,7 @@ foreach ($required in @('hum.syntax_surface.v0', 'section_catalog', 'semantic_to
 }
 
 $capabilitiesDoc = Read-RepoText 'docs/CAPABILITIES_SCHEMA.md'
-foreach ($required in @('hum.capabilities.v0', 'hum.lsp_capabilities.v0', 'hum.doctor.v0', 'hum capabilities --format json', 'hum lsp --capabilities --format json', 'hum doctor --format json', 'toolchain discovery', 'not Hum''s runtime authority model', 'editor_capabilities', 'hum.syntax_surface.v0')) {
+foreach ($required in @('hum.capabilities.v0', 'hum.lsp_capabilities.v0', 'hum.doctor.v0', 'hum.target_facts.v0', 'hum.target_fact_record.v0', 'hum capabilities --format json', 'hum target-facts --format json', 'hum lsp --capabilities --format json', 'hum doctor --format json', 'toolchain discovery', 'not Hum''s runtime authority model', 'editor_capabilities', 'hum.syntax_surface.v0')) {
   if (-not $capabilitiesDoc.Contains($required)) {
     Add-Failure "docs/CAPABILITIES_SCHEMA.md does not mention $required"
   }

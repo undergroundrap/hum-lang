@@ -1,0 +1,55 @@
+{
+  "schema": "hum.target_fact_record.v0",
+  "id": "wasm32-wasi-preview1",
+  "status": "fixture",
+  "absence_policy": "unknown_or_absent_capabilities_fail_closed",
+  "facts": {
+    "triple": "wasm32-wasi-preview1",
+    "os": "wasi",
+    "arch": "wasm32",
+    "abi": "wasi-preview1",
+    "endian": "little",
+    "pointer_width_bits": 32,
+    "path_kind": "wasi_virtual",
+    "newline_policy": "preserve",
+    "filesystem": "import_required",
+    "process": "mostly_absent",
+    "network": "absent_by_default",
+    "clock": "host_import_profile_gated",
+    "random": "host_import_profile_gated",
+    "atomics": "profile_dependent",
+    "simd": "profile_dependent"
+  },
+  "capabilities": [
+    {
+      "family": "target.layout",
+      "availability": "known_fixture",
+      "note": "wasm32 linear-memory layout with 32-bit pointers"
+    },
+    {
+      "family": "target.path",
+      "availability": "sandbox_adapter_owned",
+      "note": "paths are virtual host imports, not native OS paths"
+    },
+    {
+      "family": "os.filesystem",
+      "availability": "import_required",
+      "note": "preopened directories define authority"
+    },
+    {
+      "family": "os.process",
+      "availability": "mostly_absent",
+      "note": "process behavior is host-defined and must be declared"
+    },
+    {
+      "family": "os.network",
+      "availability": "absent_by_default",
+      "note": "network requires host-specific imports"
+    }
+  ],
+  "non_claims": [
+    "not probed by this binary",
+    "not a Wasm artifact claim",
+    "not a host import grant"
+  ]
+}

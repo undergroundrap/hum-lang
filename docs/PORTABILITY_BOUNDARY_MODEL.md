@@ -135,8 +135,7 @@ target:
   simd: sse2 baseline
 ```
 
-Field names are illustrative, not final syntax. The requirement is that these
-facts become machine-readable before target-sensitive code depends on them.
+Field names are illustrative, not final syntax. The current machine-readable V0 surface is [TARGET_FACTS_SCHEMA.md](TARGET_FACTS_SCHEMA.md), emitted by `hum target-facts --format json`, with fixture records under [../fixtures/target_facts](../fixtures/target_facts). The requirement is that target facts stay machine-readable before target-sensitive code depends on them.
 
 ## Capability Families
 
@@ -389,14 +388,16 @@ Milestone 0 must not:
 
 ## Near-Term Work
 
-1. Add portability boundary links to the language reference, architecture, OS
+1. Keep portability boundary links in the language reference, architecture, OS
    model, and interop strategy.
-2. Reserve future semantic graph fields for target facts and capability absence.
-3. Add non-executing fixtures for path, clock, random, filesystem, process, and
+2. Keep `hum target-facts --format json` and fixture records in sync with this
+   boundary.
+3. Reserve future semantic graph fields for target facts and capability absence.
+4. Add non-executing fixtures for path, clock, random, filesystem, process, and
    network declarations once syntax is pinned.
-4. Add profile diagnostics only after the graph can represent the relevant
+5. Add profile diagnostics only after the graph can represent the relevant
    target facts honestly.
-5. Keep the first executable core target small and local before promising
+6. Keep the first executable core target small and local before promising
    cross-platform artifacts.
 
 ## Brutal Rule

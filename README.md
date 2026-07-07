@@ -70,6 +70,7 @@ Current artifacts:
 - [docs/MILESTONE_0_GRAMMAR.md](docs/MILESTONE_0_GRAMMAR.md): current Rust bootstrap parser grammar contract
 - [docs/SYNTAX_SURFACE_SCHEMA.md](docs/SYNTAX_SURFACE_SCHEMA.md): `hum.syntax_surface.v0` schema for editor-neutral syntax metadata
 - [docs/CAPABILITIES_SCHEMA.md](docs/CAPABILITIES_SCHEMA.md): `hum.capabilities.v0` schema for toolchain surface discovery
+- [docs/TARGET_FACTS_SCHEMA.md](docs/TARGET_FACTS_SCHEMA.md): `hum.target_facts.v0` and `hum.target_fact_record.v0` portability field and fixture schema
 - [docs/EVIDENCE_REPORT_SCHEMA.md](docs/EVIDENCE_REPORT_SCHEMA.md): `hum.evidence.v0` security/trust evidence report schema
 - [docs/MATH_ENGINE_BOUNDARY.md](docs/MATH_ENGINE_BOUNDARY.md): boundary for Truth Harness-style verifier integrations
 - [docs/MATH_OBLIGATIONS_SCHEMA.md](docs/MATH_OBLIGATIONS_SCHEMA.md): `hum.math_obligations.v0` and `hum.math_obligation.v0` export surface for external validators
@@ -109,6 +110,7 @@ Current artifacts:
 - [docs/UNSAFE_POLICY.md](docs/UNSAFE_POLICY.md): unsafe review packets, profile bans, provenance, and FFI-adjacent rules
 - [docs/INTEROP_AND_PORTABILITY.md](docs/INTEROP_AND_PORTABILITY.md): C/C++/Rust/Python/Wasm interop and target portability strategy
 - [docs/PORTABILITY_BOUNDARY_MODEL.md](docs/PORTABILITY_BOUNDARY_MODEL.md): target facts, platform adapters, capability absence, and artifact portability evidence
+- [fixtures/target_facts](fixtures/target_facts): machine-readable target fact fixtures for Windows, Linux, WASI, and embedded-shaped targets
 - [docs/OS_AND_PLATFORM_MODEL.md](docs/OS_AND_PLATFORM_MODEL.md): Windows-first, portable-by-design OS authority and platform model
 - [docs/TEXT_HYGIENE_WORKFLOW.md](docs/TEXT_HYGIENE_WORKFLOW.md): UTF-8, no-BOM, mojibake, control-character, and local-link hygiene workflow
 - [docs/BOOTSTRAP_COMPILER.md](docs/BOOTSTRAP_COMPILER.md): Rust bootstrap rules and compiler architecture
@@ -203,6 +205,8 @@ cargo run -- diagnostics
 cargo run -- diagnostics --format json
 cargo run -- capabilities
 cargo run -- capabilities --format json
+cargo run -- target-facts
+cargo run -- target-facts --format json
 cargo run -- core-contract
 cargo run -- core-contract --format json
 cargo run -- core-preview examples/reference_surface.hum
@@ -246,6 +250,7 @@ Current CLI:
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents
 - `hum capabilities [--format human|json]`: list `hum.capabilities.v0` toolchain surfaces for editors, agents, and CI wrappers
+- `hum target-facts [--format human|json]`: emit `hum.target_facts.v0` target-fact fields, capability families, and portability fixture records without host probing or target selection
 - `hum core-contract [--format human|json]`: emit `hum.core_contract.v0` Core Hum executable subset and surface-to-core acceptance facts
 - `hum core-preview [--format human|json] <file-or-dir>...`: emit `hum.core_preview.v0` Core Hum candidate operations and blockers without execution
 - `hum ir-contract [--format human|json]`: emit `hum.ir_contract.v0` Hum IR ownership, carried-fact, pass-boundary, and non-execution facts

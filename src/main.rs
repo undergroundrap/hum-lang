@@ -24,6 +24,7 @@ mod node_id;
 mod parser;
 mod resource_report;
 mod syntax;
+mod target_facts;
 mod test_skeletons;
 mod version;
 
@@ -104,6 +105,13 @@ fn run() -> Result<ExitCode, String> {
         match options.doctor_format {
             DoctorFormat::Human => print!("{}", doctor::doctor_text()),
             DoctorFormat::Json => print!("{}", doctor::doctor_json()),
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    if options.command == "target-facts" {
+        match options.target_facts_format {
+            TargetFactsFormat::Human => print!("{}", target_facts::target_facts_text()),
+            TargetFactsFormat::Json => print!("{}", target_facts::target_facts_json()),
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -330,7 +338,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `lsp`, or `doctor`"
+            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `lsp`, `doctor`, or `target-facts`"
         )),
     }
 }
@@ -408,6 +416,12 @@ enum DoctorFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TargetFactsFormat {
+    Human,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EvidenceFormat {
     Human,
     Json,
@@ -448,6 +462,7 @@ struct CliOptions {
     backend_contract_format: BackendContractFormat,
     lsp_format: LspFormat,
     doctor_format: DoctorFormat,
+    target_facts_format: TargetFactsFormat,
     evidence_format: EvidenceFormat,
     math_obligations_format: MathObligationsFormat,
     resource_report_format: ResourceReportFormat,
@@ -492,9 +507,10 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "backend-contract"
             | "lsp"
             | "doctor"
+            | "target-facts"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `lsp`, or `doctor`"
+            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `lsp`, `doctor`, or `target-facts`"
         ));
     }
 
@@ -512,6 +528,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut backend_contract_format = BackendContractFormat::Human;
     let mut lsp_format = LspFormat::Human;
     let mut doctor_format = DoctorFormat::Human;
+    let mut target_facts_format = TargetFactsFormat::Human;
     let mut evidence_format = EvidenceFormat::Human;
     let mut math_obligations_format = MathObligationsFormat::Human;
     let mut resource_report_format = ResourceReportFormat::Human;
@@ -551,6 +568,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         | "backend-contract"
                         | "lsp"
                         | "doctor"
+                        | "target-facts"
                         | "evidence"
                         | "math-obligations"
                         | "resource-report"
@@ -575,6 +593,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     }
                     "lsp" => lsp_format = parse_lsp_format(&value)?,
                     "doctor" => doctor_format = parse_doctor_format(&value)?,
+                    "target-facts" => target_facts_format = parse_target_facts_format(&value)?,
                     "evidence" => evidence_format = parse_evidence_format(&value)?,
                     "math-obligations" => {
                         math_obligations_format = parse_math_obligations_format(&value)?
@@ -600,6 +619,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     | "backend-contract"
                     | "lsp"
                     | "doctor"
+                    | "target-facts"
                     | "evidence"
                     | "math-obligations"
                     | "resource-report"
@@ -622,6 +642,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     }
                     "lsp" => lsp_format = parse_lsp_format(value)?,
                     "doctor" => doctor_format = parse_doctor_format(value)?,
+                    "target-facts" => target_facts_format = parse_target_facts_format(value)?,
                     "evidence" => evidence_format = parse_evidence_format(value)?,
                     "math-obligations" => {
                         math_obligations_format = parse_math_obligations_format(value)?
@@ -662,6 +683,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             backend_contract_format,
             lsp_format,
             doctor_format,
+            target_facts_format,
             evidence_format,
             math_obligations_format,
             resource_report_format,
@@ -694,6 +716,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             backend_contract_format,
             lsp_format,
             doctor_format,
+            target_facts_format,
             evidence_format,
             math_obligations_format,
             resource_report_format,
@@ -726,6 +749,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             backend_contract_format,
             lsp_format,
             doctor_format,
+            target_facts_format,
             evidence_format,
             math_obligations_format,
             resource_report_format,
@@ -758,6 +782,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             backend_contract_format,
             lsp_format,
             doctor_format,
+            target_facts_format,
             evidence_format,
             math_obligations_format,
             resource_report_format,
@@ -790,6 +815,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             backend_contract_format,
             lsp_format,
             doctor_format,
+            target_facts_format,
             evidence_format,
             math_obligations_format,
             resource_report_format,
@@ -822,6 +848,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             backend_contract_format,
             lsp_format,
             doctor_format,
+            target_facts_format,
             evidence_format,
             math_obligations_format,
             resource_report_format,
@@ -854,6 +881,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             backend_contract_format,
             lsp_format,
             doctor_format,
+            target_facts_format,
             evidence_format,
             math_obligations_format,
             resource_report_format,
@@ -886,6 +914,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             backend_contract_format,
             lsp_format,
             doctor_format,
+            target_facts_format,
             evidence_format,
             math_obligations_format,
             resource_report_format,
@@ -924,6 +953,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             backend_contract_format,
             lsp_format,
             doctor_format,
+            target_facts_format,
             evidence_format,
             math_obligations_format,
             resource_report_format,
@@ -956,6 +986,40 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             backend_contract_format,
             lsp_format,
             doctor_format,
+            target_facts_format,
+            evidence_format,
+            math_obligations_format,
+            resource_report_format,
+            ir_readiness_format,
+            math_obligations_out_dir: math_obligations_out_dir.clone(),
+            explain_code: None,
+        });
+    }
+
+    if command == "target-facts" {
+        if show_timings {
+            return Err("`target-facts` does not support `--timings`".to_string());
+        }
+        if !raw_inputs.is_empty() {
+            return Err("`target-facts` does not accept input files".to_string());
+        }
+        return Ok(CliOptions {
+            command,
+            inputs: Vec::new(),
+            show_timings,
+            check_format,
+            syntax_format,
+            version_format,
+            explain_format,
+            diagnostics_format,
+            capabilities_format,
+            core_contract_format,
+            core_preview_format,
+            ir_contract_format,
+            backend_contract_format,
+            lsp_format,
+            doctor_format,
+            target_facts_format,
             evidence_format,
             math_obligations_format,
             resource_report_format,
@@ -981,6 +1045,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         backend_contract_format,
         lsp_format,
         doctor_format,
+        target_facts_format,
         evidence_format,
         math_obligations_format,
         resource_report_format,
@@ -1104,6 +1169,16 @@ fn parse_doctor_format(value: &str) -> Result<DoctorFormat, String> {
         "json" => Ok(DoctorFormat::Json),
         other => Err(format!(
             "unknown doctor format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
+fn parse_target_facts_format(value: &str) -> Result<TargetFactsFormat, String> {
+    match value {
+        "human" => Ok(TargetFactsFormat::Human),
+        "json" => Ok(TargetFactsFormat::Json),
+        other => Err(format!(
+            "unknown target-facts format `{other}`; expected `human` or `json`"
         )),
     }
 }
@@ -1308,6 +1383,7 @@ fn print_help() {
     println!("  hum backend-contract [--format human|json]");
     println!("  hum lsp --capabilities [--format human|json]");
     println!("  hum doctor [--format human|json]");
+    println!("  hum target-facts [--format human|json]");
     println!();
     println!("Commands:");
     println!("  check           Parse Hum files and run milestone-0 intent checks");
@@ -1328,6 +1404,7 @@ fn print_help() {
     println!("  backend-contract  Emit the backend adapter contract and staged backend ladder");
     println!("  lsp             Preview LSP adapter capabilities");
     println!("  doctor          Check portable repo setup and guardrails");
+    println!("  target-facts    Emit target fact fields and portability fixtures");
     println!();
     println!("Options:");
     println!("  --timings   Print read/parse/check timings per input file");
@@ -1343,7 +1420,8 @@ mod tests {
         BackendContractFormat, CapabilitiesFormat, CheckFormat, CoreContractFormat,
         CorePreviewFormat, DiagnosticsFormat, DoctorFormat, EvidenceFormat, ExplainFormat,
         IrContractFormat, IrReadinessFormat, LspFormat, MathObligationsFormat,
-        ResourceReportFormat, SyntaxFormat, VersionFormat, load_program, parse_cli,
+        ResourceReportFormat, SyntaxFormat, TargetFactsFormat, VersionFormat, load_program,
+        parse_cli,
     };
 
     #[test]
@@ -1899,6 +1977,38 @@ mod tests {
         let error = parse_cli(vec!["doctor".to_string(), "examples".to_string()])
             .expect_err("doctor should reject inputs");
         assert_eq!(error, "`doctor` does not accept input files");
+    }
+
+    #[test]
+    fn parses_target_facts_json_format() {
+        let options = parse_cli(vec![
+            "target-facts".to_string(),
+            "--format=json".to_string(),
+        ])
+        .expect("target-facts json command");
+        assert_eq!(options.command, "target-facts");
+        assert_eq!(options.target_facts_format, TargetFactsFormat::Json);
+    }
+
+    #[test]
+    fn rejects_unknown_target_facts_format() {
+        let error = parse_cli(vec![
+            "target-facts".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+        ])
+        .expect_err("target-facts should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown target-facts format `textmate`; expected `human` or `json`"
+        );
+    }
+
+    #[test]
+    fn rejects_target_facts_command_inputs() {
+        let error = parse_cli(vec!["target-facts".to_string(), "examples".to_string()])
+            .expect_err("target-facts should reject inputs");
+        assert_eq!(error, "`target-facts` does not accept input files");
     }
 
     #[test]

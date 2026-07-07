@@ -1,0 +1,55 @@
+{
+  "schema": "hum.target_fact_record.v0",
+  "id": "linux-x86_64-gnu",
+  "status": "fixture",
+  "absence_policy": "unknown_or_absent_capabilities_fail_closed",
+  "facts": {
+    "triple": "linux-x86_64-gnu",
+    "os": "linux",
+    "arch": "x86_64",
+    "abi": "gnu",
+    "endian": "little",
+    "pointer_width_bits": 64,
+    "path_kind": "posix",
+    "newline_policy": "preserve",
+    "filesystem": "available_profile_gated",
+    "process": "available_profile_gated",
+    "network": "available_profile_gated",
+    "clock": "monotonic_and_wall_available_profile_gated",
+    "random": "system_available_profile_gated",
+    "atomics": "u64_available",
+    "simd": "sse2_baseline"
+  },
+  "capabilities": [
+    {
+      "family": "target.layout",
+      "availability": "known_fixture",
+      "note": "little-endian x86_64 with 64-bit pointers"
+    },
+    {
+      "family": "target.path",
+      "availability": "known_fixture",
+      "note": "POSIX-style path model requires explicit symlink and root policy"
+    },
+    {
+      "family": "os.filesystem",
+      "availability": "available_profile_gated",
+      "note": "strict profiles still require declared roots"
+    },
+    {
+      "family": "os.process",
+      "availability": "available_profile_gated",
+      "note": "environment and executable lookup are explicit authority"
+    },
+    {
+      "family": "os.network",
+      "availability": "available_profile_gated",
+      "note": "offline-tool profiles deny it"
+    }
+  ],
+  "non_claims": [
+    "not probed by this binary",
+    "not a backend target selection",
+    "not artifact evidence"
+  ]
+}
