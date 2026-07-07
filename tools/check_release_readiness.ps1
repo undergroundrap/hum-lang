@@ -63,10 +63,36 @@ if (-not $releaseDoc.Contains('check_clean_checkout.ps1')) {
 if (-not $releaseDoc.Contains('check_tag_readiness.ps1')) {
   Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention check_tag_readiness.ps1'
 }
+if (-not $releaseDoc.Contains('CHANGELOG.md')) {
+  Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention CHANGELOG.md'
+}
+if (-not $releaseDoc.Contains('releases/v0.0.1.md')) {
+  Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention releases/v0.0.1.md'
+}
+$changelog = Read-RepoText 'CHANGELOG.md'
+foreach ($required in @("## [$version]", 'Status: pre-alpha', '### Added', '### Known Risks', '### Verification', 'tools/check_tag_readiness.ps1')) {
+  if (-not $changelog.Contains($required)) {
+    Add-Failure "CHANGELOG.md does not mention $required"
+  }
+}
+
+$releaseNotePath = "docs\releases\v$version.md"
+$releaseNote = Read-RepoText $releaseNotePath
+foreach ($required in @("Hum v$version Release Notes", 'Status: pre-alpha', 'Commit hash', '## Highlights', '## Compatibility Notes', '## Known Risks', '## Verification Commands', 'tools/check_tag_readiness.ps1')) {
+  if (-not $releaseNote.Contains($required)) {
+    Add-Failure "$releaseNotePath does not mention $required"
+  }
+}
 
 $readme = Read-RepoText 'README.md'
 if (-not $readme.Contains('docs/RELEASE_AND_VERSIONING.md')) {
   Add-Failure 'README.md does not link docs/RELEASE_AND_VERSIONING.md'
+}
+if (-not $readme.Contains('CHANGELOG.md')) {
+  Add-Failure 'README.md does not link CHANGELOG.md'
+}
+if (-not $readme.Contains('docs/releases/v0.0.1.md')) {
+  Add-Failure 'README.md does not link docs/releases/v0.0.1.md'
 }
 if (-not $readme.Contains('docs/LSP_CAPABILITY_MATRIX.md')) {
   Add-Failure 'README.md does not link docs/LSP_CAPABILITY_MATRIX.md'

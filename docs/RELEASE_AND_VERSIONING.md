@@ -100,7 +100,8 @@ Do not tag until:
 7. `cargo run -- check examples` passes.
 8. `git status --short` is clean except for intentional release edits before the release commit.
 9. `tools/check_clean_checkout.ps1` passes from the committed clean tree.
-10. `tools/check_tag_readiness.ps1` passes and prints the intended annotated tag command.
+10. `CHANGELOG.md` and the matching `docs/releases/vX.Y.Z.md` note are updated.
+11. `tools/check_tag_readiness.ps1` passes and prints the intended annotated tag command.
 
 ## Private Remote Then Public Remote
 
@@ -115,6 +116,8 @@ Recommended sequence:
 No remote push is part of the local release check. Publishing is a separate human decision.
 
 ## Release Notes
+
+Release history lives in [../CHANGELOG.md](../CHANGELOG.md). Per-version release notes live under [releases](releases), starting with [releases/v0.0.1.md](releases/v0.0.1.md).
 
 Every release tag should have a short note containing:
 
@@ -143,6 +146,7 @@ Before Hum is presented like a serious new language from a Microsoft-scale or Go
 - reproducible local verification
 - clean-checkout smoke through `tools/check_clean_checkout.ps1`
 - non-publishing tag gate through `tools/check_tag_readiness.ps1`
+- changelog and per-version release notes
 
 ## Sources
 

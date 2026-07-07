@@ -80,6 +80,8 @@ Current artifacts:
 - [docs/LSP_CAPABILITY_MATRIX.md](docs/LSP_CAPABILITY_MATRIX.md): current and planned LSP/editor capabilities mapped to first-party Hum CLI facts
 - [docs/EDITOR_FIXTURES.md](docs/EDITOR_FIXTURES.md): broken and half-written source fixtures for editor/LSP recovery
 - [docs/RELEASE_AND_VERSIONING.md](docs/RELEASE_AND_VERSIONING.md): SemVer, `0.0.1`, release checks, and tag policy
+- [CHANGELOG.md](CHANGELOG.md): human-readable release history
+- [docs/releases/v0.0.1.md](docs/releases/v0.0.1.md): draft `v0.0.1` pre-alpha release notes
 - [.github/workflows/ci.yml](.github/workflows/ci.yml): hosted preflight workflow for pushes and pull requests
 - [docs/LANGUAGE_CONSTITUTION.md](docs/LANGUAGE_CONSTITUTION.md): rules Hum must not violate
 - [docs/PAVED_ROAD_DOCTRINE.md](docs/PAVED_ROAD_DOCTRINE.md): one obvious default path, explicit side roads, and evidence-backed optimization doctrine
