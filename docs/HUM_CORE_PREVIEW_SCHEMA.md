@@ -117,19 +117,21 @@ Each `statements` row has:
 `name_preview` is a candidate-local binding/reference preview only. It walks the
 candidate in source-statement order and reports the names currently visible to
 future lowering work without claiming full module, type, overload, field, or
-lexical block resolution.
+checked name resolution.
 
 ```json
 {
   "status": "name_preview_v0",
-  "scope_model": "candidate_linear_scope_v0",
+  "scope_model": "lexical_block_scope_preview_v0",
   "scope_id": "hum_core_preview_task_add_task_4_1_scope_root",
+  "scope_count": 2,
   "definition_count": 2,
   "reference_count": 3,
   "resolved_reference_count": 2,
   "unresolved_reference_count": 0,
   "external_reference_count": 1,
   "shadowed_definition_count": 0,
+  "scopes": [],
   "definitions": [],
   "references": []
 }
@@ -139,8 +141,9 @@ Name preview fields:
 
 - `status`: `name_preview_v0`, `name_preview_with_shadowing_v0`, or
   `name_preview_with_unresolved_v0`
-- `scope_model`: currently `candidate_linear_scope_v0`
+- `scope_model`: currently `lexical_block_scope_preview_v0`
 - `scope_id`: source-derived root scope identifier for this preview candidate
+- `scope_count`: number of preview lexical scopes reported
 - `definition_count`: number of preview definitions reported
 - `reference_count`: number of preview references reported
 - `resolved_reference_count`: references resolved to a visible candidate-local
@@ -151,8 +154,20 @@ Name preview fields:
   reported as external/type/global preview references because V0 has no module or
   global resolver yet
 - `shadowed_definition_count`: definitions that shadow a previously visible name
+- `scopes`: preview lexical scope rows
 - `definitions`: preview definition rows
 - `references`: preview reference rows
+
+Scope rows include:
+
+- `id`: source-derived scope id
+- `parent_scope_id`: parent lexical scope id, or `null` for the root scope
+- `scope_kind`: `root`, `if_statement`, `while_loop`, `for_each`, `for_index`, or
+  `loop`
+- `block_id`: matching block preview id when the scope is tied to a block
+- `header_statement_index`: opening statement index for block scopes, or `null`
+  for root
+- `closing_statement_index`: closing statement index when present
 
 Definition rows include:
 
@@ -190,8 +205,9 @@ Reference rows include:
 
 Name preview honesty rules:
 
-- It does not implement lexical block scope; V0 uses a single candidate-linear
-  scope.
+- It previews lexical scopes for explicit control-flow blocks: `if`, `while`,
+  `for each`, `for index`, and `loop`.
+- It does not treat record-construction braces as lexical scopes.
 - It does not resolve modules, imports, globals, type names, enum variants,
   overloads, fields, stores, or traits.
 - It does not prove definite assignment, liveness, ownership, effects, or
@@ -458,5 +474,5 @@ The command is local-first:
 
 V0 does not produce executable Core Hum, Hum IR, bytecode, machine code, backend
 adapter input, proof artifacts, optimized code, executable behavior, module or
-global name resolution, or lexical block scope. It is a conservative preview of
+global name resolution, or checked name resolution. It is a conservative preview of
 what the next true lowering pass must make precise.

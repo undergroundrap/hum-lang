@@ -265,7 +265,12 @@ try {
   if (-not $CorePreviewJson.Contains('"expression_previews"')) { throw 'Core preview JSON is missing expression preview counts' }
   if (-not $CorePreviewJson.Contains('"name_status": "name_preview_v0"')) { throw 'Core preview JSON is missing name preview status' }
   if (-not $CorePreviewJson.Contains('"name_preview"')) { throw 'Core preview JSON is missing name_preview facts' }
-  if (-not $CorePreviewJson.Contains('"scope_model": "candidate_linear_scope_v0"')) { throw 'Core preview JSON is missing candidate-linear scope model' }
+  if (-not $CorePreviewJson.Contains('"scope_model": "lexical_block_scope_preview_v0"')) { throw 'Core preview JSON is missing lexical block scope model' }
+  if (-not $CorePreviewJson.Contains('"scope_count"')) { throw 'Core preview JSON is missing name scope counts' }
+  if (-not $CorePreviewJson.Contains('"scopes"')) { throw 'Core preview JSON is missing name scope list' }
+  if (-not $CorePreviewJson.Contains('"scope_kind": "root"')) { throw 'Core preview JSON is missing root name scope' }
+  if (-not $CorePreviewJson.Contains('"scope_kind": "if_statement"')) { throw 'Core preview JSON is missing if statement name scope' }
+  if (-not $CorePreviewJson.Contains('"parent_scope_id"')) { throw 'Core preview JSON is missing parent scope links' }
   if (-not $CorePreviewJson.Contains('"definition_kind": "parameter"')) { throw 'Core preview JSON is missing parameter definition preview' }
   if (-not $CorePreviewJson.Contains('"definition_kind": "let_binding"')) { throw 'Core preview JSON is missing let binding definition preview' }
   if (-not $CorePreviewJson.Contains('"reference_kind": "name_ref"')) { throw 'Core preview JSON is missing name reference preview' }
@@ -298,7 +303,7 @@ try {
   if (-not $CorePreviewJson.Contains('surface_save_requires_store_lowering')) { throw 'Core preview JSON is missing store save lowering blocker' }
   if (-not $CorePreviewJson.Contains('no executable semantics')) { throw 'Core preview JSON must keep V0 non-execution claim' }
   if (-not $CorePreviewJson.Contains('no module or global name resolution')) { throw 'Core preview JSON must keep V0 name-resolution non-goal' }
-  if (-not $CorePreviewJson.Contains('no lexical block scope')) { throw 'Core preview JSON must keep V0 scope non-goal' }
+  if (-not $CorePreviewJson.Contains('no checked name resolution')) { throw 'Core preview JSON must keep V0 checked name-resolution non-goal' }
   $IrReadinessJson = Read-NativeOutput 'IR readiness JSON' $Hum @('ir-readiness', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'IR readiness JSON' $IrReadinessJson
   if (-not $IrReadinessJson.Contains('"schema": "hum.ir_readiness.v0"')) { throw 'IR readiness JSON is missing hum.ir_readiness.v0 schema' }

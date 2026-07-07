@@ -95,14 +95,25 @@ struct CoreNamePreview {
     status: &'static str,
     scope_model: &'static str,
     scope_id: String,
+    scope_count: usize,
     definition_count: usize,
     reference_count: usize,
     resolved_reference_count: usize,
     unresolved_reference_count: usize,
     external_reference_count: usize,
     shadowed_definition_count: usize,
+    scopes: Vec<CoreNameScope>,
     definitions: Vec<CoreNameDefinition>,
     references: Vec<CoreNameReference>,
+}
+
+struct CoreNameScope {
+    id: String,
+    parent_scope_id: Option<String>,
+    scope_kind: &'static str,
+    block_id: Option<String>,
+    header_statement_index: Option<usize>,
+    closing_statement_index: Option<usize>,
 }
 
 struct CoreNameDefinition {
@@ -295,7 +306,7 @@ pub fn core_preview_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
             "no generated artifact",
             "no safety proof",
             "no module or global name resolution",
-            "no lexical block scope",
+            "no checked name resolution",
         ],
         false,
     );
@@ -388,7 +399,7 @@ fn core_candidate(item: &Item, diagnostics: &[Diagnostic]) -> Option<CoreCandida
     let max_block_depth = block_preview.max_depth;
     let unmatched_block_closes = block_preview.unmatched_closes;
     let unclosed_blocks = block_preview.unclosed_blocks;
-    let name_preview = core_name_preview(item, &id, &statements);
+    let name_preview = core_name_preview(item, &id, &statements, &block_preview);
     let name_status = name_preview.status;
 
     Some(CoreCandidate {
@@ -752,238 +763,353 @@ fn count_unclosed_blocks(node: &CoreBlockNode) -> usize {
             })
             .sum::<usize>()
 }
-fn core_name_preview(
-    item: &Item,
-    candidate_id: &str,
-    statements: &[CoreStatementPreview],
-) -> CoreNamePreview {
-    let scope_id = format!("{candidate_id}_scope_root");
-    let mut definitions = Vec::new();
-    let mut references = Vec::new();
-    let mut visible = Vec::new();
-    let mut definition_serial = 0usize;
-    let mut reference_serial = 0usize;
+struct NamePreviewContext<'a> {
+    candidate_id: &'a str,
+    statements: &'a [CoreStatementPreview],
+    definitions: Vec<CoreNameDefinition>,
+    references: Vec<CoreNameReference>,
+    scopes: Vec<CoreNameScope>,
+    visible: Vec<VisibleDefinition>,
+    definition_serial: usize,
+    reference_serial: usize,
+    scope_serial: usize,
+}
 
-    for param in item_params(item) {
-        add_name_definition(
+impl<'a> NamePreviewContext<'a> {
+    fn new(candidate_id: &'a str, statements: &'a [CoreStatementPreview]) -> Self {
+        Self {
             candidate_id,
-            &scope_id,
-            &mut definitions,
-            &mut visible,
-            &mut definition_serial,
-            NameDefinitionInput {
-                name: &param.name,
-                definition_kind: "parameter",
-                statement_index: None,
-                span: &param.span,
-                conflict_mode: DefinitionConflictMode::Shadow,
-            },
-        );
-    }
-
-    for (definition_kind, line) in declared_name_lines(item) {
-        if let Some(name) = declared_name_from_line(&line.text) {
-            add_name_definition(
-                candidate_id,
-                &scope_id,
-                &mut definitions,
-                &mut visible,
-                &mut definition_serial,
-                NameDefinitionInput {
-                    name: &name,
-                    definition_kind,
-                    statement_index: None,
-                    span: &line.span,
-                    conflict_mode: DefinitionConflictMode::DuplicateDeclaration,
-                },
-            );
+            statements,
+            definitions: Vec::new(),
+            references: Vec::new(),
+            scopes: Vec::new(),
+            visible: Vec::new(),
+            definition_serial: 0,
+            reference_serial: 0,
+            scope_serial: 0,
         }
     }
 
-    for (statement_index, statement) in statements.iter().enumerate() {
-        for reference in statement_name_references(statement) {
-            add_name_reference(
-                candidate_id,
-                &scope_id,
-                &mut references,
-                &visible,
-                &mut reference_serial,
+    fn build(mut self, item: &Item, block_preview: &CoreBlockPreview) -> CoreNamePreview {
+        let root_scope_id = format!("{}_scope_root", self.candidate_id);
+        self.add_scope(CoreNameScope {
+            id: root_scope_id.clone(),
+            parent_scope_id: None,
+            scope_kind: "root",
+            block_id: Some(block_preview.root.id.clone()),
+            header_statement_index: None,
+            closing_statement_index: None,
+        });
+
+        for param in item_params(item) {
+            self.add_definition(
+                &root_scope_id,
+                NameDefinitionInput {
+                    name: &param.name,
+                    definition_kind: "parameter",
+                    statement_index: None,
+                    span: &param.span,
+                    conflict_mode: DefinitionConflictMode::Shadow,
+                },
+            );
+        }
+
+        for (definition_kind, line) in declared_name_lines(item) {
+            if let Some(name) = declared_name_from_line(&line.text) {
+                self.add_definition(
+                    &root_scope_id,
+                    NameDefinitionInput {
+                        name: &name,
+                        definition_kind,
+                        statement_index: None,
+                        span: &line.span,
+                        conflict_mode: DefinitionConflictMode::DuplicateDeclaration,
+                    },
+                );
+            }
+        }
+
+        self.walk_block(&root_scope_id, &block_preview.root);
+        self.finish(root_scope_id)
+    }
+
+    fn finish(self, root_scope_id: String) -> CoreNamePreview {
+        let definition_count = self.definitions.len();
+        let reference_count = self.references.len();
+        let resolved_reference_count = self
+            .references
+            .iter()
+            .filter(|reference| reference.resolution_status == "resolved_preview_v0")
+            .count();
+        let unresolved_reference_count = self
+            .references
+            .iter()
+            .filter(|reference| reference.resolution_status == "unresolved_preview_v0")
+            .count();
+        let external_reference_count = self
+            .references
+            .iter()
+            .filter(|reference| reference.resolution_status == "external_reference_preview_v0")
+            .count();
+        let shadowed_definition_count = self
+            .definitions
+            .iter()
+            .filter(|definition| definition.status == "shadowed_definition_preview_v0")
+            .count();
+        let status = if unresolved_reference_count > 0 {
+            "name_preview_with_unresolved_v0"
+        } else if shadowed_definition_count > 0 {
+            "name_preview_with_shadowing_v0"
+        } else {
+            "name_preview_v0"
+        };
+
+        CoreNamePreview {
+            status,
+            scope_model: "lexical_block_scope_preview_v0",
+            scope_id: root_scope_id,
+            scope_count: self.scopes.len(),
+            definition_count,
+            reference_count,
+            resolved_reference_count,
+            unresolved_reference_count,
+            external_reference_count,
+            shadowed_definition_count,
+            scopes: self.scopes,
+            definitions: self.definitions,
+            references: self.references,
+        }
+    }
+
+    fn walk_block(&mut self, scope_id: &str, block: &CoreBlockNode) {
+        if block.block_kind == "root" {
+            self.walk_block_children(scope_id, block);
+            return;
+        }
+
+        if let Some(header_statement_index) = block.header_statement_index {
+            self.process_statement_references(scope_id, header_statement_index);
+        }
+
+        if lexical_block_scope_kind(block.block_kind) {
+            let child_scope_id = self.next_scope_id(block);
+            let visible_len = self.visible.len();
+            self.add_scope(CoreNameScope {
+                id: child_scope_id.clone(),
+                parent_scope_id: Some(scope_id.to_string()),
+                scope_kind: block.block_kind,
+                block_id: Some(block.id.clone()),
+                header_statement_index: block.header_statement_index,
+                closing_statement_index: block.closing_statement_index,
+            });
+
+            if let Some(header_statement_index) = block.header_statement_index {
+                self.process_statement_definition(&child_scope_id, header_statement_index);
+            }
+
+            self.walk_block_children(&child_scope_id, block);
+            self.visible.truncate(visible_len);
+        } else {
+            if let Some(header_statement_index) = block.header_statement_index {
+                self.process_statement_definition(scope_id, header_statement_index);
+            }
+            self.walk_block_children(scope_id, block);
+        }
+    }
+
+    fn walk_block_children(&mut self, scope_id: &str, block: &CoreBlockNode) {
+        for child in &block.children {
+            match child {
+                CoreBlockChild::Statement(statement) => {
+                    self.process_statement(scope_id, statement.statement_index);
+                }
+                CoreBlockChild::Block(block) => self.walk_block(scope_id, block),
+            }
+        }
+    }
+
+    fn process_statement(&mut self, scope_id: &str, statement_index: usize) {
+        self.process_statement_references(scope_id, statement_index);
+        self.process_statement_definition(scope_id, statement_index);
+    }
+
+    fn process_statement_references(&mut self, scope_id: &str, statement_index: usize) {
+        let (references, span) = {
+            let statement = &self.statements[statement_index];
+            (statement_name_references(statement), statement.span.clone())
+        };
+
+        for reference in references {
+            self.add_reference(
+                scope_id,
                 NameReferenceInput {
                     name: &reference.name,
                     reference_kind: reference.reference_kind,
                     statement_index: Some(statement_index),
-                    span: &statement.span,
+                    span: &span,
                     external_if_unresolved: reference.external_if_unresolved,
                 },
             );
         }
+    }
 
-        if let Some((name, definition_kind)) = statement_definition(statement) {
-            add_name_definition(
-                candidate_id,
-                &scope_id,
-                &mut definitions,
-                &mut visible,
-                &mut definition_serial,
+    fn process_statement_definition(&mut self, scope_id: &str, statement_index: usize) {
+        let (definition, span) = {
+            let statement = &self.statements[statement_index];
+            (statement_definition(statement), statement.span.clone())
+        };
+
+        if let Some((name, definition_kind)) = definition {
+            self.add_definition(
+                scope_id,
                 NameDefinitionInput {
                     name: &name,
                     definition_kind,
                     statement_index: Some(statement_index),
-                    span: &statement.span,
+                    span: &span,
                     conflict_mode: DefinitionConflictMode::Shadow,
                 },
             );
         }
     }
 
-    let definition_count = definitions.len();
-    let reference_count = references.len();
-    let resolved_reference_count = references
-        .iter()
-        .filter(|reference| reference.resolution_status == "resolved_preview_v0")
-        .count();
-    let unresolved_reference_count = references
-        .iter()
-        .filter(|reference| reference.resolution_status == "unresolved_preview_v0")
-        .count();
-    let external_reference_count = references
-        .iter()
-        .filter(|reference| reference.resolution_status == "external_reference_preview_v0")
-        .count();
-    let shadowed_definition_count = definitions
-        .iter()
-        .filter(|definition| definition.status == "shadowed_definition_preview_v0")
-        .count();
-    let status = if unresolved_reference_count > 0 {
-        "name_preview_with_unresolved_v0"
-    } else if shadowed_definition_count > 0 {
-        "name_preview_with_shadowing_v0"
-    } else {
-        "name_preview_v0"
-    };
-
-    CoreNamePreview {
-        status,
-        scope_model: "candidate_linear_scope_v0",
-        scope_id,
-        definition_count,
-        reference_count,
-        resolved_reference_count,
-        unresolved_reference_count,
-        external_reference_count,
-        shadowed_definition_count,
-        definitions,
-        references,
-    }
-}
-
-fn add_name_definition(
-    candidate_id: &str,
-    scope_id: &str,
-    definitions: &mut Vec<CoreNameDefinition>,
-    visible: &mut Vec<VisibleDefinition>,
-    serial: &mut usize,
-    input: NameDefinitionInput<'_>,
-) {
-    let name = input.name;
-    let definition_kind = input.definition_kind;
-    let statement_index = input.statement_index;
-    let span = input.span;
-    let conflict_mode = input.conflict_mode;
-    let normalized_name = name_key(name);
-    if normalized_name.is_empty() {
-        return;
+    fn add_scope(&mut self, scope: CoreNameScope) {
+        self.scopes.push(scope);
     }
 
-    let shadowed = visible_definition(visible, &normalized_name);
-    let id = format!("{candidate_id}_def_{}_{normalized_name}", *serial);
-    *serial += 1;
-    let (status, shadowed_definition_id, reason, push_visible) = match (shadowed, conflict_mode) {
-        (Some(existing), DefinitionConflictMode::Shadow) => (
-            "shadowed_definition_preview_v0",
-            Some(existing.id.clone()),
-            Some("definition_shadows_visible_name"),
-            true,
-        ),
-        (Some(existing), DefinitionConflictMode::DuplicateDeclaration) => (
-            "duplicate_declaration_preview_v0",
-            Some(existing.id.clone()),
-            Some("declaration_already_available_in_candidate_scope"),
-            false,
-        ),
-        (None, _) => ("defined_preview_v0", None, None, true),
-    };
+    fn next_scope_id(&mut self, block: &CoreBlockNode) -> String {
+        let current = self.scope_serial;
+        self.scope_serial += 1;
+        match block.header_statement_index {
+            Some(index) => format!(
+                "{}_scope_{}_{}_{}",
+                self.candidate_id, current, block.block_kind, index
+            ),
+            None => format!(
+                "{}_scope_{}_{}",
+                self.candidate_id, current, block.block_kind
+            ),
+        }
+    }
 
-    definitions.push(CoreNameDefinition {
-        id: id.clone(),
-        name: name.trim().to_string(),
-        normalized_name: normalized_name.clone(),
-        definition_kind,
-        scope_id: scope_id.to_string(),
-        statement_index,
-        span: portable_span(span),
-        status,
-        shadowed_definition_id,
-        reason,
-    });
+    fn add_definition(&mut self, scope_id: &str, input: NameDefinitionInput<'_>) {
+        let name = input.name;
+        let definition_kind = input.definition_kind;
+        let statement_index = input.statement_index;
+        let span = input.span;
+        let conflict_mode = input.conflict_mode;
+        let normalized_name = name_key(name);
+        if normalized_name.is_empty() {
+            return;
+        }
 
-    if push_visible {
-        visible.push(VisibleDefinition {
-            normalized_name,
-            id,
+        let shadowed = visible_definition(&self.visible, &normalized_name);
+        let id = format!(
+            "{}_def_{}_{}",
+            self.candidate_id, self.definition_serial, normalized_name
+        );
+        self.definition_serial += 1;
+        let (status, shadowed_definition_id, reason, push_visible) = match (shadowed, conflict_mode)
+        {
+            (Some(existing), DefinitionConflictMode::Shadow) => (
+                "shadowed_definition_preview_v0",
+                Some(existing.id.clone()),
+                Some("definition_shadows_visible_name"),
+                true,
+            ),
+            (Some(existing), DefinitionConflictMode::DuplicateDeclaration) => (
+                "duplicate_declaration_preview_v0",
+                Some(existing.id.clone()),
+                Some("declaration_already_available_in_candidate_scope"),
+                false,
+            ),
+            (None, _) => ("defined_preview_v0", None, None, true),
+        };
+
+        self.definitions.push(CoreNameDefinition {
+            id: id.clone(),
+            name: name.trim().to_string(),
+            normalized_name: normalized_name.clone(),
+            definition_kind,
+            scope_id: scope_id.to_string(),
+            statement_index,
+            span: portable_span(span),
+            status,
+            shadowed_definition_id,
+            reason,
         });
+
+        if push_visible {
+            self.visible.push(VisibleDefinition {
+                normalized_name,
+                id,
+            });
+        }
+    }
+
+    fn add_reference(&mut self, scope_id: &str, input: NameReferenceInput<'_>) {
+        let name = input.name;
+        let reference_kind = input.reference_kind;
+        let statement_index = input.statement_index;
+        let span = input.span;
+        let external_if_unresolved = input.external_if_unresolved;
+        let normalized_name = name_key(name);
+        if normalized_name.is_empty() {
+            return;
+        }
+
+        let resolved = visible_definition(&self.visible, &normalized_name);
+        let external_reference = external_if_unresolved || is_external_root(name);
+        let (resolution_status, resolved_definition_id, reason) = if let Some(definition) = resolved
+        {
+            ("resolved_preview_v0", Some(definition.id.clone()), None)
+        } else if external_reference {
+            (
+                "external_reference_preview_v0",
+                None,
+                Some("global_or_type_name_resolution_not_implemented"),
+            )
+        } else {
+            (
+                "unresolved_preview_v0",
+                None,
+                Some("name_not_in_candidate_scope"),
+            )
+        };
+
+        self.references.push(CoreNameReference {
+            id: format!(
+                "{}_ref_{}_{}",
+                self.candidate_id, self.reference_serial, normalized_name
+            ),
+            name: name.trim().to_string(),
+            normalized_name,
+            reference_kind,
+            scope_id: scope_id.to_string(),
+            statement_index,
+            span: portable_span(span),
+            resolution_status,
+            resolved_definition_id,
+            reason,
+        });
+        self.reference_serial += 1;
     }
 }
 
-fn add_name_reference(
+fn core_name_preview(
+    item: &Item,
     candidate_id: &str,
-    scope_id: &str,
-    references: &mut Vec<CoreNameReference>,
-    visible: &[VisibleDefinition],
-    serial: &mut usize,
-    input: NameReferenceInput<'_>,
-) {
-    let name = input.name;
-    let reference_kind = input.reference_kind;
-    let statement_index = input.statement_index;
-    let span = input.span;
-    let external_if_unresolved = input.external_if_unresolved;
-    let normalized_name = name_key(name);
-    if normalized_name.is_empty() {
-        return;
-    }
+    statements: &[CoreStatementPreview],
+    block_preview: &CoreBlockPreview,
+) -> CoreNamePreview {
+    NamePreviewContext::new(candidate_id, statements).build(item, block_preview)
+}
 
-    let resolved = visible_definition(visible, &normalized_name);
-    let external_reference = external_if_unresolved || is_external_root(name);
-    let (resolution_status, resolved_definition_id, reason) = if let Some(definition) = resolved {
-        ("resolved_preview_v0", Some(definition.id.clone()), None)
-    } else if external_reference {
-        (
-            "external_reference_preview_v0",
-            None,
-            Some("global_or_type_name_resolution_not_implemented"),
-        )
-    } else {
-        (
-            "unresolved_preview_v0",
-            None,
-            Some("name_not_in_candidate_scope"),
-        )
-    };
-
-    references.push(CoreNameReference {
-        id: format!("{candidate_id}_ref_{}_{normalized_name}", *serial),
-        name: name.trim().to_string(),
-        normalized_name,
-        reference_kind,
-        scope_id: scope_id.to_string(),
-        statement_index,
-        span: portable_span(span),
-        resolution_status,
-        resolved_definition_id,
-        reason,
-    });
-    *serial += 1;
+fn lexical_block_scope_kind(block_kind: &str) -> bool {
+    matches!(
+        block_kind,
+        "if_statement" | "while_loop" | "for_each" | "for_index" | "loop"
+    )
 }
 
 fn visible_definition<'a>(
@@ -995,7 +1121,6 @@ fn visible_definition<'a>(
         .rev()
         .find(|definition| definition.normalized_name == normalized_name)
 }
-
 fn item_params(item: &Item) -> Vec<&Param> {
     match item {
         Item::Task(task) => task.params.iter().collect(),
@@ -1646,6 +1771,7 @@ fn push_name_preview(out: &mut String, indent: usize, preview: &CoreNamePreview,
     push_string_field(out, indent + 2, "status", preview.status, true);
     push_string_field(out, indent + 2, "scope_model", preview.scope_model, true);
     push_string_field(out, indent + 2, "scope_id", &preview.scope_id, true);
+    push_usize_field(out, indent + 2, "scope_count", preview.scope_count, true);
     push_usize_field(
         out,
         indent + 2,
@@ -1688,6 +1814,7 @@ fn push_name_preview(out: &mut String, indent: usize, preview: &CoreNamePreview,
         preview.shadowed_definition_count,
         true,
     );
+    push_name_scopes(out, indent + 2, &preview.scopes, true);
     push_name_definitions(out, indent + 2, &preview.definitions, true);
     push_name_references(out, indent + 2, &preview.references, false);
     push_indent(out, indent);
@@ -1695,6 +1822,55 @@ fn push_name_preview(out: &mut String, indent: usize, preview: &CoreNamePreview,
     push_comma_newline(out, comma);
 }
 
+fn push_name_scopes(out: &mut String, indent: usize, scopes: &[CoreNameScope], comma: bool) {
+    push_indent(out, indent);
+    push_json_string(out, "scopes");
+    out.push_str(": [");
+    if !scopes.is_empty() {
+        out.push('\n');
+        for (index, scope) in scopes.iter().enumerate() {
+            if index > 0 {
+                out.push_str(",\n");
+            }
+            push_indent(out, indent + 2);
+            push_name_scope(out, indent + 2, scope);
+        }
+        out.push('\n');
+        push_indent(out, indent);
+    }
+    out.push(']');
+    push_comma_newline(out, comma);
+}
+
+fn push_name_scope(out: &mut String, indent: usize, scope: &CoreNameScope) {
+    out.push_str("{\n");
+    push_string_field(out, indent + 2, "id", &scope.id, true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "parent_scope_id",
+        scope.parent_scope_id.as_deref(),
+        true,
+    );
+    push_string_field(out, indent + 2, "scope_kind", scope.scope_kind, true);
+    push_optional_string_field(out, indent + 2, "block_id", scope.block_id.as_deref(), true);
+    push_optional_usize_field(
+        out,
+        indent + 2,
+        "header_statement_index",
+        scope.header_statement_index,
+        true,
+    );
+    push_optional_usize_field(
+        out,
+        indent + 2,
+        "closing_statement_index",
+        scope.closing_statement_index,
+        false,
+    );
+    push_indent(out, indent);
+    out.push('}');
+}
 fn push_name_definitions(
     out: &mut String,
     indent: usize,
@@ -2166,7 +2342,11 @@ mod tests {
         assert!(json.contains("\"block_status\": \"block_preview_v0\""));
         assert!(json.contains("\"name_status\": \"name_preview_v0\""));
         assert!(json.contains("\"name_preview\""));
-        assert!(json.contains("\"scope_model\": \"candidate_linear_scope_v0\""));
+        assert!(json.contains("\"scope_model\": \"lexical_block_scope_preview_v0\""));
+        assert!(json.contains("\"scope_count\""));
+        assert!(json.contains("\"scopes\""));
+        assert!(json.contains("\"scope_kind\": \"root\""));
+        assert!(json.contains("\"parent_scope_id\""));
         assert!(json.contains("\"definition_kind\": \"parameter\""));
         assert!(json.contains("\"definition_kind\": \"let_binding\""));
         assert!(json.contains("\"reference_kind\": \"name_ref\""));
@@ -2226,7 +2406,43 @@ mod tests {
         assert!(json.contains("\"closing_statement_index\": 4"));
         assert!(json.contains("\"unmatched_block_closes\": 0"));
         assert!(json.contains("\"unclosed_blocks\": 0"));
+        assert!(json.contains("\"scope_model\": \"lexical_block_scope_preview_v0\""));
+        assert!(json.contains("\"scope_kind\": \"for_each\""));
+        assert!(json.contains("\"scope_kind\": \"if_statement\""));
+        assert!(json.contains("\"definition_kind\": \"for_each_binding\""));
         assert!(json.contains("\"no executable semantics\""));
+    }
+
+    #[test]
+    fn json_preview_scopes_loop_binders_to_their_block() {
+        let source = r#"task find session(user: User, sessions: Sessions) -> Session {
+  does:
+    for each session in sessions {
+      if session.user == user {
+        let user = session.user
+        return session
+      }
+    }
+
+    return session
+}
+"#;
+        let parsed = parse_source("scopes.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = core_preview_json(&program, &[]);
+
+        assert!(json.contains("\"name_status\": \"name_preview_with_unresolved_v0\""));
+        assert!(json.contains("\"scope_model\": \"lexical_block_scope_preview_v0\""));
+        assert!(json.contains("\"scope_kind\": \"for_each\""));
+        assert!(json.contains("\"scope_kind\": \"if_statement\""));
+        assert!(json.contains("\"definition_kind\": \"for_each_binding\""));
+        assert!(json.contains("\"resolution_status\": \"resolved_preview_v0\""));
+        assert!(json.contains("\"resolution_status\": \"unresolved_preview_v0\""));
+        assert!(json.contains("\"reason\": \"name_not_in_candidate_scope\""));
+        assert!(json.contains("\"status\": \"shadowed_definition_preview_v0\""));
+        assert!(json.contains("\"reason\": \"definition_shadows_visible_name\""));
     }
 
     #[test]
@@ -2251,7 +2467,7 @@ mod tests {
         assert!(json.contains("\"shadowed_name_definitions\": 1"));
         assert!(json.contains("\"unresolved_name_references\": 1"));
         assert!(json.contains("\"no module or global name resolution\""));
-        assert!(json.contains("\"no lexical block scope\""));
+        assert!(json.contains("\"no checked name resolution\""));
     }
 
     fn demo_program() -> Program {
