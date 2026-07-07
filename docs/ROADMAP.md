@@ -80,6 +80,7 @@ Current prototype status:
 - Diagnostics have stable `H####` codes in terminal output and `hum graph` JSON.
 - Known task and test sections get canonical-order warnings.
 - Current examples check cleanly.
+- `hum graph` emits source-derived node IDs for files, items, params, fields, sections, and section lines.
 - `hum graph` emits section `line_items` with text, spans, and meaningful/comment status.
 - `hum graph` emits task-level `test_obligations` from `needs:`, `ensures:`, `watch for:`, and `tests:` lines, with exact or conservative canonical `covers:` links to top-level `test` blocks when present.
 - `hum test-skeletons` prints Hum `test` blocks for unlinked obligations without executing code or writing files.

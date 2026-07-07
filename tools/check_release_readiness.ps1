@@ -80,6 +80,11 @@ if (-not $diagnosticsDoc.Contains('hum.diagnostic_catalog.v0')) {
   Add-Failure 'docs/DIAGNOSTICS.md does not mention hum.diagnostic_catalog.v0'
 }
 
+$semanticGraphDoc = Read-RepoText 'docs\SEMANTIC_GRAPH_SCHEMA.md'
+if (-not $semanticGraphDoc.Contains('source-derived handles')) {
+  Add-Failure 'docs/SEMANTIC_GRAPH_SCHEMA.md does not describe source-derived node IDs'
+}
+
 $securityPolicy = Read-RepoText 'SECURITY.md'
 foreach ($required in @('Supported Versions', 'How To Report', 'Security Claims')) {
   if (-not $securityPolicy.Contains($required)) {

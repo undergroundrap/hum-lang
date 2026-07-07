@@ -42,10 +42,24 @@ cargo run -- graph examples/task_list.hum
 - `errors`
 - `warnings`
 
+## Node IDs
+
+id fields are source-derived handles for tools, editor sessions, agents, and
+future debugger facts. They are local to hum.semantic_graph.v0; they are not
+cryptographic hashes, package-global identities, or proof that a renamed node is
+semantically unchanged.
+
+Current IDs use a normalized source path plus line, column, kind, and label
+where useful. They should remain stable while the path, source location, and
+node label stay stable. Moving code, renaming a node, or changing the line that
+declares it may change the ID. Keep using span for display and blame; use
+id when a tool needs to refer back to the same graph node.
+
 ## Files
 
 Each file contains:
 
+- `id`: source-derived file node ID
 - `path`: source path
 - `module`: module name or `null`
 - `items`: parsed top-level items
@@ -54,6 +68,7 @@ Each file contains:
 
 Each item contains:
 
+- `id`: source-derived item node ID
 - `kind`: `app`, `type`, `store`, `task`, or `test`
 - `name`: source-level item name
 - `span`: source location of the item header
@@ -69,6 +84,7 @@ Apps also contain nested `items`.
 
 Types contain `fields`:
 
+- `id`
 - `name`
 - `type`
 - `span`
@@ -90,6 +106,7 @@ Tasks contain:
 
 Params contain:
 
+- `id`
 - `name`
 - `type`
 - `span`
@@ -140,6 +157,7 @@ Known modifiers in Milestone 0:
 
 Each section contains:
 
+- `id`
 - `name`
 - `span`
 - `lines`: count of non-empty captured lines
@@ -147,6 +165,7 @@ Each section contains:
 
 Each `line_items` entry contains:
 
+- `id`
 - `text`
 - `span`
 - `meaningful`: `false` for comment-only lines that start with `#` or `//`; `true` for lines that feed graph facts such as obligations and coverage

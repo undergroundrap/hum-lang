@@ -8,6 +8,7 @@ mod diagnostics;
 mod explain;
 mod graph;
 mod json;
+mod node_id;
 mod parser;
 mod syntax;
 mod test_skeletons;

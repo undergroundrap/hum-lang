@@ -1,4 +1,5 @@
 use crate::ast::{Item, Program, Section, SectionLine, Task, Test};
+use crate::node_id;
 use crate::syntax;
 
 pub struct TestCoverage<'a> {
@@ -85,9 +86,10 @@ pub fn test_obligations(task: &Task) -> Vec<TestObligation<'_>> {
         {
             for line in meaningful_lines(section) {
                 obligations.push(TestObligation {
-                    id: format!(
-                        "{}:task:{}:{}:{}",
-                        line.span.file, task.name, section_name, line.span.line
+                    id: node_id::span(
+                        "obligation",
+                        &line.span,
+                        &format!("{} {} {}", task.name, section_name, line.text),
                     ),
                     kind,
                     source_section: section_name,

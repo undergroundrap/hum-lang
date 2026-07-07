@@ -4,6 +4,7 @@ use crate::graph::{
     TestCoverage, collect_test_coverages, coverage_key, coverage_match_kind,
     is_meaningful_line_text, linked_test_count, test_obligations,
 };
+use crate::node_id;
 
 pub const SEMANTIC_GRAPH_SCHEMA: &str = "hum.semantic_graph.v0";
 
@@ -37,6 +38,10 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
     for (file_index, file) in program.files.iter().enumerate() {
         comma_line(&mut out, file_index, 4);
         out.push_str("    {\n");
+        out.push_str(&format!(
+            "      \"id\": {},\n",
+            quote(&node_id::file(&file.path))
+        ));
         out.push_str(&format!("      \"path\": {},\n", quote(&file.path)));
         out.push_str(&format!(
             "      \"module\": {},\n",
@@ -77,6 +82,14 @@ fn write_items(
 fn write_item(out: &mut String, item: &Item, indent: usize, test_coverages: &[TestCoverage<'_>]) {
     let pad = " ".repeat(indent);
     out.push_str(&format!("{pad}{{\n"));
+    out.push_str(&format!(
+        "{pad}  \"id\": {},\n",
+        quote(&node_id::span(
+            "item",
+            item.span(),
+            &format!("{} {}", item.kind(), item.name())
+        ))
+    ));
     out.push_str(&format!("{pad}  \"kind\": {},\n", quote(item.kind())));
     out.push_str(&format!("{pad}  \"name\": {},\n", quote(item.name())));
     out.push_str(&format!("{pad}  \"span\": "));
@@ -98,8 +111,11 @@ fn write_item(out: &mut String, item: &Item, indent: usize, test_coverages: &[Te
                 if index > 0 {
                     out.push_str(", ");
                 }
+                let field_id =
+                    node_id::span("field", &field.span, &format!("{index} {}", field.name));
                 out.push_str(&format!(
-                    "{{\"name\": {}, \"type\": {}, \"span\": ",
+                    "{{\"id\": {}, \"name\": {}, \"type\": {}, \"span\": ",
+                    quote(&field_id),
                     quote(&field.name),
                     quote(&field.ty)
                 ));
@@ -157,8 +173,10 @@ fn write_params(out: &mut String, params: &[crate::ast::Param]) {
         if index > 0 {
             out.push_str(", ");
         }
+        let param_id = node_id::span("param", &param.span, &format!("{index} {}", param.name));
         out.push_str(&format!(
-            "{{\"name\": {}, \"type\": {}, \"span\": ",
+            "{{\"id\": {}, \"name\": {}, \"type\": {}, \"span\": ",
+            quote(&param_id),
             quote(&param.name),
             quote(&param.ty)
         ));
@@ -174,7 +192,12 @@ fn write_sections_field(out: &mut String, sections: &[Section], indent: usize) {
         if index > 0 {
             out.push_str(", ");
         }
-        out.push_str(&format!("{{\"name\": {}, \"span\": ", quote(&section.name)));
+        let section_id = node_id::span("section", &section.span, &section.name);
+        out.push_str(&format!(
+            "{{\"id\": {}, \"name\": {}, \"span\": ",
+            quote(&section_id),
+            quote(&section.name)
+        ));
         write_span(out, &section.span);
         out.push_str(&format!(
             ", \"lines\": {}, \"line_items\": [",
@@ -205,6 +228,7 @@ fn write_section_line_items(out: &mut String, section: &Section) {
             out.push_str(", ");
         }
         out.push('{');
+        out.push_str(&format!("\"id\": {}, ", quote(&node_id::line(&line.span))));
         out.push_str(&format!("\"text\": {}, ", quote(&line.text)));
         out.push_str("\"span\": ");
         write_span(out, &line.span);
@@ -445,6 +469,9 @@ mod tests {
         assert!(json.contains("\"kind\": \"edge_case\""));
         assert!(json.contains("\"kind\": \"declared_test\""));
         assert!(json.contains("\"suggested_test\": \"add task requires title is not empty\""));
+        assert!(
+            json.contains("\"id\": \"obligation:demo.hum:6:1:add-task-needs-title-is-not-empty\"")
+        );
     }
 
     #[test]
@@ -521,6 +548,30 @@ test add task rejects empty title unit {
         assert!(json.contains("\"match\": \"canonical\""));
         assert!(json.contains("\"covers\": \"Add Task REQUIRES: the title is non-empty.\""));
     }
+
+    #[test]
+    fn graph_json_includes_source_derived_node_ids() {
+        let source = r#"task add task(title: Text) -> Task {
+  why:
+    save a task
+
+  does:
+    return task
+}
+"#;
+        let parsed = parse_source("demo.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = program_to_json(&program, &[]);
+
+        assert!(json.contains("\"id\": \"file:demo.hum\""));
+        assert!(json.contains("\"id\": \"item:demo.hum:1:1:task-add-task\""));
+        assert!(json.contains("\"id\": \"param:demo.hum:1:1:0-title\""));
+        assert!(json.contains("\"id\": \"section:demo.hum:2:1:why\""));
+        assert!(json.contains("\"id\": \"line:demo.hum:3:1\""));
+    }
+
     #[test]
     fn section_json_includes_line_items_with_spans() {
         let source = r#"task add task(title: Text) -> Task {
@@ -539,7 +590,11 @@ test add task rejects empty title unit {
         let json = program_to_json(&program, &[]);
 
         assert!(json.contains("\"name\": \"why\", \"span\": {\"file\": \"demo.hum\", \"line\": 2"));
-        assert!(json.contains("\"line_items\": [{\"text\": \"save a task\", \"span\": {\"file\": \"demo.hum\", \"line\": 3"));
+        assert!(
+            json.contains(
+                "\"text\": \"save a task\", \"span\": {\"file\": \"demo.hum\", \"line\": 3"
+            )
+        );
         assert!(json.contains("\"meaningful\": true"));
         assert!(json.contains("\"text\": \"// explain later\""));
         assert!(json.contains("\"meaningful\": false"));
