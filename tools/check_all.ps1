@@ -157,6 +157,9 @@ try {
 
   $DiagnosticsJson = Read-NativeOutput 'diagnostic catalog JSON' $Hum @('diagnostics', '--format', 'json')
   Assert-Json 'diagnostic catalog JSON' $DiagnosticsJson
+  if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
+  if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
+  if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
 
   $CapabilitiesJson = Read-NativeOutput 'capabilities JSON' $Hum @('capabilities', '--format', 'json')
   Assert-Json 'capabilities JSON' $CapabilitiesJson
@@ -401,6 +404,7 @@ try {
   $LanguageReferenceText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\LANGUAGE_REFERENCE.md'))
   if (-not $LanguageReferenceText.Contains('traditional language reference spine')) { throw 'language reference is missing reference spine marker' }
   if (-not $LanguageReferenceText.Contains('PORTABILITY_BOUNDARY_MODEL.md')) { throw 'language reference is missing portability boundary link' }
+  if (-not $LanguageReferenceText.Contains('H1201')) { throw 'language reference is missing target declaration diagnostics' }
   $PortabilityBoundaryText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\PORTABILITY_BOUNDARY_MODEL.md'))
   if (-not $PortabilityBoundaryText.Contains('Hum Portability Boundary Model')) { throw 'portability boundary model is missing title' }
   if (-not $PortabilityBoundaryText.Contains('Absence Is A First-Class Case')) { throw 'portability boundary model is missing absence rule' }
@@ -421,6 +425,7 @@ try {
   if (-not $TargetFactsSchemaText.Contains('../fixtures/target_facts')) { throw 'target facts schema doc is missing fixture link' }
   if (-not $TargetFactsSchemaText.Contains('Semantic Graph Link')) { throw 'target facts schema doc is missing semantic graph link section' }
   if (-not $TargetFactsSchemaText.Contains('targets:')) { throw 'target facts schema doc is missing targets section link' }
+  if (-not $TargetFactsSchemaText.Contains('H1201')) { throw 'target facts schema doc is missing target declaration diagnostics' }
   $DebugDoctrineText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\DEBUGGABILITY_DOCTRINE.md'))
   if (-not $DebugDoctrineText.Contains('hum.debug_info.v0')) { throw 'debuggability doctrine is missing debug info schema direction' }
   if (-not $DebugDoctrineText.Contains('faster and clearer than adding `printf`')) { throw 'debuggability doctrine is missing debugger speed rule' }

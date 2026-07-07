@@ -3,6 +3,23 @@ use crate::version;
 pub const TARGET_FACTS_SCHEMA: &str = "hum.target_facts.v0";
 pub const TARGET_FACT_RECORD_SCHEMA: &str = "hum.target_fact_record.v0";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceTargetDeclarationKind {
+    TargetFactRecord,
+    RequiredCapabilityFamily,
+    DeniedCapabilityFamily,
+}
+
+impl SourceTargetDeclarationKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::TargetFactRecord => "target_fact_record",
+            Self::RequiredCapabilityFamily => "required_capability_family",
+            Self::DeniedCapabilityFamily => "denied_capability_family",
+        }
+    }
+}
+
 struct TargetFactField {
     name: &'static str,
     kind: &'static str,
@@ -422,6 +439,44 @@ const TARGET_FIXTURES: &[TargetFixture] = &[
     },
 ];
 
+pub fn parse_source_target_declaration_line(
+    text: &str,
+) -> Option<(SourceTargetDeclarationKind, String)> {
+    let (key, value) = text.split_once(':')?;
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    match key.trim() {
+        "triple" | "record" | "target" => Some((
+            SourceTargetDeclarationKind::TargetFactRecord,
+            value.to_string(),
+        )),
+        "requires" | "requires capability" | "requires capability family" => Some((
+            SourceTargetDeclarationKind::RequiredCapabilityFamily,
+            value.to_string(),
+        )),
+        "denies" | "denies capability" | "denies capability family" => Some((
+            SourceTargetDeclarationKind::DeniedCapabilityFamily,
+            value.to_string(),
+        )),
+        _ => None,
+    }
+}
+
+pub fn is_known_target_fact_record(value: &str) -> bool {
+    TARGET_FIXTURES
+        .iter()
+        .any(|fixture| fixture.id == value || fixture.triple == value)
+}
+
+pub fn is_known_capability_family(value: &str) -> bool {
+    CAPABILITY_FAMILIES
+        .iter()
+        .any(|family| family.family == value)
+}
+
 const NON_GOALS_V0: &[&str] = &[
     "no host capability probing",
     "no backend target selection",
@@ -727,7 +782,10 @@ fn push_comma_newline(out: &mut String, comma: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{target_facts_json, target_facts_text};
+    use super::{
+        SourceTargetDeclarationKind, is_known_capability_family, is_known_target_fact_record,
+        parse_source_target_declaration_line, target_facts_json, target_facts_text,
+    };
 
     #[test]
     fn text_target_facts_lists_portability_contract() {
@@ -740,6 +798,40 @@ mod tests {
         assert!(text.contains("windows-x86_64-msvc"));
         assert!(text.contains("wasm32-wasi-preview1"));
         assert!(text.contains("no host capability probing"));
+    }
+
+    #[test]
+    fn parses_and_validates_source_target_declaration_lines() {
+        assert_eq!(
+            parse_source_target_declaration_line("triple: wasm32-wasi-preview1"),
+            Some((
+                SourceTargetDeclarationKind::TargetFactRecord,
+                "wasm32-wasi-preview1".to_string()
+            ))
+        );
+        assert_eq!(
+            parse_source_target_declaration_line("requires: os.filesystem"),
+            Some((
+                SourceTargetDeclarationKind::RequiredCapabilityFamily,
+                "os.filesystem".to_string()
+            ))
+        );
+        assert_eq!(
+            parse_source_target_declaration_line("denies: os.network"),
+            Some((
+                SourceTargetDeclarationKind::DeniedCapabilityFamily,
+                "os.network".to_string()
+            ))
+        );
+        assert_eq!(
+            parse_source_target_declaration_line("maybe: os.network"),
+            None
+        );
+
+        assert!(is_known_target_fact_record("wasm32-wasi-preview1"));
+        assert!(!is_known_target_fact_record("mars32-secret"));
+        assert!(is_known_capability_family("os.network"));
+        assert!(!is_known_capability_family("os.telepathy"));
     }
 
     #[test]

@@ -155,11 +155,13 @@ fn collect_source_target_declarations_from_items<'a>(
                 .iter()
                 .filter(|line| is_meaningful_line_text(&line.text))
             {
-                if let Some((kind, value)) = parse_target_declaration_line(&line.text) {
+                if let Some((kind, value)) =
+                    target_facts::parse_source_target_declaration_line(&line.text)
+                {
                     declarations.push(SourceTargetDeclaration {
                         owner: item,
                         line,
-                        kind,
+                        kind: kind.as_str(),
                         value,
                     });
                 }
@@ -169,25 +171,6 @@ fn collect_source_target_declarations_from_items<'a>(
         if let Item::App(app) = item {
             collect_source_target_declarations_from_items(&app.items, declarations);
         }
-    }
-}
-
-fn parse_target_declaration_line(text: &str) -> Option<(&'static str, String)> {
-    let (key, value) = text.split_once(':')?;
-    let value = value.trim();
-    if value.is_empty() {
-        return None;
-    }
-
-    match key.trim() {
-        "triple" | "record" | "target" => Some(("target_fact_record", value.to_string())),
-        "requires" | "requires capability" | "requires capability family" => {
-            Some(("required_capability_family", value.to_string()))
-        }
-        "denies" | "denies capability" | "denies capability family" => {
-            Some(("denied_capability_family", value.to_string()))
-        }
-        _ => None,
     }
 }
 

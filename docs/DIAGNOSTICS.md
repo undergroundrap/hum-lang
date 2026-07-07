@@ -115,7 +115,7 @@ JSON shape in `hum diagnostics --format json`:
 ```json
 {
   "schema": "hum.diagnostic_catalog.v0",
-  "count": 29,
+  "count": 32,
   "diagnostics": [
     {
       "code": "H0201",
@@ -151,6 +151,7 @@ Current ranges:
 - `H030x`: cost and performance contracts
 - `H040x`: security and trust boundaries
 - `H050x`: tests and regression obligations
+- `H120x`: backend, target, and debug metadata
 
 Future ranges should be reserved before broad use:
 
@@ -160,7 +161,6 @@ Future ranges should be reserved before broad use:
 - `H090x`: unsafe, FFI, ABI, and provenance
 - `H100x`: runtime profile and certification policy violations
 - `H110x`: concurrency and memory ordering
-- `H120x`: backend, target, and debug metadata
 
 ## Current Codes
 
@@ -222,6 +222,14 @@ Future ranges should be reserved before broad use:
 |---|---|---|---|
 | `H0501` | warning | test missing covers section | A test does not say what promise it covers. |
 | `H0502` | warning | regression test missing regression note | A regression test does not record the bug shape. |
+
+### Target And Backend Metadata
+
+| Code | Severity | Title | Meaning |
+|---|---|---|---|
+| `H1201` | error | unknown target fact record | `targets:` names a target record Hum does not publish. |
+| `H1202` | error | unknown capability family | `targets:` names a capability family Hum does not publish. |
+| `H1203` | error | unsupported target declaration | `targets:` contains a meaningful line with no current formal key. |
 
 ## Contract Quality Warnings
 

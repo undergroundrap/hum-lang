@@ -186,6 +186,24 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         explanation: "A regression test does not record the bug shape it prevents from returning.",
         repair: "Add a `regression:` section describing the old failure mode.",
     },
+    DiagnosticInfo {
+        code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
+        default_severity: Severity::Error,
+        explanation: "A `targets:` section names a target fact record that Hum does not publish in `hum target-facts`.",
+        repair: "Use one of the fixture record IDs from `hum target-facts --format json`, or add the record to the target facts catalog before depending on it.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::UNKNOWN_CAPABILITY_FAMILY,
+        default_severity: Severity::Error,
+        explanation: "A `targets:` section names a capability family that Hum does not publish in `hum target-facts`.",
+        repair: "Use one of the capability families from `hum target-facts --format json`, or add the family to the target facts catalog first.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::UNSUPPORTED_TARGET_DECLARATION,
+        default_severity: Severity::Error,
+        explanation: "A meaningful `targets:` line does not use a current formal key, so Hum would otherwise ignore a portability promise.",
+        repair: "Use `triple:`, `record:`, `target:`, `requires:`, or `denies:` for Milestone 0 target declarations.",
+    },
 ];
 
 pub fn all() -> &'static [DiagnosticInfo] {
@@ -213,6 +231,10 @@ mod tests {
         assert_eq!(
             find("h0502").map(|info| info.code),
             Some(DiagnosticCode::REGRESSION_MISSING_NOTE)
+        );
+        assert_eq!(
+            find("H1201").map(|info| info.code),
+            Some(DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD)
         );
         assert!(find("H9999").is_none());
     }

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::ast::{Item, Section, SourceFile, Task, Test};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
-use crate::syntax;
+use crate::{syntax, target_facts};
 
 pub fn check_file(file: &SourceFile) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -15,6 +15,7 @@ pub fn check_file(file: &SourceFile) -> Vec<Diagnostic> {
 fn check_item(item: &Item, diagnostics: &mut Vec<Diagnostic>) {
     match item {
         Item::App(app) => {
+            check_target_declarations("app", &app.name, &app.sections, diagnostics);
             if app.section("why").is_none() {
                 diagnostics.push(Diagnostic::warning(
                     DiagnosticCode::APP_MISSING_WHY,
@@ -27,6 +28,7 @@ fn check_item(item: &Item, diagnostics: &mut Vec<Diagnostic>) {
             }
         }
         Item::Type(type_def) => {
+            check_target_declarations("type", &type_def.name, &type_def.sections, diagnostics);
             if type_def.fields.is_empty() && type_def.section("keeps").is_none() {
                 diagnostics.push(Diagnostic::warning(
                     DiagnosticCode::TYPE_MISSING_SHAPE,
@@ -36,6 +38,7 @@ fn check_item(item: &Item, diagnostics: &mut Vec<Diagnostic>) {
             }
         }
         Item::Store(store) => {
+            check_target_declarations("store", &store.name, &store.sections, diagnostics);
             if store.ty.is_empty() {
                 diagnostics.push(Diagnostic::warning(
                     DiagnosticCode::STORE_MISSING_TYPE,
@@ -57,6 +60,8 @@ fn check_item(item: &Item, diagnostics: &mut Vec<Diagnostic>) {
 }
 
 fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
+    check_target_declarations("task", &task.name, &task.sections, diagnostics);
+
     require_section(
         DiagnosticCode::MISSING_REQUIRED_SECTION,
         "task",
@@ -110,6 +115,8 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
 }
 
 fn check_test(test: &Test, diagnostics: &mut Vec<Diagnostic>) {
+    check_target_declarations("test", &test.name, &test.sections, diagnostics);
+
     require_section(
         DiagnosticCode::MISSING_REQUIRED_SECTION,
         "test",
@@ -165,6 +172,68 @@ fn check_test(test: &Test, diagnostics: &mut Vec<Diagnostic>) {
     }
 }
 
+fn check_target_declarations(
+    kind: &str,
+    item_name: &str,
+    sections: &[Section],
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for section in sections.iter().filter(|section| section.name == "targets") {
+        for line in meaningful_lines(section) {
+            match target_facts::parse_source_target_declaration_line(&line.text) {
+                Some((target_facts::SourceTargetDeclarationKind::TargetFactRecord, value)) => {
+                    if !target_facts::is_known_target_fact_record(&value) {
+                        diagnostics.push(
+                            Diagnostic::error(
+                                DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
+                                format!(
+                                    "{kind} `{item_name}` names unknown target fact record `{value}`"
+                                ),
+                                Some(line.span.clone()),
+                            )
+                            .with_help(
+                                "Use a record ID from `hum target-facts --format json` or add a fixture record before depending on it.",
+                            ),
+                        );
+                    }
+                }
+                Some((
+                    target_facts::SourceTargetDeclarationKind::RequiredCapabilityFamily
+                    | target_facts::SourceTargetDeclarationKind::DeniedCapabilityFamily,
+                    value,
+                )) => {
+                    if !target_facts::is_known_capability_family(&value) {
+                        diagnostics.push(
+                            Diagnostic::error(
+                                DiagnosticCode::UNKNOWN_CAPABILITY_FAMILY,
+                                format!(
+                                    "{kind} `{item_name}` names unknown capability family `{value}`"
+                                ),
+                                Some(line.span.clone()),
+                            )
+                            .with_help(
+                                "Use a capability family from `hum target-facts --format json` or add the family before depending on it.",
+                            ),
+                        );
+                    }
+                }
+                None => diagnostics.push(
+                    Diagnostic::error(
+                        DiagnosticCode::UNSUPPORTED_TARGET_DECLARATION,
+                        format!(
+                            "{kind} `{item_name}` has unsupported `targets:` line: {}",
+                            line.text
+                        ),
+                        Some(line.span.clone()),
+                    )
+                    .with_help(
+                        "Use `triple:`, `record:`, `target:`, `requires:`, or `denies:` in `targets:` for Milestone 0.",
+                    ),
+                ),
+            }
+        }
+    }
+}
 fn require_section(
     code: DiagnosticCode,
     kind: &str,
@@ -570,6 +639,47 @@ mod tests {
     use crate::diagnostic::{DiagnosticCode, Severity};
     use crate::parser::parse_source;
 
+    #[test]
+    fn rejects_unknown_target_declarations() {
+        let source = r#"task bad target() {
+  why:
+    show target validation
+  targets:
+    triple: mars32-secret
+    requires: os.telepathy
+    maybe: os.network
+  needs:
+    manifest exists
+  cost:
+    time: O(1)
+    check: warn
+  does:
+    return manifest
+}
+"#;
+        let parsed = parse_source("bad-targets.hum", source);
+        let diagnostics = check_file(&parsed.file);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == Severity::Error
+                && diagnostic.code == DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD
+                && diagnostic
+                    .message
+                    .contains("unknown target fact record `mars32-secret`")
+        }));
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == Severity::Error
+                && diagnostic.code == DiagnosticCode::UNKNOWN_CAPABILITY_FAMILY
+                && diagnostic
+                    .message
+                    .contains("unknown capability family `os.telepathy`")
+        }));
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == Severity::Error
+                && diagnostic.code == DiagnosticCode::UNSUPPORTED_TARGET_DECLARATION
+                && diagnostic.message.contains("unsupported `targets:` line")
+        }));
+    }
     #[test]
     fn warns_on_hollow_contract_lines() {
         let source = r#"task prove nothing() -> Bool {

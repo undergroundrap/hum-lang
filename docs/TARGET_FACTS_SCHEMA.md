@@ -174,9 +174,11 @@ In Milestone 0 that graph object records `reserved_v0`,
 `source_analysis_only_no_target_selection`, explicit non-claims, and normalized
 source declarations from `targets:` sections. Recognized `targets:` lines can
 fill `target_fact_records`, `required_capability_families`,
-`denied_capability_families`, and `source_target_declarations`, but they do not
-select a backend target, probe the host, enforce a profile, or prove an artifact
-is portable. Future source/profile analysis should add unavailable capability
+`denied_capability_families`, and `source_target_declarations`. `hum check`
+validates those source names against this catalog and emits `H1201`, `H1202`, or
+`H1203` for unknown or unsupported declarations, but they do not select a
+backend target, probe the host, enforce a profile, or prove an artifact is
+portable. Future source/profile analysis should add unavailable capability
 families, adapter identities, artifact evidence, and portability diagnostics.
 
 ## Adapter Rules

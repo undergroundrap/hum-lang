@@ -394,8 +394,8 @@ Milestone 0 must not:
    model, and interop strategy.
 2. Keep `hum target-facts --format json` and fixture records in sync with this
    boundary.
-3. Keep the current semantic graph `portability` source declarations in sync
-   with target facts and capability absence.
+3. Keep the current semantic graph `portability` source declarations and checker
+   validation in sync with target facts and capability absence.
 4. Add non-executing fixtures for path, clock, random, filesystem, process, and
    network declarations now that `targets:` has a narrow V0 shape.
 5. Add profile diagnostics only after the graph can represent the relevant

@@ -74,6 +74,11 @@ impl DiagnosticCode {
     pub const REGRESSION_MISSING_NOTE: Self =
         Self::new("H0502", "regression test missing regression note");
 
+    pub const UNKNOWN_TARGET_FACT_RECORD: Self = Self::new("H1201", "unknown target fact record");
+    pub const UNKNOWN_CAPABILITY_FAMILY: Self = Self::new("H1202", "unknown capability family");
+    pub const UNSUPPORTED_TARGET_DECLARATION: Self =
+        Self::new("H1203", "unsupported target declaration");
+
     pub const fn new(value: &'static str, title: &'static str) -> Self {
         Self { value, title }
     }
