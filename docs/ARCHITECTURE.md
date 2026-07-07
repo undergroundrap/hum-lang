@@ -39,7 +39,7 @@ See [LANGUAGE_REFERENCE.md](LANGUAGE_REFERENCE.md) for the traditional reference
 
 ### 2. Formal Core
 
-Surface Hum lowers into Core Hum. Core Hum defines values, places, mutation, expressions, statements, typed failure, effects, contracts, profiles, loops, and backend-preservation rules. New syntax is not stable until it lowers into the core and preserves graph facts.
+Surface Hum lowers into Core Hum. Core Hum defines values, places, mutation, expressions, statements, typed failure, effects, contracts, profiles, loops, and backend-preservation rules. New syntax is not stable until it lowers into the core and preserves graph facts. The machine-readable Hum IR ownership contract is [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md), emitted by `hum ir-contract --format json`.
 
 See [FORMAL_CORE.md](FORMAL_CORE.md).
 
@@ -101,7 +101,7 @@ See [PAVED_ROAD_DOCTRINE.md](PAVED_ROAD_DOCTRINE.md), [STDLIB_CONSTITUTION.md](S
 
 ### 9. Backends
 
-The backend order is Rust bootstrap front end, interpreter for first executable semantics, Cranelift for first native proof, LLVM for mature optimized native AOT builds, MLIR for vector/tensor/accelerator work, Wasm/WASI for sandboxed portable components, and custom backend work only if later evidence justifies it. Backends are swappable targets; they are not Hum's semantic soul.
+The backend order is Rust bootstrap front end, interpreter for first executable semantics, Cranelift for first native proof, LLVM for mature optimized native AOT builds, MLIR for vector/tensor/accelerator work, Wasm/WASI for sandboxed portable components, and custom backend work only if later evidence justifies it. Backends are swappable targets; they are not Hum's semantic soul. The backend adapter contract points back to `hum.ir_contract.v0` as the semantic owner.
 
 See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md) and [decisions/0008-adopt-swappable-backend-ladder.md](decisions/0008-adopt-swappable-backend-ladder.md).
 

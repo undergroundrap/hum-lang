@@ -11,6 +11,7 @@ mod doctor;
 mod evidence;
 mod explain;
 mod graph;
+mod ir_contract;
 mod json;
 mod lsp;
 mod math_obligations;
@@ -63,6 +64,13 @@ fn run() -> Result<ExitCode, String> {
         match options.capabilities_format {
             CapabilitiesFormat::Human => print!("{}", capabilities::capabilities_text()),
             CapabilitiesFormat::Json => print!("{}", capabilities::capabilities_json()),
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    if options.command == "ir-contract" {
+        match options.ir_contract_format {
+            IrContractFormat::Human => print!("{}", ir_contract::ir_contract_text()),
+            IrContractFormat::Json => print!("{}", ir_contract::ir_contract_json()),
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -260,7 +268,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `backend-contract`, `lsp`, or `doctor`"
+            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `ir-contract`, `backend-contract`, `lsp`, or `doctor`"
         )),
     }
 }
@@ -297,6 +305,12 @@ enum DiagnosticsFormat {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CapabilitiesFormat {
+    Human,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IrContractFormat {
     Human,
     Json,
 }
@@ -348,6 +362,7 @@ struct CliOptions {
     explain_format: ExplainFormat,
     diagnostics_format: DiagnosticsFormat,
     capabilities_format: CapabilitiesFormat,
+    ir_contract_format: IrContractFormat,
     backend_contract_format: BackendContractFormat,
     lsp_format: LspFormat,
     doctor_format: DoctorFormat,
@@ -387,12 +402,13 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "explain"
             | "diagnostics"
             | "capabilities"
+            | "ir-contract"
             | "backend-contract"
             | "lsp"
             | "doctor"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `backend-contract`, `lsp`, or `doctor`"
+            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `ir-contract`, `backend-contract`, `lsp`, or `doctor`"
         ));
     }
 
@@ -404,6 +420,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut explain_format = ExplainFormat::Human;
     let mut diagnostics_format = DiagnosticsFormat::Human;
     let mut capabilities_format = CapabilitiesFormat::Human;
+    let mut ir_contract_format = IrContractFormat::Human;
     let mut backend_contract_format = BackendContractFormat::Human;
     let mut lsp_format = LspFormat::Human;
     let mut doctor_format = DoctorFormat::Human;
@@ -440,6 +457,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         | "explain"
                         | "diagnostics"
                         | "capabilities"
+                        | "ir-contract"
                         | "backend-contract"
                         | "lsp"
                         | "doctor"
@@ -458,6 +476,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "explain" => explain_format = parse_explain_format(&value)?,
                     "diagnostics" => diagnostics_format = parse_diagnostics_format(&value)?,
                     "capabilities" => capabilities_format = parse_capabilities_format(&value)?,
+                    "ir-contract" => ir_contract_format = parse_ir_contract_format(&value)?,
                     "backend-contract" => {
                         backend_contract_format = parse_backend_contract_format(&value)?
                     }
@@ -481,6 +500,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     | "explain"
                     | "diagnostics"
                     | "capabilities"
+                    | "ir-contract"
                     | "backend-contract"
                     | "lsp"
                     | "doctor"
@@ -497,6 +517,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "explain" => explain_format = parse_explain_format(value)?,
                     "diagnostics" => diagnostics_format = parse_diagnostics_format(value)?,
                     "capabilities" => capabilities_format = parse_capabilities_format(value)?,
+                    "ir-contract" => ir_contract_format = parse_ir_contract_format(value)?,
                     "backend-contract" => {
                         backend_contract_format = parse_backend_contract_format(value)?
                     }
@@ -534,6 +555,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            ir_contract_format,
             backend_contract_format,
             lsp_format,
             doctor_format,
@@ -562,6 +584,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            ir_contract_format,
             backend_contract_format,
             lsp_format,
             doctor_format,
@@ -590,6 +613,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            ir_contract_format,
             backend_contract_format,
             lsp_format,
             doctor_format,
@@ -618,6 +642,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            ir_contract_format,
             backend_contract_format,
             lsp_format,
             doctor_format,
@@ -646,6 +671,36 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            ir_contract_format,
+            backend_contract_format,
+            lsp_format,
+            doctor_format,
+            evidence_format,
+            math_obligations_format,
+            resource_report_format,
+            math_obligations_out_dir: math_obligations_out_dir.clone(),
+            explain_code: None,
+        });
+    }
+
+    if command == "ir-contract" {
+        if show_timings {
+            return Err("`ir-contract` does not support `--timings`".to_string());
+        }
+        if !raw_inputs.is_empty() {
+            return Err("`ir-contract` does not accept input files".to_string());
+        }
+        return Ok(CliOptions {
+            command,
+            inputs: Vec::new(),
+            show_timings,
+            check_format,
+            syntax_format,
+            version_format,
+            explain_format,
+            diagnostics_format,
+            capabilities_format,
+            ir_contract_format,
             backend_contract_format,
             lsp_format,
             doctor_format,
@@ -674,6 +729,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            ir_contract_format,
             backend_contract_format,
             lsp_format,
             doctor_format,
@@ -708,6 +764,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            ir_contract_format,
             backend_contract_format,
             lsp_format,
             doctor_format,
@@ -736,6 +793,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             explain_format,
             diagnostics_format,
             capabilities_format,
+            ir_contract_format,
             backend_contract_format,
             lsp_format,
             doctor_format,
@@ -757,6 +815,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         explain_format,
         diagnostics_format,
         capabilities_format,
+        ir_contract_format,
         backend_contract_format,
         lsp_format,
         doctor_format,
@@ -823,6 +882,16 @@ fn parse_capabilities_format(value: &str) -> Result<CapabilitiesFormat, String> 
         "json" => Ok(CapabilitiesFormat::Json),
         other => Err(format!(
             "unknown capabilities format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
+fn parse_ir_contract_format(value: &str) -> Result<IrContractFormat, String> {
+    match value {
+        "human" => Ok(IrContractFormat::Human),
+        "json" => Ok(IrContractFormat::Json),
+        other => Err(format!(
+            "unknown ir-contract format `{other}`; expected `human` or `json`"
         )),
     }
 }
@@ -1040,6 +1109,7 @@ fn print_help() {
     println!("  hum explain <H####> [--format human|json]");
     println!("  hum diagnostics [--format human|json]");
     println!("  hum capabilities [--format human|json]");
+    println!("  hum ir-contract [--format human|json]");
     println!("  hum backend-contract [--format human|json]");
     println!("  hum lsp --capabilities [--format human|json]");
     println!("  hum doctor [--format human|json]");
@@ -1056,6 +1126,7 @@ fn print_help() {
     println!("  explain         Explain a stable diagnostic code");
     println!("  diagnostics     List stable diagnostic codes");
     println!("  capabilities    List machine-readable tool and editor surfaces");
+    println!("  ir-contract     Emit the Hum IR ownership and preservation contract");
     println!("  backend-contract  Emit the backend adapter contract and staged backend ladder");
     println!("  lsp             Preview LSP adapter capabilities");
     println!("  doctor          Check portable repo setup and guardrails");
@@ -1072,8 +1143,8 @@ mod tests {
 
     use super::{
         BackendContractFormat, CapabilitiesFormat, CheckFormat, DiagnosticsFormat, DoctorFormat,
-        EvidenceFormat, ExplainFormat, LspFormat, MathObligationsFormat, ResourceReportFormat,
-        SyntaxFormat, VersionFormat, load_program, parse_cli,
+        EvidenceFormat, ExplainFormat, IrContractFormat, LspFormat, MathObligationsFormat,
+        ResourceReportFormat, SyntaxFormat, VersionFormat, load_program, parse_cli,
     };
 
     #[test]
@@ -1304,6 +1375,35 @@ mod tests {
         let error = parse_cli(vec!["capabilities".to_string(), "examples".to_string()])
             .expect_err("capabilities should reject inputs");
         assert_eq!(error, "`capabilities` does not accept input files");
+    }
+
+    #[test]
+    fn parses_ir_contract_json_format() {
+        let options = parse_cli(vec!["ir-contract".to_string(), "--format=json".to_string()])
+            .expect("ir-contract json command");
+        assert_eq!(options.command, "ir-contract");
+        assert_eq!(options.ir_contract_format, IrContractFormat::Json);
+    }
+
+    #[test]
+    fn rejects_ir_contract_inputs() {
+        let error = parse_cli(vec!["ir-contract".to_string(), "examples".to_string()])
+            .expect_err("ir-contract should reject inputs");
+        assert_eq!(error, "`ir-contract` does not accept input files");
+    }
+
+    #[test]
+    fn rejects_unknown_ir_contract_format() {
+        let error = parse_cli(vec![
+            "ir-contract".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+        ])
+        .expect_err("ir-contract should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown ir-contract format `textmate`; expected `human` or `json`"
+        );
     }
 
     #[test]

@@ -8,6 +8,8 @@ Current schema: `hum.backend_contract.v0`
 
 `hum backend-contract` publishes the backend ladder and adapter preservation
 contract accepted in [decisions/0008-adopt-swappable-backend-ladder.md](decisions/0008-adopt-swappable-backend-ladder.md).
+It names [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md) as the semantic
+owner contract that future backends must consume.
 
 This command exists so humans, agents, backend experiments, CI wrappers, and
 future editor tools can ask the Hum binary what backend path it currently
@@ -45,6 +47,7 @@ backend adapters, release tooling, and documentation checks.
   "milestone": "0 semantic graph",
   "decision": "0008-adopt-swappable-backend-ladder",
   "semantic_owner": "hum_ir",
+  "semantic_owner_schema": "hum.ir_contract.v0",
   "backend_order": [],
   "adapter_must_preserve_or_report_loss": [],
   "rules": [],
@@ -61,6 +64,8 @@ backend adapters, release tooling, and documentation checks.
 - `milestone`: current implementation milestone
 - `decision`: design decision record that owns this contract
 - `semantic_owner`: the layer that owns Hum semantics, currently `hum_ir`
+- `semantic_owner_schema`: schema that defines the semantic owner contract,
+  currently `hum.ir_contract.v0`
 - `backend_order`: ordered backend ladder
 - `adapter_must_preserve_or_report_loss`: facts every backend adapter must keep
   or explicitly report as weakened/lost
@@ -111,8 +116,8 @@ Every backend adapter must preserve or explicitly report loss of:
   behavior.
 - It must keep LLVM, Cranelift, MLIR, Wasm, C, and future custom backends behind
   the same Hum IR adapter boundary.
-- It must keep `hum capabilities --format json` and `hum version --format json`
-  in sync with this schema.
+- It must keep `hum ir-contract --format json`, `hum capabilities --format
+  json`, and `hum version --format json` in sync with this schema.
 
 ## Privacy And Dependency Rules
 

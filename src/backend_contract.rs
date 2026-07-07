@@ -1,3 +1,4 @@
+use crate::ir_contract;
 use crate::version;
 
 pub const BACKEND_CONTRACT_SCHEMA: &str = "hum.backend_contract.v0";
@@ -93,10 +94,11 @@ const NON_GOALS_V0: &[&str] = &[
 pub fn backend_contract_text() -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "Hum backend contract ({BACKEND_CONTRACT_SCHEMA})\ntool: hum {} {}\nmilestone: {}\ndecision: {DECISION_ID}\nsemantic_owner: {SEMANTIC_OWNER}\n",
+        "Hum backend contract ({BACKEND_CONTRACT_SCHEMA})\ntool: hum {} {}\nmilestone: {}\ndecision: {DECISION_ID}\nsemantic_owner: {SEMANTIC_OWNER}\nsemantic_owner_schema: {}\n",
         version::HUM_VERSION,
         version::HUM_STATUS,
-        version::HUM_MILESTONE
+        version::HUM_MILESTONE,
+        ir_contract::IR_CONTRACT_SCHEMA
     ));
     out.push_str("backend_order:\n");
     for stage in BACKEND_STAGES {
@@ -130,6 +132,13 @@ pub fn backend_contract_json() -> String {
     push_string_field(&mut out, 2, "milestone", version::HUM_MILESTONE, true);
     push_string_field(&mut out, 2, "decision", DECISION_ID, true);
     push_string_field(&mut out, 2, "semantic_owner", SEMANTIC_OWNER, true);
+    push_string_field(
+        &mut out,
+        2,
+        "semantic_owner_schema",
+        ir_contract::IR_CONTRACT_SCHEMA,
+        true,
+    );
     push_backend_stages(&mut out, 2, true);
     push_string_array(
         &mut out,
@@ -242,6 +251,7 @@ mod tests {
         assert!(text.contains("2. cranelift [planned]"));
         assert!(text.contains("3. llvm [planned]"));
         assert!(text.contains("semantic_owner: hum_ir"));
+        assert!(text.contains("semantic_owner_schema: hum.ir_contract.v0"));
     }
 
     #[test]
@@ -251,6 +261,7 @@ mod tests {
         assert!(json.contains("\"schema\": \"hum.backend_contract.v0\""));
         assert!(json.contains("\"decision\": \"0008-adopt-swappable-backend-ladder\""));
         assert!(json.contains("\"semantic_owner\": \"hum_ir\""));
+        assert!(json.contains("\"semantic_owner_schema\": \"hum.ir_contract.v0\""));
         assert!(json.contains("\"id\": \"interpreter\""));
         assert!(json.contains("\"id\": \"cranelift\""));
         assert!(json.contains("\"id\": \"llvm\""));
