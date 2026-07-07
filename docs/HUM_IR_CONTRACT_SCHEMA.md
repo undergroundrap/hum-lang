@@ -9,7 +9,8 @@ Current schema: `hum.ir_contract.v0`
 `hum ir-contract` publishes the contract for the compiler-owned Hum IR layer.
 This is the semantic owner named by
 [BACKEND_CONTRACT_SCHEMA.md](BACKEND_CONTRACT_SCHEMA.md): backends consume
-verified Hum IR instead of raw surface Hum.
+verified Hum IR instead of raw surface Hum. Source progress toward this contract
+is reported by [HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md).
 
 This command exists before actual IR emission so humans, agents, backend
 experiments, and future compiler passes have one target to satisfy. It is not a

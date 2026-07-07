@@ -75,6 +75,7 @@ Current artifacts:
 - [docs/MATH_OBLIGATIONS_SCHEMA.md](docs/MATH_OBLIGATIONS_SCHEMA.md): `hum.math_obligations.v0` and `hum.math_obligation.v0` export surface for external validators
 - [docs/RESOURCE_REPORT_SCHEMA.md](docs/RESOURCE_REPORT_SCHEMA.md): `hum.resource_report.v0` source-declared resource, layout, and optimization claim inventory
 - [docs/HUM_IR_CONTRACT_SCHEMA.md](docs/HUM_IR_CONTRACT_SCHEMA.md): `hum.ir_contract.v0` Hum IR ownership, carried-fact, and pass-boundary contract
+- [docs/HUM_IR_READINESS_SCHEMA.md](docs/HUM_IR_READINESS_SCHEMA.md): `hum.ir_readiness.v0` source readiness and blocker report for future Core Hum and Hum IR lowering
 - [docs/BACKEND_CONTRACT_SCHEMA.md](docs/BACKEND_CONTRACT_SCHEMA.md): `hum.backend_contract.v0` backend ladder and adapter preservation contract
 - [docs/LSP_CAPABILITIES_SCHEMA.md](docs/LSP_CAPABILITIES_SCHEMA.md): `hum.lsp_capabilities.v0` preview schema for LSP adapter support
 - [docs/DOCTOR_SCHEMA.md](docs/DOCTOR_SCHEMA.md): `hum.doctor.v0` setup health schema for portable repo guardrails
@@ -204,6 +205,8 @@ cargo run -- math-obligations --format json examples/control_flow.hum
 cargo run -- math-obligations --out-dir target/hum-math-obligations examples/control_flow.hum
 cargo run -- resource-report examples/control_flow.hum
 cargo run -- resource-report --format json examples/control_flow.hum
+cargo run -- ir-readiness examples/reference_surface.hum
+cargo run -- ir-readiness --format json examples/reference_surface.hum
 cargo run -- lsp --capabilities
 cargo run -- lsp --capabilities --format json
 cargo run -- doctor
@@ -225,6 +228,7 @@ Current CLI:
 - `hum evidence [--format human|json] <file-or-dir>...`: emit `hum.evidence.v0` security/trust evidence status for humans, agents, and CI wrappers
 - `hum math-obligations [--format human|json] [--out-dir <dir>] <file-or-dir>...`: emit `hum.math_obligations.v0` reports and optional per-obligation `hum.math_obligation.v0` files for external contract validators
 - `hum resource-report [--format human|json] <file-or-dir>...`: emit `hum.resource_report.v0` source-declared resource, layout, and optimization claim inventory
+- `hum ir-readiness [--format human|json] <file-or-dir>...`: emit `hum.ir_readiness.v0` source readiness and blocker facts for future Core Hum and Hum IR lowering
 - `hum version [--format human|json]`: print toolchain identity, version, target, and schema names
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents

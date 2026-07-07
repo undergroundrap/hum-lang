@@ -12,6 +12,7 @@ mod evidence;
 mod explain;
 mod graph;
 mod ir_contract;
+mod ir_readiness;
 mod json;
 mod lsp;
 mod math_obligations;
@@ -248,6 +249,29 @@ fn run() -> Result<ExitCode, String> {
                 ExitCode::SUCCESS
             })
         }
+        "ir-readiness" => {
+            if options.ir_readiness_format == IrReadinessFormat::Human {
+                print_diagnostics(&diagnostics);
+            }
+            match options.ir_readiness_format {
+                IrReadinessFormat::Human => print!(
+                    "{}",
+                    ir_readiness::ir_readiness_text(&program, &diagnostics)
+                ),
+                IrReadinessFormat::Json => print!(
+                    "{}",
+                    ir_readiness::ir_readiness_json(&program, &diagnostics)
+                ),
+            }
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            Ok(if has_errors {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
         "test-skeletons" => {
             print_diagnostics(&diagnostics);
             if !has_errors {
@@ -268,7 +292,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `ir-contract`, `backend-contract`, `lsp`, or `doctor`"
+            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `ir-contract`, `backend-contract`, `lsp`, or `doctor`"
         )),
     }
 }
@@ -351,6 +375,12 @@ enum ResourceReportFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IrReadinessFormat {
+    Human,
+    Json,
+}
+
 #[derive(Debug)]
 struct CliOptions {
     command: String,
@@ -369,6 +399,7 @@ struct CliOptions {
     evidence_format: EvidenceFormat,
     math_obligations_format: MathObligationsFormat,
     resource_report_format: ResourceReportFormat,
+    ir_readiness_format: IrReadinessFormat,
     math_obligations_out_dir: Option<PathBuf>,
     explain_code: Option<String>,
 }
@@ -397,6 +428,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "evidence"
             | "math-obligations"
             | "resource-report"
+            | "ir-readiness"
             | "syntax"
             | "version"
             | "explain"
@@ -408,7 +440,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "doctor"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `ir-contract`, `backend-contract`, `lsp`, or `doctor`"
+            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `ir-contract`, `backend-contract`, `lsp`, or `doctor`"
         ));
     }
 
@@ -427,6 +459,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut evidence_format = EvidenceFormat::Human;
     let mut math_obligations_format = MathObligationsFormat::Human;
     let mut resource_report_format = ResourceReportFormat::Human;
+    let mut ir_readiness_format = IrReadinessFormat::Human;
     let mut math_obligations_out_dir = None;
     let mut lsp_show_capabilities = false;
     let mut args = args.into_iter().skip(1);
@@ -464,6 +497,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         | "evidence"
                         | "math-obligations"
                         | "resource-report"
+                        | "ir-readiness"
                 ) =>
             {
                 let Some(value) = args.next() else {
@@ -489,6 +523,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "resource-report" => {
                         resource_report_format = parse_resource_report_format(&value)?
                     }
+                    "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(&value)?,
                     _ => unreachable!(),
                 }
             }
@@ -507,6 +542,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     | "evidence"
                     | "math-obligations"
                     | "resource-report"
+                    | "ir-readiness"
             ) && flag.starts_with("--format=") =>
             {
                 let value = flag.trim_start_matches("--format=");
@@ -530,6 +566,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "resource-report" => {
                         resource_report_format = parse_resource_report_format(value)?
                     }
+                    "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(value)?,
                     _ => unreachable!(),
                 }
             }
@@ -562,6 +599,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             evidence_format,
             math_obligations_format,
             resource_report_format,
+            ir_readiness_format,
             math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
@@ -591,6 +629,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             evidence_format,
             math_obligations_format,
             resource_report_format,
+            ir_readiness_format,
             math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
@@ -620,6 +659,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             evidence_format,
             math_obligations_format,
             resource_report_format,
+            ir_readiness_format,
             math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: raw_inputs.first().cloned(),
         });
@@ -649,6 +689,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             evidence_format,
             math_obligations_format,
             resource_report_format,
+            ir_readiness_format,
             math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
@@ -678,6 +719,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             evidence_format,
             math_obligations_format,
             resource_report_format,
+            ir_readiness_format,
             math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
@@ -707,6 +749,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             evidence_format,
             math_obligations_format,
             resource_report_format,
+            ir_readiness_format,
             math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
@@ -736,6 +779,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             evidence_format,
             math_obligations_format,
             resource_report_format,
+            ir_readiness_format,
             math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
@@ -771,6 +815,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             evidence_format,
             math_obligations_format,
             resource_report_format,
+            ir_readiness_format,
             math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
@@ -800,6 +845,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             evidence_format,
             math_obligations_format,
             resource_report_format,
+            ir_readiness_format,
             math_obligations_out_dir: math_obligations_out_dir.clone(),
             explain_code: None,
         });
@@ -822,6 +868,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         evidence_format,
         math_obligations_format,
         resource_report_format,
+        ir_readiness_format,
         math_obligations_out_dir,
         explain_code: None,
     })
@@ -952,6 +999,16 @@ fn parse_resource_report_format(value: &str) -> Result<ResourceReportFormat, Str
         "json" => Ok(ResourceReportFormat::Json),
         other => Err(format!(
             "unknown resource-report format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
+fn parse_ir_readiness_format(value: &str) -> Result<IrReadinessFormat, String> {
+    match value {
+        "human" => Ok(IrReadinessFormat::Human),
+        "json" => Ok(IrReadinessFormat::Json),
+        other => Err(format!(
+            "unknown ir-readiness format `{other}`; expected `human` or `json`"
         )),
     }
 }
@@ -1103,6 +1160,7 @@ fn print_help() {
         "  hum math-obligations [--format human|json] [--out-dir <dir>] [--timings] <file-or-dir>..."
     );
     println!("  hum resource-report [--format human|json] [--timings] <file-or-dir>...");
+    println!("  hum ir-readiness [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!("  hum syntax [--format json|textmate]");
     println!("  hum version [--format human|json]");
@@ -1120,6 +1178,7 @@ fn print_help() {
     println!("  evidence          Summarize security and trust evidence obligations");
     println!("  math-obligations  Export V0 math obligations for external validators");
     println!("  resource-report   Classify source-declared resource and optimization claims");
+    println!("  ir-readiness      Report source readiness for future Core Hum and Hum IR lowering");
     println!("  test-skeletons    Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
     println!("  version         Print toolchain identity and schema versions");
@@ -1143,8 +1202,9 @@ mod tests {
 
     use super::{
         BackendContractFormat, CapabilitiesFormat, CheckFormat, DiagnosticsFormat, DoctorFormat,
-        EvidenceFormat, ExplainFormat, IrContractFormat, LspFormat, MathObligationsFormat,
-        ResourceReportFormat, SyntaxFormat, VersionFormat, load_program, parse_cli,
+        EvidenceFormat, ExplainFormat, IrContractFormat, IrReadinessFormat, LspFormat,
+        MathObligationsFormat, ResourceReportFormat, SyntaxFormat, VersionFormat, load_program,
+        parse_cli,
     };
 
     #[test]
@@ -1566,6 +1626,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_ir_readiness_json_format() {
+        let options = parse_cli(vec![
+            "ir-readiness".to_string(),
+            "--format=json".to_string(),
+            "examples".to_string(),
+        ])
+        .expect("ir-readiness json command");
+        assert_eq!(options.command, "ir-readiness");
+        assert_eq!(options.ir_readiness_format, IrReadinessFormat::Json);
+    }
+
+    #[test]
     fn rejects_unknown_resource_report_format() {
         let error = parse_cli(vec![
             "resource-report".to_string(),
@@ -1577,6 +1649,21 @@ mod tests {
         assert_eq!(
             error,
             "unknown resource-report format `textmate`; expected `human` or `json`"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_ir_readiness_format() {
+        let error = parse_cli(vec![
+            "ir-readiness".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+            "examples".to_string(),
+        ])
+        .expect_err("ir-readiness should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown ir-readiness format `textmate`; expected `human` or `json`"
         );
     }
     #[test]

@@ -4,6 +4,7 @@ use crate::diagnostics;
 use crate::doctor;
 use crate::evidence;
 use crate::ir_contract;
+use crate::ir_readiness;
 use crate::json;
 use crate::lsp;
 use crate::math_obligations;
@@ -63,6 +64,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: resource_report::RESOURCE_REPORT_SCHEMA,
         status: "adapter-ready",
         purpose: "source-declared resource, layout, and optimization claim inventory",
+    },
+    CommandCapability {
+        name: "ir_readiness_json",
+        command: "hum ir-readiness --format json <file-or-dir>...",
+        schema: ir_readiness::IR_READINESS_SCHEMA,
+        status: "adapter-ready",
+        purpose: "source readiness report for future Core Hum and Hum IR lowering",
     },
     CommandCapability {
         name: "syntax",
@@ -239,6 +247,10 @@ pub fn capabilities_text() -> String {
         resource_report::RESOURCE_REPORT_SCHEMA
     ));
     out.push_str(&format!(
+        "  ir_readiness: {}\n",
+        ir_readiness::IR_READINESS_SCHEMA
+    ));
+    out.push_str(&format!(
         "  diagnostic_explain: {}\n",
         diagnostic_catalog::DIAGNOSTIC_EXPLAIN_SCHEMA
     ));
@@ -342,6 +354,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         indent + 2,
         "resource_report",
         resource_report::RESOURCE_REPORT_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "ir_readiness",
+        ir_readiness::IR_READINESS_SCHEMA,
         true,
     );
     push_string_field(
@@ -493,6 +512,7 @@ mod tests {
         assert!(json.contains("\"math_obligations_report\": \"hum.math_obligations.v0\""));
         assert!(json.contains("\"math_obligation\": \"hum.math_obligation.v0\""));
         assert!(json.contains("\"resource_report\": \"hum.resource_report.v0\""));
+        assert!(json.contains("\"ir_readiness\": \"hum.ir_readiness.v0\""));
         assert!(json.contains("\"semantic_graph\": \"hum.semantic_graph.v0\""));
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
@@ -506,6 +526,7 @@ mod tests {
         assert!(json.contains("\"name\": \"evidence_json\""));
         assert!(json.contains("\"name\": \"math_obligations_json\""));
         assert!(json.contains("\"name\": \"resource_report_json\""));
+        assert!(json.contains("\"name\": \"ir_readiness_json\""));
         assert!(json.contains("\"name\": \"folding_ranges\""));
         assert!(json.contains("\"status\": \"adapter-ready\""));
     }
