@@ -19,13 +19,15 @@ obligations.
 semantic graph. Task obligations generated from meaningful section lines must
 link to exact or conservative canonical `covers:` lines when present.
 
-The checked reference fixture must keep its obligations linked so the current
-surface has a healthy example.
+The checked reference fixture must keep its generated test obligations and
+current security/trust evidence obligations linked so the current surface has a
+healthy example.
 
 ## Consequences
 
-- `hum graph` exposes task test obligations and linked tests.
+- `hum graph` exposes task test obligations, evidence obligations, and linked tests.
 - `hum test-skeletons` can propose missing evidence without writing files.
+- `tools/check_all.ps1` fails when the reference fixture has unlinked security or trust evidence obligations.
 - Docs and examples must treat tests as language facts, not comments.
 - Future LSP, CI, and agents can reason from graph facts instead of prose.
 

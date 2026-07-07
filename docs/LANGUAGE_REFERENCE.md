@@ -57,8 +57,9 @@ Use it when changing this reference, the grammar contract, syntax highlighting,
 or graph facts. If prose says a current construct exists, the fixture should
 show the ordinary spelling unless a smaller focused example owns that case.
 
-A healthy reference fixture passes `hum check` without diagnostics and produces no
-unlinked obligations from `hum test-skeletons`.
+A healthy reference fixture passes `hum check` without diagnostics, produces no
+unlinked test obligations from `hum test-skeletons`, and has no unlinked
+security or trust evidence obligations in `hum graph`.
 
 ## Source Files
 

@@ -81,6 +81,49 @@ function Assert-Json {
   $Text | ConvertFrom-Json | Out-Null
 }
 
+function Get-GraphItems {
+  param([object[]] $Items)
+
+  foreach ($Item in @($Items)) {
+    if ($null -eq $Item) {
+      continue
+    }
+
+    $Item
+    if ($null -ne $Item.items) {
+      Get-GraphItems @($Item.items)
+    }
+  }
+}
+
+function Assert-ReferenceEvidenceCoverage {
+  param([object] $Graph)
+
+  Write-Host '==> reference fixture evidence coverage smoke'
+  $EvidenceObligations = @()
+  foreach ($File in @($Graph.files)) {
+    foreach ($Item in Get-GraphItems @($File.items)) {
+      if ($Item.kind -eq 'task' -and $null -ne $Item.evidence_obligations) {
+        $EvidenceObligations += @($Item.evidence_obligations)
+      }
+    }
+  }
+
+  if ($EvidenceObligations.Count -eq 0) {
+    throw 'reference fixture graph JSON has no evidence obligations'
+  }
+
+  $Unlinked = @($EvidenceObligations | Where-Object {
+    $_.verification_status -ne 'linked' -or $null -eq $_.linked_evidence -or @($_.linked_evidence).Count -eq 0
+  })
+  if ($Unlinked.Count -gt 0) {
+    $Details = ($Unlinked | ForEach-Object {
+      "  $($_.id) covers '$($_.covers)' with status '$($_.verification_status)'"
+    }) -join "`n"
+    throw "reference fixture has unlinked evidence obligations:`n$Details"
+  }
+}
+
 function Assert-TextMateSnapshot {
   param([string] $Generated)
 
@@ -151,8 +194,10 @@ try {
 
   $GraphJson = Read-NativeOutput 'reference fixture graph JSON' $Hum @('graph', 'examples/reference_surface.hum')
   Assert-Json 'reference fixture graph JSON' $GraphJson
+  $Graph = $GraphJson | ConvertFrom-Json
   if (-not $GraphJson.Contains('"folding_ranges"')) { throw 'reference fixture graph JSON is missing folding_ranges' }
   if (-not $GraphJson.Contains('"symbols"')) { throw 'reference fixture graph JSON is missing symbols' }
+  Assert-ReferenceEvidenceCoverage $Graph
 
   Invoke-RepoScript 'editor fixture recovery' 'check_editor_fixtures.ps1'
 
