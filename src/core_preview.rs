@@ -1,10 +1,11 @@
-use crate::ast::{Item, Program, Section};
+use crate::ast::{Item, Param, Program, Section, SectionLine};
 use crate::core_body::{self, BodyGrammarReport, BodyStatement};
 use crate::core_contract;
 use crate::core_expr::{
     self, CoreExpressionAstPreview, CoreExpressionNode, CoreExpressionPreview, ExpressionAtom,
 };
 use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::graph::is_meaningful_line_text;
 use crate::version;
 
 pub const CORE_PREVIEW_SCHEMA: &str = "hum.core_preview.v0";
@@ -41,6 +42,8 @@ struct CoreCandidate {
     max_block_depth: usize,
     unmatched_block_closes: usize,
     unclosed_blocks: usize,
+    name_status: &'static str,
+    name_preview: CoreNamePreview,
     source_sections: Vec<String>,
     block_preview: CoreBlockPreview,
     statements: Vec<CoreStatementPreview>,
@@ -88,6 +91,79 @@ struct CoreBlockStatementRef {
     status: &'static str,
     reason: Option<&'static str>,
 }
+struct CoreNamePreview {
+    status: &'static str,
+    scope_model: &'static str,
+    scope_id: String,
+    definition_count: usize,
+    reference_count: usize,
+    resolved_reference_count: usize,
+    unresolved_reference_count: usize,
+    external_reference_count: usize,
+    shadowed_definition_count: usize,
+    definitions: Vec<CoreNameDefinition>,
+    references: Vec<CoreNameReference>,
+}
+
+struct CoreNameDefinition {
+    id: String,
+    name: String,
+    normalized_name: String,
+    definition_kind: &'static str,
+    scope_id: String,
+    statement_index: Option<usize>,
+    span: Span,
+    status: &'static str,
+    shadowed_definition_id: Option<String>,
+    reason: Option<&'static str>,
+}
+
+struct CoreNameReference {
+    id: String,
+    name: String,
+    normalized_name: String,
+    reference_kind: &'static str,
+    scope_id: String,
+    statement_index: Option<usize>,
+    span: Span,
+    resolution_status: &'static str,
+    resolved_definition_id: Option<String>,
+    reason: Option<&'static str>,
+}
+
+#[derive(Clone)]
+struct VisibleDefinition {
+    normalized_name: String,
+    id: String,
+}
+
+struct PendingNameReference {
+    name: String,
+    reference_kind: &'static str,
+    external_if_unresolved: bool,
+}
+
+#[derive(Clone, Copy)]
+enum DefinitionConflictMode {
+    Shadow,
+    DuplicateDeclaration,
+}
+
+struct NameDefinitionInput<'a> {
+    name: &'a str,
+    definition_kind: &'static str,
+    statement_index: Option<usize>,
+    span: &'a Span,
+    conflict_mode: DefinitionConflictMode,
+}
+
+struct NameReferenceInput<'a> {
+    name: &'a str,
+    reference_kind: &'static str,
+    statement_index: Option<usize>,
+    span: &'a Span,
+    external_if_unresolved: bool,
+}
 
 pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
     let report = build_report(program, diagnostics);
@@ -104,7 +180,7 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         core_contract::CORE_CONTRACT_SCHEMA
     ));
     out.push_str(&format!(
-        "summary: files={} items={} tasks={} tests={} core_candidates={} execution_ready=0 errors={} warnings={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={} block_count={} max_block_depth={} unmatched_block_closes={} unclosed_blocks={}\n",
+        "summary: files={} items={} tasks={} tests={} core_candidates={} execution_ready=0 errors={} warnings={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={} block_count={} max_block_depth={} unmatched_block_closes={} unclosed_blocks={} name_definitions={} name_references={} resolved_name_references={} unresolved_name_references={} external_name_references={} shadowed_name_definitions={}\n",
         report.files,
         report.items,
         report.tasks,
@@ -122,7 +198,13 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.block_count(),
         report.max_block_depth(),
         report.unmatched_block_closes(),
-        report.unclosed_blocks()
+        report.unclosed_blocks(),
+        report.name_definitions(),
+        report.name_references(),
+        report.resolved_name_references(),
+        report.unresolved_name_references(),
+        report.external_name_references(),
+        report.shadowed_name_definitions()
     ));
 
     if report.candidates.is_empty() {
@@ -142,10 +224,11 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
             candidate.name
         ));
         out.push_str(&format!(
-            "    body: {} grammar={} block_status={} meaningful_lines={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={} block_count={} max_block_depth={} unmatched_block_closes={} unclosed_blocks={}\n",
+            "    body: {} grammar={} block_status={} name_status={} meaningful_lines={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={} block_count={} max_block_depth={} unmatched_block_closes={} unclosed_blocks={} name_definitions={} name_references={} resolved_name_references={} unresolved_name_references={} external_name_references={} shadowed_name_definitions={}\n",
             candidate.body_status,
             candidate.grammar_status,
             candidate.block_status,
+            candidate.name_status,
             candidate.meaningful_lines,
             candidate.lowerable_preview_statements,
             candidate.contextual_preview_statements,
@@ -157,7 +240,13 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
             candidate.block_count,
             candidate.max_block_depth,
             candidate.unmatched_block_closes,
-            candidate.unclosed_blocks
+            candidate.unclosed_blocks,
+            candidate.name_preview.definition_count,
+            candidate.name_preview.reference_count,
+            candidate.name_preview.resolved_reference_count,
+            candidate.name_preview.unresolved_reference_count,
+            candidate.name_preview.external_reference_count,
+            candidate.name_preview.shadowed_definition_count
         ));
         for statement in &candidate.statements {
             out.push_str(&format!(
@@ -205,6 +294,8 @@ pub fn core_preview_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
             "no backend IR",
             "no generated artifact",
             "no safety proof",
+            "no module or global name resolution",
+            "no lexical block scope",
         ],
         false,
     );
@@ -297,6 +388,8 @@ fn core_candidate(item: &Item, diagnostics: &[Diagnostic]) -> Option<CoreCandida
     let max_block_depth = block_preview.max_depth;
     let unmatched_block_closes = block_preview.unmatched_closes;
     let unclosed_blocks = block_preview.unclosed_blocks;
+    let name_preview = core_name_preview(item, &id, &statements);
+    let name_status = name_preview.status;
 
     Some(CoreCandidate {
         id,
@@ -325,6 +418,8 @@ fn core_candidate(item: &Item, diagnostics: &[Diagnostic]) -> Option<CoreCandida
         max_block_depth,
         unmatched_block_closes,
         unclosed_blocks,
+        name_status,
+        name_preview,
         source_sections: item_sections(item)
             .iter()
             .map(|section| section.name.clone())
@@ -657,6 +752,412 @@ fn count_unclosed_blocks(node: &CoreBlockNode) -> usize {
             })
             .sum::<usize>()
 }
+fn core_name_preview(
+    item: &Item,
+    candidate_id: &str,
+    statements: &[CoreStatementPreview],
+) -> CoreNamePreview {
+    let scope_id = format!("{candidate_id}_scope_root");
+    let mut definitions = Vec::new();
+    let mut references = Vec::new();
+    let mut visible = Vec::new();
+    let mut definition_serial = 0usize;
+    let mut reference_serial = 0usize;
+
+    for param in item_params(item) {
+        add_name_definition(
+            candidate_id,
+            &scope_id,
+            &mut definitions,
+            &mut visible,
+            &mut definition_serial,
+            NameDefinitionInput {
+                name: &param.name,
+                definition_kind: "parameter",
+                statement_index: None,
+                span: &param.span,
+                conflict_mode: DefinitionConflictMode::Shadow,
+            },
+        );
+    }
+
+    for (definition_kind, line) in declared_name_lines(item) {
+        if let Some(name) = declared_name_from_line(&line.text) {
+            add_name_definition(
+                candidate_id,
+                &scope_id,
+                &mut definitions,
+                &mut visible,
+                &mut definition_serial,
+                NameDefinitionInput {
+                    name: &name,
+                    definition_kind,
+                    statement_index: None,
+                    span: &line.span,
+                    conflict_mode: DefinitionConflictMode::DuplicateDeclaration,
+                },
+            );
+        }
+    }
+
+    for (statement_index, statement) in statements.iter().enumerate() {
+        for reference in statement_name_references(statement) {
+            add_name_reference(
+                candidate_id,
+                &scope_id,
+                &mut references,
+                &visible,
+                &mut reference_serial,
+                NameReferenceInput {
+                    name: &reference.name,
+                    reference_kind: reference.reference_kind,
+                    statement_index: Some(statement_index),
+                    span: &statement.span,
+                    external_if_unresolved: reference.external_if_unresolved,
+                },
+            );
+        }
+
+        if let Some((name, definition_kind)) = statement_definition(statement) {
+            add_name_definition(
+                candidate_id,
+                &scope_id,
+                &mut definitions,
+                &mut visible,
+                &mut definition_serial,
+                NameDefinitionInput {
+                    name: &name,
+                    definition_kind,
+                    statement_index: Some(statement_index),
+                    span: &statement.span,
+                    conflict_mode: DefinitionConflictMode::Shadow,
+                },
+            );
+        }
+    }
+
+    let definition_count = definitions.len();
+    let reference_count = references.len();
+    let resolved_reference_count = references
+        .iter()
+        .filter(|reference| reference.resolution_status == "resolved_preview_v0")
+        .count();
+    let unresolved_reference_count = references
+        .iter()
+        .filter(|reference| reference.resolution_status == "unresolved_preview_v0")
+        .count();
+    let external_reference_count = references
+        .iter()
+        .filter(|reference| reference.resolution_status == "external_reference_preview_v0")
+        .count();
+    let shadowed_definition_count = definitions
+        .iter()
+        .filter(|definition| definition.status == "shadowed_definition_preview_v0")
+        .count();
+    let status = if unresolved_reference_count > 0 {
+        "name_preview_with_unresolved_v0"
+    } else if shadowed_definition_count > 0 {
+        "name_preview_with_shadowing_v0"
+    } else {
+        "name_preview_v0"
+    };
+
+    CoreNamePreview {
+        status,
+        scope_model: "candidate_linear_scope_v0",
+        scope_id,
+        definition_count,
+        reference_count,
+        resolved_reference_count,
+        unresolved_reference_count,
+        external_reference_count,
+        shadowed_definition_count,
+        definitions,
+        references,
+    }
+}
+
+fn add_name_definition(
+    candidate_id: &str,
+    scope_id: &str,
+    definitions: &mut Vec<CoreNameDefinition>,
+    visible: &mut Vec<VisibleDefinition>,
+    serial: &mut usize,
+    input: NameDefinitionInput<'_>,
+) {
+    let name = input.name;
+    let definition_kind = input.definition_kind;
+    let statement_index = input.statement_index;
+    let span = input.span;
+    let conflict_mode = input.conflict_mode;
+    let normalized_name = name_key(name);
+    if normalized_name.is_empty() {
+        return;
+    }
+
+    let shadowed = visible_definition(visible, &normalized_name);
+    let id = format!("{candidate_id}_def_{}_{normalized_name}", *serial);
+    *serial += 1;
+    let (status, shadowed_definition_id, reason, push_visible) = match (shadowed, conflict_mode) {
+        (Some(existing), DefinitionConflictMode::Shadow) => (
+            "shadowed_definition_preview_v0",
+            Some(existing.id.clone()),
+            Some("definition_shadows_visible_name"),
+            true,
+        ),
+        (Some(existing), DefinitionConflictMode::DuplicateDeclaration) => (
+            "duplicate_declaration_preview_v0",
+            Some(existing.id.clone()),
+            Some("declaration_already_available_in_candidate_scope"),
+            false,
+        ),
+        (None, _) => ("defined_preview_v0", None, None, true),
+    };
+
+    definitions.push(CoreNameDefinition {
+        id: id.clone(),
+        name: name.trim().to_string(),
+        normalized_name: normalized_name.clone(),
+        definition_kind,
+        scope_id: scope_id.to_string(),
+        statement_index,
+        span: portable_span(span),
+        status,
+        shadowed_definition_id,
+        reason,
+    });
+
+    if push_visible {
+        visible.push(VisibleDefinition {
+            normalized_name,
+            id,
+        });
+    }
+}
+
+fn add_name_reference(
+    candidate_id: &str,
+    scope_id: &str,
+    references: &mut Vec<CoreNameReference>,
+    visible: &[VisibleDefinition],
+    serial: &mut usize,
+    input: NameReferenceInput<'_>,
+) {
+    let name = input.name;
+    let reference_kind = input.reference_kind;
+    let statement_index = input.statement_index;
+    let span = input.span;
+    let external_if_unresolved = input.external_if_unresolved;
+    let normalized_name = name_key(name);
+    if normalized_name.is_empty() {
+        return;
+    }
+
+    let resolved = visible_definition(visible, &normalized_name);
+    let external_reference = external_if_unresolved || is_external_root(name);
+    let (resolution_status, resolved_definition_id, reason) = if let Some(definition) = resolved {
+        ("resolved_preview_v0", Some(definition.id.clone()), None)
+    } else if external_reference {
+        (
+            "external_reference_preview_v0",
+            None,
+            Some("global_or_type_name_resolution_not_implemented"),
+        )
+    } else {
+        (
+            "unresolved_preview_v0",
+            None,
+            Some("name_not_in_candidate_scope"),
+        )
+    };
+
+    references.push(CoreNameReference {
+        id: format!("{candidate_id}_ref_{}_{normalized_name}", *serial),
+        name: name.trim().to_string(),
+        normalized_name,
+        reference_kind,
+        scope_id: scope_id.to_string(),
+        statement_index,
+        span: portable_span(span),
+        resolution_status,
+        resolved_definition_id,
+        reason,
+    });
+    *serial += 1;
+}
+
+fn visible_definition<'a>(
+    visible: &'a [VisibleDefinition],
+    normalized_name: &str,
+) -> Option<&'a VisibleDefinition> {
+    visible
+        .iter()
+        .rev()
+        .find(|definition| definition.normalized_name == normalized_name)
+}
+
+fn item_params(item: &Item) -> Vec<&Param> {
+    match item {
+        Item::Task(task) => task.params.iter().collect(),
+        Item::Test(test) => test.params.iter().collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn declared_name_lines(item: &Item) -> Vec<(&'static str, &SectionLine)> {
+    let mut lines = Vec::new();
+    for section in item_sections(item) {
+        let definition_kind = match section.name.as_str() {
+            "uses" => "declared_use",
+            "changes" => "declared_change",
+            _ => continue,
+        };
+        for line in &section.lines {
+            if is_meaningful_line_text(&line.text) {
+                lines.push((definition_kind, line));
+            }
+        }
+    }
+    lines
+}
+
+fn declared_name_from_line(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    if let Some((root, _field)) = text.split_once('.') {
+        return Some(root.trim().to_string());
+    }
+    Some(text.to_string())
+}
+
+fn statement_definition(statement: &CoreStatementPreview) -> Option<(String, &'static str)> {
+    match statement.source_kind {
+        "let_binding" => binding_name(&statement.text, "let").map(|name| (name, "let_binding")),
+        "mutable_binding" => {
+            binding_name(&statement.text, "change").map(|name| (name, "mutable_binding"))
+        }
+        "for_each_header" => {
+            for_each_binding(&statement.text).map(|name| (name, "for_each_binding"))
+        }
+        "for_index_header" => {
+            for_index_binding(&statement.text).map(|name| (name, "for_index_binding"))
+        }
+        _ => None,
+    }
+}
+
+fn statement_name_references(statement: &CoreStatementPreview) -> Vec<PendingNameReference> {
+    let mut references = Vec::new();
+    if statement.source_kind == "set_place"
+        && let Some(target) = set_target(&statement.text)
+    {
+        references.push(PendingNameReference {
+            name: target,
+            reference_kind: "mutation_target",
+            external_if_unresolved: false,
+        });
+    }
+
+    if let Some(expression) = &statement.expression_preview {
+        references.extend(expression_name_references(expression));
+    }
+    references
+}
+
+fn expression_name_references(expression: &CoreExpressionPreview) -> Vec<PendingNameReference> {
+    let mut references = Vec::new();
+    for (index, atom) in expression.atoms.iter().enumerate() {
+        if skips_predicate_atom(expression, index) {
+            continue;
+        }
+        match atom.kind {
+            "name" => references.push(PendingNameReference {
+                name: atom.text.clone(),
+                reference_kind: "name_ref",
+                external_if_unresolved: false,
+            }),
+            "path_or_field_read" => {
+                if let Some(root) = path_root(&atom.text) {
+                    references.push(PendingNameReference {
+                        external_if_unresolved: is_external_root(&root),
+                        name: root,
+                        reference_kind: "path_root_ref",
+                    });
+                }
+            }
+            "callee_name" => references.push(PendingNameReference {
+                name: atom.text.clone(),
+                reference_kind: "callee_ref",
+                external_if_unresolved: true,
+            }),
+            "call_like" => {
+                if let Some(callee) = call_callee(&atom.text) {
+                    references.push(PendingNameReference {
+                        name: callee,
+                        reference_kind: "callee_ref",
+                        external_if_unresolved: true,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    references
+}
+
+fn skips_predicate_atom(expression: &CoreExpressionPreview, index: usize) -> bool {
+    expression.operators.len() == 1 && expression.operators[0] == "is" && index > 0
+}
+
+fn binding_name(text: &str, keyword: &str) -> Option<String> {
+    let rest = strip_keyword(text, keyword)?;
+    let (left, _right) = rest.split_once('=')?;
+    let name = left.split_once(':').map_or(left, |(name, _ty)| name).trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+fn for_each_binding(text: &str) -> Option<String> {
+    let body = header_body(text, "for each")?;
+    body.split_once(" in ")
+        .map(|(binding, _collection)| binding.trim().to_string())
+        .filter(|binding| !binding.is_empty())
+}
+
+fn for_index_binding(text: &str) -> Option<String> {
+    let body = header_body(text, "for index")?;
+    body.split_whitespace().next().map(str::to_string)
+}
+
+fn set_target(text: &str) -> Option<String> {
+    let rest = strip_keyword(text, "set")?;
+    rest.split_once('=')
+        .map(|(target, _value)| target.trim().to_string())
+        .filter(|target| !target.is_empty())
+}
+
+fn path_root(text: &str) -> Option<String> {
+    text.split_once('.')
+        .map(|(root, _field)| root.trim().to_string())
+        .filter(|root| !root.is_empty())
+}
+
+fn call_callee(text: &str) -> Option<String> {
+    text.split_once('(')
+        .map(|(callee, _args)| callee.trim().to_string())
+        .filter(|callee| !callee.is_empty())
+}
+
+fn is_external_root(name: &str) -> bool {
+    name.chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_uppercase())
+}
+
+fn name_key(name: &str) -> String {
+    snake_identifier(name)
+}
 
 fn candidate_status(
     has_errors: bool,
@@ -754,6 +1255,47 @@ impl CorePreviewReport {
         self.candidates
             .iter()
             .map(|candidate| candidate.unclosed_blocks)
+            .sum()
+    }
+    fn name_definitions(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.name_preview.definition_count)
+            .sum()
+    }
+
+    fn name_references(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.name_preview.reference_count)
+            .sum()
+    }
+
+    fn resolved_name_references(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.name_preview.resolved_reference_count)
+            .sum()
+    }
+
+    fn unresolved_name_references(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.name_preview.unresolved_reference_count)
+            .sum()
+    }
+
+    fn external_name_references(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.name_preview.external_reference_count)
+            .sum()
+    }
+
+    fn shadowed_name_definitions(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.name_preview.shadowed_definition_count)
             .sum()
     }
 }
@@ -859,7 +1401,7 @@ fn push_summary(out: &mut String, report: &CorePreviewReport, indent: usize, com
     push_indent(out, indent);
     out.push_str("\"summary\": {");
     out.push_str(&format!(
-        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"core_candidates\": {}, \"execution_ready\": 0, \"errors\": {}, \"warnings\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}, \"block_count\": {}, \"max_block_depth\": {}, \"unmatched_block_closes\": {}, \"unclosed_blocks\": {}",
+        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"core_candidates\": {}, \"execution_ready\": 0, \"errors\": {}, \"warnings\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}, \"block_count\": {}, \"max_block_depth\": {}, \"unmatched_block_closes\": {}, \"unclosed_blocks\": {}, \"name_definitions\": {}, \"name_references\": {}, \"resolved_name_references\": {}, \"unresolved_name_references\": {}, \"external_name_references\": {}, \"shadowed_name_definitions\": {}",
         report.files,
         report.items,
         report.tasks,
@@ -877,7 +1419,13 @@ fn push_summary(out: &mut String, report: &CorePreviewReport, indent: usize, com
         report.block_count(),
         report.max_block_depth(),
         report.unmatched_block_closes(),
-        report.unclosed_blocks()
+        report.unclosed_blocks(),
+        report.name_definitions(),
+        report.name_references(),
+        report.resolved_name_references(),
+        report.unresolved_name_references(),
+        report.external_name_references(),
+        report.shadowed_name_definitions()
     ));
     out.push('}');
     push_comma_newline(out, comma);
@@ -928,10 +1476,12 @@ fn push_candidate(out: &mut String, candidate: &CoreCandidate, indent: usize) {
         candidate.block_status,
         true,
     );
+    push_string_field(out, indent + 2, "name_status", candidate.name_status, true);
+
     push_indent(out, indent + 2);
     out.push_str("\"summary\": {");
     out.push_str(&format!(
-        "\"meaningful_lines\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}, \"block_count\": {}, \"max_block_depth\": {}, \"unmatched_block_closes\": {}, \"unclosed_blocks\": {}",
+        "\"meaningful_lines\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}, \"block_count\": {}, \"max_block_depth\": {}, \"unmatched_block_closes\": {}, \"unclosed_blocks\": {}, \"name_definitions\": {}, \"name_references\": {}, \"resolved_name_references\": {}, \"unresolved_name_references\": {}, \"external_name_references\": {}, \"shadowed_name_definitions\": {}",
         candidate.meaningful_lines,
         candidate.lowerable_preview_statements,
         candidate.contextual_preview_statements,
@@ -943,7 +1493,13 @@ fn push_candidate(out: &mut String, candidate: &CoreCandidate, indent: usize) {
         candidate.block_count,
         candidate.max_block_depth,
         candidate.unmatched_block_closes,
-        candidate.unclosed_blocks
+        candidate.unclosed_blocks,
+        candidate.name_preview.definition_count,
+        candidate.name_preview.reference_count,
+        candidate.name_preview.resolved_reference_count,
+        candidate.name_preview.unresolved_reference_count,
+        candidate.name_preview.external_reference_count,
+        candidate.name_preview.shadowed_definition_count
     ));
     out.push_str("},\n");
     push_owned_string_array(
@@ -953,6 +1509,8 @@ fn push_candidate(out: &mut String, candidate: &CoreCandidate, indent: usize) {
         &candidate.source_sections,
         true,
     );
+    push_name_preview(out, indent + 2, &candidate.name_preview, true);
+
     push_block_preview(out, indent + 2, &candidate.block_preview, true);
     push_statements(out, indent + 2, &candidate.statements, false);
     push_indent(out, indent);
@@ -1080,6 +1638,197 @@ fn push_string_slice_array(
     }
     out.push(']');
     push_comma_newline(out, comma);
+}
+fn push_name_preview(out: &mut String, indent: usize, preview: &CoreNamePreview, comma: bool) {
+    push_indent(out, indent);
+    push_json_string(out, "name_preview");
+    out.push_str(": {\n");
+    push_string_field(out, indent + 2, "status", preview.status, true);
+    push_string_field(out, indent + 2, "scope_model", preview.scope_model, true);
+    push_string_field(out, indent + 2, "scope_id", &preview.scope_id, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "definition_count",
+        preview.definition_count,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "reference_count",
+        preview.reference_count,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "resolved_reference_count",
+        preview.resolved_reference_count,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unresolved_reference_count",
+        preview.unresolved_reference_count,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "external_reference_count",
+        preview.external_reference_count,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "shadowed_definition_count",
+        preview.shadowed_definition_count,
+        true,
+    );
+    push_name_definitions(out, indent + 2, &preview.definitions, true);
+    push_name_references(out, indent + 2, &preview.references, false);
+    push_indent(out, indent);
+    out.push('}');
+    push_comma_newline(out, comma);
+}
+
+fn push_name_definitions(
+    out: &mut String,
+    indent: usize,
+    definitions: &[CoreNameDefinition],
+    comma: bool,
+) {
+    push_indent(out, indent);
+    push_json_string(out, "definitions");
+    out.push_str(": [");
+    if !definitions.is_empty() {
+        out.push('\n');
+        for (index, definition) in definitions.iter().enumerate() {
+            if index > 0 {
+                out.push_str(",\n");
+            }
+            push_indent(out, indent + 2);
+            push_name_definition(out, indent + 2, definition);
+        }
+        out.push('\n');
+        push_indent(out, indent);
+    }
+    out.push(']');
+    push_comma_newline(out, comma);
+}
+
+fn push_name_definition(out: &mut String, indent: usize, definition: &CoreNameDefinition) {
+    out.push_str("{\n");
+    push_string_field(out, indent + 2, "id", &definition.id, true);
+    push_string_field(out, indent + 2, "name", &definition.name, true);
+    push_string_field(
+        out,
+        indent + 2,
+        "normalized_name",
+        &definition.normalized_name,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "definition_kind",
+        definition.definition_kind,
+        true,
+    );
+    push_string_field(out, indent + 2, "scope_id", &definition.scope_id, true);
+    push_optional_usize_field(
+        out,
+        indent + 2,
+        "statement_index",
+        definition.statement_index,
+        true,
+    );
+    push_span_field(out, indent + 2, "source_span", &definition.span, true);
+    push_string_field(out, indent + 2, "status", definition.status, true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "shadowed_definition_id",
+        definition.shadowed_definition_id.as_deref(),
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "reason", definition.reason, false);
+    push_indent(out, indent);
+    out.push('}');
+}
+
+fn push_name_references(
+    out: &mut String,
+    indent: usize,
+    references: &[CoreNameReference],
+    comma: bool,
+) {
+    push_indent(out, indent);
+    push_json_string(out, "references");
+    out.push_str(": [");
+    if !references.is_empty() {
+        out.push('\n');
+        for (index, reference) in references.iter().enumerate() {
+            if index > 0 {
+                out.push_str(",\n");
+            }
+            push_indent(out, indent + 2);
+            push_name_reference(out, indent + 2, reference);
+        }
+        out.push('\n');
+        push_indent(out, indent);
+    }
+    out.push(']');
+    push_comma_newline(out, comma);
+}
+
+fn push_name_reference(out: &mut String, indent: usize, reference: &CoreNameReference) {
+    out.push_str("{\n");
+    push_string_field(out, indent + 2, "id", &reference.id, true);
+    push_string_field(out, indent + 2, "name", &reference.name, true);
+    push_string_field(
+        out,
+        indent + 2,
+        "normalized_name",
+        &reference.normalized_name,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "reference_kind",
+        reference.reference_kind,
+        true,
+    );
+    push_string_field(out, indent + 2, "scope_id", &reference.scope_id, true);
+    push_optional_usize_field(
+        out,
+        indent + 2,
+        "statement_index",
+        reference.statement_index,
+        true,
+    );
+    push_span_field(out, indent + 2, "source_span", &reference.span, true);
+    push_string_field(
+        out,
+        indent + 2,
+        "resolution_status",
+        reference.resolution_status,
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "resolved_definition_id",
+        reference.resolved_definition_id.as_deref(),
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "reason", reference.reason, false);
+    push_indent(out, indent);
+    out.push('}');
 }
 
 fn push_block_preview(out: &mut String, indent: usize, preview: &CoreBlockPreview, comma: bool) {
@@ -1395,6 +2144,9 @@ mod tests {
         assert!(text.contains("expression_atoms="));
         assert!(text.contains("expression_ast_nodes="));
         assert!(text.contains("block_status="));
+        assert!(text.contains("name_status="));
+        assert!(text.contains("name_definitions="));
+        assert!(text.contains("resolved_name_references="));
         assert!(text.contains("return -> return"));
         assert!(text.contains("save_in_store -> store_write_deferred"));
     }
@@ -1412,6 +2164,15 @@ mod tests {
         assert!(json.contains("\"core_operation\": \"return\""));
         assert!(json.contains("\"expression_previews\""));
         assert!(json.contains("\"block_status\": \"block_preview_v0\""));
+        assert!(json.contains("\"name_status\": \"name_preview_v0\""));
+        assert!(json.contains("\"name_preview\""));
+        assert!(json.contains("\"scope_model\": \"candidate_linear_scope_v0\""));
+        assert!(json.contains("\"definition_kind\": \"parameter\""));
+        assert!(json.contains("\"definition_kind\": \"let_binding\""));
+        assert!(json.contains("\"reference_kind\": \"name_ref\""));
+        assert!(json.contains("\"resolution_status\": \"resolved_preview_v0\""));
+        assert!(json.contains("\"resolution_status\": \"external_reference_preview_v0\""));
+        assert!(json.contains("\"unresolved_name_references\": 0"));
         assert!(json.contains("\"block_preview\""));
         assert!(json.contains("\"block_kind\": \"record_construction\""));
         assert!(json.contains("\"node_kind\": \"statement_ref\""));
@@ -1467,6 +2228,32 @@ mod tests {
         assert!(json.contains("\"unclosed_blocks\": 0"));
         assert!(json.contains("\"no executable semantics\""));
     }
+
+    #[test]
+    fn json_preview_reports_shadowed_and_unresolved_names_honestly() {
+        let source = r#"task check title(title: Text) -> Text {
+  does:
+    let title = "shadow"
+    return missing
+}
+"#;
+        let parsed = parse_source("names.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = core_preview_json(&program, &[]);
+
+        assert!(json.contains("\"name_status\": \"name_preview_with_unresolved_v0\""));
+        assert!(json.contains("\"status\": \"shadowed_definition_preview_v0\""));
+        assert!(json.contains("\"reason\": \"definition_shadows_visible_name\""));
+        assert!(json.contains("\"resolution_status\": \"unresolved_preview_v0\""));
+        assert!(json.contains("\"reason\": \"name_not_in_candidate_scope\""));
+        assert!(json.contains("\"shadowed_name_definitions\": 1"));
+        assert!(json.contains("\"unresolved_name_references\": 1"));
+        assert!(json.contains("\"no module or global name resolution\""));
+        assert!(json.contains("\"no lexical block scope\""));
+    }
+
     fn demo_program() -> Program {
         let source = r#"type Task {
   title: Text

@@ -195,7 +195,7 @@ const ACCEPTANCE_GATES: &[AcceptanceGate] = &[
     AcceptanceGate {
         id: "core_preview",
         status: core_preview::CORE_PREVIEW_STATUS,
-        requirement: "body grammar emits Core Hum candidate operations, block previews, expression AST previews, and blockers without executable meaning",
+        requirement: "body grammar emits Core Hum candidate operations, candidate-local name previews, block previews, expression AST previews, and blockers without executable meaning",
     },
     AcceptanceGate {
         id: "core_lowering",

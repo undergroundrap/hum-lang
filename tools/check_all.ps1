@@ -263,6 +263,16 @@ try {
   if (-not $CorePreviewJson.Contains('"core_operation": "return"')) { throw 'Core preview JSON is missing return operation preview' }
   if (-not $CorePreviewJson.Contains('"core_operation": "store_write_deferred"')) { throw 'Core preview JSON is missing deferred store write blocker' }
   if (-not $CorePreviewJson.Contains('"expression_previews"')) { throw 'Core preview JSON is missing expression preview counts' }
+  if (-not $CorePreviewJson.Contains('"name_status": "name_preview_v0"')) { throw 'Core preview JSON is missing name preview status' }
+  if (-not $CorePreviewJson.Contains('"name_preview"')) { throw 'Core preview JSON is missing name_preview facts' }
+  if (-not $CorePreviewJson.Contains('"scope_model": "candidate_linear_scope_v0"')) { throw 'Core preview JSON is missing candidate-linear scope model' }
+  if (-not $CorePreviewJson.Contains('"definition_kind": "parameter"')) { throw 'Core preview JSON is missing parameter definition preview' }
+  if (-not $CorePreviewJson.Contains('"definition_kind": "let_binding"')) { throw 'Core preview JSON is missing let binding definition preview' }
+  if (-not $CorePreviewJson.Contains('"reference_kind": "name_ref"')) { throw 'Core preview JSON is missing name reference preview' }
+  if (-not $CorePreviewJson.Contains('"resolution_status": "resolved_preview_v0"')) { throw 'Core preview JSON is missing resolved name reference preview' }
+  if (-not $CorePreviewJson.Contains('"resolution_status": "external_reference_preview_v0"')) { throw 'Core preview JSON is missing external name reference preview' }
+  if (-not $CorePreviewJson.Contains('"unresolved_name_references": 0')) { throw 'Core preview JSON should report zero unresolved name references for reference fixture' }
+  if (-not $CorePreviewJson.Contains('global_or_type_name_resolution_not_implemented')) { throw 'Core preview JSON is missing external name resolution honesty reason' }
   if (-not $CorePreviewJson.Contains('"block_status": "block_preview_v0"')) { throw 'Core preview JSON is missing block preview status' }
   if (-not $CorePreviewJson.Contains('"block_preview"')) { throw 'Core preview JSON is missing block_preview tree' }
   if (-not $CorePreviewJson.Contains('"block_count"')) { throw 'Core preview JSON is missing block_count' }
@@ -287,6 +297,8 @@ try {
   if (-not $CorePreviewJson.Contains('"kind": "path_or_field_read"')) { throw 'Core preview JSON is missing path or field read expression kind' }
   if (-not $CorePreviewJson.Contains('surface_save_requires_store_lowering')) { throw 'Core preview JSON is missing store save lowering blocker' }
   if (-not $CorePreviewJson.Contains('no executable semantics')) { throw 'Core preview JSON must keep V0 non-execution claim' }
+  if (-not $CorePreviewJson.Contains('no module or global name resolution')) { throw 'Core preview JSON must keep V0 name-resolution non-goal' }
+  if (-not $CorePreviewJson.Contains('no lexical block scope')) { throw 'Core preview JSON must keep V0 scope non-goal' }
   $IrReadinessJson = Read-NativeOutput 'IR readiness JSON' $Hum @('ir-readiness', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'IR readiness JSON' $IrReadinessJson
   if (-not $IrReadinessJson.Contains('"schema": "hum.ir_readiness.v0"')) { throw 'IR readiness JSON is missing hum.ir_readiness.v0 schema' }

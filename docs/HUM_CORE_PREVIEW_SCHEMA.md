@@ -12,8 +12,9 @@ true Core Hum lowering.
 
 This command is intentionally not an interpreter, not a type checker, not an
 effect checker, not Hum IR, and not a backend. It reports conservative candidate
-operations, block previews, expression preview atoms, AST previews, operators,
-and blockers so humans, agents, and future compiler passes can see what the
+operations, candidate-local name previews, block previews, expression preview
+atoms, AST previews, operators, and blockers so humans, agents, and future
+compiler passes can see what the
 current bootstrap can map toward Core Hum without pretending the body has
 executable meaning.
 
@@ -58,8 +59,8 @@ compiler-roadmap checks, and future Core Hum lowering/verifier work.
 - `milestone`: current implementation milestone
 - `core_contract_schema`: Core Hum contract this report targets
 - `summary`: file, item, task, test, candidate, execution-ready, diagnostic,
-  statement-preview, block-preview, expression-preview, expression-atom,
-  expression-AST-node, and compound-expression preview counts
+  statement-preview, block-preview, name-preview, expression-preview,
+  expression-atom, expression-AST-node, and compound-expression preview counts
 - `core_candidates`: task or test bodies with a `does:` section
 - `non_goals_v0`: claims this command must not make
 
@@ -76,9 +77,11 @@ Each `core_candidates` entry has:
 - `body_status`: partial body grammar aggregate status
 - `grammar_status`: body grammar maturity, currently `partial_v0`
 - `summary`: meaningful body lines, statement status counts, expression preview
-  counts, block preview counts, expression atom counts, expression AST node counts,
-  and compound expression preview counts
+  counts, block preview counts, name definition/reference counts, expression atom
+  counts, expression AST node counts, and compound expression preview counts
 - `source_sections`: sections seen on the source item
+- `name_status`: aggregate status for candidate-local name preview facts
+- `name_preview`: conservative definition/reference preview over the candidate body
 - `block_preview`: conservative nested block tree over statement indexes
 - `statements`: one row per meaningful `does:` body line
 
@@ -108,6 +111,95 @@ Each `statements` row has:
 - `expression_preview`: structured expression preview, or `null` when the row has
   no standalone expression text
 - `reason`: optional blocker or context reason
+
+## Name Preview Shape
+
+`name_preview` is a candidate-local binding/reference preview only. It walks the
+candidate in source-statement order and reports the names currently visible to
+future lowering work without claiming full module, type, overload, field, or
+lexical block resolution.
+
+```json
+{
+  "status": "name_preview_v0",
+  "scope_model": "candidate_linear_scope_v0",
+  "scope_id": "hum_core_preview_task_add_task_4_1_scope_root",
+  "definition_count": 2,
+  "reference_count": 3,
+  "resolved_reference_count": 2,
+  "unresolved_reference_count": 0,
+  "external_reference_count": 1,
+  "shadowed_definition_count": 0,
+  "definitions": [],
+  "references": []
+}
+```
+
+Name preview fields:
+
+- `status`: `name_preview_v0`, `name_preview_with_shadowing_v0`, or
+  `name_preview_with_unresolved_v0`
+- `scope_model`: currently `candidate_linear_scope_v0`
+- `scope_id`: source-derived root scope identifier for this preview candidate
+- `definition_count`: number of preview definitions reported
+- `reference_count`: number of preview references reported
+- `resolved_reference_count`: references resolved to a visible candidate-local
+  definition
+- `unresolved_reference_count`: references not found in the candidate-local
+  visible set
+- `external_reference_count`: unresolved capitalized, path-root, or callee names
+  reported as external/type/global preview references because V0 has no module or
+  global resolver yet
+- `shadowed_definition_count`: definitions that shadow a previously visible name
+- `definitions`: preview definition rows
+- `references`: preview reference rows
+
+Definition rows include:
+
+- `id`: source-derived definition id
+- `name`: source name text
+- `normalized_name`: snake-style comparison key used by this preview
+- `definition_kind`: `parameter`, `declared_use`, `declared_change`,
+  `let_binding`, `mutable_binding`, `for_each_binding`, or `for_index_binding`
+- `scope_id`: owning preview scope
+- `statement_index`: index into `statements`, or `null` for item header or
+  section declarations
+- `source_span`: source location for the definition
+- `status`: `defined_preview_v0`, `shadowed_definition_preview_v0`, or
+  `duplicate_declaration_preview_v0`
+- `shadowed_definition_id`: previous visible definition id when shadowing or
+  duplicate declaration is detected
+- `reason`: optional honesty reason such as `definition_shadows_visible_name` or
+  `declaration_already_available_in_candidate_scope`
+
+Reference rows include:
+
+- `id`: source-derived reference id
+- `name`: source name text
+- `normalized_name`: snake-style comparison key used by this preview
+- `reference_kind`: `name_ref`, `path_root_ref`, `callee_ref`, or
+  `mutation_target`
+- `scope_id`: owning preview scope
+- `statement_index`: index into `statements`
+- `source_span`: source location for the containing statement
+- `resolution_status`: `resolved_preview_v0`, `unresolved_preview_v0`, or
+  `external_reference_preview_v0`
+- `resolved_definition_id`: visible definition id when resolved locally
+- `reason`: optional honesty reason such as `name_not_in_candidate_scope` or
+  `global_or_type_name_resolution_not_implemented`
+
+Name preview honesty rules:
+
+- It does not implement lexical block scope; V0 uses a single candidate-linear
+  scope.
+- It does not resolve modules, imports, globals, type names, enum variants,
+  overloads, fields, stores, or traits.
+- It does not prove definite assignment, liveness, ownership, effects, or
+  mutation safety.
+- It reports capitalized unresolved names as external/type/global preview facts
+  so later resolvers have explicit work to do.
+- It consumes names already surfaced by the expression preview; it does not
+  re-parse arbitrary source text.
 
 ## Block Preview Shape
 
@@ -212,7 +304,9 @@ Named V0 blockers include:
 ## Expression Preview Shape
 
 `expression_preview` is a syntax preview only. It does not type-check, evaluate,
-resolve names, prove effects, or choose overloads.
+resolve names by itself, prove effects, or choose overloads. Candidate-level
+`name_preview` consumes expression atoms separately to report conservative local
+binding/reference facts.
 
 ```json
 {
@@ -299,8 +393,8 @@ Atom fields:
 ## Expression AST Preview Shape
 
 The expression AST preview is a syntax tree boundary, not a checked Core Hum
-expression. It exists so later passes can fill in type, effect, name-resolution,
-and lowering facts without changing the JSON shape again.
+expression. It exists so later passes can fill in type, effect, checked
+name-resolution, and lowering facts without changing the JSON shape again.
 
 AST fields:
 
@@ -328,7 +422,8 @@ AST honesty rules:
 
 - The AST preview does not define precedence beyond the recognized V0 binary
   candidate shape.
-- It does not resolve names or fields.
+- It does not resolve names or fields; candidate `name_preview` reports separate
+  candidate-local preview facts.
 - It does not type-check calls, literals, paths, records, or operators.
 - It does not infer effects or prove purity.
 - It is allowed to preserve surface phrases as `surface_phrase` nodes when V0
@@ -341,8 +436,10 @@ AST honesty rules:
   optimization, or backend readiness.
 - It must not emit Hum IR.
 - It may report Core Hum candidate operation families, source spans, coarse
-  expression kinds, block previews, expression preview atoms, expression AST
-  previews, operators, and explicit blockers.
+  expression kinds, candidate-local name previews, block previews, expression
+  preview atoms, expression AST previews, operators, and explicit blockers.
+- It must not claim module, global, type, overload, field, or lexical block name
+  resolution.
 - It must stay in sync with `hum.core_contract.v0`, `hum.ir_readiness.v0`, `hum
   capabilities --format json`, and `hum version --format json`.
 
@@ -360,5 +457,6 @@ The command is local-first:
 ## Non-Goals For V0
 
 V0 does not produce executable Core Hum, Hum IR, bytecode, machine code, backend
-adapter input, proof artifacts, optimized code, or executable behavior. It is a
-conservative preview of what the next true lowering pass must make precise.
+adapter input, proof artifacts, optimized code, executable behavior, module or
+global name resolution, or lexical block scope. It is a conservative preview of
+what the next true lowering pass must make precise.
