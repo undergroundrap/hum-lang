@@ -54,6 +54,10 @@ The script runs Rust formatting, tests, clippy, example checks, reference fixtur
 coverage, graph and syntax JSON parsing, TextMate snapshot drift detection,
 whitespace checks, text hygiene, public readiness, and release readiness.
 
+Hosted CI should call the same script. The current GitHub Actions workflow in
+[../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs it on Windows
+and Linux for pushes and pull requests.
+
 ## Editor Setup
 
 Hum does not require a blessed editor.
