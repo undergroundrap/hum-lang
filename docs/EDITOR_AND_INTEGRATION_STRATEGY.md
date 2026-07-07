@@ -44,6 +44,7 @@ Plugins should be adapters, not alternate implementations of Hum semantics.
 - stable CLI output
 - stable semantic graph JSON
 - stable syntax surface JSON from `hum syntax`
+- section hover metadata from the syntax surface
 - generated TextMate grammar at [../editors/textmate/hum.tmLanguage.json](../editors/textmate/hum.tmLanguage.json)
 
 This tier makes Hum usable in plain terminals, basic editors, and enterprise source scanners.

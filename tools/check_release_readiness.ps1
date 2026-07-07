@@ -96,6 +96,11 @@ if (-not $editorFixturesDoc.Contains('check_editor_fixtures.ps1')) {
   Add-Failure 'docs/EDITOR_FIXTURES.md does not mention check_editor_fixtures.ps1'
 }
 
+$editorStrategyDoc = Read-RepoText 'docs\EDITOR_AND_INTEGRATION_STRATEGY.md'
+if (-not $editorStrategyDoc.Contains('section hover metadata')) {
+  Add-Failure 'docs/EDITOR_AND_INTEGRATION_STRATEGY.md does not describe syntax section hover metadata'
+}
+
 $securityPolicy = Read-RepoText 'SECURITY.md'
 foreach ($required in @('Supported Versions', 'How To Report', 'Security Claims')) {
   if (-not $securityPolicy.Contains($required)) {

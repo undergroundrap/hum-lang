@@ -48,6 +48,105 @@ pub const TEST_OBLIGATION_SECTIONS: &[(&str, &str)] = &[
     ("tests", "declared_test"),
 ];
 
+pub struct SectionHelp {
+    pub name: &'static str,
+    pub applies_to: &'static [&'static str],
+    pub hover: &'static str,
+}
+
+pub const SECTION_CATALOG: &[SectionHelp] = &[
+    SectionHelp {
+        name: "why",
+        applies_to: &["app", "type", "store", "task", "test"],
+        hover: "Explains why this item exists and what value it should provide.",
+    },
+    SectionHelp {
+        name: "uses",
+        applies_to: &["task", "test"],
+        hover: "Lists read dependencies, capabilities, or outside facts this item relies on.",
+    },
+    SectionHelp {
+        name: "changes",
+        applies_to: &["task"],
+        hover: "Lists resources or state this task is allowed to mutate.",
+    },
+    SectionHelp {
+        name: "needs",
+        applies_to: &["task", "test"],
+        hover: "States preconditions that callers, fixtures, or context must satisfy.",
+    },
+    SectionHelp {
+        name: "ensures",
+        applies_to: &["task"],
+        hover: "States promises the task must satisfy after successful completion.",
+    },
+    SectionHelp {
+        name: "protects",
+        applies_to: &["task"],
+        hover: "Names the safety or security property this task must preserve.",
+    },
+    SectionHelp {
+        name: "trusts",
+        applies_to: &["task"],
+        hover: "Names boundaries, inputs, systems, or assumptions this task relies on.",
+    },
+    SectionHelp {
+        name: "fails when",
+        applies_to: &["task"],
+        hover: "States expected failure modes that should be visible to callers and tests.",
+    },
+    SectionHelp {
+        name: "watch for",
+        applies_to: &["task"],
+        hover: "Records edge cases and risky inputs that should become test obligations.",
+    },
+    SectionHelp {
+        name: "cost",
+        applies_to: &["task", "test"],
+        hover: "States time, space, allocation, and check expectations.",
+    },
+    SectionHelp {
+        name: "allocates",
+        applies_to: &["task"],
+        hover: "Records allocation expectations or limits that reviewers and tools should see.",
+    },
+    SectionHelp {
+        name: "avoids",
+        applies_to: &["task", "test"],
+        hover: "Names implementation shapes, regressions, or risks this item should avoid.",
+    },
+    SectionHelp {
+        name: "tradeoffs",
+        applies_to: &["task"],
+        hover: "Explains accepted compromises so optimization choices are reviewable.",
+    },
+    SectionHelp {
+        name: "optimizes",
+        applies_to: &["task"],
+        hover: "Names the priority to optimize when correct designs have competing costs.",
+    },
+    SectionHelp {
+        name: "tests",
+        applies_to: &["task"],
+        hover: "Declares test obligations that should be linked to first-class tests.",
+    },
+    SectionHelp {
+        name: "does",
+        applies_to: &["task", "test"],
+        hover: "Contains body text captured by Milestone 0; executable semantics are future work.",
+    },
+    SectionHelp {
+        name: "regression",
+        applies_to: &["test"],
+        hover: "Describes the old failure mode this regression test prevents from returning.",
+    },
+    SectionHelp {
+        name: "covers",
+        applies_to: &["test"],
+        hover: "Links a test to the task promise, obligation, or behavior it proves.",
+    },
+];
+
 struct TextMateRule {
     name: &'static str,
     pattern: String,
@@ -83,8 +182,9 @@ pub fn syntax_json() -> String {
         4,
         "task_obligations",
         TEST_OBLIGATION_SECTIONS,
-        false,
+        true,
     );
+    push_section_catalog(&mut out, 4, "section_catalog", SECTION_CATALOG, false);
     push_indent(&mut out, 2);
     out.push_str("}\n");
     out.push_str("}\n");
@@ -303,6 +403,41 @@ fn push_obligation_sections(
     push_comma_newline(out, trailing_comma);
 }
 
+fn push_section_catalog(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    values: &[SectionHelp],
+    trailing_comma: bool,
+) {
+    push_indent(out, indent);
+    push_json_string(out, key);
+    out.push_str(": [\n");
+    for (index, section) in values.iter().enumerate() {
+        push_indent(out, indent + 2);
+        out.push_str("{\"name\": ");
+        push_json_string(out, section.name);
+        out.push_str(", \"applies_to\": [");
+        push_json_string_values(out, section.applies_to);
+        out.push_str("], \"hover\": ");
+        push_json_string(out, section.hover);
+        out.push('}');
+        push_comma_newline(out, index + 1 < values.len());
+    }
+    push_indent(out, indent);
+    out.push(']');
+    push_comma_newline(out, trailing_comma);
+}
+
+fn push_json_string_values(out: &mut String, values: &[&str]) {
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        push_json_string(out, value);
+    }
+}
+
 fn push_json_string(out: &mut String, value: &str) {
     out.push('"');
     for ch in value.chars() {
@@ -355,6 +490,10 @@ mod tests {
         );
         assert!(json.contains("\"task_order\": [\"why\", \"uses\", \"changes\""));
         assert!(json.contains("{\"name\": \"watch for\", \"kind\": \"edge_case\"}"));
+        assert!(json.contains("\"section_catalog\": ["));
+        assert!(json.contains(
+            "{\"name\": \"cost\", \"applies_to\": [\"task\", \"test\"], \"hover\": \"States time, space, allocation, and check expectations.\"}"
+        ));
         assert!(is_test_modifier("regression"));
         assert!(!is_test_modifier("benchmark"));
     }

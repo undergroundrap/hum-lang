@@ -128,6 +128,8 @@ try {
 
   $SyntaxJson = Read-NativeOutput 'syntax surface JSON' $Hum @('syntax')
   Assert-Json 'syntax surface JSON' $SyntaxJson
+  if (-not $SyntaxJson.Contains('"section_catalog"')) { throw 'syntax surface JSON is missing section_catalog' }
+  if (-not $SyntaxJson.Contains('"hover"')) { throw 'syntax surface JSON is missing hover metadata' }
 
   $TextMateJson = Read-NativeOutput 'TextMate grammar JSON' $Hum @('syntax', '--format', 'textmate')
   Assert-Json 'TextMate grammar JSON' $TextMateJson
