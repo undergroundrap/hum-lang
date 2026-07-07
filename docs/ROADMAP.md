@@ -94,6 +94,7 @@ Current prototype status:
 - `hum syntax --format textmate` and `editors/textmate/hum.tmLanguage.json` provide the first generated highlighting surface.
 - `hum capabilities --format json` emits `hum.capabilities.v0` toolchain surface discovery for adapters and agents.
 - `hum lsp --capabilities --format json` emits `hum.lsp_capabilities.v0` LSP adapter-preview facts without starting server mode.
+- `hum doctor --format json` emits `hum.doctor.v0` portable setup health facts for repo guardrails.
 
 Deferred beyond Milestone 0:
 

@@ -62,6 +62,7 @@ All tools should consume the same facts:
 - `hum graph`
 - `hum syntax`
 - `hum capabilities`
+- `hum doctor`
 - `humfmt`
 - `chirp`
 - `hum lsp`

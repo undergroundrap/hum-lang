@@ -54,6 +54,9 @@ if (-not $releaseDoc.Contains('hum capabilities')) {
 if (-not $releaseDoc.Contains('hum lsp --capabilities')) {
   Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention hum lsp --capabilities'
 }
+if (-not $releaseDoc.Contains('hum doctor')) {
+  Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention hum doctor'
+}
 
 $readme = Read-RepoText 'README.md'
 if (-not $readme.Contains('docs/RELEASE_AND_VERSIONING.md')) {
@@ -70,6 +73,9 @@ if (-not $readme.Contains('docs/CAPABILITIES_SCHEMA.md')) {
 }
 if (-not $readme.Contains('docs/LSP_CAPABILITIES_SCHEMA.md')) {
   Add-Failure 'README.md does not link docs/LSP_CAPABILITIES_SCHEMA.md'
+}
+if (-not $readme.Contains('docs/DOCTOR_SCHEMA.md')) {
+  Add-Failure 'README.md does not link docs/DOCTOR_SCHEMA.md'
 }
 if (-not $readme.Contains('SECURITY.md')) {
   Add-Failure 'README.md does not link SECURITY.md'
@@ -88,6 +94,9 @@ if (-not $readme.Contains('hum capabilities')) {
 }
 if (-not $readme.Contains('hum lsp --capabilities')) {
   Add-Failure 'README.md does not mention hum lsp --capabilities'
+}
+if (-not $readme.Contains('hum doctor')) {
+  Add-Failure 'README.md does not mention hum doctor'
 }
 
 $diagnosticsDoc = Read-RepoText 'docs\DIAGNOSTICS.md'
@@ -152,7 +161,7 @@ foreach ($required in @('hum.syntax_surface.v0', 'section_catalog', 'semantic_to
 }
 
 $capabilitiesDoc = Read-RepoText 'docs\CAPABILITIES_SCHEMA.md'
-foreach ($required in @('hum.capabilities.v0', 'hum.lsp_capabilities.v0', 'hum capabilities --format json', 'hum lsp --capabilities --format json', 'toolchain discovery', 'not Hum''s runtime authority model', 'editor_capabilities', 'hum.syntax_surface.v0')) {
+foreach ($required in @('hum.capabilities.v0', 'hum.lsp_capabilities.v0', 'hum.doctor.v0', 'hum capabilities --format json', 'hum lsp --capabilities --format json', 'hum doctor --format json', 'toolchain discovery', 'not Hum''s runtime authority model', 'editor_capabilities', 'hum.syntax_surface.v0')) {
   if (-not $capabilitiesDoc.Contains($required)) {
     Add-Failure "docs/CAPABILITIES_SCHEMA.md does not mention $required"
   }
@@ -165,6 +174,12 @@ foreach ($required in @('hum.lsp_capabilities.v0', 'hum lsp --capabilities --for
   }
 }
 
+$doctorDoc = Read-RepoText 'docs\DOCTOR_SCHEMA.md'
+foreach ($required in @('hum.doctor.v0', 'hum doctor --format json', 'current_directory', 'text_hygiene_policy', 'public_readiness_policy', 'preflight_script')) {
+  if (-not $doctorDoc.Contains($required)) {
+    Add-Failure "docs/DOCTOR_SCHEMA.md does not mention $required"
+  }
+}
 $securityPolicy = Read-RepoText 'SECURITY.md'
 foreach ($required in @('Supported Versions', 'How To Report', 'Security Claims')) {
   if (-not $securityPolicy.Contains($required)) {
@@ -173,7 +188,7 @@ foreach ($required in @('Supported Versions', 'How To Report', 'Security Claims'
 }
 
 $setup = Read-RepoText 'docs\SETUP.md'
-foreach ($required in @('Visual Studio', 'Eclipse', 'Jupyter', 'VS Code', 'Cursor', 'PyCharm')) {
+foreach ($required in @('Visual Studio', 'Eclipse', 'Jupyter', 'VS Code', 'Cursor', 'PyCharm', 'hum doctor')) {
   if (-not $setup.Contains($required)) {
     Add-Failure "docs/SETUP.md does not mention $required"
   }

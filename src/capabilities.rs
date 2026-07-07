@@ -1,5 +1,6 @@
 use crate::diagnostic_catalog;
 use crate::diagnostics;
+use crate::doctor;
 use crate::json;
 use crate::lsp;
 use crate::syntax;
@@ -78,6 +79,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: lsp::LSP_CAPABILITIES_SCHEMA,
         status: "current",
         purpose: "LSP adapter capability preview without starting server mode",
+    },
+    CommandCapability {
+        name: "doctor_json",
+        command: "hum doctor --format json",
+        schema: doctor::DOCTOR_SCHEMA,
+        status: "current",
+        purpose: "portable repo setup and guardrail health report",
     },
 ];
 
@@ -187,6 +195,7 @@ pub fn capabilities_text() -> String {
         "  lsp_capabilities: {}\n",
         lsp::LSP_CAPABILITIES_SCHEMA
     ));
+    out.push_str(&format!("  doctor: {}\n", doctor::DOCTOR_SCHEMA));
     out.push_str("commands:\n");
     for command in COMMANDS {
         out.push_str(&format!(
@@ -263,8 +272,9 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         indent + 2,
         "lsp_capabilities",
         lsp::LSP_CAPABILITIES_SCHEMA,
-        false,
+        true,
     );
+    push_string_field(out, indent + 2, "doctor", doctor::DOCTOR_SCHEMA, false);
     push_indent(out, indent);
     out.push('}');
     push_comma_newline(out, comma);
@@ -376,6 +386,8 @@ mod tests {
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
         assert!(json.contains("\"lsp_capabilities\": \"hum.lsp_capabilities.v0\""));
+        assert!(json.contains("\"doctor\": \"hum.doctor.v0\""));
+        assert!(json.contains("\"name\": \"doctor_json\""));
         assert!(json.contains("\"name\": \"folding_ranges\""));
         assert!(json.contains("\"status\": \"adapter-ready\""));
     }

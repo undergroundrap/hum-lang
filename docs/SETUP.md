@@ -22,6 +22,7 @@ portable defaults in the repo, personal editor state outside the repo
 ```powershell
 cargo test
 cargo run -- version
+cargo run -- doctor
 cargo run -- check examples
 ```
 
@@ -45,10 +46,16 @@ posture, release checks, and the first tag are intentional.
 
 ## Full Local Verification
 
-Run this before opening a pull request, publishing a snapshot, or making a release-style commit:
+Run `hum doctor` first when you want a quick portable checkout health report. Run the full script before opening a pull request, publishing a snapshot, or making a release-style commit:
 
 ```powershell
 .\tools\check_all.ps1
+```
+
+Machine-readable setup health is available through:
+
+```powershell
+cargo run -- doctor --format json
 ```
 
 The script runs Rust formatting, tests, clippy, example checks, reference fixture

@@ -1,5 +1,6 @@
 use crate::capabilities;
 use crate::diagnostic_catalog;
+use crate::doctor;
 use crate::json;
 use crate::lsp;
 use crate::syntax;
@@ -10,14 +11,15 @@ pub const HUM_MILESTONE: &str = "0 semantic graph";
 
 pub fn version_text() -> String {
     format!(
-        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\nlsp_capabilities_schema: {}\n",
+        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\nlsp_capabilities_schema: {}\ndoctor_schema: {}\n",
         target_name(),
         json::SEMANTIC_GRAPH_SCHEMA,
         syntax::SYNTAX_SCHEMA,
         diagnostic_catalog::DIAGNOSTIC_EXPLAIN_SCHEMA,
         diagnostic_catalog::DIAGNOSTIC_CATALOG_SCHEMA,
         capabilities::CAPABILITIES_SCHEMA,
-        lsp::LSP_CAPABILITIES_SCHEMA
+        lsp::LSP_CAPABILITIES_SCHEMA,
+        doctor::DOCTOR_SCHEMA
     )
 }
 
@@ -65,8 +67,9 @@ pub fn version_json() -> String {
         4,
         "lsp_capabilities",
         lsp::LSP_CAPABILITIES_SCHEMA,
-        false,
+        true,
     );
+    push_string_field(&mut out, 4, "doctor", doctor::DOCTOR_SCHEMA, false);
     push_indent(&mut out, 2);
     out.push_str("},\n");
     push_indent(&mut out, 2);
@@ -162,6 +165,7 @@ mod tests {
         assert!(text.contains("diagnostic_catalog_schema: hum.diagnostic_catalog.v0"));
         assert!(text.contains("capabilities_schema: hum.capabilities.v0"));
         assert!(text.contains("lsp_capabilities_schema: hum.lsp_capabilities.v0"));
+        assert!(text.contains("doctor_schema: hum.doctor.v0"));
     }
 
     #[test]
@@ -176,5 +180,6 @@ mod tests {
         assert!(json.contains("\"diagnostic_catalog\": \"hum.diagnostic_catalog.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
         assert!(json.contains("\"lsp_capabilities\": \"hum.lsp_capabilities.v0\""));
+        assert!(json.contains("\"doctor\": \"hum.doctor.v0\""));
     }
 }

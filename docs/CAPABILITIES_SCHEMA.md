@@ -69,6 +69,7 @@ Current `schemas` includes:
 - `diagnostic_catalog`: `hum.diagnostic_catalog.v0`
 - `capabilities`: `hum.capabilities.v0`
 - `lsp_capabilities`: `hum.lsp_capabilities.v0`
+- `doctor`: `hum.doctor.v0`
 
 ## Commands
 
@@ -90,6 +91,7 @@ Current entries include:
 - `hum diagnostics --format json`
 - `hum capabilities --format json`
 - `hum lsp --capabilities --format json`
+- `hum doctor --format json`
 
 ## Editor Capabilities
 

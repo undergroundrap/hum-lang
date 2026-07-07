@@ -6,6 +6,7 @@ mod check;
 mod diagnostic;
 mod diagnostic_catalog;
 mod diagnostics;
+mod doctor;
 mod explain;
 mod graph;
 mod json;
@@ -65,6 +66,13 @@ fn run() -> Result<ExitCode, String> {
         match options.lsp_format {
             LspFormat::Human => print!("{}", lsp::lsp_capabilities_text()),
             LspFormat::Json => print!("{}", lsp::lsp_capabilities_json()),
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    if options.command == "doctor" {
+        match options.doctor_format {
+            DoctorFormat::Human => print!("{}", doctor::doctor_text()),
+            DoctorFormat::Json => print!("{}", doctor::doctor_json()),
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -161,7 +169,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, or `lsp`"
+            "unknown command `{other}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `lsp`, or `doctor`"
         )),
     }
 }
@@ -208,6 +216,12 @@ enum LspFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DoctorFormat {
+    Human,
+    Json,
+}
+
 #[derive(Debug)]
 struct CliOptions {
     command: String,
@@ -220,6 +234,7 @@ struct CliOptions {
     diagnostics_format: DiagnosticsFormat,
     capabilities_format: CapabilitiesFormat,
     lsp_format: LspFormat,
+    doctor_format: DoctorFormat,
     explain_code: Option<String>,
 }
 
@@ -250,9 +265,10 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "diagnostics"
             | "capabilities"
             | "lsp"
+            | "doctor"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, or `lsp`"
+            "unknown command `{command}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `lsp`, or `doctor`"
         ));
     }
 
@@ -265,6 +281,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut diagnostics_format = DiagnosticsFormat::Human;
     let mut capabilities_format = CapabilitiesFormat::Human;
     let mut lsp_format = LspFormat::Human;
+    let mut doctor_format = DoctorFormat::Human;
     let mut lsp_show_capabilities = false;
     let mut args = args.into_iter().skip(1);
 
@@ -282,6 +299,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         | "diagnostics"
                         | "capabilities"
                         | "lsp"
+                        | "doctor"
                 ) =>
             {
                 let Some(value) = args.next() else {
@@ -295,12 +313,20 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "diagnostics" => diagnostics_format = parse_diagnostics_format(&value)?,
                     "capabilities" => capabilities_format = parse_capabilities_format(&value)?,
                     "lsp" => lsp_format = parse_lsp_format(&value)?,
+                    "doctor" => doctor_format = parse_doctor_format(&value)?,
                     _ => unreachable!(),
                 }
             }
             flag if matches!(
                 command.as_str(),
-                "check" | "syntax" | "version" | "explain" | "diagnostics" | "capabilities" | "lsp"
+                "check"
+                    | "syntax"
+                    | "version"
+                    | "explain"
+                    | "diagnostics"
+                    | "capabilities"
+                    | "lsp"
+                    | "doctor"
             ) && flag.starts_with("--format=") =>
             {
                 let value = flag.trim_start_matches("--format=");
@@ -312,6 +338,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "diagnostics" => diagnostics_format = parse_diagnostics_format(value)?,
                     "capabilities" => capabilities_format = parse_capabilities_format(value)?,
                     "lsp" => lsp_format = parse_lsp_format(value)?,
+                    "doctor" => doctor_format = parse_doctor_format(value)?,
                     _ => unreachable!(),
                 }
             }
@@ -338,6 +365,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             lsp_format,
+            doctor_format,
             explain_code: None,
         });
     }
@@ -360,6 +388,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             lsp_format,
+            doctor_format,
             explain_code: None,
         });
     }
@@ -382,6 +411,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             lsp_format,
+            doctor_format,
             explain_code: raw_inputs.first().cloned(),
         });
     }
@@ -404,6 +434,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             lsp_format,
+            doctor_format,
             explain_code: None,
         });
     }
@@ -426,6 +457,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             lsp_format,
+            doctor_format,
             explain_code: None,
         });
     }
@@ -454,6 +486,30 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             diagnostics_format,
             capabilities_format,
             lsp_format,
+            doctor_format,
+            explain_code: None,
+        });
+    }
+
+    if command == "doctor" {
+        if show_timings {
+            return Err("`doctor` does not support `--timings`".to_string());
+        }
+        if !raw_inputs.is_empty() {
+            return Err("`doctor` does not accept input files".to_string());
+        }
+        return Ok(CliOptions {
+            command,
+            inputs: Vec::new(),
+            show_timings,
+            check_format,
+            syntax_format,
+            version_format,
+            explain_format,
+            diagnostics_format,
+            capabilities_format,
+            lsp_format,
+            doctor_format,
             explain_code: None,
         });
     }
@@ -469,6 +525,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         diagnostics_format,
         capabilities_format,
         lsp_format,
+        doctor_format,
         explain_code: None,
     })
 }
@@ -538,6 +595,16 @@ fn parse_lsp_format(value: &str) -> Result<LspFormat, String> {
         "json" => Ok(LspFormat::Json),
         other => Err(format!(
             "unknown lsp format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
+fn parse_doctor_format(value: &str) -> Result<DoctorFormat, String> {
+    match value {
+        "human" => Ok(DoctorFormat::Human),
+        "json" => Ok(DoctorFormat::Json),
+        other => Err(format!(
+            "unknown doctor format `{other}`; expected `human` or `json`"
         )),
     }
 }
@@ -669,6 +736,7 @@ fn print_help() {
     println!("  hum diagnostics [--format human|json]");
     println!("  hum capabilities [--format human|json]");
     println!("  hum lsp --capabilities [--format human|json]");
+    println!("  hum doctor [--format human|json]");
     println!();
     println!("Commands:");
     println!("  check           Parse Hum files and run milestone-0 intent checks");
@@ -680,6 +748,7 @@ fn print_help() {
     println!("  diagnostics     List stable diagnostic codes");
     println!("  capabilities    List machine-readable tool and editor surfaces");
     println!("  lsp             Preview LSP adapter capabilities");
+    println!("  doctor          Check portable repo setup and guardrails");
     println!();
     println!("Options:");
     println!("  --timings   Print read/parse/check timings per input file");
@@ -691,8 +760,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        CapabilitiesFormat, CheckFormat, DiagnosticsFormat, ExplainFormat, LspFormat, SyntaxFormat,
-        VersionFormat, load_program, parse_cli,
+        CapabilitiesFormat, CheckFormat, DiagnosticsFormat, DoctorFormat, ExplainFormat, LspFormat,
+        SyntaxFormat, VersionFormat, load_program, parse_cli,
     };
 
     #[test]
@@ -978,6 +1047,44 @@ mod tests {
         ])
         .expect_err("lsp should reject inputs");
         assert_eq!(error, "`lsp` does not accept input files");
+    }
+
+    #[test]
+    fn parses_doctor_command_without_inputs() {
+        let options = parse_cli(vec!["doctor".to_string()]).expect("doctor command");
+        assert_eq!(options.command, "doctor");
+        assert!(options.inputs.is_empty());
+        assert!(!options.show_timings);
+        assert_eq!(options.doctor_format, DoctorFormat::Human);
+    }
+
+    #[test]
+    fn parses_doctor_json_format() {
+        let options = parse_cli(vec!["doctor".to_string(), "--format=json".to_string()])
+            .expect("doctor json command");
+        assert_eq!(options.command, "doctor");
+        assert_eq!(options.doctor_format, DoctorFormat::Json);
+    }
+
+    #[test]
+    fn rejects_unknown_doctor_format() {
+        let error = parse_cli(vec![
+            "doctor".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+        ])
+        .expect_err("doctor should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown doctor format `textmate`; expected `human` or `json`"
+        );
+    }
+
+    #[test]
+    fn rejects_doctor_command_inputs() {
+        let error = parse_cli(vec!["doctor".to_string(), "examples".to_string()])
+            .expect_err("doctor should reject inputs");
+        assert_eq!(error, "`doctor` does not accept input files");
     }
 
     #[test]
