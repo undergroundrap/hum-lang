@@ -206,9 +206,17 @@ Known current test modifiers:
 Hum names are intentionally human-readable. Item names may contain spaces in
 today's examples, such as `add task`.
 
+This is a Milestone 0 source-identity convenience, not a promise that Hum will
+turn arbitrary English into executable grammar. Stable name and phrase rules must
+be tokenized, deterministic, formatter-owned, and lowerable where executable.
+Hum should prefer one canonical spelling per concept instead of English synonym
+sets.
+
 Milestone 0 stores names as parsed source text. Later grammar work must pin the
 exact identifier rules for modules, item names, fields, parameters, variants,
 and paths before editor grammars and self-hosting depend on them.
+
+See [decisions/0009-adopt-formal-readability-not-english-mimicry.md](decisions/0009-adopt-formal-readability-not-english-mimicry.md).
 
 ## Parameters And Results
 

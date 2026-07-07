@@ -20,6 +20,8 @@ Hum should be readable enough for beginners, strict enough for systems engineers
 
 Hum should have paved roads, not endless knobs: one obvious safe default path, explicit side roads only when evidence and source-visible intent justify them, and diagnostics that guide users back to the better path. See [PAVED_ROAD_DOCTRINE.md](PAVED_ROAD_DOCTRINE.md).
 
+Readable means formally scannable, not English-like. Hum may use ordinary words when they name one precise construct, but stable executable syntax must lower to Core Hum and avoid synonym-heavy prose. See [decisions/0009-adopt-formal-readability-not-english-mimicry.md](decisions/0009-adopt-formal-readability-not-english-mimicry.md).
+
 Evidence-native means Hum's output is not only a binary. The language and
 toolchain should also emit machine-checkable intent, effect reports,
 capability boundaries, diagnostics, profile facts, provenance, SBOMs, and
@@ -77,6 +79,8 @@ External-verifier doctrine: Truth Harness-style math engines, SMT tools, model c
 Resource-layout-comptime doctrine: resource intent, layout-sensitive representation, compile-time execution, interop, and agent-facing facts must be explicit, graph-visible, profile-aware, and evidence-backed before they become stable Hum power. `hum resource-report` is the current source-declared inventory for these claims. See [RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md) and [decisions/0006-make-resource-layout-and-comptime-explicit.md](decisions/0006-make-resource-layout-and-comptime-explicit.md).
 
 Progressive-disclosure doctrine: Hum should keep ordinary code small at the point of use, add power only behind explicit need, avoid special-case syntax, and make adoption incremental through interop and migration tooling. See [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md) and [decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md](decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md).
+
+Formal-readability doctrine: Hum should be easy to scan because its structure is precise, not because it imitates casual English. Stable syntax gets one canonical spelling per concept, no arbitrary English execution, and no prose-only executable authority. See [decisions/0009-adopt-formal-readability-not-english-mimicry.md](decisions/0009-adopt-formal-readability-not-english-mimicry.md).
 
 Language-builder doctrine: Hum should grow by small proofs, written lessons, graph/report/check surfaces, migration paths, and then public claims. See [LANGUAGE_BUILDER_OPERATING_MODEL.md](LANGUAGE_BUILDER_OPERATING_MODEL.md).
 

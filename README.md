@@ -86,6 +86,7 @@ Current artifacts:
 - [docs/decisions/0006-make-resource-layout-and-comptime-explicit.md](docs/decisions/0006-make-resource-layout-and-comptime-explicit.md): accepted rule that resource, layout, compile-time, interop, and agent-facing power must stay explicit and evidence-backed
 - [docs/decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md](docs/decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md): accepted rule that Hum must stay progressively teachable, incrementally adoptable, and evidence-backed before backend claims
 - [docs/decisions/0008-adopt-swappable-backend-ladder.md](docs/decisions/0008-adopt-swappable-backend-ladder.md): accepted staged backend rule: interpreter first, Cranelift for first native proof, LLVM for mature optimized AOT, MLIR/custom only when justified by Hum facts
+- [docs/decisions/0009-adopt-formal-readability-not-english-mimicry.md](docs/decisions/0009-adopt-formal-readability-not-english-mimicry.md): accepted rule that Hum readability means precise, scannable formal structure rather than executable English
 - [docs/SETUP.md](docs/SETUP.md): portable setup for beginners, experts, terminals, and editors
 - [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow, design gates, commit style, and PR rules
 - [SECURITY.md](SECURITY.md): supported security scope, reporting path, and claim limits

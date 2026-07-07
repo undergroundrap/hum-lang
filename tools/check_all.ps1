@@ -331,6 +331,11 @@ try {
   Invoke-Native 'git diff --check' $Git @('diff', '--check')
   Invoke-Native 'git diff --cached --check' $Git @('diff', '--cached', '--check')
 
+  $DecisionIndex = [System.IO.File]::ReadAllText((Join-Path (Join-Path $RepoRoot 'docs') 'decisions\README.md'))
+  if (-not $DecisionIndex.Contains('0009-adopt-formal-readability-not-english-mimicry.md')) { throw 'decision index is missing formal readability ADR' }
+  $ArchitectureText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\ARCHITECTURE.md'))
+  if (-not $ArchitectureText.Contains('Formal-readability doctrine')) { throw 'architecture is missing formal-readability doctrine' }
+
   Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
   Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'
   Invoke-RepoScript 'release readiness' 'check_release_readiness.ps1'

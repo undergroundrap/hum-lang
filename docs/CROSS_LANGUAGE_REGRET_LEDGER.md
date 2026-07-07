@@ -43,6 +43,32 @@ A Hum feature is good only if it removes a known tax without recreating a worse 
 The most important cross-language taxes are feedback latency, package/build
 friction, unsafe escape hatches, hidden runtime cost, clever abstraction,
 concurrency ambiguity, and migration pain.
+
+## COBOL Lessons
+
+### Regrets To Avoid
+
+- natural-language mimicry creating a false sense of simplicity
+- verbosity burying the algorithm under filler words
+- multiple English spellings for one operation
+- prose that looks understandable but has narrow hidden syntax rules
+- business-readable text replacing precise compiler-owned semantics
+
+### Hum Response
+
+- formal readability over English mimicry
+- one canonical spelling per core concept
+- readable intent blocks that become checked facts before they become authority
+- precise Core Hum lowering before stable executable syntax
+- diagnostics that explain the formal model behind friendly words
+
+### Design Rule
+
+Readable code should be easy to scan because the structure is formal and small,
+not because it reads like a sentence.
+
+See [decisions/0009-adopt-formal-readability-not-english-mimicry.md](decisions/0009-adopt-formal-readability-not-english-mimicry.md).
+
 ## C++ Lessons
 
 ### Regrets To Avoid
