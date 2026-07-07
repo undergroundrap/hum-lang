@@ -44,6 +44,17 @@ $readme = Read-RepoText 'README.md'
 if (-not $readme.Contains('docs/RELEASE_AND_VERSIONING.md')) {
   Add-Failure 'README.md does not link docs/RELEASE_AND_VERSIONING.md'
 }
+if (-not $readme.Contains('SECURITY.md')) {
+  Add-Failure 'README.md does not link SECURITY.md'
+}
+
+$securityPolicy = Read-RepoText 'SECURITY.md'
+foreach ($required in @('Supported Versions', 'How To Report', 'Security Claims')) {
+  if (-not $securityPolicy.Contains($required)) {
+    Add-Failure "SECURITY.md does not mention $required"
+  }
+}
+
 
 $setup = Read-RepoText 'docs\SETUP.md'
 foreach ($required in @('Visual Studio', 'Eclipse', 'Jupyter', 'VS Code', 'Cursor', 'PyCharm')) {

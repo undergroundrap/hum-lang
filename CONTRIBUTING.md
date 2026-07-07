@@ -16,6 +16,7 @@ Before proposing a change, read:
 - [examples/reference_surface.hum](examples/reference_surface.hum): checked source fixture
 - [docs/GOVERNANCE.md](docs/GOVERNANCE.md): evolution and feature gates
 - [docs/SETUP.md](docs/SETUP.md): portable setup and editor guidance
+- [SECURITY.md](SECURITY.md): reporting path and supported security scope
 
 If another document disagrees with the architecture, treat that as a design bug
 to resolve rather than a fork in the truth.
