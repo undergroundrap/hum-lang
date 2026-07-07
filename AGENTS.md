@@ -39,10 +39,14 @@ For implementation details, see `docs/TEXT_HYGIENE_WORKFLOW.md`.
 ```powershell
 .\tools\check_public_readiness.ps1
 ```
-- Before a release commit or tag decision, run:
+- Before a local commit, public snapshot, release-style handoff, or tag
+  decision, prefer the full preflight:
 
 ```powershell
-.\tools\check_release_readiness.ps1
+.\tools\check_all.ps1
 ```
+
+It wraps Rust checks, fixture coverage, JSON parsing, generated grammar drift
+detection, text hygiene, public readiness, and release readiness.
 
 - Never create or push remote tags without explicit user approval.

@@ -47,13 +47,12 @@ posture, release checks, and the first tag are intentional.
 Run this before opening a pull request, publishing a snapshot, or making a release-style commit:
 
 ```powershell
-cargo fmt --check
-cargo test
-cargo clippy --all-targets -- -D warnings
-cargo run -- check examples
-.\tools\check_text_hygiene.ps1
-.\tools\check_public_readiness.ps1
+.\tools\check_all.ps1
 ```
+
+The script runs Rust formatting, tests, clippy, example checks, reference fixture
+coverage, graph and syntax JSON parsing, TextMate snapshot drift detection,
+whitespace checks, text hygiene, public readiness, and release readiness.
 
 ## Editor Setup
 

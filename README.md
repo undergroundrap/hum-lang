@@ -148,7 +148,13 @@ toolchains, OS package managers, editor adapters, and first-party Hum tools.
 
 For editor and environment setup, see [docs/SETUP.md](docs/SETUP.md).
 
-With Rust installed and Cargo on `PATH`, commands can be run as:
+With Rust installed and Cargo on `PATH`, the full local preflight is:
+
+```powershell
+.\tools\check_all.ps1
+```
+
+Useful individual commands while developing:
 
 ```powershell
 cargo test
@@ -180,10 +186,11 @@ Hum source, Rust source, TOML, or PowerShell tooling, run:
 ```
 
 The check rejects BOMs, invalid UTF-8, suspicious mojibake, terminal control
-characters, and broken local Markdown links. Before a public snapshot, also run:
+characters, and broken local Markdown links. Before a commit, public snapshot, or
+release-style handoff, run:
 
 ```powershell
-.\tools\check_public_readiness.ps1
+.\tools\check_all.ps1
 ```
 
 See [docs/TEXT_HYGIENE_WORKFLOW.md](docs/TEXT_HYGIENE_WORKFLOW.md).
