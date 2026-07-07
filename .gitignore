@@ -1,4 +1,5 @@
 /target/
+.cargo-home/
 
 # Local environment and secrets
 .env

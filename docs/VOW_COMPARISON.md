@@ -7,7 +7,11 @@ Date: 2026-07-06
 - Vow website: https://vow-lang.com/
 - Vow repository: https://github.com/vow-lang/vow
 - Vow design document: https://github.com/vow-lang/vow/blob/main/docs/vow_design.md
+- Vow contract reference: https://github.com/vow-lang/vow/blob/main/docs/spec/contracts.md
+- Vow contract methodology: https://github.com/vow-lang/vow/blob/main/docs/spec/contracts-methodology.md
 - Vow arena memory design: https://github.com/vow-lang/vow/blob/main/docs/design/arena_memory.md
+- Vow CI workflow: https://github.com/vow-lang/vow/blob/main/.github/workflows/ci.yml
+- Vow agent skill: https://github.com/vow-lang/vow/blob/main/skills/vow/SKILL.md
 
 ## Vow In One Sentence
 
@@ -272,6 +276,61 @@ Possible tiers:
 - benchmark assertions
 
 The language should let a project choose proof depth by risk.
+
+## 2026-07-07 Repo Audit Updates
+
+### CI And Supply Chain
+
+Vow is ahead of Hum in CI sophistication: it caches Rust builds, pins its ESBMC verifier artifact by version and SHA-256, runs verifier-evaluation suites, and checks self-hosted bootstrap paths. Hum should copy the discipline, not the whole cost profile yet.
+
+Immediate Hum adoption:
+
+- use official GitHub actions only for hosted CI plumbing
+- cache Cargo registry data, Cargo git checkouts, and `target` per runner OS
+- keep hosted jobs short and cancellable while the repo is private
+- do not add external verifier downloads until Hum has checksum, source, and evidence policy for them
+
+### Cache Is Not Authority
+
+Vow has an important verifier-cache safety rule: cached successful proofs from disk are not trusted. Its compile cache keys include dependency content and an ABI seed, and its verifier cache keys include verifier configuration. Hum should treat this as a language doctrine.
+
+Hum cache keys should eventually include source content, dependency graph, compiler version, semantic graph schema version, profile, target triple, backend, ABI seed, verifier or solver version, proof bounds, benchmark profile, and relevant environment facts. A cached failure or counterexample can speed repair. A cached success should never be the only reason a release claims correctness.
+
+### Strong Contracts Beat Many Contracts
+
+Vow's contract methodology is a real lesson. It distinguishes strong contracts from hollow contracts: tautologies, vacuous proofs, weak postconditions, and artificial verifier bounds. This matters directly to Hum because `needs:`, `ensures:`, `keeps:`, `protects:`, `trusts:`, `allocates:`, and `optimizes:` can all become hollow if the compiler only checks that text exists.
+
+Hum should make contract quality a first-class diagnostic area:
+
+- `needs:` domains must be satisfiable and not verifier-shaped
+- `ensures:` clauses should reject meaningful wrong implementations
+- `keeps:` invariants should be inductive, not decorative
+- `protects:` and `trusts:` claims should identify actual threat or trust boundaries
+- `optimizes:` claims should be tied to benchmark evidence and allowed variance
+
+### Self-Hosting Proof
+
+Vow is already much farther along on self-hosting. Its CI runs bootstrap stages and fixed-point checks. Hum should learn from that but not rush into it. For Hum, self-hosting is not a marketing badge; it is proof that the language can express its own compiler more clearly, safely, and checkably than the Rust bootstrap.
+
+Hum should require differential tests first, then staged compiler rewrites, then fixed-point checks across stage outputs. A cached build can shorten the loop, but no cache may mask a mismatch between stage compilers.
+
+### Compiler-Generated Agent Docs
+
+Vow's agent skill is a good direction: the toolchain should tell agents exactly how to write, compile, verify, and repair code for the installed version. Hum should eventually generate `hum agent docs` from the compiler's own grammar, diagnostics, graph schema, capabilities, examples, and repair recipes.
+
+The difference is audience. Vow asks what language agents should write. Hum should ask what source form lets humans, compilers, IDEs, security reviewers, profilers, package tools, and agents share the same intent without a translation layer.
+
+### Where Hum Should Diverge
+
+Vow excludes user-defined generics, traits, closures, and several abstraction tools to protect bounded verification. That is coherent for Vow, but Hum should not inherit it as a blanket rule. Hum wants broad systems adoption, so the better target is constrained power:
+
+- proof-friendly defaults
+- explicit capability and effect surfaces
+- profile-gated abstraction features
+- strong diagnostics for hidden dispatch, hidden allocation, and hard-to-prove code
+- generated monomorphic specializations where they are clearly better
+
+The principle should be: Hum may allow more power than Vow, but every added power must produce more evidence, clearer blame, and a better paved road.
 
 ## Direct Design Updates For Hum
 

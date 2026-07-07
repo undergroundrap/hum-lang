@@ -57,6 +57,10 @@ Later checks add generated tests, ownership, borrowing, effect propagation, unsa
 
 Rule: if a feature creates new power, it must create new evidence.
 
+Cache doctrine: caches can speed builds, semantic graph reads, package checks, proofs, and benchmark setup, but they are never authority. A cached artifact is valid only when its key includes the semantic inputs that make it true: source content, dependency graph, compiler version, profile, target, verifier or solver configuration, ABI seed, and relevant environment facts. Cached proof success must be treated especially carefully; release evidence should come from rerunnable checks, not from trusting a disk entry.
+
+Strong-contract doctrine: a verified contract is valuable only when it would reject meaningful wrong implementations. Hum should eventually detect tautological, vacuous, weak, verifier-shaped, or benchmark-shaped claims and report them as diagnostics or profile gates.
+
 ### 5. Runtime Profiles
 
 Profiles are policy bundles for normal apps, containers, agent tools, Windows services, driver candidates, embedded no-heap code, hard realtime code, engine hot paths, safety-critical code, and certified toolchains. Profiles can forbid features, require evidence, narrow stdlib APIs, and change release artifacts.
@@ -103,6 +107,7 @@ See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md).
 - Windows is the first tested platform, but platform-specific details stay behind explicit capability boundaries.
 - No feature enters stable Hum without semantics, diagnostics, graph facts, tooling impact, profile impact, verification story, performance story, and pedagogy story.
 - Defaults must be paved roads; non-default power requires explicit source intent and evidence.
+- Caches optimize development speed but do not certify correctness, safety, performance, or release readiness.
 - No parser-only or checker-only milestone should be presented as a credible public alpha; public adoption requires executable artifacts and evidence bundles.
 
 ## Current Build Order

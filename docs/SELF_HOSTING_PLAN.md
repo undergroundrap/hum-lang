@@ -36,8 +36,16 @@ stage1: Hum compiler built by stage0
 stage2: Hum compiler built by stage1
 ```
 
-Hum should not call itself self-hosted until stage1 and stage2 agree on behavior
-for a serious test suite.
+A serious fixed-point gate should extend the idea when Hum is mature enough:
+
+```text
+stage0 builds stage1
+stage1 builds stage2
+stage2 builds stage3
+stage2 and stage3 match byte-for-byte, or behavior-for-behavior with every nondeterministic field documented
+```
+
+Hum should not call itself self-hosted until stage1 and stage2 agree on behavior for a serious test suite. It should not call self-hosting stable until later stages prove a fixed point across diagnostics, semantic graph output, generated artifacts, and executable behavior. Build caches may shorten these runs, but no cache hit may hide a stage mismatch.
 
 ## Why Rust Stays For Now
 
@@ -245,6 +253,7 @@ Exit criteria:
 - stage1 and stage2 semantic graphs match
 - stage1 and stage2 diagnostics match
 - stage1 and stage2 generated binaries pass the same test suite
+- stage2 and stage3 reach a documented fixed point before any stable self-hosting claim
 - release builds are reproducible on the same machine
 
 ## Phase 8: Rust Bootstrap Becomes Safety Net

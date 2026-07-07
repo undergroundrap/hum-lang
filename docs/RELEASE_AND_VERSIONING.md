@@ -127,6 +127,8 @@ While Hum is private and has no users, hosted CI is guarded rather than wide ope
 
 This gives every pushed checkpoint Windows and Linux coverage without allowing a stuck job to burn the default multi-hour timeout window.
 
+The hosted workflow uses official GitHub actions only: `actions/checkout@v7` and `actions/cache@v6`. It sets a CI-local `CARGO_HOME` under `.cargo-home` and caches Cargo registry data, Cargo git checkouts, and the repo `target` directory per runner OS. It is a speed layer only. Release evidence still comes from the actual checks and clean-tree gates, never from trusting cached outputs.
+
 Before creating a tag, run the stricter local gate:
 
 ```powershell
@@ -173,3 +175,5 @@ Before Hum is presented like a serious new language from a Microsoft-scale or Go
 - Semantic Versioning 2.0.0: https://semver.org/spec/v2.0.0.html
 - Git tag documentation: https://git-scm.com/book/en/v2/Git-Basics-Tagging
 - Cargo manifest documentation: https://doc.rust-lang.org/cargo/reference/manifest.html
+- GitHub Actions cache v6 release: https://github.com/actions/cache/releases/tag/v6.0.0
+- GitHub Actions checkout v7 release: https://github.com/actions/checkout/releases/tag/v7.0.0
