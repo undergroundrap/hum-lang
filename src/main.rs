@@ -4,6 +4,7 @@ mod ast;
 mod check;
 mod diagnostic;
 mod diagnostic_catalog;
+mod diagnostics;
 mod explain;
 mod graph;
 mod json;
@@ -65,6 +66,13 @@ fn run() -> Result<ExitCode, String> {
         match options.explain_format {
             ExplainFormat::Human => print!("{}", explain::explain_text(code)?),
             ExplainFormat::Json => print!("{}", explain::explain_json(code)?),
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    if options.command == "diagnostics" {
+        match options.diagnostics_format {
+            DiagnosticsFormat::Human => print!("{}", diagnostics::diagnostics_text()),
+            DiagnosticsFormat::Json => print!("{}", diagnostics::diagnostics_json()),
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -131,7 +139,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, or `explain`"
+            "unknown command `{other}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, `explain`, or `diagnostics`"
         )),
     }
 }
@@ -154,6 +162,12 @@ enum ExplainFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiagnosticsFormat {
+    Human,
+    Json,
+}
+
 #[derive(Debug)]
 struct CliOptions {
     command: String,
@@ -162,6 +176,7 @@ struct CliOptions {
     syntax_format: SyntaxFormat,
     version_format: VersionFormat,
     explain_format: ExplainFormat,
+    diagnostics_format: DiagnosticsFormat,
     explain_code: Option<String>,
 }
 
@@ -183,10 +198,10 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let command = args[0].clone();
     if !matches!(
         command.as_str(),
-        "check" | "graph" | "test-skeletons" | "syntax" | "version" | "explain"
+        "check" | "graph" | "test-skeletons" | "syntax" | "version" | "explain" | "diagnostics"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, or `explain`"
+            "unknown command `{command}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, `explain`, or `diagnostics`"
         ));
     }
 
@@ -195,12 +210,18 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut syntax_format = SyntaxFormat::Json;
     let mut version_format = VersionFormat::Human;
     let mut explain_format = ExplainFormat::Human;
+    let mut diagnostics_format = DiagnosticsFormat::Human;
     let mut args = args.into_iter().skip(1);
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--timings" => show_timings = true,
-            "--format" if matches!(command.as_str(), "syntax" | "version" | "explain") => {
+            "--format"
+                if matches!(
+                    command.as_str(),
+                    "syntax" | "version" | "explain" | "diagnostics"
+                ) =>
+            {
                 let Some(value) = args.next() else {
                     return Err(format!("`{command} --format` requires a format value"));
                 };
@@ -208,17 +229,21 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "syntax" => syntax_format = parse_syntax_format(&value)?,
                     "version" => version_format = parse_version_format(&value)?,
                     "explain" => explain_format = parse_explain_format(&value)?,
+                    "diagnostics" => diagnostics_format = parse_diagnostics_format(&value)?,
                     _ => unreachable!(),
                 }
             }
-            flag if matches!(command.as_str(), "syntax" | "version" | "explain")
-                && flag.starts_with("--format=") =>
+            flag if matches!(
+                command.as_str(),
+                "syntax" | "version" | "explain" | "diagnostics"
+            ) && flag.starts_with("--format=") =>
             {
                 let value = flag.trim_start_matches("--format=");
                 match command.as_str() {
                     "syntax" => syntax_format = parse_syntax_format(value)?,
                     "version" => version_format = parse_version_format(value)?,
                     "explain" => explain_format = parse_explain_format(value)?,
+                    "diagnostics" => diagnostics_format = parse_diagnostics_format(value)?,
                     _ => unreachable!(),
                 }
             }
@@ -241,6 +266,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             syntax_format,
             version_format,
             explain_format,
+            diagnostics_format,
             explain_code: None,
         });
     }
@@ -259,6 +285,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             syntax_format,
             version_format,
             explain_format,
+            diagnostics_format,
             explain_code: None,
         });
     }
@@ -277,7 +304,27 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             syntax_format,
             version_format,
             explain_format,
+            diagnostics_format,
             explain_code: raw_inputs.first().cloned(),
+        });
+    }
+
+    if command == "diagnostics" {
+        if show_timings {
+            return Err("`diagnostics` does not support `--timings`".to_string());
+        }
+        if !raw_inputs.is_empty() {
+            return Err("`diagnostics` does not accept input files".to_string());
+        }
+        return Ok(CliOptions {
+            command,
+            inputs: Vec::new(),
+            show_timings,
+            syntax_format,
+            version_format,
+            explain_format,
+            diagnostics_format,
+            explain_code: None,
         });
     }
 
@@ -288,6 +335,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         syntax_format,
         version_format,
         explain_format,
+        diagnostics_format,
         explain_code: None,
     })
 }
@@ -317,6 +365,16 @@ fn parse_explain_format(value: &str) -> Result<ExplainFormat, String> {
         "json" => Ok(ExplainFormat::Json),
         other => Err(format!(
             "unknown explain format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
+fn parse_diagnostics_format(value: &str) -> Result<DiagnosticsFormat, String> {
+    match value {
+        "human" => Ok(DiagnosticsFormat::Human),
+        "json" => Ok(DiagnosticsFormat::Json),
+        other => Err(format!(
+            "unknown diagnostics format `{other}`; expected `human` or `json`"
         )),
     }
 }
@@ -445,6 +503,7 @@ fn print_help() {
     println!("  hum syntax [--format json|textmate]");
     println!("  hum version [--format human|json]");
     println!("  hum explain <H####> [--format human|json]");
+    println!("  hum diagnostics [--format human|json]");
     println!();
     println!("Commands:");
     println!("  check   Parse Hum files and run milestone-0 intent checks");
@@ -453,6 +512,7 @@ fn print_help() {
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
     println!("  version         Print toolchain identity and schema versions");
     println!("  explain         Explain a stable diagnostic code");
+    println!("  diagnostics     List stable diagnostic codes");
     println!();
     println!("Options:");
     println!("  --timings   Print read/parse/check timings per input file");
@@ -463,7 +523,9 @@ fn print_help() {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{ExplainFormat, SyntaxFormat, VersionFormat, load_program, parse_cli};
+    use super::{
+        DiagnosticsFormat, ExplainFormat, SyntaxFormat, VersionFormat, load_program, parse_cli,
+    };
 
     #[test]
     fn parses_syntax_command_without_inputs() {
@@ -584,12 +646,56 @@ mod tests {
         .expect_err("extra code");
         assert_eq!(extra, "`explain` requires exactly one diagnostic code");
     }
+
+    #[test]
+    fn parses_diagnostics_command_without_inputs() {
+        let options = parse_cli(vec!["diagnostics".to_string()]).expect("diagnostics command");
+        assert_eq!(options.command, "diagnostics");
+        assert!(options.inputs.is_empty());
+        assert!(!options.show_timings);
+        assert_eq!(options.diagnostics_format, DiagnosticsFormat::Human);
+    }
+
+    #[test]
+    fn parses_diagnostics_json_format() {
+        let options = parse_cli(vec![
+            "diagnostics".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ])
+        .expect("diagnostics json command");
+        assert_eq!(options.command, "diagnostics");
+        assert_eq!(options.diagnostics_format, DiagnosticsFormat::Json);
+    }
+
+    #[test]
+    fn rejects_unknown_diagnostics_format() {
+        let error = parse_cli(vec![
+            "diagnostics".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+        ])
+        .expect_err("diagnostics should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown diagnostics format `textmate`; expected `human` or `json`"
+        );
+    }
+
+    #[test]
+    fn rejects_diagnostics_command_inputs() {
+        let error = parse_cli(vec!["diagnostics".to_string(), "examples".to_string()])
+            .expect_err("diagnostics should reject inputs");
+        assert_eq!(error, "`diagnostics` does not accept input files");
+    }
+
     #[test]
     fn rejects_version_command_inputs() {
         let error = parse_cli(vec!["version".to_string(), "examples".to_string()])
             .expect_err("version should reject inputs");
         assert_eq!(error, "`version` does not accept input files");
     }
+
     #[test]
     fn rejects_syntax_command_inputs() {
         let error = parse_cli(vec!["syntax".to_string(), "examples".to_string()])

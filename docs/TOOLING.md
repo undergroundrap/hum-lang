@@ -83,7 +83,7 @@ Compiler-level truth:
 - check
 - graph
 - version and schema identity
-- explain diagnostics through `hum explain H0201` and `hum explain H0201 --format json`
+- explain diagnostics through `hum explain H0201`, `hum explain H0201 --format json`, and `hum diagnostics --format json`
 - eventually run single-file experiments
 - serve LSP facts through `hum lsp`
 - serve debugger facts through `hum debug`

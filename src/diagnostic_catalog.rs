@@ -1,6 +1,7 @@
 use crate::diagnostic::{DiagnosticCode, Severity};
 
 pub const DIAGNOSTIC_EXPLAIN_SCHEMA: &str = "hum.diagnostic_explain.v0";
+pub const DIAGNOSTIC_CATALOG_SCHEMA: &str = "hum.diagnostic_catalog.v0";
 
 #[derive(Debug, Clone, Copy)]
 pub struct DiagnosticInfo {
@@ -181,6 +182,10 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     },
 ];
 
+pub fn all() -> &'static [DiagnosticInfo] {
+    DIAGNOSTICS
+}
+
 pub fn find(code: &str) -> Option<&'static DiagnosticInfo> {
     let code = code.trim();
     DIAGNOSTICS
@@ -190,7 +195,7 @@ pub fn find(code: &str) -> Option<&'static DiagnosticInfo> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DIAGNOSTICS, find};
+    use super::{all, find};
     use crate::diagnostic::DiagnosticCode;
 
     #[test]
@@ -208,12 +213,12 @@ mod tests {
 
     #[test]
     fn catalog_has_unique_codes() {
-        let mut codes = DIAGNOSTICS
+        let mut codes = all()
             .iter()
             .map(|info| info.code.as_str())
             .collect::<Vec<_>>();
         codes.sort();
         codes.dedup();
-        assert_eq!(codes.len(), DIAGNOSTICS.len());
+        assert_eq!(codes.len(), all().len());
     }
 }

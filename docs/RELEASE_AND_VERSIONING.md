@@ -27,6 +27,7 @@ The bootstrap CLI reports the Cargo package version and schema identity:
 hum version
 hum version --format json
 hum explain H0201 --format json
+hum diagnostics --format json
 ```
 
 ## Distribution Stance

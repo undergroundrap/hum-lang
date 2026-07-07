@@ -112,6 +112,9 @@ try {
   $ExplainJson = Read-NativeOutput 'diagnostic explain JSON' $Hum @('explain', 'H0201', '--format', 'json')
   Assert-Json 'diagnostic explain JSON' $ExplainJson
 
+  $DiagnosticsJson = Read-NativeOutput 'diagnostic catalog JSON' $Hum @('diagnostics', '--format', 'json')
+  Assert-Json 'diagnostic catalog JSON' $DiagnosticsJson
+
   Invoke-Native 'hum check examples' $Hum @('check', 'examples')
 
   Invoke-Native 'reference fixture coverage smoke' $Hum @('test-skeletons', 'examples/reference_surface.hum')
