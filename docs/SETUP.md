@@ -64,6 +64,14 @@ Before a tag, private-remote promotion, or public snapshot, run the clean-checko
 .\tools\check_clean_checkout.ps1
 ```
 
+Immediately before creating an annotated release tag, run:
+
+```powershell
+.\tools\check_tag_readiness.ps1
+```
+
+That tag gate does not create a tag and does not touch remotes; it prints the exact human tag command only after the checks pass.
+
 `tools/check_clean_checkout.ps1` clones committed `HEAD` into an ignored `target/clean-checkout` directory and runs the same full preflight there. The normal preflight script runs Rust formatting, tests, clippy, example checks, reference fixture
 coverage, version, diagnostic-explain, diagnostic-catalog, graph, editor fixture recovery, and syntax JSON parsing, TextMate snapshot drift detection,
 whitespace checks, text hygiene, public readiness, and release readiness.

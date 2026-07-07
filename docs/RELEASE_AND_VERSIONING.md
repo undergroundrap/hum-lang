@@ -80,9 +80,10 @@ At `1.0.0`:
 
 ## Tag Policy
 
-Use annotated Git tags for release snapshots:
+Use annotated Git tags for release snapshots. The non-publishing tag gate prints the exact command after all checks pass:
 
 ```powershell
+.\tools\check_tag_readiness.ps1
 git tag -a v0.0.1 -m "Hum 0.0.1 pre-alpha"
 ```
 
@@ -99,6 +100,7 @@ Do not tag until:
 7. `cargo run -- check examples` passes.
 8. `git status --short` is clean except for intentional release edits before the release commit.
 9. `tools/check_clean_checkout.ps1` passes from the committed clean tree.
+10. `tools/check_tag_readiness.ps1` passes and prints the intended annotated tag command.
 
 ## Private Remote Then Public Remote
 
@@ -140,6 +142,7 @@ Before Hum is presented like a serious new language from a Microsoft-scale or Go
 - signed or at least annotated tags
 - reproducible local verification
 - clean-checkout smoke through `tools/check_clean_checkout.ps1`
+- non-publishing tag gate through `tools/check_tag_readiness.ps1`
 
 ## Sources
 

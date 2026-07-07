@@ -185,6 +185,7 @@ cargo run -- doctor --format json
 cargo run -- graph examples/reference_surface.hum
 .\tools\check_editor_fixtures.ps1
 .\tools\check_clean_checkout.ps1
+.\tools\check_tag_readiness.ps1
 cargo run -- graph examples/task_list.hum
 cargo run -- test-skeletons examples
 cargo run -- syntax
@@ -228,6 +229,12 @@ Before a tag or private-remote promotion, prove the committed repo from a fresh 
 
 ```powershell
 .\tools\check_clean_checkout.ps1
+```
+
+Immediately before creating an annotated release tag, run the non-publishing tag gate:
+
+```powershell
+.\tools\check_tag_readiness.ps1
 ```
 
 See [docs/TEXT_HYGIENE_WORKFLOW.md](docs/TEXT_HYGIENE_WORKFLOW.md).

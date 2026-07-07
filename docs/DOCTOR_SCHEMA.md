@@ -80,6 +80,7 @@ Current `checks` includes:
   `tools/check_public_readiness.ps1`
 - `preflight_script`: `tools/check_all.ps1`
 - `clean_checkout_smoke`: `tools/check_clean_checkout.ps1`
+- `tag_readiness`: `tools/check_tag_readiness.ps1`
 - `hosted_ci`: `.github/workflows/ci.yml`
 - `setup_docs`: `docs/SETUP.md` and `docs/TEXT_HYGIENE_WORKFLOW.md`
 - `editor_assets`: editor strategy, LSP matrix, and generated TextMate grammar
