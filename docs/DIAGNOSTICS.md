@@ -61,6 +61,30 @@ JSON shape in `hum graph`:
 }
 ```
 
+Diagnostic explanation command:
+
+```powershell
+hum explain H0201
+hum explain H0201 --format json
+```
+
+`hum explain` is offline and does not read source files. It returns the stable
+code title, default severity, plain-language explanation, and repair guidance.
+The JSON schema is `hum.diagnostic_explain.v0`.
+
+JSON shape in `hum explain --format json`:
+
+```json
+{
+  "schema": "hum.diagnostic_explain.v0",
+  "code": "H0201",
+  "title": "save target not declared in changes",
+  "default_severity": "error",
+  "explanation": "A `does:` body saves into a resource that is not listed under `changes:`, so mutation would be hidden from readers and tools.",
+  "repair": "Add the resource under `changes:` if the mutation is intended, or remove the save."
+}
+```
+
 ## Stability Rules
 
 Diagnostic codes are user-facing API.

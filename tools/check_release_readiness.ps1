@@ -42,6 +42,9 @@ if (-not $releaseDoc.Contains($expectedVersionText)) {
 if (-not $releaseDoc.Contains('hum version')) {
   Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention hum version'
 }
+if (-not $releaseDoc.Contains('hum explain')) {
+  Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention hum explain'
+}
 
 $readme = Read-RepoText 'README.md'
 if (-not $readme.Contains('docs/RELEASE_AND_VERSIONING.md')) {
@@ -52,6 +55,17 @@ if (-not $readme.Contains('SECURITY.md')) {
 }
 if (-not $readme.Contains('hum version')) {
   Add-Failure 'README.md does not mention hum version'
+}
+if (-not $readme.Contains('hum explain')) {
+  Add-Failure 'README.md does not mention hum explain'
+}
+
+$diagnosticsDoc = Read-RepoText 'docs\DIAGNOSTICS.md'
+if (-not $diagnosticsDoc.Contains('hum explain')) {
+  Add-Failure 'docs/DIAGNOSTICS.md does not mention hum explain'
+}
+if (-not $diagnosticsDoc.Contains('hum.diagnostic_explain.v0')) {
+  Add-Failure 'docs/DIAGNOSTICS.md does not mention hum.diagnostic_explain.v0'
 }
 
 $securityPolicy = Read-RepoText 'SECURITY.md'

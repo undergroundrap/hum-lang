@@ -166,6 +166,8 @@ cargo clippy --all-targets -- -D warnings
 cargo run -- check examples
 cargo run -- version
 cargo run -- version --format json
+cargo run -- explain H0201
+cargo run -- explain H0201 --format json
 cargo run -- graph examples/reference_surface.hum
 cargo run -- graph examples/task_list.hum
 cargo run -- test-skeletons examples
@@ -177,6 +179,7 @@ Current CLI:
 
 - `hum check <file-or-dir>...`: parse Hum and run Milestone 0 intent checks
 - `hum version [--format human|json]`: print toolchain identity, version, target, and schema names
+- `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including section line facts, task test obligations, and exact or conservative canonical `covers:` links
 - `hum test-skeletons <file-or-dir>...`: print Hum `test` blocks for unlinked test obligations without executing code or writing files
 - `hum syntax`: emit `hum.syntax_surface.v0` JSON for editor and tool adapters

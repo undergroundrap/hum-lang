@@ -109,6 +109,9 @@ try {
   $VersionJson = Read-NativeOutput 'version JSON' $Hum @('version', '--format', 'json')
   Assert-Json 'version JSON' $VersionJson
 
+  $ExplainJson = Read-NativeOutput 'diagnostic explain JSON' $Hum @('explain', 'H0201', '--format', 'json')
+  Assert-Json 'diagnostic explain JSON' $ExplainJson
+
   Invoke-Native 'hum check examples' $Hum @('check', 'examples')
 
   Invoke-Native 'reference fixture coverage smoke' $Hum @('test-skeletons', 'examples/reference_surface.hum')

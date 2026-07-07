@@ -52,7 +52,7 @@ Run this before opening a pull request, publishing a snapshot, or making a relea
 ```
 
 The script runs Rust formatting, tests, clippy, example checks, reference fixture
-coverage, version, graph, and syntax JSON parsing, TextMate snapshot drift detection,
+coverage, version, diagnostic-explain, graph, and syntax JSON parsing, TextMate snapshot drift detection,
 whitespace checks, text hygiene, public readiness, and release readiness.
 
 Hosted CI should call the same script. The current GitHub Actions workflow in
