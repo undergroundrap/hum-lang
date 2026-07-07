@@ -40,6 +40,7 @@ The current adoption research snapshot is:
 - [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md)
 - [research/2026-07-07-rad-debugger-lessons.md](research/2026-07-07-rad-debugger-lessons.md)
 - [research/2026-07-07-bellard-systems-lessons.md](research/2026-07-07-bellard-systems-lessons.md)
+- [research/2026-07-07-systems-legends-lessons.md](research/2026-07-07-systems-legends-lessons.md)
 
 It sharpens the product thesis: Hum should not compete as nicer syntax alone.
 It should compete as an evidence-native systems language that turns checked
@@ -452,7 +453,51 @@ Concrete design gates:
 - Prefer portable process/Wasm/interpreter boundaries before native plugin or
   eval-like power.
 
-### 13. Deployment, Containers, Observability, And Agent Tools
+### 13. Systems Legends And Durable Taste
+
+Research signals:
+
+- Ritchie and Thompson show that language and operating-system design improve
+  together when the core is small enough to port, rebuild, and understand.
+- Thompson's trusting-trust lecture makes compiler provenance part of security,
+  not a separate supply-chain concern.
+- Kernighan shows that documentation, examples, and precise teaching can make a
+  terse systems model become shared culture.
+- Torvalds shows that infrastructure must survive maintainer review, distributed
+  patches, scale, and workflow pressure.
+- Carmack and Abrash show that serious performance requires measurement,
+  hardware facts, data layout, and algorithmic structure.
+- Joy, Hejlsberg, Wirth, Stallman, and Kildall pull in different directions, but
+  converge on useful tools, stable boundaries, source availability, simplicity,
+  and practical adoption paths.
+
+Hum lessons:
+
+- Durable systems-language taste is not one aesthetic. Hum should synthesize
+  small mechanisms, strong tools, clear docs, measured performance, repairable
+  artifacts, and explicit platform boundaries.
+- The language reference is part of the product, not a later book project.
+- Compiler trust, rebuildability, license clarity, and provenance belong in the
+  core architecture.
+- Adoption requires compatibility with editors, terminals, networks, platforms,
+  and existing developer habits, not purity alone.
+- Feature subtraction is a design action. A profile that removes expensive or
+  risky behavior can be stronger than a surface that permits everything.
+
+Concrete design gates:
+
+- Start a traditional language reference before broadening syntax beyond Core
+  Hum.
+- Do not promote a major feature until it can pass the combined systems legends
+  test in the research note.
+- Create a portability-boundary document before claiming serious embedded,
+  enterprise, or cross-platform readiness.
+- Keep maintainer workflow, documentation examples, and reproducible performance
+  reports in the feature admission path.
+- Keep hidden cloud, telemetry, proprietary, or unverifiable toolchain steps out
+  of the core path.
+
+### 14. Deployment, Containers, Observability, And Agent Tools
 
 Research signals:
 
@@ -516,6 +561,9 @@ Concrete design gates:
     the language and backend, not postponed to editor plugins.
 15. Smallness, startup time, memory floor, dependency count, and deterministic
     artifacts are systems-language requirements, not polish.
+16. Durable language taste requires small mechanisms, clear documentation,
+    measured performance, maintainer workflow, repairable artifacts, and explicit
+    platform boundaries at the same time.
 
 ## Research Debt Still Open
 
@@ -533,6 +581,7 @@ Hum still needs deeper study before hardening these areas:
 - compiler IR and optimization correctness strategy
 - executable debug/profiler implementation and source-map validation
 - footprint-constrained profile and deterministic artifact model
+- traditional language reference and portability-boundary model
 - data-oriented scheduling and ECS-like storage contracts
 - operations model for dry-run, rollback, idempotence, drift, and telemetry
 - network model for typed addresses, protocol parsing, transactions, and
@@ -628,3 +677,4 @@ reckless.
 - Computing lessons sweep sources: see [COMPUTING_LESSONS_SWEEP_2026.md](COMPUTING_LESSONS_SWEEP_2026.md)
 - RAD Debugger lessons: see [research/2026-07-07-rad-debugger-lessons.md](research/2026-07-07-rad-debugger-lessons.md)
 - Bellard systems lessons: see [research/2026-07-07-bellard-systems-lessons.md](research/2026-07-07-bellard-systems-lessons.md)
+- Systems legends lessons: see [research/2026-07-07-systems-legends-lessons.md](research/2026-07-07-systems-legends-lessons.md)
