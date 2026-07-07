@@ -1,3 +1,4 @@
+use crate::backend_contract;
 use crate::diagnostic_catalog;
 use crate::diagnostics;
 use crate::doctor;
@@ -96,6 +97,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: CAPABILITIES_SCHEMA,
         status: "current",
         purpose: "toolchain surface discovery for adapters and agents",
+    },
+    CommandCapability {
+        name: "backend_contract_json",
+        command: "hum backend-contract --format json",
+        schema: backend_contract::BACKEND_CONTRACT_SCHEMA,
+        status: "current",
+        purpose: "swappable backend ladder and adapter preservation contract",
     },
     CommandCapability {
         name: "lsp_capabilities_json",
@@ -232,6 +240,10 @@ pub fn capabilities_text() -> String {
     ));
     out.push_str(&format!("  capabilities: {}\n", CAPABILITIES_SCHEMA));
     out.push_str(&format!(
+        "  backend_contract: {}\n",
+        backend_contract::BACKEND_CONTRACT_SCHEMA
+    ));
+    out.push_str(&format!(
         "  lsp_capabilities: {}\n",
         lsp::LSP_CAPABILITIES_SCHEMA
     ));
@@ -335,6 +347,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         true,
     );
     push_string_field(out, indent + 2, "capabilities", CAPABILITIES_SCHEMA, true);
+    push_string_field(
+        out,
+        indent + 2,
+        "backend_contract",
+        backend_contract::BACKEND_CONTRACT_SCHEMA,
+        true,
+    );
     push_string_field(
         out,
         indent + 2,
@@ -458,9 +477,11 @@ mod tests {
         assert!(json.contains("\"semantic_graph\": \"hum.semantic_graph.v0\""));
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
+        assert!(json.contains("\"backend_contract\": \"hum.backend_contract.v0\""));
         assert!(json.contains("\"lsp_capabilities\": \"hum.lsp_capabilities.v0\""));
         assert!(json.contains("\"doctor\": \"hum.doctor.v0\""));
         assert!(json.contains("\"name\": \"doctor_json\""));
+        assert!(json.contains("\"name\": \"backend_contract_json\""));
         assert!(json.contains("\"name\": \"evidence_json\""));
         assert!(json.contains("\"name\": \"math_obligations_json\""));
         assert!(json.contains("\"name\": \"resource_report_json\""));

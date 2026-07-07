@@ -77,6 +77,9 @@ Native code comes after we can prove the frontend understands Hum.
 
 ## Backend Adapter Contract
 
+The machine-readable contract is emitted by `hum backend-contract --format json`
+and documented in [BACKEND_CONTRACT_SCHEMA.md](BACKEND_CONTRACT_SCHEMA.md).
+
 Backends are replaceable consumers of checked Hum IR. No backend may become the
 owner of Hum source semantics.
 
@@ -94,7 +97,9 @@ Every backend adapter should preserve or explicitly report loss of:
 - unsupported features or weakened guarantees
 
 This contract is what lets Hum move from interpreter to Cranelift to LLVM to
-MLIR or a future custom backend without rewriting the language.
+MLIR or a future custom backend without rewriting the language. Backend work must
+update `hum.backend_contract.v0` before it changes the meaning of any lowered
+Hum program.
 
 ## Backend Options
 

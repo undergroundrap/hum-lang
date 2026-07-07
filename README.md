@@ -74,6 +74,7 @@ Current artifacts:
 - [docs/MATH_ENGINE_BOUNDARY.md](docs/MATH_ENGINE_BOUNDARY.md): boundary for Truth Harness-style verifier integrations
 - [docs/MATH_OBLIGATIONS_SCHEMA.md](docs/MATH_OBLIGATIONS_SCHEMA.md): `hum.math_obligations.v0` and `hum.math_obligation.v0` export surface for external validators
 - [docs/RESOURCE_REPORT_SCHEMA.md](docs/RESOURCE_REPORT_SCHEMA.md): `hum.resource_report.v0` source-declared resource, layout, and optimization claim inventory
+- [docs/BACKEND_CONTRACT_SCHEMA.md](docs/BACKEND_CONTRACT_SCHEMA.md): `hum.backend_contract.v0` backend ladder and adapter preservation contract
 - [docs/LSP_CAPABILITIES_SCHEMA.md](docs/LSP_CAPABILITIES_SCHEMA.md): `hum.lsp_capabilities.v0` preview schema for LSP adapter support
 - [docs/DOCTOR_SCHEMA.md](docs/DOCTOR_SCHEMA.md): `hum.doctor.v0` setup health schema for portable repo guardrails
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): unifying architecture ground truth across language, graph, tools, profiles, stdlib, backend, and platform design
@@ -191,6 +192,8 @@ cargo run -- diagnostics
 cargo run -- diagnostics --format json
 cargo run -- capabilities
 cargo run -- capabilities --format json
+cargo run -- backend-contract
+cargo run -- backend-contract --format json
 cargo run -- evidence examples/reference_surface.hum
 cargo run -- evidence --format json examples/reference_surface.hum
 cargo run -- math-obligations examples/control_flow.hum
@@ -223,6 +226,7 @@ Current CLI:
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents
 - `hum capabilities [--format human|json]`: list `hum.capabilities.v0` toolchain surfaces for editors, agents, and CI wrappers
+- `hum backend-contract [--format human|json]`: emit `hum.backend_contract.v0` backend ladder and adapter preservation facts without selecting or running a backend
 - `hum lsp --capabilities [--format human|json]`: list `hum.lsp_capabilities.v0` LSP adapter-preview facts without starting server mode
 - `hum doctor [--format human|json]`: emit `hum.doctor.v0` setup health facts for portable repo guardrails
 - `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including source-derived node IDs, source columns, folding ranges, document symbols, section line facts, task test obligations, and exact or conservative canonical `covers:` links

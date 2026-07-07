@@ -69,6 +69,7 @@ Current `schemas` includes:
 - `math_obligations_report`: `hum.math_obligations.v0`
 - `math_obligation`: `hum.math_obligation.v0`
 - `resource_report`: `hum.resource_report.v0`
+- `backend_contract`: `hum.backend_contract.v0`
 - `diagnostic_explain`: `hum.diagnostic_explain.v0`
 - `diagnostic_catalog`: `hum.diagnostic_catalog.v0`
 - `capabilities`: `hum.capabilities.v0`
@@ -92,6 +93,7 @@ Current entries include:
 - `hum evidence --format json`
 - `hum math-obligations --format json`
 - `hum resource-report --format json`
+- `hum backend-contract --format json`
 - `hum syntax`
 - `hum syntax --format textmate`
 - `hum explain --format json`

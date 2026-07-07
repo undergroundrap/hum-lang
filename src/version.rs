@@ -1,3 +1,4 @@
+use crate::backend_contract;
 use crate::capabilities;
 use crate::diagnostic_catalog;
 use crate::doctor;
@@ -13,13 +14,14 @@ pub const HUM_MILESTONE: &str = "0 semantic graph";
 
 pub fn version_text() -> String {
     format!(
-        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\nlsp_capabilities_schema: {}\nmath_obligations_report_schema: {}\nmath_obligation_schema: {}\nresource_report_schema: {}\ndoctor_schema: {}\n",
+        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\nbackend_contract_schema: {}\nlsp_capabilities_schema: {}\nmath_obligations_report_schema: {}\nmath_obligation_schema: {}\nresource_report_schema: {}\ndoctor_schema: {}\n",
         target_name(),
         json::SEMANTIC_GRAPH_SCHEMA,
         syntax::SYNTAX_SCHEMA,
         diagnostic_catalog::DIAGNOSTIC_EXPLAIN_SCHEMA,
         diagnostic_catalog::DIAGNOSTIC_CATALOG_SCHEMA,
         capabilities::CAPABILITIES_SCHEMA,
+        backend_contract::BACKEND_CONTRACT_SCHEMA,
         lsp::LSP_CAPABILITIES_SCHEMA,
         math_obligations::MATH_OBLIGATIONS_REPORT_SCHEMA,
         math_obligations::MATH_OBLIGATION_SCHEMA,
@@ -65,6 +67,13 @@ pub fn version_json() -> String {
         4,
         "capabilities",
         capabilities::CAPABILITIES_SCHEMA,
+        true,
+    );
+    push_string_field(
+        &mut out,
+        4,
+        "backend_contract",
+        backend_contract::BACKEND_CONTRACT_SCHEMA,
         true,
     );
     push_string_field(
@@ -190,6 +199,7 @@ mod tests {
         assert!(text.contains("diagnostic_explain_schema: hum.diagnostic_explain.v0"));
         assert!(text.contains("diagnostic_catalog_schema: hum.diagnostic_catalog.v0"));
         assert!(text.contains("capabilities_schema: hum.capabilities.v0"));
+        assert!(text.contains("backend_contract_schema: hum.backend_contract.v0"));
         assert!(text.contains("lsp_capabilities_schema: hum.lsp_capabilities.v0"));
         assert!(text.contains("math_obligations_report_schema: hum.math_obligations.v0"));
         assert!(text.contains("math_obligation_schema: hum.math_obligation.v0"));
@@ -208,6 +218,7 @@ mod tests {
         assert!(json.contains("\"diagnostic_explain\": \"hum.diagnostic_explain.v0\""));
         assert!(json.contains("\"diagnostic_catalog\": \"hum.diagnostic_catalog.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
+        assert!(json.contains("\"backend_contract\": \"hum.backend_contract.v0\""));
         assert!(json.contains("\"lsp_capabilities\": \"hum.lsp_capabilities.v0\""));
         assert!(json.contains("\"math_obligations_report\": \"hum.math_obligations.v0\""));
         assert!(json.contains("\"math_obligation\": \"hum.math_obligation.v0\""));
