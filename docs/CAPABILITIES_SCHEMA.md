@@ -65,6 +65,7 @@ Current `schemas` includes:
 - `semantic_graph`: `hum.semantic_graph.v0`
 - `syntax_surface`: `hum.syntax_surface.v0`
 - `check_diagnostics`: `hum.check.v0`
+- `evidence_report`: `hum.evidence.v0`
 - `diagnostic_explain`: `hum.diagnostic_explain.v0`
 - `diagnostic_catalog`: `hum.diagnostic_catalog.v0`
 - `capabilities`: `hum.capabilities.v0`
@@ -85,6 +86,7 @@ Current entries include:
 
 - `hum check --format json`
 - `hum graph`
+- `hum evidence --format json`
 - `hum syntax`
 - `hum syntax --format textmate`
 - `hum explain --format json`

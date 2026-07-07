@@ -1,6 +1,7 @@
 use crate::diagnostic_catalog;
 use crate::diagnostics;
 use crate::doctor;
+use crate::evidence;
 use crate::json;
 use crate::lsp;
 use crate::syntax;
@@ -37,6 +38,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: json::SEMANTIC_GRAPH_SCHEMA,
         status: "adapter-ready",
         purpose: "semantic graph facts for tools and agents",
+    },
+    CommandCapability {
+        name: "evidence_json",
+        command: "hum evidence --format json <file-or-dir>...",
+        schema: evidence::EVIDENCE_REPORT_SCHEMA,
+        status: "adapter-ready",
+        purpose: "security and trust evidence obligation report for humans, agents, and CI",
     },
     CommandCapability {
         name: "syntax",
@@ -183,6 +191,10 @@ pub fn capabilities_text() -> String {
         diagnostics::CHECK_DIAGNOSTICS_SCHEMA
     ));
     out.push_str(&format!(
+        "  evidence_report: {}\n",
+        evidence::EVIDENCE_REPORT_SCHEMA
+    ));
+    out.push_str(&format!(
         "  diagnostic_explain: {}\n",
         diagnostic_catalog::DIAGNOSTIC_EXPLAIN_SCHEMA
     ));
@@ -250,6 +262,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         indent + 2,
         "check_diagnostics",
         diagnostics::CHECK_DIAGNOSTICS_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "evidence_report",
+        evidence::EVIDENCE_REPORT_SCHEMA,
         true,
     );
     push_string_field(
@@ -372,6 +391,7 @@ mod tests {
 
         assert!(text.contains("Hum capabilities (hum.capabilities.v0)"));
         assert!(text.contains("hum check --format json"));
+        assert!(text.contains("hum evidence --format json"));
         assert!(text.contains("document_symbols"));
         assert!(text.contains("semantic_token_legend"));
     }
@@ -382,12 +402,14 @@ mod tests {
 
         assert!(json.contains("\"schema\": \"hum.capabilities.v0\""));
         assert!(json.contains("\"check_diagnostics\": \"hum.check.v0\""));
+        assert!(json.contains("\"evidence_report\": \"hum.evidence.v0\""));
         assert!(json.contains("\"semantic_graph\": \"hum.semantic_graph.v0\""));
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
         assert!(json.contains("\"lsp_capabilities\": \"hum.lsp_capabilities.v0\""));
         assert!(json.contains("\"doctor\": \"hum.doctor.v0\""));
         assert!(json.contains("\"name\": \"doctor_json\""));
+        assert!(json.contains("\"name\": \"evidence_json\""));
         assert!(json.contains("\"name\": \"folding_ranges\""));
         assert!(json.contains("\"status\": \"adapter-ready\""));
     }

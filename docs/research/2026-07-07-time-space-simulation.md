@@ -35,10 +35,12 @@ bounded fan-in circuit evaluation and time lower bounds for linear-space
 problems.
 
 The construction reduces time-bounded multitape computation to implicitly
-defined Tree Evaluation instances. The useful intuition for Hum is the block
-view: split a long computation into blocks, represent dependencies as a tree,
-and evaluate enough boundary information to recover what is needed without
-storing the whole trace.
+defined Tree Evaluation instances. This is a space simulation, not a generic
+runtime speedup theorem: it can reduce the memory needed to simulate a broad
+class of computations, but the simulation may trade away time through replay or
+recomputation. The useful intuition for Hum is the block view: split a long
+computation into blocks, represent dependencies as a tree, and evaluate enough
+boundary information to recover what is needed without storing the whole trace.
 
 ### Model Caveat
 

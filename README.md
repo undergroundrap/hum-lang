@@ -69,6 +69,7 @@ Current artifacts:
 - [docs/MILESTONE_0_GRAMMAR.md](docs/MILESTONE_0_GRAMMAR.md): current Rust bootstrap parser grammar contract
 - [docs/SYNTAX_SURFACE_SCHEMA.md](docs/SYNTAX_SURFACE_SCHEMA.md): `hum.syntax_surface.v0` schema for editor-neutral syntax metadata
 - [docs/CAPABILITIES_SCHEMA.md](docs/CAPABILITIES_SCHEMA.md): `hum.capabilities.v0` schema for toolchain surface discovery
+- [docs/EVIDENCE_REPORT_SCHEMA.md](docs/EVIDENCE_REPORT_SCHEMA.md): `hum.evidence.v0` security/trust evidence report schema
 - [docs/LSP_CAPABILITIES_SCHEMA.md](docs/LSP_CAPABILITIES_SCHEMA.md): `hum.lsp_capabilities.v0` preview schema for LSP adapter support
 - [docs/DOCTOR_SCHEMA.md](docs/DOCTOR_SCHEMA.md): `hum.doctor.v0` setup health schema for portable repo guardrails
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): unifying architecture ground truth across language, graph, tools, profiles, stdlib, backend, and platform design
@@ -182,6 +183,8 @@ cargo run -- diagnostics
 cargo run -- diagnostics --format json
 cargo run -- capabilities
 cargo run -- capabilities --format json
+cargo run -- evidence examples/reference_surface.hum
+cargo run -- evidence --format json examples/reference_surface.hum
 cargo run -- lsp --capabilities
 cargo run -- lsp --capabilities --format json
 cargo run -- doctor
@@ -200,6 +203,7 @@ Current CLI:
 
 - `hum check <file-or-dir>...`: parse Hum and run Milestone 0 intent checks
 - `hum check --format json <file-or-dir>...`: emit `hum.check.v0` diagnostics JSON for editors, CI, and agents
+- `hum evidence [--format human|json] <file-or-dir>...`: emit `hum.evidence.v0` security/trust evidence status for humans, agents, and CI wrappers
 - `hum version [--format human|json]`: print toolchain identity, version, target, and schema names
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents

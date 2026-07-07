@@ -418,6 +418,28 @@ cargo run -- graph examples
 
 See [SEMANTIC_GRAPH_SCHEMA.md](SEMANTIC_GRAPH_SCHEMA.md).
 
+## Evidence Report
+
+`hum evidence` summarizes the current security and trust evidence obligations
+from `protects:` and `trusts:` lines without requiring a human or agent to read
+the full semantic graph JSON.
+
+Current command:
+
+```powershell
+hum evidence <file-or-dir>...
+hum evidence --format json <file-or-dir>...
+```
+
+During bootstrap:
+
+```powershell
+cargo run -- evidence examples/reference_surface.hum
+cargo run -- evidence --format json examples/reference_surface.hum
+```
+
+See [EVIDENCE_REPORT_SCHEMA.md](EVIDENCE_REPORT_SCHEMA.md).
+
 ## Formatting
 
 Hum will have one canonical format. The formatter should be strict, boring, and
@@ -470,6 +492,8 @@ Delayed until the formal core, graph, diagnostics, and tooling can explain them:
 ```powershell
 hum check <file-or-dir>...
 hum graph <file-or-dir>...
+hum evidence <file-or-dir>...
+hum evidence --format json <file-or-dir>...
 hum test-skeletons <file-or-dir>...
 hum syntax
 hum syntax --format textmate
@@ -481,6 +505,8 @@ Bootstrap examples:
 cargo run -- check examples
 cargo run -- graph examples/reference_surface.hum
 cargo run -- graph examples
+cargo run -- evidence examples/reference_surface.hum
+cargo run -- evidence --format json examples/reference_surface.hum
 cargo run -- test-skeletons examples
 cargo run -- syntax
 cargo run -- syntax --format textmate

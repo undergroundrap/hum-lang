@@ -7,6 +7,7 @@ mod diagnostic;
 mod diagnostic_catalog;
 mod diagnostics;
 mod doctor;
+mod evidence;
 mod explain;
 mod graph;
 mod json;
@@ -149,6 +150,27 @@ fn run() -> Result<ExitCode, String> {
                 ExitCode::SUCCESS
             })
         }
+        "evidence" => {
+            if options.evidence_format == EvidenceFormat::Human {
+                print_diagnostics(&diagnostics);
+            }
+            match options.evidence_format {
+                EvidenceFormat::Human => {
+                    print!("{}", evidence::evidence_text(&program, &diagnostics))
+                }
+                EvidenceFormat::Json => {
+                    print!("{}", evidence::evidence_json(&program, &diagnostics))
+                }
+            }
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            Ok(if has_errors {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
         "test-skeletons" => {
             print_diagnostics(&diagnostics);
             if !has_errors {
@@ -169,7 +191,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `lsp`, or `doctor`"
+            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `lsp`, or `doctor`"
         )),
     }
 }
@@ -222,6 +244,12 @@ enum DoctorFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EvidenceFormat {
+    Human,
+    Json,
+}
+
 #[derive(Debug)]
 struct CliOptions {
     command: String,
@@ -235,6 +263,7 @@ struct CliOptions {
     capabilities_format: CapabilitiesFormat,
     lsp_format: LspFormat,
     doctor_format: DoctorFormat,
+    evidence_format: EvidenceFormat,
     explain_code: Option<String>,
 }
 
@@ -259,6 +288,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         "check"
             | "graph"
             | "test-skeletons"
+            | "evidence"
             | "syntax"
             | "version"
             | "explain"
@@ -268,7 +298,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "doctor"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `lsp`, or `doctor`"
+            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `lsp`, or `doctor`"
         ));
     }
 
@@ -282,6 +312,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut capabilities_format = CapabilitiesFormat::Human;
     let mut lsp_format = LspFormat::Human;
     let mut doctor_format = DoctorFormat::Human;
+    let mut evidence_format = EvidenceFormat::Human;
     let mut lsp_show_capabilities = false;
     let mut args = args.into_iter().skip(1);
 
@@ -300,6 +331,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         | "capabilities"
                         | "lsp"
                         | "doctor"
+                        | "evidence"
                 ) =>
             {
                 let Some(value) = args.next() else {
@@ -314,6 +346,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "capabilities" => capabilities_format = parse_capabilities_format(&value)?,
                     "lsp" => lsp_format = parse_lsp_format(&value)?,
                     "doctor" => doctor_format = parse_doctor_format(&value)?,
+                    "evidence" => evidence_format = parse_evidence_format(&value)?,
                     _ => unreachable!(),
                 }
             }
@@ -327,6 +360,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     | "capabilities"
                     | "lsp"
                     | "doctor"
+                    | "evidence"
             ) && flag.starts_with("--format=") =>
             {
                 let value = flag.trim_start_matches("--format=");
@@ -339,6 +373,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "capabilities" => capabilities_format = parse_capabilities_format(value)?,
                     "lsp" => lsp_format = parse_lsp_format(value)?,
                     "doctor" => doctor_format = parse_doctor_format(value)?,
+                    "evidence" => evidence_format = parse_evidence_format(value)?,
                     _ => unreachable!(),
                 }
             }
@@ -366,6 +401,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             lsp_format,
             doctor_format,
+            evidence_format,
             explain_code: None,
         });
     }
@@ -389,6 +425,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             lsp_format,
             doctor_format,
+            evidence_format,
             explain_code: None,
         });
     }
@@ -412,6 +449,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             lsp_format,
             doctor_format,
+            evidence_format,
             explain_code: raw_inputs.first().cloned(),
         });
     }
@@ -435,6 +473,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             lsp_format,
             doctor_format,
+            evidence_format,
             explain_code: None,
         });
     }
@@ -458,6 +497,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             lsp_format,
             doctor_format,
+            evidence_format,
             explain_code: None,
         });
     }
@@ -487,6 +527,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             lsp_format,
             doctor_format,
+            evidence_format,
             explain_code: None,
         });
     }
@@ -510,6 +551,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             lsp_format,
             doctor_format,
+            evidence_format,
             explain_code: None,
         });
     }
@@ -526,6 +568,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         capabilities_format,
         lsp_format,
         doctor_format,
+        evidence_format,
         explain_code: None,
     })
 }
@@ -605,6 +648,16 @@ fn parse_doctor_format(value: &str) -> Result<DoctorFormat, String> {
         "json" => Ok(DoctorFormat::Json),
         other => Err(format!(
             "unknown doctor format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
+fn parse_evidence_format(value: &str) -> Result<EvidenceFormat, String> {
+    match value {
+        "human" => Ok(EvidenceFormat::Human),
+        "json" => Ok(EvidenceFormat::Json),
+        other => Err(format!(
+            "unknown evidence format `{other}`; expected `human` or `json`"
         )),
     }
 }
@@ -729,6 +782,7 @@ fn print_help() {
     println!("Usage:");
     println!("  hum check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum graph [--timings] <file-or-dir>...");
+    println!("  hum evidence [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!("  hum syntax [--format json|textmate]");
     println!("  hum version [--format human|json]");
@@ -741,6 +795,7 @@ fn print_help() {
     println!("Commands:");
     println!("  check           Parse Hum files and run milestone-0 intent checks");
     println!("  graph           Emit hum.semantic_graph.v0 JSON for agents and tools");
+    println!("  evidence        Summarize security and trust evidence obligations");
     println!("  test-skeletons  Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
     println!("  version         Print toolchain identity and schema versions");
@@ -760,8 +815,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        CapabilitiesFormat, CheckFormat, DiagnosticsFormat, DoctorFormat, ExplainFormat, LspFormat,
-        SyntaxFormat, VersionFormat, load_program, parse_cli,
+        CapabilitiesFormat, CheckFormat, DiagnosticsFormat, DoctorFormat, EvidenceFormat,
+        ExplainFormat, LspFormat, SyntaxFormat, VersionFormat, load_program, parse_cli,
     };
 
     #[test]
@@ -1047,6 +1102,33 @@ mod tests {
         ])
         .expect_err("lsp should reject inputs");
         assert_eq!(error, "`lsp` does not accept input files");
+    }
+
+    #[test]
+    fn parses_evidence_json_format() {
+        let options = parse_cli(vec![
+            "evidence".to_string(),
+            "--format=json".to_string(),
+            "examples".to_string(),
+        ])
+        .expect("evidence json command");
+        assert_eq!(options.command, "evidence");
+        assert_eq!(options.evidence_format, EvidenceFormat::Json);
+    }
+
+    #[test]
+    fn rejects_unknown_evidence_format() {
+        let error = parse_cli(vec![
+            "evidence".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+            "examples".to_string(),
+        ])
+        .expect_err("evidence should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown evidence format `textmate`; expected `human` or `json`"
+        );
     }
 
     #[test]
