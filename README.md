@@ -184,6 +184,7 @@ cargo run -- doctor
 cargo run -- doctor --format json
 cargo run -- graph examples/reference_surface.hum
 .\tools\check_editor_fixtures.ps1
+.\tools\check_clean_checkout.ps1
 cargo run -- graph examples/task_list.hum
 cargo run -- test-skeletons examples
 cargo run -- syntax
@@ -221,6 +222,12 @@ release-style handoff, run:
 
 ```powershell
 .\tools\check_all.ps1
+```
+
+Before a tag or private-remote promotion, prove the committed repo from a fresh local clone:
+
+```powershell
+.\tools\check_clean_checkout.ps1
 ```
 
 See [docs/TEXT_HYGIENE_WORKFLOW.md](docs/TEXT_HYGIENE_WORKFLOW.md).

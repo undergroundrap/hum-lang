@@ -57,6 +57,9 @@ if (-not $releaseDoc.Contains('hum lsp --capabilities')) {
 if (-not $releaseDoc.Contains('hum doctor')) {
   Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention hum doctor'
 }
+if (-not $releaseDoc.Contains('check_clean_checkout.ps1')) {
+  Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention check_clean_checkout.ps1'
+}
 
 $readme = Read-RepoText 'README.md'
 if (-not $readme.Contains('docs/RELEASE_AND_VERSIONING.md')) {
@@ -97,6 +100,9 @@ if (-not $readme.Contains('hum lsp --capabilities')) {
 }
 if (-not $readme.Contains('hum doctor')) {
   Add-Failure 'README.md does not mention hum doctor'
+}
+if (-not $readme.Contains('check_clean_checkout.ps1')) {
+  Add-Failure 'README.md does not mention check_clean_checkout.ps1'
 }
 
 $diagnosticsDoc = Read-RepoText 'docs\DIAGNOSTICS.md'
@@ -175,7 +181,7 @@ foreach ($required in @('hum.lsp_capabilities.v0', 'hum lsp --capabilities --for
 }
 
 $doctorDoc = Read-RepoText 'docs\DOCTOR_SCHEMA.md'
-foreach ($required in @('hum.doctor.v0', 'hum doctor --format json', 'current_directory', 'text_hygiene_policy', 'public_readiness_policy', 'preflight_script')) {
+foreach ($required in @('hum.doctor.v0', 'hum doctor --format json', 'current_directory', 'text_hygiene_policy', 'public_readiness_policy', 'preflight_script', 'clean_checkout_smoke', 'tools/check_clean_checkout.ps1')) {
   if (-not $doctorDoc.Contains($required)) {
     Add-Failure "docs/DOCTOR_SCHEMA.md does not mention $required"
   }
@@ -188,7 +194,7 @@ foreach ($required in @('Supported Versions', 'How To Report', 'Security Claims'
 }
 
 $setup = Read-RepoText 'docs\SETUP.md'
-foreach ($required in @('Visual Studio', 'Eclipse', 'Jupyter', 'VS Code', 'Cursor', 'PyCharm', 'hum doctor')) {
+foreach ($required in @('Visual Studio', 'Eclipse', 'Jupyter', 'VS Code', 'Cursor', 'PyCharm', 'hum doctor', 'check_clean_checkout.ps1')) {
   if (-not $setup.Contains($required)) {
     Add-Failure "docs/SETUP.md does not mention $required"
   }

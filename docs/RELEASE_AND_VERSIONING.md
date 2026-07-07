@@ -98,6 +98,7 @@ Do not tag until:
 6. `cargo clippy --all-targets -- -D warnings` passes.
 7. `cargo run -- check examples` passes.
 8. `git status --short` is clean except for intentional release edits before the release commit.
+9. `tools/check_clean_checkout.ps1` passes from the committed clean tree.
 
 ## Private Remote Then Public Remote
 
@@ -105,7 +106,7 @@ Recommended sequence:
 
 1. Keep working locally until the repo has a clean initial history and release discipline.
 2. Push to a private remote first.
-3. Use the private remote to verify clone/setup from a clean machine or clean directory.
+3. Use `tools/check_clean_checkout.ps1` locally, then use the private remote to verify clone/setup from a clean machine or clean directory.
 4. Create pre-alpha tags only after release-readiness checks pass.
 5. Delay public release until the README, setup, license, security posture, and first demos explain what Hum is and is not.
 
@@ -138,6 +139,7 @@ Before Hum is presented like a serious new language from a Microsoft-scale or Go
 - release checklist
 - signed or at least annotated tags
 - reproducible local verification
+- clean-checkout smoke through `tools/check_clean_checkout.ps1`
 
 ## Sources
 

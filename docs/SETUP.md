@@ -58,7 +58,13 @@ Machine-readable setup health is available through:
 cargo run -- doctor --format json
 ```
 
-The script runs Rust formatting, tests, clippy, example checks, reference fixture
+Before a tag, private-remote promotion, or public snapshot, run the clean-checkout smoke from a clean working tree:
+
+```powershell
+.\tools\check_clean_checkout.ps1
+```
+
+`tools/check_clean_checkout.ps1` clones committed `HEAD` into an ignored `target/clean-checkout` directory and runs the same full preflight there. The normal preflight script runs Rust formatting, tests, clippy, example checks, reference fixture
 coverage, version, diagnostic-explain, diagnostic-catalog, graph, editor fixture recovery, and syntax JSON parsing, TextMate snapshot drift detection,
 whitespace checks, text hygiene, public readiness, and release readiness.
 

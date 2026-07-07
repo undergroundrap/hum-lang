@@ -156,6 +156,15 @@ fn doctor_checks(root: &Path) -> Vec<DoctorCheck> {
             "tools/check_all.ps1 exists",
             "tools/check_all.ps1 is missing",
         ),
+        check_all_exist(
+            root,
+            "clean_checkout_smoke",
+            "Clean checkout smoke",
+            true,
+            &["tools/check_clean_checkout.ps1"],
+            "tools/check_clean_checkout.ps1 exists",
+            "tools/check_clean_checkout.ps1 is missing",
+        ),
         check_hosted_ci(root),
         check_all_exist(
             root,
@@ -309,6 +318,7 @@ fn summarize(checks: &[DoctorCheck]) -> DoctorSummary {
 
 const NEXT_STEPS: &[&str] = &[
     "Run tools/check_all.ps1 before commits and release-style handoffs.",
+    "Run tools/check_clean_checkout.ps1 before tags or private-remote promotion.",
     "Keep editor-local state and absolute machine paths out of the repo.",
     "Use hum capabilities --format json before enabling optional adapters.",
 ];
@@ -439,6 +449,7 @@ mod tests {
         assert!(json.contains("\"workspace\": \"current_directory\""));
         assert!(json.contains("\"status\": \"pass\""));
         assert!(json.contains("\"id\": \"preflight_script\""));
+        assert!(json.contains("\"id\": \"clean_checkout_smoke\""));
         assert!(json.contains("\"id\": \"editor_assets\""));
     }
 }
