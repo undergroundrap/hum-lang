@@ -13,6 +13,14 @@ parse Hum, understand intent blocks, reject broken promises, and emit a semantic
 graph that humans and agents can trust.
 
 The unifying map for this roadmap is [ARCHITECTURE.md](ARCHITECTURE.md).
+The operating method for moving through it is
+[LANGUAGE_BUILDER_OPERATING_MODEL.md](LANGUAGE_BUILDER_OPERATING_MODEL.md):
+small proof, written lesson, graph/report/check surface, migration path, then
+public claim.
+
+Each milestone should name the hard hypothesis it proves, the smallest artifact
+that proves it, and the public claim that remains forbidden until the proof
+exists.
 
 ## Teaching Order
 

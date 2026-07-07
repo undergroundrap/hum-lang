@@ -47,6 +47,122 @@ The transcript suggests a recurring decision frame:
 Hum should use these questions when it feels tempted to add syntax, make a
 performance claim, copy another language, or widen the roadmap.
 
+## Third-Pass Tacit Wisdom
+
+These lessons are easy to miss because they are not feature advice. They are
+judgment advice.
+
+### Success Is A Stress Test
+
+Fast adoption can make a language worse if the core is not ready. Product
+pressure, framework deadlines, and demo needs can push local syntax and special
+cases into permanent language shape.
+
+Hum rule: when a feature attracts attention, spend more energy simplifying the
+core, compiler, docs, diagnostics, and migration path before adding sugar around
+that attention.
+
+### Credibility Is Earned Before Persuasion
+
+Bold technical proposals land better after the builder has shipped useful work.
+Credibility is not a substitute for evidence, but it buys enough attention for
+evidence to be heard.
+
+Hum rule: earn the right to make ambitious claims through working commands,
+fixtures, reports, CI, examples, and honest release notes.
+
+### Adoption Has A Status Model
+
+Experts may resist because a new system threatens their accumulated mastery. A
+technical explanation that ignores status, identity, and transfer of expertise
+will miss the real objection.
+
+Hum rule: migration docs should show existing experts how their knowledge becomes
+more powerful in Hum. Do not present them as obsolete.
+
+### Familiarity Sometimes Beats Taste
+
+A migration-focused language or bridge sometimes has to preserve syntax,
+terminology, or behavior that the designer would not choose from scratch. This is
+not weakness if it lowers adoption risk at the boundary.
+
+Hum rule: inside native Hum, choose the clean paved road. At interop and
+migration boundaries, preserve enough old-world shape that users can move safely.
+
+### Do Not Own What A Stable Boundary Can Use
+
+Mojo's Python story highlights a discipline: use stable public boundaries where
+they exist instead of trying to own or replace the whole upstream ecosystem at
+once.
+
+Hum rule: prefer stable C ABI, process, Wasm, interpreter, file-format, and
+protocol boundaries before promising deep native integration.
+
+### The Base Operation Must Carry The Future
+
+Mojo's emphasis on function calls is a substrate lesson. If the fundamental
+operation is powerful and regular enough, many advanced features compose through
+it instead of becoming special cases.
+
+Hum rule: `task` invocation, typed failure, effects, ownership, source spans,
+contracts, and graph facts are Hum's substrate. Do not add features that bypass
+that substrate.
+
+### Wedge Humility Protects Ambition
+
+Go's strongest use became cloud/platform work even if early positioning sounded
+more systems-general. A language can keep large ambition while being honest about
+where it first wins.
+
+Hum rule: Hum can aim at Rust/C++ scale eventually while first proving itself in
+evidence-native offline tools, security utilities, and reviewable automation.
+
+### Hype Must Be Separated From Infrastructure
+
+AI, accelerator, and breakthrough-theory conversations include noise, but the
+underlying infrastructure problems can still be real. The skill is extracting the
+durable systems problem without swallowing the hype.
+
+Hum rule: every exciting research or market signal becomes a hypothesis, not a
+slogan, until Hum can turn it into a proof, benchmark, diagnostic, or profile.
+
+### If Only Experts Understand It, Product Work Remains
+
+A powerful compiler or verifier that only a few people can use is not yet a
+language product. The next bottleneck may be syntax, explanation, diagnostics,
+or tooling rather than deeper machinery.
+
+Hum rule: after hard internal proof, build the layer that lets ordinary users and
+agents benefit from the machinery.
+
+### Platform Shifts Are The Right Time To Be Brave
+
+LLVM, Swift, MLIR, and Mojo each connect to a platform shift: compiler
+infrastructure, mobile apps, heterogeneous hardware, and AI/accelerator stacks.
+Big language moves need a reason the old equilibrium is no longer enough.
+
+Hum rule: tie major bets to real shifts: supply-chain evidence, agent-readable
+code, safety regulation, heterogeneous hardware, local-first security, and
+software that must explain its own behavior.
+
+### The Right Answer May Improve Competitors
+
+LLVM made other languages faster. A deep infrastructure contribution can help an
+ecosystem even when those languages compete for users.
+
+Hum rule: some Hum tools should be useful even before people write all-Hum code:
+reports, wrappers, validators, migration aids, and evidence bundles can improve
+mixed systems.
+
+### Do Not Celebrate Running Code Too Early
+
+A compiler that emits code proves only that code can run. It does not prove the
+language is understandable, safe, portable, optimizable, debuggable, or worth
+adopting.
+
+Hum rule: every execution milestone must preserve the semantic graph, diagnostic
+quality, evidence story, and user-facing explanation.
+
 ## Builder Principles
 
 ### 1. Enthusiasm Is Infrastructure
@@ -351,5 +467,10 @@ Hum should feel ambitious, but the work should stay humble:
 ```text
 small proof -> written lesson -> graph/report/check -> migration path -> public claim
 ```
+
+The next hard proof should be executable truth without losing Hum's unique
+surface: one tiny program lowered through a formal core, run locally, and still
+connected to diagnostics, effects, resource claims, test obligations, and graph
+facts. That proof matters more than adding another attractive language feature.
 
 That is the part of the Lattner method Hum most needs to carry forward.
