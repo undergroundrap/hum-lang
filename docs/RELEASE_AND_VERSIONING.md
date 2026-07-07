@@ -119,21 +119,21 @@ No remote push is part of the local release check. Publishing is a separate huma
 
 ## Hosted CI Policy
 
-While Hum is private and has no users, hosted CI is intentionally tag-gated to conserve private GitHub Actions minutes. The workflow runs automatically only for `v*` tag pushes, plus manual `workflow_dispatch` when a human explicitly asks for it.
+While Hum is private and has no users, hosted CI is guarded rather than wide open. The workflow runs on `main` pushes, `v*` tag pushes, and manual `workflow_dispatch` runs. It must keep:
 
-Normal `main` pushes do not run hosted CI. They should be protected by local checks instead:
+- `concurrency.cancel-in-progress: true`, so a newer push cancels an older in-progress run on the same ref
+- a short `timeout-minutes` value on hosted jobs, currently 15 minutes
+- no pull-request trigger while the repo is private and single-maintainer
 
-```powershell
-.\tools\check_all.ps1
-```
+This gives every pushed checkpoint Windows and Linux coverage without allowing a stuck job to burn the default multi-hour timeout window.
 
-Before creating a tag, run the stricter gate:
+Before creating a tag, run the stricter local gate:
 
 ```powershell
 .\tools\check_tag_readiness.ps1
 ```
 
-When Hum becomes public or has real external users, revisit this policy and restore branch and pull-request CI if the adoption and contribution model needs it.
+When Hum becomes public or has real external users, revisit this policy and restore pull-request CI if the contribution model needs it.
 
 ## Release Notes
 

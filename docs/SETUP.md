@@ -76,7 +76,7 @@ That tag gate does not create a tag and does not touch remotes; it prints the ex
 coverage, version, diagnostic-explain, diagnostic-catalog, graph, editor fixture recovery, and syntax JSON parsing, TextMate snapshot drift detection,
 whitespace checks, text hygiene, public readiness, and release readiness.
 
-Hosted CI should call the same script, but the private pre-user repo is deliberately tag-gated to conserve hosted minutes. The current GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs on Windows and Linux for `v*` tag pushes and manual `workflow_dispatch` runs only. Normal `main` pushes rely on local verification.
+Hosted CI should call the same script, but the private pre-user repo uses guardrails to conserve hosted minutes. The current GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs on Windows and Linux for `main` pushes, `v*` tag pushes, and manual `workflow_dispatch` runs. It uses concurrency cancellation so a newer push cancels an older in-progress run on the same ref, and each matrix job has a 15-minute timeout. Pull-request CI stays off while the repo is private and single-maintainer.
 
 ## Editor Setup
 
