@@ -62,17 +62,28 @@ function Add-Failure {
   $Failures.Add(("{0}: {1}" -f (Get-RepoRelativePath $Path), $Message))
 }
 
-function Test-ExcludedPath {
-  param([System.IO.FileSystemInfo] $Item)
+function Test-ExcludedRelativePath {
+  param([string] $RelativePath)
 
-  $relative = Get-RepoRelativePath $Item.FullName
   foreach ($directory in $ExcludedDirectories) {
-    if ($relative -eq $directory -or $relative.StartsWith("$directory\", [System.StringComparison]::OrdinalIgnoreCase)) {
+    if ($RelativePath -eq $directory) {
       return $true
+    }
+
+    foreach ($separator in @('\', '/')) {
+      if ($RelativePath.StartsWith("$directory$separator", [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $true
+      }
     }
   }
 
   return $false
+}
+
+function Test-ExcludedPath {
+  param([System.IO.FileSystemInfo] $Item)
+
+  return Test-ExcludedRelativePath (Get-RepoRelativePath $Item.FullName)
 }
 
 function Test-TextFile {
@@ -169,6 +180,15 @@ $MojibakePatterns = @(
   (New-StringFromCodePoints @(0x00F0)),
   (New-StringFromCodePoints @(0x00EF, 0x00BB, 0x00BF))
 )
+
+foreach ($directory in $ExcludedDirectories) {
+  foreach ($separator in @('\', '/')) {
+    $samplePath = $directory + $separator + 'sample.txt'
+    if (-not (Test-ExcludedRelativePath $samplePath)) {
+      throw "Excluded directory check does not handle $samplePath"
+    }
+  }
+}
 
 $files = Get-ChildItem -LiteralPath $RepoRoot -Recurse -File -Force | Where-Object { Test-TextFile $_ }
 
