@@ -46,6 +46,26 @@ No optimization is Hum-shaped unless it satisfies all four:
 
 This keeps Hum from becoming both slow and clever.
 
+## Modern Hardware Reality
+
+Hum should not rely on old data-structure folklore when modern hardware is often
+limited by cache locality, indirection, allocation, branch behavior, SIMD width,
+NUMA placement, and accelerator transfer costs.
+
+Rules:
+
+- asymptotic complexity is necessary but not sufficient
+- layout, bytes moved, cache misses, branch misses, and allocation behavior must
+  be benchmarked when they matter
+- contiguous value-oriented defaults should beat pointer-heavy structures unless
+  pointer stability, persistence, or update shape justifies the cost
+- persistent or boxed structures belong behind explicit intent, not as invisible
+  defaults for systems profiles
+- optimization reports should identify hardware assumptions and fallback paths
+
+This follows the value-semantics and modern-hardware lesson captured in
+[research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md).
+
 ## Research Intake Pipeline
 
 New DSA or compiler optimization research enters Hum through a lab, not straight
@@ -244,6 +264,7 @@ vision.
 - Oracle Java tutorial, "Type Erasure": https://docs.oracle.com/javase/tutorial/java/generics/erasure.html
 - TypeScript Handbook, "Type Compatibility": https://www.typescriptlang.org/docs/handbook/type-compatibility.html
 - TypeScript Design Goals: https://github.com/microsoft/TypeScript/wiki/TypeScript-Design-Goals
+- Lattner compiler lessons: [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md)
 - Tang, Alimadadi, Sumner, "From Logic to Toolchains": https://arxiv.org/abs/2601.21186
 - Ren et al., "SaaSBench": https://arxiv.org/abs/2605.17526
 - Xiang et al., "Rust-SWE-bench": https://arxiv.org/abs/2602.22764

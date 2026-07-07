@@ -160,16 +160,62 @@ Hum rule: major features need a decision record or RFC, not just chat memory.
 The BDFL can decide taste, but the decision should leave evidence, tradeoffs,
 and rejected alternatives behind.
 
+## Second-Pass Extraction Ledger
+
+This transcript has more useful signal than the first doctrine pass can absorb.
+This ledger records the remaining lessons without committing raw transcript text.
+
+| Transcript signal | Hum disposition | Follow-up |
+| --- | --- | --- |
+| Long projects need intellectual conviction and real enthusiasm, not only a rational plan. | Accepted as project culture. | Keep research-to-prototype loops small enough that the builder can still learn directly from the system. |
+| Credibility comes from shipped artifacts before broad persuasion. | Accepted. | Public claims should point to working tools, reports, examples, docs, and CI, not intention. |
+| A language launch needs more than a compiler. It needs docs, editor integration, debugger paths, API shape, and migration story. | Accepted. | Keep the public alpha gate wider than parser/checker status. |
+| Pulling the old ecosystem forward can make the new language adoptable. | Accepted. | Interop work should improve wrapper quality, diagnostics, and migration paths instead of treating old code as disposable. |
+| Skepticism may be about lost expertise and status, not only technical disagreement. | Accepted for adoption docs. | Future tutorials should map existing Rust, C, Python, and ops knowledge into Hum concepts so experts keep their dignity. |
+| Smaller informed design groups can make discontinuous progress before broad debate. | Accepted with caution. | Use BDFL plus written design records, but do not copy Apple's secrecy model. |
+| Progressive disclosure helps experienced programmers too because ordinary code should require less mental load. | Accepted. | Keep first-screen Hum small even for expert-facing docs. |
+| Swift's rapid adoption created pressure to add local special cases before core simplification caught up. | Accepted as warning. | No demo-driven syntax or framework-specific sugar without a general mechanism and tooling story. |
+| Go's delayed generics show that patience can produce a better late feature than an early weak one. | Accepted. | Keep generics, macros, async, and inheritance delayed until core mileage justifies them. |
+| Strict pure-functional copying is often the wrong systems default on modern hardware. | Accepted. | Favor value semantics with visible ownership and mutation; keep persistent structures explicit. |
+| Old Big-O folklore can mislead when cache locality, indirection, and allocation dominate. | Accepted. | DSA and stdlib work must benchmark layout, cache, branch, allocation, and hardware behavior, not only asymptotic complexity. |
+| A simple dynamic-feeling path can coexist with opt-in strict control for hot or embedded code. | Future design direction, not accepted syntax. | Explore profiles and annotations that let ordinary code stay light while systems code exposes ownership, allocation, and layout. |
+| C/C++ and Python/Mojo show that related languages can coexist and exchange ideas without total replacement. | Accepted. | Hum migration should support partial adoption, mixed systems, and old/new examples. |
+| Stable foreign API boundaries can let a new system consume a large existing ecosystem without owning it. | Accepted. | Prefer C ABI, process, Wasm, and stable interpreter boundaries before deep native interop promises. |
+| Migrators do not need to be perfect to be valuable. | Accepted. | `hum migrate` and `nectar migrate` can start as mechanical, explainable, partially manual tools. |
+| New keywords and edition changes can be handled with escaping and mechanical rewrites. | Accepted for future edition design. | Edition plans should include keyword conflict handling and migration diagnostics. |
+| Invention, team building, and handoff are different phases. | Accepted for governance. | Keep milestone ownership clear, and let mature areas gain maintainers while the founder focuses on the next unknown. |
+| Blank-page creation can paralyze even excellent engineers. | Accepted for contributor experience. | Keep small vertical slices, fixtures, and roadmap gates so contributors know where to start. |
+| Major features should begin by studying many systems, including old languages with forgotten good ideas. | Accepted. | Continue research sweeps before hardening syntax, stdlib, and backend work. |
+| Modern hardware needs async runtimes, thread pools, SIMD, matrix units, NUMA awareness, fusion, and accelerator-aware lowering. | Future backend and runtime requirement. | Capture in backend, numeric/tensor, concurrency, and runtime profile docs before native optimization claims. |
+| MLIR can be useful without copying all MLIR dialects or making it the language's center. | Accepted. | Keep Hum IR first; use MLIR selectively where it preserves the right abstractions. |
+| Zig and newer language work remain relevant because language progress is still active. | Accepted. | Keep cross-language regret and research docs current instead of freezing Hum's taste in 2026. |
+
+## Deferred Or Rejected From This Transcript
+
+- Do not copy Apple's secrecy model as community policy.
+- Do not make Hum a Python superset or a Swift/Mojo clone.
+- Do not add classes, macros, result-builder-like sugar, or Zig-style comptime
+  because they are exciting in another language.
+- Do not claim Hum can beat Rust, C++, CUDA, MKL, or vendor libraries before a
+  reproducible benchmark harness and resource evidence exist.
+- Do not treat MLIR, LLVM, Cranelift, or any backend as Hum's semantic center.
+- Do not hide compatibility breaks behind optimistic branding.
+
 ## Direct Hum Changes From This Note
 
 Accepted design direction:
 
 - progressive disclosure is a language and tooling requirement
 - migration tooling is part of the adoption story
+- old ecosystems should be pulled forward through safe wrappers, stable
+  boundaries, and migrators rather than dismissed
 - early instability must be explicit and versioned
 - special-case syntax is rejected unless it collapses into a general mechanism
 - backend claims require prototypes and benchmarks
 - Hum IR must preserve resource, layout, ownership, effect, and evidence facts
+- standard-library and optimization work must respect modern hardware reality,
+  including cache locality, allocation, branch behavior, NUMA, SIMD, and
+  accelerator paths where relevant
 
 Related docs:
 
