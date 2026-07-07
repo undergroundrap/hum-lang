@@ -92,6 +92,7 @@ Current prototype status:
 - `hum syntax` emits section hover metadata so adapters can explain intent blocks from one source.
 - `hum syntax` emits a semantic-token legend so adapters share token names before range emission exists.
 - `hum syntax --format textmate` and `editors/textmate/hum.tmLanguage.json` provide the first generated highlighting surface.
+- `hum capabilities --format json` emits `hum.capabilities.v0` toolchain surface discovery for adapters and agents.
 
 Deferred beyond Milestone 0:
 

@@ -25,6 +25,7 @@ Hum should own these tools:
 - `hum check`: diagnostics and local validation, including `hum.check.v0` JSON
 - `hum graph`: semantic graph JSON for tools, agents, and docs
 - `hum syntax`: syntax surface JSON for highlighting, grammar generation, and adapters
+- `hum capabilities`: toolchain surface discovery for adapters, agents, and CI wrappers
 - `humfmt`: canonical formatting
 - `hum lsp`: language intelligence through the Language Server Protocol
 - `hum debug`: future Debug Adapter Protocol bridge

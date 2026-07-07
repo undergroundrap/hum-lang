@@ -48,6 +48,9 @@ if (-not $releaseDoc.Contains('hum explain')) {
 if (-not $releaseDoc.Contains('hum diagnostics')) {
   Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention hum diagnostics'
 }
+if (-not $releaseDoc.Contains('hum capabilities')) {
+  Add-Failure 'docs/RELEASE_AND_VERSIONING.md does not mention hum capabilities'
+}
 
 $readme = Read-RepoText 'README.md'
 if (-not $readme.Contains('docs/RELEASE_AND_VERSIONING.md')) {
@@ -58,6 +61,9 @@ if (-not $readme.Contains('docs/LSP_CAPABILITY_MATRIX.md')) {
 }
 if (-not $readme.Contains('docs/SYNTAX_SURFACE_SCHEMA.md')) {
   Add-Failure 'README.md does not link docs/SYNTAX_SURFACE_SCHEMA.md'
+}
+if (-not $readme.Contains('docs/CAPABILITIES_SCHEMA.md')) {
+  Add-Failure 'README.md does not link docs/CAPABILITIES_SCHEMA.md'
 }
 if (-not $readme.Contains('SECURITY.md')) {
   Add-Failure 'README.md does not link SECURITY.md'
@@ -70,6 +76,9 @@ if (-not $readme.Contains('hum explain')) {
 }
 if (-not $readme.Contains('hum diagnostics')) {
   Add-Failure 'README.md does not mention hum diagnostics'
+}
+if (-not $readme.Contains('hum capabilities')) {
+  Add-Failure 'README.md does not mention hum capabilities'
 }
 
 $diagnosticsDoc = Read-RepoText 'docs\DIAGNOSTICS.md'
@@ -120,7 +129,7 @@ if (-not $editorStrategyDoc.Contains('LSP_CAPABILITY_MATRIX.md')) {
 }
 
 $lspMatrixDoc = Read-RepoText 'docs\LSP_CAPABILITY_MATRIX.md'
-foreach ($required in @('hum.check.v0', 'hum.semantic_graph.v0', 'hum.syntax_surface.v0', 'folding_ranges', 'section_catalog', 'semantic_tokens', 'VS Code', 'Visual Studio', 'JetBrains', 'Eclipse', 'Jupyter')) {
+foreach ($required in @('hum.capabilities.v0', 'hum.check.v0', 'hum.semantic_graph.v0', 'hum.syntax_surface.v0', 'folding_ranges', 'section_catalog', 'semantic_tokens', 'VS Code', 'Visual Studio', 'JetBrains', 'Eclipse', 'Jupyter')) {
   if (-not $lspMatrixDoc.Contains($required)) {
     Add-Failure "docs/LSP_CAPABILITY_MATRIX.md does not mention $required"
   }
@@ -130,6 +139,13 @@ $syntaxSurfaceDoc = Read-RepoText 'docs\SYNTAX_SURFACE_SCHEMA.md'
 foreach ($required in @('hum.syntax_surface.v0', 'section_catalog', 'semantic_tokens', 'TextMate', 'hum graph', 'hum check --format json')) {
   if (-not $syntaxSurfaceDoc.Contains($required)) {
     Add-Failure "docs/SYNTAX_SURFACE_SCHEMA.md does not mention $required"
+  }
+}
+
+$capabilitiesDoc = Read-RepoText 'docs\CAPABILITIES_SCHEMA.md'
+foreach ($required in @('hum.capabilities.v0', 'hum capabilities --format json', 'toolchain discovery', 'not Hum''s runtime authority model', 'editor_capabilities', 'hum.syntax_surface.v0')) {
+  if (-not $capabilitiesDoc.Contains($required)) {
+    Add-Failure "docs/CAPABILITIES_SCHEMA.md does not mention $required"
   }
 }
 

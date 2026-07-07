@@ -32,6 +32,7 @@ Sublime Text, and future notebook tools should consume the same Hum facts.
 
 | Capability | Status | Hum source of truth | Adapter behavior | Notes |
 | --- | --- | --- | --- | --- |
+| Toolchain capability discovery | Current | `hum capabilities --format json`, `hum.capabilities.v0` | Confirm schema and adapter-surface support before enabling editor features. | This is toolchain discovery, not runtime authority. |
 | Diagnostics | Adapter-ready | `hum check --format json`, `hum.check.v0` | Publish LSP diagnostics from source-backed spans. | Use `code`, `title`, `severity`, `message`, `span`, and `help`; preserve stable codes such as `H0201`. |
 | Diagnostic explanations | Adapter-ready | `hum explain <H####> --format json`, `hum.diagnostic_explain.v0`; `hum diagnostics --format json`, `hum.diagnostic_catalog.v0` | Show detail panels, quick-help text, or command results without reparsing source. | Works offline and should not read project files. |
 | Document symbols | Adapter-ready | `hum graph`, `hum.semantic_graph.v0`, file `symbols` | Map top-level and nested symbols to `textDocument/documentSymbol`. | Current symbols cover apps, tasks, tests, types, stores, and type fields. |
@@ -53,6 +54,7 @@ Sublime Text, and future notebook tools should consume the same Hum facts.
 
 ## Adapter Rules
 
+- Query `hum capabilities --format json` before enabling optional features.
 - Treat the Hum CLI output as the source of truth.
 - Do not reimplement parsing, diagnostics, type rules, formatting, or graph
   logic inside editor adapters.

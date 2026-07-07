@@ -1,3 +1,4 @@
+use crate::capabilities;
 use crate::diagnostic_catalog;
 use crate::json;
 use crate::syntax;
@@ -8,12 +9,13 @@ pub const HUM_MILESTONE: &str = "0 semantic graph";
 
 pub fn version_text() -> String {
     format!(
-        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\n",
+        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\n",
         target_name(),
         json::SEMANTIC_GRAPH_SCHEMA,
         syntax::SYNTAX_SCHEMA,
         diagnostic_catalog::DIAGNOSTIC_EXPLAIN_SCHEMA,
-        diagnostic_catalog::DIAGNOSTIC_CATALOG_SCHEMA
+        diagnostic_catalog::DIAGNOSTIC_CATALOG_SCHEMA,
+        capabilities::CAPABILITIES_SCHEMA
     )
 }
 
@@ -47,6 +49,13 @@ pub fn version_json() -> String {
         4,
         "diagnostic_catalog",
         diagnostic_catalog::DIAGNOSTIC_CATALOG_SCHEMA,
+        true,
+    );
+    push_string_field(
+        &mut out,
+        4,
+        "capabilities",
+        capabilities::CAPABILITIES_SCHEMA,
         false,
     );
     push_indent(&mut out, 2);
@@ -142,6 +151,7 @@ mod tests {
         assert!(text.contains("syntax_surface_schema: hum.syntax_surface.v0"));
         assert!(text.contains("diagnostic_explain_schema: hum.diagnostic_explain.v0"));
         assert!(text.contains("diagnostic_catalog_schema: hum.diagnostic_catalog.v0"));
+        assert!(text.contains("capabilities_schema: hum.capabilities.v0"));
     }
 
     #[test]
@@ -154,5 +164,6 @@ mod tests {
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"diagnostic_explain\": \"hum.diagnostic_explain.v0\""));
         assert!(json.contains("\"diagnostic_catalog\": \"hum.diagnostic_catalog.v0\""));
+        assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
     }
 }

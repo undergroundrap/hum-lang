@@ -68,6 +68,7 @@ Current artifacts:
 - [docs/LANGUAGE_REFERENCE.md](docs/LANGUAGE_REFERENCE.md): traditional reference spine for source files, items, sections, and current language status
 - [docs/MILESTONE_0_GRAMMAR.md](docs/MILESTONE_0_GRAMMAR.md): current Rust bootstrap parser grammar contract
 - [docs/SYNTAX_SURFACE_SCHEMA.md](docs/SYNTAX_SURFACE_SCHEMA.md): `hum.syntax_surface.v0` schema for editor-neutral syntax metadata
+- [docs/CAPABILITIES_SCHEMA.md](docs/CAPABILITIES_SCHEMA.md): `hum.capabilities.v0` schema for toolchain surface discovery
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): unifying architecture ground truth across language, graph, tools, profiles, stdlib, backend, and platform design
 - [docs/decisions/README.md](docs/decisions/README.md): accepted design decision record index
 - [docs/SETUP.md](docs/SETUP.md): portable setup for beginners, experts, terminals, and editors
@@ -173,6 +174,8 @@ cargo run -- explain H0201
 cargo run -- explain H0201 --format json
 cargo run -- diagnostics
 cargo run -- diagnostics --format json
+cargo run -- capabilities
+cargo run -- capabilities --format json
 cargo run -- graph examples/reference_surface.hum
 .\tools\check_editor_fixtures.ps1
 cargo run -- graph examples/task_list.hum
@@ -188,6 +191,7 @@ Current CLI:
 - `hum version [--format human|json]`: print toolchain identity, version, target, and schema names
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents
+- `hum capabilities [--format human|json]`: list `hum.capabilities.v0` toolchain surfaces for editors, agents, and CI wrappers
 - `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including source-derived node IDs, source columns, folding ranges, document symbols, section line facts, task test obligations, and exact or conservative canonical `covers:` links
 - `hum test-skeletons <file-or-dir>...`: print Hum `test` blocks for unlinked test obligations without executing code or writing files
 - `hum syntax`: emit `hum.syntax_surface.v0` JSON for editor and tool adapters, including section hover metadata and a semantic-token legend

@@ -61,6 +61,7 @@ All tools should consume the same facts:
 - `hum check`
 - `hum graph`
 - `hum syntax`
+- `hum capabilities`
 - `humfmt`
 - `chirp`
 - `hum lsp`
@@ -176,7 +177,8 @@ stable extension methods documented in the semantic graph schema.
 The current and planned LSP/editor capability contract is tracked in
 [LSP_CAPABILITY_MATRIX.md](LSP_CAPABILITY_MATRIX.md). A capability should not be
 treated as adapter-ready until the matrix names the first-party Hum command or
-schema that owns it.
+schema that owns it. Adapters should query `hum capabilities --format json` to
+confirm what the local binary can emit.
 
 ## Editor Integration Strategy
 
