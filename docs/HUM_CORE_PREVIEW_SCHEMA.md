@@ -12,9 +12,10 @@ true Core Hum lowering.
 
 This command is intentionally not an interpreter, not a type checker, not an
 effect checker, not Hum IR, and not a backend. It reports conservative candidate
-operations, expression preview atoms, AST previews, operators, and blockers so
-humans, agents, and future compiler passes can see what the current bootstrap can
-map toward Core Hum without pretending the body has executable meaning.
+operations, block previews, expression preview atoms, AST previews, operators,
+and blockers so humans, agents, and future compiler passes can see what the
+current bootstrap can map toward Core Hum without pretending the body has
+executable meaning.
 
 ## Command
 
@@ -57,8 +58,8 @@ compiler-roadmap checks, and future Core Hum lowering/verifier work.
 - `milestone`: current implementation milestone
 - `core_contract_schema`: Core Hum contract this report targets
 - `summary`: file, item, task, test, candidate, execution-ready, diagnostic,
-  statement-preview, expression-preview, expression-atom, expression-AST-node, and
-  compound-expression preview counts
+  statement-preview, block-preview, expression-preview, expression-atom,
+  expression-AST-node, and compound-expression preview counts
 - `core_candidates`: task or test bodies with a `does:` section
 - `non_goals_v0`: claims this command must not make
 
@@ -75,9 +76,10 @@ Each `core_candidates` entry has:
 - `body_status`: partial body grammar aggregate status
 - `grammar_status`: body grammar maturity, currently `partial_v0`
 - `summary`: meaningful body lines, statement status counts, expression preview
-  counts, expression atom counts, expression AST node counts, and compound
-  expression preview counts
+  counts, block preview counts, expression atom counts, expression AST node counts,
+  and compound expression preview counts
 - `source_sections`: sections seen on the source item
+- `block_preview`: conservative nested block tree over statement indexes
 - `statements`: one row per meaningful `does:` body line
 
 Current candidate statuses:
@@ -106,6 +108,79 @@ Each `statements` row has:
 - `expression_preview`: structured expression preview, or `null` when the row has
   no standalone expression text
 - `reason`: optional blocker or context reason
+
+## Block Preview Shape
+
+`block_preview` is a syntax/control-flow preview only. It groups the flat
+`statements` rows by explicit `{` and `}` structure so future Core lowering,
+type-checking, effect-checking, and diagnostics can consume block shape without
+re-parsing source text.
+
+This example is abbreviated to show the shape without repeating every nested field:
+
+```json
+{
+  "status": "block_preview_v0",
+  "block_count": 3,
+  "max_depth": 2,
+  "unmatched_closes": 0,
+  "unclosed_blocks": 0,
+  "root": {
+    "node_kind": "block",
+    "id": "hum_core_preview_task_find_active_session_3_1_block_root",
+    "block_kind": "root",
+    "status": "block_preview_v0",
+    "header_statement_index": null,
+    "closing_statement_index": null,
+    "reason": null,
+    "children": [
+      { "node_kind": "block", "block_kind": "for_each", "children": [] },
+      {
+        "node_kind": "statement_ref",
+        "statement_index": 5,
+        "core_operation": "fail",
+        "status": "lowerable_preview_v0",
+        "reason": null
+      }
+    ]
+  }
+}
+```
+
+Block preview fields:
+
+- `status`: aggregate block status, currently `block_preview_v0` or
+  `block_preview_with_mismatch_v0`
+- `block_count`: root plus nested block count
+- `max_depth`: maximum nested block depth, with root at depth `0`
+- `unmatched_closes`: number of `}` rows found at root level
+- `unclosed_blocks`: number of opened blocks missing a closing `}`
+- `root`: root block node
+
+Block node fields:
+
+- `node_kind`: `block` or `statement_ref`
+- `id`: source-derived preview block identifier for block nodes
+- `block_kind`: `root`, `if_statement`, `while_loop`, `for_each`, `for_index`,
+  `loop`, or `record_construction`
+- `status`: `block_preview_v0`, `contextual_block_preview_v0`,
+  `unclosed_block_preview_v0`, or `block_preview_with_mismatch_v0` on the root
+  node when aggregate brace mismatches are present
+- `header_statement_index`: index into `statements` for the opening statement, or
+  `null` for root
+- `closing_statement_index`: index into `statements` for the closing `}`, or
+  `null` when root or unclosed
+- `children`: nested block nodes or statement refs
+- `reason`: optional context or mismatch reason
+
+Block preview honesty rules:
+
+- It does not lower blocks to executable Core Hum.
+- It does not type-check branch conditions, loop bounds, mutation, returns, or
+  failures.
+- It does not prove reachability, termination, allocation behavior, or effects.
+- It only reflects explicit brace structure recognized by the partial body
+  grammar.
 
 Statement statuses:
 
@@ -266,8 +341,8 @@ AST honesty rules:
   optimization, or backend readiness.
 - It must not emit Hum IR.
 - It may report Core Hum candidate operation families, source spans, coarse
-  expression kinds, expression preview atoms, expression AST previews, operators,
-  and explicit blockers.
+  expression kinds, block previews, expression preview atoms, expression AST
+  previews, operators, and explicit blockers.
 - It must stay in sync with `hum.core_contract.v0`, `hum.ir_readiness.v0`, `hum
   capabilities --format json`, and `hum version --format json`.
 

@@ -36,7 +36,13 @@ struct CoreCandidate {
     expression_atoms: usize,
     expression_ast_nodes: usize,
     compound_expression_previews: usize,
+    block_status: &'static str,
+    block_count: usize,
+    max_block_depth: usize,
+    unmatched_block_closes: usize,
+    unclosed_blocks: usize,
     source_sections: Vec<String>,
+    block_preview: CoreBlockPreview,
     statements: Vec<CoreStatementPreview>,
 }
 
@@ -49,6 +55,37 @@ struct CoreStatementPreview {
     status: &'static str,
     expression_kind: Option<&'static str>,
     expression_preview: Option<CoreExpressionPreview>,
+    reason: Option<&'static str>,
+}
+
+struct CoreBlockPreview {
+    status: &'static str,
+    block_count: usize,
+    max_depth: usize,
+    unmatched_closes: usize,
+    unclosed_blocks: usize,
+    root: CoreBlockNode,
+}
+
+struct CoreBlockNode {
+    id: String,
+    block_kind: &'static str,
+    status: &'static str,
+    header_statement_index: Option<usize>,
+    closing_statement_index: Option<usize>,
+    children: Vec<CoreBlockChild>,
+    reason: Option<&'static str>,
+}
+
+enum CoreBlockChild {
+    Statement(CoreBlockStatementRef),
+    Block(CoreBlockNode),
+}
+
+struct CoreBlockStatementRef {
+    statement_index: usize,
+    core_operation: &'static str,
+    status: &'static str,
     reason: Option<&'static str>,
 }
 
@@ -67,7 +104,7 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         core_contract::CORE_CONTRACT_SCHEMA
     ));
     out.push_str(&format!(
-        "summary: files={} items={} tasks={} tests={} core_candidates={} execution_ready=0 errors={} warnings={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={}\n",
+        "summary: files={} items={} tasks={} tests={} core_candidates={} execution_ready=0 errors={} warnings={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={} block_count={} max_block_depth={} unmatched_block_closes={} unclosed_blocks={}\n",
         report.files,
         report.items,
         report.tasks,
@@ -81,7 +118,11 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.expression_previews(),
         report.expression_atoms(),
         report.expression_ast_nodes(),
-        report.compound_expression_previews()
+        report.compound_expression_previews(),
+        report.block_count(),
+        report.max_block_depth(),
+        report.unmatched_block_closes(),
+        report.unclosed_blocks()
     ));
 
     if report.candidates.is_empty() {
@@ -101,9 +142,10 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
             candidate.name
         ));
         out.push_str(&format!(
-            "    body: {} grammar={} meaningful_lines={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={}\n",
+            "    body: {} grammar={} block_status={} meaningful_lines={} lowerable_preview_statements={} contextual_preview_statements={} blocked_statements={} expression_previews={} expression_atoms={} expression_ast_nodes={} compound_expression_previews={} block_count={} max_block_depth={} unmatched_block_closes={} unclosed_blocks={}\n",
             candidate.body_status,
             candidate.grammar_status,
+            candidate.block_status,
             candidate.meaningful_lines,
             candidate.lowerable_preview_statements,
             candidate.contextual_preview_statements,
@@ -111,7 +153,11 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
             candidate.expression_previews,
             candidate.expression_atoms,
             candidate.expression_ast_nodes,
-            candidate.compound_expression_previews
+            candidate.compound_expression_previews,
+            candidate.block_count,
+            candidate.max_block_depth,
+            candidate.unmatched_block_closes,
+            candidate.unclosed_blocks
         ));
         for statement in &candidate.statements {
             out.push_str(&format!(
@@ -244,9 +290,16 @@ fn core_candidate(item: &Item, diagnostics: &[Diagnostic]) -> Option<CoreCandida
         .filter_map(|statement| statement.expression_preview.as_ref())
         .filter(|expression| expression.status == "compound_preview_v0")
         .count();
+    let id = preview_id(item);
+    let block_preview = core_block_preview(&id, &statements);
+    let block_status = block_preview.status;
+    let block_count = block_preview.block_count;
+    let max_block_depth = block_preview.max_depth;
+    let unmatched_block_closes = block_preview.unmatched_closes;
+    let unclosed_blocks = block_preview.unclosed_blocks;
 
     Some(CoreCandidate {
-        id: preview_id(item),
+        id,
         kind: item.kind(),
         name: item.name().to_string(),
         span: portable_span(item.span()),
@@ -267,10 +320,16 @@ fn core_candidate(item: &Item, diagnostics: &[Diagnostic]) -> Option<CoreCandida
         expression_atoms,
         expression_ast_nodes,
         compound_expression_previews,
+        block_status,
+        block_count,
+        max_block_depth,
+        unmatched_block_closes,
+        unclosed_blocks,
         source_sections: item_sections(item)
             .iter()
             .map(|section| section.name.clone())
             .collect(),
+        block_preview,
         statements,
     })
 }
@@ -393,6 +452,212 @@ fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
         .map(str::trim)
 }
 
+fn core_block_preview(candidate_id: &str, statements: &[CoreStatementPreview]) -> CoreBlockPreview {
+    let mut cursor = 0usize;
+    let mut serial = 0usize;
+    let mut root = parse_block_node(
+        candidate_id,
+        "root",
+        None,
+        None,
+        statements,
+        &mut cursor,
+        &mut serial,
+    );
+    let block_count = count_block_nodes(&root);
+    let max_depth = max_block_depth(&root, 0);
+    let unmatched_closes = count_unmatched_closes(&root);
+    let unclosed_blocks = count_unclosed_blocks(&root);
+    let status = if unmatched_closes > 0 || unclosed_blocks > 0 {
+        "block_preview_with_mismatch_v0"
+    } else {
+        "block_preview_v0"
+    };
+    root.status = status;
+
+    CoreBlockPreview {
+        status,
+        block_count,
+        max_depth,
+        unmatched_closes,
+        unclosed_blocks,
+        root,
+    }
+}
+
+fn parse_block_node(
+    candidate_id: &str,
+    block_kind: &'static str,
+    header_statement_index: Option<usize>,
+    reason: Option<&'static str>,
+    statements: &[CoreStatementPreview],
+    cursor: &mut usize,
+    serial: &mut usize,
+) -> CoreBlockNode {
+    let id = next_block_id(candidate_id, block_kind, header_statement_index, serial);
+    let mut node = CoreBlockNode {
+        id,
+        block_kind,
+        status: block_status(block_kind, true),
+        header_statement_index,
+        closing_statement_index: None,
+        children: Vec::new(),
+        reason,
+    };
+
+    while *cursor < statements.len() {
+        let statement_index = *cursor;
+        let statement = &statements[statement_index];
+        if statement.source_kind == "block_close" {
+            if block_kind == "root" {
+                node.children
+                    .push(CoreBlockChild::Statement(CoreBlockStatementRef {
+                        statement_index,
+                        core_operation: statement.core_operation,
+                        status: "unmatched_block_close_v0",
+                        reason: Some("unmatched_block_close"),
+                    }));
+                *cursor += 1;
+                continue;
+            }
+
+            node.closing_statement_index = Some(statement_index);
+            *cursor += 1;
+            return node;
+        }
+
+        if let Some((child_kind, child_reason)) = opened_block_kind(statement) {
+            *cursor += 1;
+            let child = parse_block_node(
+                candidate_id,
+                child_kind,
+                Some(statement_index),
+                child_reason,
+                statements,
+                cursor,
+                serial,
+            );
+            node.children.push(CoreBlockChild::Block(child));
+        } else {
+            node.children
+                .push(CoreBlockChild::Statement(CoreBlockStatementRef {
+                    statement_index,
+                    core_operation: statement.core_operation,
+                    status: statement.status,
+                    reason: statement.reason,
+                }));
+            *cursor += 1;
+        }
+    }
+
+    if block_kind != "root" {
+        node.status = "unclosed_block_preview_v0";
+        node.reason = Some("block_close_missing");
+    }
+    node
+}
+
+fn opened_block_kind(
+    statement: &CoreStatementPreview,
+) -> Option<(&'static str, Option<&'static str>)> {
+    match statement.core_operation {
+        "if_statement" => Some(("if_statement", None)),
+        "while_loop" => Some(("while_loop", None)),
+        "for_each" => Some(("for_each", None)),
+        "for_index" => Some(("for_index", None)),
+        "loop" => Some(("loop", None)),
+        "let_binding" if statement.expression_kind == Some("record_literal_start") => Some((
+            "record_construction",
+            Some("record_literal_context_required"),
+        )),
+        _ => None,
+    }
+}
+
+fn next_block_id(
+    candidate_id: &str,
+    block_kind: &str,
+    header_statement_index: Option<usize>,
+    serial: &mut usize,
+) -> String {
+    if block_kind == "root" {
+        return format!("{candidate_id}_block_root");
+    }
+    let current = *serial;
+    *serial += 1;
+    match header_statement_index {
+        Some(index) => format!("{candidate_id}_block_{current}_{block_kind}_{index}"),
+        None => format!("{candidate_id}_block_{current}_{block_kind}"),
+    }
+}
+
+fn block_status(block_kind: &str, closed: bool) -> &'static str {
+    if !closed {
+        "unclosed_block_preview_v0"
+    } else if block_kind == "record_construction" {
+        "contextual_block_preview_v0"
+    } else {
+        "block_preview_v0"
+    }
+}
+
+fn count_block_nodes(node: &CoreBlockNode) -> usize {
+    1 + node
+        .children
+        .iter()
+        .filter_map(|child| match child {
+            CoreBlockChild::Block(block) => Some(count_block_nodes(block)),
+            CoreBlockChild::Statement(_) => None,
+        })
+        .sum::<usize>()
+}
+
+fn max_block_depth(node: &CoreBlockNode, depth: usize) -> usize {
+    node.children
+        .iter()
+        .filter_map(|child| match child {
+            CoreBlockChild::Block(block) => Some(max_block_depth(block, depth + 1)),
+            CoreBlockChild::Statement(_) => None,
+        })
+        .max()
+        .unwrap_or(depth)
+}
+
+fn count_unmatched_closes(node: &CoreBlockNode) -> usize {
+    let local = node
+        .children
+        .iter()
+        .filter(|child| {
+            matches!(
+                child,
+                CoreBlockChild::Statement(statement)
+                    if statement.status == "unmatched_block_close_v0"
+            )
+        })
+        .count();
+    local
+        + node
+            .children
+            .iter()
+            .filter_map(|child| match child {
+                CoreBlockChild::Block(block) => Some(count_unmatched_closes(block)),
+                CoreBlockChild::Statement(_) => None,
+            })
+            .sum::<usize>()
+}
+
+fn count_unclosed_blocks(node: &CoreBlockNode) -> usize {
+    usize::from(node.status == "unclosed_block_preview_v0")
+        + node
+            .children
+            .iter()
+            .filter_map(|child| match child {
+                CoreBlockChild::Block(block) => Some(count_unclosed_blocks(block)),
+                CoreBlockChild::Statement(_) => None,
+            })
+            .sum::<usize>()
+}
+
 fn candidate_status(
     has_errors: bool,
     body: &BodyGrammarReport,
@@ -460,6 +725,35 @@ impl CorePreviewReport {
         self.candidates
             .iter()
             .map(|candidate| candidate.compound_expression_previews)
+            .sum()
+    }
+
+    fn block_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.block_count)
+            .sum()
+    }
+
+    fn max_block_depth(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.max_block_depth)
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn unmatched_block_closes(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.unmatched_block_closes)
+            .sum()
+    }
+
+    fn unclosed_blocks(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.unclosed_blocks)
             .sum()
     }
 }
@@ -565,7 +859,7 @@ fn push_summary(out: &mut String, report: &CorePreviewReport, indent: usize, com
     push_indent(out, indent);
     out.push_str("\"summary\": {");
     out.push_str(&format!(
-        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"core_candidates\": {}, \"execution_ready\": 0, \"errors\": {}, \"warnings\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}",
+        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"core_candidates\": {}, \"execution_ready\": 0, \"errors\": {}, \"warnings\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}, \"block_count\": {}, \"max_block_depth\": {}, \"unmatched_block_closes\": {}, \"unclosed_blocks\": {}",
         report.files,
         report.items,
         report.tasks,
@@ -579,7 +873,11 @@ fn push_summary(out: &mut String, report: &CorePreviewReport, indent: usize, com
         report.expression_previews(),
         report.expression_atoms(),
         report.expression_ast_nodes(),
-        report.compound_expression_previews()
+        report.compound_expression_previews(),
+        report.block_count(),
+        report.max_block_depth(),
+        report.unmatched_block_closes(),
+        report.unclosed_blocks()
     ));
     out.push('}');
     push_comma_newline(out, comma);
@@ -623,10 +921,17 @@ fn push_candidate(out: &mut String, candidate: &CoreCandidate, indent: usize) {
         candidate.grammar_status,
         true,
     );
+    push_string_field(
+        out,
+        indent + 2,
+        "block_status",
+        candidate.block_status,
+        true,
+    );
     push_indent(out, indent + 2);
     out.push_str("\"summary\": {");
     out.push_str(&format!(
-        "\"meaningful_lines\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}",
+        "\"meaningful_lines\": {}, \"lowerable_preview_statements\": {}, \"contextual_preview_statements\": {}, \"blocked_statements\": {}, \"expression_previews\": {}, \"expression_atoms\": {}, \"expression_ast_nodes\": {}, \"compound_expression_previews\": {}, \"block_count\": {}, \"max_block_depth\": {}, \"unmatched_block_closes\": {}, \"unclosed_blocks\": {}",
         candidate.meaningful_lines,
         candidate.lowerable_preview_statements,
         candidate.contextual_preview_statements,
@@ -634,7 +939,11 @@ fn push_candidate(out: &mut String, candidate: &CoreCandidate, indent: usize) {
         candidate.expression_previews,
         candidate.expression_atoms,
         candidate.expression_ast_nodes,
-        candidate.compound_expression_previews
+        candidate.compound_expression_previews,
+        candidate.block_count,
+        candidate.max_block_depth,
+        candidate.unmatched_block_closes,
+        candidate.unclosed_blocks
     ));
     out.push_str("},\n");
     push_owned_string_array(
@@ -644,6 +953,7 @@ fn push_candidate(out: &mut String, candidate: &CoreCandidate, indent: usize) {
         &candidate.source_sections,
         true,
     );
+    push_block_preview(out, indent + 2, &candidate.block_preview, true);
     push_statements(out, indent + 2, &candidate.statements, false);
     push_indent(out, indent);
     out.push('}');
@@ -772,6 +1082,113 @@ fn push_string_slice_array(
     push_comma_newline(out, comma);
 }
 
+fn push_block_preview(out: &mut String, indent: usize, preview: &CoreBlockPreview, comma: bool) {
+    push_indent(out, indent);
+    push_json_string(out, "block_preview");
+    out.push_str(": {\n");
+    push_string_field(out, indent + 2, "status", preview.status, true);
+    push_usize_field(out, indent + 2, "block_count", preview.block_count, true);
+    push_usize_field(out, indent + 2, "max_depth", preview.max_depth, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "unmatched_closes",
+        preview.unmatched_closes,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unclosed_blocks",
+        preview.unclosed_blocks,
+        true,
+    );
+    push_indent(out, indent + 2);
+    push_json_string(out, "root");
+    out.push_str(": ");
+    push_block_node(out, indent + 2, &preview.root);
+    out.push('\n');
+    push_indent(out, indent);
+    out.push('}');
+    push_comma_newline(out, comma);
+}
+
+fn push_block_node(out: &mut String, indent: usize, node: &CoreBlockNode) {
+    out.push_str("{\n");
+    push_string_field(out, indent + 2, "node_kind", "block", true);
+    push_string_field(out, indent + 2, "id", &node.id, true);
+    push_string_field(out, indent + 2, "block_kind", node.block_kind, true);
+    push_string_field(out, indent + 2, "status", node.status, true);
+    push_optional_usize_field(
+        out,
+        indent + 2,
+        "header_statement_index",
+        node.header_statement_index,
+        true,
+    );
+    push_optional_usize_field(
+        out,
+        indent + 2,
+        "closing_statement_index",
+        node.closing_statement_index,
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "reason", node.reason, true);
+    push_block_children(out, indent + 2, &node.children, false);
+    push_indent(out, indent);
+    out.push('}');
+}
+
+fn push_block_children(out: &mut String, indent: usize, children: &[CoreBlockChild], comma: bool) {
+    push_indent(out, indent);
+    push_json_string(out, "children");
+    out.push_str(": [");
+    if !children.is_empty() {
+        out.push('\n');
+        for (index, child) in children.iter().enumerate() {
+            if index > 0 {
+                out.push_str(",\n");
+            }
+            push_indent(out, indent + 2);
+            push_block_child(out, indent + 2, child);
+        }
+        out.push('\n');
+        push_indent(out, indent);
+    }
+    out.push(']');
+    push_comma_newline(out, comma);
+}
+
+fn push_block_child(out: &mut String, indent: usize, child: &CoreBlockChild) {
+    match child {
+        CoreBlockChild::Statement(statement) => push_block_statement_ref(out, indent, statement),
+        CoreBlockChild::Block(block) => push_block_node(out, indent, block),
+    }
+}
+
+fn push_block_statement_ref(out: &mut String, indent: usize, statement: &CoreBlockStatementRef) {
+    out.push_str("{\n");
+    push_string_field(out, indent + 2, "node_kind", "statement_ref", true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "statement_index",
+        statement.statement_index,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "core_operation",
+        statement.core_operation,
+        true,
+    );
+    push_string_field(out, indent + 2, "status", statement.status, true);
+    push_optional_string_field(out, indent + 2, "reason", statement.reason, false);
+    push_indent(out, indent);
+    out.push('}');
+}
+
 fn push_expression_ast(
     out: &mut String,
     indent: usize,
@@ -834,6 +1251,22 @@ fn push_expression_node_children(
     push_comma_newline(out, comma);
 }
 
+fn push_optional_usize_field(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    value: Option<usize>,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    push_json_string(out, key);
+    out.push_str(": ");
+    match value {
+        Some(value) => out.push_str(&value.to_string()),
+        None => out.push_str("null"),
+    }
+    push_comma_newline(out, comma);
+}
 fn push_usize_field(out: &mut String, indent: usize, key: &str, value: usize, comma: bool) {
     push_indent(out, indent);
     push_json_string(out, key);
@@ -961,6 +1394,7 @@ mod tests {
         assert!(text.contains("expression_previews="));
         assert!(text.contains("expression_atoms="));
         assert!(text.contains("expression_ast_nodes="));
+        assert!(text.contains("block_status="));
         assert!(text.contains("return -> return"));
         assert!(text.contains("save_in_store -> store_write_deferred"));
     }
@@ -977,6 +1411,10 @@ mod tests {
         assert!(json.contains("\"source_kind\": \"return\""));
         assert!(json.contains("\"core_operation\": \"return\""));
         assert!(json.contains("\"expression_previews\""));
+        assert!(json.contains("\"block_status\": \"block_preview_v0\""));
+        assert!(json.contains("\"block_preview\""));
+        assert!(json.contains("\"block_kind\": \"record_construction\""));
+        assert!(json.contains("\"node_kind\": \"statement_ref\""));
         assert!(json.contains("\"expression_preview\""));
         assert!(json.contains("\"atoms\""));
         assert!(json.contains("\"operators\""));
@@ -995,6 +1433,40 @@ mod tests {
         assert!(json.contains("\"no interpreter\""));
     }
 
+    #[test]
+    fn json_preview_reports_nested_block_tree_without_execution_claims() {
+        let source = r#"task find session(user: User, sessions: Sessions) -> Session {
+  why:
+    find a session
+
+  does:
+    for each session in sessions {
+      if session.user == user {
+        return session
+      }
+    }
+
+    fail SessionError.not_found
+}
+"#;
+        let parsed = parse_source("nested.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = core_preview_json(&program, &[]);
+
+        assert!(json.contains("\"block_preview\""));
+        assert!(json.contains("\"block_count\": 3"));
+        assert!(json.contains("\"max_block_depth\": 2"));
+        assert!(json.contains("\"max_depth\": 2"));
+        assert!(json.contains("\"block_kind\": \"for_each\""));
+        assert!(json.contains("\"block_kind\": \"if_statement\""));
+        assert!(json.contains("\"header_statement_index\": 0"));
+        assert!(json.contains("\"closing_statement_index\": 4"));
+        assert!(json.contains("\"unmatched_block_closes\": 0"));
+        assert!(json.contains("\"unclosed_blocks\": 0"));
+        assert!(json.contains("\"no executable semantics\""));
+    }
     fn demo_program() -> Program {
         let source = r#"type Task {
   title: Text

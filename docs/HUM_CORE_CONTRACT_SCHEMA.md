@@ -19,8 +19,8 @@ This command is not a source-to-core lowering implementation, not an interpreter
 not a type checker, and not an optimizer. V0 now includes a partial
 body-grammar classifier used by `hum ir-readiness` and a non-executing
 Core Hum candidate preview emitted by `hum core-preview`; these recognize
-first statement candidates, expression preview atoms, expression AST previews,
-operators, and blockers without assigning executable meaning.
+first statement candidates, block previews, expression preview atoms, expression
+AST previews, operators, and blockers without assigning executable meaning.
 
 ## Command
 
@@ -122,15 +122,15 @@ These are roadmap facts, not implementation APIs. They keep build order honest.
 `partial_v0` means the compiler recognizes a conservative line-oriented subset
 of `does:` body shapes for readiness reporting only; it does not lower, type
 check, execute, or verify those lines. `preview_v0` means the compiler can emit
-Core Hum candidate operation families, expression preview atoms, expression AST
-previews, operators, and blockers from those lines for roadmap and adapter use,
-but it still does not lower, type check, execute, or verify them.
+Core Hum candidate operation families, block previews, expression preview atoms,
+expression AST previews, operators, and blockers from those lines for roadmap and
+adapter use, but it still does not lower, type check, execute, or verify them.
 
 ## Honesty Rules
 
 - `hum core-contract` is a discovery command, not Core Hum emission.
-- `hum core-preview` is a candidate, expression preview, expression AST preview,
-  and blocker report, not executable Core Hum.
+- `hum core-preview` is a candidate, block preview, expression preview,
+  expression AST preview, and blocker report, not executable Core Hum.
 - It must not run generated code.
 - It must not claim executable semantics.
 - It must not pretend type checking, effect checking, optimization, or backend

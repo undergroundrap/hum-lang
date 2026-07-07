@@ -263,6 +263,17 @@ try {
   if (-not $CorePreviewJson.Contains('"core_operation": "return"')) { throw 'Core preview JSON is missing return operation preview' }
   if (-not $CorePreviewJson.Contains('"core_operation": "store_write_deferred"')) { throw 'Core preview JSON is missing deferred store write blocker' }
   if (-not $CorePreviewJson.Contains('"expression_previews"')) { throw 'Core preview JSON is missing expression preview counts' }
+  if (-not $CorePreviewJson.Contains('"block_status": "block_preview_v0"')) { throw 'Core preview JSON is missing block preview status' }
+  if (-not $CorePreviewJson.Contains('"block_preview"')) { throw 'Core preview JSON is missing block_preview tree' }
+  if (-not $CorePreviewJson.Contains('"block_count"')) { throw 'Core preview JSON is missing block_count' }
+  if (-not $CorePreviewJson.Contains('"max_block_depth"')) { throw 'Core preview JSON is missing max_block_depth summary' }
+  if (-not $CorePreviewJson.Contains('"unmatched_block_closes": 0')) { throw 'Core preview JSON should report zero unmatched block closes for reference fixture' }
+  if (-not $CorePreviewJson.Contains('"unclosed_blocks": 0')) { throw 'Core preview JSON should report zero unclosed blocks for reference fixture' }
+  if (-not $CorePreviewJson.Contains('"node_kind": "block"')) { throw 'Core preview JSON is missing block nodes' }
+  if (-not $CorePreviewJson.Contains('"node_kind": "statement_ref"')) { throw 'Core preview JSON is missing statement refs in block tree' }
+  if (-not $CorePreviewJson.Contains('"block_kind": "record_construction"')) { throw 'Core preview JSON is missing record construction block preview' }
+  if (-not $CorePreviewJson.Contains('"header_statement_index"')) { throw 'Core preview JSON is missing block header statement index' }
+  if (-not $CorePreviewJson.Contains('"closing_statement_index"')) { throw 'Core preview JSON is missing block closing statement index' }
   if (-not $CorePreviewJson.Contains('"expression_preview"')) { throw 'Core preview JSON is missing statement expression previews' }
   if (-not $CorePreviewJson.Contains('"expression_ast_nodes"')) { throw 'Core preview JSON is missing expression AST node counts' }
   if (-not $CorePreviewJson.Contains('"atoms"')) { throw 'Core preview JSON is missing expression atoms' }
