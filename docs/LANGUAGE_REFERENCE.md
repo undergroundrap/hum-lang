@@ -353,9 +353,10 @@ Milestone 0 validates named target fact records and capability families against
 capability families emit `H1202`; meaningful lines that do not use a current
 formal key emit `H1203`. When a known `requires:` family is absent or omitted in
 a declared target fact record, Hum emits `H1204` and lists the family under
-`unavailable_capability_families` in `hum graph`. Milestone 0 still does not
-select a backend target, enforce runtime profiles, or prove artifact
-portability.
+`unavailable_capability_families` in `hum graph`. If the same `targets:` block
+both requires and denies one capability family, Hum emits `H1205`. Milestone 0
+still does not select a backend target, enforce runtime profiles, or prove
+artifact portability.
 
 ## Effects And Capabilities
 

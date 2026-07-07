@@ -80,6 +80,8 @@ impl DiagnosticCode {
         Self::new("H1203", "unsupported target declaration");
     pub const REQUIRED_CAPABILITY_UNAVAILABLE: Self =
         Self::new("H1204", "required capability unavailable on target");
+    pub const CONFLICTING_TARGET_CAPABILITY: Self =
+        Self::new("H1205", "conflicting target capability declaration");
 
     pub const fn new(value: &'static str, title: &'static str) -> Self {
         Self { value, title }

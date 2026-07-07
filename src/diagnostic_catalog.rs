@@ -210,6 +210,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         explanation: "A `targets:` section requires a capability family that a declared target fact record marks absent or unavailable.",
         repair: "Choose a target that provides the capability, remove the requirement, or add an adapter/profile design before depending on it.",
     },
+    DiagnosticInfo {
+        code: DiagnosticCode::CONFLICTING_TARGET_CAPABILITY,
+        default_severity: Severity::Error,
+        explanation: "A `targets:` section both requires and denies the same capability family, making the portability intent contradictory.",
+        repair: "Remove one declaration, or split the target policy into separate tasks/profiles with different capability intent.",
+    },
 ];
 
 pub fn all() -> &'static [DiagnosticInfo] {
@@ -245,6 +251,10 @@ mod tests {
         assert_eq!(
             find("H1204").map(|info| info.code),
             Some(DiagnosticCode::REQUIRED_CAPABILITY_UNAVAILABLE)
+        );
+        assert_eq!(
+            find("H1205").map(|info| info.code),
+            Some(DiagnosticCode::CONFLICTING_TARGET_CAPABILITY)
         );
         assert!(find("H9999").is_none());
     }

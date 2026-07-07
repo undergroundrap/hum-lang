@@ -181,6 +181,7 @@ fn check_target_declarations(
     for section in sections.iter().filter(|section| section.name == "targets") {
         let mut target_records = Vec::new();
         let mut required_capability_families = Vec::new();
+        let mut denied_capability_families = Vec::new();
 
         for line in meaningful_lines(section) {
             match target_facts::parse_source_target_declaration_line(&line.text) {
@@ -221,7 +222,9 @@ fn check_target_declarations(
                     }
                 }
                 Some((target_facts::SourceTargetDeclarationKind::DeniedCapabilityFamily, value)) => {
-                    if !target_facts::is_known_capability_family(&value) {
+                    if target_facts::is_known_capability_family(&value) {
+                        denied_capability_families.push((value, line.span.clone()));
+                    } else {
                         diagnostics.push(
                             Diagnostic::error(
                                 DiagnosticCode::UNKNOWN_CAPABILITY_FAMILY,
@@ -249,6 +252,29 @@ fn check_target_declarations(
                         "Use `triple:`, `record:`, `target:`, `requires:`, or `denies:` in `targets:` for Milestone 0.",
                     ),
                 ),
+            }
+        }
+
+        let required_names = required_capability_families
+            .iter()
+            .map(|(family, _span)| family.as_str())
+            .collect::<BTreeSet<_>>();
+        let mut emitted_conflicts = BTreeSet::new();
+        for (family, span) in &denied_capability_families {
+            if required_names.contains(family.as_str()) && emitted_conflicts.insert(family.clone())
+            {
+                diagnostics.push(
+                    Diagnostic::error(
+                        DiagnosticCode::CONFLICTING_TARGET_CAPABILITY,
+                        format!(
+                            "{kind} `{item_name}` both requires and denies capability `{family}`"
+                        ),
+                        Some(span.clone()),
+                    )
+                    .with_help(
+                        "Remove one declaration, or split the policy into separate tasks/profiles with different capability intent.",
+                    ),
+                );
             }
         }
 
@@ -734,6 +760,36 @@ mod tests {
                 && diagnostic.message.contains("unsupported `targets:` line")
         }));
     }
+    #[test]
+    fn rejects_conflicting_target_capability_intent() {
+        let source = r#"task confused target() {
+  why:
+    show contradictory target policy
+  targets:
+    triple: windows-x86_64-msvc
+    requires: os.network
+    denies: os.network
+  needs:
+    endpoint is declared
+  cost:
+    time: O(1)
+    check: warn
+  does:
+    return endpoint
+}
+"#;
+        let parsed = parse_source("confused-target.hum", source);
+        let diagnostics = check_file(&parsed.file);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == Severity::Error
+                && diagnostic.code == DiagnosticCode::CONFLICTING_TARGET_CAPABILITY
+                && diagnostic
+                    .message
+                    .contains("both requires and denies capability `os.network`")
+        }));
+    }
+
     #[test]
     fn rejects_required_capability_unavailable_on_declared_target() {
         let source = r#"task bad target() {

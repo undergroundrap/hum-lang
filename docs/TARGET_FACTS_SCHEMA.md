@@ -178,9 +178,10 @@ source declarations from `targets:` sections. Recognized `targets:` lines can
 fill `target_fact_records`, `required_capability_families`,
 `denied_capability_families`, and `source_target_declarations`. `hum check`
 validates those source names against this catalog and emits `H1201`, `H1202`,
-`H1203`, or `H1204` for unknown, unsupported, or unavailable declarations, but
-they do not select a backend target, probe the host, enforce a profile, or prove
-an artifact is portable. Future source/profile analysis should add adapter
+`H1203`, `H1204`, or `H1205` for unknown, unsupported, unavailable, or
+contradictory declarations, but they do not select a backend target, probe the
+host, enforce a profile, or prove an artifact is portable. Future
+source/profile analysis should add adapter
 identities, profile-granted capabilities, artifact evidence, and deeper
 portability diagnostics.
 
