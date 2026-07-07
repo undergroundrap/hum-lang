@@ -54,6 +54,155 @@ pub struct SectionHelp {
     pub hover: &'static str,
 }
 
+pub struct SemanticTokenRule {
+    pub source: &'static str,
+    pub token_type: &'static str,
+    pub modifiers: &'static [&'static str],
+    pub hum_role: &'static str,
+}
+
+pub const SEMANTIC_TOKEN_TYPES: &[&str] = &[
+    "namespace",
+    "type",
+    "function",
+    "variable",
+    "parameter",
+    "property",
+    "keyword",
+    "comment",
+];
+
+pub const SEMANTIC_TOKEN_MODIFIERS: &[&str] = &[
+    "declaration",
+    "definition",
+    "documentation",
+    "readonly",
+    "modification",
+];
+
+pub const SEMANTIC_TOKEN_RULES: &[SemanticTokenRule] = &[
+    SemanticTokenRule {
+        source: "module_keyword",
+        token_type: "keyword",
+        modifiers: &["declaration"],
+        hum_role: "module",
+    },
+    SemanticTokenRule {
+        source: "module_path",
+        token_type: "namespace",
+        modifiers: &["declaration"],
+        hum_role: "module",
+    },
+    SemanticTokenRule {
+        source: "item_kind",
+        token_type: "keyword",
+        modifiers: &["declaration"],
+        hum_role: "item",
+    },
+    SemanticTokenRule {
+        source: "app_name",
+        token_type: "namespace",
+        modifiers: &["definition"],
+        hum_role: "item",
+    },
+    SemanticTokenRule {
+        source: "type_name",
+        token_type: "type",
+        modifiers: &["definition"],
+        hum_role: "item",
+    },
+    SemanticTokenRule {
+        source: "store_name",
+        token_type: "variable",
+        modifiers: &["definition", "modification"],
+        hum_role: "state",
+    },
+    SemanticTokenRule {
+        source: "task_name",
+        token_type: "function",
+        modifiers: &["definition"],
+        hum_role: "behavior",
+    },
+    SemanticTokenRule {
+        source: "test_name",
+        token_type: "function",
+        modifiers: &["definition"],
+        hum_role: "evidence",
+    },
+    SemanticTokenRule {
+        source: "parameter_name",
+        token_type: "parameter",
+        modifiers: &["declaration"],
+        hum_role: "signature",
+    },
+    SemanticTokenRule {
+        source: "type_field_name",
+        token_type: "property",
+        modifiers: &["declaration"],
+        hum_role: "shape",
+    },
+    SemanticTokenRule {
+        source: "section_header",
+        token_type: "keyword",
+        modifiers: &["documentation"],
+        hum_role: "intent",
+    },
+    SemanticTokenRule {
+        source: "section:uses",
+        token_type: "keyword",
+        modifiers: &["documentation", "readonly"],
+        hum_role: "effect_read",
+    },
+    SemanticTokenRule {
+        source: "section:changes",
+        token_type: "keyword",
+        modifiers: &["documentation", "modification"],
+        hum_role: "effect_write",
+    },
+    SemanticTokenRule {
+        source: "section:protects",
+        token_type: "keyword",
+        modifiers: &["documentation"],
+        hum_role: "security",
+    },
+    SemanticTokenRule {
+        source: "section:trusts",
+        token_type: "keyword",
+        modifiers: &["documentation"],
+        hum_role: "security",
+    },
+    SemanticTokenRule {
+        source: "section:cost",
+        token_type: "keyword",
+        modifiers: &["documentation"],
+        hum_role: "performance",
+    },
+    SemanticTokenRule {
+        source: "section:allocates",
+        token_type: "keyword",
+        modifiers: &["documentation"],
+        hum_role: "performance",
+    },
+    SemanticTokenRule {
+        source: "section:optimizes",
+        token_type: "keyword",
+        modifiers: &["documentation"],
+        hum_role: "performance",
+    },
+    SemanticTokenRule {
+        source: "test_modifier",
+        token_type: "keyword",
+        modifiers: &["declaration"],
+        hum_role: "evidence",
+    },
+    SemanticTokenRule {
+        source: "comment",
+        token_type: "comment",
+        modifiers: &["documentation"],
+        hum_role: "trivia",
+    },
+];
+
 pub const SECTION_CATALOG: &[SectionHelp] = &[
     SectionHelp {
         name: "why",
@@ -186,7 +335,8 @@ pub fn syntax_json() -> String {
     );
     push_section_catalog(&mut out, 4, "section_catalog", SECTION_CATALOG, false);
     push_indent(&mut out, 2);
-    out.push_str("}\n");
+    out.push_str("},\n");
+    push_semantic_tokens(&mut out, 2);
     out.push_str("}\n");
     out
 }
@@ -429,6 +579,50 @@ fn push_section_catalog(
     push_comma_newline(out, trailing_comma);
 }
 
+fn push_semantic_tokens(out: &mut String, indent: usize) {
+    push_indent(out, indent);
+    out.push_str("\"semantic_tokens\": {\n");
+    push_string_array(out, indent + 2, "token_types", SEMANTIC_TOKEN_TYPES, true);
+    push_string_array(
+        out,
+        indent + 2,
+        "token_modifiers",
+        SEMANTIC_TOKEN_MODIFIERS,
+        true,
+    );
+    push_semantic_token_rules(out, indent + 2, "rules", SEMANTIC_TOKEN_RULES, false);
+    push_indent(out, indent);
+    out.push_str("}\n");
+}
+
+fn push_semantic_token_rules(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    values: &[SemanticTokenRule],
+    trailing_comma: bool,
+) {
+    push_indent(out, indent);
+    push_json_string(out, key);
+    out.push_str(": [\n");
+    for (index, rule) in values.iter().enumerate() {
+        push_indent(out, indent + 2);
+        out.push_str("{\"source\": ");
+        push_json_string(out, rule.source);
+        out.push_str(", \"token_type\": ");
+        push_json_string(out, rule.token_type);
+        out.push_str(", \"modifiers\": [");
+        push_json_string_values(out, rule.modifiers);
+        out.push_str("], \"hum_role\": ");
+        push_json_string(out, rule.hum_role);
+        out.push('}');
+        push_comma_newline(out, index + 1 < values.len());
+    }
+    push_indent(out, indent);
+    out.push(']');
+    push_comma_newline(out, trailing_comma);
+}
+
 fn push_json_string_values(out: &mut String, values: &[&str]) {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
@@ -493,6 +687,13 @@ mod tests {
         assert!(json.contains("\"section_catalog\": ["));
         assert!(json.contains(
             "{\"name\": \"cost\", \"applies_to\": [\"task\", \"test\"], \"hover\": \"States time, space, allocation, and check expectations.\"}"
+        ));
+        assert!(json.contains("\"semantic_tokens\": {"));
+        assert!(json.contains(
+            "\"token_types\": [\"namespace\", \"type\", \"function\", \"variable\", \"parameter\", \"property\", \"keyword\", \"comment\"]"
+        ));
+        assert!(json.contains(
+            "{\"source\": \"section:protects\", \"token_type\": \"keyword\", \"modifiers\": [\"documentation\"], \"hum_role\": \"security\"}"
         ));
         assert!(is_test_modifier("regression"));
         assert!(!is_test_modifier("benchmark"));

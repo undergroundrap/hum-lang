@@ -19,7 +19,7 @@ agent prompts. Do not treat every permissive parser behavior here as a stable
 language promise.
 
 For the human-facing language overview, see [LANGUAGE_REFERENCE.md](LANGUAGE_REFERENCE.md).
-For the machine-readable Milestone 0 syntax surface, run `hum syntax`. The syntax surface includes a section catalog with hover text for editor and LSP adapters. For the generated TextMate grammar, run `hum syntax --format textmate`.
+For the machine-readable Milestone 0 syntax surface, run `hum syntax`. The syntax surface includes a section catalog with hover text and a semantic-token legend for editor and LSP adapters. For the generated TextMate grammar, run `hum syntax --format textmate`.
 For the checked reference fixture, see [../examples/reference_surface.hum](../examples/reference_surface.hum).
 
 ## Notation

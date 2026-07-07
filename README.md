@@ -187,7 +187,7 @@ Current CLI:
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents
 - `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including source-derived node IDs, folding ranges, document symbols, section line facts, task test obligations, and exact or conservative canonical `covers:` links
 - `hum test-skeletons <file-or-dir>...`: print Hum `test` blocks for unlinked test obligations without executing code or writing files
-- `hum syntax`: emit `hum.syntax_surface.v0` JSON for editor and tool adapters, including section hover metadata
+- `hum syntax`: emit `hum.syntax_surface.v0` JSON for editor and tool adapters, including section hover metadata and a semantic-token legend
 - `hum syntax --format textmate`: emit a generated TextMate grammar from the same syntax surface
 - add `--timings` to print read/parse/check timing data
 

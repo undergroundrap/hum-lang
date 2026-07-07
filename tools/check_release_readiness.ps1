@@ -100,6 +100,9 @@ $editorStrategyDoc = Read-RepoText 'docs\EDITOR_AND_INTEGRATION_STRATEGY.md'
 if (-not $editorStrategyDoc.Contains('section hover metadata')) {
   Add-Failure 'docs/EDITOR_AND_INTEGRATION_STRATEGY.md does not describe syntax section hover metadata'
 }
+if (-not $editorStrategyDoc.Contains('semantic-token legend')) {
+  Add-Failure 'docs/EDITOR_AND_INTEGRATION_STRATEGY.md does not describe syntax semantic-token metadata'
+}
 
 $securityPolicy = Read-RepoText 'SECURITY.md'
 foreach ($required in @('Supported Versions', 'How To Report', 'Security Claims')) {

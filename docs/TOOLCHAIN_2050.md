@@ -116,7 +116,8 @@ Purpose:
 
 Rules:
 
-- semantic tokens come from compiler facts
+- semantic-token legend comes from `hum syntax`
+- token ranges should come from compiler facts only after source ranges are precise
 - semantic tokens must degrade gracefully when the file is half-written
 - theme categories should be stable enough for editors and docs
 
@@ -146,7 +147,7 @@ Early LSP features:
 - document symbols from `hum graph` for apps, tasks, types, stores, tests, and type fields
 - folding ranges from `hum graph` for intent sections
 - hover explanations for section keywords from `hum syntax` and declared names from `hum graph`
-- semantic tokens
+- semantic-token legend from `hum syntax`, with token ranges deferred until source ranges are precise
 - formatting via `humfmt`
 - code actions for missing `uses:`, `changes:`, `why:`, `cost:`, and `protects:`
 

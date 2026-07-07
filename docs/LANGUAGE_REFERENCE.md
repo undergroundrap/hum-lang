@@ -241,8 +241,9 @@ Milestone 0 graph output includes:
 Comment-only section lines are preserved in graph output and marked
 `meaningful: false`.
 
-`hum syntax` emits a machine-readable section catalog with hover text so editor
-and LSP adapters can explain section headers without duplicating language copy.
+`hum syntax` emits a machine-readable section catalog with hover text and a
+semantic-token legend so editor and LSP adapters can explain and color the
+current surface without duplicating language copy.
 
 ## Task Sections
 

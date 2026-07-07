@@ -89,6 +89,7 @@ Current prototype status:
 - `hum test-skeletons` prints Hum `test` blocks for unlinked obligations without executing code or writing files.
 - `hum syntax` emits `hum.syntax_surface.v0` JSON for editor and tool adapters.
 - `hum syntax` emits section hover metadata so adapters can explain intent blocks from one source.
+- `hum syntax` emits a semantic-token legend so adapters share token names before range emission exists.
 - `hum syntax --format textmate` and `editors/textmate/hum.tmLanguage.json` provide the first generated highlighting surface.
 
 Deferred beyond Milestone 0:
