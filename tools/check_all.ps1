@@ -179,6 +179,9 @@ try {
   if (-not $CapabilitiesJson.Contains('"core_contract"')) { throw 'capabilities JSON is missing core_contract schema' }
   if (-not $CapabilitiesJson.Contains('"ir_contract"')) { throw 'capabilities JSON is missing ir_contract schema' }
   if (-not $CapabilitiesJson.Contains('"backend_contract"')) { throw 'capabilities JSON is missing backend_contract schema' }
+  if (-not $CapabilitiesJson.Contains('"runtime_profiles"')) { throw 'capabilities JSON is missing runtime_profiles schema' }
+  if (-not $CapabilitiesJson.Contains('"runtime_profile"')) { throw 'capabilities JSON is missing runtime_profile schema' }
+  if (-not $CapabilitiesJson.Contains('"runtime_profiles_json"')) { throw 'capabilities JSON is missing runtime_profiles_json command' }
   if (-not $CapabilitiesJson.Contains('"doctor"')) { throw 'capabilities JSON is missing doctor schema' }
   if (-not $CapabilitiesJson.Contains('"target_facts"')) { throw 'capabilities JSON is missing target_facts schema' }
   if (-not $CapabilitiesJson.Contains('"target_fact_record"')) { throw 'capabilities JSON is missing target_fact_record schema' }
@@ -217,6 +220,19 @@ try {
   if (-not $BackendContractJson.Contains('"id": "cranelift"')) { throw 'backend contract JSON is missing cranelift stage' }
   if (-not $BackendContractJson.Contains('"id": "llvm"')) { throw 'backend contract JSON is missing llvm stage' }
   if (-not $BackendContractJson.Contains('"no code execution"')) { throw 'backend contract JSON must keep V0 non-execution claim' }
+
+  $RuntimeProfilesJson = Read-NativeOutput 'runtime profiles JSON' $Hum @('profiles', '--format', 'json')
+  Assert-Json 'runtime profiles JSON' $RuntimeProfilesJson
+  if (-not $RuntimeProfilesJson.Contains('"schema": "hum.runtime_profiles.v0"')) { throw 'runtime profiles JSON is missing hum.runtime_profiles.v0 schema' }
+  if (-not $RuntimeProfilesJson.Contains('"profile_schema": "hum.runtime_profile.v0"')) { throw 'runtime profiles JSON is missing hum.runtime_profile.v0 schema link' }
+  if (-not $RuntimeProfilesJson.Contains('"mode": "contract_only_no_profile_enforcement"')) { throw 'runtime profiles JSON must stay contract-only in V0' }
+  if (-not $RuntimeProfilesJson.Contains('"id": "agent_tool_sandbox"')) { throw 'runtime profiles JSON is missing agent_tool_sandbox profile' }
+  if (-not $RuntimeProfilesJson.Contains('"id": "footprint_constrained"')) { throw 'runtime profiles JSON is missing footprint_constrained profile' }
+  if (-not $RuntimeProfilesJson.Contains('"id": "hard_realtime"')) { throw 'runtime profiles JSON is missing hard_realtime profile' }
+  if (-not $RuntimeProfilesJson.Contains('"denied_capability_families"')) { throw 'runtime profiles JSON is missing denied capability policy' }
+  if (-not $RuntimeProfilesJson.Contains('"os.network"')) { throw 'runtime profiles JSON is missing network capability policy' }
+  if (-not $RuntimeProfilesJson.Contains('"no profile syntax enforcement"')) { throw 'runtime profiles JSON must keep V0 enforcement non-claim' }
+  if (-not $RuntimeProfilesJson.Contains('"no certification claim"')) { throw 'runtime profiles JSON must not claim certification' }
 
   $LspCapabilitiesJson = Read-NativeOutput 'LSP capabilities JSON' $Hum @('lsp', '--capabilities', '--format', 'json')
   Assert-Json 'LSP capabilities JSON' $LspCapabilitiesJson
@@ -454,6 +470,13 @@ try {
   if (-not $BellardResearchText.Contains('deterministic artifacts')) { throw 'Bellard research note is missing deterministic artifact rule' }
   $RuntimeProfilesText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\RUNTIME_PROFILES.md'))
   if (-not $RuntimeProfilesText.Contains('footprint constrained')) { throw 'runtime profiles are missing footprint constrained profile' }
+  if (-not $RuntimeProfilesText.Contains('hum.runtime_profiles.v0')) { throw 'runtime profiles doc is missing runtime profiles schema' }
+  if (-not $RuntimeProfilesText.Contains('contract_only_no_profile_enforcement')) { throw 'runtime profiles doc is missing contract-only mode' }
+  if (-not $RuntimeProfilesText.Contains('HUM_RUNTIME_PROFILES_SCHEMA.md')) { throw 'runtime profiles doc is missing schema link' }
+  $RuntimeProfilesSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_RUNTIME_PROFILES_SCHEMA.md'))
+  if (-not $RuntimeProfilesSchemaText.Contains('hum.runtime_profiles.v0')) { throw 'runtime profile schema doc is missing catalog schema' }
+  if (-not $RuntimeProfilesSchemaText.Contains('hum.runtime_profile.v0')) { throw 'runtime profile schema doc is missing entry schema' }
+  if (-not $RuntimeProfilesSchemaText.Contains('contract_only_no_profile_enforcement')) { throw 'runtime profile schema doc is missing contract-only mode' }
   $OptimizationText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\OPTIMIZATION_AND_DSA_STRATEGY.md'))
   if (-not $OptimizationText.Contains('Bellard Constraint Rule')) { throw 'optimization strategy is missing Bellard constraint rule' }
   if (-not $ResearchMapText.Contains('2026-07-07-systems-legends-lessons.md')) { throw 'research map is missing systems legends lessons' }

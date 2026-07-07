@@ -672,6 +672,8 @@ hum ir-contract
 hum ir-contract --format json
 hum backend-contract
 hum backend-contract --format json
+hum profiles
+hum profiles --format json
 hum test-skeletons <file-or-dir>...
 hum syntax
 hum syntax --format textmate
@@ -713,6 +715,8 @@ cargo run -- ir-contract
 cargo run -- ir-contract --format json
 cargo run -- backend-contract
 cargo run -- backend-contract --format json
+cargo run -- profiles
+cargo run -- profiles --format json
 cargo run -- test-skeletons examples
 cargo run -- syntax
 cargo run -- syntax --format textmate

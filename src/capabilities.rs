@@ -11,6 +11,7 @@ use crate::json;
 use crate::lsp;
 use crate::math_obligations;
 use crate::resource_report;
+use crate::runtime_profiles;
 use crate::syntax;
 use crate::target_facts;
 use crate::version;
@@ -137,6 +138,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: backend_contract::BACKEND_CONTRACT_SCHEMA,
         status: "current",
         purpose: "swappable backend ladder and adapter preservation contract",
+    },
+    CommandCapability {
+        name: "runtime_profiles_json",
+        command: "hum profiles --format json",
+        schema: runtime_profiles::RUNTIME_PROFILES_SCHEMA,
+        status: "current",
+        purpose: "runtime profile policy catalog without enforcement claims",
     },
     CommandCapability {
         name: "lsp_capabilities_json",
@@ -297,6 +305,11 @@ pub fn capabilities_text() -> String {
         backend_contract::BACKEND_CONTRACT_SCHEMA
     ));
     out.push_str(&format!(
+        "  runtime_profiles: {}\n  runtime_profile: {}\n",
+        runtime_profiles::RUNTIME_PROFILES_SCHEMA,
+        runtime_profiles::RUNTIME_PROFILE_SCHEMA
+    ));
+    out.push_str(&format!(
         "  lsp_capabilities: {}\n",
         lsp::LSP_CAPABILITIES_SCHEMA
     ));
@@ -443,6 +456,20 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
     push_string_field(
         out,
         indent + 2,
+        "runtime_profiles",
+        runtime_profiles::RUNTIME_PROFILES_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "runtime_profile",
+        runtime_profiles::RUNTIME_PROFILE_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
         "lsp_capabilities",
         lsp::LSP_CAPABILITIES_SCHEMA,
         true,
@@ -582,6 +609,8 @@ mod tests {
         assert!(json.contains("\"core_contract\": \"hum.core_contract.v0\""));
         assert!(json.contains("\"ir_contract\": \"hum.ir_contract.v0\""));
         assert!(json.contains("\"backend_contract\": \"hum.backend_contract.v0\""));
+        assert!(json.contains("\"runtime_profiles\": \"hum.runtime_profiles.v0\""));
+        assert!(json.contains("\"runtime_profile\": \"hum.runtime_profile.v0\""));
         assert!(json.contains("\"lsp_capabilities\": \"hum.lsp_capabilities.v0\""));
         assert!(json.contains("\"doctor\": \"hum.doctor.v0\""));
         assert!(json.contains("\"target_facts\": \"hum.target_facts.v0\""));
@@ -591,6 +620,7 @@ mod tests {
         assert!(json.contains("\"name\": \"core_contract_json\""));
         assert!(json.contains("\"name\": \"ir_contract_json\""));
         assert!(json.contains("\"name\": \"backend_contract_json\""));
+        assert!(json.contains("\"name\": \"runtime_profiles_json\""));
         assert!(json.contains("\"name\": \"evidence_json\""));
         assert!(json.contains("\"name\": \"math_obligations_json\""));
         assert!(json.contains("\"name\": \"resource_report_json\""));

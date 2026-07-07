@@ -90,6 +90,8 @@ Debuggability doctrine: Hum must preserve source identity, value identity, layou
 
 Profiles are policy bundles for normal apps, containers, agent tools, Windows services, driver candidates, embedded no-heap code, hard realtime code, engine hot paths, safety-critical code, and certified toolchains. Profiles can forbid features, require evidence, narrow stdlib APIs, and change release artifacts.
 
+The current machine-readable catalog is [HUM_RUNTIME_PROFILES_SCHEMA.md](HUM_RUNTIME_PROFILES_SCHEMA.md), emitted by `hum profiles --format json`. V0 is contract-only and must not claim profile enforcement, stdlib narrowing, runtime behavior, target selection, certification, host probing, or footprint measurement.
+
 See [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md).
 
 ### 6. OS And Platform Model

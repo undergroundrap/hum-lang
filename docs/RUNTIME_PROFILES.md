@@ -22,6 +22,20 @@ stdlib APIs, generated evidence, and runtime behavior.
 Profiles should be visible in source, package metadata, semantic graph output,
 and release artifacts.
 
+## Current Machine-Readable Surface
+
+`hum profiles` and `hum profiles --format json` expose the V0 profile catalog.
+The JSON catalog uses `hum.runtime_profiles.v0`; each profile entry uses
+`hum.runtime_profile.v0`.
+
+V0 mode is `contract_only_no_profile_enforcement`. The command catalogs profile
+policy, capability intent, required evidence categories, rules, and non-goals. It
+must not claim profile syntax enforcement, stdlib narrowing, executable runtime
+behavior, target selection, certification, host probing, or performance and
+footprint measurement.
+
+The schema document is [HUM_RUNTIME_PROFILES_SCHEMA.md](HUM_RUNTIME_PROFILES_SCHEMA.md).
+
 ## Candidate Profiles
 
 ### `normal`
@@ -363,7 +377,7 @@ If a feature cannot be profiled, it is not ready.
 
 ## Near-Term Work
 
-1. Add profile names to the semantic graph schema as future fields.
+1. Link active profile declarations from the semantic graph once profile syntax is pinned.
 2. Add diagnostics code range for profile violations.
 3. Create `.hum` fixtures for `engine hot path`, `hard realtime`, `safety critical`, `containerized service`, `agent tool sandbox`, and `footprint constrained`.
 4. Define `panic`/`abort`/`safe stop` behavior in the core language spec.
