@@ -59,6 +59,8 @@ Compatibility earns trust.
 Pedagogy earns adoption.
 ```
 
+Hum's working method is captured in [LANGUAGE_BUILDER_OPERATING_MODEL.md](LANGUAGE_BUILDER_OPERATING_MODEL.md): small proofs, written lessons, graph/report/check surfaces, migration paths, and then public claims.
+
 ## Review Bodies
 
 As Hum grows, create small domain groups. They advise; they do not own the soul

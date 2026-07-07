@@ -221,6 +221,7 @@ Related docs:
 
 - [../decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md](../decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md)
 - [../ARCHITECTURE.md](../ARCHITECTURE.md)
+- [../LANGUAGE_BUILDER_OPERATING_MODEL.md](../LANGUAGE_BUILDER_OPERATING_MODEL.md)
 - [../INTEROP_AND_PORTABILITY.md](../INTEROP_AND_PORTABILITY.md)
 - [../BACKEND_STRATEGY.md](../BACKEND_STRATEGY.md)
 - [../RESEARCH_MAP_2026.md](../RESEARCH_MAP_2026.md)

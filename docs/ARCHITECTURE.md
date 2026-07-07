@@ -67,6 +67,8 @@ Resource-layout-comptime doctrine: resource intent, layout-sensitive representat
 
 Progressive-disclosure doctrine: Hum should keep ordinary code small at the point of use, add power only behind explicit need, avoid special-case syntax, and make adoption incremental through interop and migration tooling. See [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md) and [decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md](decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md).
 
+Language-builder doctrine: Hum should grow by small proofs, written lessons, graph/report/check surfaces, migration paths, and then public claims. See [LANGUAGE_BUILDER_OPERATING_MODEL.md](LANGUAGE_BUILDER_OPERATING_MODEL.md).
+
 ### 5. Runtime Profiles
 
 Profiles are policy bundles for normal apps, containers, agent tools, Windows services, driver candidates, embedded no-heap code, hard realtime code, engine hot paths, safety-critical code, and certified toolchains. Profiles can forbid features, require evidence, narrow stdlib APIs, and change release artifacts.
@@ -115,6 +117,7 @@ See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md).
 - Defaults must be paved roads; non-default power requires explicit source intent and evidence.
 - Resource, layout, compile-time, interop, and agent-facing power must be explicit and graph-visible before it is stable.
 - Progressive disclosure and migration discipline are language requirements, not polish.
+- Small proof, written lesson, graph/report/check surface, migration path, then public claim is the default growth loop.
 - Caches optimize development speed but do not certify correctness, safety, performance, or release readiness.
 - No parser-only or checker-only milestone should be presented as a credible public alpha; public adoption requires executable artifacts and evidence bundles.
 

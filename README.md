@@ -66,6 +66,7 @@ Current artifacts:
 - [examples/reference_surface.hum](examples/reference_surface.hum): checked Milestone 0 source fixture covering the current reference surface
 - [SPEC.md](SPEC.md): broad language design draft
 - [docs/LANGUAGE_REFERENCE.md](docs/LANGUAGE_REFERENCE.md): traditional reference spine for source files, items, sections, and current language status
+- [docs/LANGUAGE_BUILDER_OPERATING_MODEL.md](docs/LANGUAGE_BUILDER_OPERATING_MODEL.md): operating model for how Hum selects problems, prototypes, adopts ecosystems, validates claims, and grows without losing coherence
 - [docs/MILESTONE_0_GRAMMAR.md](docs/MILESTONE_0_GRAMMAR.md): current Rust bootstrap parser grammar contract
 - [docs/SYNTAX_SURFACE_SCHEMA.md](docs/SYNTAX_SURFACE_SCHEMA.md): `hum.syntax_surface.v0` schema for editor-neutral syntax metadata
 - [docs/CAPABILITIES_SCHEMA.md](docs/CAPABILITIES_SCHEMA.md): `hum.capabilities.v0` schema for toolchain surface discovery
