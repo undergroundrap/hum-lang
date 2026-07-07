@@ -163,6 +163,14 @@ These diagnostics are emitted by `hum resolve`. They are cataloged by
 `hum diagnostics`, but V0 `hum check` remains the existing Milestone 0 checker
 and does not yet run the full resolver.
 
+## IR Readiness Link
+
+`hum ir-readiness --format json` consumes a compact `hum.resolve.v0` summary as
+its `resolver` field. Resolver status and counts are not IR; they are the gate
+that says whether parsed source is allowed to move toward Core Hum lowering.
+When `resolver_errors` is nonzero, V0 lowering candidates are reported as
+`blocked_by_resolver_errors` with the `checked_resolver_errors` blocker.
+
 ## Non-Claims
 
 V0 explicitly does not claim:

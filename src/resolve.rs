@@ -21,6 +21,27 @@ struct ResolveReport {
     diagnostics: Vec<ResolverDiagnostic>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolveReadinessSummary {
+    pub schema: &'static str,
+    pub status: &'static str,
+    pub mode: &'static str,
+    pub files: usize,
+    pub items: usize,
+    pub source_errors: usize,
+    pub source_warnings: usize,
+    pub scopes: usize,
+    pub definitions: usize,
+    pub references: usize,
+    pub resolved_references: usize,
+    pub unresolved_references: usize,
+    pub external_references: usize,
+    pub duplicate_definitions: usize,
+    pub mutable_place_errors: usize,
+    pub resolver_errors: usize,
+    pub resolver_warnings: usize,
+}
+
 #[derive(Debug, Clone)]
 struct ResolveScope {
     id: String,
@@ -107,6 +128,32 @@ struct ResolverContext {
 pub fn resolve_has_errors(program: &Program, source_diagnostics: &[Diagnostic]) -> bool {
     let report = build_report(program, source_diagnostics);
     report.source_errors > 0 || report.error_count() > 0
+}
+
+pub fn resolve_readiness_summary(
+    program: &Program,
+    source_diagnostics: &[Diagnostic],
+) -> ResolveReadinessSummary {
+    let report = build_report(program, source_diagnostics);
+    ResolveReadinessSummary {
+        schema: RESOLVE_REPORT_SCHEMA,
+        status: report.status(),
+        mode: RESOLVE_MODE,
+        files: report.files,
+        items: report.items,
+        source_errors: report.source_errors,
+        source_warnings: report.source_warnings,
+        scopes: report.scopes.len(),
+        definitions: report.definitions.len(),
+        references: report.references.len(),
+        resolved_references: report.resolved_references(),
+        unresolved_references: report.unresolved_references(),
+        external_references: report.external_references(),
+        duplicate_definitions: report.duplicate_definitions(),
+        mutable_place_errors: report.mutable_place_errors(),
+        resolver_errors: report.error_count(),
+        resolver_warnings: report.warning_count(),
+    }
 }
 
 pub fn resolve_text(program: &Program, source_diagnostics: &[Diagnostic]) -> String {

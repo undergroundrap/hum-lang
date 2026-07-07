@@ -404,6 +404,14 @@ try {
   if (-not $IrReadinessJson.Contains('"schema": "hum.ir_readiness.v0"')) { throw 'IR readiness JSON is missing hum.ir_readiness.v0 schema' }
   if (-not $IrReadinessJson.Contains('"core_contract_schema": "hum.core_contract.v0"')) { throw 'IR readiness JSON is missing Core Hum contract schema' }
   if (-not $IrReadinessJson.Contains('"ir_contract_schema": "hum.ir_contract.v0"')) { throw 'IR readiness JSON is missing Hum IR contract schema' }
+  if (-not $IrReadinessJson.Contains('"resolver"')) { throw 'IR readiness JSON is missing resolver summary' }
+  if (-not $IrReadinessJson.Contains('"schema": "hum.resolve.v0"')) { throw 'IR readiness JSON is missing hum.resolve.v0 resolver schema' }
+  if (-not $IrReadinessJson.Contains('"status": "checked_resolver_v0"')) { throw 'IR readiness JSON should include checked resolver status for reference fixture' }
+  if (-not $IrReadinessJson.Contains('"mode": "source_analysis_only_no_type_or_borrow_check"')) { throw 'IR readiness JSON is missing resolver source-analysis mode' }
+  if (-not $IrReadinessJson.Contains('"resolver_errors": 0')) { throw 'IR readiness JSON should have zero resolver errors for reference fixture' }
+  if (-not $IrReadinessJson.Contains('"name": "resolve"')) { throw 'IR readiness JSON is missing resolve pass status' }
+  if (-not $IrReadinessJson.Contains('"checked_report_available"')) { throw 'IR readiness JSON is missing checked resolver pass availability' }
+  if (-not $IrReadinessJson.Contains('"resolver_summary_v0"')) { throw 'IR readiness JSON is missing resolver summary fact' }
   if (-not $IrReadinessJson.Contains('"ready_for_ir": 0')) { throw 'IR readiness JSON must not claim IR readiness yet' }
   if (-not $IrReadinessJson.Contains('"body_grammar"')) { throw 'IR readiness JSON is missing body_grammar facts' }
   if (-not $IrReadinessJson.Contains('"body_grammar_partial_v0"')) { throw 'IR readiness JSON is missing partial body grammar fact' }
@@ -538,6 +546,10 @@ try {
   if (-not $ResolveSchemaText.Contains('hum.resolve.v0')) { throw 'resolve schema doc is missing hum.resolve.v0' }
   if (-not $ResolveSchemaText.Contains('source_analysis_only_no_type_or_borrow_check')) { throw 'resolve schema doc is missing source-analysis mode' }
   if (-not $ResolveSchemaText.Contains('H0604')) { throw 'resolve schema doc is missing resolver diagnostics' }
+  if (-not $ResolveSchemaText.Contains('blocked_by_resolver_errors')) { throw 'resolve schema doc is missing IR readiness link' }
+  $IrReadinessSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_IR_READINESS_SCHEMA.md'))
+  if (-not $IrReadinessSchemaText.Contains('hum.resolve.v0')) { throw 'IR readiness schema doc is missing resolver schema link' }
+  if (-not $IrReadinessSchemaText.Contains('checked_resolver_errors')) { throw 'IR readiness schema doc is missing resolver blocker' }
   $ResolveDecisionText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\decisions\0011-add-checked-resolver-before-execution.md'))
   if (-not $ResolveDecisionText.Contains('checked resolver')) { throw 'checked resolver ADR is missing decision language' }
   $StateModelSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_STATE_MODEL_SCHEMA.md'))

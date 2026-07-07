@@ -5,6 +5,7 @@ use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::is_meaningful_line_text;
 use crate::ir_contract;
 use crate::node_id;
+use crate::resolve;
 use crate::version;
 
 pub const IR_READINESS_SCHEMA: &str = "hum.ir_readiness.v0";
@@ -16,6 +17,7 @@ struct IrReadinessReport {
     tests: usize,
     errors: usize,
     warnings: usize,
+    resolve_summary: resolve::ResolveReadinessSummary,
     candidates: Vec<LoweringCandidate>,
 }
 
@@ -54,6 +56,11 @@ const PASS_STATUSES: &[PassStatus] = &[
         name: "semantic_graph_build",
         status: "current",
         source: "hum graph",
+    },
+    PassStatus {
+        name: "resolve",
+        status: "checked_report_available",
+        source: resolve::RESOLVE_REPORT_SCHEMA,
     },
     PassStatus {
         name: "body_grammar",
@@ -123,7 +130,7 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         version::HUM_STATUS
     ));
     out.push_str(&format!(
-        "summary: files={} items={} tasks={} tests={} lowering_candidates={} ready_for_ir=0 blocked={} errors={} warnings={} body_grammar_candidates={} body_grammar_recognized_lines={} body_grammar_unsupported_lines={}\n",
+        "summary: files={} items={} tasks={} tests={} lowering_candidates={} ready_for_ir=0 blocked={} errors={} warnings={} body_grammar_candidates={} body_grammar_recognized_lines={} body_grammar_unsupported_lines={} resolver_status={} resolver_errors={} unresolved_references={}\n",
         report.files,
         report.items,
         report.tasks,
@@ -134,7 +141,10 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.warnings,
         report.body_grammar_candidates(),
         report.body_grammar_recognized_lines(),
-        report.body_grammar_unsupported_lines()
+        report.body_grammar_unsupported_lines(),
+        report.resolve_summary.status,
+        report.resolve_summary.resolver_errors,
+        report.resolve_summary.unresolved_references
     ));
     out.push_str(&format!(
         "core_contract_schema: {}\n",
@@ -143,6 +153,22 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
     out.push_str(&format!(
         "ir_contract_schema: {}\n",
         ir_contract::IR_CONTRACT_SCHEMA
+    ));
+    out.push_str(&format!(
+        "resolver: schema={} status={} mode={} scopes={} definitions={} references={} resolved={} unresolved={} external={} duplicate_definitions={} mutable_place_errors={} resolver_errors={} resolver_warnings={}\n",
+        report.resolve_summary.schema,
+        report.resolve_summary.status,
+        report.resolve_summary.mode,
+        report.resolve_summary.scopes,
+        report.resolve_summary.definitions,
+        report.resolve_summary.references,
+        report.resolve_summary.resolved_references,
+        report.resolve_summary.unresolved_references,
+        report.resolve_summary.external_references,
+        report.resolve_summary.duplicate_definitions,
+        report.resolve_summary.mutable_place_errors,
+        report.resolve_summary.resolver_errors,
+        report.resolve_summary.resolver_warnings
     ));
     out.push_str("pass_status:\n");
     for pass in PASS_STATUSES {
@@ -219,6 +245,7 @@ pub fn ir_readiness_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         ir_contract::IR_CONTRACT_SCHEMA,
         true,
     );
+    push_resolver_summary(&mut out, &report.resolve_summary, 2, true);
     push_summary(&mut out, &report, 2, true);
     push_pass_status(&mut out, 2, true);
     push_candidates(&mut out, &report.candidates, 2, true);
@@ -240,9 +267,10 @@ pub fn ir_readiness_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
 }
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessReport {
+    let resolve_summary = resolve::resolve_readiness_summary(program, diagnostics);
     let mut candidates = Vec::new();
     for file in &program.files {
-        collect_candidates_from_items(&file.items, diagnostics, &mut candidates);
+        collect_candidates_from_items(&file.items, diagnostics, &resolve_summary, &mut candidates);
     }
 
     let errors = diagnostics
@@ -266,6 +294,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         tests,
         errors,
         warnings,
+        resolve_summary,
         candidates,
     }
 }
@@ -273,17 +302,22 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
 fn collect_candidates_from_items(
     items: &[Item],
     diagnostics: &[Diagnostic],
+    resolve_summary: &resolve::ResolveReadinessSummary,
     candidates: &mut Vec<LoweringCandidate>,
 ) {
     for item in items {
-        candidates.push(lowering_candidate(item, diagnostics));
+        candidates.push(lowering_candidate(item, diagnostics, resolve_summary));
         if let Item::App(app) = item {
-            collect_candidates_from_items(&app.items, diagnostics, candidates);
+            collect_candidates_from_items(&app.items, diagnostics, resolve_summary, candidates);
         }
     }
 }
 
-fn lowering_candidate(item: &Item, diagnostics: &[Diagnostic]) -> LoweringCandidate {
+fn lowering_candidate(
+    item: &Item,
+    diagnostics: &[Diagnostic],
+    resolve_summary: &resolve::ResolveReadinessSummary,
+) -> LoweringCandidate {
     let graph_node_id = node_id::span(
         "item",
         item.span(),
@@ -292,7 +326,8 @@ fn lowering_candidate(item: &Item, diagnostics: &[Diagnostic]) -> LoweringCandid
     let has_errors = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
-    let blocking_reasons = blocking_reasons(has_errors);
+    let has_resolver_errors = resolve_summary.resolver_errors > 0;
+    let blocking_reasons = blocking_reasons(has_errors, has_resolver_errors);
     let section_names = item_sections(item)
         .iter()
         .map(|section| section.name.clone())
@@ -307,12 +342,14 @@ fn lowering_candidate(item: &Item, diagnostics: &[Diagnostic]) -> LoweringCandid
         span: portable_span(item.span()),
         status: if has_errors {
             "blocked_by_source_errors"
+        } else if has_resolver_errors {
+            "blocked_by_resolver_errors"
         } else {
             "blocked_before_core_lowering"
         },
         current_layer: CURRENT_LAYER,
         target_layer: TARGET_LAYER,
-        facts_available: facts_available(item),
+        facts_available: facts_available(item, resolve_summary),
         missing_passes: MISSING_IR_PASSES.to_vec(),
         blocking_reasons,
         section_names,
@@ -320,12 +357,17 @@ fn lowering_candidate(item: &Item, diagnostics: &[Diagnostic]) -> LoweringCandid
     }
 }
 
-fn facts_available(item: &Item) -> Vec<&'static str> {
+fn facts_available(
+    item: &Item,
+    resolve_summary: &resolve::ResolveReadinessSummary,
+) -> Vec<&'static str> {
     let mut facts = vec![
         "source_span",
         "semantic_graph_node_id",
         "item_kind",
         "item_name",
+        "resolver_summary_v0",
+        resolve_summary.status,
     ];
 
     let sections = item_sections(item);
@@ -454,10 +496,13 @@ fn item_sections(item: &Item) -> &[Section] {
     }
 }
 
-fn blocking_reasons(has_errors: bool) -> Vec<&'static str> {
+fn blocking_reasons(has_errors: bool, has_resolver_errors: bool) -> Vec<&'static str> {
     let mut reasons = Vec::new();
     if has_errors {
         reasons.push("source_diagnostics_include_errors");
+    }
+    if has_resolver_errors {
+        reasons.push("checked_resolver_errors");
     }
     reasons.push("core_lowering_not_implemented");
     reasons.push("type_check_not_implemented");
@@ -544,6 +589,90 @@ fn portable_span(span: &Span) -> Span {
         line: span.line,
         column: span.column,
     }
+}
+
+fn push_resolver_summary(
+    out: &mut String,
+    summary: &resolve::ResolveReadinessSummary,
+    indent: usize,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    out.push_str("\"resolver\": {\n");
+    push_string_field(out, indent + 2, "schema", summary.schema, true);
+    push_string_field(out, indent + 2, "status", summary.status, true);
+    push_string_field(out, indent + 2, "mode", summary.mode, true);
+    push_usize_field(out, indent + 2, "files", summary.files, true);
+    push_usize_field(out, indent + 2, "items", summary.items, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "source_errors",
+        summary.source_errors,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "source_warnings",
+        summary.source_warnings,
+        true,
+    );
+    push_usize_field(out, indent + 2, "scopes", summary.scopes, true);
+    push_usize_field(out, indent + 2, "definitions", summary.definitions, true);
+    push_usize_field(out, indent + 2, "references", summary.references, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "resolved_references",
+        summary.resolved_references,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unresolved_references",
+        summary.unresolved_references,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "external_references",
+        summary.external_references,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "duplicate_definitions",
+        summary.duplicate_definitions,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "mutable_place_errors",
+        summary.mutable_place_errors,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "resolver_errors",
+        summary.resolver_errors,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "resolver_warnings",
+        summary.resolver_warnings,
+        false,
+    );
+    push_indent(out, indent);
+    out.push('}');
+    push_comma_newline(out, comma);
 }
 
 fn push_summary(out: &mut String, report: &IrReadinessReport, indent: usize, comma: bool) {
@@ -868,7 +997,8 @@ mod tests {
 
         assert!(text.contains("Hum IR readiness (hum.ir_readiness.v0)"));
         assert!(text.contains("core_contract_schema: hum.core_contract.v0"));
-        assert!(text.contains("lowering_candidates=3 ready_for_ir=0 blocked=3"));
+        assert!(text.contains("resolver: schema=hum.resolve.v0 status=checked_resolver_v0"));
+        assert!(text.contains("lowering_candidates=4 ready_for_ir=0 blocked=4"));
         assert!(text.contains("body_grammar_candidates=2"));
         assert!(text.contains("pass_status:"));
         assert!(text.contains("body_grammar [partial_v0]"));
@@ -885,6 +1015,12 @@ mod tests {
         assert!(json.contains("\"schema\": \"hum.ir_readiness.v0\""));
         assert!(json.contains("\"core_contract_schema\": \"hum.core_contract.v0\""));
         assert!(json.contains("\"ir_contract_schema\": \"hum.ir_contract.v0\""));
+        assert!(json.contains("\"resolver\""));
+        assert!(json.contains("\"schema\": \"hum.resolve.v0\""));
+        assert!(json.contains("\"status\": \"checked_resolver_v0\""));
+        assert!(json.contains("\"mode\": \"source_analysis_only_no_type_or_borrow_check\""));
+        assert!(json.contains("\"resolver_errors\": 0"));
+        assert!(json.contains("\"checked_resolver_v0\""));
         assert!(json.contains("\"ready_for_ir\": 0"));
         assert!(json.contains("\"body_grammar_candidates\": 2"));
         assert!(json.contains("\"body_grammar_unsupported_lines\": 1"));
@@ -903,17 +1039,39 @@ mod tests {
         assert!(json.contains("\"no IR emission\""));
     }
 
+    #[test]
+    fn json_blocks_on_resolver_errors_before_lowering() {
+        let source = r#"task bad names() -> UInt {
+  does:
+    return missing
+}
+"#;
+        let parsed = parse_source("bad.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = ir_readiness_json(&program, &[]);
+
+        assert!(json.contains("\"status\": \"checked_resolver_with_errors_v0\""));
+        assert!(json.contains("\"resolver_errors\": 1"));
+        assert!(json.contains("\"status\": \"blocked_by_resolver_errors\""));
+        assert!(json.contains("\"checked_resolver_errors\""));
+        assert!(json.contains("\"ready_for_ir\": 0"));
+    }
+
     fn demo_program() -> Program {
         let source = r#"type Task {
   title: Text
 }
 
+store tasks: list Task {
+  why:
+    remember tasks
+}
+
 task add task(title: Text) -> Task {
   why:
     save a task
-
-  uses:
-    tasks
 
   changes:
     tasks
@@ -922,11 +1080,14 @@ task add task(title: Text) -> Task {
     task is visible
 
   does:
+    let task = Task {
+      title: title
+    }
     save task in tasks
     return task
 }
 
-test add task unit {
+test add task is visible {
   covers:
     add task ensures task is visible
 

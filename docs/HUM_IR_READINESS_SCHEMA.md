@@ -10,7 +10,8 @@ Current schema: `hum.ir_readiness.v0`
 future Core Hum and Hum IR lowering.
 
 This is not an IR emitter. It is a readiness and blocker inventory built from
-the parser, AST, semantic graph facts, diagnostics, the Core Hum contract in
+the parser, AST, semantic graph facts, diagnostics, the checked resolver report
+in [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md), the Core Hum contract in
 [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md), and the Hum IR
 contract in [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md). It exists so humans,
 agents, and CI can see which source facts are already visible and which compiler
@@ -43,6 +44,7 @@ compiler-roadmap checks, and future IR verifier work.
   "milestone": "0 semantic graph",
   "core_contract_schema": "hum.core_contract.v0",
   "ir_contract_schema": "hum.ir_contract.v0",
+  "resolver": {},
   "summary": {},
   "pass_status": [],
   "lowering_candidates": [],
@@ -59,11 +61,31 @@ compiler-roadmap checks, and future IR verifier work.
 - `milestone`: current implementation milestone
 - `core_contract_schema`: Core Hum contract this report is measured against
 - `ir_contract_schema`: Hum IR contract this report is measured against
+- `resolver`: checked `hum.resolve.v0` summary consumed as an IR-readiness gate
 - `summary`: file, item, task, test, candidate, ready, blocked, error, warning,
   and body-grammar counts
 - `pass_status`: current status for the pass names in `hum.ir_contract.v0`
 - `lowering_candidates`: parsed source items that future lowering must handle
 - `non_goals_v0`: claims this command must not make
+
+## Resolver Summary Shape
+
+`resolver` contains the summary fields from `hum.resolve.v0` needed by IR
+readiness:
+
+- `schema`: currently `hum.resolve.v0`
+- `status`: `checked_resolver_v0`, `checked_resolver_with_errors_v0`, or
+  `blocked_by_source_errors`
+- `mode`: currently `source_analysis_only_no_type_or_borrow_check`
+- `files`, `items`, `source_errors`, and `source_warnings`
+- `scopes`, `definitions`, `references`, `resolved_references`,
+  `unresolved_references`, and `external_references`
+- `duplicate_definitions`, `mutable_place_errors`, `resolver_errors`, and
+  `resolver_warnings`
+
+A nonzero `resolver_errors` value blocks every V0 lowering candidate with
+`checked_resolver_errors`. The command still reports the candidates because the
+point is to show the next honest blocker, not to emit IR.
 
 ## Candidate Shape
 
@@ -86,8 +108,9 @@ Each `lowering_candidates` entry has:
 
 Current candidate statuses:
 
-- `blocked_before_core_lowering`: source parsed but no Core Hum lowering exists
+- `blocked_before_core_lowering`: source parsed and resolved, but no Core Hum lowering exists
 - `blocked_by_source_errors`: source diagnostics include errors
+- `blocked_by_resolver_errors`: `hum.resolve.v0` reported name, duplicate, or mutable-place errors
 
 ## Facts Available
 
@@ -97,6 +120,9 @@ V0 may report facts such as:
 - `semantic_graph_node_id`
 - `item_kind`
 - `item_name`
+- `resolver_summary_v0`
+- `checked_resolver_v0`
+- `checked_resolver_with_errors_v0`
 - `source_sections`
 - `section_line_spans`
 - `signature_params`
@@ -165,6 +191,7 @@ V0 reports these pass statuses:
 
 - `parse`: `current`
 - `semantic_graph_build`: `current`
+- `resolve`: `checked_report_available`
 - `body_grammar`: `partial_v0`
 - `core_lowering`: `not_implemented`
 - `type_check`: `not_implemented`
@@ -181,8 +208,10 @@ V0 reports these pass statuses:
 - It must not execute generated code.
 - It must not claim type safety, memory safety, optimization, backend readiness,
   or executable semantics.
-- It may report source-visible facts, partial body grammar facts, and missing
-  compiler passes.
+- It may report source-visible facts, checked resolver facts, partial body
+  grammar facts, and missing compiler passes.
+- It must block V0 lowering candidates when `hum.resolve.v0` reports resolver
+  errors.
 - It must stay in sync with `hum.core_contract.v0`, `hum.ir_contract.v0`, `hum
   capabilities --format json`, and `hum version --format json`.
 
