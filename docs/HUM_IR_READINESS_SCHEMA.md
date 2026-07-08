@@ -13,7 +13,8 @@ This is not an IR emitter. It is a readiness and blocker inventory built from
 the parser, AST, semantic graph facts, diagnostics, the checked resolver report
 in [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md), the declaration annotation
 type-check report in [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md), the
-Core Hum contract in [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md),
+Core Hum preview report in [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md),
+the Core Hum contract in [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md),
 and the Hum IR contract in [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md).
 It exists so humans, agents, and CI can see which source facts are already
 visible and which compiler passes still block honest IR/backend claims.
@@ -47,6 +48,7 @@ compiler-roadmap checks, and future IR verifier work.
   "ir_contract_schema": "hum.ir_contract.v0",
   "resolver": {},
   "type_check": {},
+  "core_preview": {},
   "summary": {},
   "pass_status": [],
   "lowering_candidates": [],
@@ -65,6 +67,8 @@ compiler-roadmap checks, and future IR verifier work.
 - `ir_contract_schema`: Hum IR contract this report is measured against
 - `resolver`: checked `hum.resolve.v0` summary consumed as an IR-readiness gate
 - `type_check`: checked `hum.type_check.v0` summary consumed as an IR-readiness gate
+- `core_preview`: conservative `hum.core_preview.v0` summary consumed as a
+  source-to-core planning signal, not as a lowering authority
 - `summary`: file, item, task, test, candidate, ready, blocked, error, warning,
   type-error, and body-grammar counts
 - `pass_status`: current status for the pass names in `hum.ir_contract.v0`
@@ -109,6 +113,22 @@ A nonzero `type_errors` value blocks every V0 lowering candidate with
 full expression, body, generic, trait, ownership, effect, layout, and ABI checks
 remain future blockers.
 
+## Core Preview Summary Shape
+
+`core_preview` contains the summary fields from `hum.core_preview.v0` needed by
+IR readiness:
+
+- `schema`: currently `hum.core_preview.v0`
+- `status`: currently `preview_v0`
+- `files`, `items`, `tasks`, `tests`, `core_candidates`, `errors`, and `warnings`
+- `lowerable_preview_statements`, `contextual_preview_statements`, and
+  `blocked_statements`
+- `expression_previews`, `expression_ast_nodes`, and `typed_expression_previews`
+
+`typed_expression_previews` counts expression roots whose type slot was populated
+from checked return facts. It is a planning fact for future Core Hum lowering, not
+a claim that broad expression type inference has run.
+
 ## Candidate Shape
 
 Each `lowering_candidates` entry has:
@@ -150,6 +170,9 @@ V0 may report facts such as:
 - `declaration_annotations_and_trivial_returns_checked_v0`
 - `type_errors_v0`
 - `trivial_return_checks_v0`
+- `core_preview_summary_v0`
+- `preview_v0`
+- `checked_return_expression_type_slots_v0`
 - `source_sections`
 - `section_line_spans`
 - `signature_params`
@@ -209,8 +232,9 @@ Unsupported but intentionally named V0 blockers include:
 
 This is grammar visibility only. It is not Core Hum lowering, full type checking,
 effect checking, test execution, or interpretation. `hum core-preview` consumes
-the same partial body grammar to emit Core Hum candidate operations and blockers
-without crossing into executable semantics.
+the same partial body grammar to emit Core Hum candidate operations, blockers,
+and selected checked return-expression type slots without crossing into executable
+semantics.
 
 ## Pass Status
 
@@ -220,6 +244,7 @@ V0 reports these pass statuses:
 - `semantic_graph_build`: `current`
 - `resolve`: `checked_report_available`
 - `body_grammar`: `partial_v0`
+- `core_preview`: `preview_v0`
 - `core_lowering`: `not_implemented`
 - `type_check`: `declaration_and_trivial_return_check_available`
 - `effect_check`: `not_implemented`
@@ -236,7 +261,8 @@ V0 reports these pass statuses:
 - It must not claim type safety, memory safety, optimization, backend readiness,
   or executable semantics.
 - It may report source-visible facts, checked resolver facts, declaration
-  type-check facts, partial body grammar facts, and missing compiler passes.
+  type-check facts, partial body grammar facts, conservative core-preview facts,
+  and missing compiler passes.
 - It must block V0 lowering candidates when `hum.resolve.v0` reports resolver
   errors.
 - It must block V0 lowering candidates when `hum.type_check.v0` reports

@@ -22,6 +22,25 @@ struct CorePreviewReport {
     candidates: Vec<CoreCandidate>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CorePreviewReadinessSummary {
+    pub schema: &'static str,
+    pub status: &'static str,
+    pub files: usize,
+    pub items: usize,
+    pub tasks: usize,
+    pub tests: usize,
+    pub core_candidates: usize,
+    pub errors: usize,
+    pub warnings: usize,
+    pub lowerable_preview_statements: usize,
+    pub contextual_preview_statements: usize,
+    pub blocked_statements: usize,
+    pub expression_previews: usize,
+    pub expression_ast_nodes: usize,
+    pub typed_expression_previews: usize,
+}
+
 struct CoreCandidate {
     id: String,
     kind: &'static str,
@@ -280,6 +299,30 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
     }
 
     out
+}
+
+pub fn core_preview_readiness_summary(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> CorePreviewReadinessSummary {
+    let report = build_report(program, diagnostics);
+    CorePreviewReadinessSummary {
+        schema: CORE_PREVIEW_SCHEMA,
+        status: CORE_PREVIEW_STATUS,
+        files: report.files,
+        items: report.items,
+        tasks: report.tasks,
+        tests: report.tests,
+        core_candidates: report.candidates.len(),
+        errors: report.errors,
+        warnings: report.warnings,
+        lowerable_preview_statements: report.lowerable_preview_statements(),
+        contextual_preview_statements: report.contextual_preview_statements(),
+        blocked_statements: report.blocked_statements(),
+        expression_previews: report.expression_previews(),
+        expression_ast_nodes: report.expression_ast_nodes(),
+        typed_expression_previews: report.typed_expression_previews(),
+    }
 }
 
 pub fn core_preview_json(program: &Program, diagnostics: &[Diagnostic]) -> String {

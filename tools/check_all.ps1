@@ -452,17 +452,23 @@ try {
   if (-not $IrReadinessJson.Contains('"resolver_errors": 0')) { throw 'IR readiness JSON should have zero resolver errors for reference fixture' }
   if (-not $IrReadinessJson.Contains('"type_check"')) { throw 'IR readiness JSON is missing type_check summary' }
   if (-not $IrReadinessJson.Contains('"schema": "hum.type_check.v0"')) { throw 'IR readiness JSON is missing hum.type_check.v0 schema link' }
+  if (-not $IrReadinessJson.Contains('"core_preview"')) { throw 'IR readiness JSON is missing core_preview summary' }
+  if (-not $IrReadinessJson.Contains('"schema": "hum.core_preview.v0"')) { throw 'IR readiness JSON is missing hum.core_preview.v0 schema link' }
+  if (-not $IrReadinessJson.Contains('"typed_expression_previews": 1')) { throw 'IR readiness JSON is missing core preview typed expression count' }
   if (-not $IrReadinessJson.Contains('"status": "declaration_annotations_and_trivial_returns_checked_v0"')) { throw 'IR readiness JSON should include clean type-check status for reference fixture' }
   if (-not $IrReadinessJson.Contains('"type_errors": 0')) { throw 'IR readiness JSON should have zero type errors for reference fixture' }
   if (-not $IrReadinessJson.Contains('"unknown_type_references": 0')) { throw 'IR readiness JSON should have zero unknown type refs for reference fixture' }
   if (-not $IrReadinessJson.Contains('"checked_returns"')) { throw 'IR readiness JSON is missing type-check return counters' }
   if (-not $IrReadinessJson.Contains('"trivial_return_checks_v0"')) { throw 'IR readiness JSON is missing trivial return fact' }
   if (-not $IrReadinessJson.Contains('"type_check_summary_v0"')) { throw 'IR readiness JSON is missing type check summary fact' }
+  if (-not $IrReadinessJson.Contains('"core_preview_summary_v0"')) { throw 'IR readiness JSON is missing core preview summary fact' }
+  if (-not $IrReadinessJson.Contains('"checked_return_expression_type_slots_v0"')) { throw 'IR readiness JSON is missing checked return expression slot fact' }
   if (-not $IrReadinessJson.Contains('"name": "resolve"')) { throw 'IR readiness JSON is missing resolve pass status' }
   if (-not $IrReadinessJson.Contains('"checked_report_available"')) { throw 'IR readiness JSON is missing checked resolver pass availability' }
   if (-not $IrReadinessJson.Contains('"resolver_summary_v0"')) { throw 'IR readiness JSON is missing resolver summary fact' }
   if (-not $IrReadinessJson.Contains('"ready_for_ir": 0')) { throw 'IR readiness JSON must not claim IR readiness yet' }
   if (-not $IrReadinessJson.Contains('"body_grammar"')) { throw 'IR readiness JSON is missing body_grammar facts' }
+  if (-not $IrReadinessJson.Contains('"name": "core_preview"')) { throw 'IR readiness JSON is missing core_preview pass status' }
   if (-not $IrReadinessJson.Contains('"body_grammar_partial_v0"')) { throw 'IR readiness JSON is missing partial body grammar fact' }
   if (-not $IrReadinessJson.Contains('"body_grammar_unsupported_lines"')) { throw 'IR readiness JSON is missing body grammar unsupported count' }
   if (-not $IrReadinessJson.Contains('"surface_save_requires_store_lowering"')) { throw 'IR readiness JSON is missing store save lowering blocker' }
@@ -613,6 +619,8 @@ try {
   if (-not $IrReadinessSchemaText.Contains('hum.resolve.v0')) { throw 'IR readiness schema doc is missing resolver schema link' }
   if (-not $IrReadinessSchemaText.Contains('checked_resolver_errors')) { throw 'IR readiness schema doc is missing resolver blocker' }
   if (-not $IrReadinessSchemaText.Contains('hum.type_check.v0')) { throw 'IR readiness schema doc is missing type-check schema link' }
+  if (-not $IrReadinessSchemaText.Contains('hum.core_preview.v0')) { throw 'IR readiness schema doc is missing core-preview schema link' }
+  if (-not $IrReadinessSchemaText.Contains('checked_return_expression_type_slots_v0')) { throw 'IR readiness schema doc is missing checked return expression slot fact' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_type_errors')) { throw 'IR readiness schema doc is missing type-error blocker' }
   if (-not $IrReadinessSchemaText.Contains('declaration_and_trivial_return_check_available')) { throw 'IR readiness schema doc is missing type-check pass status' }
   $ResolveDecisionText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\decisions\0011-add-checked-resolver-before-execution.md'))

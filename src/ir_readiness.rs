@@ -1,6 +1,7 @@
 use crate::ast::{App, Item, Program, Section, Store, Task, Test, TypeDef};
 use crate::core_body::{self, BodyGrammarReport, BodyStatement};
 use crate::core_contract;
+use crate::core_preview;
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::is_meaningful_line_text;
 use crate::ir_contract;
@@ -20,6 +21,7 @@ struct IrReadinessReport {
     warnings: usize,
     resolve_summary: resolve::ResolveReadinessSummary,
     type_check_summary: type_check::TypeCheckSummary,
+    core_preview_summary: core_preview::CorePreviewReadinessSummary,
     candidates: Vec<LoweringCandidate>,
 }
 
@@ -68,6 +70,11 @@ const PASS_STATUSES: &[PassStatus] = &[
         name: "body_grammar",
         status: core_body::CORE_BODY_GRAMMAR_STATUS,
         source: core_contract::CORE_CONTRACT_SCHEMA,
+    },
+    PassStatus {
+        name: "core_preview",
+        status: core_preview::CORE_PREVIEW_STATUS,
+        source: core_preview::CORE_PREVIEW_SCHEMA,
     },
     PassStatus {
         name: "core_lowering",
@@ -191,6 +198,17 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.type_check_summary.type_errors,
         report.type_check_summary.unknown_type_references
     ));
+    out.push_str(&format!(
+        "core_preview: schema={} status={} core_candidates={} lowerable_preview_statements={} blocked_statements={} expression_previews={} expression_ast_nodes={} typed_expression_previews={}\n",
+        report.core_preview_summary.schema,
+        report.core_preview_summary.status,
+        report.core_preview_summary.core_candidates,
+        report.core_preview_summary.lowerable_preview_statements,
+        report.core_preview_summary.blocked_statements,
+        report.core_preview_summary.expression_previews,
+        report.core_preview_summary.expression_ast_nodes,
+        report.core_preview_summary.typed_expression_previews
+    ));
     out.push_str("pass_status:\n");
     for pass in PASS_STATUSES {
         out.push_str(&format!(
@@ -268,6 +286,7 @@ pub fn ir_readiness_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
     );
     push_resolver_summary(&mut out, &report.resolve_summary, 2, true);
     push_type_check_summary(&mut out, &report.type_check_summary, 2, true);
+    push_core_preview_summary(&mut out, &report.core_preview_summary, 2, true);
     push_summary(&mut out, &report, 2, true);
     push_pass_status(&mut out, 2, true);
     push_candidates(&mut out, &report.candidates, 2, true);
@@ -291,6 +310,8 @@ pub fn ir_readiness_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessReport {
     let resolve_summary = resolve::resolve_readiness_summary(program, diagnostics);
     let type_check_summary = type_check::type_check_summary(program, diagnostics);
+    let core_preview_summary = core_preview::core_preview_readiness_summary(program, diagnostics);
+    let checked_returns = type_check::checked_return_summaries(program, diagnostics);
     let mut candidates = Vec::new();
     for file in &program.files {
         collect_candidates_from_items(
@@ -298,6 +319,8 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
             diagnostics,
             &resolve_summary,
             &type_check_summary,
+            &core_preview_summary,
+            &checked_returns,
             &mut candidates,
         );
     }
@@ -325,6 +348,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         warnings,
         resolve_summary,
         type_check_summary,
+        core_preview_summary,
         candidates,
     }
 }
@@ -334,6 +358,8 @@ fn collect_candidates_from_items(
     diagnostics: &[Diagnostic],
     resolve_summary: &resolve::ResolveReadinessSummary,
     type_check_summary: &type_check::TypeCheckSummary,
+    core_preview_summary: &core_preview::CorePreviewReadinessSummary,
+    checked_returns: &[type_check::CheckedReturnSummary],
     candidates: &mut Vec<LoweringCandidate>,
 ) {
     for item in items {
@@ -342,6 +368,8 @@ fn collect_candidates_from_items(
             diagnostics,
             resolve_summary,
             type_check_summary,
+            core_preview_summary,
+            checked_returns,
         ));
         if let Item::App(app) = item {
             collect_candidates_from_items(
@@ -349,6 +377,8 @@ fn collect_candidates_from_items(
                 diagnostics,
                 resolve_summary,
                 type_check_summary,
+                core_preview_summary,
+                checked_returns,
                 candidates,
             );
         }
@@ -360,6 +390,8 @@ fn lowering_candidate(
     diagnostics: &[Diagnostic],
     resolve_summary: &resolve::ResolveReadinessSummary,
     type_check_summary: &type_check::TypeCheckSummary,
+    core_preview_summary: &core_preview::CorePreviewReadinessSummary,
+    checked_returns: &[type_check::CheckedReturnSummary],
 ) -> LoweringCandidate {
     let graph_node_id = node_id::span(
         "item",
@@ -395,7 +427,13 @@ fn lowering_candidate(
         },
         current_layer: CURRENT_LAYER,
         target_layer: TARGET_LAYER,
-        facts_available: facts_available(item, resolve_summary, type_check_summary),
+        facts_available: facts_available(
+            item,
+            resolve_summary,
+            type_check_summary,
+            core_preview_summary,
+            checked_returns,
+        ),
         missing_passes: MISSING_IR_PASSES.to_vec(),
         blocking_reasons,
         section_names,
@@ -407,6 +445,8 @@ fn facts_available(
     item: &Item,
     resolve_summary: &resolve::ResolveReadinessSummary,
     type_check_summary: &type_check::TypeCheckSummary,
+    core_preview_summary: &core_preview::CorePreviewReadinessSummary,
+    checked_returns: &[type_check::CheckedReturnSummary],
 ) -> Vec<&'static str> {
     let mut facts = vec![
         "source_span",
@@ -418,7 +458,12 @@ fn facts_available(
         "type_check_summary_v0",
         type_check_summary.status,
         "trivial_return_checks_v0",
+        "core_preview_summary_v0",
+        core_preview_summary.status,
     ];
+    if has_checked_return_type_slot(item, checked_returns) {
+        facts.push("checked_return_expression_type_slots_v0");
+    }
 
     let sections = item_sections(item);
     if !sections.is_empty() {
@@ -437,6 +482,33 @@ fn facts_available(
     }
 
     facts
+}
+
+fn has_checked_return_type_slot(
+    item: &Item,
+    checked_returns: &[type_check::CheckedReturnSummary],
+) -> bool {
+    let task = match item {
+        Item::Task(task) => task,
+        _ => return false,
+    };
+    checked_returns.iter().any(|checked_return| {
+        checked_return.owner_kind == "task"
+            && checked_return.owner_name == task.name
+            && task_contains_span(task, &checked_return.source_span)
+            && checked_return.actual_type.is_some()
+            && matches!(
+                checked_return.status,
+                "accepted_return_expression_v0" | "rejected_return_type_mismatch_v0"
+            )
+    })
+}
+
+fn task_contains_span(task: &Task, span: &Span) -> bool {
+    task.sections
+        .iter()
+        .flat_map(|section| section.lines.iter())
+        .any(|line| line.span == *span)
 }
 
 fn add_app_facts(app: &App, facts: &mut Vec<&'static str>) {
@@ -840,6 +912,76 @@ fn push_type_check_summary(
     push_comma_newline(out, comma);
 }
 
+fn push_core_preview_summary(
+    out: &mut String,
+    summary: &core_preview::CorePreviewReadinessSummary,
+    indent: usize,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    out.push_str("\"core_preview\": {\n");
+    push_string_field(out, indent + 2, "schema", summary.schema, true);
+    push_string_field(out, indent + 2, "status", summary.status, true);
+    push_usize_field(out, indent + 2, "files", summary.files, true);
+    push_usize_field(out, indent + 2, "items", summary.items, true);
+    push_usize_field(out, indent + 2, "tasks", summary.tasks, true);
+    push_usize_field(out, indent + 2, "tests", summary.tests, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "core_candidates",
+        summary.core_candidates,
+        true,
+    );
+    push_usize_field(out, indent + 2, "errors", summary.errors, true);
+    push_usize_field(out, indent + 2, "warnings", summary.warnings, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "lowerable_preview_statements",
+        summary.lowerable_preview_statements,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "contextual_preview_statements",
+        summary.contextual_preview_statements,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "blocked_statements",
+        summary.blocked_statements,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "expression_previews",
+        summary.expression_previews,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "expression_ast_nodes",
+        summary.expression_ast_nodes,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "typed_expression_previews",
+        summary.typed_expression_previews,
+        false,
+    );
+    push_indent(out, indent);
+    out.push('}');
+    push_comma_newline(out, comma);
+}
+
 fn push_summary(out: &mut String, report: &IrReadinessReport, indent: usize, comma: bool) {
     push_indent(out, indent);
     out.push_str("\"summary\": {");
@@ -1177,8 +1319,11 @@ mod tests {
         );
         assert!(text.contains("type_errors=0 unknown_type_references=0"));
         assert!(text.contains("type_check: schema=hum.type_check.v0"));
+        assert!(text.contains("core_preview: schema=hum.core_preview.v0"));
+        assert!(text.contains("typed_expression_previews=1"));
         assert!(text.contains("pass_status:"));
         assert!(text.contains("body_grammar [partial_v0]"));
+        assert!(text.contains("core_preview [preview_v0]"));
         assert!(text.contains("type_check [declaration_and_trivial_return_check_available]"));
         assert!(text.contains("core_lowering [not_implemented]"));
         assert!(text.contains("task `add task`"));
@@ -1201,6 +1346,10 @@ mod tests {
         assert!(json.contains("\"resolver_errors\": 0"));
         assert!(json.contains("\"type_check\""));
         assert!(json.contains("\"schema\": \"hum.type_check.v0\""));
+        assert!(json.contains("\"core_preview\""));
+        assert!(json.contains("\"schema\": \"hum.core_preview.v0\""));
+        assert!(json.contains("\"status\": \"preview_v0\""));
+        assert!(json.contains("\"typed_expression_previews\": 1"));
         assert!(
             json.contains("\"status\": \"declaration_annotations_and_trivial_returns_checked_v0\"")
         );
@@ -1208,12 +1357,20 @@ mod tests {
         assert!(json.contains("\"unknown_type_references\": 0"));
         assert!(json.contains("\"checked_resolver_v0\""));
         assert!(json.contains("\"type_check_summary_v0\""));
+        assert!(json.contains("\"core_preview_summary_v0\""));
+        assert!(json.contains("\"checked_return_expression_type_slots_v0\""));
+        assert_eq!(
+            json.matches("checked_return_expression_type_slots_v0")
+                .count(),
+            1
+        );
         assert!(json.contains("\"declaration_annotations_and_trivial_returns_checked_v0\""));
         assert!(json.contains("\"ready_for_ir\": 0"));
         assert!(json.contains("\"body_grammar_candidates\": 2"));
         assert!(json.contains("\"body_grammar_unsupported_lines\": 1"));
         assert!(json.contains("\"status\": \"blocked_before_core_lowering\""));
         assert!(json.contains("\"name\": \"body_grammar\""));
+        assert!(json.contains("\"name\": \"core_preview\""));
         assert!(json.contains("\"status\": \"partial_v0\""));
         assert!(json.contains("\"body_grammar\""));
         assert!(json.contains("\"kind\": \"return\""));
@@ -1250,6 +1407,10 @@ task pass box(item: Box) -> Box {
 
         assert!(json.contains("\"type_check\""));
         assert!(json.contains("\"schema\": \"hum.type_check.v0\""));
+        assert!(json.contains("\"core_preview\""));
+        assert!(json.contains("\"schema\": \"hum.core_preview.v0\""));
+        assert!(json.contains("\"status\": \"preview_v0\""));
+        assert!(json.contains("\"typed_expression_previews\": 0"));
         assert!(json.contains("\"status\": \"type_errors_v0\""));
         assert!(json.contains("\"type_errors\": 1"));
         assert!(json.contains("\"unknown_type_references\": 1"));
