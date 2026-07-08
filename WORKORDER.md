@@ -1,167 +1,141 @@
-# Hum Work Order 2: Ownership Bake-Off
+# Hum Work Order 3: Ownership Checker Foundations
 
 Date: 2026-07-08
-Status: active, BDFL-approved
-Owner: BDFL (Ocean). Reviewer: external architect pass. Implementer: agent sessions.
-Predecessor: Work Order 1 (Milestone 1 vertical slice) completed in full;
-see git history through commit `e3b2713`.
+Status: active, issued under delegated authority (GOVERNANCE.md), BDFL veto open
+Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent sessions.
+Predecessor: Work Order 2 (ownership bake-off) completed; decision 0014
+accepted at commit `a396965`.
 
 ## Why this document exists
 
-Hum now runs programs and enforces contracts with blame. The next decision
-is the most consequential one the language will ever make: the ownership
-model. This work order decides it as a paper exercise against a fixed
-program corpus, producing decision record 0014. No checker gets built until
-the model is chosen; retrofitting an ownership model after implementation
-is how languages die.
+Decision 0014 adopted ownership and borrowing as Hum's core model. This
+work order builds the first three rungs of the ADR's checker roadmap:
+ordinary owned values and moves, linear resource path checking, and
+returned-view dependencies from parameters. The repairs (disjoint-field
+projection, internal references, flow-sensitive borrowing) are explicitly
+OUT of scope: they are future work orders that must be earned by evidence
+from this one.
 
-Research inputs, both already absorbed:
+Honesty locks from 0014 apply to every session: no tool output, doc, or
+README text may claim full ownership safety, borrow soundness, memory
+safety, or safety-critical readiness. Reports name exactly what is
+checked and what is not.
 
-- [docs/research/2026-07-08-ownership-contracts-effects-determinism.md](docs/research/2026-07-08-ownership-contracts-effects-determinism.md)
-  Section 1, which sets the null hypothesis below.
-- The Session D friction ledger in
-  [docs/CORE_LANGUAGE_SHAPE.md](docs/CORE_LANGUAGE_SHAPE.md), which
-  contributes programs 11 and 12.
+## Global bans (all sessions)
 
-## Rules for this work order
+- No disjoint-field projection, internal references, or flow-sensitive
+  borrowing. If a fixture seems to need one, record a friction entry and
+  route around it.
+- No closures, tasks-as-values, generics, concurrency, FFI, backends.
+- No new schemas or report subcommands; extend `hum.ownership_check.v0`
+  and existing surfaces in place, bumping only if shape must break.
+- Every new rejection rule ships with at least one deliberately wrong
+  fixture that triggers it (misuse-probe rule) and a stable diagnostic
+  code with blame-style help text.
+- Grammar changes update MILESTONE_0_GRAMMAR.md, LANGUAGE_REFERENCE.md,
+  the syntax surface, and the TextMate grammar in the same session
+  (showcase discipline applies).
 
-1. Paper only. No changes to `src/`, no interpreter work, no checker
-   prototypes, no new diagnostics. The outputs are documents and `.hum`-
-   shaped program sketches under `docs/bakeoff/`. That directory is the
-   sanctioned new-doc surface for Sessions E-I; nothing else.
-2. Candidates share Hum's existing permission vocabulary where possible
-   (`let`, `change`, `owned`, `borrow`, `shared`, `consume` from
-   MEMORY_SAFETY_MODEL.md and STATE_MODEL.md). What differs between
-   candidates is the rules those words obey, not cosmetic renaming.
-   Sketches honor decisions 0009 (formal readability) and 0012
-   (snake_case).
-3. Advocate rule. Each candidate session is written by that candidate's
-   best advocate: make the strongest honest case, including its escape
-   hatches. Cross-candidate criticism is deferred entirely to Session I.
-   This exists because the research recommends candidate A, and the
-   bake-off is worthless if the other two are written as strawmen.
-4. Friction records still apply. Writing a corpus program that fights the
-   candidate's rules is data: record it (`indicts: ownership`) in the
-   candidate document, not in CORE_LANGUAGE_SHAPE.md.
-5. Session boundaries are hard: one session, one deliverable, stop for
-   review. Gate amendment (BDFL-directed, 2026-07-08): the
-   candidate-reading gate before Session I is replaced by the delegated
-   ruling process in GOVERNANCE.md "Delegated Ruling" — Session I proceeds
-   on the reviewer's go signal; decision 0014 is ruled on by the
-   architect-reviewer under delegated authority via a one-page BDFL
-   decision brief, with the standing veto open.
-
-## The candidates
-
-- Candidate A (null hypothesis): Rust-like ownership and borrowing,
-  designed from day one against the known repair list (flow-sensitive
-  conditional returns, disjoint-field projections, internal references),
-  plus linear resources for exactly-once protocols, plus explicit
-  arenas/regions as source-visible opt-in.
-- Candidate B: mutable value semantics with second-class references
-  (Hylo direction): whole-value semantics, `inout`-style exclusive
-  parameter access, no first-class references stored in values.
-- Candidate C: region/arena-first ownership: allocation and lifetime
-  belong to named regions; values are region-tagged; escape analysis and
-  explicit region arguments replace per-value borrows.
-
-## Session E: pin the corpus
+## Session J: parameter permissions and moves
 
 Scope:
 
-1. Write `docs/bakeoff/CORPUS.md` containing the twelve programs listed in
-   the appendix. For each program: the behavior specification (what it
-   does, concretely, with example inputs/outputs), why it is hard (which
-   ownership question it isolates), the misuse that must be rejected (the
-   bug a checker must catch), and the success criteria for a candidate.
-2. Specifications are model-neutral: they describe behavior and required
-   rejections, never mechanism. A corpus entry that presupposes borrows,
-   regions, or value semantics is a defect.
-3. Keep each program small enough to sketch in under ~60 lines of Hum.
+1. Add parameter permission modes to the grammar: `borrow` (default when
+   unmarked), `change`, and `consume`, e.g.
+   `task rename(change item: WorkItem, new_title: Text)`. Record the
+   default-borrow rule in LANGUAGE_REFERENCE.md with a short rationale
+   note referencing 0014.
+2. Extend the ownership checker to track owned locals and moves in the
+   recognized executable subset: a local passed by `consume` or returned
+   is moved; use after move is rejected with a new diagnostic whose help
+   names the move site.
+3. `hum run` enforces the same rules dynamically where static coverage
+   is partial, trapping with the same diagnostic identity.
+4. Fixtures: at least one passing program per permission mode plus
+   misuse fixtures for use-after-move, writing through `borrow`, and
+   consuming the same value twice.
 
 Acceptance criteria:
 
-- All twelve programs have all four fields.
-- No specification names a candidate mechanism.
-- `.\tools\check_text_hygiene.ps1` passes.
-- Stop for BDFL corpus review before Session F.
+- All new fixtures pass/fail as designed under both `hum check`-family
+  gates and `hum run`.
+- Diagnostics carry blame-style help (who must fix it, at which line).
+- `.\tools\check_all.ps1` passes. Stop for review.
 
-## Session F: candidate A, written by its advocate
+## Session K: linear resources
 
 Scope:
 
-1. Write `docs/bakeoff/candidate_a_borrows.md`: all twelve corpus programs
-   sketched in Hum surface syntax under candidate A rules.
-2. Per program: the code sketch; the rule that rejects the corpus misuse;
-   a one-line diagnostic sketch in Hum's blame style; a beginner
-   explanation of why the rule exists, two sentences maximum.
-3. A rules section: the candidate's core model stated in under a page,
-   including its planned repairs and its two escape valves (linear
-   resources, explicit arenas), with each escape hatch naming its cost
-   (allocation, runtime check, proof obligation, or unsafe
-   responsibility).
-4. Honest self-score against the rubric in the appendix, including which
-   programs needed an escape hatch.
+1. A `consume`-obligated value must be consumed exactly once on every
+   control-flow path of the recognized subset: missing-consume on any
+   path and double-consume are both rejected, with path-naming
+   diagnostics per the 0014 blame style.
+2. Port corpus program 10 (transaction commit-or-rollback) from the
+   candidate A sketch into a runnable fixture under `examples/probes/`,
+   with begin/debit/credit/commit/rollback stubbed in the interpreter as
+   needed (smallest possible stubs).
+3. Misuse fixtures: early return skipping consume, double consume after
+   commit, consume inside only one branch of an if.
 
 Acceptance criteria:
 
-- Twelve sketches, each with all four per-program artifacts.
-- Self-score table present; escape-hatch usage explicitly counted.
-- Friction records included for any program that fought the model.
-- Hygiene passes. Stop for review.
+- The transaction probe runs green under `hum run`; each misuse fixture
+  produces its diagnostic with the offending path named.
+- Friction records for anything the linear rules made awkward.
+- `.\tools\check_all.ps1` passes. Stop for review.
 
-## Session G: candidate B, written by its advocate
-
-Same scope, template, and acceptance criteria as Session F, for mutable
-value semantics with second-class references, in
-`docs/bakeoff/candidate_b_values.md`. The advocate must engage the known
-hard cases for this model (cyclic graphs, stored callbacks,
-self-referential parsing) rather than skipping them: if the answer is
-"this program is restructured as indices/arena," show that restructuring
-as the sketch and price it honestly.
-
-## Session H: candidate C, written by its advocate
-
-Same scope, template, and acceptance criteria as Session F, for
-region/arena-first ownership, in `docs/bakeoff/candidate_c_regions.md`.
-The advocate must engage the Cyclone/MLKit postmortem directly: state
-which escape hatches (dynamic regions, unique pointers, RC) the candidate
-imports, and price each.
-
-## Session I: scorecard and decision record
+## Session L: returned-view dependencies
 
 Scope:
 
-1. Write `docs/bakeoff/SCORECARD.md`: the 12-by-3 matrix scored on the
-   rubric, with the quantified gate applied. This session is the first
-   place cross-candidate criticism is allowed, and it must criticize all
-   three.
-2. Draft decision record `docs/decisions/0014-adopt-ownership-model.md`
-   with a recommendation, an alternatives-rejected section naming what
-   dies with each loser, and a salvage section naming which losing ideas
-   survive as escape hatches or profile features.
-3. Identify what the winner does NOT settle (concurrency sharing rules,
-   record-update syntax sugar, list growth API) and route each to the
-   backlog or a named future decision.
+1. Add the checked `from` relationship for return types limited to
+   parameters: `task first_word(text: borrow Text) -> Slice Text from
+   text`. Returning a view into a local is rejected (the program 9
+   misuse); returning a view derived from the named parameter is
+   accepted.
+2. The semantic graph and ownership report expose the dependency as a
+   fact (which result depends on which parameter) — this is the
+   evidence-native payoff of `from` relationships and must be visible in
+   JSON output.
+3. Port corpus program 9 as passing and misuse fixtures. Internal
+   references (`from parser.buffer` on stored fields) remain banned; a
+   friction record marks where they were wanted.
 
 Acceptance criteria:
 
-- Scorecard covers all 36 cells; no "TBD" cells.
-- The quantified gate is applied: the recommended model clears at least
-  eight of twelve programs without escape hatches, or the ADR explains
-  why the gate should move and what that concedes.
-- ADR drafted with status `proposed`. Per the delegated-ruling amendment,
-  the architect-reviewer rules on it after scorecard review, records the
-  ruling as delegated with the BDFL veto open, and delivers the decision
-  brief. The session itself never flips the status.
-- Hygiene passes. Stop. No implementation work follows until 0014 is
-  ruled on and the ruling is recorded.
+- Program 9 fixture pair behaves as designed under check and run.
+- `hum graph`/ownership JSON shows the result-to-parameter dependency.
+- `.\tools\check_all.ps1` passes. Stop for review.
+
+## Session M: corpus retrospective
+
+Scope:
+
+1. Attempt every corpus program that the current subset can express as a
+   real runnable fixture; record per-program status (runs, blocked by
+   ban, blocked by missing feature) in a new section of
+   `docs/bakeoff/SCORECARD.md` titled "Implementation status".
+2. Append all accumulated friction records to CORE_LANGUAGE_SHAPE.md's
+   friction ledger. Apply the three-strike rule: any area with three or
+   more records gets a proposed work-order item or decision record.
+3. Write an honest summary: which 0014 honesty locks remain (expected:
+   all), and what the next work order should build, with a
+   recommendation between disjoint-field projection and flow-sensitive
+   borrowing as the first repair (justified from friction data, not
+   preference).
+
+Acceptance criteria:
+
+- Implementation-status section covers all twelve programs, no TBD.
+- Friction ledger updated; three-strike rule applied.
+- `.\tools\check_all.ps1` passes. Stop: Work Order 3 ends here. The next
+  work order is written by the architect-reviewer from Session M's
+  evidence.
 
 ## Design probe system (standing)
 
-Probe programs are to language design what property tests are to code.
-Sources: regret-ledger probes, construct-pair probes, misuse probes,
-domain-slice probes. Every probe session appends friction records:
+Probe sources: regret-ledger probes, construct-pair probes, misuse
+probes, domain-slice probes. Friction record format:
 
 ```text
 friction:
@@ -173,95 +147,45 @@ friction:
   proposal: <optional one-line fix direction>
 ```
 
-Rules: three or more records indicting one area triggers a decision record
-or work-order item; `blocked`/`wrong-by-default` records are triaged before
-the next session; prose `needs:`/`ensures:` lines are contract-wishlist
-entries, frequency-ranked to drive predicate grammar v1. Current wishlist
-state: collection-count predicates have one recorded demand
-(word_count.hum); `contracts` has two of three strikes.
+Three or more records indicting one area triggers a decision record or
+work-order item. Contract wishlist state: collection-count predicates
+have one recorded demand; `contracts` holds two of three strikes.
 
 ## Showcase discipline (standing)
 
 README/SPEC examples over five lines are extracted from checked fixtures
-(preflight-enforced); the README shows minimal and full-contract forms;
-surface-changing decisions update the showcase in the same session.
+(preflight-enforced); README shows minimal and full-contract forms;
+surface-changing sessions update the showcase in the same session.
 
 ## Backlog: accepted taste, not scheduled
 
-1. Deterministic run mode: virtual clock, seeded random, fixed schedule as
-   `hum run --deterministic`. Gates: virtualize time/scheduling before the
-   stdlib grows ambient clock APIs; bit-for-bit replay from one artifact;
-   stable test-mode collection iteration order.
-2. Semantic diff (`hum diff`): changes reported as effect/contract/
-   capability deltas. The code-review killer demo.
-3. Machine-applicable fixes: diagnostics carry structured edits;
-   `hum fix --apply`.
-4. Sandboxed execution flags: capability policy at the `hum run` boundary
-   (`--allow`/`--deny`) when IO capabilities arrive.
-5. Fault containment doctrine: research complete, direction settled (see
-   research/2026-07-08-fault-domains-licensing-units.md): first-class
-   fault domains with supervisors, restart budgets, and capability
-   revocation; typed errors for expected failure, domain-abort for bugs;
-   no general unwinding in the safe subset; chaos-test doctrine. Design
-   work order still required before any concurrency syntax.
-6. Units of measure: research complete, direction settled (same snapshot):
-   core-language F#-style feature — inference, runtime erasure, first-order
-   only, no silent unit drops across serialization/FFI, incident-modeled
-   negative tests. Scheduling waits until after the type system matures.
-7. Language editions: source longevity mechanism in
-   RELEASE_AND_VERSIONING.md before any public alpha stability promise.
-8. Contract check policy ADR: debug runs all contracts; release runs
-   boundary and unproved contracts, elides mechanically proved internal
-   ones; compiler exports proved | boundary | unproved | external-trust
-   classification as build evidence. Needed before profiles or a release
-   mode; higher-order blame wrappers gate closures alongside effect
-   polymorphism.
-9. Predicate grammar v1: grown only from the contract wishlist above.
-10. List operation surface: smallest growable-list API (Session D friction);
-    design lands after 0014 because growth and aliasing are ownership
-    questions.
-11. Numerics policy ADR (see research/2026-07-08-numerics-and-text.md):
-    ordinary integer arithmetic traps in all build modes (profile-invariant
-    semantics; `hum run` already complies); explicit wrapping/saturating/
-    checked/overflowing families; benchmark gate before any fast-numerics
-    exception; two FP regimes with a fail-closed deterministic numeric
-    profile; fixed-point guidance for lockstep; decimal library-first.
-12. Text model tiers (same snapshot): Bytes / Text (valid UTF-8, integer
-    indexing forbidden, explicit views) / OsText (lossless platform bridge;
-    all filesystem and process APIs take OsText). Fixed-capacity family
-    before embedded claims. Lands with early stdlib design, after 0014.
-13. Source policy hardening: record ASCII-only identifiers as deliberate
-    policy (any Unicode-identifier proposal must bring UTS #39 machinery
-    and a pinned Unicode version); extend check_text_hygiene to reject
-    bidirectional control characters. The hygiene extension is a small
-    standalone task any maintenance session may pick up.
-
-## Appendix: the twelve-program corpus
-
-Programs 1-10 from the original suite; 11-12 added from the Session D
-friction ledger per the probes rule.
-
-1. Doubly linked list with back-pointers.
-2. Arena-allocated graph with cycles, freed as a unit.
-3. Mutating a collection while iterating it (must be rejected; diagnostic
-   text is part of the score).
-4. Callback registry that stores references to caller-owned state.
-5. Parser holding a slice into the buffer it owns.
-6. Producer/consumer ownership handoff between two workers.
-7. Memoizing cache read through a shared path.
-8. Swapping two fields of one record.
-9. Task returning a reference derived from one of its parameters.
-10. Transaction that must commit or roll back exactly once (linear
-    resource; ties to STATE_MODEL.md).
-11. Update one field of a record while preserving the rest (Session D
-    friction: functional update vs in-place mutation is an ownership
-    question, not syntax sugar).
-12. Builder that accumulates items into a growing list and then hands the
-    finished list away (append, amortized growth, and end-of-build
-    ownership transfer; ties to friction "no list append").
-
-Rubric per program per candidate: can it express the program safely; what
-the user actually writes; what diagnostic appears on misuse; can a beginner
-explain why the rule exists. Quantified gate: the recommended model clears
-at least eight of twelve without escape hatches or incidental allocation,
-and every escape hatch names its cost.
+1. Deterministic run mode (virtual clock, seeded random, fixed schedule;
+   virtualize time before stdlib clock APIs; bit-for-bit replay; stable
+   test-mode iteration order).
+2. Semantic diff (`hum diff`): effect/contract/capability deltas.
+3. Machine-applicable fixes (`hum fix --apply`).
+4. Sandboxed execution flags (`--allow`/`--deny`) when IO capabilities
+   arrive.
+5. Fault containment: direction settled (fault domains, supervisors,
+   restart budgets, no general unwinding); design work order before any
+   concurrency syntax.
+6. Units of measure: direction settled (core-language F#-style,
+   first-order, erasure, boundary reification); waits for type-system
+   maturity.
+7. Language editions (RELEASE_AND_VERSIONING.md) before public alpha
+   stability promises.
+8. Contract check policy ADR (proved | boundary | unproved |
+   external-trust classification exported as evidence).
+9. Predicate grammar v1, grown only from the contract wishlist.
+10. List operation surface: unblocked by 0014; smallest growable-list
+    API design lands alongside Session M evidence.
+11. Numerics policy ADR (checked-by-default all modes; explicit
+    families; benchmark gate; two FP regimes; decimal library-first).
+12. Text model tiers (Bytes / Text / OsText) with early stdlib design.
+13. Source policy hardening: ASCII-identifier policy recorded as
+    deliberate; extend check_text_hygiene to reject bidi controls (small
+    standalone task any maintenance session may take).
+14. Ownership repairs, in evidence-driven order after Session M:
+    disjoint-field projection, flow-sensitive borrowing, internal
+    references. Each is its own work order with corpus programs as
+    acceptance criteria.
