@@ -616,6 +616,12 @@ fn infer_expression_type(
             source: "text_literal_v0",
         });
     }
+    if return_dependency::is_closed_view_derivation_expression(text) {
+        return Some(TypeFact {
+            type_text: "Text".to_string(),
+            source: "closed_view_derivation_slice_until_v0",
+        });
+    }
     if text.chars().all(|ch| ch.is_ascii_digit()) {
         return Some(TypeFact {
             type_text: "integer_literal".to_string(),

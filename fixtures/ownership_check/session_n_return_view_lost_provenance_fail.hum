@@ -1,0 +1,11 @@
+module fixtures.ownership_check.session_n_return_view_lost_provenance_fail
+
+task identity_text(borrow value: Text) -> Text {
+  does:
+    return value
+}
+
+task lost_first_word(borrow text: Text) -> Slice Text from text {
+  does:
+    return identity_text(slice_until(text, " "))
+}

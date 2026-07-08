@@ -312,6 +312,7 @@ friction:
   severity: blocked
   indicts: ownership
   proposal: design a minimal checked sub-view derivation rule before counting program 9 as implemented; keep it distinct from internal-reference repair
+  resolution: resolved in Session N by `examples/probes/first_word.hum` using the closed view-deriving operation `slice_until(text, separator)`; local and non-closed derivation misuse fixtures still reject with H0805
 
 Session M consolidation:
 

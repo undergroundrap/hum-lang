@@ -1495,9 +1495,14 @@ fn return_dependency_parameter_status(
     Option<&'static str>,
     Option<String>,
 ) {
+    let mut accepted_status = "accepted_return_dependency_parameter_v0";
     for returned in returned_roots {
         match returned.root.as_deref() {
-            Some(root) if root == dependency.source => {}
+            Some(root) if root == dependency.source => {
+                if returned.derivation == "closed_view_derivation" {
+                    accepted_status = "accepted_return_dependency_closed_view_derivation_v0";
+                }
+            }
             Some(root) if ownership_facts.is_local_root(root) => {
                 return (
                     "parameter",
@@ -1522,7 +1527,7 @@ fn return_dependency_parameter_status(
                 return (
                     "parameter",
                     "rejected_return_dependency_complex_expression_v0",
-                    Some("returned_view_expression_not_bare_place_v0"),
+                    Some(returned.reason),
                     portable_span(&returned.span),
                     Some(DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER.as_str()),
                     Some(return_dependency_help(item_name, &dependency.source)),
@@ -1533,7 +1538,7 @@ fn return_dependency_parameter_status(
 
     (
         "parameter",
-        "accepted_return_dependency_parameter_v0",
+        accepted_status,
         None,
         portable_span(item_span),
         None,
@@ -1544,15 +1549,42 @@ fn return_dependency_parameter_status(
 struct ReturnedRoot {
     root: Option<String>,
     span: Span,
+    derivation: &'static str,
+    reason: &'static str,
 }
 
 fn returned_roots(body_statements: &[BodyStatement]) -> Vec<ReturnedRoot> {
     body_statements
         .iter()
         .filter(|statement| statement.kind == "return")
-        .map(|statement| ReturnedRoot {
-            root: expression_text_for_statement(statement).and_then(bare_place_root),
-            span: statement.span.clone(),
+        .map(|statement| {
+            let expression = expression_text_for_statement(statement).unwrap_or("");
+            if let Some(root) = bare_place_root(expression) {
+                return ReturnedRoot {
+                    root: Some(root),
+                    span: statement.span.clone(),
+                    derivation: "bare_place",
+                    reason: "returned_view_expression_not_bare_place_v0",
+                };
+            }
+            if let Some(root) = return_dependency::closed_view_derivation_source(expression) {
+                return ReturnedRoot {
+                    root: Some(root),
+                    span: statement.span.clone(),
+                    derivation: "closed_view_derivation",
+                    reason: "returned_view_expression_not_closed_view_derivation_v0",
+                };
+            }
+            ReturnedRoot {
+                root: None,
+                span: statement.span.clone(),
+                derivation: "unknown",
+                reason: if return_dependency::is_closed_view_derivation_expression(expression) {
+                    "returned_view_expression_has_no_visible_source_root_v0"
+                } else {
+                    "returned_view_expression_not_closed_view_derivation_v0"
+                },
+            }
         })
         .collect()
 }
@@ -1569,7 +1601,7 @@ fn item_return_annotation(item: &Item) -> Option<(&str, &str, &Span)> {
 
 fn return_dependency_help(item_name: &str, source: &str) -> String {
     format!(
-        "Fix task `{item_name}`: returned-view `from` source `{source}` must name a task parameter, and V0 returns must visibly return that bare parameter; locals, internal references, and complex view expressions are future ownership repairs."
+        "Fix task `{item_name}`: returned-view `from` source `{source}` must name a task parameter, and returns must visibly return that parameter or a closed-set view derivation such as `slice_until(source, separator)`; locals, internal references, and non-closed derivation chains remain rejected."
     )
 }
 

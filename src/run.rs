@@ -398,7 +398,7 @@ impl<'a> Interpreter<'a> {
             if let Some(expr) = strip_keyword(text, "return") {
                 return match self.eval_expr(expr, env, &line.span, task_name)? {
                     Evaluated::Value(value) => {
-                        let root = bare_return_root(expr);
+                        let root = return_dependency::visible_view_source_root(expr);
                         if let Some(root) = root.as_deref()
                             && !is_linear_binding(env, root)
                         {
@@ -702,6 +702,9 @@ impl<'a> Interpreter<'a> {
             return Ok(Evaluated::Value(Value::Record(fields)));
         }
         if let Some((callee, args)) = split_call(text) {
+            if return_dependency::is_closed_view_deriving_operation(callee.trim()) {
+                return self.eval_slice_until(args, env, span, task_name);
+            }
             let Some(task) = self.find_task(callee.trim()) else {
                 return Err(format!("task `{}` was not found", callee.trim()));
             };
@@ -761,6 +764,42 @@ impl<'a> Interpreter<'a> {
             }
         }
         Err(format!("unknown expression `{text}`"))
+    }
+
+    fn eval_slice_until(
+        &self,
+        args: &str,
+        env: &mut Env,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Evaluated, String> {
+        let raw_args = split_arguments(args);
+        if raw_args.len() != 2 {
+            return Err(format!(
+                "slice_until expects 2 argument(s), got {}",
+                raw_args.len()
+            ));
+        }
+        let source_expr = strip_borrow_or_change_argument(raw_args[0]).unwrap_or(raw_args[0]);
+        let separator_expr = strip_borrow_or_change_argument(raw_args[1]).unwrap_or(raw_args[1]);
+        let source = match self.eval_expr(source_expr, env, span, task_name)? {
+            Evaluated::Value(value) => as_text(&value)?.to_string(),
+            Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
+        };
+        let separator = match self.eval_expr(separator_expr, env, span, task_name)? {
+            Evaluated::Value(value) => as_text(&value)?.to_string(),
+            Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
+        };
+        let prefix = if separator.is_empty() {
+            ""
+        } else {
+            source
+                .split_once(separator.as_str())
+                .map_or(source.as_str(), |(head, _tail)| head)
+        };
+        Ok(Evaluated::Value(Value::Text(prefix.to_string())))
     }
 
     fn read_value(
@@ -924,7 +963,7 @@ impl<'a> Interpreter<'a> {
                 Some(span.clone()),
             )
             .with_help(format!(
-                "Fix task `{task_name}`: returned-view `from` source `{source}` must name a task parameter, and V0 returns must visibly return that bare parameter; locals, internal references, and complex view expressions are future ownership repairs."
+                "Fix task `{task_name}`: returned-view `from` source `{source}` must name a task parameter, and returns must visibly return that parameter or a closed-set view derivation such as `slice_until(source, separator)`; locals, internal references, and non-closed derivation chains remain rejected."
             )),
         );
         format!(
@@ -1220,6 +1259,13 @@ fn as_bool(value: &Value) -> Result<bool, String> {
     }
 }
 
+fn as_text(value: &Value) -> Result<&str, String> {
+    match value {
+        Value::Text(value) => Ok(value),
+        other => Err(format!("expected Text value, got {}", display_value(other))),
+    }
+}
+
 fn display_value(value: &Value) -> String {
     match value {
         Value::Unit => "()".to_string(),
@@ -1283,24 +1329,6 @@ fn type_tokens(type_text: &str) -> Vec<String> {
         tokens.push(current);
     }
     tokens
-}
-
-fn bare_return_root(text: &str) -> Option<String> {
-    let text = text.trim();
-    if text.is_empty()
-        || text.contains('(')
-        || text.contains(' ')
-        || text.starts_with('"')
-        || text.starts_with('[')
-        || text.starts_with('{')
-    {
-        return None;
-    }
-    let root = place_root(text);
-    root.chars()
-        .next()
-        .is_some_and(|ch| ch.is_ascii_lowercase() || ch == '_')
-        .then_some(root)
 }
 
 fn place_root(text: &str) -> String {

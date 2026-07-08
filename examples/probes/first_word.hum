@@ -1,0 +1,9 @@
+module examples.probes.first_word
+
+task first_word(borrow text: Text) -> Slice Text from text {
+  why:
+    return the first word as a view derived from the caller text
+
+  does:
+    return slice_until(text, " ")
+}

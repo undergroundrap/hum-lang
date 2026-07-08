@@ -612,6 +612,9 @@ fn infer_expression_type(
     if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
         return Some(type_fact("Text", "text_literal_v0"));
     }
+    if return_dependency::is_closed_view_derivation_expression(text) {
+        return Some(type_fact("Text", "closed_view_derivation_slice_until_v0"));
+    }
     if text.chars().all(|ch| ch.is_ascii_digit()) {
         return Some(type_fact("integer_literal", "integer_literal_v0"));
     }

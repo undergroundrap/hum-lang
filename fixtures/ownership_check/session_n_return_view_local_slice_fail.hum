@@ -1,0 +1,7 @@
+module fixtures.ownership_check.session_n_return_view_local_slice_fail
+
+task local_first_word() -> Slice Text from scratch {
+  does:
+    let scratch: Text = "hum language"
+    return slice_until(scratch, " ")
+}

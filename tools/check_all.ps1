@@ -505,6 +505,18 @@ try {
   if (-not $RunSessionLLocalView.Output.Contains('H0805')) { throw "Session L local returned-view run expected H0805, got $($RunSessionLLocalView.Output)" }
   if (-not $RunSessionLLocalView.Output.Contains('help:')) { throw "Session L local returned-view run expected blame help, got $($RunSessionLLocalView.Output)" }
 
+  $RunSessionNFirstWord = Read-NativeOutput 'run Session N first_word derived returned-view fixture' $Hum @('run', 'examples/probes/first_word.hum', '--entry', 'first_word', '--args', 'hum language')
+  if ($RunSessionNFirstWord.Trim() -ne 'hum') { throw "Session N first_word run expected hum, got `$RunSessionNFirstWord" }
+
+  $RunSessionNLocalSlice = Read-NativeOutputWithExit 'run Session N local sub-view misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_n_return_view_local_slice_fail.hum', '--entry', 'local_first_word')
+  if ($RunSessionNLocalSlice.ExitCode -ne 2) { throw "Session N local sub-view run expected exit 2, got $($RunSessionNLocalSlice.ExitCode)" }
+  if (-not $RunSessionNLocalSlice.Output.Contains('H0805')) { throw "Session N local sub-view run expected H0805, got $($RunSessionNLocalSlice.Output)" }
+  if (-not $RunSessionNLocalSlice.Output.Contains('help:')) { throw "Session N local sub-view run expected blame help, got $($RunSessionNLocalSlice.Output)" }
+
+  $RunSessionNLostProvenance = Read-NativeOutputWithExit 'run Session N lost-provenance misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_n_return_view_lost_provenance_fail.hum', '--entry', 'lost_first_word', '--args', 'hum language')
+  if ($RunSessionNLostProvenance.ExitCode -ne 2) { throw "Session N lost-provenance run expected exit 2, got $($RunSessionNLostProvenance.ExitCode)" }
+  if (-not $RunSessionNLostProvenance.Output.Contains('H0805')) { throw "Session N lost-provenance run expected H0805, got $($RunSessionNLostProvenance.Output)" }
+  if (-not $RunSessionNLostProvenance.Output.Contains('non-closed derivation chains remain rejected')) { throw "Session N lost-provenance run expected non-closed help, got $($RunSessionNLostProvenance.Output)" }
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }
@@ -763,6 +775,23 @@ try {
   if (-not $OwnershipLInternalViewJson.Output.Contains('"diagnostic_code": "H0805"')) { throw "ownership check internal-reference returned-view expected H0805, got $($OwnershipLInternalViewJson.Output)" }
   if (-not $OwnershipLInternalViewJson.Output.Contains('"status": "rejected_return_dependency_internal_reference_v0"')) { throw "ownership check internal-reference returned-view expected internal-reference rejection, got $($OwnershipLInternalViewJson.Output)" }
 
+  $OwnershipNFirstWordJson = Read-NativeOutput 'ownership check Session N first_word JSON' $Hum @('ownership-check', '--format', 'json', 'examples/probes/first_word.hum')
+  Assert-Json 'ownership check Session N first_word JSON' $OwnershipNFirstWordJson
+  if (-not $OwnershipNFirstWordJson.Contains('"status": "recognized_core_ownership_facts_checked_v0"')) { throw "ownership check first_word expected pass, got $OwnershipNFirstWordJson" }
+  if (-not $OwnershipNFirstWordJson.Contains('"source": "text"')) { throw "ownership check first_word expected source text, got $OwnershipNFirstWordJson" }
+  if (-not $OwnershipNFirstWordJson.Contains('"status": "accepted_return_dependency_closed_view_derivation_v0"')) { throw "ownership check first_word expected closed derivation acceptance, got $OwnershipNFirstWordJson" }
+
+  $OwnershipNLocalSliceJson = Read-NativeOutputWithExit 'ownership check Session N local sub-view JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_n_return_view_local_slice_fail.hum')
+  if ($OwnershipNLocalSliceJson.ExitCode -ne 1) { throw "ownership check local sub-view expected exit 1, got $($OwnershipNLocalSliceJson.ExitCode)" }
+  Assert-Json 'ownership check Session N local sub-view JSON' $OwnershipNLocalSliceJson.Output
+  if (-not $OwnershipNLocalSliceJson.Output.Contains('"diagnostic_code": "H0805"')) { throw "ownership check local sub-view expected H0805, got $($OwnershipNLocalSliceJson.Output)" }
+  if (-not $OwnershipNLocalSliceJson.Output.Contains('"status": "rejected_return_dependency_local_v0"')) { throw "ownership check local sub-view expected local rejection, got $($OwnershipNLocalSliceJson.Output)" }
+
+  $OwnershipNLostProvenanceJson = Read-NativeOutputWithExit 'ownership check Session N lost-provenance JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_n_return_view_lost_provenance_fail.hum')
+  if ($OwnershipNLostProvenanceJson.ExitCode -ne 1) { throw "ownership check lost-provenance expected exit 1, got $($OwnershipNLostProvenanceJson.ExitCode)" }
+  Assert-Json 'ownership check Session N lost-provenance JSON' $OwnershipNLostProvenanceJson.Output
+  if (-not $OwnershipNLostProvenanceJson.Output.Contains('"diagnostic_code": "H0805"')) { throw "ownership check lost-provenance expected H0805, got $($OwnershipNLostProvenanceJson.Output)" }
+  if (-not $OwnershipNLostProvenanceJson.Output.Contains('"reason": "returned_view_expression_not_closed_view_derivation_v0"')) { throw "ownership check lost-provenance expected non-closed reason, got $($OwnershipNLostProvenanceJson.Output)" }
   $ResourceCheckJson = Read-NativeOutput 'resource check JSON' $Hum @('resource-check', '--format', 'json', 'fixtures/resource_check/simple_pass.hum')
   Assert-Json 'resource check JSON' $ResourceCheckJson
   if (-not $ResourceCheckJson.Contains('"schema": "hum.resource_check.v0"')) { throw 'resource check JSON is missing hum.resource_check.v0 schema' }
@@ -903,6 +932,12 @@ try {
   if (-not $GraphParameterViewJson.Contains('"source": "text"')) { throw 'Session L graph JSON is missing returned-view source text' }
   if (-not $GraphParameterViewJson.Contains('"status": "declared_return_dependency_parameter_v0"')) { throw 'Session L graph JSON is missing returned-view parameter status' }
 
+  $GraphFirstWordJson = Read-NativeOutput 'Session N first_word graph JSON' $Hum @('graph', 'examples/probes/first_word.hum')
+  Assert-Json 'Session N first_word graph JSON' $GraphFirstWordJson
+  if (-not $GraphFirstWordJson.Contains('"return_dependencies"')) { throw 'Session N graph JSON is missing return_dependencies' }
+  if (-not $GraphFirstWordJson.Contains('"source": "text"')) { throw 'Session N graph JSON is missing returned-view source text' }
+  if (-not $GraphFirstWordJson.Contains('"status": "declared_return_dependency_parameter_v0"')) { throw 'Session N graph JSON is missing returned-view parameter status' }
+  if (-not $GraphFirstWordJson.Contains('slice_until(text, \" \"')) { throw 'Session N graph JSON is missing slice_until body evidence' }
   Invoke-RepoScript 'editor fixture recovery' 'check_editor_fixtures.ps1'
 
   $SyntaxJson = Read-NativeOutput 'syntax surface JSON' $Hum @('syntax')
