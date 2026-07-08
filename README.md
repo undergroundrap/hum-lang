@@ -96,6 +96,66 @@ task remember_work_item(title: Text) -> Result WorkItem, WorkError {
 }
 ```
 <!-- hum-example:end -->
+
+## The Magic Comment Problem
+
+In most systems languages, the sentence that matters most is the one the
+compiler cannot see:
+
+```c
+// result must equal a + b -- do not change this without updating callers!
+int add(int a, int b) { return a - b; }  /* nobody noticed */
+```
+
+The comment is a promise with no enforcement. The next edit — human or
+AI agent — can silently turn it into a lie.
+
+In Hum, that sentence is a checked contract. This fixture ships in the
+repo with a deliberately sabotaged body:
+
+<!-- hum-example:start fixtures/run/wrong_add_contract.hum -->
+```hum
+task add(a: Int, b: Int) -> Int {
+  why:
+    prove ensures catches a sabotaged implementation
+
+  ensures:
+    result == a + b
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return a - b
+}
+```
+<!-- hum-example:end -->
+
+Running it catches the lie and blames the right party:
+
+```text
+fixtures/run/wrong_add_contract.hum:8:5: error[H0703]: task `add` did not satisfy ensures: result == a + b
+  help: Fix the task body or change the contract; task blame means the caller met entry conditions but the implementation broke its promise.
+```
+
+The same discipline covers ownership words. `borrow`, `change`, and
+`consume` on parameters are checked promises, and using a value after it
+moved is caught with the move site named:
+
+```text
+error[H0801]: value `value` was used after it was moved
+  help: `value` moved at fixtures/ownership_check/session_j_use_after_move_fail.hum:17:5; use it before that move or create a fresh owned value.
+```
+
+What Hum does not yet claim: `cost:`, `allocates:`, `protects:`, and
+`trusts:` lines are recorded intent, graph facts, and generated
+obligations today — not enforced proofs. Every checker report emits an
+explicit non-claims list so the boundary between checked and declared
+stays visible. The roadmap is to keep moving lines from the second
+category into the first, and to never blur which is which.
+
 ## Status
 
 This repository is a language design seed with a Milestone 0 Rust bootstrap compiler front-end.
