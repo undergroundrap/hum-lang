@@ -123,6 +123,7 @@ The V0 contract names these pass boundaries:
 - `parse`
 - `semantic_graph_build`
 - `core_lowering`
+- `core_verify`
 - `type_check`
 - `effect_check`
 - `ownership_alias_check`

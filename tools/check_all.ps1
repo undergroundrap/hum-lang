@@ -227,6 +227,7 @@ try {
   if (-not $IrContractJson.Contains('"id": "core_hum"')) { throw 'IR contract JSON is missing core_hum layer' }
   if (-not $IrContractJson.Contains('"id": "hum_ir"')) { throw 'IR contract JSON is missing hum_ir layer' }
   if (-not $IrContractJson.Contains('"typed_failure_edges"')) { throw 'IR contract JSON is missing typed failure facts' }
+  if (-not $IrContractJson.Contains('"core_verify"')) { throw 'IR contract JSON is missing core_verify pass' }
   if (-not $IrContractJson.Contains('"ir_verify"')) { throw 'IR contract JSON is missing ir_verify pass' }
   if (-not $IrContractJson.Contains('"no IR emission for source files"')) { throw 'IR contract JSON must keep V0 non-emission claim' }
 
@@ -474,6 +475,9 @@ try {
   if (-not $IrReadinessJson.Contains('"schema": "hum.type_check.v0"')) { throw 'IR readiness JSON is missing hum.type_check.v0 schema link' }
   if (-not $IrReadinessJson.Contains('"core_preview"')) { throw 'IR readiness JSON is missing core_preview summary' }
   if (-not $IrReadinessJson.Contains('"schema": "hum.core_preview.v0"')) { throw 'IR readiness JSON is missing hum.core_preview.v0 schema link' }
+  if (-not $IrReadinessJson.Contains('"core_lower"')) { throw 'IR readiness JSON is missing core_lower summary' }
+  if (-not $IrReadinessJson.Contains('"schema": "hum.core_lower.v0"')) { throw 'IR readiness JSON is missing hum.core_lower.v0 schema link' }
+  if (-not $IrReadinessJson.Contains('"status": "unverified_core_artifact_v0"')) { throw 'IR readiness JSON is missing unverified core lower status' }
   if (-not $IrReadinessJson.Contains('"typed_expression_previews": 1')) { throw 'IR readiness JSON is missing core preview typed expression count' }
   if (-not $IrReadinessJson.Contains('"status": "declaration_annotations_and_trivial_returns_checked_v0"')) { throw 'IR readiness JSON should include clean type-check status for reference fixture' }
   if (-not $IrReadinessJson.Contains('"type_errors": 0')) { throw 'IR readiness JSON should have zero type errors for reference fixture' }
@@ -482,6 +486,8 @@ try {
   if (-not $IrReadinessJson.Contains('"trivial_return_checks_v0"')) { throw 'IR readiness JSON is missing trivial return fact' }
   if (-not $IrReadinessJson.Contains('"type_check_summary_v0"')) { throw 'IR readiness JSON is missing type check summary fact' }
   if (-not $IrReadinessJson.Contains('"core_preview_summary_v0"')) { throw 'IR readiness JSON is missing core preview summary fact' }
+  if (-not $IrReadinessJson.Contains('"core_lower_summary_v0"')) { throw 'IR readiness JSON is missing core lower summary fact' }
+  if (-not $IrReadinessJson.Contains('"unverified_core_artifact_rows_v0"')) { throw 'IR readiness JSON is missing unverified core artifact row fact' }
   if (-not $IrReadinessJson.Contains('"checked_return_expression_type_slots_v0"')) { throw 'IR readiness JSON is missing checked return expression slot fact' }
   if (-not $IrReadinessJson.Contains('"name": "resolve"')) { throw 'IR readiness JSON is missing resolve pass status' }
   if (-not $IrReadinessJson.Contains('"checked_report_available"')) { throw 'IR readiness JSON is missing checked resolver pass availability' }
@@ -493,6 +499,9 @@ try {
   if (-not $IrReadinessJson.Contains('"body_grammar_unsupported_lines"')) { throw 'IR readiness JSON is missing body grammar unsupported count' }
   if (-not $IrReadinessJson.Contains('"surface_save_requires_store_lowering"')) { throw 'IR readiness JSON is missing store save lowering blocker' }
   if (-not $IrReadinessJson.Contains('"core_lowering"')) { throw 'IR readiness JSON is missing core_lowering pass status' }
+  if (-not $IrReadinessJson.Contains('"core_verify"')) { throw 'IR readiness JSON is missing core_verify pass status' }
+  if (-not $IrReadinessJson.Contains('"blocked_before_core_verification"')) { throw 'IR readiness JSON is missing core verification blocker status' }
+  if (-not $IrReadinessJson.Contains('"core_verify_not_implemented"')) { throw 'IR readiness JSON is missing core verify non-implementation reason' }
   if (-not $IrReadinessJson.Contains('"declaration_and_trivial_return_check_available"')) { throw 'IR readiness JSON is missing type-check pass availability' }
   if (-not $IrReadinessJson.Contains('"full_type_check"')) { throw 'IR readiness JSON is missing full_type_check blocker' }
   if (-not $IrReadinessJson.Contains('"full_type_check_not_implemented"')) { throw 'IR readiness JSON is missing full type-check non-implementation reason' }
@@ -641,6 +650,10 @@ try {
   if (-not $IrReadinessSchemaText.Contains('checked_resolver_errors')) { throw 'IR readiness schema doc is missing resolver blocker' }
   if (-not $IrReadinessSchemaText.Contains('hum.type_check.v0')) { throw 'IR readiness schema doc is missing type-check schema link' }
   if (-not $IrReadinessSchemaText.Contains('hum.core_preview.v0')) { throw 'IR readiness schema doc is missing core-preview schema link' }
+  if (-not $IrReadinessSchemaText.Contains('hum.core_lower.v0')) { throw 'IR readiness schema doc is missing core-lower schema link' }
+  if (-not $IrReadinessSchemaText.Contains('blocked_before_core_verification')) { throw 'IR readiness schema doc is missing core verification blocker' }
+  if (-not $IrReadinessSchemaText.Contains('unverified_core_artifact_rows_v0')) { throw 'IR readiness schema doc is missing unverified core artifact row fact' }
+  if (-not $IrReadinessSchemaText.Contains('core_verify')) { throw 'IR readiness schema doc is missing core_verify pass' }
   if (-not $IrReadinessSchemaText.Contains('checked_return_expression_type_slots_v0')) { throw 'IR readiness schema doc is missing checked return expression slot fact' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_type_errors')) { throw 'IR readiness schema doc is missing type-error blocker' }
   if (-not $IrReadinessSchemaText.Contains('declaration_and_trivial_return_check_available')) { throw 'IR readiness schema doc is missing type-check pass status' }

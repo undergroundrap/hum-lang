@@ -79,7 +79,7 @@ Current artifacts:
 - [docs/HUM_CORE_PREVIEW_SCHEMA.md](docs/HUM_CORE_PREVIEW_SCHEMA.md): `hum.core_preview.v0` Core Hum candidate operation and blocker preview
 - [docs/HUM_CORE_LOWER_SCHEMA.md](docs/HUM_CORE_LOWER_SCHEMA.md): `hum.core_lower.v0` unverified source-mapped Core Hum artifact rows and blockers
 - [docs/HUM_IR_CONTRACT_SCHEMA.md](docs/HUM_IR_CONTRACT_SCHEMA.md): `hum.ir_contract.v0` Hum IR ownership, carried-fact, and pass-boundary contract
-- [docs/HUM_IR_READINESS_SCHEMA.md](docs/HUM_IR_READINESS_SCHEMA.md): `hum.ir_readiness.v0` source readiness and blocker report for future Core Hum and Hum IR lowering
+- [docs/HUM_IR_READINESS_SCHEMA.md](docs/HUM_IR_READINESS_SCHEMA.md): `hum.ir_readiness.v0` source readiness and blocker report for future Core verification and Hum IR lowering
 - [docs/BACKEND_CONTRACT_SCHEMA.md](docs/BACKEND_CONTRACT_SCHEMA.md): `hum.backend_contract.v0` backend ladder and adapter preservation contract
 - [docs/LSP_CAPABILITIES_SCHEMA.md](docs/LSP_CAPABILITIES_SCHEMA.md): `hum.lsp_capabilities.v0` preview schema for LSP adapter support
 - [docs/DOCTOR_SCHEMA.md](docs/DOCTOR_SCHEMA.md): `hum.doctor.v0` setup health schema for portable repo guardrails
@@ -248,7 +248,7 @@ Current CLI:
 - `hum evidence [--format human|json] <file-or-dir>...`: emit `hum.evidence.v0` security/trust evidence status for humans, agents, and CI wrappers
 - `hum math-obligations [--format human|json] [--out-dir <dir>] <file-or-dir>...`: emit `hum.math_obligations.v0` reports and optional per-obligation `hum.math_obligation.v0` files for external contract validators
 - `hum resource-report [--format human|json] <file-or-dir>...`: emit `hum.resource_report.v0` source-declared resource, layout, and optimization claim inventory
-- `hum ir-readiness [--format human|json] <file-or-dir>...`: emit `hum.ir_readiness.v0` source readiness and blocker facts for future Core Hum and Hum IR lowering
+- `hum ir-readiness [--format human|json] <file-or-dir>...`: emit `hum.ir_readiness.v0` source readiness and blocker facts for future Core verification and Hum IR lowering
 - `hum version [--format human|json]`: print toolchain identity, version, target, and schema names
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents

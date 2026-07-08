@@ -388,5 +388,5 @@ debug info.
 
 The graph should eventually expose stable links for source-map provenance,
 visualizers, debug probe sites, generated checks, contract/effect/profile ids,
-and optimized-code explanations. Until Core Hum and Hum IR lowering exist, these
+and optimized-code explanations. Until verified Core Hum and Hum IR lowering exist, these
 remain reserved future links.

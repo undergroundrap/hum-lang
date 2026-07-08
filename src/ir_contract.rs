@@ -68,6 +68,7 @@ const REQUIRED_PASSES: &[&str] = &[
     "parse",
     "semantic_graph_build",
     "core_lowering",
+    "core_verify",
     "type_check",
     "effect_check",
     "ownership_alias_check",
@@ -302,6 +303,7 @@ mod tests {
         assert!(json.contains("\"id\": \"core_hum\""));
         assert!(json.contains("\"id\": \"hum_ir\""));
         assert!(json.contains("\"typed_failure_edges\""));
+        assert!(json.contains("\"core_verify\""));
         assert!(json.contains("\"ir_verify\""));
         assert!(json.contains("\"no IR emission for source files\""));
     }

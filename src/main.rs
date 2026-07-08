@@ -1798,7 +1798,9 @@ fn print_help() {
     println!("  resolve           Emit checked scopes, definitions, references, and place links");
     println!("  type-env          Emit declared type environment facts without type checking");
     println!("  type-check        Validate declaration annotations without expression inference");
-    println!("  ir-readiness      Report source readiness for future Core Hum and Hum IR lowering");
+    println!(
+        "  ir-readiness      Report source readiness for future Core verification and Hum IR lowering"
+    );
     println!("  test-skeletons    Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
     println!("  version         Print toolchain identity and schema versions");

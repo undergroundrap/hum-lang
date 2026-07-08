@@ -25,6 +25,27 @@ const NON_GOALS: &[&str] = &[
     "no safety proof",
 ];
 
+pub struct CoreLowerReadinessSummary {
+    pub schema: &'static str,
+    pub status: &'static str,
+    pub files: usize,
+    pub items: usize,
+    pub tasks: usize,
+    pub tests: usize,
+    pub core_items: usize,
+    pub lowered_items: usize,
+    pub blocked_items: usize,
+    pub lowered_operations: usize,
+    pub blocked_operations: usize,
+    pub execution_ready: usize,
+    pub ir_ready: usize,
+    pub errors: usize,
+    pub warnings: usize,
+    pub resolver_errors: usize,
+    pub type_errors: usize,
+    pub preview_blocked_statements: usize,
+}
+
 struct CoreLowerReport {
     files: usize,
     items: usize,
@@ -224,6 +245,32 @@ pub fn core_lower_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
     out
 }
 
+pub fn core_lower_readiness_summary(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> CoreLowerReadinessSummary {
+    let report = build_report(program, diagnostics);
+    CoreLowerReadinessSummary {
+        schema: CORE_LOWER_SCHEMA,
+        status: CORE_LOWER_STATUS,
+        files: report.files,
+        items: report.items,
+        tasks: report.tasks,
+        tests: report.tests,
+        core_items: report.core_items.len(),
+        lowered_items: report.lowered_items(),
+        blocked_items: report.blocked_items(),
+        lowered_operations: report.lowered_operations(),
+        blocked_operations: report.blocked_operations(),
+        execution_ready: 0,
+        ir_ready: 0,
+        errors: report.errors,
+        warnings: report.warnings,
+        resolver_errors: report.resolver_errors,
+        type_errors: report.type_errors,
+        preview_blocked_statements: report.preview_blocked_statements,
+    }
+}
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreLowerReport {
     let resolve_summary = resolve::resolve_readiness_summary(program, diagnostics);
     let type_check_summary = type_check::type_check_summary(program, diagnostics);
