@@ -6,7 +6,7 @@ Date: 2026-07-07
 
 `hum profiles --format json` emits the current runtime profile policy catalog.
 
-This is a contract surface for tools, agents, documentation checks, and future
+This is a contract surface for tools, agents, documentation checks, `hum profile-check --format json`, and future
 package/build metadata. It does not enforce profiles yet.
 
 ## Schema IDs
@@ -72,5 +72,6 @@ Each profile entry has this shape:
 
 - [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md): profile doctrine and candidate profile definitions
 - [TARGET_FACTS_SCHEMA.md](TARGET_FACTS_SCHEMA.md): target capability availability before profile policy
+- [HUM_PROFILE_CHECK_SCHEMA.md](HUM_PROFILE_CHECK_SCHEMA.md): first non-executing profile policy gate
 - [SEMANTIC_GRAPH_SCHEMA.md](SEMANTIC_GRAPH_SCHEMA.md): future graph links for active profiles
 - `hum capabilities --format json`: advertises `hum profiles --format json`

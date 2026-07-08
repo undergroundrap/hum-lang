@@ -79,6 +79,7 @@ Current `schemas` includes:
 - `effect_check`: `hum.effect_check.v0`
 - `ownership_check`: `hum.ownership_check.v0`
 - `resource_check`: `hum.resource_check.v0`
+- `profile_check`: `hum.profile_check.v0`
 - `ir_readiness`: `hum.ir_readiness.v0`
 - `core_contract`: `hum.core_contract.v0`
 - `ir_contract`: `hum.ir_contract.v0`
@@ -118,6 +119,7 @@ Current entries include:
 - `hum effect-check --format json`
 - `hum ownership-check --format json`
 - `hum resource-check --format json`
+- `hum profile-check --format json`
 - `hum ir-readiness --format json`
 - `hum core-contract --format json`
 - `hum ir-contract --format json`

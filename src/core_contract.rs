@@ -7,6 +7,7 @@ use crate::full_type_check;
 use crate::ir_contract;
 use crate::json;
 use crate::ownership_check;
+use crate::profile_check;
 use crate::resource_check;
 use crate::version;
 
@@ -235,8 +236,8 @@ const ACCEPTANCE_GATES: &[AcceptanceGate] = &[
     },
     AcceptanceGate {
         id: "profile_check",
-        status: "planned",
-        requirement: "profiles can reject forbidden core operations before backend work",
+        status: profile_check::PROFILE_CHECK_STATUS,
+        requirement: "runtime profile policy declarations are recognized or reported as explicit blockers before backend work",
     },
     AcceptanceGate {
         id: "core_interpreter",
@@ -489,6 +490,7 @@ mod tests {
         assert!(
             text.contains("allocation_resource_check [recognized_core_resource_gate_available_v0]")
         );
+        assert!(text.contains("profile_check [recognized_core_profile_gate_available_v0]"));
         assert!(text.contains("core_verify [verified_non_executing_core_artifact_v0]"));
         assert!(text.contains("no interpreter implementation"));
     }
@@ -517,6 +519,8 @@ mod tests {
         assert!(json.contains("\"status\": \"recognized_core_effect_gate_available_v0\""));
         assert!(json.contains("\"status\": \"recognized_core_ownership_gate_available_v0\""));
         assert!(json.contains("\"id\": \"allocation_resource_check\""));
+        assert!(json.contains("\"id\": \"profile_check\""));
+        assert!(json.contains("\"recognized_core_profile_gate_available_v0\""));
         assert!(json.contains("\"status\": \"recognized_core_resource_gate_available_v0\""));
         assert!(json.contains("\"id\": \"core_verify\""));
         assert!(json.contains("\"status\": \"verified_non_executing_core_artifact_v0\""));

@@ -15,6 +15,7 @@ use crate::json;
 use crate::lsp;
 use crate::math_obligations;
 use crate::ownership_check;
+use crate::profile_check;
 use crate::resolve;
 use crate::resource_check;
 use crate::resource_report;
@@ -148,6 +149,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: resource_check::RESOURCE_CHECK_SCHEMA,
         status: "adapter-ready",
         purpose: "declared allocation and resource intent gate with explicit blockers and no execution",
+    },
+    CommandCapability {
+        name: "profile_check_json",
+        command: "hum profile-check --format json <file-or-dir>...",
+        schema: profile_check::PROFILE_CHECK_SCHEMA,
+        status: "adapter-ready",
+        purpose: "runtime profile policy gate with explicit blockers and no execution",
     },
     CommandCapability {
         name: "ir_readiness_json",
@@ -359,7 +367,7 @@ pub fn capabilities_text() -> String {
         resource_report::RESOURCE_REPORT_SCHEMA
     ));
     out.push_str(&format!(
-        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  full_type_check: {}\n  effect_check: {}\n  ownership_check: {}\n  resource_check: {}\n  ir_readiness: {}\n",
+        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  full_type_check: {}\n  effect_check: {}\n  ownership_check: {}\n  resource_check: {}\n  profile_check: {}\n  ir_readiness: {}\n",
         core_preview::CORE_PREVIEW_SCHEMA,
         core_lower::CORE_LOWER_SCHEMA,
         core_verify::CORE_VERIFY_SCHEMA,
@@ -370,6 +378,7 @@ pub fn capabilities_text() -> String {
         effect_check::EFFECT_CHECK_SCHEMA,
         ownership_check::OWNERSHIP_CHECK_SCHEMA,
         resource_check::RESOURCE_CHECK_SCHEMA,
+        profile_check::PROFILE_CHECK_SCHEMA,
         ir_readiness::IR_READINESS_SCHEMA
     ));
     out.push_str(&format!(
@@ -566,6 +575,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         indent + 2,
         "resource_check",
         resource_check::RESOURCE_CHECK_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "profile_check",
+        profile_check::PROFILE_CHECK_SCHEMA,
         true,
     );
     push_string_field(
@@ -776,6 +792,7 @@ mod tests {
         assert!(json.contains("\"effect_check\": \"hum.effect_check.v0\""));
         assert!(json.contains("\"ownership_check\": \"hum.ownership_check.v0\""));
         assert!(json.contains("\"resource_check\": \"hum.resource_check.v0\""));
+        assert!(json.contains("\"profile_check\": \"hum.profile_check.v0\""));
         assert!(json.contains("\"semantic_graph\": \"hum.semantic_graph.v0\""));
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
@@ -803,6 +820,7 @@ mod tests {
         assert!(json.contains("\"name\": \"effect_check_json\""));
         assert!(json.contains("\"name\": \"ownership_check_json\""));
         assert!(json.contains("\"name\": \"resource_check_json\""));
+        assert!(json.contains("\"name\": \"profile_check_json\""));
         assert!(json.contains("\"name\": \"ir_readiness_json\""));
         assert!(json.contains("\"name\": \"core_preview_json\""));
         assert!(json.contains("\"name\": \"core_lower_json\""));

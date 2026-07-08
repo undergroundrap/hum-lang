@@ -34,7 +34,7 @@ must not claim profile syntax enforcement, stdlib narrowing, executable runtime
 behavior, target selection, certification, host probing, or performance and
 footprint measurement.
 
-The schema document is [HUM_RUNTIME_PROFILES_SCHEMA.md](HUM_RUNTIME_PROFILES_SCHEMA.md).
+The schema document is [HUM_RUNTIME_PROFILES_SCHEMA.md](HUM_RUNTIME_PROFILES_SCHEMA.md). `hum profile-check --format json` consumes this catalog, accepts the default `normal` profile, and blocks known strict profiles until enforcement and evidence checks exist.
 
 ## Candidate Profiles
 

@@ -11,6 +11,7 @@ use crate::graph::is_meaningful_line_text;
 use crate::ir_contract;
 use crate::node_id;
 use crate::ownership_check;
+use crate::profile_check;
 use crate::resolve;
 use crate::resource_check;
 use crate::type_check;
@@ -34,6 +35,7 @@ struct IrReadinessReport {
     effect_check_summary: effect_check::EffectCheckSummary,
     ownership_check_summary: ownership_check::OwnershipCheckSummary,
     resource_check_summary: resource_check::ResourceCheckSummary,
+    profile_check_summary: profile_check::ProfileCheckSummary,
     candidates: Vec<LoweringCandidate>,
 }
 
@@ -70,6 +72,7 @@ struct CandidateContext<'a> {
     effect_check_summary: &'a effect_check::EffectCheckSummary,
     ownership_check_summary: &'a ownership_check::OwnershipCheckSummary,
     resource_check_summary: &'a resource_check::ResourceCheckSummary,
+    profile_check_summary: &'a profile_check::ProfileCheckSummary,
     checked_returns: &'a [type_check::CheckedReturnSummary],
 }
 
@@ -83,6 +86,7 @@ struct CandidateBlockers {
     has_effect_check_errors: bool,
     has_ownership_check_errors: bool,
     has_resource_check_errors: bool,
+    has_profile_check_errors: bool,
 }
 
 const CURRENT_LAYER: &str = "surface_hum_and_semantic_graph";
@@ -156,8 +160,8 @@ const PASS_STATUSES: &[PassStatus] = &[
     },
     PassStatus {
         name: "profile_check",
-        status: "not_implemented",
-        source: core_contract::CORE_CONTRACT_SCHEMA,
+        status: profile_check::PROFILE_CHECK_STATUS,
+        source: profile_check::PROFILE_CHECK_SCHEMA,
     },
     PassStatus {
         name: "ir_verify",
@@ -194,6 +198,7 @@ const MISSING_AFTER_OWNERSHIP_PASSES: &[&str] =
     &["allocation_resource_check", "profile_check", "ir_verify"];
 
 const MISSING_AFTER_RESOURCE_PASSES: &[&str] = &["profile_check", "ir_verify"];
+const MISSING_AFTER_PROFILE_PASSES: &[&str] = &["ir_verify"];
 
 pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
     let report = build_report(program, diagnostics);
@@ -372,6 +377,26 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.resource_check_summary.execution_ready,
         report.resource_check_summary.ir_ready
     ));
+    out.push_str(&format!(
+        "profile_check: schema={} status={} mode={} profile_items={} declared_profiles={} default_profiles={} known_profiles={} unknown_profiles={} strict_profiles={} checks={} accepted_checks={} rejected_checks={} unchecked_checks={} blocking_issues={} proof_ready={} execution_ready={} ir_ready={}\n",
+        report.profile_check_summary.schema,
+        report.profile_check_summary.status,
+        report.profile_check_summary.mode,
+        report.profile_check_summary.profile_items,
+        report.profile_check_summary.declared_profiles,
+        report.profile_check_summary.default_profiles,
+        report.profile_check_summary.known_profiles,
+        report.profile_check_summary.unknown_profiles,
+        report.profile_check_summary.strict_profiles,
+        report.profile_check_summary.checks,
+        report.profile_check_summary.accepted_checks,
+        report.profile_check_summary.rejected_checks,
+        report.profile_check_summary.unchecked_checks,
+        report.profile_check_summary.blocking_issues,
+        report.profile_check_summary.proof_ready,
+        report.profile_check_summary.execution_ready,
+        report.profile_check_summary.ir_ready
+    ));
     out.push_str("pass_status:\n");
     for pass in PASS_STATUSES {
         out.push_str(&format!(
@@ -456,6 +481,7 @@ pub fn ir_readiness_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
     push_effect_check_summary(&mut out, &report.effect_check_summary, 2, true);
     push_ownership_check_summary(&mut out, &report.ownership_check_summary, 2, true);
     push_resource_check_summary(&mut out, &report.resource_check_summary, 2, true);
+    push_profile_check_summary(&mut out, &report.profile_check_summary, 2, true);
     push_summary(&mut out, &report, 2, true);
     push_pass_status(&mut out, 2, true);
     push_candidates(&mut out, &report.candidates, 2, true);
@@ -486,6 +512,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
     let effect_check_summary = effect_check::effect_check_summary(program, diagnostics);
     let ownership_check_summary = ownership_check::ownership_check_summary(program, diagnostics);
     let resource_check_summary = resource_check::resource_check_summary(program, diagnostics);
+    let profile_check_summary = profile_check::profile_check_summary(program, diagnostics);
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
     let context = CandidateContext {
         diagnostics,
@@ -498,6 +525,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         effect_check_summary: &effect_check_summary,
         ownership_check_summary: &ownership_check_summary,
         resource_check_summary: &resource_check_summary,
+        profile_check_summary: &profile_check_summary,
         checked_returns: &checked_returns,
     };
     let mut candidates = Vec::new();
@@ -535,6 +563,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         effect_check_summary,
         ownership_check_summary,
         resource_check_summary,
+        profile_check_summary,
         candidates,
     }
 }
@@ -578,6 +607,10 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
         context.resource_check_summary.status,
         "resource_errors_v0" | "blocked_by_unchecked_resource_facts_v0"
     );
+    let has_profile_check_errors = matches!(
+        context.profile_check_summary.status,
+        "profile_errors_v0" | "blocked_by_unchecked_profile_policy_v0"
+    );
     let blocking_reasons = blocking_reasons(CandidateBlockers {
         has_errors,
         has_resolver_errors,
@@ -587,6 +620,7 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
         has_effect_check_errors,
         has_ownership_check_errors,
         has_resource_check_errors,
+        has_profile_check_errors,
     });
     let section_names = item_sections(item)
         .iter()
@@ -616,8 +650,10 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
             "blocked_by_ownership_check_errors"
         } else if has_resource_check_errors {
             "blocked_by_resource_check_errors"
+        } else if has_profile_check_errors {
+            "blocked_by_profile_check_errors"
         } else {
-            "blocked_before_profile_check"
+            "blocked_before_ir_verify"
         },
         current_layer: CURRENT_LAYER,
         target_layer: TARGET_LAYER,
@@ -630,8 +666,10 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
             MISSING_AFTER_EFFECT_PASSES.to_vec()
         } else if has_resource_check_errors {
             MISSING_AFTER_OWNERSHIP_PASSES.to_vec()
-        } else {
+        } else if has_profile_check_errors {
             MISSING_AFTER_RESOURCE_PASSES.to_vec()
+        } else {
+            MISSING_AFTER_PROFILE_PASSES.to_vec()
         },
         blocking_reasons,
         section_names,
@@ -664,6 +702,8 @@ fn facts_available(item: &Item, context: &CandidateContext<'_>) -> Vec<&'static 
         context.ownership_check_summary.status,
         "resource_check_summary_v0",
         context.resource_check_summary.status,
+        "profile_check_summary_v0",
+        context.profile_check_summary.status,
     ];
     if context.core_lower_summary.core_items > 0 {
         facts.push("unverified_core_artifact_rows_v0");
@@ -682,6 +722,9 @@ fn facts_available(item: &Item, context: &CandidateContext<'_>) -> Vec<&'static 
     }
     if context.resource_check_summary.accepted_checks > 0 {
         facts.push("recognized_resource_facts_v0");
+    }
+    if context.profile_check_summary.accepted_checks > 0 {
+        facts.push("recognized_profile_policy_facts_v0");
     }
     if has_checked_return_type_slot(item, context.checked_returns) {
         facts.push("checked_return_expression_type_slots_v0");
@@ -797,6 +840,12 @@ fn add_section_family_facts(sections: &[Section], facts: &mut Vec<&'static str>)
     ) {
         facts.push("resource_hints");
     }
+    if has_any_section(
+        sections,
+        &["profile", "profiles", "runtime profile", "runtime profiles"],
+    ) {
+        facts.push("profile_hints");
+    }
     if has_any_section(sections, &["does"]) {
         facts.push("body_text_captured");
     }
@@ -866,7 +915,9 @@ fn blocking_reasons(blockers: CandidateBlockers) -> Vec<&'static str> {
     if blockers.has_resource_check_errors {
         reasons.push("resource_check_errors");
     }
-    reasons.push("profile_check_not_implemented");
+    if blockers.has_profile_check_errors {
+        reasons.push("profile_check_errors");
+    }
     reasons.push("ir_verify_not_implemented");
     reasons
 }
@@ -1815,6 +1866,116 @@ fn push_resource_check_summary(
     push_comma_newline(out, comma);
 }
 
+fn push_profile_check_summary(
+    out: &mut String,
+    summary: &profile_check::ProfileCheckSummary,
+    indent: usize,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    out.push_str("\"profile_check\": {\n");
+    push_string_field(out, indent + 2, "schema", summary.schema, true);
+    push_string_field(out, indent + 2, "status", summary.status, true);
+    push_string_field(out, indent + 2, "mode", summary.mode, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "source_errors",
+        summary.source_errors,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "resource_check_errors",
+        summary.resource_check_errors,
+        true,
+    );
+    push_usize_field(out, indent + 2, "tasks", summary.tasks, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "profile_items",
+        summary.profile_items,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "declared_profiles",
+        summary.declared_profiles,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "default_profiles",
+        summary.default_profiles,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "known_profiles",
+        summary.known_profiles,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unknown_profiles",
+        summary.unknown_profiles,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "strict_profiles",
+        summary.strict_profiles,
+        true,
+    );
+    push_usize_field(out, indent + 2, "checks", summary.checks, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "accepted_checks",
+        summary.accepted_checks,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "rejected_checks",
+        summary.rejected_checks,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unchecked_checks",
+        summary.unchecked_checks,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "blocking_issues",
+        summary.blocking_issues,
+        true,
+    );
+    push_usize_field(out, indent + 2, "proof_ready", summary.proof_ready, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "execution_ready",
+        summary.execution_ready,
+        true,
+    );
+    push_usize_field(out, indent + 2, "ir_ready", summary.ir_ready, false);
+    push_indent(out, indent);
+    out.push('}');
+    push_comma_newline(out, comma);
+}
 fn push_pass_status(out: &mut String, indent: usize, comma: bool) {
     push_indent(out, indent);
     out.push_str("\"pass_status\": [\n");
@@ -2174,6 +2335,8 @@ mod tests {
         assert!(json.contains("\"full_type_check_summary_v0\""));
         assert!(json.contains("\"effect_check_summary_v0\""));
         assert!(json.contains("\"resource_check_summary_v0\""));
+        assert!(json.contains("\"profile_check_summary_v0\""));
+        assert!(json.contains("\"schema\": \"hum.profile_check.v0\""));
         assert!(json.contains("\"schema\": \"hum.resource_check.v0\""));
         assert!(json.contains("\"recognized_core_resource_gate_available_v0\""));
         assert!(json.contains("\"unverified_core_artifact_rows_v0\""));
@@ -2190,7 +2353,9 @@ mod tests {
         assert!(json.contains("\"body_grammar_unsupported_lines\": 1"));
         assert!(json.contains("\"status\": \"blocked_by_full_type_check_errors\""));
         assert!(!json.contains("\"allocation_resource_check_not_implemented\""));
-        assert!(json.contains("\"profile_check_not_implemented\""));
+        assert!(json.contains("\"recognized_core_profile_gate_available_v0\""));
+        assert!(!json.contains("\"profile_check_not_implemented\""));
+        assert!(json.contains("\"ir_verify_not_implemented\""));
         assert!(!json.contains("\"ownership_alias_check_not_implemented\""));
         assert!(json.contains("\"name\": \"body_grammar\""));
         assert!(json.contains("\"name\": \"core_preview\""));

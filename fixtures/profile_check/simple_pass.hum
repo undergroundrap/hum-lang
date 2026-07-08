@@ -1,0 +1,37 @@
+type WorkError {
+  code: Text
+}
+
+task retry(flag: Bool) -> Result UInt, WorkError {
+  why:
+    keep the profile gate small
+
+  profiles:
+    normal
+
+  needs:
+    flag is provided
+
+  ensures:
+    attempts is returned
+
+  fails when:
+    flag is false
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: compile
+
+  allocates:
+    nothing
+
+  does:
+    change attempts: UInt = 0
+    if flag == false {
+      fail WorkError.no_flag
+    }
+
+    set attempts = attempts + 1
+    return attempts
+}

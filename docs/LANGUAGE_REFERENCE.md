@@ -56,6 +56,7 @@ foreign code.
 - [MATH_OBLIGATIONS_SCHEMA.md](MATH_OBLIGATIONS_SCHEMA.md): external-validator obligation export surface
 - [RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md): resource and optimization claim report surface
 - [HUM_RESOURCE_CHECK_SCHEMA.md](HUM_RESOURCE_CHECK_SCHEMA.md): declared allocation/resource intent gate
+- [HUM_PROFILE_CHECK_SCHEMA.md](HUM_PROFILE_CHECK_SCHEMA.md): runtime profile policy declaration gate
 - [STATE_MODEL.md](STATE_MODEL.md): state, mutation, ownership, borrowing, and linear resource doctrine
 - [HUM_STATE_MODEL_SCHEMA.md](HUM_STATE_MODEL_SCHEMA.md): machine-readable state model contract
 
@@ -707,6 +708,8 @@ hum ownership-check <file-or-dir>...
 hum ownership-check --format json <file-or-dir>...
 hum resource-check <file-or-dir>...
 hum resource-check --format json <file-or-dir>...
+hum profile-check <file-or-dir>...
+hum profile-check --format json <file-or-dir>...
 hum core-contract
 hum core-contract --format json
 hum ir-contract
@@ -770,6 +773,8 @@ cargo run -- ownership-check fixtures/ownership_check/simple_pass.hum
 cargo run -- ownership-check --format json fixtures/ownership_check/simple_pass.hum
 cargo run -- resource-check fixtures/resource_check/simple_pass.hum
 cargo run -- resource-check --format json fixtures/resource_check/simple_pass.hum
+cargo run -- profile-check fixtures/profile_check/simple_pass.hum
+cargo run -- profile-check --format json fixtures/profile_check/simple_pass.hum
 cargo run -- core-contract
 cargo run -- core-contract --format json
 cargo run -- ir-contract

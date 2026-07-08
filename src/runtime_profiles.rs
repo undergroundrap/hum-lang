@@ -2,16 +2,17 @@ use crate::version;
 
 pub const RUNTIME_PROFILES_SCHEMA: &str = "hum.runtime_profiles.v0";
 pub const RUNTIME_PROFILE_SCHEMA: &str = "hum.runtime_profile.v0";
+pub(crate) const RUNTIME_PROFILE_MODE: &str = "contract_only_no_profile_enforcement";
 
-struct RuntimeProfile {
-    id: &'static str,
-    source_spelling: &'static str,
-    status: &'static str,
-    purpose: &'static str,
-    forbids_by_default: &'static [&'static str],
-    requires_evidence: &'static [&'static str],
-    allowed_capability_families: &'static [&'static str],
-    denied_capability_families: &'static [&'static str],
+pub(crate) struct RuntimeProfile {
+    pub(crate) id: &'static str,
+    pub(crate) source_spelling: &'static str,
+    pub(crate) status: &'static str,
+    pub(crate) purpose: &'static str,
+    pub(crate) forbids_by_default: &'static [&'static str],
+    pub(crate) requires_evidence: &'static [&'static str],
+    pub(crate) allowed_capability_families: &'static [&'static str],
+    pub(crate) denied_capability_families: &'static [&'static str],
 }
 
 const RUNTIME_PROFILES: &[RuntimeProfile] = &[
@@ -87,6 +88,62 @@ const RUNTIME_PROFILES: &[RuntimeProfile] = &[
         denied_capability_families: &["os.network", "os.process"],
     },
     RuntimeProfile {
+        id: "windows_service",
+        source_spelling: "windows service",
+        status: "reserved_v0",
+        purpose: "long-running Windows services and service-like platform daemons",
+        forbids_by_default: &[
+            "hidden service installation",
+            "hidden administrator authority",
+            "LocalSystem use without profile evidence",
+            "registry writes without declared keys",
+            "filesystem writes outside declared paths",
+            "network listeners without declared ports",
+        ],
+        requires_evidence: &[
+            "service identity and privilege policy",
+            "start stop pause resume and shutdown behavior",
+            "recovery and restart behavior",
+            "install upgrade rollback and uninstall plan",
+            "event log or ETW schema",
+        ],
+        allowed_capability_families: &[
+            "os.filesystem",
+            "os.clock",
+            "os.process",
+            "os.network",
+            "platform.windows",
+        ],
+        denied_capability_families: &["sandbox.host"],
+    },
+    RuntimeProfile {
+        id: "driver_candidate",
+        source_spelling: "driver candidate",
+        status: "reserved_v0",
+        purpose: "future driver or driver-adjacent work requiring fail-closed evidence",
+        forbids_by_default: &[
+            "kernel-mode code without review packet",
+            "production signing of test driver code",
+            "hidden IOCTL surface",
+            "unchecked direct buffer handling",
+            "hardware or kernel access without target identity",
+        ],
+        requires_evidence: &[
+            "proof that a driver is required",
+            "WDF KMDF or UMDF model decision",
+            "device interface and access-control policy",
+            "IOCTL and buffer contract",
+            "Driver Verifier CodeQL HLK signing and release evidence",
+        ],
+        allowed_capability_families: &[
+            "target.layout",
+            "target.cpu",
+            "target.memory",
+            "platform.windows",
+        ],
+        denied_capability_families: &["os.network", "sandbox.host"],
+    },
+    RuntimeProfile {
         id: "footprint_constrained",
         source_spelling: "footprint constrained",
         status: "reserved_v0",
@@ -151,6 +208,28 @@ const RUNTIME_PROFILES: &[RuntimeProfile] = &[
         denied_capability_families: &["os.filesystem", "os.process", "os.network"],
     },
     RuntimeProfile {
+        id: "engine_hot_path",
+        source_spelling: "engine hot path",
+        status: "reserved_v0",
+        purpose: "frame-critical engine and runtime code with explicit budgets",
+        forbids_by_default: &[
+            "unbudgeted per-frame allocation",
+            "blocking asset IO",
+            "hidden locks",
+            "logging without a rate limit",
+            "shader or asset compilation in hot path",
+        ],
+        requires_evidence: &[
+            "frame budget",
+            "memory budget",
+            "platform profile",
+            "trace labels",
+            "deterministic replay statement",
+        ],
+        allowed_capability_families: &["target.layout", "target.cpu", "target.memory", "os.clock"],
+        denied_capability_families: &["os.network", "os.process"],
+    },
+    RuntimeProfile {
         id: "safety_critical",
         source_spelling: "safety critical",
         status: "reserved_v0",
@@ -168,6 +247,58 @@ const RUNTIME_PROFILES: &[RuntimeProfile] = &[
             "dependency evidence packet",
             "risk-control links",
             "test or proof evidence",
+        ],
+        allowed_capability_families: &[
+            "target.layout",
+            "target.cpu",
+            "target.memory",
+            "artifact.release",
+        ],
+        denied_capability_families: &["os.network", "os.process"],
+    },
+    RuntimeProfile {
+        id: "medical_class_c",
+        source_spelling: "medical class c",
+        status: "reserved_v0",
+        purpose: "medical software that could contribute to death or serious injury",
+        forbids_by_default: &[
+            "release without medical risk traceability",
+            "untracked SOUP dependency",
+            "missing problem-resolution evidence",
+            "connected deployment without cybersecurity evidence",
+        ],
+        requires_evidence: &[
+            "medical risk traceability",
+            "software item classification",
+            "SOUP dependency evidence",
+            "problem-resolution evidence",
+            "cybersecurity evidence when connected",
+        ],
+        allowed_capability_families: &[
+            "target.layout",
+            "target.cpu",
+            "target.memory",
+            "artifact.release",
+        ],
+        denied_capability_families: &["os.network", "os.process"],
+    },
+    RuntimeProfile {
+        id: "automotive_asil_d",
+        source_spelling: "automotive asil d",
+        status: "reserved_v0",
+        purpose: "automotive high-integrity work with ASIL traceability",
+        forbids_by_default: &[
+            "release without hazard analysis links",
+            "missing safety goal links",
+            "unqualified toolchain changes",
+            "unproven freedom from interference",
+        ],
+        requires_evidence: &[
+            "ASIL traceability",
+            "hazard analysis links",
+            "safety goal links",
+            "freedom-from-interference evidence",
+            "toolchain qualification evidence",
         ],
         allowed_capability_families: &[
             "target.layout",
@@ -223,10 +354,18 @@ const NON_GOALS_V0: &[&str] = &[
     "no performance or footprint measurement",
 ];
 
+pub(crate) fn runtime_profile_by_id(id: &str) -> Option<&'static RuntimeProfile> {
+    RUNTIME_PROFILES.iter().find(|profile| profile.id == id)
+}
+
+pub(crate) fn runtime_profiles() -> &'static [RuntimeProfile] {
+    RUNTIME_PROFILES
+}
+
 pub fn runtime_profiles_text() -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "Hum runtime profiles ({RUNTIME_PROFILES_SCHEMA})\ntool: hum {} {}\nmilestone: {}\nprofile_schema: {RUNTIME_PROFILE_SCHEMA}\nmode: contract_only_no_profile_enforcement\n",
+        "Hum runtime profiles ({RUNTIME_PROFILES_SCHEMA})\ntool: hum {} {}\nmilestone: {}\nprofile_schema: {RUNTIME_PROFILE_SCHEMA}\nmode: {RUNTIME_PROFILE_MODE}\n",
         version::HUM_VERSION,
         version::HUM_STATUS,
         version::HUM_MILESTONE
@@ -258,13 +397,7 @@ pub fn runtime_profiles_json() -> String {
     push_string_field(&mut out, 2, "version", version::HUM_VERSION, true);
     push_string_field(&mut out, 2, "status", version::HUM_STATUS, true);
     push_string_field(&mut out, 2, "milestone", version::HUM_MILESTONE, true);
-    push_string_field(
-        &mut out,
-        2,
-        "mode",
-        "contract_only_no_profile_enforcement",
-        true,
-    );
+    push_string_field(&mut out, 2, "mode", RUNTIME_PROFILE_MODE, true);
     push_profiles(&mut out, 2, true);
     push_string_array(&mut out, 2, "rules", RULES, true);
     push_string_array(&mut out, 2, "non_goals_v0", NON_GOALS_V0, false);

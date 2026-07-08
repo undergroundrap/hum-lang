@@ -27,6 +27,7 @@ mod math_obligations;
 mod node_id;
 mod ownership_check;
 mod parser;
+mod profile_check;
 mod resolve;
 mod resource_check;
 mod resource_report;
@@ -542,6 +543,35 @@ fn run() -> Result<ExitCode, String> {
                 ExitCode::SUCCESS
             })
         }
+        "profile-check" => {
+            if options.type_check_format == TypeCheckFormat::Human {
+                print_diagnostics(&diagnostics);
+            }
+            let has_profile_check_errors =
+                profile_check::profile_check_has_errors(&program, &diagnostics);
+            match options.type_check_format {
+                TypeCheckFormat::Human => {
+                    print!(
+                        "{}",
+                        profile_check::profile_check_text(&program, &diagnostics)
+                    )
+                }
+                TypeCheckFormat::Json => {
+                    print!(
+                        "{}",
+                        profile_check::profile_check_json(&program, &diagnostics)
+                    )
+                }
+            }
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            Ok(if has_errors || has_profile_check_errors {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
         "ir-readiness" => {
             if options.ir_readiness_format == IrReadinessFormat::Human {
                 print_diagnostics(&diagnostics);
@@ -585,7 +615,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         )),
     }
 }
@@ -801,6 +831,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "effect-check"
             | "ownership-check"
             | "resource-check"
+            | "profile-check"
             | "ir-readiness"
             | "syntax"
             | "version"
@@ -817,7 +848,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "target-facts"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         ));
     }
 
@@ -898,6 +929,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         | "effect-check"
                         | "ownership-check"
                         | "resource-check"
+                        | "profile-check"
                         | "ir-readiness"
                 ) =>
             {
@@ -938,6 +970,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "effect-check" => type_check_format = parse_effect_check_format(&value)?,
                     "ownership-check" => type_check_format = parse_ownership_check_format(&value)?,
                     "resource-check" => type_check_format = parse_resource_check_format(&value)?,
+                    "profile-check" => type_check_format = parse_profile_check_format(&value)?,
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(&value)?,
                     _ => unreachable!(),
                 }
@@ -971,6 +1004,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     | "effect-check"
                     | "ownership-check"
                     | "resource-check"
+                    | "profile-check"
                     | "ir-readiness"
             ) && flag.starts_with("--format=") =>
             {
@@ -1009,6 +1043,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "effect-check" => type_check_format = parse_effect_check_format(value)?,
                     "ownership-check" => type_check_format = parse_ownership_check_format(value)?,
                     "resource-check" => type_check_format = parse_resource_check_format(value)?,
+                    "profile-check" => type_check_format = parse_profile_check_format(value)?,
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(value)?,
                     _ => unreachable!(),
                 }
@@ -1746,6 +1781,16 @@ fn parse_resource_check_format(value: &str) -> Result<TypeCheckFormat, String> {
     }
 }
 
+fn parse_profile_check_format(value: &str) -> Result<TypeCheckFormat, String> {
+    match value {
+        "human" => Ok(TypeCheckFormat::Human),
+        "json" => Ok(TypeCheckFormat::Json),
+        other => Err(format!(
+            "unknown profile-check format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
 fn parse_ir_contract_format(value: &str) -> Result<IrContractFormat, String> {
     match value {
         "human" => Ok(IrContractFormat::Human),
@@ -2013,6 +2058,7 @@ fn print_help() {
     println!("  hum effect-check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum ownership-check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum resource-check [--format human|json] [--timings] <file-or-dir>...");
+    println!("  hum profile-check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum ir-readiness [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!("  hum syntax [--format json|textmate]");
@@ -2045,8 +2091,9 @@ fn print_help() {
     println!("  effect-check      Check recognized Core/body effects without execution");
     println!("  ownership-check   Check recognized Core/body ownership facts without execution");
     println!("  resource-check    Check declared allocation/resource intent without execution");
+    println!("  profile-check     Check runtime profile policy declarations without execution");
     println!(
-        "  ir-readiness      Report source readiness after resource checking, before profile checking and Hum IR lowering"
+        "  ir-readiness      Report source readiness after profile checking, before Hum IR lowering"
     );
     println!("  test-skeletons    Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
@@ -2855,6 +2902,33 @@ mod tests {
         assert_eq!(
             error,
             "unknown resource-check format `textmate`; expected `human` or `json`"
+        );
+    }
+
+    #[test]
+    fn parses_profile_check_json_format() {
+        let options = parse_cli(vec![
+            "profile-check".to_string(),
+            "--format=json".to_string(),
+            "examples".to_string(),
+        ])
+        .expect("profile-check json command");
+        assert_eq!(options.command, "profile-check");
+        assert_eq!(options.type_check_format, TypeCheckFormat::Json);
+    }
+
+    #[test]
+    fn rejects_unknown_profile_check_format() {
+        let error = parse_cli(vec![
+            "profile-check".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+            "examples".to_string(),
+        ])
+        .expect_err("profile-check should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown profile-check format `textmate`; expected `human` or `json`"
         );
     }
 

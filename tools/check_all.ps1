@@ -157,6 +157,7 @@ try {
   if (-not $VersionJson.Contains('"effect_check": "hum.effect_check.v0"')) { throw 'version JSON is missing hum.effect_check.v0 schema' }
   if (-not $VersionJson.Contains('"ownership_check": "hum.ownership_check.v0"')) { throw 'version JSON is missing hum.ownership_check.v0 schema' }
   if (-not $VersionJson.Contains('"resource_check": "hum.resource_check.v0"')) { throw 'version JSON is missing hum.resource_check.v0 schema' }
+  if (-not $VersionJson.Contains('"profile_check": "hum.profile_check.v0"')) { throw 'version JSON is missing hum.profile_check.v0 schema' }
 
   $ExplainJson = Read-NativeOutput 'diagnostic explain JSON' $Hum @('explain', 'H0201', '--format', 'json')
   Assert-Json 'diagnostic explain JSON' $ExplainJson
@@ -205,6 +206,8 @@ try {
   if (-not $CapabilitiesJson.Contains('"ownership_check_json"')) { throw 'capabilities JSON is missing ownership_check_json command' }
   if (-not $CapabilitiesJson.Contains('"resource_check"')) { throw 'capabilities JSON is missing resource_check schema' }
   if (-not $CapabilitiesJson.Contains('"resource_check_json"')) { throw 'capabilities JSON is missing resource_check_json command' }
+  if (-not $CapabilitiesJson.Contains('"profile_check"')) { throw 'capabilities JSON is missing profile_check schema' }
+  if (-not $CapabilitiesJson.Contains('"profile_check_json"')) { throw 'capabilities JSON is missing profile_check_json command' }
   if (-not $CapabilitiesJson.Contains('"ir_readiness"')) { throw 'capabilities JSON is missing ir_readiness schema' }
   if (-not $CapabilitiesJson.Contains('"core_contract"')) { throw 'capabilities JSON is missing core_contract schema' }
   if (-not $CapabilitiesJson.Contains('"ir_contract"')) { throw 'capabilities JSON is missing ir_contract schema' }
@@ -242,6 +245,8 @@ try {
   if (-not $CoreContractJson.Contains('"status": "recognized_core_ownership_gate_available_v0"')) { throw 'Core contract JSON is missing ownership-check gate status' }
   if (-not $CoreContractJson.Contains('"id": "allocation_resource_check"')) { throw 'Core contract JSON is missing allocation_resource_check gate' }
   if (-not $CoreContractJson.Contains('"status": "recognized_core_resource_gate_available_v0"')) { throw 'Core contract JSON is missing resource-check gate status' }
+  if (-not $CoreContractJson.Contains('"id": "profile_check"')) { throw 'Core contract JSON is missing profile_check gate' }
+  if (-not $CoreContractJson.Contains('"status": "recognized_core_profile_gate_available_v0"')) { throw 'Core contract JSON is missing profile-check gate status' }
   if (-not $CoreContractJson.Contains('"id": "core_verify"')) { throw 'Core contract JSON is missing core_verify gate' }
   if (-not $CoreContractJson.Contains('"status": "verified_non_executing_core_artifact_v0"')) { throw 'Core contract JSON is missing core verify gate status' }
   if (-not $CoreContractJson.Contains('"no executable semantics"')) { throw 'Core contract JSON must keep V0 non-execution claim' }
@@ -278,6 +283,11 @@ try {
   if (-not $RuntimeProfilesJson.Contains('"id": "agent_tool_sandbox"')) { throw 'runtime profiles JSON is missing agent_tool_sandbox profile' }
   if (-not $RuntimeProfilesJson.Contains('"id": "footprint_constrained"')) { throw 'runtime profiles JSON is missing footprint_constrained profile' }
   if (-not $RuntimeProfilesJson.Contains('"id": "hard_realtime"')) { throw 'runtime profiles JSON is missing hard_realtime profile' }
+  if (-not $RuntimeProfilesJson.Contains('"id": "windows_service"')) { throw 'runtime profiles JSON is missing windows_service profile' }
+  if (-not $RuntimeProfilesJson.Contains('"id": "driver_candidate"')) { throw 'runtime profiles JSON is missing driver_candidate profile' }
+  if (-not $RuntimeProfilesJson.Contains('"id": "engine_hot_path"')) { throw 'runtime profiles JSON is missing engine_hot_path profile' }
+  if (-not $RuntimeProfilesJson.Contains('"id": "medical_class_c"')) { throw 'runtime profiles JSON is missing medical_class_c profile' }
+  if (-not $RuntimeProfilesJson.Contains('"id": "automotive_asil_d"')) { throw 'runtime profiles JSON is missing automotive_asil_d profile' }
   if (-not $RuntimeProfilesJson.Contains('"denied_capability_families"')) { throw 'runtime profiles JSON is missing denied capability policy' }
   if (-not $RuntimeProfilesJson.Contains('"os.network"')) { throw 'runtime profiles JSON is missing network capability policy' }
   if (-not $RuntimeProfilesJson.Contains('"no profile syntax enforcement"')) { throw 'runtime profiles JSON must keep V0 enforcement non-claim' }
@@ -541,6 +551,23 @@ try {
   if (-not $ResourceCheckJson.Contains('no allocation-freedom proof')) { throw 'resource check JSON must keep allocation-proof non-claim' }
   if (-not $ResourceCheckJson.Contains('no memory-safety proof')) { throw 'resource check JSON must keep memory-safety non-claim' }
 
+  $ProfileCheckJson = Read-NativeOutput 'profile check JSON' $Hum @('profile-check', '--format', 'json', 'fixtures/profile_check/simple_pass.hum')
+  Assert-Json 'profile check JSON' $ProfileCheckJson
+  if (-not $ProfileCheckJson.Contains('"schema": "hum.profile_check.v0"')) { throw 'profile check JSON is missing hum.profile_check.v0 schema' }
+  if (-not $ProfileCheckJson.Contains('"status": "recognized_profile_policy_checked_v0"')) { throw 'profile check JSON should pass for simple fixture' }
+  if (-not $ProfileCheckJson.Contains('"mode": "recognized_profile_policy_gate_v0"')) { throw 'profile check JSON is missing profile policy gate mode' }
+  if (-not $ProfileCheckJson.Contains('"resource_check_schema": "hum.resource_check.v0"')) { throw 'profile check JSON is missing resource-check dependency schema' }
+  if (-not $ProfileCheckJson.Contains('"runtime_profiles_schema": "hum.runtime_profiles.v0"')) { throw 'profile check JSON is missing runtime profiles dependency schema' }
+  if (-not $ProfileCheckJson.Contains('"runtime_profile_mode": "contract_only_no_profile_enforcement"')) { throw 'profile check JSON must keep runtime profile catalog mode' }
+  if (-not $ProfileCheckJson.Contains('"profile_id": "normal"')) { throw 'profile check JSON is missing accepted normal profile id' }
+  if (-not $ProfileCheckJson.Contains('"accepted_normal_profile_policy_v0"')) { throw 'profile check JSON is missing accepted normal profile check' }
+  if (-not $ProfileCheckJson.Contains('"blocking_issues": 0')) { throw 'profile check JSON should have zero blocking issues for simple fixture' }
+  if (-not $ProfileCheckJson.Contains('"proof_ready": 0')) { throw 'profile check JSON must not claim proof readiness' }
+  if (-not $ProfileCheckJson.Contains('"execution_ready": 0')) { throw 'profile check JSON must not claim execution readiness' }
+  if (-not $ProfileCheckJson.Contains('"ir_ready": 0')) { throw 'profile check JSON must not claim IR readiness' }
+  if (-not $ProfileCheckJson.Contains('no profile enforcement')) { throw 'profile check JSON must keep profile-enforcement non-claim' }
+  if (-not $ProfileCheckJson.Contains('no certification claim')) { throw 'profile check JSON must keep certification non-claim' }
+
   $IrReadinessJson = Read-NativeOutput 'IR readiness JSON' $Hum @('ir-readiness', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'IR readiness JSON' $IrReadinessJson
   if (-not $IrReadinessJson.Contains('"schema": "hum.ir_readiness.v0"')) { throw 'IR readiness JSON is missing hum.ir_readiness.v0 schema' }
@@ -568,6 +595,9 @@ try {
   if (-not $IrReadinessJson.Contains('"resource_check"')) { throw 'IR readiness JSON is missing resource_check summary' }
   if (-not $IrReadinessJson.Contains('"schema": "hum.resource_check.v0"')) { throw 'IR readiness JSON is missing hum.resource_check.v0 schema link' }
   if (-not $IrReadinessJson.Contains('"mode": "recognized_core_resource_gate_v0"')) { throw 'IR readiness JSON is missing resource-check gate mode' }
+  if (-not $IrReadinessJson.Contains('"profile_check"')) { throw 'IR readiness JSON is missing profile_check summary' }
+  if (-not $IrReadinessJson.Contains('"schema": "hum.profile_check.v0"')) { throw 'IR readiness JSON is missing hum.profile_check.v0 schema link' }
+  if (-not $IrReadinessJson.Contains('"mode": "recognized_profile_policy_gate_v0"')) { throw 'IR readiness JSON is missing profile-check gate mode' }
   if (-not $IrReadinessJson.Contains('"mode": "non_executing_artifact_invariant_check_v0"')) { throw 'IR readiness JSON is missing core verify mode' }
   if (-not $IrReadinessJson.Contains('"status": "unverified_core_artifact_v0"')) { throw 'IR readiness JSON is missing unverified core lower status' }
   if (-not $IrReadinessJson.Contains('"typed_expression_previews": 1')) { throw 'IR readiness JSON is missing core preview typed expression count' }
@@ -584,6 +614,7 @@ try {
   if (-not $IrReadinessJson.Contains('"effect_check_summary_v0"')) { throw 'IR readiness JSON is missing effect check summary fact' }
   if (-not $IrReadinessJson.Contains('"ownership_check_summary_v0"')) { throw 'IR readiness JSON is missing ownership check summary fact' }
   if (-not $IrReadinessJson.Contains('"resource_check_summary_v0"')) { throw 'IR readiness JSON is missing resource check summary fact' }
+  if (-not $IrReadinessJson.Contains('"profile_check_summary_v0"')) { throw 'IR readiness JSON is missing profile check summary fact' }
   if (-not $IrReadinessJson.Contains('"unverified_core_artifact_rows_v0"')) { throw 'IR readiness JSON is missing unverified core artifact row fact' }
   if (-not $IrReadinessJson.Contains('"verified_core_artifact_rows_v0"')) { throw 'IR readiness JSON is missing verified core artifact row fact' }
   if (-not $IrReadinessJson.Contains('"checked_return_expression_type_slots_v0"')) { throw 'IR readiness JSON is missing checked return expression slot fact' }
@@ -605,8 +636,10 @@ try {
   if (-not $IrReadinessJson.Contains('"recognized_core_effect_gate_available_v0"')) { throw 'IR readiness JSON is missing effect-check pass availability' }
   if (-not $IrReadinessJson.Contains('"recognized_core_ownership_gate_available_v0"')) { throw 'IR readiness JSON is missing ownership-check pass availability' }
   if (-not $IrReadinessJson.Contains('"recognized_core_resource_gate_available_v0"')) { throw 'IR readiness JSON is missing resource-check pass availability' }
+  if (-not $IrReadinessJson.Contains('"recognized_core_profile_gate_available_v0"')) { throw 'IR readiness JSON is missing profile-check pass availability' }
   if ($IrReadinessJson.Contains('"allocation_resource_check_not_implemented"')) { throw 'IR readiness JSON should not report resource check as not implemented' }
-  if (-not $IrReadinessJson.Contains('"profile_check_not_implemented"')) { throw 'IR readiness JSON is missing profile-check blocker' }
+  if ($IrReadinessJson.Contains('"profile_check_not_implemented"')) { throw 'IR readiness JSON should not report profile check as not implemented' }
+  if (-not $IrReadinessJson.Contains('"ir_verify_not_implemented"')) { throw 'IR readiness JSON is missing IR verifier blocker' }
   if (-not $IrReadinessJson.Contains('"not_implemented"')) { throw 'IR readiness JSON is missing not_implemented blockers' }
   if (-not $IrReadinessJson.Contains('"no IR emission"')) { throw 'IR readiness JSON must keep V0 non-emission claim' }
 
@@ -668,7 +701,9 @@ try {
   if (-not $ArchitectureText.Contains('HUM_CORE_LOWER_SCHEMA.md')) { throw 'architecture is missing core lower schema link' }
   if (-not $ArchitectureText.Contains('HUM_CORE_VERIFY_SCHEMA.md')) { throw 'architecture is missing core verify schema link' }
   if (-not $ArchitectureText.Contains('HUM_RESOURCE_CHECK_SCHEMA.md')) { throw 'architecture is missing resource check schema link' }
+  if (-not $ArchitectureText.Contains('HUM_PROFILE_CHECK_SCHEMA.md')) { throw 'architecture is missing profile check schema link' }
   if (-not $ArchitectureText.Contains('recognized_core_resource_gate_available_v0')) { throw 'architecture is missing current resource-check gate' }
+  if (-not $ArchitectureText.Contains('recognized_core_profile_gate_available_v0')) { throw 'architecture is missing current profile-check gate' }
   if (-not $ArchitectureText.Contains('PORTABILITY_BOUNDARY_MODEL.md')) { throw 'architecture is missing portability boundary model link' }
   $LanguageReferenceText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\LANGUAGE_REFERENCE.md'))
   if (-not $LanguageReferenceText.Contains('traditional language reference spine')) { throw 'language reference is missing reference spine marker' }
@@ -676,7 +711,9 @@ try {
   if (-not $LanguageReferenceText.Contains('STATE_MODEL.md')) { throw 'language reference is missing state model link' }
   if (-not $LanguageReferenceText.Contains('HUM_RESOLVE_SCHEMA.md')) { throw 'language reference is missing resolve schema link' }
   if (-not $LanguageReferenceText.Contains('HUM_RESOURCE_CHECK_SCHEMA.md')) { throw 'language reference is missing resource check schema link' }
+  if (-not $LanguageReferenceText.Contains('HUM_PROFILE_CHECK_SCHEMA.md')) { throw 'language reference is missing profile check schema link' }
   if (-not $LanguageReferenceText.Contains('hum resource-check --format json')) { throw 'language reference is missing resource-check command' }
+  if (-not $LanguageReferenceText.Contains('hum profile-check --format json')) { throw 'language reference is missing profile-check command' }
   if (-not $LanguageReferenceText.Contains('hum state-model --format json')) { throw 'language reference is missing state-model command' }
   if (-not $LanguageReferenceText.Contains('hum resolve --format json')) { throw 'language reference is missing resolve command' }
   if (-not $LanguageReferenceText.Contains('H1205')) { throw 'language reference is missing target declaration diagnostics' }
@@ -731,6 +768,7 @@ try {
   if (-not $RuntimeProfilesSchemaText.Contains('hum.runtime_profiles.v0')) { throw 'runtime profile schema doc is missing catalog schema' }
   if (-not $RuntimeProfilesSchemaText.Contains('hum.runtime_profile.v0')) { throw 'runtime profile schema doc is missing entry schema' }
   if (-not $RuntimeProfilesSchemaText.Contains('contract_only_no_profile_enforcement')) { throw 'runtime profile schema doc is missing contract-only mode' }
+  if (-not $RuntimeProfilesSchemaText.Contains('HUM_PROFILE_CHECK_SCHEMA.md')) { throw 'runtime profile schema doc is missing profile check schema link' }
   $StateModelText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\STATE_MODEL.md'))
   if (-not $StateModelText.Contains('Hum State Model')) { throw 'state model doc is missing title' }
   if (-not $StateModelText.Contains('hum.state_model.v0')) { throw 'state model doc is missing state model schema' }
@@ -763,13 +801,19 @@ try {
   if (-not $IrReadinessSchemaText.Contains('hum.effect_check.v0')) { throw 'IR readiness schema doc is missing effect-check schema link' }
   if (-not $IrReadinessSchemaText.Contains('hum.ownership_check.v0')) { throw 'IR readiness schema doc is missing ownership-check schema link' }
   if (-not $IrReadinessSchemaText.Contains('hum.resource_check.v0')) { throw 'IR readiness schema doc is missing resource-check schema link' }
+  if (-not $IrReadinessSchemaText.Contains('hum.profile_check.v0')) { throw 'IR readiness schema doc is missing profile-check schema link' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_full_type_check_errors')) { throw 'IR readiness schema doc is missing full type-check blocker' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_effect_check_errors')) { throw 'IR readiness schema doc is missing effect-check blocker' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_ownership_check_errors')) { throw 'IR readiness schema doc is missing ownership-check blocker' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_resource_check_errors')) { throw 'IR readiness schema doc is missing resource-check blocker' }
+  if (-not $IrReadinessSchemaText.Contains('blocked_by_profile_check_errors')) { throw 'IR readiness schema doc is missing profile-check blocker' }
+  if (-not $IrReadinessSchemaText.Contains('blocked_before_ir_verify')) { throw 'IR readiness schema doc is missing before-IR-verifier blocker' }
   if (-not $IrReadinessSchemaText.Contains('resource_check_summary_v0')) { throw 'IR readiness schema doc is missing resource check summary fact' }
+  if (-not $IrReadinessSchemaText.Contains('profile_check_summary_v0')) { throw 'IR readiness schema doc is missing profile check summary fact' }
   if (-not $IrReadinessSchemaText.Contains('recognized_core_resource_gate_available_v0')) { throw 'IR readiness schema doc is missing resource-check pass status' }
+  if (-not $IrReadinessSchemaText.Contains('recognized_core_profile_gate_available_v0')) { throw 'IR readiness schema doc is missing profile-check pass status' }
   if ($IrReadinessSchemaText.Contains('allocation_resource_check_not_implemented')) { throw 'IR readiness schema doc should not call resource check not implemented' }
+  if ($IrReadinessSchemaText.Contains('profile_check_not_implemented')) { throw 'IR readiness schema doc should not call profile check not implemented' }
   if (-not $IrReadinessSchemaText.Contains('unverified_core_artifact_rows_v0')) { throw 'IR readiness schema doc is missing unverified core artifact row fact' }
   if (-not $IrReadinessSchemaText.Contains('core_verify')) { throw 'IR readiness schema doc is missing core_verify pass' }
   if (-not $IrReadinessSchemaText.Contains('verified_core_artifact_rows_v0')) { throw 'IR readiness schema doc is missing verified core artifact row fact' }
@@ -788,7 +832,9 @@ try {
   if (-not $CoreContractSchemaText.Contains('recognized_core_effect_gate_available_v0')) { throw 'Core contract schema doc is missing effect-check gate status' }
   if (-not $CoreContractSchemaText.Contains('recognized_core_ownership_gate_available_v0')) { throw 'Core contract schema doc is missing ownership-check gate status' }
   if (-not $CoreContractSchemaText.Contains('recognized_core_resource_gate_available_v0')) { throw 'Core contract schema doc is missing resource-check gate status' }
+  if (-not $CoreContractSchemaText.Contains('recognized_core_profile_gate_available_v0')) { throw 'Core contract schema doc is missing profile-check gate status' }
   if (-not $CoreContractSchemaText.Contains('hum resource-check')) { throw 'Core contract schema doc is missing resource-check command link' }
+  if (-not $CoreContractSchemaText.Contains('hum profile-check')) { throw 'Core contract schema doc is missing profile-check command link' }
   $FullTypeCheckSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_FULL_TYPE_CHECK_SCHEMA.md'))
   if (-not $FullTypeCheckSchemaText.Contains('hum.full_type_check.v0')) { throw 'full type check schema doc is missing hum.full_type_check.v0' }
   if (-not $FullTypeCheckSchemaText.Contains('recognized_core_body_type_gate_v0')) { throw 'full type check schema doc is missing gate mode' }
@@ -810,6 +856,13 @@ try {
   if (-not $ResourceCheckSchemaText.Contains('hum resource-check')) { throw 'resource check schema doc is missing command' }
   if (-not $ResourceCheckSchemaText.Contains('no executable semantics')) { throw 'resource check schema doc must keep non-execution claim' }
   if (-not $ResourceCheckSchemaText.Contains('no allocation-freedom proof')) { throw 'resource check schema doc must keep allocation-proof non-claim' }
+  $ProfileCheckSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_PROFILE_CHECK_SCHEMA.md'))
+  if (-not $ProfileCheckSchemaText.Contains('hum.profile_check.v0')) { throw 'profile check schema doc is missing hum.profile_check.v0' }
+  if (-not $ProfileCheckSchemaText.Contains('recognized_profile_policy_gate_v0')) { throw 'profile check schema doc is missing gate mode' }
+  if (-not $ProfileCheckSchemaText.Contains('hum profile-check')) { throw 'profile check schema doc is missing command' }
+  if (-not $ProfileCheckSchemaText.Contains('blocked_by_unchecked_profile_policy_v0')) { throw 'profile check schema doc is missing strict profile blocker' }
+  if (-not $ProfileCheckSchemaText.Contains('no profile enforcement')) { throw 'profile check schema doc must keep profile-enforcement non-claim' }
+  if (-not $ProfileCheckSchemaText.Contains('no certification claim')) { throw 'profile check schema doc must keep certification non-claim' }
   $CoreLowerSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_CORE_LOWER_SCHEMA.md'))
   if (-not $CoreLowerSchemaText.Contains('hum.core_lower.v0')) { throw 'Core lower schema doc is missing hum.core_lower.v0' }
   if (-not $CoreLowerSchemaText.Contains('unverified_core_artifact_v0')) { throw 'Core lower schema doc is missing unverified artifact status' }
