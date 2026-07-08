@@ -7,6 +7,7 @@ use crate::diagnostic_catalog;
 use crate::diagnostics;
 use crate::doctor;
 use crate::evidence;
+use crate::full_type_check;
 use crate::ir_contract;
 use crate::ir_readiness;
 use crate::json;
@@ -116,6 +117,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: type_check::TYPE_CHECK_SCHEMA,
         status: "adapter-ready",
         purpose: "declaration annotation type errors without expression inference",
+    },
+    CommandCapability {
+        name: "full_type_check_json",
+        command: "hum full-type-check --format json <file-or-dir>...",
+        schema: full_type_check::FULL_TYPE_CHECK_SCHEMA,
+        status: "adapter-ready",
+        purpose: "recognized Core/body statement type gate with explicit blockers and no execution",
     },
     CommandCapability {
         name: "ir_readiness_json",
@@ -327,13 +335,14 @@ pub fn capabilities_text() -> String {
         resource_report::RESOURCE_REPORT_SCHEMA
     ));
     out.push_str(&format!(
-        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  ir_readiness: {}\n",
+        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  full_type_check: {}\n  ir_readiness: {}\n",
         core_preview::CORE_PREVIEW_SCHEMA,
         core_lower::CORE_LOWER_SCHEMA,
         core_verify::CORE_VERIFY_SCHEMA,
         resolve::RESOLVE_REPORT_SCHEMA,
         type_env::TYPE_ENV_SCHEMA,
         type_check::TYPE_CHECK_SCHEMA,
+        full_type_check::FULL_TYPE_CHECK_SCHEMA,
         ir_readiness::IR_READINESS_SCHEMA
     ));
     out.push_str(&format!(
@@ -502,6 +511,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         indent + 2,
         "type_check",
         type_check::TYPE_CHECK_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "full_type_check",
+        full_type_check::FULL_TYPE_CHECK_SCHEMA,
         true,
     );
     push_string_field(

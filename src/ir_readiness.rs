@@ -5,6 +5,7 @@ use crate::core_lower;
 use crate::core_preview;
 use crate::core_verify;
 use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::full_type_check;
 use crate::graph::is_meaningful_line_text;
 use crate::ir_contract;
 use crate::node_id;
@@ -26,6 +27,7 @@ struct IrReadinessReport {
     core_preview_summary: core_preview::CorePreviewReadinessSummary,
     core_lower_summary: core_lower::CoreLowerReadinessSummary,
     core_verify_summary: core_verify::CoreVerifyReadinessSummary,
+    full_type_check_summary: full_type_check::FullTypeCheckSummary,
     candidates: Vec<LoweringCandidate>,
 }
 
@@ -58,6 +60,7 @@ struct CandidateContext<'a> {
     core_preview_summary: &'a core_preview::CorePreviewReadinessSummary,
     core_lower_summary: &'a core_lower::CoreLowerReadinessSummary,
     core_verify_summary: &'a core_verify::CoreVerifyReadinessSummary,
+    full_type_check_summary: &'a full_type_check::FullTypeCheckSummary,
     checked_returns: &'a [type_check::CheckedReturnSummary],
 }
 
@@ -107,8 +110,8 @@ const PASS_STATUSES: &[PassStatus] = &[
     },
     PassStatus {
         name: "full_type_check",
-        status: "not_implemented",
-        source: core_contract::CORE_CONTRACT_SCHEMA,
+        status: full_type_check::FULL_TYPE_CHECK_STATUS,
+        source: full_type_check::FULL_TYPE_CHECK_SCHEMA,
     },
     PassStatus {
         name: "effect_check",
@@ -144,6 +147,14 @@ const PASS_STATUSES: &[PassStatus] = &[
 
 const MISSING_IR_PASSES: &[&str] = &[
     "full_type_check",
+    "effect_check",
+    "ownership_alias_check",
+    "allocation_resource_check",
+    "profile_check",
+    "ir_verify",
+];
+
+const MISSING_AFTER_FULL_TYPE_PASSES: &[&str] = &[
     "effect_check",
     "ownership_alias_check",
     "allocation_resource_check",
@@ -260,6 +271,22 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.core_verify_summary.execution_ready,
         report.core_verify_summary.ir_ready
     ));
+    out.push_str(&format!(
+        "full_type_check: schema={} status={} mode={} body_items={} statements={} checked_statements={} accepted_statements={} rejected_statements={} unchecked_statements={} unsupported_statements={} blocking_issues={} execution_ready={} ir_ready={}\n",
+        report.full_type_check_summary.schema,
+        report.full_type_check_summary.status,
+        report.full_type_check_summary.mode,
+        report.full_type_check_summary.body_items,
+        report.full_type_check_summary.statements,
+        report.full_type_check_summary.checked_statements,
+        report.full_type_check_summary.accepted_statements,
+        report.full_type_check_summary.rejected_statements,
+        report.full_type_check_summary.unchecked_statements,
+        report.full_type_check_summary.unsupported_statements,
+        report.full_type_check_summary.blocking_issues,
+        report.full_type_check_summary.execution_ready,
+        report.full_type_check_summary.ir_ready
+    ));
     out.push_str("pass_status:\n");
     for pass in PASS_STATUSES {
         out.push_str(&format!(
@@ -340,6 +367,7 @@ pub fn ir_readiness_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
     push_core_preview_summary(&mut out, &report.core_preview_summary, 2, true);
     push_core_lower_summary(&mut out, &report.core_lower_summary, 2, true);
     push_core_verify_summary(&mut out, &report.core_verify_summary, 2, true);
+    push_full_type_check_summary(&mut out, &report.full_type_check_summary, 2, true);
     push_summary(&mut out, &report, 2, true);
     push_pass_status(&mut out, 2, true);
     push_candidates(&mut out, &report.candidates, 2, true);
@@ -366,6 +394,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
     let core_preview_summary = core_preview::core_preview_readiness_summary(program, diagnostics);
     let core_lower_summary = core_lower::core_lower_readiness_summary(program, diagnostics);
     let core_verify_summary = core_verify::core_verify_readiness_summary(program, diagnostics);
+    let full_type_check_summary = full_type_check::full_type_check_summary(program, diagnostics);
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
     let context = CandidateContext {
         diagnostics,
@@ -374,6 +403,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         core_preview_summary: &core_preview_summary,
         core_lower_summary: &core_lower_summary,
         core_verify_summary: &core_verify_summary,
+        full_type_check_summary: &full_type_check_summary,
         checked_returns: &checked_returns,
     };
     let mut candidates = Vec::new();
@@ -407,6 +437,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         core_preview_summary,
         core_lower_summary,
         core_verify_summary,
+        full_type_check_summary,
         candidates,
     }
 }
@@ -437,11 +468,13 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
     let has_resolver_errors = context.resolve_summary.resolver_errors > 0;
     let has_type_errors = context.type_check_summary.type_errors > 0;
     let has_core_verify_errors = context.core_verify_summary.failed_checks > 0;
+    let has_full_type_check_errors = context.full_type_check_summary.blocking_issues > 0;
     let blocking_reasons = blocking_reasons(
         has_errors,
         has_resolver_errors,
         has_type_errors,
         has_core_verify_errors,
+        has_full_type_check_errors,
     );
     let section_names = item_sections(item)
         .iter()
@@ -463,13 +496,19 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
             "blocked_by_type_errors"
         } else if has_core_verify_errors {
             "blocked_by_core_verify_errors"
+        } else if has_full_type_check_errors {
+            "blocked_by_full_type_check_errors"
         } else {
-            "blocked_before_full_type_check"
+            "blocked_before_effect_check"
         },
         current_layer: CURRENT_LAYER,
         target_layer: TARGET_LAYER,
         facts_available: facts_available(item, context),
-        missing_passes: MISSING_IR_PASSES.to_vec(),
+        missing_passes: if has_full_type_check_errors {
+            MISSING_IR_PASSES.to_vec()
+        } else {
+            MISSING_AFTER_FULL_TYPE_PASSES.to_vec()
+        },
         blocking_reasons,
         section_names,
         body_grammar,
@@ -493,12 +532,17 @@ fn facts_available(item: &Item, context: &CandidateContext<'_>) -> Vec<&'static 
         context.core_lower_summary.status,
         "core_verify_summary_v0",
         context.core_verify_summary.status,
+        "full_type_check_summary_v0",
+        context.full_type_check_summary.status,
     ];
     if context.core_lower_summary.core_items > 0 {
         facts.push("unverified_core_artifact_rows_v0");
     }
     if context.core_verify_summary.verified_operations > 0 {
         facts.push("verified_core_artifact_rows_v0");
+    }
+    if context.full_type_check_summary.accepted_statements > 0 {
+        facts.push("recognized_body_type_facts_v0");
     }
     if has_checked_return_type_slot(item, context.checked_returns) {
         facts.push("checked_return_expression_type_slots_v0");
@@ -662,6 +706,7 @@ fn blocking_reasons(
     has_resolver_errors: bool,
     has_type_errors: bool,
     has_core_verify_errors: bool,
+    has_full_type_check_errors: bool,
 ) -> Vec<&'static str> {
     let mut reasons = Vec::new();
     if has_errors {
@@ -676,7 +721,9 @@ fn blocking_reasons(
     if has_core_verify_errors {
         reasons.push("core_verify_errors");
     }
-    reasons.push("full_type_check_not_implemented");
+    if has_full_type_check_errors {
+        reasons.push("full_type_check_errors");
+    }
     reasons.push("effect_check_not_implemented");
     reasons.push("ir_verify_not_implemented");
     reasons
@@ -1185,6 +1232,96 @@ fn push_core_verify_summary(
     out.push('}');
     push_comma_newline(out, comma);
 }
+fn push_full_type_check_summary(
+    out: &mut String,
+    summary: &full_type_check::FullTypeCheckSummary,
+    indent: usize,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    out.push_str("\"full_type_check\": {\n");
+    push_string_field(out, indent + 2, "schema", summary.schema, true);
+    push_string_field(out, indent + 2, "status", summary.status, true);
+    push_string_field(out, indent + 2, "mode", summary.mode, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "source_errors",
+        summary.source_errors,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "resolver_errors",
+        summary.resolver_errors,
+        true,
+    );
+    push_usize_field(out, indent + 2, "type_errors", summary.type_errors, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "core_verify_errors",
+        summary.core_verify_errors,
+        true,
+    );
+    push_usize_field(out, indent + 2, "items", summary.items, true);
+    push_usize_field(out, indent + 2, "body_items", summary.body_items, true);
+    push_usize_field(out, indent + 2, "statements", summary.statements, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "checked_statements",
+        summary.checked_statements,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "accepted_statements",
+        summary.accepted_statements,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "rejected_statements",
+        summary.rejected_statements,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unchecked_statements",
+        summary.unchecked_statements,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unsupported_statements",
+        summary.unsupported_statements,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "blocking_issues",
+        summary.blocking_issues,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "execution_ready",
+        summary.execution_ready,
+        true,
+    );
+    push_usize_field(out, indent + 2, "ir_ready", summary.ir_ready, false);
+    push_indent(out, indent);
+    out.push('}');
+    push_comma_newline(out, comma);
+}
 fn push_summary(out: &mut String, report: &IrReadinessReport, indent: usize, comma: bool) {
     push_indent(out, indent);
     out.push_str("\"summary\": {");
@@ -1566,6 +1703,7 @@ mod tests {
         assert!(json.contains("\"core_preview_summary_v0\""));
         assert!(json.contains("\"core_lower_summary_v0\""));
         assert!(json.contains("\"core_verify_summary_v0\""));
+        assert!(json.contains("\"full_type_check_summary_v0\""));
         assert!(json.contains("\"unverified_core_artifact_rows_v0\""));
         assert!(json.contains("\"verified_core_artifact_rows_v0\""));
         assert!(json.contains("\"checked_return_expression_type_slots_v0\""));
@@ -1578,7 +1716,7 @@ mod tests {
         assert!(json.contains("\"ready_for_ir\": 0"));
         assert!(json.contains("\"body_grammar_candidates\": 2"));
         assert!(json.contains("\"body_grammar_unsupported_lines\": 1"));
-        assert!(json.contains("\"status\": \"blocked_before_full_type_check\""));
+        assert!(json.contains("\"status\": \"blocked_by_full_type_check_errors\""));
         assert!(json.contains("\"name\": \"body_grammar\""));
         assert!(json.contains("\"name\": \"core_preview\""));
         assert!(json.contains("\"core_lower\""));
@@ -1598,7 +1736,9 @@ mod tests {
         assert!(json.contains("\"status\": \"declaration_and_trivial_return_check_available\""));
         assert!(json.contains("\"core_verify\""));
         assert!(json.contains("\"full_type_check\""));
-        assert!(json.contains("\"full_type_check_not_implemented\""));
+        assert!(json.contains("\"schema\": \"hum.full_type_check.v0\""));
+        assert!(json.contains("\"recognized_core_body_type_gate_available_v0\""));
+        assert!(json.contains("\"full_type_check_errors\""));
         assert!(json.contains("\"status\": \"report_available_not_ir_pass\""));
         assert!(json.contains("\"effect_hints\""));
         assert!(json.contains("\"contract_hints\""));
@@ -1634,7 +1774,7 @@ task pass box(item: Box) -> Box {
         assert!(json.contains("\"unknown_type_references\": 1"));
         assert!(json.contains("\"status\": \"blocked_by_type_errors\""));
         assert!(json.contains("\"type_check_errors\""));
-        assert!(json.contains("\"full_type_check_not_implemented\""));
+        assert!(json.contains("\"full_type_check_errors\""));
         assert!(json.contains("\"ready_for_ir\": 0"));
     }
     #[test]

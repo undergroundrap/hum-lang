@@ -58,8 +58,9 @@ reference, and mutable-place identity is reported by [HUM_RESOLVE_SCHEMA.md](HUM
 emitted by `hum resolve --format json`; declared type-environment facts are reported by
 [HUM_TYPE_ENV_SCHEMA.md](HUM_TYPE_ENV_SCHEMA.md), emitted by `hum type-env --format json`;
 declaration annotation and trivial return type checking is reported by [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md),
-emitted by `hum type-check --format json`; the Hum IR ownership contract is
-[HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md), emitted by `hum ir-contract --format json`;
+emitted by `hum type-check --format json`; recognized Core/body statement type checking is reported by
+[HUM_FULL_TYPE_CHECK_SCHEMA.md](HUM_FULL_TYPE_CHECK_SCHEMA.md), emitted by `hum full-type-check --format json`;
+the Hum IR ownership contract is [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md), emitted by `hum ir-contract --format json`;
 source progress toward those contracts is reported by [HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md),
 emitted by `hum ir-readiness --format json`.
 
@@ -78,12 +79,15 @@ parse/current
 -> core_preview/preview_v0
 -> core_lower/unverified_core_artifact_v0
 -> core_verify/verified_non_executing_core_artifact_v0
--> ir_readiness/blocked_before_full_type_check
+-> full_type_check/recognized_core_body_type_gate_available_v0
+-> ir_readiness/blocked_by_full_type_check_errors_or_before_effect_check
 ```
 
-`full_type_check` is the next honest compiler gate. Until it exists, Hum must
-not claim executable semantics, type safety, effect safety, memory safety, IR
-emission, backend readiness, or safety-critical readiness.
+`full_type_check` now exists as a narrow recognized Core/body statement type gate.
+Until recognized bodies pass it and later effect, ownership, profile, and IR
+verification gates exist, Hum must not claim executable semantics, type safety,
+effect safety, memory safety, IR emission, backend readiness, or safety-critical
+readiness.
 
 ### 3. Semantic Graph
 
@@ -113,7 +117,7 @@ Formal-readability doctrine: Hum should be easy to scan because its structure is
 
 State-management doctrine: Hum treats state as visible, permissioned, profile-aware, and evidence-producing. Immutable values are the paved road; mutation, ownership, borrowing, stores, linear resources, shared state, and external authority must have source-visible facts before they become stable power. The current machine-readable state contract is `hum.state_model.v0`, emitted by `hum state-model --format json`. Checked source places begin in `hum.resolve.v0`, emitted by `hum resolve --format json`. See [STATE_MODEL.md](STATE_MODEL.md) and [decisions/0010-adopt-explicit-state-model.md](decisions/0010-adopt-explicit-state-model.md).
 
-Resolution doctrine: checked scope, definition, reference, and place identity comes before execution, type checking, effect checking, ownership, borrowing, editor go-to-definition, debugger facts, and IR emission. `hum type-env` must consume resolver definition identity before type checking, `hum type-check` must consume `hum.type_env.v0` before typed-core claims, `hum core-lower` consumes checked resolver, type-check, and core-preview summaries before any Core artifact claim, `hum core-verify` consumes the core-lower artifact before any verified Core artifact claim, and `hum ir-readiness` must consume the core-verify summary before any IR claim. See [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md), [HUM_TYPE_ENV_SCHEMA.md](HUM_TYPE_ENV_SCHEMA.md), [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md), [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md), [HUM_CORE_LOWER_SCHEMA.md](HUM_CORE_LOWER_SCHEMA.md), [HUM_CORE_VERIFY_SCHEMA.md](HUM_CORE_VERIFY_SCHEMA.md), and [decisions/0011-add-checked-resolver-before-execution.md](decisions/0011-add-checked-resolver-before-execution.md).
+Resolution doctrine: checked scope, definition, reference, and place identity comes before execution, type checking, effect checking, ownership, borrowing, editor go-to-definition, debugger facts, and IR emission. `hum type-env` must consume resolver definition identity before type checking, `hum type-check` must consume `hum.type_env.v0` before typed-core claims, `hum core-lower` consumes checked resolver, type-check, and core-preview summaries before any Core artifact claim, `hum core-verify` consumes the core-lower artifact before any verified Core artifact claim, `hum full-type-check` consumes the resolver/type/core-verifier summaries before any body type claim, and `hum ir-readiness` must consume the full-type-check summary before any IR claim. See [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md), [HUM_TYPE_ENV_SCHEMA.md](HUM_TYPE_ENV_SCHEMA.md), [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md), [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md), [HUM_CORE_LOWER_SCHEMA.md](HUM_CORE_LOWER_SCHEMA.md), [HUM_CORE_VERIFY_SCHEMA.md](HUM_CORE_VERIFY_SCHEMA.md), [HUM_FULL_TYPE_CHECK_SCHEMA.md](HUM_FULL_TYPE_CHECK_SCHEMA.md), and [decisions/0011-add-checked-resolver-before-execution.md](decisions/0011-add-checked-resolver-before-execution.md).
 
 Language-builder doctrine: Hum should grow by small proofs, written lessons, graph/report/check surfaces, migration paths, and then public claims. See [LANGUAGE_BUILDER_OPERATING_MODEL.md](LANGUAGE_BUILDER_OPERATING_MODEL.md).
 

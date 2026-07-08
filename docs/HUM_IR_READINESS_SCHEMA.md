@@ -17,6 +17,7 @@ Core Hum preview report in [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.
 the Core Hum contract in [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md),
 the unverified Core Hum artifact summary in [HUM_CORE_LOWER_SCHEMA.md](HUM_CORE_LOWER_SCHEMA.md),
 the non-executing Core Hum verifier summary in [HUM_CORE_VERIFY_SCHEMA.md](HUM_CORE_VERIFY_SCHEMA.md),
+the recognized Core/body type gate in [HUM_FULL_TYPE_CHECK_SCHEMA.md](HUM_FULL_TYPE_CHECK_SCHEMA.md),
 and the Hum IR contract in [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md).
 It exists so humans, agents, and CI can see which source facts are already
 visible and which compiler passes still block honest IR/backend claims.
@@ -53,6 +54,7 @@ compiler-roadmap checks, and future IR verifier work.
   "core_preview": {},
   "core_lower": {},
   "core_verify": {},
+  "full_type_check": {},
   "summary": {},
   "pass_status": [],
   "lowering_candidates": [],
@@ -76,6 +78,7 @@ compiler-roadmap checks, and future IR verifier work.
 - `core_lower`: `hum.core_lower.v0` summary consumed as the first unverified
   source-mapped Core Hum artifact boundary, not as verification or execution
 - `core_verify`: `hum.core_verify.v0` summary consumed as the non-executing Core artifact verifier gate, not as execution, proof, safety, optimization, or IR emission
+- `full_type_check`: `hum.full_type_check.v0` summary consumed as the recognized body/Core statement type gate, not as complete type safety
 - `summary`: file, item, task, test, candidate, ready, blocked, error, warning,
   type-error, and body-grammar counts
 - `pass_status`: current status for the pass names in `hum.ir_contract.v0`
@@ -115,11 +118,7 @@ readiness:
 - `checked_type_references`, `unknown_type_references`, `checked_returns`, `accepted_returns`, `rejected_returns`, and `unchecked_returns`
 - `type_errors` and `type_warnings`
 
-A nonzero `type_errors` value blocks every V0 lowering candidate with
-`type_check_errors`. V0 type checking covers declaration annotations and trivial task returns only;
-`full_type_check` is a separate not-implemented gate for body/Core expression,
-statement, call, operator, record, block, and failure-path typing. Generic,
-trait, ownership, effect, layout, and ABI checks remain future blockers.
+A nonzero `type_errors` value blocks every V0 lowering candidate with `type_check_errors`. V0 type checking covers declaration annotations and trivial task returns only. `hum full-type-check` now consumes those facts and checks recognized body/Core statement type contexts; generic, trait, ownership, effect, layout, and ABI checks remain future blockers.
 
 ## Core Preview Summary Shape
 
@@ -171,6 +170,28 @@ This summary verifies only artifact invariants: source spans,
 operation/status/blocker consistency, and non-claim honesty. It does not execute
 code, prove memory safety, optimize, or emit Hum IR.
 
+## Full Type Check Summary Shape
+
+`full_type_check` contains the summary fields from `hum.full_type_check.v0`
+needed by IR readiness:
+
+- `schema`: currently `hum.full_type_check.v0`
+- `status`: `recognized_core_body_types_checked_v0`,
+  `blocked_by_unchecked_body_types_v0`, `full_type_errors_v0`,
+  `blocked_by_core_verify_errors`, `blocked_by_type_errors`,
+  `blocked_by_resolver_errors`, or `blocked_by_source_errors`
+- `mode`: currently `recognized_core_body_type_gate_v0`
+- `source_errors`, `resolver_errors`, `type_errors`, and `core_verify_errors`
+- `items`, `body_items`, and `statements`
+- `checked_statements`, `accepted_statements`, `rejected_statements`,
+  `unchecked_statements`, and `unsupported_statements`
+- `blocking_issues`
+- `execution_ready` and `ir_ready`, both `0` in V0
+
+This summary checks only recognized V0 body/Core statement type contexts and
+explicitly reports blockers. It does not claim complete type safety, effects,
+ownership, memory safety, optimization, execution, or IR emission.
+
 ## Candidate Shape
 
 Each `lowering_candidates` entry has:
@@ -180,7 +201,7 @@ Each `lowering_candidates` entry has:
 - `name`: source item name
 - `graph_node_id`: semantic graph node ID for the same item
 - `source_span`: file, line, and column
-- `status`: readiness status, currently blocked before full type checking when source, resolver, V0 type checks, Core lowering, and Core verification pass
+- `status`: readiness status, currently blocked by full-type-check errors when the recognized body type gate reports blockers, or before effect checking once it passes
 - `current_layer`: currently visible compiler layers
 - `target_layer`: future target layer path
 - `facts_available`: source facts already visible to tools
@@ -192,7 +213,8 @@ Each `lowering_candidates` entry has:
 
 Current candidate statuses:
 
-- `blocked_before_full_type_check`: source parsed, resolved, V0 type-checked, lowered to an unverified Core artifact, and passed non-executing Core artifact verification, but full type/effect/ownership/resource/profile and IR verification are still missing
+- `blocked_by_full_type_check_errors`: `hum.full_type_check.v0` reported type mismatches, unchecked recognized body contexts, unsupported body statements, or prior gate blockers
+- `blocked_before_effect_check`: source parsed, resolved, V0 type-checked, lowered to an unverified Core artifact, passed non-executing Core artifact verification, and passed the recognized body type gate, but effect/ownership/resource/profile and IR verification are still missing
 - `blocked_by_core_verify_errors`: `hum.core_verify.v0` reported artifact invariant failures
 - `blocked_by_source_errors`: source diagnostics include errors
 - `blocked_by_resolver_errors`: `hum.resolve.v0` reported name, duplicate, or mutable-place errors
@@ -221,6 +243,11 @@ V0 may report facts such as:
 - `verified_non_executing_core_artifact_v0`
 - `verified_core_artifact_rows_v0`
 - `unverified_core_artifact_rows_v0`
+- `full_type_check_summary_v0`
+- `recognized_core_body_type_gate_available_v0`
+- `recognized_core_body_types_checked_v0`
+- `blocked_by_unchecked_body_types_v0`
+- `recognized_body_type_facts_v0`
 - `checked_return_expression_type_slots_v0`
 - `source_sections`
 - `section_line_spans`
@@ -298,7 +325,7 @@ V0 reports these pass statuses:
 - `core_lowering`: `unverified_core_artifact_v0`
 - `core_verify`: `verified_non_executing_core_artifact_v0`
 - `type_check`: `declaration_and_trivial_return_check_available`
-- `full_type_check`: `not_implemented`
+- `full_type_check`: `recognized_core_body_type_gate_available_v0`
 - `effect_check`: `not_implemented`
 - `ownership_alias_check`: `not_implemented`
 - `allocation_resource_check`: `not_implemented`
@@ -314,13 +341,17 @@ V0 reports these pass statuses:
   or executable semantics.
 - It may report source-visible facts, checked resolver facts, declaration
   type-check facts, partial body grammar facts, conservative core-preview facts,
-  unverified core-lower summary facts, non-executing core-verify summary facts, and missing compiler passes.
+  unverified core-lower summary facts, non-executing core-verify summary facts,
+  recognized full-type-check summary facts, and missing compiler passes.
 - It must block V0 lowering candidates when `hum.resolve.v0` reports resolver
   errors.
 - It must block V0 lowering candidates when `hum.type_check.v0` reports
   declaration annotation or trivial return type errors.
+- It must block V0 lowering candidates when `hum.full_type_check.v0` reports
+  type mismatches, unchecked recognized body contexts, unsupported statements,
+  or prior gate blockers.
 - It must stay in sync with `hum.core_contract.v0`, `hum.core_lower.v0`,
-  `hum.core_verify.v0`, `hum.ir_contract.v0`, `hum capabilities --format json`, and
+  `hum.core_verify.v0`, `hum.full_type_check.v0`, `hum.ir_contract.v0`, `hum capabilities --format json`, and
   `hum version --format json`.
 
 ## Privacy And Dependency Rules

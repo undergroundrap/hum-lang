@@ -2,6 +2,7 @@ use crate::core_body;
 use crate::core_lower;
 use crate::core_preview;
 use crate::core_verify;
+use crate::full_type_check;
 use crate::ir_contract;
 use crate::json;
 use crate::version;
@@ -211,8 +212,8 @@ const ACCEPTANCE_GATES: &[AcceptanceGate] = &[
     },
     AcceptanceGate {
         id: "full_type_check",
-        status: "planned",
-        requirement: "values, places, calls, operators, records, blocks, and failure paths have explicit types",
+        status: full_type_check::FULL_TYPE_CHECK_STATUS,
+        requirement: "recognized Core/body statement types are checked or reported as explicit blockers",
     },
     AcceptanceGate {
         id: "effect_check",
@@ -469,7 +470,7 @@ mod tests {
         assert!(text.contains("core_preview [preview_v0]"));
         assert!(text.contains("core_lowering [unverified_core_artifact_v0]"));
         assert!(text.contains("type_check [declaration_and_trivial_return_check_available]"));
-        assert!(text.contains("full_type_check [planned]"));
+        assert!(text.contains("full_type_check [recognized_core_body_type_gate_available_v0]"));
         assert!(text.contains("core_verify [verified_non_executing_core_artifact_v0]"));
         assert!(text.contains("no interpreter implementation"));
     }
@@ -492,6 +493,7 @@ mod tests {
         assert!(json.contains("\"id\": \"type_check\""));
         assert!(json.contains("\"status\": \"declaration_and_trivial_return_check_available\""));
         assert!(json.contains("\"id\": \"full_type_check\""));
+        assert!(json.contains("\"status\": \"recognized_core_body_type_gate_available_v0\""));
         assert!(json.contains("\"id\": \"core_verify\""));
         assert!(json.contains("\"status\": \"verified_non_executing_core_artifact_v0\""));
         assert!(json.contains("\"status\": \"unverified_core_artifact_v0\""));

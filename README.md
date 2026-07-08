@@ -217,6 +217,8 @@ cargo run -- core-lower examples/reference_surface.hum
 cargo run -- core-lower --format json examples/reference_surface.hum
 cargo run -- core-verify examples/reference_surface.hum
 cargo run -- core-verify --format json examples/reference_surface.hum
+cargo run -- full-type-check fixtures/full_type_check/simple_pass.hum
+cargo run -- full-type-check --format json fixtures/full_type_check/simple_pass.hum
 cargo run -- ir-contract
 cargo run -- ir-contract --format json
 cargo run -- backend-contract
@@ -251,7 +253,7 @@ Current CLI:
 - `hum evidence [--format human|json] <file-or-dir>...`: emit `hum.evidence.v0` security/trust evidence status for humans, agents, and CI wrappers
 - `hum math-obligations [--format human|json] [--out-dir <dir>] <file-or-dir>...`: emit `hum.math_obligations.v0` reports and optional per-obligation `hum.math_obligation.v0` files for external contract validators
 - `hum resource-report [--format human|json] <file-or-dir>...`: emit `hum.resource_report.v0` source-declared resource, layout, and optimization claim inventory
-- `hum ir-readiness [--format human|json] <file-or-dir>...`: emit `hum.ir_readiness.v0` source readiness and blocker facts after consuming Core verification, while still blocking before Hum IR lowering
+- `hum ir-readiness [--format human|json] <file-or-dir>...`: emit `hum.ir_readiness.v0` source readiness and blocker facts after consuming full type-check readiness, while still blocking before effects, ownership, profiles, IR verification, and Hum IR lowering
 - `hum version [--format human|json]`: print toolchain identity, version, target, and schema names
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents
@@ -261,6 +263,7 @@ Current CLI:
 - `hum core-preview [--format human|json] <file-or-dir>...`: emit `hum.core_preview.v0` Core Hum candidate operations and blockers without execution
 - `hum core-lower [--format human|json] <file-or-dir>...`: emit `hum.core_lower.v0` unverified Core Hum artifact rows and blockers without execution or IR emission
 - `hum core-verify [--format human|json] <file-or-dir>...`: emit `hum.core_verify.v0` non-executing Core Hum artifact invariant checks without execution or IR emission
+- `hum full-type-check [--format human|json] <file-or-dir>...`: emit `hum.full_type_check.v0` recognized Core/body statement type facts and explicit blockers without execution or IR emission
 - `hum ir-contract [--format human|json]`: emit `hum.ir_contract.v0` Hum IR ownership, carried-fact, pass-boundary, and non-execution facts
 - `hum backend-contract [--format human|json]`: emit `hum.backend_contract.v0` backend ladder and adapter preservation facts without selecting or running a backend
 - `hum lsp --capabilities [--format human|json]`: list `hum.lsp_capabilities.v0` LSP adapter-preview facts without starting server mode

@@ -1,0 +1,34 @@
+type WorkItem {
+  title: Text
+}
+
+type WorkError {
+  code: Text
+}
+
+task remember(item: WorkItem) -> Result WorkItem, WorkError {
+  why:
+    keep a typed body small
+
+  needs:
+    item exists
+
+  ensures:
+    item is returned
+
+  fails when:
+    item is missing
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    if item is missing {
+      fail WorkError.empty_title
+    }
+
+    let checked = item
+    return checked
+}
