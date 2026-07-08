@@ -14,6 +14,7 @@ use crate::ir_readiness;
 use crate::json;
 use crate::lsp;
 use crate::math_obligations;
+use crate::ownership_check;
 use crate::resolve;
 use crate::resource_report;
 use crate::runtime_profiles;
@@ -132,6 +133,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: effect_check::EFFECT_CHECK_SCHEMA,
         status: "adapter-ready",
         purpose: "recognized Core/body effect gate with explicit blockers and no execution",
+    },
+    CommandCapability {
+        name: "ownership_check_json",
+        command: "hum ownership-check --format json <file-or-dir>...",
+        schema: ownership_check::OWNERSHIP_CHECK_SCHEMA,
+        status: "adapter-ready",
+        purpose: "recognized Core/body ownership fact gate with explicit blockers and no execution",
     },
     CommandCapability {
         name: "ir_readiness_json",
@@ -343,7 +351,7 @@ pub fn capabilities_text() -> String {
         resource_report::RESOURCE_REPORT_SCHEMA
     ));
     out.push_str(&format!(
-        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  full_type_check: {}\n  effect_check: {}\n  ir_readiness: {}\n",
+        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  full_type_check: {}\n  effect_check: {}\n  ownership_check: {}\n  ir_readiness: {}\n",
         core_preview::CORE_PREVIEW_SCHEMA,
         core_lower::CORE_LOWER_SCHEMA,
         core_verify::CORE_VERIFY_SCHEMA,
@@ -352,6 +360,7 @@ pub fn capabilities_text() -> String {
         type_check::TYPE_CHECK_SCHEMA,
         full_type_check::FULL_TYPE_CHECK_SCHEMA,
         effect_check::EFFECT_CHECK_SCHEMA,
+        ownership_check::OWNERSHIP_CHECK_SCHEMA,
         ir_readiness::IR_READINESS_SCHEMA
     ));
     out.push_str(&format!(
@@ -534,6 +543,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         indent + 2,
         "effect_check",
         effect_check::EFFECT_CHECK_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "ownership_check",
+        ownership_check::OWNERSHIP_CHECK_SCHEMA,
         true,
     );
     push_string_field(
@@ -742,6 +758,7 @@ mod tests {
         assert!(json.contains("\"type_env\": \"hum.type_env.v0\""));
         assert!(json.contains("\"type_check\": \"hum.type_check.v0\""));
         assert!(json.contains("\"effect_check\": \"hum.effect_check.v0\""));
+        assert!(json.contains("\"ownership_check\": \"hum.ownership_check.v0\""));
         assert!(json.contains("\"semantic_graph\": \"hum.semantic_graph.v0\""));
         assert!(json.contains("\"syntax_surface\": \"hum.syntax_surface.v0\""));
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
@@ -767,6 +784,7 @@ mod tests {
         assert!(json.contains("\"name\": \"math_obligations_json\""));
         assert!(json.contains("\"name\": \"resource_report_json\""));
         assert!(json.contains("\"name\": \"effect_check_json\""));
+        assert!(json.contains("\"name\": \"ownership_check_json\""));
         assert!(json.contains("\"name\": \"ir_readiness_json\""));
         assert!(json.contains("\"name\": \"core_preview_json\""));
         assert!(json.contains("\"name\": \"core_lower_json\""));

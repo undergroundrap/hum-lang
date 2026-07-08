@@ -77,6 +77,7 @@ Current `schemas` includes:
 - `type_check`: `hum.type_check.v0`
 - `full_type_check`: `hum.full_type_check.v0`
 - `effect_check`: `hum.effect_check.v0`
+- `ownership_check`: `hum.ownership_check.v0`
 - `ir_readiness`: `hum.ir_readiness.v0`
 - `core_contract`: `hum.core_contract.v0`
 - `ir_contract`: `hum.ir_contract.v0`
@@ -114,6 +115,7 @@ Current entries include:
 - `hum type-check --format json`
 - `hum full-type-check --format json`
 - `hum effect-check --format json`
+- `hum ownership-check --format json`
 - `hum ir-readiness --format json`
 - `hum core-contract --format json`
 - `hum ir-contract --format json`

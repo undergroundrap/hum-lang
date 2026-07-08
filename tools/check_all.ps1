@@ -232,6 +232,8 @@ try {
   if (-not $CoreContractJson.Contains('"status": "recognized_core_body_type_gate_available_v0"')) { throw 'Core contract JSON is missing full type-check gate status' }
   if (-not $CoreContractJson.Contains('"id": "effect_check"')) { throw 'Core contract JSON is missing effect_check gate' }
   if (-not $CoreContractJson.Contains('"status": "recognized_core_effect_gate_available_v0"')) { throw 'Core contract JSON is missing effect-check gate status' }
+  if (-not $CoreContractJson.Contains('"id": "ownership_check"')) { throw 'Core contract JSON is missing ownership_check gate' }
+  if (-not $CoreContractJson.Contains('"status": "recognized_core_ownership_gate_available_v0"')) { throw 'Core contract JSON is missing ownership-check gate status' }
   if (-not $CoreContractJson.Contains('"id": "core_verify"')) { throw 'Core contract JSON is missing core_verify gate' }
   if (-not $CoreContractJson.Contains('"status": "verified_non_executing_core_artifact_v0"')) { throw 'Core contract JSON is missing core verify gate status' }
   if (-not $CoreContractJson.Contains('"no executable semantics"')) { throw 'Core contract JSON must keep V0 non-execution claim' }
@@ -552,6 +554,7 @@ try {
   if (-not $IrReadinessJson.Contains('"core_verify_summary_v0"')) { throw 'IR readiness JSON is missing core verify summary fact' }
   if (-not $IrReadinessJson.Contains('"full_type_check_summary_v0"')) { throw 'IR readiness JSON is missing full type check summary fact' }
   if (-not $IrReadinessJson.Contains('"effect_check_summary_v0"')) { throw 'IR readiness JSON is missing effect check summary fact' }
+  if (-not $IrReadinessJson.Contains('"ownership_check_summary_v0"')) { throw 'IR readiness JSON is missing ownership check summary fact' }
   if (-not $IrReadinessJson.Contains('"unverified_core_artifact_rows_v0"')) { throw 'IR readiness JSON is missing unverified core artifact row fact' }
   if (-not $IrReadinessJson.Contains('"verified_core_artifact_rows_v0"')) { throw 'IR readiness JSON is missing verified core artifact row fact' }
   if (-not $IrReadinessJson.Contains('"checked_return_expression_type_slots_v0"')) { throw 'IR readiness JSON is missing checked return expression slot fact' }
@@ -571,6 +574,7 @@ try {
   if (-not $IrReadinessJson.Contains('"full_type_check"')) { throw 'IR readiness JSON is missing full_type_check blocker' }
   if (-not $IrReadinessJson.Contains('"full_type_check_errors"')) { throw 'IR readiness JSON is missing full type-check blocker reason' }
   if (-not $IrReadinessJson.Contains('"recognized_core_effect_gate_available_v0"')) { throw 'IR readiness JSON is missing effect-check pass availability' }
+  if (-not $IrReadinessJson.Contains('"recognized_core_ownership_gate_available_v0"')) { throw 'IR readiness JSON is missing ownership-check pass availability' }
   if (-not $IrReadinessJson.Contains('"not_implemented"')) { throw 'IR readiness JSON is missing not_implemented blockers' }
   if (-not $IrReadinessJson.Contains('"no IR emission"')) { throw 'IR readiness JSON must keep V0 non-emission claim' }
 
@@ -721,8 +725,10 @@ try {
   if (-not $IrReadinessSchemaText.Contains('hum.core_verify.v0')) { throw 'IR readiness schema doc is missing core-verify schema link' }
   if (-not $IrReadinessSchemaText.Contains('hum.full_type_check.v0')) { throw 'IR readiness schema doc is missing full type-check schema link' }
   if (-not $IrReadinessSchemaText.Contains('hum.effect_check.v0')) { throw 'IR readiness schema doc is missing effect-check schema link' }
+  if (-not $IrReadinessSchemaText.Contains('hum.ownership_check.v0')) { throw 'IR readiness schema doc is missing ownership-check schema link' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_full_type_check_errors')) { throw 'IR readiness schema doc is missing full type-check blocker' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_effect_check_errors')) { throw 'IR readiness schema doc is missing effect-check blocker' }
+  if (-not $IrReadinessSchemaText.Contains('blocked_by_ownership_check_errors')) { throw 'IR readiness schema doc is missing ownership-check blocker' }
   if (-not $IrReadinessSchemaText.Contains('unverified_core_artifact_rows_v0')) { throw 'IR readiness schema doc is missing unverified core artifact row fact' }
   if (-not $IrReadinessSchemaText.Contains('core_verify')) { throw 'IR readiness schema doc is missing core_verify pass' }
   if (-not $IrReadinessSchemaText.Contains('verified_core_artifact_rows_v0')) { throw 'IR readiness schema doc is missing verified core artifact row fact' }
@@ -739,6 +745,7 @@ try {
   if (-not $CoreContractSchemaText.Contains('full_type_check')) { throw 'Core contract schema doc is missing full type-check gate' }
   if (-not $CoreContractSchemaText.Contains('recognized_core_body_type_gate_available_v0')) { throw 'Core contract schema doc is missing full type-check gate status' }
   if (-not $CoreContractSchemaText.Contains('recognized_core_effect_gate_available_v0')) { throw 'Core contract schema doc is missing effect-check gate status' }
+  if (-not $CoreContractSchemaText.Contains('recognized_core_ownership_gate_available_v0')) { throw 'Core contract schema doc is missing ownership-check gate status' }
   $FullTypeCheckSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_FULL_TYPE_CHECK_SCHEMA.md'))
   if (-not $FullTypeCheckSchemaText.Contains('hum.full_type_check.v0')) { throw 'full type check schema doc is missing hum.full_type_check.v0' }
   if (-not $FullTypeCheckSchemaText.Contains('recognized_core_body_type_gate_v0')) { throw 'full type check schema doc is missing gate mode' }
@@ -749,6 +756,11 @@ try {
   if (-not $EffectCheckSchemaText.Contains('recognized_core_effect_gate_v0')) { throw 'effect check schema doc is missing gate mode' }
   if (-not $EffectCheckSchemaText.Contains('hum effect-check')) { throw 'effect check schema doc is missing command' }
   if (-not $EffectCheckSchemaText.Contains('no executable semantics')) { throw 'effect check schema doc must keep non-execution claim' }
+  $OwnershipCheckSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_OWNERSHIP_CHECK_SCHEMA.md'))
+  if (-not $OwnershipCheckSchemaText.Contains('hum.ownership_check.v0')) { throw 'ownership check schema doc is missing hum.ownership_check.v0' }
+  if (-not $OwnershipCheckSchemaText.Contains('recognized_core_ownership_gate_v0')) { throw 'ownership check schema doc is missing gate mode' }
+  if (-not $OwnershipCheckSchemaText.Contains('hum ownership-check')) { throw 'ownership check schema doc is missing command' }
+  if (-not $OwnershipCheckSchemaText.Contains('no executable semantics')) { throw 'ownership check schema doc must keep non-execution claim' }
   $CoreLowerSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_CORE_LOWER_SCHEMA.md'))
   if (-not $CoreLowerSchemaText.Contains('hum.core_lower.v0')) { throw 'Core lower schema doc is missing hum.core_lower.v0' }
   if (-not $CoreLowerSchemaText.Contains('unverified_core_artifact_v0')) { throw 'Core lower schema doc is missing unverified artifact status' }

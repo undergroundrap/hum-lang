@@ -20,7 +20,7 @@ not a type checker, and not an optimizer. V0 now includes a partial
 body-grammar classifier used by `hum ir-readiness` and a non-executing
 Core Hum candidate preview emitted by `hum core-preview`; `hum core-lower` now
 emits the first unverified source-mapped Core Hum artifact boundary from those
-facts; `hum core-verify` now verifies the non-executing artifact invariants without execution or IR emission; `hum full-type-check` now checks recognized Core/body statement types or reports explicit blockers without execution or IR emission; `hum effect-check` now checks recognized Core/body effects or reports explicit blockers without execution or IR emission. These recognize
+facts; `hum core-verify` now verifies the non-executing artifact invariants without execution or IR emission; `hum full-type-check` now checks recognized Core/body statement types or reports explicit blockers without execution or IR emission; `hum effect-check` now checks recognized Core/body effects or reports explicit blockers without execution or IR emission; `hum ownership-check` now checks recognized local ownership facts or reports explicit blockers without execution or IR emission. These recognize
 first statement candidates, candidate-local name previews, block previews,
 expression preview atoms, expression AST previews, operators, and blockers
 without assigning executable meaning.
@@ -118,6 +118,7 @@ V0 reports these gate statuses:
 - `type_check`: `declaration_and_trivial_return_check_available`
 - `full_type_check`: `recognized_core_body_type_gate_available_v0`
 - `effect_check`: `recognized_core_effect_gate_available_v0`
+- `ownership_check`: `recognized_core_ownership_gate_available_v0`
 - `profile_check`: `planned`
 - `core_interpreter`: `planned`
 - `core_verify`: `verified_non_executing_core_artifact_v0`
@@ -131,7 +132,7 @@ previews, expression preview atoms, expression AST previews, operators, and
 blockers from those lines for roadmap and adapter use, but it still does not
 lower, type check, execute, or verify them. `unverified_core_artifact_v0` means
 the compiler can serialize source-mapped Core Hum operation rows and blockers,
-but still cannot execute, emit Hum IR, or lower to any backend. `verified_non_executing_core_artifact_v0` means `hum core-verify` checks source spans, operation/status/blocker consistency, and non-claim honesty for those rows, but still cannot execute, prove safety, optimize, or emit IR. `recognized_core_body_type_gate_available_v0` means `hum full-type-check` checks recognized V0 statement type contexts and blocks unknown or unsupported contexts, but still cannot claim complete language type safety. `recognized_core_effect_gate_available_v0` means `hum effect-check` checks recognized V0 effect contexts and blocks missing or unchecked effect declarations, but still cannot claim complete effect safety.
+but still cannot execute, emit Hum IR, or lower to any backend. `verified_non_executing_core_artifact_v0` means `hum core-verify` checks source spans, operation/status/blocker consistency, and non-claim honesty for those rows, but still cannot execute, prove safety, optimize, or emit IR. `recognized_core_body_type_gate_available_v0` means `hum full-type-check` checks recognized V0 statement type contexts and blocks unknown or unsupported contexts, but still cannot claim complete language type safety. `recognized_core_effect_gate_available_v0` means `hum effect-check` checks recognized V0 effect contexts and blocks missing or unchecked effect declarations, but still cannot claim complete effect safety. `recognized_core_ownership_gate_available_v0` means `hum ownership-check` checks recognized V0 local ownership facts and blocks duplicate or contradictory local ownership contexts, but still cannot claim complete ownership, borrowing, alias, or memory safety.
 
 ## Honesty Rules
 
@@ -144,12 +145,13 @@ but still cannot execute, emit Hum IR, or lower to any backend. `verified_non_ex
 - `hum core-verify` verifies non-executing artifact invariants, not program behavior, proof, memory safety, optimization, Hum IR, or backend input.
 - `hum full-type-check` checks recognized V0 body/Core statement type contexts, not complete language type safety, effects, ownership, memory safety, optimization, Hum IR, or backend input.
 - `hum effect-check` checks recognized V0 body/Core effect contexts, not complete effect safety, ownership, memory safety, optimization, Hum IR, or backend input.
+- `hum ownership-check` checks recognized V0 local ownership facts, not complete ownership safety, borrowing, alias safety, memory safety, optimization, Hum IR, or backend input.
 - It must not run generated code.
 - It must not claim executable semantics.
 - It must not pretend complete body/Core type checking, complete effect checking, optimization, or backend
   lowering exists.
 - It must stay in sync with `hum core-lower --format json`,
-  `hum core-verify --format json`, `hum effect-check --format json`, `hum ir-contract --format json`, `hum ir-readiness --format json`,
+  `hum core-verify --format json`, `hum effect-check --format json`, `hum ownership-check --format json`, `hum ir-contract --format json`, `hum ir-readiness --format json`,
   `hum capabilities --format json`, and `hum version --format json`.
 
 ## Privacy And Dependency Rules
@@ -166,6 +168,6 @@ The command is local-first:
 ## Non-Goals For V0
 
 V0 does not lower Surface Hum to executable Core Hum, execute tasks, fully type-check bodies,
-fully check body effects, choose a backend, optimize programs, prove memory safety, or
+fully check body effects, fully check ownership and borrowing, choose a backend, optimize programs, prove memory safety, or
 emit artifacts. It names the boring executable core boundary future work must
 satisfy before those claims are honest.

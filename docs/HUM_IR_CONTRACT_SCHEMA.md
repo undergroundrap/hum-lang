@@ -136,7 +136,7 @@ The V0 contract names these pass boundaries:
 These names are not final implementation APIs. They are a shared map for build
 order, docs, agents, and future compiler diagnostics. In V0, `type_check` names
 the narrow `hum.type_check.v0` declaration and trivial-return checker;
-`full_type_check` names the implemented narrow `hum.full_type_check.v0` gate for recognized Core/body statement types. `effect_check` names the implemented narrow `hum.effect_check.v0` gate for recognized Core/body effect contexts. Both must pass, and later ownership, profile, IR verification, and backend-preservation gates must exist, before broader safety, IR, or backend claims can be honest.
+`full_type_check` names the implemented narrow `hum.full_type_check.v0` gate for recognized Core/body statement types. `effect_check` names the implemented narrow `hum.effect_check.v0` gate for recognized Core/body effect contexts. `ownership_alias_check` is now backed by the narrow `hum.ownership_check.v0` local ownership fact gate. All three must pass, and later resource, profile, IR verification, and backend-preservation gates must exist, before broader safety, IR, or backend claims can be honest.
 
 ## Honesty Rules
 

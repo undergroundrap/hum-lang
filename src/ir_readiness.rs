@@ -10,6 +10,7 @@ use crate::full_type_check;
 use crate::graph::is_meaningful_line_text;
 use crate::ir_contract;
 use crate::node_id;
+use crate::ownership_check;
 use crate::resolve;
 use crate::type_check;
 use crate::version;
@@ -30,6 +31,7 @@ struct IrReadinessReport {
     core_verify_summary: core_verify::CoreVerifyReadinessSummary,
     full_type_check_summary: full_type_check::FullTypeCheckSummary,
     effect_check_summary: effect_check::EffectCheckSummary,
+    ownership_check_summary: ownership_check::OwnershipCheckSummary,
     candidates: Vec<LoweringCandidate>,
 }
 
@@ -64,6 +66,7 @@ struct CandidateContext<'a> {
     core_verify_summary: &'a core_verify::CoreVerifyReadinessSummary,
     full_type_check_summary: &'a full_type_check::FullTypeCheckSummary,
     effect_check_summary: &'a effect_check::EffectCheckSummary,
+    ownership_check_summary: &'a ownership_check::OwnershipCheckSummary,
     checked_returns: &'a [type_check::CheckedReturnSummary],
 }
 
@@ -123,8 +126,8 @@ const PASS_STATUSES: &[PassStatus] = &[
     },
     PassStatus {
         name: "ownership_alias_check",
-        status: "not_implemented",
-        source: ir_contract::IR_CONTRACT_SCHEMA,
+        status: ownership_check::OWNERSHIP_CHECK_STATUS,
+        source: ownership_check::OWNERSHIP_CHECK_SCHEMA,
     },
     PassStatus {
         name: "allocation_resource_check",
@@ -171,6 +174,9 @@ const MISSING_AFTER_EFFECT_PASSES: &[&str] = &[
     "profile_check",
     "ir_verify",
 ];
+
+const MISSING_AFTER_OWNERSHIP_PASSES: &[&str] =
+    &["allocation_resource_check", "profile_check", "ir_verify"];
 
 pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
     let report = build_report(program, diagnostics);
@@ -314,6 +320,23 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.effect_check_summary.execution_ready,
         report.effect_check_summary.ir_ready
     ));
+    out.push_str(&format!(
+        "ownership_check: schema={} status={} mode={} ownership_items={} statements={} checked_statements={} accepted_statements={} rejected_statements={} unchecked_statements={} boundary_checks={} rejected_boundary_checks={} blocking_issues={} execution_ready={} ir_ready={}\n",
+        report.ownership_check_summary.schema,
+        report.ownership_check_summary.status,
+        report.ownership_check_summary.mode,
+        report.ownership_check_summary.ownership_items,
+        report.ownership_check_summary.statements,
+        report.ownership_check_summary.checked_statements,
+        report.ownership_check_summary.accepted_statements,
+        report.ownership_check_summary.rejected_statements,
+        report.ownership_check_summary.unchecked_statements,
+        report.ownership_check_summary.boundary_checks,
+        report.ownership_check_summary.rejected_boundary_checks,
+        report.ownership_check_summary.blocking_issues,
+        report.ownership_check_summary.execution_ready,
+        report.ownership_check_summary.ir_ready
+    ));
     out.push_str("pass_status:\n");
     for pass in PASS_STATUSES {
         out.push_str(&format!(
@@ -396,6 +419,7 @@ pub fn ir_readiness_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
     push_core_verify_summary(&mut out, &report.core_verify_summary, 2, true);
     push_full_type_check_summary(&mut out, &report.full_type_check_summary, 2, true);
     push_effect_check_summary(&mut out, &report.effect_check_summary, 2, true);
+    push_ownership_check_summary(&mut out, &report.ownership_check_summary, 2, true);
     push_summary(&mut out, &report, 2, true);
     push_pass_status(&mut out, 2, true);
     push_candidates(&mut out, &report.candidates, 2, true);
@@ -424,6 +448,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
     let core_verify_summary = core_verify::core_verify_readiness_summary(program, diagnostics);
     let full_type_check_summary = full_type_check::full_type_check_summary(program, diagnostics);
     let effect_check_summary = effect_check::effect_check_summary(program, diagnostics);
+    let ownership_check_summary = ownership_check::ownership_check_summary(program, diagnostics);
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
     let context = CandidateContext {
         diagnostics,
@@ -434,6 +459,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         core_verify_summary: &core_verify_summary,
         full_type_check_summary: &full_type_check_summary,
         effect_check_summary: &effect_check_summary,
+        ownership_check_summary: &ownership_check_summary,
         checked_returns: &checked_returns,
     };
     let mut candidates = Vec::new();
@@ -469,6 +495,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         core_verify_summary,
         full_type_check_summary,
         effect_check_summary,
+        ownership_check_summary,
         candidates,
     }
 }
@@ -500,13 +527,14 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
     let has_type_errors = context.type_check_summary.type_errors > 0;
     let has_core_verify_errors = context.core_verify_summary.failed_checks > 0;
     let has_full_type_check_errors = context.full_type_check_summary.blocking_issues > 0;
-    let effect_prior_blockers = context.effect_check_summary.source_errors
-        + context.effect_check_summary.resolver_errors
-        + context.effect_check_summary.type_errors
-        + context.effect_check_summary.core_verify_errors
-        + context.effect_check_summary.full_type_check_errors;
-    let has_effect_check_errors =
-        context.effect_check_summary.blocking_issues > effect_prior_blockers;
+    let has_effect_check_errors = matches!(
+        context.effect_check_summary.status,
+        "effect_errors_v0" | "blocked_by_unchecked_effects_v0"
+    );
+    let has_ownership_check_errors = matches!(
+        context.ownership_check_summary.status,
+        "ownership_errors_v0" | "blocked_by_unchecked_ownership_facts_v0"
+    );
     let blocking_reasons = blocking_reasons(
         has_errors,
         has_resolver_errors,
@@ -514,6 +542,7 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
         has_core_verify_errors,
         has_full_type_check_errors,
         has_effect_check_errors,
+        has_ownership_check_errors,
     );
     let section_names = item_sections(item)
         .iter()
@@ -539,8 +568,10 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
             "blocked_by_full_type_check_errors"
         } else if has_effect_check_errors {
             "blocked_by_effect_check_errors"
+        } else if has_ownership_check_errors {
+            "blocked_by_ownership_check_errors"
         } else {
-            "blocked_before_ownership_alias_check"
+            "blocked_before_allocation_resource_check"
         },
         current_layer: CURRENT_LAYER,
         target_layer: TARGET_LAYER,
@@ -549,8 +580,10 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
             MISSING_IR_PASSES.to_vec()
         } else if has_effect_check_errors {
             MISSING_AFTER_FULL_TYPE_PASSES.to_vec()
-        } else {
+        } else if has_ownership_check_errors {
             MISSING_AFTER_EFFECT_PASSES.to_vec()
+        } else {
+            MISSING_AFTER_OWNERSHIP_PASSES.to_vec()
         },
         blocking_reasons,
         section_names,
@@ -579,6 +612,8 @@ fn facts_available(item: &Item, context: &CandidateContext<'_>) -> Vec<&'static 
         context.full_type_check_summary.status,
         "effect_check_summary_v0",
         context.effect_check_summary.status,
+        "ownership_check_summary_v0",
+        context.ownership_check_summary.status,
     ];
     if context.core_lower_summary.core_items > 0 {
         facts.push("unverified_core_artifact_rows_v0");
@@ -591,6 +626,9 @@ fn facts_available(item: &Item, context: &CandidateContext<'_>) -> Vec<&'static 
     }
     if context.effect_check_summary.accepted_statements > 0 {
         facts.push("recognized_effect_facts_v0");
+    }
+    if context.ownership_check_summary.accepted_statements > 0 {
+        facts.push("recognized_ownership_facts_v0");
     }
     if has_checked_return_type_slot(item, context.checked_returns) {
         facts.push("checked_return_expression_type_slots_v0");
@@ -756,6 +794,7 @@ fn blocking_reasons(
     has_core_verify_errors: bool,
     has_full_type_check_errors: bool,
     has_effect_check_errors: bool,
+    has_ownership_check_errors: bool,
 ) -> Vec<&'static str> {
     let mut reasons = Vec::new();
     if has_errors {
@@ -776,7 +815,11 @@ fn blocking_reasons(
     if has_effect_check_errors {
         reasons.push("effect_check_errors");
     }
-    reasons.push("ownership_alias_check_not_implemented");
+    if has_ownership_check_errors {
+        reasons.push("ownership_check_errors");
+    }
+    reasons.push("allocation_resource_check_not_implemented");
+    reasons.push("profile_check_not_implemented");
     reasons.push("ir_verify_not_implemented");
     reasons
 }
@@ -1504,6 +1547,123 @@ fn push_effect_check_summary(
     out.push('}');
     push_comma_newline(out, comma);
 }
+fn push_ownership_check_summary(
+    out: &mut String,
+    summary: &ownership_check::OwnershipCheckSummary,
+    indent: usize,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    out.push_str("\"effect_check\": {\n");
+    push_string_field(out, indent + 2, "schema", summary.schema, true);
+    push_string_field(out, indent + 2, "status", summary.status, true);
+    push_string_field(out, indent + 2, "mode", summary.mode, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "source_errors",
+        summary.source_errors,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "resolver_errors",
+        summary.resolver_errors,
+        true,
+    );
+    push_usize_field(out, indent + 2, "type_errors", summary.type_errors, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "core_verify_errors",
+        summary.core_verify_errors,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "full_type_check_errors",
+        summary.full_type_check_errors,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "effect_check_errors",
+        summary.effect_check_errors,
+        true,
+    );
+    push_usize_field(out, indent + 2, "items", summary.items, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "ownership_items",
+        summary.ownership_items,
+        true,
+    );
+    push_usize_field(out, indent + 2, "statements", summary.statements, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "checked_statements",
+        summary.checked_statements,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "accepted_statements",
+        summary.accepted_statements,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "rejected_statements",
+        summary.rejected_statements,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unchecked_statements",
+        summary.unchecked_statements,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "boundary_checks",
+        summary.boundary_checks,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "rejected_boundary_checks",
+        summary.rejected_boundary_checks,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "blocking_issues",
+        summary.blocking_issues,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "execution_ready",
+        summary.execution_ready,
+        true,
+    );
+    push_usize_field(out, indent + 2, "ir_ready", summary.ir_ready, false);
+    push_indent(out, indent);
+    out.push('}');
+    push_comma_newline(out, comma);
+}
 fn push_pass_status(out: &mut String, indent: usize, comma: bool) {
     push_indent(out, indent);
     out.push_str("\"pass_status\": [\n");
@@ -1874,6 +2034,9 @@ mod tests {
         assert!(json.contains("\"body_grammar_candidates\": 2"));
         assert!(json.contains("\"body_grammar_unsupported_lines\": 1"));
         assert!(json.contains("\"status\": \"blocked_by_full_type_check_errors\""));
+        assert!(json.contains("\"allocation_resource_check_not_implemented\""));
+        assert!(json.contains("\"profile_check_not_implemented\""));
+        assert!(!json.contains("\"ownership_alias_check_not_implemented\""));
         assert!(json.contains("\"name\": \"body_grammar\""));
         assert!(json.contains("\"name\": \"core_preview\""));
         assert!(json.contains("\"core_lower\""));
