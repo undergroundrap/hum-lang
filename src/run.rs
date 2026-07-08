@@ -1,13 +1,22 @@
-use std::collections::BTreeMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast::{Item, Program, SectionLine, Task};
+use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::graph::is_meaningful_line_text;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunOutcome {
     Success(String),
     Failure(String),
+    ContractViolation,
     Trap(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunReport {
+    pub outcome: RunOutcome,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +34,7 @@ enum Value {
 enum Evaluated {
     Value(Value),
     Failure(Value),
+    ContractViolation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,6 +42,7 @@ enum Flow {
     Continue,
     Return(Value),
     Fail(Value),
+    ContractViolation,
 }
 
 #[derive(Debug, Clone)]
@@ -42,22 +53,39 @@ struct ExecLine {
 
 type Env = BTreeMap<String, Value>;
 
-pub fn run_program(program: &Program, entry: Option<&str>, raw_args: &[String]) -> RunOutcome {
-    let interpreter = Interpreter { program };
-    match interpreter.run(entry, raw_args) {
+pub fn run_program(program: &Program, entry: Option<&str>, raw_args: &[String]) -> RunReport {
+    let interpreter = Interpreter {
+        program,
+        diagnostics: RefCell::new(Vec::new()),
+    };
+    let outcome = match interpreter.run(entry, raw_args) {
         Ok(TaskResult::Returned(value)) => RunOutcome::Success(display_value(&value)),
         Ok(TaskResult::Failed(value)) => RunOutcome::Failure(display_value(&value)),
+        Ok(TaskResult::ContractViolation) => RunOutcome::ContractViolation,
         Err(message) => RunOutcome::Trap(message),
+    };
+    let diagnostics = interpreter.diagnostics.into_inner();
+    RunReport {
+        outcome,
+        diagnostics,
     }
 }
 
 struct Interpreter<'a> {
     program: &'a Program,
+    diagnostics: RefCell<Vec<Diagnostic>>,
 }
 
 enum TaskResult {
     Returned(Value),
     Failed(Value),
+    ContractViolation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContractKind {
+    Needs,
+    Ensures,
 }
 
 impl<'a> Interpreter<'a> {
@@ -115,15 +143,100 @@ impl<'a> Interpreter<'a> {
             env.insert(param.name.clone(), value);
         }
 
+        if !self.evaluate_contract_section(task, "needs", ContractKind::Needs, &mut env)? {
+            return Ok(TaskResult::ContractViolation);
+        }
+
         let Some(does) = task.section("does") else {
             return Err(format!("task `{}` has no `does:` section", task.name));
         };
         let lines = executable_lines(&does.lines);
         match self.eval_block(&lines, 0, lines.len(), &mut env)? {
-            Flow::Return(value) => Ok(TaskResult::Returned(value)),
+            Flow::Return(value) => self.finish_success(task, value, &env),
             Flow::Fail(value) => Ok(TaskResult::Failed(value)),
-            Flow::Continue => Ok(TaskResult::Returned(Value::Unit)),
+            Flow::Continue => self.finish_success(task, Value::Unit, &env),
+            Flow::ContractViolation => Ok(TaskResult::ContractViolation),
         }
+    }
+
+    fn finish_success(&self, task: &Task, value: Value, env: &Env) -> Result<TaskResult, String> {
+        let mut exit_env = env.clone();
+        exit_env.insert("result".to_string(), value.clone());
+        if !self.evaluate_contract_section(task, "ensures", ContractKind::Ensures, &mut exit_env)? {
+            return Ok(TaskResult::ContractViolation);
+        }
+        Ok(TaskResult::Returned(value))
+    }
+
+    fn evaluate_contract_section(
+        &self,
+        task: &Task,
+        section_name: &str,
+        kind: ContractKind,
+        env: &mut Env,
+    ) -> Result<bool, String> {
+        let Some(section) = task.section(section_name) else {
+            return Ok(true);
+        };
+
+        let allowed_names = contract_allowed_names(task, kind);
+        for line in &section.lines {
+            let text = line.text.trim();
+            if !is_meaningful_line_text(text) {
+                continue;
+            }
+
+            if !validate_predicate_v0(text, &allowed_names) {
+                self.diagnostics.borrow_mut().push(
+                    Diagnostic::warning(
+                        DiagnosticCode::UNCHECKED_PROSE_CONTRACT,
+                        format!("unchecked prose {} contract: {text}", kind.section_name()),
+                        Some(line.span.clone()),
+                    )
+                    .with_help(
+                        "Predicate v0 checks one comparison such as `result == a + b`; prose remains visible but unchecked.",
+                    ),
+                );
+                continue;
+            }
+
+            let value = match self.eval_expr(text, env)? {
+                Evaluated::Value(value) => value,
+                Evaluated::Failure(value) => {
+                    return Err(format!(
+                        "contract predicate `{text}` produced failure {}",
+                        display_value(&value)
+                    ));
+                }
+                Evaluated::ContractViolation => return Ok(false),
+            };
+            if as_bool(&value)? {
+                continue;
+            }
+
+            let (code, message, help) = match kind {
+                ContractKind::Needs => (
+                    DiagnosticCode::NEEDS_CONTRACT_VIOLATION,
+                    format!("caller did not satisfy needs: {text}"),
+                    format!(
+                        "The caller must pass arguments that make this predicate true before task `{}` runs.",
+                        task.name
+                    ),
+                ),
+                ContractKind::Ensures => (
+                    DiagnosticCode::ENSURES_CONTRACT_VIOLATION,
+                    format!("task `{}` did not satisfy ensures: {text}", task.name),
+                    "Fix the task body or change the contract; task blame means the caller met entry conditions but the implementation broke its promise."
+                        .to_string(),
+                ),
+            };
+            self.diagnostics
+                .borrow_mut()
+                .push(Diagnostic::error(code, message, Some(line.span.clone())).with_help(help));
+            return Ok(false);
+        }
+
+        Ok(true)
     }
 
     fn eval_block(
@@ -153,6 +266,7 @@ impl<'a> Interpreter<'a> {
                     }
                     Evaluated::Value(_) => {}
                     Evaluated::Failure(value) => return Ok(Flow::Fail(value)),
+                    Evaluated::ContractViolation => return Ok(Flow::ContractViolation),
                 }
                 index = close + 1;
                 continue;
@@ -166,6 +280,7 @@ impl<'a> Interpreter<'a> {
                 let collection = match self.eval_expr(collection_expr.trim(), env)? {
                     Evaluated::Value(value) => value,
                     Evaluated::Failure(value) => return Ok(Flow::Fail(value)),
+                    Evaluated::ContractViolation => return Ok(Flow::ContractViolation),
                 };
                 let Value::List(values) = collection else {
                     return Err(format!(
@@ -193,12 +308,14 @@ impl<'a> Interpreter<'a> {
                 return match self.eval_expr(expr, env)? {
                     Evaluated::Value(value) => Ok(Flow::Return(value)),
                     Evaluated::Failure(value) => Ok(Flow::Fail(value)),
+                    Evaluated::ContractViolation => Ok(Flow::ContractViolation),
                 };
             }
 
             if let Some(expr) = strip_keyword(text, "fail") {
                 return match self.eval_expr(expr, env)? {
                     Evaluated::Value(value) | Evaluated::Failure(value) => Ok(Flow::Fail(value)),
+                    Evaluated::ContractViolation => Ok(Flow::ContractViolation),
                 };
             }
 
@@ -248,6 +365,7 @@ impl<'a> Interpreter<'a> {
                 Ok(None)
             }
             Evaluated::Failure(value) => Ok(Some(Flow::Fail(value))),
+            Evaluated::ContractViolation => Ok(Some(Flow::ContractViolation)),
         }
     }
 
@@ -265,6 +383,7 @@ impl<'a> Interpreter<'a> {
                 Ok(None)
             }
             Evaluated::Failure(value) => Ok(Some(Flow::Fail(value))),
+            Evaluated::ContractViolation => Ok(Some(Flow::ContractViolation)),
         }
     }
 
@@ -278,6 +397,7 @@ impl<'a> Interpreter<'a> {
             let left = match self.eval_expr(left, env)? {
                 Evaluated::Value(value) => value,
                 Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+                Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
             };
             if as_bool(&left)? {
                 return Ok(Evaluated::Value(Value::Bool(true)));
@@ -285,6 +405,7 @@ impl<'a> Interpreter<'a> {
             let right = match self.eval_expr(right, env)? {
                 Evaluated::Value(value) => value,
                 Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+                Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
             };
             return Ok(Evaluated::Value(Value::Bool(as_bool(&right)?)));
         }
@@ -293,6 +414,7 @@ impl<'a> Interpreter<'a> {
             let left = match self.eval_expr(left, env)? {
                 Evaluated::Value(value) => value,
                 Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+                Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
             };
             if !as_bool(&left)? {
                 return Ok(Evaluated::Value(Value::Bool(false)));
@@ -300,6 +422,7 @@ impl<'a> Interpreter<'a> {
             let right = match self.eval_expr(right, env)? {
                 Evaluated::Value(value) => value,
                 Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+                Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
             };
             return Ok(Evaluated::Value(Value::Bool(as_bool(&right)?)));
         }
@@ -332,10 +455,12 @@ impl<'a> Interpreter<'a> {
         let left = match self.eval_expr(left, env)? {
             Evaluated::Value(value) => value,
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
         };
         let right = match self.eval_expr(right, env)? {
             Evaluated::Value(value) => value,
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
         };
         let value = match op {
             "==" => left == right,
@@ -360,10 +485,12 @@ impl<'a> Interpreter<'a> {
         let left = match self.eval_expr(left, env)? {
             Evaluated::Value(value) => as_int(&value)?,
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
         };
         let right = match self.eval_expr(right, env)? {
             Evaluated::Value(value) => as_int(&value)?,
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
         };
         let value = match op {
             "+" => left
@@ -409,6 +536,7 @@ impl<'a> Interpreter<'a> {
                 match self.eval_expr(item, env)? {
                     Evaluated::Value(value) => values.push(value),
                     Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+                    Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
                 }
             }
             return Ok(Evaluated::Value(Value::List(values)));
@@ -419,6 +547,7 @@ impl<'a> Interpreter<'a> {
                 match self.eval_expr(arg, env)? {
                     Evaluated::Value(value) => values.push(value),
                     Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+                    Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
                 }
             }
             let Some(task) = self.find_task(callee.trim()) else {
@@ -427,6 +556,7 @@ impl<'a> Interpreter<'a> {
             return match self.execute_task(task, values)? {
                 TaskResult::Returned(value) => Ok(Evaluated::Value(value)),
                 TaskResult::Failed(value) => Ok(Evaluated::Failure(value)),
+                TaskResult::ContractViolation => Ok(Evaluated::ContractViolation),
             };
         }
         if let Some(value) = env.get(text) {
@@ -453,6 +583,63 @@ impl<'a> Interpreter<'a> {
         }
         Err(format!("unknown expression `{text}`"))
     }
+}
+
+impl ContractKind {
+    fn section_name(self) -> &'static str {
+        match self {
+            ContractKind::Needs => "needs",
+            ContractKind::Ensures => "ensures",
+        }
+    }
+}
+
+fn contract_allowed_names(task: &Task, kind: ContractKind) -> BTreeSet<String> {
+    let mut names = task
+        .params
+        .iter()
+        .map(|param| param.name.clone())
+        .collect::<BTreeSet<_>>();
+    if kind == ContractKind::Ensures {
+        names.insert("result".to_string());
+    }
+    names
+}
+
+fn validate_predicate_v0(text: &str, allowed_names: &BTreeSet<String>) -> bool {
+    let text = trim_outer_parens(text.trim());
+    let Some((left, _op, right)) =
+        split_top_level_operator(text, &["==", "!=", "<=", ">=", "<", ">"])
+    else {
+        return false;
+    };
+
+    split_top_level_operator(left, &["==", "!=", "<=", ">=", "<", ">"]).is_none()
+        && split_top_level_operator(right, &["==", "!=", "<=", ">=", "<", ">"]).is_none()
+        && validate_contract_operand(left, allowed_names)
+        && validate_contract_operand(right, allowed_names)
+}
+
+fn validate_contract_operand(text: &str, allowed_names: &BTreeSet<String>) -> bool {
+    let text = trim_outer_parens(text.trim());
+    if text.is_empty()
+        || split_word_operator(text, "and").is_some()
+        || split_word_operator(text, "or").is_some()
+    {
+        return false;
+    }
+    if let Some((left, _op, right)) = split_top_level_operator(text, &["+", "-"]) {
+        return validate_contract_operand(left, allowed_names)
+            && validate_contract_operand(right, allowed_names);
+    }
+    if let Some((left, _op, right)) = split_top_level_operator(text, &["*", "/"]) {
+        return validate_contract_operand(left, allowed_names)
+            && validate_contract_operand(right, allowed_names);
+    }
+    text == "true"
+        || text == "false"
+        || parse_int_literal(text).is_ok()
+        || allowed_names.contains(text)
 }
 
 fn executable_lines(lines: &[SectionLine]) -> Vec<ExecLine> {
@@ -841,7 +1028,7 @@ fn outer_parens_wrap(text: &str) -> bool {
 mod tests {
     use crate::ast::Program;
     use crate::check;
-    use crate::diagnostic::Severity;
+    use crate::diagnostic::{DiagnosticCode, Severity};
     use crate::parser;
 
     use super::{RunOutcome, run_program};
@@ -852,39 +1039,129 @@ mod tests {
             "examples/core/add.hum",
             include_str!("../examples/core/add.hum"),
         );
-        let outcome = run_program(&program, Some("add"), &["2".to_string(), "3".to_string()]);
-        assert_eq!(outcome, RunOutcome::Success("5".to_string()));
+        let report = run_program(&program, Some("add"), &["2".to_string(), "3".to_string()]);
+        assert_eq!(report.outcome, RunOutcome::Success("5".to_string()));
+        assert!(
+            report.diagnostics.is_empty(),
+            "diagnostics: {:#?}",
+            report.diagnostics
+        );
     }
 
     #[test]
-    fn divide_zero_returns_typed_failure() {
+    fn divide_zero_fails_needs_with_caller_blame() {
         let program = fixture_program(
             "examples/core/divide.hum",
             include_str!("../examples/core/divide.hum"),
         );
-        let outcome = run_program(
+        let report = run_program(
             &program,
             Some("divide"),
             &["10".to_string(), "0".to_string()],
         );
+        assert_eq!(report.outcome, RunOutcome::ContractViolation);
         assert_eq!(
-            outcome,
-            RunOutcome::Failure("MathError.divide_by_zero".to_string())
+            report.diagnostics.len(),
+            1,
+            "diagnostics: {:#?}",
+            report.diagnostics
+        );
+        let diagnostic = &report.diagnostics[0];
+        assert_eq!(diagnostic.code, DiagnosticCode::NEEDS_CONTRACT_VIOLATION);
+        assert_eq!(diagnostic.severity, Severity::Error);
+        let rendered = diagnostic.render();
+        assert!(
+            rendered.contains("examples/core/divide.hum:12:"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("caller did not satisfy needs: b != 0"),
+            "{rendered}"
         );
     }
 
     #[test]
-    fn count_completed_counts_done_records() {
+    fn unchecked_task_can_return_typed_failure() {
+        let source = r#"module tests.typed_failure
+
+type MathError {
+  code: Text
+}
+
+task fail_now() -> Result Int, MathError {
+  does:
+    fail MathError.divide_by_zero
+}
+"#;
+        let program = fixture_program("typed_failure.hum", source);
+        let report = run_program(&program, Some("fail_now"), &[]);
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Failure("MathError.divide_by_zero".to_string())
+        );
+        assert!(
+            report.diagnostics.is_empty(),
+            "diagnostics: {:#?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn count_completed_counts_done_records_with_prose_warning() {
         let program = fixture_program(
             "examples/core/count_completed.hum",
             include_str!("../examples/core/count_completed.hum"),
         );
-        let outcome = run_program(
+        let report = run_program(
             &program,
             Some("count_completed"),
             &["[{done:true},{done:false},{done:true}]".to_string()],
         );
-        assert_eq!(outcome, RunOutcome::Success("2".to_string()));
+        assert_eq!(report.outcome, RunOutcome::Success("2".to_string()));
+        assert_eq!(
+            report.diagnostics.len(),
+            1,
+            "diagnostics: {:#?}",
+            report.diagnostics
+        );
+        let diagnostic = &report.diagnostics[0];
+        assert_eq!(diagnostic.code, DiagnosticCode::UNCHECKED_PROSE_CONTRACT);
+        assert_eq!(diagnostic.severity, Severity::Warning);
+        let rendered = diagnostic.render();
+        assert!(
+            rendered.contains(
+                "unchecked prose ensures contract: result is at most the number of items"
+            ),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn wrong_add_fixture_fails_ensures_with_task_blame() {
+        let program = fixture_program(
+            "fixtures/run/wrong_add_contract.hum",
+            include_str!("../fixtures/run/wrong_add_contract.hum"),
+        );
+        let report = run_program(&program, Some("add"), &["2".to_string(), "3".to_string()]);
+        assert_eq!(report.outcome, RunOutcome::ContractViolation);
+        assert_eq!(
+            report.diagnostics.len(),
+            1,
+            "diagnostics: {:#?}",
+            report.diagnostics
+        );
+        let diagnostic = &report.diagnostics[0];
+        assert_eq!(diagnostic.code, DiagnosticCode::ENSURES_CONTRACT_VIOLATION);
+        assert_eq!(diagnostic.severity, Severity::Error);
+        let rendered = diagnostic.render();
+        assert!(
+            rendered.contains("fixtures/run/wrong_add_contract.hum:8:"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("task `add` did not satisfy ensures: result == a + b"),
+            "{rendered}"
+        );
     }
 
     #[test]
@@ -902,8 +1179,13 @@ task add_one(value: Int) -> Int {
 }
 "#;
         let program = fixture_program("calls.hum", source);
-        let outcome = run_program(&program, Some("add_one"), &["4".to_string()]);
-        assert_eq!(outcome, RunOutcome::Success("5".to_string()));
+        let report = run_program(&program, Some("add_one"), &["4".to_string()]);
+        assert_eq!(report.outcome, RunOutcome::Success("5".to_string()));
+        assert!(
+            report.diagnostics.is_empty(),
+            "diagnostics: {:#?}",
+            report.diagnostics
+        );
     }
 
     #[test]
@@ -916,10 +1198,15 @@ task overflow(value: Int) -> Int {
 }
 "#;
         let program = fixture_program("overflow.hum", source);
-        let outcome = run_program(&program, Some("overflow"), &[i64::MAX.to_string()]);
+        let report = run_program(&program, Some("overflow"), &[i64::MAX.to_string()]);
         assert_eq!(
-            outcome,
+            report.outcome,
             RunOutcome::Trap("integer overflow while evaluating `value + 1`".to_string())
+        );
+        assert!(
+            report.diagnostics.is_empty(),
+            "diagnostics: {:#?}",
+            report.diagnostics
         );
     }
 
@@ -933,14 +1220,19 @@ task unchecked_divide(a: Int, b: Int) -> Int {
 }
 "#;
         let program = fixture_program("divide_trap.hum", source);
-        let outcome = run_program(
+        let report = run_program(
             &program,
             Some("unchecked_divide"),
             &["10".to_string(), "0".to_string()],
         );
         assert_eq!(
-            outcome,
+            report.outcome,
             RunOutcome::Trap("division by zero while evaluating `a / b`".to_string())
+        );
+        assert!(
+            report.diagnostics.is_empty(),
+            "diagnostics: {:#?}",
+            report.diagnostics
         );
     }
 

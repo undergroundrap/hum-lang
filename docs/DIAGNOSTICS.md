@@ -152,15 +152,16 @@ Current ranges:
 - `H040x`: security and trust boundaries
 - `H050x`: tests and regression obligations
 - `H060x`: checked resolution and type checking
+- `H070x`: executable contract diagnostics
 - `H120x`: backend, target, and debug metadata
 
 Future ranges should be reserved before broad use:
 
-- `H070x`: ownership and borrowing
-- `H080x`: packages, capabilities, and Nectar
-- `H090x`: unsafe, FFI, ABI, and provenance
-- `H100x`: runtime profile and certification policy violations
-- `H110x`: concurrency and memory ordering
+- `H080x`: ownership and borrowing
+- `H090x`: packages, capabilities, and Nectar
+- `H100x`: unsafe, FFI, ABI, and provenance
+- `H110x`: runtime profile and certification policy violations
+- `H130x`: concurrency and memory ordering
 
 ## Current Codes
 
@@ -234,6 +235,14 @@ Future ranges should be reserved before broad use:
 | `H0604` | error | read before declaration | A name is read before its later local declaration. |
 | `H0605` | error | unknown type name | A declaration annotation names a type that is not declared or reserved. |
 | `H0606` | error | return type mismatch | A trivially typed `return` expression does not match the task result type. |
+
+### Executable Contracts
+
+| Code | Severity | Title | Meaning |
+|---|---|---|---|
+| `H0701` | warning | unchecked prose contract | `hum run` kept a prose `needs:` or `ensures:` line visible but unchecked. |
+| `H0702` | error | needs contract violation | A runtime `needs:` predicate was false; blame belongs to the caller. |
+| `H0703` | error | ensures contract violation | A runtime `ensures:` predicate was false after success; blame belongs to the task. |
 
 ### Target And Backend Metadata
 

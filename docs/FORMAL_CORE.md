@@ -280,8 +280,9 @@ protects: safety/security obligation
 trusts:   explicit unchecked assumption
 ```
 
-Milestone 1 can check only a small part of this. The graph should still preserve
-the obligations so future tools do not have to rediscover them.
+Milestone 1 can check only a small part of this. Current executable predicate v0 applies to `needs:` and `ensures:` only: one canonical comparison over task parameters, integer/bool literals, arithmetic operands, and `result` in `ensures:`. Lines outside that grammar remain graph-visible prose and produce an unchecked-contract warning under `hum run`; they are not errors and they are not silently treated as proof.
+
+The graph should still preserve the obligations so future tools do not have to rediscover them.
 
 ## Effects
 
@@ -451,7 +452,7 @@ The first executable Hum should run only this:
 ```text
 task add(a: Int, b: Int) -> Int {
   ensures:
-    result equals a + b
+    result == a + b
 
   does:
     return a + b
@@ -463,7 +464,7 @@ Then:
 ```text
 task divide(a: Int, b: Int) -> Result Int, MathError {
   needs:
-    b is not zero
+    b != 0
 
   fails when:
     b is zero

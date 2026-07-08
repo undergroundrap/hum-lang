@@ -213,21 +213,24 @@ fn run() -> Result<ExitCode, String> {
                 return Ok(ExitCode::from(1));
             }
 
-            let code =
-                match run::run_program(&program, options.run_entry.as_deref(), &options.run_args) {
-                    run::RunOutcome::Success(output) => {
-                        println!("{output}");
-                        ExitCode::SUCCESS
-                    }
-                    run::RunOutcome::Failure(output) => {
-                        println!("{output}");
-                        ExitCode::from(1)
-                    }
-                    run::RunOutcome::Trap(message) => {
-                        eprintln!("runtime trap: {message}");
-                        ExitCode::from(2)
-                    }
-                };
+            let report =
+                run::run_program(&program, options.run_entry.as_deref(), &options.run_args);
+            print_diagnostics(&report.diagnostics);
+            let code = match report.outcome {
+                run::RunOutcome::Success(output) => {
+                    println!("{output}");
+                    ExitCode::SUCCESS
+                }
+                run::RunOutcome::Failure(output) => {
+                    println!("{output}");
+                    ExitCode::from(1)
+                }
+                run::RunOutcome::ContractViolation => ExitCode::from(1),
+                run::RunOutcome::Trap(message) => {
+                    eprintln!("runtime trap: {message}");
+                    ExitCode::from(2)
+                }
+            };
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }

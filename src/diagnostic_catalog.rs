@@ -229,6 +229,24 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Return the expected value type, change the task result annotation, or keep complex expressions unchecked until full expression typing exists.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::UNCHECKED_PROSE_CONTRACT,
+        default_severity: Severity::Warning,
+        explanation: "`hum run` saw a `needs:` or `ensures:` line that is honest prose rather than a predicate v0 expression, so it remains visible but unchecked.",
+        repair: "Use one canonical comparison such as `b != 0` or `result == a + b` when the contract is meant to execute now; keep prose when it is intentionally unchecked.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::NEEDS_CONTRACT_VIOLATION,
+        default_severity: Severity::Error,
+        explanation: "A runtime `needs:` predicate evaluated to false at task entry, so the caller or calling context broke the precondition.",
+        repair: "Change the call arguments or add a caller-side guard before invoking the task.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::ENSURES_CONTRACT_VIOLATION,
+        default_severity: Severity::Error,
+        explanation: "A runtime `ensures:` predicate evaluated to false after a successful return, so the task implementation broke its own success promise.",
+        repair: "Fix the task body or adjust the contract to match the intended result.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
         default_severity: Severity::Error,
         explanation: "A `targets:` section names a target fact record that Hum does not publish in `hum target-facts`.",
@@ -301,6 +319,14 @@ mod tests {
         assert_eq!(
             find("H0606").map(|info| info.code),
             Some(DiagnosticCode::RETURN_TYPE_MISMATCH)
+        );
+        assert_eq!(
+            find("H0701").map(|info| info.code),
+            Some(DiagnosticCode::UNCHECKED_PROSE_CONTRACT)
+        );
+        assert_eq!(
+            find("H0703").map(|info| info.code),
+            Some(DiagnosticCode::ENSURES_CONTRACT_VIOLATION)
         );
         assert_eq!(
             find("H1201").map(|info| info.code),

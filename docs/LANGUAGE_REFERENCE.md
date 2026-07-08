@@ -296,8 +296,8 @@ Common task sections:
 | `targets:` | current | target fact records and capability-family declarations |
 | `uses:` | current | read dependencies and capabilities |
 | `changes:` | current | mutation/write permissions |
-| `needs:` | current | preconditions and generated test obligations |
-| `ensures:` | current | postconditions and generated test obligations |
+| `needs:` | current | preconditions, predicate v0 runtime entry checks, and generated test obligations |
+| `ensures:` | current | postconditions, predicate v0 runtime exit checks, and generated test obligations |
 | `protects:` | current | safety/security promises and evidence obligations |
 | `trusts:` | current | trust assumptions and evidence obligations |
 | `fails when:` | current | explicit failure modes |
@@ -456,10 +456,9 @@ Contract sections assign responsibility:
 - `cost:`: implementation claims must be checkable or explicitly deferred
 - `protects:` and `trusts:`: security boundaries must be named
 
-Full blame semantics are still design work, but the reference rule is simple:
-important claims belong in checked sections, not comments. A checked section line
-should be specific enough that a future verifier, test, or reviewer could notice
-when an implementation breaks it.
+Current executable blame semantics are deliberately small and explicit: parseable predicate v0 `needs:` lines run at task entry and blame the caller when false; parseable predicate v0 `ensures:` lines run after successful return and blame the task when false. Predicate v0 is one canonical operator comparison such as `b != 0` or `result == a + b`, with task parameters available in both sections and `result` available only in `ensures:`. Prose lines remain visible intent and produce an unchecked-contract warning under `hum run`, not an error.
+
+The broader reference rule is simple: important claims belong in checked sections, not comments. A checked section line should be specific enough that a future verifier, test, or reviewer could notice when an implementation breaks it.
 
 ## Test Obligations And Coverage
 
@@ -507,7 +506,7 @@ notes, review packets, sanitizer runs, and profile evidence.
 
 The `does:` block is executable only for the explicitly interpreted Milestone 1 subset, and remains future surface beyond that subset.
 
-Milestone 1 begins with `hum run <file> [--entry <task>] [--args ...]` over checked source for `examples/core/add.hum`, `examples/core/divide.hum`, and `examples/core/count_completed.hum`. The current tree-walking interpreter covers the forms those programs require: Int/Bool literals, arithmetic, comparisons, `let`, `change`, `set`, `if`, `for each`, `return`, `fail`, task calls, typed failure values, and the simple list/record values needed by `count_completed`. Integer overflow and division by zero trap instead of wrapping. Runtime `needs:` and `ensures:` enforcement is not part of this slice; it belongs to the next executable-contract work.
+Milestone 1 begins with `hum run <file> [--entry <task>] [--args ...]` over checked source for `examples/core/add.hum`, `examples/core/divide.hum`, and `examples/core/count_completed.hum`. The current tree-walking interpreter covers the forms those programs require: Int/Bool literals, arithmetic, comparisons, `let`, `change`, `set`, `if`, `for each`, `return`, `fail`, task calls, typed failure values, predicate v0 `needs:`/`ensures:` checks, and the simple list/record values needed by `count_completed`. Integer overflow and division by zero trap instead of wrapping; executable contract violations exit as runtime failures with caller/task blame diagnostics.
 
 The report gates remain non-executing. `hum core-preview` maps recognized lines into Core Hum candidate operations and explicit blockers without executing, type-checking, effect-checking, or emitting IR. `hum resolve` performs the first checked pass over scopes, definitions, references, and mutable-place targets. `hum type-env` records declared type names and annotations with resolver identity. `hum type-check` validates declaration annotation names without expression inference or body checking. `hum full-type-check`, `hum effect-check`, `hum ownership-check`, and `hum resource-check` report recognized facts and blockers without execution or IR emission. `hum ir-readiness` consumes the checked resolver, type, Core verifier, full-type-check, effect-check, ownership-check, and resource-check summaries before any future lowering claim. New executable syntax must still become checkable, lower into [FORMAL_CORE.md](FORMAL_CORE.md), and preserve the non-claims of the report surfaces before it becomes stable.
 

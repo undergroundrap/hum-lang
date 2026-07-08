@@ -65,10 +65,17 @@ function Read-NativeOutputWithExit {
   )
 
   Write-Host "==> $Label"
-  $Output = & $FilePath @Arguments
+  $PreviousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $Output = & $FilePath @Arguments 2>&1
+    $ExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $PreviousErrorActionPreference
+  }
   return [pscustomobject] @{
     Output = ($Output -join "`n")
-    ExitCode = $LASTEXITCODE
+    ExitCode = $ExitCode
   }
 }
 
@@ -237,6 +244,9 @@ try {
   if (-not $DiagnosticsJson.Contains('"code": "H0604"')) { throw 'diagnostic catalog JSON is missing H0604' }
   if (-not $DiagnosticsJson.Contains('"code": "H0605"')) { throw 'diagnostic catalog JSON is missing H0605' }
   if (-not $DiagnosticsJson.Contains('"code": "H0606"')) { throw 'diagnostic catalog JSON is missing H0606' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0701"')) { throw 'diagnostic catalog JSON is missing H0701' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0702"')) { throw 'diagnostic catalog JSON is missing H0702' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0703"')) { throw 'diagnostic catalog JSON is missing H0703' }
   if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
   if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
   if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
@@ -422,12 +432,17 @@ try {
   $RunAdd = Read-NativeOutput 'run core add' $Hum @('run', 'examples/core/add.hum', '--entry', 'add', '--args', '2', '3')
   if ($RunAdd.Trim() -ne '5') { throw "hum run add expected 5, got `$RunAdd" }
 
-  $RunDivideZero = Read-NativeOutputWithExit 'run core divide typed failure' $Hum @('run', 'examples/core/divide.hum', '--entry', 'divide', '--args', '10', '0')
+  $RunDivideZero = Read-NativeOutputWithExit 'run core divide needs violation' $Hum @('run', 'examples/core/divide.hum', '--entry', 'divide', '--args', '10', '0')
   if ($RunDivideZero.ExitCode -ne 1) { throw "hum run divide zero expected exit 1, got $($RunDivideZero.ExitCode)" }
-  if ($RunDivideZero.Output.Trim() -ne 'MathError.divide_by_zero') { throw "hum run divide zero expected MathError.divide_by_zero, got $($RunDivideZero.Output)" }
+  if (-not $RunDivideZero.Output.Contains('caller did not satisfy needs: b != 0')) { throw "hum run divide zero expected caller needs blame, got $($RunDivideZero.Output)" }
+  if (-not $RunDivideZero.Output.Contains('examples/core/divide.hum:12:')) { throw "hum run divide zero expected source span for needs predicate, got $($RunDivideZero.Output)" }
 
   $RunCountCompleted = Read-NativeOutput 'run core count_completed' $Hum @('run', 'examples/core/count_completed.hum', '--entry', 'count_completed', '--args', '[{done:true},{done:false},{done:true}]')
   if ($RunCountCompleted.Trim() -ne '2') { throw "hum run count_completed expected 2, got `$RunCountCompleted" }
+
+  $RunWrongAdd = Read-NativeOutputWithExit 'run wrong add contract violation' $Hum @('run', 'fixtures/run/wrong_add_contract.hum', '--entry', 'add', '--args', '2', '3')
+  if ($RunWrongAdd.ExitCode -ne 1) { throw "hum run wrong add expected exit 1, got $($RunWrongAdd.ExitCode)" }
+  if (-not $RunWrongAdd.Output.Contains('task `add` did not satisfy ensures: result == a + b')) { throw "hum run wrong add expected task ensures blame, got $($RunWrongAdd.Output)" }
 
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson

@@ -6,7 +6,7 @@ type MathError {
 
 task divide(a: Int, b: Int) -> Result Int, MathError {
   why:
-    prove typed failure and a firing precondition end to end
+    prove caller precondition blame and a successful quotient end to end
 
   needs:
     b != 0
@@ -30,16 +30,15 @@ task divide(a: Int, b: Int) -> Result Int, MathError {
     return a / b
 }
 
-test divide rejects zero divisor unit {
+test divide rejects caller zero divisor unit {
   why:
-    pin the typed failure path for the interpreter
+    pin the caller-blame path for executable needs contracts
 
   covers:
     divide needs b != 0
-    divide fails when b is zero
 
   does:
-    expect divide(10, 0) fails with MathError.divide_by_zero
+    expect divide(10, 0) violates needs b != 0
 }
 
 test divide returns quotient unit {
