@@ -12,10 +12,12 @@ before proposing new work.
    that fires on a real mistake, or a decision record that kills alternatives.
    A session that ends with only new prose, a new schema, or a new report
    surface is a failed session.
-2. Moratorium: until `hum run` executes the three FORMAL_CORE.md programs, do
-   not add new `docs/*.md` files, new `hum.*.v0` schemas, new CLI report
-   subcommands, or new pipeline gates. Editing existing docs to stay honest is
-   allowed and required. `hum run` itself is the sanctioned new subcommand.
+2. Doc discipline: the original moratorium expired when `hum run` shipped
+   (2026-07-08). The durable rule: new `docs/*.md` files, `hum.*.v0`
+   schemas, CLI subcommands, and pipeline gates require an explicit mandate
+   in the active WORKORDER.md. Research snapshots in `docs/research/` and
+   decision records in `docs/decisions/` are always allowed. Editing
+   existing docs to stay honest is allowed and required.
 3. Decisions over deferrals: when design options exist, pick one, write the
    decision record, and state what dies. Do not park choices in "future work"
    sections. If a decision is genuinely BDFL-level, ask the BDFL directly with
