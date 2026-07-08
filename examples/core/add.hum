@@ -1,0 +1,28 @@
+module examples.core.add
+
+task add(a: Int, b: Int) -> Int {
+  why:
+    prove the smallest executable Hum task end to end
+
+  ensures:
+    result == a + b
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return a + b
+}
+
+test add returns the sum unit {
+  why:
+    pin the smallest success path for the interpreter
+
+  covers:
+    add ensures result == a + b
+
+  does:
+    expect add(2, 3) returns 5
+}

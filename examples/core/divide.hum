@@ -1,0 +1,54 @@
+module examples.core.divide
+
+type MathError {
+  code: Text
+}
+
+task divide(a: Int, b: Int) -> Result Int, MathError {
+  why:
+    prove typed failure and a firing precondition end to end
+
+  needs:
+    b != 0
+
+  ensures:
+    result is the integer quotient of a and b
+
+  fails when:
+    b is zero
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    if b == 0 {
+      fail MathError.divide_by_zero
+    }
+
+    return a / b
+}
+
+test divide rejects zero divisor unit {
+  why:
+    pin the typed failure path for the interpreter
+
+  covers:
+    divide needs b != 0
+    divide fails when b is zero
+
+  does:
+    expect divide(10, 0) fails with MathError.divide_by_zero
+}
+
+test divide returns quotient unit {
+  why:
+    pin the success path for the interpreter
+
+  covers:
+    divide ensures result is the integer quotient of a and b
+
+  does:
+    expect divide(10, 2) returns 5
+}

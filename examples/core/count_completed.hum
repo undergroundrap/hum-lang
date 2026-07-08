@@ -1,0 +1,41 @@
+module examples.core.count_completed
+
+type WorkItem {
+  title: Text
+  done: Bool
+}
+
+task count_completed(items: List WorkItem) -> UInt {
+  why:
+    prove loops, mutable locals, and field reads end to end
+
+  ensures:
+    result is at most the number of items
+
+  cost:
+    time: O(items)
+    space: O(1)
+    check: warn
+
+  does:
+    change count: UInt = 0
+
+    for each item in items {
+      if item.done {
+        set count = count + 1
+      }
+    }
+
+    return count
+}
+
+test count_completed counts only done items unit {
+  why:
+    pin loop and conditional counting for the interpreter
+
+  covers:
+    count_completed ensures result is at most the number of items
+
+  does:
+    expect count_completed with two done items of three returns 2
+}

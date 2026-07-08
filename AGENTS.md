@@ -2,6 +2,33 @@
 
 This repo is the Hum language design seed and Milestone 0 Rust bootstrap.
 
+## Operating Rules (BDFL-accepted 2026-07-08)
+
+These rules override any older habit in this file or in session memory. The
+active work order is `WORKORDER.md` at the repo root; execute it top to bottom
+before proposing new work.
+
+1. Definition of done: a session's deliverable is a program that runs, a check
+   that fires on a real mistake, or a decision record that kills alternatives.
+   A session that ends with only new prose, a new schema, or a new report
+   surface is a failed session.
+2. Moratorium: until `hum run` executes the three FORMAL_CORE.md programs, do
+   not add new `docs/*.md` files, new `hum.*.v0` schemas, new CLI report
+   subcommands, or new pipeline gates. Editing existing docs to stay honest is
+   allowed and required. `hum run` itself is the sanctioned new subcommand.
+3. Decisions over deferrals: when design options exist, pick one, write the
+   decision record, and state what dies. Do not park choices in "future work"
+   sections. If a decision is genuinely BDFL-level, ask the BDFL directly with
+   a recommendation.
+4. Write Hum, not just Rust: real `.hum` programs are design instruments. When
+   the work order asks for example programs, write them by hand and record
+   what they revealed about the design.
+5. Vertical slice over horizontal layers: prefer one thin parse -> check ->
+   run path for a small subset over another full-width pass that covers
+   everything and executes nothing.
+6. Adversarial pass: when asked to review the design, argue against it in
+   earnest; do not volunteer praise structure.
+
 ## Ground Truth
 
 - Start with `docs/ARCHITECTURE.md` before changing design direction.

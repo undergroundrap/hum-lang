@@ -538,6 +538,60 @@ Concrete design gates:
 - Keep Docker, MCP, remote packages, generated code execution, and native plugin
   execution out of Milestone 0.
 
+### 15. Error Models, Effect Systems, And Partial Failure
+
+Research signals:
+
+- Midori's error model (Joe Duffy's retrospective) is the strongest field
+  report on failure design in a safe systems language: split *bugs*
+  (abandonment: fail fast, not catchable, process-level blast radius) from
+  *recoverable errors* (typed, checked, part of the signature). An entire OS
+  was written under this split and the retrospective says it was the single
+  best decision they made.
+- Koka, Effekt, and Flix show algebraic effect systems working in practice,
+  and all three hit the same wall Hum will hit: effect polymorphism. The
+  moment higher-order functions exist, `map(f)` has whatever effects `f` has,
+  and the effect system needs effect variables or every signature either lies
+  or infects its callers. There is no known design that gets effects in
+  signatures, higher-order functions, and zero annotation burden at once.
+- The function-coloring problem (async/await splitting ecosystems in JS and
+  Rust) is an instance of the same issue. Go and Java's Loom show
+  runtime-managed concurrency avoids coloring; effect systems offer a third
+  path where async is an effect rather than a type split.
+- Erlang/OTP supervision trees remain the deepest practice on partial
+  failure: isolation boundaries, restart strategies, and blast radius as
+  explicit design objects rather than emergent behavior.
+- TLA+ and Alloy show design-level model checking catches concurrency and
+  protocol bugs that no type system or code-level verifier sees; Amazon's
+  industrial TLA+ use is the reference story.
+
+Hum lessons:
+
+- Hum's `fail` versus panic split matches Midori and should be kept strict:
+  panics are abandonment, never values, never caught in ordinary code, and
+  their blast radius is profile policy.
+- The effect-polymorphism decision must be made before closures enter Core
+  Hum. An acceptable first answer is that closures carry monomorphic,
+  explicit effects; an unacceptable answer is discovering the problem after
+  effect annotations are load-bearing across the stdlib.
+- Any future async design must answer the coloring question explicitly and
+  in writing before syntax work; async-as-effect keeps one function color
+  and fits the existing effect set.
+- Supervision, restart budgets, and watchdogs belong in profiles and stdlib
+  doctrine before concurrency syntax exists.
+- Evidence-native can extend to design models later: emitting TLA+-shaped
+  models from `store` and concurrency declarations is a natural far-future
+  export, in the same spirit as math obligations.
+
+Concrete design gates:
+
+- Closure admission into FORMAL_CORE requires an accepted effect-polymorphism
+  decision record first.
+- Concurrency or async design docs must contain a function-coloring section
+  or they are incomplete.
+- The fault-containment research sweep (Erlang/OTP, Midori abandonment) is a
+  prerequisite for concurrency design, per the WORKORDER backlog.
+
 ## Design Rules From The Research
 
 1. Small core first.

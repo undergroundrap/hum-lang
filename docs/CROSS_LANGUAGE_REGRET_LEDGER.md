@@ -292,6 +292,131 @@ Do not turn source code into paperwork. Checked intent blocks must remain readab
 
 If only the author can explain it, it is not Hum-shaped.
 
+## Ada And SPARK Lessons
+
+Ada is the incumbent in Hum's stated target domains. Its pitch in 1983 was
+Hum's pitch today: strong typing, contracts, tasking, safety-critical
+readiness. It was right about most things and still lost general adoption.
+
+### Regrets To Avoid
+
+- adoption by mandate instead of by choice; when the mandate ended, use fell
+- expensive, closed, vendor-gated tooling for decades
+- verbosity that read as ceremony rather than as protection
+- an ecosystem that never formed because hobbyists were priced out
+- being right without being enjoyable
+
+### Lessons To Keep
+
+- SPARK's hybrid model: prove absence of runtime errors where feasible, test
+  the rest, and record which assurance level each unit reached
+- SPARK's bronze/silver/gold assurance levels map cleanly onto Hum's
+  evidence-native ladder and should shape how contract verification status is
+  reported per task
+- the Ravenscar profile is the original proof that strict named subsets make
+  concurrency and timing analyzable
+
+### Hum Response
+
+- study why Ada lost before repeating its pitch: free tooling, incremental
+  adoption, and hobbyist joy are survival requirements, not marketing
+- adopt per-task assurance levels in evidence output instead of one global
+  verified/unverified bit
+- profiles continue Ravenscar's lesson: restriction is a feature
+
+### Design Rule
+
+Ada proves that being right is not enough. Hum must be right and chosen.
+
+## Eiffel Lessons
+
+Eiffel invented design-by-contract and command-query separation. It is the
+forty-year experiment report on the exact feature Hum bets on.
+
+### Regrets To Avoid
+
+- contracts that rarely execute get written vacuously or not at all
+- contract quality decays when no tool consumes them
+- single-vendor stewardship starved the ecosystem
+- contracts perceived as a tax because they paid no visible rent
+
+### Hum Response
+
+- `needs:`/`ensures:` must fire at runtime in debug builds as early as
+  possible; a checked block that never fires is a comment in a costume
+- contracts must pay visible rent: generated tests, generated docs, review
+  facts, verification status, and diagnostics
+- the planned hollow-claim detection exists because Eiffel showed vacuous
+  contracts are the default failure mode, not the exception
+- command-query separation is worth stating as stdlib API guidance: reads do
+  not mutate, mutators return little
+
+### Design Rule
+
+A contract earns its syntax the first time it catches a wrong implementation.
+
+## Erlang Lessons
+
+Erlang is the deepest body of practice on partial failure, built for telecom
+systems that could not stop. Typed errors are not its lesson. Its lesson is
+what happens when the error nobody predicted arrives.
+
+### Regrets To Avoid
+
+- dynamic typing made large systems opaque to static tooling and refactoring
+- hot code loading without static checks traded safety for uptime
+- the model stayed niche partly because syntax and tooling felt alien
+
+### Lessons To Keep
+
+- crashes are contained by isolation boundaries, not prevented by cleverness
+- supervision trees make restart policy an explicit, reviewable design object
+- the unit of failure is the process, not the statement; blast radius is a
+  design-time decision
+- "let it crash" only works because someone declared who restarts what
+
+### Hum Response
+
+- typed `fail` values cover expected failure; Hum still needs a declared
+  story for unexpected failure: isolation boundaries, restart budgets,
+  watchdogs, and supervision-shaped facts (WORKORDER backlog item 5)
+- panic/abandonment policy is profile policy and must name its blast radius
+- concurrency design must not start until the fault-containment story exists
+
+### Design Rule
+
+Mission-critical means designing for the failure you did not predict.
+
+## Small Languages Worth Stealing From
+
+F#, Pony, and Austral are small ecosystems that each solved one problem Hum
+cares about better than any large language did.
+
+### Lessons To Keep
+
+- F# units of measure: dimensional analysis in the type system at zero
+  runtime cost; the Mars Climate Orbiter class of bug becomes a compile
+  error; directly relevant to aerospace and medical wedges
+- Pony reference capabilities: data-race freedom proven by typing aliasing
+  permissions (`iso`, `val`, `ref`, `box`, `tag`) with no locks; the
+  strongest prior art for Hum's future `shared` design
+- Austral: linear types plus capability-based security with a specification
+  small enough to read in an afternoon, and an anti-feature manifesto written
+  into the spec itself; proof that Hum's FORMAL_CORE ambition is achievable
+
+### Hum Response
+
+- units of measure stays on the WORKORDER backlog as a researched candidate,
+  library-plus-checker before core syntax
+- Hum's shared-state design review must compare against Pony's capabilities
+  before inventing new machinery
+- FORMAL_CORE should treat Austral's spec as a size and tone benchmark
+
+### Design Rule
+
+Small languages are the best research papers. Steal from them before
+inventing.
+
 ## Tooling Lessons
 
 Even beautiful syntax needs tools.

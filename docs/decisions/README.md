@@ -28,6 +28,8 @@ standard library direction, backend strategy, or release posture.
 | [0009](0009-adopt-formal-readability-not-english-mimicry.md) | accepted | Adopt formal readability, not English mimicry. |
 | [0010](0010-adopt-explicit-state-model.md) | accepted | Adopt an explicit state model. |
 | [0011](0011-add-checked-resolver-before-execution.md) | accepted | Add checked resolver before execution. |
+| [0012](0012-adopt-snake-case-identifiers.md) | accepted | Adopt snake_case identifiers, retire spaced names. |
+| [0013](0013-remove-number-type.md) | accepted | Remove the Number type; core numerics are Int and UInt. |
 
 ## Template
 
