@@ -505,29 +505,11 @@ notes, review packets, sanitizer runs, and profile evidence.
 
 ## Executable Body Status
 
-The `does:` block is the future executable body.
+The `does:` block is executable only for the explicitly interpreted Milestone 1 subset, and remains future surface beyond that subset.
 
-In Milestone 0, body lines are parsed as section text for checks and graph
-facts. `hum ir-readiness` also classifies a partial V0 body grammar for first
-forms such as `return`, `fail`, `let`, `change`, `set`, control headers, record
-field initializers, and test expectations. `hum core-preview` maps those recognized
-lines into Core Hum candidate operations and explicit blockers without executing,
-type-checking, effect-checking, or emitting IR. `hum resolve` performs the first
-checked pass over scopes, definitions, references, and mutable-place targets.
-`hum type-env` records declared type names and annotations with resolver
-identity. `hum type-check` validates declaration annotation names without
-expression inference or body checking. `hum full-type-check` checks recognized
-Core/body statement type contexts and reports blockers without execution or IR
-emission. `hum effect-check` checks recognized Core/body effect contexts and
-reports blockers without execution or IR emission. `hum ownership-check` checks
-recognized local ownership facts and reports blockers without execution or IR
-emission. `hum resource-check` checks declared allocation/resource intent and
-reports blockers without execution or IR emission. `hum ir-readiness` consumes
-the checked resolver, type, Core verifier, full-type-check, effect-check,
-ownership-check, and resource-check summaries before any future lowering claim.
-Any executable syntax must resolve, enter the type environment, pass declaration
-annotation and recognized body type checking, then lower into [FORMAL_CORE.md](FORMAL_CORE.md)
-before it becomes stable.
+Milestone 1 begins with `hum run <file> [--entry <task>] [--args ...]` over checked source for `examples/core/add.hum`, `examples/core/divide.hum`, and `examples/core/count_completed.hum`. The current tree-walking interpreter covers the forms those programs require: Int/Bool literals, arithmetic, comparisons, `let`, `change`, `set`, `if`, `for each`, `return`, `fail`, task calls, typed failure values, and the simple list/record values needed by `count_completed`. Integer overflow and division by zero trap instead of wrapping. Runtime `needs:` and `ensures:` enforcement is not part of this slice; it belongs to the next executable-contract work.
+
+The report gates remain non-executing. `hum core-preview` maps recognized lines into Core Hum candidate operations and explicit blockers without executing, type-checking, effect-checking, or emitting IR. `hum resolve` performs the first checked pass over scopes, definitions, references, and mutable-place targets. `hum type-env` records declared type names and annotations with resolver identity. `hum type-check` validates declaration annotation names without expression inference or body checking. `hum full-type-check`, `hum effect-check`, `hum ownership-check`, and `hum resource-check` report recognized facts and blockers without execution or IR emission. `hum ir-readiness` consumes the checked resolver, type, Core verifier, full-type-check, effect-check, ownership-check, and resource-check summaries before any future lowering claim. New executable syntax must still become checkable, lower into [FORMAL_CORE.md](FORMAL_CORE.md), and preserve the non-claims of the report surfaces before it becomes stable.
 
 Starter executable forms are tracked in [CORE_LANGUAGE_SHAPE.md](CORE_LANGUAGE_SHAPE.md).
 
@@ -694,6 +676,7 @@ Delayed until the formal core, graph, diagnostics, and tooling can explain them:
 ```powershell
 hum check <file-or-dir>...
 hum check --format json <file-or-dir>...
+hum run <file> [--entry <task>] [--args ...]
 hum graph <file-or-dir>...
 hum evidence <file-or-dir>...
 hum evidence --format json <file-or-dir>...
@@ -758,6 +741,7 @@ Bootstrap examples:
 ```powershell
 cargo run -- check examples
 cargo run -- check --format json examples
+cargo run -- run examples/core/add.hum --entry add --args 2 3
 cargo run -- graph examples/reference_surface.hum
 cargo run -- graph examples
 cargo run -- evidence examples/reference_surface.hum

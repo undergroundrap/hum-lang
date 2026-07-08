@@ -57,6 +57,21 @@ function Read-NativeOutput {
 
   return ($Output -join "`n")
 }
+function Read-NativeOutputWithExit {
+  param(
+    [string] $Label,
+    [string] $FilePath,
+    [string[]] $Arguments
+  )
+
+  Write-Host "==> $Label"
+  $Output = & $FilePath @Arguments
+  return [pscustomobject] @{
+    Output = ($Output -join "`n")
+    ExitCode = $LASTEXITCODE
+  }
+}
+
 function Invoke-RepoScript {
   param(
     [string] $Label,
@@ -403,6 +418,16 @@ try {
   }
 
   Invoke-Native 'hum check examples' $Hum @('check', 'examples')
+
+  $RunAdd = Read-NativeOutput 'run core add' $Hum @('run', 'examples/core/add.hum', '--entry', 'add', '--args', '2', '3')
+  if ($RunAdd.Trim() -ne '5') { throw "hum run add expected 5, got `$RunAdd" }
+
+  $RunDivideZero = Read-NativeOutputWithExit 'run core divide typed failure' $Hum @('run', 'examples/core/divide.hum', '--entry', 'divide', '--args', '10', '0')
+  if ($RunDivideZero.ExitCode -ne 1) { throw "hum run divide zero expected exit 1, got $($RunDivideZero.ExitCode)" }
+  if ($RunDivideZero.Output.Trim() -ne 'MathError.divide_by_zero') { throw "hum run divide zero expected MathError.divide_by_zero, got $($RunDivideZero.Output)" }
+
+  $RunCountCompleted = Read-NativeOutput 'run core count_completed' $Hum @('run', 'examples/core/count_completed.hum', '--entry', 'count_completed', '--args', '[{done:true},{done:false},{done:true}]')
+  if ($RunCountCompleted.Trim() -ne '2') { throw "hum run count_completed expected 2, got `$RunCountCompleted" }
 
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson

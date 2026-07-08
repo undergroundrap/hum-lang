@@ -27,7 +27,7 @@ use crate::type_env;
 
 pub const HUM_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const HUM_STATUS: &str = "pre-alpha";
-pub const HUM_MILESTONE: &str = "0 semantic graph";
+pub const HUM_MILESTONE: &str = "1 executable core slice";
 
 pub fn version_text() -> String {
     format!(

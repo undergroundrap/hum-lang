@@ -53,6 +53,13 @@ const COMMANDS: &[CommandCapability] = &[
         purpose: "source-backed diagnostics for editors, CI, and agents",
     },
     CommandCapability {
+        name: "run",
+        command: "hum run <file> [--entry <task>] [--args ...]",
+        schema: "none",
+        status: "current",
+        purpose: "tree-walking execution for the first Formal Core programs",
+    },
+    CommandCapability {
         name: "graph",
         command: "hum graph <file-or-dir>...",
         schema: json::SEMANTIC_GRAPH_SCHEMA,
@@ -767,6 +774,7 @@ mod tests {
 
         assert!(text.contains("Hum capabilities (hum.capabilities.v0)"));
         assert!(text.contains("hum check --format json"));
+        assert!(text.contains("hum run <file>"));
         assert!(text.contains("hum evidence --format json"));
         assert!(text.contains("document_symbols"));
         assert!(text.contains("semantic_token_legend"));
@@ -807,6 +815,8 @@ mod tests {
         assert!(json.contains("\"doctor\": \"hum.doctor.v0\""));
         assert!(json.contains("\"target_facts\": \"hum.target_facts.v0\""));
         assert!(json.contains("\"target_fact_record\": \"hum.target_fact_record.v0\""));
+        assert!(json.contains("\"name\": \"run\""));
+        assert!(json.contains("\"schema\": \"none\""));
         assert!(json.contains("\"name\": \"doctor_json\""));
         assert!(json.contains("\"name\": \"target_facts_json\""));
         assert!(json.contains("\"name\": \"core_contract_json\""));

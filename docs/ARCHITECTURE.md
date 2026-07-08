@@ -87,7 +87,7 @@ parse/current
 -> ir_readiness/blocked_by_full_type_check_errors_or_effect_check_errors_or_ownership_check_errors_or_resource_check_errors_or_profile_check_errors_or_before_ir_verify
 ```
 
-`full_type_check` now exists as a narrow recognized Core/body statement type gate, `effect_check` now exists as a narrow recognized Core/body effect gate, `ownership_check` now exists as a narrow local ownership fact gate, `resource_check` now exists as a narrow declared allocation/resource intent gate, and `profile_check` now exists as a narrow runtime profile policy gate. Until recognized bodies pass those gates and later IR verification gates exist, Hum must not claim executable semantics, complete type safety, effect safety, ownership safety, memory safety, allocation-freedom proof, strict profile enforcement, IR emission, backend readiness, or safety-critical readiness.
+`full_type_check` now exists as a narrow recognized Core/body statement type gate, `effect_check` now exists as a narrow recognized Core/body effect gate, `ownership_check` now exists as a narrow local ownership fact gate, `resource_check` now exists as a narrow declared allocation/resource intent gate, and `profile_check` now exists as a narrow runtime profile policy gate. These report gates remain non-executing and must not claim complete type safety, effect safety, ownership safety, memory safety, allocation-freedom proof, strict profile enforcement, IR emission, backend readiness, or safety-critical readiness. `hum run` begins Milestone 1 executable semantics only for the explicitly interpreted first Formal Core subset; it does not turn the report gates into proof, memory-safety, optimization, IR, backend, or certification claims.
 
 ### 3. Semantic Graph
 
@@ -181,10 +181,10 @@ See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md) and [decisions/0008-adopt-swappab
 
 ## Current Build Order
 
-1. Finish Milestone 0 semantic graph, diagnostics, generated test skeleton hardening, and coverage matching.
-2. Keep docs honest by linking every new doctrine back to this architecture.
-3. Add executable core only after the formal core gate is clear.
-4. Add checked resolution before executable core, then effects, ownership, and resource intent before serious unsafe, FFI, profile, or native backend work.
+1. Keep Milestone 0 semantic graph, diagnostics, generated test skeleton hardening, coverage matching, and report gates honest as non-executing evidence surfaces.
+2. Grow Milestone 1 `hum run` only through the active work order: first the three Formal Core fixtures, then executable contracts, then real probe programs.
+3. Keep docs honest by linking every new doctrine back to this architecture and by updating stale status text when execution expands.
+4. Strengthen checked resolution, types, effects, ownership, and resource intent before serious unsafe, FFI, profile, or native backend work.
 5. Add package/build/profile evidence before networked package behavior.
 6. Defer drivers, installers, Windows Update publishing, and kernel work until strict profiles and proof infrastructure exist.
 

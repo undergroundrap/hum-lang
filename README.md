@@ -99,6 +99,7 @@ task remember_work_item(title: Text) -> Result WorkItem, WorkError {
 ## Status
 
 This repository is a language design seed with a Milestone 0 Rust bootstrap compiler front-end.
+Milestone 1 execution has started with `hum run` interpreting the first Formal Core fixtures; the report/check gates remain honest non-executing evidence surfaces.
 
 Current version: `0.0.1` pre-alpha.
 
@@ -108,6 +109,7 @@ of how the design docs fit together.
 Current artifacts:
 
 - [examples/reference_surface.hum](examples/reference_surface.hum): checked Milestone 0 source fixture covering the current reference surface
+- [examples/core](examples/core): first Milestone 1 executable fixtures for `hum run` (`add`, `divide`, and `count_completed`)
 - [SPEC.md](SPEC.md): broad language design draft
 - [docs/LANGUAGE_REFERENCE.md](docs/LANGUAGE_REFERENCE.md): traditional reference spine for source files, items, sections, and current language status
 - [docs/LANGUAGE_BUILDER_OPERATING_MODEL.md](docs/LANGUAGE_BUILDER_OPERATING_MODEL.md): operating model for how Hum selects problems, prototypes, adopts ecosystems, validates claims, and grows without losing coherence
@@ -306,6 +308,7 @@ Current CLI:
 
 - `hum check <file-or-dir>...`: parse Hum and run Milestone 0 intent checks
 - `hum check --format json <file-or-dir>...`: emit `hum.check.v0` diagnostics JSON for editors, CI, and agents
+- `hum run <file> [--entry <task>] [--args ...]`: interpret one checked Hum file in the first executable subset, with typed failure exit 1 and runtime traps exit 2
 - `hum evidence [--format human|json] <file-or-dir>...`: emit `hum.evidence.v0` security/trust evidence status for humans, agents, and CI wrappers
 - `hum math-obligations [--format human|json] [--out-dir <dir>] <file-or-dir>...`: emit `hum.math_obligations.v0` reports and optional per-obligation `hum.math_obligation.v0` files for external contract validators
 - `hum resource-report [--format human|json] <file-or-dir>...`: emit `hum.resource_report.v0` source-declared resource, layout, and optimization claim inventory

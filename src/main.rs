@@ -31,6 +31,7 @@ mod profile_check;
 mod resolve;
 mod resource_check;
 mod resource_report;
+mod run;
 mod runtime_profiles;
 mod state_model;
 mod syntax;
@@ -202,6 +203,35 @@ fn run() -> Result<ExitCode, String> {
             } else {
                 ExitCode::SUCCESS
             })
+        }
+        "run" => {
+            if has_errors {
+                print_diagnostics(&diagnostics);
+                if options.show_timings {
+                    print_timings(&loaded.timings, loaded.total);
+                }
+                return Ok(ExitCode::from(1));
+            }
+
+            let code =
+                match run::run_program(&program, options.run_entry.as_deref(), &options.run_args) {
+                    run::RunOutcome::Success(output) => {
+                        println!("{output}");
+                        ExitCode::SUCCESS
+                    }
+                    run::RunOutcome::Failure(output) => {
+                        println!("{output}");
+                        ExitCode::from(1)
+                    }
+                    run::RunOutcome::Trap(message) => {
+                        eprintln!("runtime trap: {message}");
+                        ExitCode::from(2)
+                    }
+                };
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            Ok(code)
         }
         "graph" => {
             println!("{}", json::program_to_json(&program, &diagnostics));
@@ -615,7 +645,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{other}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         )),
     }
 }
@@ -768,6 +798,8 @@ enum IrReadinessFormat {
 struct CliOptions {
     command: String,
     inputs: Vec<PathBuf>,
+    run_entry: Option<String>,
+    run_args: Vec<String>,
     show_timings: bool,
     check_format: CheckFormat,
     syntax_format: SyntaxFormat,
@@ -816,6 +848,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     if !matches!(
         command.as_str(),
         "check"
+            | "run"
             | "graph"
             | "test-skeletons"
             | "evidence"
@@ -848,12 +881,14 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "target-facts"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{command}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         ));
     }
 
     let mut show_timings = false;
     let mut raw_inputs = Vec::new();
+    let mut run_entry = None;
+    let mut run_args = Vec::new();
     let mut check_format = CheckFormat::Human;
     let mut syntax_format = SyntaxFormat::Json;
     let mut version_format = VersionFormat::Human;
@@ -886,6 +921,31 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         match arg.as_str() {
             "--timings" => show_timings = true,
             "--capabilities" if command == "lsp" => lsp_show_capabilities = true,
+            "--entry" if command == "run" => {
+                let Some(value) = args.next() else {
+                    return Err("`run --entry` requires a task name".to_string());
+                };
+                run_entry = Some(value);
+            }
+            flag if command == "run" && flag.starts_with("--entry=") => {
+                let value = flag.trim_start_matches("--entry=");
+                if value.is_empty() {
+                    return Err("`run --entry` requires a task name".to_string());
+                }
+                run_entry = Some(value.to_string());
+            }
+            "--args" if command == "run" => {
+                run_args.extend(args);
+                break;
+            }
+            flag if command == "run" && flag.starts_with("--args=") => {
+                let value = flag.trim_start_matches("--args=");
+                if !value.is_empty() {
+                    run_args.push(value.to_string());
+                }
+                run_args.extend(args);
+                break;
+            }
             "--out-dir" if command == "math-obligations" => {
                 let Some(value) = args.next() else {
                     return Err("`math-obligations --out-dir` requires a directory".to_string());
@@ -1063,6 +1123,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1103,6 +1165,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1143,6 +1207,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1183,6 +1249,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1223,6 +1291,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1263,6 +1333,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1303,6 +1375,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1343,6 +1417,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1383,6 +1459,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1423,6 +1501,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1469,6 +1549,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1509,6 +1591,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1549,6 +1633,8 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            run_entry: None,
+            run_args: Vec::new(),
             show_timings,
             check_format,
             syntax_format,
@@ -1579,9 +1665,19 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         });
     }
 
+    let inputs = collect_inputs(&raw_inputs)?;
+    if command == "run" {
+        let input_is_file = raw_inputs.len() == 1 && PathBuf::from(&raw_inputs[0]).is_file();
+        if !input_is_file || inputs.len() != 1 {
+            return Err("`run` requires exactly one .hum file".to_string());
+        }
+    }
+
     Ok(CliOptions {
         command,
-        inputs: collect_inputs(&raw_inputs)?,
+        inputs,
+        run_entry,
+        run_args,
         show_timings,
         check_format,
         syntax_format,
@@ -2042,6 +2138,7 @@ fn print_help() {
     println!();
     println!("Usage:");
     println!("  hum check [--format human|json] [--timings] <file-or-dir>...");
+    println!("  hum run [--timings] <file> [--entry <task>] [--args ...]");
     println!("  hum graph [--timings] <file-or-dir>...");
     println!("  hum evidence [--format human|json] [--timings] <file-or-dir>...");
     println!(
@@ -2077,6 +2174,7 @@ fn print_help() {
     println!();
     println!("Commands:");
     println!("  check           Parse Hum files and run milestone-0 intent checks");
+    println!("  run             Interpret one checked Hum file in the first executable subset");
     println!("  graph           Emit hum.semantic_graph.v0 JSON for agents and tools");
     println!("  evidence          Summarize security and trust evidence obligations");
     println!("  math-obligations  Export V0 math obligations for external validators");
@@ -2115,6 +2213,8 @@ fn print_help() {
     println!("  --version   Print toolchain identity");
     println!("  --format    Choose command output format where supported");
     println!("  --out-dir   Write one math obligation JSON file per obligation");
+    println!("  --entry     Select the task used by `hum run`");
+    println!("  --args      Pass all remaining values to `hum run`");
 }
 #[cfg(test)]
 mod tests {
@@ -2139,6 +2239,32 @@ mod tests {
         .expect("check json command");
         assert_eq!(options.command, "check");
         assert_eq!(options.check_format, CheckFormat::Json);
+    }
+
+    #[test]
+    fn parses_run_entry_and_args() {
+        let options = parse_cli(vec![
+            "run".to_string(),
+            "examples/core/add.hum".to_string(),
+            "--entry".to_string(),
+            "add".to_string(),
+            "--args".to_string(),
+            "2".to_string(),
+            "3".to_string(),
+        ])
+        .expect("run command");
+
+        assert_eq!(options.command, "run");
+        assert_eq!(options.inputs, vec![PathBuf::from("examples/core/add.hum")]);
+        assert_eq!(options.run_entry.as_deref(), Some("add"));
+        assert_eq!(options.run_args, vec!["2".to_string(), "3".to_string()]);
+    }
+
+    #[test]
+    fn rejects_run_directory_input() {
+        let error = parse_cli(vec!["run".to_string(), "examples".to_string()])
+            .expect_err("run should require one file");
+        assert_eq!(error, "`run` requires exactly one .hum file");
     }
 
     #[test]
