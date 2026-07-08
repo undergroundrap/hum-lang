@@ -192,11 +192,16 @@ surface-changing decisions update the showcase in the same session.
    `hum fix --apply`.
 4. Sandboxed execution flags: capability policy at the `hum run` boundary
    (`--allow`/`--deny`) when IO capabilities arrive.
-5. Fault containment doctrine: crash isolation, supervision, restart
-   budgets. Research in flight (2026-07-08); required before concurrency
-   design.
-6. Units of measure: research in flight (2026-07-08); library-plus-checker
-   candidate before core syntax.
+5. Fault containment doctrine: research complete, direction settled (see
+   research/2026-07-08-fault-domains-licensing-units.md): first-class
+   fault domains with supervisors, restart budgets, and capability
+   revocation; typed errors for expected failure, domain-abort for bugs;
+   no general unwinding in the safe subset; chaos-test doctrine. Design
+   work order still required before any concurrency syntax.
+6. Units of measure: research complete, direction settled (same snapshot):
+   core-language F#-style feature — inference, runtime erasure, first-order
+   only, no silent unit drops across serialization/FFI, incident-modeled
+   negative tests. Scheduling waits until after the type system matures.
 7. Language editions: source longevity mechanism in
    RELEASE_AND_VERSIONING.md before any public alpha stability promise.
 8. Contract check policy ADR: debug runs all contracts; release runs
@@ -209,6 +214,21 @@ surface-changing decisions update the showcase in the same session.
 10. List operation surface: smallest growable-list API (Session D friction);
     design lands after 0014 because growth and aliasing are ownership
     questions.
+11. Numerics policy ADR (see research/2026-07-08-numerics-and-text.md):
+    ordinary integer arithmetic traps in all build modes (profile-invariant
+    semantics; `hum run` already complies); explicit wrapping/saturating/
+    checked/overflowing families; benchmark gate before any fast-numerics
+    exception; two FP regimes with a fail-closed deterministic numeric
+    profile; fixed-point guidance for lockstep; decimal library-first.
+12. Text model tiers (same snapshot): Bytes / Text (valid UTF-8, integer
+    indexing forbidden, explicit views) / OsText (lossless platform bridge;
+    all filesystem and process APIs take OsText). Fixed-capacity family
+    before embedded claims. Lands with early stdlib design, after 0014.
+13. Source policy hardening: record ASCII-only identifiers as deliberate
+    policy (any Unicode-identifier proposal must bring UTS #39 machinery
+    and a pinned Unicode version); extend check_text_hygiene to reject
+    bidirectional control characters. The hygiene extension is a small
+    standalone task any maintenance session may pick up.
 
 ## Appendix: the twelve-program corpus
 
