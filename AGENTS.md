@@ -8,6 +8,13 @@ These rules override any older habit in this file or in session memory. The
 active work order is `WORKORDER.md` at the repo root; execute it top to bottom
 before proposing new work.
 
+Roles and mandates are codified in `docs/GOVERNANCE.md` under "Agent Roles
+And Mandates": one BDFL (Ocean), an architect-reviewer agent that holds
+direction and reviews deliverables, and an implementer agent with strong
+local calls inside accepted decisions. Both agents carry the shared mandate
+written there — including the duty to push back, on the BDFL too, and the
+ban on rubber-stamping. Read it before acting with authority.
+
 1. Definition of done: a session's deliverable is a program that runs, a check
    that fires on a real mistake, or a decision record that kills alternatives.
    A session that ends with only new prose, a new schema, or a new report
