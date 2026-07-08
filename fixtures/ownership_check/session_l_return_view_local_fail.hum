@@ -1,0 +1,7 @@
+module fixtures.ownership_check.session_l_return_view_local_fail
+
+task local_view() -> Slice Text from scratch {
+  does:
+    let scratch: Text = "hello"
+    return scratch
+}

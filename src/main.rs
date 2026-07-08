@@ -31,6 +31,7 @@ mod profile_check;
 mod resolve;
 mod resource_check;
 mod resource_report;
+mod return_dependency;
 mod run;
 mod runtime_profiles;
 mod state_model;

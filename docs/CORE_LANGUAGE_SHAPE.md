@@ -296,3 +296,19 @@ friction:
   severity: awkward
   indicts: ownership
   proposal: design a source-visible linear resource marker before generalizing exactly-once checking beyond transaction probes
+
+friction:
+  program: fixtures/ownership_check/session_l_return_view_internal_fail.hum:3
+  wanted: express a returned view that depends on a field inside an owned parser-like value with `Slice Text from parser.buffer`
+  forced: reject internal-reference sources and accept only `from` relationships that name a task parameter
+  severity: blocked
+  indicts: ownership
+  proposal: fund the internal-reference repair from decision 0014 only after the parameter-derived returned-view subset stays green under the corpus probes
+
+friction:
+  program: docs/bakeoff/CORPUS.md:242
+  wanted: `first_word("hum language")` returns `"hum"` as a sub-view derived from its input
+  forced: accept only bare-parameter returned views, so the passing Session L fixture can only echo the whole parameter
+  severity: blocked
+  indicts: ownership
+  proposal: design a minimal checked sub-view derivation rule before counting program 9 as implemented; keep it distinct from internal-reference repair

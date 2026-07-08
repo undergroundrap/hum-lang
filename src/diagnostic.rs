@@ -91,6 +91,8 @@ impl DiagnosticCode {
         Self::new("H0803", "linear resource not consumed");
     pub const LINEAR_RESOURCE_CONSUMED_TWICE: Self =
         Self::new("H0804", "linear resource consumed twice");
+    pub const RETURN_DEPENDENCY_NOT_PARAMETER: Self =
+        Self::new("H0805", "return dependency is not a parameter");
 
     pub const UNKNOWN_TARGET_FACT_RECORD: Self = Self::new("H1201", "unknown target fact record");
     pub const UNKNOWN_CAPABILITY_FAMILY: Self = Self::new("H1202", "unknown capability family");

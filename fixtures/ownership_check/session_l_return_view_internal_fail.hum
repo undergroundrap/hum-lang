@@ -1,0 +1,6 @@
+module fixtures.ownership_check.session_l_return_view_internal_fail
+
+task parser_buffer(borrow parser: Text) -> Slice Text from parser.buffer {
+  does:
+    return parser
+}

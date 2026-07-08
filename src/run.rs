@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::ast::{Item, ParamPermission, Program, SectionLine, Task};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
 use crate::graph::is_meaningful_line_text;
+use crate::return_dependency;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunOutcome {
@@ -40,7 +41,11 @@ enum Evaluated {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Flow {
     Continue,
-    Return(Value),
+    Return {
+        value: Value,
+        root: Option<String>,
+        span: Span,
+    },
     Fail(Value),
     ContractViolation,
 }
@@ -205,7 +210,10 @@ impl<'a> Interpreter<'a> {
         };
         let lines = executable_lines(&does.lines);
         match self.eval_block(&lines, 0, lines.len(), &mut env, &task.name)? {
-            Flow::Return(value) => self.finish_success(task, value, &env),
+            Flow::Return { value, root, span } => {
+                self.ensure_return_dependency(task, root.as_deref(), &span)?;
+                self.finish_success(task, value, &env)
+            }
             Flow::Fail(value) => Ok(TaskResult::Failed(value)),
             Flow::Continue => {
                 self.ensure_linear_closed_on_exit(&env, &task.name, "fallthrough", &task.span)?;
@@ -213,6 +221,28 @@ impl<'a> Interpreter<'a> {
             }
             Flow::ContractViolation => Ok(TaskResult::ContractViolation),
         }
+    }
+
+    fn ensure_return_dependency(
+        &self,
+        task: &Task,
+        returned_root: Option<&str>,
+        span: &Span,
+    ) -> Result<(), String> {
+        let Some(dependency) = task
+            .result
+            .as_deref()
+            .and_then(return_dependency::parse_return_dependency)
+        else {
+            return Ok(());
+        };
+        let source = dependency.source.as_str();
+        let source_is_parameter = return_dependency::is_bare_source_name(source)
+            && task.params.iter().any(|param| param.name == source);
+        if !source_is_parameter || returned_root != Some(source) {
+            return Err(self.return_dependency_trap(&task.name, source, span));
+        }
+        Ok(())
     }
 
     fn finish_success(&self, task: &Task, value: Value, env: &Env) -> Result<TaskResult, String> {
@@ -368,13 +398,18 @@ impl<'a> Interpreter<'a> {
             if let Some(expr) = strip_keyword(text, "return") {
                 return match self.eval_expr(expr, env, &line.span, task_name)? {
                     Evaluated::Value(value) => {
-                        if let Some(root) = bare_return_root(expr)
-                            && !is_linear_binding(env, &root)
+                        let root = bare_return_root(expr);
+                        if let Some(root) = root.as_deref()
+                            && !is_linear_binding(env, root)
                         {
-                            self.mark_moved(env, &root, &line.span, "return");
+                            self.mark_moved(env, root, &line.span, "return");
                         }
                         self.ensure_linear_closed_on_exit(env, task_name, "return", &line.span)?;
-                        Ok(Flow::Return(value))
+                        Ok(Flow::Return {
+                            value,
+                            root,
+                            span: line.span.clone(),
+                        })
                     }
                     Evaluated::Failure(value) => {
                         self.ensure_linear_closed_on_exit(env, task_name, "fail", &line.span)?;
@@ -878,6 +913,24 @@ impl<'a> Interpreter<'a> {
             "{} {}",
             DiagnosticCode::BORROW_PARAMETER_MUTATION.as_str(),
             DiagnosticCode::BORROW_PARAMETER_MUTATION.title()
+        )
+    }
+
+    fn return_dependency_trap(&self, task_name: &str, source: &str, span: &Span) -> String {
+        self.diagnostics.borrow_mut().push(
+            Diagnostic::error(
+                DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER,
+                format!("returned view does not visibly depend on parameter `{source}`"),
+                Some(span.clone()),
+            )
+            .with_help(format!(
+                "Fix task `{task_name}`: returned-view `from` source `{source}` must name a task parameter, and V0 returns must visibly return that bare parameter; locals, internal references, and complex view expressions are future ownership repairs."
+            )),
+        );
+        format!(
+            "{} {}",
+            DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER.as_str(),
+            DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER.title()
         )
     }
 

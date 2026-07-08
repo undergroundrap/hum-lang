@@ -6,6 +6,7 @@ use crate::core_contract;
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
 use crate::effect_check;
 use crate::graph::is_meaningful_line_text;
+use crate::return_dependency::{self, ReturnDependency};
 use crate::version;
 
 pub const OWNERSHIP_CHECK_SCHEMA: &str = "hum.ownership_check.v0";
@@ -84,6 +85,7 @@ struct OwnershipItem {
     status: &'static str,
     declarations: OwnershipDeclarations,
     statements: Vec<OwnershipStatement>,
+    return_dependencies: Vec<OwnershipReturnDependency>,
     boundary_checks: Vec<OwnershipBoundaryCheck>,
 }
 
@@ -155,6 +157,18 @@ struct OwnershipStatement {
     ownership_kind: &'static str,
     target: Option<String>,
     declaration: Option<String>,
+    status: &'static str,
+    reason: Option<&'static str>,
+    diagnostic_code: Option<&'static str>,
+    help: Option<String>,
+}
+
+struct OwnershipReturnDependency {
+    id: String,
+    span: Span,
+    result_type: String,
+    source: String,
+    source_kind: &'static str,
     status: &'static str,
     reason: Option<&'static str>,
     diagnostic_code: Option<&'static str>,
@@ -267,7 +281,7 @@ pub fn ownership_check_text(program: &Program, diagnostics: &[Diagnostic]) -> St
         out.push_str("ownership_items:\n");
         for item in &report.items {
             out.push_str(&format!(
-                "  {}:{}:{} [{}] {} `{}` statements={} boundary_checks={}\n",
+                "  {}:{}:{} [{}] {} `{}` statements={} return_dependencies={} boundary_checks={}\n",
                 item.span.file,
                 item.span.line,
                 item.span.column,
@@ -275,6 +289,7 @@ pub fn ownership_check_text(program: &Program, diagnostics: &[Diagnostic]) -> St
                 item.kind,
                 item.name,
                 item.statements.len(),
+                item.return_dependencies.len(),
                 item.boundary_checks.len()
             ));
             for statement in &item.statements {
@@ -298,6 +313,26 @@ pub fn ownership_check_text(program: &Program, diagnostics: &[Diagnostic]) -> St
                     out.push_str(&format!(" diagnostic={diagnostic_code}"));
                 }
                 if let Some(help) = &statement.help {
+                    out.push_str(&format!(" help={help}"));
+                }
+                out.push('\n');
+            }
+            for dependency in &item.return_dependencies {
+                out.push_str(&format!(
+                    "    {}:{}:{} [{}] return_dependency result_type={} source={} source_kind={} reason={}",
+                    dependency.span.file,
+                    dependency.span.line,
+                    dependency.span.column,
+                    dependency.status,
+                    dependency.result_type,
+                    dependency.source,
+                    dependency.source_kind,
+                    dependency.reason.unwrap_or("none")
+                ));
+                if let Some(diagnostic_code) = dependency.diagnostic_code {
+                    out.push_str(&format!(" diagnostic={diagnostic_code}"));
+                }
+                if let Some(help) = &dependency.help {
                     out.push_str(&format!(" help={help}"));
                 }
                 out.push('\n');
@@ -414,6 +449,7 @@ fn check_item(item: &Item, blocked: bool) -> Option<OwnershipItem> {
             linear_path_diagnostics(item.name(), &body.statements, &ownership_facts),
         );
     }
+    let return_dependencies = return_dependency_facts(item, &ownership_facts, &body.statements);
     let boundary_checks = boundary_checks(
         item,
         &declarations,
@@ -421,7 +457,7 @@ fn check_item(item: &Item, blocked: bool) -> Option<OwnershipItem> {
         &body.statements,
         &statements,
     );
-    let status = item_status(&statements, &boundary_checks, blocked);
+    let status = item_status(&statements, &return_dependencies, &boundary_checks, blocked);
     Some(OwnershipItem {
         id: prefixed_id(
             "hum_ownership_item",
@@ -433,6 +469,7 @@ fn check_item(item: &Item, blocked: bool) -> Option<OwnershipItem> {
         status,
         declarations,
         statements,
+        return_dependencies,
         boundary_checks,
     })
 }
@@ -1361,6 +1398,181 @@ fn boundary_checks(
     checks
 }
 
+fn return_dependency_facts(
+    item: &Item,
+    ownership_facts: &LocalOwnershipFacts,
+    body_statements: &[BodyStatement],
+) -> Vec<OwnershipReturnDependency> {
+    let Some((item_name, result, item_span)) = item_return_annotation(item) else {
+        return Vec::new();
+    };
+    let Some(dependency) = return_dependency::parse_return_dependency(result) else {
+        return Vec::new();
+    };
+
+    vec![return_dependency_fact(
+        item_name,
+        &dependency,
+        item_span,
+        ownership_facts,
+        body_statements,
+    )]
+}
+
+fn return_dependency_fact(
+    item_name: &str,
+    dependency: &ReturnDependency,
+    item_span: &Span,
+    ownership_facts: &LocalOwnershipFacts,
+    body_statements: &[BodyStatement],
+) -> OwnershipReturnDependency {
+    let returned_roots = returned_roots(body_statements);
+    let (source_kind, status, reason, span, diagnostic_code, help) =
+        if !return_dependency::is_bare_source_name(&dependency.source) {
+            (
+                "internal_reference",
+                "rejected_return_dependency_internal_reference_v0",
+                Some("internal_reference_return_dependency_not_implemented_v0"),
+                portable_span(item_span),
+                Some(DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER.as_str()),
+                Some(return_dependency_help(item_name, &dependency.source)),
+            )
+        } else if ownership_facts.parameters.contains_key(&dependency.source) {
+            return_dependency_parameter_status(
+                item_name,
+                dependency,
+                item_span,
+                ownership_facts,
+                &returned_roots,
+            )
+        } else if ownership_facts.is_local_root(&dependency.source) {
+            (
+                "local",
+                "rejected_return_dependency_local_v0",
+                Some("returned_view_cannot_depend_on_local_place_v0"),
+                portable_span(item_span),
+                Some(DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER.as_str()),
+                Some(return_dependency_help(item_name, &dependency.source)),
+            )
+        } else {
+            (
+                "unknown",
+                "rejected_return_dependency_unknown_source_v0",
+                Some("return_dependency_source_must_name_parameter_v0"),
+                portable_span(item_span),
+                Some(DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER.as_str()),
+                Some(return_dependency_help(item_name, &dependency.source)),
+            )
+        };
+
+    OwnershipReturnDependency {
+        id: prefixed_id(
+            "hum_ownership_return_dependency",
+            &format!("{item_name}_{}_{}", dependency.source, span.line),
+        ),
+        span,
+        result_type: dependency.result_type.clone(),
+        source: dependency.source.clone(),
+        source_kind,
+        status,
+        reason,
+        diagnostic_code,
+        help,
+    }
+}
+
+fn return_dependency_parameter_status(
+    item_name: &str,
+    dependency: &ReturnDependency,
+    item_span: &Span,
+    ownership_facts: &LocalOwnershipFacts,
+    returned_roots: &[ReturnedRoot],
+) -> (
+    &'static str,
+    &'static str,
+    Option<&'static str>,
+    Span,
+    Option<&'static str>,
+    Option<String>,
+) {
+    for returned in returned_roots {
+        match returned.root.as_deref() {
+            Some(root) if root == dependency.source => {}
+            Some(root) if ownership_facts.is_local_root(root) => {
+                return (
+                    "parameter",
+                    "rejected_return_dependency_returned_local_v0",
+                    Some("returned_view_expression_uses_local_place_v0"),
+                    portable_span(&returned.span),
+                    Some(DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER.as_str()),
+                    Some(return_dependency_help(item_name, &dependency.source)),
+                );
+            }
+            Some(_) => {
+                return (
+                    "parameter",
+                    "rejected_return_dependency_source_mismatch_v0",
+                    Some("returned_view_expression_does_not_match_from_source_v0"),
+                    portable_span(&returned.span),
+                    Some(DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER.as_str()),
+                    Some(return_dependency_help(item_name, &dependency.source)),
+                );
+            }
+            None => {
+                return (
+                    "parameter",
+                    "rejected_return_dependency_complex_expression_v0",
+                    Some("returned_view_expression_not_bare_place_v0"),
+                    portable_span(&returned.span),
+                    Some(DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER.as_str()),
+                    Some(return_dependency_help(item_name, &dependency.source)),
+                );
+            }
+        }
+    }
+
+    (
+        "parameter",
+        "accepted_return_dependency_parameter_v0",
+        None,
+        portable_span(item_span),
+        None,
+        None,
+    )
+}
+
+struct ReturnedRoot {
+    root: Option<String>,
+    span: Span,
+}
+
+fn returned_roots(body_statements: &[BodyStatement]) -> Vec<ReturnedRoot> {
+    body_statements
+        .iter()
+        .filter(|statement| statement.kind == "return")
+        .map(|statement| ReturnedRoot {
+            root: expression_text_for_statement(statement).and_then(bare_place_root),
+            span: statement.span.clone(),
+        })
+        .collect()
+}
+
+fn item_return_annotation(item: &Item) -> Option<(&str, &str, &Span)> {
+    match item {
+        Item::Task(task) => task
+            .result
+            .as_deref()
+            .map(|result| (task.name.as_str(), result, &task.span)),
+        _ => None,
+    }
+}
+
+fn return_dependency_help(item_name: &str, source: &str) -> String {
+    format!(
+        "Fix task `{item_name}`: returned-view `from` source `{source}` must name a task parameter, and V0 returns must visibly return that bare parameter; locals, internal references, and complex view expressions are future ownership repairs."
+    )
+}
+
 fn boundary_check(
     check: &'static str,
     span: &Span,
@@ -1793,12 +2005,16 @@ fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
 
 fn item_status(
     statements: &[OwnershipStatement],
+    return_dependencies: &[OwnershipReturnDependency],
     boundary_checks: &[OwnershipBoundaryCheck],
     blocked: bool,
 ) -> &'static str {
     if blocked {
         "blocked_by_prior_errors"
     } else if statements.iter().any(is_rejected_statement)
+        || return_dependencies
+            .iter()
+            .any(is_rejected_return_dependency)
         || boundary_checks.iter().any(is_rejected_boundary_check)
     {
         "ownership_errors_v0"
@@ -1815,6 +2031,10 @@ fn is_rejected_statement(statement: &OwnershipStatement) -> bool {
 
 fn is_unchecked_statement(statement: &OwnershipStatement) -> bool {
     statement.status.starts_with("unchecked_") || statement.status.starts_with("not_checked_")
+}
+
+fn is_rejected_return_dependency(dependency: &OwnershipReturnDependency) -> bool {
+    dependency.status.starts_with("rejected_")
 }
 
 fn is_rejected_boundary_check(check: &OwnershipBoundaryCheck) -> bool {
@@ -1835,7 +2055,10 @@ impl OwnershipCheckReport {
             "blocked_by_full_type_check_errors"
         } else if self.effect_check_errors() > 0 {
             "blocked_by_effect_check_errors"
-        } else if self.rejected_statements() > 0 || self.rejected_boundary_checks() > 0 {
+        } else if self.rejected_statements() > 0
+            || self.rejected_return_dependencies() > 0
+            || self.rejected_boundary_checks() > 0
+        {
             "ownership_errors_v0"
         } else if self.unchecked_statements() > 0 {
             "blocked_by_unchecked_ownership_facts_v0"
@@ -1906,6 +2129,14 @@ impl OwnershipCheckReport {
             .iter()
             .map(|item| item.boundary_checks.len())
             .sum()
+    }
+
+    fn rejected_return_dependencies(&self) -> usize {
+        self.items
+            .iter()
+            .flat_map(|item| item.return_dependencies.iter())
+            .filter(|dependency| is_rejected_return_dependency(dependency))
+            .count()
     }
 
     fn rejected_boundary_checks(&self) -> usize {
@@ -2006,6 +2237,7 @@ impl OwnershipCheckReport {
             + self.effect_check_errors()
             + self.rejected_statements()
             + self.unchecked_statements()
+            + self.rejected_return_dependencies()
             + self.rejected_boundary_checks()
     }
 }
@@ -2320,6 +2552,7 @@ fn push_item(out: &mut String, item: &OwnershipItem, indent: usize) {
     push_string_field(out, indent + 2, "status", item.status, true);
     push_declarations(out, &item.declarations, indent + 2, true);
     push_statements(out, &item.statements, indent + 2, true);
+    push_return_dependencies(out, &item.return_dependencies, indent + 2, true);
     push_boundary_checks(out, &item.boundary_checks, indent + 2, false);
     push_indent(out, indent);
     out.push('}');
@@ -2449,6 +2682,58 @@ fn push_statement(out: &mut String, statement: &OwnershipStatement, indent: usiz
         true,
     );
     push_optional_string_field(out, indent + 2, "help", statement.help.as_deref(), false);
+    push_indent(out, indent);
+    out.push('}');
+}
+
+fn push_return_dependencies(
+    out: &mut String,
+    dependencies: &[OwnershipReturnDependency],
+    indent: usize,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    push_json_string(out, "return_dependencies");
+    out.push_str(": [");
+    if !dependencies.is_empty() {
+        out.push('\n');
+        for (index, dependency) in dependencies.iter().enumerate() {
+            if index > 0 {
+                out.push_str(",\n");
+            }
+            push_return_dependency(out, dependency, indent + 2);
+        }
+        out.push('\n');
+        push_indent(out, indent);
+    }
+    out.push(']');
+    push_comma_newline(out, comma);
+}
+
+fn push_return_dependency(out: &mut String, dependency: &OwnershipReturnDependency, indent: usize) {
+    push_indent(out, indent);
+    out.push_str("{\n");
+    push_string_field(out, indent + 2, "id", &dependency.id, true);
+    push_span_field(out, indent + 2, "source_span", &dependency.span, true);
+    push_string_field(
+        out,
+        indent + 2,
+        "result_type",
+        &dependency.result_type,
+        true,
+    );
+    push_string_field(out, indent + 2, "source", &dependency.source, true);
+    push_string_field(out, indent + 2, "source_kind", dependency.source_kind, true);
+    push_string_field(out, indent + 2, "status", dependency.status, true);
+    push_optional_string_field(out, indent + 2, "reason", dependency.reason, true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "diagnostic_code",
+        dependency.diagnostic_code,
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "help", dependency.help.as_deref(), false);
     push_indent(out, indent);
     out.push('}');
 }

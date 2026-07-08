@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use crate::ast::{Item, Program, Task};
 use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
+use crate::return_dependency;
 use crate::type_env::{self, TypeDeclaration, TypeEnvReport};
 use crate::version;
 
@@ -665,15 +666,16 @@ fn is_type_like_name(text: &str) -> bool {
 }
 
 fn expected_return_value_type(expected_type: &str) -> String {
-    let tokens = type_tokens(expected_type);
+    let expected_type = return_dependency::result_type_without_return_dependency(expected_type);
+    let tokens = type_tokens(&expected_type);
     if matches!(
         tokens.first().map(String::as_str),
-        Some("Result" | "Option" | "Maybe")
+        Some("Result" | "Option" | "Maybe" | "Slice" | "Span")
     ) && tokens.len() >= 2
     {
         tokens[1].clone()
     } else {
-        expected_type.trim().to_string()
+        expected_type
     }
 }
 
@@ -682,11 +684,12 @@ fn return_types_compatible(
     expected_value_type: &str,
     actual_type: &str,
 ) -> bool {
+    let expected_type = return_dependency::result_type_without_return_dependency(expected_type);
     let actual_key = name_key(actual_type);
     if actual_key.is_empty() {
         return false;
     }
-    if actual_key == name_key(expected_type) || actual_key == name_key(expected_value_type) {
+    if actual_key == name_key(&expected_type) || actual_key == name_key(expected_value_type) {
         return true;
     }
     actual_key == "integer_literal"

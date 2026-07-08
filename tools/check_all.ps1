@@ -251,6 +251,7 @@ try {
   if (-not $DiagnosticsJson.Contains('"code": "H0802"')) { throw 'diagnostic catalog JSON is missing H0802' }
   if (-not $DiagnosticsJson.Contains('"code": "H0803"')) { throw 'diagnostic catalog JSON is missing H0803' }
   if (-not $DiagnosticsJson.Contains('"code": "H0804"')) { throw 'diagnostic catalog JSON is missing H0804' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0805"')) { throw 'diagnostic catalog JSON is missing H0805' }
   if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
   if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
   if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
@@ -496,6 +497,14 @@ try {
   if (-not $RunSessionKBranchConsume.Output.Contains('H0803')) { throw "Session K branch-consume run expected H0803, got $($RunSessionKBranchConsume.Output)" }
   if (-not $RunSessionKBranchConsume.Output.Contains('help:')) { throw "Session K branch-consume run expected blame help, got $($RunSessionKBranchConsume.Output)" }
 
+  $RunSessionLParameterView = Read-NativeOutput 'run Session L parameter returned-view fixture' $Hum @('run', 'fixtures/ownership_check/session_l_return_parameter_view_pass.hum', '--entry', 'echo_view', '--args', 'hello hum')
+  if ($RunSessionLParameterView.Trim() -ne 'hello hum') { throw "Session L parameter returned-view run expected hello hum, got `$RunSessionLParameterView" }
+
+  $RunSessionLLocalView = Read-NativeOutputWithExit 'run Session L local returned-view misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_l_return_view_local_fail.hum', '--entry', 'local_view')
+  if ($RunSessionLLocalView.ExitCode -ne 2) { throw "Session L local returned-view run expected exit 2, got $($RunSessionLLocalView.ExitCode)" }
+  if (-not $RunSessionLLocalView.Output.Contains('H0805')) { throw "Session L local returned-view run expected H0805, got $($RunSessionLLocalView.Output)" }
+  if (-not $RunSessionLLocalView.Output.Contains('help:')) { throw "Session L local returned-view run expected blame help, got $($RunSessionLLocalView.Output)" }
+
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }
@@ -735,6 +744,25 @@ try {
   if (-not $OwnershipKBranchConsumeJson.Output.Contains('"diagnostic_code": "H0803"')) { throw "ownership check branch-consume expected H0803, got $($OwnershipKBranchConsumeJson.Output)" }
   if (-not $OwnershipKBranchConsumeJson.Output.Contains('if line 24 false')) { throw "ownership check branch-consume expected false path name, got $($OwnershipKBranchConsumeJson.Output)" }
 
+  $OwnershipLParameterViewJson = Read-NativeOutput 'ownership check Session L parameter returned-view JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_l_return_parameter_view_pass.hum')
+  Assert-Json 'ownership check Session L parameter returned-view JSON' $OwnershipLParameterViewJson
+  if (-not $OwnershipLParameterViewJson.Contains('"status": "recognized_core_ownership_facts_checked_v0"')) { throw "ownership check returned-view expected pass, got $OwnershipLParameterViewJson" }
+  if (-not $OwnershipLParameterViewJson.Contains('"return_dependencies"')) { throw "ownership check returned-view is missing return_dependencies, got $OwnershipLParameterViewJson" }
+  if (-not $OwnershipLParameterViewJson.Contains('"source": "text"')) { throw "ownership check returned-view expected source text, got $OwnershipLParameterViewJson" }
+  if (-not $OwnershipLParameterViewJson.Contains('"status": "accepted_return_dependency_parameter_v0"')) { throw "ownership check returned-view expected accepted dependency, got $OwnershipLParameterViewJson" }
+
+  $OwnershipLLocalViewJson = Read-NativeOutputWithExit 'ownership check Session L local returned-view JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_l_return_view_local_fail.hum')
+  if ($OwnershipLLocalViewJson.ExitCode -ne 1) { throw "ownership check local returned-view expected exit 1, got $($OwnershipLLocalViewJson.ExitCode)" }
+  Assert-Json 'ownership check Session L local returned-view JSON' $OwnershipLLocalViewJson.Output
+  if (-not $OwnershipLLocalViewJson.Output.Contains('"diagnostic_code": "H0805"')) { throw "ownership check local returned-view expected H0805, got $($OwnershipLLocalViewJson.Output)" }
+  if (-not $OwnershipLLocalViewJson.Output.Contains('"status": "rejected_return_dependency_local_v0"')) { throw "ownership check local returned-view expected local rejection, got $($OwnershipLLocalViewJson.Output)" }
+
+  $OwnershipLInternalViewJson = Read-NativeOutputWithExit 'ownership check Session L internal-reference returned-view JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_l_return_view_internal_fail.hum')
+  if ($OwnershipLInternalViewJson.ExitCode -ne 1) { throw "ownership check internal-reference returned-view expected exit 1, got $($OwnershipLInternalViewJson.ExitCode)" }
+  Assert-Json 'ownership check Session L internal-reference returned-view JSON' $OwnershipLInternalViewJson.Output
+  if (-not $OwnershipLInternalViewJson.Output.Contains('"diagnostic_code": "H0805"')) { throw "ownership check internal-reference returned-view expected H0805, got $($OwnershipLInternalViewJson.Output)" }
+  if (-not $OwnershipLInternalViewJson.Output.Contains('"status": "rejected_return_dependency_internal_reference_v0"')) { throw "ownership check internal-reference returned-view expected internal-reference rejection, got $($OwnershipLInternalViewJson.Output)" }
+
   $ResourceCheckJson = Read-NativeOutput 'resource check JSON' $Hum @('resource-check', '--format', 'json', 'fixtures/resource_check/simple_pass.hum')
   Assert-Json 'resource check JSON' $ResourceCheckJson
   if (-not $ResourceCheckJson.Contains('"schema": "hum.resource_check.v0"')) { throw 'resource check JSON is missing hum.resource_check.v0 schema' }
@@ -868,6 +896,12 @@ try {
   if (-not $GraphJson.Contains('"source_section": "targets"')) { throw 'reference fixture graph JSON is missing targets source section links' }
   if (-not $GraphJson.Contains('"no target selected"')) { throw 'reference fixture graph JSON must keep portability non-claim' }
   Assert-ReferenceEvidenceCoverage $Graph
+
+  $GraphParameterViewJson = Read-NativeOutput 'Session L parameter returned-view graph JSON' $Hum @('graph', 'fixtures/ownership_check/session_l_return_parameter_view_pass.hum')
+  Assert-Json 'Session L parameter returned-view graph JSON' $GraphParameterViewJson
+  if (-not $GraphParameterViewJson.Contains('"return_dependencies"')) { throw 'Session L graph JSON is missing return_dependencies' }
+  if (-not $GraphParameterViewJson.Contains('"source": "text"')) { throw 'Session L graph JSON is missing returned-view source text' }
+  if (-not $GraphParameterViewJson.Contains('"status": "declared_return_dependency_parameter_v0"')) { throw 'Session L graph JSON is missing returned-view parameter status' }
 
   Invoke-RepoScript 'editor fixture recovery' 'check_editor_fixtures.ps1'
 

@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use crate::ast::{App, Field, Item, Param, Program, Store, Task, Test, TypeDef};
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::resolve;
+use crate::return_dependency;
 use crate::version;
 
 pub const TYPE_ENV_SCHEMA: &str = "hum.type_env.v0";
@@ -448,7 +449,12 @@ fn type_declaration(
     input: DeclarationInput<'_>,
     declared_types: &BTreeSet<String>,
 ) -> TypeDeclaration {
-    let type_references = type_references(input.type_text, declared_types);
+    let reference_text = if input.declaration_kind == "result" {
+        return_dependency::result_type_without_return_dependency(input.type_text)
+    } else {
+        input.type_text.trim().to_string()
+    };
+    let type_references = type_references(&reference_text, declared_types);
     let status = declaration_status(&type_references, input.type_text);
     TypeDeclaration {
         id: prefixed_id(

@@ -5,6 +5,7 @@ use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
 use crate::core_verify;
 use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::return_dependency;
 use crate::type_check;
 use crate::version;
 
@@ -705,20 +706,22 @@ fn is_type_like_name(text: &str) -> bool {
 }
 
 fn expected_return_value_type(expected_type: &str) -> String {
-    let tokens = type_tokens(expected_type);
+    let expected_type = return_dependency::result_type_without_return_dependency(expected_type);
+    let tokens = type_tokens(&expected_type);
     if matches!(
         tokens.first().map(String::as_str),
-        Some("Result" | "Option" | "Maybe")
+        Some("Result" | "Option" | "Maybe" | "Slice" | "Span")
     ) && tokens.len() >= 2
     {
         tokens[1].clone()
     } else {
-        expected_type.trim().to_string()
+        expected_type
     }
 }
 
 fn expected_error_value_type(expected_type: &str) -> Option<String> {
-    let tokens = type_tokens(expected_type);
+    let expected_type = return_dependency::result_type_without_return_dependency(expected_type);
+    let tokens = type_tokens(&expected_type);
     if matches!(tokens.first().map(String::as_str), Some("Result")) && tokens.len() >= 3 {
         Some(tokens[2].clone())
     } else {
@@ -727,15 +730,16 @@ fn expected_error_value_type(expected_type: &str) -> Option<String> {
 }
 
 fn types_compatible(expected_type: &str, actual_type: &str) -> bool {
+    let expected_type = return_dependency::result_type_without_return_dependency(expected_type);
     let actual_key = name_key(actual_type);
     if actual_key.is_empty() {
         return false;
     }
-    if actual_key == name_key(expected_type) {
+    if actual_key == name_key(&expected_type) {
         return true;
     }
     actual_key == "integer_literal"
-        && matches!(name_key(expected_type).as_str(), "int" | "uint" | "float")
+        && matches!(name_key(&expected_type).as_str(), "int" | "uint" | "float")
 }
 
 fn type_tokens(type_text: &str) -> Vec<String> {

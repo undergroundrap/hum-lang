@@ -7,6 +7,7 @@ use crate::graph::{
     is_meaningful_line_text, linked_test_count, test_obligations,
 };
 use crate::node_id;
+use crate::return_dependency;
 use crate::target_facts;
 
 pub const SEMANTIC_GRAPH_SCHEMA: &str = "hum.semantic_graph.v0";
@@ -456,6 +457,8 @@ fn write_item(out: &mut String, item: &Item, indent: usize, test_coverages: &[Te
                     .as_ref()
                     .map_or("null".to_string(), |result| quote(result))
             ));
+            write_return_dependencies_field(out, task, indent + 2);
+            out.push_str(",\n");
             write_sections_field(out, &task.sections, indent + 2);
             out.push_str(",\n");
             write_test_obligations_field(out, task, indent + 2, test_coverages);
@@ -481,6 +484,48 @@ fn write_item(out: &mut String, item: &Item, indent: usize, test_coverages: &[Te
         }
     }
     out.push_str(&format!("{pad}}}"));
+}
+
+fn write_return_dependencies_field(out: &mut String, task: &Task, indent: usize) {
+    let pad = " ".repeat(indent);
+    out.push_str(&format!("{pad}\"return_dependencies\": ["));
+    if let Some(dependency) = task
+        .result
+        .as_deref()
+        .and_then(return_dependency::parse_return_dependency)
+    {
+        let source_kind = if return_dependency::is_bare_source_name(&dependency.source)
+            && task
+                .params
+                .iter()
+                .any(|param| param.name == dependency.source)
+        {
+            "parameter"
+        } else if dependency.source.contains('.') {
+            "internal_reference"
+        } else {
+            "unknown"
+        };
+        let status = if source_kind == "parameter" {
+            "declared_return_dependency_parameter_v0"
+        } else {
+            "declared_return_dependency_unchecked_v0"
+        };
+        let dependency_id = node_id::span(
+            "return_dependency",
+            &task.span,
+            &format!("{} {}", task.name, dependency.source),
+        );
+        out.push_str(&format!(
+            "{{\"id\": {}, \"result_type\": {}, \"source\": {}, \"source_kind\": {}, \"status\": {}}}",
+            quote(&dependency_id),
+            quote(&dependency.result_type),
+            quote(&dependency.source),
+            quote(source_kind),
+            quote(status)
+        ));
+    }
+    out.push(']');
 }
 
 fn write_params(out: &mut String, params: &[crate::ast::Param]) {

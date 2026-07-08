@@ -271,6 +271,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Remove the second consume, split the control flow, or create a fresh resource before consuming again.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER,
+        default_severity: Severity::Error,
+        explanation: "A returned-view `from` relationship names a source that is not a task parameter, or the returned expression does not visibly come from that source.",
+        repair: "Name a parameter after `from` and return that bare parameter in the V0 subset; locals, internal references, and complex expressions remain explicit future repairs.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
         default_severity: Severity::Error,
         explanation: "A `targets:` section names a target fact record that Hum does not publish in `hum target-facts`.",
@@ -367,6 +373,10 @@ mod tests {
         assert_eq!(
             find("H0804").map(|info| info.code),
             Some(DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE)
+        );
+        assert_eq!(
+            find("H0805").map(|info| info.code),
+            Some(DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER)
         );
         assert_eq!(
             find("H1201").map(|info| info.code),

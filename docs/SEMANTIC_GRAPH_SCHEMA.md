@@ -201,6 +201,7 @@ Tasks contain:
 
 - `params`
 - `result`
+- `return_dependencies`
 - `sections`
 - `test_obligations`
 - `evidence_obligations`
@@ -211,6 +212,14 @@ Params contain:
 - `name`
 - `type`
 - `span`
+
+Return dependencies are emitted when task result text contains the current `ResultType from source` shape. They are graph facts, not proof claims. Each entry contains:
+
+- `id`
+- `result_type`: result text before `from`
+- `source`: source text after `from`
+- `source_kind`: currently `parameter`, `internal_reference`, or `unknown`
+- `status`: `declared_return_dependency_parameter_v0` when the source names a parameter, otherwise `declared_return_dependency_unchecked_v0`
 
 ### Test Obligations
 

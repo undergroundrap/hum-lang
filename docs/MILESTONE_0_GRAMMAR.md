@@ -89,7 +89,7 @@ Current capture rules:
 - App names, store names, and task names are value identifiers.
 - Type names are type identifiers.
 - `store-type` is trimmed text after the first `:` in a store header.
-- `result-type` is trimmed text after `->` in a task header.
+- `result-type` is trimmed text after `->` in a task header. The parser captures `from` relationships as part of this result text; `hum ownership-check` gives the currently supported `ResultType from parameter` form its ownership meaning.
 - A nonconforming identifier produces `H0009`.
 
 ## Identifier Grammar

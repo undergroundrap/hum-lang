@@ -1,0 +1,6 @@
+module fixtures.ownership_check.session_l_return_parameter_view_pass
+
+task echo_view(borrow text: Text) -> Slice Text from text {
+  does:
+    return text
+}
