@@ -571,9 +571,13 @@ Hum lessons:
   panics are abandonment, never values, never caught in ordinary code, and
   their blast radius is profile policy.
 - The effect-polymorphism decision must be made before closures enter Core
-  Hum. An acceptable first answer is that closures carry monomorphic,
-  explicit effects; an unacceptable answer is discovering the problem after
-  effect annotations are load-bearing across the stdlib.
+  Hum. Corrected 2026-07-08 after the ownership/contracts/effects research
+  snapshot: monomorphic closure effects are acceptable only while the
+  standard library stays first-order. Before any higher-order stdlib API
+  (`map`, `fold`, `retry`, `with_timeout`, `parallel_map`) stabilizes, Hum
+  needs at least one mechanism for "this function's effect includes its
+  callback's effect," or those APIs bifurcate into pure/impure families.
+  See [research/2026-07-08-ownership-contracts-effects-determinism.md](research/2026-07-08-ownership-contracts-effects-determinism.md).
 - Any future async design must answer the coloring question explicitly and
   in writing before syntax work; async-as-effect keeps one function color
   and fits the existing effect set.

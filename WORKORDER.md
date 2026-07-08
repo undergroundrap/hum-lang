@@ -247,7 +247,10 @@ corpus.
    fixed schedule) is structural, not a mocking framework. Payoff:
    reproducible tests, golden-output tests, replay debugging. This is the
    practical selling point of the capability system and should be built soon
-   after the interpreter exists.
+   after the interpreter exists. Research-backed gates (2026-07-08 snapshot):
+   virtualize time and scheduling before the stdlib grows ambient clock
+   APIs; a failing deterministic test must replay bit-for-bit from one
+   artifact; core collections need stable test-mode iteration order.
 2. Semantic diff. `hum diff <old> <new>` reports changes as graph facts:
    effects added or removed, contracts strengthened or weakened, capabilities
    gained, unsafe introduced. Evidence-native applied to changes, not just
@@ -272,6 +275,15 @@ corpus.
 7. Language editions. A Rust-editions-style mechanism so source written today
    compiles for decades while the language evolves. Belongs in
    RELEASE_AND_VERSIONING.md before any public alpha promises stability.
+8. Contract check policy decision record. Session C made needs:/ensures:
+   fire; the policy (always/debug/profile) is undecided. Research direction
+   (2026-07-08 snapshot): debug runs all contracts; release runs boundary
+   and unproved contracts, elides mechanically proved internal ones; the
+   compiler classifies every contract as proved | boundary | unproved |
+   external-trust and exports the classification as build evidence. Also
+   resolves the divide unreachable-guard observation. Needs the ADR before
+   profiles or a release mode exist; higher-order blame wrappers
+   (Findler-Felleisen) gate closures alongside effect polymorphism.
 
 ## Appendix: ownership bake-off program suite
 
@@ -286,6 +298,16 @@ Each candidate is scored per program on: can it express the program safely,
 what the user actually writes, what diagnostic appears on misuse, and
 whether a beginner can explain why the rule exists. The winner must clear
 all ten or explicitly name its escape hatch.
+
+Sharpened by the 2026-07-08 research snapshot: the null hypothesis entering
+the bake-off is Rust-like ownership designed against the known repair list
+(flow-sensitive conditional returns, disjoint-field projections, internal
+references), plus linear resources for exactly-once protocols, plus explicit
+arenas. A candidate must beat that combination, not vanilla-2015 Rust.
+Quantified gate: the core model must clear at least seven of ten programs
+without escape hatches or incidental allocation, and every escape hatch must
+name its cost (allocation, runtime check, proof obligation, or unsafe
+responsibility).
 
 1. Doubly linked list with back-pointers (the classic Rust wall).
 2. Arena-allocated graph with cycles, freed as a unit.
