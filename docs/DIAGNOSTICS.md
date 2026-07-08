@@ -115,7 +115,7 @@ JSON shape in `hum diagnostics --format json`:
 ```json
 {
   "schema": "hum.diagnostic_catalog.v0",
-  "count": 37,
+  "count": 39,
   "diagnostics": [
     {
       "code": "H0201",
@@ -250,6 +250,8 @@ Future ranges should be reserved before broad use:
 |---|---|---|---|
 | `H0801` | error | use after move | A value was used after an earlier `consume` argument or return moved it. |
 | `H0802` | error | borrowed parameter written | A default-`borrow` parameter was targeted by `set`; mark it `change` or avoid mutation. |
+| `H0803` | error | linear resource not consumed | A recognized linear resource reached a return, failure, or fallthrough path without exactly one visible consume action. |
+| `H0804` | error | linear resource consumed twice | A recognized linear resource was consumed after an earlier action already ended it on that path. |
 
 ### Target And Backend Metadata
 

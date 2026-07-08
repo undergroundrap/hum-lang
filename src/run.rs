@@ -65,6 +65,8 @@ struct RuntimeBinding {
     value: Value,
     permission: RuntimePermission,
     moved_at: Option<Span>,
+    moved_by: Option<String>,
+    linear: bool,
 }
 
 impl RuntimeBinding {
@@ -73,14 +75,18 @@ impl RuntimeBinding {
             value,
             permission: RuntimePermission::from(permission),
             moved_at: None,
+            moved_by: None,
+            linear: false,
         }
     }
 
-    fn local(value: Value) -> Self {
+    fn local(value: Value, linear: bool) -> Self {
         Self {
             value,
             permission: RuntimePermission::Local,
             moved_at: None,
+            moved_by: None,
+            linear,
         }
     }
 }
@@ -201,14 +207,20 @@ impl<'a> Interpreter<'a> {
         match self.eval_block(&lines, 0, lines.len(), &mut env, &task.name)? {
             Flow::Return(value) => self.finish_success(task, value, &env),
             Flow::Fail(value) => Ok(TaskResult::Failed(value)),
-            Flow::Continue => self.finish_success(task, Value::Unit, &env),
+            Flow::Continue => {
+                self.ensure_linear_closed_on_exit(&env, &task.name, "fallthrough", &task.span)?;
+                self.finish_success(task, Value::Unit, &env)
+            }
             Flow::ContractViolation => Ok(TaskResult::ContractViolation),
         }
     }
 
     fn finish_success(&self, task: &Task, value: Value, env: &Env) -> Result<TaskResult, String> {
         let mut exit_env = env.clone();
-        exit_env.insert("result".to_string(), RuntimeBinding::local(value.clone()));
+        exit_env.insert(
+            "result".to_string(),
+            RuntimeBinding::local(value.clone(), false),
+        );
         if !self.evaluate_contract_section(task, "ensures", ContractKind::Ensures, &mut exit_env)? {
             return Ok(TaskResult::ContractViolation);
         }
@@ -341,7 +353,7 @@ impl<'a> Interpreter<'a> {
                 let name = name.trim();
                 let previous = env.get(name).cloned();
                 for value in values {
-                    env.insert(name.to_string(), RuntimeBinding::local(value));
+                    env.insert(name.to_string(), RuntimeBinding::local(value, false));
                     let flow = self.eval_block(lines, index + 1, close, env, task_name)?;
                     if flow != Flow::Continue {
                         restore_binding(env, name, previous);
@@ -356,19 +368,28 @@ impl<'a> Interpreter<'a> {
             if let Some(expr) = strip_keyword(text, "return") {
                 return match self.eval_expr(expr, env, &line.span, task_name)? {
                     Evaluated::Value(value) => {
-                        if let Some(root) = bare_return_root(expr) {
-                            self.mark_moved(env, &root, &line.span);
+                        if let Some(root) = bare_return_root(expr)
+                            && !is_linear_binding(env, &root)
+                        {
+                            self.mark_moved(env, &root, &line.span, "return");
                         }
+                        self.ensure_linear_closed_on_exit(env, task_name, "return", &line.span)?;
                         Ok(Flow::Return(value))
                     }
-                    Evaluated::Failure(value) => Ok(Flow::Fail(value)),
+                    Evaluated::Failure(value) => {
+                        self.ensure_linear_closed_on_exit(env, task_name, "fail", &line.span)?;
+                        Ok(Flow::Fail(value))
+                    }
                     Evaluated::ContractViolation => Ok(Flow::ContractViolation),
                 };
             }
 
             if let Some(expr) = strip_keyword(text, "fail") {
                 return match self.eval_expr(expr, env, &line.span, task_name)? {
-                    Evaluated::Value(value) | Evaluated::Failure(value) => Ok(Flow::Fail(value)),
+                    Evaluated::Value(value) | Evaluated::Failure(value) => {
+                        self.ensure_linear_closed_on_exit(env, task_name, "fail", &line.span)?;
+                        Ok(Flow::Fail(value))
+                    }
                     Evaluated::ContractViolation => Ok(Flow::ContractViolation),
                 };
             }
@@ -415,13 +436,15 @@ impl<'a> Interpreter<'a> {
         let (left, expr) = rest
             .split_once('=')
             .ok_or_else(|| format!("binding `{rest}` is missing an initializer"))?;
+        let annotation = left.split_once(':').map(|(_name, ty)| ty.trim());
         let name = left.split_once(':').map_or(left, |(name, _ty)| name).trim();
         if name.is_empty() {
             return Err(format!("binding `{rest}` is missing a name"));
         }
+        let linear = annotation.is_some_and(is_linear_resource_type);
         match self.eval_expr(expr.trim(), env, span, task_name)? {
             Evaluated::Value(value) => {
-                env.insert(name.to_string(), RuntimeBinding::local(value));
+                env.insert(name.to_string(), RuntimeBinding::local(value, linear));
                 Ok(None)
             }
             Evaluated::Failure(value) => Ok(Some(Flow::Fail(value))),
@@ -659,11 +682,12 @@ impl<'a> Interpreter<'a> {
             let mut values = Vec::new();
             for arg in raw_args {
                 if let Some(root) = consume_argument_root(arg) {
-                    let value = self.read_value(env, &root, span, task_name)?;
-                    self.mark_moved(env, &root, span);
+                    let value = self.read_consume_value(env, &root, span, task_name)?;
+                    self.mark_moved(env, &root, span, &task.name);
                     values.push(value);
                     continue;
                 }
+                let arg = strip_borrow_or_change_argument(arg).unwrap_or(arg);
                 match self.eval_expr(arg, env, span, task_name)? {
                     Evaluated::Value(value) => values.push(value),
                     Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
@@ -721,6 +745,32 @@ impl<'a> Interpreter<'a> {
         Ok(binding.value.clone())
     }
 
+    fn read_consume_value(
+        &self,
+        env: &Env,
+        name: &str,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Value, String> {
+        let root = place_root(name);
+        let Some(binding) = env.get(&root) else {
+            return Err(format!("unknown expression `{name}`"));
+        };
+        if let Some(move_span) = &binding.moved_at {
+            if binding.linear {
+                return Err(self.linear_double_consume_trap(
+                    task_name,
+                    &root,
+                    span,
+                    move_span,
+                    binding.moved_by.as_deref().unwrap_or("consume"),
+                ));
+            }
+            return Err(self.use_after_move_trap(task_name, &root, span, move_span));
+        }
+        Ok(binding.value.clone())
+    }
+
     fn ensure_can_set(
         &self,
         env: &Env,
@@ -754,10 +804,11 @@ impl<'a> Interpreter<'a> {
             binding.value = value;
         }
         binding.moved_at = None;
+        binding.moved_by = None;
         Ok(())
     }
 
-    fn mark_moved(&self, env: &mut Env, root: &str, span: &Span) {
+    fn mark_moved(&self, env: &mut Env, root: &str, span: &Span, action: &str) {
         if let Some(binding) = env.get_mut(root)
             && matches!(
                 binding.permission,
@@ -765,7 +816,26 @@ impl<'a> Interpreter<'a> {
             )
         {
             binding.moved_at.get_or_insert_with(|| span.clone());
+            if binding.moved_by.is_none() {
+                binding.moved_by = Some(action.to_string());
+            }
         }
+    }
+
+    fn ensure_linear_closed_on_exit(
+        &self,
+        env: &Env,
+        task_name: &str,
+        exit_kind: &str,
+        span: &Span,
+    ) -> Result<(), String> {
+        if let Some((root, _binding)) = env
+            .iter()
+            .find(|(_root, binding)| binding.linear && binding.moved_at.is_none())
+        {
+            return Err(self.linear_not_consumed_trap(task_name, root, exit_kind, span));
+        }
+        Ok(())
     }
 
     fn use_after_move_trap(
@@ -808,6 +878,56 @@ impl<'a> Interpreter<'a> {
             "{} {}",
             DiagnosticCode::BORROW_PARAMETER_MUTATION.as_str(),
             DiagnosticCode::BORROW_PARAMETER_MUTATION.title()
+        )
+    }
+
+    fn linear_not_consumed_trap(
+        &self,
+        task_name: &str,
+        root: &str,
+        exit_kind: &str,
+        span: &Span,
+    ) -> String {
+        self.diagnostics.borrow_mut().push(
+            Diagnostic::error(
+                DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED,
+                format!("linear resource `{root}` reached {exit_kind} without being consumed"),
+                Some(span.clone()),
+            )
+            .with_help(format!(
+                "Fix task `{task_name}`: consume `{root}` exactly once with commit, rollback, close, or transfer before leaving this path."
+            )),
+        );
+        format!(
+            "{} {}",
+            DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED.as_str(),
+            DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED.title()
+        )
+    }
+
+    fn linear_double_consume_trap(
+        &self,
+        task_name: &str,
+        root: &str,
+        span: &Span,
+        move_span: &Span,
+        moved_by: &str,
+    ) -> String {
+        self.diagnostics.borrow_mut().push(
+            Diagnostic::error(
+                DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE,
+                format!("linear resource `{root}` was consumed twice"),
+                Some(span.clone()),
+            )
+            .with_help(format!(
+                "Fix task `{task_name}`: `{root}` was already consumed by {moved_by} at {}:{}:{}; keep exactly one commit, rollback, close, or transfer on each path.",
+                move_span.file, move_span.line, move_span.column
+            )),
+        );
+        format!(
+            "{} {}",
+            DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE.as_str(),
+            DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE.title()
         )
     }
 }
@@ -1077,6 +1197,39 @@ fn consume_argument_root(text: &str) -> Option<String> {
     let rest = strip_keyword(text.trim(), "consume")?;
     let root = place_root(rest);
     if root.is_empty() { None } else { Some(root) }
+}
+
+fn strip_borrow_or_change_argument(text: &str) -> Option<&str> {
+    ["borrow", "change"]
+        .iter()
+        .find_map(|keyword| strip_keyword(text.trim(), keyword))
+}
+
+fn is_linear_binding(env: &Env, root: &str) -> bool {
+    env.get(root).is_some_and(|binding| binding.linear)
+}
+
+fn is_linear_resource_type(type_text: &str) -> bool {
+    type_tokens(type_text)
+        .into_iter()
+        .any(|token| token.eq_ignore_ascii_case("Transaction") || token.ends_with("Transaction"))
+}
+
+fn type_tokens(type_text: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    for ch in type_text.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            current.push(ch);
+        } else if !current.is_empty() {
+            tokens.push(current.clone());
+            current.clear();
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
 }
 
 fn bare_return_root(text: &str) -> Option<String> {

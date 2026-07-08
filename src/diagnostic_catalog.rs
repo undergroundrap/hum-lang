@@ -259,6 +259,18 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Mark the parameter `change`, copy into a `change` local, or remove the mutation.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED,
+        default_severity: Severity::Error,
+        explanation: "A recognized linear resource reached a return, failure, or fallthrough path without exactly one visible `consume` action.",
+        repair: "Commit, rollback, close, or transfer the resource exactly once on the path named in the help text.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE,
+        default_severity: Severity::Error,
+        explanation: "A recognized linear resource was consumed after an earlier commit, rollback, close, transfer, or consume already ended it on that path.",
+        repair: "Remove the second consume, split the control flow, or create a fresh resource before consuming again.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
         default_severity: Severity::Error,
         explanation: "A `targets:` section names a target fact record that Hum does not publish in `hum target-facts`.",
@@ -347,6 +359,14 @@ mod tests {
         assert_eq!(
             find("H0802").map(|info| info.code),
             Some(DiagnosticCode::BORROW_PARAMETER_MUTATION)
+        );
+        assert_eq!(
+            find("H0803").map(|info| info.code),
+            Some(DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED)
+        );
+        assert_eq!(
+            find("H0804").map(|info| info.code),
+            Some(DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE)
         );
         assert_eq!(
             find("H1201").map(|info| info.code),

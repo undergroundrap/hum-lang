@@ -118,9 +118,34 @@ struct MoveTracker {
     moved: BTreeMap<String, MoveSite>,
 }
 
+#[derive(Clone)]
 struct MoveSite {
     span: Span,
-    kind: &'static str,
+    kind: String,
+}
+
+#[derive(Clone)]
+struct LinearResourceSite {
+    span: Span,
+    type_text: String,
+}
+
+#[derive(Clone, Default)]
+struct PathState {
+    moved: BTreeMap<String, MoveSite>,
+    linear_resources: BTreeMap<String, LinearResourceSite>,
+    open_linear_roots: BTreeSet<String>,
+    path: Vec<String>,
+}
+
+struct PathDiagnostic {
+    index: usize,
+    ownership_kind: &'static str,
+    target: Option<String>,
+    status: &'static str,
+    reason: &'static str,
+    diagnostic_code: &'static str,
+    help: String,
 }
 
 struct OwnershipStatement {
@@ -370,9 +395,9 @@ fn check_item(item: &Item, blocked: bool) -> Option<OwnershipItem> {
     let body = core_body::analyze_does_section(does);
     let declarations = collect_declarations(item_sections(item));
     let ownership_facts = local_ownership_facts(item, &body.statements);
-    let mut move_tracker = MoveTracker::default();
     let mut statements = Vec::new();
     for (index, statement) in body.statements.iter().enumerate() {
+        let mut move_tracker = MoveTracker::default();
         statements.push(check_statement_ownership(
             item.name(),
             statement,
@@ -382,6 +407,12 @@ fn check_item(item: &Item, blocked: bool) -> Option<OwnershipItem> {
             &mut move_tracker,
             blocked,
         ));
+    }
+    if !blocked {
+        apply_path_diagnostics(
+            &mut statements,
+            linear_path_diagnostics(item.name(), &body.statements, &ownership_facts),
+        );
     }
     let boundary_checks = boundary_checks(
         item,
@@ -805,6 +836,464 @@ fn ownership_statement_with_diagnostic(
     statement
 }
 
+fn apply_path_diagnostics(
+    statements: &mut [OwnershipStatement],
+    diagnostics: BTreeMap<usize, PathDiagnostic>,
+) {
+    for (_index, diagnostic) in diagnostics {
+        if let Some(statement) = statements.get_mut(diagnostic.index) {
+            statement.ownership_kind = diagnostic.ownership_kind;
+            statement.target = diagnostic.target;
+            statement.declaration = None;
+            statement.status = diagnostic.status;
+            statement.reason = Some(diagnostic.reason);
+            statement.diagnostic_code = Some(diagnostic.diagnostic_code);
+            statement.help = Some(diagnostic.help);
+        }
+    }
+}
+
+fn linear_path_diagnostics(
+    item_name: &str,
+    statements: &[BodyStatement],
+    ownership_facts: &LocalOwnershipFacts,
+) -> BTreeMap<usize, PathDiagnostic> {
+    let mut diagnostics = BTreeMap::new();
+    let states = analyze_statement_range(
+        item_name,
+        statements,
+        0,
+        statements.len(),
+        vec![PathState::default()],
+        ownership_facts,
+        &mut diagnostics,
+    );
+    if let Some(exit_index) = last_non_close_statement(statements) {
+        for state in states {
+            record_missing_linear_diagnostics(
+                item_name,
+                statements,
+                exit_index,
+                "fallthrough",
+                &state,
+                &mut diagnostics,
+            );
+        }
+    }
+    diagnostics
+}
+
+fn analyze_statement_range(
+    item_name: &str,
+    statements: &[BodyStatement],
+    start: usize,
+    end: usize,
+    mut states: Vec<PathState>,
+    ownership_facts: &LocalOwnershipFacts,
+    diagnostics: &mut BTreeMap<usize, PathDiagnostic>,
+) -> Vec<PathState> {
+    let mut index = start;
+    while index < end {
+        let statement = &statements[index];
+        if statement.kind == "block_close" {
+            index += 1;
+            continue;
+        }
+        if statement.kind == "if_header"
+            && let Some(close) = matching_statement_close(statements, index)
+            && close <= end
+        {
+            let true_states = states
+                .iter()
+                .cloned()
+                .map(|mut state| {
+                    state
+                        .path
+                        .push(format!("if line {} true", statement.span.line));
+                    state
+                })
+                .collect::<Vec<_>>();
+            let false_states = states
+                .into_iter()
+                .map(|mut state| {
+                    state
+                        .path
+                        .push(format!("if line {} false", statement.span.line));
+                    state
+                })
+                .collect::<Vec<_>>();
+            let mut next_states = analyze_statement_range(
+                item_name,
+                statements,
+                index + 1,
+                close,
+                true_states,
+                ownership_facts,
+                diagnostics,
+            );
+            next_states.extend(false_states);
+            states = next_states;
+            index = close + 1;
+            continue;
+        }
+
+        states = analyze_single_statement(
+            item_name,
+            statements,
+            index,
+            states,
+            ownership_facts,
+            diagnostics,
+        );
+        if states.is_empty() {
+            break;
+        }
+        index += 1;
+    }
+    states
+}
+
+fn analyze_single_statement(
+    item_name: &str,
+    statements: &[BodyStatement],
+    index: usize,
+    states: Vec<PathState>,
+    ownership_facts: &LocalOwnershipFacts,
+    diagnostics: &mut BTreeMap<usize, PathDiagnostic>,
+) -> Vec<PathState> {
+    let statement = &statements[index];
+    let mut next_states = Vec::new();
+    for mut state in states {
+        if statement.status == "unsupported_v0" {
+            next_states.push(state);
+            continue;
+        }
+
+        let consume_roots = consume_move_roots(statement);
+        let mut rejected = false;
+        for root in &consume_roots {
+            if let Some(move_site) = state.moved.get(root) {
+                record_path_diagnostic(
+                    diagnostics,
+                    if state.linear_resources.contains_key(root) {
+                        linear_double_consume_diagnostic(
+                            item_name, statements, index, root, move_site, &state,
+                        )
+                    } else {
+                        use_after_move_diagnostic(item_name, index, root, move_site, &state)
+                    },
+                );
+                rejected = true;
+                break;
+            }
+        }
+        if rejected {
+            continue;
+        }
+
+        for root in statement_roots(statement) {
+            if let Some(move_site) = state.moved.get(&root) {
+                record_path_diagnostic(
+                    diagnostics,
+                    use_after_move_diagnostic(item_name, index, &root, move_site, &state),
+                );
+                rejected = true;
+                break;
+            }
+        }
+        if rejected {
+            continue;
+        }
+
+        let consume_action = consume_action(statement);
+        for root in consume_roots {
+            if ownership_facts.is_movable_root(&root) {
+                state.moved.entry(root.clone()).or_insert_with(|| MoveSite {
+                    span: portable_span(&statement.span),
+                    kind: consume_action.clone(),
+                });
+                state.open_linear_roots.remove(&root);
+            }
+        }
+
+        if let Some((root, type_text)) = linear_binding(statement) {
+            state.linear_resources.insert(
+                root.clone(),
+                LinearResourceSite {
+                    span: portable_span(&statement.span),
+                    type_text,
+                },
+            );
+            state.open_linear_roots.insert(root);
+        }
+
+        if let Some(root) = returned_move_root(statement, ownership_facts) {
+            state.moved.entry(root).or_insert_with(|| MoveSite {
+                span: portable_span(&statement.span),
+                kind: "return".to_string(),
+            });
+        }
+
+        if matches!(statement.kind, "return" | "fail") {
+            record_missing_linear_diagnostics(
+                item_name,
+                statements,
+                index,
+                statement.kind,
+                &state,
+                diagnostics,
+            );
+            continue;
+        }
+
+        next_states.push(state);
+    }
+    next_states
+}
+
+fn record_path_diagnostic(
+    diagnostics: &mut BTreeMap<usize, PathDiagnostic>,
+    diagnostic: PathDiagnostic,
+) {
+    diagnostics.entry(diagnostic.index).or_insert(diagnostic);
+}
+
+fn record_missing_linear_diagnostics(
+    item_name: &str,
+    statements: &[BodyStatement],
+    index: usize,
+    exit_kind: &str,
+    state: &PathState,
+    diagnostics: &mut BTreeMap<usize, PathDiagnostic>,
+) {
+    for root in &state.open_linear_roots {
+        let Some(site) = state.linear_resources.get(root) else {
+            continue;
+        };
+        record_path_diagnostic(
+            diagnostics,
+            PathDiagnostic {
+                index,
+                ownership_kind: "linear_resource_missing_consume",
+                target: Some(root.clone()),
+                status: "rejected_linear_resource_not_consumed_v0",
+                reason: "linear_resource_must_be_consumed_exactly_once_on_every_path_v0",
+                diagnostic_code: DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED.as_str(),
+                help: linear_missing_help(
+                    item_name,
+                    root,
+                    site,
+                    &statements[index],
+                    exit_kind,
+                    state,
+                ),
+            },
+        );
+    }
+}
+
+fn use_after_move_diagnostic(
+    item_name: &str,
+    index: usize,
+    target: &str,
+    move_site: &MoveSite,
+    state: &PathState,
+) -> PathDiagnostic {
+    PathDiagnostic {
+        index,
+        ownership_kind: "use_after_move",
+        target: Some(target.to_string()),
+        status: "rejected_use_after_move_v0",
+        reason: "value_used_after_move_v0",
+        diagnostic_code: DiagnosticCode::USE_AFTER_MOVE.as_str(),
+        help: path_move_help(item_name, target, move_site, state),
+    }
+}
+
+fn linear_double_consume_diagnostic(
+    item_name: &str,
+    statements: &[BodyStatement],
+    index: usize,
+    target: &str,
+    move_site: &MoveSite,
+    state: &PathState,
+) -> PathDiagnostic {
+    PathDiagnostic {
+        index,
+        ownership_kind: "linear_resource_double_consume",
+        target: Some(target.to_string()),
+        status: "rejected_linear_resource_consumed_twice_v0",
+        reason: "linear_resource_consumed_more_than_once_v0",
+        diagnostic_code: DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE.as_str(),
+        help: linear_double_consume_help(item_name, target, move_site, &statements[index], state),
+    }
+}
+
+fn linear_binding(statement: &BodyStatement) -> Option<(String, String)> {
+    if !matches!(statement.kind, "let_binding" | "mutable_binding") {
+        return None;
+    }
+    let type_text = binding_annotation(statement)?;
+    if !is_linear_resource_type(&type_text) {
+        return None;
+    }
+    let root = binding_name(statement).map(|name| first_resource(&name))?;
+    Some((root, type_text))
+}
+
+fn binding_annotation(statement: &BodyStatement) -> Option<String> {
+    if !matches!(statement.kind, "let_binding" | "mutable_binding") {
+        return None;
+    }
+    let keyword = if statement.kind == "let_binding" {
+        "let"
+    } else {
+        "change"
+    };
+    let rest = strip_keyword(&statement.text, keyword)?;
+    let left = rest.split_once('=').map(|(left, _value)| left.trim())?;
+    let (_name, type_text) = left.split_once(':')?;
+    let type_text = type_text.trim();
+    if type_text.is_empty() {
+        None
+    } else {
+        Some(type_text.to_string())
+    }
+}
+
+fn is_linear_resource_type(type_text: &str) -> bool {
+    type_tokens(type_text)
+        .into_iter()
+        .any(|token| token.eq_ignore_ascii_case("Transaction") || token.ends_with("Transaction"))
+}
+
+fn type_tokens(type_text: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    for ch in type_text.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            current.push(ch);
+        } else if !current.is_empty() {
+            tokens.push(current.clone());
+            current.clear();
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+fn consume_action(statement: &BodyStatement) -> String {
+    expression_text_for_statement(statement)
+        .and_then(call_callee_name)
+        .unwrap_or_else(|| "consume_argument".to_string())
+}
+
+fn call_callee_name(text: &str) -> Option<String> {
+    let (callee, _args) = text.trim().split_once('(')?;
+    let callee = callee.trim();
+    if callee.is_empty()
+        || !callee
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.')
+    {
+        None
+    } else {
+        Some(first_resource(callee))
+    }
+}
+
+fn matching_statement_close(statements: &[BodyStatement], open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (index, statement) in statements.iter().enumerate().skip(open) {
+        if statement.text.ends_with('{') {
+            depth = depth.saturating_add(1);
+        }
+        if statement.kind == "block_close" {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+    }
+    None
+}
+
+fn last_non_close_statement(statements: &[BodyStatement]) -> Option<usize> {
+    statements
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_index, statement)| statement.kind != "block_close")
+        .map(|(index, _statement)| index)
+}
+
+fn format_path(path: &[String]) -> String {
+    if path.is_empty() {
+        "straight-line path".to_string()
+    } else {
+        path.join(" -> ")
+    }
+}
+
+fn path_move_help(
+    item_name: &str,
+    target: &str,
+    move_site: &MoveSite,
+    state: &PathState,
+) -> String {
+    format!(
+        "Fix task {item_name} on {}: {target} was moved by {} at {}:{}:{}; use it before that move or create a fresh owned value.",
+        format_path(&state.path),
+        move_site.kind,
+        move_site.span.file,
+        move_site.span.line,
+        move_site.span.column
+    )
+}
+
+fn linear_missing_help(
+    item_name: &str,
+    target: &str,
+    site: &LinearResourceSite,
+    exit_statement: &BodyStatement,
+    exit_kind: &str,
+    state: &PathState,
+) -> String {
+    format!(
+        "Fix task {item_name} on {}: linear resource {target} declared as {} at {}:{}:{} reaches {exit_kind} at {}:{}:{} without commit, rollback, close, or transfer; consume it exactly once before leaving this path.",
+        format_path(&state.path),
+        site.type_text,
+        site.span.file,
+        site.span.line,
+        site.span.column,
+        exit_statement.span.file,
+        exit_statement.span.line,
+        exit_statement.span.column
+    )
+}
+
+fn linear_double_consume_help(
+    item_name: &str,
+    target: &str,
+    move_site: &MoveSite,
+    statement: &BodyStatement,
+    state: &PathState,
+) -> String {
+    format!(
+        "Fix task {item_name} on {}: linear resource {target} was already consumed by {} at {}:{}:{} before the second consume at {}:{}:{}; keep exactly one commit, rollback, close, or transfer on each path.",
+        format_path(&state.path),
+        move_site.kind,
+        move_site.span.file,
+        move_site.span.line,
+        move_site.span.column,
+        statement.span.file,
+        statement.span.line,
+        statement.span.column
+    )
+}
+
 fn boundary_checks(
     item: &Item,
     declarations: &OwnershipDeclarations,
@@ -996,7 +1485,7 @@ fn record_statement_moves(
         if ownership_facts.is_movable_root(&root) {
             move_tracker.moved.entry(root).or_insert_with(|| MoveSite {
                 span: portable_span(&statement.span),
-                kind: "consume_argument",
+                kind: "consume_argument".to_string(),
             });
         }
     }
@@ -1004,7 +1493,7 @@ fn record_statement_moves(
     if let Some(root) = returned_move_root(statement, ownership_facts) {
         move_tracker.moved.entry(root).or_insert_with(|| MoveSite {
             span: portable_span(&statement.span),
-            kind: "return",
+            kind: "return".to_string(),
         });
     }
 }
@@ -1081,7 +1570,12 @@ fn bare_place_root(expression: &str) -> Option<String> {
 fn identifier_roots(expression: &str) -> Vec<String> {
     identifier_tokens(expression)
         .into_iter()
-        .filter(|token| !matches!(token.as_str(), "consume" | "true" | "false"))
+        .filter(|token| {
+            !matches!(
+                token.as_str(),
+                "borrow" | "change" | "consume" | "true" | "false"
+            )
+        })
         .filter(|token| {
             token
                 .chars()

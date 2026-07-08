@@ -249,6 +249,8 @@ try {
   if (-not $DiagnosticsJson.Contains('"code": "H0703"')) { throw 'diagnostic catalog JSON is missing H0703' }
   if (-not $DiagnosticsJson.Contains('"code": "H0801"')) { throw 'diagnostic catalog JSON is missing H0801' }
   if (-not $DiagnosticsJson.Contains('"code": "H0802"')) { throw 'diagnostic catalog JSON is missing H0802' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0803"')) { throw 'diagnostic catalog JSON is missing H0803' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0804"')) { throw 'diagnostic catalog JSON is missing H0804' }
   if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
   if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
   if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
@@ -452,6 +454,9 @@ try {
   $RunTaskListFlow = Read-NativeOutput 'run probe task_list_flow' $Hum @('run', 'examples/probes/task_list_flow.hum', '--entry', 'task_list_demo')
   if ($RunTaskListFlow.Trim() -ne '1') { throw "hum run task_list_flow expected 1, got `$RunTaskListFlow" }
 
+  $RunTransactionOnce = Read-NativeOutput 'run probe transaction_once' $Hum @('run', 'examples/probes/transaction_once.hum', '--entry', 'transfer', '--args', '10')
+  if ($RunTransactionOnce.Trim() -ne 'ok') { throw "hum run transaction_once expected ok, got `$RunTransactionOnce" }
+
   $RunSessionJBorrow = Read-NativeOutput 'run Session J borrow fixture' $Hum @('run', 'fixtures/ownership_check/session_j_borrow_pass.hum', '--entry', 'echo', '--args', '7')
   if ($RunSessionJBorrow.Trim() -ne '7') { throw "Session J borrow run expected 7, got `$RunSessionJBorrow" }
 
@@ -475,6 +480,21 @@ try {
   if ($RunSessionJDoubleConsume.ExitCode -ne 2) { throw "Session J double-consume run expected exit 2, got $($RunSessionJDoubleConsume.ExitCode)" }
   if (-not $RunSessionJDoubleConsume.Output.Contains('H0801')) { throw "Session J double-consume run expected H0801, got $($RunSessionJDoubleConsume.Output)" }
   if (-not $RunSessionJDoubleConsume.Output.Contains('help:')) { throw "Session J double-consume run expected blame help, got $($RunSessionJDoubleConsume.Output)" }
+
+  $RunSessionKMissingConsume = Read-NativeOutputWithExit 'run Session K missing-consume misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_k_missing_consume_fail.hum', '--entry', 'transfer_missing', '--args', '0')
+  if ($RunSessionKMissingConsume.ExitCode -ne 2) { throw "Session K missing-consume run expected exit 2, got $($RunSessionKMissingConsume.ExitCode)" }
+  if (-not $RunSessionKMissingConsume.Output.Contains('H0803')) { throw "Session K missing-consume run expected H0803, got $($RunSessionKMissingConsume.Output)" }
+  if (-not $RunSessionKMissingConsume.Output.Contains('help:')) { throw "Session K missing-consume run expected blame help, got $($RunSessionKMissingConsume.Output)" }
+
+  $RunSessionKDoubleConsume = Read-NativeOutputWithExit 'run Session K double-consume misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_k_double_consume_fail.hum', '--entry', 'transfer_double_consume')
+  if ($RunSessionKDoubleConsume.ExitCode -ne 2) { throw "Session K double-consume run expected exit 2, got $($RunSessionKDoubleConsume.ExitCode)" }
+  if (-not $RunSessionKDoubleConsume.Output.Contains('H0804')) { throw "Session K double-consume run expected H0804, got $($RunSessionKDoubleConsume.Output)" }
+  if (-not $RunSessionKDoubleConsume.Output.Contains('commit')) { throw "Session K double-consume run expected prior commit blame, got $($RunSessionKDoubleConsume.Output)" }
+
+  $RunSessionKBranchConsume = Read-NativeOutputWithExit 'run Session K branch-consume misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_k_branch_consume_fail.hum', '--entry', 'branch_consume', '--args', '1')
+  if ($RunSessionKBranchConsume.ExitCode -ne 2) { throw "Session K branch-consume run expected exit 2, got $($RunSessionKBranchConsume.ExitCode)" }
+  if (-not $RunSessionKBranchConsume.Output.Contains('H0803')) { throw "Session K branch-consume run expected H0803, got $($RunSessionKBranchConsume.Output)" }
+  if (-not $RunSessionKBranchConsume.Output.Contains('help:')) { throw "Session K branch-consume run expected blame help, got $($RunSessionKBranchConsume.Output)" }
 
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
@@ -691,6 +711,29 @@ try {
   if ($OwnershipDoubleConsumeJson.ExitCode -ne 1) { throw "ownership check double-consume expected exit 1, got $($OwnershipDoubleConsumeJson.ExitCode)" }
   Assert-Json 'ownership check Session J double-consume JSON' $OwnershipDoubleConsumeJson.Output
   if (-not $OwnershipDoubleConsumeJson.Output.Contains('"diagnostic_code": "H0801"')) { throw "ownership check double-consume expected H0801, got $($OwnershipDoubleConsumeJson.Output)" }
+
+  $OwnershipTransactionOnceJson = Read-NativeOutput 'ownership check Session K transaction JSON' $Hum @('ownership-check', '--format', 'json', 'examples/probes/transaction_once.hum')
+  Assert-Json 'ownership check Session K transaction JSON' $OwnershipTransactionOnceJson
+  if (-not $OwnershipTransactionOnceJson.Contains('"status": "recognized_core_ownership_facts_checked_v0"')) { throw "ownership check transaction expected pass, got $OwnershipTransactionOnceJson" }
+  if (-not $OwnershipTransactionOnceJson.Contains('"blocking_issues": 0')) { throw "ownership check transaction expected zero blockers, got $OwnershipTransactionOnceJson" }
+
+  $OwnershipKMissingConsumeJson = Read-NativeOutputWithExit 'ownership check Session K missing-consume JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_k_missing_consume_fail.hum')
+  if ($OwnershipKMissingConsumeJson.ExitCode -ne 1) { throw "ownership check missing-consume expected exit 1, got $($OwnershipKMissingConsumeJson.ExitCode)" }
+  Assert-Json 'ownership check Session K missing-consume JSON' $OwnershipKMissingConsumeJson.Output
+  if (-not $OwnershipKMissingConsumeJson.Output.Contains('"diagnostic_code": "H0803"')) { throw "ownership check missing-consume expected H0803, got $($OwnershipKMissingConsumeJson.Output)" }
+  if (-not $OwnershipKMissingConsumeJson.Output.Contains('if line 31 true')) { throw "ownership check missing-consume expected true path name, got $($OwnershipKMissingConsumeJson.Output)" }
+
+  $OwnershipKDoubleConsumeJson = Read-NativeOutputWithExit 'ownership check Session K double-consume JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_k_double_consume_fail.hum')
+  if ($OwnershipKDoubleConsumeJson.ExitCode -ne 1) { throw "ownership check double-consume expected exit 1, got $($OwnershipKDoubleConsumeJson.ExitCode)" }
+  Assert-Json 'ownership check Session K double-consume JSON' $OwnershipKDoubleConsumeJson.Output
+  if (-not $OwnershipKDoubleConsumeJson.Output.Contains('"diagnostic_code": "H0804"')) { throw "ownership check double-consume expected H0804, got $($OwnershipKDoubleConsumeJson.Output)" }
+  if (-not $OwnershipKDoubleConsumeJson.Output.Contains('already consumed by commit')) { throw "ownership check double-consume expected previous commit in help, got $($OwnershipKDoubleConsumeJson.Output)" }
+
+  $OwnershipKBranchConsumeJson = Read-NativeOutputWithExit 'ownership check Session K branch-consume JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_k_branch_consume_fail.hum')
+  if ($OwnershipKBranchConsumeJson.ExitCode -ne 1) { throw "ownership check branch-consume expected exit 1, got $($OwnershipKBranchConsumeJson.ExitCode)" }
+  Assert-Json 'ownership check Session K branch-consume JSON' $OwnershipKBranchConsumeJson.Output
+  if (-not $OwnershipKBranchConsumeJson.Output.Contains('"diagnostic_code": "H0803"')) { throw "ownership check branch-consume expected H0803, got $($OwnershipKBranchConsumeJson.Output)" }
+  if (-not $OwnershipKBranchConsumeJson.Output.Contains('if line 24 false')) { throw "ownership check branch-consume expected false path name, got $($OwnershipKBranchConsumeJson.Output)" }
 
   $ResourceCheckJson = Read-NativeOutput 'resource check JSON' $Hum @('resource-check', '--format', 'json', 'fixtures/resource_check/simple_pass.hum')
   Assert-Json 'resource check JSON' $ResourceCheckJson

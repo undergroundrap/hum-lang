@@ -280,3 +280,19 @@ friction:
   severity: verbose
   indicts: types
   proposal: put record update syntax through the ownership bake-off instead of adding it ad hoc
+
+friction:
+  program: examples/probes/transaction_once.hum:69
+  wanted: write `rollback(consume txn)` and `commit(consume txn)` as standalone close actions
+  forced: bind each `Unit` result to a throwaway local because standalone call statements are not in the recognized Core body grammar yet
+  severity: awkward
+  indicts: core-body-grammar
+  proposal: admit standalone effect/close call statements only after they preserve effect, ownership, and diagnostic facts
+
+friction:
+  program: examples/probes/transaction_once.hum:66
+  wanted: mark a local as a linear resource with explicit source syntax or a declared resource kind
+  forced: recognize Transaction-shaped type annotations as the first narrow linear-resource class
+  severity: awkward
+  indicts: ownership
+  proposal: design a source-visible linear resource marker before generalizing exactly-once checking beyond transaction probes

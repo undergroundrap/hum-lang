@@ -1073,7 +1073,7 @@ fn expression_name_references(expression: &CoreExpressionPreview) -> Vec<Pending
                 }
             }
             "surface_text" => {
-                if let Some(name) = consume_argument_name(&atom.text) {
+                if let Some(name) = permission_argument_name(&atom.text) {
                     references.push(PendingNameReference {
                         name,
                         reference_kind: "name_ref",
@@ -1198,8 +1198,10 @@ fn parameter_state_kind(param: &Param) -> &'static str {
     }
 }
 
-fn consume_argument_name(text: &str) -> Option<String> {
-    let rest = strip_keyword(text.trim(), "consume")?;
+fn permission_argument_name(text: &str) -> Option<String> {
+    let rest = ["borrow", "change", "consume"]
+        .iter()
+        .find_map(|keyword| strip_keyword(text.trim(), keyword))?;
     let name = place_root(rest);
     if name.is_empty() { None } else { Some(name) }
 }

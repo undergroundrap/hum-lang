@@ -1,0 +1,30 @@
+module fixtures.ownership_check.session_k_branch_consume_fail
+
+type Transaction {
+  id: UInt
+}
+
+task begin_transaction() -> Transaction {
+  does:
+    return Transaction.open
+}
+
+task rollback(consume txn: Transaction) -> Unit {
+  does:
+    return
+}
+
+task branch_consume(amount: UInt) -> Text {
+  why:
+    prove consuming in only one branch still leaves the other path open
+
+  does:
+    let txn: Transaction = begin_transaction()
+
+    if amount == 0 {
+      let rolled_back: Unit = rollback(consume txn)
+      return "rolled back"
+    }
+
+    return "open"
+}

@@ -87,6 +87,10 @@ impl DiagnosticCode {
 
     pub const USE_AFTER_MOVE: Self = Self::new("H0801", "use after move");
     pub const BORROW_PARAMETER_MUTATION: Self = Self::new("H0802", "borrowed parameter written");
+    pub const LINEAR_RESOURCE_NOT_CONSUMED: Self =
+        Self::new("H0803", "linear resource not consumed");
+    pub const LINEAR_RESOURCE_CONSUMED_TWICE: Self =
+        Self::new("H0804", "linear resource consumed twice");
 
     pub const UNKNOWN_TARGET_FACT_RECORD: Self = Self::new("H1201", "unknown target fact record");
     pub const UNKNOWN_CAPABILITY_FAMILY: Self = Self::new("H1202", "unknown capability family");

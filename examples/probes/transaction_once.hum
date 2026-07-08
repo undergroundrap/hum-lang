@@ -1,0 +1,80 @@
+module examples.probes.transaction_once
+
+type Transaction {
+  id: UInt
+}
+
+type TransferError {
+  code: Text
+}
+
+task begin_transaction() -> Transaction {
+  why:
+    stub a transaction resource for the linear exactly-once probe
+
+  does:
+    return Transaction.open
+}
+
+task record_debit(change txn: Transaction, amount: UInt) -> Bool {
+  why:
+    stub a successful debit unless the amount is zero
+
+  does:
+    return amount > 0
+}
+
+task record_credit(change txn: Transaction, amount: UInt) -> Bool {
+  why:
+    stub a credit failure for one deterministic probe amount
+
+  does:
+    return amount != 13
+}
+
+task rollback(consume txn: Transaction) -> Unit {
+  why:
+    close the transaction on a failure path
+
+  does:
+    return
+}
+
+task commit(consume txn: Transaction) -> Unit {
+  why:
+    close the transaction on the success path
+
+  does:
+    return
+}
+
+task transfer(amount: UInt) -> Result Text, TransferError {
+  why:
+    prove a transaction is committed or rolled back exactly once on every path
+
+
+  fails when:
+    debit fails
+    credit fails
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    let txn: Transaction = begin_transaction()
+
+    if record_debit(change txn, amount) == false {
+      let rolled_back_debit: Unit = rollback(consume txn)
+      fail TransferError.debit_failed
+    }
+
+    if record_credit(change txn, amount) == false {
+      let rolled_back_credit: Unit = rollback(consume txn)
+      fail TransferError.credit_failed
+    }
+
+    let committed: Unit = commit(consume txn)
+    return "ok"
+}

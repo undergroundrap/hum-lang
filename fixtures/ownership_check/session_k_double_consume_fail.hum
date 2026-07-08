@@ -1,0 +1,31 @@
+module fixtures.ownership_check.session_k_double_consume_fail
+
+type Transaction {
+  id: UInt
+}
+
+task begin_transaction() -> Transaction {
+  does:
+    return Transaction.open
+}
+
+task commit(consume txn: Transaction) -> Unit {
+  does:
+    return
+}
+
+task rollback(consume txn: Transaction) -> Unit {
+  does:
+    return
+}
+
+task transfer_double_consume() -> Text {
+  why:
+    prove a transaction cannot be committed and then rolled back on one path
+
+  does:
+    let txn: Transaction = begin_transaction()
+    let committed: Unit = commit(consume txn)
+    let rolled_back: Unit = rollback(consume txn)
+    return "bad"
+}

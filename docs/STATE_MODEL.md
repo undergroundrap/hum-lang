@@ -30,9 +30,12 @@ documents the intended state rules and names the small current checker behavior:
 `set name = ...` must target a local `change name: ...` or a matching
 `changes:` entry.
 
-V0 does not implement borrowing, lifetime inference, move checking, linear type
-checking, concurrency, memory-order semantics, garbage collection, executable
-semantics, optimizer behavior, or allocation placement.
+The `hum state-model` V0 contract document does not itself implement borrowing,
+lifetime inference, move checking, concurrency, memory-order semantics, garbage
+collection, executable semantics, optimizer behavior, or allocation placement.
+`hum ownership-check` now implements narrow ordinary move checks and the first
+Transaction-shaped linear-resource path check; it is not a complete ownership,
+borrow, or memory-safety checker.
 
 The schema document is [HUM_STATE_MODEL_SCHEMA.md](HUM_STATE_MODEL_SCHEMA.md).
 
@@ -181,8 +184,8 @@ If state is not central, every later subsystem invents its own half-model.
 2. Keep `hum resolve --format json` in preflight as the first checked source-place link report.
 3. Add graph links for local mutable declarations and `set` targets once the resolver shape is stable.
 4. Add an effect report that compares declared `uses:`/`changes:` with inferred reads and writes.
-5. Add simple move and no-use-after-move experiments only after the executable core exists.
-6. Add linear-resource fixtures for handles, transactions, locks, and capabilities.
+5. Keep widening ordinary move and no-use-after-move fixtures only when the executable core can demonstrate them.
+6. Broaden linear-resource fixtures from Transaction-shaped locals to handles, locks, and capabilities after the v0 path checker earns it.
 7. Delay concurrency syntax until the state model can explain ownership and memory-order facts.
 
 ## Brutal Rule

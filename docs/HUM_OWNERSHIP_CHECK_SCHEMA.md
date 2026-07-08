@@ -8,7 +8,7 @@ Current schema: `hum.ownership_check.v0`
 
 `hum ownership-check` is the first non-executing ownership and alias-fact gate after recognized Core/body effect checking. It consumes `hum.effect_check.v0` readiness and checks only ownership facts the current Core/body grammar can honestly see.
 
-V0 is intentionally conservative. It verifies parameter permission identity (`borrow`, `change`, `consume`), immutable local ownership from `let`, exclusive mutable local ownership from `change`, parameter mutation permission through `set`, local moves caused by `consume` arguments and returns, duplicate local place names, and explicit blockers inherited from prior gates. It does not infer lifetimes, prove memory safety, check concurrency, validate unsafe provenance, or implement disjoint-field projection, internal references, or flow-sensitive borrowing.
+V0 is intentionally conservative. It verifies parameter permission identity (`borrow`, `change`, `consume`), immutable local ownership from `let`, exclusive mutable local ownership from `change`, parameter mutation permission through `set`, local moves caused by `consume` arguments and returns, duplicate local place names, and explicit blockers inherited from prior gates. It now also checks the first recognized linear-resource class: local bindings with Transaction-shaped annotations must be consumed exactly once on every recognized `if`/`return`/`fail` path. It does not infer lifetimes, prove memory safety, check concurrency, validate unsafe provenance, or implement disjoint-field projection, internal references, or flow-sensitive borrowing.
 
 This command does not execute source, emit Hum IR, prove memory safety, enforce borrowing, enforce runtime profiles, prove allocation safety, or claim a complete ownership system.
 
@@ -97,8 +97,11 @@ V0 recognizes and checks:
 - local mutation through `set name = value` when `name` was declared by `change`
 - parameter mutation through `set name = value` only when the parameter is marked `change` or `consume`
 - local moves when a local is passed as `consume name` or returned
-- use after move as `H0801`, including double consume of the same local
+- use after move as `H0801`, including double consume of the same ordinary local
 - borrowed-parameter writes as `H0802`
+- Transaction-shaped local bindings as the first recognized linear resources
+- missing linear-resource consume on any recognized path as `H0803`, with the path named in `help`
+- double consume of a recognized linear resource as `H0804`, with the earlier consuming action named in `help`
 - external changes as deferred to the later resource check when the target is not a local or parameter place and the effect gate already accepted `changes:`
 - duplicate local place names inside one `does:` body as ownership errors
 - unsupported statements as explicit ownership blockers
@@ -117,6 +120,8 @@ V0 recognizes and checks:
 - `rejected_mutating_immutable_local_v0`
 - `rejected_mutating_borrowed_parameter_v0`
 - `rejected_use_after_move_v0`
+- `rejected_linear_resource_not_consumed_v0`
+- `rejected_linear_resource_consumed_twice_v0`
 - `rejected_missing_mutation_authority_v0`
 - `unchecked_statement_ownership_v0`
 - `not_checked_blocked_by_prior_errors_v0`
@@ -132,7 +137,7 @@ V0 recognizes and checks:
 - It must not claim executable semantics.
 - It must not emit Core Hum, Hum IR, bytecode, machine code, backend adapter input, proof artifacts, optimized code, or executable behavior.
 - It must not claim complete ownership safety, borrow safety, lifetime inference, alias safety, memory safety, allocation safety, profile enforcement, optimization, or backend readiness.
-- It may report recognized V0 ownership facts and explicit blockers only.
+- It may report recognized V0 ownership facts, narrow Transaction-shaped linear-resource path facts, and explicit blockers only.
 - It must block when `hum.effect_check.v0` reports blockers.
 - It must stay in sync with `hum core-contract --format json`, `hum ir-readiness --format json`, `hum capabilities --format json`, and `hum version --format json`.
 

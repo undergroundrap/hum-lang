@@ -602,8 +602,8 @@ fn infer_expression_type(
     if text.is_empty() {
         return Some(type_fact("Unit", "unit_expression_v0"));
     }
-    if let Some(consumed) = strip_consume_expression(text) {
-        return infer_expression_type(consumed, environment, task_returns);
+    if let Some(argument) = strip_permission_expression(text) {
+        return infer_expression_type(argument, environment, task_returns);
     }
     if text == "true" || text == "false" {
         return Some(type_fact("Bool", "bool_literal_v0"));
@@ -650,8 +650,10 @@ fn infer_additive_expression_type(
     }
 }
 
-fn strip_consume_expression(text: &str) -> Option<&str> {
-    strip_keyword(text.trim(), "consume")
+fn strip_permission_expression(text: &str) -> Option<&str> {
+    ["borrow", "change", "consume"]
+        .iter()
+        .find_map(|keyword| strip_keyword(text.trim(), keyword))
 }
 
 fn split_call(text: &str) -> Option<(&str, &str)> {
