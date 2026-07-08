@@ -1,0 +1,26 @@
+type WorkError {
+  code: Text
+}
+
+task retry(flag: Bool) -> Result UInt, WorkError {
+  why:
+    keep the effect gate small
+
+  fails when:
+    flag is false
+
+  protects:
+    retry state stays bounded
+
+  trusts:
+    caller gives a stable flag
+
+  does:
+    change attempts: UInt = 0
+    if flag == false {
+      fail WorkError.no_flag
+    }
+
+    set attempts = attempts + 1
+    return attempts
+}

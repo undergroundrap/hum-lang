@@ -154,6 +154,7 @@ try {
   if (-not $VersionJson.Contains('"core_lower": "hum.core_lower.v0"')) { throw 'version JSON is missing hum.core_lower.v0 schema' }
   if (-not $VersionJson.Contains('"core_verify": "hum.core_verify.v0"')) { throw 'version JSON is missing hum.core_verify.v0 schema' }
   if (-not $VersionJson.Contains('"full_type_check": "hum.full_type_check.v0"')) { throw 'version JSON is missing hum.full_type_check.v0 schema' }
+  if (-not $VersionJson.Contains('"effect_check": "hum.effect_check.v0"')) { throw 'version JSON is missing hum.effect_check.v0 schema' }
 
   $ExplainJson = Read-NativeOutput 'diagnostic explain JSON' $Hum @('explain', 'H0201', '--format', 'json')
   Assert-Json 'diagnostic explain JSON' $ExplainJson
@@ -196,6 +197,8 @@ try {
   if (-not $CapabilitiesJson.Contains('"type_check_json"')) { throw 'capabilities JSON is missing type_check_json command' }
   if (-not $CapabilitiesJson.Contains('"full_type_check"')) { throw 'capabilities JSON is missing full_type_check schema' }
   if (-not $CapabilitiesJson.Contains('"full_type_check_json"')) { throw 'capabilities JSON is missing full_type_check_json command' }
+  if (-not $CapabilitiesJson.Contains('"effect_check"')) { throw 'capabilities JSON is missing effect_check schema' }
+  if (-not $CapabilitiesJson.Contains('"effect_check_json"')) { throw 'capabilities JSON is missing effect_check_json command' }
   if (-not $CapabilitiesJson.Contains('"ir_readiness"')) { throw 'capabilities JSON is missing ir_readiness schema' }
   if (-not $CapabilitiesJson.Contains('"core_contract"')) { throw 'capabilities JSON is missing core_contract schema' }
   if (-not $CapabilitiesJson.Contains('"ir_contract"')) { throw 'capabilities JSON is missing ir_contract schema' }
@@ -227,6 +230,8 @@ try {
   if (-not $CoreContractJson.Contains('"status": "declaration_and_trivial_return_check_available"')) { throw 'Core contract JSON is missing narrow type-check gate status' }
   if (-not $CoreContractJson.Contains('"id": "full_type_check"')) { throw 'Core contract JSON is missing full_type_check gate' }
   if (-not $CoreContractJson.Contains('"status": "recognized_core_body_type_gate_available_v0"')) { throw 'Core contract JSON is missing full type-check gate status' }
+  if (-not $CoreContractJson.Contains('"id": "effect_check"')) { throw 'Core contract JSON is missing effect_check gate' }
+  if (-not $CoreContractJson.Contains('"status": "recognized_core_effect_gate_available_v0"')) { throw 'Core contract JSON is missing effect-check gate status' }
   if (-not $CoreContractJson.Contains('"id": "core_verify"')) { throw 'Core contract JSON is missing core_verify gate' }
   if (-not $CoreContractJson.Contains('"status": "verified_non_executing_core_artifact_v0"')) { throw 'Core contract JSON is missing core verify gate status' }
   if (-not $CoreContractJson.Contains('"no executable semantics"')) { throw 'Core contract JSON must keep V0 non-execution claim' }
@@ -241,6 +246,7 @@ try {
   if (-not $IrContractJson.Contains('"typed_failure_edges"')) { throw 'IR contract JSON is missing typed failure facts' }
   if (-not $IrContractJson.Contains('"core_verify"')) { throw 'IR contract JSON is missing core_verify pass' }
   if (-not $IrContractJson.Contains('"full_type_check"')) { throw 'IR contract JSON is missing full_type_check pass' }
+  if (-not $IrContractJson.Contains('"effect_check"')) { throw 'IR contract JSON is missing effect_check pass' }
   if (-not $IrContractJson.Contains('"ir_verify"')) { throw 'IR contract JSON is missing ir_verify pass' }
   if (-not $IrContractJson.Contains('"no IR emission for source files"')) { throw 'IR contract JSON must keep V0 non-emission claim' }
 
@@ -498,6 +504,17 @@ try {
   if (-not $FullTypeCheckJson.Contains('"execution_ready": 0')) { throw 'full type check JSON must not claim execution readiness' }
   if (-not $FullTypeCheckJson.Contains('"ir_ready": 0')) { throw 'full type check JSON must not claim IR readiness' }
   if (-not $FullTypeCheckJson.Contains('no memory-safety proof')) { throw 'full type check JSON must keep memory-safety non-claim' }
+  $EffectCheckJson = Read-NativeOutput 'effect check JSON' $Hum @('effect-check', '--format', 'json', 'fixtures/effect_check/simple_pass.hum')
+  Assert-Json 'effect check JSON' $EffectCheckJson
+  if (-not $EffectCheckJson.Contains('"schema": "hum.effect_check.v0"')) { throw 'effect check JSON is missing hum.effect_check.v0 schema' }
+  if (-not $EffectCheckJson.Contains('"status": "recognized_core_effects_checked_v0"')) { throw 'effect check JSON should pass for simple fixture' }
+  if (-not $EffectCheckJson.Contains('"mode": "recognized_core_effect_gate_v0"')) { throw 'effect check JSON is missing recognized effect gate mode' }
+  if (-not $EffectCheckJson.Contains('"blocking_issues": 0')) { throw 'effect check JSON should have zero blocking issues for simple fixture' }
+  if (-not $EffectCheckJson.Contains('"accepted_declared_failure_v0"')) { throw 'effect check JSON is missing declared failure facts' }
+  if (-not $EffectCheckJson.Contains('"accepted_local_mutation_v0"')) { throw 'effect check JSON is missing local mutation facts' }
+  if (-not $EffectCheckJson.Contains('"execution_ready": 0')) { throw 'effect check JSON must not claim execution readiness' }
+  if (-not $EffectCheckJson.Contains('"ir_ready": 0')) { throw 'effect check JSON must not claim IR readiness' }
+  if (-not $EffectCheckJson.Contains('no memory-safety proof')) { throw 'effect check JSON must keep memory-safety non-claim' }
 
   $IrReadinessJson = Read-NativeOutput 'IR readiness JSON' $Hum @('ir-readiness', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'IR readiness JSON' $IrReadinessJson
@@ -519,6 +536,8 @@ try {
   if (-not $IrReadinessJson.Contains('"schema": "hum.core_verify.v0"')) { throw 'IR readiness JSON is missing hum.core_verify.v0 schema link' }
   if (-not $IrReadinessJson.Contains('"full_type_check"')) { throw 'IR readiness JSON is missing full_type_check summary' }
   if (-not $IrReadinessJson.Contains('"schema": "hum.full_type_check.v0"')) { throw 'IR readiness JSON is missing hum.full_type_check.v0 schema link' }
+  if (-not $IrReadinessJson.Contains('"effect_check"')) { throw 'IR readiness JSON is missing effect_check summary' }
+  if (-not $IrReadinessJson.Contains('"schema": "hum.effect_check.v0"')) { throw 'IR readiness JSON is missing hum.effect_check.v0 schema link' }
   if (-not $IrReadinessJson.Contains('"mode": "non_executing_artifact_invariant_check_v0"')) { throw 'IR readiness JSON is missing core verify mode' }
   if (-not $IrReadinessJson.Contains('"status": "unverified_core_artifact_v0"')) { throw 'IR readiness JSON is missing unverified core lower status' }
   if (-not $IrReadinessJson.Contains('"typed_expression_previews": 1')) { throw 'IR readiness JSON is missing core preview typed expression count' }
@@ -532,6 +551,7 @@ try {
   if (-not $IrReadinessJson.Contains('"core_lower_summary_v0"')) { throw 'IR readiness JSON is missing core lower summary fact' }
   if (-not $IrReadinessJson.Contains('"core_verify_summary_v0"')) { throw 'IR readiness JSON is missing core verify summary fact' }
   if (-not $IrReadinessJson.Contains('"full_type_check_summary_v0"')) { throw 'IR readiness JSON is missing full type check summary fact' }
+  if (-not $IrReadinessJson.Contains('"effect_check_summary_v0"')) { throw 'IR readiness JSON is missing effect check summary fact' }
   if (-not $IrReadinessJson.Contains('"unverified_core_artifact_rows_v0"')) { throw 'IR readiness JSON is missing unverified core artifact row fact' }
   if (-not $IrReadinessJson.Contains('"verified_core_artifact_rows_v0"')) { throw 'IR readiness JSON is missing verified core artifact row fact' }
   if (-not $IrReadinessJson.Contains('"checked_return_expression_type_slots_v0"')) { throw 'IR readiness JSON is missing checked return expression slot fact' }
@@ -550,6 +570,7 @@ try {
   if (-not $IrReadinessJson.Contains('"declaration_and_trivial_return_check_available"')) { throw 'IR readiness JSON is missing type-check pass availability' }
   if (-not $IrReadinessJson.Contains('"full_type_check"')) { throw 'IR readiness JSON is missing full_type_check blocker' }
   if (-not $IrReadinessJson.Contains('"full_type_check_errors"')) { throw 'IR readiness JSON is missing full type-check blocker reason' }
+  if (-not $IrReadinessJson.Contains('"recognized_core_effect_gate_available_v0"')) { throw 'IR readiness JSON is missing effect-check pass availability' }
   if (-not $IrReadinessJson.Contains('"not_implemented"')) { throw 'IR readiness JSON is missing not_implemented blockers' }
   if (-not $IrReadinessJson.Contains('"no IR emission"')) { throw 'IR readiness JSON must keep V0 non-emission claim' }
 
@@ -699,7 +720,9 @@ try {
   if (-not $IrReadinessSchemaText.Contains('hum.core_lower.v0')) { throw 'IR readiness schema doc is missing core-lower schema link' }
   if (-not $IrReadinessSchemaText.Contains('hum.core_verify.v0')) { throw 'IR readiness schema doc is missing core-verify schema link' }
   if (-not $IrReadinessSchemaText.Contains('hum.full_type_check.v0')) { throw 'IR readiness schema doc is missing full type-check schema link' }
+  if (-not $IrReadinessSchemaText.Contains('hum.effect_check.v0')) { throw 'IR readiness schema doc is missing effect-check schema link' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_full_type_check_errors')) { throw 'IR readiness schema doc is missing full type-check blocker' }
+  if (-not $IrReadinessSchemaText.Contains('blocked_by_effect_check_errors')) { throw 'IR readiness schema doc is missing effect-check blocker' }
   if (-not $IrReadinessSchemaText.Contains('unverified_core_artifact_rows_v0')) { throw 'IR readiness schema doc is missing unverified core artifact row fact' }
   if (-not $IrReadinessSchemaText.Contains('core_verify')) { throw 'IR readiness schema doc is missing core_verify pass' }
   if (-not $IrReadinessSchemaText.Contains('verified_core_artifact_rows_v0')) { throw 'IR readiness schema doc is missing verified core artifact row fact' }
@@ -715,11 +738,17 @@ try {
   if (-not $CoreContractSchemaText.Contains('declaration_and_trivial_return_check_available')) { throw 'Core contract schema doc is missing narrow type-check gate' }
   if (-not $CoreContractSchemaText.Contains('full_type_check')) { throw 'Core contract schema doc is missing full type-check gate' }
   if (-not $CoreContractSchemaText.Contains('recognized_core_body_type_gate_available_v0')) { throw 'Core contract schema doc is missing full type-check gate status' }
+  if (-not $CoreContractSchemaText.Contains('recognized_core_effect_gate_available_v0')) { throw 'Core contract schema doc is missing effect-check gate status' }
   $FullTypeCheckSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_FULL_TYPE_CHECK_SCHEMA.md'))
   if (-not $FullTypeCheckSchemaText.Contains('hum.full_type_check.v0')) { throw 'full type check schema doc is missing hum.full_type_check.v0' }
   if (-not $FullTypeCheckSchemaText.Contains('recognized_core_body_type_gate_v0')) { throw 'full type check schema doc is missing gate mode' }
   if (-not $FullTypeCheckSchemaText.Contains('hum full-type-check')) { throw 'full type check schema doc is missing command' }
   if (-not $FullTypeCheckSchemaText.Contains('no executable semantics')) { throw 'full type check schema doc must keep non-execution claim' }
+  $EffectCheckSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_EFFECT_CHECK_SCHEMA.md'))
+  if (-not $EffectCheckSchemaText.Contains('hum.effect_check.v0')) { throw 'effect check schema doc is missing hum.effect_check.v0' }
+  if (-not $EffectCheckSchemaText.Contains('recognized_core_effect_gate_v0')) { throw 'effect check schema doc is missing gate mode' }
+  if (-not $EffectCheckSchemaText.Contains('hum effect-check')) { throw 'effect check schema doc is missing command' }
+  if (-not $EffectCheckSchemaText.Contains('no executable semantics')) { throw 'effect check schema doc must keep non-execution claim' }
   $CoreLowerSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_CORE_LOWER_SCHEMA.md'))
   if (-not $CoreLowerSchemaText.Contains('hum.core_lower.v0')) { throw 'Core lower schema doc is missing hum.core_lower.v0' }
   if (-not $CoreLowerSchemaText.Contains('unverified_core_artifact_v0')) { throw 'Core lower schema doc is missing unverified artifact status' }

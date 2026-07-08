@@ -14,6 +14,7 @@ mod diagnostic;
 mod diagnostic_catalog;
 mod diagnostics;
 mod doctor;
+mod effect_check;
 mod evidence;
 mod explain;
 mod full_type_check;
@@ -452,6 +453,35 @@ fn run() -> Result<ExitCode, String> {
                 ExitCode::SUCCESS
             })
         }
+        "effect-check" => {
+            if options.type_check_format == TypeCheckFormat::Human {
+                print_diagnostics(&diagnostics);
+            }
+            let has_effect_check_errors =
+                effect_check::effect_check_has_errors(&program, &diagnostics);
+            match options.type_check_format {
+                TypeCheckFormat::Human => {
+                    print!(
+                        "{}",
+                        effect_check::effect_check_text(&program, &diagnostics)
+                    )
+                }
+                TypeCheckFormat::Json => {
+                    print!(
+                        "{}",
+                        effect_check::effect_check_json(&program, &diagnostics)
+                    )
+                }
+            }
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            Ok(if has_errors || has_effect_check_errors {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
         "ir-readiness" => {
             if options.ir_readiness_format == IrReadinessFormat::Human {
                 print_diagnostics(&diagnostics);
@@ -495,7 +525,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         )),
     }
 }
@@ -708,6 +738,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "type-env"
             | "type-check"
             | "full-type-check"
+            | "effect-check"
             | "ir-readiness"
             | "syntax"
             | "version"
@@ -724,7 +755,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "target-facts"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         ));
     }
 
@@ -802,6 +833,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         | "type-env"
                         | "type-check"
                         | "full-type-check"
+                        | "effect-check"
                         | "ir-readiness"
                 ) =>
             {
@@ -839,6 +871,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "type-env" => type_env_format = parse_type_env_format(&value)?,
                     "type-check" => type_check_format = parse_type_check_format(&value)?,
                     "full-type-check" => type_check_format = parse_full_type_check_format(&value)?,
+                    "effect-check" => type_check_format = parse_effect_check_format(&value)?,
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(&value)?,
                     _ => unreachable!(),
                 }
@@ -869,6 +902,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     | "type-env"
                     | "type-check"
                     | "full-type-check"
+                    | "effect-check"
                     | "ir-readiness"
             ) && flag.starts_with("--format=") =>
             {
@@ -904,6 +938,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     "type-env" => type_env_format = parse_type_env_format(value)?,
                     "type-check" => type_check_format = parse_type_check_format(value)?,
                     "full-type-check" => type_check_format = parse_full_type_check_format(value)?,
+                    "effect-check" => type_check_format = parse_effect_check_format(value)?,
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(value)?,
                     _ => unreachable!(),
                 }
@@ -1611,6 +1646,16 @@ fn parse_full_type_check_format(value: &str) -> Result<TypeCheckFormat, String> 
     }
 }
 
+fn parse_effect_check_format(value: &str) -> Result<TypeCheckFormat, String> {
+    match value {
+        "human" => Ok(TypeCheckFormat::Human),
+        "json" => Ok(TypeCheckFormat::Json),
+        other => Err(format!(
+            "unknown effect-check format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
 fn parse_ir_contract_format(value: &str) -> Result<IrContractFormat, String> {
     match value {
         "human" => Ok(IrContractFormat::Human),
@@ -1875,6 +1920,7 @@ fn print_help() {
     println!("  hum type-env [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum type-check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum full-type-check [--format human|json] [--timings] <file-or-dir>...");
+    println!("  hum effect-check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum ir-readiness [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!("  hum syntax [--format json|textmate]");
@@ -1904,8 +1950,9 @@ fn print_help() {
     println!("  type-env          Emit declared type environment facts without type checking");
     println!("  type-check        Validate declaration annotations without expression inference");
     println!("  full-type-check   Check recognized Core/body statement types without execution");
+    println!("  effect-check      Check recognized Core/body effects without execution");
     println!(
-        "  ir-readiness      Report source readiness after full type checking, before effect checking and Hum IR lowering"
+        "  ir-readiness      Report source readiness after effect checking, before ownership/profile checking and Hum IR lowering"
     );
     println!("  test-skeletons    Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
@@ -2634,6 +2681,33 @@ mod tests {
         assert_eq!(
             error,
             "unknown full-type-check format `textmate`; expected `human` or `json`"
+        );
+    }
+
+    #[test]
+    fn parses_effect_check_json_format() {
+        let options = parse_cli(vec![
+            "effect-check".to_string(),
+            "--format=json".to_string(),
+            "examples".to_string(),
+        ])
+        .expect("effect-check json command");
+        assert_eq!(options.command, "effect-check");
+        assert_eq!(options.type_check_format, TypeCheckFormat::Json);
+    }
+
+    #[test]
+    fn rejects_unknown_effect_check_format() {
+        let error = parse_cli(vec![
+            "effect-check".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+            "examples".to_string(),
+        ])
+        .expect_err("effect-check should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown effect-check format `textmate`; expected `human` or `json`"
         );
     }
 

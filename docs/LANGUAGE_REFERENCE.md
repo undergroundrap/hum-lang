@@ -499,8 +499,8 @@ checked pass over scopes, definitions, references, and mutable-place targets.
 identity. `hum type-check` validates declaration annotation names without
 expression inference or body checking. `hum full-type-check` checks recognized
 Core/body statement type contexts and reports blockers without execution or IR
-emission. `hum ir-readiness` consumes the checked resolver, type, Core verifier,
-and full-type-check summaries before any future lowering claim. Any executable
+emission. `hum effect-check` checks recognized Core/body effect contexts and reports blockers without execution or IR emission. `hum ir-readiness` consumes the checked resolver, type, Core verifier,
+full-type-check, and effect-check summaries before any future lowering claim. Any executable
 syntax must resolve, enter the type environment, pass declaration annotation and
 recognized body type checking, then lower into [FORMAL_CORE.md](FORMAL_CORE.md)
 before it becomes stable.
@@ -694,6 +694,8 @@ hum type-check <file-or-dir>...
 hum type-check --format json <file-or-dir>...
 hum full-type-check <file-or-dir>...
 hum full-type-check --format json <file-or-dir>...
+hum effect-check <file-or-dir>...
+hum effect-check --format json <file-or-dir>...
 hum core-contract
 hum core-contract --format json
 hum ir-contract
@@ -751,6 +753,8 @@ cargo run -- type-check examples/reference_surface.hum
 cargo run -- type-check --format json examples/reference_surface.hum
 cargo run -- full-type-check fixtures/full_type_check/simple_pass.hum
 cargo run -- full-type-check --format json fixtures/full_type_check/simple_pass.hum
+cargo run -- effect-check fixtures/effect_check/simple_pass.hum
+cargo run -- effect-check --format json fixtures/effect_check/simple_pass.hum
 cargo run -- core-contract
 cargo run -- core-contract --format json
 cargo run -- ir-contract

@@ -2,6 +2,7 @@ use crate::core_body;
 use crate::core_lower;
 use crate::core_preview;
 use crate::core_verify;
+use crate::effect_check;
 use crate::full_type_check;
 use crate::ir_contract;
 use crate::json;
@@ -217,8 +218,8 @@ const ACCEPTANCE_GATES: &[AcceptanceGate] = &[
     },
     AcceptanceGate {
         id: "effect_check",
-        status: "planned",
-        requirement: "inferred effects fit declared uses, changes, fails, allocates, and profiles",
+        status: effect_check::EFFECT_CHECK_STATUS,
+        requirement: "recognized Core/body effects fit declared uses, changes, fails, protects, trusts, and explicit blockers",
     },
     AcceptanceGate {
         id: "profile_check",
@@ -252,7 +253,7 @@ const NON_GOALS_V0: &[&str] = &[
     "no verified source-to-core lowering",
     "no executable semantics",
     "no full type checker implementation",
-    "no effect checker implementation",
+    "no complete effect checker implementation",
     "no interpreter implementation",
     "no optimizer implementation",
     "no backend IR",
@@ -471,6 +472,7 @@ mod tests {
         assert!(text.contains("core_lowering [unverified_core_artifact_v0]"));
         assert!(text.contains("type_check [declaration_and_trivial_return_check_available]"));
         assert!(text.contains("full_type_check [recognized_core_body_type_gate_available_v0]"));
+        assert!(text.contains("effect_check [recognized_core_effect_gate_available_v0]"));
         assert!(text.contains("core_verify [verified_non_executing_core_artifact_v0]"));
         assert!(text.contains("no interpreter implementation"));
     }
@@ -493,7 +495,9 @@ mod tests {
         assert!(json.contains("\"id\": \"type_check\""));
         assert!(json.contains("\"status\": \"declaration_and_trivial_return_check_available\""));
         assert!(json.contains("\"id\": \"full_type_check\""));
+        assert!(json.contains("\"id\": \"effect_check\""));
         assert!(json.contains("\"status\": \"recognized_core_body_type_gate_available_v0\""));
+        assert!(json.contains("\"status\": \"recognized_core_effect_gate_available_v0\""));
         assert!(json.contains("\"id\": \"core_verify\""));
         assert!(json.contains("\"status\": \"verified_non_executing_core_artifact_v0\""));
         assert!(json.contains("\"status\": \"unverified_core_artifact_v0\""));
