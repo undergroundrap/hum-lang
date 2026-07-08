@@ -1,6 +1,7 @@
 use crate::backend_contract;
 use crate::capabilities;
 use crate::core_contract;
+use crate::core_lower;
 use crate::core_preview;
 use crate::diagnostic_catalog;
 use crate::doctor;
@@ -24,7 +25,7 @@ pub const HUM_MILESTONE: &str = "0 semantic graph";
 
 pub fn version_text() -> String {
     format!(
-        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\ncore_contract_schema: {}\ncore_preview_schema: {}\nresolve_report_schema: {}\ntype_env_schema: {}\ntype_check_schema: {}\nir_contract_schema: {}\nbackend_contract_schema: {}\nruntime_profiles_schema: {}\nruntime_profile_schema: {}\nstate_model_schema: {}\nstate_permission_schema: {}\nlsp_capabilities_schema: {}\nmath_obligations_report_schema: {}\nmath_obligation_schema: {}\nresource_report_schema: {}\nir_readiness_schema: {}\ndoctor_schema: {}\ntarget_facts_schema: {}\ntarget_fact_record_schema: {}\n",
+        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\ncore_contract_schema: {}\ncore_preview_schema: {}\ncore_lower_schema: {}\nresolve_report_schema: {}\ntype_env_schema: {}\ntype_check_schema: {}\nir_contract_schema: {}\nbackend_contract_schema: {}\nruntime_profiles_schema: {}\nruntime_profile_schema: {}\nstate_model_schema: {}\nstate_permission_schema: {}\nlsp_capabilities_schema: {}\nmath_obligations_report_schema: {}\nmath_obligation_schema: {}\nresource_report_schema: {}\nir_readiness_schema: {}\ndoctor_schema: {}\ntarget_facts_schema: {}\ntarget_fact_record_schema: {}\n",
         target_name(),
         json::SEMANTIC_GRAPH_SCHEMA,
         syntax::SYNTAX_SCHEMA,
@@ -33,6 +34,7 @@ pub fn version_text() -> String {
         capabilities::CAPABILITIES_SCHEMA,
         core_contract::CORE_CONTRACT_SCHEMA,
         core_preview::CORE_PREVIEW_SCHEMA,
+        core_lower::CORE_LOWER_SCHEMA,
         resolve::RESOLVE_REPORT_SCHEMA,
         type_env::TYPE_ENV_SCHEMA,
         type_check::TYPE_CHECK_SCHEMA,
@@ -104,6 +106,13 @@ pub fn version_json() -> String {
         4,
         "core_preview",
         core_preview::CORE_PREVIEW_SCHEMA,
+        true,
+    );
+    push_string_field(
+        &mut out,
+        4,
+        "core_lower",
+        core_lower::CORE_LOWER_SCHEMA,
         true,
     );
     push_string_field(
@@ -309,6 +318,7 @@ mod tests {
         assert!(text.contains("capabilities_schema: hum.capabilities.v0"));
         assert!(text.contains("core_contract_schema: hum.core_contract.v0"));
         assert!(text.contains("core_preview_schema: hum.core_preview.v0"));
+        assert!(text.contains("core_lower_schema: hum.core_lower.v0"));
         assert!(text.contains("resolve_report_schema: hum.resolve.v0"));
         assert!(text.contains("type_env_schema: hum.type_env.v0"));
         assert!(text.contains("type_check_schema: hum.type_check.v0"));
@@ -341,6 +351,7 @@ mod tests {
         assert!(json.contains("\"capabilities\": \"hum.capabilities.v0\""));
         assert!(json.contains("\"core_contract\": \"hum.core_contract.v0\""));
         assert!(json.contains("\"core_preview\": \"hum.core_preview.v0\""));
+        assert!(json.contains("\"core_lower\": \"hum.core_lower.v0\""));
         assert!(json.contains("\"resolve_report\": \"hum.resolve.v0\""));
         assert!(json.contains("\"type_env\": \"hum.type_env.v0\""));
         assert!(json.contains("\"type_check\": \"hum.type_check.v0\""));

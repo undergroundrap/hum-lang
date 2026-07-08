@@ -1,4 +1,5 @@
 use crate::core_body;
+use crate::core_lower;
 use crate::core_preview;
 use crate::ir_contract;
 use crate::json;
@@ -199,8 +200,8 @@ const ACCEPTANCE_GATES: &[AcceptanceGate] = &[
     },
     AcceptanceGate {
         id: "core_lowering",
-        status: "planned",
-        requirement: "surface bodies lower to only Core Hum families listed here",
+        status: core_lower::CORE_LOWER_STATUS,
+        requirement: "surface bodies lower to unverified source-mapped Core Hum artifact rows and blockers",
     },
     AcceptanceGate {
         id: "type_check",
@@ -241,14 +242,14 @@ const RULES: &[&str] = &[
 ];
 
 const NON_GOALS_V0: &[&str] = &[
-    "no source-to-core lowering",
+    "no verified source-to-core lowering",
     "no executable semantics",
     "no full type checker implementation",
     "no effect checker implementation",
     "no interpreter implementation",
     "no optimizer implementation",
     "no backend IR",
-    "no generated artifact",
+    "no executable or backend artifact",
     "no safety proof",
     "no solver or network dependency",
 ];
@@ -460,7 +461,7 @@ mod tests {
         assert!(text.contains("set_place"));
         assert!(text.contains("body_grammar [partial_v0]"));
         assert!(text.contains("core_preview [preview_v0]"));
-        assert!(text.contains("core_lowering [planned]"));
+        assert!(text.contains("core_lowering [unverified_core_artifact_v0]"));
         assert!(text.contains("no interpreter implementation"));
     }
 
@@ -479,6 +480,7 @@ mod tests {
         assert!(json.contains("\"id\": \"core_preview\""));
         assert!(json.contains("\"status\": \"preview_v0\""));
         assert!(json.contains("\"id\": \"core_lowering\""));
+        assert!(json.contains("\"status\": \"unverified_core_artifact_v0\""));
         assert!(json.contains("\"no executable semantics\""));
     }
 }

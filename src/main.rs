@@ -7,6 +7,7 @@ mod check;
 mod core_body;
 mod core_contract;
 mod core_expr;
+mod core_lower;
 mod core_preview;
 mod diagnostic;
 mod diagnostic_catalog;
@@ -314,6 +315,27 @@ fn run() -> Result<ExitCode, String> {
                 ExitCode::SUCCESS
             })
         }
+        "core-lower" => {
+            if options.core_lower_format == CoreLowerFormat::Human {
+                print_diagnostics(&diagnostics);
+            }
+            match options.core_lower_format {
+                CoreLowerFormat::Human => {
+                    print!("{}", core_lower::core_lower_text(&program, &diagnostics))
+                }
+                CoreLowerFormat::Json => {
+                    print!("{}", core_lower::core_lower_json(&program, &diagnostics))
+                }
+            }
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            Ok(if has_errors {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
         "resolve" => {
             if options.resolve_format == ResolveFormat::Human {
                 print_diagnostics(&diagnostics);
@@ -423,7 +445,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `resolve`, `type-env`, `type-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{other}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `resolve`, `type-env`, `type-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         )),
     }
 }
@@ -472,6 +494,12 @@ enum CoreContractFormat {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CorePreviewFormat {
+    Human,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoreLowerFormat {
     Human,
     Json,
 }
@@ -573,6 +601,7 @@ struct CliOptions {
     capabilities_format: CapabilitiesFormat,
     core_contract_format: CoreContractFormat,
     core_preview_format: CorePreviewFormat,
+    core_lower_format: CoreLowerFormat,
     resolve_format: ResolveFormat,
     type_env_format: TypeEnvFormat,
     type_check_format: TypeCheckFormat,
@@ -616,6 +645,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "math-obligations"
             | "resource-report"
             | "core-preview"
+            | "core-lower"
             | "resolve"
             | "type-env"
             | "type-check"
@@ -635,7 +665,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             | "target-facts"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `resolve`, `type-env`, `type-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{command}`; expected `check`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `resolve`, `type-env`, `type-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         ));
     }
 
@@ -649,6 +679,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut capabilities_format = CapabilitiesFormat::Human;
     let mut core_contract_format = CoreContractFormat::Human;
     let mut core_preview_format = CorePreviewFormat::Human;
+    let mut core_lower_format = CoreLowerFormat::Human;
     let mut resolve_format = ResolveFormat::Human;
     let mut type_env_format = TypeEnvFormat::Human;
     let mut type_check_format = TypeCheckFormat::Human;
@@ -705,6 +736,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         | "math-obligations"
                         | "resource-report"
                         | "core-preview"
+                        | "core-lower"
                         | "resolve"
                         | "type-env"
                         | "type-check"
@@ -739,6 +771,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         resource_report_format = parse_resource_report_format(&value)?
                     }
                     "core-preview" => core_preview_format = parse_core_preview_format(&value)?,
+                    "core-lower" => core_lower_format = parse_core_lower_format(&value)?,
                     "resolve" => resolve_format = parse_resolve_format(&value)?,
                     "type-env" => type_env_format = parse_type_env_format(&value)?,
                     "type-check" => type_check_format = parse_type_check_format(&value)?,
@@ -766,6 +799,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     | "math-obligations"
                     | "resource-report"
                     | "core-preview"
+                    | "core-lower"
                     | "resolve"
                     | "type-env"
                     | "type-check"
@@ -798,6 +832,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                         resource_report_format = parse_resource_report_format(value)?
                     }
                     "core-preview" => core_preview_format = parse_core_preview_format(value)?,
+                    "core-lower" => core_lower_format = parse_core_lower_format(value)?,
                     "resolve" => resolve_format = parse_resolve_format(value)?,
                     "type-env" => type_env_format = parse_type_env_format(value)?,
                     "type-check" => type_check_format = parse_type_check_format(value)?,
@@ -829,6 +864,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -867,6 +903,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -905,6 +942,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -943,6 +981,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -981,6 +1020,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -1019,6 +1059,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -1057,6 +1098,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -1095,6 +1137,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -1133,6 +1176,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -1171,6 +1215,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -1215,6 +1260,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -1253,6 +1299,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -1291,6 +1338,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             capabilities_format,
             core_contract_format,
             core_preview_format,
+            core_lower_format,
             resolve_format,
             type_env_format,
             type_check_format,
@@ -1322,6 +1370,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         capabilities_format,
         core_contract_format,
         core_preview_format,
+        core_lower_format,
         resolve_format,
         type_env_format,
         type_check_format,
@@ -1416,6 +1465,16 @@ fn parse_core_preview_format(value: &str) -> Result<CorePreviewFormat, String> {
         "json" => Ok(CorePreviewFormat::Json),
         other => Err(format!(
             "unknown core-preview format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
+fn parse_core_lower_format(value: &str) -> Result<CoreLowerFormat, String> {
+    match value {
+        "human" => Ok(CoreLowerFormat::Human),
+        "json" => Ok(CoreLowerFormat::Json),
+        other => Err(format!(
+            "unknown core-lower format `{other}`; expected `human` or `json`"
         )),
     }
 }
@@ -1708,6 +1767,7 @@ fn print_help() {
     );
     println!("  hum resource-report [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum core-preview [--format human|json] [--timings] <file-or-dir>...");
+    println!("  hum core-lower [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum resolve [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum type-env [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum type-check [--format human|json] [--timings] <file-or-dir>...");
@@ -1734,6 +1794,7 @@ fn print_help() {
     println!("  math-obligations  Export V0 math obligations for external validators");
     println!("  resource-report   Classify source-declared resource and optimization claims");
     println!("  core-preview      Emit Core Hum preview candidates without execution");
+    println!("  core-lower        Emit an unverified Core Hum artifact without execution or IR");
     println!("  resolve           Emit checked scopes, definitions, references, and place links");
     println!("  type-env          Emit declared type environment facts without type checking");
     println!("  type-check        Validate declaration annotations without expression inference");
@@ -1765,9 +1826,9 @@ mod tests {
 
     use super::{
         BackendContractFormat, CapabilitiesFormat, CheckFormat, CoreContractFormat,
-        CorePreviewFormat, DiagnosticsFormat, DoctorFormat, EvidenceFormat, ExplainFormat,
-        IrContractFormat, IrReadinessFormat, LspFormat, MathObligationsFormat, ResolveFormat,
-        ResourceReportFormat, RuntimeProfilesFormat, StateModelFormat, SyntaxFormat,
+        CoreLowerFormat, CorePreviewFormat, DiagnosticsFormat, DoctorFormat, EvidenceFormat,
+        ExplainFormat, IrContractFormat, IrReadinessFormat, LspFormat, MathObligationsFormat,
+        ResolveFormat, ResourceReportFormat, RuntimeProfilesFormat, StateModelFormat, SyntaxFormat,
         TargetFactsFormat, TypeCheckFormat, TypeEnvFormat, VersionFormat, load_program, parse_cli,
     };
 
@@ -2303,6 +2364,33 @@ mod tests {
         assert_eq!(
             error,
             "unknown core-preview format `textmate`; expected `human` or `json`"
+        );
+    }
+
+    #[test]
+    fn parses_core_lower_json_format() {
+        let options = parse_cli(vec![
+            "core-lower".to_string(),
+            "--format=json".to_string(),
+            "examples".to_string(),
+        ])
+        .expect("core-lower json command");
+        assert_eq!(options.command, "core-lower");
+        assert_eq!(options.core_lower_format, CoreLowerFormat::Json);
+    }
+
+    #[test]
+    fn rejects_unknown_core_lower_format() {
+        let error = parse_cli(vec![
+            "core-lower".to_string(),
+            "--format".to_string(),
+            "textmate".to_string(),
+            "examples".to_string(),
+        ])
+        .expect_err("core-lower should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown core-lower format `textmate`; expected `human` or `json`"
         );
     }
 

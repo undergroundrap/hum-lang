@@ -18,7 +18,9 @@ satisfy.
 This command is not a source-to-core lowering implementation, not an interpreter,
 not a type checker, and not an optimizer. V0 now includes a partial
 body-grammar classifier used by `hum ir-readiness` and a non-executing
-Core Hum candidate preview emitted by `hum core-preview`; these recognize
+Core Hum candidate preview emitted by `hum core-preview`; `hum core-lower` now
+emits the first unverified source-mapped Core Hum artifact boundary from those
+facts. These recognize
 first statement candidates, candidate-local name previews, block previews,
 expression preview atoms, expression AST previews, operators, and blockers
 without assigning executable meaning.
@@ -112,7 +114,7 @@ V0 reports these gate statuses:
 - `semantic_graph_build`: `current`
 - `body_grammar`: `partial_v0`
 - `core_preview`: `preview_v0`
-- `core_lowering`: `planned`
+- `core_lowering`: `unverified_artifact_v0`
 - `type_check`: `planned`
 - `effect_check`: `planned`
 - `profile_check`: `planned`
@@ -126,7 +128,9 @@ check, execute, or verify those lines. `preview_v0` means the compiler can emit
 Core Hum candidate operation families, candidate-local name previews, block
 previews, expression preview atoms, expression AST previews, operators, and
 blockers from those lines for roadmap and adapter use, but it still does not
-lower, type check, execute, or verify them.
+lower, type check, execute, or verify them. `unverified_artifact_v0` means
+the compiler can serialize source-mapped Core Hum operation rows and blockers,
+but still cannot execute, verify, emit Hum IR, or lower to any backend.
 
 ## Honesty Rules
 
@@ -134,13 +138,15 @@ lower, type check, execute, or verify them.
 - `hum core-preview` is a candidate, candidate-local name preview, block preview,
   expression preview, expression AST preview, and blocker report, not executable
   Core Hum.
+- `hum core-lower` emits an unverified source-mapped Core Hum artifact and
+  blockers, not executable Core Hum, Hum IR, or backend input.
 - It must not run generated code.
 - It must not claim executable semantics.
 - It must not pretend full type checking, effect checking, optimization, or backend
   lowering exists.
-- It must stay in sync with `hum ir-contract --format json`, `hum
-  ir-readiness --format json`, `hum capabilities --format json`, and `hum
-  version --format json`.
+- It must stay in sync with `hum core-lower --format json`,
+  `hum ir-contract --format json`, `hum ir-readiness --format json`,
+  `hum capabilities --format json`, and `hum version --format json`.
 
 ## Privacy And Dependency Rules
 
