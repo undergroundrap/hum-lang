@@ -2297,7 +2297,7 @@ mod tests {
         assert!(text.contains("type_check [declaration_and_trivial_return_check_available]"));
         assert!(text.contains("core_lowering [unverified_core_artifact_v0]"));
         assert!(text.contains("core_verify [verified_non_executing_core_artifact_v0]"));
-        assert!(text.contains("task `add task`"));
+        assert!(text.contains("task `add_task`"));
         assert!(text.contains("missing_passes: full_type_check"));
         assert!(text.contains("effect_check"));
         assert!(text.contains("resource_check: schema=hum.resource_check.v0"));
@@ -2394,7 +2394,7 @@ mod tests {
   value: MissingType
 }
 
-task pass box(item: Box) -> Box {
+task pass_box(item: Box) -> Box {
   does:
     return item
 }
@@ -2421,7 +2421,7 @@ task pass box(item: Box) -> Box {
     }
     #[test]
     fn json_blocks_on_resolver_errors_before_lowering() {
-        let source = r#"task bad names() -> UInt {
+        let source = r#"task bad_names() -> UInt {
   does:
     return missing
 }
@@ -2449,7 +2449,7 @@ store tasks: list Task {
     remember tasks
 }
 
-task add task(title: Text) -> Task {
+task add_task(title: Text) -> Task {
   why:
     save a task
 
@@ -2460,16 +2460,16 @@ task add task(title: Text) -> Task {
     task is visible
 
   does:
-    let task = Task {
+    let item = Task {
       title: title
     }
-    save task in tasks
-    return task
+    save item in tasks
+    return item
 }
 
-test add task is visible {
+test add_task is visible {
   covers:
-    add task ensures task is visible
+    add_task ensures task is visible
 
   does:
     expect task is visible

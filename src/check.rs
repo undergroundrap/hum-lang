@@ -62,15 +62,16 @@ fn check_item(item: &Item, diagnostics: &mut Vec<Diagnostic>) {
 fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     check_target_declarations("task", &task.name, &task.sections, diagnostics);
 
-    require_section(
-        DiagnosticCode::MISSING_REQUIRED_SECTION,
-        "task",
-        &task.name,
-        &task.span,
-        task.section("why"),
-        "why",
-        diagnostics,
-    );
+    if task.section("why").is_none() && task_missing_why_is_suspicious(task) {
+        diagnostics.push(
+            Diagnostic::warning(
+                DiagnosticCode::MISSING_REQUIRED_SECTION,
+                format!("task `{}` is missing `why:` for nontrivial behavior", task.name),
+                Some(task.span.clone()),
+            )
+            .with_help("Add `why:` when effects, failure modes, or body size make the purpose non-obvious."),
+        );
+    }
     require_section(
         DiagnosticCode::MISSING_REQUIRED_SECTION,
         "task",
@@ -90,22 +91,31 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
         diagnostics,
     );
 
-    if task.section("needs").is_none() {
-        diagnostics.push(Diagnostic::warning(
-            DiagnosticCode::TASK_MISSING_NEEDS,
-            format!("task `{}` has no `needs:` section", task.name),
-            Some(task.span.clone()),
-        ));
+    if task.section("needs").is_none() && task_missing_needs_is_suspicious(task) {
+        diagnostics.push(
+            Diagnostic::warning(
+                DiagnosticCode::TASK_MISSING_NEEDS,
+                format!("task `{}` has no `needs:` section for a risky boundary", task.name),
+                Some(task.span.clone()),
+            )
+            .with_help("Add `needs:` when callers must satisfy a real precondition; do not add filler for pure local code."),
+        );
     }
-    if task.result.is_some() && task.section("ensures").is_none() {
-        diagnostics.push(Diagnostic::warning(
-            DiagnosticCode::TASK_MISSING_ENSURES,
-            format!(
-                "task `{}` returns a value but has no `ensures:` section",
-                task.name
-            ),
-            Some(task.span.clone()),
-        ));
+    if task.result.is_some()
+        && task.section("ensures").is_none()
+        && task_missing_ensures_is_suspicious(task)
+    {
+        diagnostics.push(
+            Diagnostic::warning(
+                DiagnosticCode::TASK_MISSING_ENSURES,
+                format!(
+                    "task `{}` returns a value across a nontrivial boundary but has no `ensures:` section",
+                    task.name
+                ),
+                Some(task.span.clone()),
+            )
+            .with_help("Add `ensures:` when the result promise is not obvious from a small pure body."),
+        );
     }
 
     check_contract_quality(task, diagnostics);
@@ -117,15 +127,21 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
 fn check_test(test: &Test, diagnostics: &mut Vec<Diagnostic>) {
     check_target_declarations("test", &test.name, &test.sections, diagnostics);
 
-    require_section(
-        DiagnosticCode::MISSING_REQUIRED_SECTION,
-        "test",
-        &test.name,
-        &test.span,
-        test.section("why"),
-        "why",
-        diagnostics,
-    );
+    if test.section("why").is_none() && test_missing_why_is_suspicious(test) {
+        diagnostics.push(
+            Diagnostic::warning(
+                DiagnosticCode::MISSING_REQUIRED_SECTION,
+                format!(
+                    "test `{}` is missing `why:` for nontrivial evidence",
+                    test.name
+                ),
+                Some(test.span.clone()),
+            )
+            .with_help(
+                "Add `why:` when the evidence shape is not obvious from a small focused test.",
+            ),
+        );
+    }
     require_section(
         DiagnosticCode::MISSING_REQUIRED_SECTION,
         "test",
@@ -170,6 +186,77 @@ fn check_test(test: &Test, diagnostics: &mut Vec<Diagnostic>) {
             ),
         );
     }
+}
+
+fn task_missing_why_is_suspicious(task: &Task) -> bool {
+    task_has_external_boundary(task)
+        || task_has_failure_modes(task)
+        || task_body_line_count(task) > 6
+}
+
+fn task_missing_needs_is_suspicious(task: &Task) -> bool {
+    task_has_external_boundary(task)
+        || task_has_failure_modes(task)
+        || task_body_line_count(task) > 8
+}
+
+fn task_missing_ensures_is_suspicious(task: &Task) -> bool {
+    task_has_external_boundary(task)
+        || task_has_failure_modes(task)
+        || task_body_line_count(task) > 5
+}
+
+fn task_missing_cost_is_suspicious(task: &Task) -> bool {
+    task_has_external_boundary(task)
+        || task_body_has_prefix(task, "for each ")
+        || task_body_has_prefix(task, "while ")
+        || task_body_line_count(task) > 5
+}
+
+fn test_missing_why_is_suspicious(test: &Test) -> bool {
+    test.modifiers.iter().any(|modifier| {
+        matches!(
+            modifier.as_str(),
+            "property" | "fuzz" | "regression" | "integration" | "model"
+        )
+    }) || test
+        .section("does")
+        .map(|section| meaningful_lines(section).count() > 3)
+        .unwrap_or(false)
+}
+
+fn task_has_external_boundary(task: &Task) -> bool {
+    task.section("uses")
+        .map(|section| meaningful_lines(section).next().is_some())
+        .unwrap_or(false)
+        || task
+            .section("changes")
+            .map(|section| meaningful_lines(section).next().is_some())
+            .unwrap_or(false)
+        || task_body_has_prefix(task, "save ")
+}
+
+fn task_has_failure_modes(task: &Task) -> bool {
+    task.result
+        .as_deref()
+        .is_some_and(|result| result.split_whitespace().next() == Some("Result"))
+        || task
+            .section("fails when")
+            .map(|section| meaningful_lines(section).next().is_some())
+            .unwrap_or(false)
+        || task_body_has_prefix(task, "fail ")
+}
+
+fn task_body_line_count(task: &Task) -> usize {
+    task.section("does")
+        .map(|section| meaningful_lines(section).count())
+        .unwrap_or(0)
+}
+
+fn task_body_has_prefix(task: &Task, prefix: &str) -> bool {
+    task.section("does")
+        .map(|section| meaningful_lines(section).any(|line| line.text.starts_with(prefix)))
+        .unwrap_or(false)
 }
 
 fn check_target_declarations(
@@ -541,11 +628,16 @@ fn check_declared_mutation(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
 
 fn check_cost_contract(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     let Some(cost) = task.section("cost") else {
-        diagnostics.push(Diagnostic::warning(
-            DiagnosticCode::TASK_MISSING_COST,
-            format!("task `{}` has no `cost:` section", task.name),
-            Some(task.span.clone()),
-        ));
+        if task_missing_cost_is_suspicious(task) {
+            diagnostics.push(
+                Diagnostic::warning(
+                    DiagnosticCode::TASK_MISSING_COST,
+                    format!("task `{}` has no `cost:` section for nontrivial work", task.name),
+                    Some(task.span.clone()),
+                )
+                .with_help("Add `cost:` when loops, external effects, or larger bodies make resource behavior worth reviewing."),
+            );
+        }
         return;
     };
 
@@ -721,7 +813,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_target_declarations() {
-        let source = r#"task bad target() {
+        let source = r#"task bad_target() {
   why:
     show target validation
   targets:
@@ -762,7 +854,7 @@ mod tests {
     }
     #[test]
     fn rejects_conflicting_target_capability_intent() {
-        let source = r#"task confused target() {
+        let source = r#"task confused_target() {
   why:
     show contradictory target policy
   targets:
@@ -792,7 +884,7 @@ mod tests {
 
     #[test]
     fn rejects_required_capability_unavailable_on_declared_target() {
-        let source = r#"task bad target() {
+        let source = r#"task bad_target() {
   why:
     show target capability matching
   targets:
@@ -824,7 +916,7 @@ mod tests {
 
     #[test]
     fn warns_on_hollow_contract_lines() {
-        let source = r#"task prove nothing() -> Bool {
+        let source = r#"task prove_nothing() -> Bool {
   why:
     demonstrate hollow claims
   needs:
@@ -854,7 +946,7 @@ mod tests {
 
     #[test]
     fn keeps_specific_contract_lines_quiet() {
-        let source = r#"task save session(token: Text) -> Session {
+        let source = r#"task save_session(token: Text) -> Session {
   why:
     keep a security-sensitive session alive
   uses:
@@ -890,11 +982,11 @@ mod tests {
 
     #[test]
     fn rejects_undeclared_save_target() {
-        let source = r#"task save task() {
+        let source = r#"task save_task() {
   why:
     save it
   does:
-    save task in tasks
+    save item in tasks
 }
 "#;
         let parsed = parse_source("bad.hum", source);
@@ -910,9 +1002,9 @@ mod tests {
 
     #[test]
     fn rejects_constant_cost_claim_with_iteration() {
-        let source = r#"task show tasks() {
+        let source = r#"task show_tasks() {
   why:
-    show tasks
+    show_tasks
   cost:
     time: O(1)
     check: compile
@@ -933,11 +1025,11 @@ mod tests {
 
     #[test]
     fn warns_when_task_sections_are_out_of_order() {
-        let source = r#"task save task() {
+        let source = r#"task save_task() {
   why:
     save it
   does:
-    save task in tasks
+    save item in tasks
   needs:
     title is not empty
 }

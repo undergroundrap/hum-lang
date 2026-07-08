@@ -80,7 +80,7 @@ human readability.
 Semicolons are not part of normal source.
 
 ```text
-task add(a: Number, b: Number) -> Number {
+task add(a: Int, b: Int) -> Int {
   does:
     return a + b
 }
@@ -93,7 +93,7 @@ task add(a: Number, b: Number) -> Number {
 An `app` describes an executable program and its top-level capabilities.
 
 ```text
-app Counter {
+app counter {
   why:
     count button presses and show the total
 
@@ -102,7 +102,7 @@ app Counter {
     storage
 
   starts with:
-    count: Number = 0
+    count: Int = 0
 }
 ```
 
@@ -165,7 +165,7 @@ task name(input: Type) -> Output {
 Tiny tasks may omit most blocks:
 
 ```text
-task square(x: Number) -> Number {
+task square(x: Int) -> Int {
   does:
     return x * x
 }
@@ -206,12 +206,12 @@ task name(input: Type) -> Output {
 A `test` is executable evidence for a contract, edge case, or behavior.
 
 ```text
-test add task rejects empty title {
+test add_item_rejects_empty_title {
   covers:
-    add task fails when title is empty
+    add_item fails when title is empty
 
   does:
-    expect add task("") fails with TaskError.empty_title
+    expect add_item("") fails with TaskError.empty_title
 }
 ```
 
@@ -400,8 +400,8 @@ Examples:
 
 ```text
 covers:
-  add task fails when title is empty
-  add task watch for title may be only spaces
+  add_item fails when title is empty
+  add_item watch for title may be only spaces
 ```
 ### `fails when:`
 
@@ -525,7 +525,6 @@ Bool
 Int
 UInt
 Float
-Number
 Bytes
 Text
 Time
@@ -573,7 +572,7 @@ The compiler tracks lifetimes, aliasing, mutation, moves, and destruction.
 Unsafe code is allowed only inside visible unsafe boundaries.
 
 ```text
-unsafe task copy bytes(from: Buffer, to: Buffer, count: Bytes) {
+unsafe task copy_bytes(from: Buffer, to: Buffer, count: Bytes) {
   why:
     move raw bytes without reading or writing outside either buffer
 
@@ -623,7 +622,7 @@ interface.
 Errors are values, not hidden control flow.
 
 ```text
-task load profile(id: UserId) -> Result Profile, LoadProfileError {
+task load_profile(id: UserId) -> Result Profile, LoadProfileError {
   fails when:
     profile is missing
     storage is unavailable
@@ -640,7 +639,7 @@ Callers must handle failure explicitly.
 Concurrency must declare shared state and cancellation behavior.
 
 ```text
-task serve requests(socket: Socket) {
+task serve_requests(socket: Socket) {
   uses:
     network
     sessions
@@ -673,7 +672,7 @@ Draft concurrency features:
 Compile-time code must be sandboxed by capabilities.
 
 ```text
-build task generate syscall table() {
+build task generate_syscall_table() {
   uses:
     files.read
 
@@ -695,7 +694,7 @@ The compiler should emit compact, queryable context:
 
 ```text
 hum graph
-hum explain task create session
+hum explain H0009
 hum effects
 hum risks
 hum tests

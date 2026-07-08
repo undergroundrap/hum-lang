@@ -10,7 +10,7 @@ store tasks: list Task {
     remember the user's tasks
 }
 
-task add task(title: Text) -> Result Task, TaskError {
+task add_item(title: Text) -> Result Task, TaskError {
   why:
     let the user remember something to do
 
@@ -21,8 +21,8 @@ task add task(title: Text) -> Result Task, TaskError {
     title is not empty
 
   ensures:
-    new task is saved
-    new task is not done
+    new item is saved
+    new item is not done
 
   fails when:
     title is empty
@@ -44,16 +44,16 @@ task add task(title: Text) -> Result Task, TaskError {
       fail TaskError.empty_title
     }
 
-    let task = Task {
+    let item = Task {
       title: title
       done: false
     }
 
-    save task in tasks
-    return task
+    save item in tasks
+    return item
 }
 
-task show tasks() {
+task show_tasks() {
   why:
     let the user see what they need to do
 
@@ -62,7 +62,7 @@ task show tasks() {
     screen
 
   needs:
-    task store can be read
+    task_store readable
 
   cost:
     time: O(tasks)
@@ -71,14 +71,14 @@ task show tasks() {
     check: warn
 
   tradeoffs:
-    linear display is expected because every visible task must be shown
+    linear display is expected because every visible item must be shown
 
   does:
-    for each task in tasks {
-      if task.done {
-        show task.title as completed
+    for each item in tasks {
+      if item.done {
+        show item.title as completed
       } else {
-        show task.title as active
+        show item.title as active
       }
     }
 }

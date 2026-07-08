@@ -1445,7 +1445,7 @@ mod tests {
     #[test]
     fn json_rejects_trivial_return_type_mismatch() {
         let program = parse_program(
-            r#"task bad return(title: Text) -> UInt {
+            r#"task bad_return(title: Text) -> UInt {
   does:
     return title
 }
@@ -1485,7 +1485,7 @@ mod tests {
 
     #[test]
     fn resolver_errors_block_type_check_authority() {
-        let source = r#"task bad names() -> UInt {
+        let source = r#"task bad_names() -> UInt {
   does:
     return missing
 }
@@ -1520,9 +1520,9 @@ mod tests {
   done: Bool
 }
 
-task remember work item(title: Text) -> Result WorkItem, WorkError {
+task remember_work_item(title: Text) -> Result WorkItem, WorkError {
   changes:
-    work items
+    work_items
 
   does:
     return title
@@ -1542,9 +1542,9 @@ type WorkError {
   code: Text
 }
 
-task remember work item(title: Text) -> Result WorkItem, WorkError {
+task remember_work_item(title: Text) -> Result WorkItem, WorkError {
   changes:
-    work items
+    work_items
 
   does:
     let item = WorkItem {

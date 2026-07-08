@@ -225,9 +225,9 @@ Task `test_obligations` are generated from meaningful lines in `needs:`,
 - `text`
 - `span`
 - `covers`: coverage phrase a test can use
-- `coverage_key`: conservative canonical key used for non-exact matching
+- `coverage_key`: canonical token key used for non-exact matching
 - `suggested_test`: human-readable generated test name
-- `link_status`: `linked` when at least one exact or canonical `covers:` line matches, otherwise `unlinked`
+- `link_status`: `linked` when at least one exact or canonical-token `covers:` line matches, otherwise `unlinked`
 - `linked_tests`: covering test references with `name`, `modifiers`, `covers`, `coverage_key`, `match`, and `span`
 
 These are not executable tests yet. They are graph facts that future Hum test
@@ -236,10 +236,9 @@ proof verdict; it is the current repair owner a future checker, test runner, or
 agent should start from when that obligation is missing or violated. Milestone 0 links obligations
 to top-level `test` items when a meaningful `covers:` line either exactly
 matches the obligation `covers` phrase after whitespace normalization or shares
-the same conservative `coverage_key`. Canonical matching tolerates case,
-punctuation, filler words, hyphenation such as `non-empty`, and small section
-aliases such as `requires` for `needs`; it does not prove broad semantic
-paraphrase equivalence.
+the same canonical token `coverage_key`. Canonical matching lowercases and
+splits on punctuation while preserving identifier tokens such as `add_item`.
+It does not absorb filler words, aliases, synonyms, or paraphrases.
 
 ### Evidence Obligations
 
@@ -254,7 +253,7 @@ and `trusts:` sections. Each obligation contains:
 - `text`
 - `span`
 - `covers`: generated coverage phrase, such as `<task> protects <claim>`
-- `coverage_key`: conservative canonical form used for non-exact coverage
+- `coverage_key`: canonical token form used for non-exact coverage
   matching
 - `suggested_evidence`: human-readable starting point for a proof, test,
   review packet, or threat-model note
@@ -332,7 +331,7 @@ Milestone 0 currently checks:
 - tasks returning values should have `ensures:`
 - tasks should declare `needs:`
 - obviously hollow contract-like lines produce `H0110` warnings
-- tasks should declare `cost:`
+- tasks should declare `cost:` when loops, effects, or body size make resource behavior worth review
 - `save ... in resource` requires `resource` under `changes:`
 - `set name = ...` requires a local `change name: ...` or top-level `changes:` entry
 - `check: compile` plus `time: O(1)` rejects visible `for each`

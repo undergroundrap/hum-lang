@@ -3,6 +3,8 @@ pub const TEXTMATE_SCOPE_NAME: &str = "source.hum";
 pub const SOURCE_EXTENSION: &str = ".hum";
 pub const MODULE_KEYWORD: &str = "module";
 pub const ITEM_KINDS: &[&str] = &["app", "type", "store", "task", "test"];
+pub const VALUE_IDENTIFIER_PATTERN: &str = "[a-z_][a-z0-9_]*";
+pub const TYPE_IDENTIFIER_PATTERN: &str = "[A-Z][A-Za-z0-9]*";
 pub const DOUBLE_SLASH_COMMENT_PREFIX: &str = concat!("/", "/");
 pub const COMMENT_PREFIXES: &[&str] = &["#", DOUBLE_SLASH_COMMENT_PREFIX];
 pub const TEST_MODIFIERS: &[&str] = &[
@@ -368,6 +370,12 @@ pub fn syntax_json() -> String {
     push_string_property(&mut out, 2, "source_extension", SOURCE_EXTENSION, true);
     push_string_property(&mut out, 2, "module_keyword", MODULE_KEYWORD, true);
     push_string_array(&mut out, 2, "item_kinds", ITEM_KINDS, true);
+    push_indent(&mut out, 2);
+    out.push_str("\"identifiers\": {\"value\": ");
+    push_json_string(&mut out, VALUE_IDENTIFIER_PATTERN);
+    out.push_str(", \"type\": ");
+    push_json_string(&mut out, TYPE_IDENTIFIER_PATTERN);
+    out.push_str("},\n");
     push_string_array(&mut out, 2, "comment_prefixes", COMMENT_PREFIXES, true);
     push_string_array(&mut out, 2, "test_modifiers", TEST_MODIFIERS, true);
     push_indent(&mut out, 2);
@@ -414,6 +422,20 @@ pub fn textmate_json() -> String {
         "(^|[^[:alnum:]_])({})($|[^[:alnum:]_])",
         regex_alternation(TEST_MODIFIERS)
     );
+    let module_identifier_pattern = format!(
+        "^[[:space:]]*{}[[:space:]]+{}(\\.({}))*",
+        regex_word_literal(MODULE_KEYWORD),
+        VALUE_IDENTIFIER_PATTERN,
+        VALUE_IDENTIFIER_PATTERN
+    );
+    let value_identifier_pattern = format!(
+        "^[[:space:]]*(app|store|task)[[:space:]]+({})(?=[^[:alnum:]_]|$)",
+        VALUE_IDENTIFIER_PATTERN
+    );
+    let type_identifier_pattern = format!(
+        "^[[:space:]]*type[[:space:]]+({})(?=[^[:alnum:]_]|$)",
+        TYPE_IDENTIFIER_PATTERN
+    );
 
     let comment_rules = [
         TextMateRule {
@@ -441,6 +463,20 @@ pub fn textmate_json() -> String {
         name: "storage.modifier.test.hum",
         pattern: modifier_pattern,
     }];
+    let identifier_rules = [
+        TextMateRule {
+            name: "entity.name.namespace.module.hum",
+            pattern: module_identifier_pattern,
+        },
+        TextMateRule {
+            name: "entity.name.function.value.hum",
+            pattern: value_identifier_pattern,
+        },
+        TextMateRule {
+            name: "entity.name.type.hum",
+            pattern: type_identifier_pattern,
+        },
+    ];
 
     let mut out = String::new();
     out.push_str("{\n");
@@ -452,6 +488,7 @@ pub fn textmate_json() -> String {
     push_include(&mut out, 4, "#comments", true);
     push_include(&mut out, 4, "#module", true);
     push_include(&mut out, 4, "#items", true);
+    push_include(&mut out, 4, "#identifiers", true);
     push_include(&mut out, 4, "#sections", true);
     push_include(&mut out, 4, "#test-modifiers", false);
     push_indent(&mut out, 2);
@@ -461,6 +498,7 @@ pub fn textmate_json() -> String {
     push_repository_matches(&mut out, 4, "comments", &comment_rules, true);
     push_repository_matches(&mut out, 4, "module", &module_rules, true);
     push_repository_matches(&mut out, 4, "items", &item_rules, true);
+    push_repository_matches(&mut out, 4, "identifiers", &identifier_rules, true);
     push_repository_matches(&mut out, 4, "sections", &section_rules, true);
     push_repository_matches(&mut out, 4, "test-modifiers", &modifier_rules, false);
     push_indent(&mut out, 2);
@@ -726,7 +764,7 @@ mod tests {
 
     #[test]
     fn item_start_requires_kind_and_space() {
-        assert!(is_item_start("task save task() {"));
+        assert!(is_item_start("task save_task() {"));
         assert!(is_item_start("type Task {"));
         assert!(!is_item_start("task"));
         assert!(!is_item_start("taskish name {"));
@@ -758,6 +796,9 @@ mod tests {
             "\"token_types\": [\"namespace\", \"type\", \"function\", \"variable\", \"parameter\", \"property\", \"keyword\", \"comment\"]"
         ));
         assert!(json.contains(
+            "\"identifiers\": {\"value\": \"[a-z_][a-z0-9_]*\", \"type\": \"[A-Z][A-Za-z0-9]*\"}"
+        ));
+        assert!(json.contains(
             "{\"source\": \"section:protects\", \"token_type\": \"keyword\", \"modifiers\": [\"documentation\"], \"hum_role\": \"security\"}"
         ));
         assert!(is_test_modifier("regression"));
@@ -769,6 +810,9 @@ mod tests {
         let json = textmate_json();
         assert!(json.contains("\"scopeName\": \"source.hum\""));
         assert!(json.contains("app|type|store|task|test"));
+        assert!(json.contains("#identifiers"));
+        assert!(json.contains("[a-z_][a-z0-9_]*"));
+        assert!(json.contains("[A-Z][A-Za-z0-9]*"));
         assert!(json.contains("targets"));
         assert!(json.contains("fails[[:space:]]+when"));
         assert!(json.contains("watch[[:space:]]+for"));

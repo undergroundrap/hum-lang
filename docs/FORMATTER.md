@@ -38,7 +38,7 @@ Humfmt should not become a second language.
 Humfmt should keep this shape:
 
 ```hum
-task add task(title: Text) -> Result Task, TaskError {
+task add_item(title: Text) -> Result Task, TaskError {
   why:
     let the user remember something to do
 
@@ -49,16 +49,16 @@ task add task(title: Text) -> Result Task, TaskError {
     title is not empty
 
   ensures:
-    new task is saved
-    new task is not done
+    new item is saved
+    new item is not done
 
   does:
     if title is empty {
       fail TaskError.empty_title
     }
 
-    save task in tasks
-    return task
+    save item in tasks
+    return item
 }
 ```
 

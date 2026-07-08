@@ -1,6 +1,6 @@
 module examples.control_flow
 
-task find active session(user: UserId, sessions: Sessions) -> Result Session, SessionError {
+task find_active_session(user: UserId, sessions: Sessions) -> Result Session, SessionError {
   why:
     find the first non-expired session for a user
 
@@ -45,7 +45,7 @@ task find active session(user: UserId, sessions: Sessions) -> Result Session, Se
     fail SessionError.not_found
 }
 
-task make unique token(random: SecureRandom, sessions: Sessions) -> Result SessionToken, TokenError {
+task make_unique_token(random: SecureRandom, sessions: Sessions) -> Result SessionToken, TokenError {
   why:
     create a token that is not already present in the session store
 

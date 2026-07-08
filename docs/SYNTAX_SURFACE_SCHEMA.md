@@ -40,6 +40,7 @@ TextMate grammar built from the same syntax surface.
   "source_extension": ".hum",
   "module_keyword": "module",
   "item_kinds": [],
+  "identifiers": { "value": "[a-z_][a-z0-9_]*", "type": "[A-Z][A-Za-z0-9]*" },
   "comment_prefixes": [],
   "test_modifiers": [],
   "section_headers": {},
@@ -54,6 +55,7 @@ TextMate grammar built from the same syntax surface.
 - `module_keyword`: keyword used for module declarations
 - `item_kinds`: top-level and nested declaration kinds recognized by the
   Milestone 0 parser
+- `identifiers`: current value-name and type-name regex patterns from decision 0012
 - `comment_prefixes`: line comment prefixes recognized inside sections
 - `test_modifiers`: recognized leading modifiers for `test` declarations
 - `section_headers`: section order, obligation mapping, and hover catalog

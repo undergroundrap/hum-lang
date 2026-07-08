@@ -8,10 +8,10 @@ Status: bootstrap parser contract, not final language grammar
 This document pins the grammar shape accepted by the Rust bootstrap parser in
 Milestone 0.
 
-It is intentionally narrower and looser than the future language grammar:
+It is intentionally narrower than the future language grammar:
 
 - narrower because Milestone 0 only parses, checks, and emits graph facts
-- looser because names, types, and body lines are often captured as text while
+- still modest because type annotations and body lines are often captured as text while
   the formal core is still being pinned
 
 Use this document for parser tests, docs, syntax highlighting sketches, and
@@ -36,7 +36,7 @@ This is a descriptive grammar, not a generated parser grammar.
 
 ```text
 file        ::= ignorable* module-decl? top-level*
-module-decl ::= "module" space module-text newline
+module-decl ::= "module" space module-path newline
 top-level   ::= ignorable | item | unexpected-top-level-line
 ignorable   ::= blank-line | comment-line
 ```
@@ -45,7 +45,7 @@ Current parser facts:
 
 - A module declaration must appear at indentation 0.
 - The parser accepts the last seen `module` declaration as file metadata.
-- Module text is captured as trimmed text after `module `.
+- Module paths are dot-separated value identifiers. Each segment must match `[a-z_][a-z0-9_]*`.
 - Unexpected non-blank top-level lines produce a warning, not a fatal parse
   error.
 
@@ -77,22 +77,36 @@ full token model, string model, or trivia-preserving concrete syntax tree.
 ## Item Kinds
 
 ```text
-app-header   ::= "app" space app-name
-type-header  ::= "type" space type-name rest?
-store-header ::= "store" space store-name (":" store-type)?
-task-header  ::= "task" space callable-signature ("->" result-type)?
+app-header   ::= "app" space value-ident
+type-header  ::= "type" space type-ident
+store-header ::= "store" space value-ident (":" store-type)?
+task-header  ::= "task" space value-ident params? ("->" result-type)?
 test-header  ::= "test" space test-signature
 ```
 
 Current capture rules:
 
-- `app-name` is all trimmed text after `app `.
-- `type-name` is the first whitespace-separated word after `type `.
-- `store-name` is trimmed text before the first `:` after `store `.
-- `store-type` is trimmed text after that `:`.
+- App names, store names, and task names are value identifiers.
+- Type names are type identifiers.
+- `store-type` is trimmed text after the first `:` in a store header.
 - `result-type` is trimmed text after `->` in a task header.
+- A nonconforming identifier produces `H0009`.
 
-These are parser facts, not final naming rules.
+## Identifier Grammar
+
+Decision 0012 pins the current identifier grammar:
+
+```text
+value-ident ::= [a-z_][a-z0-9_]*
+type-ident  ::= [A-Z][A-Za-z0-9]*
+module-path ::= value-ident ("." value-ident)*
+```
+
+Value identifiers cover module path segments, app names, store names, task
+names, parameter names, and field names. Type identifiers cover `type` names.
+Spaces are not part of an identifier; a spaced name is a parse error (`H0009`)
+with help that suggests the `snake_case` spelling. Test names may remain
+multi-word phrases until the test grammar is pinned.
 
 ## Callable Signatures
 
@@ -105,10 +119,10 @@ param              ::= param-name ":" param-type
 
 Current capture rules:
 
-- If no `(` appears, the whole signature is the callable name and params are
-  empty.
-- `callable-name` is trimmed text before the first `(`.
-- `param-name` is trimmed text before `:` in a comma-separated parameter.
+- For tasks, `callable-name` is a value identifier before the first `(`.
+- If no `(` appears, the whole task signature is the callable name and params are empty.
+- Test names may still be multi-word phrases; test params use the same param grammar.
+- `param-name` is a value identifier before `:` in a comma-separated parameter.
 - `param-type` is trimmed text after `:` in that parameter.
 - Missing parameter types produce an error.
 - Missing `)` produces an error.
@@ -190,7 +204,7 @@ an item header.
 
 Field capture rules:
 
-- `field-name` is trimmed text before the first `:`
+- `field-name` is a value identifier before the first `:`
 - `field-type` is trimmed text after the first `:`
 - no full type grammar is enforced yet
 
@@ -229,8 +243,6 @@ See [DIAGNOSTICS.md](DIAGNOSTICS.md), [FORMATTER.md](FORMATTER.md), and
 
 The bootstrap parser deliberately does not yet pin:
 
-- final identifier grammar
-- final module path grammar
 - final expression grammar
 - final type grammar
 - string literal grammar
@@ -249,6 +261,7 @@ Milestone 0 parser diagnostics should stay helpful and conservative:
 - malformed item headers produce stable errors
 - missing callable `)` produces a stable error
 - parameters without `:` types produce stable errors
+- invalid identifiers produce stable errors with a snake_case or PascalCase suggestion
 - unexpected top-level lines produce warnings
 - unknown item kinds produce warnings when encountered through item parsing
 
@@ -263,7 +276,7 @@ Before Hum claims a stable language grammar, it needs:
 - syntax-highlight keyword list generated from `hum syntax --format textmate` and this grammar surface
 - TextMate and Tree-sitter grammar design notes
 - a formal surface-to-core lowering map
-- exact identifier, path, type, and expression grammar
+- exact type and expression grammar
 
 Until then, this document is a Milestone 0 parser contract and a warning label:
 do not expand syntax faster than semantics, diagnostics, graph facts, and tools

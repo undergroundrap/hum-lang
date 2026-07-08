@@ -1,6 +1,6 @@
 module examples.reference_surface
 
-app Reference Surface {
+app reference_surface {
   why:
     show every current Milestone 0 top-level form in one checked file
 }
@@ -15,12 +15,12 @@ type WorkError {
   code: Text
 }
 
-store work items: list WorkItem {
+store work_items: list WorkItem {
   why:
     keep the user's work items available between tasks
 }
 
-task remember work item(title: Text) -> Result WorkItem, WorkError {
+task remember_work_item(title: Text) -> Result WorkItem, WorkError {
   why:
     let a user capture work without losing the reason it matters
     # comments inside sections are preserved as section facts
@@ -35,7 +35,7 @@ task remember work item(title: Text) -> Result WorkItem, WorkError {
     clock
 
   changes:
-    work items
+    work_items
 
   needs:
     title is not empty
@@ -74,7 +74,7 @@ task remember work item(title: Text) -> Result WorkItem, WorkError {
     clear review facts over clever implementation
 
   tests:
-    remember work item rejects empty title
+    remember_work_item rejects empty title
 
   does:
     if title is empty {
@@ -87,16 +87,16 @@ task remember work item(title: Text) -> Result WorkItem, WorkError {
       done: false
     }
 
-    save item in work items
+    save item in work_items
     return item
 }
 
-test remember work item rejects empty title regression {
+test remember_work_item rejects empty title regression {
   why:
-    prove the reference task records its visible failure mode
+    prove the reference entry records its visible failure mode
 
   uses:
-    remember work item
+    remember_work_item
 
   needs:
     empty title input is available
@@ -105,9 +105,9 @@ test remember work item rejects empty title regression {
     empty titles used to be saved as blank work items
 
   covers:
-    remember work item needs title is not empty
-    remember work item watch for title may contain only spaces
-    remember work item tests remember work item rejects empty title
+    remember_work_item needs title is not empty
+    remember_work_item watch for title may contain only spaces
+    remember_work_item tests remember_work_item rejects empty title
 
   avoids:
     depending on real storage or network behavior
@@ -118,22 +118,22 @@ test remember work item rejects empty title regression {
     check: warn
 
   does:
-    expect remember work item("") fails with WorkError.empty_title
+    expect remember_work_item("") fails with WorkError.empty_title
 }
 
-test remember work item saves valid title unit {
+test remember_work_item saves valid title unit {
   why:
-    prove the reference task records its success promises
+    prove the reference entry records its success promises
 
   uses:
-    remember work item
+    remember_work_item
 
   needs:
     non-empty title input is available
 
   covers:
-    remember work item ensures new work item is saved
-    remember work item ensures new work item is not done
+    remember_work_item ensures new work item is saved
+    remember_work_item ensures new work item is not done
 
   avoids:
     depending on real storage or network behavior
@@ -144,19 +144,19 @@ test remember work item saves valid title unit {
     check: warn
 
   does:
-    expect remember work item("ship Hum docs") returns WorkItem
+    expect remember_work_item("ship Hum docs") returns WorkItem
 }
 
-test remember work item records security evidence unit {
+test remember_work_item records security evidence unit {
   why:
-    prove the reference task records security and trust evidence links
+    prove the reference entry records security and trust evidence links
 
   uses:
-    remember work item
+    remember_work_item
 
   covers:
-    remember work item protects user work history
-    remember work item trusts local profile storage
+    remember_work_item protects user work history
+    remember_work_item trusts local profile storage
 
   avoids:
     depending on real storage or network behavior

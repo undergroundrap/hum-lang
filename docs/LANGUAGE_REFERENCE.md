@@ -126,7 +126,7 @@ boundary.
 ### `app`
 
 ```hum
-app Name {
+app reference_surface {
   why:
     explain the application
 }
@@ -164,7 +164,7 @@ strategy, such as a paved-road `Map` with profile-backed internals.
 ### `task`
 
 ```hum
-task add task(title: Text) -> Result Task, TaskError {
+task add_item(title: Text) -> Result Task, TaskError {
   why:
     let the user remember something to do
 
@@ -172,10 +172,10 @@ task add task(title: Text) -> Result Task, TaskError {
     title is not empty
 
   ensures:
-    new task is saved
+    new item is saved
 
   does:
-    return task
+    return item
 }
 ```
 
@@ -186,17 +186,17 @@ but does not execute the body.
 ### `test`
 
 ```hum
-test add task rejects empty title regression {
+test add_item rejects empty title regression {
   covers:
-    add task fails when title is empty
+    add_item fails when title is empty
 
   does:
-    expect add task("") fails with TaskError.empty_title
+    expect add_item("") fails with TaskError.empty_title
 }
 ```
 
 A `test` is first-class evidence. Milestone 0 parses tests, modifiers, `covers:`
-lines, and links exact or conservative canonical coverage phrases to generated task obligations.
+lines, and links exact or canonical-token coverage phrases to generated task obligations.
 
 Known current test modifiers:
 
@@ -209,23 +209,40 @@ Known current test modifiers:
 
 ## Names
 
-Hum names are intentionally human-readable. Item names may contain spaces in
-today's examples, such as `add task`.
+Current Hum identifiers are deterministic tokens, not English phrases.
 
-This is a Milestone 0 source-identity convenience, not a promise that Hum will
-turn arbitrary English into executable grammar. Stable name and phrase rules must
-be tokenized, deterministic, formatter-owned, and lowerable where executable.
-Hum should prefer one canonical spelling per concept instead of English synonym
-sets.
+Value names use `snake_case` and match `[a-z_][a-z0-9_]*`. This covers module
+path segments, app names, store names, task names, parameter names, and field
+names. Type names use `PascalCase` and match `[A-Z][A-Za-z0-9]*`.
 
-Milestone 0 stores names as parsed source text. `hum resolve --format json`
-emits the first checked scope, definition, reference, and mutable-place report as
-`hum.resolve.v0`. Later grammar work must pin the exact identifier rules for
-modules, item names, fields, parameters, variants, and paths before editor
-grammars and self-hosting depend on them.
+```hum
+module examples.task_list
 
-See [decisions/0009-adopt-formal-readability-not-english-mimicry.md](decisions/0009-adopt-formal-readability-not-english-mimicry.md).
+store work_items: list WorkItem {
+  why:
+    keep work visible
+}
 
+task remember_work_item(title: Text) -> Result WorkItem, WorkError {
+  why:
+    let the user capture work without losing the reason it matters
+
+  does:
+    return item
+}
+```
+
+Spaces are not part of identifiers. A spaced name such as `remember work item`
+is a parse error (`H0009`) whose help suggests `remember_work_item`. Human
+phrasing belongs in `why:` and other prose-bearing sections. Test names may
+remain multi-word phrases until the test grammar is pinned; `snake_case` is the
+default candidate for that future rule.
+
+Milestone 0 stores accepted names as parsed source text. `hum resolve --format
+json` emits the first checked scope, definition, reference, and mutable-place
+report as `hum.resolve.v0`.
+
+See [decisions/0012-adopt-snake-case-identifiers.md](decisions/0012-adopt-snake-case-identifiers.md) and [decisions/0009-adopt-formal-readability-not-english-mimicry.md](decisions/0009-adopt-formal-readability-not-english-mimicry.md).
 ## Parameters And Results
 
 Task and test parameters use this current shape:
@@ -455,10 +472,9 @@ Milestone 0 generates task `test_obligations` from meaningful lines in:
 
 `hum graph` links obligations to top-level tests when a meaningful `covers:`
 line exactly matches the generated coverage phrase after whitespace
-normalization or shares its conservative coverage key. The canonical key absorbs
-case, punctuation, filler words, hyphenation such as `non-empty`, and small
-section aliases such as `requires` for `needs`; it does not prove broad semantic
-paraphrases.
+normalization or shares its canonical token key. The canonical key lowercases and
+splits on punctuation while preserving identifier tokens such as `add_item`.
+It does not absorb filler words, aliases, synonyms, or broad paraphrases.
 
 `hum test-skeletons` prints Hum `test` blocks for unlinked obligations. It does
 not execute code or write files.
@@ -806,7 +822,6 @@ cargo run -- version --format json
 
 This reference is intentionally incomplete. The next gaps to close are:
 
-- final identifier and path grammar beyond the Milestone 0 parser contract
 - exact expression grammar for the first executable subset
 - type grammar for records, results, options, lists, and maps
 - import and visibility rules

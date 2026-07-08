@@ -2,7 +2,7 @@ module examples.core.add
 
 task add(a: Int, b: Int) -> Int {
   why:
-    prove the smallest executable Hum task end to end
+    prove the smallest executable Hum callable end to end
 
   ensures:
     result == a + b

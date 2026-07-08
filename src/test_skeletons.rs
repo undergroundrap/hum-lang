@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn emits_only_unlinked_test_obligation_skeletons() {
-        let source = r#"task add task(title: Text) -> Task {
+        let source = r#"task add_task(title: Text) -> Task {
   why:
     save a task
 
@@ -140,12 +140,12 @@ mod tests {
     return task
 }
 
-test add task saves nonempty title property {
+test add_task saves nonempty title property {
   why:
     prove saving behavior
 
   covers:
-    ADD TASK ENSURES: the new task is saved.
+    ADD_TASK ENSURES: new task is saved.
 
   does:
     expect task saved
@@ -157,14 +157,14 @@ test add task saves nonempty title property {
         };
         let skeletons = program_to_test_skeletons(&program);
 
-        assert!(skeletons.contains("test add task requires title is not empty"));
-        assert!(skeletons.contains("add task needs title is not empty"));
-        assert!(!skeletons.contains("add task ensures new task is saved"));
+        assert!(skeletons.contains("test add_task requires title is not empty"));
+        assert!(skeletons.contains("add_task needs title is not empty"));
+        assert!(!skeletons.contains("add_task ensures new task is saved"));
     }
 
     #[test]
     fn generated_skeletons_parse_as_hum_tests() {
-        let source = r#"task save weird title(title: Text) -> Task {
+        let source = r#"task save_weird_title(title: Text) -> Task {
   why:
     save a task
 
@@ -183,6 +183,6 @@ test add task saves nonempty title property {
         let parsed_skeletons = parse_source("generated.hum", &skeletons);
 
         assert!(parsed_skeletons.diagnostics.is_empty());
-        assert!(skeletons.contains("test save weird title handles title may include"));
+        assert!(skeletons.contains("test save_weird_title handles title may include"));
     }
 }

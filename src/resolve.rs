@@ -1712,23 +1712,23 @@ mod tests {
   title: Text
 }
 
-store work items: list WorkItem {
+store work_items: list WorkItem {
   why:
     remember work
 }
 
-task remember work item(title: Text) -> WorkItem {
+task remember_work_item(title: Text) -> WorkItem {
   uses:
     clock
 
   changes:
-    work items
+    work_items
 
   does:
     let item = WorkItem {
       title: title
     }
-    save item in work items
+    save item in work_items
     return item
 }
 "#;
@@ -1754,7 +1754,7 @@ task remember work item(title: Text) -> WorkItem {
 
     #[test]
     fn json_reports_unresolved_duplicates_read_before_declare_and_immutable_set() {
-        let source = r#"task bad names() -> UInt {
+        let source = r#"task bad_names() -> UInt {
   does:
     return later
     let later: UInt = 0

@@ -2560,7 +2560,7 @@ mod tests {
 
     #[test]
     fn json_preview_reports_nested_block_tree_without_execution_claims() {
-        let source = r#"task find session(user: User, sessions: Sessions) -> Session {
+        let source = r#"task find_session(user: User, sessions: Sessions) -> Session {
   why:
     find a session
 
@@ -2599,7 +2599,7 @@ mod tests {
 
     #[test]
     fn json_preview_scopes_loop_binders_to_their_block() {
-        let source = r#"task find session(user: User, sessions: Sessions) -> Session {
+        let source = r#"task find_session(user: User, sessions: Sessions) -> Session {
   does:
     for each session in sessions {
       if session.user == user {
@@ -2631,7 +2631,7 @@ mod tests {
 
     #[test]
     fn json_preview_reports_shadowed_and_unresolved_names_honestly() {
-        let source = r#"task check title(title: Text) -> Text {
+        let source = r#"task check_title(title: Text) -> Text {
   does:
     let title = "shadow"
     return missing
@@ -2664,17 +2664,17 @@ type WorkError {
   code: Text
 }
 
-store work items: list WorkItem {
+store work_items: list WorkItem {
   why:
-    keep test work items
+    keep test work_items
 }
 
-task remember work item(title: Text) -> Result WorkItem, WorkError {
+task remember_work_item(title: Text) -> Result WorkItem, WorkError {
   why:
     save a work item
 
   changes:
-    work items
+    work_items
 
   does:
     if title is empty {
@@ -2685,7 +2685,7 @@ task remember work item(title: Text) -> Result WorkItem, WorkError {
       title: title
       done: false
     }
-    save item in work items
+    save item in work_items
     return item
 }
 

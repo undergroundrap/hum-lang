@@ -176,46 +176,19 @@ fn canonical_coverage_tokens(text: &str) -> Vec<String> {
     let mut current = String::new();
 
     for ch in text.chars() {
-        if ch.is_ascii_alphanumeric() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
             current.push(ch.to_ascii_lowercase());
-        } else {
-            push_canonical_token(&mut tokens, &current);
+        } else if !current.is_empty() {
+            tokens.push(current.clone());
             current.clear();
         }
     }
-    push_canonical_token(&mut tokens, &current);
+
+    if !current.is_empty() {
+        tokens.push(current);
+    }
 
     tokens
-}
-
-fn push_canonical_token(tokens: &mut Vec<String>, token: &str) {
-    if token.is_empty() {
-        return;
-    }
-
-    match token {
-        "a" | "an" | "the" | "of" | "to" | "for" | "that" | "is" | "are" | "be" | "being"
-        | "was" | "were" | "may" | "might" | "can" | "could" => {}
-        "need" | "needed" | "needing" | "require" | "requires" | "required" | "requiring"
-        | "precondition" | "preconditions" => tokens.push("needs".to_string()),
-        "ensure" | "ensured" | "ensuring" | "postcondition" | "postconditions" | "promise"
-        | "promises" => tokens.push("ensures".to_string()),
-        "protect" | "protects" | "protected" | "protecting" | "protection" | "security"
-        | "secure" | "safety" => tokens.push("protects".to_string()),
-        "trust" | "trusts" | "trusted" | "trusting" | "assume" | "assumes" | "assumed"
-        | "assumption" | "assumptions" => tokens.push("trusts".to_string()),
-        "handle" | "handles" | "handled" | "handling" | "risk" | "risks" | "edge" => {
-            tokens.push("watch".to_string());
-        }
-        "case" | "cases" => {}
-        "non" => tokens.push("not".to_string()),
-        "nonempty" => {
-            tokens.push("not".to_string());
-            tokens.push("empty".to_string());
-        }
-        "cannot" => tokens.push("not".to_string()),
-        _ => tokens.push(token.to_string()),
-    }
 }
 
 fn suggested_evidence_name(task_name: &str, kind: &str, text: &str) -> String {
@@ -264,35 +237,31 @@ mod tests {
     use crate::diagnostic::Span;
 
     #[test]
-    fn coverage_key_normalizes_punctuation_case_and_small_aliases() {
+    fn coverage_key_normalizes_case_and_punctuation_only() {
         assert_eq!(
-            coverage_key("Add Task REQUIRES: the title is non-empty."),
-            "add task needs title not empty"
+            coverage_key("Add_Task NEEDS: title is not empty."),
+            "add_task needs title is not empty"
+        );
+        assert_eq!(
+            coverage_key("Add_Task REQUIRES: title is non-empty."),
+            "add_task requires title is non empty"
         );
     }
 
     #[test]
-    fn coverage_key_normalizes_security_and_trust_aliases() {
-        assert_eq!(
-            coverage_key("Add Task SECURITY: user data stays private."),
-            "add task protects user data stays private"
-        );
-        assert_eq!(
-            coverage_key("Add Task ASSUMES: local profile storage is durable."),
-            "add task trusts local profile storage durable"
-        );
-    }
-
-    #[test]
-    fn coverage_matching_distinguishes_exact_and_canonical_links() {
+    fn coverage_matching_distinguishes_exact_canonical_and_synonym_misses() {
         let modifiers = Vec::new();
         let exact_line = SectionLine {
-            text: "add task needs title is not empty".to_string(),
+            text: "add_task needs title is not empty".to_string(),
             span: Span::new("demo.hum", 1, 1),
         };
         let canonical_line = SectionLine {
-            text: "Add Task REQUIRES: title is non-empty.".to_string(),
+            text: "Add_Task NEEDS: title is not empty.".to_string(),
             span: Span::new("demo.hum", 2, 1),
+        };
+        let synonym_line = SectionLine {
+            text: "Add_Task REQUIRES: title is non-empty.".to_string(),
+            span: Span::new("demo.hum", 3, 1),
         };
         let exact = TestCoverage {
             test_name: "exact",
@@ -308,17 +277,31 @@ mod tests {
             covers: normalize_coverage(&canonical_line.text),
             coverage_key: coverage_key(&canonical_line.text),
         };
+        let synonym = TestCoverage {
+            test_name: "synonym",
+            modifiers: &modifiers,
+            line: &synonym_line,
+            covers: normalize_coverage(&synonym_line.text),
+            coverage_key: coverage_key(&synonym_line.text),
+        };
 
         assert_eq!(
-            coverage_match_kind("add task needs title is not empty", &exact),
+            coverage_match_kind("add_task needs title is not empty", &exact),
             Some("exact")
         );
         assert_eq!(
-            coverage_match_kind("add task needs title is not empty", &canonical),
+            coverage_match_kind("add_task needs title is not empty", &canonical),
             Some("canonical")
         );
         assert_eq!(
-            linked_test_count("add task needs title is not empty", &[exact, canonical]),
+            coverage_match_kind("add_task needs title is not empty", &synonym),
+            None
+        );
+        assert_eq!(
+            linked_test_count(
+                "add_task needs title is not empty",
+                &[exact, canonical, synonym]
+            ),
             2
         );
     }

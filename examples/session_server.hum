@@ -1,4 +1,4 @@
-app SessionServer {
+app session_server {
   why:
     accept trusted users and keep their sessions fast, safe, and memory efficient
 
@@ -35,7 +35,7 @@ app SessionServer {
       expires_at is after created_at
   }
 
-  task create session(user: User, device: Device) -> SessionToken {
+  task create_session(user: User, device: Device) -> SessionToken {
     why:
       let a verified user stay signed in without sending their password again
 

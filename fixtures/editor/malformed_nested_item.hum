@@ -1,8 +1,8 @@
-app Draft Workspace {
+app draft_workspace {
   why:
     keep nested item recovery visible for outline views
 
-  task nested reminder(title: Text)
+  task nested_reminder(title: Text)
     why:
       nested header is still being typed
 }

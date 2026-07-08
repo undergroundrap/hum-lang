@@ -545,11 +545,11 @@ mod tests {
         assert!(json.contains("\"proof_status\": \"not_proven\""));
         assert!(json.contains("\"benchmark_status\": \"not_measured\""));
         assert!(json.contains("\"related_math_obligation_kind\": \"allocation_freedom\""));
-        assert!(json.contains("\"graph_node_id\": \"item:demo.hum:1:1:task-find-active-session\""));
+        assert!(json.contains("\"graph_node_id\": \"item:demo.hum:1:1:task-find_active_session\""));
     }
 
     fn demo_program() -> Program {
-        let source = r#"task find active session(sessions: Sessions) -> Session {
+        let source = r#"task find_active_session(sessions: Sessions) -> Session {
   why:
     find the live session
 

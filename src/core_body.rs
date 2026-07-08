@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn recognizes_first_core_body_shapes_without_lowering() {
-        let source = r#"task remember title(title: Text) -> Result WorkItem, WorkError {
+        let source = r#"task remember_title(title: Text) -> Result WorkItem, WorkError {
   why:
     save a title
 
@@ -358,7 +358,7 @@ mod tests {
       done: false
     }
 
-    save item in work items
+    save item in work_items
     return item
 }
 "#;

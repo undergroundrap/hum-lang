@@ -395,8 +395,8 @@ mod tests {
 
         assert!(text.contains("Hum evidence report (hum.evidence.v0)"));
         assert!(text.contains("evidence_obligations=2 linked=1 unverified=1"));
-        assert!(text.contains("[linked] add task protects user data remains private"));
-        assert!(text.contains("[unverified] add task trusts local profile storage"));
+        assert!(text.contains("[linked] add_task protects user data remains private"));
+        assert!(text.contains("[unverified] add_task trusts local profile storage"));
         assert!(text.contains("linked_evidence:"));
     }
 
@@ -416,7 +416,7 @@ mod tests {
     }
 
     fn demo_program() -> Program {
-        let source = r#"task add task(title: Text) -> Task {
+        let source = r#"task add_task(title: Text) -> Task {
   why:
     save a task
 
@@ -430,9 +430,9 @@ mod tests {
     return task
 }
 
-test add task privacy unit {
+test add_task privacy unit {
   covers:
-    add task protects user data remains private
+    add_task protects user data remains private
 
   does:
     expect privacy evidence exists

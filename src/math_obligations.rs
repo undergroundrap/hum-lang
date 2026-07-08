@@ -744,7 +744,7 @@ mod tests {
         assert!(json.contains("\"confidence_requested\": \"evidence_only\""));
         assert!(json.contains("\"allowed_effects\": [\"read_memory\"]"));
         assert!(json.contains("\"local_first\": true"));
-        assert!(json.contains("\"source_ref\": \"hum_graph:item:demo.hum:1:1:task-show-tasks\""));
+        assert!(json.contains("\"source_ref\": \"hum_graph:item:demo.hum:1:1:task-show_tasks\""));
     }
 
     #[test]
@@ -780,7 +780,7 @@ mod tests {
 
     fn demo_program(allocation_line: &str) -> Program {
         let source = format!(
-            r#"task show tasks(tasks: Tasks) {{
+            r#"task show_tasks(tasks: Tasks) {{
   why:
     list visible tasks
 

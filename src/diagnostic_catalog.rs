@@ -61,6 +61,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Write the parameter as `name: Type`.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::INVALID_IDENTIFIER,
+        default_severity: Severity::Error,
+        explanation: "A Hum identifier uses one deterministic token. Value names use snake_case and type names use PascalCase, so spaced names cannot be parsed as symbols.",
+        repair: "Use a single token such as `remember_work_item`; put human phrasing in `why:` or another prose section.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::APP_MISSING_WHY,
         default_severity: Severity::Warning,
         explanation: "An app lacks a `why:` section, leaving the application purpose invisible to readers and tools.",
@@ -87,8 +93,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::MISSING_REQUIRED_SECTION,
         default_severity: Severity::Error,
-        explanation: "An item is missing a section that Milestone 0 needs in order to trust its shape, such as `why:` or `does:`.",
-        repair: "Add the required section with meaningful content.",
+        explanation: "An item is missing a section Milestone 0 needs, such as `does:`, or nontrivial behavior is missing visible purpose in `why:`.",
+        repair: "Add `does:` when the body is missing. Add `why:` when effects, failures, or body size make purpose non-obvious.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::DUPLICATE_SECTION,
@@ -99,8 +105,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::TASK_MISSING_NEEDS,
         default_severity: Severity::Warning,
-        explanation: "A task has no `needs:` section, so caller responsibilities and generated precondition tests are missing.",
-        repair: "Add `needs:` with the important preconditions, or state that no special preconditions are needed.",
+        explanation: "A task has a risky boundary but no `needs:` section, so real caller responsibilities may be hidden.",
+        repair: "Add `needs:` only when callers must satisfy a real precondition; avoid filler for pure local code.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::SECTION_OUT_OF_ORDER,
@@ -111,8 +117,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::TASK_MISSING_ENSURES,
         default_severity: Severity::Warning,
-        explanation: "A returning task has no `ensures:` section, so its success promises are not visible as graph facts or test obligations.",
-        repair: "Add `ensures:` lines that describe what the returned value or changed state must satisfy.",
+        explanation: "A returning task crosses a nontrivial boundary without an `ensures:` section, so its success promise may be hidden.",
+        repair: "Add `ensures:` when the result promise is not obvious from a small pure body.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::HOLLOW_CONTRACT_LINE,
@@ -135,8 +141,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::TASK_MISSING_COST,
         default_severity: Severity::Warning,
-        explanation: "A task has no `cost:` section, so performance expectations are not visible for review.",
-        repair: "Add a `cost:` section with time, space, and check expectations appropriate to the task.",
+        explanation: "A task has loops, effects, or a larger body but no `cost:` section, so resource expectations are not visible for review.",
+        repair: "Add `cost:` when resource behavior is worth reviewing; avoid filler for tiny pure tasks.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::COST_MISSING_CHECK,

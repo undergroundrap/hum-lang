@@ -16,6 +16,12 @@ struct SourceLine {
     text: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum IdentifierKind {
+    Value,
+    Type,
+}
+
 struct Parser {
     path: String,
     lines: Vec<SourceLine>,
@@ -57,7 +63,7 @@ impl Parser {
         let mut index = 0;
 
         while index < self.lines.len() {
-            let line = &self.lines[index];
+            let line = self.lines[index].clone();
             let trimmed = line.text.trim();
 
             if is_ignorable(trimmed) {
@@ -67,7 +73,9 @@ impl Parser {
 
             if count_indent(&line.text) == 0 {
                 if let Some(rest) = trimmed.strip_prefix("module ") {
-                    module = Some(rest.trim().to_string());
+                    let module_name = rest.trim().to_string();
+                    self.validate_module_path(&module_name, line.number);
+                    module = Some(module_name);
                     index += 1;
                     continue;
                 }
@@ -175,6 +183,7 @@ impl Parser {
 
         let item = if header.starts_with("app ") {
             let name = header.trim_start_matches("app ").trim().to_string();
+            self.validate_identifier("app name", &name, IdentifierKind::Value, line.number);
             let nested_items = self.parse_items_in_range(body_start, body_end, item_indent + 2);
             Item::App(App {
                 name,
@@ -183,12 +192,8 @@ impl Parser {
                 span,
             })
         } else if header.starts_with("type ") {
-            let name = header
-                .trim_start_matches("type ")
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .to_string();
+            let name = header.trim_start_matches("type ").trim().to_string();
+            self.validate_identifier("type name", &name, IdentifierKind::Type, line.number);
             let fields = self.parse_fields(body_start, body_end, item_indent + 2);
             Item::Type(TypeDef {
                 name,
@@ -198,6 +203,7 @@ impl Parser {
             })
         } else if header.starts_with("store ") {
             let (name, ty) = parse_store_header(header);
+            self.validate_identifier("store name", &name, IdentifierKind::Value, line.number);
             Item::Store(Store {
                 name,
                 ty,
@@ -259,7 +265,7 @@ impl Parser {
         let mut index = start;
 
         while index < end {
-            let line = &self.lines[index];
+            let line = self.lines[index].clone();
             let trimmed = line.text.trim();
             if count_indent(&line.text) == section_indent && is_section_header(trimmed) {
                 let name = trimmed.trim_end_matches(':').trim().to_string();
@@ -297,10 +303,10 @@ impl Parser {
         sections
     }
 
-    fn parse_fields(&self, start: usize, end: usize, field_indent: usize) -> Vec<Field> {
+    fn parse_fields(&mut self, start: usize, end: usize, field_indent: usize) -> Vec<Field> {
         let mut fields = Vec::new();
         for index in start..end {
-            let line = &self.lines[index];
+            let line = self.lines[index].clone();
             let trimmed = line.text.trim();
             if is_ignorable(trimmed) || count_indent(&line.text) != field_indent {
                 continue;
@@ -309,8 +315,10 @@ impl Parser {
                 continue;
             }
             if let Some((name, ty)) = trimmed.split_once(':') {
+                let name = name.trim().to_string();
+                self.validate_identifier("field name", &name, IdentifierKind::Value, line.number);
                 fields.push(Field {
-                    name: name.trim().to_string(),
+                    name,
                     ty: ty.trim().to_string(),
                     span: self.span(line.number),
                 });
@@ -331,6 +339,7 @@ impl Parser {
         };
 
         let (name, params, trailing) = self.parse_callable_signature(signature, line_number);
+        self.validate_identifier("task name", &name, IdentifierKind::Value, line_number);
         if !trailing.trim().is_empty() {
             self.diagnostics.push(Diagnostic::warning(
                 DiagnosticCode::UNEXPECTED_SIGNATURE_TEXT,
@@ -409,8 +418,15 @@ impl Parser {
         for raw_param in params_text.split(',') {
             let param = raw_param.trim();
             if let Some((name, ty)) = param.split_once(':') {
+                let name = name.trim().to_string();
+                self.validate_identifier(
+                    "parameter name",
+                    &name,
+                    IdentifierKind::Value,
+                    line_number,
+                );
                 params.push(Param {
-                    name: name.trim().to_string(),
+                    name,
                     ty: ty.trim().to_string(),
                     span: self.span(line_number),
                 });
@@ -425,6 +441,61 @@ impl Parser {
         params
     }
 
+    fn validate_module_path(&mut self, module_name: &str, line_number: usize) {
+        if module_name.is_empty() {
+            self.invalid_identifier(
+                "module path",
+                module_name,
+                IdentifierKind::Value,
+                line_number,
+            );
+            return;
+        }
+
+        for segment in module_name.split('.') {
+            if !is_valid_identifier(segment, IdentifierKind::Value) {
+                self.invalid_identifier(
+                    "module segment",
+                    segment,
+                    IdentifierKind::Value,
+                    line_number,
+                );
+            }
+        }
+    }
+
+    fn validate_identifier(
+        &mut self,
+        label: &str,
+        name: &str,
+        kind: IdentifierKind,
+        line_number: usize,
+    ) {
+        if !is_valid_identifier(name, kind) {
+            self.invalid_identifier(label, name, kind, line_number);
+        }
+    }
+
+    fn invalid_identifier(
+        &mut self,
+        label: &str,
+        name: &str,
+        kind: IdentifierKind,
+        line_number: usize,
+    ) {
+        let suggestion = identifier_suggestion(name, kind);
+        self.diagnostics.push(
+            Diagnostic::error(
+                DiagnosticCode::INVALID_IDENTIFIER,
+                format!("{label} `{name}` is not a valid Hum identifier"),
+                Some(self.span(line_number)),
+            )
+            .with_help(format!(
+                "Use `{suggestion}`. Value names use snake_case, type names use PascalCase, and sentences belong in `why:`."
+            )),
+        );
+    }
+
     fn span(&self, line_number: usize) -> Span {
         let column = self
             .lines
@@ -433,6 +504,74 @@ impl Parser {
             .map_or(1, |line| first_visible_column(&line.text));
         Span::new(self.path.clone(), line_number, column)
     }
+}
+
+fn is_valid_identifier(name: &str, kind: IdentifierKind) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+
+    match kind {
+        IdentifierKind::Value => {
+            (first.is_ascii_lowercase() || first == '_')
+                && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+        }
+        IdentifierKind::Type => {
+            first.is_ascii_uppercase() && chars.all(|ch| ch.is_ascii_alphanumeric())
+        }
+    }
+}
+
+fn identifier_suggestion(name: &str, kind: IdentifierKind) -> String {
+    match kind {
+        IdentifierKind::Value => snake_identifier(name),
+        IdentifierKind::Type => pascal_identifier(name),
+    }
+}
+
+fn snake_identifier(text: &str) -> String {
+    let mut out = String::new();
+    let mut previous_was_separator = false;
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            previous_was_separator = false;
+        } else if !previous_was_separator && !out.is_empty() {
+            out.push('_');
+            previous_was_separator = true;
+        }
+    }
+    let out = out.trim_matches('_').to_string();
+    if out.is_empty() {
+        "name".to_string()
+    } else if out.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+        format!("_{out}")
+    } else {
+        out
+    }
+}
+
+fn pascal_identifier(text: &str) -> String {
+    let words = text
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    if words.is_empty() {
+        return "Name".to_string();
+    }
+
+    let mut out = String::new();
+    for word in words {
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            out.push(first.to_ascii_uppercase());
+            for ch in chars {
+                out.push(ch);
+            }
+        }
+    }
+    out
 }
 
 fn first_visible_column(text: &str) -> usize {
@@ -475,7 +614,7 @@ mod tests {
     fn parses_task_with_sections() {
         let source = r#"module demo
 
-task add task(title: Text) -> Result Task, TaskError {
+task add_task(title: Text) -> Result Task, TaskError {
   why:
     remember a task
 
@@ -483,7 +622,7 @@ task add task(title: Text) -> Result Task, TaskError {
     tasks
 
   does:
-    save task in tasks
+    save item in tasks
 }
 "#;
         let parsed = parse_source("demo.hum", source);
@@ -491,7 +630,7 @@ task add task(title: Text) -> Result Task, TaskError {
         assert_eq!(parsed.file.module.as_deref(), Some("demo"));
         match &parsed.file.items[0] {
             Item::Task(task) => {
-                assert_eq!(task.name, "add task");
+                assert_eq!(task.name, "add_task");
                 assert_eq!(task.sections.len(), 3);
             }
             other => panic!("expected task, got {other:?}"),
@@ -519,7 +658,7 @@ task add task(title: Text) -> Result Task, TaskError {
 
     #[test]
     fn reports_stable_code_for_untyped_parameter() {
-        let source = r#"task save task(title) {
+        let source = r#"task save_task(title) {
   why:
     save it
   does:
@@ -536,23 +675,41 @@ task add task(title: Text) -> Result Task, TaskError {
     }
 
     #[test]
+    fn rejects_spaced_task_name_with_snake_case_help() {
+        let source = r#"task save task(title: Text) {
+  does:
+    return title
+}
+"#;
+        let parsed = parse_source("spaced-name.hum", source);
+        assert!(parsed.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DiagnosticCode::INVALID_IDENTIFIER
+                && diagnostic.severity == Severity::Error
+                && diagnostic
+                    .help
+                    .as_deref()
+                    .is_some_and(|help| help.contains("save_task"))
+        }));
+    }
+
+    #[test]
     fn reports_stable_codes_for_malformed_sources() {
         let cases = [
             (
                 "missing-open-brace.hum",
-                "task save task()\n  why:\n    save it\n",
+                "task save_task()\n  why:\n    save it\n",
                 DiagnosticCode::ITEM_HEADER_MISSING_OPEN_BRACE,
                 Severity::Error,
             ),
             (
                 "missing-close-brace.hum",
-                "task save task() {\n  why:\n    save it\n",
+                "task save_task() {\n  why:\n    save it\n",
                 DiagnosticCode::ITEM_BLOCK_MISSING_CLOSE_BRACE,
                 Severity::Error,
             ),
             (
                 "missing-close-paren.hum",
-                "task save task(title: Text {\n  why:\n    save it\n}\n",
+                "task save_task(title: Text {\n  why:\n    save it\n}\n",
                 DiagnosticCode::CALLABLE_SIGNATURE_MISSING_CLOSE_PAREN,
                 Severity::Error,
             ),
@@ -583,11 +740,11 @@ task add task(title: Text) -> Result Task, TaskError {
 
     #[test]
     fn reports_missing_brace_for_nested_item_headers() {
-        let source = r#"app Demo {
+        let source = r#"app demo {
   why:
     show nested parsing
 
-  task nested task()
+  task nested_task()
     why:
       missing brace
 }
@@ -601,11 +758,11 @@ task add task(title: Text) -> Result Task, TaskError {
 
     #[test]
     fn parses_nested_app_items_from_contract() {
-        let source = r#"app Demo {
+        let source = r#"app demo {
   why:
     group the demo
 
-  task add task(title: Text) {
+  task add_task(title: Text) {
     why:
       add the task
 
@@ -619,7 +776,7 @@ task add task(title: Text) -> Result Task, TaskError {
         match &parsed.file.items[0] {
             Item::App(app) => {
                 assert_eq!(app.items.len(), 1);
-                assert!(matches!(&app.items[0], Item::Task(task) if task.name == "add task"));
+                assert!(matches!(&app.items[0], Item::Task(task) if task.name == "add_task"));
             }
             other => panic!("expected app, got {other:?}"),
         }

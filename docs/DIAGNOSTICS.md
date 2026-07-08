@@ -44,7 +44,7 @@ Milestone 0 diagnostics contain:
 Terminal shape:
 
 ```text
-examples/task.hum:14:1: error[H0201]: task `save task` saves into `tasks` without listing it in `changes:`
+examples/task.hum:14:1: error[H0201]: task `save_item` saves into `tasks` without listing it in `changes:`
   help: Add `tasks` under `changes:` or avoid mutating it.
 ```
 
@@ -55,7 +55,7 @@ JSON shape in `hum check --format json` and `hum graph`:
   "code": "H0201",
   "title": "save target not declared in changes",
   "severity": "error",
-  "message": "task `save task` saves into `tasks` without listing it in `changes:`",
+  "message": "task `save_item` saves into `tasks` without listing it in `changes:`",
   "span": { "file": "examples/task.hum", "line": 14, "column": 3 },
   "help": "Add `tasks` under `changes:` or avoid mutating it."
 }
@@ -89,7 +89,7 @@ JSON shape in `hum check --format json`:
       "code": "H0201",
       "title": "save target not declared in changes",
       "severity": "error",
-      "message": "task `save task` saves into `tasks` without listing it in `changes:`",
+      "message": "task `save_item` saves into `tasks` without listing it in `changes:`",
       "span": { "file": "examples/task.hum", "line": 14, "column": 3 },
       "help": "Add `tasks` under `changes:` or avoid mutating it."
     }
@@ -115,7 +115,7 @@ JSON shape in `hum diagnostics --format json`:
 ```json
 {
   "schema": "hum.diagnostic_catalog.v0",
-  "count": 34,
+  "count": 35,
   "diagnostics": [
     {
       "code": "H0201",
@@ -176,6 +176,7 @@ Future ranges should be reserved before broad use:
 | `H0006` | warning | unexpected callable signature text | A task/test signature has trailing text Hum did not expect. |
 | `H0007` | error | callable signature missing close parenthesis | A callable parameter list starts but does not close. |
 | `H0008` | error | parameter missing type | A parameter lacks an explicit type. |
+| `H0009` | error | invalid identifier | A value name is not snake_case or a type name is not PascalCase. |
 
 ### Intent Block Discipline
 
@@ -185,11 +186,11 @@ Future ranges should be reserved before broad use:
 | `H0102` | warning | type missing shape | A type has no fields or invariant. |
 | `H0103` | warning | store missing type | A store does not declare what it contains. |
 | `H0104` | warning | store missing purpose | A store lacks `why:` or `expects:`. |
-| `H0105` | error | item missing required section | A task/test lacks a required section such as `why:` or `does:`. |
+| `H0105` | error | item missing required section | A task/test lacks `does:`, or nontrivial behavior lacks visible `why:`. |
 | `H0106` | warning | duplicate section | The same section appears more than once in one item. |
-| `H0107` | warning | task missing needs section | A task lacks preconditions. |
+| `H0107` | warning | task missing needs section | A task with a risky boundary lacks visible preconditions. |
 | `H0108` | warning | section out of order | A known section appears after a later canonical section. |
-| `H0109` | warning | task return missing ensures section | A returning task lacks postconditions. |
+| `H0109` | warning | task return missing ensures section | A task returning across a nontrivial boundary lacks postconditions. |
 | `H0110` | warning | hollow contract line | A contract-like line is too generic, tautological, or placeholder-shaped to catch a wrong implementation. |
 
 ### Effects And Mutation
@@ -203,7 +204,7 @@ Future ranges should be reserved before broad use:
 
 | Code | Severity | Title | Meaning |
 |---|---|---|---|
-| `H0301` | warning | task missing cost section | A task does not declare cost expectations. |
+| `H0301` | warning | task missing cost section | A task with loops, effects, or larger body shape lacks cost expectations. |
 | `H0302` | warning | cost missing check level | A `cost:` block lacks `check:`. |
 | `H0303` | error | compile cost missing time claim | `check: compile` is requested without a `time:` claim. |
 | `H0304` | error | constant cost claim has iteration | A task claims `time: O(1)` but visibly iterates. |

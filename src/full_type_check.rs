@@ -1375,9 +1375,9 @@ type WorkError {
   code: Text
 }
 
-store work items: list WorkItem {
+store work_items: list WorkItem {
   why:
-    keep work items
+    keep work_items
 }
 
 task remember(title: Text) -> Result WorkItem, WorkError {
@@ -1388,7 +1388,7 @@ task remember(title: Text) -> Result WorkItem, WorkError {
     title exists
 
   changes:
-    work items
+    work_items
 
   ensures:
     item is returned
@@ -1407,7 +1407,7 @@ task remember(title: Text) -> Result WorkItem, WorkError {
       done: false
     }
 
-    save item in work items
+    save item in work_items
     return item
 }
 "#,

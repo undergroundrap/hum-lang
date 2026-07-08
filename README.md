@@ -6,52 +6,96 @@ The goal is low-level Rust/C++ power with Python-like readability, static types,
 explicit effects, memory safety by default, and compiler-generated context for
 humans and coding agents.
 
-Hum source should read like a human-readable set of promises:
+Hum source should scale from the small form most code wants to the explicit
+contract form safety-critical work deserves.
 
-```text
-task create session(user: User, device: Device) -> SessionToken {
-  why:
-    let a verified user stay signed in without sending their password again
+Minimal form:
 
-  uses:
-    clock.now
-    random.secure
-    sessions
-
-  changes:
-    sessions
-
-  needs:
-    user is verified
-    device is allowed
-
-  ensures:
-    token belongs to user
-    token expires in 30 days
-    token does not reveal user secrets
-
-  protects:
-    session id cannot be guessed
-    expired token cannot work
-
-  watch for:
-    attacker may create many sessions quickly
-    hash collisions must not make lookup slow
-    memory use must stay bounded
-
-  optimizes:
-    lookup speed
-    memory density
-    security before speed
-
+<!-- hum-example:start examples/core/minimal_add.hum -->
+```hum
+task add(a: Int, b: Int) -> Int {
   does:
-    make secure token
-    create session for user
-    save session in sessions
-    return token
+    return a + b
 }
 ```
+<!-- hum-example:end -->
 
+Full-contract form:
+
+<!-- hum-example:start examples/reference_surface.hum -->
+```hum
+task remember_work_item(title: Text) -> Result WorkItem, WorkError {
+  why:
+    let a user capture work without losing the reason it matters
+    # comments inside sections are preserved as section facts
+
+  targets:
+    triple: wasm32-wasi-preview1
+    requires: os.clock
+    requires: os.filesystem
+    denies: os.network
+
+  uses:
+    clock
+
+  changes:
+    work_items
+
+  needs:
+    title is not empty
+
+  ensures:
+    new work item is saved
+    new work item is not done
+
+  protects:
+    user work history
+
+  trusts:
+    local profile storage
+
+  fails when:
+    title is empty
+
+  watch for:
+    title may contain only spaces
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  allocates:
+    one work item
+
+  avoids:
+    saving empty work items
+
+  tradeoffs:
+    local persistence is enough for the reference surface
+
+  optimizes:
+    clear review facts over clever implementation
+
+  tests:
+    remember_work_item rejects empty title
+
+  does:
+    if title is empty {
+      fail WorkError.empty_title
+    }
+
+    let item = WorkItem {
+      id: clock.now_text
+      title: title
+      done: false
+    }
+
+    save item in work_items
+    return item
+}
+```
+<!-- hum-example:end -->
 ## Status
 
 This repository is a language design seed with a Milestone 0 Rust bootstrap compiler front-end.
@@ -284,7 +328,7 @@ Current CLI:
 - `hum backend-contract [--format human|json]`: emit `hum.backend_contract.v0` backend ladder and adapter preservation facts without selecting or running a backend
 - `hum lsp --capabilities [--format human|json]`: list `hum.lsp_capabilities.v0` LSP adapter-preview facts without starting server mode
 - `hum doctor [--format human|json]`: emit `hum.doctor.v0` setup health facts for portable repo guardrails
-- `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including source-derived node IDs, source columns, folding ranges, document symbols, section line facts, task test obligations, exact or conservative canonical `covers:` links, and a non-executing portability object with source-declared `targets:` facts
+- `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including source-derived node IDs, source columns, folding ranges, document symbols, section line facts, task test obligations, exact or canonical-token `covers:` links, and a non-executing portability object with source-declared `targets:` facts
 - `hum test-skeletons <file-or-dir>...`: print Hum `test` blocks for unlinked test obligations without executing code or writing files
 - `hum syntax`: emit `hum.syntax_surface.v0` JSON for editor and tool adapters, including section hover metadata and a semantic-token legend
 - `hum syntax --format textmate`: emit a generated TextMate grammar from the same syntax surface

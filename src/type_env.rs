@@ -1048,7 +1048,7 @@ mod tests {
 
     #[test]
     fn resolver_errors_block_type_environment_authority() {
-        let source = r#"task bad names() -> UInt {
+        let source = r#"task bad_names() -> UInt {
   does:
     return missing
 }
@@ -1070,21 +1070,21 @@ mod tests {
   done: Bool
 }
 
-store work items: list WorkItem {
+store work_items: list WorkItem {
   why:
     remember work
 }
 
-task remember work item(title: Text) -> Result WorkItem, WorkError {
+task remember_work_item(title: Text) -> Result WorkItem, WorkError {
   changes:
-    work items
+    work_items
 
   does:
     let item = WorkItem {
       title: title
       done: false
     }
-    save item in work items
+    save item in work_items
     return item
 }
 "#;

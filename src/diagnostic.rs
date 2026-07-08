@@ -40,6 +40,7 @@ impl DiagnosticCode {
     pub const CALLABLE_SIGNATURE_MISSING_CLOSE_PAREN: Self =
         Self::new("H0007", "callable signature missing close parenthesis");
     pub const PARAMETER_MISSING_TYPE: Self = Self::new("H0008", "parameter missing type");
+    pub const INVALID_IDENTIFIER: Self = Self::new("H0009", "invalid identifier");
 
     pub const APP_MISSING_WHY: Self = Self::new("H0101", "app missing why section");
     pub const TYPE_MISSING_SHAPE: Self = Self::new("H0102", "type missing shape");

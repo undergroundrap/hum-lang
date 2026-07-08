@@ -139,6 +139,57 @@ function Assert-TextMateSnapshot {
   }
 }
 
+function Assert-ReadmeHumExamplesMatch {
+  Write-Host '==> README Hum examples match fixtures'
+  $ReadmePath = Join-Path $RepoRoot 'README.md'
+  $Readme = [System.IO.File]::ReadAllText($ReadmePath)
+  $Pattern = '<!-- hum-example:start (?<path>[^\r\n]+) -->\s*```hum\r?\n(?<code>.*?)\r?\n```\s*<!-- hum-example:end -->'
+  $Matches = [System.Text.RegularExpressions.Regex]::Matches($Readme, $Pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+  if ($Matches.Count -lt 2) {
+    throw 'README.md must contain at least two checked hum-example blocks'
+  }
+
+  foreach ($Match in $Matches) {
+    $Relative = $Match.Groups['path'].Value.Trim()
+    $FixturePath = Join-Path $RepoRoot ($Relative -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+    if (-not (Test-Path -LiteralPath $FixturePath)) {
+      throw "README hum-example fixture is missing: $Relative"
+    }
+    $Fixture = [System.IO.File]::ReadAllText($FixturePath).Replace(([string][char]13 + [string][char]10), [string][char]10)
+    $Code = $Match.Groups['code'].Value.Replace(([string][char]13 + [string][char]10), [string][char]10)
+    if (-not $Fixture.Contains($Code)) {
+      throw "README hum-example block does not match fixture text: $Relative"
+    }
+  }
+}
+
+function Assert-SessionASurfaceRules {
+  Write-Host '==> Session A source-surface rules'
+  $HumRoots = @((Join-Path $RepoRoot 'examples'), (Join-Path $RepoRoot 'fixtures'))
+  foreach ($Root in $HumRoots) {
+    foreach ($File in Get-ChildItem -LiteralPath $Root -Recurse -Filter '*.hum') {
+      $Text = [System.IO.File]::ReadAllText($File.FullName)
+      if ([regex]::IsMatch($Text, '(?m)^\s*task [a-z]+ [a-z]+')) {
+        throw "spaced task name remains in $($File.FullName)"
+      }
+      if ([regex]::IsMatch($Text, '(?m)^\s*(store [a-z]+ [a-z]+|app [A-Z][A-Za-z]*|[^\r\n]*\([a-z]+ [a-z]+:)')) {
+        throw "spaced or noncanonical declaration name remains in $($File.FullName)"
+      }
+      if ($Text.Contains('Number')) {
+        throw "Number type usage remains in $($File.FullName)"
+      }
+    }
+  }
+
+  foreach ($Relative in @('README.md', 'SPEC.md')) {
+    $Path = Join-Path $RepoRoot $Relative
+    $Text = [System.IO.File]::ReadAllText($Path)
+    if ($Text.Contains('Number')) {
+      throw "Number type usage remains in $Relative"
+    }
+  }
+}
+
 Push-Location $RepoRoot
 try {
   Invoke-Native 'cargo fmt --check' $Cargo @('fmt', '--check')
@@ -164,6 +215,7 @@ try {
 
   $DiagnosticsJson = Read-NativeOutput 'diagnostic catalog JSON' $Hum @('diagnostics', '--format', 'json')
   Assert-Json 'diagnostic catalog JSON' $DiagnosticsJson
+  if (-not $DiagnosticsJson.Contains('"code": "H0009"')) { throw 'diagnostic catalog JSON is missing H0009' }
   if (-not $DiagnosticsJson.Contains('"code": "H0601"')) { throw 'diagnostic catalog JSON is missing H0601' }
   if (-not $DiagnosticsJson.Contains('"code": "H0602"')) { throw 'diagnostic catalog JSON is missing H0602' }
   if (-not $DiagnosticsJson.Contains('"code": "H0603"')) { throw 'diagnostic catalog JSON is missing H0603' }
@@ -683,6 +735,8 @@ try {
   $TextMateJson = Read-NativeOutput 'TextMate grammar JSON' $Hum @('syntax', '--format', 'textmate')
   Assert-Json 'TextMate grammar JSON' $TextMateJson
   Assert-TextMateSnapshot $TextMateJson
+  Assert-ReadmeHumExamplesMatch
+  Assert-SessionASurfaceRules
 
   Invoke-Native 'git diff --check' $Git @('diff', '--check')
   Invoke-Native 'git diff --cached --check' $Git @('diff', '--cached', '--check')

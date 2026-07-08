@@ -225,7 +225,7 @@ A task is the core callable unit.
 Surface:
 
 ```text
-task create session(user: User) -> Result Session, SessionError {
+task create_session(user: User) -> Result Session, SessionError {
   uses:
     sessions
 
@@ -480,7 +480,7 @@ task divide(a: Int, b: Int) -> Result Int, MathError {
 Then:
 
 ```text
-task count completed(tasks: List Task) -> UInt {
+task count_completed(tasks: List Task) -> UInt {
   cost:
     time: O(tasks)
     space: O(1)

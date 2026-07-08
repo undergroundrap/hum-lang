@@ -840,7 +840,7 @@ mod tests {
 
     #[test]
     fn graph_json_includes_source_target_declarations() {
-        let source = r#"task read manifest() {
+        let source = r#"task read_manifest() {
   why:
     read a release manifest without assuming host powers
 
@@ -875,13 +875,13 @@ mod tests {
         assert!(json.contains("\"kind\": \"denied_capability_family\""));
         assert!(json.contains("\"status\": \"declared_not_enforced_v0\""));
         assert!(json.contains("\"source_section\": \"targets\""));
-        assert!(json.contains("\"owner\": {\"id\": \"item:portable.hum:1:1:task-read-manifest\""));
+        assert!(json.contains("\"owner\": {\"id\": \"item:portable.hum:1:1:task-read_manifest\""));
         assert!(json.contains("\"no target selected\""));
     }
 
     #[test]
     fn graph_json_reports_unavailable_required_capability_families() {
-        let source = r#"task open socket() {
+        let source = r#"task open_socket() {
   why:
     show target capability absence
 
@@ -913,7 +913,7 @@ mod tests {
 
     #[test]
     fn task_json_includes_test_and_evidence_obligations() {
-        let source = r#"task add task(title: Text) -> Result Task, TaskError {
+        let source = r#"task add_task(title: Text) -> Result Task, TaskError {
   why:
     save a task
 
@@ -959,24 +959,24 @@ mod tests {
         assert!(json.contains("\"kind\": \"trust_boundary\""));
         assert!(json.contains("\"blame\": \"trust_boundary\""));
         assert!(json.contains("\"verification_status\": \"unverified\""));
-        assert!(json.contains("\"covers\": \"add task protects user data remains private\""));
-        assert!(json.contains("\"coverage_key\": \"add task protects user data remains private\""));
+        assert!(json.contains("\"covers\": \"add_task protects user data remains private\""));
+        assert!(json.contains("\"coverage_key\": \"add_task protects user data remains private\""));
         assert!(json.contains("\"linked_evidence\": []"));
         assert!(
-            json.contains("\"suggested_evidence\": \"add task proves user data remains private\"")
+            json.contains("\"suggested_evidence\": \"add_task proves user data remains private\"")
         );
-        assert!(json.contains("\"suggested_test\": \"add task requires title is not empty\""));
+        assert!(json.contains("\"suggested_test\": \"add_task requires title is not empty\""));
         assert!(
-            json.contains("\"id\": \"obligation:demo.hum:6:5:add-task-needs-title-is-not-empty\"")
+            json.contains("\"id\": \"obligation:demo.hum:6:5:add_task-needs-title-is-not-empty\"")
         );
         assert!(json.contains(
-            "\"id\": \"evidence:demo.hum:12:5:add-task-protects-user-data-remains-private\""
+            "\"id\": \"evidence:demo.hum:12:5:add_task-protects-user-data-remains-private\""
         ));
     }
 
     #[test]
     fn evidence_obligations_link_to_covering_tests() {
-        let source = r#"task add task(title: Text) -> Task {
+        let source = r#"task add_task(title: Text) -> Task {
   why:
     save a task
 
@@ -990,13 +990,13 @@ mod tests {
     return task
 }
 
-test add task privacy evidence unit {
+test add_task privacy evidence unit {
   why:
     prove visible security and trust evidence links
 
   covers:
-    add task protects user data remains private
-    Add Task ASSUMES: local profile storage is durable.
+    add_task protects user data remains private
+    ADD_TASK TRUSTS: local profile storage is durable.
 
   does:
     expect security review recorded
@@ -1010,19 +1010,19 @@ test add task privacy evidence unit {
 
         assert!(json.contains("\"verification_status\": \"linked\""));
         assert!(json.contains(
-            "\"linked_evidence\": [{\"kind\": \"test\", \"name\": \"add task privacy evidence\""
+            "\"linked_evidence\": [{\"kind\": \"test\", \"name\": \"add_task privacy evidence\""
         ));
-        assert!(json.contains("\"covers\": \"add task protects user data remains private\""));
+        assert!(json.contains("\"covers\": \"add_task protects user data remains private\""));
         assert!(json.contains("\"match\": \"exact\""));
         assert!(
-            json.contains("\"covers\": \"Add Task ASSUMES: local profile storage is durable.\"")
+            json.contains("\"covers\": \"ADD_TASK TRUSTS: local profile storage is durable.\"")
         );
         assert!(json.contains("\"match\": \"canonical\""));
     }
 
     #[test]
     fn task_obligations_link_to_covering_tests() {
-        let source = r#"task add task(title: Text) -> Task {
+        let source = r#"task add_task(title: Text) -> Task {
   why:
     save a task
 
@@ -1036,12 +1036,12 @@ test add task privacy evidence unit {
     return task
 }
 
-test add task saves nonempty title property {
+test add_task saves nonempty title property {
   why:
     prove saving behavior
 
   covers:
-    add task ensures new task is saved
+    add_task ensures new task is saved
 
   does:
     expect task saved
@@ -1055,14 +1055,14 @@ test add task saves nonempty title property {
 
         assert!(json.contains("\"link_status\": \"linked\""));
         assert!(json.contains("\"link_status\": \"unlinked\""));
-        assert!(json.contains("\"linked_tests\": [{\"name\": \"add task saves nonempty title\""));
+        assert!(json.contains("\"linked_tests\": [{\"name\": \"add_task saves nonempty title\""));
         assert!(json.contains("\"modifiers\": [\"property\"]"));
-        assert!(json.contains("\"covers\": \"add task ensures new task is saved\""));
+        assert!(json.contains("\"covers\": \"add_task ensures new task is saved\""));
     }
 
     #[test]
     fn task_obligations_report_canonical_test_links() {
-        let source = r#"task add task(title: Text) -> Task {
+        let source = r#"task add_task(title: Text) -> Task {
   why:
     save a task
 
@@ -1073,12 +1073,12 @@ test add task saves nonempty title property {
     return task
 }
 
-test add task rejects empty title unit {
+test add_task rejects empty title unit {
   why:
     prove input validation
 
   covers:
-    Add Task REQUIRES: the title is non-empty.
+    ADD_TASK NEEDS: title is not empty.
 
   does:
     expect empty title rejected
@@ -1090,14 +1090,14 @@ test add task rejects empty title unit {
         };
         let json = program_to_json(&program, &[]);
 
-        assert!(json.contains("\"coverage_key\": \"add task needs title not empty\""));
+        assert!(json.contains("\"coverage_key\": \"add_task needs title is not empty\""));
         assert!(json.contains("\"match\": \"canonical\""));
-        assert!(json.contains("\"covers\": \"Add Task REQUIRES: the title is non-empty.\""));
+        assert!(json.contains("\"covers\": \"ADD_TASK NEEDS: title is not empty.\""));
     }
 
     #[test]
     fn graph_json_includes_section_folding_ranges() {
-        let source = r#"task add task(title: Text) -> Task {
+        let source = r#"task add_task(title: Text) -> Task {
   why:
     save a task
     preserve intent folding
@@ -1114,18 +1114,18 @@ test add task rejects empty title unit {
 
         assert!(json.contains("\"folding_ranges\""));
         assert!(json.contains("\"id\": \"section:demo.hum:2:3:why\""));
-        assert!(json.contains("\"owner\": {\"id\": \"item:demo.hum:1:1:task-add-task\""));
+        assert!(json.contains("\"owner\": {\"id\": \"item:demo.hum:1:1:task-add_task\""));
         assert!(json.contains("\"start_line\": 2, \"end_line\": 5"));
         assert!(json.contains("\"id\": \"section:demo.hum:6:3:does\""));
     }
 
     #[test]
     fn graph_json_includes_document_symbols() {
-        let source = r#"app Demo {
+        let source = r#"app demo {
   why:
     group tasks
 
-  task nested task(title: Text) {
+  task nested_task(title: Text) {
     why:
       prove nested symbol output
 
@@ -1148,7 +1148,7 @@ type WorkItem {
         assert!(json.contains("\"symbols\""));
         assert!(json.contains("\"id\": \"item:demo.hum:1:1:app-demo\", \"kind\": \"app\""));
         assert!(
-            json.contains("\"id\": \"item:demo.hum:5:3:task-nested-task\", \"kind\": \"task\"")
+            json.contains("\"id\": \"item:demo.hum:5:3:task-nested_task\", \"kind\": \"task\"")
         );
         assert!(json.contains("\"id\": \"item:demo.hum:14:1:type-workitem\", \"kind\": \"type\""));
         assert!(json.contains("\"id\": \"field:demo.hum:15:3:0-id\", \"kind\": \"field\""));
@@ -1156,7 +1156,7 @@ type WorkItem {
 
     #[test]
     fn graph_json_includes_source_derived_node_ids() {
-        let source = r#"task add task(title: Text) -> Task {
+        let source = r#"task add_task(title: Text) -> Task {
   why:
     save a task
 
@@ -1171,7 +1171,7 @@ type WorkItem {
         let json = program_to_json(&program, &[]);
 
         assert!(json.contains("\"id\": \"file:demo.hum\""));
-        assert!(json.contains("\"id\": \"item:demo.hum:1:1:task-add-task\""));
+        assert!(json.contains("\"id\": \"item:demo.hum:1:1:task-add_task\""));
         assert!(json.contains("\"id\": \"param:demo.hum:1:1:0-title\""));
         assert!(json.contains("\"id\": \"section:demo.hum:2:3:why\""));
         assert!(json.contains("\"id\": \"line:demo.hum:3:5\""));
@@ -1179,7 +1179,7 @@ type WorkItem {
 
     #[test]
     fn section_json_includes_line_items_with_spans() {
-        let source = r#"task add task(title: Text) -> Task {
+        let source = r#"task add_task(title: Text) -> Task {
   why:
     save a task
     // explain later
