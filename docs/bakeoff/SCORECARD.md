@@ -1,16 +1,15 @@
 # Ownership Bake-Off Scorecard
 
 Date: 2026-07-08
-Status: Session I draft for delegated ruling review
+Status: Session M implementation retrospective appended after decision 0014
 Corpus: [CORPUS.md](CORPUS.md)
 
 ## Purpose
 
 This scorecard compares the three ownership candidates against the pinned
-twelve-program corpus. It is a scoring document, not an accepted decision.
-Decision record [0014](../decisions/0014-adopt-ownership-model.md) remains
-`proposed` until ruled on under the delegated-ruling process in
-[GOVERNANCE.md](../GOVERNANCE.md).
+twelve-program corpus. It is evidence for decision record
+[0014](../decisions/0014-adopt-ownership-model.md), which is now accepted
+under delegated authority with the BDFL veto open.
 
 ## Score Key
 
@@ -124,3 +123,56 @@ Hum must not claim full ownership safety, internal references, field projection,
 or memory-safety completeness until those repairs are implemented and checked by
 probe programs. The reason to accept that debt is frequency-weighted ergonomics:
 the alternative is making pervasive view and parser code less natural forever.
+
+## Implementation status
+
+Session M records what the accepted Candidate A path actually implements after
+Sessions J-L. "Runs" means the named corpus behavior exists as a real Hum
+fixture under `hum run` and, when ownership is involved, under
+`hum ownership-check`. Related degenerate or restructured fixtures are named as
+evidence only; they do not count the corpus behavior as implemented.
+
+| # | Corpus program | Session M status | Evidence today | Missing feature or ban |
+| --- | --- | --- | --- | --- |
+| 1 | Doubly linked list with back-pointers | Blocked by missing feature | No runnable fixture. | Explicit arena/container API, stale-handle invalidation, and cyclic mutable structure are not implemented. |
+| 2 | Cyclic graph freed as a unit | Blocked by missing feature | No runnable fixture. | Graph arena or region lifetime, cyclic handles, and unit release are not implemented. |
+| 3 | Mutating a collection while iterating it | Blocked by missing feature | `examples/probes/task_list_flow.hum` proves read-only list iteration only. | List append, retain-style in-place deletion, stale item-view checks, and effect-polymorphic predicate tasks are not implemented. |
+| 4 | Callback registry capturing caller state | Blocked by ban | No runnable fixture. | Closures, tasks-as-values, stored callbacks, and effect polymorphism are banned by Work Order 3. |
+| 5 | Parser holding a slice into its own buffer | Blocked by missing feature | `fixtures/ownership_check/session_l_return_view_internal_fail.hum` rejects `from parser.buffer` with H0805. | Internal references and buffer/token invalidation are not implemented. |
+| 6 | Producer/consumer handoff between workers | Blocked by ban; transfer subset runs | Session J consume fixtures prove local authority transfer and reject local use after consume. | Worker/concurrency syntax is banned, so no send/receive fixture exists. |
+| 7 | Memoizing cache read through a shared path | Blocked by missing feature | No runnable fixture. | Cache/map stdlib, source-visible internal mutation behind read-shaped APIs, and entry-view invalidation are not implemented. |
+| 8 | Swapping two fields of one record | Blocked by missing feature | No runnable fixture. | Field-place assignment and disjoint-field projection are not implemented. |
+| 9 | Returning a view derived from a parameter | Blocked by missing feature | `fixtures/ownership_check/session_l_return_parameter_view_pass.hum` proves only the bare-parameter `echo_view` case; local-source misuse is rejected with H0805 and graph/ownership JSON expose the parameter dependency. | The real `first_word("hum language") -> "hum"` sub-view derivation is not implemented. |
+| 10 | Transaction that must commit or roll back exactly once | Runs | `examples/probes/transaction_once.hum` returns `ok`; Session K misuse fixtures reject missing close, double close, and one-branch close with H0803/H0804. | The linear-resource marker is still Transaction-shaped rather than source-visible and general. |
+| 11 | Updating one record field while preserving the rest | Blocked by missing feature; restructuring runs | `examples/probes/task_list_flow.hum` reconstructs a `WorkItem` and produces the expected open count. | Record update syntax, field-place mutation, disjoint-field projection, and stale field-view rejection are not implemented. |
+| 12 | Builder accumulating a growing list then handing it away | Blocked by missing feature | Session J consume fixtures prove the final transfer pattern only; no real builder fixture exists. | List growth, builder/finish API, append invalidation, and use-after-finish diagnostics are not implemented. |
+
+### Honesty locks after Session M
+
+All 0014 honesty locks remain. Sessions J-L implement only narrow local moves,
+parameter permission checks, Transaction-shaped exactly-once resources, and V0
+returned-view dependencies from bare parameters. The toolchain must still not
+claim full ownership safety, borrow soundness, memory safety,
+safety-critical readiness, internal-reference support, disjoint-field
+projection, flow-sensitive borrowing, concurrency ownership, or general linear
+resources.
+
+### Repair recommendation after Session M
+
+Between disjoint-field projection and flow-sensitive borrowing, fund the first
+repair as a narrow flow-sensitive returned-view provenance slice: make program
+9 real by accepting a checked sub-view derived from a parameter, while still
+rejecting local-buffer returns and exposing the dependency in graph and
+ownership JSON.
+
+This recommendation is evidence-driven, not a preference override. Program 9 is
+pervasive and currently blocked in a way that pollutes the very artifact
+Session L was meant to establish: the only passing fixture is an honest
+`echo_view`, not `first_word`. Disjoint-field projection is also important for
+programs 8 and 11, but today's runnable evidence has one restructuring record
+for record update while returned-view provenance has a blocked corpus record,
+the graph fact surface already in place, and direct pressure from the
+frequency-weighted decision that made Candidate A win. If the next work order
+wants to keep "sub-view provenance" separate from the broader
+flow-sensitive-borrowing bucket, that smaller repair should precede both named
+repairs; it should not be hidden under a disjoint-field session.

@@ -312,3 +312,44 @@ friction:
   severity: blocked
   indicts: ownership
   proposal: design a minimal checked sub-view derivation rule before counting program 9 as implemented; keep it distinct from internal-reference repair
+
+Session M consolidation:
+
+The records above are the accumulated friction ledger through Work Order 3.
+Three-strike counts are applied to the `indicts:` field, not to preference or
+candidate-scorecard hopes.
+
+| Indicted area | Count | Records | Three-strike result |
+| --- | ---: | --- | --- |
+| ownership | 3 | Transaction-shaped linear marker; internal-reference `from parser.buffer`; missing program 9 sub-view derivation. | Triggered. A next work order item is required. |
+| contracts | 2 | Contract-check-mode for `divide`; missing collection-count predicates in `word_count`. | No trigger yet; stays on the predicate/check-mode backlog. |
+| stdlib | 1 | Missing list append or Vec API in `task_list_flow`. | No trigger yet. |
+| types | 1 | Record field update requires replacement literal spelling. | No trigger yet, but this is direct pressure toward disjoint-field projection and record-update syntax. |
+| core-body-grammar | 1 | Standalone close/effect calls must be bound to throwaway locals. | No trigger yet. |
+
+Three-strike outcome:
+
+- Ownership is the only area over the threshold. The required work-order item
+  is not a broad ownership victory lap; it is a narrow repair that makes an
+  already exposed graph fact real for ordinary code.
+- The first funded repair should be checked returned-view provenance for
+  sub-views derived from parameters, treated as the first narrow slice of
+  flow-sensitive borrowing for Work Order planning. It must accept the real
+  corpus program 9 shape (`first_word("hum language") -> "hum"`), reject
+  local-buffer returns, and preserve `hum graph` and `hum ownership-check`
+  dependency facts.
+- Disjoint-field projection remains high-value and should follow, because
+  programs 8 and 11 are common or pervasive. It should not be first unless the
+  architect-reviewer decides to create a separate sub-view provenance work
+  order outside the disjoint-field versus flow-sensitive borrowing taxonomy.
+- Internal references remain blocked and important for parser state, but the
+  Session L evidence says not to count `from parser.buffer` as implemented
+  before the parameter-derived returned-view subset handles real sub-views.
+
+0014 honesty locks after applying the ledger: all remain. Hum has narrow
+checked ownership facts for local moves, permissions, Transaction-shaped linear
+resources, and bare-parameter returned views. It still has no full ownership
+safety claim, borrow-soundness claim, memory-safety proof, safety-critical
+readiness claim, disjoint-field projection, internal-reference support, broad
+flow-sensitive borrowing, concurrency ownership model, or general linear
+resource marker.
