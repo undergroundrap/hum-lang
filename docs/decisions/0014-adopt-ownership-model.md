@@ -1,7 +1,7 @@
 # 0014: Adopt Ownership And Borrowing As The Core Ownership Model
 
 Date: 2026-07-08
-Status: proposed
+Status: accepted under delegated authority (BDFL veto open)
 
 ## Context
 
@@ -164,3 +164,22 @@ not. The hard call is whether Hum should make common systems programs natural
 and pay for a serious checker, or keep the checker simpler by asking users to
 write less direct programs. This proposal chooses the serious checker, with the
 claims locked down until the evidence exists.
+
+## Ruling
+
+Accepted 2026-07-08 by the architect-reviewer under the delegated-ruling
+process in [../GOVERNANCE.md](../GOVERNANCE.md).
+
+Basis: the scorecard was verified against all six standing reviewer notes
+and applies them symmetrically to every candidate. The gate-move is
+accepted because this decision selects the long-term model, not the
+current checker, and the concession is bound by explicit honesty locks:
+no full ownership-safety, internal-reference, disjoint-field, or
+memory-safety-completeness claim until each repair is implemented and
+passes the corpus as probe programs. Candidate B's superior proven-today
+count (5 versus 4) was weighed and overridden by pattern frequency: B's
+tax is permanent and lands on pervasive program shapes; A's debt is
+temporary and claim-locked.
+
+The BDFL veto is open. This ruling reverses with one recorded sentence at
+any time before implementation hardens around it.
