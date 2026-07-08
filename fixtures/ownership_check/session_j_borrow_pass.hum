@@ -1,0 +1,9 @@
+module fixtures.ownership_check.session_j_borrow_pass
+
+task echo(value: Int) -> Int {
+  why:
+    prove default borrow parameters can be read without moving ownership
+
+  does:
+    return value
+}

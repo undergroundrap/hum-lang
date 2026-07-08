@@ -107,7 +107,7 @@ V0 definition kinds include:
 - `store`
 - `task`
 - `test`
-- `parameter`
+- `parameter` with `state_kind` values such as `borrow_parameter`, `change_parameter`, or `consume_parameter`
 - `declared_use_permission`
 - `declared_change_permission`
 - `let_binding`
@@ -149,6 +149,8 @@ V0 reference kinds include:
 - `external_reference_v0`
 - `unresolved_v0`
 - `resolved_immutable_place_v0`
+
+Parameter mutation targets resolve as parameter references so the later ownership gate can apply `borrow`/`change`/`consume` authority and emit ownership diagnostics. Ordinary immutable local mutation still resolves as `resolved_immutable_place_v0`.
 
 ## Diagnostics
 

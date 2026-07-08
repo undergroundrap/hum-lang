@@ -114,7 +114,8 @@ multi-word phrases until the test grammar is pinned.
 callable-signature ::= callable-name params? trailing?
 params             ::= "(" param-list? ")"
 param-list         ::= param ("," param)*
-param              ::= param-name ":" param-type
+param              ::= param-permission? param-name ":" param-type
+param-permission  ::= "borrow" | "change" | "consume"
 ```
 
 Current capture rules:
@@ -123,6 +124,7 @@ Current capture rules:
 - If no `(` appears, the whole task signature is the callable name and params are empty.
 - Test names may still be multi-word phrases; test params use the same param grammar.
 - `param-name` is a value identifier before `:` in a comma-separated parameter.
+- An optional leading `borrow`, `change`, or `consume` before the parameter name is captured as the parameter permission; unmarked parameters default to `borrow`.
 - `param-type` is trimmed text after `:` in that parameter.
 - Missing parameter types produce an error.
 - Missing `)` produces an error.

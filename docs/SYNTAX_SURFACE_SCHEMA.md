@@ -43,6 +43,7 @@ TextMate grammar built from the same syntax surface.
   "identifiers": { "value": "[a-z_][a-z0-9_]*", "type": "[A-Z][A-Za-z0-9]*" },
   "comment_prefixes": [],
   "test_modifiers": [],
+  "parameter_permission_modes": ["borrow", "change", "consume"],
   "section_headers": {},
   "semantic_tokens": {}
 }
@@ -58,6 +59,7 @@ TextMate grammar built from the same syntax surface.
 - `identifiers`: current value-name and type-name regex patterns from decision 0012
 - `comment_prefixes`: line comment prefixes recognized inside sections
 - `test_modifiers`: recognized leading modifiers for `test` declarations
+- `parameter_permission_modes`: parameter permission words recognized in callable signatures; unmarked parameters default to `borrow`
 - `section_headers`: section order, obligation mapping, and hover catalog
 - `semantic_tokens`: shared token legend and Hum role mapping for editor and LSP
   adapters

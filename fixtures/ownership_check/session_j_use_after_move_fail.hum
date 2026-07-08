@@ -1,0 +1,19 @@
+module fixtures.ownership_check.session_j_use_after_move_fail
+
+task take(consume value: Int) -> Int {
+  why:
+    provide a consume boundary for the misuse probe
+
+  does:
+    return value
+}
+
+task use_after_move() -> Int {
+  why:
+    prove ownership rejects reading a moved local
+
+  does:
+    let value: Int = 7
+    let taken: Int = take(consume value)
+    return value
+}

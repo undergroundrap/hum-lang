@@ -31,8 +31,9 @@ Hum uses explicit stability language:
 - `future`: design direction, not a compatibility promise
 - `rejected`: should not enter Hum without a new accepted design decision
 
-Milestone 0 is local, offline-first, parser/checker/graph only. It does not
-execute Hum programs, generated code, build scripts, packages, plugins, or
+Milestone 0 is local, offline-first, parser/checker/graph only. Milestone 1 has
+begun a narrow local `hum run` interpreter for the explicitly documented core
+subset; it does not execute generated code, build scripts, packages, plugins, or
 foreign code.
 
 ## Reading Map
@@ -248,7 +249,7 @@ See [decisions/0012-adopt-snake-case-identifiers.md](decisions/0012-adopt-snake-
 Task and test parameters use this current shape:
 
 ```hum
-task name(input: Type, other: Type) -> Output {
+task name(input: Type, change draft: Type, consume owned: Type) -> Output {
   does:
     return value
 }
@@ -257,9 +258,16 @@ task name(input: Type, other: Type) -> Output {
 Current parser facts:
 
 - parameter name
+- parameter permission: `borrow`, `change`, or `consume`
 - parameter type text
 - source span
 - optional result type text for tasks
+
+Unmarked parameters default to `borrow`. The default keeps ordinary signatures
+read-only and follows decision 0014's ownership direction: mutation and ownership
+transfer should be visible at the boundary, while the paved road remains small.
+Use `change` when the task may write through the parameter. Use `consume` when
+the task receives ownership authority and may move or close it.
 
 Parameter and result types are not yet fully type-checked in Milestone 0.
 
@@ -309,7 +317,7 @@ Common task sections:
 | `optimizes:` | current | performance or quality priorities when tradeoffs conflict |
 | `tests:` | current | declared test obligations |
 | `proves:` | reference | formal or semi-formal proof obligations |
-| `does:` | current | captured body text; executable semantics are future work |
+| `does:` | current | captured body text, with a narrow Milestone 1 executable subset under `hum run` |
 
 Additional sections such as `creates:`, `deletes:`, `assumes:`, `keeps:`,
 `benchmarks:`, and `calls:` are part of the broader design direction and appear
@@ -392,6 +400,7 @@ The current state model contract is [STATE_MODEL.md](STATE_MODEL.md), emitted by
 Current Milestone 0 checks and reports are small:
 
 - save-like mutation in `does:` should refer to declared `changes:` targets
+- parameter writes are checked against `borrow`/`change`/`consume` authority by `hum ownership-check`
 - known sections should appear in canonical order
 - tasks should have important context such as `why:` and `does:`
 - contract-like lines should not be obviously hollow, tautological, or placeholder-shaped
@@ -506,7 +515,7 @@ notes, review packets, sanitizer runs, and profile evidence.
 
 The `does:` block is executable only for the explicitly interpreted Milestone 1 subset, and remains future surface beyond that subset.
 
-Milestone 1 begins with `hum run <file> [--entry <task>] [--args ...]` over checked source for `examples/core/add.hum`, `examples/core/divide.hum`, and `examples/core/count_completed.hum`. The current tree-walking interpreter covers the forms those programs require: Int/Bool literals, arithmetic, comparisons, `let`, `change`, `set`, `if`, `for each`, `return`, `fail`, task calls, typed failure values, predicate v0 `needs:`/`ensures:` checks, and the simple list/record values needed by `count_completed`. Integer overflow and division by zero trap instead of wrapping; executable contract violations exit as runtime failures with caller/task blame diagnostics.
+Milestone 1 begins with `hum run <file> [--entry <task>] [--args ...]` over checked source for `examples/core/add.hum`, `examples/core/divide.hum`, and `examples/core/count_completed.hum`. The current tree-walking interpreter covers the forms those programs require: Int/Bool literals, arithmetic, comparisons, `let`, `change`, `set`, `if`, `for each`, `return`, `fail`, task calls, typed failure values, predicate v0 `needs:`/`ensures:` checks, and the simple list/record values needed by `count_completed`. It also enforces the Session J ownership subset at runtime: writing through a default `borrow` parameter traps with `H0802`, and using a local after it was moved by `consume` or by return traps with `H0801`. Integer overflow and division by zero trap instead of wrapping; executable contract violations exit as runtime failures with caller/task blame diagnostics.
 
 The report gates remain non-executing. `hum core-preview` maps recognized lines into Core Hum candidate operations and explicit blockers without executing, type-checking, effect-checking, or emitting IR. `hum resolve` performs the first checked pass over scopes, definitions, references, and mutable-place targets. `hum type-env` records declared type names and annotations with resolver identity. `hum type-check` validates declaration annotation names without expression inference or body checking. `hum full-type-check`, `hum effect-check`, `hum ownership-check`, and `hum resource-check` report recognized facts and blockers without execution or IR emission. `hum ir-readiness` consumes the checked resolver, type, Core verifier, full-type-check, effect-check, ownership-check, and resource-check summaries before any future lowering claim. New executable syntax must still become checkable, lower into [FORMAL_CORE.md](FORMAL_CORE.md), and preserve the non-claims of the report surfaces before it becomes stable.
 

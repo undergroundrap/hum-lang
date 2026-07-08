@@ -5,6 +5,7 @@ pub const MODULE_KEYWORD: &str = "module";
 pub const ITEM_KINDS: &[&str] = &["app", "type", "store", "task", "test"];
 pub const VALUE_IDENTIFIER_PATTERN: &str = "[a-z_][a-z0-9_]*";
 pub const TYPE_IDENTIFIER_PATTERN: &str = "[A-Z][A-Za-z0-9]*";
+pub const PARAMETER_PERMISSION_MODES: &[&str] = &["borrow", "change", "consume"];
 pub const DOUBLE_SLASH_COMMENT_PREFIX: &str = concat!("/", "/");
 pub const COMMENT_PREFIXES: &[&str] = &["#", DOUBLE_SLASH_COMMENT_PREFIX];
 pub const TEST_MODIFIERS: &[&str] = &[
@@ -167,6 +168,12 @@ pub const SEMANTIC_TOKEN_RULES: &[SemanticTokenRule] = &[
         token_type: "function",
         modifiers: &["definition"],
         hum_role: "evidence",
+    },
+    SemanticTokenRule {
+        source: "parameter_permission",
+        token_type: "keyword",
+        modifiers: &["declaration"],
+        hum_role: "signature_permission",
     },
     SemanticTokenRule {
         source: "parameter_name",
@@ -378,6 +385,13 @@ pub fn syntax_json() -> String {
     out.push_str("},\n");
     push_string_array(&mut out, 2, "comment_prefixes", COMMENT_PREFIXES, true);
     push_string_array(&mut out, 2, "test_modifiers", TEST_MODIFIERS, true);
+    push_string_array(
+        &mut out,
+        2,
+        "parameter_permission_modes",
+        PARAMETER_PERMISSION_MODES,
+        true,
+    );
     push_indent(&mut out, 2);
     out.push_str("\"section_headers\": {\n");
     push_string_array(&mut out, 4, "task_order", TASK_SECTION_ORDER, true);
@@ -422,6 +436,11 @@ pub fn textmate_json() -> String {
         "(^|[^[:alnum:]_])({})($|[^[:alnum:]_])",
         regex_alternation(TEST_MODIFIERS)
     );
+    let parameter_permission_pattern = format!(
+        "(^|[,(][[:space:]]*)({})(?=[[:space:]]+{}[[:space:]]*:)",
+        regex_alternation(PARAMETER_PERMISSION_MODES),
+        VALUE_IDENTIFIER_PATTERN
+    );
     let module_identifier_pattern = format!(
         "^[[:space:]]*{}[[:space:]]+{}(\\.({}))*",
         regex_word_literal(MODULE_KEYWORD),
@@ -463,6 +482,10 @@ pub fn textmate_json() -> String {
         name: "storage.modifier.test.hum",
         pattern: modifier_pattern,
     }];
+    let parameter_permission_rules = [TextMateRule {
+        name: "storage.modifier.parameter-permission.hum",
+        pattern: parameter_permission_pattern,
+    }];
     let identifier_rules = [
         TextMateRule {
             name: "entity.name.namespace.module.hum",
@@ -489,6 +512,7 @@ pub fn textmate_json() -> String {
     push_include(&mut out, 4, "#module", true);
     push_include(&mut out, 4, "#items", true);
     push_include(&mut out, 4, "#identifiers", true);
+    push_include(&mut out, 4, "#parameter-permissions", true);
     push_include(&mut out, 4, "#sections", true);
     push_include(&mut out, 4, "#test-modifiers", false);
     push_indent(&mut out, 2);
@@ -499,6 +523,13 @@ pub fn textmate_json() -> String {
     push_repository_matches(&mut out, 4, "module", &module_rules, true);
     push_repository_matches(&mut out, 4, "items", &item_rules, true);
     push_repository_matches(&mut out, 4, "identifiers", &identifier_rules, true);
+    push_repository_matches(
+        &mut out,
+        4,
+        "parameter-permissions",
+        &parameter_permission_rules,
+        true,
+    );
     push_repository_matches(&mut out, 4, "sections", &section_rules, true);
     push_repository_matches(&mut out, 4, "test-modifiers", &modifier_rules, false);
     push_indent(&mut out, 2);
@@ -798,6 +829,9 @@ mod tests {
         assert!(json.contains(
             "\"identifiers\": {\"value\": \"[a-z_][a-z0-9_]*\", \"type\": \"[A-Z][A-Za-z0-9]*\"}"
         ));
+        assert!(
+            json.contains("\"parameter_permission_modes\": [\"borrow\", \"change\", \"consume\"]")
+        );
         assert!(json.contains(
             "{\"source\": \"section:protects\", \"token_type\": \"keyword\", \"modifiers\": [\"documentation\"], \"hum_role\": \"security\"}"
         ));
@@ -811,6 +845,8 @@ mod tests {
         assert!(json.contains("\"scopeName\": \"source.hum\""));
         assert!(json.contains("app|type|store|task|test"));
         assert!(json.contains("#identifiers"));
+        assert!(json.contains("#parameter-permissions"));
+        assert!(json.contains("borrow|change|consume"));
         assert!(json.contains("[a-z_][a-z0-9_]*"));
         assert!(json.contains("[A-Z][A-Za-z0-9]*"));
         assert!(json.contains("targets"));

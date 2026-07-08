@@ -585,6 +585,11 @@ fn check_declared_mutation(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
         .map(section_resource_set)
         .unwrap_or_default();
     let local_mutables = local_mutables(does);
+    let parameter_roots = task
+        .params
+        .iter()
+        .map(|param| param.name.clone())
+        .collect::<BTreeSet<_>>();
 
     for line in meaningful_lines(does) {
         if let Some(target) = save_target(&line.text)
@@ -608,6 +613,7 @@ fn check_declared_mutation(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
         if let Some(target) = set_target(&line.text)
             && !declared_changes.contains(&target)
             && !local_mutables.contains(&target)
+            && !parameter_roots.contains(&target)
         {
             diagnostics.push(
                 Diagnostic::error(
@@ -762,13 +768,16 @@ fn first_resource(text: &str) -> Option<String> {
     if text.is_empty() {
         return None;
     }
-    Some(
-        text.split_whitespace()
-            .next()
-            .unwrap_or(text)
-            .trim_matches(|ch: char| ch == ',' || ch == '.')
-            .to_string(),
-    )
+    let token = text
+        .split_whitespace()
+        .next()
+        .unwrap_or(text)
+        .trim_matches(|ch: char| ch == ',' || ch == '.');
+    token
+        .split(['.', '['])
+        .next()
+        .filter(|root| !root.is_empty())
+        .map(str::to_string)
 }
 
 fn local_mutables(section: &Section) -> BTreeSet<String> {
@@ -793,7 +802,7 @@ fn set_target(text: &str) -> Option<String> {
     let rest = text.strip_prefix("set ")?.trim();
     rest.split(|ch: char| ch == '=' || ch.is_whitespace())
         .find(|part| !part.is_empty())
-        .map(str::to_string)
+        .and_then(first_resource)
 }
 
 fn cost_value(section: &Section, key: &str) -> Option<String> {

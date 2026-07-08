@@ -338,6 +338,10 @@ fn check_item(item: &Item, blocked: bool) -> Option<EffectItem> {
     let body = core_body::analyze_does_section(does);
     let declarations = collect_declarations(item_sections(item));
     let local_mutables = local_mutables(&body.statements);
+    let parameter_roots = item_parameters(item)
+        .into_iter()
+        .map(|param| first_resource(&param))
+        .collect::<BTreeSet<_>>();
     let mut statements = Vec::new();
     for (index, statement) in body.statements.iter().enumerate() {
         statements.push(check_statement_effect(
@@ -345,6 +349,7 @@ fn check_item(item: &Item, blocked: bool) -> Option<EffectItem> {
             index,
             &declarations,
             &local_mutables,
+            &parameter_roots,
             blocked,
         ));
     }
@@ -370,6 +375,7 @@ fn check_statement_effect(
     index: usize,
     declarations: &EffectDeclarations,
     local_mutables: &BTreeSet<String>,
+    parameter_roots: &BTreeSet<String>,
     blocked: bool,
 ) -> EffectStatement {
     if blocked {
@@ -431,7 +437,13 @@ fn check_statement_effect(
             "accepted_local_mutation_permission_v0",
             None,
         ),
-        "set_place" => check_set_statement(statement, index, declarations, local_mutables),
+        "set_place" => check_set_statement(
+            statement,
+            index,
+            declarations,
+            local_mutables,
+            parameter_roots,
+        ),
         "save_in_store" => check_save_statement(statement, index, declarations),
         "test_expectation" => effect_statement(
             statement,
@@ -469,6 +481,7 @@ fn check_set_statement(
     index: usize,
     declarations: &EffectDeclarations,
     local_mutables: &BTreeSet<String>,
+    parameter_roots: &BTreeSet<String>,
 ) -> EffectStatement {
     let Some(target) = set_place_name(statement) else {
         return effect_statement(
@@ -490,6 +503,16 @@ fn check_set_statement(
             Some(resource),
             Some("change".to_string()),
             "accepted_local_mutation_v0",
+            None,
+        )
+    } else if parameter_roots.contains(&resource) {
+        effect_statement(
+            statement,
+            index,
+            "parameter_mutation",
+            Some(resource),
+            Some("parameter_permission".to_string()),
+            "accepted_parameter_mutation_deferred_to_ownership_v0",
             None,
         )
     } else if declares_resource(&declarations.changes, &resource) {
@@ -872,10 +895,15 @@ fn contains_word_or_path(text: &str, needle: &str) -> bool {
 }
 
 fn first_resource(text: &str) -> String {
-    text.split_whitespace()
+    let token = text
+        .split_whitespace()
         .next()
         .unwrap_or(text)
-        .trim_matches(|ch: char| ch == ',' || ch == '.')
+        .trim_matches(|ch: char| ch == ',' || ch == '.');
+    token
+        .split(['.', '['])
+        .next()
+        .unwrap_or(token)
         .to_ascii_lowercase()
 }
 
@@ -1123,6 +1151,14 @@ fn count_items_in(items: &[Item]) -> usize {
             }
         })
         .sum()
+}
+
+fn item_parameters(item: &Item) -> Vec<String> {
+    match item {
+        Item::Task(task) => task.params.iter().map(|param| param.name.clone()).collect(),
+        Item::Test(test) => test.params.iter().map(|param| param.name.clone()).collect(),
+        _ => Vec::new(),
+    }
 }
 
 fn item_sections(item: &Item) -> &[Section] {

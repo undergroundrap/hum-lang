@@ -247,9 +247,10 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
         || type_check_summary.resolver_errors > 0
         || type_check_summary.type_errors > 0
         || core_verify_summary.failed_checks > 0;
+    let task_returns = task_return_types(program);
     let mut items = Vec::new();
     for file in &program.files {
-        collect_items(&file.items, blocked, &mut items);
+        collect_items(&file.items, blocked, &task_returns, &mut items);
     }
 
     FullTypeCheckReport {
@@ -262,18 +263,27 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
     }
 }
 
-fn collect_items(items: &[Item], blocked: bool, out: &mut Vec<FullTypeItem>) {
+fn collect_items(
+    items: &[Item],
+    blocked: bool,
+    task_returns: &BTreeMap<String, TypeFact>,
+    out: &mut Vec<FullTypeItem>,
+) {
     for item in items {
-        if let Some(typed_item) = type_item(item, blocked) {
+        if let Some(typed_item) = type_item(item, blocked, task_returns) {
             out.push(typed_item);
         }
         if let Item::App(app) = item {
-            collect_items(&app.items, blocked, out);
+            collect_items(&app.items, blocked, task_returns, out);
         }
     }
 }
 
-fn type_item(item: &Item, blocked: bool) -> Option<FullTypeItem> {
+fn type_item(
+    item: &Item,
+    blocked: bool,
+    task_returns: &BTreeMap<String, TypeFact>,
+) -> Option<FullTypeItem> {
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
@@ -281,7 +291,14 @@ fn type_item(item: &Item, blocked: bool) -> Option<FullTypeItem> {
     let mut environment = initial_environment(item_params(item));
     let mut statements = Vec::new();
     for (index, statement) in body.statements.iter().enumerate() {
-        let typed = type_statement(item, index, statement, &mut environment, blocked);
+        let typed = type_statement(
+            item,
+            index,
+            statement,
+            &mut environment,
+            task_returns,
+            blocked,
+        );
         statements.push(typed);
     }
     let status = item_status(&statements, blocked);
@@ -303,6 +320,7 @@ fn type_statement(
     index: usize,
     statement: &BodyStatement,
     environment: &mut BTreeMap<String, TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
     blocked: bool,
 ) -> TypedStatement {
     if blocked {
@@ -335,7 +353,7 @@ fn type_statement(
     let expected_type = expected_type_for_statement(item, statement, environment);
     let actual = expression_text
         .as_deref()
-        .and_then(|expression| infer_expression_type(expression, environment));
+        .and_then(|expression| infer_expression_type(expression, environment, task_returns));
     let (status, reason) = statement_status(statement, expected_type.as_deref(), actual.as_ref());
 
     if matches!(statement.kind, "let_binding" | "mutable_binding")
@@ -472,6 +490,31 @@ fn typed_statement(
     }
 }
 
+fn task_return_types(program: &Program) -> BTreeMap<String, TypeFact> {
+    let mut returns = BTreeMap::new();
+    for file in &program.files {
+        collect_task_return_types(&file.items, &mut returns);
+    }
+    returns
+}
+
+fn collect_task_return_types(items: &[Item], returns: &mut BTreeMap<String, TypeFact>) {
+    for item in items {
+        match item {
+            Item::Task(task) => {
+                if let Some(result) = task.result.as_deref() {
+                    returns.insert(
+                        name_key(&task.name),
+                        type_fact(expected_return_value_type(result), "task_call_result_v0"),
+                    );
+                }
+            }
+            Item::App(app) => collect_task_return_types(&app.items, returns),
+            Item::Type(_) | Item::Store(_) | Item::Test(_) => {}
+        }
+    }
+}
+
 fn initial_environment(params: &[Param]) -> BTreeMap<String, TypeFact> {
     let mut environment = BTreeMap::new();
     for param in params {
@@ -553,10 +596,14 @@ fn set_place_name(statement: &BodyStatement) -> Option<&str> {
 fn infer_expression_type(
     expression_text: &str,
     environment: &BTreeMap<String, TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
 ) -> Option<TypeFact> {
     let text = expression_text.trim();
     if text.is_empty() {
         return Some(type_fact("Unit", "unit_expression_v0"));
+    }
+    if let Some(consumed) = strip_consume_expression(text) {
+        return infer_expression_type(consumed, environment, task_returns);
     }
     if text == "true" || text == "false" {
         return Some(type_fact("Bool", "bool_literal_v0"));
@@ -576,8 +623,11 @@ fn infer_expression_type(
     if let Some(root) = path_root_type_name(text) {
         return Some(type_fact(root, "path_root_type_v0"));
     }
-    if let Some(fact) = infer_additive_expression_type(text, environment) {
+    if let Some(fact) = infer_additive_expression_type(text, environment, task_returns) {
         return Some(fact);
+    }
+    if let Some((callee, _args)) = split_call(text) {
+        return task_returns.get(&name_key(callee)).cloned();
     }
     environment.get(&name_key(text)).cloned()
 }
@@ -585,10 +635,11 @@ fn infer_expression_type(
 fn infer_additive_expression_type(
     text: &str,
     environment: &BTreeMap<String, TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
 ) -> Option<TypeFact> {
     let (left, right) = text.split_once(" + ")?;
-    let left = infer_expression_type(left, environment)?;
-    let right = infer_expression_type(right, environment)?;
+    let left = infer_expression_type(left, environment, task_returns)?;
+    let right = infer_expression_type(right, environment, task_returns)?;
     if right.type_text == "integer_literal" || left.type_text == right.type_text {
         Some(TypeFact {
             type_text: left.type_text,
@@ -596,6 +647,22 @@ fn infer_additive_expression_type(
         })
     } else {
         None
+    }
+}
+
+fn strip_consume_expression(text: &str) -> Option<&str> {
+    strip_keyword(text.trim(), "consume")
+}
+
+fn split_call(text: &str) -> Option<(&str, &str)> {
+    let text = text.trim();
+    let inside = text.strip_suffix(')')?;
+    let (callee, args) = inside.split_once('(')?;
+    let callee = callee.trim();
+    if callee.is_empty() {
+        None
+    } else {
+        Some((callee, args))
     }
 }
 

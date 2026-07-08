@@ -70,10 +70,28 @@ pub struct Field {
     pub span: Span,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParamPermission {
+    Borrow,
+    Change,
+    Consume,
+}
+
+impl ParamPermission {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ParamPermission::Borrow => "borrow",
+            ParamPermission::Change => "change",
+            ParamPermission::Consume => "consume",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
     pub ty: String,
+    pub permission: ParamPermission,
     pub span: Span,
 }
 

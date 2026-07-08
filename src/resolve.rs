@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::ast::{Item, Param, Program, Section};
+use crate::ast::{Item, Param, ParamPermission, Program, Section};
 use crate::core_body::{self, BodyStatement};
 use crate::core_expr::{self, CoreExpressionPreview};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
@@ -447,8 +447,8 @@ impl ResolverContext {
                 DefinitionInput {
                     name: &param.name,
                     definition_kind: "parameter",
-                    mutable: false,
-                    state_kind: "immutable_value",
+                    mutable: parameter_is_mutable(param),
+                    state_kind: parameter_state_kind(param),
                     span: &param.span,
                 },
             );
@@ -765,7 +765,13 @@ impl ResolverContext {
         }
         let resolved = self
             .resolve_definition(scope_id, &normalized_name, input.reference_kind)
-            .map(|definition| (definition.id.clone(), definition.mutable));
+            .map(|definition| {
+                (
+                    definition.id.clone(),
+                    definition.mutable,
+                    definition.definition_kind,
+                )
+            });
         let external = input.external_if_unresolved || is_external_root(input.name);
         let id = format!(
             "ref_{}_{}_{}",
@@ -774,8 +780,8 @@ impl ResolverContext {
         self.reference_serial += 1;
 
         let (resolution_status, resolved_definition_id, reason) =
-            if let Some((definition_id, mutable)) = resolved {
-                if input.mutable_required && !mutable {
+            if let Some((definition_id, mutable, definition_kind)) = resolved {
+                if input.mutable_required && !mutable && definition_kind != "parameter" {
                     (
                         "resolved_immutable_place_v0",
                         Some(definition_id),
@@ -1066,6 +1072,15 @@ fn expression_name_references(expression: &CoreExpressionPreview) -> Vec<Pending
                     });
                 }
             }
+            "surface_text" => {
+                if let Some(name) = consume_argument_name(&atom.text) {
+                    references.push(PendingNameReference {
+                        name,
+                        reference_kind: "name_ref",
+                        external_if_unresolved: false,
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -1125,7 +1140,7 @@ fn for_index_binding(text: &str) -> Option<String> {
 fn set_target(text: &str) -> Option<String> {
     let rest = strip_keyword(text, "set")?;
     rest.split_once('=')
-        .map(|(target, _value)| target.trim().to_string())
+        .map(|(target, _value)| place_root(target.trim()))
         .filter(|target| !target.is_empty())
 }
 
@@ -1166,6 +1181,35 @@ fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
     text.strip_prefix(keyword)
         .and_then(|rest| rest.strip_prefix(char::is_whitespace))
         .map(str::trim)
+}
+
+fn parameter_is_mutable(param: &Param) -> bool {
+    matches!(
+        param.permission,
+        ParamPermission::Change | ParamPermission::Consume
+    )
+}
+
+fn parameter_state_kind(param: &Param) -> &'static str {
+    match param.permission {
+        ParamPermission::Borrow => "borrow_parameter",
+        ParamPermission::Change => "change_parameter",
+        ParamPermission::Consume => "consume_parameter",
+    }
+}
+
+fn consume_argument_name(text: &str) -> Option<String> {
+    let rest = strip_keyword(text.trim(), "consume")?;
+    let name = place_root(rest);
+    if name.is_empty() { None } else { Some(name) }
+}
+
+fn place_root(text: &str) -> String {
+    text.split(|ch: char| ch == '.' || ch == '[' || ch.is_whitespace() || ch == ',')
+        .find(|part| !part.is_empty())
+        .unwrap_or(text)
+        .trim()
+        .to_string()
 }
 
 fn path_root(text: &str) -> Option<String> {

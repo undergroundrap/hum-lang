@@ -7,6 +7,7 @@
     {"include": "#module"},
     {"include": "#items"},
     {"include": "#identifiers"},
+    {"include": "#parameter-permissions"},
     {"include": "#sections"},
     {"include": "#test-modifiers"}
   ],
@@ -32,6 +33,11 @@
         {"name": "entity.name.namespace.module.hum", "match": "^[[:space:]]*module[[:space:]]+[a-z_][a-z0-9_]*(\\.([a-z_][a-z0-9_]*))*"},
         {"name": "entity.name.function.value.hum", "match": "^[[:space:]]*(app|store|task)[[:space:]]+([a-z_][a-z0-9_]*)(?=[^[:alnum:]_]|$)"},
         {"name": "entity.name.type.hum", "match": "^[[:space:]]*type[[:space:]]+([A-Z][A-Za-z0-9]*)(?=[^[:alnum:]_]|$)"}
+      ]
+    },
+    "parameter-permissions": {
+      "patterns": [
+        {"name": "storage.modifier.parameter-permission.hum", "match": "(^|[,(][[:space:]]*)(borrow|change|consume)(?=[[:space:]]+[a-z_][a-z0-9_]*[[:space:]]*:)"}
       ]
     },
     "sections": {

@@ -85,6 +85,9 @@ impl DiagnosticCode {
     pub const NEEDS_CONTRACT_VIOLATION: Self = Self::new("H0702", "needs contract violation");
     pub const ENSURES_CONTRACT_VIOLATION: Self = Self::new("H0703", "ensures contract violation");
 
+    pub const USE_AFTER_MOVE: Self = Self::new("H0801", "use after move");
+    pub const BORROW_PARAMETER_MUTATION: Self = Self::new("H0802", "borrowed parameter written");
+
     pub const UNKNOWN_TARGET_FACT_RECORD: Self = Self::new("H1201", "unknown target fact record");
     pub const UNKNOWN_CAPABILITY_FAMILY: Self = Self::new("H1202", "unknown capability family");
     pub const UNSUPPORTED_TARGET_DECLARATION: Self =

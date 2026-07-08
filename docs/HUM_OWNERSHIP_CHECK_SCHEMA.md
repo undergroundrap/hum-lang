@@ -8,7 +8,7 @@ Current schema: `hum.ownership_check.v0`
 
 `hum ownership-check` is the first non-executing ownership and alias-fact gate after recognized Core/body effect checking. It consumes `hum.effect_check.v0` readiness and checks only ownership facts the current Core/body grammar can honestly see.
 
-V0 is intentionally conservative. It verifies local parameter identity, immutable local ownership from `let`, exclusive mutable local ownership from `change`, local mutation through `set`, duplicate local place names, and explicit blockers inherited from prior gates. It does not infer lifetimes, prove memory safety, check borrowing, check concurrency, or validate unsafe provenance.
+V0 is intentionally conservative. It verifies parameter permission identity (`borrow`, `change`, `consume`), immutable local ownership from `let`, exclusive mutable local ownership from `change`, parameter mutation permission through `set`, local moves caused by `consume` arguments and returns, duplicate local place names, and explicit blockers inherited from prior gates. It does not infer lifetimes, prove memory safety, check concurrency, validate unsafe provenance, or implement disjoint-field projection, internal references, or flow-sensitive borrowing.
 
 This command does not execute source, emit Hum IR, prove memory safety, enforce borrowing, enforce runtime profiles, prove allocation safety, or claim a complete ownership system.
 
@@ -59,10 +59,10 @@ The human output is for terminals. The JSON output is for agents, CI wrappers, c
 - `dependencies`: consumed summary facts, currently `effect_check`
 - `summary`: counts for local ownership facts, blockers, and non-readiness flags
 - `ownership_items`: per-body item declarations, statement ownership rows, and boundary checks
+- statement rows may include `diagnostic_code` and `help` when a stable ownership diagnostic is attached
 - `non_claims_v0`: claims this command must not make
 
 ## Statuses
-
 - `recognized_core_ownership_facts_checked_v0`: every recognized V0 ownership row and boundary check passed
 - `ownership_errors_v0`: recognized V0 ownership rows or boundary checks contradicted local ownership facts
 - `blocked_by_unchecked_ownership_facts_v0`: at least one visible statement has ownership implications V0 cannot check yet
@@ -89,10 +89,16 @@ The human output is for terminals. The JSON output is for agents, CI wrappers, c
 
 V0 recognizes and checks:
 
-- task and test parameters as readable parameter places
+- task and test parameters as readable parameter places, with `borrow` as the default permission
+- `change` parameters as explicit writable parameter places
+- `consume` parameters as owned authority inside the callee
 - immutable local ownership from `let name: Type = value`
 - exclusive mutable local ownership from `change name: Type = value`
 - local mutation through `set name = value` when `name` was declared by `change`
+- parameter mutation through `set name = value` only when the parameter is marked `change` or `consume`
+- local moves when a local is passed as `consume name` or returned
+- use after move as `H0801`, including double consume of the same local
+- borrowed-parameter writes as `H0802`
 - external changes as deferred to the later resource check when the target is not a local or parameter place and the effect gate already accepted `changes:`
 - duplicate local place names inside one `does:` body as ownership errors
 - unsupported statements as explicit ownership blockers
@@ -104,15 +110,18 @@ V0 recognizes and checks:
 - `accepted_exclusive_local_mutation_v0`
 - `accepted_external_change_deferred_to_resource_check_v0`
 - `accepted_no_ownership_transfer_v0`
+- `accepted_parameter_mutation_v0`
+- `accepted_consume_argument_move_v0`
+- `accepted_return_move_v0`
 - `rejected_duplicate_local_place_v0`
 - `rejected_mutating_immutable_local_v0`
-- `rejected_mutating_parameter_without_local_change_v0`
+- `rejected_mutating_borrowed_parameter_v0`
+- `rejected_use_after_move_v0`
 - `rejected_missing_mutation_authority_v0`
 - `unchecked_statement_ownership_v0`
 - `not_checked_blocked_by_prior_errors_v0`
 
 ## Boundary Check Statuses
-
 - `rejected_duplicate_local_place_v0`
 - inherited trust/protect boundary statuses are still reported by the V0 scaffold but are not ownership safety claims
 

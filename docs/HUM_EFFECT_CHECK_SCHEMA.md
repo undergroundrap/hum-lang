@@ -103,6 +103,7 @@ V0 recognizes and checks:
 
 - local mutation permission from `change name: Type = value`
 - local mutation through `set name = value` when `name` was declared by `change`
+- parameter mutation through `set parameter = value` is accepted as a parameter-permission fact deferred to `hum ownership-check`
 - external mutation through `set target = value` or `save value in target` only when `target` is declared under `changes:`
 - `fail value` only when the item has a meaningful `fails when:` section
 - obvious ambient reads for known roots such as `clock`, `time`, `random`, `crypto`, `file`, `network`, `env`, `process`, `os`, `registry`, `device`, `sensor`, `storage`, `database`, and `http` only when declared under `uses:`
@@ -116,6 +117,7 @@ V0 recognizes and checks:
 - `accepted_local_mutation_permission_v0`
 - `accepted_local_mutation_v0`
 - `accepted_declared_change_v0`
+- `accepted_parameter_mutation_deferred_to_ownership_v0`
 - `accepted_declared_failure_v0`
 - `accepted_declared_use_v0`
 - `rejected_missing_changes_declaration_v0`

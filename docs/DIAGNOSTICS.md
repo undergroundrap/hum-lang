@@ -115,7 +115,7 @@ JSON shape in `hum diagnostics --format json`:
 ```json
 {
   "schema": "hum.diagnostic_catalog.v0",
-  "count": 35,
+  "count": 37,
   "diagnostics": [
     {
       "code": "H0201",
@@ -153,11 +153,11 @@ Current ranges:
 - `H050x`: tests and regression obligations
 - `H060x`: checked resolution and type checking
 - `H070x`: executable contract diagnostics
+- `H080x`: ownership and borrowing
 - `H120x`: backend, target, and debug metadata
 
 Future ranges should be reserved before broad use:
 
-- `H080x`: ownership and borrowing
 - `H090x`: packages, capabilities, and Nectar
 - `H100x`: unsafe, FFI, ABI, and provenance
 - `H110x`: runtime profile and certification policy violations
@@ -243,6 +243,13 @@ Future ranges should be reserved before broad use:
 | `H0701` | warning | unchecked prose contract | `hum run` kept a prose `needs:` or `ensures:` line visible but unchecked. |
 | `H0702` | error | needs contract violation | A runtime `needs:` predicate was false; blame belongs to the caller. |
 | `H0703` | error | ensures contract violation | A runtime `ensures:` predicate was false after success; blame belongs to the task. |
+
+### Ownership And Borrowing
+
+| Code | Severity | Title | Meaning |
+|---|---|---|---|
+| `H0801` | error | use after move | A value was used after an earlier `consume` argument or return moved it. |
+| `H0802` | error | borrowed parameter written | A default-`borrow` parameter was targeted by `set`; mark it `change` or avoid mutation. |
 
 ### Target And Backend Metadata
 

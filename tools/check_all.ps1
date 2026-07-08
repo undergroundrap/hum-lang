@@ -194,7 +194,7 @@ function Assert-SessionASurfaceRules {
       if ([regex]::IsMatch($Text, '(?m)^\s*task [a-z]+ [a-z]+')) {
         throw "spaced task name remains in $($File.FullName)"
       }
-      if ([regex]::IsMatch($Text, '(?m)^\s*(store [a-z]+ [a-z]+|app [A-Z][A-Za-z]*|[^\r\n]*\([a-z]+ [a-z]+:)')) {
+      if ([regex]::IsMatch($Text, '(?m)^\s*(store [a-z]+ [a-z]+|app [A-Z][A-Za-z]*|[^\r\n]*\((?!borrow |change |consume )[a-z]+ [a-z]+:)')) {
         throw "spaced or noncanonical declaration name remains in $($File.FullName)"
       }
       if ($Text.Contains('Number')) {
@@ -247,6 +247,8 @@ try {
   if (-not $DiagnosticsJson.Contains('"code": "H0701"')) { throw 'diagnostic catalog JSON is missing H0701' }
   if (-not $DiagnosticsJson.Contains('"code": "H0702"')) { throw 'diagnostic catalog JSON is missing H0702' }
   if (-not $DiagnosticsJson.Contains('"code": "H0703"')) { throw 'diagnostic catalog JSON is missing H0703' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0801"')) { throw 'diagnostic catalog JSON is missing H0801' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0802"')) { throw 'diagnostic catalog JSON is missing H0802' }
   if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
   if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
   if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
@@ -450,6 +452,30 @@ try {
   $RunTaskListFlow = Read-NativeOutput 'run probe task_list_flow' $Hum @('run', 'examples/probes/task_list_flow.hum', '--entry', 'task_list_demo')
   if ($RunTaskListFlow.Trim() -ne '1') { throw "hum run task_list_flow expected 1, got `$RunTaskListFlow" }
 
+  $RunSessionJBorrow = Read-NativeOutput 'run Session J borrow fixture' $Hum @('run', 'fixtures/ownership_check/session_j_borrow_pass.hum', '--entry', 'echo', '--args', '7')
+  if ($RunSessionJBorrow.Trim() -ne '7') { throw "Session J borrow run expected 7, got `$RunSessionJBorrow" }
+
+  $RunSessionJChange = Read-NativeOutput 'run Session J change fixture' $Hum @('run', 'fixtures/ownership_check/session_j_change_pass.hum', '--entry', 'increment', '--args', '7')
+  if ($RunSessionJChange.Trim() -ne '8') { throw "Session J change run expected 8, got `$RunSessionJChange" }
+
+  $RunSessionJConsume = Read-NativeOutput 'run Session J consume fixture' $Hum @('run', 'fixtures/ownership_check/session_j_consume_pass.hum', '--entry', 'consume_demo')
+  if ($RunSessionJConsume.Trim() -ne '7') { throw "Session J consume run expected 7, got `$RunSessionJConsume" }
+
+  $RunSessionJUseAfterMove = Read-NativeOutputWithExit 'run Session J use-after-move misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_j_use_after_move_fail.hum', '--entry', 'use_after_move')
+  if ($RunSessionJUseAfterMove.ExitCode -ne 2) { throw "Session J use-after-move run expected exit 2, got $($RunSessionJUseAfterMove.ExitCode)" }
+  if (-not $RunSessionJUseAfterMove.Output.Contains('H0801')) { throw "Session J use-after-move run expected H0801, got $($RunSessionJUseAfterMove.Output)" }
+  if (-not $RunSessionJUseAfterMove.Output.Contains('help:')) { throw "Session J use-after-move run expected blame help, got $($RunSessionJUseAfterMove.Output)" }
+
+  $RunSessionJBorrowWrite = Read-NativeOutputWithExit 'run Session J borrowed-write misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_j_borrow_write_fail.hum', '--entry', 'write_borrow', '--args', '7')
+  if ($RunSessionJBorrowWrite.ExitCode -ne 2) { throw "Session J borrowed-write run expected exit 2, got $($RunSessionJBorrowWrite.ExitCode)" }
+  if (-not $RunSessionJBorrowWrite.Output.Contains('H0802')) { throw "Session J borrowed-write run expected H0802, got $($RunSessionJBorrowWrite.Output)" }
+  if (-not $RunSessionJBorrowWrite.Output.Contains('help:')) { throw "Session J borrowed-write run expected blame help, got $($RunSessionJBorrowWrite.Output)" }
+
+  $RunSessionJDoubleConsume = Read-NativeOutputWithExit 'run Session J double-consume misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_j_double_consume_fail.hum', '--entry', 'double_consume')
+  if ($RunSessionJDoubleConsume.ExitCode -ne 2) { throw "Session J double-consume run expected exit 2, got $($RunSessionJDoubleConsume.ExitCode)" }
+  if (-not $RunSessionJDoubleConsume.Output.Contains('H0801')) { throw "Session J double-consume run expected H0801, got $($RunSessionJDoubleConsume.Output)" }
+  if (-not $RunSessionJDoubleConsume.Output.Contains('help:')) { throw "Session J double-consume run expected blame help, got $($RunSessionJDoubleConsume.Output)" }
+
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }
@@ -634,6 +660,38 @@ try {
   if (-not $EffectCheckJson.Contains('"ir_ready": 0')) { throw 'effect check JSON must not claim IR readiness' }
   if (-not $EffectCheckJson.Contains('no memory-safety proof')) { throw 'effect check JSON must keep memory-safety non-claim' }
 
+  $OwnershipCheckJson = Read-NativeOutput 'ownership check JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_j_consume_pass.hum')
+  Assert-Json 'ownership check JSON' $OwnershipCheckJson
+  if (-not $OwnershipCheckJson.Contains('"schema": "hum.ownership_check.v0"')) { throw 'ownership check JSON is missing hum.ownership_check.v0 schema' }
+  if (-not $OwnershipCheckJson.Contains('"status": "recognized_core_ownership_facts_checked_v0"')) { throw 'ownership check JSON should pass for Session J consume fixture' }
+  if (-not $OwnershipCheckJson.Contains('"accepted_consume_argument_move_v0"')) { throw 'ownership check JSON is missing accepted consume move fact' }
+  if (-not $OwnershipCheckJson.Contains('"accepted_return_move_v0"')) { throw 'ownership check JSON is missing accepted return move fact' }
+  if (-not $OwnershipCheckJson.Contains('"execution_ready": 0')) { throw 'ownership check JSON must not claim execution readiness' }
+  if (-not $OwnershipCheckJson.Contains('"ir_ready": 0')) { throw 'ownership check JSON must not claim IR readiness' }
+  if (-not $OwnershipCheckJson.Contains('no memory-safety proof')) { throw 'ownership check JSON must keep memory-safety non-claim' }
+
+  $OwnershipCheckChangeJson = Read-NativeOutput 'ownership check Session J change JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_j_change_pass.hum')
+  Assert-Json 'ownership check Session J change JSON' $OwnershipCheckChangeJson
+  if (-not $OwnershipCheckChangeJson.Contains('"accepted_parameter_mutation_v0"')) { throw 'ownership check JSON is missing accepted parameter mutation fact' }
+
+  $OwnershipUseAfterMoveJson = Read-NativeOutputWithExit 'ownership check Session J use-after-move JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_j_use_after_move_fail.hum')
+  if ($OwnershipUseAfterMoveJson.ExitCode -ne 1) { throw "ownership check use-after-move expected exit 1, got $($OwnershipUseAfterMoveJson.ExitCode)" }
+  Assert-Json 'ownership check Session J use-after-move JSON' $OwnershipUseAfterMoveJson.Output
+  if (-not $OwnershipUseAfterMoveJson.Output.Contains('"status": "ownership_errors_v0"')) { throw "ownership check use-after-move expected ownership_errors_v0, got $($OwnershipUseAfterMoveJson.Output)" }
+  if (-not $OwnershipUseAfterMoveJson.Output.Contains('"diagnostic_code": "H0801"')) { throw "ownership check use-after-move expected H0801, got $($OwnershipUseAfterMoveJson.Output)" }
+  if (-not $OwnershipUseAfterMoveJson.Output.Contains('"help"')) { throw "ownership check use-after-move expected blame help, got $($OwnershipUseAfterMoveJson.Output)" }
+
+  $OwnershipBorrowWriteJson = Read-NativeOutputWithExit 'ownership check Session J borrowed-write JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_j_borrow_write_fail.hum')
+  if ($OwnershipBorrowWriteJson.ExitCode -ne 1) { throw "ownership check borrowed-write expected exit 1, got $($OwnershipBorrowWriteJson.ExitCode)" }
+  Assert-Json 'ownership check Session J borrowed-write JSON' $OwnershipBorrowWriteJson.Output
+  if (-not $OwnershipBorrowWriteJson.Output.Contains('"diagnostic_code": "H0802"')) { throw "ownership check borrowed-write expected H0802, got $($OwnershipBorrowWriteJson.Output)" }
+  if (-not $OwnershipBorrowWriteJson.Output.Contains('"help"')) { throw "ownership check borrowed-write expected blame help, got $($OwnershipBorrowWriteJson.Output)" }
+
+  $OwnershipDoubleConsumeJson = Read-NativeOutputWithExit 'ownership check Session J double-consume JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_j_double_consume_fail.hum')
+  if ($OwnershipDoubleConsumeJson.ExitCode -ne 1) { throw "ownership check double-consume expected exit 1, got $($OwnershipDoubleConsumeJson.ExitCode)" }
+  Assert-Json 'ownership check Session J double-consume JSON' $OwnershipDoubleConsumeJson.Output
+  if (-not $OwnershipDoubleConsumeJson.Output.Contains('"diagnostic_code": "H0801"')) { throw "ownership check double-consume expected H0801, got $($OwnershipDoubleConsumeJson.Output)" }
+
   $ResourceCheckJson = Read-NativeOutput 'resource check JSON' $Hum @('resource-check', '--format', 'json', 'fixtures/resource_check/simple_pass.hum')
   Assert-Json 'resource check JSON' $ResourceCheckJson
   if (-not $ResourceCheckJson.Contains('"schema": "hum.resource_check.v0"')) { throw 'resource check JSON is missing hum.resource_check.v0 schema' }
@@ -777,6 +835,7 @@ try {
   if (-not $SyntaxJson.Contains('"hover"')) { throw 'syntax surface JSON is missing hover metadata' }
   if (-not $SyntaxJson.Contains('"semantic_tokens"')) { throw 'syntax surface JSON is missing semantic_tokens' }
   if (-not $SyntaxJson.Contains('"token_types"')) { throw 'syntax surface JSON is missing semantic token types' }
+  if (-not $SyntaxJson.Contains('"parameter_permission_modes": ["borrow", "change", "consume"]')) { throw 'syntax surface JSON is missing parameter permission modes' }
 
   $TextMateJson = Read-NativeOutput 'TextMate grammar JSON' $Hum @('syntax', '--format', 'textmate')
   Assert-Json 'TextMate grammar JSON' $TextMateJson

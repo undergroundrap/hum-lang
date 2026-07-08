@@ -1,5 +1,6 @@
 use crate::ast::{
-    App, Field, Item, Param, Section, SectionLine, SourceFile, Store, Task, Test, TypeDef,
+    App, Field, Item, Param, ParamPermission, Section, SectionLine, SourceFile, Store, Task, Test,
+    TypeDef,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
 use crate::syntax;
@@ -418,7 +419,8 @@ impl Parser {
         for raw_param in params_text.split(',') {
             let param = raw_param.trim();
             if let Some((name, ty)) = param.split_once(':') {
-                let name = name.trim().to_string();
+                let (permission, name) = parse_param_permission(name.trim());
+                let name = name.to_string();
                 self.validate_identifier(
                     "parameter name",
                     &name,
@@ -428,6 +430,7 @@ impl Parser {
                 params.push(Param {
                     name,
                     ty: ty.trim().to_string(),
+                    permission,
                     span: self.span(line_number),
                 });
             } else {
@@ -504,6 +507,21 @@ impl Parser {
             .map_or(1, |line| first_visible_column(&line.text));
         Span::new(self.path.clone(), line_number, column)
     }
+}
+
+fn parse_param_permission(raw_name: &str) -> (ParamPermission, &str) {
+    let raw_name = raw_name.trim();
+    let Some(first) = raw_name.split_whitespace().next() else {
+        return (ParamPermission::Borrow, raw_name);
+    };
+    let permission = match first {
+        "borrow" => ParamPermission::Borrow,
+        "change" => ParamPermission::Change,
+        "consume" => ParamPermission::Consume,
+        _ => return (ParamPermission::Borrow, raw_name),
+    };
+    let name = raw_name[first.len()..].trim();
+    (permission, name)
 }
 
 fn is_valid_identifier(name: &str, kind: IdentifierKind) -> bool {
@@ -653,6 +671,39 @@ task add_task(title: Text) -> Result Task, TaskError {
                 assert_eq!(test.modifiers, vec!["regression"]);
             }
             other => panic!("expected test, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_parameter_permission_modes() {
+        let source = r#"task permissions(item: WorkItem, borrow view: WorkItem, change draft: WorkItem, consume owned: WorkItem) {
+  does:
+    return owned
+}
+"#;
+        let parsed = parse_source("permissions.hum", source);
+        assert!(parsed.diagnostics.is_empty(), "{:#?}", parsed.diagnostics);
+        match &parsed.file.items[0] {
+            Item::Task(task) => {
+                assert_eq!(
+                    task.params[0].permission,
+                    crate::ast::ParamPermission::Borrow
+                );
+                assert_eq!(
+                    task.params[1].permission,
+                    crate::ast::ParamPermission::Borrow
+                );
+                assert_eq!(
+                    task.params[2].permission,
+                    crate::ast::ParamPermission::Change
+                );
+                assert_eq!(
+                    task.params[3].permission,
+                    crate::ast::ParamPermission::Consume
+                );
+                assert_eq!(task.params[3].name, "owned");
+            }
+            other => panic!("expected task, got {other:?}"),
         }
     }
 

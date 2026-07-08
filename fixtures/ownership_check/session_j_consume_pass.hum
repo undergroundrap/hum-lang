@@ -1,0 +1,18 @@
+module fixtures.ownership_check.session_j_consume_pass
+
+task take(consume value: Int) -> Int {
+  why:
+    prove a consume parameter can be returned from the callee
+
+  does:
+    return value
+}
+
+task consume_demo() -> Int {
+  why:
+    prove a local passed with consume moves at the call site
+
+  does:
+    let value: Int = 7
+    return take(consume value)
+}

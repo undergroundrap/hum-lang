@@ -247,6 +247,18 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Fix the task body or adjust the contract to match the intended result.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::USE_AFTER_MOVE,
+        default_severity: Severity::Error,
+        explanation: "A value was used after an earlier `consume` argument or return moved its ownership authority away from the current place.",
+        repair: "Use the value before the move site named in the help text, or create and pass a fresh owned value.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::BORROW_PARAMETER_MUTATION,
+        default_severity: Severity::Error,
+        explanation: "A parameter with default `borrow` permission was targeted by `set`, which would hide mutation behind a read-only signature.",
+        repair: "Mark the parameter `change`, copy into a `change` local, or remove the mutation.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
         default_severity: Severity::Error,
         explanation: "A `targets:` section names a target fact record that Hum does not publish in `hum target-facts`.",
@@ -327,6 +339,14 @@ mod tests {
         assert_eq!(
             find("H0703").map(|info| info.code),
             Some(DiagnosticCode::ENSURES_CONTRACT_VIOLATION)
+        );
+        assert_eq!(
+            find("H0801").map(|info| info.code),
+            Some(DiagnosticCode::USE_AFTER_MOVE)
+        );
+        assert_eq!(
+            find("H0802").map(|info| info.code),
+            Some(DiagnosticCode::BORROW_PARAMETER_MUTATION)
         );
         assert_eq!(
             find("H1201").map(|info| info.code),

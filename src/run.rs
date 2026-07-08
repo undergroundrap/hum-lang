@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::ast::{Item, Program, SectionLine, Task};
-use crate::diagnostic::{Diagnostic, DiagnosticCode};
+use crate::ast::{Item, ParamPermission, Program, SectionLine, Task};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
 use crate::graph::is_meaningful_line_text;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,9 +49,53 @@ enum Flow {
 struct ExecLine {
     text: String,
     location: String,
+    span: Span,
 }
 
-type Env = BTreeMap<String, Value>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimePermission {
+    Borrow,
+    Change,
+    Consume,
+    Local,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeBinding {
+    value: Value,
+    permission: RuntimePermission,
+    moved_at: Option<Span>,
+}
+
+impl RuntimeBinding {
+    fn parameter(value: Value, permission: ParamPermission) -> Self {
+        Self {
+            value,
+            permission: RuntimePermission::from(permission),
+            moved_at: None,
+        }
+    }
+
+    fn local(value: Value) -> Self {
+        Self {
+            value,
+            permission: RuntimePermission::Local,
+            moved_at: None,
+        }
+    }
+}
+
+impl From<ParamPermission> for RuntimePermission {
+    fn from(permission: ParamPermission) -> Self {
+        match permission {
+            ParamPermission::Borrow => RuntimePermission::Borrow,
+            ParamPermission::Change => RuntimePermission::Change,
+            ParamPermission::Consume => RuntimePermission::Consume,
+        }
+    }
+}
+
+type Env = BTreeMap<String, RuntimeBinding>;
 
 pub fn run_program(program: &Program, entry: Option<&str>, raw_args: &[String]) -> RunReport {
     let interpreter = Interpreter {
@@ -140,7 +184,10 @@ impl<'a> Interpreter<'a> {
     fn execute_task(&self, task: &Task, args: Vec<Value>) -> Result<TaskResult, String> {
         let mut env = Env::new();
         for (param, value) in task.params.iter().zip(args) {
-            env.insert(param.name.clone(), value);
+            env.insert(
+                param.name.clone(),
+                RuntimeBinding::parameter(value, param.permission),
+            );
         }
 
         if !self.evaluate_contract_section(task, "needs", ContractKind::Needs, &mut env)? {
@@ -151,7 +198,7 @@ impl<'a> Interpreter<'a> {
             return Err(format!("task `{}` has no `does:` section", task.name));
         };
         let lines = executable_lines(&does.lines);
-        match self.eval_block(&lines, 0, lines.len(), &mut env)? {
+        match self.eval_block(&lines, 0, lines.len(), &mut env, &task.name)? {
             Flow::Return(value) => self.finish_success(task, value, &env),
             Flow::Fail(value) => Ok(TaskResult::Failed(value)),
             Flow::Continue => self.finish_success(task, Value::Unit, &env),
@@ -161,7 +208,7 @@ impl<'a> Interpreter<'a> {
 
     fn finish_success(&self, task: &Task, value: Value, env: &Env) -> Result<TaskResult, String> {
         let mut exit_env = env.clone();
-        exit_env.insert("result".to_string(), value.clone());
+        exit_env.insert("result".to_string(), RuntimeBinding::local(value.clone()));
         if !self.evaluate_contract_section(task, "ensures", ContractKind::Ensures, &mut exit_env)? {
             return Ok(TaskResult::ContractViolation);
         }
@@ -200,7 +247,7 @@ impl<'a> Interpreter<'a> {
                 continue;
             }
 
-            let value = match self.eval_expr(text, env)? {
+            let value = match self.eval_expr(text, env, &line.span, &task.name)? {
                 Evaluated::Value(value) => value,
                 Evaluated::Failure(value) => {
                     return Err(format!(
@@ -245,6 +292,7 @@ impl<'a> Interpreter<'a> {
         start: usize,
         end: usize,
         env: &mut Env,
+        task_name: &str,
     ) -> Result<Flow, String> {
         let mut index = start;
         while index < end {
@@ -257,9 +305,9 @@ impl<'a> Interpreter<'a> {
 
             if let Some(condition) = header_body(text, "if") {
                 let close = matching_close(lines, index)?;
-                match self.eval_expr(condition, env)? {
+                match self.eval_expr(condition, env, &line.span, task_name)? {
                     Evaluated::Value(value) if as_bool(&value)? => {
-                        let flow = self.eval_block(lines, index + 1, close, env)?;
+                        let flow = self.eval_block(lines, index + 1, close, env, task_name)?;
                         if flow != Flow::Continue {
                             return Ok(flow);
                         }
@@ -277,11 +325,12 @@ impl<'a> Interpreter<'a> {
                 let (name, collection_expr) = rest
                     .split_once(" in ")
                     .ok_or_else(|| format!("{}: malformed `for each` header", line.location))?;
-                let collection = match self.eval_expr(collection_expr.trim(), env)? {
-                    Evaluated::Value(value) => value,
-                    Evaluated::Failure(value) => return Ok(Flow::Fail(value)),
-                    Evaluated::ContractViolation => return Ok(Flow::ContractViolation),
-                };
+                let collection =
+                    match self.eval_expr(collection_expr.trim(), env, &line.span, task_name)? {
+                        Evaluated::Value(value) => value,
+                        Evaluated::Failure(value) => return Ok(Flow::Fail(value)),
+                        Evaluated::ContractViolation => return Ok(Flow::ContractViolation),
+                    };
                 let Value::List(values) = collection else {
                     return Err(format!(
                         "{}: `for each` requires a list value",
@@ -292,8 +341,8 @@ impl<'a> Interpreter<'a> {
                 let name = name.trim();
                 let previous = env.get(name).cloned();
                 for value in values {
-                    env.insert(name.to_string(), value);
-                    let flow = self.eval_block(lines, index + 1, close, env)?;
+                    env.insert(name.to_string(), RuntimeBinding::local(value));
+                    let flow = self.eval_block(lines, index + 1, close, env, task_name)?;
                     if flow != Flow::Continue {
                         restore_binding(env, name, previous);
                         return Ok(flow);
@@ -305,22 +354,27 @@ impl<'a> Interpreter<'a> {
             }
 
             if let Some(expr) = strip_keyword(text, "return") {
-                return match self.eval_expr(expr, env)? {
-                    Evaluated::Value(value) => Ok(Flow::Return(value)),
+                return match self.eval_expr(expr, env, &line.span, task_name)? {
+                    Evaluated::Value(value) => {
+                        if let Some(root) = bare_return_root(expr) {
+                            self.mark_moved(env, &root, &line.span);
+                        }
+                        Ok(Flow::Return(value))
+                    }
                     Evaluated::Failure(value) => Ok(Flow::Fail(value)),
                     Evaluated::ContractViolation => Ok(Flow::ContractViolation),
                 };
             }
 
             if let Some(expr) = strip_keyword(text, "fail") {
-                return match self.eval_expr(expr, env)? {
+                return match self.eval_expr(expr, env, &line.span, task_name)? {
                     Evaluated::Value(value) | Evaluated::Failure(value) => Ok(Flow::Fail(value)),
                     Evaluated::ContractViolation => Ok(Flow::ContractViolation),
                 };
             }
 
             if let Some(rest) = strip_keyword(text, "change") {
-                if let Some(flow) = self.eval_binding(rest, env)? {
+                if let Some(flow) = self.eval_binding(rest, env, &line.span, task_name)? {
                     return Ok(flow);
                 }
                 index += 1;
@@ -328,7 +382,7 @@ impl<'a> Interpreter<'a> {
             }
 
             if let Some(rest) = strip_keyword(text, "let") {
-                if let Some(flow) = self.eval_binding(rest, env)? {
+                if let Some(flow) = self.eval_binding(rest, env, &line.span, task_name)? {
                     return Ok(flow);
                 }
                 index += 1;
@@ -336,7 +390,7 @@ impl<'a> Interpreter<'a> {
             }
 
             if let Some(rest) = strip_keyword(text, "set") {
-                if let Some(flow) = self.eval_set(rest, env)? {
+                if let Some(flow) = self.eval_set(rest, env, &line.span, task_name)? {
                     return Ok(flow);
                 }
                 index += 1;
@@ -351,7 +405,13 @@ impl<'a> Interpreter<'a> {
         Ok(Flow::Continue)
     }
 
-    fn eval_binding(&self, rest: &str, env: &mut Env) -> Result<Option<Flow>, String> {
+    fn eval_binding(
+        &self,
+        rest: &str,
+        env: &mut Env,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Option<Flow>, String> {
         let (left, expr) = rest
             .split_once('=')
             .ok_or_else(|| format!("binding `{rest}` is missing an initializer"))?;
@@ -359,9 +419,9 @@ impl<'a> Interpreter<'a> {
         if name.is_empty() {
             return Err(format!("binding `{rest}` is missing a name"));
         }
-        match self.eval_expr(expr.trim(), env)? {
+        match self.eval_expr(expr.trim(), env, span, task_name)? {
             Evaluated::Value(value) => {
-                env.insert(name.to_string(), value);
+                env.insert(name.to_string(), RuntimeBinding::local(value));
                 Ok(None)
             }
             Evaluated::Failure(value) => Ok(Some(Flow::Fail(value))),
@@ -369,17 +429,22 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn eval_set(&self, rest: &str, env: &mut Env) -> Result<Option<Flow>, String> {
+    fn eval_set(
+        &self,
+        rest: &str,
+        env: &mut Env,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Option<Flow>, String> {
         let (place, expr) = rest
             .split_once('=')
             .ok_or_else(|| format!("set `{rest}` is missing `=`"))?;
         let place = place.trim();
-        if !env.contains_key(place) {
-            return Err(format!("cannot set unknown place `{place}`"));
-        }
-        match self.eval_expr(expr.trim(), env)? {
+        let root = place_root(place);
+        self.ensure_can_set(env, &root, span, task_name)?;
+        match self.eval_expr(expr.trim(), env, span, task_name)? {
             Evaluated::Value(value) => {
-                env.insert(place.to_string(), value);
+                self.write_place(env, place, value)?;
                 Ok(None)
             }
             Evaluated::Failure(value) => Ok(Some(Flow::Fail(value))),
@@ -387,14 +452,20 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn eval_expr(&self, text: &str, env: &mut Env) -> Result<Evaluated, String> {
+    fn eval_expr(
+        &self,
+        text: &str,
+        env: &mut Env,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Evaluated, String> {
         let text = trim_outer_parens(text.trim());
         if text.is_empty() {
             return Ok(Evaluated::Value(Value::Unit));
         }
 
         if let Some((left, right)) = split_word_operator(text, "or") {
-            let left = match self.eval_expr(left, env)? {
+            let left = match self.eval_expr(left, env, span, task_name)? {
                 Evaluated::Value(value) => value,
                 Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
                 Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
@@ -402,7 +473,7 @@ impl<'a> Interpreter<'a> {
             if as_bool(&left)? {
                 return Ok(Evaluated::Value(Value::Bool(true)));
             }
-            let right = match self.eval_expr(right, env)? {
+            let right = match self.eval_expr(right, env, span, task_name)? {
                 Evaluated::Value(value) => value,
                 Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
                 Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
@@ -411,7 +482,7 @@ impl<'a> Interpreter<'a> {
         }
 
         if let Some((left, right)) = split_word_operator(text, "and") {
-            let left = match self.eval_expr(left, env)? {
+            let left = match self.eval_expr(left, env, span, task_name)? {
                 Evaluated::Value(value) => value,
                 Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
                 Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
@@ -419,7 +490,7 @@ impl<'a> Interpreter<'a> {
             if !as_bool(&left)? {
                 return Ok(Evaluated::Value(Value::Bool(false)));
             }
-            let right = match self.eval_expr(right, env)? {
+            let right = match self.eval_expr(right, env, span, task_name)? {
                 Evaluated::Value(value) => value,
                 Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
                 Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
@@ -430,34 +501,35 @@ impl<'a> Interpreter<'a> {
         if let Some((left, op, right)) =
             split_top_level_operator(text, &["==", "!=", "<=", ">=", "<", ">"])
         {
-            return self.eval_comparison(text, left, op, right, env);
+            return self.eval_comparison(text, (left, op, right), env, span, task_name);
         }
 
         if let Some((left, op, right)) = split_top_level_operator(text, &["+", "-"]) {
-            return self.eval_integer_binary(text, left, op, right, env);
+            return self.eval_integer_binary(text, (left, op, right), env, span, task_name);
         }
 
         if let Some((left, op, right)) = split_top_level_operator(text, &["*", "/"]) {
-            return self.eval_integer_binary(text, left, op, right, env);
+            return self.eval_integer_binary(text, (left, op, right), env, span, task_name);
         }
 
-        self.eval_primary(text, env)
+        self.eval_primary(text, env, span, task_name)
     }
 
     fn eval_comparison(
         &self,
         source: &str,
-        left: &str,
-        op: &str,
-        right: &str,
+        parts: (&str, &str, &str),
         env: &mut Env,
+        span: &Span,
+        task_name: &str,
     ) -> Result<Evaluated, String> {
-        let left = match self.eval_expr(left, env)? {
+        let (left, op, right) = parts;
+        let left = match self.eval_expr(left, env, span, task_name)? {
             Evaluated::Value(value) => value,
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
             Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
         };
-        let right = match self.eval_expr(right, env)? {
+        let right = match self.eval_expr(right, env, span, task_name)? {
             Evaluated::Value(value) => value,
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
             Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
@@ -477,17 +549,18 @@ impl<'a> Interpreter<'a> {
     fn eval_integer_binary(
         &self,
         source: &str,
-        left: &str,
-        op: &str,
-        right: &str,
+        parts: (&str, &str, &str),
         env: &mut Env,
+        span: &Span,
+        task_name: &str,
     ) -> Result<Evaluated, String> {
-        let left = match self.eval_expr(left, env)? {
+        let (left, op, right) = parts;
+        let left = match self.eval_expr(left, env, span, task_name)? {
             Evaluated::Value(value) => as_int(&value)?,
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
             Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
         };
-        let right = match self.eval_expr(right, env)? {
+        let right = match self.eval_expr(right, env, span, task_name)? {
             Evaluated::Value(value) => as_int(&value)?,
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
             Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
@@ -514,7 +587,13 @@ impl<'a> Interpreter<'a> {
         Ok(Evaluated::Value(Value::Int(value)))
     }
 
-    fn eval_primary(&self, text: &str, env: &mut Env) -> Result<Evaluated, String> {
+    fn eval_primary(
+        &self,
+        text: &str,
+        env: &mut Env,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Evaluated, String> {
         if text == "true" {
             return Ok(Evaluated::Value(Value::Bool(true)));
         }
@@ -533,7 +612,7 @@ impl<'a> Interpreter<'a> {
             let inside = &text[1..text.len() - 1];
             let mut values = Vec::new();
             for item in split_arguments(inside) {
-                match self.eval_expr(item, env)? {
+                match self.eval_expr(item, env, span, task_name)? {
                     Evaluated::Value(value) => values.push(value),
                     Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
                     Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
@@ -554,7 +633,7 @@ impl<'a> Interpreter<'a> {
                         "record field name `{name}` is not a valid Hum field name"
                     ));
                 }
-                match self.eval_expr(value_text.trim(), env)? {
+                match self.eval_expr(value_text.trim(), env, span, task_name)? {
                     Evaluated::Value(value) => {
                         fields.insert(name.to_string(), value);
                     }
@@ -565,28 +644,46 @@ impl<'a> Interpreter<'a> {
             return Ok(Evaluated::Value(Value::Record(fields)));
         }
         if let Some((callee, args)) = split_call(text) {
+            let Some(task) = self.find_task(callee.trim()) else {
+                return Err(format!("task `{}` was not found", callee.trim()));
+            };
+            let raw_args = split_arguments(args);
+            if raw_args.len() != task.params.len() {
+                return Err(format!(
+                    "task `{}` expects {} argument(s), got {}",
+                    task.name,
+                    task.params.len(),
+                    raw_args.len()
+                ));
+            }
             let mut values = Vec::new();
-            for arg in split_arguments(args) {
-                match self.eval_expr(arg, env)? {
+            for arg in raw_args {
+                if let Some(root) = consume_argument_root(arg) {
+                    let value = self.read_value(env, &root, span, task_name)?;
+                    self.mark_moved(env, &root, span);
+                    values.push(value);
+                    continue;
+                }
+                match self.eval_expr(arg, env, span, task_name)? {
                     Evaluated::Value(value) => values.push(value),
                     Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
                     Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
                 }
             }
-            let Some(task) = self.find_task(callee.trim()) else {
-                return Err(format!("task `{}` was not found", callee.trim()));
-            };
             return match self.execute_task(task, values)? {
                 TaskResult::Returned(value) => Ok(Evaluated::Value(value)),
                 TaskResult::Failed(value) => Ok(Evaluated::Failure(value)),
                 TaskResult::ContractViolation => Ok(Evaluated::ContractViolation),
             };
         }
-        if let Some(value) = env.get(text) {
-            return Ok(Evaluated::Value(value.clone()));
+        if env.contains_key(text) {
+            return self
+                .read_value(env, text, span, task_name)
+                .map(Evaluated::Value);
         }
         if let Some((base, field)) = text.split_once('.') {
-            if let Some(value) = env.get(base) {
+            if env.contains_key(base) {
+                let value = self.read_value(env, base, span, task_name)?;
                 let Value::Record(fields) = value else {
                     return Err(format!("`{base}` is not a record"));
                 };
@@ -605,6 +702,113 @@ impl<'a> Interpreter<'a> {
             }
         }
         Err(format!("unknown expression `{text}`"))
+    }
+
+    fn read_value(
+        &self,
+        env: &Env,
+        name: &str,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Value, String> {
+        let root = place_root(name);
+        let Some(binding) = env.get(&root) else {
+            return Err(format!("unknown expression `{name}`"));
+        };
+        if let Some(move_span) = &binding.moved_at {
+            return Err(self.use_after_move_trap(task_name, &root, span, move_span));
+        }
+        Ok(binding.value.clone())
+    }
+
+    fn ensure_can_set(
+        &self,
+        env: &Env,
+        root: &str,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<(), String> {
+        let Some(binding) = env.get(root) else {
+            return Err(format!("cannot set unknown place `{root}`"));
+        };
+        if let Some(move_span) = &binding.moved_at {
+            return Err(self.use_after_move_trap(task_name, root, span, move_span));
+        }
+        if binding.permission == RuntimePermission::Borrow {
+            return Err(self.borrow_mutation_trap(task_name, root, span));
+        }
+        Ok(())
+    }
+
+    fn write_place(&self, env: &mut Env, place: &str, value: Value) -> Result<(), String> {
+        let root = place_root(place);
+        let Some(binding) = env.get_mut(&root) else {
+            return Err(format!("cannot set unknown place `{place}`"));
+        };
+        if let Some((_root, field)) = place.split_once('.') {
+            let Value::Record(fields) = &mut binding.value else {
+                return Err(format!("`{root}` is not a record"));
+            };
+            fields.insert(field.trim().to_string(), value);
+        } else {
+            binding.value = value;
+        }
+        binding.moved_at = None;
+        Ok(())
+    }
+
+    fn mark_moved(&self, env: &mut Env, root: &str, span: &Span) {
+        if let Some(binding) = env.get_mut(root)
+            && matches!(
+                binding.permission,
+                RuntimePermission::Local | RuntimePermission::Consume
+            )
+        {
+            binding.moved_at.get_or_insert_with(|| span.clone());
+        }
+    }
+
+    fn use_after_move_trap(
+        &self,
+        task_name: &str,
+        root: &str,
+        span: &Span,
+        move_span: &Span,
+    ) -> String {
+        self.diagnostics.borrow_mut().push(
+            Diagnostic::error(
+                DiagnosticCode::USE_AFTER_MOVE,
+                format!("value `{root}` was used after it was moved"),
+                Some(span.clone()),
+            )
+            .with_help(format!(
+                "Fix task `{task_name}`: `{root}` moved at {}:{}:{}; use it before that move or create a fresh owned value.",
+                move_span.file, move_span.line, move_span.column
+            )),
+        );
+        format!(
+            "{} {}",
+            DiagnosticCode::USE_AFTER_MOVE.as_str(),
+            DiagnosticCode::USE_AFTER_MOVE.title()
+        )
+    }
+
+    fn borrow_mutation_trap(&self, task_name: &str, root: &str, span: &Span) -> String {
+        self.diagnostics.borrow_mut().push(
+            Diagnostic::error(
+                DiagnosticCode::BORROW_PARAMETER_MUTATION,
+                format!("borrowed parameter `{root}` cannot be written"),
+                Some(span.clone()),
+            )
+            .with_help(format!(
+                "Fix task `{task_name}`: mark `{root}` as `change`, copy it into a `change` local, or remove the `set`."
+            )),
+        );
+        format!(
+            "{} {}",
+            DiagnosticCode::BORROW_PARAMETER_MUTATION.as_str(),
+            DiagnosticCode::BORROW_PARAMETER_MUTATION.title()
+        )
     }
 }
 
@@ -673,6 +877,7 @@ fn executable_lines(lines: &[SectionLine]) -> Vec<ExecLine> {
             is_meaningful_line_text(text).then(|| ExecLine {
                 text: text.to_string(),
                 location: format!("{}:{}:{}", line.span.file, line.span.line, line.span.column),
+                span: line.span.clone(),
             })
         })
         .collect()
@@ -868,9 +1073,41 @@ fn display_value(value: &Value) -> String {
     }
 }
 
-fn restore_binding(env: &mut Env, name: &str, previous: Option<Value>) {
-    if let Some(value) = previous {
-        env.insert(name.to_string(), value);
+fn consume_argument_root(text: &str) -> Option<String> {
+    let rest = strip_keyword(text.trim(), "consume")?;
+    let root = place_root(rest);
+    if root.is_empty() { None } else { Some(root) }
+}
+
+fn bare_return_root(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty()
+        || text.contains('(')
+        || text.contains(' ')
+        || text.starts_with('"')
+        || text.starts_with('[')
+        || text.starts_with('{')
+    {
+        return None;
+    }
+    let root = place_root(text);
+    root.chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_lowercase() || ch == '_')
+        .then_some(root)
+}
+
+fn place_root(text: &str) -> String {
+    text.split(|ch: char| ch == '.' || ch == '[' || ch.is_whitespace() || ch == ',')
+        .find(|part| !part.is_empty())
+        .unwrap_or(text)
+        .trim()
+        .to_string()
+}
+
+fn restore_binding(env: &mut Env, name: &str, previous: Option<RuntimeBinding>) {
+    if let Some(binding) = previous {
+        env.insert(name.to_string(), binding);
     } else {
         env.remove(name);
     }

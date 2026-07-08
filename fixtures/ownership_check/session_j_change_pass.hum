@@ -1,0 +1,10 @@
+module fixtures.ownership_check.session_j_change_pass
+
+task increment(change value: Int) -> Int {
+  why:
+    prove change parameters can be written explicitly
+
+  does:
+    set value = value + 1
+    return value
+}

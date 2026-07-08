@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::ast::{Item, Program, Section};
+use crate::ast::{Item, ParamPermission, Program, Section};
 use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
-use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
 use crate::effect_check;
 use crate::graph::is_meaningful_line_text;
 use crate::version;
@@ -107,10 +107,20 @@ struct DeclaredFact {
 
 #[derive(Default)]
 struct LocalOwnershipFacts {
-    parameters: BTreeSet<String>,
+    parameters: BTreeMap<String, ParamPermission>,
     immutable_locals: BTreeSet<String>,
     mutable_locals: BTreeSet<String>,
     duplicate_locals: BTreeSet<String>,
+}
+
+#[derive(Default)]
+struct MoveTracker {
+    moved: BTreeMap<String, MoveSite>,
+}
+
+struct MoveSite {
+    span: Span,
+    kind: &'static str,
 }
 
 struct OwnershipStatement {
@@ -122,6 +132,8 @@ struct OwnershipStatement {
     declaration: Option<String>,
     status: &'static str,
     reason: Option<&'static str>,
+    diagnostic_code: Option<&'static str>,
+    help: Option<String>,
 }
 
 struct OwnershipBoundaryCheck {
@@ -257,6 +269,12 @@ pub fn ownership_check_text(program: &Program, diagnostics: &[Diagnostic]) -> St
                 if let Some(reason) = statement.reason {
                     out.push_str(&format!(" reason={reason}"));
                 }
+                if let Some(diagnostic_code) = statement.diagnostic_code {
+                    out.push_str(&format!(" diagnostic={diagnostic_code}"));
+                }
+                if let Some(help) = &statement.help {
+                    out.push_str(&format!(" help={help}"));
+                }
                 out.push('\n');
             }
             for check in &item.boundary_checks {
@@ -352,13 +370,16 @@ fn check_item(item: &Item, blocked: bool) -> Option<OwnershipItem> {
     let body = core_body::analyze_does_section(does);
     let declarations = collect_declarations(item_sections(item));
     let ownership_facts = local_ownership_facts(item, &body.statements);
+    let mut move_tracker = MoveTracker::default();
     let mut statements = Vec::new();
     for (index, statement) in body.statements.iter().enumerate() {
         statements.push(check_statement_ownership(
+            item.name(),
             statement,
             index,
             &declarations,
             &ownership_facts,
+            &mut move_tracker,
             blocked,
         ));
     }
@@ -386,10 +407,12 @@ fn check_item(item: &Item, blocked: bool) -> Option<OwnershipItem> {
 }
 
 fn check_statement_ownership(
+    item_name: &str,
     statement: &BodyStatement,
     index: usize,
     declarations: &OwnershipDeclarations,
     ownership_facts: &LocalOwnershipFacts,
+    move_tracker: &mut MoveTracker,
     blocked: bool,
 ) -> OwnershipStatement {
     if blocked {
@@ -418,7 +441,23 @@ fn check_statement_ownership(
         );
     }
 
-    match statement.kind {
+    if let Some((target, move_site)) = moved_value_use(statement, move_tracker) {
+        return ownership_statement_with_diagnostic(
+            ownership_statement(
+                statement,
+                index,
+                "use_after_move",
+                Some(target.clone()),
+                None,
+                "rejected_use_after_move_v0",
+                Some("value_used_after_move_v0"),
+            ),
+            Some(DiagnosticCode::USE_AFTER_MOVE.as_str()),
+            Some(move_help(item_name, &target, move_site)),
+        );
+    }
+
+    let ownership = match statement.kind {
         "fail" => {
             if declarations.failures.is_empty() {
                 ownership_statement(
@@ -444,7 +483,9 @@ fn check_statement_ownership(
         }
         "let_binding" => check_binding_statement(statement, index, ownership_facts, false),
         "mutable_binding" => check_binding_statement(statement, index, ownership_facts, true),
-        "set_place" => check_set_statement(statement, index, declarations, ownership_facts),
+        "set_place" => {
+            check_set_statement(item_name, statement, index, declarations, ownership_facts)
+        }
         "save_in_store" => check_save_statement(statement, index, declarations),
         "test_expectation" => ownership_statement(
             statement,
@@ -473,8 +514,14 @@ fn check_statement_ownership(
             "unchecked_statement_ownership_v0",
             Some("nested_intent_ownerships_not_checked_v0"),
         ),
-        _ => expression_or_pure_ownership(statement, index, declarations),
+        _ => expression_or_pure_ownership(statement, index, declarations, ownership_facts),
+    };
+
+    if !is_rejected_statement(&ownership) && !is_unchecked_statement(&ownership) {
+        record_statement_moves(statement, ownership_facts, move_tracker);
     }
+
+    ownership
 }
 
 fn check_binding_statement(
@@ -529,6 +576,7 @@ fn check_binding_statement(
 }
 
 fn check_set_statement(
+    item_name: &str,
     statement: &BodyStatement,
     index: usize,
     declarations: &OwnershipDeclarations,
@@ -566,16 +614,31 @@ fn check_set_statement(
             "rejected_mutating_immutable_local_v0",
             Some("set_requires_change_local_not_let_binding"),
         )
-    } else if ownership_facts.parameters.contains(&resource) {
-        ownership_statement(
-            statement,
-            index,
-            "parameter_mutation",
-            Some(resource),
-            None,
-            "rejected_mutating_parameter_without_local_change_v0",
-            Some("parameters_are_not_mutable_places_without_explicit_change_binding"),
-        )
+    } else if let Some(permission) = ownership_facts.parameters.get(&resource).copied() {
+        match permission {
+            ParamPermission::Borrow => ownership_statement_with_diagnostic(
+                ownership_statement(
+                    statement,
+                    index,
+                    "parameter_mutation",
+                    Some(resource.clone()),
+                    Some(permission.as_str().to_string()),
+                    "rejected_mutating_borrowed_parameter_v0",
+                    Some("borrow_parameter_requires_change_permission_for_set_v0"),
+                ),
+                Some(DiagnosticCode::BORROW_PARAMETER_MUTATION.as_str()),
+                Some(borrow_mutation_help(item_name, &resource, statement)),
+            ),
+            ParamPermission::Change | ParamPermission::Consume => ownership_statement(
+                statement,
+                index,
+                "parameter_mutation",
+                Some(resource),
+                Some(permission.as_str().to_string()),
+                "accepted_parameter_mutation_v0",
+                None,
+            ),
+        }
     } else if declares_resource(&declarations.changes, &resource) {
         ownership_statement(
             statement,
@@ -643,8 +706,34 @@ fn expression_or_pure_ownership(
     statement: &BodyStatement,
     index: usize,
     declarations: &OwnershipDeclarations,
+    ownership_facts: &LocalOwnershipFacts,
 ) -> OwnershipStatement {
     let expression = expression_text_for_statement(statement);
+    if let Some(resource) = expression
+        .and_then(first_consume_move_root)
+        .filter(|resource| ownership_facts.is_movable_root(resource))
+    {
+        return ownership_statement(
+            statement,
+            index,
+            "consume_argument_move",
+            Some(resource),
+            Some("consume".to_string()),
+            "accepted_consume_argument_move_v0",
+            None,
+        );
+    }
+    if let Some(resource) = returned_move_root(statement, ownership_facts) {
+        return ownership_statement(
+            statement,
+            index,
+            "return_move",
+            Some(resource),
+            Some("return".to_string()),
+            "accepted_return_move_v0",
+            None,
+        );
+    }
     if let Some(resource) = expression.and_then(first_ambient_resource) {
         if declares_resource(&declarations.uses, &resource) {
             ownership_statement(
@@ -701,7 +790,19 @@ fn ownership_statement(
         declaration,
         status,
         reason,
+        diagnostic_code: None,
+        help: None,
     }
+}
+
+fn ownership_statement_with_diagnostic(
+    mut statement: OwnershipStatement,
+    diagnostic_code: Option<&'static str>,
+    help: Option<String>,
+) -> OwnershipStatement {
+    statement.diagnostic_code = diagnostic_code;
+    statement.help = help;
+    statement
 }
 
 fn boundary_checks(
@@ -822,10 +923,26 @@ fn declared_facts(sections: &[Section], name: &'static str) -> Vec<DeclaredFact>
         .collect()
 }
 
+impl LocalOwnershipFacts {
+    fn is_local_root(&self, root: &str) -> bool {
+        self.immutable_locals.contains(root) || self.mutable_locals.contains(root)
+    }
+
+    fn is_movable_root(&self, root: &str) -> bool {
+        self.is_local_root(root)
+            || self
+                .parameters
+                .get(root)
+                .is_some_and(|permission| *permission == ParamPermission::Consume)
+    }
+}
+
 fn local_ownership_facts(item: &Item, statements: &[BodyStatement]) -> LocalOwnershipFacts {
     let mut facts = LocalOwnershipFacts::default();
     for parameter in item_parameters(item) {
-        facts.parameters.insert(first_resource(&parameter));
+        facts
+            .parameters
+            .insert(first_resource(&parameter.name), parameter.permission);
     }
 
     let mut seen = BTreeSet::new();
@@ -850,12 +967,172 @@ fn local_ownership_facts(item: &Item, statements: &[BodyStatement]) -> LocalOwne
     facts
 }
 
-fn item_parameters(item: &Item) -> Vec<String> {
+fn item_parameters(item: &Item) -> Vec<&crate::ast::Param> {
     match item {
-        Item::Task(task) => task.params.iter().map(|param| param.name.clone()).collect(),
-        Item::Test(test) => test.params.iter().map(|param| param.name.clone()).collect(),
+        Item::Task(task) => task.params.iter().collect(),
+        Item::Test(test) => test.params.iter().collect(),
         _ => Vec::new(),
     }
+}
+
+fn moved_value_use<'a>(
+    statement: &BodyStatement,
+    move_tracker: &'a MoveTracker,
+) -> Option<(String, &'a MoveSite)> {
+    for root in statement_roots(statement) {
+        if let Some(move_site) = move_tracker.moved.get(&root) {
+            return Some((root, move_site));
+        }
+    }
+    None
+}
+
+fn record_statement_moves(
+    statement: &BodyStatement,
+    ownership_facts: &LocalOwnershipFacts,
+    move_tracker: &mut MoveTracker,
+) {
+    for root in consume_move_roots(statement) {
+        if ownership_facts.is_movable_root(&root) {
+            move_tracker.moved.entry(root).or_insert_with(|| MoveSite {
+                span: portable_span(&statement.span),
+                kind: "consume_argument",
+            });
+        }
+    }
+
+    if let Some(root) = returned_move_root(statement, ownership_facts) {
+        move_tracker.moved.entry(root).or_insert_with(|| MoveSite {
+            span: portable_span(&statement.span),
+            kind: "return",
+        });
+    }
+}
+
+fn statement_roots(statement: &BodyStatement) -> Vec<String> {
+    let mut roots = Vec::new();
+    if let Some(expression) = expression_text_for_statement(statement) {
+        roots.extend(identifier_roots(expression));
+    }
+    if statement.kind == "set_place"
+        && let Some(target) = set_place_name(statement)
+    {
+        roots.push(first_resource(&target));
+    }
+    roots
+}
+
+fn consume_move_roots(statement: &BodyStatement) -> Vec<String> {
+    expression_text_for_statement(statement)
+        .map(consume_roots)
+        .unwrap_or_default()
+}
+
+fn first_consume_move_root(expression: &str) -> Option<String> {
+    consume_roots(expression).into_iter().next()
+}
+
+fn consume_roots(expression: &str) -> Vec<String> {
+    let tokens = identifier_tokens(expression);
+    let mut roots = Vec::new();
+    for index in 0..tokens.len() {
+        if tokens[index] == "consume"
+            && let Some(next) = tokens.get(index + 1)
+        {
+            roots.push(first_resource(next));
+        }
+    }
+    roots
+}
+
+fn returned_move_root(
+    statement: &BodyStatement,
+    ownership_facts: &LocalOwnershipFacts,
+) -> Option<String> {
+    if statement.kind != "return" {
+        return None;
+    }
+    let expression = expression_text_for_statement(statement)?;
+    let root = bare_place_root(expression)?;
+    ownership_facts.is_movable_root(&root).then_some(root)
+}
+
+fn bare_place_root(expression: &str) -> Option<String> {
+    let expression = expression.trim();
+    if expression.is_empty()
+        || expression.contains('(')
+        || expression.contains(' ')
+        || expression.starts_with('"')
+    {
+        return None;
+    }
+    let root = first_resource(expression);
+    if root
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_lowercase() || ch == '_')
+    {
+        Some(root)
+    } else {
+        None
+    }
+}
+
+fn identifier_roots(expression: &str) -> Vec<String> {
+    identifier_tokens(expression)
+        .into_iter()
+        .filter(|token| !matches!(token.as_str(), "consume" | "true" | "false"))
+        .filter(|token| {
+            token
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_lowercase() || ch == '_')
+        })
+        .map(|token| first_resource(&token))
+        .collect()
+}
+
+fn identifier_tokens(expression: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_string = false;
+    for ch in expression.chars() {
+        if ch == '"' {
+            in_string = !in_string;
+            if !current.is_empty() {
+                tokens.push(current.clone());
+                current.clear();
+            }
+            continue;
+        }
+        if in_string {
+            continue;
+        }
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
+            current.push(ch);
+        } else if !current.is_empty() {
+            tokens.push(current.clone());
+            current.clear();
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+fn move_help(item_name: &str, target: &str, move_site: &MoveSite) -> String {
+    format!(
+        "Fix task `{item_name}`: `{target}` was moved by {} at {}:{}:{}; use it before that move or create a fresh owned value.",
+        move_site.kind, move_site.span.file, move_site.span.line, move_site.span.column
+    )
+}
+
+fn borrow_mutation_help(item_name: &str, target: &str, statement: &BodyStatement) -> String {
+    format!(
+        "Fix task `{item_name}`: `{target}` is a borrowed parameter at {}:{}:{}; mark the parameter `change`, copy into a `change` local, or remove the `set`.",
+        statement.span.file, statement.span.line, statement.span.column
+    )
 }
 
 fn expression_text_for_statement(statement: &BodyStatement) -> Option<&str> {
@@ -994,10 +1271,15 @@ fn contains_word_or_path(text: &str, needle: &str) -> bool {
 }
 
 fn first_resource(text: &str) -> String {
-    text.split_whitespace()
+    let token = text
+        .split_whitespace()
         .next()
         .unwrap_or(text)
-        .trim_matches(|ch: char| ch == ',' || ch == '.')
+        .trim_matches(|ch: char| ch == ',' || ch == '.');
+    token
+        .split(['.', '['])
+        .next()
+        .unwrap_or(token)
         .to_ascii_lowercase()
 }
 
@@ -1204,7 +1486,10 @@ impl OwnershipCheckReport {
             .filter(|statement| {
                 matches!(
                     statement.ownership_kind,
-                    "external_change_deferred" | "store_change" | "local_mutation"
+                    "external_change_deferred"
+                        | "store_change"
+                        | "local_mutation"
+                        | "parameter_mutation"
                 )
             })
             .count()
@@ -1661,7 +1946,15 @@ fn push_statement(out: &mut String, statement: &OwnershipStatement, indent: usiz
         true,
     );
     push_string_field(out, indent + 2, "status", statement.status, true);
-    push_optional_string_field(out, indent + 2, "reason", statement.reason, false);
+    push_optional_string_field(out, indent + 2, "reason", statement.reason, true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "diagnostic_code",
+        statement.diagnostic_code,
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "help", statement.help.as_deref(), false);
     push_indent(out, indent);
     out.push('}');
 }
