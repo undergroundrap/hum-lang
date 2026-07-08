@@ -3,6 +3,7 @@ use crate::core_body::{self, BodyGrammarReport, BodyStatement};
 use crate::core_contract;
 use crate::core_lower;
 use crate::core_preview;
+use crate::core_verify;
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::is_meaningful_line_text;
 use crate::ir_contract;
@@ -24,6 +25,7 @@ struct IrReadinessReport {
     type_check_summary: type_check::TypeCheckSummary,
     core_preview_summary: core_preview::CorePreviewReadinessSummary,
     core_lower_summary: core_lower::CoreLowerReadinessSummary,
+    core_verify_summary: core_verify::CoreVerifyReadinessSummary,
     candidates: Vec<LoweringCandidate>,
 }
 
@@ -55,6 +57,7 @@ struct CandidateContext<'a> {
     type_check_summary: &'a type_check::TypeCheckSummary,
     core_preview_summary: &'a core_preview::CorePreviewReadinessSummary,
     core_lower_summary: &'a core_lower::CoreLowerReadinessSummary,
+    core_verify_summary: &'a core_verify::CoreVerifyReadinessSummary,
     checked_returns: &'a [type_check::CheckedReturnSummary],
 }
 
@@ -94,8 +97,8 @@ const PASS_STATUSES: &[PassStatus] = &[
     },
     PassStatus {
         name: "core_verify",
-        status: "not_implemented",
-        source: core_contract::CORE_CONTRACT_SCHEMA,
+        status: core_verify::CORE_VERIFY_STATUS,
+        source: core_verify::CORE_VERIFY_SCHEMA,
     },
     PassStatus {
         name: "type_check",
@@ -135,7 +138,6 @@ const PASS_STATUSES: &[PassStatus] = &[
 ];
 
 const MISSING_IR_PASSES: &[&str] = &[
-    "core_verify",
     "full_type_check",
     "effect_check",
     "ownership_alias_check",
@@ -237,6 +239,22 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.core_lower_summary.execution_ready,
         report.core_lower_summary.ir_ready
     ));
+    out.push_str(&format!(
+        "core_verify: schema={} status={} mode={} core_items={} verified_items={} lower_blocked_items={} operations={} verified_operations={} lower_blocked_operations={} checks={} failed_checks={} execution_ready={} ir_ready={}\n",
+        report.core_verify_summary.schema,
+        report.core_verify_summary.status,
+        report.core_verify_summary.mode,
+        report.core_verify_summary.core_items,
+        report.core_verify_summary.verified_items,
+        report.core_verify_summary.lower_blocked_items,
+        report.core_verify_summary.operations,
+        report.core_verify_summary.verified_operations,
+        report.core_verify_summary.lower_blocked_operations,
+        report.core_verify_summary.checks,
+        report.core_verify_summary.failed_checks,
+        report.core_verify_summary.execution_ready,
+        report.core_verify_summary.ir_ready
+    ));
     out.push_str("pass_status:\n");
     for pass in PASS_STATUSES {
         out.push_str(&format!(
@@ -316,6 +334,7 @@ pub fn ir_readiness_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
     push_type_check_summary(&mut out, &report.type_check_summary, 2, true);
     push_core_preview_summary(&mut out, &report.core_preview_summary, 2, true);
     push_core_lower_summary(&mut out, &report.core_lower_summary, 2, true);
+    push_core_verify_summary(&mut out, &report.core_verify_summary, 2, true);
     push_summary(&mut out, &report, 2, true);
     push_pass_status(&mut out, 2, true);
     push_candidates(&mut out, &report.candidates, 2, true);
@@ -341,6 +360,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
     let type_check_summary = type_check::type_check_summary(program, diagnostics);
     let core_preview_summary = core_preview::core_preview_readiness_summary(program, diagnostics);
     let core_lower_summary = core_lower::core_lower_readiness_summary(program, diagnostics);
+    let core_verify_summary = core_verify::core_verify_readiness_summary(program, diagnostics);
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
     let context = CandidateContext {
         diagnostics,
@@ -348,6 +368,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         type_check_summary: &type_check_summary,
         core_preview_summary: &core_preview_summary,
         core_lower_summary: &core_lower_summary,
+        core_verify_summary: &core_verify_summary,
         checked_returns: &checked_returns,
     };
     let mut candidates = Vec::new();
@@ -380,6 +401,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         type_check_summary,
         core_preview_summary,
         core_lower_summary,
+        core_verify_summary,
         candidates,
     }
 }
@@ -409,7 +431,13 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
         .any(|diagnostic| diagnostic.severity == Severity::Error);
     let has_resolver_errors = context.resolve_summary.resolver_errors > 0;
     let has_type_errors = context.type_check_summary.type_errors > 0;
-    let blocking_reasons = blocking_reasons(has_errors, has_resolver_errors, has_type_errors);
+    let has_core_verify_errors = context.core_verify_summary.failed_checks > 0;
+    let blocking_reasons = blocking_reasons(
+        has_errors,
+        has_resolver_errors,
+        has_type_errors,
+        has_core_verify_errors,
+    );
     let section_names = item_sections(item)
         .iter()
         .map(|section| section.name.clone())
@@ -428,8 +456,10 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
             "blocked_by_resolver_errors"
         } else if has_type_errors {
             "blocked_by_type_errors"
+        } else if has_core_verify_errors {
+            "blocked_by_core_verify_errors"
         } else {
-            "blocked_before_core_verification"
+            "blocked_before_full_type_check"
         },
         current_layer: CURRENT_LAYER,
         target_layer: TARGET_LAYER,
@@ -456,9 +486,14 @@ fn facts_available(item: &Item, context: &CandidateContext<'_>) -> Vec<&'static 
         context.core_preview_summary.status,
         "core_lower_summary_v0",
         context.core_lower_summary.status,
+        "core_verify_summary_v0",
+        context.core_verify_summary.status,
     ];
     if context.core_lower_summary.core_items > 0 {
         facts.push("unverified_core_artifact_rows_v0");
+    }
+    if context.core_verify_summary.verified_operations > 0 {
+        facts.push("verified_core_artifact_rows_v0");
     }
     if has_checked_return_type_slot(item, context.checked_returns) {
         facts.push("checked_return_expression_type_slots_v0");
@@ -621,6 +656,7 @@ fn blocking_reasons(
     has_errors: bool,
     has_resolver_errors: bool,
     has_type_errors: bool,
+    has_core_verify_errors: bool,
 ) -> Vec<&'static str> {
     let mut reasons = Vec::new();
     if has_errors {
@@ -632,7 +668,9 @@ fn blocking_reasons(
     if has_type_errors {
         reasons.push("type_check_errors");
     }
-    reasons.push("core_verify_not_implemented");
+    if has_core_verify_errors {
+        reasons.push("core_verify_errors");
+    }
     reasons.push("full_type_check_not_implemented");
     reasons.push("effect_check_not_implemented");
     reasons.push("ir_verify_not_implemented");
@@ -1053,6 +1091,95 @@ fn push_core_lower_summary(
     out.push('}');
     push_comma_newline(out, comma);
 }
+fn push_core_verify_summary(
+    out: &mut String,
+    summary: &core_verify::CoreVerifyReadinessSummary,
+    indent: usize,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    out.push_str("\"core_verify\": {\n");
+    push_string_field(out, indent + 2, "schema", summary.schema, true);
+    push_string_field(out, indent + 2, "status", summary.status, true);
+    push_string_field(out, indent + 2, "mode", summary.mode, true);
+    push_usize_field(out, indent + 2, "files", summary.files, true);
+    push_usize_field(out, indent + 2, "items", summary.items, true);
+    push_usize_field(out, indent + 2, "tasks", summary.tasks, true);
+    push_usize_field(out, indent + 2, "tests", summary.tests, true);
+    push_usize_field(out, indent + 2, "core_items", summary.core_items, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "verified_items",
+        summary.verified_items,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "lower_blocked_items",
+        summary.lower_blocked_items,
+        true,
+    );
+    push_usize_field(out, indent + 2, "operations", summary.operations, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "verified_operations",
+        summary.verified_operations,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "lower_blocked_operations",
+        summary.lower_blocked_operations,
+        true,
+    );
+    push_usize_field(out, indent + 2, "checks", summary.checks, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "passed_checks",
+        summary.passed_checks,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "failed_checks",
+        summary.failed_checks,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "execution_ready",
+        summary.execution_ready,
+        true,
+    );
+    push_usize_field(out, indent + 2, "ir_ready", summary.ir_ready, true);
+    push_usize_field(out, indent + 2, "errors", summary.errors, true);
+    push_usize_field(out, indent + 2, "warnings", summary.warnings, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "resolver_errors",
+        summary.resolver_errors,
+        true,
+    );
+    push_usize_field(out, indent + 2, "type_errors", summary.type_errors, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "preview_blocked_statements",
+        summary.preview_blocked_statements,
+        false,
+    );
+    push_indent(out, indent);
+    out.push('}');
+    push_comma_newline(out, comma);
+}
 fn push_summary(out: &mut String, report: &IrReadinessReport, indent: usize, comma: bool) {
     push_indent(out, indent);
     out.push_str("\"summary\": {");
@@ -1392,16 +1519,17 @@ mod tests {
         assert!(text.contains("type_check: schema=hum.type_check.v0"));
         assert!(text.contains("core_preview: schema=hum.core_preview.v0"));
         assert!(text.contains("core_lower: schema=hum.core_lower.v0"));
+        assert!(text.contains("core_verify: schema=hum.core_verify.v0"));
         assert!(text.contains("typed_expression_previews=1"));
         assert!(text.contains("pass_status:"));
         assert!(text.contains("body_grammar [partial_v0]"));
         assert!(text.contains("core_preview [preview_v0]"));
         assert!(text.contains("type_check [declaration_and_trivial_return_check_available]"));
         assert!(text.contains("core_lowering [unverified_core_artifact_v0]"));
-        assert!(text.contains("core_verify [not_implemented]"));
+        assert!(text.contains("core_verify [verified_non_executing_core_artifact_v0]"));
         assert!(text.contains("task `add task`"));
-        assert!(text.contains("missing_passes: core_verify"));
-        assert!(text.contains("full_type_check"));
+        assert!(text.contains("missing_passes: full_type_check"));
+        assert!(text.contains("effect_check"));
     }
 
     #[test]
@@ -1432,7 +1560,9 @@ mod tests {
         assert!(json.contains("\"type_check_summary_v0\""));
         assert!(json.contains("\"core_preview_summary_v0\""));
         assert!(json.contains("\"core_lower_summary_v0\""));
+        assert!(json.contains("\"core_verify_summary_v0\""));
         assert!(json.contains("\"unverified_core_artifact_rows_v0\""));
+        assert!(json.contains("\"verified_core_artifact_rows_v0\""));
         assert!(json.contains("\"checked_return_expression_type_slots_v0\""));
         assert_eq!(
             json.matches("checked_return_expression_type_slots_v0")
@@ -1443,11 +1573,14 @@ mod tests {
         assert!(json.contains("\"ready_for_ir\": 0"));
         assert!(json.contains("\"body_grammar_candidates\": 2"));
         assert!(json.contains("\"body_grammar_unsupported_lines\": 1"));
-        assert!(json.contains("\"status\": \"blocked_before_core_verification\""));
+        assert!(json.contains("\"status\": \"blocked_before_full_type_check\""));
         assert!(json.contains("\"name\": \"body_grammar\""));
         assert!(json.contains("\"name\": \"core_preview\""));
         assert!(json.contains("\"core_lower\""));
         assert!(json.contains("\"schema\": \"hum.core_lower.v0\""));
+        assert!(json.contains("\"core_verify\""));
+        assert!(json.contains("\"schema\": \"hum.core_verify.v0\""));
+        assert!(json.contains("\"mode\": \"non_executing_artifact_invariant_check_v0\""));
         assert!(json.contains("\"name\": \"core_lowering\""));
         assert!(json.contains("\"name\": \"core_verify\""));
         assert!(json.contains("\"status\": \"partial_v0\""));
@@ -1459,7 +1592,6 @@ mod tests {
         assert!(json.contains("\"name\": \"type_check\""));
         assert!(json.contains("\"status\": \"declaration_and_trivial_return_check_available\""));
         assert!(json.contains("\"core_verify\""));
-        assert!(json.contains("\"core_verify_not_implemented\""));
         assert!(json.contains("\"full_type_check\""));
         assert!(json.contains("\"full_type_check_not_implemented\""));
         assert!(json.contains("\"status\": \"report_available_not_ir_pass\""));

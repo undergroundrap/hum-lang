@@ -1,13 +1,13 @@
 # Hum IR Readiness Schema
 
-Date: 2026-07-07
+Date: 2026-07-08
 
 Current schema: `hum.ir_readiness.v0`
 
 ## Purpose
 
 `hum ir-readiness` reports how far current `.hum` source has progressed toward
-future Core verification and Hum IR lowering.
+future full type/effect checking and Hum IR lowering after Core verification.
 
 This is not an IR emitter. It is a readiness and blocker inventory built from
 the parser, AST, semantic graph facts, diagnostics, the checked resolver report
@@ -16,6 +16,7 @@ type-check report in [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md), the
 Core Hum preview report in [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md),
 the Core Hum contract in [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md),
 the unverified Core Hum artifact summary in [HUM_CORE_LOWER_SCHEMA.md](HUM_CORE_LOWER_SCHEMA.md),
+the non-executing Core Hum verifier summary in [HUM_CORE_VERIFY_SCHEMA.md](HUM_CORE_VERIFY_SCHEMA.md),
 and the Hum IR contract in [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md).
 It exists so humans, agents, and CI can see which source facts are already
 visible and which compiler passes still block honest IR/backend claims.
@@ -51,6 +52,7 @@ compiler-roadmap checks, and future IR verifier work.
   "type_check": {},
   "core_preview": {},
   "core_lower": {},
+  "core_verify": {},
   "summary": {},
   "pass_status": [],
   "lowering_candidates": [],
@@ -73,6 +75,7 @@ compiler-roadmap checks, and future IR verifier work.
   source-to-core planning signal, not as a lowering authority
 - `core_lower`: `hum.core_lower.v0` summary consumed as the first unverified
   source-mapped Core Hum artifact boundary, not as verification or execution
+- `core_verify`: `hum.core_verify.v0` summary consumed as the non-executing Core artifact verifier gate, not as execution, proof, safety, optimization, or IR emission
 - `summary`: file, item, task, test, candidate, ready, blocked, error, warning,
   type-error, and body-grammar counts
 - `pass_status`: current status for the pass names in `hum.ir_contract.v0`
@@ -149,6 +152,24 @@ readiness:
 This summary proves only that a source-mapped, unverified Core Hum artifact
 boundary exists. It does not verify Core Hum, execute code, or emit Hum IR.
 
+## Core Verify Summary Shape
+
+`core_verify` contains the summary fields from `hum.core_verify.v0` needed by IR
+readiness:
+
+- `schema`: currently `hum.core_verify.v0`
+- `status`: currently `verified_non_executing_core_artifact_v0` when invariant checks pass
+- `mode`: currently `non_executing_artifact_invariant_check_v0`
+- `core_items`, `verified_items`, and `lower_blocked_items`
+- `operations`, `verified_operations`, and `lower_blocked_operations`
+- `checks`, `passed_checks`, and `failed_checks`
+- `execution_ready` and `ir_ready`, both `0` in V0
+- `errors`, `warnings`, `resolver_errors`, `type_errors`, and `preview_blocked_statements`
+
+This summary verifies only artifact invariants: source spans,
+operation/status/blocker consistency, and non-claim honesty. It does not execute
+code, prove memory safety, optimize, or emit Hum IR.
+
 ## Candidate Shape
 
 Each `lowering_candidates` entry has:
@@ -158,7 +179,7 @@ Each `lowering_candidates` entry has:
 - `name`: source item name
 - `graph_node_id`: semantic graph node ID for the same item
 - `source_span`: file, line, and column
-- `status`: readiness status, currently blocked before core verification when source, resolver, and V0 type checks pass
+- `status`: readiness status, currently blocked before full type checking when source, resolver, V0 type checks, Core lowering, and Core verification pass
 - `current_layer`: currently visible compiler layers
 - `target_layer`: future target layer path
 - `facts_available`: source facts already visible to tools
@@ -170,7 +191,8 @@ Each `lowering_candidates` entry has:
 
 Current candidate statuses:
 
-- `blocked_before_core_verification`: source parsed, resolved, V0 type-checked, and unverified Core Hum summary exists, but Core verification is not implemented
+- `blocked_before_full_type_check`: source parsed, resolved, V0 type-checked, lowered to an unverified Core artifact, and passed non-executing Core artifact verification, but full type/effect/ownership/resource/profile and IR verification are still missing
+- `blocked_by_core_verify_errors`: `hum.core_verify.v0` reported artifact invariant failures
 - `blocked_by_source_errors`: source diagnostics include errors
 - `blocked_by_resolver_errors`: `hum.resolve.v0` reported name, duplicate, or mutable-place errors
 - `blocked_by_type_errors`: `hum.type_check.v0` reported declaration annotation or trivial return type errors
@@ -194,6 +216,9 @@ V0 may report facts such as:
 - `preview_v0`
 - `core_lower_summary_v0`
 - `unverified_core_artifact_v0`
+- `core_verify_summary_v0`
+- `verified_non_executing_core_artifact_v0`
+- `verified_core_artifact_rows_v0`
 - `unverified_core_artifact_rows_v0`
 - `checked_return_expression_type_slots_v0`
 - `source_sections`
@@ -270,7 +295,7 @@ V0 reports these pass statuses:
 - `body_grammar`: `partial_v0`
 - `core_preview`: `preview_v0`
 - `core_lowering`: `unverified_core_artifact_v0`
-- `core_verify`: `not_implemented`
+- `core_verify`: `verified_non_executing_core_artifact_v0`
 - `type_check`: `declaration_and_trivial_return_check_available`
 - `effect_check`: `not_implemented`
 - `ownership_alias_check`: `not_implemented`
@@ -287,13 +312,13 @@ V0 reports these pass statuses:
   or executable semantics.
 - It may report source-visible facts, checked resolver facts, declaration
   type-check facts, partial body grammar facts, conservative core-preview facts,
-  unverified core-lower summary facts, and missing compiler passes.
+  unverified core-lower summary facts, non-executing core-verify summary facts, and missing compiler passes.
 - It must block V0 lowering candidates when `hum.resolve.v0` reports resolver
   errors.
 - It must block V0 lowering candidates when `hum.type_check.v0` reports
   declaration annotation or trivial return type errors.
 - It must stay in sync with `hum.core_contract.v0`, `hum.core_lower.v0`,
-  `hum.ir_contract.v0`, `hum capabilities --format json`, and
+  `hum.core_verify.v0`, `hum.ir_contract.v0`, `hum capabilities --format json`, and
   `hum version --format json`.
 
 ## Privacy And Dependency Rules
@@ -311,4 +336,4 @@ The command is local-first:
 
 V0 does not produce Core Hum, Hum IR, bytecode, machine code, backend adapter
 input, proof artifacts, optimized code, or executable behavior. It is a progress
-map from current parsed source toward the first honest lowering milestone.
+map from current parsed source through non-executing Core artifact verification toward the first honest IR milestone.

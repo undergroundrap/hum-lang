@@ -1,6 +1,7 @@
 use crate::core_body;
 use crate::core_lower;
 use crate::core_preview;
+use crate::core_verify;
 use crate::ir_contract;
 use crate::json;
 use crate::version;
@@ -225,8 +226,8 @@ const ACCEPTANCE_GATES: &[AcceptanceGate] = &[
     },
     AcceptanceGate {
         id: "core_verify",
-        status: "planned",
-        requirement: "Core Hum artifacts are printable, JSON-serializable, and verifier-checked",
+        status: core_verify::CORE_VERIFY_STATUS,
+        requirement: "Core Hum artifacts pass non-executing artifact invariant checks before IR claims",
     },
 ];
 
@@ -462,6 +463,7 @@ mod tests {
         assert!(text.contains("body_grammar [partial_v0]"));
         assert!(text.contains("core_preview [preview_v0]"));
         assert!(text.contains("core_lowering [unverified_core_artifact_v0]"));
+        assert!(text.contains("core_verify [verified_non_executing_core_artifact_v0]"));
         assert!(text.contains("no interpreter implementation"));
     }
 
@@ -480,6 +482,8 @@ mod tests {
         assert!(json.contains("\"id\": \"core_preview\""));
         assert!(json.contains("\"status\": \"preview_v0\""));
         assert!(json.contains("\"id\": \"core_lowering\""));
+        assert!(json.contains("\"id\": \"core_verify\""));
+        assert!(json.contains("\"status\": \"verified_non_executing_core_artifact_v0\""));
         assert!(json.contains("\"status\": \"unverified_core_artifact_v0\""));
         assert!(json.contains("\"no executable semantics\""));
     }

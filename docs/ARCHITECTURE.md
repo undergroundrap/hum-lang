@@ -51,7 +51,9 @@ emitted by `hum core-contract --format json`; the first non-executing Core Hum
 candidate preview is [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md),
 emitted by `hum core-preview --format json`; the first unverified Core Hum
 artifact is [HUM_CORE_LOWER_SCHEMA.md](HUM_CORE_LOWER_SCHEMA.md), emitted by
-`hum core-lower --format json`; checked scope, definition,
+`hum core-lower --format json`; the first non-executing Core Hum verifier is
+[HUM_CORE_VERIFY_SCHEMA.md](HUM_CORE_VERIFY_SCHEMA.md), emitted by
+`hum core-verify --format json`; checked scope, definition,
 reference, and mutable-place identity is reported by [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md),
 emitted by `hum resolve --format json`; declared type-environment facts are reported by
 [HUM_TYPE_ENV_SCHEMA.md](HUM_TYPE_ENV_SCHEMA.md), emitted by `hum type-env --format json`;
@@ -91,7 +93,7 @@ Formal-readability doctrine: Hum should be easy to scan because its structure is
 
 State-management doctrine: Hum treats state as visible, permissioned, profile-aware, and evidence-producing. Immutable values are the paved road; mutation, ownership, borrowing, stores, linear resources, shared state, and external authority must have source-visible facts before they become stable power. The current machine-readable state contract is `hum.state_model.v0`, emitted by `hum state-model --format json`. Checked source places begin in `hum.resolve.v0`, emitted by `hum resolve --format json`. See [STATE_MODEL.md](STATE_MODEL.md) and [decisions/0010-adopt-explicit-state-model.md](decisions/0010-adopt-explicit-state-model.md).
 
-Resolution doctrine: checked scope, definition, reference, and place identity comes before execution, type checking, effect checking, ownership, borrowing, editor go-to-definition, debugger facts, and IR emission. `hum type-env` must consume resolver definition identity before type checking, `hum type-check` must consume `hum.type_env.v0` before typed-core claims, `hum core-lower` consumes checked resolver, type-check, and core-preview summaries before any Core artifact claim, and `hum ir-readiness` must consume the core-lower summary before any Core verification or IR claim. See [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md), [HUM_TYPE_ENV_SCHEMA.md](HUM_TYPE_ENV_SCHEMA.md), [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md), [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md), [HUM_CORE_LOWER_SCHEMA.md](HUM_CORE_LOWER_SCHEMA.md), and [decisions/0011-add-checked-resolver-before-execution.md](decisions/0011-add-checked-resolver-before-execution.md).
+Resolution doctrine: checked scope, definition, reference, and place identity comes before execution, type checking, effect checking, ownership, borrowing, editor go-to-definition, debugger facts, and IR emission. `hum type-env` must consume resolver definition identity before type checking, `hum type-check` must consume `hum.type_env.v0` before typed-core claims, `hum core-lower` consumes checked resolver, type-check, and core-preview summaries before any Core artifact claim, `hum core-verify` consumes the core-lower artifact before any verified Core artifact claim, and `hum ir-readiness` must consume the core-verify summary before any IR claim. See [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md), [HUM_TYPE_ENV_SCHEMA.md](HUM_TYPE_ENV_SCHEMA.md), [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md), [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md), [HUM_CORE_LOWER_SCHEMA.md](HUM_CORE_LOWER_SCHEMA.md), [HUM_CORE_VERIFY_SCHEMA.md](HUM_CORE_VERIFY_SCHEMA.md), and [decisions/0011-add-checked-resolver-before-execution.md](decisions/0011-add-checked-resolver-before-execution.md).
 
 Language-builder doctrine: Hum should grow by small proofs, written lessons, graph/report/check surfaces, migration paths, and then public claims. See [LANGUAGE_BUILDER_OPERATING_MODEL.md](LANGUAGE_BUILDER_OPERATING_MODEL.md).
 

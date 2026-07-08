@@ -152,6 +152,7 @@ try {
   $VersionJson = Read-NativeOutput 'version JSON' $Hum @('version', '--format', 'json')
   Assert-Json 'version JSON' $VersionJson
   if (-not $VersionJson.Contains('"core_lower": "hum.core_lower.v0"')) { throw 'version JSON is missing hum.core_lower.v0 schema' }
+  if (-not $VersionJson.Contains('"core_verify": "hum.core_verify.v0"')) { throw 'version JSON is missing hum.core_verify.v0 schema' }
 
   $ExplainJson = Read-NativeOutput 'diagnostic explain JSON' $Hum @('explain', 'H0201', '--format', 'json')
   Assert-Json 'diagnostic explain JSON' $ExplainJson
@@ -184,6 +185,8 @@ try {
   if (-not $CapabilitiesJson.Contains('"core_preview"')) { throw 'capabilities JSON is missing core_preview schema' }
   if (-not $CapabilitiesJson.Contains('"core_lower"')) { throw 'capabilities JSON is missing core_lower schema' }
   if (-not $CapabilitiesJson.Contains('"core_lower_json"')) { throw 'capabilities JSON is missing core_lower_json command' }
+  if (-not $CapabilitiesJson.Contains('"core_verify"')) { throw 'capabilities JSON is missing core_verify schema' }
+  if (-not $CapabilitiesJson.Contains('"core_verify_json"')) { throw 'capabilities JSON is missing core_verify_json command' }
   if (-not $CapabilitiesJson.Contains('"resolve_report"')) { throw 'capabilities JSON is missing resolve_report schema' }
   if (-not $CapabilitiesJson.Contains('"resolve_json"')) { throw 'capabilities JSON is missing resolve_json command' }
   if (-not $CapabilitiesJson.Contains('"type_env"')) { throw 'capabilities JSON is missing type_env schema' }
@@ -217,6 +220,8 @@ try {
   if (-not $CoreContractJson.Contains('"status": "preview_v0"')) { throw 'Core contract JSON is missing preview_v0 status' }
   if (-not $CoreContractJson.Contains('"id": "core_lowering"')) { throw 'Core contract JSON is missing core_lowering gate' }
   if (-not $CoreContractJson.Contains('"status": "unverified_core_artifact_v0"')) { throw 'Core contract JSON is missing unverified core artifact gate status' }
+  if (-not $CoreContractJson.Contains('"id": "core_verify"')) { throw 'Core contract JSON is missing core_verify gate' }
+  if (-not $CoreContractJson.Contains('"status": "verified_non_executing_core_artifact_v0"')) { throw 'Core contract JSON is missing core verify gate status' }
   if (-not $CoreContractJson.Contains('"no executable semantics"')) { throw 'Core contract JSON must keep V0 non-execution claim' }
 
   $IrContractJson = Read-NativeOutput 'IR contract JSON' $Hum @('ir-contract', '--format', 'json')
@@ -414,6 +419,19 @@ try {
   if (-not $CoreLowerJson.Contains('no executable semantics')) { throw 'Core lower JSON must keep V0 non-execution claim' }
   if (-not $CoreLowerJson.Contains('no Hum IR emission')) { throw 'Core lower JSON must keep V0 non-IR-emission claim' }
 
+  $CoreVerifyJson = Read-NativeOutput 'Core verify JSON' $Hum @('core-verify', '--format', 'json', 'examples/reference_surface.hum')
+  Assert-Json 'Core verify JSON' $CoreVerifyJson
+  if (-not $CoreVerifyJson.Contains('"schema": "hum.core_verify.v0"')) { throw 'Core verify JSON is missing hum.core_verify.v0 schema' }
+  if (-not $CoreVerifyJson.Contains('"core_lower_schema": "hum.core_lower.v0"')) { throw 'Core verify JSON is missing core lower schema link' }
+  if (-not $CoreVerifyJson.Contains('"verification_status": "verified_non_executing_core_artifact_v0"')) { throw 'Core verify JSON is missing verified non-executing status' }
+  if (-not $CoreVerifyJson.Contains('"mode": "non_executing_artifact_invariant_check_v0"')) { throw 'Core verify JSON is missing invariant-check mode' }
+  if (-not $CoreVerifyJson.Contains('"rule": "source_span_sane"')) { throw 'Core verify JSON is missing source span checks' }
+  if (-not $CoreVerifyJson.Contains('"rule": "operation_family_status_consistent"')) { throw 'Core verify JSON is missing operation consistency checks' }
+  if (-not $CoreVerifyJson.Contains('"failed_checks": 0')) { throw 'Core verify JSON should pass for reference fixture' }
+  if (-not $CoreVerifyJson.Contains('"execution_ready": 0')) { throw 'Core verify JSON must not claim execution readiness' }
+  if (-not $CoreVerifyJson.Contains('"ir_ready": 0')) { throw 'Core verify JSON must not claim IR readiness' }
+  if (-not $CoreVerifyJson.Contains('no memory-safety proof')) { throw 'Core verify JSON must keep memory-safety non-claim' }
+
   $ResolveJson = Read-NativeOutput 'resolve JSON' $Hum @('resolve', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'resolve JSON' $ResolveJson
   if (-not $ResolveJson.Contains('"schema": "hum.resolve.v0"')) { throw 'resolve JSON is missing hum.resolve.v0 schema' }
@@ -477,6 +495,9 @@ try {
   if (-not $IrReadinessJson.Contains('"schema": "hum.core_preview.v0"')) { throw 'IR readiness JSON is missing hum.core_preview.v0 schema link' }
   if (-not $IrReadinessJson.Contains('"core_lower"')) { throw 'IR readiness JSON is missing core_lower summary' }
   if (-not $IrReadinessJson.Contains('"schema": "hum.core_lower.v0"')) { throw 'IR readiness JSON is missing hum.core_lower.v0 schema link' }
+  if (-not $IrReadinessJson.Contains('"core_verify"')) { throw 'IR readiness JSON is missing core_verify summary' }
+  if (-not $IrReadinessJson.Contains('"schema": "hum.core_verify.v0"')) { throw 'IR readiness JSON is missing hum.core_verify.v0 schema link' }
+  if (-not $IrReadinessJson.Contains('"mode": "non_executing_artifact_invariant_check_v0"')) { throw 'IR readiness JSON is missing core verify mode' }
   if (-not $IrReadinessJson.Contains('"status": "unverified_core_artifact_v0"')) { throw 'IR readiness JSON is missing unverified core lower status' }
   if (-not $IrReadinessJson.Contains('"typed_expression_previews": 1')) { throw 'IR readiness JSON is missing core preview typed expression count' }
   if (-not $IrReadinessJson.Contains('"status": "declaration_annotations_and_trivial_returns_checked_v0"')) { throw 'IR readiness JSON should include clean type-check status for reference fixture' }
@@ -487,7 +508,9 @@ try {
   if (-not $IrReadinessJson.Contains('"type_check_summary_v0"')) { throw 'IR readiness JSON is missing type check summary fact' }
   if (-not $IrReadinessJson.Contains('"core_preview_summary_v0"')) { throw 'IR readiness JSON is missing core preview summary fact' }
   if (-not $IrReadinessJson.Contains('"core_lower_summary_v0"')) { throw 'IR readiness JSON is missing core lower summary fact' }
+  if (-not $IrReadinessJson.Contains('"core_verify_summary_v0"')) { throw 'IR readiness JSON is missing core verify summary fact' }
   if (-not $IrReadinessJson.Contains('"unverified_core_artifact_rows_v0"')) { throw 'IR readiness JSON is missing unverified core artifact row fact' }
+  if (-not $IrReadinessJson.Contains('"verified_core_artifact_rows_v0"')) { throw 'IR readiness JSON is missing verified core artifact row fact' }
   if (-not $IrReadinessJson.Contains('"checked_return_expression_type_slots_v0"')) { throw 'IR readiness JSON is missing checked return expression slot fact' }
   if (-not $IrReadinessJson.Contains('"name": "resolve"')) { throw 'IR readiness JSON is missing resolve pass status' }
   if (-not $IrReadinessJson.Contains('"checked_report_available"')) { throw 'IR readiness JSON is missing checked resolver pass availability' }
@@ -500,8 +523,7 @@ try {
   if (-not $IrReadinessJson.Contains('"surface_save_requires_store_lowering"')) { throw 'IR readiness JSON is missing store save lowering blocker' }
   if (-not $IrReadinessJson.Contains('"core_lowering"')) { throw 'IR readiness JSON is missing core_lowering pass status' }
   if (-not $IrReadinessJson.Contains('"core_verify"')) { throw 'IR readiness JSON is missing core_verify pass status' }
-  if (-not $IrReadinessJson.Contains('"blocked_before_core_verification"')) { throw 'IR readiness JSON is missing core verification blocker status' }
-  if (-not $IrReadinessJson.Contains('"core_verify_not_implemented"')) { throw 'IR readiness JSON is missing core verify non-implementation reason' }
+  if (-not $IrReadinessJson.Contains('"blocked_before_full_type_check"')) { throw 'IR readiness JSON is missing full type check blocker status' }
   if (-not $IrReadinessJson.Contains('"declaration_and_trivial_return_check_available"')) { throw 'IR readiness JSON is missing type-check pass availability' }
   if (-not $IrReadinessJson.Contains('"full_type_check"')) { throw 'IR readiness JSON is missing full_type_check blocker' }
   if (-not $IrReadinessJson.Contains('"full_type_check_not_implemented"')) { throw 'IR readiness JSON is missing full type-check non-implementation reason' }
@@ -564,6 +586,7 @@ try {
   if (-not $ArchitectureText.Contains('STATE_MODEL.md')) { throw 'architecture is missing state model link' }
   if (-not $ArchitectureText.Contains('HUM_RESOLVE_SCHEMA.md')) { throw 'architecture is missing resolve schema link' }
   if (-not $ArchitectureText.Contains('HUM_CORE_LOWER_SCHEMA.md')) { throw 'architecture is missing core lower schema link' }
+  if (-not $ArchitectureText.Contains('HUM_CORE_VERIFY_SCHEMA.md')) { throw 'architecture is missing core verify schema link' }
   if (-not $ArchitectureText.Contains('PORTABILITY_BOUNDARY_MODEL.md')) { throw 'architecture is missing portability boundary model link' }
   $LanguageReferenceText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\LANGUAGE_REFERENCE.md'))
   if (-not $LanguageReferenceText.Contains('traditional language reference spine')) { throw 'language reference is missing reference spine marker' }
@@ -651,9 +674,11 @@ try {
   if (-not $IrReadinessSchemaText.Contains('hum.type_check.v0')) { throw 'IR readiness schema doc is missing type-check schema link' }
   if (-not $IrReadinessSchemaText.Contains('hum.core_preview.v0')) { throw 'IR readiness schema doc is missing core-preview schema link' }
   if (-not $IrReadinessSchemaText.Contains('hum.core_lower.v0')) { throw 'IR readiness schema doc is missing core-lower schema link' }
-  if (-not $IrReadinessSchemaText.Contains('blocked_before_core_verification')) { throw 'IR readiness schema doc is missing core verification blocker' }
+  if (-not $IrReadinessSchemaText.Contains('hum.core_verify.v0')) { throw 'IR readiness schema doc is missing core-verify schema link' }
+  if (-not $IrReadinessSchemaText.Contains('blocked_before_full_type_check')) { throw 'IR readiness schema doc is missing full type-check blocker' }
   if (-not $IrReadinessSchemaText.Contains('unverified_core_artifact_rows_v0')) { throw 'IR readiness schema doc is missing unverified core artifact row fact' }
   if (-not $IrReadinessSchemaText.Contains('core_verify')) { throw 'IR readiness schema doc is missing core_verify pass' }
+  if (-not $IrReadinessSchemaText.Contains('verified_core_artifact_rows_v0')) { throw 'IR readiness schema doc is missing verified core artifact row fact' }
   if (-not $IrReadinessSchemaText.Contains('checked_return_expression_type_slots_v0')) { throw 'IR readiness schema doc is missing checked return expression slot fact' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_type_errors')) { throw 'IR readiness schema doc is missing type-error blocker' }
   if (-not $IrReadinessSchemaText.Contains('declaration_and_trivial_return_check_available')) { throw 'IR readiness schema doc is missing type-check pass status' }
@@ -663,7 +688,14 @@ try {
   $CoreLowerSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_CORE_LOWER_SCHEMA.md'))
   if (-not $CoreLowerSchemaText.Contains('hum.core_lower.v0')) { throw 'Core lower schema doc is missing hum.core_lower.v0' }
   if (-not $CoreLowerSchemaText.Contains('unverified_core_artifact_v0')) { throw 'Core lower schema doc is missing unverified artifact status' }
+  if (-not $CoreLowerSchemaText.Contains('hum.core_verify.v0')) { throw 'Core lower schema doc is missing core verify sync link' }
   if (-not $CoreLowerSchemaText.Contains('no Hum IR emission')) { throw 'Core lower schema doc must keep non-IR-emission claim' }
+  $CoreVerifySchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_CORE_VERIFY_SCHEMA.md'))
+  if (-not $CoreVerifySchemaText.Contains('hum.core_verify.v0')) { throw 'Core verify schema doc is missing hum.core_verify.v0' }
+  if (-not $CoreVerifySchemaText.Contains('non_executing_artifact_invariant_check_v0')) { throw 'Core verify schema doc is missing invariant-check mode' }
+  if (-not $CoreVerifySchemaText.Contains('verified_non_executing_core_artifact_v0')) { throw 'Core verify schema doc is missing verification status' }
+  if (-not $CoreVerifySchemaText.Contains('source_span_sane')) { throw 'Core verify schema doc is missing source span rule' }
+  if (-not $CoreVerifySchemaText.Contains('no memory-safety proof')) { throw 'Core verify schema doc must keep memory-safety non-claim' }
   $ResolveDecisionText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\decisions\0011-add-checked-resolver-before-execution.md'))
   if (-not $ResolveDecisionText.Contains('checked resolver')) { throw 'checked resolver ADR is missing decision language' }
   $StateModelSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_STATE_MODEL_SCHEMA.md'))

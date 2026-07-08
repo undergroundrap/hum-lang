@@ -2,6 +2,7 @@ use crate::backend_contract;
 use crate::core_contract;
 use crate::core_lower;
 use crate::core_preview;
+use crate::core_verify;
 use crate::diagnostic_catalog;
 use crate::diagnostics;
 use crate::doctor;
@@ -87,6 +88,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: core_lower::CORE_LOWER_SCHEMA,
         status: "adapter-ready",
         purpose: "unverified Core Hum artifact and blockers without execution or IR emission",
+    },
+    CommandCapability {
+        name: "core_verify_json",
+        command: "hum core-verify --format json <file-or-dir>...",
+        schema: core_verify::CORE_VERIFY_SCHEMA,
+        status: "adapter-ready",
+        purpose: "non-executing Core Hum artifact invariant verification before IR readiness",
     },
     CommandCapability {
         name: "resolve_json",
@@ -319,9 +327,10 @@ pub fn capabilities_text() -> String {
         resource_report::RESOURCE_REPORT_SCHEMA
     ));
     out.push_str(&format!(
-        "  core_preview: {}\n  core_lower: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  ir_readiness: {}\n",
+        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  ir_readiness: {}\n",
         core_preview::CORE_PREVIEW_SCHEMA,
         core_lower::CORE_LOWER_SCHEMA,
+        core_verify::CORE_VERIFY_SCHEMA,
         resolve::RESOLVE_REPORT_SCHEMA,
         type_env::TYPE_ENV_SCHEMA,
         type_check::TYPE_CHECK_SCHEMA,
@@ -471,6 +480,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         indent + 2,
         "core_lower",
         core_lower::CORE_LOWER_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "core_verify",
+        core_verify::CORE_VERIFY_SCHEMA,
         true,
     );
     push_string_field(
@@ -689,6 +705,7 @@ mod tests {
         assert!(json.contains("\"ir_readiness\": \"hum.ir_readiness.v0\""));
         assert!(json.contains("\"core_preview\": \"hum.core_preview.v0\""));
         assert!(json.contains("\"core_lower\": \"hum.core_lower.v0\""));
+        assert!(json.contains("\"core_verify\": \"hum.core_verify.v0\""));
         assert!(json.contains("\"resolve_report\": \"hum.resolve.v0\""));
         assert!(json.contains("\"type_env\": \"hum.type_env.v0\""));
         assert!(json.contains("\"type_check\": \"hum.type_check.v0\""));
@@ -719,6 +736,7 @@ mod tests {
         assert!(json.contains("\"name\": \"ir_readiness_json\""));
         assert!(json.contains("\"name\": \"core_preview_json\""));
         assert!(json.contains("\"name\": \"core_lower_json\""));
+        assert!(json.contains("\"name\": \"core_verify_json\""));
         assert!(json.contains("\"name\": \"resolve_json\""));
         assert!(json.contains("\"name\": \"type_env_json\""));
         assert!(json.contains("\"name\": \"type_check_json\""));

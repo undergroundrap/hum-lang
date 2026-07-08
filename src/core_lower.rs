@@ -46,67 +46,69 @@ pub struct CoreLowerReadinessSummary {
     pub preview_blocked_statements: usize,
 }
 
-struct CoreLowerReport {
-    files: usize,
-    items: usize,
-    tasks: usize,
-    tests: usize,
-    errors: usize,
-    warnings: usize,
-    resolver_errors: usize,
-    type_errors: usize,
-    preview_blocked_statements: usize,
-    core_items: Vec<CoreLowerItem>,
+pub(crate) struct CoreLowerReport {
+    pub(crate) files: usize,
+    pub(crate) items: usize,
+    pub(crate) tasks: usize,
+    pub(crate) tests: usize,
+    pub(crate) execution_ready: usize,
+    pub(crate) ir_ready: usize,
+    pub(crate) errors: usize,
+    pub(crate) warnings: usize,
+    pub(crate) resolver_errors: usize,
+    pub(crate) type_errors: usize,
+    pub(crate) preview_blocked_statements: usize,
+    pub(crate) core_items: Vec<CoreLowerItem>,
 }
 
-struct CoreLowerItem {
-    id: String,
-    kind: &'static str,
-    name: String,
-    span: Span,
-    status: &'static str,
-    verification_status: &'static str,
-    body_status: &'static str,
-    grammar_status: &'static str,
-    params: Vec<Param>,
-    result: Option<String>,
-    source_sections: Vec<String>,
-    operations: Vec<CoreLowerOperation>,
-    blockers: Vec<CoreLowerBlocker>,
+pub(crate) struct CoreLowerItem {
+    pub(crate) id: String,
+    pub(crate) kind: &'static str,
+    pub(crate) name: String,
+    pub(crate) span: Span,
+    pub(crate) status: &'static str,
+    pub(crate) verification_status: &'static str,
+    pub(crate) body_status: &'static str,
+    pub(crate) grammar_status: &'static str,
+    pub(crate) params: Vec<Param>,
+    pub(crate) result: Option<String>,
+    pub(crate) source_sections: Vec<String>,
+    pub(crate) operations: Vec<CoreLowerOperation>,
+    pub(crate) blockers: Vec<CoreLowerBlocker>,
 }
 
-struct CoreLowerOperation {
-    id: String,
-    index: usize,
-    span: Span,
-    surface_text: String,
-    source_kind: &'static str,
-    source_status: &'static str,
-    core_operation: &'static str,
-    status: &'static str,
-    expression: Option<CoreLowerExpression>,
-    reason: Option<&'static str>,
+pub(crate) struct CoreLowerOperation {
+    pub(crate) id: String,
+    pub(crate) index: usize,
+    pub(crate) span: Span,
+    pub(crate) surface_text: String,
+    pub(crate) source_kind: &'static str,
+    pub(crate) source_status: &'static str,
+    pub(crate) core_operation: &'static str,
+    pub(crate) status: &'static str,
+    pub(crate) expression: Option<CoreLowerExpression>,
+    pub(crate) reason: Option<&'static str>,
 }
 
-struct CoreLowerExpression {
-    text: String,
-    kind: &'static str,
-    status: &'static str,
-    ast_status: &'static str,
-    root_form: &'static str,
-    operator: Option<&'static str>,
-    node_count: usize,
-    type_status: &'static str,
-    type_text: Option<String>,
-    type_source: Option<&'static str>,
-    effect_status: &'static str,
-    reason: Option<&'static str>,
+pub(crate) struct CoreLowerExpression {
+    pub(crate) text: String,
+    pub(crate) kind: &'static str,
+    pub(crate) status: &'static str,
+    pub(crate) ast_status: &'static str,
+    pub(crate) root_form: &'static str,
+    pub(crate) operator: Option<&'static str>,
+    pub(crate) node_count: usize,
+    pub(crate) type_status: &'static str,
+    pub(crate) type_text: Option<String>,
+    pub(crate) type_source: Option<&'static str>,
+    pub(crate) effect_status: &'static str,
+    pub(crate) reason: Option<&'static str>,
 }
 
-struct CoreLowerBlocker {
-    span: Span,
-    status: &'static str,
-    reason: &'static str,
+pub(crate) struct CoreLowerBlocker {
+    pub(crate) span: Span,
+    pub(crate) status: &'static str,
+    pub(crate) reason: &'static str,
 }
 
 pub fn core_lower_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
@@ -271,7 +273,10 @@ pub fn core_lower_readiness_summary(
         preview_blocked_statements: report.preview_blocked_statements,
     }
 }
-fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreLowerReport {
+pub(crate) fn build_core_lower_report(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> CoreLowerReport {
     let resolve_summary = resolve::resolve_readiness_summary(program, diagnostics);
     let type_check_summary = type_check::type_check_summary(program, diagnostics);
     let core_preview_summary = core_preview::core_preview_readiness_summary(program, diagnostics);
@@ -298,6 +303,8 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreLowerRepor
         items: count_items(program),
         tasks: count_kind(program, "task"),
         tests: count_kind(program, "test"),
+        execution_ready: 0,
+        ir_ready: 0,
         errors,
         warnings,
         resolver_errors: resolve_summary.resolver_errors,
@@ -305,6 +312,10 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreLowerRepor
         preview_blocked_statements: core_preview_summary.blocked_statements,
         core_items,
     }
+}
+
+fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreLowerReport {
+    build_core_lower_report(program, diagnostics)
 }
 
 fn collect_items(
@@ -765,21 +776,21 @@ fn portable_span(span: &Span) -> Span {
 }
 
 impl CoreLowerReport {
-    fn lowered_items(&self) -> usize {
+    pub(crate) fn lowered_items(&self) -> usize {
         self.core_items
             .iter()
             .filter(|item| item.status == "lowered_unverified_core_v0")
             .count()
     }
 
-    fn blocked_items(&self) -> usize {
+    pub(crate) fn blocked_items(&self) -> usize {
         self.core_items
             .iter()
             .filter(|item| item.status != "lowered_unverified_core_v0")
             .count()
     }
 
-    fn lowered_operations(&self) -> usize {
+    pub(crate) fn lowered_operations(&self) -> usize {
         self.core_items
             .iter()
             .flat_map(|item| &item.operations)
@@ -787,7 +798,7 @@ impl CoreLowerReport {
             .count()
     }
 
-    fn blocked_operations(&self) -> usize {
+    pub(crate) fn blocked_operations(&self) -> usize {
         self.core_items
             .iter()
             .flat_map(|item| &item.operations)

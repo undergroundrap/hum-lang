@@ -70,6 +70,8 @@ Current `schemas` includes:
 - `math_obligation`: `hum.math_obligation.v0`
 - `resource_report`: `hum.resource_report.v0`
 - `core_preview`: `hum.core_preview.v0`
+- `core_lower`: `hum.core_lower.v0`
+- `core_verify`: `hum.core_verify.v0`
 - `resolve_report`: `hum.resolve.v0`
 - `type_env`: `hum.type_env.v0`
 - `type_check`: `hum.type_check.v0`
@@ -103,6 +105,8 @@ Current entries include:
 - `hum math-obligations --format json`
 - `hum resource-report --format json`
 - `hum core-preview --format json`
+- `hum core-lower --format json`
+- `hum core-verify --format json`
 - `hum resolve --format json`
 - `hum type-env --format json`
 - `hum type-check --format json`

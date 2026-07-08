@@ -20,7 +20,7 @@ not a type checker, and not an optimizer. V0 now includes a partial
 body-grammar classifier used by `hum ir-readiness` and a non-executing
 Core Hum candidate preview emitted by `hum core-preview`; `hum core-lower` now
 emits the first unverified source-mapped Core Hum artifact boundary from those
-facts. These recognize
+facts; `hum core-verify` now verifies the non-executing artifact invariants without execution or IR emission. These recognize
 first statement candidates, candidate-local name previews, block previews,
 expression preview atoms, expression AST previews, operators, and blockers
 without assigning executable meaning.
@@ -119,7 +119,7 @@ V0 reports these gate statuses:
 - `effect_check`: `planned`
 - `profile_check`: `planned`
 - `core_interpreter`: `planned`
-- `core_verify`: `planned`
+- `core_verify`: `verified_non_executing_core_artifact_v0`
 
 These are roadmap facts, not implementation APIs. They keep build order honest.
 `partial_v0` means the compiler recognizes a conservative line-oriented subset
@@ -130,7 +130,7 @@ previews, expression preview atoms, expression AST previews, operators, and
 blockers from those lines for roadmap and adapter use, but it still does not
 lower, type check, execute, or verify them. `unverified_artifact_v0` means
 the compiler can serialize source-mapped Core Hum operation rows and blockers,
-but still cannot execute, verify, emit Hum IR, or lower to any backend.
+but still cannot execute, emit Hum IR, or lower to any backend. `verified_non_executing_core_artifact_v0` means `hum core-verify` checks source spans, operation/status/blocker consistency, and non-claim honesty for those rows, but still cannot execute, prove safety, optimize, or emit IR.
 
 ## Honesty Rules
 
@@ -140,12 +140,13 @@ but still cannot execute, verify, emit Hum IR, or lower to any backend.
   Core Hum.
 - `hum core-lower` emits an unverified source-mapped Core Hum artifact and
   blockers, not executable Core Hum, Hum IR, or backend input.
+- `hum core-verify` verifies non-executing artifact invariants, not program behavior, proof, memory safety, optimization, Hum IR, or backend input.
 - It must not run generated code.
 - It must not claim executable semantics.
 - It must not pretend full type checking, effect checking, optimization, or backend
   lowering exists.
 - It must stay in sync with `hum core-lower --format json`,
-  `hum ir-contract --format json`, `hum ir-readiness --format json`,
+  `hum core-verify --format json`, `hum ir-contract --format json`, `hum ir-readiness --format json`,
   `hum capabilities --format json`, and `hum version --format json`.
 
 ## Privacy And Dependency Rules

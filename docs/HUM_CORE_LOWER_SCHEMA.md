@@ -30,7 +30,7 @@ cargo run -- core-lower --format json examples/reference_surface.hum
 ```
 
 The human output is for terminals. The JSON output is for agents, CI wrappers,
-future Core Hum verification, future interpreters, and future Hum IR lowering.
+`hum core-verify`, future interpreters, and future Hum IR lowering.
 
 ## Top-Level Shape
 
@@ -172,7 +172,7 @@ reported by `hum.type_check.v0`. They are not broad expression inference.
 - It must block future execution or IR claims when source, resolver, type, body,
   or brace blockers exist.
 - It must stay in sync with `hum.core_contract.v0`, `hum.core_preview.v0`,
-  `hum.ir_readiness.v0`, `hum capabilities --format json`, and `hum version
+  `hum.core_verify.v0`, `hum.ir_readiness.v0`, `hum capabilities --format json`, and `hum version
   --format json`.
 
 ## Privacy And Dependency Rules
