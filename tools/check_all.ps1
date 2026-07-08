@@ -220,6 +220,9 @@ try {
   if (-not $CoreContractJson.Contains('"status": "preview_v0"')) { throw 'Core contract JSON is missing preview_v0 status' }
   if (-not $CoreContractJson.Contains('"id": "core_lowering"')) { throw 'Core contract JSON is missing core_lowering gate' }
   if (-not $CoreContractJson.Contains('"status": "unverified_core_artifact_v0"')) { throw 'Core contract JSON is missing unverified core artifact gate status' }
+  if (-not $CoreContractJson.Contains('"id": "type_check"')) { throw 'Core contract JSON is missing type_check gate' }
+  if (-not $CoreContractJson.Contains('"status": "declaration_and_trivial_return_check_available"')) { throw 'Core contract JSON is missing narrow type-check gate status' }
+  if (-not $CoreContractJson.Contains('"id": "full_type_check"')) { throw 'Core contract JSON is missing full_type_check gate' }
   if (-not $CoreContractJson.Contains('"id": "core_verify"')) { throw 'Core contract JSON is missing core_verify gate' }
   if (-not $CoreContractJson.Contains('"status": "verified_non_executing_core_artifact_v0"')) { throw 'Core contract JSON is missing core verify gate status' }
   if (-not $CoreContractJson.Contains('"no executable semantics"')) { throw 'Core contract JSON must keep V0 non-execution claim' }
@@ -233,6 +236,7 @@ try {
   if (-not $IrContractJson.Contains('"id": "hum_ir"')) { throw 'IR contract JSON is missing hum_ir layer' }
   if (-not $IrContractJson.Contains('"typed_failure_edges"')) { throw 'IR contract JSON is missing typed failure facts' }
   if (-not $IrContractJson.Contains('"core_verify"')) { throw 'IR contract JSON is missing core_verify pass' }
+  if (-not $IrContractJson.Contains('"full_type_check"')) { throw 'IR contract JSON is missing full_type_check pass' }
   if (-not $IrContractJson.Contains('"ir_verify"')) { throw 'IR contract JSON is missing ir_verify pass' }
   if (-not $IrContractJson.Contains('"no IR emission for source files"')) { throw 'IR contract JSON must keep V0 non-emission claim' }
 
@@ -682,9 +686,14 @@ try {
   if (-not $IrReadinessSchemaText.Contains('checked_return_expression_type_slots_v0')) { throw 'IR readiness schema doc is missing checked return expression slot fact' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_type_errors')) { throw 'IR readiness schema doc is missing type-error blocker' }
   if (-not $IrReadinessSchemaText.Contains('declaration_and_trivial_return_check_available')) { throw 'IR readiness schema doc is missing type-check pass status' }
+  $ArchitectureText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\ARCHITECTURE.md'))
+  if (-not $ArchitectureText.Contains('Current Compiler Spine')) { throw 'architecture doc is missing current compiler spine' }
+  if (-not $ArchitectureText.Contains('blocked_before_full_type_check')) { throw 'architecture doc is missing current full type-check blocker' }
   $CoreContractSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_CORE_CONTRACT_SCHEMA.md'))
   if (-not $CoreContractSchemaText.Contains('hum core-lower')) { throw 'Core contract schema doc is missing core-lower command link' }
-  if (-not $CoreContractSchemaText.Contains('unverified_artifact_v0')) { throw 'Core contract schema doc is missing unverified artifact gate' }
+  if (-not $CoreContractSchemaText.Contains('unverified_core_artifact_v0')) { throw 'Core contract schema doc is missing unverified core artifact gate' }
+  if (-not $CoreContractSchemaText.Contains('declaration_and_trivial_return_check_available')) { throw 'Core contract schema doc is missing narrow type-check gate' }
+  if (-not $CoreContractSchemaText.Contains('full_type_check')) { throw 'Core contract schema doc is missing full type-check gate' }
   $CoreLowerSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_CORE_LOWER_SCHEMA.md'))
   if (-not $CoreLowerSchemaText.Contains('hum.core_lower.v0')) { throw 'Core lower schema doc is missing hum.core_lower.v0' }
   if (-not $CoreLowerSchemaText.Contains('unverified_core_artifact_v0')) { throw 'Core lower schema doc is missing unverified artifact status' }

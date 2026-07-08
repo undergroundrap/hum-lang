@@ -117,8 +117,9 @@ readiness:
 
 A nonzero `type_errors` value blocks every V0 lowering candidate with
 `type_check_errors`. V0 type checking covers declaration annotations and trivial task returns only;
-full expression, body, generic, trait, ownership, effect, layout, and ABI checks
-remain future blockers.
+`full_type_check` is a separate not-implemented gate for body/Core expression,
+statement, call, operator, record, block, and failure-path typing. Generic,
+trait, ownership, effect, layout, and ABI checks remain future blockers.
 
 ## Core Preview Summary Shape
 
@@ -297,6 +298,7 @@ V0 reports these pass statuses:
 - `core_lowering`: `unverified_core_artifact_v0`
 - `core_verify`: `verified_non_executing_core_artifact_v0`
 - `type_check`: `declaration_and_trivial_return_check_available`
+- `full_type_check`: `not_implemented`
 - `effect_check`: `not_implemented`
 - `ownership_alias_check`: `not_implemented`
 - `allocation_resource_check`: `not_implemented`

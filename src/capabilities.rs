@@ -122,7 +122,7 @@ const COMMANDS: &[CommandCapability] = &[
         command: "hum ir-readiness --format json <file-or-dir>...",
         schema: ir_readiness::IR_READINESS_SCHEMA,
         status: "adapter-ready",
-        purpose: "source readiness report for future Core verification and Hum IR lowering",
+        purpose: "source readiness report after Core verification, before full type/effect checking and Hum IR lowering",
     },
     CommandCapability {
         name: "syntax",

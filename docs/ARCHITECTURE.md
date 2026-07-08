@@ -65,6 +65,26 @@ emitted by `hum ir-readiness --format json`.
 
 See [FORMAL_CORE.md](FORMAL_CORE.md).
 
+#### Current Compiler Spine
+
+As of `0.0.1` pre-alpha, the implemented non-executing compiler spine is:
+
+```text
+parse/current
+-> semantic_graph/current
+-> resolve/checked_report_available
+-> type_env/declaration_inventory_available
+-> type_check/declaration_and_trivial_return_check_available
+-> core_preview/preview_v0
+-> core_lower/unverified_core_artifact_v0
+-> core_verify/verified_non_executing_core_artifact_v0
+-> ir_readiness/blocked_before_full_type_check
+```
+
+`full_type_check` is the next honest compiler gate. Until it exists, Hum must
+not claim executable semantics, type safety, effect safety, memory safety, IR
+emission, backend readiness, or safety-critical readiness.
+
 ### 3. Semantic Graph
 
 The semantic graph is Hum's shared truth for humans, compiler checks, `humfmt`, `chirp`, `hum lsp`, `hum debug`, `hum graph`, Nectar, and agents. Agents should query graph facts, not scrape terminal prose when the compiler can provide structured meaning.

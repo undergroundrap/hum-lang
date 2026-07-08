@@ -80,7 +80,7 @@ Current artifacts:
 - [docs/HUM_CORE_LOWER_SCHEMA.md](docs/HUM_CORE_LOWER_SCHEMA.md): `hum.core_lower.v0` unverified source-mapped Core Hum artifact rows and blockers
 - [docs/HUM_CORE_VERIFY_SCHEMA.md](docs/HUM_CORE_VERIFY_SCHEMA.md): `hum.core_verify.v0` non-executing Core Hum artifact invariant checks
 - [docs/HUM_IR_CONTRACT_SCHEMA.md](docs/HUM_IR_CONTRACT_SCHEMA.md): `hum.ir_contract.v0` Hum IR ownership, carried-fact, and pass-boundary contract
-- [docs/HUM_IR_READINESS_SCHEMA.md](docs/HUM_IR_READINESS_SCHEMA.md): `hum.ir_readiness.v0` source readiness and blocker report for future Core verification and Hum IR lowering
+- [docs/HUM_IR_READINESS_SCHEMA.md](docs/HUM_IR_READINESS_SCHEMA.md): `hum.ir_readiness.v0` source readiness and blocker report after Core verification, before full type/effect checking and Hum IR lowering
 - [docs/BACKEND_CONTRACT_SCHEMA.md](docs/BACKEND_CONTRACT_SCHEMA.md): `hum.backend_contract.v0` backend ladder and adapter preservation contract
 - [docs/LSP_CAPABILITIES_SCHEMA.md](docs/LSP_CAPABILITIES_SCHEMA.md): `hum.lsp_capabilities.v0` preview schema for LSP adapter support
 - [docs/DOCTOR_SCHEMA.md](docs/DOCTOR_SCHEMA.md): `hum.doctor.v0` setup health schema for portable repo guardrails

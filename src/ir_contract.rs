@@ -70,6 +70,7 @@ const REQUIRED_PASSES: &[&str] = &[
     "core_lowering",
     "core_verify",
     "type_check",
+    "full_type_check",
     "effect_check",
     "ownership_alias_check",
     "allocation_resource_check",

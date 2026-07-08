@@ -206,8 +206,13 @@ const ACCEPTANCE_GATES: &[AcceptanceGate] = &[
     },
     AcceptanceGate {
         id: "type_check",
+        status: "declaration_and_trivial_return_check_available",
+        requirement: "declaration annotations and trivially typed return expressions are checked without full body typing",
+    },
+    AcceptanceGate {
+        id: "full_type_check",
         status: "planned",
-        requirement: "values, places, calls, and failure paths have explicit types",
+        requirement: "values, places, calls, operators, records, blocks, and failure paths have explicit types",
     },
     AcceptanceGate {
         id: "effect_check",
@@ -463,6 +468,8 @@ mod tests {
         assert!(text.contains("body_grammar [partial_v0]"));
         assert!(text.contains("core_preview [preview_v0]"));
         assert!(text.contains("core_lowering [unverified_core_artifact_v0]"));
+        assert!(text.contains("type_check [declaration_and_trivial_return_check_available]"));
+        assert!(text.contains("full_type_check [planned]"));
         assert!(text.contains("core_verify [verified_non_executing_core_artifact_v0]"));
         assert!(text.contains("no interpreter implementation"));
     }
@@ -482,6 +489,9 @@ mod tests {
         assert!(json.contains("\"id\": \"core_preview\""));
         assert!(json.contains("\"status\": \"preview_v0\""));
         assert!(json.contains("\"id\": \"core_lowering\""));
+        assert!(json.contains("\"id\": \"type_check\""));
+        assert!(json.contains("\"status\": \"declaration_and_trivial_return_check_available\""));
+        assert!(json.contains("\"id\": \"full_type_check\""));
         assert!(json.contains("\"id\": \"core_verify\""));
         assert!(json.contains("\"status\": \"verified_non_executing_core_artifact_v0\""));
         assert!(json.contains("\"status\": \"unverified_core_artifact_v0\""));

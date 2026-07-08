@@ -114,8 +114,9 @@ V0 reports these gate statuses:
 - `semantic_graph_build`: `current`
 - `body_grammar`: `partial_v0`
 - `core_preview`: `preview_v0`
-- `core_lowering`: `unverified_artifact_v0`
-- `type_check`: `planned`
+- `core_lowering`: `unverified_core_artifact_v0`
+- `type_check`: `declaration_and_trivial_return_check_available`
+- `full_type_check`: `planned`
 - `effect_check`: `planned`
 - `profile_check`: `planned`
 - `core_interpreter`: `planned`
@@ -128,7 +129,7 @@ check, execute, or verify those lines. `preview_v0` means the compiler can emit
 Core Hum candidate operation families, candidate-local name previews, block
 previews, expression preview atoms, expression AST previews, operators, and
 blockers from those lines for roadmap and adapter use, but it still does not
-lower, type check, execute, or verify them. `unverified_artifact_v0` means
+lower, type check, execute, or verify them. `unverified_core_artifact_v0` means
 the compiler can serialize source-mapped Core Hum operation rows and blockers,
 but still cannot execute, emit Hum IR, or lower to any backend. `verified_non_executing_core_artifact_v0` means `hum core-verify` checks source spans, operation/status/blocker consistency, and non-claim honesty for those rows, but still cannot execute, prove safety, optimize, or emit IR.
 
@@ -143,7 +144,7 @@ but still cannot execute, emit Hum IR, or lower to any backend. `verified_non_ex
 - `hum core-verify` verifies non-executing artifact invariants, not program behavior, proof, memory safety, optimization, Hum IR, or backend input.
 - It must not run generated code.
 - It must not claim executable semantics.
-- It must not pretend full type checking, effect checking, optimization, or backend
+- It must not pretend full body/Core type checking, effect checking, optimization, or backend
   lowering exists.
 - It must stay in sync with `hum core-lower --format json`,
   `hum core-verify --format json`, `hum ir-contract --format json`, `hum ir-readiness --format json`,

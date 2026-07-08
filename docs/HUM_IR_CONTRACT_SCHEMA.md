@@ -125,6 +125,7 @@ The V0 contract names these pass boundaries:
 - `core_lowering`
 - `core_verify`
 - `type_check`
+- `full_type_check`
 - `effect_check`
 - `ownership_alias_check`
 - `allocation_resource_check`
@@ -133,7 +134,10 @@ The V0 contract names these pass boundaries:
 - `ir_verify`
 
 These names are not final implementation APIs. They are a shared map for build
-order, docs, agents, and future compiler diagnostics.
+order, docs, agents, and future compiler diagnostics. In V0, `type_check` names
+the narrow `hum.type_check.v0` declaration and trivial-return checker;
+`full_type_check` names the missing body/Core type gate that must exist before
+effect, ownership, IR, or backend claims can be honest.
 
 ## Honesty Rules
 

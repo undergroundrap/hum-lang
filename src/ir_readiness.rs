@@ -106,6 +106,11 @@ const PASS_STATUSES: &[PassStatus] = &[
         source: type_check::TYPE_CHECK_SCHEMA,
     },
     PassStatus {
+        name: "full_type_check",
+        status: "not_implemented",
+        source: core_contract::CORE_CONTRACT_SCHEMA,
+    },
+    PassStatus {
         name: "effect_check",
         status: "not_implemented",
         source: core_contract::CORE_CONTRACT_SCHEMA,
