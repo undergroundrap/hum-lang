@@ -444,6 +444,12 @@ try {
   if ($RunWrongAdd.ExitCode -ne 1) { throw "hum run wrong add expected exit 1, got $($RunWrongAdd.ExitCode)" }
   if (-not $RunWrongAdd.Output.Contains('task `add` did not satisfy ensures: result == a + b')) { throw "hum run wrong add expected task ensures blame, got $($RunWrongAdd.Output)" }
 
+  $RunWordCount = Read-NativeOutput 'run probe word_count' $Hum @('run', 'examples/probes/word_count.hum', '--entry', 'count_hum_literal')
+  if ($RunWordCount.Trim() -ne '2') { throw "hum run word_count expected 2, got `$RunWordCount" }
+
+  $RunTaskListFlow = Read-NativeOutput 'run probe task_list_flow' $Hum @('run', 'examples/probes/task_list_flow.hum', '--entry', 'task_list_demo')
+  if ($RunTaskListFlow.Trim() -ne '1') { throw "hum run task_list_flow expected 1, got `$RunTaskListFlow" }
+
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }

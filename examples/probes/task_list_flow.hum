@@ -1,0 +1,73 @@
+module examples.probes.task_list_flow
+
+type WorkItem {
+  title: Text
+  done: Bool
+}
+
+task add_item(title: Text) -> WorkItem {
+  does:
+    return {title: title, done: false}
+}
+
+task complete_item(item: WorkItem) -> WorkItem {
+  does:
+    return {title: item.title, done: true}
+}
+
+task count_open_after_demo_complete(items: List WorkItem) -> UInt {
+  why:
+    count unfinished work after the demo add and complete transitions
+
+  ensures:
+    result == 1
+
+  cost:
+    time: O(items)
+    space: O(1)
+    check: warn
+
+  does:
+    change count: UInt = 0
+
+    for each item in items {
+      if item.done == false {
+        set count = count + 1
+      }
+    }
+
+    return count
+}
+
+task task_list_demo() -> UInt {
+  why:
+    probe add complete and count in one executable task-list flow
+
+  ensures:
+    result == 1
+
+  cost:
+    time: O(items)
+    space: O(items)
+    check: warn
+
+  does:
+    let first: WorkItem = add_item("write hum")
+    let second: WorkItem = add_item("review contracts")
+    let completed_first: WorkItem = complete_item(first)
+    let after_add: List WorkItem = [first, second]
+    let after_complete: List WorkItem = [completed_first, second]
+
+    return count_open_after_demo_complete(after_complete)
+}
+
+test task_list_demo leaves one open item unit {
+  why:
+    pin add complete and count probe behavior
+
+  covers:
+    task_list_demo ensures result == 1
+
+  does:
+    expect task_list_demo() returns 1
+}

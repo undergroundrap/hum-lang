@@ -1,0 +1,37 @@
+module examples.probes.word_count
+
+task count_hum_literal() -> UInt {
+  why:
+    probe a tiny CLI-shaped word count over a literal text list
+
+  ensures:
+    result == 2
+
+  cost:
+    time: O(words)
+    space: O(1)
+    check: warn
+
+  does:
+    let words: List Text = ["hum", "lang", "hum", "agent"]
+    change count: UInt = 0
+
+    for each word in words {
+      if word == "hum" {
+        set count = count + 1
+      }
+    }
+
+    return count
+}
+
+test count_hum_literal counts matching words unit {
+  why:
+    pin word count probe behavior
+
+  covers:
+    count_hum_literal ensures result == 2
+
+  does:
+    expect count_hum_literal() returns 2
+}

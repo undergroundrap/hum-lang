@@ -541,6 +541,29 @@ impl<'a> Interpreter<'a> {
             }
             return Ok(Evaluated::Value(Value::List(values)));
         }
+        if text.starts_with('{') && text.ends_with('}') {
+            let inside = &text[1..text.len() - 1];
+            let mut fields = BTreeMap::new();
+            for field in split_arguments(inside) {
+                let (name, value_text) = field
+                    .split_once(':')
+                    .ok_or_else(|| format!("record field `{field}` is missing `:`"))?;
+                let name = name.trim();
+                if !is_record_field_name(name) {
+                    return Err(format!(
+                        "record field name `{name}` is not a valid Hum field name"
+                    ));
+                }
+                match self.eval_expr(value_text.trim(), env)? {
+                    Evaluated::Value(value) => {
+                        fields.insert(name.to_string(), value);
+                    }
+                    Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+                    Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
+                }
+            }
+            return Ok(Evaluated::Value(Value::Record(fields)));
+        }
         if let Some((callee, args)) = split_call(text) {
             let mut values = Vec::new();
             for arg in split_arguments(args) {

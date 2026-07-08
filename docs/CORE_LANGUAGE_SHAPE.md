@@ -244,3 +244,39 @@ Every construct should answer:
 5. Can it lower to efficient machine code?
 
 If not, keep it out until it can.
+
+## Friction Ledger
+
+Session D records from the first real executable probes. These are design pressure, not fixes made in the same slice.
+
+friction:
+  program: examples/core/divide.hum:26
+  wanted: keep a defensive typed failure guard in the body while also declaring `needs: b != 0`
+  forced: with executable `needs:` checks enabled, the body guard is unreachable for ordinary `hum run`
+  severity: awkward
+  indicts: contracts
+  proposal: decide contract check mode (`always` | `debug` | `profile`) before profiles or release mode exist
+
+friction:
+  program: examples/probes/word_count.hum:8
+  wanted: state that the result equals the number of matching words in the literal list
+  forced: hard-code `result == 2` because predicate v0 has no collection count, quantifier, or helper-call contract vocabulary
+  severity: awkward
+  indicts: contracts
+  proposal: frequency-rank collection count predicates before growing predicate grammar v1
+
+friction:
+  program: examples/probes/task_list_flow.hum:58
+  wanted: append a new work item to an existing list as the add operation
+  forced: spell the post-add list as a fresh list value because the current executable subset has no list append or Vec API
+  severity: awkward
+  indicts: stdlib
+  proposal: design the smallest list operation surface before richer state probes
+
+friction:
+  program: examples/probes/task_list_flow.hum:15
+  wanted: update one record field (`done`) while preserving the rest of the work item
+  forced: construct a replacement record literal with every field repeated
+  severity: verbose
+  indicts: types
+  proposal: put record update syntax through the ownership bake-off instead of adding it ad hoc
