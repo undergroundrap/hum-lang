@@ -76,6 +76,18 @@ building anything you believe is wrong — that pushback carries extra
 weight against delegated rulings. Never push remotes, tag, or publish;
 those are reserved to the BDFL.
 
+### Session rhythm
+
+Work proceeds in lettered sessions: one session, one deliverable, sized to
+be reviewable in a single sitting, ending at hard acceptance criteria with
+a full stop for review. The letter sequence is global across work orders
+(Work Order 1 ran A-D, Work Order 2 E-I, Work Order 3 J-M) and continues
+spreadsheet-style after Z: AA, AB, ... AZ, BA. Letters are the project's
+odometer: they make progress legible, keep diffs review-sized, force
+verification at every boundary, and give every artifact a stable address
+("the Session K diagnostics"). Do not batch sessions, and do not start
+the next one without the explicit go signal.
+
 ### Handoff
 
 There is no handoff document to maintain: state lives in git history,

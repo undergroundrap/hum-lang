@@ -436,6 +436,39 @@ Future gate:
 Text/path APIs need Unicode versioning, platform path semantics, encoding
 policy, and injection-safe builders.
 
+### R016: Agent Cold-Start On Novel Syntax
+
+Severity: medium.
+
+Bad outcome:
+
+Hum markets itself as agent-native, but agents write Hum worse than they
+write Rust or Python because no model has Hum in its training data. Early
+agent-written Hum is clumsy, adoption demos underwhelm, and the
+agent-native claim reads as irony.
+
+Ground truth:
+
+LLM agents perform best on syntax they have seen at scale. A new language
+starts at zero corpus. Familiar surface shapes help, but the durable fix
+is tool-side: the compiler must teach the language through machine-
+readable syntax surfaces, examples on demand, blame diagnostics, and
+machine-applicable fixes, so an agent can converge from feedback instead
+of priors.
+
+Hum rule:
+
+Agent ergonomics are measured, not assumed. The agent round-trip metric
+(spec plus compiler output only, count the loops to green) is the
+standing benchmark, and its results are friction records that indict
+`diagnostics`.
+
+Future gate:
+
+Before any public agent-native claim, publish round-trip results for at
+least two frontier models on unseen tasks, and ship the machine-applicable
+fix surface (WORKORDER backlog) so diagnostics repair as well as explain.
+
 ## Project Safety Checklist
 
 Before any new feature:
