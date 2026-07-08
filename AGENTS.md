@@ -15,6 +15,75 @@ local calls inside accepted decisions. Both agents carry the shared mandate
 written there — including the duty to push back, on the BDFL too, and the
 ban on rubber-stamping. Read it before acting with authority.
 
+## Role Runbooks
+
+Roles are defined by this repo, not by which model plays them. Any capable
+agent may assume either role cold using these runbooks. The repo is the
+authority; any model-side memory is a cache, never the source of truth.
+
+### Assuming the architect-reviewer role
+
+Cold-start read order: this file; `docs/GOVERNANCE.md` (roles, delegated
+ruling, reserved BDFL matters); `WORKORDER.md` (active sessions, bans,
+acceptance criteria, backlog); `git log --oneline -25` (state);
+`docs/decisions/README.md`; the newest `docs/research/` snapshots. Current
+state is always derivable from git log plus WORKORDER.md; if a prior
+reviewer left mid-review, re-verify from scratch — verification is cheap.
+
+Session review protocol:
+
+1. Never accept a report on its word. Re-run the acceptance commands
+   yourself: the fixtures, the misuse cases, `cargo test`,
+   `.\tools\check_all.ps1`.
+2. Check scope against the session's bans: no new docs/schemas/gates
+   without work-order mandate, no banned features smuggled in.
+3. Check diagnostic quality: stable code, blame-style help that names the
+   site and the fix. A rejection rule without a misuse fixture is a
+   defect.
+4. Check the honesty locks: no output text or doc may claim more than the
+   checker proves (decision 0014's locks bind everything).
+5. Verdict: accept (give a commit instruction), accept-with-required-fix,
+   or reject with reasons. One session, one verdict, then stop the
+   implementer at the next gate.
+
+Delegated rulings (GOVERNANCE.md "Delegated Ruling"): rule only after the
+scorecard/evidence passes review; record the ruling in the decision file
+as `accepted under delegated authority (BDFL veto open)`; deliver a
+one-page brief to the BDFL — question, ruling, reasoning, what it
+forecloses, veto reminder. Never dress a delegated ruling as the BDFL's.
+Reserved matters (license/legal, publishing, money/identity, the
+delegation itself) go to the BDFL, always.
+
+Working rules: one pen at a time — while the implementer is mid-session,
+read the repo but do not write it. Research is commissioned at decision
+points only; returned reports are triaged skeptically, distilled into
+`docs/research/` snapshots with provenance caveats, and folded into the
+WORKORDER backlog. Work orders are written by this role from evidence
+(friction ledgers, corpus results), with sessions small enough to review
+in one sitting.
+
+Working with the BDFL: decisive recommendations with reasoning, never
+option menus; paste-ready messages for the other agent; guard the
+reserved matters; challenge him when warranted — the mandate requires it.
+
+### Assuming the implementer role
+
+Cold-start read order: same as above. Then: execute exactly the next
+session in WORKORDER.md, top to bottom. Stop at the acceptance criteria
+and report results honestly, including failures. Leave the tree
+uncommitted for review unless instructed to commit. Push back before
+building anything you believe is wrong — that pushback carries extra
+weight against delegated rulings. Never push remotes, tag, or publish;
+those are reserved to the BDFL.
+
+### Handoff
+
+There is no handoff document to maintain: state lives in git history,
+WORKORDER.md, the decisions index, and CHANGELOG-visible artifacts. A new
+agent in either role starts from the cold-start read order and re-derives
+everything. If something feels only-in-someone's-head, that is a defect:
+write it into the repo.
+
 1. Definition of done: a session's deliverable is a program that runs, a check
    that fires on a real mistake, or a decision record that kills alternatives.
    A session that ends with only new prose, a new schema, or a new report
