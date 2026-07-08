@@ -7,6 +7,7 @@ use crate::full_type_check;
 use crate::ir_contract;
 use crate::json;
 use crate::ownership_check;
+use crate::resource_check;
 use crate::version;
 
 pub const CORE_CONTRACT_SCHEMA: &str = "hum.core_contract.v0";
@@ -226,6 +227,11 @@ const ACCEPTANCE_GATES: &[AcceptanceGate] = &[
         id: "ownership_check",
         status: ownership_check::OWNERSHIP_CHECK_STATUS,
         requirement: "recognized local ownership, mutation, and alias facts are checked or reported as explicit blockers",
+    },
+    AcceptanceGate {
+        id: "allocation_resource_check",
+        status: resource_check::RESOURCE_CHECK_STATUS,
+        requirement: "declared allocation and resource intent is checked or reported as explicit blockers",
     },
     AcceptanceGate {
         id: "profile_check",
@@ -480,6 +486,9 @@ mod tests {
         assert!(text.contains("full_type_check [recognized_core_body_type_gate_available_v0]"));
         assert!(text.contains("effect_check [recognized_core_effect_gate_available_v0]"));
         assert!(text.contains("ownership_check [recognized_core_ownership_gate_available_v0]"));
+        assert!(
+            text.contains("allocation_resource_check [recognized_core_resource_gate_available_v0]")
+        );
         assert!(text.contains("core_verify [verified_non_executing_core_artifact_v0]"));
         assert!(text.contains("no interpreter implementation"));
     }
@@ -507,6 +516,8 @@ mod tests {
         assert!(json.contains("\"status\": \"recognized_core_body_type_gate_available_v0\""));
         assert!(json.contains("\"status\": \"recognized_core_effect_gate_available_v0\""));
         assert!(json.contains("\"status\": \"recognized_core_ownership_gate_available_v0\""));
+        assert!(json.contains("\"id\": \"allocation_resource_check\""));
+        assert!(json.contains("\"status\": \"recognized_core_resource_gate_available_v0\""));
         assert!(json.contains("\"id\": \"core_verify\""));
         assert!(json.contains("\"status\": \"verified_non_executing_core_artifact_v0\""));
         assert!(json.contains("\"status\": \"unverified_core_artifact_v0\""));

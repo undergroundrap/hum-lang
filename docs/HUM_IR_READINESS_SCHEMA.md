@@ -7,7 +7,7 @@ Current schema: `hum.ir_readiness.v0`
 ## Purpose
 
 `hum ir-readiness` reports how far current `.hum` source has progressed toward
-future full type/effect checking and Hum IR lowering after Core verification.
+future profile checking, Hum IR verification, and Hum IR lowering after Core verification and recognized type/effect/ownership/resource gates.
 
 This is not an IR emitter. It is a readiness and blocker inventory built from
 the parser, AST, semantic graph facts, diagnostics, the checked resolver report
@@ -17,7 +17,7 @@ Core Hum preview report in [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.
 the Core Hum contract in [HUM_CORE_CONTRACT_SCHEMA.md](HUM_CORE_CONTRACT_SCHEMA.md),
 the unverified Core Hum artifact summary in [HUM_CORE_LOWER_SCHEMA.md](HUM_CORE_LOWER_SCHEMA.md),
 the non-executing Core Hum verifier summary in [HUM_CORE_VERIFY_SCHEMA.md](HUM_CORE_VERIFY_SCHEMA.md),
-the recognized Core/body type gate in [HUM_FULL_TYPE_CHECK_SCHEMA.md](HUM_FULL_TYPE_CHECK_SCHEMA.md), the recognized Core/body effect gate in [HUM_EFFECT_CHECK_SCHEMA.md](HUM_EFFECT_CHECK_SCHEMA.md), the recognized local ownership fact gate in [HUM_OWNERSHIP_CHECK_SCHEMA.md](HUM_OWNERSHIP_CHECK_SCHEMA.md),
+the recognized Core/body type gate in [HUM_FULL_TYPE_CHECK_SCHEMA.md](HUM_FULL_TYPE_CHECK_SCHEMA.md), the recognized Core/body effect gate in [HUM_EFFECT_CHECK_SCHEMA.md](HUM_EFFECT_CHECK_SCHEMA.md), the recognized local ownership fact gate in [HUM_OWNERSHIP_CHECK_SCHEMA.md](HUM_OWNERSHIP_CHECK_SCHEMA.md), the declared allocation/resource intent gate in [HUM_RESOURCE_CHECK_SCHEMA.md](HUM_RESOURCE_CHECK_SCHEMA.md),
 and the Hum IR contract in [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md).
 It exists so humans, agents, and CI can see which source facts are already
 visible and which compiler passes still block honest IR/backend claims.
@@ -57,6 +57,7 @@ compiler-roadmap checks, and future IR verifier work.
   "full_type_check": {},
   "effect_check": {},
   "ownership_check": {},
+  "resource_check": {},
   "summary": {},
   "pass_status": [],
   "lowering_candidates": [],
@@ -83,6 +84,7 @@ compiler-roadmap checks, and future IR verifier work.
 - `full_type_check`: `hum.full_type_check.v0` summary consumed as the recognized body/Core statement type gate, not as complete type safety
 - `effect_check`: `hum.effect_check.v0` summary consumed as the recognized body/Core effect gate, not as complete effect safety
 - `ownership_check`: `hum.ownership_check.v0` summary consumed as the recognized local ownership fact gate, not as complete ownership, borrowing, alias, or memory safety
+- `resource_check`: `hum.resource_check.v0` summary consumed as the declared allocation/resource intent gate, not as allocation-freedom proof, complete resource analysis, profile enforcement, optimization, or memory safety
 - `summary`: file, item, task, test, candidate, ready, blocked, error, warning,
   type-error, and body-grammar counts
 - `pass_status`: current status for the pass names in `hum.ir_contract.v0`
@@ -228,6 +230,21 @@ This summary checks only recognized V0 effect contexts and explicit boundary con
 
 This summary checks only recognized V0 local ownership facts and explicit blockers. It does not claim complete ownership safety, borrow checking, alias safety, memory safety, profile enforcement, optimization, execution, or IR emission.
 
+## Resource Check Summary Shape
+
+`resource_check` contains the summary fields from `hum.resource_check.v0` needed by IR readiness:
+
+- `schema`: currently `hum.resource_check.v0`
+- `status`: `recognized_core_resources_checked_v0`, `resource_errors_v0`, `blocked_by_unchecked_resource_facts_v0`, `blocked_by_ownership_check_errors`, or `blocked_by_source_errors`
+- `mode`: currently `recognized_core_resource_gate_v0`
+- prior gate error counts including `ownership_errors` and `resource_report_errors`
+- `tasks`, `resource_items`, `resource_claims`, `allocation_claims`, and `allocation_free_claims`
+- `checks`, `accepted_checks`, `rejected_checks`, and `unchecked_checks`
+- `blocking_issues`
+- `proof_ready`, `execution_ready`, and `ir_ready`, all `0` in V0
+
+This summary checks only declared V0 allocation/resource intent and explicit blockers. It does not claim allocation-freedom proof, complete resource analysis, complete cost analysis, profile enforcement, optimization, memory safety, execution, or IR emission.
+
 ## Candidate Shape
 
 Each `lowering_candidates` entry has:
@@ -237,12 +254,12 @@ Each `lowering_candidates` entry has:
 - `name`: source item name
 - `graph_node_id`: semantic graph node ID for the same item
 - `source_span`: file, line, and column
-- `status`: readiness status, currently blocked by full-type-check errors, blocked by effect-check errors, blocked by ownership-check errors, or before allocation/resource checking once recognized body type, effect, and ownership gates pass
+- `status`: readiness status, currently blocked by full-type-check errors, blocked by effect-check errors, blocked by ownership-check errors, blocked by resource-check errors, or before profile checking once recognized body type, effect, ownership, and resource gates pass
 - `current_layer`: currently visible compiler layers
 - `target_layer`: future target layer path
 - `facts_available`: source facts already visible to tools
 - `missing_passes`: pass boundaries still missing before honest IR
-- `blocking_reasons`: reason strings explaining the blocked state; after the ownership gate, expected future blockers include `allocation_resource_check_not_implemented`, `profile_check_not_implemented`, and `ir_verify_not_implemented`
+- `blocking_reasons`: reason strings explaining the blocked state; after the resource gate, expected future blockers include `profile_check_not_implemented` and `ir_verify_not_implemented`; resource-gate failures use `resource_check_errors`
 - `source_sections`: sections seen on the item
 - `body_grammar`: optional partial V0 parse/classification of meaningful `does:`
   lines, when the item has a `does:` section
@@ -252,7 +269,8 @@ Current candidate statuses:
 - `blocked_by_full_type_check_errors`: `hum.full_type_check.v0` reported type mismatches, unchecked recognized body contexts, unsupported body statements, or prior gate blockers
 - `blocked_by_effect_check_errors`: `hum.effect_check.v0` reported missing declarations, unchecked recognized effect contexts, boundary contradictions, or prior gate blockers
 - `blocked_by_ownership_check_errors`: `hum.ownership_check.v0` reported duplicate local ownership facts, unchecked ownership contexts, mutation authority contradictions, or prior gate blockers
-- `blocked_before_allocation_resource_check`: source parsed, resolved, V0 type-checked, lowered to an unverified Core artifact, passed non-executing Core artifact verification, passed the recognized body type gate, passed the recognized effect gate, and passed the recognized ownership fact gate, but resource/profile and IR verification are still missing
+- `blocked_by_resource_check_errors`: `hum.resource_check.v0` reported missing allocation/resource declarations, contradictions in allocation-free claims, unchecked call allocation effects, or prior gate blockers
+- `blocked_before_profile_check`: source parsed, resolved, V0 type-checked, lowered to an unverified Core artifact, passed non-executing Core artifact verification, passed the recognized body type gate, passed the recognized effect gate, passed the recognized ownership fact gate, and passed the declared allocation/resource intent gate, but profile and IR verification are still missing
 - `blocked_by_core_verify_errors`: `hum.core_verify.v0` reported artifact invariant failures
 - `blocked_by_source_errors`: source diagnostics include errors
 - `blocked_by_resolver_errors`: `hum.resolve.v0` reported name, duplicate, or mutable-place errors
@@ -296,6 +314,11 @@ V0 may report facts such as:
 - `recognized_core_ownership_facts_checked_v0`
 - `blocked_by_unchecked_ownership_facts_v0`
 - `recognized_ownership_facts_v0`
+- `resource_check_summary_v0`
+- `recognized_core_resource_gate_available_v0`
+- `recognized_core_resources_checked_v0`
+- `blocked_by_unchecked_resource_facts_v0`
+- `recognized_resource_facts_v0`
 - `checked_return_expression_type_slots_v0`
 - `source_sections`
 - `section_line_spans`
@@ -376,7 +399,7 @@ V0 reports these pass statuses:
 - `full_type_check`: `recognized_core_body_type_gate_available_v0`
 - `effect_check`: `recognized_core_effect_gate_available_v0`
 - `ownership_alias_check`: `recognized_core_ownership_gate_available_v0`
-- `allocation_resource_check`: `not_implemented`
+- `allocation_resource_check`: `recognized_core_resource_gate_available_v0`
 - `contract_evidence_linking`: `report_available_not_ir_pass`
 - `profile_check`: `not_implemented`
 - `ir_verify`: `not_implemented`
@@ -390,7 +413,7 @@ V0 reports these pass statuses:
 - It may report source-visible facts, checked resolver facts, declaration
   type-check facts, partial body grammar facts, conservative core-preview facts,
   unverified core-lower summary facts, non-executing core-verify summary facts,
-  recognized full-type-check summary facts, recognized effect-check summary facts, recognized ownership-check summary facts, and missing compiler passes.
+  recognized full-type-check summary facts, recognized effect-check summary facts, recognized ownership-check summary facts, recognized resource-check summary facts, and missing compiler passes.
 - It must block V0 lowering candidates when `hum.resolve.v0` reports resolver
   errors.
 - It must block V0 lowering candidates when `hum.type_check.v0` reports
@@ -400,8 +423,10 @@ V0 reports these pass statuses:
   or prior gate blockers.
 - It must block V0 lowering candidates when `hum.effect_check.v0` reports
   missing declarations, unchecked effect contexts, boundary contradictions, or prior gate blockers.
+- It must block V0 lowering candidates when `hum.resource_check.v0` reports
+  missing allocation/resource declarations, unchecked resource contexts, declaration contradictions, or prior gate blockers.
 - It must stay in sync with `hum.core_contract.v0`, `hum.core_lower.v0`,
-  `hum.core_verify.v0`, `hum.full_type_check.v0`, `hum.effect_check.v0`, `hum.ownership_check.v0`, `hum.ir_contract.v0`, `hum capabilities --format json`, and
+  `hum.core_verify.v0`, `hum.full_type_check.v0`, `hum.effect_check.v0`, `hum.ownership_check.v0`, `hum.resource_check.v0`, `hum.ir_contract.v0`, `hum capabilities --format json`, and
   `hum version --format json`.
 
 ## Privacy And Dependency Rules

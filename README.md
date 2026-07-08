@@ -82,8 +82,9 @@ Current artifacts:
 - [docs/HUM_FULL_TYPE_CHECK_SCHEMA.md](docs/HUM_FULL_TYPE_CHECK_SCHEMA.md): `hum.full_type_check.v0` recognized Core/body statement type gate
 - [docs/HUM_EFFECT_CHECK_SCHEMA.md](docs/HUM_EFFECT_CHECK_SCHEMA.md): `hum.effect_check.v0` recognized Core/body effect gate
 - [docs/HUM_OWNERSHIP_CHECK_SCHEMA.md](docs/HUM_OWNERSHIP_CHECK_SCHEMA.md): `hum.ownership_check.v0` recognized local ownership fact gate
+- [docs/HUM_RESOURCE_CHECK_SCHEMA.md](docs/HUM_RESOURCE_CHECK_SCHEMA.md): `hum.resource_check.v0` declared allocation/resource intent gate
 - [docs/HUM_IR_CONTRACT_SCHEMA.md](docs/HUM_IR_CONTRACT_SCHEMA.md): `hum.ir_contract.v0` Hum IR ownership, carried-fact, and pass-boundary contract
-- [docs/HUM_IR_READINESS_SCHEMA.md](docs/HUM_IR_READINESS_SCHEMA.md): `hum.ir_readiness.v0` source readiness and blocker report after ownership checking, before resource/profile checking and Hum IR lowering
+- [docs/HUM_IR_READINESS_SCHEMA.md](docs/HUM_IR_READINESS_SCHEMA.md): `hum.ir_readiness.v0` source readiness and blocker report after resource checking, before profile checking and Hum IR lowering
 - [docs/BACKEND_CONTRACT_SCHEMA.md](docs/BACKEND_CONTRACT_SCHEMA.md): `hum.backend_contract.v0` backend ladder and adapter preservation contract
 - [docs/LSP_CAPABILITIES_SCHEMA.md](docs/LSP_CAPABILITIES_SCHEMA.md): `hum.lsp_capabilities.v0` preview schema for LSP adapter support
 - [docs/DOCTOR_SCHEMA.md](docs/DOCTOR_SCHEMA.md): `hum.doctor.v0` setup health schema for portable repo guardrails
@@ -226,6 +227,8 @@ cargo run -- effect-check fixtures/effect_check/simple_pass.hum
 cargo run -- effect-check --format json fixtures/effect_check/simple_pass.hum
 cargo run -- ownership-check fixtures/ownership_check/simple_pass.hum
 cargo run -- ownership-check --format json fixtures/ownership_check/simple_pass.hum
+cargo run -- resource-check fixtures/resource_check/simple_pass.hum
+cargo run -- resource-check --format json fixtures/resource_check/simple_pass.hum
 cargo run -- ir-contract
 cargo run -- ir-contract --format json
 cargo run -- backend-contract
@@ -260,7 +263,7 @@ Current CLI:
 - `hum evidence [--format human|json] <file-or-dir>...`: emit `hum.evidence.v0` security/trust evidence status for humans, agents, and CI wrappers
 - `hum math-obligations [--format human|json] [--out-dir <dir>] <file-or-dir>...`: emit `hum.math_obligations.v0` reports and optional per-obligation `hum.math_obligation.v0` files for external contract validators
 - `hum resource-report [--format human|json] <file-or-dir>...`: emit `hum.resource_report.v0` source-declared resource, layout, and optimization claim inventory
-- `hum ir-readiness [--format human|json] <file-or-dir>...`: emit `hum.ir_readiness.v0` source readiness and blocker facts after consuming ownership-check readiness, while still blocking before resource checks, profiles, IR verification, and Hum IR lowering
+- `hum ir-readiness [--format human|json] <file-or-dir>...`: emit `hum.ir_readiness.v0` source readiness and blocker facts after consuming resource-check readiness, while still blocking before profile checks, IR verification, and Hum IR lowering
 - `hum version [--format human|json]`: print toolchain identity, version, target, and schema names
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents
@@ -273,6 +276,7 @@ Current CLI:
 - `hum full-type-check [--format human|json] <file-or-dir>...`: emit `hum.full_type_check.v0` recognized Core/body statement type facts and explicit blockers without execution or IR emission
 - `hum effect-check [--format human|json] <file-or-dir>...`: emit `hum.effect_check.v0` recognized Core/body effect facts and explicit blockers without execution or IR emission
 - `hum ownership-check [--format human|json] <file-or-dir>...`: emit `hum.ownership_check.v0` recognized local ownership facts and explicit blockers without execution or IR emission
+- `hum resource-check [--format human|json] <file-or-dir>...`: emit `hum.resource_check.v0` declared allocation/resource intent facts and explicit blockers without execution or IR emission
 - `hum ir-contract [--format human|json]`: emit `hum.ir_contract.v0` Hum IR ownership, carried-fact, pass-boundary, and non-execution facts
 - `hum backend-contract [--format human|json]`: emit `hum.backend_contract.v0` backend ladder and adapter preservation facts without selecting or running a backend
 - `hum lsp --capabilities [--format human|json]`: list `hum.lsp_capabilities.v0` LSP adapter-preview facts without starting server mode

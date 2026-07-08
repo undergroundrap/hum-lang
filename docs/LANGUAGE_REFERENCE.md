@@ -1,6 +1,6 @@
 # Hum Language Reference
 
-Date: 2026-07-06
+Date: 2026-07-08
 Version: 0.0.1 pre-alpha
 Status: reference spine, not a stable standard
 
@@ -55,6 +55,7 @@ foreign code.
 - [PERFORMANCE_CONTRACTS.md](PERFORMANCE_CONTRACTS.md): benchmark and optimization claim discipline
 - [MATH_OBLIGATIONS_SCHEMA.md](MATH_OBLIGATIONS_SCHEMA.md): external-validator obligation export surface
 - [RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md): resource and optimization claim report surface
+- [HUM_RESOURCE_CHECK_SCHEMA.md](HUM_RESOURCE_CHECK_SCHEMA.md): declared allocation/resource intent gate
 - [STATE_MODEL.md](STATE_MODEL.md): state, mutation, ownership, borrowing, and linear resource doctrine
 - [HUM_STATE_MODEL_SCHEMA.md](HUM_STATE_MODEL_SCHEMA.md): machine-readable state model contract
 
@@ -397,7 +398,8 @@ Milestone 0 preserves these lines in graph facts, exposes them through
 `hum.resource_report.v0`, and performs small honesty checks. It also exports
 conservative external-validator math obligations for explicit allocation-free
 claims such as `allocates: nothing`. See
-[RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md) and
+[RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md),
+[HUM_RESOURCE_CHECK_SCHEMA.md](HUM_RESOURCE_CHECK_SCHEMA.md), and
 [MATH_OBLIGATIONS_SCHEMA.md](MATH_OBLIGATIONS_SCHEMA.md).
 
 Reference rule: the compiler may optimize from declared intent only when it can
@@ -499,10 +501,15 @@ checked pass over scopes, definitions, references, and mutable-place targets.
 identity. `hum type-check` validates declaration annotation names without
 expression inference or body checking. `hum full-type-check` checks recognized
 Core/body statement type contexts and reports blockers without execution or IR
-emission. `hum effect-check` checks recognized Core/body effect contexts and reports blockers without execution or IR emission. `hum ownership-check` checks recognized local ownership facts and reports blockers without execution or IR emission. `hum ir-readiness` consumes the checked resolver, type, Core verifier,
-full-type-check, effect-check, and ownership-check summaries before any future lowering claim. Any executable
-syntax must resolve, enter the type environment, pass declaration annotation and
-recognized body type checking, then lower into [FORMAL_CORE.md](FORMAL_CORE.md)
+emission. `hum effect-check` checks recognized Core/body effect contexts and
+reports blockers without execution or IR emission. `hum ownership-check` checks
+recognized local ownership facts and reports blockers without execution or IR
+emission. `hum resource-check` checks declared allocation/resource intent and
+reports blockers without execution or IR emission. `hum ir-readiness` consumes
+the checked resolver, type, Core verifier, full-type-check, effect-check,
+ownership-check, and resource-check summaries before any future lowering claim.
+Any executable syntax must resolve, enter the type environment, pass declaration
+annotation and recognized body type checking, then lower into [FORMAL_CORE.md](FORMAL_CORE.md)
 before it becomes stable.
 
 Starter executable forms are tracked in [CORE_LANGUAGE_SHAPE.md](CORE_LANGUAGE_SHAPE.md).
@@ -698,6 +705,8 @@ hum effect-check <file-or-dir>...
 hum effect-check --format json <file-or-dir>...
 hum ownership-check <file-or-dir>...
 hum ownership-check --format json <file-or-dir>...
+hum resource-check <file-or-dir>...
+hum resource-check --format json <file-or-dir>...
 hum core-contract
 hum core-contract --format json
 hum ir-contract
@@ -759,6 +768,8 @@ cargo run -- effect-check fixtures/effect_check/simple_pass.hum
 cargo run -- effect-check --format json fixtures/effect_check/simple_pass.hum
 cargo run -- ownership-check fixtures/ownership_check/simple_pass.hum
 cargo run -- ownership-check --format json fixtures/ownership_check/simple_pass.hum
+cargo run -- resource-check fixtures/resource_check/simple_pass.hum
+cargo run -- resource-check --format json fixtures/resource_check/simple_pass.hum
 cargo run -- core-contract
 cargo run -- core-contract --format json
 cargo run -- ir-contract

@@ -6,6 +6,21 @@ use crate::version;
 
 pub const RESOURCE_REPORT_SCHEMA: &str = "hum.resource_report.v0";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourceReportSummary {
+    pub schema: &'static str,
+    pub status: &'static str,
+    pub files: usize,
+    pub tasks: usize,
+    pub resource_claims: usize,
+    pub allocation_claims: usize,
+    pub allocation_free_claims: usize,
+    pub errors: usize,
+    pub warnings: usize,
+    pub proof_ready: usize,
+    pub benchmark_ready: usize,
+}
+
 struct ResourceReport {
     files: usize,
     tasks: usize,
@@ -27,6 +42,38 @@ struct ResourceClaim {
     end_column: usize,
     normalized_claim: String,
     related_math_obligation_kind: Option<&'static str>,
+}
+
+pub fn resource_report_summary(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> ResourceReportSummary {
+    let report = build_report(program, diagnostics);
+    ResourceReportSummary {
+        schema: RESOURCE_REPORT_SCHEMA,
+        status: if report.errors > 0 {
+            "source_errors_v0"
+        } else {
+            "declared_resource_claims_reported_v0"
+        },
+        files: report.files,
+        tasks: report.tasks,
+        resource_claims: report.claims.len(),
+        allocation_claims: report
+            .claims
+            .iter()
+            .filter(|claim| claim.claim_kind == "allocation_behavior")
+            .count(),
+        allocation_free_claims: report
+            .claims
+            .iter()
+            .filter(|claim| claim.related_math_obligation_kind == Some("allocation_freedom"))
+            .count(),
+        errors: report.errors,
+        warnings: report.warnings,
+        proof_ready: 0,
+        benchmark_ready: 0,
+    }
 }
 
 pub fn resource_report_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
@@ -457,7 +504,7 @@ mod tests {
     use crate::ast::Program;
     use crate::parser::parse_source;
 
-    use super::{resource_report_json, resource_report_text};
+    use super::{resource_report_json, resource_report_summary, resource_report_text};
 
     #[test]
     fn text_report_lists_resource_claims_without_proof_claims() {
@@ -477,7 +524,15 @@ mod tests {
     fn json_report_classifies_resource_sections() {
         let program = demo_program();
         let json = resource_report_json(&program, &[]);
+        let summary = resource_report_summary(&program, &[]);
 
+        assert_eq!(summary.schema, "hum.resource_report.v0");
+        assert_eq!(summary.status, "declared_resource_claims_reported_v0");
+        assert_eq!(summary.resource_claims, 6);
+        assert_eq!(summary.allocation_claims, 1);
+        assert_eq!(summary.allocation_free_claims, 1);
+        assert_eq!(summary.proof_ready, 0);
+        assert_eq!(summary.benchmark_ready, 0);
         assert!(json.contains("\"schema\": \"hum.resource_report.v0\""));
         assert!(json.contains("\"resource_claims\": 6"));
         assert!(json.contains("\"claim_kind\": \"time_complexity\""));

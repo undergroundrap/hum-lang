@@ -1,6 +1,6 @@
 # Hum Architecture Ground Truth
 
-Date: 2026-07-06
+Date: 2026-07-08
 
 ## Purpose
 
@@ -59,7 +59,7 @@ emitted by `hum resolve --format json`; declared type-environment facts are repo
 [HUM_TYPE_ENV_SCHEMA.md](HUM_TYPE_ENV_SCHEMA.md), emitted by `hum type-env --format json`;
 declaration annotation and trivial return type checking is reported by [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md),
 emitted by `hum type-check --format json`; recognized Core/body statement type checking is reported by
-[HUM_FULL_TYPE_CHECK_SCHEMA.md](HUM_FULL_TYPE_CHECK_SCHEMA.md), emitted by `hum full-type-check --format json`; recognized Core/body effect checking is reported by [HUM_EFFECT_CHECK_SCHEMA.md](HUM_EFFECT_CHECK_SCHEMA.md), emitted by `hum effect-check --format json`; recognized local ownership and alias facts are reported by [HUM_OWNERSHIP_CHECK_SCHEMA.md](HUM_OWNERSHIP_CHECK_SCHEMA.md), emitted by `hum ownership-check --format json`;
+[HUM_FULL_TYPE_CHECK_SCHEMA.md](HUM_FULL_TYPE_CHECK_SCHEMA.md), emitted by `hum full-type-check --format json`; recognized Core/body effect checking is reported by [HUM_EFFECT_CHECK_SCHEMA.md](HUM_EFFECT_CHECK_SCHEMA.md), emitted by `hum effect-check --format json`; recognized local ownership and alias facts are reported by [HUM_OWNERSHIP_CHECK_SCHEMA.md](HUM_OWNERSHIP_CHECK_SCHEMA.md), emitted by `hum ownership-check --format json`; declared allocation and resource intent is checked by [HUM_RESOURCE_CHECK_SCHEMA.md](HUM_RESOURCE_CHECK_SCHEMA.md), emitted by `hum resource-check --format json`;
 the Hum IR ownership contract is [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md), emitted by `hum ir-contract --format json`;
 source progress toward those contracts is reported by [HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md),
 emitted by `hum ir-readiness --format json`.
@@ -82,10 +82,11 @@ parse/current
 -> full_type_check/recognized_core_body_type_gate_available_v0
 -> effect_check/recognized_core_effect_gate_available_v0
 -> ownership_check/recognized_core_ownership_gate_available_v0
--> ir_readiness/blocked_by_full_type_check_errors_or_effect_check_errors_or_ownership_check_errors_or_before_allocation_resource_check
+-> resource_check/recognized_core_resource_gate_available_v0
+-> ir_readiness/blocked_by_full_type_check_errors_or_effect_check_errors_or_ownership_check_errors_or_resource_check_errors_or_before_profile_check
 ```
 
-`full_type_check` now exists as a narrow recognized Core/body statement type gate, `effect_check` now exists as a narrow recognized Core/body effect gate, and `ownership_check` now exists as a narrow local ownership fact gate. Until recognized bodies pass those gates and later resource, profile, and IR verification gates exist, Hum must not claim executable semantics, complete type safety, effect safety, ownership safety, memory safety, IR emission, backend readiness, or safety-critical readiness.
+`full_type_check` now exists as a narrow recognized Core/body statement type gate, `effect_check` now exists as a narrow recognized Core/body effect gate, `ownership_check` now exists as a narrow local ownership fact gate, and `resource_check` now exists as a narrow declared allocation/resource intent gate. Until recognized bodies pass those gates and later profile and IR verification gates exist, Hum must not claim executable semantics, complete type safety, effect safety, ownership safety, memory safety, allocation-freedom proof, IR emission, backend readiness, or safety-critical readiness.
 
 ### 3. Semantic Graph
 
@@ -107,7 +108,7 @@ Strong-contract doctrine: a verified contract is valuable only when it would rej
 
 External-verifier doctrine: Truth Harness-style math engines, SMT tools, model checkers, proof assistants, and benchmark harnesses are evidence producers, not compiler authority. Hum emits obligations and records receipts; external engines may prove, refute, or return unknown under explicit assumptions. See [MATH_ENGINE_BOUNDARY.md](MATH_ENGINE_BOUNDARY.md) and [decisions/0005-keep-verifiers-as-evidence-producers.md](decisions/0005-keep-verifiers-as-evidence-producers.md).
 
-Resource-layout-comptime doctrine: resource intent, layout-sensitive representation, compile-time execution, interop, and agent-facing facts must be explicit, graph-visible, profile-aware, and evidence-backed before they become stable Hum power. `hum resource-report` is the current source-declared inventory for these claims. See [RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md) and [decisions/0006-make-resource-layout-and-comptime-explicit.md](decisions/0006-make-resource-layout-and-comptime-explicit.md).
+Resource-layout-comptime doctrine: resource intent, layout-sensitive representation, compile-time execution, interop, and agent-facing facts must be explicit, graph-visible, profile-aware, and evidence-backed before they become stable Hum power. `hum resource-report` is the current source-declared inventory for these claims, and `hum resource-check` is the first narrow gate for declared allocation/resource intent. Ergonomic defaults are welcome only when resource behavior stays source-visible and compiler-checkable. See [RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md), [HUM_RESOURCE_CHECK_SCHEMA.md](HUM_RESOURCE_CHECK_SCHEMA.md), and [decisions/0006-make-resource-layout-and-comptime-explicit.md](decisions/0006-make-resource-layout-and-comptime-explicit.md).
 
 Progressive-disclosure doctrine: Hum should keep ordinary code small at the point of use, add power only behind explicit need, avoid special-case syntax, and make adoption incremental through interop and migration tooling. See [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md) and [decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md](decisions/0007-adopt-progressive-disclosure-and-migration-discipline.md).
 
@@ -115,7 +116,7 @@ Formal-readability doctrine: Hum should be easy to scan because its structure is
 
 State-management doctrine: Hum treats state as visible, permissioned, profile-aware, and evidence-producing. Immutable values are the paved road; mutation, ownership, borrowing, stores, linear resources, shared state, and external authority must have source-visible facts before they become stable power. The current machine-readable state contract is `hum.state_model.v0`, emitted by `hum state-model --format json`. Checked source places begin in `hum.resolve.v0`, emitted by `hum resolve --format json`. See [STATE_MODEL.md](STATE_MODEL.md) and [decisions/0010-adopt-explicit-state-model.md](decisions/0010-adopt-explicit-state-model.md).
 
-Resolution doctrine: checked scope, definition, reference, and place identity comes before execution, type checking, effect checking, ownership, borrowing, editor go-to-definition, debugger facts, and IR emission. `hum type-env` must consume resolver definition identity before type checking, `hum type-check` must consume `hum.type_env.v0` before typed-core claims, `hum core-lower` consumes checked resolver, type-check, and core-preview summaries before any Core artifact claim, `hum core-verify` consumes the core-lower artifact before any verified Core artifact claim, `hum full-type-check` consumes the resolver/type/core-verifier summaries before any body type claim, `hum effect-check` consumes the full-type-check summary before any effect claim, `hum ownership-check` consumes the effect-check summary before any ownership claim, and `hum ir-readiness` must consume the ownership-check summary before any IR claim. See [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md), [HUM_TYPE_ENV_SCHEMA.md](HUM_TYPE_ENV_SCHEMA.md), [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md), [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md), [HUM_CORE_LOWER_SCHEMA.md](HUM_CORE_LOWER_SCHEMA.md), [HUM_CORE_VERIFY_SCHEMA.md](HUM_CORE_VERIFY_SCHEMA.md), [HUM_FULL_TYPE_CHECK_SCHEMA.md](HUM_FULL_TYPE_CHECK_SCHEMA.md), [HUM_EFFECT_CHECK_SCHEMA.md](HUM_EFFECT_CHECK_SCHEMA.md), [HUM_OWNERSHIP_CHECK_SCHEMA.md](HUM_OWNERSHIP_CHECK_SCHEMA.md), and [decisions/0011-add-checked-resolver-before-execution.md](decisions/0011-add-checked-resolver-before-execution.md).
+Resolution doctrine: checked scope, definition, reference, and place identity comes before execution, type checking, effect checking, ownership, resource checking, borrowing, editor go-to-definition, debugger facts, and IR emission. `hum type-env` must consume resolver definition identity before type checking, `hum type-check` must consume `hum.type_env.v0` before typed-core claims, `hum core-lower` consumes checked resolver, type-check, and core-preview summaries before any Core artifact claim, `hum core-verify` consumes the core-lower artifact before any verified Core artifact claim, `hum full-type-check` consumes the resolver/type/core-verifier summaries before any body type claim, `hum effect-check` consumes the full-type-check summary before any effect claim, `hum ownership-check` consumes the effect-check summary before any ownership claim, `hum resource-check` consumes ownership-check and resource-report summaries before any resource-intent gate claim, and `hum ir-readiness` must consume the resource-check summary before any IR claim. See [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md), [HUM_TYPE_ENV_SCHEMA.md](HUM_TYPE_ENV_SCHEMA.md), [HUM_TYPE_CHECK_SCHEMA.md](HUM_TYPE_CHECK_SCHEMA.md), [HUM_CORE_PREVIEW_SCHEMA.md](HUM_CORE_PREVIEW_SCHEMA.md), [HUM_CORE_LOWER_SCHEMA.md](HUM_CORE_LOWER_SCHEMA.md), [HUM_CORE_VERIFY_SCHEMA.md](HUM_CORE_VERIFY_SCHEMA.md), [HUM_FULL_TYPE_CHECK_SCHEMA.md](HUM_FULL_TYPE_CHECK_SCHEMA.md), [HUM_EFFECT_CHECK_SCHEMA.md](HUM_EFFECT_CHECK_SCHEMA.md), [HUM_OWNERSHIP_CHECK_SCHEMA.md](HUM_OWNERSHIP_CHECK_SCHEMA.md), [RESOURCE_REPORT_SCHEMA.md](RESOURCE_REPORT_SCHEMA.md), [HUM_RESOURCE_CHECK_SCHEMA.md](HUM_RESOURCE_CHECK_SCHEMA.md), and [decisions/0011-add-checked-resolver-before-execution.md](decisions/0011-add-checked-resolver-before-execution.md).
 
 Language-builder doctrine: Hum should grow by small proofs, written lessons, graph/report/check surfaces, migration paths, and then public claims. See [LANGUAGE_BUILDER_OPERATING_MODEL.md](LANGUAGE_BUILDER_OPERATING_MODEL.md).
 
@@ -182,7 +183,7 @@ See [BACKEND_STRATEGY.md](BACKEND_STRATEGY.md) and [decisions/0008-adopt-swappab
 1. Finish Milestone 0 semantic graph, diagnostics, generated test skeleton hardening, and coverage matching.
 2. Keep docs honest by linking every new doctrine back to this architecture.
 3. Add executable core only after the formal core gate is clear.
-4. Add checked resolution before executable core, then ownership/effects before serious unsafe, FFI, or native backend work.
+4. Add checked resolution before executable core, then effects, ownership, and resource intent before serious unsafe, FFI, profile, or native backend work.
 5. Add package/build/profile evidence before networked package behavior.
 6. Defer drivers, installers, Windows Update publishing, and kernel work until strict profiles and proof infrastructure exist.
 

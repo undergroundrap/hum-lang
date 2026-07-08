@@ -12,6 +12,7 @@ use crate::ir_contract;
 use crate::node_id;
 use crate::ownership_check;
 use crate::resolve;
+use crate::resource_check;
 use crate::type_check;
 use crate::version;
 
@@ -32,6 +33,7 @@ struct IrReadinessReport {
     full_type_check_summary: full_type_check::FullTypeCheckSummary,
     effect_check_summary: effect_check::EffectCheckSummary,
     ownership_check_summary: ownership_check::OwnershipCheckSummary,
+    resource_check_summary: resource_check::ResourceCheckSummary,
     candidates: Vec<LoweringCandidate>,
 }
 
@@ -67,7 +69,20 @@ struct CandidateContext<'a> {
     full_type_check_summary: &'a full_type_check::FullTypeCheckSummary,
     effect_check_summary: &'a effect_check::EffectCheckSummary,
     ownership_check_summary: &'a ownership_check::OwnershipCheckSummary,
+    resource_check_summary: &'a resource_check::ResourceCheckSummary,
     checked_returns: &'a [type_check::CheckedReturnSummary],
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CandidateBlockers {
+    has_errors: bool,
+    has_resolver_errors: bool,
+    has_type_errors: bool,
+    has_core_verify_errors: bool,
+    has_full_type_check_errors: bool,
+    has_effect_check_errors: bool,
+    has_ownership_check_errors: bool,
+    has_resource_check_errors: bool,
 }
 
 const CURRENT_LAYER: &str = "surface_hum_and_semantic_graph";
@@ -131,8 +146,8 @@ const PASS_STATUSES: &[PassStatus] = &[
     },
     PassStatus {
         name: "allocation_resource_check",
-        status: "not_implemented",
-        source: core_contract::CORE_CONTRACT_SCHEMA,
+        status: resource_check::RESOURCE_CHECK_STATUS,
+        source: resource_check::RESOURCE_CHECK_SCHEMA,
     },
     PassStatus {
         name: "contract_evidence_linking",
@@ -177,6 +192,8 @@ const MISSING_AFTER_EFFECT_PASSES: &[&str] = &[
 
 const MISSING_AFTER_OWNERSHIP_PASSES: &[&str] =
     &["allocation_resource_check", "profile_check", "ir_verify"];
+
+const MISSING_AFTER_RESOURCE_PASSES: &[&str] = &["profile_check", "ir_verify"];
 
 pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
     let report = build_report(program, diagnostics);
@@ -337,6 +354,24 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         report.ownership_check_summary.execution_ready,
         report.ownership_check_summary.ir_ready
     ));
+    out.push_str(&format!(
+        "resource_check: schema={} status={} mode={} resource_items={} resource_claims={} allocation_claims={} allocation_free_claims={} checks={} accepted_checks={} rejected_checks={} unchecked_checks={} blocking_issues={} proof_ready={} execution_ready={} ir_ready={}\n",
+        report.resource_check_summary.schema,
+        report.resource_check_summary.status,
+        report.resource_check_summary.mode,
+        report.resource_check_summary.resource_items,
+        report.resource_check_summary.resource_claims,
+        report.resource_check_summary.allocation_claims,
+        report.resource_check_summary.allocation_free_claims,
+        report.resource_check_summary.checks,
+        report.resource_check_summary.accepted_checks,
+        report.resource_check_summary.rejected_checks,
+        report.resource_check_summary.unchecked_checks,
+        report.resource_check_summary.blocking_issues,
+        report.resource_check_summary.proof_ready,
+        report.resource_check_summary.execution_ready,
+        report.resource_check_summary.ir_ready
+    ));
     out.push_str("pass_status:\n");
     for pass in PASS_STATUSES {
         out.push_str(&format!(
@@ -420,6 +455,7 @@ pub fn ir_readiness_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
     push_full_type_check_summary(&mut out, &report.full_type_check_summary, 2, true);
     push_effect_check_summary(&mut out, &report.effect_check_summary, 2, true);
     push_ownership_check_summary(&mut out, &report.ownership_check_summary, 2, true);
+    push_resource_check_summary(&mut out, &report.resource_check_summary, 2, true);
     push_summary(&mut out, &report, 2, true);
     push_pass_status(&mut out, 2, true);
     push_candidates(&mut out, &report.candidates, 2, true);
@@ -449,6 +485,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
     let full_type_check_summary = full_type_check::full_type_check_summary(program, diagnostics);
     let effect_check_summary = effect_check::effect_check_summary(program, diagnostics);
     let ownership_check_summary = ownership_check::ownership_check_summary(program, diagnostics);
+    let resource_check_summary = resource_check::resource_check_summary(program, diagnostics);
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
     let context = CandidateContext {
         diagnostics,
@@ -460,6 +497,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         full_type_check_summary: &full_type_check_summary,
         effect_check_summary: &effect_check_summary,
         ownership_check_summary: &ownership_check_summary,
+        resource_check_summary: &resource_check_summary,
         checked_returns: &checked_returns,
     };
     let mut candidates = Vec::new();
@@ -496,6 +534,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         full_type_check_summary,
         effect_check_summary,
         ownership_check_summary,
+        resource_check_summary,
         candidates,
     }
 }
@@ -535,7 +574,11 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
         context.ownership_check_summary.status,
         "ownership_errors_v0" | "blocked_by_unchecked_ownership_facts_v0"
     );
-    let blocking_reasons = blocking_reasons(
+    let has_resource_check_errors = matches!(
+        context.resource_check_summary.status,
+        "resource_errors_v0" | "blocked_by_unchecked_resource_facts_v0"
+    );
+    let blocking_reasons = blocking_reasons(CandidateBlockers {
         has_errors,
         has_resolver_errors,
         has_type_errors,
@@ -543,7 +586,8 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
         has_full_type_check_errors,
         has_effect_check_errors,
         has_ownership_check_errors,
-    );
+        has_resource_check_errors,
+    });
     let section_names = item_sections(item)
         .iter()
         .map(|section| section.name.clone())
@@ -570,8 +614,10 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
             "blocked_by_effect_check_errors"
         } else if has_ownership_check_errors {
             "blocked_by_ownership_check_errors"
+        } else if has_resource_check_errors {
+            "blocked_by_resource_check_errors"
         } else {
-            "blocked_before_allocation_resource_check"
+            "blocked_before_profile_check"
         },
         current_layer: CURRENT_LAYER,
         target_layer: TARGET_LAYER,
@@ -582,8 +628,10 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
             MISSING_AFTER_FULL_TYPE_PASSES.to_vec()
         } else if has_ownership_check_errors {
             MISSING_AFTER_EFFECT_PASSES.to_vec()
-        } else {
+        } else if has_resource_check_errors {
             MISSING_AFTER_OWNERSHIP_PASSES.to_vec()
+        } else {
+            MISSING_AFTER_RESOURCE_PASSES.to_vec()
         },
         blocking_reasons,
         section_names,
@@ -614,6 +662,8 @@ fn facts_available(item: &Item, context: &CandidateContext<'_>) -> Vec<&'static 
         context.effect_check_summary.status,
         "ownership_check_summary_v0",
         context.ownership_check_summary.status,
+        "resource_check_summary_v0",
+        context.resource_check_summary.status,
     ];
     if context.core_lower_summary.core_items > 0 {
         facts.push("unverified_core_artifact_rows_v0");
@@ -629,6 +679,9 @@ fn facts_available(item: &Item, context: &CandidateContext<'_>) -> Vec<&'static 
     }
     if context.ownership_check_summary.accepted_statements > 0 {
         facts.push("recognized_ownership_facts_v0");
+    }
+    if context.resource_check_summary.accepted_checks > 0 {
+        facts.push("recognized_resource_facts_v0");
     }
     if has_checked_return_type_slot(item, context.checked_returns) {
         facts.push("checked_return_expression_type_slots_v0");
@@ -787,38 +840,32 @@ fn item_sections(item: &Item) -> &[Section] {
     }
 }
 
-fn blocking_reasons(
-    has_errors: bool,
-    has_resolver_errors: bool,
-    has_type_errors: bool,
-    has_core_verify_errors: bool,
-    has_full_type_check_errors: bool,
-    has_effect_check_errors: bool,
-    has_ownership_check_errors: bool,
-) -> Vec<&'static str> {
+fn blocking_reasons(blockers: CandidateBlockers) -> Vec<&'static str> {
     let mut reasons = Vec::new();
-    if has_errors {
+    if blockers.has_errors {
         reasons.push("source_diagnostics_include_errors");
     }
-    if has_resolver_errors {
+    if blockers.has_resolver_errors {
         reasons.push("checked_resolver_errors");
     }
-    if has_type_errors {
+    if blockers.has_type_errors {
         reasons.push("type_check_errors");
     }
-    if has_core_verify_errors {
+    if blockers.has_core_verify_errors {
         reasons.push("core_verify_errors");
     }
-    if has_full_type_check_errors {
+    if blockers.has_full_type_check_errors {
         reasons.push("full_type_check_errors");
     }
-    if has_effect_check_errors {
+    if blockers.has_effect_check_errors {
         reasons.push("effect_check_errors");
     }
-    if has_ownership_check_errors {
+    if blockers.has_ownership_check_errors {
         reasons.push("ownership_check_errors");
     }
-    reasons.push("allocation_resource_check_not_implemented");
+    if blockers.has_resource_check_errors {
+        reasons.push("resource_check_errors");
+    }
     reasons.push("profile_check_not_implemented");
     reasons.push("ir_verify_not_implemented");
     reasons
@@ -1554,7 +1601,7 @@ fn push_ownership_check_summary(
     comma: bool,
 ) {
     push_indent(out, indent);
-    out.push_str("\"effect_check\": {\n");
+    out.push_str("\"ownership_check\": {\n");
     push_string_field(out, indent + 2, "schema", summary.schema, true);
     push_string_field(out, indent + 2, "status", summary.status, true);
     push_string_field(out, indent + 2, "mode", summary.mode, true);
@@ -1664,6 +1711,110 @@ fn push_ownership_check_summary(
     out.push('}');
     push_comma_newline(out, comma);
 }
+fn push_resource_check_summary(
+    out: &mut String,
+    summary: &resource_check::ResourceCheckSummary,
+    indent: usize,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    out.push_str("\"resource_check\": {\n");
+    push_string_field(out, indent + 2, "schema", summary.schema, true);
+    push_string_field(out, indent + 2, "status", summary.status, true);
+    push_string_field(out, indent + 2, "mode", summary.mode, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "source_errors",
+        summary.source_errors,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "ownership_errors",
+        summary.ownership_errors,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "resource_report_errors",
+        summary.resource_report_errors,
+        true,
+    );
+    push_usize_field(out, indent + 2, "tasks", summary.tasks, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "resource_items",
+        summary.resource_items,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "resource_claims",
+        summary.resource_claims,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "allocation_claims",
+        summary.allocation_claims,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "allocation_free_claims",
+        summary.allocation_free_claims,
+        true,
+    );
+    push_usize_field(out, indent + 2, "checks", summary.checks, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "accepted_checks",
+        summary.accepted_checks,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "rejected_checks",
+        summary.rejected_checks,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "unchecked_checks",
+        summary.unchecked_checks,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "blocking_issues",
+        summary.blocking_issues,
+        true,
+    );
+    push_usize_field(out, indent + 2, "proof_ready", summary.proof_ready, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "execution_ready",
+        summary.execution_ready,
+        true,
+    );
+    push_usize_field(out, indent + 2, "ir_ready", summary.ir_ready, false);
+    push_indent(out, indent);
+    out.push('}');
+    push_comma_newline(out, comma);
+}
+
 fn push_pass_status(out: &mut String, indent: usize, comma: bool) {
     push_indent(out, indent);
     out.push_str("\"pass_status\": [\n");
@@ -1988,6 +2139,7 @@ mod tests {
         assert!(text.contains("task `add task`"));
         assert!(text.contains("missing_passes: full_type_check"));
         assert!(text.contains("effect_check"));
+        assert!(text.contains("resource_check: schema=hum.resource_check.v0"));
     }
 
     #[test]
@@ -2021,6 +2173,9 @@ mod tests {
         assert!(json.contains("\"core_verify_summary_v0\""));
         assert!(json.contains("\"full_type_check_summary_v0\""));
         assert!(json.contains("\"effect_check_summary_v0\""));
+        assert!(json.contains("\"resource_check_summary_v0\""));
+        assert!(json.contains("\"schema\": \"hum.resource_check.v0\""));
+        assert!(json.contains("\"recognized_core_resource_gate_available_v0\""));
         assert!(json.contains("\"unverified_core_artifact_rows_v0\""));
         assert!(json.contains("\"verified_core_artifact_rows_v0\""));
         assert!(json.contains("\"checked_return_expression_type_slots_v0\""));
@@ -2034,7 +2189,7 @@ mod tests {
         assert!(json.contains("\"body_grammar_candidates\": 2"));
         assert!(json.contains("\"body_grammar_unsupported_lines\": 1"));
         assert!(json.contains("\"status\": \"blocked_by_full_type_check_errors\""));
-        assert!(json.contains("\"allocation_resource_check_not_implemented\""));
+        assert!(!json.contains("\"allocation_resource_check_not_implemented\""));
         assert!(json.contains("\"profile_check_not_implemented\""));
         assert!(!json.contains("\"ownership_alias_check_not_implemented\""));
         assert!(json.contains("\"name\": \"body_grammar\""));

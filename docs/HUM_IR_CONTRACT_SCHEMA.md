@@ -1,6 +1,6 @@
 # Hum IR Contract Schema
 
-Date: 2026-07-07
+Date: 2026-07-08
 
 Current schema: `hum.ir_contract.v0`
 
@@ -136,14 +136,14 @@ The V0 contract names these pass boundaries:
 These names are not final implementation APIs. They are a shared map for build
 order, docs, agents, and future compiler diagnostics. In V0, `type_check` names
 the narrow `hum.type_check.v0` declaration and trivial-return checker;
-`full_type_check` names the implemented narrow `hum.full_type_check.v0` gate for recognized Core/body statement types. `effect_check` names the implemented narrow `hum.effect_check.v0` gate for recognized Core/body effect contexts. `ownership_alias_check` is now backed by the narrow `hum.ownership_check.v0` local ownership fact gate. All three must pass, and later resource, profile, IR verification, and backend-preservation gates must exist, before broader safety, IR, or backend claims can be honest.
+`full_type_check` names the implemented narrow `hum.full_type_check.v0` gate for recognized Core/body statement types. `effect_check` names the implemented narrow `hum.effect_check.v0` gate for recognized Core/body effect contexts. `ownership_alias_check` is backed by the narrow `hum.ownership_check.v0` local ownership fact gate. `allocation_resource_check` is backed by the narrow `hum.resource_check.v0` declared allocation/resource intent gate. All four must pass, and later profile, IR verification, and backend-preservation gates must exist, before broader safety, IR, or backend claims can be honest.
 
 ## Honesty Rules
 
 - `hum ir-contract` is a discovery command, not IR emission.
 - It must not run generated code.
 - It must not claim Hum has executable semantics.
-- It must not pretend complete type checking, ownership checking, optimization, or backend
+- It must not pretend complete type checking, ownership checking, resource checking, optimization, or backend
   lowering exists.
 - It must stay in sync with `hum core-contract --format json`, `hum
   backend-contract --format json`, `hum capabilities --format json`, and `hum

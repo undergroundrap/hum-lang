@@ -155,6 +155,8 @@ try {
   if (-not $VersionJson.Contains('"core_verify": "hum.core_verify.v0"')) { throw 'version JSON is missing hum.core_verify.v0 schema' }
   if (-not $VersionJson.Contains('"full_type_check": "hum.full_type_check.v0"')) { throw 'version JSON is missing hum.full_type_check.v0 schema' }
   if (-not $VersionJson.Contains('"effect_check": "hum.effect_check.v0"')) { throw 'version JSON is missing hum.effect_check.v0 schema' }
+  if (-not $VersionJson.Contains('"ownership_check": "hum.ownership_check.v0"')) { throw 'version JSON is missing hum.ownership_check.v0 schema' }
+  if (-not $VersionJson.Contains('"resource_check": "hum.resource_check.v0"')) { throw 'version JSON is missing hum.resource_check.v0 schema' }
 
   $ExplainJson = Read-NativeOutput 'diagnostic explain JSON' $Hum @('explain', 'H0201', '--format', 'json')
   Assert-Json 'diagnostic explain JSON' $ExplainJson
@@ -199,6 +201,10 @@ try {
   if (-not $CapabilitiesJson.Contains('"full_type_check_json"')) { throw 'capabilities JSON is missing full_type_check_json command' }
   if (-not $CapabilitiesJson.Contains('"effect_check"')) { throw 'capabilities JSON is missing effect_check schema' }
   if (-not $CapabilitiesJson.Contains('"effect_check_json"')) { throw 'capabilities JSON is missing effect_check_json command' }
+  if (-not $CapabilitiesJson.Contains('"ownership_check"')) { throw 'capabilities JSON is missing ownership_check schema' }
+  if (-not $CapabilitiesJson.Contains('"ownership_check_json"')) { throw 'capabilities JSON is missing ownership_check_json command' }
+  if (-not $CapabilitiesJson.Contains('"resource_check"')) { throw 'capabilities JSON is missing resource_check schema' }
+  if (-not $CapabilitiesJson.Contains('"resource_check_json"')) { throw 'capabilities JSON is missing resource_check_json command' }
   if (-not $CapabilitiesJson.Contains('"ir_readiness"')) { throw 'capabilities JSON is missing ir_readiness schema' }
   if (-not $CapabilitiesJson.Contains('"core_contract"')) { throw 'capabilities JSON is missing core_contract schema' }
   if (-not $CapabilitiesJson.Contains('"ir_contract"')) { throw 'capabilities JSON is missing ir_contract schema' }
@@ -234,6 +240,8 @@ try {
   if (-not $CoreContractJson.Contains('"status": "recognized_core_effect_gate_available_v0"')) { throw 'Core contract JSON is missing effect-check gate status' }
   if (-not $CoreContractJson.Contains('"id": "ownership_check"')) { throw 'Core contract JSON is missing ownership_check gate' }
   if (-not $CoreContractJson.Contains('"status": "recognized_core_ownership_gate_available_v0"')) { throw 'Core contract JSON is missing ownership-check gate status' }
+  if (-not $CoreContractJson.Contains('"id": "allocation_resource_check"')) { throw 'Core contract JSON is missing allocation_resource_check gate' }
+  if (-not $CoreContractJson.Contains('"status": "recognized_core_resource_gate_available_v0"')) { throw 'Core contract JSON is missing resource-check gate status' }
   if (-not $CoreContractJson.Contains('"id": "core_verify"')) { throw 'Core contract JSON is missing core_verify gate' }
   if (-not $CoreContractJson.Contains('"status": "verified_non_executing_core_artifact_v0"')) { throw 'Core contract JSON is missing core verify gate status' }
   if (-not $CoreContractJson.Contains('"no executable semantics"')) { throw 'Core contract JSON must keep V0 non-execution claim' }
@@ -518,6 +526,21 @@ try {
   if (-not $EffectCheckJson.Contains('"ir_ready": 0')) { throw 'effect check JSON must not claim IR readiness' }
   if (-not $EffectCheckJson.Contains('no memory-safety proof')) { throw 'effect check JSON must keep memory-safety non-claim' }
 
+  $ResourceCheckJson = Read-NativeOutput 'resource check JSON' $Hum @('resource-check', '--format', 'json', 'fixtures/resource_check/simple_pass.hum')
+  Assert-Json 'resource check JSON' $ResourceCheckJson
+  if (-not $ResourceCheckJson.Contains('"schema": "hum.resource_check.v0"')) { throw 'resource check JSON is missing hum.resource_check.v0 schema' }
+  if (-not $ResourceCheckJson.Contains('"status": "recognized_core_resources_checked_v0"')) { throw 'resource check JSON should pass for simple fixture' }
+  if (-not $ResourceCheckJson.Contains('"mode": "recognized_core_resource_gate_v0"')) { throw 'resource check JSON is missing resource gate mode' }
+  if (-not $ResourceCheckJson.Contains('"ownership_check_schema": "hum.ownership_check.v0"')) { throw 'resource check JSON is missing ownership-check dependency schema' }
+  if (-not $ResourceCheckJson.Contains('"resource_report_schema": "hum.resource_report.v0"')) { throw 'resource check JSON is missing resource-report dependency schema' }
+  if (-not $ResourceCheckJson.Contains('"blocking_issues": 0')) { throw 'resource check JSON should have zero blocking issues for simple fixture' }
+  if (-not $ResourceCheckJson.Contains('"accepted_conservative_allocation_free_claim_v0"')) { throw 'resource check JSON is missing accepted allocation-free fact' }
+  if (-not $ResourceCheckJson.Contains('"proof_ready": 0')) { throw 'resource check JSON must not claim proof readiness' }
+  if (-not $ResourceCheckJson.Contains('"execution_ready": 0')) { throw 'resource check JSON must not claim execution readiness' }
+  if (-not $ResourceCheckJson.Contains('"ir_ready": 0')) { throw 'resource check JSON must not claim IR readiness' }
+  if (-not $ResourceCheckJson.Contains('no allocation-freedom proof')) { throw 'resource check JSON must keep allocation-proof non-claim' }
+  if (-not $ResourceCheckJson.Contains('no memory-safety proof')) { throw 'resource check JSON must keep memory-safety non-claim' }
+
   $IrReadinessJson = Read-NativeOutput 'IR readiness JSON' $Hum @('ir-readiness', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'IR readiness JSON' $IrReadinessJson
   if (-not $IrReadinessJson.Contains('"schema": "hum.ir_readiness.v0"')) { throw 'IR readiness JSON is missing hum.ir_readiness.v0 schema' }
@@ -540,6 +563,11 @@ try {
   if (-not $IrReadinessJson.Contains('"schema": "hum.full_type_check.v0"')) { throw 'IR readiness JSON is missing hum.full_type_check.v0 schema link' }
   if (-not $IrReadinessJson.Contains('"effect_check"')) { throw 'IR readiness JSON is missing effect_check summary' }
   if (-not $IrReadinessJson.Contains('"schema": "hum.effect_check.v0"')) { throw 'IR readiness JSON is missing hum.effect_check.v0 schema link' }
+  if (-not $IrReadinessJson.Contains('"ownership_check"')) { throw 'IR readiness JSON is missing ownership_check summary' }
+  if (-not $IrReadinessJson.Contains('"schema": "hum.ownership_check.v0"')) { throw 'IR readiness JSON is missing hum.ownership_check.v0 schema link' }
+  if (-not $IrReadinessJson.Contains('"resource_check"')) { throw 'IR readiness JSON is missing resource_check summary' }
+  if (-not $IrReadinessJson.Contains('"schema": "hum.resource_check.v0"')) { throw 'IR readiness JSON is missing hum.resource_check.v0 schema link' }
+  if (-not $IrReadinessJson.Contains('"mode": "recognized_core_resource_gate_v0"')) { throw 'IR readiness JSON is missing resource-check gate mode' }
   if (-not $IrReadinessJson.Contains('"mode": "non_executing_artifact_invariant_check_v0"')) { throw 'IR readiness JSON is missing core verify mode' }
   if (-not $IrReadinessJson.Contains('"status": "unverified_core_artifact_v0"')) { throw 'IR readiness JSON is missing unverified core lower status' }
   if (-not $IrReadinessJson.Contains('"typed_expression_previews": 1')) { throw 'IR readiness JSON is missing core preview typed expression count' }
@@ -555,6 +583,7 @@ try {
   if (-not $IrReadinessJson.Contains('"full_type_check_summary_v0"')) { throw 'IR readiness JSON is missing full type check summary fact' }
   if (-not $IrReadinessJson.Contains('"effect_check_summary_v0"')) { throw 'IR readiness JSON is missing effect check summary fact' }
   if (-not $IrReadinessJson.Contains('"ownership_check_summary_v0"')) { throw 'IR readiness JSON is missing ownership check summary fact' }
+  if (-not $IrReadinessJson.Contains('"resource_check_summary_v0"')) { throw 'IR readiness JSON is missing resource check summary fact' }
   if (-not $IrReadinessJson.Contains('"unverified_core_artifact_rows_v0"')) { throw 'IR readiness JSON is missing unverified core artifact row fact' }
   if (-not $IrReadinessJson.Contains('"verified_core_artifact_rows_v0"')) { throw 'IR readiness JSON is missing verified core artifact row fact' }
   if (-not $IrReadinessJson.Contains('"checked_return_expression_type_slots_v0"')) { throw 'IR readiness JSON is missing checked return expression slot fact' }
@@ -575,6 +604,9 @@ try {
   if (-not $IrReadinessJson.Contains('"full_type_check_errors"')) { throw 'IR readiness JSON is missing full type-check blocker reason' }
   if (-not $IrReadinessJson.Contains('"recognized_core_effect_gate_available_v0"')) { throw 'IR readiness JSON is missing effect-check pass availability' }
   if (-not $IrReadinessJson.Contains('"recognized_core_ownership_gate_available_v0"')) { throw 'IR readiness JSON is missing ownership-check pass availability' }
+  if (-not $IrReadinessJson.Contains('"recognized_core_resource_gate_available_v0"')) { throw 'IR readiness JSON is missing resource-check pass availability' }
+  if ($IrReadinessJson.Contains('"allocation_resource_check_not_implemented"')) { throw 'IR readiness JSON should not report resource check as not implemented' }
+  if (-not $IrReadinessJson.Contains('"profile_check_not_implemented"')) { throw 'IR readiness JSON is missing profile-check blocker' }
   if (-not $IrReadinessJson.Contains('"not_implemented"')) { throw 'IR readiness JSON is missing not_implemented blockers' }
   if (-not $IrReadinessJson.Contains('"no IR emission"')) { throw 'IR readiness JSON must keep V0 non-emission claim' }
 
@@ -635,12 +667,16 @@ try {
   if (-not $ArchitectureText.Contains('HUM_RESOLVE_SCHEMA.md')) { throw 'architecture is missing resolve schema link' }
   if (-not $ArchitectureText.Contains('HUM_CORE_LOWER_SCHEMA.md')) { throw 'architecture is missing core lower schema link' }
   if (-not $ArchitectureText.Contains('HUM_CORE_VERIFY_SCHEMA.md')) { throw 'architecture is missing core verify schema link' }
+  if (-not $ArchitectureText.Contains('HUM_RESOURCE_CHECK_SCHEMA.md')) { throw 'architecture is missing resource check schema link' }
+  if (-not $ArchitectureText.Contains('recognized_core_resource_gate_available_v0')) { throw 'architecture is missing current resource-check gate' }
   if (-not $ArchitectureText.Contains('PORTABILITY_BOUNDARY_MODEL.md')) { throw 'architecture is missing portability boundary model link' }
   $LanguageReferenceText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\LANGUAGE_REFERENCE.md'))
   if (-not $LanguageReferenceText.Contains('traditional language reference spine')) { throw 'language reference is missing reference spine marker' }
   if (-not $LanguageReferenceText.Contains('PORTABILITY_BOUNDARY_MODEL.md')) { throw 'language reference is missing portability boundary link' }
   if (-not $LanguageReferenceText.Contains('STATE_MODEL.md')) { throw 'language reference is missing state model link' }
   if (-not $LanguageReferenceText.Contains('HUM_RESOLVE_SCHEMA.md')) { throw 'language reference is missing resolve schema link' }
+  if (-not $LanguageReferenceText.Contains('HUM_RESOURCE_CHECK_SCHEMA.md')) { throw 'language reference is missing resource check schema link' }
+  if (-not $LanguageReferenceText.Contains('hum resource-check --format json')) { throw 'language reference is missing resource-check command' }
   if (-not $LanguageReferenceText.Contains('hum state-model --format json')) { throw 'language reference is missing state-model command' }
   if (-not $LanguageReferenceText.Contains('hum resolve --format json')) { throw 'language reference is missing resolve command' }
   if (-not $LanguageReferenceText.Contains('H1205')) { throw 'language reference is missing target declaration diagnostics' }
@@ -726,9 +762,14 @@ try {
   if (-not $IrReadinessSchemaText.Contains('hum.full_type_check.v0')) { throw 'IR readiness schema doc is missing full type-check schema link' }
   if (-not $IrReadinessSchemaText.Contains('hum.effect_check.v0')) { throw 'IR readiness schema doc is missing effect-check schema link' }
   if (-not $IrReadinessSchemaText.Contains('hum.ownership_check.v0')) { throw 'IR readiness schema doc is missing ownership-check schema link' }
+  if (-not $IrReadinessSchemaText.Contains('hum.resource_check.v0')) { throw 'IR readiness schema doc is missing resource-check schema link' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_full_type_check_errors')) { throw 'IR readiness schema doc is missing full type-check blocker' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_effect_check_errors')) { throw 'IR readiness schema doc is missing effect-check blocker' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_ownership_check_errors')) { throw 'IR readiness schema doc is missing ownership-check blocker' }
+  if (-not $IrReadinessSchemaText.Contains('blocked_by_resource_check_errors')) { throw 'IR readiness schema doc is missing resource-check blocker' }
+  if (-not $IrReadinessSchemaText.Contains('resource_check_summary_v0')) { throw 'IR readiness schema doc is missing resource check summary fact' }
+  if (-not $IrReadinessSchemaText.Contains('recognized_core_resource_gate_available_v0')) { throw 'IR readiness schema doc is missing resource-check pass status' }
+  if ($IrReadinessSchemaText.Contains('allocation_resource_check_not_implemented')) { throw 'IR readiness schema doc should not call resource check not implemented' }
   if (-not $IrReadinessSchemaText.Contains('unverified_core_artifact_rows_v0')) { throw 'IR readiness schema doc is missing unverified core artifact row fact' }
   if (-not $IrReadinessSchemaText.Contains('core_verify')) { throw 'IR readiness schema doc is missing core_verify pass' }
   if (-not $IrReadinessSchemaText.Contains('verified_core_artifact_rows_v0')) { throw 'IR readiness schema doc is missing verified core artifact row fact' }
@@ -746,6 +787,8 @@ try {
   if (-not $CoreContractSchemaText.Contains('recognized_core_body_type_gate_available_v0')) { throw 'Core contract schema doc is missing full type-check gate status' }
   if (-not $CoreContractSchemaText.Contains('recognized_core_effect_gate_available_v0')) { throw 'Core contract schema doc is missing effect-check gate status' }
   if (-not $CoreContractSchemaText.Contains('recognized_core_ownership_gate_available_v0')) { throw 'Core contract schema doc is missing ownership-check gate status' }
+  if (-not $CoreContractSchemaText.Contains('recognized_core_resource_gate_available_v0')) { throw 'Core contract schema doc is missing resource-check gate status' }
+  if (-not $CoreContractSchemaText.Contains('hum resource-check')) { throw 'Core contract schema doc is missing resource-check command link' }
   $FullTypeCheckSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_FULL_TYPE_CHECK_SCHEMA.md'))
   if (-not $FullTypeCheckSchemaText.Contains('hum.full_type_check.v0')) { throw 'full type check schema doc is missing hum.full_type_check.v0' }
   if (-not $FullTypeCheckSchemaText.Contains('recognized_core_body_type_gate_v0')) { throw 'full type check schema doc is missing gate mode' }
@@ -761,6 +804,12 @@ try {
   if (-not $OwnershipCheckSchemaText.Contains('recognized_core_ownership_gate_v0')) { throw 'ownership check schema doc is missing gate mode' }
   if (-not $OwnershipCheckSchemaText.Contains('hum ownership-check')) { throw 'ownership check schema doc is missing command' }
   if (-not $OwnershipCheckSchemaText.Contains('no executable semantics')) { throw 'ownership check schema doc must keep non-execution claim' }
+  $ResourceCheckSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_RESOURCE_CHECK_SCHEMA.md'))
+  if (-not $ResourceCheckSchemaText.Contains('hum.resource_check.v0')) { throw 'resource check schema doc is missing hum.resource_check.v0' }
+  if (-not $ResourceCheckSchemaText.Contains('recognized_core_resource_gate_v0')) { throw 'resource check schema doc is missing gate mode' }
+  if (-not $ResourceCheckSchemaText.Contains('hum resource-check')) { throw 'resource check schema doc is missing command' }
+  if (-not $ResourceCheckSchemaText.Contains('no executable semantics')) { throw 'resource check schema doc must keep non-execution claim' }
+  if (-not $ResourceCheckSchemaText.Contains('no allocation-freedom proof')) { throw 'resource check schema doc must keep allocation-proof non-claim' }
   $CoreLowerSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_CORE_LOWER_SCHEMA.md'))
   if (-not $CoreLowerSchemaText.Contains('hum.core_lower.v0')) { throw 'Core lower schema doc is missing hum.core_lower.v0' }
   if (-not $CoreLowerSchemaText.Contains('unverified_core_artifact_v0')) { throw 'Core lower schema doc is missing unverified artifact status' }
