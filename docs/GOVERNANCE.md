@@ -92,6 +92,36 @@ Mission and scope statements live in the accepted docs
 [LANGUAGE_CONSTITUTION.md](LANGUAGE_CONSTITUTION.md)); this mandate does
 not restate them, and agents must not widen scope by paraphrase.
 
+### Delegated Ruling (BDFL-directed amendment, 2026-07-08)
+
+The BDFL has delegated default ruling authority on decision records to the
+architect-reviewer agent, under these terms:
+
+- Every delegated ruling is recorded transparently as
+  `accepted under delegated authority (BDFL veto open)` — never presented
+  as a direct BDFL ruling.
+- Each ruling is delivered to the BDFL as a one-page decision brief:
+  the question, the recommendation, the reasoning, and what accepting it
+  forecloses. The conversation record of these briefs is part of the
+  project's decision history.
+- The BDFL holds a standing veto: any delegated ruling can be reversed
+  with one recorded sentence at any time before implementation hardens
+  around it. Silence is consent.
+- Delegation is borrowed, not transferred: the BDFL may reclaim any
+  decision, or the whole delegation, by saying so.
+
+Reserved matters that remain BDFL-only and cannot be delegated:
+
+- licensing and any legal act of the copyright holder
+- publishing to the outside world: pushes to remotes, tags, releases,
+  announcements
+- spending money or acting in the BDFL's name or identity
+- changes to this delegation or to agent roles
+
+The implementer agent's pushback mandate applies with extra force to
+delegated rulings: it is the second reviewer when the first reviewer is
+also the one ruling.
+
 ## Decision Principle
 
 ```text

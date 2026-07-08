@@ -44,8 +44,12 @@ Research inputs, both already absorbed:
    candidate's rules is data: record it (`indicts: ownership`) in the
    candidate document, not in CORE_LANGUAGE_SHAPE.md.
 5. Session boundaries are hard: one session, one deliverable, stop for
-   review. The BDFL reads the corpus before candidates are written and
-   reads all three candidates before Session I.
+   review. Gate amendment (BDFL-directed, 2026-07-08): the
+   candidate-reading gate before Session I is replaced by the delegated
+   ruling process in GOVERNANCE.md "Delegated Ruling" — Session I proceeds
+   on the reviewer's go signal; decision 0014 is ruled on by the
+   architect-reviewer under delegated authority via a one-page BDFL
+   decision brief, with the standing veto open.
 
 ## The candidates
 
@@ -146,10 +150,12 @@ Acceptance criteria:
 - The quantified gate is applied: the recommended model clears at least
   eight of twelve programs without escape hatches, or the ADR explains
   why the gate should move and what that concedes.
-- ADR drafted with status `proposed`. The BDFL, not the session, flips it
-  to `accepted`.
-- Hygiene passes. Stop. No implementation work follows until the BDFL
-  accepts 0014.
+- ADR drafted with status `proposed`. Per the delegated-ruling amendment,
+  the architect-reviewer rules on it after scorecard review, records the
+  ruling as delegated with the BDFL veto open, and delivers the decision
+  brief. The session itself never flips the status.
+- Hygiene passes. Stop. No implementation work follows until 0014 is
+  ruled on and the ruling is recorded.
 
 ## Design probe system (standing)
 
