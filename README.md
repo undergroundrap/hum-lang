@@ -152,6 +152,14 @@ error[H0801]: value `value` was used after it was moved
   help: `value` moved at fixtures/ownership_check/session_j_use_after_move_fail.hum:17:5; use it before that move or create a fresh owned value.
 ```
 
+Contracts can also reach back in time. `old(...)` captures a parameter's
+value at task entry, so a swap that never swaps is caught by its own
+promise:
+
+```text
+fixtures/run/session_t_wrong_swap_contract.hum:13:5: error[H0703]: task `swap_xy` did not satisfy ensures: result.x == old(point.y)
+```
+
 What Hum does not yet claim: `cost:`, `allocates:`, `protects:`, and
 `trusts:` lines are recorded intent, graph facts, and generated
 obligations today — not enforced proofs. Every checker report emits an

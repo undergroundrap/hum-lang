@@ -264,6 +264,7 @@ friction:
   severity: awkward
   indicts: contracts
   proposal: frequency-rank collection count predicates before growing predicate grammar v1
+  resolution: partially resolved in Session T; `list_len(place)` covers plain length comparisons, but the original want (count of MATCHING items) still needs content-conditional vocabulary and remains an active demand
 
 friction:
   program: examples/probes/task_list_flow.hum:58
@@ -376,6 +377,7 @@ friction:
   severity: blocked
   indicts: contracts
   proposal: Session Q must carry a mandated contracts work-order item: either predicate v1 with pre-state references or the contract-check-mode ADR, chosen from the full friction ledger
+  resolution: resolved in Session T by `old(place)` in `ensures:` with entry capture; `swap_xy` now checks `result.x == old(point.y)`/`result.y == old(point.x)`, `complete_item` checks `result.title == old(item.title)`, and `fixtures/run/session_t_wrong_swap_contract.hum` proves a sabotaged swap fails with H0703 task blame; `old(...)` outside `ensures:` stays honest prose (H0701)
 
 friction:
   program: docs/bakeoff/CORPUS.md:330
@@ -393,6 +395,15 @@ friction:
   severity: awkward
   indicts: contracts
   proposal: include small collection/list predicates in Predicate v1 only after the Session Q contract recommendation authorizes that grammar work
+  resolution: partially resolved in Session T; `builder_demo` now checks `list_len(result) == 3`, but the content claim (which items the list contains) stays honest prose and remains an active demand
+
+friction:
+  program: examples/probes/element_views.hum:8
+  wanted: check a text-valued result with a literal comparison such as `result == "parse"`
+  forced: text literals are outside the predicate vocabulary, so the line surfaces as honest prose under H0701
+  severity: awkward
+  indicts: contracts
+  proposal: consider text-literal equality for a future predicate version only via the wishlist; do not smuggle it into Session T's mandated scope
 
 Session O three-strike note:
 

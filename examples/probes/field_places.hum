@@ -15,8 +15,8 @@ task swap_xy(change point: Point) -> Point {
     swap two definitely distinct fields of one record
 
   ensures:
-    result.x == 2
-    result.y == 1
+    result.x == old(point.y)
+    result.y == old(point.x)
 
   does:
     change old_x: UInt = point.x
@@ -31,7 +31,7 @@ task complete_item(change item: WorkItem) -> WorkItem {
 
   ensures:
     result.done == true
-    title is preserved
+    result.title == old(item.title)
 
   does:
     set item.done = true

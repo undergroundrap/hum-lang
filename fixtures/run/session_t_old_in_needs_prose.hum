@@ -1,0 +1,23 @@
+module fixtures.run.session_t_old_in_needs_prose
+
+task echo_amount(amount: UInt) -> UInt {
+  why:
+    prove old() outside ensures stays an honest unchecked prose contract
+
+  needs:
+    amount == old(amount)
+
+  ensures:
+    result == amount
+
+  does:
+    return amount
+}
+
+task old_in_needs_demo() -> UInt {
+  why:
+    exercise the needs-side old() boundary without shell arguments
+
+  does:
+    return echo_amount(7)
+}

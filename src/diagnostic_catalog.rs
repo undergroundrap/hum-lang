@@ -231,8 +231,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::UNCHECKED_PROSE_CONTRACT,
         default_severity: Severity::Warning,
-        explanation: "`hum run` saw a `needs:` or `ensures:` line that is honest prose rather than a predicate v0 expression, so it remains visible but unchecked.",
-        repair: "Use one canonical comparison such as `b != 0` or `result == a + b` when the contract is meant to execute now; keep prose when it is intentionally unchecked.",
+        explanation: "`hum run` saw a `needs:` or `ensures:` line that is honest prose rather than a predicate v1 expression, so it remains visible but unchecked. Predicate v1 is one comparison over parameters, `result`, arithmetic, `list_len(...)`, and `old(...)` of entry-readable parameter places in `ensures:` only.",
+        repair: "Use one canonical comparison such as `b != 0`, `result == a + b`, `result.title == old(item.title)`, or `list_len(result) == 3` when the contract is meant to execute now; keep prose when it is intentionally unchecked.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::NEEDS_CONTRACT_VIOLATION,

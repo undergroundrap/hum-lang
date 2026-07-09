@@ -588,6 +588,22 @@ try {
   if ($RunSessionSOverlap.Output.Contains('H0807')) { throw "Session S overlap run must not also report H0807, got $($RunSessionSOverlap.Output)" }
   if (-not $RunSessionSOverlap.Output.Contains('list_append')) { throw "Session S overlap run expected list_append blame, got $($RunSessionSOverlap.Output)" }
   if (-not $RunSessionSOverlap.Output.Contains('for each')) { throw "Session S overlap run expected loop blame, got $($RunSessionSOverlap.Output)" }
+
+  $RunSessionTWrongSwap = Read-NativeOutputWithExit 'run Session T wrong-swap old() sabotage fixture' $Hum @('run', 'fixtures/run/session_t_wrong_swap_contract.hum', '--entry', 'wrong_swap_demo')
+  if ($RunSessionTWrongSwap.ExitCode -ne 1) { throw "Session T wrong-swap run expected exit 1, got $($RunSessionTWrongSwap.ExitCode)" }
+  if (-not $RunSessionTWrongSwap.Output.Contains('H0703')) { throw "Session T wrong-swap run expected H0703, got $($RunSessionTWrongSwap.Output)" }
+  if (-not $RunSessionTWrongSwap.Output.Contains('result.x == old(point.y)')) { throw "Session T wrong-swap run expected old() contract text, got $($RunSessionTWrongSwap.Output)" }
+
+  $RunSessionTOldInNeeds = Read-NativeOutputWithExit 'run Session T old-in-needs prose boundary fixture' $Hum @('run', 'fixtures/run/session_t_old_in_needs_prose.hum', '--entry', 'old_in_needs_demo')
+  if ($RunSessionTOldInNeeds.ExitCode -ne 0) { throw "Session T old-in-needs run expected exit 0, got $($RunSessionTOldInNeeds.ExitCode)" }
+  if (-not $RunSessionTOldInNeeds.Output.Contains('H0701')) { throw "Session T old-in-needs run expected H0701 prose warning, got $($RunSessionTOldInNeeds.Output)" }
+
+  $RunSessionTBuilderLen = Read-NativeOutputWithExit 'run Session T builder list_len contract fixture' $Hum @('run', 'examples/probes/list_builder.hum', '--entry', 'builder_demo')
+  if ($RunSessionTBuilderLen.ExitCode -ne 0) { throw "Session T builder list_len run expected exit 0, got $($RunSessionTBuilderLen.ExitCode)" }
+  if ($RunSessionTBuilderLen.Output.Contains('list_len(result) == 3') -and $RunSessionTBuilderLen.Output.Contains('H0701')) {
+    if ($RunSessionTBuilderLen.Output -match 'H0701[^\r\n]*list_len') { throw "Session T list_len contract must be checked, not prose: $($RunSessionTBuilderLen.Output)" }
+  }
+
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }

@@ -11,7 +11,7 @@ task complete_item(change item: WorkItem) -> WorkItem {
 
   ensures:
     result.done == true
-    title is preserved
+    result.title == old(item.title)
 
   does:
     set item.done = true

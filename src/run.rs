@@ -260,6 +260,8 @@ impl<'a> Interpreter<'a> {
             return Ok(TaskResult::ContractViolation);
         }
 
+        self.capture_old_contract_values(task, &mut env)?;
+
         let Some(does) = task.section("does") else {
             return Err(format!("task `{}` has no `does:` section", task.name));
         };
@@ -312,6 +314,40 @@ impl<'a> Interpreter<'a> {
         Ok(TaskResult::Returned(value))
     }
 
+    fn capture_old_contract_values(&self, task: &Task, env: &mut Env) -> Result<(), String> {
+        let Some(section) = task.section("ensures") else {
+            return Ok(());
+        };
+        let allowed_names = contract_allowed_names(task, ContractKind::Ensures);
+        for line in &section.lines {
+            let text = line.text.trim();
+            if !is_meaningful_line_text(text) || !validate_predicate_v1(text, &allowed_names, true)
+            {
+                continue;
+            }
+            for inner in collect_old_references(text) {
+                let key = format!("old({inner})");
+                if env.contains_key(&key) {
+                    continue;
+                }
+                let value = match self.eval_expr(&inner, env, &line.span, &task.name)? {
+                    Evaluated::Value(value) => value,
+                    Evaluated::Failure(value) => {
+                        return Err(format!(
+                            "old capture of `{inner}` produced failure {}",
+                            display_value(&value)
+                        ));
+                    }
+                    Evaluated::ContractViolation => {
+                        return Err(format!("old capture of `{inner}` hit a contract violation"));
+                    }
+                };
+                env.insert(key, RuntimeBinding::local(value, false));
+            }
+        }
+        Ok(())
+    }
+
     fn evaluate_contract_section(
         &self,
         task: &Task,
@@ -330,7 +366,7 @@ impl<'a> Interpreter<'a> {
                 continue;
             }
 
-            if !validate_predicate_v0(text, &allowed_names) {
+            if !validate_predicate_v1(text, &allowed_names, kind == ContractKind::Ensures) {
                 self.diagnostics.borrow_mut().push(
                     Diagnostic::warning(
                         DiagnosticCode::UNCHECKED_PROSE_CONTRACT,
@@ -338,7 +374,7 @@ impl<'a> Interpreter<'a> {
                         Some(line.span.clone()),
                     )
                     .with_help(
-                        "Predicate v0 checks one comparison such as `result == a + b`; prose remains visible but unchecked.",
+                        "Predicate v1 checks one comparison over parameters, `result`, arithmetic, `list_len(...)`, and `old(...)` of entry-readable parameter places in `ensures:`; prose remains visible but unchecked.",
                     ),
                 );
                 continue;
@@ -796,6 +832,18 @@ impl<'a> Interpreter<'a> {
             if callee == "list_append" {
                 return self.eval_list_append(args, env, span, task_name);
             }
+            if callee == "old" {
+                let key = format!("old({})", args.trim());
+                if let Some(binding) = env.get(&key) {
+                    return Ok(Evaluated::Value(binding.value.clone()));
+                }
+                return Err(format!(
+                    "`{key}` was not captured at task entry; old(...) is available only in `ensures:` over parameters or parameter fields readable when the task starts"
+                ));
+            }
+            if callee == "list_len" {
+                return self.eval_list_len(args, env, span, task_name);
+            }
             let Some(task) = self.find_task(callee) else {
                 return Err(format!("task `{callee}` was not found"));
             };
@@ -944,6 +992,32 @@ impl<'a> Interpreter<'a> {
                 .map_or(source.as_str(), |(head, _tail)| head)
         };
         Ok(Evaluated::Value(Value::Text(prefix.to_string())))
+    }
+
+    fn eval_list_len(
+        &self,
+        args: &str,
+        env: &mut Env,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Evaluated, String> {
+        let raw_args = split_arguments(args);
+        if raw_args.len() != 1 {
+            return Err(format!(
+                "list_len expects 1 argument(s), got {}",
+                raw_args.len()
+            ));
+        }
+        let list_expr = strip_borrow_or_change_argument(raw_args[0]).unwrap_or(raw_args[0]);
+        let value = match self.eval_expr(list_expr, env, span, task_name)? {
+            Evaluated::Value(value) => value,
+            Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
+        };
+        let Value::List(values) = value else {
+            return Err(format!("list_len expects a list, got {list_expr}"));
+        };
+        Ok(Evaluated::Value(Value::Int(values.len() as i64)))
     }
 
     fn push_active_iteration(&self, root: String, span: Span) {
@@ -1331,7 +1405,7 @@ fn contract_allowed_names(task: &Task, kind: ContractKind) -> BTreeSet<String> {
     names
 }
 
-fn validate_predicate_v0(text: &str, allowed_names: &BTreeSet<String>) -> bool {
+fn validate_predicate_v1(text: &str, allowed_names: &BTreeSet<String>, allow_old: bool) -> bool {
     let text = trim_outer_parens(text.trim());
     let Some((left, _op, right)) =
         split_top_level_operator(text, &["==", "!=", "<=", ">=", "<", ">"])
@@ -1341,11 +1415,15 @@ fn validate_predicate_v0(text: &str, allowed_names: &BTreeSet<String>) -> bool {
 
     split_top_level_operator(left, &["==", "!=", "<=", ">=", "<", ">"]).is_none()
         && split_top_level_operator(right, &["==", "!=", "<=", ">=", "<", ">"]).is_none()
-        && validate_contract_operand(left, allowed_names)
-        && validate_contract_operand(right, allowed_names)
+        && validate_contract_operand(left, allowed_names, allow_old)
+        && validate_contract_operand(right, allowed_names, allow_old)
 }
 
-fn validate_contract_operand(text: &str, allowed_names: &BTreeSet<String>) -> bool {
+fn validate_contract_operand(
+    text: &str,
+    allowed_names: &BTreeSet<String>,
+    allow_old: bool,
+) -> bool {
     let text = trim_outer_parens(text.trim());
     if text.is_empty()
         || split_word_operator(text, "and").is_some()
@@ -1354,12 +1432,20 @@ fn validate_contract_operand(text: &str, allowed_names: &BTreeSet<String>) -> bo
         return false;
     }
     if let Some((left, _op, right)) = split_top_level_operator(text, &["+", "-"]) {
-        return validate_contract_operand(left, allowed_names)
-            && validate_contract_operand(right, allowed_names);
+        return validate_contract_operand(left, allowed_names, allow_old)
+            && validate_contract_operand(right, allowed_names, allow_old);
     }
     if let Some((left, _op, right)) = split_top_level_operator(text, &["*", "/"]) {
-        return validate_contract_operand(left, allowed_names)
-            && validate_contract_operand(right, allowed_names);
+        return validate_contract_operand(left, allowed_names, allow_old)
+            && validate_contract_operand(right, allowed_names, allow_old);
+    }
+    if let Some(inner) = contract_call_operand(text, "old") {
+        return allow_old && validate_old_inner(inner, allowed_names);
+    }
+    if let Some(inner) = contract_call_operand(text, "list_len") {
+        return allowed_names.contains(inner)
+            || field_place::split_field_place(inner)
+                .is_some_and(|(root, _field)| allowed_names.contains(root));
     }
     text == "true"
         || text == "false"
@@ -1367,6 +1453,60 @@ fn validate_contract_operand(text: &str, allowed_names: &BTreeSet<String>) -> bo
         || allowed_names.contains(text)
         || field_place::split_field_place(text)
             .is_some_and(|(root, _field)| allowed_names.contains(root))
+}
+
+fn contract_call_operand<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+    // Canonical strictness: the exact `name(` prefix with no gap, so spaced
+    // forms fall to honest prose instead of validating without capturing.
+    let inner = text
+        .strip_prefix(name)?
+        .strip_prefix('(')?
+        .strip_suffix(')')?
+        .trim();
+    // The inner form must be a simple place, not a nested expression with
+    // top-level parentheses or commas.
+    (!inner.is_empty() && !inner.contains('(') && !inner.contains(',')).then_some(inner)
+}
+
+fn validate_old_inner(inner: &str, allowed_names: &BTreeSet<String>) -> bool {
+    // old(...) captures entry state: parameters or parameter fields only,
+    // never `result`, which does not exist at entry.
+    validate_entry_readable_place(inner, allowed_names)
+}
+
+fn validate_entry_readable_place(inner: &str, allowed_names: &BTreeSet<String>) -> bool {
+    if inner == "result" {
+        return false;
+    }
+    if allowed_names.contains(inner) {
+        return true;
+    }
+    field_place::split_field_place(inner)
+        .is_some_and(|(root, _field)| root != "result" && allowed_names.contains(root))
+}
+
+fn collect_old_references(text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while let Some(offset) = text[index..].find("old(") {
+        let start = index + offset;
+        let preceded_by_word =
+            start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
+        let inner_start = start + 4;
+        let Some(close_offset) = text[inner_start..].find(')') else {
+            break;
+        };
+        let inner = text[inner_start..inner_start + close_offset].trim();
+        if !preceded_by_word && !inner.is_empty() && !inner.contains('(') && !inner.contains(',') {
+            let owned = inner.to_string();
+            if !found.contains(&owned) {
+                found.push(owned);
+            }
+        }
+        index = inner_start + close_offset + 1;
+    }
+    found
 }
 
 fn executable_lines(lines: &[SectionLine]) -> Vec<ExecLine> {
@@ -2000,6 +2140,180 @@ task fail_now() -> Result Int, MathError {
         );
         assert!(
             rendered.contains("task `add` did not satisfy ensures: result == a + b"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn wrong_swap_fixture_fails_old_ensures_with_task_blame() {
+        let program = fixture_program(
+            "fixtures/run/session_t_wrong_swap_contract.hum",
+            include_str!("../fixtures/run/session_t_wrong_swap_contract.hum"),
+        );
+        let report = run_program(&program, Some("wrong_swap_demo"), &[]);
+        assert_eq!(report.outcome, RunOutcome::ContractViolation);
+        let diagnostic = &report.diagnostics[0];
+        assert_eq!(diagnostic.code, DiagnosticCode::ENSURES_CONTRACT_VIOLATION);
+        let rendered = diagnostic.render();
+        assert!(
+            rendered.contains("task `swap_xy` did not satisfy ensures: result.x == old(point.y)"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn complete_item_preservation_is_checked_not_prose() {
+        let program = fixture_program(
+            "fixtures/run/session_o_complete_item_field_place.hum",
+            include_str!("../fixtures/run/session_o_complete_item_field_place.hum"),
+        );
+        let report = run_program(&program, Some("complete_item_demo"), &[]);
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Success("{done: true, title: hum}".to_string())
+        );
+        assert!(
+            report.diagnostics.is_empty(),
+            "preservation must be a checked old() contract with no prose warning: {:#?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn builder_list_len_contract_checks_and_content_stays_prose() {
+        let program = fixture_program(
+            "examples/probes/list_builder.hum",
+            include_str!("../examples/probes/list_builder.hum"),
+        );
+        let report = run_program(&program, Some("builder_demo"), &[]);
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Success("[parse, check, run]".to_string())
+        );
+        assert_eq!(
+            report.diagnostics.len(),
+            1,
+            "only the content claim stays prose: {:#?}",
+            report.diagnostics
+        );
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::UNCHECKED_PROSE_CONTRACT
+        );
+    }
+
+    #[test]
+    fn spaced_old_falls_to_honest_prose_never_traps() {
+        let source = r#"module tests.spaced_old
+
+task echo_amount(amount: UInt) -> UInt {
+  why:
+    pin the canonical-prefix rule for old
+
+  ensures:
+    result == old (amount)
+
+  does:
+    return amount
+}
+"#;
+        let program = fixture_program("tests/spaced_old.hum", source);
+        let report = run_program(&program, Some("echo_amount"), &["7".to_string()]);
+        assert_eq!(report.outcome, RunOutcome::Success("7".to_string()));
+        assert_eq!(
+            report.diagnostics.len(),
+            1,
+            "spaced old must warn as prose, not trap: {:#?}",
+            report.diagnostics
+        );
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::UNCHECKED_PROSE_CONTRACT
+        );
+    }
+
+    #[test]
+    fn spaced_list_len_falls_to_honest_prose() {
+        let source = r#"module tests.spaced_list_len
+
+task make_items() -> List Text {
+  why:
+    pin the canonical-prefix rule for list_len
+
+  ensures:
+    list_len (result) == 2
+
+  does:
+    change items: List Text = []
+    let added_a: Unit = list_append(change items, "a")
+    let added_b: Unit = list_append(change items, "b")
+    return items
+}
+"#;
+        let program = fixture_program("tests/spaced_list_len.hum", source);
+        let report = run_program(&program, Some("make_items"), &[]);
+        assert_eq!(report.diagnostics.len(), 1, "{:#?}", report.diagnostics);
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::UNCHECKED_PROSE_CONTRACT
+        );
+    }
+
+    #[test]
+    fn list_len_is_reachable_from_task_bodies() {
+        let source = r#"module tests.list_len_body
+
+task count_items() -> Int {
+  why:
+    pin list_len as a documented body-reachable length read
+
+  does:
+    change items: List Text = []
+    let added_a: Unit = list_append(change items, "a")
+    let added_b: Unit = list_append(change items, "b")
+    return list_len(items)
+}
+"#;
+        let program = fixture_program("tests/list_len_body.hum", source);
+        let report = run_program(&program, Some("count_items"), &[]);
+        assert_eq!(report.outcome, RunOutcome::Success("2".to_string()));
+    }
+
+    #[test]
+    fn old_in_task_body_traps_with_clear_message() {
+        let source = r#"module tests.old_in_body
+
+task echo_amount(amount: UInt) -> UInt {
+  why:
+    pin that old() stays contract-only vocabulary
+
+  does:
+    return old(amount)
+}
+"#;
+        let program = fixture_program("tests/old_in_body.hum", source);
+        let report = run_program(&program, Some("echo_amount"), &["7".to_string()]);
+        let RunOutcome::Trap(message) = &report.outcome else {
+            panic!("old() in a body must trap, got {:#?}", report.outcome);
+        };
+        assert!(
+            message.contains("available only in `ensures:`"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn old_in_needs_stays_honest_prose() {
+        let program = fixture_program(
+            "fixtures/run/session_t_old_in_needs_prose.hum",
+            include_str!("../fixtures/run/session_t_old_in_needs_prose.hum"),
+        );
+        let report = run_program(&program, Some("old_in_needs_demo"), &[]);
+        assert_eq!(report.outcome, RunOutcome::Success("7".to_string()));
+        assert_eq!(report.diagnostics.len(), 1);
+        let rendered = report.diagnostics[0].render();
+        assert!(
+            rendered.contains("unchecked prose needs contract: amount == old(amount)"),
             "{rendered}"
         );
     }

@@ -13,6 +13,7 @@ task builder_demo() -> List Text {
     build a list by appending three visible items before finish
 
   ensures:
+    list_len(result) == 3
     completed list contains parse check run
 
   does:

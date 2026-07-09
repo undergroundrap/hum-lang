@@ -1,0 +1,27 @@
+module fixtures.run.session_t_wrong_swap_contract
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task swap_xy(change point: Point) -> Point {
+  why:
+    prove old() pre-state ensures catches a swap that never swaps
+
+  ensures:
+    result.x == old(point.y)
+    result.y == old(point.x)
+
+  does:
+    return point
+}
+
+task wrong_swap_demo() -> Point {
+  why:
+    exercise the sabotaged swap without shell-dependent record quoting
+
+  does:
+    change point: Point = {x: 1, y: 2}
+    return swap_xy(change point)
+}
