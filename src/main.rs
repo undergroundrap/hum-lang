@@ -15,6 +15,7 @@ mod diagnostic_catalog;
 mod diagnostics;
 mod doctor;
 mod effect_check;
+mod element_place;
 mod evidence;
 mod explain;
 mod field_place;

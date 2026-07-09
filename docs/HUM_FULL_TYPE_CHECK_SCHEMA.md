@@ -77,6 +77,7 @@ The V0 gate checks only conservative statement contexts:
 - `let_binding` and `mutable_binding`: explicit annotations are checked when
   present; otherwise simple local and literal facts may be inferred.
 - `set_place`: the assigned expression must match a known local, parameter, or direct declared `root.field` place type.
+- direct element reads such as `items[0]`: the result type is the element type of a local or parameter annotated as `List T`.
 - simple task calls: known callee result types may type the call expression; `consume value` delegates to the consumed value type inside call arguments.
 - `list_append(change list, item)`: the built-in minimal list-growth operation
   is typed as `Unit`; list literals are accepted against explicit `List ...`
@@ -93,7 +94,7 @@ V0 intentionally blocks or leaves unchecked:
 - nested intent lowering
 - test expectation typing
 - store writes and other unsupported body lines
-- overloads, field views, traits, generics, layout, ABI, ownership, borrowing,
+- overloads, view ownership semantics, traits, generics, layout, ABI, ownership, borrowing,
   effects, resources, profiles, and backend-specific typing
 
 ## Summary Fields

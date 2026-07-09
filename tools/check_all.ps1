@@ -567,6 +567,27 @@ try {
   if (-not $RunSessionRStaleItem.Output.Contains('H0807')) { throw "Session R stale item field-view run expected H0807, got $($RunSessionRStaleItem.Output)" }
   if (-not $RunSessionRStaleItem.Output.Contains('done_view')) { throw "Session R stale item field-view run expected done_view blame, got $($RunSessionRStaleItem.Output)" }
   if (-not $RunSessionRStaleItem.Output.Contains('item.done')) { throw "Session R stale item field-view run expected item.done write blame, got $($RunSessionRStaleItem.Output)" }
+
+  $RunSessionSElementView = Read-NativeOutput 'run Session S element-view fixture' $Hum @('run', 'examples/probes/element_views.hum', '--entry', 'element_view_before_growth')
+  if ($RunSessionSElementView.Trim() -ne 'parse') { throw "Session S element-view run expected parse, got $RunSessionSElementView" }
+
+  $RunSessionSCopyVsView = Read-NativeOutput 'run Session S element copy-vs-view fixture' $Hum @('run', 'examples/probes/element_views.hum', '--entry', 'copied_element_survives_growth')
+  if ($RunSessionSCopyVsView.Trim() -ne 'parse') { throw "Session S copied element run expected parse, got $RunSessionSCopyVsView" }
+
+  $RunSessionSStaleElement = Read-NativeOutputWithExit 'run Session S stale element-view misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_s_stale_element_view_fail.hum', '--entry', 'stale_element_view_after_append')
+  if ($RunSessionSStaleElement.ExitCode -ne 2) { throw "Session S stale element-view run expected exit 2, got $($RunSessionSStaleElement.ExitCode)" }
+  if (-not $RunSessionSStaleElement.Output.Contains('H0807')) { throw "Session S stale element-view run expected H0807, got $($RunSessionSStaleElement.Output)" }
+  if (-not $RunSessionSStaleElement.Output.Contains('first_view')) { throw "Session S stale element-view run expected first_view blame, got $($RunSessionSStaleElement.Output)" }
+  if (-not $RunSessionSStaleElement.Output.Contains('items[0]')) { throw "Session S stale element-view run expected items[0] source, got $($RunSessionSStaleElement.Output)" }
+  if (-not $RunSessionSStaleElement.Output.Contains('list_append grew items')) { throw "Session S stale element-view run expected append site, got $($RunSessionSStaleElement.Output)" }
+  if (-not $RunSessionSStaleElement.Output.Contains('re-borrow after the append')) { throw "Session S stale element-view run expected repair help, got $($RunSessionSStaleElement.Output)" }
+
+  $RunSessionSOverlap = Read-NativeOutputWithExit 'run Session S H0806/H0807 overlap fixture' $Hum @('run', 'fixtures/ownership_check/session_s_append_iteration_view_overlap_fail.hum', '--entry', 'append_during_iteration_with_element_view')
+  if ($RunSessionSOverlap.ExitCode -ne 2) { throw "Session S overlap run expected exit 2, got $($RunSessionSOverlap.ExitCode)" }
+  if (-not $RunSessionSOverlap.Output.Contains('H0806')) { throw "Session S overlap run expected H0806, got $($RunSessionSOverlap.Output)" }
+  if ($RunSessionSOverlap.Output.Contains('H0807')) { throw "Session S overlap run must not also report H0807, got $($RunSessionSOverlap.Output)" }
+  if (-not $RunSessionSOverlap.Output.Contains('list_append')) { throw "Session S overlap run expected list_append blame, got $($RunSessionSOverlap.Output)" }
+  if (-not $RunSessionSOverlap.Output.Contains('for each')) { throw "Session S overlap run expected loop blame, got $($RunSessionSOverlap.Output)" }
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }
@@ -878,6 +899,20 @@ try {
   if (-not $OwnershipRStaleItemJson.Output.Contains('"diagnostic_code": "H0807"')) { throw "ownership check Session R stale item expected H0807, got $($OwnershipRStaleItemJson.Output)" }
   if (-not $OwnershipRStaleItemJson.Output.Contains('done_view borrowed item.done')) { throw "ownership check Session R stale item expected binding and source in help, got $($OwnershipRStaleItemJson.Output)" }
   if (-not $OwnershipRStaleItemJson.Output.Contains('item.done was written')) { throw "ownership check Session R stale item expected invalidating write in help, got $($OwnershipRStaleItemJson.Output)" }
+
+  $OwnershipSElementViewsJson = Read-NativeOutput 'ownership check Session S element views JSON' $Hum @('ownership-check', '--format', 'json', 'examples/probes/element_views.hum')
+  Assert-Json 'ownership check Session S element views JSON' $OwnershipSElementViewsJson
+  if (-not $OwnershipSElementViewsJson.Contains('"status": "recognized_core_ownership_facts_checked_v0"')) { throw "ownership check Session S element views expected pass, got $OwnershipSElementViewsJson" }
+  if (-not $OwnershipSElementViewsJson.Contains('"status": "accepted_element_view_borrow_v0"')) { throw "ownership check Session S element views expected element-view borrow acceptance, got $OwnershipSElementViewsJson" }
+  if (-not $OwnershipSElementViewsJson.Contains('"declaration": "borrow items[0]"')) { throw "ownership check Session S element views expected items[0] declaration, got $OwnershipSElementViewsJson" }
+
+  $OwnershipSStaleElementJson = Read-NativeOutputWithExit 'ownership check Session S stale element-view JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_s_stale_element_view_fail.hum')
+  if ($OwnershipSStaleElementJson.ExitCode -ne 1) { throw "ownership check Session S stale element-view expected exit 1, got $($OwnershipSStaleElementJson.ExitCode)" }
+  Assert-Json 'ownership check Session S stale element-view JSON' $OwnershipSStaleElementJson.Output
+  if (-not $OwnershipSStaleElementJson.Output.Contains('"diagnostic_code": "H0807"')) { throw "ownership check Session S stale element expected H0807, got $($OwnershipSStaleElementJson.Output)" }
+  if (-not $OwnershipSStaleElementJson.Output.Contains('"status": "rejected_stale_element_view_use_v0"')) { throw "ownership check Session S stale element expected stale element rejection, got $($OwnershipSStaleElementJson.Output)" }
+  if (-not $OwnershipSStaleElementJson.Output.Contains('first_view borrowed items[0]')) { throw "ownership check Session S stale element expected binding and source in help, got $($OwnershipSStaleElementJson.Output)" }
+  if (-not $OwnershipSStaleElementJson.Output.Contains('list_append grew items')) { throw "ownership check Session S stale element expected append site in help, got $($OwnershipSStaleElementJson.Output)" }
   $ResourceCheckJson = Read-NativeOutput 'resource check JSON' $Hum @('resource-check', '--format', 'json', 'fixtures/resource_check/simple_pass.hum')
   Assert-Json 'resource check JSON' $ResourceCheckJson
   if (-not $ResourceCheckJson.Contains('"schema": "hum.resource_check.v0"')) { throw 'resource check JSON is missing hum.resource_check.v0 schema' }

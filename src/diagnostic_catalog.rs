@@ -285,8 +285,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::STALE_FIELD_VIEW,
         default_severity: Severity::Error,
-        explanation: "A local field view was used after the exact record field it viewed was written.",
-        repair: "Re-borrow the field after the write, or bind a value copy before the write if stale observation was intended.",
+        explanation: "A local field or element view was used after the source it viewed was changed by a recognized invalidating operation.",
+        repair: "Re-borrow the view after the write or append, or bind a value copy before the invalidating operation if stale observation was intended.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,

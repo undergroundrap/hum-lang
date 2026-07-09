@@ -1,3 +1,5 @@
+use crate::element_place;
+
 #[derive(Debug, Clone)]
 pub struct CoreExpressionPreview {
     pub text: String,
@@ -375,7 +377,7 @@ fn classify_atom(text: &str) -> ExpressionAtom {
         ("text_literal", "atom_preview_v0")
     } else if has_call_shape(text) {
         ("call_like", "atom_preview_v0")
-    } else if text.contains('.') {
+    } else if text.contains('.') || is_direct_element_place_atom(text) {
         ("path_or_field_read", "atom_preview_v0")
     } else if is_identifier_like(text) {
         ("name", "atom_preview_v0")
@@ -392,6 +394,26 @@ fn classify_atom(text: &str) -> ExpressionAtom {
 
 fn has_call_shape(text: &str) -> bool {
     text.contains('(') && text.contains(')')
+}
+
+fn is_direct_element_place_atom(text: &str) -> bool {
+    element_place::split_element_place(strip_permission_expression(text)).is_some()
+}
+
+fn strip_permission_expression(text: &str) -> &str {
+    ["borrow", "change", "consume"]
+        .iter()
+        .find_map(|keyword| strip_keyword(text.trim(), keyword))
+        .unwrap_or(text.trim())
+}
+
+fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
+    if text == keyword {
+        return Some("");
+    }
+    text.strip_prefix(keyword)
+        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
+        .map(str::trim)
 }
 
 fn is_identifier_like(text: &str) -> bool {

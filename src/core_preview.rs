@@ -1397,9 +1397,11 @@ fn set_target(text: &str) -> Option<String> {
 
 fn path_root(text: &str) -> Option<String> {
     let text = strip_permission_expression(text);
-    text.split_once('.')
-        .map(|(root, _field)| root.trim().to_string())
-        .filter(|root| !root.is_empty())
+    text.split(['.', '['])
+        .next()
+        .map(str::trim)
+        .filter(|root| !root.is_empty() && *root != text)
+        .map(str::to_string)
 }
 
 fn strip_permission_expression(text: &str) -> &str {

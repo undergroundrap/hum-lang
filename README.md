@@ -141,9 +141,10 @@ fixtures/run/wrong_add_contract.hum:8:5: error[H0703]: task `add` did not satisf
 ```
 
 The same discipline covers ownership words. `borrow`, `change`, and
-`consume` on parameters are checked promises. Local field views are narrow
-also: `let view = borrow record.field` is invalidated by a later write to
-that exact field, while copying the value first is just an ordinary value.
+`consume` on parameters are checked promises. Local views are narrow also:
+`let view = borrow record.field` is invalidated by a later write to that
+exact field, and `let view = borrow list[0]` is invalidated by later
+`list_append` growth. Copying the value first is just an ordinary value.
 Using a value after it moved is caught with the move site named:
 
 ```text

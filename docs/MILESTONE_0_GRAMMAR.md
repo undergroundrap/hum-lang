@@ -210,7 +210,7 @@ Field capture rules:
 - `field-type` is trimmed text after the first `:`
 - no full type grammar is enforced yet
 
-Milestone 1 executable checking also recognizes the direct field-place shape `place ::= value-ident | value-ident "." value-ident` for field reads, predicate operands, and `set` targets. It recognizes the built-in call shape `list_append(change value-ident, expression)` as the first minimal list-growth operation. Session R adds the narrow local field-view binding shape `let value-ident = borrow value-ident "." value-ident`; writing that exact field invalidates the view, while writing a distinct direct field does not. This is not a full expression grammar and does not create element views, general aliases, nested places, or general projection syntax.
+Milestone 1 executable checking also recognizes the direct place shapes `place ::= value-ident | value-ident "." value-ident | value-ident "[" uint-literal "]"` for local reads, field reads, and direct element reads; only field places are accepted as `set` targets. It recognizes the built-in call shape `list_append(change value-ident, expression)` as the first minimal list-growth operation. Session R adds the narrow local field-view binding shape `let value-ident = borrow value-ident "." value-ident`; writing that exact field invalidates the view, while writing a distinct direct field does not. Session S adds the narrow local element-view binding shape `let value-ident = borrow value-ident "[" uint-literal "]"`; `list_append` invalidates outstanding element views for the grown list. This is not a full expression grammar and does not create general indexing, nested places, retained element views, general aliases, or general projection syntax.
 
 ## Current Known Sections
 

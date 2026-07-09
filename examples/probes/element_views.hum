@@ -1,0 +1,28 @@
+module examples.probes.element_views
+
+task element_view_before_growth() -> Text {
+  why:
+    prove a local element view can be read while the list has not grown
+
+  ensures:
+    result == "parse"
+
+  does:
+    change items: List Text = ["parse", "check"]
+    let first_view = borrow items[0]
+    return first_view
+}
+
+task copied_element_survives_growth() -> Text {
+  why:
+    prove copying an element value is not an element view
+
+  ensures:
+    result == "parse"
+
+  does:
+    change items: List Text = ["parse", "check"]
+    let first_copy: Text = items[0]
+    let added: Unit = list_append(change items, "run")
+    return first_copy
+}

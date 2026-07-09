@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast::{Item, ParamPermission, Program, SectionLine, Task};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+use crate::element_place;
 use crate::field_place;
 use crate::graph::is_meaningful_line_text;
 use crate::return_dependency;
@@ -76,11 +77,30 @@ struct RuntimeBinding {
     view: Option<RuntimeView>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeViewKind {
+    Field,
+    Element,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeViewInvalidationKind {
+    FieldWrite,
+    ListAppend,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeViewInvalidation {
+    span: Span,
+    kind: RuntimeViewInvalidationKind,
+}
+
 #[derive(Debug, Clone)]
 struct RuntimeView {
+    kind: RuntimeViewKind,
     source_place: String,
     bound_at: Span,
-    invalidated_at: Option<Span>,
+    invalidated_by: Option<RuntimeViewInvalidation>,
 }
 
 impl RuntimeBinding {
@@ -106,7 +126,7 @@ impl RuntimeBinding {
         }
     }
 
-    fn field_view(value: Value, source_place: String, bound_at: Span) -> Self {
+    fn view(value: Value, kind: RuntimeViewKind, source_place: String, bound_at: Span) -> Self {
         Self {
             value,
             permission: RuntimePermission::Local,
@@ -114,9 +134,10 @@ impl RuntimeBinding {
             moved_by: None,
             linear: false,
             view: Some(RuntimeView {
+                kind,
                 source_place,
                 bound_at,
-                invalidated_at: None,
+                invalidated_by: None,
             }),
         }
     }
@@ -529,7 +550,7 @@ impl<'a> Interpreter<'a> {
             return Err(format!("binding `{rest}` is missing a name"));
         }
         let expr = expr.trim();
-        if !mutable && let Some(source_place) = borrowed_field_view_source(expr) {
+        if !mutable && let Some((kind, source_place)) = borrowed_view_source(expr) {
             let value = match self.eval_expr(source_place, env, span, task_name)? {
                 Evaluated::Value(value) => value,
                 Evaluated::Failure(value) => return Ok(Some(Flow::Fail(value))),
@@ -537,7 +558,7 @@ impl<'a> Interpreter<'a> {
             };
             env.insert(
                 name.to_string(),
-                RuntimeBinding::field_view(value, source_place.to_string(), span.clone()),
+                RuntimeBinding::view(value, kind, source_place.to_string(), span.clone()),
             );
             return Ok(None);
         }
@@ -808,6 +829,19 @@ impl<'a> Interpreter<'a> {
                 TaskResult::ContractViolation => Ok(Evaluated::ContractViolation),
             };
         }
+        if let Some((base, index)) = element_place::split_element_place(text)
+            && env.contains_key(base)
+        {
+            let value = self.read_value(env, base, span, task_name)?;
+            let Value::List(values) = value else {
+                return Err(format!("{base} is not a list"));
+            };
+            return values
+                .get(index)
+                .cloned()
+                .map(Evaluated::Value)
+                .ok_or_else(|| format!("list {base} has no element at index {index}"));
+        }
         if env.contains_key(text) {
             return self
                 .read_value(env, text, span, task_name)
@@ -872,6 +906,7 @@ impl<'a> Interpreter<'a> {
         values.push(item);
         binding.moved_at = None;
         binding.moved_by = None;
+        invalidate_element_views_for_growth(env, &root, span);
         Ok(Evaluated::Value(Value::Unit))
     }
 
@@ -945,16 +980,9 @@ impl<'a> Interpreter<'a> {
             return Err(self.use_after_move_trap(task_name, &root, span, move_span));
         }
         if let Some(view) = &binding.view
-            && let Some(invalidated_at) = &view.invalidated_at
+            && let Some(invalidation) = &view.invalidated_by
         {
-            return Err(self.stale_field_view_trap(
-                task_name,
-                &root,
-                &view.source_place,
-                span,
-                &view.bound_at,
-                invalidated_at,
-            ));
+            return Err(self.stale_view_trap(task_name, &root, view, span, invalidation));
         }
         Ok(binding.value.clone())
     }
@@ -1142,30 +1170,70 @@ impl<'a> Interpreter<'a> {
         )
     }
 
-    fn stale_field_view_trap(
+    fn stale_view_trap(
         &self,
         task_name: &str,
         view_name: &str,
-        source_place: &str,
+        view: &RuntimeView,
         use_span: &Span,
-        bound_at: &Span,
-        invalidated_at: &Span,
+        invalidation: &RuntimeViewInvalidation,
     ) -> String {
+        let (message, help) = match (view.kind, invalidation.kind) {
+            (RuntimeViewKind::Field, RuntimeViewInvalidationKind::FieldWrite) => (
+                format!(
+                    "field view {view_name} was used after {} changed",
+                    view.source_place
+                ),
+                format!(
+                    "Fix task {task_name}: {view_name} borrowed {} at {}:{}:{}, but {} was written at {}:{}:{} before this use; re-borrow after the write or bind a value copy before the write.",
+                    view.source_place,
+                    view.bound_at.file,
+                    view.bound_at.line,
+                    view.bound_at.column,
+                    view.source_place,
+                    invalidation.span.file,
+                    invalidation.span.line,
+                    invalidation.span.column
+                ),
+            ),
+            (RuntimeViewKind::Element, RuntimeViewInvalidationKind::ListAppend) => {
+                let root = place_root(&view.source_place);
+                (
+                    format!("element view {view_name} was used after {root} grew"),
+                    format!(
+                        "Fix task {task_name}: {view_name} borrowed {} at {}:{}:{}, but list_append grew {root} at {}:{}:{} before this use; re-borrow after the append or copy the element value before the append.",
+                        view.source_place,
+                        view.bound_at.file,
+                        view.bound_at.line,
+                        view.bound_at.column,
+                        invalidation.span.file,
+                        invalidation.span.line,
+                        invalidation.span.column
+                    ),
+                )
+            }
+            (RuntimeViewKind::Field, RuntimeViewInvalidationKind::ListAppend)
+            | (RuntimeViewKind::Element, RuntimeViewInvalidationKind::FieldWrite) => (
+                format!("view {view_name} was used after its source changed"),
+                format!(
+                    "Fix task {task_name}: {view_name} borrowed {} at {}:{}:{}, but the source changed at {}:{}:{} before this use; re-borrow after the change or copy the value first.",
+                    view.source_place,
+                    view.bound_at.file,
+                    view.bound_at.line,
+                    view.bound_at.column,
+                    invalidation.span.file,
+                    invalidation.span.line,
+                    invalidation.span.column
+                ),
+            ),
+        };
         self.diagnostics.borrow_mut().push(
             Diagnostic::error(
                 DiagnosticCode::STALE_FIELD_VIEW,
-                format!("field view `{view_name}` was used after `{source_place}` changed"),
+                message,
                 Some(use_span.clone()),
             )
-            .with_help(format!(
-                "Fix task `{task_name}`: `{view_name}` borrowed `{source_place}` at {}:{}:{}, but `{source_place}` was written at {}:{}:{} before this use; re-borrow after the write or bind a value copy before the write.",
-                bound_at.file,
-                bound_at.line,
-                bound_at.column,
-                invalidated_at.file,
-                invalidated_at.line,
-                invalidated_at.column
-            )),
+            .with_help(help),
         );
         format!(
             "{} {}",
@@ -1173,7 +1241,6 @@ impl<'a> Interpreter<'a> {
             DiagnosticCode::STALE_FIELD_VIEW.title()
         )
     }
-
     fn return_dependency_trap(&self, task_name: &str, source: &str, span: &Span) -> String {
         self.diagnostics.borrow_mut().push(
             Diagnostic::error(
@@ -1539,11 +1606,15 @@ fn strip_borrow_or_change_argument(text: &str) -> Option<&str> {
         .find_map(|keyword| strip_keyword(text.trim(), keyword))
 }
 
-fn borrowed_field_view_source(text: &str) -> Option<&str> {
+fn borrowed_view_source(text: &str) -> Option<(RuntimeViewKind, &str)> {
     let source = strip_keyword(text.trim(), "borrow")?;
-    field_place::split_field_place(source)
-        .is_some()
-        .then_some(source)
+    if field_place::split_field_place(source).is_some() {
+        return Some((RuntimeViewKind::Field, source));
+    }
+    if element_place::split_element_place(source).is_some() {
+        return Some((RuntimeViewKind::Element, source));
+    }
+    None
 }
 
 fn invalidate_field_views(env: &mut Env, place: &str, span: &Span) {
@@ -1552,10 +1623,29 @@ fn invalidate_field_views(env: &mut Env, place: &str, span: &Span) {
     }
     for binding in env.values_mut() {
         if let Some(view) = &mut binding.view
+            && view.kind == RuntimeViewKind::Field
             && view.source_place == place
-            && view.invalidated_at.is_none()
+            && view.invalidated_by.is_none()
         {
-            view.invalidated_at = Some(span.clone());
+            view.invalidated_by = Some(RuntimeViewInvalidation {
+                span: span.clone(),
+                kind: RuntimeViewInvalidationKind::FieldWrite,
+            });
+        }
+    }
+}
+
+fn invalidate_element_views_for_growth(env: &mut Env, root: &str, span: &Span) {
+    for binding in env.values_mut() {
+        if let Some(view) = &mut binding.view
+            && view.kind == RuntimeViewKind::Element
+            && place_root(&view.source_place) == root
+            && view.invalidated_by.is_none()
+        {
+            view.invalidated_by = Some(RuntimeViewInvalidation {
+                span: span.clone(),
+                kind: RuntimeViewInvalidationKind::ListAppend,
+            });
         }
     }
 }

@@ -358,7 +358,7 @@ friction:
   severity: blocked
   indicts: ownership
   proposal: fund stale field-view invalidation only after direct field places and disjoint-field v0 stay green
-  resolution: resolved for local direct field views in Session R by `fixtures/ownership_check/session_r_stale_point_field_view_fail.hum` with H0807; nested places, element views, and general aliases remain future work
+  resolution: resolved for local direct field views in Session R by `fixtures/ownership_check/session_r_stale_point_field_view_fail.hum` with H0807; nested places and general aliases remain future work
 
 friction:
   program: docs/bakeoff/CORPUS.md:296
@@ -384,6 +384,7 @@ friction:
   severity: blocked
   indicts: ownership
   proposal: include stale element-view machinery with the remaining view repairs considered in Session Q; do not count append-only fixtures as covering stale element views
+  resolution: resolved for local direct element views in Session S by `fixtures/ownership_check/session_s_stale_element_view_fail.hum` with H0807 and `examples/probes/element_views.hum`; only direct numeric element places and `list_append` growth are covered, while retain, nested/general indexing, capacity/profile behavior, and broader list design remain future work
 
 friction:
   program: examples/probes/list_builder.hum:16
@@ -429,7 +430,7 @@ resources, parameter-derived returned views through bare returns and closed
 consume-finish builder handoff, and active-iteration append rejection. It still
 has no full ownership safety claim, borrow-soundness claim, memory-safety proof,
 safety-critical readiness claim, internal-reference support, general stale field-view
-invalidation beyond local direct fields, stale element-view invalidation, broad disjoint-field projection,
+invalidation beyond local direct fields, general stale element-view invalidation beyond direct list growth, broad disjoint-field projection,
 broad flow-sensitive borrowing, concurrency ownership model, mature list stdlib,
 or general linear resource marker.
 
@@ -441,7 +442,9 @@ write after Sessions O and P. Program 5's internal references remain important,
 but they should build on the same provenance and invalidation machinery after
 field and element views have a checked, blamed, line-numbered failure mode.
 
-Session R update: local direct field views now have that checked failure mode. `let view = borrow record.field` is accepted as a field-view binding, writes to that exact field invalidate the view, distinct direct-field writes survive, and value copies remain ordinary immutable locals. Element views remain active ownership friction for Session S.
+Session R update: local direct field views now have that checked failure mode. `let view = borrow record.field` is accepted as a field-view binding, writes to that exact field invalidate the view, distinct direct-field writes survive, and value copies remain ordinary immutable locals.
+
+Session S update: local direct element views now have the matching checked failure mode. `let view = borrow list[0]` is accepted as an element-view binding, `list_append(change list, item)` invalidates outstanding element views for that list, value copies remain ordinary immutable locals, and the H0806/H0807 overlap fixture proves active-iteration mutation conflict wins on the append line. Retain, nested/general indexes, stale views from richer list APIs, and internal references remain future work.
 
 Carry a mandated contracts item too: Predicate v1 should come before the
 contract-check-mode ADR because the ledger has three predicate-expressiveness

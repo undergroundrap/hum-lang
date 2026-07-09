@@ -5,6 +5,7 @@ use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
 use crate::effect_check;
+use crate::element_place;
 use crate::field_place;
 use crate::graph::is_meaningful_line_text;
 use crate::return_dependency::{self, ReturnDependency};
@@ -133,11 +134,30 @@ struct LinearResourceSite {
     type_text: String,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ViewKind {
+    Field,
+    Element,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ViewInvalidationKind {
+    FieldWrite,
+    ListAppend,
+}
+
+#[derive(Clone)]
+struct ViewInvalidation {
+    span: Span,
+    kind: ViewInvalidationKind,
+}
+
 #[derive(Clone)]
 struct FieldViewSite {
+    kind: ViewKind,
     source_place: String,
     bound_span: Span,
-    invalidated_at: Option<Span>,
+    invalidated_by: Option<ViewInvalidation>,
 }
 
 #[derive(Clone, Default)]
@@ -649,6 +669,16 @@ fn check_binding_statement(
             "accepted_field_view_borrow_v0",
             None,
         )
+    } else if let Some((_view_name, source_place)) = element_view_binding(statement) {
+        ownership_statement(
+            statement,
+            index,
+            "element_view_borrow",
+            Some(target),
+            Some(format!("borrow {source_place}")),
+            "accepted_element_view_borrow_v0",
+            None,
+        )
     } else {
         ownership_statement(
             statement,
@@ -1134,9 +1164,22 @@ fn analyze_single_statement(
             state.field_views.insert(
                 view_name,
                 FieldViewSite {
+                    kind: ViewKind::Field,
                     source_place,
                     bound_span: portable_span(&statement.span),
-                    invalidated_at: None,
+                    invalidated_by: None,
+                },
+            );
+        }
+
+        if let Some((view_name, source_place)) = element_view_binding(statement) {
+            state.field_views.insert(
+                view_name,
+                FieldViewSite {
+                    kind: ViewKind::Element,
+                    source_place,
+                    bound_span: portable_span(&statement.span),
+                    invalidated_by: None,
                 },
             );
         }
@@ -1145,6 +1188,9 @@ fn analyze_single_statement(
             && field_place::split_field_place(&target).is_some()
         {
             invalidate_path_field_views(&mut state, &target, &statement.span);
+        }
+        if let Some(root) = list_append_change_root(statement) {
+            invalidate_path_element_views(&mut state, &root, &statement.span);
         }
 
         if let Some(root) = returned_move_root(statement, ownership_facts) {
@@ -1238,12 +1284,24 @@ fn stale_field_view_diagnostic(
     site: &FieldViewSite,
     state: &PathState,
 ) -> PathDiagnostic {
+    let (ownership_kind, status, reason) = match site.kind {
+        ViewKind::Field => (
+            "stale_field_view_use",
+            "rejected_stale_field_view_use_v0",
+            "field_view_invalidated_by_exact_field_write_v0",
+        ),
+        ViewKind::Element => (
+            "stale_element_view_use",
+            "rejected_stale_element_view_use_v0",
+            "element_view_invalidated_by_list_growth_v0",
+        ),
+    };
     PathDiagnostic {
         index,
-        ownership_kind: "stale_field_view_use",
+        ownership_kind,
         target: Some(view_name.to_string()),
-        status: "rejected_stale_field_view_use_v0",
-        reason: "field_view_invalidated_by_exact_field_write_v0",
+        status,
+        reason,
         diagnostic_code: DiagnosticCode::STALE_FIELD_VIEW.as_str(),
         help: stale_field_view_help(item_name, view_name, site, &statements[index], state),
     }
@@ -1292,6 +1350,22 @@ fn field_view_binding(statement: &BodyStatement) -> Option<(String, String)> {
 fn field_view_source(text: &str) -> Option<&str> {
     let source = strip_keyword(text.trim(), "borrow")?;
     field_place::split_field_place(source)
+        .is_some()
+        .then_some(source)
+}
+
+fn element_view_binding(statement: &BodyStatement) -> Option<(String, String)> {
+    if statement.kind != "let_binding" {
+        return None;
+    }
+    let view_name = binding_name(statement).map(|name| first_resource(&name))?;
+    let source_place = element_view_source(binding_initializer(statement)?)?;
+    Some((view_name, source_place.to_string()))
+}
+
+fn element_view_source(text: &str) -> Option<&str> {
+    let source = strip_keyword(text.trim(), "borrow")?;
+    element_place::split_element_place(source)
         .is_some()
         .then_some(source)
 }
@@ -1399,29 +1473,61 @@ fn stale_field_view_help(
     statement: &BodyStatement,
     state: &PathState,
 ) -> String {
-    let Some(invalidated_at) = &site.invalidated_at else {
+    let Some(invalidation) = &site.invalidated_by else {
         return format!(
-            "Fix task {item_name} on {}: field view {view_name} has no recorded invalidation; re-borrow after writes or bind a value copy before the write.",
+            "Fix task {item_name} on {}: view {view_name} has no recorded invalidation; re-borrow after changes or bind a value copy before the change.",
             format_path(&state.path)
         );
     };
-    format!(
-        "Fix task {item_name} on {}: {view_name} borrowed {} at {}:{}:{}, but {} was written at {}:{}:{} before the use at {}:{}:{}; re-borrow after the write or copy the field value before the write.",
-        format_path(&state.path),
-        site.source_place,
-        site.bound_span.file,
-        site.bound_span.line,
-        site.bound_span.column,
-        site.source_place,
-        invalidated_at.file,
-        invalidated_at.line,
-        invalidated_at.column,
-        statement.span.file,
-        statement.span.line,
-        statement.span.column
-    )
+    match (site.kind, invalidation.kind) {
+        (ViewKind::Field, ViewInvalidationKind::FieldWrite) => format!(
+            "Fix task {item_name} on {}: {view_name} borrowed {} at {}:{}:{}, but {} was written at {}:{}:{} before the use at {}:{}:{}; re-borrow after the write or copy the field value before the write.",
+            format_path(&state.path),
+            site.source_place,
+            site.bound_span.file,
+            site.bound_span.line,
+            site.bound_span.column,
+            site.source_place,
+            invalidation.span.file,
+            invalidation.span.line,
+            invalidation.span.column,
+            statement.span.file,
+            statement.span.line,
+            statement.span.column
+        ),
+        (ViewKind::Element, ViewInvalidationKind::ListAppend) => {
+            let root = first_resource(&site.source_place);
+            format!(
+                "Fix task {item_name} on {}: {view_name} borrowed {} at {}:{}:{}, but list_append grew {root} at {}:{}:{} before the use at {}:{}:{}; re-borrow after the append or copy the element value before the append.",
+                format_path(&state.path),
+                site.source_place,
+                site.bound_span.file,
+                site.bound_span.line,
+                site.bound_span.column,
+                invalidation.span.file,
+                invalidation.span.line,
+                invalidation.span.column,
+                statement.span.file,
+                statement.span.line,
+                statement.span.column
+            )
+        }
+        _ => format!(
+            "Fix task {item_name} on {}: {view_name} borrowed {} at {}:{}:{}, but the source changed at {}:{}:{} before the use at {}:{}:{}; re-borrow after the change or copy the value first.",
+            format_path(&state.path),
+            site.source_place,
+            site.bound_span.file,
+            site.bound_span.line,
+            site.bound_span.column,
+            invalidation.span.file,
+            invalidation.span.line,
+            invalidation.span.column,
+            statement.span.file,
+            statement.span.line,
+            statement.span.column
+        ),
+    }
 }
-
 fn path_move_help(
     item_name: &str,
     target: &str,
@@ -1876,7 +1982,7 @@ fn stale_field_view_use<'a>(
     for token in identifier_tokens(expression) {
         let root = first_resource(&token);
         if let Some(site) = state.field_views.get(&root)
-            && site.invalidated_at.is_some()
+            && site.invalidated_by.is_some()
         {
             return Some((root, site));
         }
@@ -1886,12 +1992,39 @@ fn stale_field_view_use<'a>(
 
 fn invalidate_path_field_views(state: &mut PathState, target: &str, span: &Span) {
     for site in state.field_views.values_mut() {
-        if site.source_place == target && site.invalidated_at.is_none() {
-            site.invalidated_at = Some(portable_span(span));
+        if site.kind == ViewKind::Field
+            && site.source_place == target
+            && site.invalidated_by.is_none()
+        {
+            site.invalidated_by = Some(ViewInvalidation {
+                span: portable_span(span),
+                kind: ViewInvalidationKind::FieldWrite,
+            });
         }
     }
 }
 
+fn invalidate_path_element_views(state: &mut PathState, root: &str, span: &Span) {
+    for site in state.field_views.values_mut() {
+        if site.kind == ViewKind::Element
+            && first_resource(&site.source_place) == root
+            && site.invalidated_by.is_none()
+        {
+            site.invalidated_by = Some(ViewInvalidation {
+                span: portable_span(span),
+                kind: ViewInvalidationKind::ListAppend,
+            });
+        }
+    }
+}
+
+fn list_append_change_root(statement: &BodyStatement) -> Option<String> {
+    let expression = expression_text_for_statement(statement)?.trim();
+    let args = expression.strip_prefix("list_append(")?.strip_suffix(')')?;
+    let (first, _second) = args.split_once(',')?;
+    let list_place = strip_keyword(first.trim(), "change")?;
+    Some(first_resource(list_place))
+}
 fn record_statement_moves(
     statement: &BodyStatement,
     ownership_facts: &LocalOwnershipFacts,

@@ -1,0 +1,12 @@
+module fixtures.ownership_check.session_s_stale_element_view_fail
+
+task stale_element_view_after_append() -> Text {
+  why:
+    prove list growth invalidates outstanding element views
+
+  does:
+    change items: List Text = ["parse", "check"]
+    let first_view = borrow items[0]
+    let added: Unit = list_append(change items, "run")
+    return first_view
+}

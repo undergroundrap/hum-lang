@@ -1,0 +1,16 @@
+module fixtures.ownership_check.session_s_append_iteration_view_overlap_fail
+
+task append_during_iteration_with_element_view() -> List Text {
+  why:
+    prove active iteration conflict wins over element-view invalidation on the append line
+
+  does:
+    change items: List Text = ["parse", "check"]
+    let first_view = borrow items[0]
+
+    for each item in items {
+      let added: Unit = list_append(change items, first_view)
+    }
+
+    return items
+}

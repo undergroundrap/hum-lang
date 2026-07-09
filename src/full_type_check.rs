@@ -5,6 +5,7 @@ use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
 use crate::core_verify;
 use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::element_place;
 use crate::field_place::{self, FieldTypeMap};
 use crate::return_dependency;
 use crate::type_check;
@@ -610,6 +611,11 @@ fn place_type_fact(
     environment: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<TypeFact> {
+    if let Some((root, _index)) = element_place::split_element_place(name) {
+        let root_fact = environment.get(&name_key(root))?;
+        let type_text = element_place::list_element_type(&root_fact.type_text)?;
+        return Some(type_fact(type_text, "list_element_place_v0"));
+    }
     if let Some((root, field)) = field_place::split_field_place(name) {
         let root_fact = environment.get(&name_key(root))?;
         let type_text = field_place::field_type(field_types, &root_fact.type_text, field)?;
