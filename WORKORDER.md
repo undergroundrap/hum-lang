@@ -211,3 +211,27 @@ sabotaged-swap example may join the Magic Comment section if it earns it.
     (list_append, slice_until, list_len, old) reach critical mass,
     charter the labs pipeline per STDLIB_STRATEGY and the
     STDLIB_CONSTITUTION admission packet.
+18. Error context and chaining: typed fail values need a
+    cause/wrapping story ("LoadError caused by IoError, here is the
+    trail") BEFORE the IO capability slice, because IO is where error
+    chains are born. Go's decade of unresolved verbosity and Rust's
+    post-1.0 anyhow/thiserror split are the regrets to avoid; Hum's
+    blame machinery is the head start.
+19. Entry point as capability root: Hum's program entry is not main();
+    it is where program-level authority is declared (the app form with
+    uses:/starts with:). Design it WITH the IO capability slice, not
+    before. Entry tasks returning Result map to exit codes natively
+    (hum run already does 0/1/2).
+20. Module path binding: when multi-file programs land, module paths
+    are tool-enforced to match file paths; imports never execute code;
+    visibility stays the small export/package/private set.
+21. The Hum book: a digital book in the repo — "Hum: A Systems
+    Programming Language for Humans and Agents" — written as the
+    teaching companion, one chapter per shipped feature, every code
+    example extracted from checked fixtures under the showcase
+    discipline so the book cannot rot. The pedagogy gate made
+    enforceable: a feature is not stable until its chapter exists.
+    Chapters begin only for shipped features; the book never describes
+    the future. Hard copies are a later BDFL call; the repo book is
+    the canonical free edition (the Rust Book / Crafting Interpreters
+    adoption model).
