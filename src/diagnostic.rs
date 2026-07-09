@@ -94,6 +94,7 @@ impl DiagnosticCode {
     pub const RETURN_DEPENDENCY_NOT_PARAMETER: Self =
         Self::new("H0805", "return dependency is not a parameter");
     pub const ITERATION_MUTATION_CONFLICT: Self = Self::new("H0806", "iteration mutation conflict");
+    pub const STALE_FIELD_VIEW: Self = Self::new("H0807", "stale field view");
 
     pub const UNKNOWN_TARGET_FACT_RECORD: Self = Self::new("H1201", "unknown target fact record");
     pub const UNKNOWN_CAPABILITY_FAMILY: Self = Self::new("H1202", "unknown capability family");

@@ -133,11 +133,19 @@ struct LinearResourceSite {
     type_text: String,
 }
 
+#[derive(Clone)]
+struct FieldViewSite {
+    source_place: String,
+    bound_span: Span,
+    invalidated_at: Option<Span>,
+}
+
 #[derive(Clone, Default)]
 struct PathState {
     moved: BTreeMap<String, MoveSite>,
     linear_resources: BTreeMap<String, LinearResourceSite>,
     open_linear_roots: BTreeSet<String>,
+    field_views: BTreeMap<String, FieldViewSite>,
     path: Vec<String>,
 }
 
@@ -447,7 +455,7 @@ fn check_item(item: &Item, blocked: bool) -> Option<OwnershipItem> {
     if !blocked {
         apply_path_diagnostics(
             &mut statements,
-            linear_path_diagnostics(item.name(), &body.statements, &ownership_facts),
+            ownership_path_diagnostics(item.name(), &body.statements, &ownership_facts),
         );
     }
     let return_dependencies = return_dependency_facts(item, &ownership_facts, &body.statements);
@@ -629,6 +637,16 @@ fn check_binding_statement(
             Some(target),
             Some("change".to_string()),
             "accepted_mutable_local_owner_v0",
+            None,
+        )
+    } else if let Some((_view_name, source_place)) = field_view_binding(statement) {
+        ownership_statement(
+            statement,
+            index,
+            "field_view_borrow",
+            Some(target),
+            Some(format!("borrow {source_place}")),
+            "accepted_field_view_borrow_v0",
             None,
         )
     } else {
@@ -930,7 +948,7 @@ fn apply_path_diagnostics(
     }
 }
 
-fn linear_path_diagnostics(
+fn ownership_path_diagnostics(
     item_name: &str,
     statements: &[BodyStatement],
     ownership_facts: &LocalOwnershipFacts,
@@ -1082,6 +1100,14 @@ fn analyze_single_statement(
             continue;
         }
 
+        if let Some((view_name, site)) = stale_field_view_use(statement, &state) {
+            record_path_diagnostic(
+                diagnostics,
+                stale_field_view_diagnostic(item_name, statements, index, &view_name, site, &state),
+            );
+            continue;
+        }
+
         let consume_action = consume_action(statement);
         for root in consume_roots {
             if ownership_facts.is_movable_root(&root) {
@@ -1102,6 +1128,23 @@ fn analyze_single_statement(
                 },
             );
             state.open_linear_roots.insert(root);
+        }
+
+        if let Some((view_name, source_place)) = field_view_binding(statement) {
+            state.field_views.insert(
+                view_name,
+                FieldViewSite {
+                    source_place,
+                    bound_span: portable_span(&statement.span),
+                    invalidated_at: None,
+                },
+            );
+        }
+
+        if let Some(target) = set_place_name(statement)
+            && field_place::split_field_place(&target).is_some()
+        {
+            invalidate_path_field_views(&mut state, &target, &statement.span);
         }
 
         if let Some(root) = returned_move_root(statement, ownership_facts) {
@@ -1187,6 +1230,25 @@ fn use_after_move_diagnostic(
     }
 }
 
+fn stale_field_view_diagnostic(
+    item_name: &str,
+    statements: &[BodyStatement],
+    index: usize,
+    view_name: &str,
+    site: &FieldViewSite,
+    state: &PathState,
+) -> PathDiagnostic {
+    PathDiagnostic {
+        index,
+        ownership_kind: "stale_field_view_use",
+        target: Some(view_name.to_string()),
+        status: "rejected_stale_field_view_use_v0",
+        reason: "field_view_invalidated_by_exact_field_write_v0",
+        diagnostic_code: DiagnosticCode::STALE_FIELD_VIEW.as_str(),
+        help: stale_field_view_help(item_name, view_name, site, &statements[index], state),
+    }
+}
+
 fn linear_double_consume_diagnostic(
     item_name: &str,
     statements: &[BodyStatement],
@@ -1216,6 +1278,22 @@ fn linear_binding(statement: &BodyStatement) -> Option<(String, String)> {
     }
     let root = binding_name(statement).map(|name| first_resource(&name))?;
     Some((root, type_text))
+}
+
+fn field_view_binding(statement: &BodyStatement) -> Option<(String, String)> {
+    if statement.kind != "let_binding" {
+        return None;
+    }
+    let view_name = binding_name(statement).map(|name| first_resource(&name))?;
+    let source_place = field_view_source(binding_initializer(statement)?)?;
+    Some((view_name, source_place.to_string()))
+}
+
+fn field_view_source(text: &str) -> Option<&str> {
+    let source = strip_keyword(text.trim(), "borrow")?;
+    field_place::split_field_place(source)
+        .is_some()
+        .then_some(source)
 }
 
 fn binding_annotation(statement: &BodyStatement) -> Option<String> {
@@ -1312,6 +1390,36 @@ fn format_path(path: &[String]) -> String {
     } else {
         path.join(" -> ")
     }
+}
+
+fn stale_field_view_help(
+    item_name: &str,
+    view_name: &str,
+    site: &FieldViewSite,
+    statement: &BodyStatement,
+    state: &PathState,
+) -> String {
+    let Some(invalidated_at) = &site.invalidated_at else {
+        return format!(
+            "Fix task {item_name} on {}: field view {view_name} has no recorded invalidation; re-borrow after writes or bind a value copy before the write.",
+            format_path(&state.path)
+        );
+    };
+    format!(
+        "Fix task {item_name} on {}: {view_name} borrowed {} at {}:{}:{}, but {} was written at {}:{}:{} before the use at {}:{}:{}; re-borrow after the write or copy the field value before the write.",
+        format_path(&state.path),
+        site.source_place,
+        site.bound_span.file,
+        site.bound_span.line,
+        site.bound_span.column,
+        site.source_place,
+        invalidated_at.file,
+        invalidated_at.line,
+        invalidated_at.column,
+        statement.span.file,
+        statement.span.line,
+        statement.span.column
+    )
 }
 
 fn path_move_help(
@@ -1758,6 +1866,30 @@ fn moved_value_use<'a>(
         }
     }
     None
+}
+
+fn stale_field_view_use<'a>(
+    statement: &BodyStatement,
+    state: &'a PathState,
+) -> Option<(String, &'a FieldViewSite)> {
+    let expression = expression_text_for_statement(statement)?;
+    for token in identifier_tokens(expression) {
+        let root = first_resource(&token);
+        if let Some(site) = state.field_views.get(&root)
+            && site.invalidated_at.is_some()
+        {
+            return Some((root, site));
+        }
+    }
+    None
+}
+
+fn invalidate_path_field_views(state: &mut PathState, target: &str, span: &Span) {
+    for site in state.field_views.values_mut() {
+        if site.source_place == target && site.invalidated_at.is_none() {
+            site.invalidated_at = Some(portable_span(span));
+        }
+    }
 }
 
 fn record_statement_moves(

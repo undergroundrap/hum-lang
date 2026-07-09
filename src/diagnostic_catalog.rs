@@ -283,6 +283,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Collect mutations after the loop, or iterate over a separate snapshot/list before calling `list_append` on the original collection.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::STALE_FIELD_VIEW,
+        default_severity: Severity::Error,
+        explanation: "A local field view was used after the exact record field it viewed was written.",
+        repair: "Re-borrow the field after the write, or bind a value copy before the write if stale observation was intended.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
         default_severity: Severity::Error,
         explanation: "A `targets:` section names a target fact record that Hum does not publish in `hum target-facts`.",
@@ -383,6 +389,10 @@ mod tests {
         assert_eq!(
             find("H0805").map(|info| info.code),
             Some(DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER)
+        );
+        assert_eq!(
+            find("H0807").map(|info| info.code),
+            Some(DiagnosticCode::STALE_FIELD_VIEW)
         );
         assert_eq!(
             find("H1201").map(|info| info.code),

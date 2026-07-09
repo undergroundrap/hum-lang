@@ -199,6 +199,8 @@ The first executable built-in operation call is `list_append(change list,
 item)`. It mutates the named list place and returns `Unit`; it is not a
 general list standard library surface.
 
+The first local field-view repair recognizes `let view = borrow record.field` as a view of one direct field place. A later `set record.field = value` invalidates that view; unrelated direct field writes do not. This is exact-field bookkeeping, not general alias inference or lifetime proof.
+
 ## Core Statements
 
 Starter statements:

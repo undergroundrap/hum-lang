@@ -1,0 +1,16 @@
+module fixtures.ownership_check.session_r_stale_point_field_view_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task stale_point_field_view(change point: Point) -> UInt {
+  why:
+    reject a stale point field view after the same field is written
+
+  does:
+    let x_view = borrow point.x
+    set point.x = point.y
+    return x_view
+}

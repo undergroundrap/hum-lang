@@ -73,6 +73,14 @@ struct RuntimeBinding {
     moved_at: Option<Span>,
     moved_by: Option<String>,
     linear: bool,
+    view: Option<RuntimeView>,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeView {
+    source_place: String,
+    bound_at: Span,
+    invalidated_at: Option<Span>,
 }
 
 impl RuntimeBinding {
@@ -83,6 +91,7 @@ impl RuntimeBinding {
             moved_at: None,
             moved_by: None,
             linear: false,
+            view: None,
         }
     }
 
@@ -93,6 +102,22 @@ impl RuntimeBinding {
             moved_at: None,
             moved_by: None,
             linear,
+            view: None,
+        }
+    }
+
+    fn field_view(value: Value, source_place: String, bound_at: Span) -> Self {
+        Self {
+            value,
+            permission: RuntimePermission::Local,
+            moved_at: None,
+            moved_by: None,
+            linear: false,
+            view: Some(RuntimeView {
+                source_place,
+                bound_at,
+                invalidated_at: None,
+            }),
         }
     }
 }
@@ -456,7 +481,7 @@ impl<'a> Interpreter<'a> {
             }
 
             if let Some(rest) = strip_keyword(text, "change") {
-                if let Some(flow) = self.eval_binding(rest, env, &line.span, task_name)? {
+                if let Some(flow) = self.eval_binding(rest, env, &line.span, task_name, true)? {
                     return Ok(flow);
                 }
                 index += 1;
@@ -464,7 +489,7 @@ impl<'a> Interpreter<'a> {
             }
 
             if let Some(rest) = strip_keyword(text, "let") {
-                if let Some(flow) = self.eval_binding(rest, env, &line.span, task_name)? {
+                if let Some(flow) = self.eval_binding(rest, env, &line.span, task_name, false)? {
                     return Ok(flow);
                 }
                 index += 1;
@@ -493,6 +518,7 @@ impl<'a> Interpreter<'a> {
         env: &mut Env,
         span: &Span,
         task_name: &str,
+        mutable: bool,
     ) -> Result<Option<Flow>, String> {
         let (left, expr) = rest
             .split_once('=')
@@ -502,8 +528,21 @@ impl<'a> Interpreter<'a> {
         if name.is_empty() {
             return Err(format!("binding `{rest}` is missing a name"));
         }
+        let expr = expr.trim();
+        if !mutable && let Some(source_place) = borrowed_field_view_source(expr) {
+            let value = match self.eval_expr(source_place, env, span, task_name)? {
+                Evaluated::Value(value) => value,
+                Evaluated::Failure(value) => return Ok(Some(Flow::Fail(value))),
+                Evaluated::ContractViolation => return Ok(Some(Flow::ContractViolation)),
+            };
+            env.insert(
+                name.to_string(),
+                RuntimeBinding::field_view(value, source_place.to_string(), span.clone()),
+            );
+            return Ok(None);
+        }
         let linear = annotation.is_some_and(is_linear_resource_type);
-        match self.eval_expr(expr.trim(), env, span, task_name)? {
+        match self.eval_expr(expr, env, span, task_name)? {
             Evaluated::Value(value) => {
                 env.insert(name.to_string(), RuntimeBinding::local(value, linear));
                 Ok(None)
@@ -529,6 +568,7 @@ impl<'a> Interpreter<'a> {
         match self.eval_expr(expr.trim(), env, span, task_name)? {
             Evaluated::Value(value) => {
                 self.write_place(env, place, value)?;
+                invalidate_field_views(env, place, span);
                 Ok(None)
             }
             Evaluated::Failure(value) => Ok(Some(Flow::Fail(value))),
@@ -904,6 +944,18 @@ impl<'a> Interpreter<'a> {
         if let Some(move_span) = &binding.moved_at {
             return Err(self.use_after_move_trap(task_name, &root, span, move_span));
         }
+        if let Some(view) = &binding.view
+            && let Some(invalidated_at) = &view.invalidated_at
+        {
+            return Err(self.stale_field_view_trap(
+                task_name,
+                &root,
+                &view.source_place,
+                span,
+                &view.bound_at,
+                invalidated_at,
+            ));
+        }
         Ok(binding.value.clone())
     }
 
@@ -1087,6 +1139,38 @@ impl<'a> Interpreter<'a> {
             "{} {}",
             DiagnosticCode::ITERATION_MUTATION_CONFLICT.as_str(),
             DiagnosticCode::ITERATION_MUTATION_CONFLICT.title()
+        )
+    }
+
+    fn stale_field_view_trap(
+        &self,
+        task_name: &str,
+        view_name: &str,
+        source_place: &str,
+        use_span: &Span,
+        bound_at: &Span,
+        invalidated_at: &Span,
+    ) -> String {
+        self.diagnostics.borrow_mut().push(
+            Diagnostic::error(
+                DiagnosticCode::STALE_FIELD_VIEW,
+                format!("field view `{view_name}` was used after `{source_place}` changed"),
+                Some(use_span.clone()),
+            )
+            .with_help(format!(
+                "Fix task `{task_name}`: `{view_name}` borrowed `{source_place}` at {}:{}:{}, but `{source_place}` was written at {}:{}:{} before this use; re-borrow after the write or bind a value copy before the write.",
+                bound_at.file,
+                bound_at.line,
+                bound_at.column,
+                invalidated_at.file,
+                invalidated_at.line,
+                invalidated_at.column
+            )),
+        );
+        format!(
+            "{} {}",
+            DiagnosticCode::STALE_FIELD_VIEW.as_str(),
+            DiagnosticCode::STALE_FIELD_VIEW.title()
         )
     }
 
@@ -1453,6 +1537,27 @@ fn strip_borrow_or_change_argument(text: &str) -> Option<&str> {
     ["borrow", "change"]
         .iter()
         .find_map(|keyword| strip_keyword(text.trim(), keyword))
+}
+
+fn borrowed_field_view_source(text: &str) -> Option<&str> {
+    let source = strip_keyword(text.trim(), "borrow")?;
+    field_place::split_field_place(source)
+        .is_some()
+        .then_some(source)
+}
+
+fn invalidate_field_views(env: &mut Env, place: &str, span: &Span) {
+    if field_place::split_field_place(place).is_none() {
+        return;
+    }
+    for binding in env.values_mut() {
+        if let Some(view) = &mut binding.view
+            && view.source_place == place
+            && view.invalidated_at.is_none()
+        {
+            view.invalidated_at = Some(span.clone());
+        }
+    }
 }
 
 fn is_linear_binding(env: &Env, root: &str) -> bool {

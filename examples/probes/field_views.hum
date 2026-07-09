@@ -1,0 +1,32 @@
+module examples.probes.field_views
+
+type Flags {
+  left: Bool
+  right: Bool
+}
+
+task distinct_field_view_survives(change flags: Flags) -> Bool {
+  why:
+    prove writing one field does not invalidate a view of another field
+
+  ensures:
+    result == false
+
+  does:
+    let right_view = borrow flags.right
+    set flags.left = true
+    return right_view
+}
+
+task copy_survives_field_write(change flags: Flags) -> Bool {
+  why:
+    prove a copied field value is not a field view
+
+  ensures:
+    result == false
+
+  does:
+    let old_left: Bool = flags.left
+    set flags.left = true
+    return old_left
+}

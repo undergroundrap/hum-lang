@@ -358,6 +358,7 @@ friction:
   severity: blocked
   indicts: ownership
   proposal: fund stale field-view invalidation only after direct field places and disjoint-field v0 stay green
+  resolution: resolved for local direct field views in Session R by `fixtures/ownership_check/session_r_stale_point_field_view_fail.hum` with H0807; nested places, element views, and general aliases remain future work
 
 friction:
   program: docs/bakeoff/CORPUS.md:296
@@ -366,6 +367,7 @@ friction:
   severity: blocked
   indicts: ownership
   proposal: add field-view provenance and invalidation as a later ownership repair; do not count weaker direct-field fixtures as covering stale-view misuse
+  resolution: resolved for local direct field views in Session R by `fixtures/ownership_check/session_r_stale_item_field_view_fail.hum` with H0807; `examples/probes/field_views.hum` proves distinct-field views and value copies survive as separate cases
 
 friction:
   program: examples/probes/field_places.hum:17
@@ -426,8 +428,8 @@ resources, parameter-derived returned views through bare returns and closed
 `slice_until` derivations, direct field-place mutation, minimal `list_append`,
 consume-finish builder handoff, and active-iteration append rejection. It still
 has no full ownership safety claim, borrow-soundness claim, memory-safety proof,
-safety-critical readiness claim, internal-reference support, stale field-view
-invalidation, stale element-view invalidation, broad disjoint-field projection,
+safety-critical readiness claim, internal-reference support, general stale field-view
+invalidation beyond local direct fields, stale element-view invalidation, broad disjoint-field projection,
 broad flow-sensitive borrowing, concurrency ownership model, mature list stdlib,
 or general linear resource marker.
 
@@ -438,6 +440,8 @@ cover programs 8, 11, and 12, and they attach to features that users can already
 write after Sessions O and P. Program 5's internal references remain important,
 but they should build on the same provenance and invalidation machinery after
 field and element views have a checked, blamed, line-numbered failure mode.
+
+Session R update: local direct field views now have that checked failure mode. `let view = borrow record.field` is accepted as a field-view binding, writes to that exact field invalidate the view, distinct direct-field writes survive, and value copies remain ordinary immutable locals. Element views remain active ownership friction for Session S.
 
 Carry a mandated contracts item too: Predicate v1 should come before the
 contract-check-mode ADR because the ledger has three predicate-expressiveness

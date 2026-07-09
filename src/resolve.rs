@@ -1215,9 +1215,17 @@ fn place_root(text: &str) -> String {
 }
 
 fn path_root(text: &str) -> Option<String> {
+    let text = strip_permission_expression(text);
     text.split_once('.')
         .map(|(root, _field)| root.trim().to_string())
         .filter(|root| !root.is_empty())
+}
+
+fn strip_permission_expression(text: &str) -> &str {
+    ["borrow", "change", "consume"]
+        .iter()
+        .find_map(|keyword| strip_keyword(text.trim(), keyword))
+        .unwrap_or(text)
 }
 
 fn call_callee(text: &str) -> Option<String> {

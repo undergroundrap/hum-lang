@@ -149,10 +149,10 @@ gate and by stale element views.
 | 5 | Parser holding a slice into its own buffer | Blocked by missing feature | `fixtures/ownership_check/session_l_return_view_internal_fail.hum` rejects `from parser.buffer` with H0805. | Internal references and buffer/token invalidation are not implemented. |
 | 6 | Producer/consumer handoff between workers | Blocked by ban; local transfer subset runs | Session J consume fixtures prove local authority transfer and reject local use after consume. | Worker/concurrency syntax is banned, so no send/receive fixture exists. |
 | 7 | Memoizing cache read through a shared path | Blocked by missing feature | No runnable fixture. | Cache/map stdlib, source-visible internal mutation behind read-shaped APIs, and entry-view invalidation are not implemented. |
-| 8 | Swapping two fields of one record | Runs | `examples/probes/field_places.hum` runs `swap_xy({x:1,y:2}) -> {x:2,y:1}`; ownership JSON accepts distinct `point.x` and `point.y` field writes; borrowed field write rejects with H0802. | Stale field views and mature unrelated-field view invalidation are not implemented. |
+| 8 | Swapping two fields of one record | Runs | `examples/probes/field_places.hum` runs `swap_xy({x:1,y:2}) -> {x:2,y:1}`; ownership JSON accepts distinct `point.x` and `point.y` field writes; borrowed field write rejects with H0802; `fixtures/ownership_check/session_r_stale_point_field_view_fail.hum` rejects stale `point.x` views with H0807. | Nested places, element views, and general aliases are not implemented. |
 | 9 | Returning a view derived from a parameter | Runs | `examples/probes/first_word.hum` runs `first_word("hum language") -> hum`; graph and ownership JSON expose the dependency from result to `text`; local and non-closed derivations reject with H0805. | Internal references such as `from parser.buffer` remain blocked; the closed derivation set is intentionally tiny. |
 | 10 | Transaction that must commit or roll back exactly once | Runs | `examples/probes/transaction_once.hum` returns `ok`; Session K misuse fixtures reject missing close, double close, and one-branch close with H0803/H0804. | The linear-resource marker is still Transaction-shaped rather than source-visible and general. |
-| 11 | Updating one record field while preserving the rest | Runs | `examples/probes/field_places.hum` accepts direct `set item.done = true` in `complete_item`; the run-only fixture `fixtures/run/session_o_complete_item_field_place.hum` prints `{done: true, title: hum}`; H0701 keeps the prose preservation contract visible as unchecked. | Checked pre-state predicates and stale field-view rejection are not implemented. |
+| 11 | Updating one record field while preserving the rest | Runs | `examples/probes/field_places.hum` accepts direct `set item.done = true` in `complete_item`; the run-only fixture `fixtures/run/session_o_complete_item_field_place.hum` prints `{done: true, title: hum}`; `fixtures/ownership_check/session_r_stale_item_field_view_fail.hum` rejects stale `item.done` views with H0807; H0701 keeps the prose preservation contract visible as unchecked. | Checked pre-state predicates remain unimplemented. |
 | 12 | Builder accumulating a growing list then handing it away | Runs | `examples/probes/list_builder.hum` runs `builder_demo() -> [parse, check, run]`; `builder_contract_demo() -> 3` fires a checked predicate contract; add-after-finish rejects with H0801. | Stale element views, retain, and the broader list stdlib surface are not implemented. |
 
 ### Honesty locks after Session Q
@@ -166,7 +166,7 @@ are still narrow slices.
 
 All broad 0014 honesty locks remain. The toolchain must still not claim full
 ownership safety, borrow soundness, memory safety, safety-critical readiness,
-internal-reference support, stale field-view invalidation, stale element-view
+internal-reference support, general stale field-view invalidation, stale element-view
 invalidation, broad disjoint-field projection, broad flow-sensitive borrowing,
 concurrency ownership, a mature list standard library, or general linear
 resources.
@@ -188,6 +188,8 @@ field and element view provenance plus invalidation on direct field writes and
 `list_append`, with misuse fixtures that reject stale use and diagnostics that
 name both the view and the invalidating mutation. Internal references should
 follow after that slice is green.
+
+Session R update: the field half of that slice is now green for local direct field views. Element views and growth invalidation remain pending for Session S; internal references still follow after the stale-view slice is complete.
 
 The mandated contracts item should be Predicate v1, not contract-check-mode
 first. The full friction ledger now has three predicate-expressiveness demands

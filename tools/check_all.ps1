@@ -253,6 +253,7 @@ try {
   if (-not $DiagnosticsJson.Contains('"code": "H0804"')) { throw 'diagnostic catalog JSON is missing H0804' }
   if (-not $DiagnosticsJson.Contains('"code": "H0805"')) { throw 'diagnostic catalog JSON is missing H0805' }
   if (-not $DiagnosticsJson.Contains('"code": "H0806"')) { throw 'diagnostic catalog JSON is missing H0806' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0807"')) { throw 'diagnostic catalog JSON is missing H0807' }
   if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
   if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
   if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
@@ -547,6 +548,25 @@ try {
   if ($RunSessionPAddAfterFinish.ExitCode -ne 2) { throw "Session P add-after-finish run expected exit 2, got $($RunSessionPAddAfterFinish.ExitCode)" }
   if (-not $RunSessionPAddAfterFinish.Output.Contains('H0801')) { throw "Session P add-after-finish run expected H0801, got $($RunSessionPAddAfterFinish.Output)" }
   if (-not $RunSessionPAddAfterFinish.Output.Contains('help:')) { throw "Session P add-after-finish run expected help, got $($RunSessionPAddAfterFinish.Output)" }
+
+  $RunSessionRDistinctFieldView = Read-NativeOutput 'run Session R distinct-field view fixture' $Hum @('run', 'examples/probes/field_views.hum', '--entry', 'distinct_field_view_survives', '--args', '{left:false,right:false}')
+  if ($RunSessionRDistinctFieldView.Trim() -ne 'false') { throw "Session R distinct-field view run expected false, got $RunSessionRDistinctFieldView" }
+
+  $RunSessionRCopyVsView = Read-NativeOutput 'run Session R copy-vs-view fixture' $Hum @('run', 'examples/probes/field_views.hum', '--entry', 'copy_survives_field_write', '--args', '{left:false,right:false}')
+  if ($RunSessionRCopyVsView.Trim() -ne 'false') { throw "Session R copy-vs-view run expected false, got $RunSessionRCopyVsView" }
+
+  $RunSessionRStalePoint = Read-NativeOutputWithExit 'run Session R stale point field-view misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_r_stale_point_field_view_fail.hum', '--entry', 'stale_point_field_view', '--args', '{x:1,y:2}')
+  if ($RunSessionRStalePoint.ExitCode -ne 2) { throw "Session R stale point field-view run expected exit 2, got $($RunSessionRStalePoint.ExitCode)" }
+  if (-not $RunSessionRStalePoint.Output.Contains('H0807')) { throw "Session R stale point field-view run expected H0807, got $($RunSessionRStalePoint.Output)" }
+  if (-not $RunSessionRStalePoint.Output.Contains('x_view')) { throw "Session R stale point field-view run expected x_view blame, got $($RunSessionRStalePoint.Output)" }
+  if (-not $RunSessionRStalePoint.Output.Contains('point.x')) { throw "Session R stale point field-view run expected point.x write blame, got $($RunSessionRStalePoint.Output)" }
+  if (-not $RunSessionRStalePoint.Output.Contains('re-borrow after the write')) { throw "Session R stale point field-view run expected repair help, got $($RunSessionRStalePoint.Output)" }
+
+  $RunSessionRStaleItem = Read-NativeOutputWithExit 'run Session R stale item field-view misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_r_stale_item_field_view_fail.hum', '--entry', 'stale_item_done_view', '--args', '{done:false,pinned:false}')
+  if ($RunSessionRStaleItem.ExitCode -ne 2) { throw "Session R stale item field-view run expected exit 2, got $($RunSessionRStaleItem.ExitCode)" }
+  if (-not $RunSessionRStaleItem.Output.Contains('H0807')) { throw "Session R stale item field-view run expected H0807, got $($RunSessionRStaleItem.Output)" }
+  if (-not $RunSessionRStaleItem.Output.Contains('done_view')) { throw "Session R stale item field-view run expected done_view blame, got $($RunSessionRStaleItem.Output)" }
+  if (-not $RunSessionRStaleItem.Output.Contains('item.done')) { throw "Session R stale item field-view run expected item.done write blame, got $($RunSessionRStaleItem.Output)" }
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }
@@ -836,6 +856,28 @@ try {
   if (-not $OwnershipOBorrowFieldJson.Output.Contains('"diagnostic_code": "H0802"')) { throw "ownership check borrowed field-write expected H0802, got $($OwnershipOBorrowFieldJson.Output)" }
   if (-not $OwnershipOBorrowFieldJson.Output.Contains('"target": "point.x"')) { throw "ownership check borrowed field-write expected point.x target, got $($OwnershipOBorrowFieldJson.Output)" }
   if (-not $OwnershipOBorrowFieldJson.Output.Contains('writes through borrowed parameter')) { throw "ownership check borrowed field-write expected field blame help, got $($OwnershipOBorrowFieldJson.Output)" }
+
+  $OwnershipRFieldViewsJson = Read-NativeOutput 'ownership check Session R field views JSON' $Hum @('ownership-check', '--format', 'json', 'examples/probes/field_views.hum')
+  Assert-Json 'ownership check Session R field views JSON' $OwnershipRFieldViewsJson
+  if (-not $OwnershipRFieldViewsJson.Contains('"status": "recognized_core_ownership_facts_checked_v0"')) { throw "ownership check Session R field views expected pass, got $OwnershipRFieldViewsJson" }
+  if (-not $OwnershipRFieldViewsJson.Contains('"status": "accepted_field_view_borrow_v0"')) { throw "ownership check Session R field views expected field-view borrow acceptance, got $OwnershipRFieldViewsJson" }
+  if (-not $OwnershipRFieldViewsJson.Contains('"declaration": "borrow flags.right"')) { throw "ownership check Session R field views expected flags.right declaration, got $OwnershipRFieldViewsJson" }
+  if (-not $OwnershipRFieldViewsJson.Contains('"status": "accepted_disjoint_field_mutation_v0"')) { throw "ownership check Session R field views expected disjoint field mutation, got $OwnershipRFieldViewsJson" }
+
+  $OwnershipRStalePointJson = Read-NativeOutputWithExit 'ownership check Session R stale point field-view JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_r_stale_point_field_view_fail.hum')
+  if ($OwnershipRStalePointJson.ExitCode -ne 1) { throw "ownership check Session R stale point field-view expected exit 1, got $($OwnershipRStalePointJson.ExitCode)" }
+  Assert-Json 'ownership check Session R stale point field-view JSON' $OwnershipRStalePointJson.Output
+  if (-not $OwnershipRStalePointJson.Output.Contains('"diagnostic_code": "H0807"')) { throw "ownership check Session R stale point expected H0807, got $($OwnershipRStalePointJson.Output)" }
+  if (-not $OwnershipRStalePointJson.Output.Contains('"status": "rejected_stale_field_view_use_v0"')) { throw "ownership check Session R stale point expected stale view rejection, got $($OwnershipRStalePointJson.Output)" }
+  if (-not $OwnershipRStalePointJson.Output.Contains('x_view borrowed point.x')) { throw "ownership check Session R stale point expected binding and source in help, got $($OwnershipRStalePointJson.Output)" }
+  if (-not $OwnershipRStalePointJson.Output.Contains('point.x was written')) { throw "ownership check Session R stale point expected invalidating write in help, got $($OwnershipRStalePointJson.Output)" }
+
+  $OwnershipRStaleItemJson = Read-NativeOutputWithExit 'ownership check Session R stale item field-view JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_r_stale_item_field_view_fail.hum')
+  if ($OwnershipRStaleItemJson.ExitCode -ne 1) { throw "ownership check Session R stale item field-view expected exit 1, got $($OwnershipRStaleItemJson.ExitCode)" }
+  Assert-Json 'ownership check Session R stale item field-view JSON' $OwnershipRStaleItemJson.Output
+  if (-not $OwnershipRStaleItemJson.Output.Contains('"diagnostic_code": "H0807"')) { throw "ownership check Session R stale item expected H0807, got $($OwnershipRStaleItemJson.Output)" }
+  if (-not $OwnershipRStaleItemJson.Output.Contains('done_view borrowed item.done')) { throw "ownership check Session R stale item expected binding and source in help, got $($OwnershipRStaleItemJson.Output)" }
+  if (-not $OwnershipRStaleItemJson.Output.Contains('item.done was written')) { throw "ownership check Session R stale item expected invalidating write in help, got $($OwnershipRStaleItemJson.Output)" }
   $ResourceCheckJson = Read-NativeOutput 'resource check JSON' $Hum @('resource-check', '--format', 'json', 'fixtures/resource_check/simple_pass.hum')
   Assert-Json 'resource check JSON' $ResourceCheckJson
   if (-not $ResourceCheckJson.Contains('"schema": "hum.resource_check.v0"')) { throw 'resource check JSON is missing hum.resource_check.v0 schema' }
