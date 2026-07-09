@@ -640,6 +640,9 @@ fn infer_expression_type(
     if return_dependency::is_closed_view_derivation_expression(text) {
         return Some(type_fact("Text", "closed_view_derivation_slice_until_v0"));
     }
+    if is_list_literal(text) {
+        return Some(type_fact("list_literal", "list_literal_v0"));
+    }
     if text.chars().all(|ch| ch.is_ascii_digit()) {
         return Some(type_fact("integer_literal", "integer_literal_v0"));
     }
@@ -660,6 +663,9 @@ fn infer_expression_type(
         return Some(fact);
     }
     if let Some((callee, _args)) = split_call(text) {
+        if callee == "list_append" {
+            return Some(type_fact("Unit", "list_append_builtin_v0"));
+        }
         return task_returns.get(&name_key(callee)).cloned();
     }
     place_type_fact(text, environment, field_types)
@@ -682,6 +688,10 @@ fn infer_additive_expression_type(
     } else {
         None
     }
+}
+
+fn is_list_literal(text: &str) -> bool {
+    text.starts_with('[') && text.ends_with(']')
 }
 
 fn strip_permission_expression(text: &str) -> Option<&str> {
@@ -771,8 +781,10 @@ fn types_compatible(expected_type: &str, actual_type: &str) -> bool {
     if actual_key == name_key(&expected_type) {
         return true;
     }
-    actual_key == "integer_literal"
-        && matches!(name_key(&expected_type).as_str(), "int" | "uint" | "float")
+    if actual_key == "integer_literal" {
+        return matches!(name_key(&expected_type).as_str(), "int" | "uint" | "float");
+    }
+    actual_key == "list_literal" && name_key(&expected_type).starts_with("list")
 }
 
 fn type_tokens(type_text: &str) -> Vec<String> {

@@ -1,0 +1,21 @@
+module fixtures.ownership_check.session_p_add_after_finish_fail
+
+task finish(consume builder: List Text) -> List Text {
+  why:
+    finish the builder by consuming its mutation authority
+
+  does:
+    return builder
+}
+
+task add_after_finish() -> List Text {
+  why:
+    prove a consumed builder cannot be appended after finish
+
+  does:
+    change builder: List Text = []
+    let added_parse: Unit = list_append(change builder, "parse")
+    let finished: List Text = finish(consume builder)
+    let added_late: Unit = list_append(change builder, "late")
+    return finished
+}

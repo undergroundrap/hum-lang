@@ -373,6 +373,14 @@ friction:
   indicts: contracts
   proposal: Session Q must carry a mandated contracts work-order item: either predicate v1 with pre-state references or the contract-check-mode ADR, chosen from the full friction ledger
 
+friction:
+  program: docs/bakeoff/CORPUS.md:330
+  wanted: keep a view of the first element, append more items, and reject later use of the stale element view
+  forced: Session P can express append growth and add-after-finish, but cannot express element views or stale element-view misuse yet
+  severity: blocked
+  indicts: ownership
+  proposal: include stale element-view machinery with the remaining view repairs considered in Session Q; do not count append-only fixtures as covering stale element views
+
 Session O three-strike note:
 
 The contracts area now reaches three strikes: `divide` contract-check mode, `word_count` collection-count predicates, and missing pre-state references for field-preservation predicates. Session Q must carry a mandated contracts work-order item in its recommendation instead of treating contracts as optional backlog polish.

@@ -277,6 +277,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Name a parameter after `from` and return that bare parameter in the V0 subset; locals, internal references, and complex expressions remain explicit future repairs.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::ITERATION_MUTATION_CONFLICT,
+        default_severity: Severity::Error,
+        explanation: "A list was structurally mutated while a `for each` loop was actively iterating that same collection.",
+        repair: "Collect mutations after the loop, or iterate over a separate snapshot/list before calling `list_append` on the original collection.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
         default_severity: Severity::Error,
         explanation: "A `targets:` section names a target fact record that Hum does not publish in `hum target-facts`.",

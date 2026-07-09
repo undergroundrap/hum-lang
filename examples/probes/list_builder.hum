@@ -1,0 +1,46 @@
+module examples.probes.list_builder
+
+task finish(consume builder: List Text) -> List Text {
+  why:
+    finish the builder by handing away the completed list
+
+  does:
+    return builder
+}
+
+task builder_demo() -> List Text {
+  why:
+    build a list by appending three visible items before finish
+
+  ensures:
+    completed list contains parse check run
+
+  does:
+    change builder: List Text = []
+    let added_parse: Unit = list_append(change builder, "parse")
+    let added_check: Unit = list_append(change builder, "check")
+    let added_run: Unit = list_append(change builder, "run")
+    return finish(consume builder)
+}
+
+task builder_contract_demo() -> UInt {
+  why:
+    count appended builder items with a predicate v0 contract
+
+  ensures:
+    result == 3
+
+  does:
+    change builder: List Text = []
+    let added_parse: Unit = list_append(change builder, "parse")
+    let added_check: Unit = list_append(change builder, "check")
+    let added_run: Unit = list_append(change builder, "run")
+    change count: UInt = 0
+
+    for each item in builder {
+      set count = count + 1
+    }
+
+    let finished: List Text = finish(consume builder)
+    return count
+}

@@ -252,6 +252,7 @@ try {
   if (-not $DiagnosticsJson.Contains('"code": "H0803"')) { throw 'diagnostic catalog JSON is missing H0803' }
   if (-not $DiagnosticsJson.Contains('"code": "H0804"')) { throw 'diagnostic catalog JSON is missing H0804' }
   if (-not $DiagnosticsJson.Contains('"code": "H0805"')) { throw 'diagnostic catalog JSON is missing H0805' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0806"')) { throw 'diagnostic catalog JSON is missing H0806' }
   if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
   if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
   if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
@@ -528,6 +529,24 @@ try {
   if (-not $RunSessionOBorrowField.Output.Contains('H0802')) { throw "Session O borrowed field-write run expected H0802, got $($RunSessionOBorrowField.Output)" }
   if (-not $RunSessionOBorrowField.Output.Contains('point.x')) { throw "Session O borrowed field-write run expected point.x blame, got $($RunSessionOBorrowField.Output)" }
   if (-not $RunSessionOBorrowField.Output.Contains('help:')) { throw "Session O borrowed field-write run expected blame help, got $($RunSessionOBorrowField.Output)" }
+
+  $RunSessionPBuilder = Read-NativeOutput 'run Session P builder fixture' $Hum @('run', 'examples/probes/list_builder.hum', '--entry', 'builder_demo')
+  if ($RunSessionPBuilder.Trim() -ne '[parse, check, run]') { throw "Session P builder run expected [parse, check, run], got `$RunSessionPBuilder" }
+
+  $RunSessionPBuilderContract = Read-NativeOutput 'run Session P builder contract fixture' $Hum @('run', 'examples/probes/list_builder.hum', '--entry', 'builder_contract_demo')
+  if ($RunSessionPBuilderContract.Trim() -ne '3') { throw "Session P builder contract run expected 3, got `$RunSessionPBuilderContract" }
+
+  $RunSessionPIterConflict = Read-NativeOutputWithExit 'run Session P iteration-conflict misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_p_append_during_iteration_fail.hum', '--entry', 'append_during_iteration')
+  if ($RunSessionPIterConflict.ExitCode -ne 2) { throw "Session P iteration-conflict run expected exit 2, got $($RunSessionPIterConflict.ExitCode)" }
+  if (-not $RunSessionPIterConflict.Output.Contains('H0806')) { throw "Session P iteration-conflict run expected H0806, got $($RunSessionPIterConflict.Output)" }
+  if (-not $RunSessionPIterConflict.Output.Contains('list_append')) { throw "Session P iteration-conflict run expected list_append blame, got $($RunSessionPIterConflict.Output)" }
+  if (-not $RunSessionPIterConflict.Output.Contains('for each')) { throw "Session P iteration-conflict run expected loop blame, got $($RunSessionPIterConflict.Output)" }
+  if (-not $RunSessionPIterConflict.Output.Contains('help:')) { throw "Session P iteration-conflict run expected help, got $($RunSessionPIterConflict.Output)" }
+
+  $RunSessionPAddAfterFinish = Read-NativeOutputWithExit 'run Session P add-after-finish misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_p_add_after_finish_fail.hum', '--entry', 'add_after_finish')
+  if ($RunSessionPAddAfterFinish.ExitCode -ne 2) { throw "Session P add-after-finish run expected exit 2, got $($RunSessionPAddAfterFinish.ExitCode)" }
+  if (-not $RunSessionPAddAfterFinish.Output.Contains('H0801')) { throw "Session P add-after-finish run expected H0801, got $($RunSessionPAddAfterFinish.Output)" }
+  if (-not $RunSessionPAddAfterFinish.Output.Contains('help:')) { throw "Session P add-after-finish run expected help, got $($RunSessionPAddAfterFinish.Output)" }
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }

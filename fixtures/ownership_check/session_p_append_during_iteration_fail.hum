@@ -1,0 +1,15 @@
+module fixtures.ownership_check.session_p_append_during_iteration_fail
+
+task append_during_iteration() -> List Text {
+  why:
+    prove structural list mutation rejects during active iteration
+
+  does:
+    change items: List Text = ["parse"]
+
+    for each item in items {
+      let added: Unit = list_append(change items, "check")
+    }
+
+    return items
+}

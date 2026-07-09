@@ -253,6 +253,7 @@ Future ranges should be reserved before broad use:
 | `H0803` | error | linear resource not consumed | A recognized linear resource reached a return, failure, or fallthrough path without exactly one visible consume action. |
 | `H0804` | error | linear resource consumed twice | A recognized linear resource was consumed after an earlier action already ended it on that path. |
 | `H0805` | error | return dependency is not a parameter | A returned-view `from` relationship names a non-parameter source or returns a value not visibly derived from that parameter in the V0 subset. |
+| `H0806` | error | iteration mutation conflict | A collection was structurally mutated with `list_append` while a `for each` loop was actively iterating it. |
 
 ### Target And Backend Metadata
 

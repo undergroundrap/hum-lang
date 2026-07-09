@@ -184,6 +184,7 @@ checked index read
 record construction
 variant construction
 task call
+built-in operation call
 unary operation
 binary operation
 if expression
@@ -193,6 +194,10 @@ try expression
 
 `try expression` unwraps a `Result` in a task that declares compatible failure.
 It is not punctuation magic. It lowers to a `match` on success/failure.
+
+The first executable built-in operation call is `list_append(change list,
+item)`. It mutates the named list place and returns `Unit`; it is not a
+general list standard library surface.
 
 ## Core Statements
 

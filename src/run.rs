@@ -109,10 +109,17 @@ impl From<ParamPermission> for RuntimePermission {
 
 type Env = BTreeMap<String, RuntimeBinding>;
 
+#[derive(Debug, Clone)]
+struct ActiveIteration {
+    root: String,
+    span: Span,
+}
+
 pub fn run_program(program: &Program, entry: Option<&str>, raw_args: &[String]) -> RunReport {
     let interpreter = Interpreter {
         program,
         diagnostics: RefCell::new(Vec::new()),
+        active_iterations: RefCell::new(Vec::new()),
     };
     let outcome = match interpreter.run(entry, raw_args) {
         Ok(TaskResult::Returned(value)) => RunOutcome::Success(display_value(&value)),
@@ -130,6 +137,7 @@ pub fn run_program(program: &Program, entry: Option<&str>, raw_args: &[String]) 
 struct Interpreter<'a> {
     program: &'a Program,
     diagnostics: RefCell<Vec<Diagnostic>>,
+    active_iterations: RefCell<Vec<ActiveIteration>>,
 }
 
 enum TaskResult {
@@ -381,17 +389,34 @@ impl<'a> Interpreter<'a> {
                     ));
                 };
 
+                let active_iteration = iteration_root(collection_expr.trim())
+                    .map(|root| self.push_active_iteration(root, line.span.clone()));
                 let name = name.trim();
                 let previous = env.get(name).cloned();
                 for value in values {
                     env.insert(name.to_string(), RuntimeBinding::local(value, false));
-                    let flow = self.eval_block(lines, index + 1, close, env, task_name)?;
+                    let flow = match self.eval_block(lines, index + 1, close, env, task_name) {
+                        Ok(flow) => flow,
+                        Err(error) => {
+                            restore_binding(env, name, previous.clone());
+                            if active_iteration.is_some() {
+                                self.pop_active_iteration();
+                            }
+                            return Err(error);
+                        }
+                    };
                     if flow != Flow::Continue {
                         restore_binding(env, name, previous);
+                        if active_iteration.is_some() {
+                            self.pop_active_iteration();
+                        }
                         return Ok(flow);
                     }
                 }
                 restore_binding(env, name, previous);
+                if active_iteration.is_some() {
+                    self.pop_active_iteration();
+                }
                 index = close + 1;
                 continue;
             }
@@ -703,11 +728,15 @@ impl<'a> Interpreter<'a> {
             return Ok(Evaluated::Value(Value::Record(fields)));
         }
         if let Some((callee, args)) = split_call(text) {
-            if return_dependency::is_closed_view_deriving_operation(callee.trim()) {
+            let callee = callee.trim();
+            if return_dependency::is_closed_view_deriving_operation(callee) {
                 return self.eval_slice_until(args, env, span, task_name);
             }
-            let Some(task) = self.find_task(callee.trim()) else {
-                return Err(format!("task `{}` was not found", callee.trim()));
+            if callee == "list_append" {
+                return self.eval_list_append(args, env, span, task_name);
+            }
+            let Some(task) = self.find_task(callee) else {
+                return Err(format!("task `{callee}` was not found"));
             };
             let raw_args = split_arguments(args);
             if raw_args.len() != task.params.len() {
@@ -768,6 +797,44 @@ impl<'a> Interpreter<'a> {
         Err(format!("unknown expression `{text}`"))
     }
 
+    fn eval_list_append(
+        &self,
+        args: &str,
+        env: &mut Env,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Evaluated, String> {
+        let raw_args = split_arguments(args);
+        if raw_args.len() != 2 {
+            return Err(format!(
+                "list_append expects 2 argument(s), got {}",
+                raw_args.len()
+            ));
+        }
+        let list_place = strip_keyword(raw_args[0].trim(), "change")
+            .ok_or_else(|| "list_append first argument must be `change list`".to_string())?;
+        let root = place_root(list_place);
+        if let Some(loop_span) = self.active_iteration_for(&root) {
+            return Err(self.iteration_mutation_trap(task_name, &root, span, &loop_span));
+        }
+        self.ensure_can_set(env, list_place, &root, span, task_name)?;
+        let item = match self.eval_expr(raw_args[1], env, span, task_name)? {
+            Evaluated::Value(value) => value,
+            Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
+        };
+        let Some(binding) = env.get_mut(&root) else {
+            return Err(format!("cannot append to unknown list `{root}`"));
+        };
+        let Value::List(values) = &mut binding.value else {
+            return Err(format!("`{root}` is not a list"));
+        };
+        values.push(item);
+        binding.moved_at = None;
+        binding.moved_by = None;
+        Ok(Evaluated::Value(Value::Unit))
+    }
+
     fn eval_slice_until(
         &self,
         args: &str,
@@ -802,6 +869,25 @@ impl<'a> Interpreter<'a> {
                 .map_or(source.as_str(), |(head, _tail)| head)
         };
         Ok(Evaluated::Value(Value::Text(prefix.to_string())))
+    }
+
+    fn push_active_iteration(&self, root: String, span: Span) {
+        self.active_iterations
+            .borrow_mut()
+            .push(ActiveIteration { root, span });
+    }
+
+    fn pop_active_iteration(&self) {
+        self.active_iterations.borrow_mut().pop();
+    }
+
+    fn active_iteration_for(&self, root: &str) -> Option<Span> {
+        self.active_iterations
+            .borrow()
+            .iter()
+            .rev()
+            .find(|iteration| iteration.root == root)
+            .map(|iteration| iteration.span.clone())
     }
 
     fn read_value(
@@ -971,6 +1057,36 @@ impl<'a> Interpreter<'a> {
             "{} {}",
             DiagnosticCode::BORROW_PARAMETER_MUTATION.as_str(),
             DiagnosticCode::BORROW_PARAMETER_MUTATION.title()
+        )
+    }
+
+    fn iteration_mutation_trap(
+        &self,
+        task_name: &str,
+        root: &str,
+        mutation_span: &Span,
+        loop_span: &Span,
+    ) -> String {
+        self.diagnostics.borrow_mut().push(
+            Diagnostic::error(
+                DiagnosticCode::ITERATION_MUTATION_CONFLICT,
+                format!("cannot structurally mutate `{root}` while it is being iterated"),
+                Some(mutation_span.clone()),
+            )
+            .with_help(format!(
+                "Fix task `{task_name}`: `list_append` mutates `{root}` at {}:{}:{} during `for each` started at {}:{}:{}; collect changes after the loop or iterate over a separate list.",
+                mutation_span.file,
+                mutation_span.line,
+                mutation_span.column,
+                loop_span.file,
+                loop_span.line,
+                loop_span.column
+            )),
+        );
+        format!(
+            "{} {}",
+            DiagnosticCode::ITERATION_MUTATION_CONFLICT.as_str(),
+            DiagnosticCode::ITERATION_MUTATION_CONFLICT.title()
         )
     }
 
@@ -1311,6 +1427,20 @@ fn display_value(value: &Value) -> String {
             format!("{{{body}}}")
         }
     }
+}
+
+fn iteration_root(text: &str) -> Option<String> {
+    let text = strip_borrow_or_change_argument(text).unwrap_or(text).trim();
+    if text.is_empty()
+        || text.contains('(')
+        || text.contains(' ')
+        || text.starts_with('"')
+        || text.starts_with('[')
+        || text.starts_with('{')
+    {
+        return None;
+    }
+    Some(place_root(text))
 }
 
 fn consume_argument_root(text: &str) -> Option<String> {

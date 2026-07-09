@@ -78,6 +78,9 @@ The V0 gate checks only conservative statement contexts:
   present; otherwise simple local and literal facts may be inferred.
 - `set_place`: the assigned expression must match a known local, parameter, or direct declared `root.field` place type.
 - simple task calls: known callee result types may type the call expression; `consume value` delegates to the consumed value type inside call arguments.
+- `list_append(change list, item)`: the built-in minimal list-growth operation
+  is typed as `Unit`; list literals are accepted against explicit `List ...`
+  annotations without element-type validation in V0.
 - `block_close` and `loop_header`: accepted as statements with no expression
   type obligation.
 
