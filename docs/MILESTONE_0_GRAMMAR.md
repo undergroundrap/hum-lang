@@ -210,6 +210,8 @@ Field capture rules:
 - `field-type` is trimmed text after the first `:`
 - no full type grammar is enforced yet
 
+Milestone 1 executable checking also recognizes the direct field-place shape `place ::= value-ident | value-ident "." value-ident` for field reads, predicate operands, and `set` targets. This is not a full expression grammar and does not create field views, aliases, nested places, or general projection syntax.
+
 ## Current Known Sections
 
 The parser accepts any section name matching the section header rule above. The

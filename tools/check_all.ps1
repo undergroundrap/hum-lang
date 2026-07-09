@@ -517,6 +517,17 @@ try {
   if ($RunSessionNLostProvenance.ExitCode -ne 2) { throw "Session N lost-provenance run expected exit 2, got $($RunSessionNLostProvenance.ExitCode)" }
   if (-not $RunSessionNLostProvenance.Output.Contains('H0805')) { throw "Session N lost-provenance run expected H0805, got $($RunSessionNLostProvenance.Output)" }
   if (-not $RunSessionNLostProvenance.Output.Contains('non-closed derivation chains remain rejected')) { throw "Session N lost-provenance run expected non-closed help, got $($RunSessionNLostProvenance.Output)" }
+  $RunSessionOSwap = Read-NativeOutput 'run Session O swap_xy field-place fixture' $Hum @('run', 'examples/probes/field_places.hum', '--entry', 'swap_xy', '--args', '{x:1,y:2}')
+  if ($RunSessionOSwap.Trim() -ne '{x: 2, y: 1}') { throw "Session O swap_xy run expected {x: 2, y: 1}, got `$RunSessionOSwap" }
+
+  $RunSessionOComplete = Read-NativeOutput 'run Session O complete_item field-place fixture' $Hum @('run', 'examples/probes/field_places.hum', '--entry', 'complete_item', '--args', '{title:""write hum"",done:false}')
+  if ($RunSessionOComplete.Trim() -ne '{done: true, title: write hum}') { throw "Session O complete_item run expected done true with preserved title, got `$RunSessionOComplete" }
+
+  $RunSessionOBorrowField = Read-NativeOutputWithExit 'run Session O borrowed field-write misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_o_field_write_borrow_fail.hum', '--entry', 'write_borrowed_field', '--args', '{x:1,y:2}')
+  if ($RunSessionOBorrowField.ExitCode -ne 2) { throw "Session O borrowed field-write run expected exit 2, got $($RunSessionOBorrowField.ExitCode)" }
+  if (-not $RunSessionOBorrowField.Output.Contains('H0802')) { throw "Session O borrowed field-write run expected H0802, got $($RunSessionOBorrowField.Output)" }
+  if (-not $RunSessionOBorrowField.Output.Contains('point.x')) { throw "Session O borrowed field-write run expected point.x blame, got $($RunSessionOBorrowField.Output)" }
+  if (-not $RunSessionOBorrowField.Output.Contains('help:')) { throw "Session O borrowed field-write run expected blame help, got $($RunSessionOBorrowField.Output)" }
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }
@@ -792,6 +803,20 @@ try {
   Assert-Json 'ownership check Session N lost-provenance JSON' $OwnershipNLostProvenanceJson.Output
   if (-not $OwnershipNLostProvenanceJson.Output.Contains('"diagnostic_code": "H0805"')) { throw "ownership check lost-provenance expected H0805, got $($OwnershipNLostProvenanceJson.Output)" }
   if (-not $OwnershipNLostProvenanceJson.Output.Contains('"reason": "returned_view_expression_not_closed_view_derivation_v0"')) { throw "ownership check lost-provenance expected non-closed reason, got $($OwnershipNLostProvenanceJson.Output)" }
+  $OwnershipOFieldPlacesJson = Read-NativeOutput 'ownership check Session O field places JSON' $Hum @('ownership-check', '--format', 'json', 'examples/probes/field_places.hum')
+  Assert-Json 'ownership check Session O field places JSON' $OwnershipOFieldPlacesJson
+  if (-not $OwnershipOFieldPlacesJson.Contains('"status": "recognized_core_ownership_facts_checked_v0"')) { throw "ownership check field places expected pass, got $OwnershipOFieldPlacesJson" }
+  if (-not $OwnershipOFieldPlacesJson.Contains('"status": "accepted_disjoint_field_mutation_v0"')) { throw "ownership check field places expected disjoint field mutation acceptance, got $OwnershipOFieldPlacesJson" }
+  if (-not $OwnershipOFieldPlacesJson.Contains('"target": "point.x"')) { throw "ownership check field places expected point.x target, got $OwnershipOFieldPlacesJson" }
+  if (-not $OwnershipOFieldPlacesJson.Contains('"target": "point.y"')) { throw "ownership check field places expected point.y target, got $OwnershipOFieldPlacesJson" }
+  if (-not $OwnershipOFieldPlacesJson.Contains('"target": "item.done"')) { throw "ownership check field places expected item.done target, got $OwnershipOFieldPlacesJson" }
+
+  $OwnershipOBorrowFieldJson = Read-NativeOutputWithExit 'ownership check Session O borrowed field-write JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_o_field_write_borrow_fail.hum')
+  if ($OwnershipOBorrowFieldJson.ExitCode -ne 1) { throw "ownership check borrowed field-write expected exit 1, got $($OwnershipOBorrowFieldJson.ExitCode)" }
+  Assert-Json 'ownership check Session O borrowed field-write JSON' $OwnershipOBorrowFieldJson.Output
+  if (-not $OwnershipOBorrowFieldJson.Output.Contains('"diagnostic_code": "H0802"')) { throw "ownership check borrowed field-write expected H0802, got $($OwnershipOBorrowFieldJson.Output)" }
+  if (-not $OwnershipOBorrowFieldJson.Output.Contains('"target": "point.x"')) { throw "ownership check borrowed field-write expected point.x target, got $($OwnershipOBorrowFieldJson.Output)" }
+  if (-not $OwnershipOBorrowFieldJson.Output.Contains('writes through borrowed parameter')) { throw "ownership check borrowed field-write expected field blame help, got $($OwnershipOBorrowFieldJson.Output)" }
   $ResourceCheckJson = Read-NativeOutput 'resource check JSON' $Hum @('resource-check', '--format', 'json', 'fixtures/resource_check/simple_pass.hum')
   Assert-Json 'resource check JSON' $ResourceCheckJson
   if (-not $ResourceCheckJson.Contains('"schema": "hum.resource_check.v0"')) { throw 'resource check JSON is missing hum.resource_check.v0 schema' }

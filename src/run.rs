@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast::{Item, ParamPermission, Program, SectionLine, Task};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+use crate::field_place;
 use crate::graph::is_meaningful_line_text;
 use crate::return_dependency;
 
@@ -499,7 +500,7 @@ impl<'a> Interpreter<'a> {
             .ok_or_else(|| format!("set `{rest}` is missing `=`"))?;
         let place = place.trim();
         let root = place_root(place);
-        self.ensure_can_set(env, &root, span, task_name)?;
+        self.ensure_can_set(env, place, &root, span, task_name)?;
         match self.eval_expr(expr.trim(), env, span, task_name)? {
             Evaluated::Value(value) => {
                 self.write_place(env, place, value)?;
@@ -743,25 +744,26 @@ impl<'a> Interpreter<'a> {
                 .read_value(env, text, span, task_name)
                 .map(Evaluated::Value);
         }
-        if let Some((base, field)) = text.split_once('.') {
-            if env.contains_key(base) {
-                let value = self.read_value(env, base, span, task_name)?;
-                let Value::Record(fields) = value else {
-                    return Err(format!("`{base}` is not a record"));
-                };
-                return fields
-                    .get(field)
-                    .cloned()
-                    .map(Evaluated::Value)
-                    .ok_or_else(|| format!("record `{base}` has no field `{field}`"));
-            }
-            if base
+        if let Some((base, field)) = field_place::split_field_place(text)
+            && env.contains_key(base)
+        {
+            let value = self.read_value(env, base, span, task_name)?;
+            let Value::Record(fields) = value else {
+                return Err(format!("`{base}` is not a record"));
+            };
+            return fields
+                .get(field)
+                .cloned()
+                .map(Evaluated::Value)
+                .ok_or_else(|| format!("record `{base}` has no field `{field}`"));
+        }
+        if let Some((base, _field)) = text.split_once('.')
+            && base
                 .chars()
                 .next()
                 .is_some_and(|ch| ch.is_ascii_uppercase())
-            {
-                return Ok(Evaluated::Value(Value::Variant(text.to_string())));
-            }
+        {
+            return Ok(Evaluated::Value(Value::Variant(text.to_string())));
         }
         Err(format!("unknown expression `{text}`"))
     }
@@ -848,6 +850,7 @@ impl<'a> Interpreter<'a> {
     fn ensure_can_set(
         &self,
         env: &Env,
+        place: &str,
         root: &str,
         span: &Span,
         task_name: &str,
@@ -859,7 +862,7 @@ impl<'a> Interpreter<'a> {
             return Err(self.use_after_move_trap(task_name, root, span, move_span));
         }
         if binding.permission == RuntimePermission::Borrow {
-            return Err(self.borrow_mutation_trap(task_name, root, span));
+            return Err(self.borrow_mutation_trap(task_name, place, root, span));
         }
         Ok(())
     }
@@ -869,11 +872,16 @@ impl<'a> Interpreter<'a> {
         let Some(binding) = env.get_mut(&root) else {
             return Err(format!("cannot set unknown place `{place}`"));
         };
-        if let Some((_root, field)) = place.split_once('.') {
+        if let Some((_root, field)) = field_place::split_field_place(place) {
             let Value::Record(fields) = &mut binding.value else {
                 return Err(format!("`{root}` is not a record"));
             };
-            fields.insert(field.trim().to_string(), value);
+            if !fields.contains_key(field) {
+                return Err(format!("record `{root}` has no field `{field}`"));
+            }
+            fields.insert(field.to_string(), value);
+        } else if place.contains('.') {
+            return Err(format!("unsupported set place `{place}`"));
         } else {
             binding.value = value;
         }
@@ -937,11 +945,22 @@ impl<'a> Interpreter<'a> {
         )
     }
 
-    fn borrow_mutation_trap(&self, task_name: &str, root: &str, span: &Span) -> String {
+    fn borrow_mutation_trap(
+        &self,
+        task_name: &str,
+        place: &str,
+        root: &str,
+        span: &Span,
+    ) -> String {
+        let message = if place == root {
+            format!("borrowed parameter `{root}` cannot be written")
+        } else {
+            format!("borrowed parameter `{root}` cannot write `{place}`")
+        };
         self.diagnostics.borrow_mut().push(
             Diagnostic::error(
                 DiagnosticCode::BORROW_PARAMETER_MUTATION,
-                format!("borrowed parameter `{root}` cannot be written"),
+                message,
                 Some(span.clone()),
             )
             .with_help(format!(
@@ -1079,6 +1098,8 @@ fn validate_contract_operand(text: &str, allowed_names: &BTreeSet<String>) -> bo
         || text == "false"
         || parse_int_literal(text).is_ok()
         || allowed_names.contains(text)
+        || field_place::split_field_place(text)
+            .is_some_and(|(root, _field)| allowed_names.contains(root))
 }
 
 fn executable_lines(lines: &[SectionLine]) -> Vec<ExecLine> {

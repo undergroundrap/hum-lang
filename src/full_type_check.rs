@@ -5,6 +5,7 @@ use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
 use crate::core_verify;
 use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::field_place::{self, FieldTypeMap};
 use crate::return_dependency;
 use crate::type_check;
 use crate::version;
@@ -249,9 +250,16 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
         || type_check_summary.type_errors > 0
         || core_verify_summary.failed_checks > 0;
     let task_returns = task_return_types(program);
+    let field_types = field_place::collect_field_types(program);
     let mut items = Vec::new();
     for file in &program.files {
-        collect_items(&file.items, blocked, &task_returns, &mut items);
+        collect_items(
+            &file.items,
+            blocked,
+            &task_returns,
+            &field_types,
+            &mut items,
+        );
     }
 
     FullTypeCheckReport {
@@ -268,14 +276,15 @@ fn collect_items(
     items: &[Item],
     blocked: bool,
     task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
     out: &mut Vec<FullTypeItem>,
 ) {
     for item in items {
-        if let Some(typed_item) = type_item(item, blocked, task_returns) {
+        if let Some(typed_item) = type_item(item, blocked, task_returns, field_types) {
             out.push(typed_item);
         }
         if let Item::App(app) = item {
-            collect_items(&app.items, blocked, task_returns, out);
+            collect_items(&app.items, blocked, task_returns, field_types, out);
         }
     }
 }
@@ -284,6 +293,7 @@ fn type_item(
     item: &Item,
     blocked: bool,
     task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
 ) -> Option<FullTypeItem> {
     let does = item_sections(item)
         .iter()
@@ -298,6 +308,7 @@ fn type_item(
             statement,
             &mut environment,
             task_returns,
+            field_types,
             blocked,
         );
         statements.push(typed);
@@ -322,6 +333,7 @@ fn type_statement(
     statement: &BodyStatement,
     environment: &mut BTreeMap<String, TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
     blocked: bool,
 ) -> TypedStatement {
     if blocked {
@@ -351,10 +363,10 @@ fn type_statement(
     }
 
     let expression_text = expression_text_for_statement(statement).map(str::to_string);
-    let expected_type = expected_type_for_statement(item, statement, environment);
-    let actual = expression_text
-        .as_deref()
-        .and_then(|expression| infer_expression_type(expression, environment, task_returns));
+    let expected_type = expected_type_for_statement(item, statement, environment, field_types);
+    let actual = expression_text.as_deref().and_then(|expression| {
+        infer_expression_type(expression, environment, task_returns, field_types)
+    });
     let (status, reason) = statement_status(statement, expected_type.as_deref(), actual.as_ref());
 
     if matches!(statement.kind, "let_binding" | "mutable_binding")
@@ -378,17 +390,16 @@ fn expected_type_for_statement(
     item: &Item,
     statement: &BodyStatement,
     environment: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
 ) -> Option<String> {
     match statement.kind {
         "return" => item_result(item).map(expected_return_value_type),
         "fail" => item_result(item).and_then(expected_error_value_type),
         "if_header" | "while_header" => Some("Bool".to_string()),
         "let_binding" | "mutable_binding" => binding_annotation(statement),
-        "set_place" => set_place_name(statement).and_then(|name| {
-            environment
-                .get(&name_key(name))
-                .map(|fact| fact.type_text.clone())
-        }),
+        "set_place" => set_place_name(statement)
+            .and_then(|name| place_type_fact(name, environment, field_types))
+            .map(|fact| fact.type_text),
         _ => None,
     }
 }
@@ -594,17 +605,31 @@ fn set_place_name(statement: &BodyStatement) -> Option<&str> {
     if place.is_empty() { None } else { Some(place) }
 }
 
+fn place_type_fact(
+    name: &str,
+    environment: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+) -> Option<TypeFact> {
+    if let Some((root, field)) = field_place::split_field_place(name) {
+        let root_fact = environment.get(&name_key(root))?;
+        let type_text = field_place::field_type(field_types, &root_fact.type_text, field)?;
+        return Some(type_fact(type_text, "record_field_place_v0"));
+    }
+    environment.get(&name_key(name)).cloned()
+}
+
 fn infer_expression_type(
     expression_text: &str,
     environment: &BTreeMap<String, TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
 ) -> Option<TypeFact> {
     let text = expression_text.trim();
     if text.is_empty() {
         return Some(type_fact("Unit", "unit_expression_v0"));
     }
     if let Some(argument) = strip_permission_expression(text) {
-        return infer_expression_type(argument, environment, task_returns);
+        return infer_expression_type(argument, environment, task_returns, field_types);
     }
     if text == "true" || text == "false" {
         return Some(type_fact("Bool", "bool_literal_v0"));
@@ -618,6 +643,9 @@ fn infer_expression_type(
     if text.chars().all(|ch| ch.is_ascii_digit()) {
         return Some(type_fact("integer_literal", "integer_literal_v0"));
     }
+    if let Some(fact) = place_type_fact(text, environment, field_types) {
+        return Some(fact);
+    }
     if is_condition_expression(text) {
         return Some(type_fact("Bool", "condition_expression_v0"));
     }
@@ -627,23 +655,25 @@ fn infer_expression_type(
     if let Some(root) = path_root_type_name(text) {
         return Some(type_fact(root, "path_root_type_v0"));
     }
-    if let Some(fact) = infer_additive_expression_type(text, environment, task_returns) {
+    if let Some(fact) = infer_additive_expression_type(text, environment, task_returns, field_types)
+    {
         return Some(fact);
     }
     if let Some((callee, _args)) = split_call(text) {
         return task_returns.get(&name_key(callee)).cloned();
     }
-    environment.get(&name_key(text)).cloned()
+    place_type_fact(text, environment, field_types)
 }
 
 fn infer_additive_expression_type(
     text: &str,
     environment: &BTreeMap<String, TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
 ) -> Option<TypeFact> {
     let (left, right) = text.split_once(" + ")?;
-    let left = infer_expression_type(left, environment, task_returns)?;
-    let right = infer_expression_type(right, environment, task_returns)?;
+    let left = infer_expression_type(left, environment, task_returns, field_types)?;
+    let right = infer_expression_type(right, environment, task_returns, field_types)?;
     if right.type_text == "integer_literal" || left.type_text == right.type_text {
         Some(TypeFact {
             type_text: left.type_text,

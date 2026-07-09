@@ -17,6 +17,7 @@ mod doctor;
 mod effect_check;
 mod evidence;
 mod explain;
+mod field_place;
 mod full_type_check;
 mod graph;
 mod ir_contract;

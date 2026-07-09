@@ -1,0 +1,15 @@
+module fixtures.ownership_check.session_o_field_write_borrow_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task write_borrowed_field(point: Point) -> Point {
+  why:
+    prove borrowed parameters cannot be written through field places
+
+  does:
+    set point.x = 9
+    return point
+}

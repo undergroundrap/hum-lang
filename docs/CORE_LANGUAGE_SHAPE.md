@@ -347,10 +347,42 @@ Three-strike outcome:
   Session L evidence says not to count `from parser.buffer` as implemented
   before the parameter-derived returned-view subset handles real sub-views.
 
+Session O friction records:
+
+friction:
+  program: docs/bakeoff/CORPUS.md:219
+  wanted: keep a live view or alias of `point.x`, update `point.x`, and reject later use of the stale field view
+  forced: Session O can express only direct field-place reads and writes, not field views or aliases
+  severity: blocked
+  indicts: ownership
+  proposal: fund stale field-view invalidation only after direct field places and disjoint-field v0 stay green
+
+friction:
+  program: docs/bakeoff/CORPUS.md:296
+  wanted: keep a live view of `item.done`, update `item.done`, and reject using the stale field view while preserving unrelated fields
+  forced: Session O can run direct `set item.done = true`, but cannot express field views or stale-view misuse yet
+  severity: blocked
+  indicts: ownership
+  proposal: add field-view provenance and invalidation as a later ownership repair; do not count weaker direct-field fixtures as covering stale-view misuse
+
+friction:
+  program: examples/probes/field_places.hum:17
+  wanted: express field preservation and swap contracts against pre-state, such as `old(point.x)` or `old(item.title)`
+  forced: use golden-value predicates for `swap_xy` and prose `title is preserved` for `complete_item` because predicate v0 has no pre-state reference
+  severity: blocked
+  indicts: contracts
+  proposal: Session Q must carry a mandated contracts work-order item: either predicate v1 with pre-state references or the contract-check-mode ADR, chosen from the full friction ledger
+
+Session O three-strike note:
+
+The contracts area now reaches three strikes: `divide` contract-check mode, `word_count` collection-count predicates, and missing pre-state references for field-preservation predicates. Session Q must carry a mandated contracts work-order item in its recommendation instead of treating contracts as optional backlog polish.
+
 0014 honesty locks after applying the ledger: all remain. Hum has narrow
 checked ownership facts for local moves, permissions, Transaction-shaped linear
-resources, and bare-parameter returned views. It still has no full ownership
-safety claim, borrow-soundness claim, memory-safety proof, safety-critical
-readiness claim, disjoint-field projection, internal-reference support, broad
+resources, parameter-derived returned views through bare returns and closed
+`slice_until` derivations, and direct field-place mutation. It still has no full
+ownership safety claim, borrow-soundness claim, memory-safety proof,
+safety-critical readiness claim, field views, stale field-view invalidation,
+broad disjoint-field projection, internal-reference support, broad
 flow-sensitive borrowing, concurrency ownership model, or general linear
 resource marker.

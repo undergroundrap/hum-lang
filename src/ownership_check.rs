@@ -5,6 +5,7 @@ use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
 use crate::effect_check;
+use crate::field_place;
 use crate::graph::is_meaningful_line_text;
 use crate::return_dependency::{self, ReturnDependency};
 use crate::version;
@@ -663,21 +664,26 @@ fn check_set_statement(
     };
     let resource = first_resource(&target);
     if ownership_facts.mutable_locals.contains(&resource) {
-        ownership_statement(
+        accepted_set_statement(
             statement,
             index,
+            target,
+            resource,
+            "change".to_string(),
             "local_mutation",
-            Some(resource),
-            Some("change".to_string()),
             "accepted_exclusive_local_mutation_v0",
-            None,
         )
     } else if ownership_facts.immutable_locals.contains(&resource) {
+        let display_target = if field_place::split_field_place(&target).is_some() {
+            target
+        } else {
+            resource
+        };
         ownership_statement(
             statement,
             index,
             "immutable_local_mutation",
-            Some(resource),
+            Some(display_target),
             None,
             "rejected_mutating_immutable_local_v0",
             Some("set_requires_change_local_not_let_binding"),
@@ -689,22 +695,24 @@ fn check_set_statement(
                     statement,
                     index,
                     "parameter_mutation",
-                    Some(resource.clone()),
+                    Some(target.clone()),
                     Some(permission.as_str().to_string()),
                     "rejected_mutating_borrowed_parameter_v0",
                     Some("borrow_parameter_requires_change_permission_for_set_v0"),
                 ),
                 Some(DiagnosticCode::BORROW_PARAMETER_MUTATION.as_str()),
-                Some(borrow_mutation_help(item_name, &resource, statement)),
+                Some(borrow_mutation_help(
+                    item_name, &target, &resource, statement,
+                )),
             ),
-            ParamPermission::Change | ParamPermission::Consume => ownership_statement(
+            ParamPermission::Change | ParamPermission::Consume => accepted_set_statement(
                 statement,
                 index,
+                target,
+                resource,
+                permission.as_str().to_string(),
                 "parameter_mutation",
-                Some(resource),
-                Some(permission.as_str().to_string()),
                 "accepted_parameter_mutation_v0",
-                None,
             ),
         }
     } else if declares_resource(&declarations.changes, &resource) {
@@ -722,10 +730,42 @@ fn check_set_statement(
             statement,
             index,
             "external_change_deferred",
-            Some(resource),
+            Some(target),
             None,
             "rejected_missing_mutation_authority_v0",
             Some("set_statement_requires_change_binding_or_changes_section"),
+        )
+    }
+}
+
+fn accepted_set_statement(
+    statement: &BodyStatement,
+    index: usize,
+    target: String,
+    resource: String,
+    declaration: String,
+    root_kind: &'static str,
+    root_status: &'static str,
+) -> OwnershipStatement {
+    if field_place::split_field_place(&target).is_some() {
+        ownership_statement(
+            statement,
+            index,
+            "field_mutation",
+            Some(target),
+            Some(declaration),
+            "accepted_disjoint_field_mutation_v0",
+            None,
+        )
+    } else {
+        ownership_statement(
+            statement,
+            index,
+            root_kind,
+            Some(resource),
+            Some(declaration),
+            root_status,
+            None,
         )
     }
 }
@@ -1866,9 +1906,14 @@ fn move_help(item_name: &str, target: &str, move_site: &MoveSite) -> String {
     )
 }
 
-fn borrow_mutation_help(item_name: &str, target: &str, statement: &BodyStatement) -> String {
+fn borrow_mutation_help(
+    item_name: &str,
+    target: &str,
+    root: &str,
+    statement: &BodyStatement,
+) -> String {
     format!(
-        "Fix task `{item_name}`: `{target}` is a borrowed parameter at {}:{}:{}; mark the parameter `change`, copy into a `change` local, or remove the `set`.",
+        "Fix task `{item_name}`: `{target}` writes through borrowed parameter `{root}` at {}:{}:{}; mark the parameter `change`, copy into a `change` local, or remove the `set`.",
         statement.span.file, statement.span.line, statement.span.column
     )
 }
@@ -2247,6 +2292,7 @@ impl OwnershipCheckReport {
                         | "store_change"
                         | "local_mutation"
                         | "parameter_mutation"
+                        | "field_mutation"
                 )
             })
             .count()

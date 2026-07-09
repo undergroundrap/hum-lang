@@ -130,6 +130,10 @@ Scope:
    references (parser state, program 5) and the remaining view machinery
    (stale field/element views), justified from this work order's
    friction data.
+4. Because Session O took contracts to three strikes, carry a mandated
+   contracts work-order item in the recommendation: predicate v1 with
+   pre-state references or the contract-check-mode ADR, justified from
+   the full friction ledger.
 
 Acceptance criteria:
 
@@ -158,9 +162,10 @@ friction:
 Rules: three or more records indicting one area triggers a decision
 record or work-order item; `blocked`/`wrong-by-default` triaged before
 the next session; prose `needs:`/`ensures:` lines feed the contract
-wishlist. Current strikes: ownership 3 (triggered; this work order is
-the response), contracts 2, stdlib 1 (Session P consumes part), types 1,
-core-body-grammar 1.
+wishlist. Current strikes: ownership 5 (triggered; this work order is
+the response, and stale-view repairs remain Session Q evidence), contracts
+3 (triggered by Session O; Session Q must carry one contracts work-order
+item), stdlib 1 (Session P consumes part), types 1, core-body-grammar 1.
 
 ## Showcase discipline (standing)
 

@@ -249,7 +249,7 @@ Future ranges should be reserved before broad use:
 | Code | Severity | Title | Meaning |
 |---|---|---|---|
 | `H0801` | error | use after move | A value was used after an earlier `consume` argument or return moved it. |
-| `H0802` | error | borrowed parameter written | A default-`borrow` parameter was targeted by `set`; mark it `change` or avoid mutation. |
+| `H0802` | error | borrowed parameter written | A default-`borrow` parameter or one of its direct fields was targeted by `set`; mark it `change` or avoid mutation. |
 | `H0803` | error | linear resource not consumed | A recognized linear resource reached a return, failure, or fallthrough path without exactly one visible consume action. |
 | `H0804` | error | linear resource consumed twice | A recognized linear resource was consumed after an earlier action already ended it on that path. |
 | `H0805` | error | return dependency is not a parameter | A returned-view `from` relationship names a non-parameter source or returns a value not visibly derived from that parameter in the V0 subset. |

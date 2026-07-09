@@ -76,7 +76,7 @@ The V0 gate checks only conservative statement contexts:
 - `if_header` and `while_header`: condition must be recognized as `Bool`.
 - `let_binding` and `mutable_binding`: explicit annotations are checked when
   present; otherwise simple local and literal facts may be inferred.
-- `set_place`: the assigned expression must match a known local, parameter, or place type.
+- `set_place`: the assigned expression must match a known local, parameter, or direct declared `root.field` place type.
 - simple task calls: known callee result types may type the call expression; `consume value` delegates to the consumed value type inside call arguments.
 - `block_close` and `loop_header`: accepted as statements with no expression
   type obligation.
@@ -85,12 +85,12 @@ The V0 gate checks only conservative statement contexts:
 
 V0 intentionally blocks or leaves unchecked:
 
-- record field type contexts beyond the record constructor root
+- record field type contexts beyond direct declared `root.field` places and the record constructor root
 - iterator element and index typing
 - nested intent lowering
 - test expectation typing
 - store writes and other unsupported body lines
-- overloads, fields, traits, generics, layout, ABI, ownership, borrowing,
+- overloads, field views, traits, generics, layout, ABI, ownership, borrowing,
   effects, resources, profiles, and backend-specific typing
 
 ## Summary Fields

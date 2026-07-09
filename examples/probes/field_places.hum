@@ -1,0 +1,39 @@
+module examples.probes.field_places
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+type WorkItem {
+  title: Text
+  done: Bool
+}
+
+task swap_xy(change point: Point) -> Point {
+  why:
+    swap two definitely distinct fields of one record
+
+  ensures:
+    result.x == 2
+    result.y == 1
+
+  does:
+    change old_x: UInt = point.x
+    set point.x = point.y
+    set point.y = old_x
+    return point
+}
+
+task complete_item(change item: WorkItem) -> WorkItem {
+  why:
+    complete a work item by changing only the done field
+
+  ensures:
+    result.done == true
+    title is preserved
+
+  does:
+    set item.done = true
+    return item
+}

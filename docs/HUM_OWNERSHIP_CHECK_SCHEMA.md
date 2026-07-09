@@ -8,7 +8,7 @@ Current schema: `hum.ownership_check.v0`
 
 `hum ownership-check` is the first non-executing ownership and alias-fact gate after recognized Core/body effect checking. It consumes `hum.effect_check.v0` readiness and checks only ownership facts the current Core/body grammar can honestly see.
 
-V0 is intentionally conservative. It verifies parameter permission identity (`borrow`, `change`, `consume`), immutable local ownership from `let`, exclusive mutable local ownership from `change`, parameter mutation permission through `set`, local moves caused by `consume` arguments and returns, duplicate local place names, and explicit blockers inherited from prior gates. It checks the first recognized linear-resource class: local bindings with Transaction-shaped annotations must be consumed exactly once on every recognized `if`/`return`/`fail` path. It also checks the first returned-view dependency form: a task result such as `Slice Text from text` may depend only on a task parameter, and the V0 executable body must visibly return that bare parameter or a closed-set view derivation through `slice_until(source, separator)`. It does not infer lifetimes, prove memory safety, check concurrency, validate unsafe provenance, or implement disjoint-field projection, internal references, general view expressions, or broad flow-sensitive borrowing.
+V0 is intentionally conservative. It verifies parameter permission identity (`borrow`, `change`, `consume`), immutable local ownership from `let`, exclusive mutable local ownership from `change`, parameter mutation permission through `set`, direct field-place mutation through `set record.field = value`, local moves caused by `consume` arguments and returns, duplicate local place names, and explicit blockers inherited from prior gates. It checks the first recognized linear-resource class: local bindings with Transaction-shaped annotations must be consumed exactly once on every recognized `if`/`return`/`fail` path. It also checks the first returned-view dependency form: a task result such as `Slice Text from text` may depend only on a task parameter, and the V0 executable body must visibly return that bare parameter or a closed-set view derivation through `slice_until(source, separator)`. It does not infer lifetimes, prove memory safety, check concurrency, validate unsafe provenance, or implement field views, stale field-view invalidation, broad disjoint-field projection, internal references, general view expressions, or broad flow-sensitive borrowing.
 
 This command does not execute source, emit Hum IR, prove memory safety, enforce borrowing, enforce runtime profiles, prove allocation safety, or claim a complete ownership system.
 
@@ -95,10 +95,11 @@ V0 recognizes and checks:
 - immutable local ownership from `let name: Type = value`
 - exclusive mutable local ownership from `change name: Type = value`
 - local mutation through `set name = value` when `name` was declared by `change`
+- direct field-place mutation through `set name.field = value` when `name` is a `change` local or a parameter marked `change` or `consume`
 - parameter mutation through `set name = value` only when the parameter is marked `change` or `consume`
 - local moves when a local is passed as `consume name` or returned
 - use after move as `H0801`, including double consume of the same ordinary local
-- borrowed-parameter writes as `H0802`
+- borrowed-parameter writes, including `set borrowed.field = value`, as `H0802`
 - Transaction-shaped local bindings as the first recognized linear resources
 - missing linear-resource consume on any recognized path as `H0803`, with the path named in `help`
 - double consume of a recognized linear resource as `H0804`, with the earlier consuming action named in `help`
@@ -116,6 +117,7 @@ V0 recognizes and checks:
 - `accepted_external_change_deferred_to_resource_check_v0`
 - `accepted_no_ownership_transfer_v0`
 - `accepted_parameter_mutation_v0`
+- `accepted_disjoint_field_mutation_v0`
 - `accepted_consume_argument_move_v0`
 - `accepted_return_move_v0`
 - `rejected_duplicate_local_place_v0`
@@ -150,7 +152,7 @@ V0 recognizes and checks:
 - It must not claim executable semantics.
 - It must not emit Core Hum, Hum IR, bytecode, machine code, backend adapter input, proof artifacts, optimized code, or executable behavior.
 - It must not claim complete ownership safety, borrow safety, lifetime inference, alias safety, memory safety, allocation safety, profile enforcement, optimization, or backend readiness.
-- It may report recognized V0 ownership facts, narrow Transaction-shaped linear-resource path facts, returned-view dependencies from parameters through bare returns or closed `slice_until` derivations, and explicit blockers only.
+- It may report recognized V0 ownership facts, direct field-place mutation facts, narrow Transaction-shaped linear-resource path facts, returned-view dependencies from parameters through bare returns or closed `slice_until` derivations, and explicit blockers only.
 - It must block when `hum.effect_check.v0` reports blockers.
 - It must stay in sync with `hum core-contract --format json`, `hum ir-readiness --format json`, `hum capabilities --format json`, and `hum version --format json`.
 
