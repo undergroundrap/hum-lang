@@ -272,6 +272,7 @@ friction:
   severity: awkward
   indicts: stdlib
   proposal: design the smallest list operation surface before richer state probes
+  resolution: partially resolved in Session P by `list_append(change list, item)`; retain, capacity/profile behavior, element views, and broader list stdlib design remain future work
 
 friction:
   program: examples/probes/task_list_flow.hum:15
@@ -280,6 +281,7 @@ friction:
   severity: verbose
   indicts: types
   proposal: put record update syntax through the ownership bake-off instead of adding it ad hoc
+  resolution: resolved for direct in-place field mutation in Session O by `set item.done = true`; record-update expression syntax remains future ergonomic surface
 
 friction:
   program: examples/probes/transaction_once.hum:69
@@ -381,16 +383,64 @@ friction:
   indicts: ownership
   proposal: include stale element-view machinery with the remaining view repairs considered in Session Q; do not count append-only fixtures as covering stale element views
 
+friction:
+  program: examples/probes/list_builder.hum:16
+  wanted: check that the completed builder list contains the appended items `parse`, `check`, and `run`
+  forced: use a prose `ensures:` line that surfaces as H0701 because predicate v0 has no list-content, sequence, or collection-shape vocabulary
+  severity: awkward
+  indicts: contracts
+  proposal: include small collection/list predicates in Predicate v1 only after the Session Q contract recommendation authorizes that grammar work
+
 Session O three-strike note:
 
 The contracts area now reaches three strikes: `divide` contract-check mode, `word_count` collection-count predicates, and missing pre-state references for field-preservation predicates. Session Q must carry a mandated contracts work-order item in its recommendation instead of treating contracts as optional backlog polish.
 
-0014 honesty locks after applying the ledger: all remain. Hum has narrow
+Session Q consolidation:
+
+The records above are the accumulated friction ledger through Work Order 4.
+Three-strike counts are applied to active unresolved `indicts:` records, while
+resolved records stay in the ledger as history and design evidence.
+
+| Indicted area | Active count | Records | Three-strike result |
+| --- | ---: | --- | --- |
+| ownership | 5 | Transaction-shaped linear marker; internal-reference `from parser.buffer`; stale field view after `point.x` update; stale field view after `item.done` update; stale element view after list growth. | Triggered. The next ownership repair should be stale-view machinery first, then internal references. |
+| contracts | 4 | Contract-check-mode for `divide`; missing collection-count predicates in `word_count`; missing pre-state references for field preservation; missing list-content/list-shape predicates in `builder_demo`. | Triggered. The next work order must carry a Predicate v1 item. |
+| stdlib | 1 partial | The old missing-append record is partially resolved by Session P's minimal `list_append`; retain, capacity/profile behavior, element views, and richer list design remain future work. | No new trigger beyond the already scheduled list backlog; effect polymorphism still gates retain. |
+| types | 0 active for direct field update | The replacement-record spelling record is resolved for direct in-place field mutation by Session O; record-update expression syntax remains future ergonomics. | No trigger. |
+| core-body-grammar | 1 | Standalone close/effect calls must be bound to throwaway locals. | No trigger yet. |
+
+Three-strike outcome:
+
+- Ownership remains triggered, but the evidence changed. Program 9's parameter
+  sub-view blocker is resolved by Session N, while Sessions O and P created a
+  cluster of unresolved stale-view records around fields and list elements.
+- Contracts are now triggered. The weight is no longer just `divide` check mode:
+  three records ask for checked predicate vocabulary that v0 cannot express.
+- Stdlib append pressure is partially relieved by Session P, but retain remains
+  gated by effect polymorphism and the list standard-library surface remains
+  deliberately tiny.
+
+0014 honesty locks after Session Q: all broad locks remain. Hum has narrow
 checked ownership facts for local moves, permissions, Transaction-shaped linear
 resources, parameter-derived returned views through bare returns and closed
-`slice_until` derivations, and direct field-place mutation. It still has no full
-ownership safety claim, borrow-soundness claim, memory-safety proof,
-safety-critical readiness claim, field views, stale field-view invalidation,
-broad disjoint-field projection, internal-reference support, broad
-flow-sensitive borrowing, concurrency ownership model, or general linear
-resource marker.
+`slice_until` derivations, direct field-place mutation, minimal `list_append`,
+consume-finish builder handoff, and active-iteration append rejection. It still
+has no full ownership safety claim, borrow-soundness claim, memory-safety proof,
+safety-critical readiness claim, internal-reference support, stale field-view
+invalidation, stale element-view invalidation, broad disjoint-field projection,
+broad flow-sensitive borrowing, concurrency ownership model, mature list stdlib,
+or general linear resource marker.
+
+Session Q recommendation:
+
+Fund stale-view machinery before internal references. The stale-view records now
+cover programs 8, 11, and 12, and they attach to features that users can already
+write after Sessions O and P. Program 5's internal references remain important,
+but they should build on the same provenance and invalidation machinery after
+field and element views have a checked, blamed, line-numbered failure mode.
+
+Carry a mandated contracts item too: Predicate v1 should come before the
+contract-check-mode ADR because the ledger has three predicate-expressiveness
+records against one check-mode record. Its first scope should be pre-state
+references and small collection/list predicates demanded by current probes, with
+H0701 continuing to mark prose outside the checked grammar.

@@ -1,7 +1,7 @@
 # Ownership Bake-Off Scorecard
 
 Date: 2026-07-08
-Status: Session M implementation retrospective appended after decision 0014
+Status: Session Q implementation retrospective appended after Work Order 4
 Corpus: [CORPUS.md](CORPUS.md)
 
 ## Purpose
@@ -126,53 +126,75 @@ the alternative is making pervasive view and parser code less natural forever.
 
 ## Implementation status
 
-Session M records what the accepted Candidate A path actually implements after
-Sessions J-L. "Runs" means the named corpus behavior exists as a real Hum
-fixture under `hum run` and, when ownership is involved, under
-`hum ownership-check`. Related degenerate or restructured fixtures are named as
-evidence only; they do not count the corpus behavior as implemented.
+Session Q records what the accepted Candidate A path actually implements after
+Work Order 4, through Sessions J-P. "Runs" means the named corpus behavior
+exists as a real Hum fixture under `hum run` and, when ownership is involved,
+under the relevant checker or misuse fixture. "Partial" means a real corpus
+misuse is rejected, but the positive program is still blocked. Degenerate,
+weaker, or restructured fixtures are named as evidence only; they do not count
+the corpus behavior as implemented.
 
-| # | Corpus program | Session M status | Evidence today | Missing feature or ban |
+Burn-down: Session M counted 1/12 running. Session Q counts 5/12 running, plus
+1/12 partial. The running programs are 8, 9, 10, 11, and 12. Program 3 is
+partial because Hum now rejects the iterator-invalidation misuse, but the
+retain-with-predicate positive form remains blocked by the effect-polymorphism
+gate and by stale element views.
+
+| # | Corpus program | Session Q status | Evidence today | Missing feature or ban |
 | --- | --- | --- | --- | --- |
 | 1 | Doubly linked list with back-pointers | Blocked by missing feature | No runnable fixture. | Explicit arena/container API, stale-handle invalidation, and cyclic mutable structure are not implemented. |
 | 2 | Cyclic graph freed as a unit | Blocked by missing feature | No runnable fixture. | Graph arena or region lifetime, cyclic handles, and unit release are not implemented. |
-| 3 | Mutating a collection while iterating it | Blocked by missing feature | `examples/probes/task_list_flow.hum` proves read-only list iteration only. | List append, retain-style in-place deletion, stale item-view checks, and effect-polymorphic predicate tasks are not implemented. |
-| 4 | Callback registry capturing caller state | Blocked by ban | No runnable fixture. | Closures, tasks-as-values, stored callbacks, and effect polymorphism are banned by Work Order 3. |
+| 3 | Mutating a collection while iterating it | Partial: misuse rejected; retain positive path blocked | `fixtures/ownership_check/session_p_append_during_iteration_fail.hum` rejects structural append during active `for each` with H0806; `examples/probes/task_list_flow.hum` still proves only read-only list iteration. | Retain-style in-place deletion with predicate tasks is blocked by the effect-polymorphism gate; stale element views are not expressible yet. |
+| 4 | Callback registry capturing caller state | Blocked by ban | No runnable fixture. | Closures, tasks-as-values, stored callbacks, and effect polymorphism are banned until the effect-polymorphism decision lands. |
 | 5 | Parser holding a slice into its own buffer | Blocked by missing feature | `fixtures/ownership_check/session_l_return_view_internal_fail.hum` rejects `from parser.buffer` with H0805. | Internal references and buffer/token invalidation are not implemented. |
-| 6 | Producer/consumer handoff between workers | Blocked by ban; transfer subset runs | Session J consume fixtures prove local authority transfer and reject local use after consume. | Worker/concurrency syntax is banned, so no send/receive fixture exists. |
+| 6 | Producer/consumer handoff between workers | Blocked by ban; local transfer subset runs | Session J consume fixtures prove local authority transfer and reject local use after consume. | Worker/concurrency syntax is banned, so no send/receive fixture exists. |
 | 7 | Memoizing cache read through a shared path | Blocked by missing feature | No runnable fixture. | Cache/map stdlib, source-visible internal mutation behind read-shaped APIs, and entry-view invalidation are not implemented. |
-| 8 | Swapping two fields of one record | Blocked by missing feature | No runnable fixture. | Field-place assignment and disjoint-field projection are not implemented. |
-| 9 | Returning a view derived from a parameter | Blocked by missing feature | `fixtures/ownership_check/session_l_return_parameter_view_pass.hum` proves only the bare-parameter `echo_view` case; local-source misuse is rejected with H0805 and graph/ownership JSON expose the parameter dependency. | The real `first_word("hum language") -> "hum"` sub-view derivation is not implemented. |
+| 8 | Swapping two fields of one record | Runs | `examples/probes/field_places.hum` runs `swap_xy({x:1,y:2}) -> {x:2,y:1}`; ownership JSON accepts distinct `point.x` and `point.y` field writes; borrowed field write rejects with H0802. | Stale field views and mature unrelated-field view invalidation are not implemented. |
+| 9 | Returning a view derived from a parameter | Runs | `examples/probes/first_word.hum` runs `first_word("hum language") -> hum`; graph and ownership JSON expose the dependency from result to `text`; local and non-closed derivations reject with H0805. | Internal references such as `from parser.buffer` remain blocked; the closed derivation set is intentionally tiny. |
 | 10 | Transaction that must commit or roll back exactly once | Runs | `examples/probes/transaction_once.hum` returns `ok`; Session K misuse fixtures reject missing close, double close, and one-branch close with H0803/H0804. | The linear-resource marker is still Transaction-shaped rather than source-visible and general. |
-| 11 | Updating one record field while preserving the rest | Blocked by missing feature; restructuring runs | `examples/probes/task_list_flow.hum` reconstructs a `WorkItem` and produces the expected open count. | Record update syntax, field-place mutation, disjoint-field projection, and stale field-view rejection are not implemented. |
-| 12 | Builder accumulating a growing list then handing it away | Blocked by missing feature | Session J consume fixtures prove the final transfer pattern only; no real builder fixture exists. | List growth, builder/finish API, append invalidation, and use-after-finish diagnostics are not implemented. |
+| 11 | Updating one record field while preserving the rest | Runs | `examples/probes/field_places.hum` accepts direct `set item.done = true` in `complete_item`; the run-only fixture `fixtures/run/session_o_complete_item_field_place.hum` prints `{done: true, title: hum}`; H0701 keeps the prose preservation contract visible as unchecked. | Checked pre-state predicates and stale field-view rejection are not implemented. |
+| 12 | Builder accumulating a growing list then handing it away | Runs | `examples/probes/list_builder.hum` runs `builder_demo() -> [parse, check, run]`; `builder_contract_demo() -> 3` fires a checked predicate contract; add-after-finish rejects with H0801. | Stale element views, retain, and the broader list stdlib surface are not implemented. |
 
-### Honesty locks after Session M
+### Honesty locks after Session Q
 
-All 0014 honesty locks remain. Sessions J-L implement only narrow local moves,
-parameter permission checks, Transaction-shaped exactly-once resources, and V0
-returned-view dependencies from bare parameters. The toolchain must still not
-claim full ownership safety, borrow soundness, memory safety,
-safety-critical readiness, internal-reference support, disjoint-field
-projection, flow-sensitive borrowing, concurrency ownership, or general linear
+Hum now has narrow checked ownership facts for local moves, parameter
+permissions, Transaction-shaped exactly-once resources, parameter-derived
+returned views through bare returns and closed `slice_until` derivations, direct
+field-place mutation, minimal `list_append(change list, item)`, consume-finish
+builder handoff, and active-iteration append rejection. These are real, but they
+are still narrow slices.
+
+All broad 0014 honesty locks remain. The toolchain must still not claim full
+ownership safety, borrow soundness, memory safety, safety-critical readiness,
+internal-reference support, stale field-view invalidation, stale element-view
+invalidation, broad disjoint-field projection, broad flow-sensitive borrowing,
+concurrency ownership, a mature list standard library, or general linear
 resources.
 
-### Repair recommendation after Session M
+### Repair recommendation after Session Q
 
-Between disjoint-field projection and flow-sensitive borrowing, fund the first
-repair as a narrow flow-sensitive returned-view provenance slice: make program
-9 real by accepting a checked sub-view derived from a parameter, while still
-rejecting local-buffer returns and exposing the dependency in graph and
-ownership JSON.
+Between internal references and stale-view machinery, fund stale-view machinery
+first. This is evidence-driven: Work Order 4 made direct field mutation and
+minimal list growth real, and the new unresolved ownership records now cluster
+around the same missing check: a view of a field or element cannot yet be
+created, tracked, invalidated, or blamed after the underlying record/list
+changes. That gap touches programs 8, 11, and 12; programs 8 and 11 are common
+or pervasive, and program 12 is common. Internal references for parser state
+(program 5) remain important, but they are one active corpus blocker and should
+build on the same provenance/invalidation discipline rather than precede it.
 
-This recommendation is evidence-driven, not a preference override. Program 9 is
-pervasive and currently blocked in a way that pollutes the very artifact
-Session L was meant to establish: the only passing fixture is an honest
-`echo_view`, not `first_word`. Disjoint-field projection is also important for
-programs 8 and 11, but today's runnable evidence has one restructuring record
-for record update while returned-view provenance has a blocked corpus record,
-the graph fact surface already in place, and direct pressure from the
-frequency-weighted decision that made Candidate A win. If the next work order
-wants to keep "sub-view provenance" separate from the broader
-flow-sensitive-borrowing bucket, that smaller repair should precede both named
-repairs; it should not be hidden under a disjoint-field session.
+The recommended next ownership repair is therefore a narrow stale-view slice:
+field and element view provenance plus invalidation on direct field writes and
+`list_append`, with misuse fixtures that reject stale use and diagnostics that
+name both the view and the invalidating mutation. Internal references should
+follow after that slice is green.
+
+The mandated contracts item should be Predicate v1, not contract-check-mode
+first. The full friction ledger now has three predicate-expressiveness demands
+(collection counts in `word_count`, pre-state references for field preservation,
+and list-content/list-shape contracts in `builder_demo`) against one check-mode
+demand from `divide`. Predicate v1 should start with pre-state references such
+as `old(item.title)` and small collection/list predicates needed by the probes,
+while keeping prose contracts visible as H0701 until they enter the checked
+grammar. The contract-check-mode ADR remains backlog, but the next work order
+must carry the Predicate v1 item explicitly.
