@@ -126,21 +126,25 @@ the alternative is making pervasive view and parser code less natural forever.
 
 ## Implementation status
 
-Session Q records what the accepted Candidate A path actually implements after
-Work Order 4, through Sessions J-P. "Runs" means the named corpus behavior
+Session U records what the accepted Candidate A path actually implements after
+Work Order 5, through Sessions J-T. "Runs" means the named corpus behavior
 exists as a real Hum fixture under `hum run` and, when ownership is involved,
 under the relevant checker or misuse fixture. "Partial" means a real corpus
 misuse is rejected, but the positive program is still blocked. Degenerate,
 weaker, or restructured fixtures are named as evidence only; they do not count
 the corpus behavior as implemented.
 
-Burn-down: Session M counted 1/12 running. Session Q counts 5/12 running, plus
-1/12 partial. The running programs are 8, 9, 10, 11, and 12. Program 3 is
-partial because Hum now rejects the iterator-invalidation misuse, but the
-retain-with-predicate positive form remains blocked by the effect-polymorphism
+Burn-down: Session M counted 1/12 running. Session Q counted 5/12 running plus
+1/12 partial, and Session U holds that count: Work Order 5 added no new
+program acceptances, by design. What it added is depth on the programs that
+already run — stale field/element view misuses are now rejected (programs 8,
+11, 12), and the contracts on those programs upgraded from golden values and
+prose to checked pre-state and length predicates. The running programs remain
+8, 9, 10, 11, and 12; program 3 remains partial because the
+retain-with-predicate positive form stays blocked by the effect-polymorphism
 gate.
 
-| # | Corpus program | Session Q status | Evidence today | Missing feature or ban |
+| # | Corpus program | Session U status | Evidence today | Missing feature or ban |
 | --- | --- | --- | --- | --- |
 | 1 | Doubly linked list with back-pointers | Blocked by missing feature | No runnable fixture. | Explicit arena/container API, stale-handle invalidation, and cyclic mutable structure are not implemented. |
 | 2 | Cyclic graph freed as a unit | Blocked by missing feature | No runnable fixture. | Graph arena or region lifetime, cyclic handles, and unit release are not implemented. |
@@ -149,11 +153,11 @@ gate.
 | 5 | Parser holding a slice into its own buffer | Blocked by missing feature | `fixtures/ownership_check/session_l_return_view_internal_fail.hum` rejects `from parser.buffer` with H0805. | Internal references and buffer/token invalidation are not implemented. |
 | 6 | Producer/consumer handoff between workers | Blocked by ban; local transfer subset runs | Session J consume fixtures prove local authority transfer and reject local use after consume. | Worker/concurrency syntax is banned, so no send/receive fixture exists. |
 | 7 | Memoizing cache read through a shared path | Blocked by missing feature | No runnable fixture. | Cache/map stdlib, source-visible internal mutation behind read-shaped APIs, and entry-view invalidation are not implemented. |
-| 8 | Swapping two fields of one record | Runs | `examples/probes/field_places.hum` runs `swap_xy({x:1,y:2}) -> {x:2,y:1}`; ownership JSON accepts distinct `point.x` and `point.y` field writes; borrowed field write rejects with H0802; `fixtures/ownership_check/session_r_stale_point_field_view_fail.hum` rejects stale `point.x` views with H0807. | Nested places and general aliases are not implemented. |
+| 8 | Swapping two fields of one record | Runs | `examples/probes/field_places.hum` runs `swap_xy({x:1,y:2}) -> {x:2,y:1}` under checked pre-state contracts `result.x == old(point.y)` and `result.y == old(point.x)`; `fixtures/run/session_t_wrong_swap_contract.hum` proves a sabotaged swap fails its own old() promise with H0703 task blame; ownership JSON accepts distinct `point.x` and `point.y` field writes; borrowed field write rejects with H0802; `fixtures/ownership_check/session_r_stale_point_field_view_fail.hum` rejects stale `point.x` views with H0807. | Nested places and general aliases are not implemented. |
 | 9 | Returning a view derived from a parameter | Runs | `examples/probes/first_word.hum` runs `first_word("hum language") -> hum`; graph and ownership JSON expose the dependency from result to `text`; local and non-closed derivations reject with H0805. | Internal references such as `from parser.buffer` remain blocked; the closed derivation set is intentionally tiny. |
 | 10 | Transaction that must commit or roll back exactly once | Runs | `examples/probes/transaction_once.hum` returns `ok`; Session K misuse fixtures reject missing close, double close, and one-branch close with H0803/H0804. | The linear-resource marker is still Transaction-shaped rather than source-visible and general. |
-| 11 | Updating one record field while preserving the rest | Runs | `examples/probes/field_places.hum` accepts direct `set item.done = true` in `complete_item`; the run-only fixture `fixtures/run/session_o_complete_item_field_place.hum` prints `{done: true, title: hum}`; `fixtures/ownership_check/session_r_stale_item_field_view_fail.hum` rejects stale `item.done` views with H0807; H0701 keeps the prose preservation contract visible as unchecked. | Checked pre-state predicates remain unimplemented. |
-| 12 | Builder accumulating a growing list then handing it away | Runs | `examples/probes/list_builder.hum` runs `builder_demo() -> [parse, check, run]`; `builder_contract_demo() -> 3` fires a checked predicate contract; add-after-finish rejects with H0801; `fixtures/ownership_check/session_s_stale_element_view_fail.hum` rejects stale `items[0]` views after `list_append` with H0807; `examples/probes/element_views.hum` proves copying the element value survives growth. | Retain and the broader list stdlib surface are not implemented. |
+| 11 | Updating one record field while preserving the rest | Runs | `examples/probes/field_places.hum` accepts direct `set item.done = true` in `complete_item` under the checked preservation contract `result.title == old(item.title)`, which now runs with zero warnings; the run-only fixture `fixtures/run/session_o_complete_item_field_place.hum` prints `{done: true, title: hum}`; `fixtures/ownership_check/session_r_stale_item_field_view_fail.hum` rejects stale `item.done` views with H0807. | Nested places and general aliases are not implemented; record-update expression syntax remains future ergonomics. |
+| 12 | Builder accumulating a growing list then handing it away | Runs | `examples/probes/list_builder.hum` runs `builder_demo() -> [parse, check, run]` under the checked `list_len(result) == 3` contract with the content claim staying honestly prose; `builder_contract_demo() -> 3` fires a checked predicate contract; add-after-finish rejects with H0801; `fixtures/ownership_check/session_s_stale_element_view_fail.hum` rejects stale `items[0]` views after `list_append` with H0807; `examples/probes/element_views.hum` proves copying the element value survives growth. | Retain, list-content predicates, and the broader list stdlib surface are not implemented. |
 
 ### Honesty locks after Session Q
 
@@ -182,6 +186,59 @@ changes. That gap touches programs 8, 11, and 12; programs 8 and 11 are common
 or pervasive, and program 12 is common. Internal references for parser state
 (program 5) remain important, but they are one active corpus blocker and should
 build on the same provenance/invalidation discipline rather than precede it.
+
+### Honesty locks after Session U
+
+Two Session Q locks narrow, each by a shipped, fixture-checked feature and
+by nothing else: stale field-view invalidation is now checked for local
+direct field views (Session R, H0807), and stale element-view invalidation
+is now checked for local direct element views across `list_append` growth
+(Session S, H0807). The narrowed locks keep their honest remainder: nested
+places, general aliases, and views stored beyond the local task remain
+unchecked and unclaimed. Predicate v1 (Session T) additionally makes
+pre-state (`old(...)`) and length (`list_len`) contracts real, retiring the
+golden-value workaround.
+
+Everything else in the Session Q lock list stands unchanged: no full
+ownership safety, borrow soundness, memory safety, safety-critical
+readiness, internal-reference support, broad disjoint-field projection,
+broad flow-sensitive borrowing, concurrency ownership, mature list standard
+library, or general linear resources.
+
+### Work Order 6 recommendation after Session U
+
+The three candidates, with what each defers:
+
+1. Internal references (program 5). Ledger support has weakened: after
+   Sessions R-T resolved the stale-view cluster, ownership holds only two
+   active records and is no longer over the three-strike threshold. The
+   deferral cost is contained: parser-state programs keep the honest
+   range-restructuring salvaged from candidate B, and internal references
+   should build on the now-proven view-invalidation discipline whenever
+   funded.
+2. The effect-polymorphism decision record (programs 3 and 4, closures,
+   higher-order stdlib). No ledger trigger demands it. Deferral cost: the
+   stdlib stays first-order, retain and callbacks stay blocked. Pressure is
+   real but stable at two blocked programs.
+3. The first IO capability slice. No friction record demands it — and
+   Session U names the structural reason honestly: the friction ledger can
+   only indict what programs can attempt, and no program can attempt IO
+   that does not exist. The ledger is blind here by construction, so the
+   adoption strategy legitimately carries the argument instead: the wedge
+   demo, the evidence-bundle alpha, real tools, sandboxing flags,
+   deterministic-mode groundwork, and backlog items 18 (error chains) and
+   19 (entry as capability root) are all specified to be designed with the
+   IO slice. Deferral cost: Hum remains a language that cannot touch the
+   world, and every adoption artifact stays hypothetical.
+
+Recommendation: Work Order 6 is the first IO capability slice, designed
+with backlog items 18 and 19 inside it, and carrying the mandated contracts
+item as a design session — the contract-check-mode ADR (backlog 8), which
+is next in the Session Q ordering now that Predicate v1 has shipped, and
+which IO makes concrete: capability boundaries are exactly where
+external-trust contract classification stops being theoretical. Internal
+references and the effect-polymorphism ADR queue behind, ordered by the
+post-IO ledger.
 
 The recommended next ownership repair is therefore a narrow stale-view slice:
 field and element view provenance plus invalidation on direct field writes and
