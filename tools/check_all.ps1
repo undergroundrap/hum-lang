@@ -520,8 +520,8 @@ try {
   $RunSessionOSwap = Read-NativeOutput 'run Session O swap_xy field-place fixture' $Hum @('run', 'examples/probes/field_places.hum', '--entry', 'swap_xy', '--args', '{x:1,y:2}')
   if ($RunSessionOSwap.Trim() -ne '{x: 2, y: 1}') { throw "Session O swap_xy run expected {x: 2, y: 1}, got `$RunSessionOSwap" }
 
-  $RunSessionOComplete = Read-NativeOutput 'run Session O complete_item field-place fixture' $Hum @('run', 'examples/probes/field_places.hum', '--entry', 'complete_item', '--args', '{title:""write hum"",done:false}')
-  if ($RunSessionOComplete.Trim() -ne '{done: true, title: write hum}') { throw "Session O complete_item run expected done true with preserved title, got `$RunSessionOComplete" }
+  $RunSessionOComplete = Read-NativeOutput 'run Session O complete_item field-place fixture' $Hum @('run', 'fixtures/run/session_o_complete_item_field_place.hum', '--entry', 'complete_item_demo')
+  if ($RunSessionOComplete.Trim() -ne '{done: true, title: hum}') { throw "Session O complete_item run expected done true with preserved title, got $($RunSessionOComplete)" }
 
   $RunSessionOBorrowField = Read-NativeOutputWithExit 'run Session O borrowed field-write misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_o_field_write_borrow_fail.hum', '--entry', 'write_borrowed_field', '--args', '{x:1,y:2}')
   if ($RunSessionOBorrowField.ExitCode -ne 2) { throw "Session O borrowed field-write run expected exit 2, got $($RunSessionOBorrowField.ExitCode)" }

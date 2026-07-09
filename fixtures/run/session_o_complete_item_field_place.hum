@@ -1,0 +1,28 @@
+module fixtures.run.session_o_complete_item_field_place
+
+type WorkItem {
+  title: Text
+  done: Bool
+}
+
+task complete_item(change item: WorkItem) -> WorkItem {
+  why:
+    complete a work item by changing only the done field
+
+  ensures:
+    result.done == true
+    title is preserved
+
+  does:
+    set item.done = true
+    return item
+}
+
+task complete_item_demo() -> WorkItem {
+  why:
+    exercise complete_item without shell-dependent record text quoting
+
+  does:
+    change item: WorkItem = {title: "hum", done: false}
+    return complete_item(change item)
+}
