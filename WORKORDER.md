@@ -1,153 +1,152 @@
-# Hum Work Order 4: Corpus Burn-Down One
+# Hum Work Order 5: Stale Views And Predicate V1
 
 Date: 2026-07-09
 Status: active, issued under delegated authority (GOVERNANCE.md), BDFL veto open
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent sessions.
-Predecessor: Work Order 3 closed at commit `988e7c8` with the Session M
-retrospective: 1 of 12 corpus programs runs; ownership hit three strikes;
-the mandated repair is checked sub-view provenance, then disjoint-field
-projection.
+Predecessor: Work Order 4 closed at commit `01e922f`: corpus burn-down
+1/12 -> 5/12 running plus program 3 partial; two areas over three strikes.
 
 ## Why this document exists
 
-Decision 0014 bought candidate A's ergonomics with a maturity debt. This
-work order pays the first installments, in the order Session M's friction
-evidence mandated — not preference order. Target: the corpus goes from
-1/12 running to roughly 6/12, with every new acceptance earned by a real
-fixture and every gap recorded honestly.
+Session Q's ledger mandated two items, both clusters, not preferences:
 
-The 0014 honesty locks continue to bind all output text: no full
-ownership-safety, borrow-soundness, memory-safety, or safety-critical
-readiness claims. Session M's "Honesty locks after Session M" list is the
-current truth; sessions here may narrow it only by shipping the checked
-feature that retires a lock, never by rewording.
+- Ownership (five active records, three stale-view-shaped): a narrow
+  stale-view slice — field views and element views with invalidation —
+  before internal references.
+- Contracts (four active records, three vocabulary-shaped): Predicate v1
+  grown strictly from the recorded wishlist — pre-state references and
+  small collection predicates — before the contract-check-mode ADR.
+
+This work order ships both, then measures. The 0014 honesty locks bind
+all output text; locks narrow only by shipping the checked feature that
+retires them.
 
 ## Global bans (all sessions)
 
-- No closures or tasks-as-values (effect-polymorphism gate; program 3's
-  retain-with-predicate formulation stays blocked and recorded).
-- No internal references: `from parser.buffer` stays rejected by H0805.
-  That is the repair AFTER this work order, pending Session Q evidence.
-- No general provenance inference. View provenance flows only through a
-  small closed set of recognized view-deriving operations, listed in the
-  docs, extended only by session mandate.
+- No closures or tasks-as-values (effect-polymorphism gate; backlog 15).
+- No internal references: views stored in records (`from parser.buffer`)
+  stay rejected by H0805. Local, within-task views only.
+- No general alias inference: view tracking covers views bound by the
+  recognized local forms this work order defines, nothing else.
+- Predicate v1 vocabulary is exactly what the wishlist recorded:
+  pre-state references and collection length/count. No quantifiers, no
+  implication, no user-defined predicate tasks.
 - No concurrency, FFI, backends, generics, new schemas, or new report
   subcommands.
 - Every new rejection rule ships with a misuse fixture and a stable
   diagnostic with blame-style help naming the site and the fix.
-- Grammar or surface changes update MILESTONE_0_GRAMMAR.md,
-  LANGUAGE_REFERENCE.md, syntax surface, TextMate grammar, and the README
+- Surface changes update grammar/reference/syntax/TextMate/README
   showcase in the same session.
 
-## Session N: sub-view provenance (make program 9 real)
+## Session R: field views and invalidation (programs 8 and 11 misuses)
 
 Scope:
 
-1. Add a minimal recognized text sub-view operation (e.g.
-   `slice_until(text, separator)`) to the executable subset — the first
-   member of the closed view-deriving set. Its result carries the
-   provenance of its input.
-2. Extend returned-view checking: a view derived from parameter `text`
-   through closed-set operations satisfies `-> Slice Text from text`.
-   Deriving from a local still rejects with H0805. The bare-parameter
-   `echo_view` case remains valid.
-3. Port corpus program 9 for real:
-   `first_word("hum language")` returns `hum` under `hum run`, with the
-   result-to-parameter dependency still visible in `hum graph` and
-   ownership JSON for the derived case.
-4. Misuse fixtures: sub-view of a local returned (H0805), and a
-   derivation chain that loses provenance (e.g. via a non-closed-set
-   operation) rejected honestly rather than guessed.
+1. Local field views in the recognized subset: a `let`-bound borrow of a
+   field place (e.g. `let old_done = borrow item.done`) is tracked as a
+   view of that place.
+2. Invalidation rule: writing a field invalidates outstanding views of
+   that field. Using an invalidated view rejects — new stable diagnostic
+   (H0807 expected) whose help names the view binding, the invalidating
+   write, and the fix (re-borrow after the write or copy the value
+   first). Views of *distinct* fields survive writes to other fields
+   (disjoint-field v0 extends to views).
+3. Static checking and runtime enforcement share the diagnostic
+   identity, as with H0801-H0806.
+4. Make the corpus program 8 and 11 stale-view misuses real fixtures;
+   annotate the two Session O `blocked` friction records resolved.
+5. Copy semantics stay visible: `let old_done: Bool = item.done` (a
+   value copy) is NOT a view and survives writes — a passing fixture
+   must demonstrate the distinction, because teaching it is the point.
 
 Acceptance criteria:
 
-- `hum run ... --entry first_word --args "hum language"` prints `hum`.
-- H0805 still fires on local and internal-reference sources.
-- Graph/ownership JSON show the dependency for derived views.
-- The Session L `blocked` friction record for program 9 is marked
-  resolved in the ledger (do not delete it; annotate it).
-- `.\tools\check_all.ps1` passes. Stop for review.
+- Both misuse fixtures fire the new diagnostic with both sites named.
+- A distinct-field view survives an unrelated write (passing fixture).
+- The copy-vs-view distinction fixture passes.
+- Friction records annotated; `.\tools\check_all.ps1` passes. Stop.
 
-## Session O: field places and disjoint fields (programs 8 and 11)
+## Session S: element views and growth invalidation (program 12 misuse)
 
 Scope:
 
-1. Field-place assignment in the executable subset: `set point.x = ...`
-   through a `change` parameter or `change` local, statically checked and
-   runtime-enforced.
-2. Disjoint-field v0: two writes to definitely distinct fields of one
-   record are accepted (the swap); writes through a `borrow` parameter
-   still reject (H0802 family).
-3. Port corpus programs 8 and 11 for real: `swap_xy(Point{x:1,y:2})`
-   yields `{x:2,y:1}`; `complete_item` sets `done` in place and
-   provably preserves `title` (assert via ensures or test expectation).
-4. The corpus misuses that require field *views* (stale field view after
-   update) are NOT expressible yet: record that as a friction entry
-   honestly instead of faking a weaker misuse under the same name.
+1. Extend view tracking to list elements: a `let`-bound borrow of an
+   element is a view tied to the list's growth state.
+2. `list_append` (and any structural growth) invalidates outstanding
+   element views; use-after-growth rejects with the same diagnostic
+   family as Session R, help naming the append site.
+3. Make the corpus program 12 stale-element-view misuse a real fixture;
+   annotate the Session P `blocked` record resolved.
+4. Iteration and views compose: H0806 (iteration conflict) and view
+   invalidation must not double-fire confusingly on one line — pick the
+   more specific diagnostic and test that choice.
 
 Acceptance criteria:
 
-- Both programs run with correct outputs and at least one firing
-  contract each.
-- Field write through borrow rejects with blame help.
-- Friction records filed for the view-dependent misuses.
-- `.\tools\check_all.ps1` passes. Stop for review.
+- Element misuse fixture fires with append site named.
+- The H0806/H0807 overlap case has a fixture proving one clear
+  diagnostic wins.
+- Friction record annotated; `.\tools\check_all.ps1` passes. Stop.
 
-## Session P: minimal list growth (programs 12 and 3's misuse)
+## Session T: Predicate v1 (the contracts mandate)
 
 Scope:
 
-1. The smallest honest list-growth surface: `list_append(change list,
-   item)` in the executable subset (this consumes part of backlog item
-   10; full stdlib list design remains future work).
-2. Iteration-conflict rule: structural mutation of a collection that is
-   being iterated by an active `for each` rejects with a new diagnostic
-   naming both the loop and the mutation (corpus program 3's misuse —
-   expressible today without closures).
-3. Port corpus program 12 for real: a builder task appends three items
-   and `consume`-finishes; `builder_demo()` returns the completed list;
-   add-after-finish rejects via the existing consume machinery.
-4. Stale-element-view-across-growth misuse is view-dependent and NOT
-   expressible yet: friction record, not fake.
+1. Pre-state references: `old(expr)` in `ensures:`, where `expr` is a
+   parameter or parameter field readable at task entry. Evaluated by
+   capturing the value at entry. Example: `ensures: result.x ==
+   old(point.y)`.
+2. Collection predicates: `list_len(expr)` usable in `needs:`/`ensures:`
+   comparisons. Example: `ensures: list_len(result) == 3`.
+3. Retire the golden-value contracts this unlocks, honestly: swap_xy
+   gains `result.x == old(point.y)` and `result.y == old(point.x)`;
+   complete_item gains `result.title == old(item.title)` (the
+   preservation contract that Session O could not express);
+   builder_demo's prose becomes `list_len(result) == 3` where that is
+   the honest claim (list *content* predicates remain unimplemented —
+   the prose line about contents stays prose, and stays warned).
+4. Update H0701's help text to name the v1 vocabulary. Annotate the
+   four contract wishlist records: pre-state and count/length resolved;
+   list-content remains open with one recorded demand.
+5. Sabotage tests: a wrong swap (return without swapping) must fail its
+   old()-contract at runtime with H0703 task blame — the pre-state
+   analogue of wrong_add.
 
 Acceptance criteria:
 
-- Builder probe runs with correct output and a firing contract.
-- Iteration-conflict misuse fixture fires the new diagnostic.
-- Add-after-finish rejects.
-- `.\tools\check_all.ps1` passes. Stop for review.
+- The sabotage fixture fails its old()-ensures with task blame.
+- complete_item's preservation is now a checked, non-vacuous contract.
+- builder length contract checks; content claim stays honestly prose.
+- Wishlist annotated; `.\tools\check_all.ps1` passes. Stop.
 
-## Session Q: corpus retrospective two
+## Session U: retrospective three
 
 Scope:
 
-1. Update SCORECARD.md "Implementation status" for all twelve programs;
-   record the burn-down (expected: programs 9, 8, 11, 12 move to Runs,
-   3 moves to partially-runs-with-misuse-rejection; verify honestly).
-2. Consolidate new friction records; re-apply the three-strike rule.
-3. Honest summary: which honesty locks (if any) can narrow, which
-   remain; recommendation for the next work order between internal
-   references (parser state, program 5) and the remaining view machinery
-   (stale field/element views), justified from this work order's
-   friction data.
-4. Because Session O took contracts to three strikes, carry a mandated
-   contracts work-order item in the recommendation: predicate v1 with
-   pre-state references or the contract-check-mode ADR, justified from
-   the full friction ledger.
+1. Update SCORECARD.md implementation status: misuse-coverage columns
+   for programs 8, 11, 12; note program 3's remaining gap precisely.
+2. Consolidate friction records; re-apply the three-strike rule to
+   active unresolved records.
+3. Recommendation for Work Order 6, argued from the ledger AND the
+   adoption strategy: the candidates are internal references (program 5,
+   the last big ownership blocker), the effect-polymorphism ADR
+   (unblocks program 3/4, closures, higher-order stdlib), and the first
+   IO capability slice (clock/stdout/file-read as declared capabilities,
+   which unblocks real tools, the wedge demo, sandboxing flags, and the
+   deterministic-mode groundwork). State explicitly what each choice
+   defers and for how long.
 
 Acceptance criteria:
 
-- Implementation status covers all twelve, no TBD, degenerate cases not
-  counted.
-- Three-strike rule applied to the updated ledger.
-- Recommendation argued from friction records, not preference.
-- `.\tools\check_all.ps1` passes. Stop: Work Order 4 ends here; the next
-  work order is written by the architect-reviewer from Session Q.
+- Status covers all twelve, no TBD, degenerate cases not counted.
+- Three-strike rule applied; honesty locks reviewed.
+- Recommendation weighs all three candidates with deferral costs.
+- `.\tools\check_all.ps1` passes. Stop: Work Order 5 ends here.
 
 ## Design probe system (standing)
 
-Probe sources: regret-ledger probes, construct-pair probes, misuse
-probes, domain-slice probes. Friction record format:
+Probe sources: regret-ledger, construct-pair, misuse, domain-slice.
+Friction record format:
 
 ```text
 friction:
@@ -159,52 +158,56 @@ friction:
   proposal: <optional one-line fix direction>
 ```
 
-Rules: three or more records indicting one area triggers a decision
+Rules: three active records indicting one area triggers a decision
 record or work-order item; `blocked`/`wrong-by-default` triaged before
-the next session; prose `needs:`/`ensures:` lines feed the contract
-wishlist. Current strikes: ownership 5 (triggered; this work order is
-the response, and stale-view repairs remain Session Q evidence), contracts
-3 (triggered by Session O; Session Q must carry one contracts work-order
-item), stdlib 1 (Session P consumes part), types 1, core-body-grammar 1.
+the next session; resolved records stay in the ledger, annotated.
 
 ## Showcase discipline (standing)
 
-README/SPEC examples over five lines are extracted from checked fixtures
-(preflight-enforced); README shows minimal and full-contract forms plus
-the Magic Comment Problem section; surface-changing sessions update the
-showcase in the same session.
+README/SPEC examples over five lines extract from checked fixtures
+(preflight-enforced); README shows minimal, full-contract, and Magic
+Comment sections; surface-changing sessions update the showcase in the
+same session. Session T's old() contracts are showcase-worthy: the
+sabotaged-swap example may join the Magic Comment section if it earns it.
 
 ## Backlog: accepted taste, not scheduled
 
-1. Deterministic run mode (virtual clock, seeded random, fixed schedule;
-   virtualize time before stdlib clock APIs; bit-for-bit replay; stable
-   test-mode iteration order).
+1. Deterministic run mode (virtual clock, seeded random, fixed
+   schedule; bit-for-bit replay; stable test-mode iteration order).
 2. Semantic diff (`hum diff`): effect/contract/capability deltas.
 3. Machine-applicable fixes (`hum fix --apply`); gates the public
    agent-native claim per risk R016.
 4. Sandboxed execution flags (`--allow`/`--deny`) when IO capabilities
-   arrive.
+   arrive (pairs with the WO6 IO-slice candidate).
 5. Fault containment: direction settled; design work order before any
    concurrency syntax.
 6. Units of measure: direction settled; waits for type-system maturity.
 7. Language editions before public alpha stability promises.
 8. Contract check policy ADR (proved | boundary | unproved |
-   external-trust exported as evidence).
-9. Predicate grammar v1, grown only from the contract wishlist
-   (collection-count predicates: one recorded demand).
-10. List operation surface beyond Session P's minimal append: retain
-    (needs effect polymorphism), element views, capacity and profile
-    behavior.
+   external-trust as build evidence) — deferred behind Predicate v1 per
+   the Session Q mandate ordering.
+9. Predicate v2 wishlist: list-content predicates (one demand recorded);
+   grows only from the ledger.
+10. List operation surface beyond append: retain (needs effect
+    polymorphism), capacity, profile behavior.
 11. Numerics policy ADR (checked-by-default all modes; explicit
     families; benchmark gate; two FP regimes; decimal library-first).
 12. Text model tiers (Bytes / Text / OsText) with early stdlib design.
 13. Source policy hardening: bidi-control rejection in text hygiene;
     ASCII-identifier policy recorded as deliberate.
-14. Ownership repairs after this work order, order pending Session Q
-    evidence: internal references (program 5) versus stale-view
-    machinery (field and element views), then broader flow-sensitive
-    borrowing.
-15. Effect polymorphism decision record: required before closures,
-    tasks-as-values, retain-with-predicate, or any higher-order stdlib
-    API. Research direction settled (cluster 15); the ADR itself remains
-    unwritten and blocks program 3 and 4 completion.
+14. Ownership repairs after this work order: internal references
+    (program 5), then broader flow-sensitive borrowing; order per
+    Session U evidence.
+15. Effect polymorphism ADR: blocks closures, tasks-as-values, retain,
+    higher-order stdlib, and programs 3/4 completion.
+16. Spec-of-record demo: a full-contract Hum task exported (graph JSON +
+    contract facts) as the canonical spec, with an agent generating an
+    implementation in Python/Rust reviewed against it. Nothing new to
+    build — a demo of existing surfaces; candidate for the first public
+    artifact alongside the wedge demo. Honest framing only: Hum is the
+    spec that cannot rot, not a guarantee exporter — ported code loses
+    enforcement.
+17. Stdlib labs formalization: when compiler-known built-ins
+    (list_append, slice_until, list_len, old) reach critical mass,
+    charter the labs pipeline per STDLIB_STRATEGY and the
+    STDLIB_CONSTITUTION admission packet.

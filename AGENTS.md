@@ -76,6 +76,15 @@ building anything you believe is wrong — that pushback carries extra
 weight against delegated rulings. Never push remotes, tag, or publish;
 those are reserved to the BDFL.
 
+### Pushes and CI emergencies
+
+Pushes are BDFL-performed or BDFL-instructed per batch; agents never push
+on their own initiative. One exception: when CI is red on `main`, the
+implementer may commit and push a minimal hotfix without pre-review, with
+mandatory post-hoc review at the next report. Fix the class, not the
+symptom (the 2026-07-08 quoting fix is the model: remove the fragile
+dependency rather than escaping around it).
+
 ### Session rhythm
 
 Work proceeds in lettered sessions: one session, one deliverable, sized to
