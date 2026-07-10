@@ -4,6 +4,7 @@ mod app_entry;
 mod ast;
 mod backend_contract;
 mod capabilities;
+mod capability_root;
 mod check;
 mod core_body;
 mod core_contract;
@@ -178,14 +179,31 @@ fn run() -> Result<ExitCode, String> {
     let program = loaded.program;
     let mut diagnostics = loaded.diagnostics;
     if options.command == "run" {
-        diagnostics.retain(|diagnostic| !app_entry::is_app_entry_diagnostic(diagnostic));
-        if options.run_entry.is_none()
-            && !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.severity == Severity::Error)
+        diagnostics.retain(|diagnostic| {
+            !app_entry::is_app_entry_diagnostic(diagnostic)
+                && !capability_root::is_capability_diagnostic(diagnostic)
+        });
+        if !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
         {
-            diagnostics.extend(app_entry::diagnostics(&program));
+            if let Some(entry) = options.run_entry.as_deref() {
+                diagnostics.extend(capability_root::entry_diagnostics(&program, entry));
+            } else {
+                diagnostics.extend(app_entry::diagnostics(&program));
+                if !diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.severity == Severity::Error)
+                {
+                    diagnostics.extend(capability_root::diagnostics(&program));
+                }
+            }
         }
+    } else if !diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        diagnostics.extend(capability_root::diagnostics(&program));
     }
     let has_errors = diagnostics
         .iter()

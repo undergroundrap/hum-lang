@@ -271,6 +271,30 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Return `Unit` (including an omitted result) or `Result Unit, ErrorType` from the start task.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::UNKNOWN_SOURCE_CAPABILITY,
+        default_severity: Severity::Error,
+        explanation: "An executable app or one of its tasks uses a dotted external-capability spelling outside Session Y's exact `stdout.write`, `clock.replay`, and `files.read` vocabulary.",
+        repair: "Use one exact pinned capability ID, or keep an ordinary non-capability dependency under `uses:` without an external capability-family spelling.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::MISSING_CALLER_CAPABILITY,
+        default_severity: Severity::Error,
+        explanation: "A caller reaches a callee capability closure that is not included in the caller's own exact source-authority budget.",
+        repair: "Add the exact capability under the caller's `uses:` section or remove/restructure the call path.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::APP_CAPABILITY_MISMATCH,
+        default_severity: Severity::Error,
+        explanation: "The app maximum source-authority declaration does not cover a pinned capability in the start task's closed direct-call route.",
+        repair: "Add the exact capability under the app's `uses:` section or remove it from the reachable start-task closure; source declaration is not operator consent.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::ENTRY_CAPABILITY_BYPASS,
+        default_severity: Severity::Error,
+        explanation: "An explicit `--entry` task reaches pinned external source authority, but direct entry is a pure probe outside the structural app authority root.",
+        repair: "Run the structural app without `--entry`, or select a task whose complete direct-call closure is pure.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNCHECKED_PROSE_CONTRACT,
         default_severity: Severity::Warning,
         explanation: "`hum run` saw a `needs:` or `ensures:` line that is honest prose rather than a predicate v1 expression, so it remains visible but unchecked. Predicate v1 is one comparison over parameters, `result`, arithmetic, `list_len(...)`, and `old(...)` of entry-readable parameter places in `ensures:` only.",

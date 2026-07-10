@@ -22,6 +22,7 @@ pub(crate) struct FailureCatalog {
 pub(crate) struct DirectCall {
     pub callee: String,
     pub source: String,
+    pub source_offset: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -604,10 +605,11 @@ fn parse_direct_call(text: &str) -> Option<DirectCall> {
     Some(DirectCall {
         callee: callee.to_string(),
         source: text.to_string(),
+        source_offset: 0,
     })
 }
 
-fn calls_in_expression(text: &str) -> Vec<DirectCall> {
+pub(crate) fn calls_in_expression(text: &str) -> Vec<DirectCall> {
     let bytes = text.as_bytes();
     let mut calls = Vec::new();
     let mut index = 0;
@@ -658,6 +660,7 @@ fn calls_in_expression(text: &str) -> Vec<DirectCall> {
         calls.push(DirectCall {
             callee: callee.to_string(),
             source: text[start..=end].trim().to_string(),
+            source_offset: start,
         });
     }
 
@@ -767,10 +770,11 @@ fn try_call_hint(text: &str) -> Option<DirectCall> {
     is_value_ident(callee).then(|| DirectCall {
         callee: callee.to_string(),
         source: call.trim().to_string(),
+        source_offset: 0,
     })
 }
 
-fn statement_expression(statement: &BodyStatement) -> Option<&str> {
+pub(crate) fn statement_expression(statement: &BodyStatement) -> Option<&str> {
     match statement.kind {
         "return" => strip_keyword(&statement.text, "return"),
         "fail" => strip_keyword(&statement.text, "fail"),

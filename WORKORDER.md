@@ -1,8 +1,8 @@
 # Hum Work Order 6: Overlapping Places And The First Local IO Slice
 
 Date: 2026-07-09
-Status: active; Sessions V and W accepted and committed; Session X implementation
-is complete and uncommitted pending architect-reviewer review; Session Y is not
+Status: active; Sessions V-X accepted and committed; Session Y implementation
+is complete and uncommitted pending architect-reviewer review; Session Z is not
 authorized,
 issued under delegated authority (`docs/GOVERNANCE.md`), BDFL veto open
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
@@ -420,7 +420,7 @@ Acceptance criteria:
   `proposed`; no delegated acceptance is recorded yet.
 - Standing checks pass. Stop. Session Y requires an explicit review go signal.
 
-Implementation evidence awaiting review (2026-07-10):
+Accepted implementation evidence (2026-07-10):
 
 - `examples/probes/pure_app_entry.hum` selects its directly nested `run_tool`,
   binds the ordinary runner argument, exits 0, and leaves both output channels
@@ -513,6 +513,38 @@ Acceptance criteria:
   remains `proposed`; the reviewer may explicitly authorize Session Z as the
   final operator-grant/IO evidence slice but must not rule yet.
 - Standing checks pass. Stop. Session Z requires an explicit review go signal.
+
+Implementation evidence awaiting review (2026-07-10):
+
+- `examples/probes/capability_root.hum` executes a real nested helper call and
+  exits with no output or host operation. App, caller, and helper each declare
+  exact `stdout.write`, `clock.replay`, and `files.read` source budgets.
+- Existing effect boundary rows expose task budgets, caller closure, and app
+  maximum/start closure under stable source-policy IDs. Each row carries the
+  exact capability's kind, scope, strength, one-run lifetime, ordinary
+  severity tier, reserved mapping status, and structured app/task/call/
+  declaration route sites. These are source policy snapshots, not grants or
+  IO evidence.
+- H0617 rejects `process.run` and classifies it as the separate
+  `sandbox_bypass_authority` tier. H0618 blames caller, callee, call, and origin
+  declaration for missing transitive coverage. H0619 blames app, start, entry,
+  and origin for an incomplete maximum. H0620 blocks an authority-bearing
+  `--entry` while the same fixture remains valid in structural app mode.
+- The shared analyzer reuses the Session W executable-expression call scanner,
+  so nested/operator call positions cannot silently escape closure analysis.
+  Existing resolver H0601 remains the fail-closed owner for an unidentifiable
+  app-local callee.
+- Corrective fixtures prove `--entry` traverses reachable callees and rejects
+  transitive `process.run` and `stdout.*` declarations with routed H0617 before
+  execution. A three-call single-statement fixture, including a repeated
+  callee, proves source-policy IDs are unique per lexical occurrence and stable
+  across repeated effect reports.
+- Proposed decision 0017 now pins exact grant dimensions, a separate
+  sandbox-bypass tier, task-coupled/no-startup-prompt consent, explicit
+  persistence and dangerous-wildcard treatment, and the future forensic join
+  of policy snapshot, decision event, and exercise event. Session Y implements
+  only the source snapshot and policy join ID; it adds no operator flags,
+  grants, prompts, persistence, IO, Core `output`, or `os.stdio`.
 
 ## Session Z: bounded stdout capability
 
@@ -951,8 +983,10 @@ Decision 0016 is accepted under delegated authority with the BDFL veto open.
 Session X was accepted by both reviewers independently (the Codex
 architect with zero findings; the cross-family reviewer on behavioral
 re-verification of the final hardened tree) and committed as `1605332`.
-Decision 0017 remains proposed pending Session Y and Z evidence. Session Y
-is unauthorized until the BDFL gives the explicit go signal; its review
-will additionally apply the capability-grant gate criteria from
-research/2026-07-10-overnight-research-triage.md item 1. Publishing
-remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
+Decision 0017 remains proposed pending Session Y and Z evidence. The BDFL
+authorized Session Y; its implementation is complete and uncommitted pending
+architect-reviewer review under the additional capability-grant criteria from
+research/2026-07-10-overnight-research-triage.md item 1. Session Z remains
+unauthorized until Session Y is accepted and the BDFL gives a separate explicit
+go signal. Publishing remains a BDFL-reserved action under
+`docs/GOVERNANCE.md`.

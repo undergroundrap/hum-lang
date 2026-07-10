@@ -1,0 +1,18 @@
+app incomplete_authority_root {
+  why:
+    reject an app maximum that omits its start task authority
+
+  starts with:
+    run_tool
+
+  task run_tool -> Unit {
+    uses:
+      files.read
+
+    allocates:
+      nothing
+
+    does:
+      return
+  }
+}

@@ -304,6 +304,7 @@ Current artifacts:
 - [examples/control_flow.hum](examples/control_flow.hum): loop and control-flow sketch
 - [examples/task_list.hum](examples/task_list.hum): beginner-friendly program sketch
 - [examples/task_list_tests.hum](examples/task_list_tests.hum): first-class test sketch
+- [examples/probes/capability_root.hum](examples/probes/capability_root.hum): checked exact app/task capability closure with no host operation
 
 ## Bootstrap Compiler
 

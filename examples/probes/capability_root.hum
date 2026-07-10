@@ -1,0 +1,45 @@
+app capability_root_probe {
+  why:
+    prove exact source authority closure without performing a host effect
+
+  uses:
+    stdout.write
+    clock.replay
+    files.read
+
+  starts with:
+    run_tool
+
+  task authority_helper -> Int {
+    why:
+      carry the pinned source budgets through a real nested call
+
+    uses:
+      stdout.write
+      clock.replay
+      files.read
+
+    allocates:
+      nothing
+
+    does:
+      return 7
+  }
+
+  task run_tool -> Unit {
+    why:
+      prove the start closure covers the nested helper exactly
+
+    uses:
+      stdout.write
+      clock.replay
+      files.read
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let observed = authority_helper()
+      return
+  }
+}

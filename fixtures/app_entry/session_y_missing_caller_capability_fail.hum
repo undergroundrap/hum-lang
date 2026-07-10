@@ -1,0 +1,30 @@
+app missing_caller_capability {
+  why:
+    reject a caller that hides its helper capability closure
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task authority_helper -> Int {
+    uses:
+      stdout.write
+
+    allocates:
+      nothing
+
+    does:
+      return 7
+  }
+
+  task run_tool -> Unit {
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let observed = authority_helper()
+      return
+  }
+}

@@ -1,0 +1,27 @@
+app transitive_wildcard_entry {
+  why:
+    reject wildcard authority reached through a direct-entry call
+
+  starts with:
+    run_tool
+
+  task wildcard_helper -> Int {
+    uses:
+      stdout.*
+
+    allocates:
+      nothing
+
+    does:
+      return 7
+  }
+
+  task run_tool -> Unit {
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let observed = wildcard_helper()
+      return
+  }
+}

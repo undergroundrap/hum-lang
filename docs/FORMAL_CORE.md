@@ -343,6 +343,14 @@ Rules:
 - Effects are emitted into `hum graph`.
 - A profile may forbid an effect.
 
+Session Y pins the first executable source-capability mapping without widening
+the Core effect catalog or executing an operation: `stdout.write` maps to the
+reserved `output` effect that lands in Session Z, `clock.replay` maps to `time`
+without host-clock authority, and `files.read` maps to `file`. App and task
+declarations form a checked closed direct-call budget. Existing effect boundary
+rows preserve the typed source policy and route; no operator grant, host action,
+or complete effect-system claim follows from that declaration.
+
 ## Failure
 
 Failure is explicit.

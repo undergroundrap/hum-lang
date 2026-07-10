@@ -110,8 +110,17 @@ full-type, effect, and runtime analysis. Before app execution, the existing
 resolver, declaration-type, and recognized full-type gates must be clean;
 runtime also fails closed rather than hiding a non-Unit value. App success adds
 no result display and typed app failure keeps Session W's causal stderr path.
-This slice grants no capability, operator consent, IO, or Path semantics. Those
-remain evidence gates under proposed decision 0017.
+Session Y adds the checked source-authority half under proposed decision 0017.
+The only external source capability IDs are `stdout.write`, `clock.replay`, and
+`files.read`. App `uses:` is a maximum, each task declares its direct and
+transitive closed-call budget, callers cover callees, and the app covers the
+start closure. Existing effect boundary rows preserve a stable source-policy ID,
+the typed kind/scope/strength/one-run lifetime, severity tier, and every
+app/task/call/declaration route site. These facts authorize no host action:
+operator grants, denies, prompts, persistence, wildcards, decision/use audit
+events, IO, and Path semantics remain later evidence gates. `--entry` stays a
+pure probe and is rejected when its selected closure carries any pinned source
+authority.
 
 Session V's writable-field-alias slice is owned by one shared straight-line
 place analysis consumed by `ownership_check` and the interpreter. Resolver and

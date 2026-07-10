@@ -1,0 +1,44 @@
+app policy_id_occurrences {
+  why:
+    prove every lexical call occurrence has a unique stable policy identity
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task left_helper -> Int {
+    uses:
+      stdout.write
+
+    allocates:
+      nothing
+
+    does:
+      return 1
+  }
+
+  task right_helper -> Int {
+    uses:
+      stdout.write
+
+    allocates:
+      nothing
+
+    does:
+      return 2
+  }
+
+  task run_tool -> Unit {
+    uses:
+      stdout.write
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let observed = left_helper() + right_helper() + left_helper()
+      return
+  }
+}

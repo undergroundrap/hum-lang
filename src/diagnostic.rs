@@ -95,6 +95,13 @@ impl DiagnosticCode {
     pub const APP_START_NOT_CHILD: Self = Self::new("H0614", "app start task is not a child");
     pub const MULTIPLE_EXECUTABLE_APPS: Self = Self::new("H0615", "multiple executable apps");
     pub const APP_START_INVALID_RESULT: Self = Self::new("H0616", "invalid app start result");
+    pub const UNKNOWN_SOURCE_CAPABILITY: Self = Self::new("H0617", "unknown source capability");
+    pub const MISSING_CALLER_CAPABILITY: Self =
+        Self::new("H0618", "caller capability closure is incomplete");
+    pub const APP_CAPABILITY_MISMATCH: Self =
+        Self::new("H0619", "app capability maximum is incomplete");
+    pub const ENTRY_CAPABILITY_BYPASS: Self =
+        Self::new("H0620", "direct entry cannot carry external authority");
     pub const UNCHECKED_PROSE_CONTRACT: Self = Self::new("H0701", "unchecked prose contract");
     pub const NEEDS_CONTRACT_VIOLATION: Self = Self::new("H0702", "needs contract violation");
     pub const ENSURES_CONTRACT_VIOLATION: Self = Self::new("H0703", "ensures contract violation");

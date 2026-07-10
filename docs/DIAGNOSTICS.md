@@ -255,6 +255,10 @@ Future ranges should be reserved before broad use:
 | `H0614` | error | app start task is not a child | The named start task is not directly nested in the app; external names never satisfy it. |
 | `H0615` | error | multiple executable apps | Run input contains more than one top-level app. |
 | `H0616` | error | invalid app start result | The start task does not return `Unit` or `Result Unit, E`. |
+| `H0617` | error | unknown source capability | An executable app or task uses an external-capability spelling outside exact `stdout.write`, `clock.replay`, and `files.read`. Sandbox-bypass names are rejected as a separate authority tier. |
+| `H0618` | error | caller capability closure is incomplete | A caller does not declare an exact capability required by its callee's transitive direct-call closure. |
+| `H0619` | error | app capability maximum is incomplete | The app maximum does not cover an exact capability in the start-task closure. |
+| `H0620` | error | direct entry cannot carry external authority | `--entry` selected a task whose direct-call closure requires pinned external source authority. |
 
 ### Executable Contracts
 

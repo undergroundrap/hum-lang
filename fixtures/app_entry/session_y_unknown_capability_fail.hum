@@ -1,0 +1,18 @@
+app unknown_capability {
+  why:
+    reject sandbox-bypass authority as an ordinary source capability
+
+  uses:
+    process.run
+
+  starts with:
+    run_tool
+
+  task run_tool -> Unit {
+    allocates:
+      nothing
+
+    does:
+      return
+  }
+}

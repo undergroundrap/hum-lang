@@ -1,0 +1,21 @@
+app entry_authority_boundary {
+  why:
+    reject direct entry when the selected task carries external authority
+
+  uses:
+    clock.replay
+
+  starts with:
+    run_tool
+
+  task run_tool -> Unit {
+    uses:
+      clock.replay
+
+    allocates:
+      nothing
+
+    does:
+      return
+  }
+}

@@ -151,8 +151,13 @@ written to stderr. Files without an app keep legacy single-task selection, and
 `--entry` remains a direct task probe rather than app execution.
 
 `starts with:` does not initialize state. App state initialization remains
-undesigned. Capability closure, grants, and IO are not part of this structural
-entry slice.
+undesigned. Session Y recognizes exactly `stdout.write`, `clock.replay`, and
+`files.read` as external source capabilities. App `uses:` is the maximum;
+reachable tasks declare direct and transitive capability budgets, callers cover
+callee closure, and the app covers the start closure. Stable effect-policy IDs
+and structured route sites make that source policy auditable. These declarations
+are not operator grants and perform no IO. `--entry` remains a pure probe and
+rejects an authority-bearing task closure.
 
 ### `type`
 

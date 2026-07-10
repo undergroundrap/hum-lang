@@ -281,6 +281,9 @@ try {
   foreach ($Code in @('H0610', 'H0611', 'H0612', 'H0613', 'H0614', 'H0615', 'H0616')) {
     if (-not $DiagnosticsJson.Contains("`"code`": `"$Code`"")) { throw "diagnostic catalog JSON is missing $Code" }
   }
+  foreach ($Code in @('H0617', 'H0618', 'H0619', 'H0620')) {
+    if (-not $DiagnosticsJson.Contains("`"code`": `"$Code`"")) { throw "diagnostic catalog JSON is missing Session Y $Code" }
+  }
   if (-not $DiagnosticsJson.Contains('"code": "H0701"')) { throw 'diagnostic catalog JSON is missing H0701' }
   if (-not $DiagnosticsJson.Contains('"code": "H0702"')) { throw 'diagnostic catalog JSON is missing H0702' }
   if (-not $DiagnosticsJson.Contains('"code": "H0703"')) { throw 'diagnostic catalog JSON is missing H0703' }
@@ -1019,6 +1022,113 @@ try {
 
   $RunSessionXDirectProbe = Read-NativeOutputWithExit 'run Session X direct --entry compatibility' $Hum @('run', 'fixtures/app_entry/session_x_external_same_name_fail.hum', '--entry', 'run_tool')
   if ($RunSessionXDirectProbe.ExitCode -ne 0 -or $RunSessionXDirectProbe.Output.Trim() -ne '()') { throw "Session X direct --entry probe expected legacy (), got $($RunSessionXDirectProbe.Output)" }
+
+  $SessionYPositive = 'examples/probes/capability_root.hum'
+  $RunSessionYPositive = Read-NativeOutputWithExit 'run Session Y capability root' $Hum @('run', $SessionYPositive)
+  if ($RunSessionYPositive.ExitCode -ne 0 -or $RunSessionYPositive.Output -ne '') { throw 'Session Y capability-root app must run without output or host effects' }
+  foreach ($Command in @('resolve', 'full-type-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutput "Session Y $Command positive" $Hum @($Command, '--format', 'json', $SessionYPositive)
+    Assert-Json "Session Y $Command positive" $Surface
+  }
+  $SessionYGraph = Read-NativeOutput 'graph Session Y capability root' $Hum @('graph', $SessionYPositive)
+  Assert-Json 'graph Session Y capability root' $SessionYGraph
+  foreach ($Capability in @('stdout.write', 'clock.replay', 'files.read')) {
+    if (-not $SessionYGraph.Contains($Capability)) { throw "Session Y graph is missing exact source capability $Capability" }
+  }
+
+  $SessionYEffect = Read-NativeOutput 'effect check Session Y capability root' $Hum @('effect-check', '--format', 'json', $SessionYPositive)
+  Assert-Json 'effect check Session Y capability root' $SessionYEffect
+  $SessionYEffectParsed = $SessionYEffect | ConvertFrom-Json
+  $SessionYRoutes = @($SessionYEffectParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $null -ne $_.capability_id })
+  if ($SessionYRoutes.Count -ne 15) { throw "Session Y positive expected 15 source-policy rows, got $($SessionYRoutes.Count)" }
+  $SessionYPolicy = @{
+    'stdout.write' = @{ Core = 'output'; Target = 'bounded_bootstrap_stdout_adapter_reserved_os.stdio'; Kind = 'output_stream'; Scope = 'app_stdout'; Strength = 'write'; Mapping = 'reserved_until_session_z_v0' }
+    'clock.replay' = @{ Core = 'time'; Target = 'ordered_runner_replay_input_no_host_clock'; Kind = 'replay_input'; Scope = 'runner_tick_sequence'; Strength = 'read_ordered'; Mapping = 'reserved_until_session_aa_v0' }
+    'files.read' = @{ Core = 'file'; Target = 'one_exact_native_path_via_os.filesystem_adapter'; Kind = 'file'; Scope = 'exact_native_path'; Strength = 'read'; Mapping = 'reserved_until_session_ad_v0' }
+  }
+  foreach ($Capability in @('stdout.write', 'clock.replay', 'files.read')) {
+    $CapabilityRows = @($SessionYRoutes | Where-Object { $_.capability_id -eq $Capability })
+    foreach ($Status in @('accepted_source_capability_budget_v0', 'accepted_app_capability_maximum_v0', 'accepted_caller_capability_closure_v0', 'accepted_app_capability_closure_v0')) {
+      if (@($CapabilityRows | Where-Object { $_.status -eq $Status }).Count -eq 0) { throw "Session Y $Capability is missing $Status" }
+    }
+    foreach ($Row in $CapabilityRows) {
+      foreach ($Field in @('id', 'core_effect', 'runtime_target_meaning', 'grant_kind', 'grant_scope', 'grant_strength', 'grant_lifetime', 'severity_tier', 'mapping_status', 'app_span', 'caller_span', 'declaration_span')) {
+        if ($null -eq $Row.$Field) { throw "Session Y $Capability policy row is missing $Field" }
+      }
+      if ($Row.grant_lifetime -ne 'one_run' -or $Row.severity_tier -ne 'ordinary_external_authority') { throw "Session Y $Capability must remain an exact ordinary one-run source budget" }
+      $Policy = $SessionYPolicy[$Capability]
+      if ($Row.core_effect -ne $Policy.Core -or $Row.runtime_target_meaning -ne $Policy.Target -or $Row.grant_kind -ne $Policy.Kind -or $Row.grant_scope -ne $Policy.Scope -or $Row.grant_strength -ne $Policy.Strength -or $Row.mapping_status -ne $Policy.Mapping) { throw "Session Y $Capability typed policy dimensions drifted" }
+    }
+    $CallerRoute = @($CapabilityRows | Where-Object { $_.status -eq 'accepted_caller_capability_closure_v0' })[0]
+    if ((@($CallerRoute.route_tasks) -join '->') -ne 'run_tool->authority_helper' -or @($CallerRoute.route_spans).Count -ne 1 -or $null -eq $CallerRoute.callee_span) { throw "Session Y $Capability caller route lacks forensic call/callee facts" }
+  }
+  $SessionYEffectRepeat = Read-NativeOutput 'effect check Session Y stable policy identifiers' $Hum @('effect-check', '--format', 'json', $SessionYPositive)
+  Assert-Json 'effect check Session Y stable policy identifiers' $SessionYEffectRepeat
+  $SessionYRepeatParsed = $SessionYEffectRepeat | ConvertFrom-Json
+  $SessionYRepeatIds = @($SessionYRepeatParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $null -ne $_.capability_id } | ForEach-Object { $_.id } | Sort-Object)
+  $SessionYRouteIds = @($SessionYRoutes | ForEach-Object { $_.id } | Sort-Object)
+  if ((ConvertTo-Json -Compress $SessionYRouteIds) -ne (ConvertTo-Json -Compress $SessionYRepeatIds)) { throw 'Session Y source-policy identifiers must be stable for forensic joins' }
+
+  $SessionYOccurrencePath = 'fixtures/app_entry/session_y_policy_id_occurrences_pass.hum'
+  $RunSessionYOccurrences = Read-NativeOutputWithExit 'run Session Y policy-ID occurrences' $Hum @('run', $SessionYOccurrencePath)
+  if ($RunSessionYOccurrences.ExitCode -ne 0 -or $RunSessionYOccurrences.Output -ne '') { throw 'Session Y policy-ID occurrence fixture must execute without output' }
+  $SessionYOccurrences = Read-NativeOutput 'effect check Session Y policy-ID occurrences' $Hum @('effect-check', '--format', 'json', $SessionYOccurrencePath)
+  Assert-Json 'effect check Session Y policy-ID occurrences' $SessionYOccurrences
+  $SessionYOccurrencesParsed = $SessionYOccurrences | ConvertFrom-Json
+  $SessionYOccurrenceRows = @($SessionYOccurrencesParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $_.status -eq 'accepted_caller_capability_closure_v0' -and $_.caller -eq 'run_tool' -and $_.capability_id -eq 'stdout.write' })
+  if ($SessionYOccurrenceRows.Count -ne 3 -or @($SessionYOccurrenceRows.id | Sort-Object -Unique).Count -ne 3 -or @($SessionYOccurrenceRows.source_span.column | Sort-Object -Unique).Count -ne 3) { throw 'Session Y must give every same-statement call occurrence a unique lexical policy identity' }
+  if ((@($SessionYOccurrenceRows.callee) -join ',') -ne 'left_helper,right_helper,left_helper') { throw 'Session Y policy-ID fixture must preserve different and repeated same-callee occurrence order' }
+  $SessionYOccurrencesRepeat = Read-NativeOutput 'effect check Session Y policy-ID repeat stability' $Hum @('effect-check', '--format', 'json', $SessionYOccurrencePath)
+  Assert-Json 'effect check Session Y policy-ID repeat stability' $SessionYOccurrencesRepeat
+  $SessionYOccurrencesRepeatParsed = $SessionYOccurrencesRepeat | ConvertFrom-Json
+  $SessionYOccurrenceRepeatIds = @($SessionYOccurrencesRepeatParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $_.status -eq 'accepted_caller_capability_closure_v0' -and $_.caller -eq 'run_tool' -and $_.capability_id -eq 'stdout.write' } | ForEach-Object { $_.id })
+  if ((@($SessionYOccurrenceRows.id) -join ',') -ne ($SessionYOccurrenceRepeatIds -join ',')) { throw 'Session Y lexical policy identities must repeat deterministically' }
+  foreach ($Expected in @('no operator grant, consent prompt, persistence, or wildcard authority', 'no host capability operation or audit exercise event')) {
+    if (-not $SessionYEffect.Contains($Expected)) { throw "Session Y effect honesty lock is missing $Expected" }
+  }
+
+  $SessionYMisuses = @(
+    @{ Name = 'unknown capability'; Path = 'fixtures/app_entry/session_y_unknown_capability_fail.hum'; Code = 'H0617'; Status = 'rejected_unknown_source_capability_v0'; Related = 1 },
+    @{ Name = 'missing caller closure'; Path = 'fixtures/app_entry/session_y_missing_caller_capability_fail.hum'; Code = 'H0618'; Status = 'rejected_missing_caller_capability_v0'; Related = 3 },
+    @{ Name = 'app maximum mismatch'; Path = 'fixtures/app_entry/session_y_app_capability_mismatch_fail.hum'; Code = 'H0619'; Status = 'rejected_app_capability_mismatch_v0'; Related = 3 }
+  )
+  foreach ($Misuse in $SessionYMisuses) {
+    $Human = Read-NativeOutputWithExit "check Session Y $($Misuse.Name) human" $Hum @('check', $Misuse.Path)
+    if ($Human.ExitCode -ne 1 -or [regex]::Matches($Human.Output, "error\[$($Misuse.Code)\]").Count -ne 1) { throw "Session Y $($Misuse.Name) must emit exactly one error[$($Misuse.Code)]" }
+    $Json = Read-NativeOutputWithExit "check Session Y $($Misuse.Name) JSON" $Hum @('check', '--format', 'json', $Misuse.Path)
+    if ($Json.ExitCode -ne 1) { throw "Session Y $($Misuse.Name) JSON expected exit 1" }
+    Assert-Json "check Session Y $($Misuse.Name) JSON" $Json.Output
+    $Parsed = $Json.Output | ConvertFrom-Json
+    $Diagnostic = @($Parsed.diagnostics | Where-Object { $_.code -eq $Misuse.Code })[0]
+    if ($null -eq $Diagnostic -or @($Diagnostic.related_spans).Count -ne $Misuse.Related -or -not $Human.Output.Contains($Diagnostic.message) -or -not $Human.Output.Contains($Diagnostic.help)) { throw "Session Y $($Misuse.Name) human/JSON blame disagrees" }
+    $Effect = Read-NativeOutputWithExit "effect check Session Y $($Misuse.Name)" $Hum @('effect-check', '--format', 'json', $Misuse.Path)
+    if ($Effect.ExitCode -ne 1) { throw "Session Y $($Misuse.Name) effect check expected exit 1" }
+    Assert-Json "effect check Session Y $($Misuse.Name)" $Effect.Output
+    $EffectParsed = $Effect.Output | ConvertFrom-Json
+    $EffectRow = @($EffectParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $_.status -eq $Misuse.Status })[0]
+    if ($null -eq $EffectRow -or $EffectRow.diagnostic_code -ne $Misuse.Code -or $null -eq $EffectRow.declaration_span) { throw "Session Y $($Misuse.Name) effect policy row disagrees" }
+    $Run = Read-NativeOutputWithExit "run Session Y $($Misuse.Name)" $Hum @('run', $Misuse.Path)
+    if ($Run.ExitCode -ne 1 -or [regex]::Matches($Run.Output, "error\[$($Misuse.Code)\]").Count -ne 1 -or $Run.Output.Contains('runtime trap')) { throw "Session Y $($Misuse.Name) must block before runtime" }
+  }
+  $SessionYUnknownEffect = Read-NativeOutputWithExit 'effect check Session Y sandbox bypass tier' $Hum @('effect-check', '--format', 'json', 'fixtures/app_entry/session_y_unknown_capability_fail.hum')
+  $SessionYUnknownParsed = $SessionYUnknownEffect.Output | ConvertFrom-Json
+  $SessionYUnknownRow = @($SessionYUnknownParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $_.status -eq 'rejected_unknown_source_capability_v0' })[0]
+  if ($SessionYUnknownRow.capability_id -ne 'process.run' -or $SessionYUnknownRow.severity_tier -ne 'sandbox_bypass_authority' -or $SessionYUnknownRow.mapping_status -ne 'forbidden_in_work_order_6_v0') { throw 'Session Y sandbox-bypass authority must remain a separate forbidden severity tier' }
+
+  $SessionYEntryPath = 'fixtures/app_entry/session_y_entry_capability_bypass_fail.hum'
+  $RunSessionYEntry = Read-NativeOutputWithExit 'run Session Y authority-bearing direct entry' $Hum @('run', $SessionYEntryPath, '--entry', 'run_tool')
+  if ($RunSessionYEntry.ExitCode -ne 1 -or [regex]::Matches($RunSessionYEntry.Output, 'error\[H0620\]').Count -ne 1 -or -not $RunSessionYEntry.Output.Contains('clock.replay')) { throw 'Session Y authority-bearing --entry must emit exactly one H0620' }
+  $RunSessionYEntryApp = Read-NativeOutputWithExit 'run Session Y entry fixture in app mode' $Hum @('run', $SessionYEntryPath)
+  if ($RunSessionYEntryApp.ExitCode -ne 0 -or $RunSessionYEntryApp.Output -ne '') { throw 'Session Y entry-bypass fixture must remain valid through structural app mode' }
+  foreach ($EntryUnknown in @(
+    @{ Name = 'transitive sandbox bypass'; Path = 'fixtures/app_entry/session_y_entry_transitive_process_fail.hum'; Capability = 'process.run' },
+    @{ Name = 'transitive wildcard'; Path = 'fixtures/app_entry/session_y_entry_transitive_wildcard_fail.hum'; Capability = 'stdout.*' }
+  )) {
+    $RunEntryUnknown = Read-NativeOutputWithExit "run Session Y $($EntryUnknown.Name) direct entry" $Hum @('run', $EntryUnknown.Path, '--entry', 'run_tool')
+    if ($RunEntryUnknown.ExitCode -ne 1 -or [regex]::Matches($RunEntryUnknown.Output, 'error\[H0617\]').Count -ne 1 -or -not $RunEntryUnknown.Output.Contains($EntryUnknown.Capability) -or -not $RunEntryUnknown.Output.Contains('direct-entry authority route call 1') -or $RunEntryUnknown.Output -match '(?m)^\(\)$' -or $RunEntryUnknown.Output.Contains('runtime trap')) { throw "Session Y $($EntryUnknown.Name) must reject transitively with routed H0617 before runtime" }
+  }
+  $RunSessionYPureEntry = Read-NativeOutputWithExit 'run Session Y pure direct entry compatibility' $Hum @('run', 'examples/probes/pure_app_entry.hum', '--entry', 'run_tool', '--args', 'hello')
+  if ($RunSessionYPureEntry.ExitCode -ne 0 -or $RunSessionYPureEntry.Output.Trim() -ne '()') { throw 'Session Y must preserve pure direct --entry behavior' }
 
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson

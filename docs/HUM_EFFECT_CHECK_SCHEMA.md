@@ -95,7 +95,7 @@ Each `effect_items` entry has:
 - `status`: per-item status
 - `declarations`: meaningful lines from `uses:`, `changes:`, `fails when:`, `allocates:`, `avoids:`, `protects:`, and `trusts:`
 - `statements`: recognized body statement effect rows
-- `boundary_checks`: item-level consistency checks such as trust/protect relationships
+- `boundary_checks`: item-level consistency checks such as trust/protect relationships and Session Y source-capability policy routes
 
 ## Checked V0 Effects
 
@@ -146,9 +146,34 @@ V0 recognizes and checks:
 
 - `accepted_trust_boundary_has_protects_v0`
 - `accepted_security_effect_has_protects_v0`
+- `accepted_source_capability_budget_v0`
+- `accepted_app_capability_maximum_v0`
+- `accepted_caller_capability_closure_v0`
+- `accepted_app_capability_closure_v0`
+- `not_checked_app_closure_blocked_by_caller_v0`
 - `rejected_trust_without_protects_v0`
 - `rejected_security_effect_without_protects_v0`
 - `rejected_avoids_contradicted_v0`
+- `rejected_unknown_source_capability_v0`
+- `rejected_missing_caller_capability_v0`
+- `rejected_app_capability_mismatch_v0`
+
+Session Y capability boundary rows reuse the existing schema and add structured
+policy fields only on those rows: exact `capability_id`, reserved `core_effect`
+and runtime/target meaning, `grant_kind`, `grant_scope`, `grant_strength`,
+`grant_lifetime`, `severity_tier`, `mapping_status`, app/caller/callee names and
+spans, declaration and entry spans, ordered `route_tasks`/`route_spans`, stable
+diagnostic identity, and repair help. The row `id` is the stable source-policy
+join key. Call-backed rows derive it from the exact lexical call site, so
+different callees and repeated calls on one statement remain unique and
+deterministic. It can later join an operator decision and operation exercise
+event; neither event exists in Session Y.
+
+The three pinned capabilities are typed exact one-run budgets. Unknown
+sandbox-bypass spellings such as process, FFI, unsafe, or unrestricted import
+are classified under `sandbox_bypass_authority`, never laundered into the
+ordinary tier. Session Y implements no wildcard, persistence, prompt, operator
+grant, deny, host operation, or audit log.
 
 ## Honesty Rules
 

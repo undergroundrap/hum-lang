@@ -111,6 +111,13 @@ app counter {
 executable entry declaration, not state initialization. App state
 initialization remains undesigned.
 
+For the current executable slice, app `uses:` is the maximum source-authority
+budget. The only external capability spellings are `stdout.write`,
+`clock.replay`, and `files.read`. Every task and caller repeats the exact
+capabilities in its closed direct-call route; the app covers the start-task
+closure. These declarations are not operator consent and perform no host
+operation. `--entry` remains pure and cannot carry one of these capabilities.
+
 ### Type
 
 A `type` describes data and its invariants.
@@ -235,6 +242,13 @@ Human and agent-facing purpose. It should explain why the task exists.
 ### `uses:`
 
 Read dependencies and external capabilities.
+
+Inside an executable app, external capability IDs form a closed vocabulary:
+`stdout.write`, `clock.replay`, and `files.read`. Other lines remain ordinary
+dependencies, while other dotted external-capability spellings reject. A
+pinned declaration is an authority budget even before its operation ships, so
+callers and the app must cover it transitively. Source declaration never grants
+operator consent.
 
 Examples:
 

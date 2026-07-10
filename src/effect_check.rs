@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast::{Item, Program, Section};
+use crate::capability_root::{self, CapabilityRouteFact};
 use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
 use crate::diagnostic::{Diagnostic, Severity, Span};
@@ -21,6 +22,8 @@ const NON_CLAIMS: &[&str] = &[
     "no proof artifact",
     "no memory-safety proof",
     "no complete effect system",
+    "no operator grant, consent prompt, persistence, or wildcard authority",
+    "no host capability operation or audit exercise event",
     "no ownership or borrow checking",
     "no profile enforcement",
     "no allocation safety proof",
@@ -132,7 +135,28 @@ struct EffectBoundaryCheck {
     span: Span,
     check: &'static str,
     status: &'static str,
-    reason: Option<&'static str>,
+    reason: Option<String>,
+    diagnostic_code: Option<&'static str>,
+    capability_id: Option<String>,
+    core_effect: Option<&'static str>,
+    runtime_target_meaning: Option<&'static str>,
+    grant_kind: Option<&'static str>,
+    grant_scope: Option<&'static str>,
+    grant_strength: Option<&'static str>,
+    grant_lifetime: Option<&'static str>,
+    severity_tier: Option<&'static str>,
+    mapping_status: Option<&'static str>,
+    app_name: Option<String>,
+    caller: Option<String>,
+    callee: Option<String>,
+    app_span: Option<Span>,
+    caller_span: Option<Span>,
+    callee_span: Option<Span>,
+    declaration_span: Option<Span>,
+    entry_span: Option<Span>,
+    route_tasks: Vec<String>,
+    route_spans: Vec<Span>,
+    help: Option<String>,
 }
 
 pub fn effect_check_has_errors(program: &Program, diagnostics: &[Diagnostic]) -> bool {
@@ -283,8 +307,28 @@ pub fn effect_check_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
                     check.span.column,
                     check.status,
                     check.check,
-                    check.reason.unwrap_or("none")
+                    check.reason.as_deref().unwrap_or("none")
                 ));
+                if let Some(capability) = &check.capability_id {
+                    out.push_str(&format!(
+                        "      policy_id={} capability={} core_effect={} kind={} scope={} strength={} lifetime={} severity_tier={} mapping_status={} app={} caller={} callee={} route={} diagnostic_code={} help={}\n",
+                        check.id,
+                        capability,
+                        check.core_effect.unwrap_or("none"),
+                        check.grant_kind.unwrap_or("none"),
+                        check.grant_scope.unwrap_or("none"),
+                        check.grant_strength.unwrap_or("none"),
+                        check.grant_lifetime.unwrap_or("none"),
+                        check.severity_tier.unwrap_or("none"),
+                        check.mapping_status.unwrap_or("none"),
+                        check.app_name.as_deref().unwrap_or("none"),
+                        check.caller.as_deref().unwrap_or("none"),
+                        check.callee.as_deref().unwrap_or("none"),
+                        check.route_tasks.join(" -> "),
+                        check.diagnostic_code.unwrap_or("none"),
+                        check.help.as_deref().unwrap_or("none"),
+                    ));
+                }
             }
         }
     }
@@ -340,6 +384,13 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckRep
     let mut items = Vec::new();
     for file in &program.files {
         collect_items(&file.items, blocked, &failure_catalog, &mut items);
+    }
+    let capability_analysis = capability_root::analyze(program);
+    for route in &capability_analysis.routes {
+        let owner_span = portable_span(&route.owner_task_span);
+        if let Some(item) = items.iter_mut().find(|item| item.span == owner_span) {
+            item.boundary_checks.push(capability_boundary_check(route));
+        }
     }
 
     EffectCheckReport {
@@ -862,7 +913,59 @@ fn boundary_check(
         span: portable_span(span),
         check,
         status,
-        reason,
+        reason: reason.map(str::to_string),
+        diagnostic_code: None,
+        capability_id: None,
+        core_effect: None,
+        runtime_target_meaning: None,
+        grant_kind: None,
+        grant_scope: None,
+        grant_strength: None,
+        grant_lifetime: None,
+        severity_tier: None,
+        mapping_status: None,
+        app_name: None,
+        caller: None,
+        callee: None,
+        app_span: None,
+        caller_span: None,
+        callee_span: None,
+        declaration_span: None,
+        entry_span: None,
+        route_tasks: Vec::new(),
+        route_spans: Vec::new(),
+        help: None,
+    }
+}
+
+fn capability_boundary_check(route: &CapabilityRouteFact) -> EffectBoundaryCheck {
+    EffectBoundaryCheck {
+        id: route.id.clone(),
+        span: portable_span(&route.primary_span),
+        check: route.check,
+        status: route.status,
+        reason: route.reason.map(str::to_string),
+        diagnostic_code: route.diagnostic_code,
+        capability_id: Some(route.capability_id.clone()),
+        core_effect: route.core_effect,
+        runtime_target_meaning: route.runtime_target_meaning,
+        grant_kind: route.grant_kind,
+        grant_scope: route.grant_scope,
+        grant_strength: route.grant_strength,
+        grant_lifetime: route.grant_lifetime,
+        severity_tier: route.severity_tier,
+        mapping_status: route.mapping_status,
+        app_name: route.app_name.clone(),
+        caller: route.caller.clone(),
+        callee: route.callee.clone(),
+        app_span: route.app_span.as_ref().map(portable_span),
+        caller_span: route.caller_span.as_ref().map(portable_span),
+        callee_span: route.callee_span.as_ref().map(portable_span),
+        declaration_span: route.declaration_span.as_ref().map(portable_span),
+        entry_span: route.entry_span.as_ref().map(portable_span),
+        route_tasks: route.route_tasks.clone(),
+        route_spans: route.route_spans.iter().map(portable_span).collect(),
+        help: route.help.clone(),
     }
 }
 
@@ -1817,9 +1920,129 @@ fn push_boundary_check(out: &mut String, check: &EffectBoundaryCheck, indent: us
     push_span_field(out, indent + 2, "source_span", &check.span, true);
     push_string_field(out, indent + 2, "check", check.check, true);
     push_string_field(out, indent + 2, "status", check.status, true);
-    push_optional_string_field(out, indent + 2, "reason", check.reason, false);
+    push_optional_string_field(out, indent + 2, "reason", check.reason.as_deref(), true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "diagnostic_code",
+        check.diagnostic_code,
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "capability_id",
+        check.capability_id.as_deref(),
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "core_effect", check.core_effect, true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "runtime_target_meaning",
+        check.runtime_target_meaning,
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "grant_kind", check.grant_kind, true);
+    push_optional_string_field(out, indent + 2, "grant_scope", check.grant_scope, true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "grant_strength",
+        check.grant_strength,
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "grant_lifetime",
+        check.grant_lifetime,
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "severity_tier", check.severity_tier, true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "mapping_status",
+        check.mapping_status,
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "app_name", check.app_name.as_deref(), true);
+    push_optional_string_field(out, indent + 2, "caller", check.caller.as_deref(), true);
+    push_optional_string_field(out, indent + 2, "callee", check.callee.as_deref(), true);
+    push_optional_span_field(out, indent + 2, "app_span", check.app_span.as_ref(), true);
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "caller_span",
+        check.caller_span.as_ref(),
+        true,
+    );
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "callee_span",
+        check.callee_span.as_ref(),
+        true,
+    );
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "declaration_span",
+        check.declaration_span.as_ref(),
+        true,
+    );
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "entry_span",
+        check.entry_span.as_ref(),
+        true,
+    );
+    push_owned_string_array(out, indent + 2, "route_tasks", &check.route_tasks, true);
+    push_span_array(out, indent + 2, "route_spans", &check.route_spans, true);
+    push_optional_string_field(out, indent + 2, "help", check.help.as_deref(), false);
     push_indent(out, indent);
     out.push('}');
+}
+
+fn push_owned_string_array(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    values: &[String],
+    comma: bool,
+) {
+    push_indent(out, indent);
+    push_json_string(out, key);
+    out.push_str(": [");
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        push_json_string(out, value);
+    }
+    out.push(']');
+    push_comma_newline(out, comma);
+}
+
+fn push_span_array(out: &mut String, indent: usize, key: &str, spans: &[Span], comma: bool) {
+    push_indent(out, indent);
+    push_json_string(out, key);
+    out.push_str(": [");
+    for (index, span) in spans.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push_str("{\"file\": ");
+        push_json_string(out, &span.file);
+        out.push_str(&format!(
+            ", \"line\": {}, \"column\": {} }}",
+            span.line, span.column
+        ));
+    }
+    out.push(']');
+    push_comma_newline(out, comma);
 }
 
 fn push_string_array(out: &mut String, indent: usize, key: &str, values: &[&str], comma: bool) {

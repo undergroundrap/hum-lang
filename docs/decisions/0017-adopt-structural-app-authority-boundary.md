@@ -54,6 +54,15 @@ IDs and unidentifiable calls in the executable authority subset fail closed.
 This is closed direct-call analysis, not effect polymorphism or a general
 capability-value system.
 
+Each pinned capability has a typed exact policy tuple: kind, scope, strength,
+one-run lifetime, ordinary external-authority severity, Core mapping, and
+runtime/target meaning. Existing effect boundary rows preserve a stable policy
+ID and the complete app/task/call/declaration route so later operator decisions
+and operation exercises can join the source snapshot without reconstructing it
+from prose. Sandbox-bypass authority (process launch, FFI, unsafe, or
+unrestricted import) is a separate severity tier and cannot be introduced as
+an ordinary grant.
+
 ### Operator Grant Algebra
 
 Source declaration is never consent. For an operation, effective authority is
@@ -66,6 +75,17 @@ the intersection of:
 minus any matching deny. The default operator grant set is empty, exact
 duplicates are idempotent, and deny wins. Direct `--entry` cannot acquire
 external authority or bypass the app boundary.
+
+Exact grants must preserve kind, object/scope, strength, and lifetime.
+Persistence is an explicit separately reviewable action; wildcards, if ever
+admitted, are visibly dangerous rather than an implicit widening. Consent is
+task-coupled and never a startup prompt. A future audit trail must join the
+source policy snapshot, operator decision event, and operation exercise event
+through stable request/policy IDs, with the exact effective intersection,
+deny, requesting task/package/source route, rationale surface, lifetime, and
+decision reason sufficient for forensic replay. Session Y supplies only the
+source snapshot and policy join ID; Session Z must supply the first decision
+and exercise evidence.
 
 ### Path Boundary
 
@@ -97,10 +117,12 @@ closure, and exact operator consent. The path design prevents lossy Text
 round-trips and hidden Windows network/device mappings from being mistaken for
 local file authority.
 
-Session X implements only structural selection and diagnostics. It does not
-implement capability closure or rejection, operator flags, IO built-ins, Core
-`output`, `os.stdio`, Path values, host queries, or filesystem access. The
-proposal remains open until the scheduled evidence gates land.
+Sessions X and Y implement structural selection plus the checked source
+capability root. They do not implement operator flags, prompts, persistence,
+wildcards, decision/exercise audit events, IO built-ins, Core `output`,
+`os.stdio`, Path values, host queries, or filesystem access. The proposal
+remains open until Session Z supplies operator-grant and bounded-output
+evidence.
 
 ## Alternatives Rejected By The Proposal
 
@@ -141,7 +163,7 @@ Rejected because deterministic runner input must not silently become
 ## BDFL Note
 
 This proposal deliberately sequences identity, source authority, operator
-consent, and host adaptation. Session X proves only identity. The
-architect-reviewer may accept that implementation and authorize Session Y, but
-must not accept this record until the required capability and executable
-evidence gates are independently verified.
+consent, and host adaptation. Sessions X and Y prove identity and the checked
+source maximum/closure. The architect-reviewer may accept Session Y and
+authorize Session Z, but must not accept this record until the operator-grant
+and bounded-output evidence is independently verified.

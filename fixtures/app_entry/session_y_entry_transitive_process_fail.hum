@@ -1,0 +1,27 @@
+app transitive_process_entry {
+  why:
+    reject sandbox-bypass authority reached through a direct-entry call
+
+  starts with:
+    run_tool
+
+  task process_helper -> Int {
+    uses:
+      process.run
+
+    allocates:
+      nothing
+
+    does:
+      return 7
+  }
+
+  task run_tool -> Unit {
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let observed = process_helper()
+      return
+  }
+}

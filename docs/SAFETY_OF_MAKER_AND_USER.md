@@ -153,7 +153,7 @@ Good:
 
 ```text
 uses:
-  filesystem.read
+  files.read
 
 changes:
   cache.files
