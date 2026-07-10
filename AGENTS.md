@@ -66,6 +66,33 @@ Working with the BDFL: decisive recommendations with reasoning, never
 option menus; paste-ready messages for the other agent; guard the
 reserved matters; challenge him when warranted — the mandate requires it.
 
+Review probe sets (distilled 2026-07-09 from the Session V multi-agent
+audit; these run at any model tier — the philosophy is the asset):
+
+- Name-identity attack set. Any new binding or aliasing form is probed
+  against: self-name (`let point = change point.x`), shadowing a
+  parameter, shadowing a declared `uses:`/`changes:` name, rebinding the
+  root while the form is live, alias-to-alias, and permission-wrapped
+  variants (`borrow`/`consume` of the new form). Identity bugs hide here;
+  the Session V P0 (self-referential alias, stack overflow) lived here.
+- Fail-closed check. Every unsupported shape of a new form must produce
+  its designated diagnostic — never a generic trap. A validated line that
+  traps generically is a defect (the Session T spaced-prefix rule).
+- Positive-evidence rule. A passing fixture must observe the effect (the
+  changed value, the firing contract), not merely declare the form.
+  Declaration-only or unused-binding fixtures do not count as evidence.
+- Precedence probes. Combined-cause cases (for example authority failure
+  plus overlap) must produce exactly one diagnostic, the more fundamental
+  one, identically on the static and runtime sides.
+- Masking analysis. List every existing generic diagnostic that could
+  fire on the new form and confirm the specific diagnostic owns each
+  case; generic codes preempting specific ones is a defect class.
+- Status spot-audit (retrospectives). Re-verify at least one prior "Runs"
+  claim against its corpus-specified misuse, not just its fixtures —
+  statuses drift from evidence (the Program 8 correction).
+- Verdicts tag findings P0 (breaks soundness or crashes), P1 (rule gap or
+  cross-stage disagreement), P2 (polish, docs, over-broad matching).
+
 ### Assuming the implementer role
 
 Cold-start read order: same as above. Then: execute exactly the next
@@ -75,6 +102,21 @@ uncommitted for review unless instructed to commit. Push back before
 building anything you believe is wrong — that pushback carries extra
 weight against delegated rulings. Never push remotes, tag, or publish;
 those are reserved to the BDFL.
+
+Implementation discipline for cross-stage features (same distillation):
+
+- Integration map first. Before writing code for a feature touching
+  multiple compiler stages, write the map: which files and functions,
+  which row kinds and statuses, where each stage's insertion point is.
+- Shared analysis, shared text. When static checking and runtime enforce
+  the same rule, both consume one shared analyzer and one shared
+  message/help builder so codes, spans, and precedence cannot drift.
+- Structured secondary sites. A diagnostic about a relationship (binding
+  and conflict, view and write) exposes every site as structured fields
+  in JSON output, not only in prose help.
+- Self-run the reviewer probe sets above before reporting; the report
+  states which probes were run and which the implementer could not
+  express, so the reviewer aims at the gaps.
 
 ### Pushes and CI emergencies
 
