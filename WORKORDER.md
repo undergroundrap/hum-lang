@@ -884,7 +884,12 @@ Acceptance criteria:
    stable promised iteration, trace, and bit-for-bit replay evidence.
 2. Semantic diff (`hum diff`) for effect/contract/capability deltas.
 3. Machine-applicable fixes (`hum fix --apply`), still gating the public
-   agent-native repair claim.
+   agent-native repair claim. The eval that gates the broader
+   agent-native claim now has a researched design (see
+   research/2026-07-10-overnight-research-triage.md item 9): staged
+   claims, sealed post-cutoff task sets, hidden tests and grader,
+   cheat-labeled trajectories, causal diagnostic-utilization metrics,
+   ~384-task statistics, Windows-native primary track.
 4. Process/OS sandbox enforcement beyond the narrow runner grant flags.
 5. Fault containment design before concurrency syntax.
 6. Units of measure after type-system maturity.
@@ -904,7 +909,14 @@ Acceptance criteria:
 14. Ownership after V: internal references, then broader flow-sensitive
     borrowing; the general linear marker remains ledger-driven.
 15. Effect-polymorphism decision for closures, tasks-as-values, retain,
-    callbacks, and higher-order stdlib.
+    callbacks, and higher-order stdlib. Bake-off corpus research is
+    complete (triage item 2): Effekt-style second-class computations are
+    eliminated (stored callbacks and returned closures inexpressible by
+    design); the candidates are Koka rows vs Flix formulas vs
+    Scala-style capture checking, with capture checking possibly
+    underweighted given decision 0017's authority-as-values direction;
+    gates are the ten-program corpus, one-diagnostic rejections,
+    near-principal inference, and closure capture of owned resources.
 16. Canonical spec-of-record demo using existing graph/contract facts, without
     claiming exported enforcement.
 17. Stdlib-labs admission when built-ins reach the constitution's evidence
@@ -916,14 +928,31 @@ Acceptance criteria:
 21. The free canonical Hum book, with chapters only for shipped features and
     all examples extracted from checked fixtures.
 22. IO after AD: Bytes, directories, bounded evidence writes, canonical JSON,
-    hashing, manifests, and only then the HumGate wedge.
+    hashing, manifests, and only then the HumGate wedge. The wedge now
+    has a researched identity (triage item 3): the air-gapped update
+    validator — one command, one verdict, one evidence dossier — whose
+    v1 primitive set is nearly what Sessions Z-AD build, whose first
+    customer is Hum's own release kit per the toolchain report, and
+    whose launch must pass the seven killer-demo tests (under a minute,
+    zero network, crisp tamper failure, evidence proving its own limited
+    effects, incumbent comparison).
+23. Docs anti-drift hardening: extend the preflight so documented claims
+    are machine-checked where cheap — backtick-quoted fixture paths in
+    docs must exist on disk; the DIAGNOSTICS.md table must stay in sync
+    with the diagnostic catalog; scorecard "Runs" rows must name
+    fixtures that exist. Prose drift episodes (the Session R mislabel,
+    the Program 8 accounting) motivate this; the docs-claims sweep probe
+    covers wording, this item covers referents.
 
 ## Current authorization gate
 
 Sessions V and W were accepted and committed as `acfb36f` and `2af02ae`.
 Decision 0016 is accepted under delegated authority with the BDFL veto open.
-Session X was explicitly authorized and its implementation is complete but
-uncommitted pending architect-reviewer review. Session Y remains unauthorized
-until Session X receives an independent verdict and the BDFL gives a separate
-explicit go signal. Publishing remains a BDFL-reserved action under
-`docs/GOVERNANCE.md`.
+Session X was accepted by both reviewers independently (the Codex
+architect with zero findings; the cross-family reviewer on behavioral
+re-verification of the final hardened tree) and committed as `1605332`.
+Decision 0017 remains proposed pending Session Y and Z evidence. Session Y
+is unauthorized until the BDFL gives the explicit go signal; its review
+will additionally apply the capability-grant gate criteria from
+research/2026-07-10-overnight-research-triage.md item 1. Publishing
+remains a BDFL-reserved action under `docs/GOVERNANCE.md`.

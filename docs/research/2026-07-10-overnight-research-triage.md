@@ -88,6 +88,23 @@ change near-term plans.
    Windows CI lane; an edition-tied stable book plus experimental track;
    dropout telemetry as a product metric.
 
+9. [Agent eval design](deep/2026-07-10-agent-eval-design.txt) is STRONG
+   and the most methodologically hardened of the batch; it governs risk
+   R016's gate on any public agent-native claim. Adopted: claims are
+   staged (tool-learnable with docs, then feedback-learnable with
+   compiler output only, then maintainable at scale) and never blurred;
+   the honest phrasing is "no known Hum exposure under a documented
+   non-exposure protocol," never "absent from all training data"; the
+   harness enforces no internet, no VCS history, immutable plus hidden
+   tests, a hidden grader, cheat-labeled trajectory review, and post-hoc
+   adversarial equivalence checks after green; diagnostic-utilization is
+   measured causally (the next patch must touch the cited span);
+   statistics need roughly 384 sealed tasks for plus-or-minus five
+   points, Wilson intervals, preregistered scaffolds stress-tested under
+   semantic prompt mutation; the publication package is six artifacts
+   including trajectories and a human-novice baseline; and the primary
+   evaluation track is Windows-native, matching the language.
+
 ## Cross-Cutting Observation
 
 Four independent research passes have now converged on the spine Hum
