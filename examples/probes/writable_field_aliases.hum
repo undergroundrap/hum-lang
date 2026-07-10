@@ -1,0 +1,85 @@
+module examples.probes.writable_field_aliases
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task write_x_through_alias(change point: Point) -> Point {
+  why:
+    prove that a writable field alias changes its owner
+
+  ensures:
+    result.x == 9
+    result.y == old(point.y)
+
+  allocates:
+    nothing
+
+  does:
+    let alias_to_x = change point.x
+    set alias_to_x = 9
+    return point
+}
+
+task swap_xy_with_aliases(change point: Point) -> Point {
+  why:
+    swap distinct fields through two simultaneously live writable aliases
+
+  ensures:
+    result.x == old(point.y)
+    result.y == old(point.x)
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  allocates:
+    nothing
+
+  does:
+    let alias_to_x = change point.x
+    let alias_to_y = change point.y
+    change old_x: UInt = alias_to_x
+    set alias_to_x = alias_to_y
+    set alias_to_y = old_x
+    return point
+}
+
+task distinct_field_access(change point: Point) -> Point {
+  why:
+    keep direct access to point y while the alias to point x remains live
+
+  ensures:
+    result.x == old(point.y)
+    result.y == 7
+
+  allocates:
+    nothing
+
+  does:
+    let alias_to_x = change point.x
+    change copied_y: UInt = point.y
+    set point.y = 7
+    set alias_to_x = copied_y
+    return point
+}
+
+task sequential_x_aliases(change point: Point) -> Point {
+  why:
+    permit a second alias after the first alias last use
+
+  ensures:
+    result.x == 7
+
+  allocates:
+    nothing
+
+  does:
+    let first_x = change point.x
+    set first_x = 4
+    let second_x = change point.x
+    set second_x = 7
+    return point
+}

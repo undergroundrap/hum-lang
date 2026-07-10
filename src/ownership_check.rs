@@ -10,6 +10,7 @@ use crate::field_place;
 use crate::graph::is_meaningful_line_text;
 use crate::return_dependency::{self, ReturnDependency};
 use crate::version;
+use crate::writable_field_alias::{self, AliasAnalysis, AliasBinding, AliasIssueKind};
 
 pub const OWNERSHIP_CHECK_SCHEMA: &str = "hum.ownership_check.v0";
 pub const OWNERSHIP_CHECK_MODE: &str = "recognized_core_ownership_gate_v0";
@@ -114,6 +115,7 @@ struct LocalOwnershipFacts {
     parameters: BTreeMap<String, ParamPermission>,
     immutable_locals: BTreeSet<String>,
     mutable_locals: BTreeSet<String>,
+    writable_aliases: BTreeMap<String, AliasBinding>,
     duplicate_locals: BTreeSet<String>,
 }
 
@@ -190,6 +192,12 @@ struct OwnershipStatement {
     reason: Option<&'static str>,
     diagnostic_code: Option<&'static str>,
     help: Option<String>,
+    alias: Option<String>,
+    place: Option<String>,
+    binding_span: Option<Span>,
+    last_use_span: Option<Span>,
+    conflict_place: Option<String>,
+    conflict_span: Option<Span>,
 }
 
 struct OwnershipReturnDependency {
@@ -341,6 +349,33 @@ pub fn ownership_check_text(program: &Program, diagnostics: &[Diagnostic]) -> St
                 if let Some(diagnostic_code) = statement.diagnostic_code {
                     out.push_str(&format!(" diagnostic={diagnostic_code}"));
                 }
+                if let Some(alias) = &statement.alias {
+                    out.push_str(&format!(" alias={alias}"));
+                }
+                if let Some(place) = &statement.place {
+                    out.push_str(&format!(" place={place}"));
+                }
+                if let Some(span) = &statement.binding_span {
+                    out.push_str(&format!(
+                        " binding_span={}:{}:{}",
+                        span.file, span.line, span.column
+                    ));
+                }
+                if let Some(span) = &statement.last_use_span {
+                    out.push_str(&format!(
+                        " last_use_span={}:{}:{}",
+                        span.file, span.line, span.column
+                    ));
+                }
+                if let Some(place) = &statement.conflict_place {
+                    out.push_str(&format!(" conflict_place={place}"));
+                }
+                if let Some(span) = &statement.conflict_span {
+                    out.push_str(&format!(
+                        " conflict_span={}:{}:{}",
+                        span.file, span.line, span.column
+                    ));
+                }
                 if let Some(help) = &statement.help {
                     out.push_str(&format!(" help={help}"));
                 }
@@ -458,7 +493,23 @@ fn check_item(item: &Item, blocked: bool) -> Option<OwnershipItem> {
         .find(|section| section.name == "does")?;
     let body = core_body::analyze_does_section(does);
     let declarations = collect_declarations(item_sections(item));
-    let ownership_facts = local_ownership_facts(item, &body.statements);
+    let mut existing_names = item_parameters(item)
+        .into_iter()
+        .map(|parameter| first_resource(&parameter.name))
+        .collect::<BTreeSet<_>>();
+    existing_names.extend(
+        declarations
+            .uses
+            .iter()
+            .chain(&declarations.changes)
+            .map(|fact| fact.resource.clone()),
+    );
+    let alias_analysis = writable_field_alias::analyze_item(
+        &body.statements,
+        matches!(item, Item::Task(_)),
+        &existing_names,
+    );
+    let ownership_facts = local_ownership_facts(item, &body.statements, &alias_analysis);
     let mut statements = Vec::new();
     for (index, statement) in body.statements.iter().enumerate() {
         let mut move_tracker = MoveTracker::default();
@@ -476,6 +527,12 @@ fn check_item(item: &Item, blocked: bool) -> Option<OwnershipItem> {
         apply_path_diagnostics(
             &mut statements,
             ownership_path_diagnostics(item.name(), &body.statements, &ownership_facts),
+        );
+        apply_alias_diagnostics(
+            &mut statements,
+            item.name(),
+            &alias_analysis,
+            &ownership_facts,
         );
     }
     let return_dependencies = return_dependency_facts(item, &ownership_facts, &body.statements);
@@ -578,8 +635,12 @@ fn check_statement_ownership(
                 )
             }
         }
-        "let_binding" => check_binding_statement(statement, index, ownership_facts, false),
-        "mutable_binding" => check_binding_statement(statement, index, ownership_facts, true),
+        "let_binding" => {
+            check_binding_statement(item_name, statement, index, ownership_facts, false)
+        }
+        "mutable_binding" => {
+            check_binding_statement(item_name, statement, index, ownership_facts, true)
+        }
         "set_place" => {
             check_set_statement(item_name, statement, index, declarations, ownership_facts)
         }
@@ -622,6 +683,7 @@ fn check_statement_ownership(
 }
 
 fn check_binding_statement(
+    item_name: &str,
     statement: &BodyStatement,
     index: usize,
     ownership_facts: &LocalOwnershipFacts,
@@ -648,6 +710,68 @@ fn check_binding_statement(
             "rejected_duplicate_local_place_v0",
             Some("local_place_names_must_be_unique_in_v0"),
         );
+    }
+    if let Some(binding) = ownership_facts.writable_aliases.get(&target) {
+        let authority = writable_alias_authority(ownership_facts, binding);
+        let statement = match authority {
+            WritableAliasAuthority::Accepted(declaration) => ownership_statement(
+                statement,
+                index,
+                "writable_field_alias",
+                Some(binding.name.clone()),
+                Some(format!("{declaration} {}", binding.source_place)),
+                "accepted_writable_field_alias_v0",
+                None,
+            ),
+            WritableAliasAuthority::Borrow => ownership_statement_with_diagnostic(
+                ownership_statement(
+                    statement,
+                    index,
+                    "writable_field_alias",
+                    Some(binding.name.clone()),
+                    Some(format!("change {}", binding.source_place)),
+                    "rejected_writable_field_alias_without_mutation_authority_v0",
+                    Some("borrow_owner_cannot_supply_writable_field_alias_v0"),
+                ),
+                Some(DiagnosticCode::BORROW_PARAMETER_MUTATION.as_str()),
+                Some(writable_field_alias::authority_help(
+                    item_name, binding, "borrow",
+                )),
+            ),
+            WritableAliasAuthority::Immutable => ownership_statement_with_diagnostic(
+                ownership_statement(
+                    statement,
+                    index,
+                    "writable_field_alias",
+                    Some(binding.name.clone()),
+                    Some(format!("change {}", binding.source_place)),
+                    "rejected_unsupported_writable_field_alias_v0",
+                    Some("immutable_owner_cannot_supply_writable_field_alias_v0"),
+                ),
+                Some(DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS.as_str()),
+                Some(writable_field_alias::authority_help(
+                    item_name,
+                    binding,
+                    "immutable let",
+                )),
+            ),
+            WritableAliasAuthority::Unknown => ownership_statement_with_diagnostic(
+                ownership_statement(
+                    statement,
+                    index,
+                    "writable_field_alias",
+                    Some(binding.name.clone()),
+                    Some(format!("change {}", binding.source_place)),
+                    "rejected_unsupported_writable_field_alias_v0",
+                    Some("writable_alias_owner_authority_unknown_v0"),
+                ),
+                Some(DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS.as_str()),
+                Some(writable_field_alias::authority_help(
+                    item_name, binding, "unknown",
+                )),
+            ),
+        };
+        return ownership_statement_with_alias_facts(statement, binding);
     }
     if mutable {
         ownership_statement(
@@ -711,7 +835,20 @@ fn check_set_statement(
         );
     };
     let resource = first_resource(&target);
-    if ownership_facts.mutable_locals.contains(&resource) {
+    if let Some(binding) = ownership_facts.writable_aliases.get(&resource) {
+        ownership_statement_with_alias_facts(
+            ownership_statement(
+                statement,
+                index,
+                "writable_field_alias_write_through",
+                Some(binding.source_place.clone()),
+                Some(format!("change {}", binding.source_place)),
+                "accepted_writable_field_alias_write_through_v0",
+                None,
+            ),
+            binding,
+        )
+    } else if ownership_facts.mutable_locals.contains(&resource) {
         accepted_set_statement(
             statement,
             index,
@@ -948,7 +1085,24 @@ fn ownership_statement(
         reason,
         diagnostic_code: None,
         help: None,
+        alias: None,
+        place: None,
+        binding_span: None,
+        last_use_span: None,
+        conflict_place: None,
+        conflict_span: None,
     }
+}
+
+fn ownership_statement_with_alias_facts(
+    mut statement: OwnershipStatement,
+    binding: &AliasBinding,
+) -> OwnershipStatement {
+    statement.alias = Some(binding.name.clone());
+    statement.place = Some(binding.source_place.clone());
+    statement.binding_span = Some(portable_span(&binding.binding_span));
+    statement.last_use_span = Some(portable_span(&binding.last_use_span));
+    statement
 }
 
 fn ownership_statement_with_diagnostic(
@@ -975,6 +1129,64 @@ fn apply_path_diagnostics(
             statement.diagnostic_code = Some(diagnostic.diagnostic_code);
             statement.help = Some(diagnostic.help);
         }
+    }
+}
+
+fn apply_alias_diagnostics(
+    statements: &mut [OwnershipStatement],
+    item_name: &str,
+    analysis: &AliasAnalysis,
+    ownership_facts: &LocalOwnershipFacts,
+) {
+    for issue in &analysis.issues {
+        if let Some(binding) = ownership_facts.writable_aliases.get(&issue.alias_name)
+            && !matches!(
+                writable_alias_authority(ownership_facts, binding),
+                WritableAliasAuthority::Accepted(_)
+            )
+            && issue.index != binding.binding_index
+        {
+            continue;
+        }
+        let Some(statement) = statements.get_mut(issue.index) else {
+            continue;
+        };
+        if statement.diagnostic_code == Some(DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS.as_str())
+            && issue.kind == AliasIssueKind::Overlap
+        {
+            continue;
+        }
+        let (ownership_kind, status, code, message) = match issue.kind {
+            AliasIssueKind::Overlap => (
+                "writable_field_alias_overlap",
+                "rejected_writable_field_alias_overlap_v0",
+                DiagnosticCode::WRITABLE_ALIAS_OVERLAP.as_str(),
+                writable_field_alias::overlap_message(issue),
+            ),
+            AliasIssueKind::Unsupported => (
+                "unsupported_writable_field_alias",
+                "rejected_unsupported_writable_field_alias_v0",
+                DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS.as_str(),
+                writable_field_alias::unsupported_message(issue),
+            ),
+        };
+        statement.ownership_kind = ownership_kind;
+        statement.target = Some(issue.alias_name.clone());
+        statement.declaration = Some(format!("change {}", issue.source_place));
+        statement.status = status;
+        statement.reason = Some(issue.reason);
+        statement.diagnostic_code = Some(code);
+        statement.help = Some(format!(
+            "{}. {}",
+            message,
+            writable_field_alias::issue_help(item_name, issue)
+        ));
+        statement.alias = Some(issue.alias_name.clone());
+        statement.place = Some(issue.source_place.clone());
+        statement.binding_span = Some(portable_span(&issue.binding_span));
+        statement.last_use_span = Some(portable_span(&issue.last_use_span));
+        statement.conflict_place = Some(issue.conflict_place.clone());
+        statement.conflict_span = Some(portable_span(&issue.conflict_span));
     }
 }
 
@@ -1184,10 +1396,15 @@ fn analyze_single_statement(
             );
         }
 
-        if let Some(target) = set_place_name(statement)
-            && field_place::split_field_place(&target).is_some()
-        {
-            invalidate_path_field_views(&mut state, &target, &statement.span);
+        if let Some(target) = set_place_name(statement) {
+            let target_root = first_resource(&target);
+            let effective_target = ownership_facts
+                .writable_aliases
+                .get(&target_root)
+                .map_or(target.as_str(), |binding| binding.source_place.as_str());
+            if field_place::split_field_place(effective_target).is_some() {
+                invalidate_path_field_views(&mut state, effective_target, &statement.span);
+            }
         }
         if let Some(root) = list_append_change_root(statement) {
             invalidate_path_element_views(&mut state, &root, &statement.span);
@@ -1912,11 +2129,14 @@ fn declared_facts(sections: &[Section], name: &'static str) -> Vec<DeclaredFact>
 
 impl LocalOwnershipFacts {
     fn is_local_root(&self, root: &str) -> bool {
-        self.immutable_locals.contains(root) || self.mutable_locals.contains(root)
+        self.immutable_locals.contains(root)
+            || self.mutable_locals.contains(root)
+            || self.writable_aliases.contains_key(root)
     }
 
     fn is_movable_root(&self, root: &str) -> bool {
-        self.is_local_root(root)
+        self.immutable_locals.contains(root)
+            || self.mutable_locals.contains(root)
             || self
                 .parameters
                 .get(root)
@@ -1924,7 +2144,39 @@ impl LocalOwnershipFacts {
     }
 }
 
-fn local_ownership_facts(item: &Item, statements: &[BodyStatement]) -> LocalOwnershipFacts {
+enum WritableAliasAuthority {
+    Accepted(String),
+    Borrow,
+    Immutable,
+    Unknown,
+}
+
+fn writable_alias_authority(
+    facts: &LocalOwnershipFacts,
+    binding: &AliasBinding,
+) -> WritableAliasAuthority {
+    if let Some(permission) = facts.parameters.get(&binding.owner_root) {
+        return match permission {
+            ParamPermission::Borrow => WritableAliasAuthority::Borrow,
+            ParamPermission::Change | ParamPermission::Consume => {
+                WritableAliasAuthority::Accepted(permission.as_str().to_string())
+            }
+        };
+    }
+    if facts.mutable_locals.contains(&binding.owner_root) {
+        return WritableAliasAuthority::Accepted("change".to_string());
+    }
+    if facts.immutable_locals.contains(&binding.owner_root) {
+        return WritableAliasAuthority::Immutable;
+    }
+    WritableAliasAuthority::Unknown
+}
+
+fn local_ownership_facts(
+    item: &Item,
+    statements: &[BodyStatement],
+    alias_analysis: &AliasAnalysis,
+) -> LocalOwnershipFacts {
     let mut facts = LocalOwnershipFacts::default();
     for parameter in item_parameters(item) {
         facts
@@ -1944,7 +2196,13 @@ fn local_ownership_facts(item: &Item, statements: &[BodyStatement]) -> LocalOwne
         if !seen.insert(name.clone()) {
             facts.duplicate_locals.insert(name.clone());
         }
-        if statement.kind == "mutable_binding" {
+        if let Some(binding) = alias_analysis
+            .bindings
+            .iter()
+            .find(|binding| binding.name == name)
+        {
+            facts.writable_aliases.insert(name, binding.clone());
+        } else if statement.kind == "mutable_binding" {
             facts.mutable_locals.insert(name);
         } else {
             facts.immutable_locals.insert(name);
@@ -2558,6 +2816,7 @@ impl OwnershipCheckReport {
                         | "local_mutation"
                         | "parameter_mutation"
                         | "field_mutation"
+                        | "writable_field_alias_write_through"
                 )
             })
             .count()
@@ -3024,6 +3283,36 @@ fn push_statement(out: &mut String, statement: &OwnershipStatement, indent: usiz
         statement.diagnostic_code,
         true,
     );
+    push_optional_string_field(out, indent + 2, "alias", statement.alias.as_deref(), true);
+    push_optional_string_field(out, indent + 2, "place", statement.place.as_deref(), true);
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "binding_span",
+        statement.binding_span.as_ref(),
+        true,
+    );
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "last_use_span",
+        statement.last_use_span.as_ref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "conflict_place",
+        statement.conflict_place.as_deref(),
+        true,
+    );
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "conflict_span",
+        statement.conflict_span.as_ref(),
+        true,
+    );
     push_optional_string_field(out, indent + 2, "help", statement.help.as_deref(), false);
     push_indent(out, indent);
     out.push('}');
@@ -3143,6 +3432,24 @@ fn push_span_field(out: &mut String, indent: usize, key: &str, span: &Span, comm
     ));
     out.push('}');
     push_comma_newline(out, comma);
+}
+
+fn push_optional_span_field(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    span: Option<&Span>,
+    comma: bool,
+) {
+    match span {
+        Some(span) => push_span_field(out, indent, key, span, comma),
+        None => {
+            push_indent(out, indent);
+            push_json_string(out, key);
+            out.push_str(": null");
+            push_comma_newline(out, comma);
+        }
+    }
 }
 
 fn push_optional_string_field(
@@ -3269,6 +3576,74 @@ mod tests {
         assert!(text.contains("Hum ownership check (hum.ownership_check.v0)"));
         assert!(text.contains("status: recognized_core_ownership_facts_checked_v0"));
         assert!(text.contains("no memory-safety proof"));
+    }
+
+    #[test]
+    fn json_exposes_writable_alias_place_and_last_use_facts() {
+        let program = parse_program(
+            "examples/probes/writable_field_aliases.hum",
+            include_str!("../examples/probes/writable_field_aliases.hum"),
+        );
+        let json = ownership_check_json(&program, &[]);
+
+        assert!(!ownership_check_has_errors(&program, &[]), "{json}");
+        assert!(json.contains("\"accepted_writable_field_alias_v0\""));
+        assert!(json.contains("\"accepted_writable_field_alias_write_through_v0\""));
+        assert!(json.contains("\"alias\": \"alias_to_x\""));
+        assert!(json.contains("\"place\": \"point.x\""));
+        assert!(json.contains("\"binding_span\": {"));
+        assert!(json.contains("\"last_use_span\": {"));
+        assert!(json.contains("\"accepted_disjoint_field_mutation_v0\""));
+    }
+
+    #[test]
+    fn human_and_json_reject_pinned_overlap_with_structured_h0808_blame() {
+        let program = parse_program(
+            "fixtures/ownership_check/session_v_program8_overlap_write_fail.hum",
+            include_str!("../fixtures/ownership_check/session_v_program8_overlap_write_fail.hum"),
+        );
+        let text = ownership_check_text(&program, &[]);
+        let json = ownership_check_json(&program, &[]);
+
+        assert!(ownership_check_has_errors(&program, &[]));
+        for expected in [
+            "H0808",
+            "alias_to_x",
+            "point.x",
+            "not known independent",
+            "definitely distinct direct field",
+        ] {
+            assert!(text.contains(expected), "missing {expected}: {text}");
+            assert!(json.contains(expected), "missing {expected}: {json}");
+        }
+        assert!(json.contains("\"conflict_place\": \"point.x\""));
+        assert!(json.contains("\"conflict_span\": {"));
+        assert!(json.contains("\"line\": 13"));
+        assert!(json.contains("\"line\": 14"));
+        assert!(json.contains("\"line\": 15"));
+    }
+
+    #[test]
+    fn ownership_rejects_writable_alias_escape_with_h0809() {
+        let program = parse_program(
+            "fixtures/ownership_check/session_v_alias_escape_fail.hum",
+            include_str!("../fixtures/ownership_check/session_v_alias_escape_fail.hum"),
+        );
+        let json = ownership_check_json(&program, &[]);
+        assert!(json.contains("\"diagnostic_code\": \"H0809\""));
+        assert!(json.contains("\"rejected_unsupported_writable_field_alias_v0\""));
+        assert!(json.contains("writable_alias_escape_v0"));
+    }
+
+    #[test]
+    fn ownership_keeps_borrowed_alias_authority_ahead_of_overlap() {
+        let program = parse_program(
+            "fixtures/ownership_check/session_v_borrowed_owner_overlap_fail.hum",
+            include_str!("../fixtures/ownership_check/session_v_borrowed_owner_overlap_fail.hum"),
+        );
+        let json = ownership_check_json(&program, &[]);
+        assert!(json.contains("\"diagnostic_code\": \"H0802\""));
+        assert!(!json.contains("\"diagnostic_code\": \"H0808\""));
     }
 
     fn ownership_demo_program() -> Program {

@@ -1,0 +1,15 @@
+module fixtures.ownership_check.session_v_alias_escape_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task escaped_alias(change point: Point) -> UInt {
+  why:
+    reject returning a writable alias from its local task body
+
+  does:
+    let alias_to_x = change point.x
+    return alias_to_x
+}

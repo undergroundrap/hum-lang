@@ -1,0 +1,17 @@
+module fixtures.ownership_check.session_v_program8_overlap_write_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task overlapping_write(change point: Point) -> Point {
+  why:
+    reject the pinned second write while an alias to point x remains live
+
+  does:
+    let alias_to_x = change point.x
+    set point.x = point.y
+    set alias_to_x = 9
+    return point
+}

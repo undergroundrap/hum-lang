@@ -2,11 +2,13 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast::{Item, ParamPermission, Program, SectionLine, Task};
+use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
 use crate::element_place;
 use crate::field_place;
 use crate::graph::is_meaningful_line_text;
 use crate::return_dependency;
+use crate::writable_field_alias::{self, AliasAnalysis, AliasBinding, AliasIssueKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunOutcome {
@@ -71,10 +73,12 @@ enum RuntimePermission {
 struct RuntimeBinding {
     value: Value,
     permission: RuntimePermission,
+    writable: bool,
     moved_at: Option<Span>,
     moved_by: Option<String>,
     linear: bool,
     view: Option<RuntimeView>,
+    writable_alias_source: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,10 +112,12 @@ impl RuntimeBinding {
         Self {
             value,
             permission: RuntimePermission::from(permission),
+            writable: permission != ParamPermission::Borrow,
             moved_at: None,
             moved_by: None,
             linear: false,
             view: None,
+            writable_alias_source: None,
         }
     }
 
@@ -119,10 +125,38 @@ impl RuntimeBinding {
         Self {
             value,
             permission: RuntimePermission::Local,
+            writable: false,
             moved_at: None,
             moved_by: None,
             linear,
             view: None,
+            writable_alias_source: None,
+        }
+    }
+
+    fn mutable_local(value: Value, linear: bool) -> Self {
+        Self {
+            value,
+            permission: RuntimePermission::Local,
+            writable: true,
+            moved_at: None,
+            moved_by: None,
+            linear,
+            view: None,
+            writable_alias_source: None,
+        }
+    }
+
+    fn writable_alias(source_place: String) -> Self {
+        Self {
+            value: Value::Unit,
+            permission: RuntimePermission::Local,
+            writable: true,
+            moved_at: None,
+            moved_by: None,
+            linear: false,
+            view: None,
+            writable_alias_source: Some(source_place),
         }
     }
 
@@ -130,6 +164,7 @@ impl RuntimeBinding {
         Self {
             value,
             permission: RuntimePermission::Local,
+            writable: false,
             moved_at: None,
             moved_by: None,
             linear: false,
@@ -139,6 +174,7 @@ impl RuntimeBinding {
                 bound_at,
                 invalidated_by: None,
             }),
+            writable_alias_source: None,
         }
     }
 }
@@ -248,6 +284,31 @@ impl<'a> Interpreter<'a> {
     }
 
     fn execute_task(&self, task: &Task, args: Vec<Value>) -> Result<TaskResult, String> {
+        let Some(does) = task.section("does") else {
+            return Err(format!("task `{}` has no `does:` section", task.name));
+        };
+        let body = core_body::analyze_does_section(does);
+        let mut existing_names = task
+            .params
+            .iter()
+            .map(|parameter| parameter.name.clone())
+            .collect::<BTreeSet<_>>();
+        for section_name in ["uses", "changes"] {
+            let Some(section) = task.section(section_name) else {
+                continue;
+            };
+            existing_names.extend(
+                section
+                    .lines
+                    .iter()
+                    .filter(|line| is_meaningful_line_text(&line.text))
+                    .map(|line| place_root(line.text.trim())),
+            );
+        }
+        let alias_analysis =
+            writable_field_alias::analyze_with_existing_names(&body.statements, &existing_names);
+        self.preflight_writable_aliases(task, &body.statements, &alias_analysis)?;
+
         let mut env = Env::new();
         for (param, value) in task.params.iter().zip(args) {
             env.insert(
@@ -262,9 +323,6 @@ impl<'a> Interpreter<'a> {
 
         self.capture_old_contract_values(task, &mut env)?;
 
-        let Some(does) = task.section("does") else {
-            return Err(format!("task `{}` has no `does:` section", task.name));
-        };
         let lines = executable_lines(&does.lines);
         match self.eval_block(&lines, 0, lines.len(), &mut env, &task.name)? {
             Flow::Return { value, root, span } => {
@@ -278,6 +336,110 @@ impl<'a> Interpreter<'a> {
             }
             Flow::ContractViolation => Ok(TaskResult::ContractViolation),
         }
+    }
+
+    fn preflight_writable_aliases(
+        &self,
+        task: &Task,
+        statements: &[BodyStatement],
+        analysis: &AliasAnalysis,
+    ) -> Result<(), String> {
+        for binding in &analysis.bindings {
+            let borrowed_owner = task.params.iter().any(|param| {
+                param.name == binding.owner_root && param.permission == ParamPermission::Borrow
+            });
+            if borrowed_owner {
+                return Err(self.writable_alias_authority_trap(
+                    task,
+                    binding,
+                    DiagnosticCode::BORROW_PARAMETER_MUTATION,
+                    "borrow",
+                ));
+            }
+        }
+
+        if let Some(issue) = analysis.issues.first() {
+            let (code, message) = match issue.kind {
+                AliasIssueKind::Overlap => (
+                    DiagnosticCode::WRITABLE_ALIAS_OVERLAP,
+                    writable_field_alias::overlap_message(issue),
+                ),
+                AliasIssueKind::Unsupported => (
+                    DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS,
+                    writable_field_alias::unsupported_message(issue),
+                ),
+            };
+            self.diagnostics.borrow_mut().push(
+                Diagnostic::error(code, message, Some(issue.conflict_span.clone()))
+                    .with_help(writable_field_alias::issue_help(&task.name, issue)),
+            );
+            return Err(format!("{} {}", code.as_str(), code.title()));
+        }
+
+        for binding in &analysis.bindings {
+            let permission = task
+                .params
+                .iter()
+                .find(|param| param.name == binding.owner_root)
+                .map(|param| param.permission);
+            match permission {
+                Some(ParamPermission::Change | ParamPermission::Consume) => continue,
+                Some(ParamPermission::Borrow) => {
+                    return Err(self.writable_alias_authority_trap(
+                        task,
+                        binding,
+                        DiagnosticCode::BORROW_PARAMETER_MUTATION,
+                        "borrow",
+                    ));
+                }
+                None => {}
+            }
+
+            let owner = statements
+                .iter()
+                .enumerate()
+                .take(binding.binding_index)
+                .rev()
+                .find_map(|(_index, statement)| {
+                    body_binding_name(statement)
+                        .and_then(|name| (name == binding.owner_root).then_some(statement.kind))
+                });
+            if owner == Some("mutable_binding") {
+                continue;
+            }
+            let authority = if owner == Some("let_binding") {
+                "immutable let"
+            } else {
+                "unknown"
+            };
+            return Err(self.writable_alias_authority_trap(
+                task,
+                binding,
+                DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS,
+                authority,
+            ));
+        }
+        Ok(())
+    }
+
+    fn writable_alias_authority_trap(
+        &self,
+        task: &Task,
+        binding: &AliasBinding,
+        code: DiagnosticCode,
+        authority: &str,
+    ) -> String {
+        self.diagnostics.borrow_mut().push(
+            Diagnostic::error(
+                code,
+                writable_field_alias::authority_message(binding),
+                Some(binding.binding_span.clone()),
+            )
+            .with_help(writable_field_alias::authority_help(
+                &task.name, binding, authority,
+            )),
+        );
+        format!("{} {}", code.as_str(), code.title())
     }
 
     fn ensure_return_dependency(
@@ -586,6 +748,17 @@ impl<'a> Interpreter<'a> {
             return Err(format!("binding `{rest}` is missing a name"));
         }
         let expr = expr.trim();
+        if !mutable
+            && let Some(alias) = writable_field_alias::exact_binding_text(&format!("let {rest}"))
+        {
+            let source_root = place_root(&alias.source_place);
+            self.ensure_can_set(env, &alias.source_place, &source_root, span, task_name)?;
+            env.insert(
+                name.to_string(),
+                RuntimeBinding::writable_alias(alias.source_place),
+            );
+            return Ok(None);
+        }
         if !mutable && let Some((kind, source_place)) = borrowed_view_source(expr) {
             let value = match self.eval_expr(source_place, env, span, task_name)? {
                 Evaluated::Value(value) => value,
@@ -601,7 +774,12 @@ impl<'a> Interpreter<'a> {
         let linear = annotation.is_some_and(is_linear_resource_type);
         match self.eval_expr(expr, env, span, task_name)? {
             Evaluated::Value(value) => {
-                env.insert(name.to_string(), RuntimeBinding::local(value, linear));
+                let binding = if mutable {
+                    RuntimeBinding::mutable_local(value, linear)
+                } else {
+                    RuntimeBinding::local(value, linear)
+                };
+                env.insert(name.to_string(), binding);
                 Ok(None)
             }
             Evaluated::Failure(value) => Ok(Some(Flow::Fail(value))),
@@ -620,12 +798,13 @@ impl<'a> Interpreter<'a> {
             .split_once('=')
             .ok_or_else(|| format!("set `{rest}` is missing `=`"))?;
         let place = place.trim();
-        let root = place_root(place);
-        self.ensure_can_set(env, place, &root, span, task_name)?;
+        let effective_place = self.resolve_writable_alias_place(env, place)?;
+        let root = place_root(&effective_place);
+        self.ensure_can_set(env, &effective_place, &root, span, task_name)?;
         match self.eval_expr(expr.trim(), env, span, task_name)? {
             Evaluated::Value(value) => {
-                self.write_place(env, place, value)?;
-                invalidate_field_views(env, place, span);
+                self.write_place(env, &effective_place, value)?;
+                invalidate_field_views(env, &effective_place, span);
                 Ok(None)
             }
             Evaluated::Failure(value) => Ok(Some(Flow::Fail(value))),
@@ -1058,7 +1237,46 @@ impl<'a> Interpreter<'a> {
         {
             return Err(self.stale_view_trap(task_name, &root, view, span, invalidation));
         }
+        if let Some(source_place) = binding.writable_alias_source.clone() {
+            return self.read_direct_field_value(env, &source_place, span, task_name);
+        }
         Ok(binding.value.clone())
+    }
+
+    fn read_direct_field_value(
+        &self,
+        env: &Env,
+        place: &str,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Value, String> {
+        let Some((root, field)) = field_place::split_field_place(place) else {
+            return Err(format!("unsupported writable alias source `{place}`"));
+        };
+        let value = self.read_value(env, root, span, task_name)?;
+        let Value::Record(fields) = value else {
+            return Err(format!("`{root}` is not a record"));
+        };
+        fields
+            .get(field)
+            .cloned()
+            .ok_or_else(|| format!("record `{root}` has no field `{field}`"))
+    }
+
+    fn resolve_writable_alias_place(&self, env: &Env, place: &str) -> Result<String, String> {
+        let root = place_root(place);
+        let Some(binding) = env.get(&root) else {
+            return Ok(place.to_string());
+        };
+        let Some(source_place) = &binding.writable_alias_source else {
+            return Ok(place.to_string());
+        };
+        if place != root {
+            return Err(format!(
+                "writable alias `{root}` supports only direct local reads and writes"
+            ));
+        }
+        Ok(source_place.clone())
     }
 
     fn read_consume_value(
@@ -1103,6 +1321,9 @@ impl<'a> Interpreter<'a> {
         }
         if binding.permission == RuntimePermission::Borrow {
             return Err(self.borrow_mutation_trap(task_name, place, root, span));
+        }
+        if !binding.writable {
+            return Err(format!("cannot set immutable place `{root}`"));
         }
         Ok(())
     }
@@ -1757,6 +1978,24 @@ fn borrowed_view_source(text: &str) -> Option<(RuntimeViewKind, &str)> {
     None
 }
 
+fn body_binding_name(statement: &BodyStatement) -> Option<&str> {
+    if !matches!(statement.kind, "let_binding" | "mutable_binding") {
+        return None;
+    }
+    let keyword = if statement.kind == "let_binding" {
+        "let"
+    } else {
+        "change"
+    };
+    let rest = strip_keyword(&statement.text, keyword)?;
+    let (left, _initializer) = rest.split_once('=')?;
+    let name = left
+        .split_once(':')
+        .map_or(left, |(name, _annotation)| name)
+        .trim();
+    (!name.is_empty()).then_some(name)
+}
+
 fn invalidate_field_views(env: &mut Env, place: &str, span: &Span) {
     if field_place::split_field_place(place).is_none() {
         return;
@@ -2387,6 +2626,223 @@ task unchecked_divide(a: Int, b: Int) -> Int {
             report.diagnostics.is_empty(),
             "diagnostics: {:#?}",
             report.diagnostics
+        );
+    }
+
+    #[test]
+    fn writable_field_alias_reads_and_writes_through_to_the_owner() {
+        let program = fixture_program(
+            "examples/probes/writable_field_aliases.hum",
+            include_str!("../examples/probes/writable_field_aliases.hum"),
+        );
+        let report = run_program(
+            &program,
+            Some("swap_xy_with_aliases"),
+            &["{x:1,y:2}".to_string()],
+        );
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Success("{x: 2, y: 1}".to_string())
+        );
+        assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
+    }
+
+    #[test]
+    fn writable_field_alias_overlap_traps_with_shared_h0808_blame() {
+        let program = fixture_program(
+            "fixtures/ownership_check/session_v_program8_overlap_write_fail.hum",
+            include_str!("../fixtures/ownership_check/session_v_program8_overlap_write_fail.hum"),
+        );
+        let report = run_program(
+            &program,
+            Some("overlapping_write"),
+            &["{x:1,y:2}".to_string()],
+        );
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Trap("H0808 writable alias overlap".to_string())
+        );
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::WRITABLE_ALIAS_OVERLAP
+        );
+        let rendered = report.diagnostics[0].render();
+        assert!(rendered.contains("alias_to_x"), "{rendered}");
+        assert!(rendered.contains("point.x"), "{rendered}");
+        assert!(rendered.contains(":13:5"), "{rendered}");
+        assert!(rendered.contains(":14:5"), "{rendered}");
+        assert!(rendered.contains(":15:5"), "{rendered}");
+        assert!(
+            rendered.contains("definitely distinct direct field"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn writable_field_alias_escape_traps_with_h0809() {
+        let program = fixture_program(
+            "fixtures/ownership_check/session_v_alias_escape_fail.hum",
+            include_str!("../fixtures/ownership_check/session_v_alias_escape_fail.hum"),
+        );
+        let report = run_program(&program, Some("escaped_alias"), &["{x:1,y:2}".to_string()]);
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Trap("H0809 unsupported writable alias".to_string())
+        );
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS
+        );
+    }
+
+    #[test]
+    fn writable_alias_to_alias_traps_with_shared_h0809_fact() {
+        let program = fixture_program(
+            "fixtures/ownership_check/session_v_alias_to_alias_fail.hum",
+            include_str!("../fixtures/ownership_check/session_v_alias_to_alias_fail.hum"),
+        );
+        let report = run_program(&program, Some("alias_to_alias"), &["{x:1,y:2}".to_string()]);
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Trap("H0809 unsupported writable alias".to_string())
+        );
+        assert_eq!(report.diagnostics.len(), 1);
+        let rendered = report.diagnostics[0].render();
+        assert!(rendered.contains("writable_alias_to_alias_binding_v0"));
+        assert!(rendered.contains("writable alias `first`"));
+    }
+
+    #[test]
+    fn writable_field_alias_requires_visible_mutation_authority() {
+        let program = fixture_program(
+            "fixtures/ownership_check/session_v_borrowed_owner_alias_fail.hum",
+            include_str!("../fixtures/ownership_check/session_v_borrowed_owner_alias_fail.hum"),
+        );
+        let report = run_program(
+            &program,
+            Some("borrowed_owner_alias"),
+            &["{x:1,y:2}".to_string()],
+        );
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Trap("H0802 borrowed parameter written".to_string())
+        );
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::BORROW_PARAMETER_MUTATION
+        );
+    }
+
+    #[test]
+    fn writable_field_alias_permission_wrapper_traps_with_h0809() {
+        let program = fixture_program(
+            "fixtures/ownership_check/session_v_alias_permission_wrapper_fail.hum",
+            include_str!("../fixtures/ownership_check/session_v_alias_permission_wrapper_fail.hum"),
+        );
+        let report = run_program(
+            &program,
+            Some("permission_wrapped_alias"),
+            &["{x:1,y:2}".to_string()],
+        );
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Trap("H0809 unsupported writable alias".to_string())
+        );
+        assert!(
+            report.diagnostics[0]
+                .render()
+                .contains("writable_alias_permission_wrapper_v0")
+        );
+    }
+
+    #[test]
+    fn writable_field_alias_cannot_rebind_its_owner() {
+        let program = fixture_program(
+            "fixtures/ownership_check/session_v_alias_rebind_owner_fail.hum",
+            include_str!("../fixtures/ownership_check/session_v_alias_rebind_owner_fail.hum"),
+        );
+        let report = run_program(
+            &program,
+            Some("alias_rebinds_owner"),
+            &["{x:1,y:2}".to_string()],
+        );
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Trap("H0809 unsupported writable alias".to_string())
+        );
+        assert!(
+            report.diagnostics[0]
+                .render()
+                .contains("writable_alias_rebinds_its_owner_v0")
+        );
+    }
+
+    #[test]
+    fn writable_field_alias_cannot_shadow_an_existing_name() {
+        let program = fixture_program(
+            "fixtures/ownership_check/session_v_alias_name_collision_fail.hum",
+            include_str!("../fixtures/ownership_check/session_v_alias_name_collision_fail.hum"),
+        );
+        let report = run_program(
+            &program,
+            Some("alias_name_collision"),
+            &["{x:1,y:2}".to_string(), "7".to_string()],
+        );
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Trap("H0809 unsupported writable alias".to_string())
+        );
+        assert!(
+            report.diagnostics[0]
+                .render()
+                .contains("writable_alias_binding_rebinding_v0")
+        );
+    }
+
+    #[test]
+    fn writable_field_alias_cannot_shadow_a_declared_permission() {
+        let program = fixture_program(
+            "fixtures/ownership_check/session_v_alias_declared_name_collision_fail.hum",
+            include_str!(
+                "../fixtures/ownership_check/session_v_alias_declared_name_collision_fail.hum"
+            ),
+        );
+        let report = run_program(
+            &program,
+            Some("alias_declared_name_collision"),
+            &["{x:1,y:2}".to_string()],
+        );
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Trap("H0809 unsupported writable alias".to_string())
+        );
+        assert!(
+            report.diagnostics[0]
+                .render()
+                .contains("writable_alias_binding_rebinding_v0")
+        );
+    }
+
+    #[test]
+    fn writable_alias_authority_precedes_overlap_consistently() {
+        let program = fixture_program(
+            "fixtures/ownership_check/session_v_borrowed_owner_overlap_fail.hum",
+            include_str!("../fixtures/ownership_check/session_v_borrowed_owner_overlap_fail.hum"),
+        );
+        let report = run_program(
+            &program,
+            Some("borrowed_owner_overlap"),
+            &["{x:1,y:2}".to_string()],
+        );
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Trap("H0802 borrowed parameter written".to_string())
+        );
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::BORROW_PARAMETER_MUTATION
         );
     }
 

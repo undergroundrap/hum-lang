@@ -1,0 +1,27 @@
+module fixtures.ownership_check.session_v_alias_control_flow_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task alias_across_branch(change point: Point, ready: Bool) -> Point {
+  why:
+    reject a writable alias lifetime that crosses control flow
+
+  ensures:
+    result.x == 9
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    let alias_to_x = change point.x
+    if ready {
+      set point.y = 4
+    }
+    set alias_to_x = 9
+    return point
+}

@@ -1,6 +1,6 @@
 # Hum Effect Check Schema
 
-Date: 2026-07-08
+Date: 2026-07-09
 
 Current schema: `hum.effect_check.v0`
 
@@ -8,7 +8,7 @@ Current schema: `hum.effect_check.v0`
 
 `hum effect-check` is the first non-executing effect gate after recognized Core/body type checking. It consumes `hum.full_type_check.v0` readiness and checks only effect facts that the current Core/body grammar can honestly see.
 
-V0 is intentionally conservative. It verifies obvious local mutation permission, declared external mutation, visible `fail` statements, declared ambient reads for recognized resource roots, and basic security/trust boundary consistency. It reports explicit blockers for unsupported or unchecked effect contexts.
+V0 is intentionally conservative. It verifies obvious local mutation permission, writable-field-alias bindings and write-through changes deferred to ownership, declared external mutation, visible `fail` statements, declared ambient reads for recognized resource roots, and basic security/trust boundary consistency. It reports explicit blockers for unsupported or unchecked effect contexts.
 
 This command does not execute source, emit Hum IR, prove memory safety, enforce ownership, enforce runtime profiles, prove allocation safety, or claim a complete effect system.
 
@@ -103,6 +103,10 @@ V0 recognizes and checks:
 
 - local mutation permission from `change name: Type = value`
 - local mutation through `set name = value` when `name` was declared by `change`
+- `let alias = change owner.field` candidates as writable-alias effect rows
+  deferred to ownership; exact candidates expose `change owner.field`
+- `set alias = value` as `writable_field_alias_write_through` targeting the
+  exact `owner.field` place and counted in `inferred_changes`
 - parameter mutation through `set parameter = value` is accepted as a parameter-permission fact deferred to `hum ownership-check`
 - external mutation through `set target = value` or `save value in target` only when `target` is declared under `changes:`
 - `fail value` only when the item has a meaningful `fails when:` section
@@ -116,6 +120,8 @@ V0 recognizes and checks:
 - `accepted_no_external_effect_v0`
 - `accepted_local_mutation_permission_v0`
 - `accepted_local_mutation_v0`
+- `accepted_writable_field_alias_deferred_to_ownership_v0`
+- `accepted_writable_field_alias_write_deferred_to_ownership_v0`
 - `accepted_declared_change_v0`
 - `accepted_parameter_mutation_deferred_to_ownership_v0`
 - `accepted_declared_failure_v0`

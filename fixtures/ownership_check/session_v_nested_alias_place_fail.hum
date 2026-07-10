@@ -1,0 +1,15 @@
+module fixtures.ownership_check.session_v_nested_alias_place_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task nested_alias_place(change point: Point) -> Point {
+  why:
+    reject a writable alias whose source is deeper than one direct field
+
+  does:
+    let alias = change point.x.deep
+    return point
+}

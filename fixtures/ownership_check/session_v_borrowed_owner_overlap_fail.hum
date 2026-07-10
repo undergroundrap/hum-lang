@@ -1,0 +1,17 @@
+module fixtures.ownership_check.session_v_borrowed_owner_overlap_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task borrowed_owner_overlap(borrow point: Point) -> Point {
+  why:
+    keep missing mutation authority as the primary alias acquisition failure
+
+  does:
+    let alias_to_x = change point.x
+    let direct_x: UInt = point.x
+    let through_alias: UInt = alias_to_x
+    return point
+}

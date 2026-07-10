@@ -1,6 +1,6 @@
 # Hum Diagnostics
 
-Date: 2026-07-06
+Date: 2026-07-09
 
 ## Purpose
 
@@ -115,7 +115,7 @@ JSON shape in `hum diagnostics --format json`:
 ```json
 {
   "schema": "hum.diagnostic_catalog.v0",
-  "count": 39,
+  "count": 53,
   "diagnostics": [
     {
       "code": "H0201",
@@ -249,12 +249,14 @@ Future ranges should be reserved before broad use:
 | Code | Severity | Title | Meaning |
 |---|---|---|---|
 | `H0801` | error | use after move | A value was used after an earlier `consume` argument or return moved it. |
-| `H0802` | error | borrowed parameter written | A default-`borrow` parameter or one of its direct fields was targeted by `set`; mark it `change` or avoid mutation. |
+| `H0802` | error | borrowed parameter written | A default-`borrow` parameter or one of its direct fields was targeted by `set`, or its field was used to acquire a writable alias; mark it `change` or avoid mutation. |
 | `H0803` | error | linear resource not consumed | A recognized linear resource reached a return, failure, or fallthrough path without exactly one visible consume action. |
 | `H0804` | error | linear resource consumed twice | A recognized linear resource was consumed after an earlier action already ended it on that path. |
 | `H0805` | error | return dependency is not a parameter | A returned-view `from` relationship names a non-parameter source or returns a value not visibly derived from that parameter in the V0 subset. |
 | `H0806` | error | iteration mutation conflict | A collection was structurally mutated with `list_append` while a `for each` loop was actively iterating it. |
 | `H0807` | error | stale view | A local field or element view was used after a recognized invalidating write or list growth; re-borrow after the change or copy the value before the change. |
+| `H0808` | error | writable alias overlap | A direct read, direct write, owner-wide access, or second writable alias may overlap an exact direct-field writable alias before its last syntactic use; use a definitely distinct field or end the alias's last use first. |
+| `H0809` | error | unsupported writable alias | A writable alias escapes or uses a form outside the exact local direct-field, straight-line slice; keep it local and direct or copy the field value. |
 
 ### Target And Backend Metadata
 

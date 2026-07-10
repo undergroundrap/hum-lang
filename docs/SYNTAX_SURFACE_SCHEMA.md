@@ -1,6 +1,6 @@
 # Hum Syntax Surface Schema
 
-Date: 2026-07-07
+Date: 2026-07-09
 
 Current schema: `hum.syntax_surface.v0`
 
@@ -44,6 +44,7 @@ TextMate grammar built from the same syntax surface.
   "comment_prefixes": [],
   "test_modifiers": [],
   "parameter_permission_modes": ["borrow", "change", "consume"],
+  "writable_field_alias_form": "let <alias> = change <owner>.<field>",
   "section_headers": {},
   "semantic_tokens": {}
 }
@@ -60,6 +61,9 @@ TextMate grammar built from the same syntax surface.
 - `comment_prefixes`: line comment prefixes recognized inside sections
 - `test_modifiers`: recognized leading modifiers for `test` declarations
 - `parameter_permission_modes`: parameter permission words recognized in callable signatures; unmarked parameters default to `borrow`
+- `writable_field_alias_form`: the exact Session V local direct-field alias
+  spelling recognized by the current compiler; it is metadata for one narrow
+  form, not a general alias grammar
 - `section_headers`: section order, obligation mapping, and hover catalog
 - `semantic_tokens`: shared token legend and Hum role mapping for editor and LSP
   adapters
@@ -127,6 +131,12 @@ use it instead of copying prose into each plugin.
 `token_types` and `token_modifiers` form the current LSP semantic-token legend.
 `rules` maps Hum-specific syntax sources to that legend and gives each source a
 stable `hum_role` for adapters, docs, and future richer views.
+
+Session V adds the `writable_field_alias_permission` rule as a `keyword` with
+`declaration` and `modification` modifiers and the Hum role
+`local_field_alias`. The generated TextMate grammar carries the matching
+`storage.modifier.writable-field-alias.hum` rule for exact direct-field alias
+initializers.
 
 Milestone 0 emits the legend and rules, not per-file semantic token ranges.
 Precise ranges should wait until the parser and semantic graph can report them

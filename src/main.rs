@@ -43,6 +43,7 @@ mod test_skeletons;
 mod type_check;
 mod type_env;
 mod version;
+mod writable_field_alias;
 
 use std::env;
 use std::fs;

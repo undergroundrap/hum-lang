@@ -1,0 +1,14 @@
+module fixtures.ownership_check.session_v_alias_name_collision_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task alias_name_collision(change point: Point, other: UInt) {
+  why:
+    reject a writable alias that shadows an already visible name
+
+  does:
+    let other = change point.x
+}

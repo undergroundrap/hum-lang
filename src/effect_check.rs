@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast::{Item, Program, Section};
 use crate::core_body::{self, BodyStatement};
@@ -7,6 +7,7 @@ use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::full_type_check;
 use crate::graph::is_meaningful_line_text;
 use crate::version;
+use crate::writable_field_alias;
 
 pub const EFFECT_CHECK_SCHEMA: &str = "hum.effect_check.v0";
 pub const EFFECT_CHECK_MODE: &str = "recognized_core_effect_gate_v0";
@@ -338,6 +339,17 @@ fn check_item(item: &Item, blocked: bool) -> Option<EffectItem> {
     let body = core_body::analyze_does_section(does);
     let declarations = collect_declarations(item_sections(item));
     let local_mutables = local_mutables(&body.statements);
+    let writable_aliases = body
+        .statements
+        .iter()
+        .filter_map(|statement| {
+            writable_field_alias::candidate_name(statement).map(|name| {
+                let place = writable_field_alias::exact_binding(statement)
+                    .map(|binding| binding.source_place);
+                (name, place)
+            })
+        })
+        .collect::<BTreeMap<_, _>>();
     let parameter_roots = item_parameters(item)
         .into_iter()
         .map(|param| first_resource(&param))
@@ -349,6 +361,7 @@ fn check_item(item: &Item, blocked: bool) -> Option<EffectItem> {
             index,
             &declarations,
             &local_mutables,
+            &writable_aliases,
             &parameter_roots,
             blocked,
         ));
@@ -375,6 +388,7 @@ fn check_statement_effect(
     index: usize,
     declarations: &EffectDeclarations,
     local_mutables: &BTreeSet<String>,
+    writable_aliases: &BTreeMap<String, Option<String>>,
     parameter_roots: &BTreeSet<String>,
     blocked: bool,
 ) -> EffectStatement {
@@ -428,6 +442,20 @@ fn check_statement_effect(
                 )
             }
         }
+        "let_binding" if writable_field_alias::candidate_name(statement).is_some() => {
+            let alias = writable_field_alias::candidate_name(statement);
+            let place =
+                writable_field_alias::exact_binding(statement).map(|binding| binding.source_place);
+            effect_statement(
+                statement,
+                index,
+                "writable_field_alias",
+                alias,
+                place.map(|place| format!("change {place}")),
+                "accepted_writable_field_alias_deferred_to_ownership_v0",
+                None,
+            )
+        }
         "mutable_binding" => effect_statement(
             statement,
             index,
@@ -442,6 +470,7 @@ fn check_statement_effect(
             index,
             declarations,
             local_mutables,
+            writable_aliases,
             parameter_roots,
         ),
         "save_in_store" => check_save_statement(statement, index, declarations),
@@ -481,6 +510,7 @@ fn check_set_statement(
     index: usize,
     declarations: &EffectDeclarations,
     local_mutables: &BTreeSet<String>,
+    writable_aliases: &BTreeMap<String, Option<String>>,
     parameter_roots: &BTreeSet<String>,
 ) -> EffectStatement {
     let Some(target) = set_place_name(statement) else {
@@ -495,7 +525,22 @@ fn check_set_statement(
         );
     };
     let resource = first_resource(&target);
-    if local_mutables.contains(&resource) {
+    if writable_aliases.contains_key(&resource) {
+        let place = writable_aliases
+            .get(&resource)
+            .cloned()
+            .flatten()
+            .unwrap_or_else(|| resource.clone());
+        effect_statement(
+            statement,
+            index,
+            "writable_field_alias_write_through",
+            Some(place.clone()),
+            Some(format!("writable_field_alias {resource} -> {place}")),
+            "accepted_writable_field_alias_write_deferred_to_ownership_v0",
+            None,
+        )
+    } else if local_mutables.contains(&resource) {
         effect_statement(
             statement,
             index,
@@ -753,9 +798,13 @@ fn declared_facts(sections: &[Section], name: &'static str) -> Vec<DeclaredFact>
 fn local_mutables(statements: &[BodyStatement]) -> BTreeSet<String> {
     statements
         .iter()
-        .filter(|statement| statement.kind == "mutable_binding")
-        .filter_map(binding_name)
-        .map(|name| first_resource(&name))
+        .filter_map(|statement| {
+            if statement.kind == "mutable_binding" {
+                binding_name(statement).map(|name| first_resource(&name))
+            } else {
+                writable_field_alias::candidate_name(statement)
+            }
+        })
         .collect()
 }
 
@@ -1107,7 +1156,10 @@ impl EffectCheckReport {
             .filter(|statement| {
                 matches!(
                     statement.effect_kind,
-                    "declared_change" | "store_change" | "local_mutation"
+                    "declared_change"
+                        | "store_change"
+                        | "local_mutation"
+                        | "writable_field_alias_write_through"
                 )
             })
             .count()

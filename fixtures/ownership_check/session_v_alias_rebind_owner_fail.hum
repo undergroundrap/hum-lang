@@ -1,0 +1,14 @@
+module fixtures.ownership_check.session_v_alias_rebind_owner_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task alias_rebinds_owner(change point: Point) {
+  why:
+    reject an alias binding that overwrites the source owner name
+
+  does:
+    let point = change point.x
+}

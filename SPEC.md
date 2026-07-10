@@ -459,6 +459,7 @@ Starter executable forms:
 ```text
 let name: Type = value
 change name: Type = value
+let alias = change owner.field
 set name = value
 if condition { ... } else { ... }
 match value { ... }
@@ -566,6 +567,18 @@ Meaning:
 - `shared T`: thread-safe shared access through a checked type.
 
 The compiler tracks lifetimes, aliasing, mutation, moves, and destruction.
+
+The current implemented alias slice is much narrower than that target. In one
+straight-line task body, `let alias = change owner.field` creates a writable
+alias only when `owner` has visible mutation authority. Reading the alias reads
+the current direct field and `set alias = value` writes through to it. The
+lifetime ends after the last syntactic use. H0808 rejects an overlapping
+direct read/write, owner-wide access, or second alias while live; a definitely
+distinct direct field remains accepted. H0809 rejects branches/loops, escape,
+passing, storage, `borrow`/`change`/`consume` wrapping, alias-to-alias binding,
+nested/element places, rebinding, and shadowing an already-visible parameter,
+local, or declared `uses:`/`changes:` permission.
+This is not general aliasing, internal references, or flow-sensitive borrowing.
 
 ## Unsafe Code
 

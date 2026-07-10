@@ -256,6 +256,7 @@ friction:
   severity: awkward
   indicts: contracts
   proposal: decide contract check mode (`always` | `debug` | `profile`) before profiles or release mode exist
+  resolution: policy question resolved by decision 0015 with classified runtime-contract policy; current Hum still checks every executable predicate, and the classifier, profiles, proof evidence, and elision remain an unimplemented honesty lock/backlog item rather than an active friction record
 
 friction:
   program: examples/probes/word_count.hum:8
@@ -478,6 +479,7 @@ friction:
   severity: blocked
   indicts: ownership
   proposal: require a narrow overlapping-place/two-write alias repair with a stable blamed diagnostic before counting program 8 as implemented
+  resolution: resolved in Session V for the exact local `let alias = change owner.field` straight-line slice by `examples/probes/writable_field_aliases.hum` and the pinned `fixtures/ownership_check/session_v_program8_overlap_write_fail.hum`; H0808 names binding, conflict, last use, overlapping place, and repair, while H0809 keeps escape and unsupported forms fail-closed
 
 Session U consolidation:
 
@@ -521,3 +523,32 @@ follow the Program 8 repair; effect polymorphism remains an explicit deferral.
 The full candidate argument and deferral costs are in
 [bakeoff/SCORECARD.md](bakeoff/SCORECARD.md) under "Work Order 6 recommendation
 after Session U".
+
+Session V ledger update:
+
+The Program 8 overlapping-alias/two-write record above is the only record
+resolved by Session V. The positive alias fixtures observe owner write-through,
+distinct direct-field access, two distinct live aliases, and sequential
+same-field aliases after last use. The pinned direct-write misuse and the
+direct-read/second-alias misuses reject with H0808; escape, control-flow,
+permission-wrapper, owner-rebinding, and visible-name-collision misuses reject with H0809. H0802
+remains permission evidence only and wins before overlap analysis when alias
+acquisition itself lacks mutation authority.
+
+Reapplying the three-strike rule to active unresolved records now gives:
+
+| Indicted area | Active count | Records | Three-strike result |
+| --- | ---: | --- | --- |
+| ownership | 2 | Transaction-shaped general linear marker; internal-reference `from parser.buffer`. | Not triggered after Session V. The historical exact-three trigger was real and Session V paid its Program 8 record; this count does not authorize internal references outside Work Order 6's sequence. |
+| contracts | 3 | Predicate v2 vocabulary: conditional content/count for `word_count`, list content for `builder_demo`, and text-literal equality for `element_views`. | Triggered. Decision 0015 resolves the separate check-mode policy record but changes no runtime behavior; its unimplemented classifier remains an honesty lock and backlog item, not a fourth friction record. Session AE must reapply the rule. |
+| stdlib | 1 partial | Append shipped in Session P; retain, capacity/profile behavior, and richer list surface remain. | No trigger. |
+| types | 0 | Direct field mutation resolved the replacement-literal record in Session O. | No trigger. |
+| core-body-grammar | 1 | Standalone close/effect calls must be bound to throwaway locals. | No trigger yet. |
+| checker | 1 | Contract predicate operand type confusion generic-traps. | No trigger. |
+
+Decision 0014 honesty lock after Session V: the lock narrows only for local
+unannotated direct-field writable aliases with a straight-line last-syntactic-use
+lifetime. General aliases, stored or passed aliases, nested/element aliases,
+internal references, broad disjoint-field projection, broad flow-sensitive
+borrowing, full ownership safety, borrow soundness, and memory-safety
+completeness remain unimplemented and unclaimed.

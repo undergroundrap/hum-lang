@@ -1,7 +1,7 @@
 # Ownership Bake-Off Scorecard
 
 Date: 2026-07-08
-Status: corrective Session U implementation retrospective for Work Order 5
+Status: Session V implementation retrospective for Work Order 6, pending review
 Corpus: [CORPUS.md](CORPUS.md)
 
 ## Purpose
@@ -39,7 +39,7 @@ awkward on returned views and record updates is paying in the wrong place.
 
 | Candidate | Proven today clean | With repairs or restructuring, no declared escape | With declared escapes/imported mechanisms | Gate result |
 | --- | ---: | ---: | ---: | --- |
-| A: ownership and borrowing | 4/12 | 8/12 after effect polymorphism, internal references, and disjoint-field projection | 12/12 | Clears the original eight-program gate only as a target model with planned repairs; does not clear a proven-today maturity gate. |
+| A: ownership and borrowing | 5/12 | 8/12 after effect polymorphism and internal references | 12/12 | Clears the original eight-program gate only as a target model with planned repairs; Session V raises proven-today maturity by implementing Program 8's exact local overlap gate. |
 | B: mutable value semantics | 5/12 | 8/12 after effect polymorphism and value restructuring | 12/12 | Clears only by accepting range/copy restructuring as ordinary. That is implementable, but it taxes pervasive view-returning code. |
 | C: region-first ownership | 4/12 | 7/12 after effect polymorphism, region tables, and region transfer | 12/12 | Does not clear eight without escape hatches. It is strongest on natural views but pays pervasive signature plumbing. |
 
@@ -59,18 +59,19 @@ effect-polymorphism decision lands.
 | 5. Parser holding slice into own buffer | Common | Native-looking: parser stores `Slice Text from buffer`. Misuse diagnostic blames buffer replacement while token is live. Beginner story is excellent. | Depends on unimplemented internal-reference repair. No lifetime elision is credited. | Restructure: store `TextRange`, re-present the buffer or copy text. Misuse diagnostic rejects storing `Slice Text` in `Parser`. Beginner story is clear, but this is not the natural parser program. | Implementable by value rules; counted as restructuring, not native. Hidden copy-on-write is not credited. | Native region story: parser buffer and token are `in r`. Misuse diagnostic blames replacing with a different region value. Beginner story is good. | Proven only with explicit `in r` signature/type plumbing; any region elision is unimplemented design work. |
 | 6. Producer/consumer handoff | Common | Native ownership transfer with `consume buffer`. Misuse diagnostic blames use after send. Beginner story is excellent. | Proven today clean. | Native whole-value move with `consume buffer`. Misuse diagnostic blames use after send. Beginner story is excellent. | Proven today clean. | Escape: unique buffer transferred into worker region. Misuse diagnostic blames use after transfer. Beginner story is clear but destination-region machinery appears. | Unique pointer plus dynamic worker region escape; visible allocation/transfer cost. |
 | 7. Memoizing cache | Common | Native `change cache` on miss, return borrow from cache. Misuse diagnostic blames eviction while entry view lives. Beginner story is clear, and mutation is visible. | Proven today clean for single-threaded cache; concurrency not settled. | Native value read if `get` returns owned text. Misuse diagnostic rejects escaping entry handle. Beginner story is clear, but returning values may allocate. | Proven only if allocation is visible. Hidden copy-on-write or hidden reference counts are rejected. | Native cache-region slice. Misuse diagnostic blames evicting while an entry slice is live. Beginner story is good. | Proven with explicit region signatures; concurrent cache sharing remains a future decision. |
-| 8. Swapping two fields | Common | Native-looking field-place update. Misuse diagnostic blames overlapping write paths. Beginner story is clear. | Depends on unimplemented disjoint-field projection. | Native whole-record exclusive update. Misuse diagnostic rejects stored field alias across `change point`. Beginner story is clear. | Proven today clean, but less precise if unrelated field views should remain live. | Native whole-record update for the swap. Misuse diagnostic rejects stale `point.x` view. Beginner story is clear. | Proven for whole-record update; keeping unrelated field views live needs field-projection repair. |
+| 8. Swapping two fields | Common | Native-looking field-place update. Misuse diagnostic blames overlapping write paths. Beginner story is clear. | Proven for Session V's exact local direct-field writable aliases, straight-line last-use lifetime, distinct direct fields, and H0808 overlap rejection; broader projection remains unimplemented. | Native whole-record exclusive update. Misuse diagnostic rejects stored field alias across `change point`. Beginner story is clear. | Proven today clean, but less precise if unrelated field views should remain live. | Native whole-record update for the swap. Misuse diagnostic rejects stale `point.x` view. Beginner story is clear. | Proven for whole-record update; keeping unrelated field views live needs field-projection repair. |
 | 9. Returning view from parameter | Pervasive | Native returned dependency: `Slice Text from text`. Misuse diagnostic rejects returning a view into a local buffer. Beginner story is excellent. | Proven only if explicit `from` dependencies are required; lifetime elision is not credited. | Restructure: return `TextRange` or owned `Text`. Misuse diagnostic rejects returning `Slice Text`. Beginner story is clear, but callers must re-present text or allocate. | Implementable by value rules; counted as restructuring. Hidden copy-on-write is rejected. | Native region-tagged view: input and result are `Slice Text in r`. Misuse diagnostic rejects local-region escape. Beginner story is good. | Proven with explicit `in r` plumbing; region elision is unimplemented design work. |
 | 10. Commit or rollback exactly once | Common | Escape: linear transaction consumed by commit or rollback. Misuse diagnostic blames missing or double close path. Beginner story is excellent. | Linear-resource escape; the right tool, but not the base borrow model. | Escape: linear protocol value. Misuse diagnostic blames unconsumed transaction or double consume. Beginner story is excellent. | Linear-protocol escape. | Escape: unique protocol value. Misuse diagnostic blames unconsumed unique transaction. Beginner story is excellent. | Unique-pointer/linear escape; visible proof obligation. |
-| 11. Record field update | Pervasive | Native-looking field update preserving rest. Misuse diagnostic blames stale `item.done` view. Beginner story is excellent. | Depends on unimplemented disjoint-field projection for mature unrelated-field handling. | Native whole-record exclusive update. Misuse diagnostic blames stale field view after `change item`. Beginner story is clear. | Proven today clean, but syntax sugar for record update is not settled. | Native direct field update for the changed field. Misuse diagnostic blames stale field view. Beginner story is clear. | Proven for direct update; unrelated live field views need field-projection repair. |
+| 11. Record field update | Pervasive | Native-looking field update preserving rest. Misuse diagnostic blames stale `item.done` view. Beginner story is excellent. | Proven for direct field update, exact local field-view invalidation, and Session V's narrow distinct direct-field handling; nested places and mature general projection remain unimplemented. | Native whole-record exclusive update. Misuse diagnostic blames stale field view after `change item`. Beginner story is clear. | Proven today clean, but syntax sugar for record update is not settled. | Native direct field update for the changed field. Misuse diagnostic blames stale field view. Beginner story is clear. | Proven for direct update; unrelated live field views need field-projection repair. |
 | 12. Builder finish | Common | Native append through builder, then `consume builder` on finish. Misuse diagnostic blames use after finish or stale element view after growth. Beginner story is excellent. | Proven today clean; list growth API still needs stdlib design. | Native builder value, append, then consume finish. Misuse diagnostic blames use after finish. Beginner story is excellent. | Proven today clean. | Escape/restructure: build region, then transfer or copy list out. Misuse diagnostic blames use after finish. Beginner story is workable, but return policy is visible. | Region transfer or visible copy is imported mechanism; not pure lexical region. |
 
 ## Repair And Signature Maturity
 
 Candidate A's attractive cells are exactly the ones Hum wants long term:
 internal parser slices, returned views, and precise field updates. The problem
-is maturity. Internal references and disjoint-field projections must become
-real checker features before Hum can claim A is implemented. This scorecard
+is maturity. Internal references and broader disjoint-field projections must
+become real checker features before Hum can claim A is mature. Session V earns
+only the exact local direct-field slice. This scorecard
 does not credit lifetime elision; the user writes explicit `from` relationships
 until an accepted elision rule exists.
 
@@ -118,16 +119,16 @@ exactly-once protocols and explicit arenas/regions as opt-in escape hatches.
 
 This recommendation deliberately moves the proven-today maturity gate. Candidate
 A clears eight of twelve only as a target model with planned repairs; today it
-has four clean cells under the stricter maturity count. The concession is real:
-Hum must not claim full ownership safety, internal references, field projection,
+has five clean cells under the stricter maturity count. The concession is real:
+Hum must not claim full ownership safety, internal references, broad field projection,
 or memory-safety completeness until those repairs are implemented and checked by
 probe programs. The reason to accept that debt is frequency-weighted ergonomics:
 the alternative is making pervasive view and parser code less natural forever.
 
 ## Implementation status
 
-Session U records what the accepted Candidate A path actually implements after
-Work Order 5, through Sessions J-T. "Runs" means the named corpus behavior
+Session V updates what the accepted Candidate A path actually implements after
+Work Order 5 and the first Work Order 6 repair. "Runs" means the named corpus behavior
 exists as a real Hum fixture under `hum run` and, when ownership is involved,
 under the relevant checker and pinned misuse fixture. "Partial" means exactly
 one required half is implemented: either the positive program runs while its
@@ -146,7 +147,13 @@ Work Order 5 added checked stale field/element-view failures and stronger
 contracts, but H0802 permission failure and H0807 stale-view failure are not
 the Program 8 overlapping-write misuse and do not promote it to fully running.
 
-| # | Corpus program | Session U status | Evidence today | Missing feature or ban |
+Session V adds the missing independent evidence. Program 8 alone moves from
+positive-only partial to fully running, so the current burn-down is 5/12 fully
+running plus Program 3 partial. Programs 8, 9, 10, 11, and 12 fully run;
+Program 3 remains misuse-only partial under the unchanged
+effect-polymorphism/retain boundary.
+
+| # | Corpus program | Session V status | Evidence today | Missing feature or ban |
 | --- | --- | --- | --- | --- |
 | 1 | Doubly linked list with back-pointers | Blocked by missing feature | No runnable fixture. | Explicit arena/container API, stale-handle invalidation, and cyclic mutable structure are not implemented. |
 | 2 | Cyclic graph freed as a unit | Blocked by missing feature | No runnable fixture. | Graph arena or region lifetime, cyclic handles, and unit release are not implemented. |
@@ -155,7 +162,7 @@ the Program 8 overlapping-write misuse and do not promote it to fully running.
 | 5 | Parser holding a slice into its own buffer | Blocked by missing feature | `fixtures/ownership_check/session_l_return_view_internal_fail.hum` rejects `from parser.buffer` with H0805. | Internal references and buffer/token invalidation are not implemented. |
 | 6 | Producer/consumer handoff between workers | Blocked by ban; local transfer subset runs | Session J consume fixtures prove local authority transfer and reject local use after consume. | Worker/concurrency syntax is banned, so no send/receive fixture exists. |
 | 7 | Memoizing cache read through a shared path | Blocked by missing feature | No runnable fixture. | Cache/map stdlib, source-visible internal mutation behind read-shaped APIs, and entry-view invalidation are not implemented. |
-| 8 | Swapping two fields of one record | Partial: positive swap runs; overlapping-alias misuse blocked | `examples/probes/field_places.hum` runs `swap_xy({x:1,y:2}) -> {x:2,y:1}` for the definitely distinct direct fields `point.x` and `point.y`, under checked pre-state contracts. The pinned misuse — a second writable path that may alias `point.x` — has no fixture and cannot yet be expressed or rejected. H0802 checks borrowed-parameter permission and H0807 checks later use of an invalidated read view; neither proves overlapping two-write access. | Narrow overlapping-place alias tracking/disjoint-field projection and a blame-style misuse diagnostic explaining that the two writes are not known independent are not implemented. |
+| 8 | Swapping two fields of one record | Runs | `examples/probes/field_places.hum` still runs the direct swap. `examples/probes/writable_field_aliases.hum` proves real write-through (`{x:9,y:2}`), a two-live-alias swap (`{x:2,y:1}`), direct distinct-field access while the other alias is live (`{x:2,y:7}`), and sequential same-field aliases after last use (`{x:7,y:2}`). The pinned `fixtures/ownership_check/session_v_program8_overlap_write_fail.hum` reports H0808 for the overlapping second write with binding/conflict/last-use facts in human, JSON, and runtime output; direct-read and second-alias fixtures also report H0808, while escape reports H0809. | Only the exact unannotated local `let alias = change owner.field` straight-line slice is implemented. General aliases, nested/element aliases, stored or passed aliases, internal references, and broad flow-sensitive borrowing remain blocked. |
 | 9 | Returning a view derived from a parameter | Runs | `examples/probes/first_word.hum` runs `first_word("hum language") -> hum`; graph and ownership JSON expose the dependency from result to `text`; local and non-closed derivations reject with H0805. | Internal references such as `from parser.buffer` remain blocked; the closed derivation set is intentionally tiny. |
 | 10 | Transaction that must commit or roll back exactly once | Runs | `examples/probes/transaction_once.hum` returns `ok`; Session K misuse fixtures reject missing close, double close, and one-branch close with H0803/H0804. | The linear-resource marker is still Transaction-shaped rather than source-visible and general. |
 | 11 | Updating one record field while preserving the rest | Runs | `examples/probes/field_places.hum` accepts direct `set item.done = true` in `complete_item` under the checked preservation contract `result.title == old(item.title)`, which now runs with zero warnings; the run-only fixture `fixtures/run/session_o_complete_item_field_place.hum` prints `{done: true, title: hum}`; `fixtures/ownership_check/session_r_stale_item_field_view_fail.hum` rejects stale `item.done` views with H0807. | Nested places and general aliases are not implemented; record-update expression syntax remains future ergonomics. |
@@ -251,3 +258,29 @@ Predicate v2 vocabulary records deliberately deferred through the Work Order 6
 Session AE retrospective, where the three-strike rule must be reapplied.
 Internal references remain the next ownership repair after Program 8; effect
 polymorphism remains an explicit deferral.
+
+### Session V burn-down, ledger effect, and honesty lock
+
+The exact positive and pinned misuse now pass, so Program 8 is fully running.
+No other corpus row changes: current coverage is 5/12 full plus Program 3
+partial.
+
+Session V resolves only the active Program 8 overlapping-alias/two-write
+ownership record. Reapplying the three-strike rule leaves ownership at two
+active records—the Transaction-shaped general linear marker and internal
+references—so ownership is below the trigger threshold after this repair.
+Contracts remain triggered at exactly three active Predicate v2 vocabulary
+records. Decision 0015 resolved the separate check-mode policy record without
+implementing its future classifier or erasing those vocabulary records; the
+classifier stays an honesty lock and backlog item, not a fourth friction record.
+The historical Session U trigger and recommendation above remain the evidence
+that authorized Session V; they are not the current count.
+
+Decision 0014's lock narrows only for the exact Session V form. Hum may claim
+real local direct-field write-through, straight-line last-use enforcement,
+definitely distinct direct-field acceptance, H0808 overlap rejection, and H0809
+fail-closed unsupported/escape rejection. Hum still may not claim full
+ownership safety, borrow soundness, memory-safety completeness, internal
+references, general aliases, stored aliases, nested or element aliases, broad
+disjoint-field projection, broad flow-sensitive borrowing, concurrency
+ownership, mature list semantics, or general linear resources.

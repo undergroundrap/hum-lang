@@ -1,6 +1,6 @@
 # Hum Full Type Check Schema
 
-Date: 2026-07-08
+Date: 2026-07-09
 
 Current schema: `hum.full_type_check.v0`
 
@@ -76,6 +76,17 @@ The V0 gate checks only conservative statement contexts:
 - `if_header` and `while_header`: condition must be recognized as `Bool`.
 - `let_binding` and `mutable_binding`: explicit annotations are checked when
   present; otherwise simple local and literal facts may be inferred.
+- exact writable field alias bindings infer the direct source field type from
+  `change owner.field`; later `set alias = expression` checks the expression
+  against that field type while ownership and lifetime rules remain deferred
+  to `hum ownership-check`.
+- a shared writable-alias candidate whose source shape is unsupported or whose
+  initializer type is unknown reports
+  `accepted_writable_field_alias_candidate_deferred_to_ownership_v0` with
+  reason `writable_field_alias_shape_deferred_to_ownership_v0`. This status
+  defers H0809 classification to `hum ownership-check`; it does not accept the
+  source shape or infer a type. Unknown ordinary binding initializers remain
+  blocking.
 - `set_place`: the assigned expression must match a known local, parameter, or direct declared `root.field` place type.
 - direct element reads such as `items[0]`: the result type is the element type of a local or parameter annotated as `List T`.
 - simple task calls: known callee result types may type the call expression; `consume value` delegates to the consumed value type inside call arguments.

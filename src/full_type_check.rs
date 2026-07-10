@@ -10,6 +10,7 @@ use crate::field_place::{self, FieldTypeMap};
 use crate::return_dependency;
 use crate::type_check;
 use crate::version;
+use crate::writable_field_alias;
 
 pub const FULL_TYPE_CHECK_SCHEMA: &str = "hum.full_type_check.v0";
 pub const FULL_TYPE_CHECK_MODE: &str = "recognized_core_body_type_gate_v0";
@@ -432,7 +433,16 @@ fn statement_status(
             typed_expression_status(expected_type, actual)
         }
         "let_binding" | "mutable_binding" => {
-            if expected_type.is_some() {
+            let writable_alias_candidate =
+                writable_field_alias::candidate_name(statement).is_some();
+            let unsupported_or_untyped_alias_candidate = writable_alias_candidate
+                && (writable_field_alias::exact_binding(statement).is_none() || actual.is_none());
+            if unsupported_or_untyped_alias_candidate {
+                (
+                    "accepted_writable_field_alias_candidate_deferred_to_ownership_v0",
+                    Some("writable_field_alias_shape_deferred_to_ownership_v0"),
+                )
+            } else if expected_type.is_some() {
                 typed_expression_status(expected_type, actual)
             } else if actual.is_some() {
                 ("accepted_inferred_binding_type_v0", None)
@@ -942,6 +952,7 @@ impl FullTypeCheckReport {
                     statement.status,
                     "accepted_statement_type_v0"
                         | "accepted_inferred_binding_type_v0"
+                        | "accepted_writable_field_alias_candidate_deferred_to_ownership_v0"
                         | "accepted_no_expression_type_obligation_v0"
                         | "rejected_statement_type_mismatch_v0"
                 )
@@ -958,6 +969,7 @@ impl FullTypeCheckReport {
                     statement.status,
                     "accepted_statement_type_v0"
                         | "accepted_inferred_binding_type_v0"
+                        | "accepted_writable_field_alias_candidate_deferred_to_ownership_v0"
                         | "accepted_no_expression_type_obligation_v0"
                 )
             })
@@ -1427,6 +1439,65 @@ mod tests {
         assert!(json.contains("\"blocked_unsupported_statement_v0\""));
         assert!(json.contains("\"record_field_context_not_tracked_v0\""));
         assert!(json.contains("\"surface_save_requires_store_lowering\""));
+    }
+
+    #[test]
+    fn unknown_writable_alias_candidates_defer_without_weakening_other_unknown_bindings() {
+        let alias_program = Program {
+            files: vec![
+                parse_source(
+                    "alias_defer.hum",
+                    r#"type Point {
+  x: UInt
+  y: UInt
+}
+
+task alias_defer(change point: Point) -> Point {
+  does:
+    let first = change point.x
+    let second = change first.y
+    let nested = change point.x.deep
+    return point
+}
+"#,
+                )
+                .file,
+            ],
+        };
+        let alias_json = full_type_check_json(&alias_program, &[]);
+        assert!(!full_type_check_has_errors(&alias_program, &[]));
+        assert!(alias_json.contains("\"status\": \"recognized_core_body_types_checked_v0\""));
+        assert!(alias_json.contains(
+            "\"status\": \"accepted_writable_field_alias_candidate_deferred_to_ownership_v0\""
+        ));
+        assert!(
+            alias_json
+                .contains("\"reason\": \"writable_field_alias_shape_deferred_to_ownership_v0\"")
+        );
+        assert!(alias_json.contains("\"unchecked_statements\": 0"));
+
+        let ordinary_program = Program {
+            files: vec![
+                parse_source(
+                    "ordinary_unknown.hum",
+                    r#"type Point {
+  x: UInt
+}
+
+task ordinary_unknown(change point: Point) -> Point {
+  does:
+    let ordinary = point.x.deep
+    return point
+}
+"#,
+                )
+                .file,
+            ],
+        };
+        let ordinary_json = full_type_check_json(&ordinary_program, &[]);
+        assert!(full_type_check_has_errors(&ordinary_program, &[]));
+        assert!(ordinary_json.contains("\"status\": \"blocked_by_unchecked_body_types_v0\""));
+        assert!(ordinary_json.contains("\"reason\": \"binding_initializer_type_unknown_v0\""));
     }
 
     #[test]

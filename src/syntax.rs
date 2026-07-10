@@ -6,6 +6,7 @@ pub const ITEM_KINDS: &[&str] = &["app", "type", "store", "task", "test"];
 pub const VALUE_IDENTIFIER_PATTERN: &str = "[a-z_][a-z0-9_]*";
 pub const TYPE_IDENTIFIER_PATTERN: &str = "[A-Z][A-Za-z0-9]*";
 pub const PARAMETER_PERMISSION_MODES: &[&str] = &["borrow", "change", "consume"];
+pub const WRITABLE_FIELD_ALIAS_FORM: &str = "let <alias> = change <owner>.<field>";
 pub const DOUBLE_SLASH_COMMENT_PREFIX: &str = concat!("/", "/");
 pub const COMMENT_PREFIXES: &[&str] = &["#", DOUBLE_SLASH_COMMENT_PREFIX];
 pub const TEST_MODIFIERS: &[&str] = &[
@@ -174,6 +175,12 @@ pub const SEMANTIC_TOKEN_RULES: &[SemanticTokenRule] = &[
         token_type: "keyword",
         modifiers: &["declaration"],
         hum_role: "signature_permission",
+    },
+    SemanticTokenRule {
+        source: "writable_field_alias_permission",
+        token_type: "keyword",
+        modifiers: &["declaration", "modification"],
+        hum_role: "local_field_alias",
     },
     SemanticTokenRule {
         source: "parameter_name",
@@ -392,6 +399,13 @@ pub fn syntax_json() -> String {
         PARAMETER_PERMISSION_MODES,
         true,
     );
+    push_string_property(
+        &mut out,
+        2,
+        "writable_field_alias_form",
+        WRITABLE_FIELD_ALIAS_FORM,
+        true,
+    );
     push_indent(&mut out, 2);
     out.push_str("\"section_headers\": {\n");
     push_string_array(&mut out, 4, "task_order", TASK_SECTION_ORDER, true);
@@ -441,6 +455,10 @@ pub fn textmate_json() -> String {
         regex_alternation(PARAMETER_PERMISSION_MODES),
         VALUE_IDENTIFIER_PATTERN
     );
+    let writable_field_alias_pattern = format!(
+        "^[[:space:]]*let[[:space:]]+{}[[:space:]]*=[[:space:]]*change[[:space:]]+{}\\.{}[[:space:]]*$",
+        VALUE_IDENTIFIER_PATTERN, VALUE_IDENTIFIER_PATTERN, VALUE_IDENTIFIER_PATTERN
+    );
     let module_identifier_pattern = format!(
         "^[[:space:]]*{}[[:space:]]+{}(\\.({}))*",
         regex_word_literal(MODULE_KEYWORD),
@@ -486,6 +504,10 @@ pub fn textmate_json() -> String {
         name: "storage.modifier.parameter-permission.hum",
         pattern: parameter_permission_pattern,
     }];
+    let writable_field_alias_rules = [TextMateRule {
+        name: "storage.modifier.writable-field-alias.hum",
+        pattern: writable_field_alias_pattern,
+    }];
     let identifier_rules = [
         TextMateRule {
             name: "entity.name.namespace.module.hum",
@@ -513,6 +535,7 @@ pub fn textmate_json() -> String {
     push_include(&mut out, 4, "#items", true);
     push_include(&mut out, 4, "#identifiers", true);
     push_include(&mut out, 4, "#parameter-permissions", true);
+    push_include(&mut out, 4, "#writable-field-aliases", true);
     push_include(&mut out, 4, "#sections", true);
     push_include(&mut out, 4, "#test-modifiers", false);
     push_indent(&mut out, 2);
@@ -528,6 +551,13 @@ pub fn textmate_json() -> String {
         4,
         "parameter-permissions",
         &parameter_permission_rules,
+        true,
+    );
+    push_repository_matches(
+        &mut out,
+        4,
+        "writable-field-aliases",
+        &writable_field_alias_rules,
         true,
     );
     push_repository_matches(&mut out, 4, "sections", &section_rules, true);
@@ -832,6 +862,12 @@ mod tests {
         assert!(
             json.contains("\"parameter_permission_modes\": [\"borrow\", \"change\", \"consume\"]")
         );
+        assert!(
+            json.contains(
+                "\"writable_field_alias_form\": \"let <alias> = change <owner>.<field>\""
+            )
+        );
+        assert!(json.contains("\"source\": \"writable_field_alias_permission\""));
         assert!(json.contains(
             "{\"source\": \"section:protects\", \"token_type\": \"keyword\", \"modifiers\": [\"documentation\"], \"hum_role\": \"security\"}"
         ));
@@ -846,6 +882,10 @@ mod tests {
         assert!(json.contains("app|type|store|task|test"));
         assert!(json.contains("#identifiers"));
         assert!(json.contains("#parameter-permissions"));
+        assert!(json.contains("#writable-field-aliases"));
+        assert!(json.contains("storage.modifier.writable-field-alias.hum"));
+        assert!(json.contains("^[[:space:]]*let[[:space:]]+"));
+        assert!(!json.contains("(=[[:space:]]*)(change)"));
         assert!(json.contains("borrow|change|consume"));
         assert!(json.contains("[a-z_][a-z0-9_]*"));
         assert!(json.contains("[A-Z][A-Za-z0-9]*"));

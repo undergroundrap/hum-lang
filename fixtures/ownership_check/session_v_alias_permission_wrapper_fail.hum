@@ -1,0 +1,16 @@
+module fixtures.ownership_check.session_v_alias_permission_wrapper_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task permission_wrapped_alias(change point: Point) -> Point {
+  why:
+    reject permission wrapping that would treat a writable alias as a value
+
+  does:
+    let alias_to_x = change point.x
+    let copied_x = borrow alias_to_x
+    return point
+}

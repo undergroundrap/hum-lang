@@ -30,7 +30,7 @@ standard library direction, backend strategy, or release posture.
 | [0011](0011-add-checked-resolver-before-execution.md) | accepted | Add checked resolver before execution. |
 | [0012](0012-adopt-snake-case-identifiers.md) | accepted | Adopt snake_case identifiers, retire spaced names. |
 | [0013](0013-remove-number-type.md) | accepted | Remove the Number type; core numerics are Int and UInt. |
-| [0014](0014-adopt-ownership-model.md) | accepted (delegated, veto open) | Adopt ownership and borrowing as the core ownership model. |
+| [0014](0014-adopt-ownership-model.md) | accepted (delegated, veto open) | Adopt ownership and borrowing as the core model; Session V earns only the exact local direct-field writable-alias slice. |
 | [0015](0015-adopt-classified-runtime-contract-policy.md) | accepted (delegated, veto open) | Classify runtime contracts by proof and trust boundary before any elision. |
 
 ## Template

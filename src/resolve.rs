@@ -6,6 +6,7 @@ use crate::core_expr::{self, CoreExpressionPreview};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
 use crate::graph::is_meaningful_line_text;
 use crate::version;
+use crate::writable_field_alias;
 
 pub const RESOLVE_REPORT_SCHEMA: &str = "hum.resolve.v0";
 pub const RESOLVE_MODE: &str = "source_analysis_only_no_type_or_borrow_check";
@@ -124,6 +125,7 @@ struct DefinitionInput<'a> {
     mutable: bool,
     state_kind: &'static str,
     span: &'a Span,
+    defer_duplicate_diagnostic: bool,
 }
 
 struct ResolverContext {
@@ -357,6 +359,7 @@ impl ResolverContext {
                     mutable,
                     state_kind,
                     span: item.span(),
+                    defer_duplicate_diagnostic: false,
                 },
             );
         }
@@ -395,6 +398,7 @@ impl ResolverContext {
                                 mutable: false,
                                 state_kind: "field",
                                 span: &field.span,
+                                defer_duplicate_diagnostic: false,
                             },
                         );
                     }
@@ -450,6 +454,7 @@ impl ResolverContext {
                     mutable: parameter_is_mutable(param),
                     state_kind: parameter_state_kind(param),
                     span: &param.span,
+                    defer_duplicate_diagnostic: false,
                 },
             );
         }
@@ -504,6 +509,7 @@ impl ResolverContext {
                         mutable,
                         state_kind,
                         span: &line.span,
+                        defer_duplicate_diagnostic: false,
                     },
                 );
             }
@@ -512,6 +518,14 @@ impl ResolverContext {
 
     fn resolve_does_section(&mut self, root_scope_id: &str, section: &Section) {
         let body = core_body::analyze_does_section(section);
+        let existing_names = self
+            .definitions_by_scope_name
+            .keys()
+            .filter(|(scope_id, _name)| scope_id == root_scope_id)
+            .map(|(_scope_id, name)| name.clone())
+            .collect::<BTreeSet<_>>();
+        let alias_analysis =
+            writable_field_alias::analyze_with_existing_names(&body.statements, &existing_names);
         let mut active_scopes = vec![root_scope_id.to_string()];
         let mut record_literal_depth = 0usize;
         for (statement_index, statement) in body.statements.iter().enumerate() {
@@ -533,14 +547,35 @@ impl ResolverContext {
             match statement.kind {
                 "let_binding" => {
                     if let Some(name) = binding_name(&statement.text, "let") {
+                        let writable_alias =
+                            writable_field_alias::candidate_name(statement).is_some();
+                        let alias_rebinding = alias_analysis.issues.iter().any(|issue| {
+                            issue.index == statement_index
+                                && matches!(
+                                    issue.reason,
+                                    "writable_alias_rebinding_v0"
+                                        | "writable_alias_binding_rebinding_v0"
+                                        | "writable_alias_owner_rebinding_v0"
+                                        | "writable_alias_rebinds_its_owner_v0"
+                                )
+                        });
                         self.add_definition(
                             &current_scope,
                             DefinitionInput {
                                 name: &name,
-                                definition_kind: "let_binding",
-                                mutable: false,
-                                state_kind: "immutable_value",
+                                definition_kind: if writable_alias {
+                                    "writable_field_alias"
+                                } else {
+                                    "let_binding"
+                                },
+                                mutable: writable_alias,
+                                state_kind: if writable_alias {
+                                    "writable_field_alias"
+                                } else {
+                                    "immutable_value"
+                                },
                                 span: &statement.span,
+                                defer_duplicate_diagnostic: alias_rebinding,
                             },
                         );
                     }
@@ -555,6 +590,7 @@ impl ResolverContext {
                                 mutable: true,
                                 state_kind: "mutable_local",
                                 span: &statement.span,
+                                defer_duplicate_diagnostic: false,
                             },
                         );
                     }
@@ -576,6 +612,7 @@ impl ResolverContext {
                                 mutable: false,
                                 state_kind: "immutable_value",
                                 span: &statement.span,
+                                defer_duplicate_diagnostic: false,
                             },
                         );
                     }
@@ -598,6 +635,7 @@ impl ResolverContext {
                                 mutable: false,
                                 state_kind: "immutable_value",
                                 span: &statement.span,
+                                defer_duplicate_diagnostic: false,
                             },
                         );
                     }
@@ -717,7 +755,9 @@ impl ResolverContext {
             self.definition_serial, input.definition_kind, normalized_name
         );
         self.definition_serial += 1;
-        let status = if duplicate.is_some() {
+        let status = if duplicate.is_some() && input.defer_duplicate_diagnostic {
+            "duplicate_definition_deferred_to_ownership_v0"
+        } else if duplicate.is_some() {
             "duplicate_definition_v0"
         } else {
             "defined_v0"
@@ -742,7 +782,7 @@ impl ResolverContext {
                     index: definition_index,
                 },
             );
-        } else {
+        } else if !input.defer_duplicate_diagnostic {
             self.add_duplicate_definition_diagnostic(
                 input.name,
                 input.span,
@@ -1852,5 +1892,21 @@ task remember_work_item(title: Text) -> WorkItem {
         assert!(text.contains("summary: files=1 items=1"));
         assert!(text.contains("diagnostics: none"));
         assert!(text.contains("no executable semantics"));
+    }
+
+    #[test]
+    fn writable_alias_rebinding_defers_duplicate_blame_to_ownership() {
+        let parsed = parse_source(
+            "fixtures/ownership_check/session_v_alias_rebind_owner_fail.hum",
+            include_str!("../fixtures/ownership_check/session_v_alias_rebind_owner_fail.hum"),
+        );
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = resolve_json(&program, &[]);
+
+        assert!(json.contains("\"resolver_errors\": 0"));
+        assert!(json.contains("\"duplicate_definition_deferred_to_ownership_v0\""));
+        assert!(!json.contains("\"code\": \"H0602\""));
     }
 }

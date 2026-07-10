@@ -1,0 +1,15 @@
+module fixtures.ownership_check.session_v_borrowed_owner_alias_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task borrowed_owner_alias(borrow point: Point) -> UInt {
+  why:
+    reject writable alias acquisition without visible mutation authority
+
+  does:
+    let alias_to_x = change point.x
+    return point.y
+}

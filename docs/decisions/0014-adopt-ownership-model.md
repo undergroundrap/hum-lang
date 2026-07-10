@@ -183,3 +183,27 @@ temporary and claim-locked.
 
 The BDFL veto is open. This ruling reverses with one recorded sentence at
 any time before implementation hardens around it.
+
+## Session V Evidence Narrowing
+
+Session V narrows exactly one decision lock. Hum now implements local writable
+aliases of the exact unannotated direct-field form `let alias = change
+owner.field` when `owner` already has visible mutation authority. The alias is
+a place relationship, not a copied value: reading it reads the current field,
+and `set alias = value` writes through to that field.
+
+The recognized lifetime is deliberately small. It starts at the binding and
+ends after the last syntactic use in the same straight-line task body. H0808
+rejects a live overlapping direct read, direct write, owner-wide access, or
+second writable alias. A definitely distinct direct field is accepted. H0809
+rejects escape and every form outside this slice, including branch/loop use,
+passing, storage, alias-to-alias binding, nested or element places, and
+rebinding. H0802 remains the separate diagnostic for attempting acquisition
+from a borrowed parameter.
+
+This evidence retires the Program 8 overlapping-place record and removes only
+the exact local direct-field slice from the disjoint-field lock. The remaining
+lock is still broad: Hum does not claim general aliases, stored aliases,
+internal references, nested-place projection, element aliases, general
+flow-sensitive borrowing, complete borrow soundness, full ownership safety, or
+memory-safety completeness.

@@ -89,6 +89,13 @@ parse/current
 
 `full_type_check` now exists as a narrow recognized Core/body statement type gate, `effect_check` now exists as a narrow recognized Core/body effect gate, `ownership_check` now exists as a narrow local ownership fact gate, `resource_check` now exists as a narrow declared allocation/resource intent gate, and `profile_check` now exists as a narrow runtime profile policy gate. These report gates remain non-executing and must not claim complete type safety, effect safety, ownership safety, memory safety, allocation-freedom proof, strict profile enforcement, IR emission, backend readiness, or safety-critical readiness. `hum run` begins Milestone 1 executable semantics only for the explicitly interpreted first Formal Core subset; it does not turn the report gates into proof, memory-safety, optimization, IR, backend, or certification claims.
 
+Session V's writable-field-alias slice is owned by one shared straight-line
+place analysis consumed by `ownership_check` and the interpreter. Resolver and
+effect rows recognize the same candidate as writable and defer authority and
+overlap to ownership; runtime stores the exact source place rather than a copied
+value. This shared fact keeps H0808/H0809 identity, last-use spans, write-through,
+and field-view invalidation aligned without creating a general alias subsystem.
+
 ### 3. Semantic Graph
 
 The semantic graph is Hum's shared truth for humans, compiler checks, `humfmt`, `chirp`, `hum lsp`, `hum debug`, `hum graph`, Nectar, and agents. Agents should query graph facts, not scrape terminal prose when the compiler can provide structured meaning.

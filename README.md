@@ -145,6 +145,12 @@ The same discipline covers ownership words. `borrow`, `change`, and
 `let view = borrow record.field` is invalidated by a later write to that
 exact field, and `let view = borrow list[0]` is invalidated by later
 `list_append` growth. Copying the value first is just an ordinary value.
+Session V adds one equally narrow writable form: `let alias = change
+record.field`. It stores the field place rather than a copy, so `set alias =
+value` writes through. The alias is live only through its last straight-line
+syntactic use; H0808 rejects overlapping access and H0809 rejects escape or
+unsupported shapes. Distinct direct fields remain usable. This is not general
+aliasing or internal-reference support.
 Using a value after it moved is caught with the move site named:
 
 ```text
@@ -181,6 +187,7 @@ Current artifacts:
 
 - [examples/reference_surface.hum](examples/reference_surface.hum): checked Milestone 0 source fixture covering the current reference surface
 - [examples/core](examples/core): first Milestone 1 executable fixtures for `hum run` (`add`, `divide`, and `count_completed`)
+- [examples/probes/writable_field_aliases.hum](examples/probes/writable_field_aliases.hum): Session V write-through, distinct-field, and straight-line last-use evidence for Program 8
 - [SPEC.md](SPEC.md): broad language design draft
 - [docs/LANGUAGE_REFERENCE.md](docs/LANGUAGE_REFERENCE.md): traditional reference spine for source files, items, sections, and current language status
 - [docs/LANGUAGE_BUILDER_OPERATING_MODEL.md](docs/LANGUAGE_BUILDER_OPERATING_MODEL.md): operating model for how Hum selects problems, prototypes, adopts ecosystems, validates claims, and grows without losing coherence
@@ -344,6 +351,8 @@ cargo run -- effect-check fixtures/effect_check/simple_pass.hum
 cargo run -- effect-check --format json fixtures/effect_check/simple_pass.hum
 cargo run -- ownership-check fixtures/ownership_check/simple_pass.hum
 cargo run -- ownership-check --format json fixtures/ownership_check/simple_pass.hum
+cargo run -- run examples/probes/writable_field_aliases.hum --entry swap_xy_with_aliases --args '{x:1,y:2}'
+cargo run -- ownership-check fixtures/ownership_check/session_v_program8_overlap_write_fail.hum
 cargo run -- resource-check fixtures/resource_check/simple_pass.hum
 cargo run -- resource-check --format json fixtures/resource_check/simple_pass.hum
 cargo run -- profile-check fixtures/profile_check/simple_pass.hum
@@ -404,7 +413,7 @@ Current CLI:
 - `hum doctor [--format human|json]`: emit `hum.doctor.v0` setup health facts for portable repo guardrails
 - `hum graph <file-or-dir>...`: emit `hum.semantic_graph.v0` JSON for tools and agents, including source-derived node IDs, source columns, folding ranges, document symbols, section line facts, task test obligations, exact or canonical-token `covers:` links, and a non-executing portability object with source-declared `targets:` facts
 - `hum test-skeletons <file-or-dir>...`: print Hum `test` blocks for unlinked test obligations without executing code or writing files
-- `hum syntax`: emit `hum.syntax_surface.v0` JSON for editor and tool adapters, including section hover metadata and a semantic-token legend
+- `hum syntax`: emit `hum.syntax_surface.v0` JSON for editor and tool adapters, including section hover metadata, the exact writable-field-alias form, and a semantic-token legend
 - `hum syntax --format textmate`: emit a generated TextMate grammar from the same syntax surface
 - add `--timings` to print read/parse/check timing data
 

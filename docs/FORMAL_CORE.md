@@ -164,6 +164,21 @@ set count = count + 1
 Surface `changes:` blocks declare external mutable places. Local `change`
 declares local mutable places.
 
+Session V adds one place relationship without adding a new Core operation
+family. The surface binding `let alias = change owner.field` lowers through the
+existing `let_binding`; its initializer records the exact direct source place.
+The alias value is not copied. A bare alias read resolves to the current source
+field, and the existing `set_place` operation resolves `set alias = value` to
+`set owner.field = value` before permission checking, mutation, and view
+invalidation.
+
+This relationship is recognized only for an unannotated local binding in one
+straight-line task body. Its interval is the binding through the last syntactic
+use. Exact place overlap rejects with H0808; distinct direct fields are known
+independent. Escape and unsupported shapes reject with H0809. Core Hum does not
+gain general references, nested projection, element aliases, stored aliases,
+or broad flow-sensitive lifetime inference from this rule.
+
 The broader state doctrine is [STATE_MODEL.md](STATE_MODEL.md), emitted as
 `hum.state_model.v0` by `hum state-model --format json`. Checked source place
 links begin in [HUM_RESOLVE_SCHEMA.md](HUM_RESOLVE_SCHEMA.md), emitted as
@@ -199,7 +214,7 @@ The first executable built-in operation call is `list_append(change list,
 item)`. It mutates the named list place and returns `Unit`; it is not a
 general list standard library surface.
 
-The first local field-view repair recognizes `let view = borrow record.field` as a view of one direct field place. A later `set record.field = value` invalidates that view; unrelated direct field writes do not. Session S adds the matching direct element-view slice: `let view = borrow list[0]` is a view of a direct numeric list element, and later `list_append(change list, item)` invalidates outstanding element views for that list. This is exact-place and list-growth bookkeeping, not general indexing, alias inference, or lifetime proof.
+The first local field-view repair recognizes `let view = borrow record.field` as a view of one direct field place. A later `set record.field = value` invalidates that view; unrelated direct field writes do not. Session S adds the matching direct element-view slice: `let view = borrow list[0]` is a view of a direct numeric list element, and later `list_append(change list, item)` invalidates outstanding element views for that list. Session V reuses exact direct-place identity for writable aliases and straight-line last-use overlap checks. These are bounded place and invalidation facts, not general indexing, alias inference, or lifetime proof.
 
 ## Core Statements
 

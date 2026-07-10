@@ -1,0 +1,17 @@
+module fixtures.ownership_check.session_v_alias_to_alias_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task alias_to_alias(change point: Point) -> Point {
+  why:
+    reject a writable alias whose source root is another writable alias
+
+  does:
+    let first = change point.x
+    let second = change first.y
+    set first = 9
+    return point
+}

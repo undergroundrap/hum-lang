@@ -1,6 +1,6 @@
 # Hum Ownership Check Schema
 
-Date: 2026-07-08
+Date: 2026-07-09
 
 Current schema: `hum.ownership_check.v0`
 
@@ -8,7 +8,7 @@ Current schema: `hum.ownership_check.v0`
 
 `hum ownership-check` is the first non-executing ownership and alias-fact gate after recognized Core/body effect checking. It consumes `hum.effect_check.v0` readiness and checks only ownership facts the current Core/body grammar can honestly see.
 
-V0 is intentionally conservative. It verifies parameter permission identity (`borrow`, `change`, `consume`), immutable local ownership from `let`, exclusive mutable local ownership from `change`, local field-view bindings of the exact form `let view = borrow record.field`, local element-view bindings of the exact form `let view = borrow list[0]`, parameter mutation permission through `set`, direct field-place mutation through `set record.field = value`, local moves caused by `consume` arguments and returns, duplicate local place names, and explicit blockers inherited from prior gates. It checks the first recognized linear-resource class: local bindings with Transaction-shaped annotations must be consumed exactly once on every recognized `if`/`return`/`fail` path. It also checks the first returned-view dependency form: a task result such as `Slice Text from text` may depend only on a task parameter, and the V0 executable body must visibly return that bare parameter or a closed-set view derivation through `slice_until(source, separator)`. It rejects use of a local field view after the exact field it borrowed has been written, and rejects use of a local element view after `list_append` grew the source list. It does not infer lifetimes, prove memory safety, check concurrency, validate unsafe provenance, implement nested element places, retained element views, broad disjoint-field projection, internal references, general view expressions, general aliasing, or broad flow-sensitive borrowing.
+V0 is intentionally conservative. It verifies parameter permission identity (`borrow`, `change`, `consume`), immutable local ownership from `let`, exclusive mutable local ownership from `change`, local field-view bindings of the exact form `let view = borrow record.field`, local element-view bindings of the exact form `let view = borrow list[0]`, and writable field aliases of the exact unannotated form `let alias = change owner.field` in one straight-line task body. A writable alias carries its source place, writes through with `set alias = value`, and has a binding-through-last-syntactic-use interval. H0808 rejects overlapping source access while that alias is live; H0809 rejects escape and every unsupported alias form. The gate also checks parameter mutation permission, direct field-place mutation, local moves, duplicate local places, Transaction-shaped exactly-once paths, and parameter-derived returned views through the closed `slice_until` derivation. It rejects stale field views after exact-field writes and stale element views after `list_append` growth. It does not infer general lifetimes, prove memory safety, check concurrency, validate unsafe provenance, implement retained element views, broad disjoint-field projection, internal references, general view expressions, general aliasing, or broad flow-sensitive borrowing.
 
 This command does not execute source, emit Hum IR, prove memory safety, enforce borrowing, enforce runtime profiles, prove allocation safety, or claim a complete ownership system.
 
@@ -60,6 +60,7 @@ The human output is for terminals. The JSON output is for agents, CI wrappers, c
 - `summary`: counts for local ownership facts, blockers, and non-readiness flags
 - `ownership_items`: per-body item declarations, statement ownership rows, return dependencies, and boundary checks
 - statement and return-dependency rows may include `diagnostic_code` and `help` when a stable ownership diagnostic is attached
+- every statement row contains nullable `alias`, `place`, `binding_span`, `last_use_span`, `conflict_place`, and `conflict_span` fields; writable-alias rows populate the applicable facts, while unrelated rows keep them `null`
 - `non_claims_v0`: claims this command must not make
 
 ## Statuses
@@ -98,10 +99,15 @@ V0 recognizes and checks:
 - exclusive mutable local ownership from `change name: Type = value`
 - local mutation through `set name = value` when `name` was declared by `change`
 - direct field-place mutation through `set name.field = value` when `name` is a `change` local or a parameter marked `change` or `consume`
+- writable field aliases of exactly `let alias = change owner.field`, where `owner` is an earlier local `change` binding or a parameter marked `change` or `consume`
+- real alias read/write-through to the current direct source field; `set alias = value` is reported as a change to `owner.field`
+- straight-line alias lifetime from binding through last syntactic use, with definitely distinct direct fields accepted and a later same-field alias accepted after the prior last use
+- live overlapping direct reads, direct writes, owner-wide access, or second writable aliases as H0808; structured rows name the alias, source place, binding, last use, conflict place, and conflict span
+- branch/loop creation or use, passing, returning, storing, `borrow`/`change`/`consume` wrapping, alias-to-alias binding, nested places, list elements, alias/live-owner rebinding, and shadowing an already-visible parameter, local, or declared permission as H0809
 - parameter mutation through `set name = value` only when the parameter is marked `change` or `consume`
 - local moves when a local is passed as `consume name` or returned
 - use after move as `H0801`, including double consume of the same ordinary local
-- borrowed-parameter writes, including `set borrowed.field = value`, as `H0802`
+- borrowed-parameter writes, including `set borrowed.field = value` and writable-alias acquisition from `borrowed.field`, as `H0802`
 - Transaction-shaped local bindings as the first recognized linear resources
 - missing linear-resource consume on any recognized path as `H0803`, with the path named in `help`
 - double consume of a recognized linear resource as `H0804`, with the earlier consuming action named in `help`
@@ -119,6 +125,8 @@ V0 recognizes and checks:
 - `accepted_mutable_local_owner_v0`
 - `accepted_field_view_borrow_v0`
 - `accepted_element_view_borrow_v0`
+- `accepted_writable_field_alias_v0`
+- `accepted_writable_field_alias_write_through_v0`
 - `accepted_exclusive_local_mutation_v0`
 - `accepted_external_change_deferred_to_resource_check_v0`
 - `accepted_no_ownership_transfer_v0`
@@ -134,6 +142,9 @@ V0 recognizes and checks:
 - `rejected_linear_resource_consumed_twice_v0`
 - `rejected_stale_field_view_use_v0`
 - `rejected_stale_element_view_use_v0`
+- `rejected_writable_field_alias_without_mutation_authority_v0`
+- `rejected_writable_field_alias_overlap_v0`
+- `rejected_unsupported_writable_field_alias_v0`
 - `rejected_missing_mutation_authority_v0`
 - `unchecked_statement_ownership_v0`
 - `not_checked_blocked_by_prior_errors_v0`
@@ -159,8 +170,8 @@ V0 recognizes and checks:
 - no executable semantics
 - It must not claim executable semantics.
 - It must not emit Core Hum, Hum IR, bytecode, machine code, backend adapter input, proof artifacts, optimized code, or executable behavior.
-- It must not claim complete ownership safety, borrow safety, lifetime inference, alias safety, memory safety, allocation safety, profile enforcement, optimization, or backend readiness.
-- It may report recognized V0 ownership facts, direct field-place mutation facts, local field-view bindings and exact-field invalidations, local element-view bindings and `list_append` growth invalidations, narrow Transaction-shaped linear-resource path facts, returned-view dependencies from parameters through bare returns or closed `slice_until` derivations, and explicit blockers only.
+- It must not claim complete ownership safety, borrow safety, general lifetime inference, general alias safety, memory safety, allocation safety, profile enforcement, optimization, or backend readiness.
+- It may report recognized V0 ownership facts, direct field-place mutation facts, exact straight-line local writable-field-alias facts, local field-view bindings and exact-field invalidations, local element-view bindings and `list_append` growth invalidations, narrow Transaction-shaped linear-resource path facts, returned-view dependencies from parameters through bare returns or closed `slice_until` derivations, and explicit blockers only.
 - It must block when `hum.effect_check.v0` reports blockers.
 - It must stay in sync with `hum core-contract --format json`, `hum ir-readiness --format json`, `hum capabilities --format json`, and `hum version --format json`.
 
@@ -177,4 +188,4 @@ The command is local-first:
 
 ## Non-Goals For V0
 
-V0 does not provide a complete ownership or borrowing system. It is a narrow source-visible gate that lets the compiler honestly move from recognized effect visibility to local ownership facts before future resource, profile, IR verification, and backend work.
+V0 does not provide a complete ownership or borrowing system. Session V adds no general aliases, internal references, nested/element aliases, stored aliases, or broad flow-sensitive borrowing. It is a narrow source-visible gate that lets the compiler honestly move from recognized effect visibility to local ownership facts before future resource, profile, IR verification, and backend work.

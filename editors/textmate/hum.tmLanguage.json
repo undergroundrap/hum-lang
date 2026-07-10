@@ -8,6 +8,7 @@
     {"include": "#items"},
     {"include": "#identifiers"},
     {"include": "#parameter-permissions"},
+    {"include": "#writable-field-aliases"},
     {"include": "#sections"},
     {"include": "#test-modifiers"}
   ],
@@ -38,6 +39,11 @@
     "parameter-permissions": {
       "patterns": [
         {"name": "storage.modifier.parameter-permission.hum", "match": "(^|[,(][[:space:]]*)(borrow|change|consume)(?=[[:space:]]+[a-z_][a-z0-9_]*[[:space:]]*:)"}
+      ]
+    },
+    "writable-field-aliases": {
+      "patterns": [
+        {"name": "storage.modifier.writable-field-alias.hum", "match": "^[[:space:]]*let[[:space:]]+[a-z_][a-z0-9_]*[[:space:]]*=[[:space:]]*change[[:space:]]+[a-z_][a-z0-9_]*\\.[a-z_][a-z0-9_]*[[:space:]]*$"}
       ]
     },
     "sections": {

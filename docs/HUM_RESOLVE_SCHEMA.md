@@ -1,6 +1,6 @@
 # Hum Resolve Schema
 
-Date: 2026-07-07
+Date: 2026-07-09
 Schema: `hum.resolve.v0`
 
 ## Purpose
@@ -112,10 +112,17 @@ V0 definition kinds include:
 - `declared_change_permission`
 - `let_binding`
 - `mutable_binding`
+- `writable_field_alias`, with `mutable: true` and `state_kind:
+  writable_field_alias` for a `let name = change ...` candidate so ownership
+  H0808/H0809, rather than resolver H0603, owns the alias rule
 - `for_each_binding`
 - `for_index_binding`
 
-`status` is `defined_v0` or `duplicate_definition_v0`.
+`status` is `defined_v0`, `duplicate_definition_v0`, or the narrow
+`duplicate_definition_deferred_to_ownership_v0`. The deferred value is used
+only when a writable-alias candidate or live-alias rebinding would otherwise
+let generic H0602 mask the ownership-specific H0809 rejection; the original
+visible definition remains authoritative in the resolver scope.
 
 ## References
 
@@ -151,6 +158,12 @@ V0 reference kinds include:
 - `resolved_immutable_place_v0`
 
 Parameter mutation targets resolve as parameter references so the later ownership gate can apply `borrow`/`change`/`consume` authority and emit ownership diagnostics. Ordinary immutable local mutation still resolves as `resolved_immutable_place_v0`.
+
+Writable-field-alias candidates resolve their source expression before the
+alias definition is added. A later `set alias = value` therefore resolves as a
+mutable alias target, while `hum ownership-check` remains responsible for the
+exact direct-field shape, source authority, last-use interval, overlap, and
+escape rules. Resolver recognition is not a general alias-safety claim.
 
 ## Diagnostics
 

@@ -33,9 +33,10 @@ documents the intended state rules and names the small current checker behavior:
 The `hum state-model` V0 contract document does not itself implement borrowing,
 lifetime inference, move checking, concurrency, memory-order semantics, garbage
 collection, executable semantics, optimizer behavior, or allocation placement.
-`hum ownership-check` now implements narrow ordinary move checks and the first
-Transaction-shaped linear-resource path check; it is not a complete ownership,
-borrow, or memory-safety checker.
+`hum ownership-check` now implements narrow ordinary move checks, the first
+Transaction-shaped linear-resource path check, and Session V's exact local
+direct-field writable-alias/overlap slice; it is not a complete ownership,
+borrow, alias, or memory-safety checker.
 
 The schema document is [HUM_STATE_MODEL_SCHEMA.md](HUM_STATE_MODEL_SCHEMA.md).
 
@@ -95,6 +96,14 @@ future store entry
 
 Core Hum owns the exact place model. Backends must preserve place identity,
 source spans, aliasing facts, and mutation permission or report loss.
+
+The first writable alias is deliberately bounded: `let alias = change
+owner.field` names one direct field in one straight-line task body. It writes
+through, ends after its last syntactic use, accepts definitely distinct direct
+fields, and rejects live overlap with H0808. H0809 keeps escape, storage,
+permission wrapping, alias rebinding, live-owner rebinding, nested/element
+aliases, already-visible-name shadowing, and control-flow use outside this
+slice.
 
 ### Store
 

@@ -254,6 +254,8 @@ try {
   if (-not $DiagnosticsJson.Contains('"code": "H0805"')) { throw 'diagnostic catalog JSON is missing H0805' }
   if (-not $DiagnosticsJson.Contains('"code": "H0806"')) { throw 'diagnostic catalog JSON is missing H0806' }
   if (-not $DiagnosticsJson.Contains('"code": "H0807"')) { throw 'diagnostic catalog JSON is missing H0807' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0808"')) { throw 'diagnostic catalog JSON is missing H0808' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0809"')) { throw 'diagnostic catalog JSON is missing H0809' }
   if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
   if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
   if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
@@ -604,6 +606,82 @@ try {
     if ($RunSessionTBuilderLen.Output -match 'H0701[^\r\n]*list_len') { throw "Session T list_len contract must be checked, not prose: $($RunSessionTBuilderLen.Output)" }
   }
 
+  $RunSessionVWriteThrough = Read-NativeOutput 'run Session V writable alias write-through fixture' $Hum @('run', 'examples/probes/writable_field_aliases.hum', '--entry', 'write_x_through_alias', '--args', '{x:1,y:2}')
+  if ($RunSessionVWriteThrough.Trim() -ne '{x: 9, y: 2}') { throw "Session V write-through expected {x: 9, y: 2}, got $RunSessionVWriteThrough" }
+
+  $RunSessionVSwap = Read-NativeOutput 'run Session V alias swap fixture' $Hum @('run', 'examples/probes/writable_field_aliases.hum', '--entry', 'swap_xy_with_aliases', '--args', '{x:1,y:2}')
+  if ($RunSessionVSwap.Trim() -ne '{x: 2, y: 1}') { throw "Session V alias swap expected {x: 2, y: 1}, got $RunSessionVSwap" }
+
+  $RunSessionVDistinct = Read-NativeOutput 'run Session V distinct-field fixture' $Hum @('run', 'examples/probes/writable_field_aliases.hum', '--entry', 'distinct_field_access', '--args', '{x:1,y:2}')
+  if ($RunSessionVDistinct.Trim() -ne '{x: 2, y: 7}') { throw "Session V distinct-field access expected {x: 2, y: 7}, got $RunSessionVDistinct" }
+
+  $RunSessionVSequential = Read-NativeOutput 'run Session V sequential alias fixture' $Hum @('run', 'examples/probes/writable_field_aliases.hum', '--entry', 'sequential_x_aliases', '--args', '{x:1,y:2}')
+  if ($RunSessionVSequential.Trim() -ne '{x: 7, y: 2}') { throw "Session V sequential aliases expected {x: 7, y: 2}, got $RunSessionVSequential" }
+
+  $RunSessionVWriteOverlap = Read-NativeOutputWithExit 'run Session V pinned overlapping-write misuse' $Hum @('run', 'fixtures/ownership_check/session_v_program8_overlap_write_fail.hum', '--entry', 'overlapping_write', '--args', '{x:1,y:2}')
+  if ($RunSessionVWriteOverlap.ExitCode -ne 2) { throw "Session V overlapping write expected exit 2, got $($RunSessionVWriteOverlap.ExitCode)" }
+  foreach ($Expected in @('H0808', 'alias_to_x', 'point.x', ':13:5', ':14:5', ':15:5', 'not known independent', 'definitely distinct direct field', 'last use')) {
+    if (-not $RunSessionVWriteOverlap.Output.Contains($Expected)) { throw "Session V overlapping write missing $Expected, got $($RunSessionVWriteOverlap.Output)" }
+  }
+
+  $RunSessionVReadOverlap = Read-NativeOutputWithExit 'run Session V overlapping-read misuse' $Hum @('run', 'fixtures/ownership_check/session_v_overlap_read_fail.hum', '--entry', 'overlapping_read', '--args', '{x:1,y:2}')
+  if ($RunSessionVReadOverlap.ExitCode -ne 2) { throw "Session V overlapping read expected exit 2, got $($RunSessionVReadOverlap.ExitCode)" }
+  if (-not $RunSessionVReadOverlap.Output.Contains('H0808')) { throw "Session V overlapping read expected H0808, got $($RunSessionVReadOverlap.Output)" }
+
+  $RunSessionVSecondAlias = Read-NativeOutputWithExit 'run Session V second-alias misuse' $Hum @('run', 'fixtures/ownership_check/session_v_second_alias_fail.hum', '--entry', 'second_overlapping_alias', '--args', '{x:1,y:2}')
+  if ($RunSessionVSecondAlias.ExitCode -ne 2) { throw "Session V second alias expected exit 2, got $($RunSessionVSecondAlias.ExitCode)" }
+  if (-not $RunSessionVSecondAlias.Output.Contains('H0808')) { throw "Session V second alias expected H0808, got $($RunSessionVSecondAlias.Output)" }
+
+  $RunSessionVEscape = Read-NativeOutputWithExit 'run Session V writable-alias escape misuse' $Hum @('run', 'fixtures/ownership_check/session_v_alias_escape_fail.hum', '--entry', 'escaped_alias', '--args', '{x:1,y:2}')
+  if ($RunSessionVEscape.ExitCode -ne 2) { throw "Session V alias escape expected exit 2, got $($RunSessionVEscape.ExitCode)" }
+  if (-not $RunSessionVEscape.Output.Contains('H0809')) { throw "Session V alias escape expected H0809, got $($RunSessionVEscape.Output)" }
+  if (-not $RunSessionVEscape.Output.Contains('non-escaping slice')) { throw "Session V alias escape expected scope help, got $($RunSessionVEscape.Output)" }
+
+  $RunSessionVAliasToAlias = Read-NativeOutputWithExit 'run Session V alias-to-alias misuse' $Hum @('run', 'fixtures/ownership_check/session_v_alias_to_alias_fail.hum', '--entry', 'alias_to_alias', '--args', '{x:1,y:2}')
+  if ($RunSessionVAliasToAlias.ExitCode -ne 2) { throw "Session V alias-to-alias expected exit 2, got $($RunSessionVAliasToAlias.ExitCode)" }
+  foreach ($Expected in @('H0809', 'writable_alias_to_alias_binding_v0', 'writable alias `first`')) {
+    if (-not $RunSessionVAliasToAlias.Output.Contains($Expected)) { throw "Session V alias-to-alias runtime is missing $Expected, got $($RunSessionVAliasToAlias.Output)" }
+  }
+
+  $RunSessionVNestedAliasPlace = Read-NativeOutputWithExit 'run Session V nested alias-place misuse' $Hum @('run', 'fixtures/ownership_check/session_v_nested_alias_place_fail.hum', '--entry', 'nested_alias_place', '--args', '{x:1,y:2}')
+  if ($RunSessionVNestedAliasPlace.ExitCode -ne 2) { throw "Session V nested alias place expected exit 2, got $($RunSessionVNestedAliasPlace.ExitCode)" }
+  foreach ($Expected in @('H0809', 'writable_alias_shape_outside_direct_field_slice_v0', 'point.x.deep')) {
+    if (-not $RunSessionVNestedAliasPlace.Output.Contains($Expected)) { throw "Session V nested alias-place runtime is missing $Expected, got $($RunSessionVNestedAliasPlace.Output)" }
+  }
+
+  $RunSessionVControl = Read-NativeOutputWithExit 'run Session V control-flow misuse' $Hum @('run', 'fixtures/ownership_check/session_v_alias_control_flow_fail.hum', '--entry', 'alias_across_branch', '--args', '{x:1,y:2}', 'true')
+  if ($RunSessionVControl.ExitCode -ne 2) { throw "Session V alias control-flow misuse expected exit 2, got $($RunSessionVControl.ExitCode)" }
+  if (-not $RunSessionVControl.Output.Contains('H0809')) { throw "Session V alias control-flow misuse expected H0809, got $($RunSessionVControl.Output)" }
+
+  $RunSessionVBorrow = Read-NativeOutputWithExit 'run Session V borrowed-owner alias misuse' $Hum @('run', 'fixtures/ownership_check/session_v_borrowed_owner_alias_fail.hum', '--entry', 'borrowed_owner_alias', '--args', '{x:1,y:2}')
+  if ($RunSessionVBorrow.ExitCode -ne 2) { throw "Session V borrowed owner alias expected exit 2, got $($RunSessionVBorrow.ExitCode)" }
+  if (-not $RunSessionVBorrow.Output.Contains('H0802')) { throw "Session V borrowed owner alias expected H0802, got $($RunSessionVBorrow.Output)" }
+
+  $RunSessionVPermissionWrapper = Read-NativeOutputWithExit 'run Session V alias permission-wrapper misuse' $Hum @('run', 'fixtures/ownership_check/session_v_alias_permission_wrapper_fail.hum', '--entry', 'permission_wrapped_alias', '--args', '{x:1,y:2}')
+  if ($RunSessionVPermissionWrapper.ExitCode -ne 2) { throw "Session V alias permission wrapper expected exit 2, got $($RunSessionVPermissionWrapper.ExitCode)" }
+  if (-not $RunSessionVPermissionWrapper.Output.Contains('H0809')) { throw "Session V alias permission wrapper expected H0809, got $($RunSessionVPermissionWrapper.Output)" }
+  if (-not $RunSessionVPermissionWrapper.Output.Contains('writable_alias_permission_wrapper_v0')) { throw "Session V alias permission wrapper expected its stable reason, got $($RunSessionVPermissionWrapper.Output)" }
+
+  $RunSessionVRebindOwner = Read-NativeOutputWithExit 'run Session V alias-owner rebinding misuse' $Hum @('run', 'fixtures/ownership_check/session_v_alias_rebind_owner_fail.hum', '--entry', 'alias_rebinds_owner', '--args', '{x:1,y:2}')
+  if ($RunSessionVRebindOwner.ExitCode -ne 2) { throw "Session V alias-owner rebinding expected exit 2, got $($RunSessionVRebindOwner.ExitCode)" }
+  if (-not $RunSessionVRebindOwner.Output.Contains('H0809')) { throw "Session V alias-owner rebinding expected H0809, got $($RunSessionVRebindOwner.Output)" }
+  if (-not $RunSessionVRebindOwner.Output.Contains('writable_alias_rebinds_its_owner_v0')) { throw "Session V alias-owner rebinding expected its stable reason, got $($RunSessionVRebindOwner.Output)" }
+
+  $RunSessionVNameCollision = Read-NativeOutputWithExit 'run Session V alias-name collision misuse' $Hum @('run', 'fixtures/ownership_check/session_v_alias_name_collision_fail.hum', '--entry', 'alias_name_collision', '--args', '{x:1,y:2}', '7')
+  if ($RunSessionVNameCollision.ExitCode -ne 2) { throw "Session V alias-name collision expected exit 2, got $($RunSessionVNameCollision.ExitCode)" }
+  if (-not $RunSessionVNameCollision.Output.Contains('H0809')) { throw "Session V alias-name collision expected H0809, got $($RunSessionVNameCollision.Output)" }
+  if (-not $RunSessionVNameCollision.Output.Contains('writable_alias_binding_rebinding_v0')) { throw "Session V alias-name collision expected its stable reason, got $($RunSessionVNameCollision.Output)" }
+
+  $RunSessionVDeclaredNameCollision = Read-NativeOutputWithExit 'run Session V alias-declared-name collision misuse' $Hum @('run', 'fixtures/ownership_check/session_v_alias_declared_name_collision_fail.hum', '--entry', 'alias_declared_name_collision', '--args', '{x:1,y:2}')
+  if ($RunSessionVDeclaredNameCollision.ExitCode -ne 2) { throw "Session V alias-declared-name collision expected exit 2, got $($RunSessionVDeclaredNameCollision.ExitCode)" }
+  if (-not $RunSessionVDeclaredNameCollision.Output.Contains('H0809')) { throw "Session V alias-declared-name collision expected H0809, got $($RunSessionVDeclaredNameCollision.Output)" }
+  if (-not $RunSessionVDeclaredNameCollision.Output.Contains('writable_alias_binding_rebinding_v0')) { throw "Session V alias-declared-name collision expected its stable reason, got $($RunSessionVDeclaredNameCollision.Output)" }
+
+  $RunSessionVBorrowOverlap = Read-NativeOutputWithExit 'run Session V borrowed-owner overlap precedence' $Hum @('run', 'fixtures/ownership_check/session_v_borrowed_owner_overlap_fail.hum', '--entry', 'borrowed_owner_overlap', '--args', '{x:1,y:2}')
+  if ($RunSessionVBorrowOverlap.ExitCode -ne 2) { throw "Session V borrowed-owner overlap expected exit 2, got $($RunSessionVBorrowOverlap.ExitCode)" }
+  if (-not $RunSessionVBorrowOverlap.Output.Contains('H0802')) { throw "Session V borrowed-owner overlap expected H0802, got $($RunSessionVBorrowOverlap.Output)" }
+  if ($RunSessionVBorrowOverlap.Output.Contains('H0808')) { throw "Session V borrowed-owner overlap must keep authority precedence, got $($RunSessionVBorrowOverlap.Output)" }
+
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }
@@ -929,6 +1007,175 @@ try {
   if (-not $OwnershipSStaleElementJson.Output.Contains('"status": "rejected_stale_element_view_use_v0"')) { throw "ownership check Session S stale element expected stale element rejection, got $($OwnershipSStaleElementJson.Output)" }
   if (-not $OwnershipSStaleElementJson.Output.Contains('first_view borrowed items[0]')) { throw "ownership check Session S stale element expected binding and source in help, got $($OwnershipSStaleElementJson.Output)" }
   if (-not $OwnershipSStaleElementJson.Output.Contains('list_append grew items')) { throw "ownership check Session S stale element expected append site in help, got $($OwnershipSStaleElementJson.Output)" }
+
+  $ResolveVJson = Read-NativeOutput 'resolve Session V writable aliases JSON' $Hum @('resolve', '--format', 'json', 'examples/probes/writable_field_aliases.hum')
+  Assert-Json 'resolve Session V writable aliases JSON' $ResolveVJson
+  if (-not $ResolveVJson.Contains('"definition_kind": "writable_field_alias"')) { throw 'Session V resolver output is missing writable_field_alias definition kind' }
+  if (-not $ResolveVJson.Contains('"state_kind": "writable_field_alias"')) { throw 'Session V resolver output is missing writable_field_alias state kind' }
+  if (-not $ResolveVJson.Contains('"mutable_place_errors": 0')) { throw 'Session V resolver output must accept set through the alias' }
+
+  $FullTypeVJson = Read-NativeOutput 'full type check Session V writable aliases JSON' $Hum @('full-type-check', '--format', 'json', 'examples/probes/writable_field_aliases.hum')
+  Assert-Json 'full type check Session V writable aliases JSON' $FullTypeVJson
+  if (-not $FullTypeVJson.Contains('"expression_text": "change point.x"')) { throw 'Session V full type output is missing change point.x' }
+  if (-not $FullTypeVJson.Contains('"actual_type": "UInt"')) { throw 'Session V full type output is missing alias field type' }
+  if (-not $FullTypeVJson.Contains('"blocking_issues": 0')) { throw 'Session V full type output must pass' }
+
+  $EffectVJson = Read-NativeOutput 'effect check Session V writable aliases JSON' $Hum @('effect-check', '--format', 'json', 'examples/probes/writable_field_aliases.hum')
+  Assert-Json 'effect check Session V writable aliases JSON' $EffectVJson
+  if (-not $EffectVJson.Contains('"effect_kind": "writable_field_alias"')) { throw 'Session V effect output is missing writable alias binding' }
+  if (-not $EffectVJson.Contains('"effect_kind": "writable_field_alias_write_through"')) { throw 'Session V effect output is missing write-through change' }
+  if (-not $EffectVJson.Contains('"target": "point.x"')) { throw 'Session V effect output must resolve alias writes to point.x' }
+
+  $OwnershipVJson = Read-NativeOutput 'ownership check Session V writable aliases JSON' $Hum @('ownership-check', '--format', 'json', 'examples/probes/writable_field_aliases.hum')
+  Assert-Json 'ownership check Session V writable aliases JSON' $OwnershipVJson
+  foreach ($Expected in @('"accepted_writable_field_alias_v0"', '"accepted_writable_field_alias_write_through_v0"', '"accepted_disjoint_field_mutation_v0"', '"alias": "alias_to_x"', '"place": "point.x"', '"binding_span": {', '"last_use_span": {')) {
+    if (-not $OwnershipVJson.Contains($Expected)) { throw "Session V ownership pass output is missing $Expected" }
+  }
+
+  $OwnershipVWriteText = Read-NativeOutputWithExit 'ownership check Session V pinned overlap human' $Hum @('ownership-check', 'fixtures/ownership_check/session_v_program8_overlap_write_fail.hum')
+  if ($OwnershipVWriteText.ExitCode -ne 1) { throw "Session V pinned overlap ownership human expected exit 1, got $($OwnershipVWriteText.ExitCode)" }
+  foreach ($Expected in @('H0808', 'alias_to_x', 'point.x', 'binding_span=', 'last_use_span=', 'conflict_span=', 'not known independent', 'definitely distinct direct field')) {
+    if (-not $OwnershipVWriteText.Output.Contains($Expected)) { throw "Session V pinned overlap ownership human is missing $Expected" }
+  }
+
+  $OwnershipVWriteJson = Read-NativeOutputWithExit 'ownership check Session V pinned overlap JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_program8_overlap_write_fail.hum')
+  if ($OwnershipVWriteJson.ExitCode -ne 1) { throw "Session V pinned overlap ownership JSON expected exit 1, got $($OwnershipVWriteJson.ExitCode)" }
+  Assert-Json 'ownership check Session V pinned overlap JSON' $OwnershipVWriteJson.Output
+  foreach ($Expected in @('"diagnostic_code": "H0808"', '"status": "rejected_writable_field_alias_overlap_v0"', '"conflict_place": "point.x"', '"conflict_span": {', '"line": 13', '"line": 14', '"line": 15')) {
+    if (-not $OwnershipVWriteJson.Output.Contains($Expected)) { throw "Session V pinned overlap ownership JSON is missing $Expected" }
+  }
+
+  $OwnershipVReadJson = Read-NativeOutputWithExit 'ownership check Session V overlapping read JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_overlap_read_fail.hum')
+  if ($OwnershipVReadJson.ExitCode -ne 1) { throw "Session V overlapping read ownership JSON expected exit 1, got $($OwnershipVReadJson.ExitCode)" }
+  if (-not $OwnershipVReadJson.Output.Contains('"reason": "direct_read_overlaps_live_writable_alias_v0"')) { throw 'Session V overlapping read ownership JSON is missing direct-read reason' }
+
+  $OwnershipVSecondJson = Read-NativeOutputWithExit 'ownership check Session V second alias JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_second_alias_fail.hum')
+  if ($OwnershipVSecondJson.ExitCode -ne 1) { throw "Session V second alias ownership JSON expected exit 1, got $($OwnershipVSecondJson.ExitCode)" }
+  if (-not $OwnershipVSecondJson.Output.Contains('"reason": "second_writable_alias_overlaps_live_alias_v0"')) { throw 'Session V second alias ownership JSON is missing overlap reason' }
+
+  $OwnershipVEscapeJson = Read-NativeOutputWithExit 'ownership check Session V alias escape JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_alias_escape_fail.hum')
+  if ($OwnershipVEscapeJson.ExitCode -ne 1) { throw "Session V alias escape ownership JSON expected exit 1, got $($OwnershipVEscapeJson.ExitCode)" }
+  if (-not $OwnershipVEscapeJson.Output.Contains('"diagnostic_code": "H0809"')) { throw 'Session V alias escape ownership JSON is missing H0809' }
+  if (-not $OwnershipVEscapeJson.Output.Contains('"reason": "writable_alias_escape_v0"')) { throw 'Session V alias escape ownership JSON is missing escape reason' }
+
+  $FullTypeVAliasToAliasJson = Read-NativeOutput 'full type check Session V alias-to-alias JSON' $Hum @('full-type-check', '--format', 'json', 'fixtures/ownership_check/session_v_alias_to_alias_fail.hum')
+  Assert-Json 'full type check Session V alias-to-alias JSON' $FullTypeVAliasToAliasJson
+  foreach ($Expected in @('"status": "accepted_writable_field_alias_candidate_deferred_to_ownership_v0"', '"reason": "writable_field_alias_shape_deferred_to_ownership_v0"', '"unchecked_statements": 0', '"blocking_issues": 0')) {
+    if (-not $FullTypeVAliasToAliasJson.Contains($Expected)) { throw "Session V alias-to-alias full type JSON is missing $Expected" }
+  }
+  if ($FullTypeVAliasToAliasJson.Contains('blocked_by_unchecked_body_types_v0')) { throw 'Session V alias-to-alias must not be masked by full type checking' }
+
+  $EffectVAliasToAliasJson = Read-NativeOutput 'effect check Session V alias-to-alias JSON' $Hum @('effect-check', '--format', 'json', 'fixtures/ownership_check/session_v_alias_to_alias_fail.hum')
+  Assert-Json 'effect check Session V alias-to-alias JSON' $EffectVAliasToAliasJson
+  if (-not $EffectVAliasToAliasJson.Contains('"status": "recognized_core_effects_checked_v0"')) { throw 'Session V alias-to-alias must reach ownership through effect checking' }
+  if ($EffectVAliasToAliasJson.Contains('blocked_by_full_type_check_errors')) { throw 'Session V alias-to-alias must not be masked by effect checking' }
+
+  $OwnershipVAliasToAliasText = Read-NativeOutputWithExit 'ownership check Session V alias-to-alias human' $Hum @('ownership-check', 'fixtures/ownership_check/session_v_alias_to_alias_fail.hum')
+  if ($OwnershipVAliasToAliasText.ExitCode -ne 1) { throw "Session V alias-to-alias ownership human expected exit 1, got $($OwnershipVAliasToAliasText.ExitCode)" }
+  foreach ($Expected in @('H0809', 'writable_alias_to_alias_binding_v0', 'writable alias `first`')) {
+    if (-not $OwnershipVAliasToAliasText.Output.Contains($Expected)) { throw "Session V alias-to-alias ownership human is missing $Expected" }
+  }
+
+  $OwnershipVAliasToAliasJson = Read-NativeOutputWithExit 'ownership check Session V alias-to-alias JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_alias_to_alias_fail.hum')
+  if ($OwnershipVAliasToAliasJson.ExitCode -ne 1) { throw "Session V alias-to-alias ownership JSON expected exit 1, got $($OwnershipVAliasToAliasJson.ExitCode)" }
+  Assert-Json 'ownership check Session V alias-to-alias JSON' $OwnershipVAliasToAliasJson.Output
+  foreach ($Expected in @('"diagnostic_code": "H0809"', '"reason": "writable_alias_to_alias_binding_v0"', '"conflict_place": "first"')) {
+    if (-not $OwnershipVAliasToAliasJson.Output.Contains($Expected)) { throw "Session V alias-to-alias ownership JSON is missing $Expected" }
+  }
+
+  $FullTypeVNestedAliasJson = Read-NativeOutput 'full type check Session V nested alias-place JSON' $Hum @('full-type-check', '--format', 'json', 'fixtures/ownership_check/session_v_nested_alias_place_fail.hum')
+  Assert-Json 'full type check Session V nested alias-place JSON' $FullTypeVNestedAliasJson
+  foreach ($Expected in @('"status": "accepted_writable_field_alias_candidate_deferred_to_ownership_v0"', '"reason": "writable_field_alias_shape_deferred_to_ownership_v0"', '"unchecked_statements": 0', '"blocking_issues": 0')) {
+    if (-not $FullTypeVNestedAliasJson.Contains($Expected)) { throw "Session V nested alias-place full type JSON is missing $Expected" }
+  }
+  if ($FullTypeVNestedAliasJson.Contains('blocked_by_unchecked_body_types_v0')) { throw 'Session V nested alias place must not be masked by full type checking' }
+
+  $EffectVNestedAliasJson = Read-NativeOutput 'effect check Session V nested alias-place JSON' $Hum @('effect-check', '--format', 'json', 'fixtures/ownership_check/session_v_nested_alias_place_fail.hum')
+  Assert-Json 'effect check Session V nested alias-place JSON' $EffectVNestedAliasJson
+  if (-not $EffectVNestedAliasJson.Contains('"status": "recognized_core_effects_checked_v0"')) { throw 'Session V nested alias place must reach ownership through effect checking' }
+  if ($EffectVNestedAliasJson.Contains('blocked_by_full_type_check_errors')) { throw 'Session V nested alias place must not be masked by effect checking' }
+
+  $OwnershipVNestedAliasText = Read-NativeOutputWithExit 'ownership check Session V nested alias-place human' $Hum @('ownership-check', 'fixtures/ownership_check/session_v_nested_alias_place_fail.hum')
+  if ($OwnershipVNestedAliasText.ExitCode -ne 1) { throw "Session V nested alias-place ownership human expected exit 1, got $($OwnershipVNestedAliasText.ExitCode)" }
+  foreach ($Expected in @('H0809', 'writable_alias_shape_outside_direct_field_slice_v0', 'point.x.deep')) {
+    if (-not $OwnershipVNestedAliasText.Output.Contains($Expected)) { throw "Session V nested alias-place ownership human is missing $Expected" }
+  }
+
+  $OwnershipVNestedAliasJson = Read-NativeOutputWithExit 'ownership check Session V nested alias-place JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_nested_alias_place_fail.hum')
+  if ($OwnershipVNestedAliasJson.ExitCode -ne 1) { throw "Session V nested alias-place ownership JSON expected exit 1, got $($OwnershipVNestedAliasJson.ExitCode)" }
+  Assert-Json 'ownership check Session V nested alias-place JSON' $OwnershipVNestedAliasJson.Output
+  foreach ($Expected in @('"diagnostic_code": "H0809"', '"reason": "writable_alias_shape_outside_direct_field_slice_v0"', '"place": "point.x.deep"')) {
+    if (-not $OwnershipVNestedAliasJson.Output.Contains($Expected)) { throw "Session V nested alias-place ownership JSON is missing $Expected" }
+  }
+
+  $OwnershipVBorrowJson = Read-NativeOutputWithExit 'ownership check Session V borrowed owner JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_borrowed_owner_alias_fail.hum')
+  if ($OwnershipVBorrowJson.ExitCode -ne 1) { throw "Session V borrowed owner ownership JSON expected exit 1, got $($OwnershipVBorrowJson.ExitCode)" }
+  if (-not $OwnershipVBorrowJson.Output.Contains('"diagnostic_code": "H0802"')) { throw 'Session V borrowed owner ownership JSON is missing H0802' }
+
+  $ResolveVRebindJson = Read-NativeOutput 'resolve Session V alias-owner rebinding JSON' $Hum @('resolve', '--format', 'json', 'fixtures/ownership_check/session_v_alias_rebind_owner_fail.hum')
+  Assert-Json 'resolve Session V alias-owner rebinding JSON' $ResolveVRebindJson
+  if (-not $ResolveVRebindJson.Contains('"status": "duplicate_definition_deferred_to_ownership_v0"')) { throw 'Session V resolver rebinding output must defer duplicate blame to ownership' }
+  if (-not $ResolveVRebindJson.Contains('"resolver_errors": 0')) { throw 'Session V resolver rebinding output must not mask H0809' }
+
+  $OwnershipVPermissionJson = Read-NativeOutputWithExit 'ownership check Session V permission-wrapper JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_alias_permission_wrapper_fail.hum')
+  if ($OwnershipVPermissionJson.ExitCode -ne 1) { throw "Session V permission-wrapper ownership JSON expected exit 1, got $($OwnershipVPermissionJson.ExitCode)" }
+  if (-not $OwnershipVPermissionJson.Output.Contains('"diagnostic_code": "H0809"')) { throw 'Session V permission-wrapper ownership JSON is missing H0809' }
+  if (-not $OwnershipVPermissionJson.Output.Contains('writable_alias_permission_wrapper_v0')) { throw 'Session V permission-wrapper ownership JSON is missing its stable reason' }
+
+  $OwnershipVRebindJson = Read-NativeOutputWithExit 'ownership check Session V alias-owner rebinding JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_alias_rebind_owner_fail.hum')
+  if ($OwnershipVRebindJson.ExitCode -ne 1) { throw "Session V alias-owner rebinding ownership JSON expected exit 1, got $($OwnershipVRebindJson.ExitCode)" }
+  if (-not $OwnershipVRebindJson.Output.Contains('"diagnostic_code": "H0809"')) { throw 'Session V alias-owner rebinding ownership JSON is missing H0809' }
+  if (-not $OwnershipVRebindJson.Output.Contains('writable_alias_rebinds_its_owner_v0')) { throw 'Session V alias-owner rebinding ownership JSON is missing its stable reason' }
+
+  $ResolveVNameCollisionJson = Read-NativeOutput 'resolve Session V alias-name collision JSON' $Hum @('resolve', '--format', 'json', 'fixtures/ownership_check/session_v_alias_name_collision_fail.hum')
+  Assert-Json 'resolve Session V alias-name collision JSON' $ResolveVNameCollisionJson
+  if (-not $ResolveVNameCollisionJson.Contains('"status": "duplicate_definition_deferred_to_ownership_v0"')) { throw 'Session V resolver name-collision output must defer duplicate blame to ownership' }
+  if (-not $ResolveVNameCollisionJson.Contains('"resolver_errors": 0')) { throw 'Session V resolver name-collision output must not mask H0809' }
+
+  $OwnershipVNameCollisionJson = Read-NativeOutputWithExit 'ownership check Session V alias-name collision JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_alias_name_collision_fail.hum')
+  if ($OwnershipVNameCollisionJson.ExitCode -ne 1) { throw "Session V alias-name collision ownership JSON expected exit 1, got $($OwnershipVNameCollisionJson.ExitCode)" }
+  if (-not $OwnershipVNameCollisionJson.Output.Contains('"diagnostic_code": "H0809"')) { throw 'Session V alias-name collision ownership JSON is missing H0809' }
+  if (-not $OwnershipVNameCollisionJson.Output.Contains('writable_alias_binding_rebinding_v0')) { throw 'Session V alias-name collision ownership JSON is missing its stable reason' }
+
+  $ResolveVDeclaredNameCollisionJson = Read-NativeOutput 'resolve Session V alias-declared-name collision JSON' $Hum @('resolve', '--format', 'json', 'fixtures/ownership_check/session_v_alias_declared_name_collision_fail.hum')
+  Assert-Json 'resolve Session V alias-declared-name collision JSON' $ResolveVDeclaredNameCollisionJson
+  if (-not $ResolveVDeclaredNameCollisionJson.Contains('"status": "duplicate_definition_deferred_to_ownership_v0"')) { throw 'Session V resolver declared-name collision output must defer duplicate blame to ownership' }
+  if (-not $ResolveVDeclaredNameCollisionJson.Contains('"resolver_errors": 0')) { throw 'Session V resolver declared-name collision output must not mask H0809' }
+
+  $OwnershipVDeclaredNameCollisionJson = Read-NativeOutputWithExit 'ownership check Session V alias-declared-name collision JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_alias_declared_name_collision_fail.hum')
+  if ($OwnershipVDeclaredNameCollisionJson.ExitCode -ne 1) { throw "Session V alias-declared-name collision ownership JSON expected exit 1, got $($OwnershipVDeclaredNameCollisionJson.ExitCode)" }
+  if (-not $OwnershipVDeclaredNameCollisionJson.Output.Contains('"diagnostic_code": "H0809"')) { throw 'Session V alias-declared-name collision ownership JSON is missing H0809' }
+  if (-not $OwnershipVDeclaredNameCollisionJson.Output.Contains('writable_alias_binding_rebinding_v0')) { throw 'Session V alias-declared-name collision ownership JSON is missing its stable reason' }
+
+  $OwnershipVBorrowOverlapJson = Read-NativeOutputWithExit 'ownership check Session V borrowed-owner overlap precedence JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_borrowed_owner_overlap_fail.hum')
+  if ($OwnershipVBorrowOverlapJson.ExitCode -ne 1) { throw "Session V borrowed-owner overlap ownership JSON expected exit 1, got $($OwnershipVBorrowOverlapJson.ExitCode)" }
+  if (-not $OwnershipVBorrowOverlapJson.Output.Contains('"diagnostic_code": "H0802"')) { throw 'Session V borrowed-owner overlap ownership JSON is missing H0802' }
+  if ($OwnershipVBorrowOverlapJson.Output.Contains('"diagnostic_code": "H0808"')) { throw 'Session V borrowed-owner overlap ownership JSON must not report H0808' }
+
+  $ResourceVJson = Read-NativeOutput 'resource check Session V writable aliases JSON' $Hum @('resource-check', '--format', 'json', 'examples/probes/writable_field_aliases.hum')
+  Assert-Json 'resource check Session V writable aliases JSON' $ResourceVJson
+  if (-not $ResourceVJson.Contains('"status": "recognized_core_resources_checked_v0"')) { throw 'Session V resource output must pass' }
+  if (-not $ResourceVJson.Contains('"blocking_issues": 0')) { throw 'Session V resource output must have zero blockers' }
+
+  $CorePreviewVJson = Read-NativeOutput 'core preview Session V writable aliases JSON' $Hum @('core-preview', '--format', 'json', 'examples/probes/writable_field_aliases.hum')
+  Assert-Json 'core preview Session V writable aliases JSON' $CorePreviewVJson
+  if (-not $CorePreviewVJson.Contains('let alias_to_x = change point.x')) { throw 'Session V Core preview must preserve the alias surface' }
+  if (-not $CorePreviewVJson.Contains('"blocked_statements": 0')) { throw 'Session V Core preview must have zero blocked statements' }
+
+  $CoreLowerVJson = Read-NativeOutput 'core lower Session V writable aliases JSON' $Hum @('core-lower', '--format', 'json', 'examples/probes/writable_field_aliases.hum')
+  Assert-Json 'core lower Session V writable aliases JSON' $CoreLowerVJson
+  if (-not $CoreLowerVJson.Contains('"blocked_operations": 0')) { throw 'Session V Core lower must have zero blocked operations' }
+  if (-not $CoreLowerVJson.Contains('"surface_text": "let alias_to_x = change point.x"')) { throw 'Session V Core lower must preserve the alias surface text' }
+
+  $CoreVerifyVJson = Read-NativeOutput 'core verify Session V writable aliases JSON' $Hum @('core-verify', '--format', 'json', 'examples/probes/writable_field_aliases.hum')
+  Assert-Json 'core verify Session V writable aliases JSON' $CoreVerifyVJson
+  if (-not $CoreVerifyVJson.Contains('"failed_checks": 0')) { throw 'Session V Core verify must pass every check' }
+
+  $GraphVJson = Read-NativeOutput 'graph Session V writable aliases JSON' $Hum @('graph', 'examples/probes/writable_field_aliases.hum')
+  Assert-Json 'graph Session V writable aliases JSON' $GraphVJson
+  if (-not $GraphVJson.Contains('"errors": 0')) { throw 'Session V graph must have zero errors' }
+  if (-not $GraphVJson.Contains('"warnings": 0')) { throw 'Session V graph must have zero warnings' }
+
   $ResourceCheckJson = Read-NativeOutput 'resource check JSON' $Hum @('resource-check', '--format', 'json', 'fixtures/resource_check/simple_pass.hum')
   Assert-Json 'resource check JSON' $ResourceCheckJson
   if (-not $ResourceCheckJson.Contains('"schema": "hum.resource_check.v0"')) { throw 'resource check JSON is missing hum.resource_check.v0 schema' }
@@ -1085,9 +1332,12 @@ try {
   if (-not $SyntaxJson.Contains('"semantic_tokens"')) { throw 'syntax surface JSON is missing semantic_tokens' }
   if (-not $SyntaxJson.Contains('"token_types"')) { throw 'syntax surface JSON is missing semantic token types' }
   if (-not $SyntaxJson.Contains('"parameter_permission_modes": ["borrow", "change", "consume"]')) { throw 'syntax surface JSON is missing parameter permission modes' }
+  if (-not $SyntaxJson.Contains('"writable_field_alias_form": "let <alias> = change <owner>.<field>"')) { throw 'syntax surface JSON is missing writable field alias form' }
+  if (-not $SyntaxJson.Contains('"source": "writable_field_alias_permission"')) { throw 'syntax surface JSON is missing writable field alias semantic token role' }
 
   $TextMateJson = Read-NativeOutput 'TextMate grammar JSON' $Hum @('syntax', '--format', 'textmate')
   Assert-Json 'TextMate grammar JSON' $TextMateJson
+  if (-not $TextMateJson.Contains('storage.modifier.writable-field-alias.hum')) { throw 'TextMate grammar JSON is missing writable field alias rule' }
   Assert-TextMateSnapshot $TextMateJson
   Assert-ReadmeHumExamplesMatch
   Assert-SessionASurfaceRules

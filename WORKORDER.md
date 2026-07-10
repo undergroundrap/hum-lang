@@ -1,15 +1,15 @@
 # Hum Work Order 6: Overlapping Places And The First Local IO Slice
 
 Date: 2026-07-09
-Status: active, issued under delegated authority (`docs/GOVERNANCE.md`), BDFL
-veto open
+Status: active; Session V implemented and awaiting architect-reviewer verdict,
+issued under delegated authority (`docs/GOVERNANCE.md`), BDFL veto open
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
 sessions.
 Predecessor: Work Order 5, Sessions R-U. Commit `8a6dd1c` was the initially
-reported Session U snapshot, not an accepted closure point. The corrective
-Session U documentation and this order share the current uncommitted review
-stack; their eventual BDFL-approved commit is the still-unassigned Work Order 5
-closure and Work Order 6 issue point.
+reported Session U snapshot, not an accepted closure point. The BDFL accepted
+the corrective Session U verdict, decision 0015, and this Work Order 6 stack;
+commit `6d7ccb7` is the approved Work Order 5 closure and Work Order 6 issue
+point.
 
 ## Corrected predecessor state
 
@@ -194,6 +194,9 @@ acceptance criteria:
 
 ## Session V: narrow writable field aliases (Program 8)
 
+Implementation status: complete and uncommitted, awaiting architect-reviewer
+review. Session W has not begun.
+
 Purpose: pay the exact Program 8 overlap record before any other ownership
 work.
 
@@ -248,6 +251,26 @@ Acceptance criteria:
 - Program 8 alone moves from partial to full; no internal-reference or general
   alias claim appears.
 - Standing checks pass. Stop. Do not begin Session W.
+
+Implementation evidence:
+
+- `examples/probes/writable_field_aliases.hum` observes real write-through as
+  `{x: 9, y: 2}`, swaps through two distinct live aliases as `{x: 2, y: 1}`,
+  accepts direct `point.y` access while the `point.x` alias is live as
+  `{x: 2, y: 7}`, and accepts a sequential same-field alias after last use as
+  `{x: 7, y: 2}`.
+- `fixtures/ownership_check/session_v_program8_overlap_write_fail.hum` is the
+  pinned non-degenerate Program 8 misuse. Human ownership output, ownership
+  JSON, and runtime all report H0808 with binding, conflict, and last-use sites
+  plus the distinct-field/end-last-use repairs.
+- The direct-read and second-alias fixtures also report H0808. Escape,
+  control-flow, permission-wrapper, owner-rebinding, and visible-name-collision
+  fixtures report H0809. Acquiring the alias from a borrowed owner remains the separate H0802
+  permission failure and takes precedence over a body that would otherwise
+  contain an overlap.
+- Resolver, full type, effect, ownership, resource, Core preview/lower/verify,
+  graph, runtime, `cargo test`, and `tools/check_all.ps1` agree on the exact
+  slice. No schema ID, command, report surface, or pipeline gate was added.
 
 ## Session W: explicit causal typed failure
 
@@ -835,7 +858,9 @@ Acceptance criteria:
 
 ## Current authorization gate
 
-No implementer session is active at issue time. The next unfinished session is
-Session V. It may begin only after the BDFL accepts the uncommitted corrective
-Session U/decision 0015/Work Order 6 documentation stack and explicitly hands
-the pen to the implementer. That authorization covers Session V only.
+Session V implementation is present as uncommitted review WIP and is the only
+active review subject. The implementer must stop here. Session W is the next
+unfinished implementation session, but it is not authorized: it may begin only
+after the architect-reviewer accepts Session V under the repository workflow
+and the BDFL gives a separate explicit go signal. No commit or push is
+authorized at this gate.

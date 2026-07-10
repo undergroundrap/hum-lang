@@ -1,0 +1,17 @@
+module fixtures.ownership_check.session_v_second_alias_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task second_overlapping_alias(change point: Point) -> Point {
+  why:
+    reject a second writable alias to the same live field place
+
+  does:
+    let first_x = change point.x
+    let second_x = change point.x
+    set first_x = point.y
+    return point
+}

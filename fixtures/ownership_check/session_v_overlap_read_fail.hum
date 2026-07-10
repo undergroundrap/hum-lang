@@ -1,0 +1,17 @@
+module fixtures.ownership_check.session_v_overlap_read_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task overlapping_read(change point: Point) -> Point {
+  why:
+    reject a direct read while the writable alias remains live
+
+  does:
+    let alias_to_x = change point.x
+    change copied_x: UInt = point.x
+    set alias_to_x = copied_x
+    return point
+}

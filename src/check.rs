@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 
 use crate::ast::{Item, Section, SourceFile, Task, Test};
+use crate::core_body;
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
-use crate::{syntax, target_facts};
+use crate::{syntax, target_facts, writable_field_alias};
 
 pub fn check_file(file: &SourceFile) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -781,7 +782,7 @@ fn first_resource(text: &str) -> Option<String> {
 }
 
 fn local_mutables(section: &Section) -> BTreeSet<String> {
-    meaningful_lines(section)
+    let mut mutables = meaningful_lines(section)
         .filter_map(|line| line.text.strip_prefix("change "))
         .filter_map(|rest| {
             let target = rest
@@ -789,7 +790,14 @@ fn local_mutables(section: &Section) -> BTreeSet<String> {
                 .find(|part| !part.is_empty())?;
             Some(target.to_string())
         })
-        .collect()
+        .collect::<BTreeSet<_>>();
+    let body = core_body::analyze_does_section(section);
+    mutables.extend(
+        body.statements
+            .iter()
+            .filter_map(writable_field_alias::candidate_name),
+    );
+    mutables
 }
 
 fn save_target(text: &str) -> Option<String> {

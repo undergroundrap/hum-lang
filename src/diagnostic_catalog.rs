@@ -255,8 +255,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::BORROW_PARAMETER_MUTATION,
         default_severity: Severity::Error,
-        explanation: "A parameter with default `borrow` permission was targeted by `set`, which would hide mutation behind a read-only signature.",
-        repair: "Mark the parameter `change`, copy into a `change` local, or remove the mutation.",
+        explanation: "A parameter with default `borrow` permission was targeted by `set` or used to acquire a writable field alias, which would hide mutation behind a read-only signature.",
+        repair: "Mark the parameter `change`, copy into a `change` local before acquiring the alias or writing, or remove the mutation.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED,
@@ -287,6 +287,18 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         default_severity: Severity::Error,
         explanation: "A local field or element view was used after the source it viewed was changed by a recognized invalidating operation.",
         repair: "Re-borrow the view after the write or append, or bind a value copy before the invalidating operation if stale observation was intended.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::WRITABLE_ALIAS_OVERLAP,
+        default_severity: Severity::Error,
+        explanation: "A direct field is accessed through another path while a writable alias to overlapping storage is still live.",
+        repair: "Use a definitely distinct direct field, or move the access after the writable alias's last syntactic use.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS,
+        default_severity: Severity::Error,
+        explanation: "A writable alias uses a shape or lifetime outside Hum's narrow straight-line direct-field slice.",
+        repair: "Keep the alias local and straight-line over one direct field; do not pass, return, store, nest, rebind, or use it across control flow.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
@@ -393,6 +405,14 @@ mod tests {
         assert_eq!(
             find("H0807").map(|info| info.code),
             Some(DiagnosticCode::STALE_FIELD_VIEW)
+        );
+        assert_eq!(
+            find("H0808").map(|info| info.code),
+            Some(DiagnosticCode::WRITABLE_ALIAS_OVERLAP)
+        );
+        assert_eq!(
+            find("H0809").map(|info| info.code),
+            Some(DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS)
         );
         assert_eq!(
             find("H1201").map(|info| info.code),

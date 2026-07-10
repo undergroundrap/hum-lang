@@ -1,0 +1,25 @@
+module fixtures.ownership_check.session_v_alias_declared_name_collision_fail
+
+type Point {
+  x: UInt
+  y: UInt
+}
+
+task alias_declared_name_collision(change point: Point) {
+  why:
+    reject a writable alias that shadows a declared change permission
+
+  changes:
+    cache
+
+  needs:
+    point.x <= point.y
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    let cache = change point.x
+}

@@ -282,6 +282,38 @@ task echo_view(borrow text: Text) -> Slice Text from text {
 
 In the current V0 checker, `from` sources for returned views must name a task parameter. The executable subset proves two parameter-derived forms: returning the bare parameter, and returning through the closed view-deriving operation `slice_until(source, separator)`. `slice_until` is the first member of the closed set; it returns the text before the separator and carries the provenance of its first argument only. Returning a view that depends on a local is rejected with `H0805`, non-closed derivation chains are rejected instead of guessed, and internal references such as `from parser.buffer` remain explicitly banned until the internal-reference repair from decision 0014 is implemented. `hum graph` exposes the declared dependency fact, while `hum ownership-check` verifies the narrow parameter-derived subset.
 
+### Writable Field Aliases
+
+Milestone 1 recognizes exactly this unannotated local form in a straight-line
+task body:
+
+```hum
+let alias_to_x = change point.x
+set alias_to_x = 9
+```
+
+`point` must already have visible mutation authority from a `change` or
+`consume` parameter or a local `change` binding. A borrowed parameter cannot
+supply the alias and reports H0802. The alias stores the place `point.x`, not a
+copy: reads observe the current field and `set alias_to_x` writes through to
+the owner.
+
+The recognized lifetime runs from the binding through the alias's last
+syntactic use in the same straight-line body. During that interval, another
+direct read or write of `point.x`, an owner-wide `point` access, or a second
+alias that may name `point.x` reports H0808. Direct access to the definitely
+distinct field `point.y` remains accepted, and a new `point.x` alias may begin
+after the earlier alias's last use.
+
+H0809 rejects creation or use inside branches/loops, passing, returning,
+storing, wrapping the alias in `borrow`/`change`/`consume`, alias-to-alias
+binding, nested places, list elements, rebinding either alias or live owner,
+and shadowing an already-visible parameter, local, or declared permission name.
+Hum does not infer a wider lifetime or support general aliases, internal
+references, or broad flow-sensitive borrowing. The checked examples and pinned
+misuses are in `examples/probes/writable_field_aliases.hum` and
+`fixtures/ownership_check/session_v_*`.
+
 ## Sections
 
 Sections are named intent blocks inside items.
@@ -526,7 +558,7 @@ notes, review packets, sanitizer runs, and profile evidence.
 
 The `does:` block is executable only for the explicitly interpreted Milestone 1 subset, and remains future surface beyond that subset.
 
-Milestone 1 begins with `hum run <file> [--entry <task>] [--args ...]` over checked source for `examples/core/add.hum`, `examples/core/divide.hum`, and `examples/core/count_completed.hum`. The current tree-walking interpreter covers the forms those programs require: Int/Bool literals, arithmetic, comparisons, `let`, `change`, `set`, direct record field reads, direct field-place assignment with `set record.field = value`, direct numeric list element reads such as `items[0]`, local direct field-view bindings of the form `let view = borrow record.field`, local direct element-view bindings of the form `let view = borrow items[0]`, `if`, `for each`, `return`, `fail`, task calls, typed failure values, predicate v1 `needs:`/`ensures:` checks including `old(...)` entry capture and `list_len(...)`, the simple list/record values needed by `count_completed`, the minimal list-growth operation `list_append(change list, item)`, the list-length read `list_len(list)` (also reachable from `does:` bodies as an ordinary length read), and the closed text view operation `slice_until(text, separator)`; `old(...)` remains contract-only vocabulary and traps with a clear message if called from a body. It also enforces the current narrow ownership subset at runtime: writing through a default `borrow` parameter or one of its direct fields traps with `H0802`, using a local after it was moved by `consume` or by return traps with `H0801`, leaving recognized Transaction-shaped resources unconsumed traps with `H0803`, consuming them twice traps with `H0804`, violating the V0 returned-view `from parameter` rule traps with `H0805`, structurally appending to a list during active iteration traps with `H0806`, using a local field view after that exact field was written traps with `H0807`, and using a local element view after `list_append` grew that list also traps with `H0807`. Integer overflow and division by zero trap instead of wrapping; executable contract violations exit as runtime failures with caller/task blame diagnostics.
+Milestone 1 begins with `hum run <file> [--entry <task>] [--args ...]` over checked source for `examples/core/add.hum`, `examples/core/divide.hum`, and `examples/core/count_completed.hum`. The current tree-walking interpreter covers the forms those programs require: Int/Bool literals, arithmetic, comparisons, `let`, `change`, `set`, direct record field reads, direct field-place assignment with `set record.field = value`, direct numeric list element reads such as `items[0]`, local direct field-view bindings of the form `let view = borrow record.field`, local direct element-view bindings of the form `let view = borrow items[0]`, exact local writable field aliases of the form `let alias = change record.field`, `if`, `for each`, `return`, `fail`, task calls, typed failure values, predicate v1 `needs:`/`ensures:` checks including `old(...)` entry capture and `list_len(...)`, the simple list/record values needed by `count_completed`, the minimal list-growth operation `list_append(change list, item)`, the list-length read `list_len(list)` (also reachable from `does:` bodies as an ordinary length read), and the closed text view operation `slice_until(text, separator)`; `old(...)` remains contract-only vocabulary and traps with a clear message if called from a body. It also enforces the current narrow ownership subset at runtime: writing through a default `borrow` parameter or one of its direct fields traps with `H0802`, using a local after it was moved by `consume` or by return traps with `H0801`, leaving recognized Transaction-shaped resources unconsumed traps with `H0803`, consuming them twice traps with `H0804`, violating the V0 returned-view `from parameter` rule traps with `H0805`, structurally appending to a list during active iteration traps with `H0806`, using a local field view after that exact field was written traps with `H0807`, and using a local element view after `list_append` grew that list also traps with `H0807`. Writable aliases read and write through the exact owner field; H0808 rejects live overlapping access and H0809 rejects escape or unsupported alias shapes before body mutation. Integer overflow and division by zero trap instead of wrapping; executable contract violations exit as runtime failures with caller/task blame diagnostics.
 
 The report gates remain non-executing. `hum core-preview` maps recognized lines into Core Hum candidate operations and explicit blockers without executing, type-checking, effect-checking, or emitting IR. `hum resolve` performs the first checked pass over scopes, definitions, references, and mutable-place targets. `hum type-env` records declared type names and annotations with resolver identity. `hum type-check` validates declaration annotation names without expression inference or body checking. `hum full-type-check`, `hum effect-check`, `hum ownership-check`, and `hum resource-check` report recognized facts and blockers without execution or IR emission. `hum ir-readiness` consumes the checked resolver, type, Core verifier, full-type-check, effect-check, ownership-check, and resource-check summaries before any future lowering claim. New executable syntax must still become checkable, lower into [FORMAL_CORE.md](FORMAL_CORE.md), and preserve the non-claims of the report surfaces before it becomes stable.
 
