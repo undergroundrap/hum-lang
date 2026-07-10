@@ -172,6 +172,18 @@ finite and exact. Missing task/app authority remains H0621 and missing caller
 closure remains H0618 instead; H0624 is checked only after that route is valid.
 This is not a general recursion ban.
 
+Session AA adds repeatable `--replay-tick <UInt>` input, bounded to 1024
+values, and exact `--allow clock.replay`/`--deny clock.replay` consent. Values
+are ordered input, never authority. The only operation is
+`clock_replay_tick() -> Result UInt, ReplayClockError`; each successful call
+consumes the next runner value. Default or explicit denial returns
+`ReplayClockError.denied` before adapter access, and an empty or exhausted
+sequence returns `ReplayClockError.exhausted`. Replay routes use the same
+app/task/caller closure and finite forensic identity as output. H0625-H0628 own
+missing direct authority, invalid arity, reserved-name collision, and
+replay-reachable recursion. This controls one replay input only: it does not
+read `os.clock` or claim whole-program determinism or deterministic scheduling.
+
 ### `type`
 
 ```hum

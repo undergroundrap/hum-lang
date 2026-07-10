@@ -1,0 +1,60 @@
+type ReplayAppError {
+  code: Text
+}
+
+app runner_replay_clock_probe {
+  why:
+    prove ordered runner replay input without reading a host clock
+
+  uses:
+    stdout.write
+    clock.replay
+
+  starts with:
+    run_tool
+
+  task read_tick -> Result UInt, ReplayClockError {
+    why:
+      consume exactly one runner-provided replay tick
+
+    uses:
+      clock.replay
+
+    fails when:
+      the operator denies replay input or the sequence is exhausted
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let tick = try clock_replay_tick()
+      return tick
+  }
+
+  task run_tool -> Result Unit, ReplayAppError {
+    why:
+      select fixed output from the ordered replay sequence
+
+    uses:
+      stdout.write
+      clock.replay
+
+    fails when:
+      replay input or bounded output fails
+
+    allocates:
+      up to one causal wrapper frame when replay or output fails
+
+    does:
+      let first = try read_tick() or fail ReplayAppError.replay
+      let second = try read_tick() or fail ReplayAppError.replay
+      if first == 1 {
+        if second == 7 {
+          let written_seven = try stdout_write("seven") or fail ReplayAppError.output
+          return written_seven
+        }
+      }
+      let written_other = try stdout_write("other") or fail ReplayAppError.output
+      return written_other
+  }
+}

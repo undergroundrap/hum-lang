@@ -390,8 +390,9 @@ Current CLI:
 
 - `hum check <file-or-dir>...`: parse Hum and run Milestone 0 intent checks
 - `hum check --format json <file-or-dir>...`: emit `hum.check.v0` diagnostics JSON for editors, CI, and agents
-- `hum run [--allow stdout.write] [--deny stdout.write] <file> [--entry <task>] [--args ...]`: run one structural app root, default-deny bounded output, make exact deny override allow, preserve pure direct-task probing with `--entry`, use typed failure exit 1, and reserve exit 2 for runtime traps
+- `hum run [--allow <exact-capability>] [--deny <exact-capability>] [--replay-tick <UInt>] <file> [--entry <task>] [--args ...]`: run one structural app root with default-deny bounded output and runner-provided replay input, make exact deny override allow, preserve pure direct-task probing with `--entry`, use typed failure exit 1, and reserve exit 2 for runtime traps
 - `examples/probes/bounded_stdout.hum`: prove exact no-newline UTF-8 output plus W-style causal wrapping of `OutputError`
+- `examples/probes/runner_replay_clock.hum`: prove ordered replay-tick consumption, literal output selection, and W-style `ReplayClockError` exhaustion without host-clock access
 - Session W's failure slice requires explicit same-root `try` or explicit
   caller-root causal wrapping; multi-call failures retain every recognized
   call site and the root origin

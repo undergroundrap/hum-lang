@@ -109,6 +109,10 @@ The V0 gate checks only conservative statement contexts:
 - `stdout_write(text)`: the only Session Z output built-in is typed as
   `Result Unit, OutputError`; explicit propagation sees success type `Unit`,
   and H0622 rejects any arity or checked argument type other than one `Text`.
+- `clock_replay_tick()`: the Session AA runner-replay built-in is typed as
+  `Result UInt, ReplayClockError`; explicit propagation sees success type
+  `UInt`, and H0626 rejects any argument under the exact zero-argument
+  signature.
 - `block_close` and `loop_header`: accepted as statements with no expression
   type obligation.
 

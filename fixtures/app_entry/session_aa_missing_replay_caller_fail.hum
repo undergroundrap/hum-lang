@@ -1,0 +1,34 @@
+app missing_replay_caller {
+  uses:
+    clock.replay
+
+  starts with:
+    run_tool
+
+  task read_tick -> Result UInt, ReplayClockError {
+    uses:
+      clock.replay
+
+    fails when:
+      runner replay input is unavailable
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let tick = try clock_replay_tick()
+      return tick
+  }
+
+  task run_tool -> Result Unit, ReplayClockError {
+    fails when:
+      the nested replay read fails
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let tick = try read_tick()
+      return ()
+  }
+}

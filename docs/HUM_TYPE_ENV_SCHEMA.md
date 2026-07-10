@@ -117,8 +117,8 @@ Reference statuses are:
 ## Reserved Type Roots
 
 V0 reserves familiar root names such as `Unit`, `Bool`, `Int`, `UInt`, `Float`,
-`Text`, `Bytes`, `OutputError`, `Result`, `Option`, `Maybe`, `list`, `List`, `Vec`, `Slice`,
-`Span`, `Map`, and `Set`.
+`Text`, `Bytes`, `OutputError`, `ReplayClockError`, `Result`, `Option`, `Maybe`,
+`list`, `List`, `Vec`, `Slice`, `Span`, `Map`, and `Set`.
 
 These are reserved annotation roots, not a complete stdlib, layout, ABI, trait,
 or generic semantics claim.

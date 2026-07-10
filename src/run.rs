@@ -1,10 +1,10 @@
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::{self, Write};
 
 use crate::app_entry;
 use crate::ast::{App, Item, ParamPermission, Program, SectionLine, Task};
-use crate::capability_root::{self, OutputPolicyFact};
+use crate::capability_root::{self, OutputPolicyFact, ReplayPolicyFact};
 use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
 use crate::element_place;
@@ -60,6 +60,8 @@ pub struct AuthorityAuditEvent {
     pub decision_reason: &'static str,
     pub adapter_called: bool,
     pub byte_count: usize,
+    pub replay_index: Option<usize>,
+    pub replay_tick: Option<i64>,
     pub result: &'static str,
 }
 
@@ -94,6 +96,33 @@ impl OutputAdapter for DeniedOutputAdapter {
 struct OutputRuntime<'a> {
     adapter: &'a mut dyn OutputAdapter,
     successful_bytes: usize,
+}
+
+pub(crate) trait ReplayAdapter {
+    fn next_tick(&mut self) -> Option<i64>;
+}
+
+pub(crate) struct RunnerReplayAdapter {
+    ticks: VecDeque<i64>,
+}
+
+impl RunnerReplayAdapter {
+    pub(crate) fn new(ticks: Vec<i64>) -> Self {
+        Self {
+            ticks: ticks.into(),
+        }
+    }
+}
+
+impl ReplayAdapter for RunnerReplayAdapter {
+    fn next_tick(&mut self) -> Option<i64> {
+        self.ticks.pop_front()
+    }
+}
+
+struct ReplayRuntime<'a> {
+    adapter: &'a mut dyn ReplayAdapter,
+    consumed: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -367,15 +396,18 @@ impl FailureValue {
 #[cfg(test)]
 pub fn run_program(program: &Program, entry: Option<&str>, raw_args: &[String]) -> RunReport {
     let mut adapter = DeniedOutputAdapter;
-    run_program_with_output(
+    let mut replay = RunnerReplayAdapter::new(Vec::new());
+    run_program_with_adapters(
         program,
         entry,
         raw_args,
         &OperatorGrantPolicy::default(),
         &mut adapter,
+        &mut replay,
     )
 }
 
+#[cfg(test)]
 pub(crate) fn run_program_with_output(
     program: &Program,
     entry: Option<&str>,
@@ -383,7 +415,27 @@ pub(crate) fn run_program_with_output(
     grant_policy: &OperatorGrantPolicy,
     output_adapter: &mut dyn OutputAdapter,
 ) -> RunReport {
+    let mut replay = RunnerReplayAdapter::new(Vec::new());
+    run_program_with_adapters(
+        program,
+        entry,
+        raw_args,
+        grant_policy,
+        output_adapter,
+        &mut replay,
+    )
+}
+
+pub(crate) fn run_program_with_adapters(
+    program: &Program,
+    entry: Option<&str>,
+    raw_args: &[String],
+    grant_policy: &OperatorGrantPolicy,
+    output_adapter: &mut dyn OutputAdapter,
+    replay_adapter: &mut dyn ReplayAdapter,
+) -> RunReport {
     let output_policies = output_policy_map(capability_root::output_policy_facts(program));
+    let replay_policies = replay_policy_map(capability_root::replay_policy_facts(program));
     let interpreter = Interpreter {
         program,
         failure_catalog: FailureCatalog::from_program(program),
@@ -395,8 +447,14 @@ pub(crate) fn run_program_with_output(
             adapter: output_adapter,
             successful_bytes: 0,
         }),
+        replay: RefCell::new(ReplayRuntime {
+            adapter: replay_adapter,
+            consumed: 0,
+        }),
         output_policies,
+        replay_policies,
         output_call_cursors: RefCell::new(BTreeMap::new()),
+        replay_call_cursors: RefCell::new(BTreeMap::new()),
         output_task_call_cursors: RefCell::new(BTreeMap::new()),
         active_task_route: RefCell::new(Vec::new()),
         active_call_route: RefCell::new(Vec::new()),
@@ -438,10 +496,36 @@ fn output_policy_map(
     policies
 }
 
+fn replay_policy_map(
+    facts: Vec<ReplayPolicyFact>,
+) -> BTreeMap<(String, usize), Vec<ReplayPolicyFact>> {
+    let mut policies = BTreeMap::<(String, usize), Vec<ReplayPolicyFact>>::new();
+    for fact in facts {
+        policies
+            .entry((fact.task.clone(), fact.call_span.line))
+            .or_default()
+            .push(fact);
+    }
+    for facts in policies.values_mut() {
+        facts.sort_by_key(|fact| fact.call_span.column);
+    }
+    policies
+}
+
 fn output_failure(variant: &str, span: Span) -> FailureValue {
     FailureValue::root(
         FailureVariant {
             root: "OutputError".to_string(),
+            variant: variant.to_string(),
+        },
+        span,
+    )
+}
+
+fn replay_failure(variant: &str, span: Span) -> FailureValue {
+    FailureValue::root(
+        FailureVariant {
+            root: "ReplayClockError".to_string(),
             variant: variant.to_string(),
         },
         span,
@@ -487,6 +571,54 @@ fn output_audit_event(
         decision_reason: decision.reason(),
         adapter_called,
         byte_count,
+        replay_index: None,
+        replay_tick: None,
+        result,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn replay_audit_event(
+    event_id: String,
+    event_sequence: usize,
+    request_id: String,
+    policy: &ReplayPolicyFact,
+    event_kind: &'static str,
+    decision: GrantDecision,
+    operator_allow_present: bool,
+    operator_deny_present: bool,
+    adapter_called: bool,
+    replay_index: usize,
+    replay_tick: Option<i64>,
+    result: &'static str,
+) -> AuthorityAuditEvent {
+    AuthorityAuditEvent {
+        event_id,
+        event_sequence,
+        request_id,
+        source_policy_id: policy.policy_id.clone(),
+        event_kind,
+        authority_surface: "hum_run_cli",
+        capability_id: "clock.replay",
+        grant_kind: "replay_input",
+        grant_scope: "runner_tick_sequence",
+        grant_strength: "read_ordered",
+        grant_lifetime: "one_run",
+        app_name: policy.app_name.clone(),
+        task: policy.task.clone(),
+        call_span: policy.call_span.clone(),
+        source_route: policy.source_route.clone(),
+        source_route_spans: policy.source_route_spans.clone(),
+        source_task_authorized: true,
+        source_app_authorized: policy.app_name.is_some(),
+        operator_allow_present,
+        operator_deny_present,
+        effective_decision: decision.effective(),
+        decision_reason: decision.reason(),
+        adapter_called,
+        byte_count: 0,
+        replay_index: Some(replay_index),
+        replay_tick,
         result,
     }
 }
@@ -499,8 +631,11 @@ struct Interpreter<'program, 'output> {
     active_app: RefCell<Option<&'program App>>,
     grant_policy: &'output OperatorGrantPolicy,
     output: RefCell<OutputRuntime<'output>>,
+    replay: RefCell<ReplayRuntime<'output>>,
     output_policies: BTreeMap<(String, usize), Vec<OutputPolicyFact>>,
+    replay_policies: BTreeMap<(String, usize), Vec<ReplayPolicyFact>>,
     output_call_cursors: RefCell<BTreeMap<(String, usize, String), usize>>,
+    replay_call_cursors: RefCell<BTreeMap<(String, usize, String), usize>>,
     output_task_call_cursors: RefCell<BTreeMap<(String, usize, String, String), usize>>,
     active_task_route: RefCell<Vec<String>>,
     active_call_route: RefCell<Vec<Span>>,
@@ -1371,6 +1506,9 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             if callee == "stdout_write" {
                 return self.eval_stdout_write(args, env, span, task_name);
             }
+            if callee == "clock_replay_tick" {
+                return self.eval_clock_replay_tick(args, span, task_name);
+            }
             if return_dependency::is_closed_view_deriving_operation(callee) {
                 return self.eval_slice_until(args, env, span, task_name);
             }
@@ -1578,6 +1716,127 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         }
     }
 
+    fn eval_clock_replay_tick(
+        &self,
+        args: &str,
+        statement_span: &Span,
+        task_name: &str,
+    ) -> Result<Evaluated, String> {
+        if !args.trim().is_empty() {
+            return Err("clock_replay_tick expects no arguments".to_string());
+        }
+        let policy = self.next_replay_policy(task_name, statement_span)?;
+        let decision = self.grant_policy.clock_replay_decision();
+        let replay_index = self.replay.borrow().consumed;
+        let request_id = self.record_replay_decision(&policy, decision, replay_index);
+
+        if decision != GrantDecision::Allowed {
+            self.record_replay_exercise(
+                &request_id,
+                &policy,
+                decision,
+                false,
+                replay_index,
+                None,
+                "denied_before_adapter_v0",
+            );
+            return Ok(Evaluated::Failure(replay_failure(
+                "denied",
+                policy.call_span,
+            )));
+        }
+
+        let tick = self.replay.borrow_mut().adapter.next_tick();
+        match tick {
+            Some(tick) => {
+                self.replay.borrow_mut().consumed += 1;
+                self.record_replay_exercise(
+                    &request_id,
+                    &policy,
+                    decision,
+                    true,
+                    replay_index,
+                    Some(tick),
+                    "tick_consumed_v0",
+                );
+                Ok(Evaluated::Value(Value::Int(tick)))
+            }
+            None => {
+                self.record_replay_exercise(
+                    &request_id,
+                    &policy,
+                    decision,
+                    true,
+                    replay_index,
+                    None,
+                    "sequence_exhausted_v0",
+                );
+                Ok(Evaluated::Failure(replay_failure(
+                    "exhausted",
+                    policy.call_span,
+                )))
+            }
+        }
+    }
+
+    fn next_replay_policy(
+        &self,
+        task_name: &str,
+        statement_span: &Span,
+    ) -> Result<ReplayPolicyFact, String> {
+        let key = (task_name.to_string(), statement_span.line);
+        let policies = self.replay_policies.get(&key).ok_or_else(|| {
+            format!(
+                "{}: clock_replay_tick has no checked source-policy fact",
+                location(statement_span)
+            )
+        })?;
+        let mut expected_route = self
+            .active_app
+            .borrow()
+            .map(|app| vec![app.name.clone()])
+            .unwrap_or_default();
+        expected_route.extend(self.active_task_route.borrow().iter().cloned());
+        let active_call_route = self.active_call_route.borrow().clone();
+        let matching = policies
+            .iter()
+            .filter(|policy| {
+                policy.source_route == expected_route
+                    && policy.source_route_spans.len() == active_call_route.len() + 1
+                    && same_span_identities(
+                        &policy.source_route_spans[..active_call_route.len()],
+                        &active_call_route,
+                    )
+                    && policy.source_route_spans.last().is_some_and(|span| {
+                        same_source_file(&span.file, &statement_span.file)
+                            && span.line == statement_span.line
+                    })
+            })
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
+            return Err(format!(
+                "{}: clock_replay_tick has no checked source-policy fact for route `{}`",
+                location(statement_span),
+                expected_route.join(" -> ")
+            ));
+        }
+        let route_key = active_call_route
+            .iter()
+            .map(span_identity_key)
+            .collect::<Vec<_>>()
+            .join("->");
+        let cursor_key = (
+            task_name.to_string(),
+            statement_span.line,
+            format!("{}|{route_key}", expected_route.join("->")),
+        );
+        let mut cursors = self.replay_call_cursors.borrow_mut();
+        let cursor = cursors.entry(cursor_key).or_default();
+        let policy = matching[*cursor % matching.len()].clone();
+        *cursor += 1;
+        Ok(policy.clone())
+    }
+
     fn next_output_policy(
         &self,
         task_name: &str,
@@ -1668,6 +1927,25 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             })
             .map(|policy| policy.source_route_spans[call_index].clone())
             .collect::<Vec<_>>();
+        candidates.extend(
+            self.replay_policies
+                .values()
+                .flatten()
+                .filter(|policy| {
+                    policy.source_route.starts_with(&expected_prefix)
+                        && policy.source_route_spans.len() > call_index
+                        && same_span_identities(
+                            &policy.source_route_spans[..call_index],
+                            &active_call_route,
+                        )
+                        && same_source_file(
+                            &policy.source_route_spans[call_index].file,
+                            &statement_span.file,
+                        )
+                        && policy.source_route_spans[call_index].line == statement_span.line
+                })
+                .map(|policy| policy.source_route_spans[call_index].clone()),
+        );
         candidates.sort_by_key(span_identity_key);
         candidates.dedup_by(|left, right| same_span_identity(left, right));
         if candidates.is_empty() {
@@ -1744,6 +2022,68 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             self.grant_policy.denies_stdout_write(),
             adapter_called,
             byte_count,
+            result,
+        ));
+    }
+
+    fn record_replay_decision(
+        &self,
+        policy: &ReplayPolicyFact,
+        decision: GrantDecision,
+        replay_index: usize,
+    ) -> String {
+        let mut events = self.authority_events.borrow_mut();
+        let ordinal = events
+            .iter()
+            .filter(|event| {
+                event.event_kind == "operator_decision" && event.capability_id == "clock.replay"
+            })
+            .count()
+            + 1;
+        let request_id = format!("{}:request-{ordinal}", policy.policy_id);
+        let event_sequence = events.len() + 1;
+        events.push(replay_audit_event(
+            format!("{request_id}:decision"),
+            event_sequence,
+            request_id.clone(),
+            policy,
+            "operator_decision",
+            decision,
+            self.grant_policy.allows_clock_replay(),
+            self.grant_policy.denies_clock_replay(),
+            false,
+            replay_index,
+            None,
+            "decision_recorded_v0",
+        ));
+        request_id
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_replay_exercise(
+        &self,
+        request_id: &str,
+        policy: &ReplayPolicyFact,
+        decision: GrantDecision,
+        adapter_called: bool,
+        replay_index: usize,
+        replay_tick: Option<i64>,
+        result: &'static str,
+    ) {
+        let mut events = self.authority_events.borrow_mut();
+        let event_sequence = events.len() + 1;
+        events.push(replay_audit_event(
+            format!("{request_id}:exercise"),
+            event_sequence,
+            request_id.to_string(),
+            policy,
+            "operation_exercise",
+            decision,
+            self.grant_policy.allows_clock_replay(),
+            self.grant_policy.denies_clock_replay(),
+            adapter_called,
+            replay_index,
+            replay_tick,
             result,
         ));
     }
@@ -2938,8 +3278,8 @@ mod tests {
     use crate::parser;
 
     use super::{
-        OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, RunOutcome, run_program,
-        run_program_with_output,
+        OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, ReplayAdapter, RunOutcome,
+        run_program, run_program_with_adapters, run_program_with_output,
     };
 
     #[derive(Default)]
@@ -2961,10 +3301,234 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct RecordingReplay {
+        ticks: std::collections::VecDeque<i64>,
+        calls: usize,
+    }
+
+    impl RecordingReplay {
+        fn new(ticks: &[i64]) -> Self {
+            Self {
+                ticks: ticks.iter().copied().collect(),
+                calls: 0,
+            }
+        }
+    }
+
+    impl ReplayAdapter for RecordingReplay {
+        fn next_tick(&mut self) -> Option<i64> {
+            self.calls += 1;
+            self.ticks.pop_front()
+        }
+    }
+
     fn allowed_stdout() -> OperatorGrantPolicy {
         let mut policy = OperatorGrantPolicy::default();
         policy.allow("stdout.write").expect("exact allow");
         policy
+    }
+
+    fn allowed_replay_and_stdout() -> OperatorGrantPolicy {
+        let mut policy = allowed_stdout();
+        policy.allow("clock.replay").expect("exact replay allow");
+        policy
+    }
+
+    #[test]
+    fn runner_replay_consumes_ordered_ticks_and_records_forensic_events() {
+        let program = fixture_program(
+            "examples/probes/runner_replay_clock.hum",
+            include_str!("../examples/probes/runner_replay_clock.hum"),
+        );
+        let mut output = RecordingOutput::default();
+        let mut replay = RecordingReplay::new(&[1, 7]);
+        let report = run_program_with_adapters(
+            &program,
+            None,
+            &[],
+            &allowed_replay_and_stdout(),
+            &mut output,
+            &mut replay,
+        );
+        assert_eq!(report.outcome, RunOutcome::AppSuccess);
+        assert_eq!(output.writes, vec![b"seven".to_vec()]);
+        assert_eq!(replay.calls, 2);
+        let replay_events = report
+            .authority_events
+            .iter()
+            .filter(|event| event.capability_id == "clock.replay")
+            .collect::<Vec<_>>();
+        assert_eq!(replay_events.len(), 4);
+        assert_eq!(replay_events[1].replay_index, Some(0));
+        assert_eq!(replay_events[1].replay_tick, Some(1));
+        assert_eq!(replay_events[3].replay_index, Some(1));
+        assert_eq!(replay_events[3].replay_tick, Some(7));
+        assert_ne!(
+            replay_events[0].source_policy_id,
+            replay_events[2].source_policy_id
+        );
+        assert_eq!(replay_events[0].source_route_spans[0].line, 49);
+        assert_eq!(replay_events[2].source_route_spans[0].line, 50);
+        assert!(replay_events.iter().all(|event| {
+            event.source_route == ["runner_replay_clock_probe", "run_tool", "read_tick"]
+                && event.source_route_spans.len() == 2
+                && event.source_policy_id.contains("clock-replay")
+        }));
+    }
+
+    #[test]
+    fn runner_replay_denials_do_not_call_adapter_or_grant_from_values() {
+        let program = fixture_program(
+            "examples/probes/runner_replay_clock.hum",
+            include_str!("../examples/probes/runner_replay_clock.hum"),
+        );
+        for (reason, policy) in [
+            ("default_empty_grant_set_v0", allowed_stdout()),
+            ("exact_deny_overrides_allow_v0", {
+                let mut policy = allowed_replay_and_stdout();
+                policy.deny("clock.replay").expect("exact replay deny");
+                policy
+            }),
+        ] {
+            let mut output = RecordingOutput::default();
+            let mut replay = RecordingReplay::new(&[1, 7]);
+            let report =
+                run_program_with_adapters(&program, None, &[], &policy, &mut output, &mut replay);
+            assert!(matches!(
+                report.outcome,
+                RunOutcome::AppFailure(ref chain)
+                    if chain.contains("ReplayAppError.replay")
+                        && chain.contains("ReplayClockError.denied")
+            ));
+            assert_eq!(replay.calls, 0, "{reason}");
+            assert_eq!(output.calls, 0, "{reason}");
+            let exercise = report
+                .authority_events
+                .iter()
+                .find(|event| event.event_kind == "operation_exercise")
+                .expect("replay exercise event");
+            assert_eq!(exercise.decision_reason, reason);
+            assert!(!exercise.adapter_called);
+        }
+    }
+
+    #[test]
+    fn runner_replay_exhaustion_is_typed_and_causal() {
+        let program = fixture_program(
+            "examples/probes/runner_replay_clock.hum",
+            include_str!("../examples/probes/runner_replay_clock.hum"),
+        );
+        let mut output = RecordingOutput::default();
+        let mut replay = RecordingReplay::new(&[1]);
+        let report = run_program_with_adapters(
+            &program,
+            None,
+            &[],
+            &allowed_replay_and_stdout(),
+            &mut output,
+            &mut replay,
+        );
+        assert!(matches!(
+            report.outcome,
+            RunOutcome::AppFailure(ref chain)
+                if chain.contains("ReplayAppError.replay")
+                    && chain.contains("while calling `read_tick`")
+                    && chain.contains("ReplayClockError.exhausted")
+                    && chain.contains("originated at examples/probes/runner_replay_clock.hum:30:22")
+        ));
+        assert_eq!(replay.calls, 2);
+        assert_eq!(output.calls, 0);
+        let exhausted = report
+            .authority_events
+            .iter()
+            .find(|event| event.result == "sequence_exhausted_v0")
+            .expect("exhausted exercise event");
+        assert!(exhausted.adapter_called);
+        assert_eq!(exhausted.replay_index, Some(1));
+        assert_eq!(exhausted.replay_tick, None);
+    }
+
+    #[test]
+    fn runner_replay_changed_tick_changes_only_selected_literal() {
+        let program = fixture_program(
+            "examples/probes/runner_replay_clock.hum",
+            include_str!("../examples/probes/runner_replay_clock.hum"),
+        );
+        let run = |ticks: &[i64]| {
+            let mut output = RecordingOutput::default();
+            let mut replay = RecordingReplay::new(ticks);
+            let report = run_program_with_adapters(
+                &program,
+                None,
+                &[],
+                &allowed_replay_and_stdout(),
+                &mut output,
+                &mut replay,
+            );
+            (report.outcome, output.writes)
+        };
+        assert_eq!(run(&[1, 7]), run(&[1, 7]));
+        assert_eq!(run(&[1, 7]).1, vec![b"seven".to_vec()]);
+        assert_eq!(run(&[1, 8]).1, vec![b"other".to_vec()]);
+    }
+
+    #[test]
+    fn runner_replay_runtime_has_no_host_clock_symbols() {
+        let source = include_str!("run.rs");
+        assert!(!source.contains(concat!("System", "Time")));
+        assert!(!source.contains(concat!("std::", "time")));
+        assert!(!source.contains(concat!("Instant", "::now")));
+    }
+
+    #[test]
+    fn runner_replay_path_separator_variants_keep_policy_identity_and_routes() {
+        let source = include_str!("../examples/probes/runner_replay_clock.hum");
+        let run = |path: &str| {
+            let program = fixture_program(path, source);
+            let mut output = RecordingOutput::default();
+            let mut replay = RecordingReplay::new(&[1, 7]);
+            let report = run_program_with_adapters(
+                &program,
+                None,
+                &[],
+                &allowed_replay_and_stdout(),
+                &mut output,
+                &mut replay,
+            );
+            assert_eq!(report.outcome, RunOutcome::AppSuccess);
+            report
+                .authority_events
+                .into_iter()
+                .filter(|event| {
+                    event.capability_id == "clock.replay" && event.event_kind == "operator_decision"
+                })
+                .map(|event| {
+                    (
+                        event.source_policy_id,
+                        event
+                            .source_route_spans
+                            .iter()
+                            .map(|span| (span.line, span.column))
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let backward_spelling = "examples/probes/runner_replay_clock.hum"
+            .chars()
+            .map(|character| {
+                if character == '/' {
+                    char::from(92)
+                } else {
+                    character
+                }
+            })
+            .collect::<String>();
+        assert_eq!(
+            run("examples/probes/runner_replay_clock.hum"),
+            run(&backward_spelling)
+        );
     }
 
     #[test]

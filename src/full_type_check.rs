@@ -104,6 +104,12 @@ struct StdoutWriteTypeIssue {
     reason: &'static str,
 }
 
+struct ReplayTickTypeIssue {
+    call_source: String,
+    call_span: Span,
+    reason: &'static str,
+}
+
 pub fn full_type_check_has_errors(program: &Program, diagnostics: &[Diagnostic]) -> bool {
     full_type_check_summary(program, diagnostics).blocking_issues > 0
 }
@@ -441,6 +447,27 @@ fn type_statement(
         return typed;
     }
 
+    if let Some(issue) = replay_tick_type_issue(statement) {
+        let mut typed = typed_statement(
+            statement,
+            index,
+            Some(issue.call_source),
+            Some("no arguments".to_string()),
+            None,
+            "rejected_invalid_clock_replay_call_v0",
+            Some(issue.reason),
+        );
+        typed.failure_form = Some("runner_replay_builtin");
+        typed.call_span = Some(issue.call_span);
+        typed.caller_span = Some(item.span().clone());
+        typed.diagnostic_code = Some(DiagnosticCode::INVALID_CLOCK_REPLAY_CALL.as_str());
+        typed.help = Some(
+            "Call `clock_replay_tick()` with no arguments, then handle its `ReplayClockError` explicitly."
+                .to_string(),
+        );
+        return typed;
+    }
+
     if let Some(fact) = failure_fact {
         let effect_owned_missing_declaration = fact.diagnostic_code
             == Some(crate::diagnostic::DiagnosticCode::MISSING_FAILURE_DECLARATION);
@@ -552,6 +579,31 @@ fn stdout_write_type_issue(
         call_span,
         actual_type,
         reason: "stdout_write_argument_must_be_text_v0",
+    })
+}
+
+fn replay_tick_type_issue(statement: &BodyStatement) -> Option<ReplayTickTypeIssue> {
+    let expression = expression_text_for_statement(statement)?;
+    let expression_offset = statement.text.find(expression).unwrap_or(0);
+    let call = typed_failure::calls_in_expression(expression)
+        .into_iter()
+        .find(|call| call.callee == "clock_replay_tick")?;
+    let call_span = Span {
+        file: statement.span.file.clone(),
+        line: statement.span.line,
+        column: statement.span.column
+            + statement.text[..expression_offset + call.source_offset]
+                .chars()
+                .count(),
+    };
+    let args = call
+        .source
+        .strip_prefix("clock_replay_tick(")?
+        .strip_suffix(')')?;
+    (!args.trim().is_empty()).then_some(ReplayTickTypeIssue {
+        call_source: call.source,
+        call_span,
+        reason: "clock_replay_tick_requires_zero_arguments_v0",
     })
 }
 
@@ -745,10 +797,16 @@ fn task_return_types_from_items(items: &[Item]) -> BTreeMap<String, TypeFact> {
 }
 
 fn session_z_builtin_return_types() -> BTreeMap<String, TypeFact> {
-    BTreeMap::from([(
-        name_key("stdout_write"),
-        type_fact("Unit", "stdout_write_builtin_v0"),
-    )])
+    BTreeMap::from([
+        (
+            name_key("stdout_write"),
+            type_fact("Unit", "stdout_write_builtin_v0"),
+        ),
+        (
+            name_key("clock_replay_tick"),
+            type_fact("UInt", "runner_replay_builtin_v0"),
+        ),
+    ])
 }
 
 fn collect_task_return_types(items: &[Item], returns: &mut BTreeMap<String, TypeFact>) {
@@ -1138,6 +1196,7 @@ fn is_blocking_statement(statement: &TypedStatement) -> bool {
         "rejected_statement_type_mismatch_v0"
             | "rejected_typed_failure_relationship_v0"
             | "rejected_invalid_stdout_write_call_v0"
+            | "rejected_invalid_clock_replay_call_v0"
             | "unchecked_statement_type_v0"
             | "blocked_unsupported_statement_v0"
             | "not_checked_blocked_by_prior_errors_v0"
@@ -1193,6 +1252,7 @@ impl FullTypeCheckReport {
                         | "rejected_typed_failure_relationship_v0"
                         | "rejected_statement_type_mismatch_v0"
                         | "rejected_invalid_stdout_write_call_v0"
+                        | "rejected_invalid_clock_replay_call_v0"
                 )
             })
             .count()
@@ -1228,6 +1288,7 @@ impl FullTypeCheckReport {
                     "rejected_statement_type_mismatch_v0"
                         | "rejected_typed_failure_relationship_v0"
                         | "rejected_invalid_stdout_write_call_v0"
+                        | "rejected_invalid_clock_replay_call_v0"
                 )
             })
             .count()

@@ -103,6 +103,19 @@ fn insert_session_z_builtins(out: &mut BTreeMap<String, TaskFailureSignature>) {
             },
         },
     );
+    out.insert(
+        "clock_replay_tick".to_string(),
+        TaskFailureSignature {
+            name: "clock_replay_tick".to_string(),
+            success_type: Some("UInt".to_string()),
+            error_root: Some("ReplayClockError".to_string()),
+            span: Span {
+                file: "<builtin:clock_replay_tick>".to_string(),
+                line: 1,
+                column: 1,
+            },
+        },
+    );
 }
 
 pub(crate) fn analyze_task(

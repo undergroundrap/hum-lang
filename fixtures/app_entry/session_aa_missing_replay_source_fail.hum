@@ -1,0 +1,19 @@
+app missing_replay_source {
+  uses:
+    clock.replay
+
+  starts with:
+    run_tool
+
+  task run_tool -> Result Unit, ReplayClockError {
+    fails when:
+      runner replay input is unavailable
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let tick = try clock_replay_tick()
+      return ()
+  }
+}

@@ -281,7 +281,7 @@ try {
   foreach ($Code in @('H0610', 'H0611', 'H0612', 'H0613', 'H0614', 'H0615', 'H0616')) {
     if (-not $DiagnosticsJson.Contains("`"code`": `"$Code`"")) { throw "diagnostic catalog JSON is missing $Code" }
   }
-  foreach ($Code in @('H0617', 'H0618', 'H0619', 'H0620', 'H0621', 'H0622', 'H0623', 'H0624')) {
+  foreach ($Code in @('H0617', 'H0618', 'H0619', 'H0620', 'H0621', 'H0622', 'H0623', 'H0624', 'H0625', 'H0626', 'H0627', 'H0628')) {
     if (-not $DiagnosticsJson.Contains("`"code`": `"$Code`"")) { throw "diagnostic catalog JSON is missing authority diagnostic $Code" }
   }
   if (-not $DiagnosticsJson.Contains('"code": "H0701"')) { throw 'diagnostic catalog JSON is missing H0701' }
@@ -1048,7 +1048,7 @@ try {
   if ($SessionYRoutes.Count -ne 15) { throw "Session Y positive expected 15 source-policy rows, got $($SessionYRoutes.Count)" }
   $SessionYPolicy = @{
     'stdout.write' = @{ Core = 'output'; Target = 'bounded_bootstrap_stdout_adapter_reserved_os.stdio'; Kind = 'output_stream'; Scope = 'app_stdout'; Strength = 'write'; Mapping = 'implemented_bounded_output_v0_reserved_os.stdio_mapping' }
-    'clock.replay' = @{ Core = 'time'; Target = 'ordered_runner_replay_input_no_host_clock'; Kind = 'replay_input'; Scope = 'runner_tick_sequence'; Strength = 'read_ordered'; Mapping = 'reserved_until_session_aa_v0' }
+    'clock.replay' = @{ Core = 'time'; Target = 'ordered_runner_replay_input_no_host_clock'; Kind = 'replay_input'; Scope = 'runner_tick_sequence'; Strength = 'read_ordered'; Mapping = 'implemented_runner_replay_input_v0_no_os.clock' }
     'files.read' = @{ Core = 'file'; Target = 'one_exact_native_path_via_os.filesystem_adapter'; Kind = 'file'; Scope = 'exact_native_path'; Strength = 'read'; Mapping = 'reserved_until_session_ad_v0' }
   }
   foreach ($Capability in @('stdout.write', 'clock.replay', 'files.read')) {
@@ -1295,6 +1295,140 @@ try {
 
   $SessionZHelp = Read-NativeOutput 'Session Z help text' $Hum @('--help')
   if (-not $SessionZHelp.Contains('--allow stdout.write') -or -not $SessionZHelp.Contains('--deny stdout.write')) { throw 'Session Z help must document exact output grant and deny flags' }
+
+  $SessionAAPositive = 'examples/probes/runner_replay_clock.hum'
+  foreach ($Command in @('resolve', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutput "Session AA $Command positive" $Hum @($Command, '--format', 'json', $SessionAAPositive)
+    Assert-Json "Session AA $Command positive" $Surface
+  }
+  $SessionAAGraph = Read-NativeOutput 'Session AA graph positive' $Hum @('graph', $SessionAAPositive)
+  Assert-Json 'Session AA graph positive' $SessionAAGraph
+
+  $SessionAAFirst = Read-NativeChannelsWithExit 'run Session AA ordered replay first' $Hum @('run', $SessionAAPositive, '--allow', 'clock.replay', '--allow', 'stdout.write', '--replay-tick', '1', '--replay-tick', '7')
+  $SessionAARepeat = Read-NativeChannelsWithExit 'run Session AA ordered replay repeat' $Hum @('run', $SessionAAPositive, '--allow', 'clock.replay', '--allow', 'stdout.write', '--replay-tick=1', '--replay-tick=7')
+  if ($SessionAAFirst.ExitCode -ne 0 -or $SessionAAFirst.Stdout -ne 'seven' -or $SessionAAFirst.Stderr -ne '' -or $SessionAARepeat.ExitCode -ne $SessionAAFirst.ExitCode -or $SessionAARepeat.Stdout -ne $SessionAAFirst.Stdout -or $SessionAARepeat.Stderr -ne $SessionAAFirst.Stderr) { throw 'Session AA identical complete replay inputs must reproduce exact process channels' }
+  $SessionAAChanged = Read-NativeChannelsWithExit 'run Session AA changed replay tick' $Hum @('run', $SessionAAPositive, '--allow', 'clock.replay', '--allow', 'stdout.write', '--replay-tick', '1', '--replay-tick', '8')
+  if ($SessionAAChanged.ExitCode -ne 0 -or $SessionAAChanged.Stdout -ne 'other' -or $SessionAAChanged.Stderr -ne '') { throw 'Session AA changed second tick must select the other fixed literal' }
+
+  foreach ($Denied in @(
+    @{ Name = 'default deny despite supplied values'; Args = @('run', $SessionAAPositive, '--allow', 'stdout.write', '--replay-tick', '1', '--replay-tick', '7') },
+    @{ Name = 'explicit deny overrides allow'; Args = @('run', $SessionAAPositive, '--allow', 'clock.replay', '--deny', 'clock.replay', '--allow', 'stdout.write', '--replay-tick', '1', '--replay-tick', '7') }
+  )) {
+    $DeniedRun = Read-NativeChannelsWithExit "run Session AA $($Denied.Name)" $Hum $Denied.Args
+    if ($DeniedRun.ExitCode -ne 1 -or $DeniedRun.Stdout -ne '' -or -not $DeniedRun.Stderr.Contains('failure: ReplayAppError.replay') -or -not $DeniedRun.Stderr.Contains('caused by: ReplayClockError.denied') -or $DeniedRun.Stderr.Contains('ReplayClockError.exhausted') -or $DeniedRun.Stderr.Contains('runtime trap')) { throw "Session AA $($Denied.Name) must be typed denial before replay or output adapter access" }
+  }
+
+  $SessionAAExhausted = Read-NativeChannelsWithExit 'run Session AA exhausted replay sequence' $Hum @('run', $SessionAAPositive, '--allow', 'clock.replay', '--allow', 'stdout.write', '--replay-tick', '1')
+  if ($SessionAAExhausted.ExitCode -ne 1 -or $SessionAAExhausted.Stdout -ne '' -or -not $SessionAAExhausted.Stderr.Contains('failure: ReplayAppError.replay') -or -not $SessionAAExhausted.Stderr.Contains('caused by: ReplayClockError.exhausted') -or -not $SessionAAExhausted.Stderr.Contains('while calling `read_tick`') -or -not $SessionAAExhausted.Stderr.Contains('originated at examples/probes/runner_replay_clock.hum:30:22') -or $SessionAAExhausted.Stderr.Contains('runtime trap')) { throw 'Session AA exhaustion must preserve the W-style outer-to-root causal chain' }
+
+  $SessionAAMissing = 'fixtures/app_entry/session_aa_missing_replay_source_fail.hum'
+  $SessionAAMissingHuman = Read-NativeOutputWithExit 'check Session AA missing replay source human' $Hum @('check', $SessionAAMissing)
+  $SessionAAMissingJson = Read-NativeOutputWithExit 'check Session AA missing replay source JSON' $Hum @('check', '--format', 'json', $SessionAAMissing)
+  if ($SessionAAMissingHuman.ExitCode -ne 1 -or [regex]::Matches($SessionAAMissingHuman.Output, 'error\[H0625\]').Count -ne 1 -or $SessionAAMissingJson.ExitCode -ne 1) { throw 'Session AA missing source authority must emit exactly one H0625' }
+  Assert-Json 'check Session AA missing replay source JSON' $SessionAAMissingJson.Output
+  $SessionAAMissingParsed = $SessionAAMissingJson.Output | ConvertFrom-Json
+  $SessionAAMissingDiagnostic = @($SessionAAMissingParsed.diagnostics | Where-Object { $_.code -eq 'H0625' })[0]
+  if ($null -eq $SessionAAMissingDiagnostic -or @($SessionAAMissingDiagnostic.related_spans).Count -ne 2 -or -not $SessionAAMissingHuman.Output.Contains($SessionAAMissingDiagnostic.message) -or -not $SessionAAMissingHuman.Output.Contains($SessionAAMissingDiagnostic.help)) { throw 'Session AA H0625 human/JSON call-task-app blame disagrees' }
+  $SessionAAMissingEffect = Read-NativeOutputWithExit 'effect Session AA missing replay source' $Hum @('effect-check', '--format', 'json', $SessionAAMissing)
+  Assert-Json 'effect Session AA missing replay source' $SessionAAMissingEffect.Output
+  $SessionAAMissingEffectParsed = $SessionAAMissingEffect.Output | ConvertFrom-Json
+  $SessionAAMissingRow = @($SessionAAMissingEffectParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $_.diagnostic_code -eq 'H0625' })[0]
+  if ($null -eq $SessionAAMissingRow -or $SessionAAMissingRow.status -ne 'rejected_missing_replay_source_authority_v0' -or $SessionAAMissingRow.core_effect -ne 'time' -or $null -eq $SessionAAMissingRow.app_span -or $null -eq $SessionAAMissingRow.caller_span -or @($SessionAAMissingRow.route_spans).Count -ne 1) { throw 'Session AA H0625 effect row must preserve the exact replay route and Core time fact' }
+  $SessionAAMissingRun = Read-NativeChannelsWithExit 'run Session AA missing replay source' $Hum @('run', $SessionAAMissing, '--allow', 'clock.replay', '--replay-tick', '1')
+  if ($SessionAAMissingRun.ExitCode -ne 1 -or $SessionAAMissingRun.Stdout -ne '' -or [regex]::Matches($SessionAAMissingRun.Stderr, 'error\[H0625\]').Count -ne 1 -or $SessionAAMissingRun.Stderr.Contains('runtime trap')) { throw 'Session AA H0625 must block before replay adapter execution' }
+
+  $SessionAAMissingCaller = Read-NativeChannelsWithExit 'run Session AA replay authority laundering' $Hum @('run', 'fixtures/app_entry/session_aa_missing_replay_caller_fail.hum', '--allow', 'clock.replay', '--replay-tick', '1')
+  if ($SessionAAMissingCaller.ExitCode -ne 1 -or $SessionAAMissingCaller.Stdout -ne '' -or [regex]::Matches($SessionAAMissingCaller.Stderr, 'error\[H0618\]').Count -ne 1 -or $SessionAAMissingCaller.Stderr.Contains('H0625') -or $SessionAAMissingCaller.Stderr.Contains('runtime trap')) { throw 'Session AA caller closure must prevent replay authority laundering under H0618' }
+
+  $SessionAAInvalid = 'fixtures/full_type_check/session_aa_invalid_replay_call_fail.hum'
+  $SessionAAInvalidHuman = Read-NativeOutputWithExit 'full type Session AA invalid replay call human' $Hum @('full-type-check', $SessionAAInvalid)
+  $SessionAAInvalidType = Read-NativeOutputWithExit 'full type Session AA invalid replay call' $Hum @('full-type-check', '--format', 'json', $SessionAAInvalid)
+  if ($SessionAAInvalidHuman.ExitCode -ne 1 -or $SessionAAInvalidType.ExitCode -ne 1) { throw 'Session AA invalid replay call must block full type human and JSON' }
+  Assert-Json 'full type Session AA invalid replay call' $SessionAAInvalidType.Output
+  $SessionAAInvalidParsed = $SessionAAInvalidType.Output | ConvertFrom-Json
+  $SessionAAInvalidRow = @($SessionAAInvalidParsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0626' })[0]
+  if ($null -eq $SessionAAInvalidRow -or $SessionAAInvalidRow.expected_type -ne 'no arguments' -or $SessionAAInvalidRow.reason -ne 'clock_replay_tick_requires_zero_arguments_v0' -or $SessionAAInvalidType.Output.Contains('H0907') -or -not $SessionAAInvalidHuman.Output.Contains('diagnostic=H0626') -or -not $SessionAAInvalidHuman.Output.Contains($SessionAAInvalidRow.help)) { throw 'Session AA H0626 must agree in human/JSON, pin the exact zero-argument signature, and precede missing fails-when blame' }
+  $SessionAAInvalidRun = Read-NativeChannelsWithExit 'run Session AA invalid replay call' $Hum @('run', $SessionAAInvalid, '--allow', 'clock.replay', '--replay-tick', '1')
+  if ($SessionAAInvalidRun.ExitCode -ne 1 -or $SessionAAInvalidRun.Stdout -ne '' -or -not $SessionAAInvalidRun.Stderr.Contains('diagnostic=H0626') -or $SessionAAInvalidRun.Stderr.Contains('H0907') -or $SessionAAInvalidRun.Stderr.Contains('runtime trap')) { throw 'Session AA H0626 must block before replay adapter execution and missing fails-when blame' }
+
+  $SessionAAImplicit = 'fixtures/full_type_check/session_aa_implicit_replay_fail.hum'
+  $SessionAAImplicitType = Read-NativeOutputWithExit 'full type Session AA implicit replay failure' $Hum @('full-type-check', '--format', 'json', $SessionAAImplicit)
+  if ($SessionAAImplicitType.ExitCode -ne 1) { throw 'Session AA implicit replay call must block full type' }
+  Assert-Json 'full type Session AA implicit replay failure' $SessionAAImplicitType.Output
+  $SessionAAImplicitParsed = $SessionAAImplicitType.Output | ConvertFrom-Json
+  $SessionAAImplicitRows = @($SessionAAImplicitParsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0901' })
+  if ($SessionAAImplicitRows.Count -ne 1 -or $SessionAAImplicitRows[0].callee -ne 'clock_replay_tick' -or $SessionAAImplicitRows[0].callee_result_root -ne 'ReplayClockError') { throw 'Session AA implicit replay call must preserve the Session W H0901 doctrine' }
+  $SessionAAImplicitRun = Read-NativeChannelsWithExit 'run Session AA implicit replay failure' $Hum @('run', $SessionAAImplicit, '--allow', 'clock.replay', '--replay-tick', '1')
+  if ($SessionAAImplicitRun.ExitCode -ne 1 -or $SessionAAImplicitRun.Stdout -ne '' -or [regex]::Matches($SessionAAImplicitRun.Stderr, 'diagnostic=H0901').Count -ne 1 -or $SessionAAImplicitRun.Stderr.Contains('runtime trap')) { throw 'Session AA implicit replay call must fail before the replay adapter' }
+
+  $SessionAAReserved = 'fixtures/app_entry/session_aa_reserved_replay_name_fail.hum'
+  $SessionAAReservedHuman = Read-NativeOutputWithExit 'check Session AA reserved replay name' $Hum @('check', $SessionAAReserved)
+  $SessionAAReservedJson = Read-NativeOutputWithExit 'check Session AA reserved replay name JSON' $Hum @('check', '--format', 'json', $SessionAAReserved)
+  if ($SessionAAReservedHuman.ExitCode -ne 1 -or [regex]::Matches($SessionAAReservedHuman.Output, 'error\[H0627\]').Count -ne 1 -or $SessionAAReservedJson.ExitCode -ne 1) { throw 'Session AA reserved replay name must emit exactly one H0627' }
+  Assert-Json 'check Session AA reserved replay name JSON' $SessionAAReservedJson.Output
+  $SessionAAReservedParsed = $SessionAAReservedJson.Output | ConvertFrom-Json
+  $SessionAAReservedDiagnostic = @($SessionAAReservedParsed.diagnostics | Where-Object { $_.code -eq 'H0627' })[0]
+  if ($null -eq $SessionAAReservedDiagnostic -or -not $SessionAAReservedHuman.Output.Contains($SessionAAReservedDiagnostic.message) -or -not $SessionAAReservedHuman.Output.Contains($SessionAAReservedDiagnostic.help)) { throw 'Session AA H0627 human/JSON identity disagrees' }
+  foreach ($Command in @('resolve', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutputWithExit "Session AA reserved replay name $Command" $Hum @($Command, '--format', 'json', $SessionAAReserved)
+    if ($Surface.ExitCode -ne 1) { throw "Session AA reserved replay name must block $Command" }
+    Assert-Json "Session AA reserved replay name $Command" $Surface.Output
+  }
+  $SessionAAReservedRun = Read-NativeChannelsWithExit 'run Session AA reserved replay name' $Hum @('run', $SessionAAReserved, '--allow', 'clock.replay', '--replay-tick', '1')
+  if ($SessionAAReservedRun.ExitCode -ne 1 -or $SessionAAReservedRun.Stdout -ne '' -or [regex]::Matches($SessionAAReservedRun.Stderr, 'error\[H0627\]').Count -ne 1) { throw 'Session AA H0627 must prevent runtime callable substitution' }
+
+  $SessionAARecursion = 'fixtures/app_entry/session_aa_replay_recursion_fail.hum'
+  $SessionAARecursionHuman = Read-NativeOutputWithExit 'check Session AA replay recursion human' $Hum @('check', $SessionAARecursion)
+  $SessionAARecursionJson = Read-NativeOutputWithExit 'check Session AA replay recursion JSON' $Hum @('check', '--format', 'json', $SessionAARecursion)
+  if ($SessionAARecursionHuman.ExitCode -ne 1 -or [regex]::Matches($SessionAARecursionHuman.Output, 'error\[H0628\]').Count -ne 1 -or $SessionAARecursionJson.ExitCode -ne 1) { throw 'Session AA replay-reachable recursion must produce exactly one H0628' }
+  Assert-Json 'check Session AA replay recursion JSON' $SessionAARecursionJson.Output
+  $SessionAARecursionParsed = $SessionAARecursionJson.Output | ConvertFrom-Json
+  $SessionAARecursionDiagnostic = @($SessionAARecursionParsed.diagnostics | Where-Object { $_.code -eq 'H0628' })[0]
+  if ($null -eq $SessionAARecursionDiagnostic -or @($SessionAARecursionDiagnostic.related_spans).Count -lt 5) { throw 'Session AA H0628 must preserve the complete finite route-to-cycle blame' }
+  $SessionAARecursionRun = Read-NativeChannelsWithExit 'run Session AA replay recursion' $Hum @('run', $SessionAARecursion, '--allow', 'clock.replay', '--replay-tick', '1')
+  if ($SessionAARecursionRun.ExitCode -ne 1 -or $SessionAARecursionRun.Stdout -ne '' -or [regex]::Matches($SessionAARecursionRun.Stderr, 'error\[H0628\]').Count -ne 1 -or $SessionAARecursionRun.Stderr.Contains('runtime trap')) { throw 'Session AA H0628 must reject before replay or a generic runtime trap' }
+
+  foreach ($Precedence in @(
+    @{ Name = 'recursion plus missing source authority'; Path = 'fixtures/app_entry/session_aa_recursion_missing_source_precedence_fail.hum'; Code = 'H0625'; Status = 'rejected_missing_replay_source_authority_v0' },
+    @{ Name = 'recursion plus missing caller authority'; Path = 'fixtures/app_entry/session_aa_recursion_missing_caller_precedence_fail.hum'; Code = 'H0618'; Status = 'rejected_missing_caller_capability_v0' }
+  )) {
+    $PrecedenceHuman = Read-NativeOutputWithExit "check Session AA $($Precedence.Name) human" $Hum @('check', $Precedence.Path)
+    $PrecedenceJson = Read-NativeOutputWithExit "check Session AA $($Precedence.Name) JSON" $Hum @('check', '--format', 'json', $Precedence.Path)
+    if ($PrecedenceHuman.ExitCode -ne 1 -or [regex]::Matches($PrecedenceHuman.Output, "error\[$($Precedence.Code)\]").Count -ne 1 -or $PrecedenceHuman.Output.Contains('H0628') -or $PrecedenceJson.ExitCode -ne 1) { throw "Session AA $($Precedence.Name) must have exactly one fundamental $($Precedence.Code) diagnostic" }
+    Assert-Json "check Session AA $($Precedence.Name) JSON" $PrecedenceJson.Output
+    $PrecedenceParsed = $PrecedenceJson.Output | ConvertFrom-Json
+    $PrecedenceErrors = @($PrecedenceParsed.diagnostics | Where-Object { $_.severity -eq 'error' })
+    if ($PrecedenceErrors.Count -ne 1 -or $PrecedenceErrors[0].code -ne $Precedence.Code) { throw "Session AA $($Precedence.Name) JSON ownership disagrees" }
+    $PrecedenceEffect = Read-NativeOutputWithExit "effect Session AA $($Precedence.Name)" $Hum @('effect-check', '--format', 'json', $Precedence.Path)
+    Assert-Json "effect Session AA $($Precedence.Name)" $PrecedenceEffect.Output
+    $PrecedenceEffectParsed = $PrecedenceEffect.Output | ConvertFrom-Json
+    $PrecedenceRejectedRows = @($PrecedenceEffectParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $null -ne $_.diagnostic_code })
+    if ($PrecedenceRejectedRows.Count -ne 1 -or $PrecedenceRejectedRows[0].diagnostic_code -ne $Precedence.Code -or $PrecedenceRejectedRows[0].status -ne $Precedence.Status) { throw "Session AA $($Precedence.Name) effect ownership disagrees" }
+    $PrecedenceRun = Read-NativeChannelsWithExit "run Session AA $($Precedence.Name)" $Hum @('run', $Precedence.Path, '--allow', 'clock.replay', '--replay-tick', '1')
+    if ($PrecedenceRun.ExitCode -ne 1 -or $PrecedenceRun.Stdout -ne '' -or [regex]::Matches($PrecedenceRun.Stderr, "error\[$($Precedence.Code)\]").Count -ne 1 -or $PrecedenceRun.Stderr.Contains('H0628') -or $PrecedenceRun.Stderr.Contains('runtime trap')) { throw "Session AA $($Precedence.Name) runtime-preflight ownership disagrees" }
+  }
+
+  $SessionAAEffect = Read-NativeOutput 'effect Session AA replay policy' $Hum @('effect-check', '--format', 'json', $SessionAAPositive)
+  Assert-Json 'effect Session AA replay policy' $SessionAAEffect
+  $SessionAAEffectParsed = $SessionAAEffect | ConvertFrom-Json
+  $SessionAARows = @($SessionAAEffectParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $_.status -eq 'accepted_declared_runner_replay_operation_v0' })
+  if ($SessionAARows.Count -ne 2) { throw "Session AA expected two route-specific replay operation rows, got $($SessionAARows.Count)" }
+  if (@($SessionAARows | Where-Object { $_.capability_id -ne 'clock.replay' -or $_.core_effect -ne 'time' -or $_.mapping_status -ne 'implemented_runner_replay_input_v0_no_os.clock' -or @($_.route_tasks).Count -ne 3 -or @($_.route_spans).Count -ne 2 }).Count -ne 0) { throw 'Session AA replay policy rows must preserve Core time, no-host-clock mapping, and complete routes' }
+  if ($SessionAARows[0].id -eq $SessionAARows[1].id) { throw 'Session AA repeated replay calls must retain distinct stable route policy IDs' }
+
+  $SessionAAEntry = Read-NativeChannelsWithExit 'run Session AA authority-bearing direct entry' $Hum @('run', $SessionAAPositive, '--entry', 'run_tool', '--allow', 'clock.replay', '--allow', 'stdout.write', '--replay-tick', '1', '--replay-tick', '7')
+  if ($SessionAAEntry.ExitCode -ne 1 -or $SessionAAEntry.Stdout -ne '' -or [regex]::Matches($SessionAAEntry.Stderr, 'error\[H0620\]').Count -ne 1) { throw 'Session AA --entry must not bypass the structural app authority root' }
+
+  $SessionAAInvalidTick = Read-NativeChannelsWithExit 'run Session AA invalid negative tick' $Hum @('run', $SessionAAPositive, '--replay-tick=-1')
+  if ($SessionAAInvalidTick.ExitCode -ne 2 -or $SessionAAInvalidTick.Stdout -ne '' -or -not $SessionAAInvalidTick.Stderr.Contains('must not be negative')) { throw 'Session AA malformed replay input must remain a CLI usage error' }
+  $SessionAATooManyArgs = @('run', $SessionAAPositive)
+  foreach ($Index in 1..1025) { $SessionAATooManyArgs += '--replay-tick=1' }
+  $SessionAATooMany = Read-NativeChannelsWithExit 'run Session AA replay input limit' $Hum $SessionAATooManyArgs
+  if ($SessionAATooMany.ExitCode -ne 2 -or $SessionAATooMany.Stdout -ne '' -or -not $SessionAATooMany.Stderr.Contains('at most 1024')) { throw 'Session AA must reject more than 1024 replay ticks as CLI usage' }
+
+  $SessionAAHelp = Read-NativeOutput 'Session AA help text' $Hum @('--help')
+  $SessionAAUsage = '  hum run [--timings] [--allow stdout.write] [--deny stdout.write] [--allow clock.replay] [--deny clock.replay] [--replay-tick <UInt>]... <file> [--entry <task>] [--args ...]'
+  if (-not $SessionAAHelp.Contains($SessionAAUsage)) { throw 'Session AA canonical Usage line must document exact output/replay consent and repeatable bounded runner input' }
 
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson

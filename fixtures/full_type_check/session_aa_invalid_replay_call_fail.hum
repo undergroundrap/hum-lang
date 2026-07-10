@@ -1,0 +1,19 @@
+app invalid_replay_call {
+  uses:
+    clock.replay
+
+  starts with:
+    run_tool
+
+  task run_tool -> Result Unit, ReplayClockError {
+    uses:
+      clock.replay
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let tick = try clock_replay_tick(1)
+      return ()
+  }
+}

@@ -110,7 +110,7 @@ full-type, effect, and runtime analysis. Before app execution, the existing
 resolver, declaration-type, and recognized full-type gates must be clean;
 runtime also fails closed rather than hiding a non-Unit value. App success adds
 no result display and typed app failure keeps Session W's causal stderr path.
-Session Y adds the checked source-authority half under proposed decision 0017.
+Session Y adds the checked source-authority half under accepted decision 0017.
 The only external source capability IDs are `stdout.write`, `clock.replay`, and
 `files.read`. App `uses:` is a maximum, each task declares its direct and
 transitive closed-call budget, callers cover callees, and the app covers the
@@ -138,6 +138,19 @@ thereby banned. This adds no prompt,
 persistence, wildcard, broader IO, runtime JSON, or target-availability claim.
 `--entry` stays a pure probe and is rejected when its selected closure
 carries any pinned source authority.
+
+Session AA adds the second bounded operation under the same authority spine:
+`clock_replay_tick() -> Result UInt, ReplayClockError` consumes one value from
+an ordered runner-provided sequence only after exact `clock.replay` source
+closure and operator consent intersect. Values are input rather than
+authority; default or explicit denial calls no replay adapter, and exhaustion
+is a typed causal failure. Existing effect rows map the operation to Core
+`time` with explicit runner-replay status and complete finite route identity.
+Runtime audit facts join policy, decision, exercise, sequence index, and tick.
+Replay-reachable recursion fails closed under H0628 only after H0625/H0618/
+H0619 authority precedence. This is controlled replay input, not `os.clock`, a
+host-time API, deterministic scheduling, randomness, or whole-program
+determinism.
 
 Session V's writable-field-alias slice is owned by one shared straight-line
 place analysis consumed by `ownership_check` and the interpreter. Resolver and

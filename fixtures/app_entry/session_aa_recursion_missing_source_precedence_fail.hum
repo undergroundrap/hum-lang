@@ -1,0 +1,38 @@
+app replay_recursion_missing_source {
+  uses:
+    clock.replay
+
+  starts with:
+    run_tool
+
+  task read_again(remaining: UInt) -> Result UInt, ReplayClockError {
+    fails when:
+      runner replay input is unavailable
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      if remaining == 0 {
+        let tick = try clock_replay_tick()
+        return tick
+      }
+      let tick = try read_again(remaining - 1)
+      return tick
+  }
+
+  task run_tool -> Result Unit, ReplayClockError {
+    uses:
+      clock.replay
+
+    fails when:
+      nested replay input is unavailable
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let tick = try read_again(1)
+      return ()
+  }
+}

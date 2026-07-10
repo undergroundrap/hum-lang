@@ -160,6 +160,9 @@ V0 recognizes and checks:
 - `accepted_declared_output_operation_v0`
 - `rejected_missing_output_source_authority_v0`
 - `rejected_output_reachable_recursion_v0`
+- `accepted_declared_runner_replay_operation_v0`
+- `rejected_missing_replay_source_authority_v0`
+- `rejected_replay_reachable_recursion_v0`
 
 Session Y capability boundary rows reuse the existing schema and add structured
 policy fields only on those rows: exact `capability_id`, reserved `core_effect`
@@ -188,8 +191,12 @@ ordinary tier. Session Y implements no wildcard, persistence, prompt, operator
 grant, deny, host operation, or audit log. Session Z adds only exact
 `stdout.write` grant/deny at runtime; output call rows carry Core effect
 `output`, exact lexical call provenance, and the implemented bounded-adapter
-mapping status. No wildcard, persistence, prompt, or broader capability is
-added.
+mapping status. Session AA adds exact `clock.replay` grant/deny and ordered
+runner input; replay call rows carry Core effect `time`, the complete finite
+route, and `implemented_runner_replay_input_v0_no_os.clock`. Runtime decision
+and exercise facts record the selected policy ID, sequence index, and consumed
+tick in memory. No wildcard, persistence, prompt, host clock, runtime JSON, or
+broader capability is added.
 
 ## Honesty Rules
 

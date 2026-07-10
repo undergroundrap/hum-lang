@@ -1,0 +1,14 @@
+app reserved_replay_name {
+  starts with:
+    run_tool
+
+  task clock_replay_tick -> Unit {
+    does:
+      return ()
+  }
+
+  task run_tool -> Unit {
+    does:
+      return ()
+  }
+}

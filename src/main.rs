@@ -280,12 +280,15 @@ fn run() -> Result<ExitCode, String> {
             }
 
             let mut output_adapter = run::StdoutOutputAdapter;
-            let report = run::run_program_with_output(
+            let mut replay_adapter =
+                run::RunnerReplayAdapter::new(options.run_replay_ticks.clone());
+            let report = run::run_program_with_adapters(
                 &program,
                 options.run_entry.as_deref(),
                 &options.run_args,
                 &options.run_authority,
                 &mut output_adapter,
+                &mut replay_adapter,
             );
             print_diagnostics(&report.diagnostics);
             let code = match report.outcome {
@@ -881,6 +884,7 @@ struct CliOptions {
     run_entry: Option<String>,
     run_args: Vec<String>,
     run_authority: operator_grant::OperatorGrantPolicy,
+    run_replay_ticks: Vec<i64>,
     show_timings: bool,
     check_format: CheckFormat,
     syntax_format: SyntaxFormat,
@@ -971,6 +975,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut run_entry = None;
     let mut run_args = Vec::new();
     let mut run_authority = operator_grant::OperatorGrantPolicy::default();
+    let mut run_replay_ticks = Vec::new();
     let mut check_format = CheckFormat::Human;
     let mut syntax_format = SyntaxFormat::Json;
     let mut version_format = VersionFormat::Human;
@@ -1042,12 +1047,31 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                 }
                 run_authority.deny(value)?;
             }
+            "--replay-tick" if command == "run" => {
+                let Some(value) = args.next() else {
+                    return Err("`hum run --replay-tick` requires a UInt value".to_string());
+                };
+                push_replay_tick(&mut run_replay_ticks, &value)?;
+            }
+            flag if command == "run" && flag.starts_with("--replay-tick=") => {
+                let value = flag.trim_start_matches("--replay-tick=");
+                if value.is_empty() {
+                    return Err("`hum run --replay-tick` requires a UInt value".to_string());
+                }
+                push_replay_tick(&mut run_replay_ticks, value)?;
+            }
             "--allow" | "--deny" => {
                 return Err(format!("`{arg}` is supported only by `hum run`"));
             }
             flag if flag.starts_with("--allow=") || flag.starts_with("--deny=") => {
                 let flag_name = flag.split_once('=').map_or(flag, |(name, _)| name);
                 return Err(format!("`{flag_name}` is supported only by `hum run`"));
+            }
+            "--replay-tick" => {
+                return Err("`--replay-tick` is supported only by `hum run`".to_string());
+            }
+            flag if flag.starts_with("--replay-tick=") => {
+                return Err("`--replay-tick` is supported only by `hum run`".to_string());
             }
             "--args" if command == "run" => {
                 run_args.extend(args);
@@ -1241,6 +1265,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1284,6 +1309,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1327,6 +1353,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1370,6 +1397,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1413,6 +1441,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1456,6 +1485,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1499,6 +1529,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1542,6 +1573,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1585,6 +1617,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1628,6 +1661,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1677,6 +1711,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1720,6 +1755,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1763,6 +1799,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             run_entry: None,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1807,6 +1844,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         run_entry,
         run_args,
         run_authority,
+        run_replay_ticks,
         show_timings,
         check_format,
         syntax_format,
@@ -1835,6 +1873,26 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         math_obligations_out_dir,
         explain_code: None,
     })
+}
+
+const MAX_REPLAY_TICKS: usize = 1024;
+
+fn push_replay_tick(ticks: &mut Vec<i64>, text: &str) -> Result<(), String> {
+    if ticks.len() == MAX_REPLAY_TICKS {
+        return Err(format!(
+            "`hum run` accepts at most {MAX_REPLAY_TICKS} `--replay-tick` values"
+        ));
+    }
+    let value = text
+        .parse::<i64>()
+        .map_err(|_| format!("`--replay-tick` value `{text}` is not a UInt"))?;
+    if value < 0 {
+        return Err(format!(
+            "`--replay-tick` value `{text}` must not be negative"
+        ));
+    }
+    ticks.push(value);
+    Ok(())
 }
 
 fn parse_check_format(value: &str) -> Result<CheckFormat, String> {
@@ -2276,7 +2334,7 @@ fn print_help() {
     println!("Usage:");
     println!("  hum check [--format human|json] [--timings] <file-or-dir>...");
     println!(
-        "  hum run [--timings] [--allow stdout.write] [--deny stdout.write] <file> [--entry <task>] [--args ...]"
+        "  hum run [--timings] [--allow stdout.write] [--deny stdout.write] [--allow clock.replay] [--deny clock.replay] [--replay-tick <UInt>]... <file> [--entry <task>] [--args ...]"
     );
     println!("  hum graph [--timings] <file-or-dir>...");
     println!("  hum evidence [--format human|json] [--timings] <file-or-dir>...");
@@ -2353,8 +2411,13 @@ fn print_help() {
     println!("  --format    Choose command output format where supported");
     println!("  --out-dir   Write one math obligation JSON file per obligation");
     println!("  --entry     Select the task used by `hum run`");
-    println!("  --allow     Add an exact one-run operator grant; Session Z accepts stdout.write");
-    println!("  --deny      Deny an exact capability; deny overrides allow");
+    println!(
+        "  --allow     Add an exact one-run grant, e.g. --allow stdout.write or --allow clock.replay"
+    );
+    println!(
+        "  --deny      Deny exactly, e.g. --deny stdout.write or --deny clock.replay; deny wins"
+    );
+    println!("  --replay-tick  Add one ordered runner replay UInt; repeatable up to 1024 values");
     println!("  --args      Pass all remaining values to `hum run`");
 }
 #[cfg(test)]
@@ -2417,6 +2480,47 @@ mod tests {
             options.run_authority.stdout_write_decision(),
             crate::operator_grant::GrantDecision::DeniedExplicit
         );
+    }
+
+    #[test]
+    fn parses_bounded_runner_replay_ticks_separately_from_authority() {
+        let options = parse_cli(vec![
+            "run".to_string(),
+            "examples/probes/runner_replay_clock.hum".to_string(),
+            "--replay-tick".to_string(),
+            "1".to_string(),
+            "--replay-tick=7".to_string(),
+        ])
+        .expect("runner replay ticks");
+        assert_eq!(options.run_replay_ticks, [1, 7]);
+        assert_eq!(
+            options.run_authority.clock_replay_decision(),
+            crate::operator_grant::GrantDecision::DeniedDefault
+        );
+
+        let mut too_many = vec![
+            "run".to_string(),
+            "examples/probes/runner_replay_clock.hum".to_string(),
+        ];
+        for _ in 0..1025 {
+            too_many.push("--replay-tick=1".to_string());
+        }
+        let error = parse_cli(too_many).expect_err("replay tick limit");
+        assert!(error.contains("at most 1024"));
+    }
+
+    #[test]
+    fn rejects_invalid_runner_replay_tick_values() {
+        for value in ["-1", "clock", ""] {
+            let flag = format!("--replay-tick={value}");
+            let error = parse_cli(vec![
+                "run".to_string(),
+                "examples/probes/runner_replay_clock.hum".to_string(),
+                flag,
+            ])
+            .expect_err("invalid replay tick");
+            assert!(error.contains("replay-tick"));
+        }
     }
 
     #[test]

@@ -263,6 +263,10 @@ Future ranges should be reserved before broad use:
 | `H0622` | error | invalid stdout_write call | The bounded output built-in does not receive exactly one checked `Text` argument. |
 | `H0623` | error | reserved built-in name redeclared | A user task attempts to redeclare the exact `stdout_write` built-in name. |
 | `H0624` | error | output-reachable recursion unsupported | A recursive call cycle can reach bounded output, so Session Z cannot assign a finite exact audit route. |
+| `H0625` | error | replay operation lacks source authority | A `clock_replay_tick` call lacks exact `clock.replay` coverage at its task or structural app boundary. |
+| `H0626` | error | invalid clock_replay_tick call | The runner-replay built-in receives an argument instead of using its exact zero-argument signature. |
+| `H0627` | error | reserved replay built-in name redeclared | A user task attempts to redeclare the exact `clock_replay_tick` built-in name. |
+| `H0628` | error | replay-reachable recursion unsupported | A recursive call cycle can reach replay input, so Session AA cannot assign a finite exact audit route. |
 
 ### Executable Contracts
 

@@ -825,8 +825,9 @@ impl ResolverContext {
                     definition.definition_kind,
                 )
             });
-        let builtin_callee =
-            input.reference_kind == "callee_ref" && input.name.trim() == "stdout_write";
+        let builtin_name = input.name.trim();
+        let builtin_callee = input.reference_kind == "callee_ref"
+            && matches!(builtin_name, "stdout_write" | "clock_replay_tick");
         let app_local_callee = input.reference_kind == "callee_ref"
             && self.scope_is_within_app_boundary(scope_id)
             && !builtin_callee;
@@ -842,7 +843,11 @@ impl ResolverContext {
             (
                 "builtin_reference_v0",
                 None,
-                Some("session_z_stdout_builtin_v0"),
+                Some(if builtin_name == "stdout_write" {
+                    "session_z_stdout_builtin_v0"
+                } else {
+                    "session_aa_runner_replay_builtin_v0"
+                }),
             )
         } else if let Some((definition_id, mutable, definition_kind)) = resolved {
             if input.mutable_required && !mutable && definition_kind != "parameter" {

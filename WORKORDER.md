@@ -2,9 +2,9 @@
 
 Date: 2026-07-09
 Status: active; Sessions V-Z accepted and committed; decision 0017 accepted
-under delegated authority, BDFL veto open; Session AA is next but unauthorized
-pending a separate BDFL go signal; issued under delegated authority
-(`docs/GOVERNANCE.md`)
+under delegated authority, BDFL veto open; Session AA implementation is
+complete and uncommitted pending architect-reviewer review; Session AB is
+forbidden; issued under delegated authority (`docs/GOVERNANCE.md`)
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
 sessions.
 Predecessor: Work Order 5, Sessions R-U. Commit `8a6dd1c` was the initially
@@ -706,6 +706,32 @@ Acceptance criteria:
   program determinism, deterministic scheduling, or `os.clock` support.
 - Standing checks pass. Stop. Do not begin Session AB.
 
+Implementation evidence awaiting review (2026-07-10):
+
+- `examples/probes/runner_replay_clock.hum` consumes two runner ticks through a
+  nested helper. Inputs `1, 7` select exact stdout bytes `seven`; `1, 8`
+  selects `other`; identical complete inputs reproduce stdout, stderr, and exit
+  status.
+- Exact `clock.replay` source closure and operator allow are independent of the
+  tick sequence. Default and explicit denial return
+  `ReplayClockError.denied` with zero replay-adapter calls; a one-value sequence
+  returns `ReplayClockError.exhausted` on the second call and preserves the
+  `ReplayAppError.replay` wrapper, helper call, propagation site, and root
+  origin.
+- H0625-H0628 pin missing task/app replay authority, invalid zero-argument
+  signature, reserved built-in identity, and replay-reachable recursion.
+  Permanent combined-cause fixtures preserve H0625/H0618 precedence before
+  recursion, and H0626 precedes the effect-owned missing-`fails when:` rule.
+- Existing effect boundary rows map route-specific replay operations to Core
+  `time` with `implemented_runner_replay_input_v0_no_os.clock`, complete
+  app/start/caller/operation spans, and stable policy IDs. In-memory decision
+  and exercise facts join those IDs to the ordered sequence index and consumed
+  tick. No runtime JSON surface is added.
+- Unit and CLI tests cover ordered consumption, repeat stability, changed-tick
+  selection, default/explicit denial, exhaustion, the 1024-value limit,
+  separator-normalized policy identity, zero host-clock symbols, and replay
+  adapter call counts.
+
 ## Session AB: opaque native Path boundary, no host read
 
 Purpose: make path identity non-Text and lossless before file contents can be
@@ -1037,6 +1063,7 @@ Session Y was accepted, committed as `d30107d`, pushed by BDFL instruction,
 and passed both CI platforms. Session Z was accepted and committed as
 `fdffd43`. Decision 0017 is accepted under delegated authority with the BDFL
 veto open. CI portability repair `b168a60` passed Ubuntu and Windows CI.
-Sessions V-Z are therefore accepted and committed. Session AA is next but
-remains unauthorized pending a separate BDFL go signal. Publishing remains a
-BDFL-reserved action under `docs/GOVERNANCE.md`.
+Sessions V-Z are therefore accepted and committed. Session AA was authorized
+by a separate BDFL go signal; its implementation is complete
+and uncommitted pending architect-reviewer review. Session AB is forbidden.
+Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.

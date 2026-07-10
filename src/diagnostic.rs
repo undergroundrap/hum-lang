@@ -108,6 +108,14 @@ impl DiagnosticCode {
     pub const RESERVED_BUILTIN_NAME: Self = Self::new("H0623", "reserved built-in name redeclared");
     pub const OUTPUT_RECURSION_UNSUPPORTED: Self =
         Self::new("H0624", "output-reachable recursion unsupported");
+    pub const REPLAY_CAPABILITY_UNDECLARED: Self =
+        Self::new("H0625", "replay operation lacks source authority");
+    pub const INVALID_CLOCK_REPLAY_CALL: Self =
+        Self::new("H0626", "invalid clock_replay_tick call");
+    pub const RESERVED_REPLAY_BUILTIN_NAME: Self =
+        Self::new("H0627", "reserved replay built-in name redeclared");
+    pub const REPLAY_RECURSION_UNSUPPORTED: Self =
+        Self::new("H0628", "replay-reachable recursion unsupported");
     pub const UNCHECKED_PROSE_CONTRACT: Self = Self::new("H0701", "unchecked prose contract");
     pub const NEEDS_CONTRACT_VIOLATION: Self = Self::new("H0702", "needs contract violation");
     pub const ENSURES_CONTRACT_VIOLATION: Self = Self::new("H0703", "ensures contract violation");

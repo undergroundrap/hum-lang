@@ -77,6 +77,19 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
         );
     }
 
+    if task.name == "clock_replay_tick" {
+        diagnostics.push(
+            Diagnostic::error(
+                DiagnosticCode::RESERVED_REPLAY_BUILTIN_NAME,
+                "task `clock_replay_tick` redeclares Hum's reserved runner-replay built-in",
+                Some(task.span.clone()),
+            )
+            .with_help(
+                "Rename this user task; `clock_replay_tick` is reserved for `clock_replay_tick() -> Result UInt, ReplayClockError`.",
+            ),
+        );
+    }
+
     if task.section("why").is_none() && task_missing_why_is_suspicious(task) {
         diagnostics.push(
             Diagnostic::warning(

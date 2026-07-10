@@ -115,13 +115,18 @@ For the current executable slice, app `uses:` is the maximum source-authority
 budget. The only external capability spellings are `stdout.write`,
 `clock.replay`, and `files.read`. Every task and caller repeats the exact
 capabilities in its closed direct-call route; the app covers the start-task
-closure. These declarations are not operator consent. Session Z adds only the
+closure. These declarations are not operator consent. Session Z adds the
 exact one-run `stdout.write` operator grant and
 `stdout_write(text: Text) -> Result Unit, OutputError`. The grant set defaults
 empty, exact deny wins, output is immediate exact UTF-8 with no newline, and a
 1 MiB rolling limit is checked before adapter access. `--entry` remains pure
 and cannot carry one of these capabilities even when `--allow` is present. The
-exact `stdout_write` name is reserved against user task declarations.
+exact `stdout_write` name is reserved against user task declarations. Session
+AA adds exact one-run `clock.replay` consent plus repeatable
+`--replay-tick <UInt>` runner input, bounded to 1024 values. The exact
+`clock_replay_tick() -> Result UInt, ReplayClockError` operation consumes that
+sequence in order. Denial and exhaustion are typed failures; replay values do
+not grant authority, and no host clock is read.
 
 ### Type
 
