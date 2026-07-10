@@ -1,7 +1,7 @@
 # Ownership Bake-Off Scorecard
 
 Date: 2026-07-08
-Status: Session Q implementation retrospective appended after Work Order 4
+Status: corrective Session U implementation retrospective for Work Order 5
 Corpus: [CORPUS.md](CORPUS.md)
 
 ## Purpose
@@ -129,31 +129,33 @@ the alternative is making pervasive view and parser code less natural forever.
 Session U records what the accepted Candidate A path actually implements after
 Work Order 5, through Sessions J-T. "Runs" means the named corpus behavior
 exists as a real Hum fixture under `hum run` and, when ownership is involved,
-under the relevant checker or misuse fixture. "Partial" means a real corpus
-misuse is rejected, but the positive program is still blocked. Degenerate,
-weaker, or restructured fixtures are named as evidence only; they do not count
-the corpus behavior as implemented.
+under the relevant checker and pinned misuse fixture. "Partial" means exactly
+one required half is implemented: either the positive program runs while its
+pinned misuse remains blocked, or the misuse rejects while the positive program
+remains blocked. Degenerate, weaker, or restructured fixtures are named as
+evidence only; they do not count the corpus behavior as implemented.
 
-Burn-down: Session M counted 1/12 running. Session Q counted 5/12 running plus
-1/12 partial, and Session U holds that count: Work Order 5 added no new
-program acceptances, by design. What it added is depth on the programs that
-already run — stale field/element view misuses are now rejected (programs 8,
-11, 12), and the contracts on those programs upgraded from golden values and
-prose to checked pre-state and length predicates. The running programs remain
-8, 9, 10, 11, and 12; program 3 remains partial because the
-retain-with-predicate positive form stays blocked by the effect-polymorphism
-gate.
+Corrected burn-down: Session M counted 1/12 running. Session Q previously
+reported 5/12 running plus 1/12 partial, but Program 8 never satisfied its
+pinned misuse gate. The corrected Session Q and Session U count is 4/12 fully
+running plus 2/12 partial: programs 9, 10, 11, and 12 fully run; program 3 is
+misuse-only partial because retain-with-predicate stays blocked by the
+effect-polymorphism gate; program 8 is positive-only partial because the direct
+swap runs while the overlapping-alias/two-write misuse remains unimplemented.
+Work Order 5 added checked stale field/element-view failures and stronger
+contracts, but H0802 permission failure and H0807 stale-view failure are not
+the Program 8 overlapping-write misuse and do not promote it to fully running.
 
 | # | Corpus program | Session U status | Evidence today | Missing feature or ban |
 | --- | --- | --- | --- | --- |
 | 1 | Doubly linked list with back-pointers | Blocked by missing feature | No runnable fixture. | Explicit arena/container API, stale-handle invalidation, and cyclic mutable structure are not implemented. |
 | 2 | Cyclic graph freed as a unit | Blocked by missing feature | No runnable fixture. | Graph arena or region lifetime, cyclic handles, and unit release are not implemented. |
-| 3 | Mutating a collection while iterating it | Partial: misuse rejected; retain positive path blocked | `fixtures/ownership_check/session_p_append_during_iteration_fail.hum` rejects structural append during active `for each` with H0806; `fixtures/ownership_check/session_s_append_iteration_view_overlap_fail.hum` proves H0806 wins over element-view invalidation on the append line; `examples/probes/task_list_flow.hum` still proves only read-only list iteration. | Retain-style in-place deletion with predicate tasks is blocked by the effect-polymorphism gate. |
+| 3 | Mutating a collection while iterating it | Partial: ordinary same-collection mutation rejects; corpus positives and retained-view misuse blocked | `fixtures/ownership_check/session_p_append_during_iteration_fail.hum` rejects ordinary structural append to the same list during active `for each` with H0806. `fixtures/ownership_check/session_s_append_iteration_view_overlap_fail.hum` proves H0806 diagnostic precedence for append with an active element view; it does not prove deletion or stale retained-item-view rejection. `examples/probes/task_list_flow.hum` contains read-only iteration only and is not an exact two-list odd-filter fixture. | No exact two-list odd-filter positive fixture; no retain-style positive deletion; no stale retained-item-view rejection after deletion. Retain's predicate task remains blocked by the effect-polymorphism gate, and deletion/invalidation semantics are unimplemented. |
 | 4 | Callback registry capturing caller state | Blocked by ban | No runnable fixture. | Closures, tasks-as-values, stored callbacks, and effect polymorphism are banned until the effect-polymorphism decision lands. |
 | 5 | Parser holding a slice into its own buffer | Blocked by missing feature | `fixtures/ownership_check/session_l_return_view_internal_fail.hum` rejects `from parser.buffer` with H0805. | Internal references and buffer/token invalidation are not implemented. |
 | 6 | Producer/consumer handoff between workers | Blocked by ban; local transfer subset runs | Session J consume fixtures prove local authority transfer and reject local use after consume. | Worker/concurrency syntax is banned, so no send/receive fixture exists. |
 | 7 | Memoizing cache read through a shared path | Blocked by missing feature | No runnable fixture. | Cache/map stdlib, source-visible internal mutation behind read-shaped APIs, and entry-view invalidation are not implemented. |
-| 8 | Swapping two fields of one record | Runs | `examples/probes/field_places.hum` runs `swap_xy({x:1,y:2}) -> {x:2,y:1}` under checked pre-state contracts `result.x == old(point.y)` and `result.y == old(point.x)`; `fixtures/run/session_t_wrong_swap_contract.hum` proves a sabotaged swap fails its own old() promise with H0703 task blame; ownership JSON accepts distinct `point.x` and `point.y` field writes; borrowed field write rejects with H0802; `fixtures/ownership_check/session_r_stale_point_field_view_fail.hum` rejects stale `point.x` views with H0807. | Nested places and general aliases are not implemented. |
+| 8 | Swapping two fields of one record | Partial: positive swap runs; overlapping-alias misuse blocked | `examples/probes/field_places.hum` runs `swap_xy({x:1,y:2}) -> {x:2,y:1}` for the definitely distinct direct fields `point.x` and `point.y`, under checked pre-state contracts. The pinned misuse — a second writable path that may alias `point.x` — has no fixture and cannot yet be expressed or rejected. H0802 checks borrowed-parameter permission and H0807 checks later use of an invalidated read view; neither proves overlapping two-write access. | Narrow overlapping-place alias tracking/disjoint-field projection and a blame-style misuse diagnostic explaining that the two writes are not known independent are not implemented. |
 | 9 | Returning a view derived from a parameter | Runs | `examples/probes/first_word.hum` runs `first_word("hum language") -> hum`; graph and ownership JSON expose the dependency from result to `text`; local and non-closed derivations reject with H0805. | Internal references such as `from parser.buffer` remain blocked; the closed derivation set is intentionally tiny. |
 | 10 | Transaction that must commit or roll back exactly once | Runs | `examples/probes/transaction_once.hum` returns `ok`; Session K misuse fixtures reject missing close, double close, and one-branch close with H0803/H0804. | The linear-resource marker is still Transaction-shaped rather than source-visible and general. |
 | 11 | Updating one record field while preserving the rest | Runs | `examples/probes/field_places.hum` accepts direct `set item.done = true` in `complete_item` under the checked preservation contract `result.title == old(item.title)`, which now runs with zero warnings; the run-only fixture `fixtures/run/session_o_complete_item_field_place.hum` prints `{done: true, title: hum}`; `fixtures/ownership_check/session_r_stale_item_field_view_fail.hum` rejects stale `item.done` views with H0807. | Nested places and general aliases are not implemented; record-update expression syntax remains future ergonomics. |
@@ -194,8 +196,9 @@ by nothing else: stale field-view invalidation is now checked for local
 direct field views (Session R, H0807), and stale element-view invalidation
 is now checked for local direct element views across `list_append` growth
 (Session S, H0807). The narrowed locks keep their honest remainder: nested
-places, general aliases, and views stored beyond the local task remain
-unchecked and unclaimed. Predicate v1 (Session T) additionally makes
+places, general aliases — including Program 8's pinned overlapping-write
+case — and views stored beyond the local task remain unchecked and unclaimed.
+Predicate v1 (Session T) additionally makes
 pre-state (`old(...)`) and length (`list_len`) contracts real, retiring the
 golden-value workaround.
 
@@ -209,53 +212,42 @@ library, or general linear resources.
 
 The three candidates, with what each defers:
 
-1. Internal references (program 5). Ledger support has weakened: after
-   Sessions R-T resolved the stale-view cluster, ownership holds only two
-   active records and is no longer over the three-strike threshold. The
-   deferral cost is contained: parser-state programs keep the honest
-   range-restructuring salvaged from candidate B, and internal references
-   should build on the now-proven view-invalidation discipline whenever
-   funded.
+1. Internal references (program 5). Ownership is triggered at three active
+   records, so its support has not weakened below the threshold. Funding
+   internal references would retire one common parser-state blocker and end
+   the range-restructuring fallback, but it would not close Program 8's
+   overlapping-alias/two-write gate or generalize the Transaction-shaped
+   linear marker. Deferral keeps natural self-referential parser state blocked
+   for at least one more work order.
 2. The effect-polymorphism decision record (programs 3 and 4, closures,
-   higher-order stdlib). No ledger trigger demands it. Deferral cost: the
-   stdlib stays first-order, retain and callbacks stay blocked. Pressure is
-   real but stable at two blocked programs.
-3. The first IO capability slice. No friction record demands it — and
-   Session U names the structural reason honestly: the friction ledger can
-   only indict what programs can attempt, and no program can attempt IO
-   that does not exist. The ledger is blind here by construction, so the
-   adoption strategy legitimately carries the argument instead: the wedge
-   demo, the evidence-bundle alpha, real tools, sandboxing flags,
-   deterministic-mode groundwork, and backlog items 18 (error chains) and
-   19 (entry as capability root) are all specified to be designed with the
-   IO slice. Deferral cost: Hum remains a language that cannot touch the
-   world, and every adoption artifact stays hypothetical.
+   higher-order stdlib). No three-strike area directly mandates it. Deferral
+   keeps the standard library first-order and leaves the Program 3 positive
+   retain path and Program 4 callbacks blocked for at least one more work
+   order.
+3. The first IO capability slice. No friction record can demand absent IO,
+   because no current program can attempt it. Adoption evidence nevertheless
+   gives it the strongest product pull: the offline-tool wedge, evidence-bundle
+   alpha, real utilities, sandboxing flags, deterministic-mode groundwork, and
+   backlog items 18 (error chains) and 19 (entry as capability root) all depend
+   on it. Deferral keeps every real-tool adoption artifact hypothetical for one
+   more work order.
 
-Recommendation: Work Order 6 is the first IO capability slice, designed
-with backlog items 18 and 19 inside it, and carrying the mandated contracts
-item as a design session — the contract-check-mode ADR (backlog 8), which
-is next in the Session Q ordering now that Predicate v1 has shipped, and
-which IO makes concrete: capability boundaries are exactly where
-external-trust contract classification stops being theoretical. Internal
-references and the effect-polymorphism ADR queue behind, ordered by the
-post-IO ledger.
+Recommendation: Work Order 6 planning must begin with the narrow Program 8
+overlapping-place/two-write alias repair. It is the missing accepted-decision
+0014 disjoint-field gate, it blocks a common otherwise-running corpus program,
+and the combination of corrected accounting and newly recognized unresolved
+evidence restores ownership to the three-strike threshold. Implementing the
+repair pays that active record down. H0802 and H0807 may remain adjacent
+evidence but cannot substitute for a pinned misuse fixture and a stable
+diagnostic explaining why the two writes are not known independent.
 
-The recommended next ownership repair is therefore a narrow stale-view slice:
-field and element view provenance plus invalidation on direct field writes and
-`list_append`, with misuse fixtures that reject stale use and diagnostics that
-name both the view and the invalidating mutation. Internal references should
-follow after that slice is green.
-
-Session R update: the field half of that slice is now green for local direct field views.
-
-Session S update: the element half of that slice is now green for local direct numeric element views. `let view = borrow list[0]` is accepted, `list_append` invalidates outstanding element views for that list with H0807, value copies survive growth, and the overlap fixture proves H0806 wins when active iteration and view invalidation meet on the append line. Internal references still follow after the stale-view slice is complete.
-
-The mandated contracts item should be Predicate v1, not contract-check-mode
-first. The full friction ledger now has three predicate-expressiveness demands
-(collection counts in `word_count`, pre-state references for field preservation,
-and list-content/list-shape contracts in `builder_demo`) against one check-mode
-demand from `divide`. Predicate v1 should start with pre-state references such
-as `old(item.title)` and small collection/list predicates needed by the probes,
-while keeping prose contracts visible as H0701 until they enter the checked
-grammar. The contract-check-mode ADR remains backlog, but the next work order
-must carry the Predicate v1 item explicitly.
+After that mandatory ownership gate, the adoption destination remains the first
+IO capability slice, with error chaining designed first and entry as the
+capability root designed with the slice. Work Order 6 issuance carries the
+triggered contract-policy item as
+[decision 0015](../decisions/0015-adopt-classified-runtime-contract-policy.md).
+That ruling changes no current runtime behavior and leaves the three active
+Predicate v2 vocabulary records deliberately deferred through the Work Order 6
+Session AE retrospective, where the three-strike rule must be reapplied.
+Internal references remain the next ownership repair after Program 8; effect
+polymorphism remains an explicit deferral.

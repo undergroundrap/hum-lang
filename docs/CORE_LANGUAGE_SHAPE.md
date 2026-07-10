@@ -471,6 +471,14 @@ friction:
   indicts: checker
   proposal: when contract predicates gain static type checking, the trap class retires; until then the class is recorded, not hidden
 
+friction:
+  program: docs/bakeoff/CORPUS.md:228
+  wanted: accept the swap of definitely distinct `point.x` and `point.y` while rejecting a second write through a path such as `alias_to_x` that may name `point.x`
+  forced: run the positive direct-field swap without any pinned overlapping-path/two-write misuse fixture; H0802 borrowed-write permission and H0807 stale-view use reject different behaviors
+  severity: blocked
+  indicts: ownership
+  proposal: require a narrow overlapping-place/two-write alias repair with a stable blamed diagnostic before counting program 8 as implemented
+
 Session U consolidation:
 
 The records above are the accumulated friction ledger through Work Order 5.
@@ -479,7 +487,7 @@ records stay as history.
 
 | Indicted area | Active count | Records | Three-strike result |
 | --- | ---: | --- | --- |
-| ownership | 2 | Transaction-shaped linear marker; internal-reference `from parser.buffer`. | Not triggered. The Session Q stale-view mandate was paid in full by Sessions R and S. |
+| ownership | 3 | Transaction-shaped linear marker; internal-reference `from parser.buffer`; Program 8 overlapping-alias/two-write misuse. | Triggered. Sessions R and S paid the local stale-view records, but neither H0802 nor H0807 implements the pinned overlapping-write rejection. |
 | contracts | 4 | Contract-check-mode for `divide`; content-conditional count remainder from `word_count`; list-content remainder from `builder_demo`; text-literal equality from `element_views`. | Triggered. Per the Session Q ordering, with Predicate v1 shipped, the mandated item is now the contract-check-mode ADR (backlog 8). The three vocabulary remainders feed Predicate v2 (backlog 9), not a new mandate. |
 | stdlib | 1 partial | Append shipped in Session P; retain, capacity/profile behavior, and richer list surface remain. | No trigger. |
 | types | 0 | Direct field mutation resolved the replacement-literal record in Session O. | No trigger. |
@@ -488,21 +496,28 @@ records stay as history.
 
 Three-strike outcome:
 
-- Ownership de-triggers for the first time since the ledger began: the
-  mandated stale-view repair shipped and its records are resolved with
-  honest remainders. The two survivors (general linear markers, internal
-  references) are real but below threshold.
+- Ownership remains triggered at three active records. The local field- and
+  element-view records are resolved, but Program 8 adds a distinct blocked
+  overlapping-alias/two-write requirement beside the general linear marker
+  and internal references. The next ownership work must not count H0802
+  permission rejection or H0807 stale-view rejection as that missing gate.
 - Contracts remain triggered at four active records, but the composition
   matters: three are vocabulary remainders explicitly routed to the
   Predicate v2 wishlist, and one is the check-mode question. The mandated
-  item is therefore the contract-check-mode ADR, which is paper, not
-  checker code, and can ride inside the next work order.
+  item is therefore the contract-check-mode ADR, which is policy, not
+  checker code. Work Order 6 issuance pays that item with
+  [decision 0015](decisions/0015-adopt-classified-runtime-contract-policy.md).
+  Decision 0015 changes no runtime behavior and does not erase the three
+  active Predicate v2 vocabulary records; Session AE must reapply the rule.
 
-Session U recommendation: Work Order 6 should be the first IO capability
-slice, with backlog items 18 (error chains) and 19 (entry as capability
-root) designed inside it and the mandated contract-check-mode ADR carried
-as a design session. The full three-candidate argument with deferral costs
-is in [bakeoff/SCORECARD.md](bakeoff/SCORECARD.md) under "Work Order 6
-recommendation after Session U", including the honest structural note that
-the friction ledger cannot indict missing IO because no program can attempt
-what does not exist.
+Session U recommendation: Work Order 6 planning must first pay the renewed
+ownership trigger with the narrow Program 8 overlapping-place/two-write alias
+repair, then pursue the adoption-critical first IO capability slice with
+backlog items 18 (error chains) and 19 (entry as capability root) designed
+inside it. Contracts were triggered at Session U; Work Order 6 carries the
+mandated policy item as decision 0015 while deliberately deferring the exact
+three Predicate v2 vocabulary records through Session AE. Internal references
+follow the Program 8 repair; effect polymorphism remains an explicit deferral.
+The full candidate argument and deferral costs are in
+[bakeoff/SCORECARD.md](bakeoff/SCORECARD.md) under "Work Order 6 recommendation
+after Session U".
