@@ -1,10 +1,11 @@
 # Hum Work Order 6: Overlapping Places And The First Local IO Slice
 
 Date: 2026-07-09
-Status: active; Sessions V-Z accepted and committed; decision 0017 accepted
-under delegated authority, BDFL veto open; Session AA implementation is
-complete and uncommitted pending architect-reviewer review; Session AB is
-forbidden; issued under delegated authority (`docs/GOVERNANCE.md`)
+Status: active; Sessions V-AA accepted and committed; decision 0017 accepted
+under delegated authority, BDFL veto open; Session AA is commit `77f5f88` and
+passed Ubuntu and Windows CI in workflow `29131490535`; Session AB is next but
+remains unauthorized pending a separate BDFL go signal; issued under delegated
+authority (`docs/GOVERNANCE.md`)
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
 sessions.
 Predecessor: Work Order 5, Sessions R-U. Commit `8a6dd1c` was the initially
@@ -1063,7 +1064,8 @@ Session Y was accepted, committed as `d30107d`, pushed by BDFL instruction,
 and passed both CI platforms. Session Z was accepted and committed as
 `fdffd43`. Decision 0017 is accepted under delegated authority with the BDFL
 veto open. CI portability repair `b168a60` passed Ubuntu and Windows CI.
-Sessions V-Z are therefore accepted and committed. Session AA was authorized
-by a separate BDFL go signal; its implementation is complete
-and uncommitted pending architect-reviewer review. Session AB is forbidden.
+Session AA was accepted, committed as `77f5f88`, and passed Ubuntu and Windows
+CI in workflow `29131490535`. Sessions V-AA are therefore accepted and
+committed. Session AB is next but remains unauthorized pending a separate BDFL
+go signal.
 Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
