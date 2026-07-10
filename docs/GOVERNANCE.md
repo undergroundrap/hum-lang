@@ -122,6 +122,53 @@ The implementer agent's pushback mandate applies with extra force to
 delegated rulings: it is the second reviewer when the first reviewer is
 also the one ruling.
 
+## Bake-Off Doctrine
+
+Decision 0014 (the ownership model) was decided by a method, not a mood,
+and the method is reusable. Every remaining hard design axis with
+competing plausible models gets the same instrument:
+
+1. Pin a model-neutral program corpus first: behavior specifications and
+   required rejections, never mechanisms. The corpus is the exam; write
+   it before any candidate can study for it.
+2. Each candidate is written by its best advocate, engaging its known
+   hard cases honestly. Cross-candidate criticism is deferred to the
+   scoring session. Strawmen make the bake-off theater.
+3. Scoring separates proven-today from with-planned-repairs counts,
+   weights by real-world pattern frequency, credits no unimplemented
+   machinery (elision, hidden costs, future checkers) to any candidate,
+   and prices every escape hatch.
+4. The losers are salvaged: their surviving ideas become escape hatches,
+   library patterns, or profile features, named in the decision record.
+5. The decision lands as an ADR under the delegated-ruling process, veto
+   open, with honesty locks that bind all claims until each planned
+   repair ships and passes the corpus as probe programs.
+
+A bake-off is authorized only when all three hold: genuinely competing
+models are plausible, the choice has long-term lock-in, and a pinned
+corpus can actually distinguish the candidates. Decisions that fail the
+test are ordinary ADRs; do not ceremonialize the obvious.
+
+Current recommended queue, in order — re-decided by each work-order
+retrospective ledger, which grants the next authorization (currently
+Session AE's ledger holds that power):
+
+1. Effect polymorphism and higher-order tasks.
+2. Structured concurrency and shared state.
+3. Generic abstraction and coherence.
+4. Allocation, containers, stable identity, arenas, and handles.
+5. Numeric modes, floating-point policy, and replay semantics.
+6. Text/Bytes/Path and Unicode boundaries.
+
+None are authorized until a retrospective ledger says so. Do not
+prebuild candidates, add speculative hooks, or widen a current session's
+surface toward an unauthorized bake-off. The strategic thesis this
+doctrine encodes: the ownership bake-off produced the project's best
+decision; running the same instrument deliberately down the remaining
+axes, in evidence-gated order, is the path to a language whose every
+load-bearing choice was made in the open against a corpus that could
+have falsified it.
+
 ## Scaling Notes: From One Crew To Many
 
 The operating model above assumes one crew: one BDFL, one architect-
