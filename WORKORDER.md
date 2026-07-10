@@ -1,8 +1,8 @@
 # Hum Work Order 6: Overlapping Places And The First Local IO Slice
 
 Date: 2026-07-09
-Status: active; Session V accepted and committed; corrective Session W work is
-awaiting architect-reviewer verdict,
+Status: active; Sessions V and W accepted and committed; Session X awaits a
+separate BDFL authorization,
 issued under delegated authority (`docs/GOVERNANCE.md`), BDFL veto open
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
 sessions.
@@ -195,8 +195,8 @@ acceptance criteria:
 
 ## Session V: narrow writable field aliases (Program 8)
 
-Implementation status: accepted and committed as `acfb36f`. Session W is the
-current uncommitted review subject.
+Implementation status: accepted and committed as `acfb36f`. Session W was
+accepted and committed as `2af02ae`.
 
 Purpose: pay the exact Program 8 overlap record before any other ownership
 work.
@@ -332,7 +332,7 @@ Acceptance criteria:
 - Standing checks pass. Stop. Session X is forbidden until decision 0016 is
   accepted or the BDFL gives a contrary ruling.
 
-Corrective implementation evidence awaiting re-review (2026-07-10):
+Accepted corrective implementation evidence (2026-07-10):
 
 - `examples/probes/causal_failures.hum` executes same-root and wrapping success
   as `7`. Its two-wrap failure exits 1 and renders `OuterError.context`, both
@@ -358,8 +358,9 @@ Corrective implementation evidence awaiting re-review (2026-07-10):
 - Resolver, full type, effect, ownership, resource, Core preview/lower/verify,
   graph, and runtime exercise the positive surface. Existing schema IDs and CLI
   surface are unchanged.
-- Decision 0016 is proposed only. Session X remains forbidden pending reviewer
-  ruling or a contrary BDFL ruling.
+- Decision 0016 is accepted under delegated authority with the BDFL veto open.
+  Session X is the next unfinished session and remains unauthorized pending a
+  separate BDFL go signal.
 
 ## Session X: structural executable app entry
 
@@ -888,8 +889,8 @@ Acceptance criteria:
 
 ## Current authorization gate
 
-Session V was accepted and committed as `acfb36f`. Corrective Session W work is
-present as uncommitted WIP and is the only active review subject. The
-implementer must stop after its acceptance evidence. Decision 0016 remains
-proposed, and Session X has not begun and is unauthorized. No commit or push is
-authorized at this gate.
+Sessions V and W were accepted and committed as `acfb36f` and `2af02ae`.
+Decision 0016 is accepted under delegated authority with the BDFL veto open.
+Session X is the next unfinished session, has not begun, and remains
+unauthorized until the BDFL gives a separate explicit go signal. Publishing
+remains a BDFL-reserved action under `docs/GOVERNANCE.md`.

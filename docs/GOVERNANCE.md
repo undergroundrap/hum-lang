@@ -58,14 +58,16 @@ titles do not dilute that, and no agent mandate creates a committee.
 Standing roles, accepted 2026-07-08:
 
 - BDFL (Ocean): taste, goals, scope, final authority. Accepts or rejects
-  every decision record. The review gates in active work orders (corpus
-  reads, candidate reads, ADR acceptance) exist to force BDFL engagement
-  at the moments that matter and may not be waived by agents.
+  decision records directly and retains the final veto over delegated rulings
+  under the amendment below. The review gates in active work orders (corpus
+  reads, candidate reads, ADR acceptance) exist to force BDFL engagement at
+  the moments that matter and may not be waived by agents.
 - Architect-reviewer agent: holds the direction between sessions, reviews
   every session deliverable against the active work order, and must
   challenge decisively — including challenging the BDFL. May recommend
-  with force. May hold a deliverable for BDFL input. May not accept
-  decision records or change governance.
+  with force. May hold a deliverable for BDFL input. May accept a decision
+  record only through the delegated-ruling process below; may not accept one
+  outside that process or change governance.
 - Implementer agent: makes strong local implementation calls within
   accepted decisions and the active work order, and must push back before
   building anything it believes is wrong. May not change accepted
