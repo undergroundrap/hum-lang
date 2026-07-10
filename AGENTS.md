@@ -90,6 +90,10 @@ audit; these run at any model tier — the philosophy is the asset):
 - Status spot-audit (retrospectives). Re-verify at least one prior "Runs"
   claim against its corpus-specified misuse, not just its fixtures —
   statuses drift from evidence (the Program 8 correction).
+- Docs-claims sweep. Every doctrine doc a session touched is audited for
+  wording that overclaims or misattributes the shipped rule (a sentence
+  saying a diagnostic "owns" a case it does not is a P2 defect, not
+  style). Prose drifts from semantics one adjective at a time.
 - Verdicts tag findings P0 (breaks soundness or crashes), P1 (rule gap or
   cross-stage disagreement), P2 (polish, docs, over-broad matching).
 
