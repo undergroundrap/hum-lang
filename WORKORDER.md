@@ -1,10 +1,10 @@
 # Hum Work Order 6: Overlapping Places And The First Local IO Slice
 
 Date: 2026-07-09
-Status: active; Sessions V-Y accepted and committed; Session Z implementation
-is complete and uncommitted pending architect-reviewer review; Session AA is
-forbidden,
-issued under delegated authority (`docs/GOVERNANCE.md`), BDFL veto open
+Status: active; Sessions V-Z accepted and committed; decision 0017 accepted
+under delegated authority, BDFL veto open; Session AA is next but unauthorized
+pending a separate BDFL go signal; issued under delegated authority
+(`docs/GOVERNANCE.md`)
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
 sessions.
 Predecessor: Work Order 5, Sessions R-U. Commit `8a6dd1c` was the initially
@@ -1034,10 +1034,9 @@ Session X was accepted by both reviewers independently (the Codex
 architect with zero findings; the cross-family reviewer on behavioral
 re-verification of the final hardened tree) and committed as `1605332`.
 Session Y was accepted, committed as `d30107d`, pushed by BDFL instruction,
-and passed both CI platforms. Decision 0017 remains proposed pending independent
-Session Z review. The BDFL authorized Session Z; its implementation is complete
-and uncommitted under the additional capability-grant criteria from
-research/2026-07-10-overnight-research-triage.md item 1. Session AA is forbidden
-until the architect-reviewer accepts decision 0017 under delegated authority or
-the BDFL gives a contrary ruling. Publishing remains a BDFL-reserved action
-under `docs/GOVERNANCE.md`.
+and passed both CI platforms. Session Z was accepted and committed as
+`fdffd43`. Decision 0017 is accepted under delegated authority with the BDFL
+veto open. CI portability repair `b168a60` passed Ubuntu and Windows CI.
+Sessions V-Z are therefore accepted and committed. Session AA is next but
+remains unauthorized pending a separate BDFL go signal. Publishing remains a
+BDFL-reserved action under `docs/GOVERNANCE.md`.
