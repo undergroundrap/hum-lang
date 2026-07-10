@@ -18,11 +18,18 @@ pub struct Span {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelatedSpan {
+    pub label: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub code: DiagnosticCode,
     pub severity: Severity,
     pub message: String,
     pub span: Option<Span>,
+    pub related_spans: Vec<RelatedSpan>,
     pub help: Option<String>,
 }
 
@@ -81,6 +88,13 @@ impl DiagnosticCode {
     pub const READ_BEFORE_DECLARE: Self = Self::new("H0604", "read before declaration");
     pub const UNKNOWN_TYPE_NAME: Self = Self::new("H0605", "unknown type name");
     pub const RETURN_TYPE_MISMATCH: Self = Self::new("H0606", "return type mismatch");
+    pub const APP_START_MISSING: Self = Self::new("H0610", "app start missing");
+    pub const APP_START_EMPTY: Self = Self::new("H0611", "app start empty");
+    pub const APP_START_DUPLICATE: Self = Self::new("H0612", "app start duplicated");
+    pub const APP_START_INVALID_NAME: Self = Self::new("H0613", "invalid app start name");
+    pub const APP_START_NOT_CHILD: Self = Self::new("H0614", "app start task is not a child");
+    pub const MULTIPLE_EXECUTABLE_APPS: Self = Self::new("H0615", "multiple executable apps");
+    pub const APP_START_INVALID_RESULT: Self = Self::new("H0616", "invalid app start result");
     pub const UNCHECKED_PROSE_CONTRACT: Self = Self::new("H0701", "unchecked prose contract");
     pub const NEEDS_CONTRACT_VIOLATION: Self = Self::new("H0702", "needs contract violation");
     pub const ENSURES_CONTRACT_VIOLATION: Self = Self::new("H0703", "ensures contract violation");
@@ -157,6 +171,7 @@ impl Diagnostic {
             severity: Severity::Error,
             message: message.into(),
             span,
+            related_spans: Vec::new(),
             help: None,
         }
     }
@@ -167,12 +182,21 @@ impl Diagnostic {
             severity: Severity::Warning,
             message: message.into(),
             span,
+            related_spans: Vec::new(),
             help: None,
         }
     }
 
     pub fn with_help(mut self, help: impl Into<String>) -> Self {
         self.help = Some(help.into());
+        self
+    }
+
+    pub fn with_related_span(mut self, label: impl Into<String>, span: Span) -> Self {
+        self.related_spans.push(RelatedSpan {
+            label: label.into(),
+            span,
+        });
         self
     }
 
@@ -202,6 +226,12 @@ impl Diagnostic {
         if let Some(help) = &self.help {
             rendered.push_str("\n  help: ");
             rendered.push_str(help);
+        }
+        for related in &self.related_spans {
+            rendered.push_str(&format!(
+                "\n  related: {} at {}:{}:{}",
+                related.label, related.span.file, related.span.line, related.span.column
+            ));
         }
         rendered
     }

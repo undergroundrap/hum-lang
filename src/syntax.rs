@@ -7,6 +7,7 @@ pub const VALUE_IDENTIFIER_PATTERN: &str = "[a-z_][a-z0-9_]*";
 pub const TYPE_IDENTIFIER_PATTERN: &str = "[A-Z][A-Za-z0-9]*";
 pub const PARAMETER_PERMISSION_MODES: &[&str] = &["borrow", "change", "consume"];
 pub const WRITABLE_FIELD_ALIAS_FORM: &str = "let <alias> = change <owner>.<field>";
+pub const APP_START_FORM: &str = "starts with: <direct_child_task_name>";
 pub const TYPED_FAILURE_FORMS: &[&str] = &[
     "let <value> = try <fallible_call>(<ordinary_value_arguments>)",
     "let <value> = try <fallible_call>(<ordinary_value_arguments>) or fail <CallerError>.<context>",
@@ -217,6 +218,12 @@ pub const SEMANTIC_TOKEN_RULES: &[SemanticTokenRule] = &[
         hum_role: "portability",
     },
     SemanticTokenRule {
+        source: "section:starts with",
+        token_type: "keyword",
+        modifiers: &["documentation"],
+        hum_role: "app_entry",
+    },
+    SemanticTokenRule {
         source: "section:uses",
         token_type: "keyword",
         modifiers: &["documentation", "readonly"],
@@ -282,6 +289,11 @@ pub const SECTION_CATALOG: &[SectionHelp] = &[
         name: "targets",
         applies_to: &["app", "task", "test"],
         hover: "Declares target fact records and capability families without selecting or probing a target.",
+    },
+    SectionHelp {
+        name: "starts with",
+        applies_to: &["app"],
+        hover: "Names the one directly nested Unit or Result Unit task selected by app execution.",
     },
     SectionHelp {
         name: "uses",
@@ -416,6 +428,7 @@ pub fn syntax_json() -> String {
         WRITABLE_FIELD_ALIAS_FORM,
         true,
     );
+    push_string_property(&mut out, 2, "app_start_form", APP_START_FORM, true);
     push_string_array(
         &mut out,
         2,
@@ -891,6 +904,10 @@ mod tests {
                 "\"writable_field_alias_form\": \"let <alias> = change <owner>.<field>\""
             )
         );
+        assert!(json.contains("\"app_start_form\": \"starts with: <direct_child_task_name>\""));
+        assert!(json.contains(
+            "{\"name\": \"starts with\", \"applies_to\": [\"app\"], \"hover\": \"Names the one directly nested Unit or Result Unit task selected by app execution.\"}"
+        ));
         assert!(json.contains("\"source\": \"writable_field_alias_permission\""));
         assert!(json.contains("\"typed_failure_forms\": ["));
         assert!(json.contains("\"source\": \"typed_failure_control\""));

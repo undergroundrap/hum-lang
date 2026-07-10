@@ -75,6 +75,12 @@ impl FailureCatalog {
         catalog
     }
 
+    pub fn from_items(items: &[Item]) -> Self {
+        let mut catalog = Self::default();
+        collect_signatures(items, &mut catalog.tasks);
+        catalog
+    }
+
     pub fn task(&self, name: &str) -> Option<&TaskFailureSignature> {
         self.tasks.get(name)
     }

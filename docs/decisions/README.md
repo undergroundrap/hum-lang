@@ -33,6 +33,7 @@ standard library direction, backend strategy, or release posture.
 | [0014](0014-adopt-ownership-model.md) | accepted (delegated, veto open) | Adopt ownership and borrowing as the core model; Session V earns only the exact local direct-field writable-alias slice. |
 | [0015](0015-adopt-classified-runtime-contract-policy.md) | accepted (delegated, veto open) | Classify runtime contracts by proof and trust boundary before any elision. |
 | [0016](0016-adopt-explicit-causal-typed-failure.md) | accepted under delegated authority (BDFL veto open) | Require explicit nominal propagation and preserve causal failure sites. |
+| [0017](0017-adopt-structural-app-authority-boundary.md) | proposed | Make the executable app structural, source authority bounded, operator consent explicit, and native paths non-Text. |
 
 ## Template
 

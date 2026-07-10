@@ -1,0 +1,51 @@
+type OutsideError {
+  code: Text
+}
+
+task choose -> Result Int, OutsideError {
+  why:
+    fail if an app helper call incorrectly uses global lookup
+
+  needs:
+    the caller intentionally selects the out-of-app probe
+
+  ensures:
+    the external probe never completes successfully
+
+  fails when:
+    this external probe is selected
+
+  allocates:
+    nothing
+
+  does:
+    let shared: Int = 99
+    let observed: Int = shared
+    fail OutsideError.wrong_scope
+}
+
+app scoped_calls {
+  why:
+    prove app-mode calls remain in the selected app subtree
+
+  starts with:
+    run_tool
+
+  task choose -> Int {
+    allocates:
+      nothing
+
+    does:
+      let shared: Int = 7
+      return shared
+  }
+
+  task run_tool -> Unit {
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let value = choose()
+      return
+  }
+}

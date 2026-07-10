@@ -1,0 +1,12 @@
+app missing_error_type {
+  why:
+    prove app execution honors declaration type checking
+
+  starts with:
+    run_tool
+
+  task run_tool -> Result Unit, MissingError {
+    does:
+      return
+  }
+}

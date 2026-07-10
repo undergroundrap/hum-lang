@@ -1,0 +1,11 @@
+app empty_start {
+  why:
+    prove an empty start declaration fails closed
+
+  starts with:
+
+  task run_tool -> Unit {
+    does:
+      return
+  }
+}

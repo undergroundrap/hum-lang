@@ -234,6 +234,7 @@ pub fn resolve_text(program: &Program, source_diagnostics: &[Diagnostic]) -> Str
                 diagnostic.code.as_str(),
                 diagnostic.message
             ));
+            out.push_str(&format!("    help: {}\n", diagnostic.help));
         }
     }
 
@@ -322,13 +323,25 @@ impl ResolverContext {
         span: Option<&Span>,
         preferred_id: String,
     ) -> String {
-        let id = if preferred_id.is_empty() {
-            let current = self.scope_serial;
-            self.scope_serial += 1;
-            format!("scope_{current}_{scope_kind}_{}", id_fragment(owner_name))
+        let current = self.scope_serial;
+        self.scope_serial += 1;
+        let base = if preferred_id.is_empty() {
+            format!("scope_{scope_kind}_{}", id_fragment(owner_name))
         } else {
             preferred_id
         };
+        let source_identity = span.map_or_else(
+            || "generated".to_string(),
+            |span| {
+                format!(
+                    "{}_{}_{}",
+                    id_fragment(&portable_path(&span.file)),
+                    span.line,
+                    span.column
+                )
+            },
+        );
+        let id = format!("{base}_{source_identity}_{current}");
         let parent = parent_scope_id.map(str::to_string);
         self.scope_parents.insert(id.clone(), parent.clone());
         self.scopes.push(ResolveScope {
@@ -812,7 +825,10 @@ impl ResolverContext {
                     definition.definition_kind,
                 )
             });
-        let external = input.external_if_unresolved || is_external_root(input.name);
+        let app_local_callee =
+            input.reference_kind == "callee_ref" && self.scope_is_within_app_boundary(scope_id);
+        let external =
+            (input.external_if_unresolved || is_external_root(input.name)) && !app_local_callee;
         let id = format!(
             "ref_{}_{}_{}",
             self.reference_serial, input.reference_kind, normalized_name
@@ -855,7 +871,7 @@ impl ResolverContext {
 
         match resolution_status {
             "unresolved_v0" => {
-                self.add_unresolved_name_diagnostic(input.name, input.span, &id);
+                self.add_unresolved_name_diagnostic(input.name, input.span, &id, app_local_callee);
             }
             "resolved_immutable_place_v0" => {
                 self.add_immutable_place_diagnostic(
@@ -877,13 +893,6 @@ impl ResolverContext {
         normalized_name: &str,
         reference_kind: &str,
     ) -> Option<&ResolveDefinition> {
-        if reference_kind == "callee_ref"
-            && let Some(global_definition) =
-                self.resolve_global_callable_or_type(scope_id, normalized_name)
-        {
-            return Some(global_definition);
-        }
-
         let mut cursor = Some(scope_id.to_string());
         while let Some(current_scope) = cursor {
             let key = (current_scope.clone(), normalized_name.to_string());
@@ -891,8 +900,15 @@ impl ResolverContext {
                 .definitions_by_scope_name
                 .get(&key)
                 .map(|definition| &self.definitions[definition.index])
+                .filter(|definition| {
+                    reference_kind != "callee_ref"
+                        || matches!(definition.definition_kind, "task" | "test" | "type")
+                })
             {
                 return Some(definition);
+            }
+            if reference_kind == "callee_ref" && self.is_app_scope(&current_scope) {
+                return None;
             }
             cursor = self
                 .scope_parents
@@ -902,41 +918,44 @@ impl ResolverContext {
         None
     }
 
-    fn resolve_global_callable_or_type(
-        &self,
-        scope_id: &str,
-        normalized_name: &str,
-    ) -> Option<&ResolveDefinition> {
-        let mut root_scope = scope_id.to_string();
-        while let Some(Some(parent)) = self.scope_parents.get(&root_scope) {
-            root_scope = parent.clone();
-        }
-        ["task", "test", "type"]
+    fn is_app_scope(&self, scope_id: &str) -> bool {
+        self.scopes
             .iter()
-            .find_map(|kind| self.find_definition_in_scope(&root_scope, normalized_name, kind))
+            .any(|scope| scope.id == scope_id && scope.scope_kind == "app")
     }
 
-    fn find_definition_in_scope(
-        &self,
-        scope_id: &str,
-        normalized_name: &str,
-        definition_kind: &str,
-    ) -> Option<&ResolveDefinition> {
-        let key = (scope_id.to_string(), normalized_name.to_string());
-        self.definitions_by_scope_name
-            .get(&key)
-            .map(|definition| &self.definitions[definition.index])
-            .filter(|definition| definition.definition_kind == definition_kind)
+    fn scope_is_within_app_boundary(&self, scope_id: &str) -> bool {
+        let mut cursor = Some(scope_id.to_string());
+        while let Some(current_scope) = cursor {
+            if self.is_app_scope(&current_scope) {
+                return true;
+            }
+            cursor = self
+                .scope_parents
+                .get(&current_scope)
+                .and_then(|parent| parent.clone());
+        }
+        false
     }
 
-    fn add_unresolved_name_diagnostic(&mut self, name: &str, span: &Span, reference_id: &str) {
+    fn add_unresolved_name_diagnostic(
+        &mut self,
+        name: &str,
+        span: &Span,
+        reference_id: &str,
+        app_local_callee: bool,
+    ) {
         self.diagnostics.push(ResolverDiagnostic {
             code: DiagnosticCode::UNRESOLVED_NAME,
             severity: Severity::Error,
             title: DiagnosticCode::UNRESOLVED_NAME.title(),
             message: format!("name `{}` is not visible in this scope", name.trim()),
             source_span: portable_span(span),
-            help: "Declare the name before use, add a matching item, or list an external dependency under `uses:` when it is intentional.",
+            help: if app_local_callee {
+                "Declare or nest the helper task inside the current app; app-local calls cannot resolve file-level helpers."
+            } else {
+                "Declare the name before use, add a matching item, or list an external dependency under `uses:` when it is intentional."
+            },
             reference_id: Some(reference_id.to_string()),
             definition_id: None,
         });

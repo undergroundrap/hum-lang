@@ -1,7 +1,8 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::ast::{Item, ParamPermission, Program, SectionLine, Task};
+use crate::app_entry;
+use crate::ast::{App, Item, ParamPermission, Program, SectionLine, Task};
 use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
 use crate::element_place;
@@ -14,7 +15,9 @@ use crate::writable_field_alias::{self, AliasAnalysis, AliasBinding, AliasIssueK
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunOutcome {
     Success(String),
+    AppSuccess,
     Failure(String),
+    AppFailure(String),
     ContractViolation,
     Trap(String),
 }
@@ -299,11 +302,17 @@ pub fn run_program(program: &Program, entry: Option<&str>, raw_args: &[String]) 
         failure_catalog: FailureCatalog::from_program(program),
         diagnostics: RefCell::new(Vec::new()),
         active_iterations: RefCell::new(Vec::new()),
+        active_app: RefCell::new(None),
     };
     let outcome = match interpreter.run(entry, raw_args) {
-        Ok(TaskResult::Returned(value)) => RunOutcome::Success(display_value(&value)),
-        Ok(TaskResult::Failed(value)) => RunOutcome::Failure(value.render()),
-        Ok(TaskResult::ContractViolation) => RunOutcome::ContractViolation,
+        Ok((TaskResult::Returned(value), false)) => RunOutcome::Success(display_value(&value)),
+        Ok((TaskResult::Returned(Value::Unit), true)) => RunOutcome::AppSuccess,
+        Ok((TaskResult::Returned(_), true)) => RunOutcome::Trap(
+            "app start returned a non-Unit value after static checking".to_string(),
+        ),
+        Ok((TaskResult::Failed(value), false)) => RunOutcome::Failure(value.render()),
+        Ok((TaskResult::Failed(value), true)) => RunOutcome::AppFailure(value.render()),
+        Ok((TaskResult::ContractViolation, _)) => RunOutcome::ContractViolation,
         Err(message) => RunOutcome::Trap(message),
     };
     let diagnostics = interpreter.diagnostics.into_inner();
@@ -318,6 +327,7 @@ struct Interpreter<'a> {
     failure_catalog: FailureCatalog,
     diagnostics: RefCell<Vec<Diagnostic>>,
     active_iterations: RefCell<Vec<ActiveIteration>>,
+    active_app: RefCell<Option<&'a App>>,
 }
 
 enum TaskResult {
@@ -333,17 +343,31 @@ enum ContractKind {
 }
 
 impl<'a> Interpreter<'a> {
-    fn run(&self, entry: Option<&str>, raw_args: &[String]) -> Result<TaskResult, String> {
-        let task = self.entry_task(entry)?;
+    fn run(&self, entry: Option<&str>, raw_args: &[String]) -> Result<(TaskResult, bool), String> {
+        let (task, app_mode) = self.entry_task(entry)?;
         let args = self.parse_args(task, raw_args)?;
         self.execute_task(task, args)
+            .map(|result| (result, app_mode))
     }
 
-    fn entry_task(&self, entry: Option<&str>) -> Result<&'a Task, String> {
+    fn entry_task(&self, entry: Option<&str>) -> Result<(&'a Task, bool), String> {
         if let Some(name) = entry {
             return self
                 .find_task(name)
+                .map(|task| (task, false))
                 .ok_or_else(|| format!("entry task `{name}` was not found"));
+        }
+
+        let analysis = app_entry::analyze(self.program);
+        if let Some(diagnostic) = analysis.diagnostic {
+            let code = diagnostic.code.as_str();
+            let title = diagnostic.code.title();
+            self.diagnostics.borrow_mut().push(diagnostic);
+            return Err(format!("{code} {title}"));
+        }
+        if let Some(entry) = analysis.entry {
+            self.active_app.replace(Some(entry.app));
+            return Ok((entry.task, true));
         }
 
         let mut tasks = Vec::new();
@@ -351,13 +375,16 @@ impl<'a> Interpreter<'a> {
             collect_tasks(&file.items, &mut tasks);
         }
         match tasks.as_slice() {
-            [task] => Ok(*task),
+            [task] => Ok((*task, false)),
             [] => Err("no task is available to run".to_string()),
             _ => Err("multiple tasks are available; pass `--entry <task>`".to_string()),
         }
     }
 
     fn find_task(&self, name: &str) -> Option<&'a Task> {
+        if let Some(app) = *self.active_app.borrow() {
+            return find_task_in_items(&app.items, name);
+        }
         self.program
             .files
             .iter()
@@ -526,7 +553,14 @@ impl<'a> Interpreter<'a> {
         task: &Task,
         statements: &[BodyStatement],
     ) -> Result<(), String> {
-        let analysis = typed_failure::analyze_task(task, statements, &self.failure_catalog);
+        let scoped_catalog;
+        let catalog = if let Some(app) = *self.active_app.borrow() {
+            scoped_catalog = FailureCatalog::from_items(&app.items);
+            &scoped_catalog
+        } else {
+            &self.failure_catalog
+        };
+        let analysis = typed_failure::analyze_task(task, statements, catalog);
         let Some(fact) = analysis
             .facts
             .values()
@@ -2418,6 +2452,53 @@ mod tests {
             "diagnostics: {:#?}",
             report.diagnostics
         );
+    }
+
+    #[test]
+    fn structural_app_runs_without_displaying_unit() {
+        let program = fixture_program(
+            "examples/probes/pure_app_entry.hum",
+            include_str!("../examples/probes/pure_app_entry.hum"),
+        );
+        let report = run_program(&program, None, &["hello".to_string()]);
+        assert_eq!(report.outcome, RunOutcome::AppSuccess);
+        assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
+    }
+
+    #[test]
+    fn structural_app_keeps_typed_failure_distinct_from_legacy_display() {
+        let program = fixture_program(
+            "examples/probes/fallible_app_entry.hum",
+            include_str!("../examples/probes/fallible_app_entry.hum"),
+        );
+        let report = run_program(&program, None, &["true".to_string()]);
+        let RunOutcome::AppFailure(chain) = report.outcome else {
+            panic!("expected app failure");
+        };
+        assert!(chain.contains("failure: LaunchError.requested"));
+        assert!(chain.contains("originated at examples/probes/fallible_app_entry.hum:23:9"));
+    }
+
+    #[test]
+    fn app_mode_rejects_external_same_name_but_entry_remains_direct_probe() {
+        let program = fixture_program(
+            "fixtures/app_entry/session_x_external_same_name_fail.hum",
+            include_str!("../fixtures/app_entry/session_x_external_same_name_fail.hum"),
+        );
+        let app_report = run_program(&program, None, &[]);
+        assert!(matches!(
+            app_report.outcome,
+            RunOutcome::Trap(ref message) if message == "H0614 app start task is not a child"
+        ));
+        assert_eq!(app_report.diagnostics.len(), 1);
+        assert_eq!(
+            app_report.diagnostics[0].code,
+            DiagnosticCode::APP_START_NOT_CHILD
+        );
+
+        let direct_report = run_program(&program, Some("run_tool"), &[]);
+        assert_eq!(direct_report.outcome, RunOutcome::Success("()".to_string()));
+        assert!(direct_report.diagnostics.is_empty());
     }
 
     #[test]

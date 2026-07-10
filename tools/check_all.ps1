@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$GitRepoRoot = $RepoRoot.Replace([System.IO.Path]::DirectorySeparatorChar, '/')
 
 function Resolve-Tool {
   param(
@@ -76,6 +77,39 @@ function Read-NativeOutputWithExit {
   return [pscustomobject] @{
     Output = ($Output -join "`n")
     ExitCode = $ExitCode
+  }
+}
+
+function Read-NativeChannelsWithExit {
+  param(
+    [string] $Label,
+    [string] $FilePath,
+    [string[]] $Arguments
+  )
+
+  Write-Host "==> $Label"
+  if (@($Arguments | Where-Object { $_ -match '\s' }).Count -gt 0) {
+    throw "$Label channel capture accepts only whitespace-free smoke-test arguments"
+  }
+  $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $StartInfo.FileName = $FilePath
+  $StartInfo.Arguments = ($Arguments -join ' ')
+  $StartInfo.UseShellExecute = $false
+  $StartInfo.CreateNoWindow = $true
+  $StartInfo.RedirectStandardOutput = $true
+  $StartInfo.RedirectStandardError = $true
+  $Process = New-Object System.Diagnostics.Process
+  $Process.StartInfo = $StartInfo
+  if (-not $Process.Start()) {
+    throw "$Label could not start"
+  }
+  $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
+  $StderrTask = $Process.StandardError.ReadToEndAsync()
+  $Process.WaitForExit()
+  return [pscustomobject] @{
+    Stdout = $StdoutTask.Result
+    Stderr = $StderrTask.Result
+    ExitCode = $Process.ExitCode
   }
 }
 
@@ -244,6 +278,9 @@ try {
   if (-not $DiagnosticsJson.Contains('"code": "H0604"')) { throw 'diagnostic catalog JSON is missing H0604' }
   if (-not $DiagnosticsJson.Contains('"code": "H0605"')) { throw 'diagnostic catalog JSON is missing H0605' }
   if (-not $DiagnosticsJson.Contains('"code": "H0606"')) { throw 'diagnostic catalog JSON is missing H0606' }
+  foreach ($Code in @('H0610', 'H0611', 'H0612', 'H0613', 'H0614', 'H0615', 'H0616')) {
+    if (-not $DiagnosticsJson.Contains("`"code`": `"$Code`"")) { throw "diagnostic catalog JSON is missing $Code" }
+  }
   if (-not $DiagnosticsJson.Contains('"code": "H0701"')) { throw 'diagnostic catalog JSON is missing H0701' }
   if (-not $DiagnosticsJson.Contains('"code": "H0702"')) { throw 'diagnostic catalog JSON is missing H0702' }
   if (-not $DiagnosticsJson.Contains('"code": "H0703"')) { throw 'diagnostic catalog JSON is missing H0703' }
@@ -846,6 +883,143 @@ try {
     Assert-Json "Session W $Command positive" $Surface
   }
 
+  $RunSessionXPure = Read-NativeOutputWithExit 'run Session X pure app' $Hum @('run', 'examples/probes/pure_app_entry.hum', '--args', 'hello')
+  if ($RunSessionXPure.ExitCode -ne 0 -or $RunSessionXPure.Output -ne '') { throw "Session X pure app must exit 0 with no automatic Unit output, got '$($RunSessionXPure.Output)'" }
+
+  $RunSessionXFallibleSuccess = Read-NativeOutputWithExit 'run Session X fallible app success' $Hum @('run', 'examples/probes/fallible_app_entry.hum', '--args', 'false')
+  if ($RunSessionXFallibleSuccess.ExitCode -ne 0 -or $RunSessionXFallibleSuccess.Output -ne '') { throw "Session X fallible app success must exit 0 with no automatic Unit output, got '$($RunSessionXFallibleSuccess.Output)'" }
+
+  $RunSessionXShadowing = Read-NativeOutputWithExit 'run Session X direct-child shadowing' $Hum @('run', 'fixtures/app_entry/session_x_direct_child_shadows_external_pass.hum')
+  if ($RunSessionXShadowing.ExitCode -ne 0 -or $RunSessionXShadowing.Output -ne '') { throw 'Session X app mode must select the direct child instead of the same-named failing external task' }
+
+  $RunSessionXScopedCall = Read-NativeOutputWithExit 'run Session X app-local helper lookup' $Hum @('run', 'fixtures/app_entry/session_x_nested_call_shadows_external_pass.hum')
+  if ($RunSessionXScopedCall.ExitCode -ne 0 -or $RunSessionXScopedCall.Output -ne '') { throw 'Session X app-mode helper calls must remain inside the selected app subtree' }
+
+  $RunSessionXExternalSentinel = Read-NativeOutputWithExit 'run Session X external helper sentinel' $Hum @('run', 'fixtures/app_entry/session_x_nested_call_shadows_external_pass.hum', '--entry', 'choose')
+  if ($RunSessionXExternalSentinel.ExitCode -ne 1 -or -not $RunSessionXExternalSentinel.Output.Contains('failure: OutsideError.wrong_scope')) { throw 'Session X direct --entry choose must reach the failing external sentinel' }
+  if ($RunSessionXExternalSentinel.Output.Contains('runtime trap')) { throw 'Session X external helper sentinel must remain a typed failure' }
+
+  $RunSessionXFailure = Read-NativeOutputWithExit 'run Session X typed app failure' $Hum @('run', 'examples/probes/fallible_app_entry.hum', '--args', 'true')
+  if ($RunSessionXFailure.ExitCode -ne 1) { throw "Session X typed app failure expected exit 1, got $($RunSessionXFailure.ExitCode)" }
+  foreach ($Expected in @('failure: LaunchError.requested', 'originated at examples/probes/fallible_app_entry.hum:23:9')) {
+    if (-not $RunSessionXFailure.Output.Contains($Expected)) { throw "Session X typed app failure is missing $Expected" }
+  }
+  if ($RunSessionXFailure.Output.Contains('runtime trap')) { throw 'Session X typed app failure must not be labeled a runtime trap' }
+
+  $SessionXPureChannels = Read-NativeChannelsWithExit 'run Session X pure app channel agreement' $Hum @('run', 'examples/probes/pure_app_entry.hum', '--args', 'hello')
+  if ($SessionXPureChannels.ExitCode -ne 0 -or $SessionXPureChannels.Stdout -ne '' -or $SessionXPureChannels.Stderr -ne '') { throw 'Session X pure app must leave stdout and stderr empty' }
+  $SessionXFailureChannels = Read-NativeChannelsWithExit 'run Session X typed app failure channel agreement' $Hum @('run', 'examples/probes/fallible_app_entry.hum', '--args', 'true')
+  if ($SessionXFailureChannels.ExitCode -ne 1 -or $SessionXFailureChannels.Stdout -ne '' -or -not $SessionXFailureChannels.Stderr.Contains('failure: LaunchError.requested')) { throw 'Session X typed app failure must render only on stderr with exit 1' }
+
+  $SessionXMisuses = @(
+    @{ Path = 'fixtures/app_entry/session_x_missing_start_fail.hum'; Code = 'H0610' },
+    @{ Path = 'fixtures/app_entry/session_x_empty_start_fail.hum'; Code = 'H0611' },
+    @{ Path = 'fixtures/app_entry/session_x_duplicate_start_fail.hum'; Code = 'H0612' },
+    @{ Path = 'fixtures/app_entry/session_x_multiple_start_lines_fail.hum'; Code = 'H0612' },
+    @{ Path = 'fixtures/app_entry/session_x_invalid_start_name_fail.hum'; Code = 'H0613' },
+    @{ Path = 'fixtures/app_entry/session_x_unknown_start_fail.hum'; Code = 'H0614' },
+    @{ Path = 'fixtures/app_entry/session_x_external_same_name_fail.hum'; Code = 'H0614' },
+    @{ Path = 'fixtures/app_entry/session_x_nested_non_child_fail.hum'; Code = 'H0614' },
+    @{ Path = 'fixtures/app_entry/session_x_multiple_apps_fail.hum'; Code = 'H0615' },
+    @{ Path = 'fixtures/app_entry/session_x_invalid_result_fail.hum'; Code = 'H0616' }
+  )
+  foreach ($Misuse in $SessionXMisuses) {
+    $Human = Read-NativeOutputWithExit "check Session X $($Misuse.Code) human" $Hum @('check', $Misuse.Path)
+    if ($Human.ExitCode -ne 1 -or [regex]::Matches($Human.Output, "error\[$($Misuse.Code)\]").Count -ne 1) { throw "Session X human evidence must contain exactly one $($Misuse.Code) for $($Misuse.Path)" }
+    if (-not $Human.Output.Contains('help:')) { throw "Session X human evidence is missing repair help for $($Misuse.Path)" }
+
+    $Json = Read-NativeOutputWithExit "check Session X $($Misuse.Code) JSON" $Hum @('check', '--format', 'json', $Misuse.Path)
+    if ($Json.ExitCode -ne 1) { throw "Session X JSON expected exit 1 for $($Misuse.Path)" }
+    Assert-Json "check Session X $($Misuse.Code) JSON" $Json.Output
+    $Parsed = $Json.Output | ConvertFrom-Json
+    if (@($Parsed.diagnostics).Count -ne 1 -or $Parsed.diagnostics[0].code -ne $Misuse.Code) { throw "Session X JSON must contain exactly one $($Misuse.Code) for $($Misuse.Path)" }
+    foreach ($Expected in @('span', 'help')) {
+      if ($null -eq $Parsed.diagnostics[0].$Expected) { throw "Session X JSON is missing $Expected for $($Misuse.Path)" }
+    }
+    if (-not $Human.Output.Contains($Parsed.diagnostics[0].message) -or -not $Human.Output.Contains($Parsed.diagnostics[0].help)) { throw "Session X human/JSON diagnostic text disagrees for $($Misuse.Path)" }
+
+    $Runtime = Read-NativeOutputWithExit "run Session X $($Misuse.Code) misuse" $Hum @('run', $Misuse.Path)
+    if ($Runtime.ExitCode -ne 1 -or [regex]::Matches($Runtime.Output, "error\[$($Misuse.Code)\]").Count -ne 1) { throw "Session X run preflight must contain exactly one $($Misuse.Code) and exit 1 for $($Misuse.Path)" }
+    if ($Runtime.Output.Contains('runtime trap')) { throw "Session X source misuse must reject before runtime for $($Misuse.Path)" }
+  }
+
+  $SessionXExternalJson = Read-NativeOutputWithExit 'check Session X external same-name relationship JSON' $Hum @('check', '--format', 'json', 'fixtures/app_entry/session_x_external_same_name_fail.hum')
+  $SessionXExternalParsed = $SessionXExternalJson.Output | ConvertFrom-Json
+  $RelatedLabels = @($SessionXExternalParsed.diagnostics[0].related_spans | ForEach-Object { $_.label }) -join "`n"
+  foreach ($Expected in @('app `lexical_tool`', 'non-child task `run_tool` is not selectable')) {
+    if (-not $RelatedLabels.Contains($Expected)) { throw "Session X external same-name relationship is missing $Expected" }
+  }
+
+  $SessionXNestedJson = Read-NativeOutputWithExit 'check Session X nested non-child relationship JSON' $Hum @('check', '--format', 'json', 'fixtures/app_entry/session_x_nested_non_child_fail.hum')
+  if ($SessionXNestedJson.ExitCode -ne 1) { throw 'Session X nested non-child fixture expected check exit 1' }
+  $SessionXNestedParsed = $SessionXNestedJson.Output | ConvertFrom-Json
+  if ($SessionXNestedParsed.diagnostics[0].code -ne 'H0614' -or @($SessionXNestedParsed.diagnostics[0].related_spans).Count -ne 2) { throw 'Session X nested non-child fixture must expose app and candidate-task relationships under H0614' }
+  $SessionXNestedLabels = @($SessionXNestedParsed.diagnostics[0].related_spans | ForEach-Object { $_.label }) -join "`n"
+  foreach ($Expected in @('app `outer_tool`', 'non-child task `run_tool` is not selectable')) {
+    if (-not $SessionXNestedLabels.Contains($Expected)) { throw "Session X nested non-child relationship is missing $Expected" }
+  }
+
+  $SessionXScopedResolve = Read-NativeOutput 'resolve Session X app-local helper JSON' $Hum @('resolve', '--format', 'json', 'fixtures/app_entry/session_x_nested_call_shadows_external_pass.hum')
+  Assert-Json 'resolve Session X app-local helper JSON' $SessionXScopedResolve
+  $SessionXScopedResolveParsed = $SessionXScopedResolve | ConvertFrom-Json
+  $SessionXScopeIds = @($SessionXScopedResolveParsed.scopes | ForEach-Object { $_.id })
+  if (@($SessionXScopeIds | Sort-Object -Unique).Count -ne $SessionXScopeIds.Count) { throw 'Session X resolver scope IDs must be unique by lexical/source identity' }
+  if ($SessionXScopedResolveParsed.summary.resolver_errors -ne 0 -or $SessionXScopedResolve.Contains('H0602')) { throw 'Session X same-named external/app-local helpers and locals must not produce resolver errors or false H0602' }
+  $SessionXSharedDefinitions = @($SessionXScopedResolveParsed.definitions | Where-Object { $_.name -eq 'shared' })
+  $SessionXSharedReferences = @($SessionXScopedResolveParsed.references | Where-Object { $_.reference_kind -eq 'name_ref' -and $_.name -eq 'shared' })
+  if ($SessionXSharedDefinitions.Count -ne 2 -or $SessionXSharedReferences.Count -ne 2) { throw 'Session X lexical identity fixture must expose both same-named local definitions and reads' }
+  foreach ($Reference in $SessionXSharedReferences) {
+    $Definition = @($SessionXSharedDefinitions | Where-Object { $_.id -eq $Reference.resolved_definition_id })[0]
+    if ($null -eq $Definition -or $Reference.resolution_status -ne 'resolved_v0' -or $Definition.scope_id -ne $Reference.scope_id) { throw 'Session X each same-named local read must resolve within its own callable scope' }
+  }
+  $SessionXAppScope = @($SessionXScopedResolveParsed.scopes | Where-Object { $_.scope_kind -eq 'app' -and $_.owner_name -eq 'scoped_calls' })[0]
+  $SessionXChooseReference = @($SessionXScopedResolveParsed.references | Where-Object { $_.reference_kind -eq 'callee_ref' -and $_.name -eq 'choose' })[0]
+  $SessionXChooseDefinition = @($SessionXScopedResolveParsed.definitions | Where-Object { $_.id -eq $SessionXChooseReference.resolved_definition_id -and $_.scope_id -eq $SessionXAppScope.id })[0]
+  if ($SessionXChooseReference.resolution_status -ne 'resolved_v0' -or $null -eq $SessionXChooseDefinition) { throw 'Session X resolver must bind choose() to the helper defined directly inside the app scope' }
+  foreach ($Command in @('full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutput "Session X $Command app-local helper" $Hum @($Command, '--format', 'json', 'fixtures/app_entry/session_x_nested_call_shadows_external_pass.hum')
+    Assert-Json "Session X $Command app-local helper" $Surface
+    if ($Surface.Contains('H0901') -or $Surface.Contains('blocked_by_full_type_check_errors')) { throw "Session X $Command disagrees with app-local helper identity" }
+  }
+  $SessionXScopedGraph = Read-NativeOutput 'graph Session X app-local helper' $Hum @('graph', 'fixtures/app_entry/session_x_nested_call_shadows_external_pass.hum')
+  Assert-Json 'graph Session X app-local helper' $SessionXScopedGraph
+  if ($SessionXScopedGraph.Contains('H0901')) { throw 'Session X graph must not contain H0901 for the app-local helper' }
+
+  $SessionXStaticBlockers = @(
+    @{ Name = 'external-only helper'; Path = 'fixtures/app_entry/session_x_external_helper_fail.hum'; Command = 'resolve'; Code = 'H0601' },
+    @{ Name = 'duplicate direct child'; Path = 'fixtures/app_entry/session_x_duplicate_direct_child_fail.hum'; Command = 'resolve'; Code = 'H0602' },
+    @{ Name = 'undeclared start result root'; Path = 'fixtures/app_entry/session_x_undeclared_result_root_fail.hum'; Command = 'type-check'; Code = 'H0605' },
+    @{ Name = 'Unit return mismatch'; Path = 'fixtures/app_entry/session_x_unit_return_mismatch_fail.hum'; Command = 'type-check'; Code = 'H0606' }
+  )
+  foreach ($Blocker in $SessionXStaticBlockers) {
+    $Static = Read-NativeOutputWithExit "Session X $($Blocker.Name) static gate" $Hum @($Blocker.Command, '--format', 'json', $Blocker.Path)
+    if ($Static.ExitCode -ne 1 -or [regex]::Matches($Static.Output, "`"code`": `"$($Blocker.Code)`"").Count -ne 1) { throw "Session X $($Blocker.Name) must produce exactly one $($Blocker.Code) static diagnostic" }
+    Assert-Json "Session X $($Blocker.Name) static gate" $Static.Output
+    $Run = Read-NativeOutputWithExit "run Session X $($Blocker.Name) blocker" $Hum @('run', $Blocker.Path)
+    if ($Run.ExitCode -ne 1 -or -not $Run.Output.Contains($Blocker.Code)) { throw "Session X app execution must stop on $($Blocker.Code) for $($Blocker.Name)" }
+    if ($Blocker.Name -eq 'external-only helper') {
+      $StaticParsed = $Static.Output | ConvertFrom-Json
+      $BoundaryHelp = $StaticParsed.diagnostics[0].help
+      if (-not $BoundaryHelp.Contains('inside the current app') -or $BoundaryHelp.Contains('uses:')) { throw 'Session X app-boundary H0601 must recommend an app-local helper and must not recommend uses:' }
+      if (-not $Run.Output.Contains($BoundaryHelp)) { throw 'Session X app-boundary H0601 human and JSON help must agree' }
+    }
+  }
+
+  $SessionXFullTypeBlocker = Read-NativeOutputWithExit 'full type Session X binding mismatch' $Hum @('full-type-check', '--format', 'json', 'fixtures/app_entry/session_x_full_type_binding_mismatch_fail.hum')
+  if ($SessionXFullTypeBlocker.ExitCode -ne 1) { throw 'Session X binding mismatch expected full-type exit 1' }
+  Assert-Json 'full type Session X binding mismatch' $SessionXFullTypeBlocker.Output
+  foreach ($Expected in @('rejected_statement_type_mismatch_v0', 'statement_expression_type_mismatch')) {
+    if (-not $SessionXFullTypeBlocker.Output.Contains($Expected)) { throw "Session X full-type blocker is missing $Expected" }
+  }
+  $SessionXFullTypeRun = Read-NativeOutputWithExit 'run Session X binding mismatch blocker' $Hum @('run', 'fixtures/app_entry/session_x_full_type_binding_mismatch_fail.hum')
+  if ($SessionXFullTypeRun.ExitCode -ne 1 -or -not $SessionXFullTypeRun.Output.Contains('rejected_statement_type_mismatch_v0')) { throw 'Session X app execution must stop on the full-type binding mismatch' }
+
+  $SessionXSourceChannels = Read-NativeChannelsWithExit 'run Session X source diagnostic channel agreement' $Hum @('run', 'fixtures/app_entry/session_x_external_same_name_fail.hum')
+  if ($SessionXSourceChannels.ExitCode -ne 1 -or $SessionXSourceChannels.Stdout -ne '' -or -not $SessionXSourceChannels.Stderr.Contains('error[H0614]')) { throw 'Session X source diagnostics must render only on stderr before execution' }
+
+  $RunSessionXDirectProbe = Read-NativeOutputWithExit 'run Session X direct --entry compatibility' $Hum @('run', 'fixtures/app_entry/session_x_external_same_name_fail.hum', '--entry', 'run_tool')
+  if ($RunSessionXDirectProbe.ExitCode -ne 0 -or $RunSessionXDirectProbe.Output.Trim() -ne '()') { throw "Session X direct --entry probe expected legacy (), got $($RunSessionXDirectProbe.Output)" }
+
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }
@@ -1404,7 +1578,7 @@ try {
   if (-not $IrReadinessJson.Contains('"mode": "recognized_profile_policy_gate_v0"')) { throw 'IR readiness JSON is missing profile-check gate mode' }
   if (-not $IrReadinessJson.Contains('"mode": "non_executing_artifact_invariant_check_v0"')) { throw 'IR readiness JSON is missing core verify mode' }
   if (-not $IrReadinessJson.Contains('"status": "unverified_core_artifact_v0"')) { throw 'IR readiness JSON is missing unverified core lower status' }
-  if (-not $IrReadinessJson.Contains('"typed_expression_previews": 1')) { throw 'IR readiness JSON is missing core preview typed expression count' }
+  if (-not $IrReadinessJson.Contains('"typed_expression_previews": 2')) { throw 'IR readiness JSON is missing core preview typed expression count' }
   if (-not $IrReadinessJson.Contains('"status": "declaration_annotations_and_trivial_returns_checked_v0"')) { throw 'IR readiness JSON should include clean type-check status for reference fixture' }
   if (-not $IrReadinessJson.Contains('"type_errors": 0')) { throw 'IR readiness JSON should have zero type errors for reference fixture' }
   if (-not $IrReadinessJson.Contains('"unknown_type_references": 0')) { throw 'IR readiness JSON should have zero unknown type refs for reference fixture' }
@@ -1506,8 +1680,8 @@ try {
   Assert-ReadmeHumExamplesMatch
   Assert-SessionASurfaceRules
 
-  Invoke-Native 'git diff --check' $Git @('diff', '--check')
-  Invoke-Native 'git diff --cached --check' $Git @('diff', '--cached', '--check')
+  Invoke-Native 'git diff --check' $Git @('-c', "safe.directory=$GitRepoRoot", '-C', $GitRepoRoot, 'diff', '--check')
+  Invoke-Native 'git diff --cached --check' $Git @('-c', "safe.directory=$GitRepoRoot", '-C', $GitRepoRoot, 'diff', '--cached', '--check')
 
   $DecisionIndex = [System.IO.File]::ReadAllText((Join-Path (Join-Path $RepoRoot 'docs') 'decisions\README.md'))
   if (-not $DecisionIndex.Contains('0009-adopt-formal-readability-not-english-mimicry.md')) { throw 'decision index is missing formal readability ADR' }

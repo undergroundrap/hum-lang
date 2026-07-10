@@ -3,6 +3,17 @@ module examples.reference_surface
 app reference_surface {
   why:
     show every current Milestone 0 top-level form in one checked file
+
+  starts with:
+    start_reference
+
+  task start_reference -> Unit {
+    why:
+      keep the reference app structurally executable without external effects
+
+    does:
+      return
+  }
 }
 
 type WorkItem {

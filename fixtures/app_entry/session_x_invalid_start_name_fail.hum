@@ -1,0 +1,12 @@
+app invalid_start_name {
+  why:
+    prove a start declaration is a name rather than a call
+
+  starts with:
+    run_tool()
+
+  task run_tool -> Unit {
+    does:
+      return
+  }
+}

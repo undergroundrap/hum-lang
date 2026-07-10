@@ -1,0 +1,12 @@
+app wrong_unit_result {
+  why:
+    prove an app cannot suppress a non-Unit returned value
+
+  starts with:
+    run_tool
+
+  task run_tool -> Unit {
+    does:
+      return 7
+  }
+}

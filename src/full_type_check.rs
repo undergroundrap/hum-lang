@@ -317,11 +317,13 @@ fn collect_items(
             out.push(typed_item);
         }
         if let Item::App(app) = item {
+            let app_task_returns = task_return_types_from_items(&app.items);
+            let app_failure_catalog = FailureCatalog::from_items(&app.items);
             collect_items(
                 &app.items,
                 blocked,
-                task_returns,
-                failure_catalog,
+                &app_task_returns,
+                &app_failure_catalog,
                 field_types,
                 out,
             );
@@ -630,6 +632,12 @@ fn task_return_types(program: &Program) -> BTreeMap<String, TypeFact> {
     for file in &program.files {
         collect_task_return_types(&file.items, &mut returns);
     }
+    returns
+}
+
+fn task_return_types_from_items(items: &[Item]) -> BTreeMap<String, TypeFact> {
+    let mut returns = BTreeMap::new();
+    collect_task_return_types(items, &mut returns);
     returns
 }
 

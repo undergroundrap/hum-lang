@@ -1,0 +1,33 @@
+type OutsideError {
+  code: Text
+}
+
+task run_tool -> Result Unit, OutsideError {
+  why:
+    fail if global lookup incorrectly wins over the app child
+
+  needs:
+    the caller intentionally selects the out-of-app probe
+
+  ensures:
+    the external probe never completes successfully
+
+  fails when:
+    this external probe is selected
+
+  does:
+    fail OutsideError.wrong_root
+}
+
+app lexical_tool {
+  why:
+    prove a direct child wins over an external same-named task
+
+  starts with:
+    run_tool
+
+  task run_tool -> Unit {
+    does:
+      return
+  }
+}

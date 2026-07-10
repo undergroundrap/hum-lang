@@ -1,0 +1,9 @@
+app missing_start {
+  why:
+    prove an executable app must declare its start task
+
+  task run_tool -> Unit {
+    does:
+      return
+  }
+}

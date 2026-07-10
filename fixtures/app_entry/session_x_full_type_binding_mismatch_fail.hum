@@ -1,0 +1,13 @@
+app full_type_gate {
+  why:
+    prove app execution honors the recognized body type gate
+
+  starts with:
+    run_tool
+
+  task run_tool -> Unit {
+    does:
+      let value: Text = 7
+      return
+  }
+}

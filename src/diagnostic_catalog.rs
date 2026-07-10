@@ -229,6 +229,48 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Return the expected value type, change the task result annotation, or keep complex expressions unchecked until full expression typing exists.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::APP_START_MISSING,
+        default_severity: Severity::Error,
+        explanation: "A top-level executable app has no `starts with:` declaration, so `hum run` has no structural task root.",
+        repair: "Add exactly one `starts with:` section containing one bare name of a task directly nested in the app.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::APP_START_EMPTY,
+        default_severity: Severity::Error,
+        explanation: "An executable app has a `starts with:` section but no meaningful start-task name.",
+        repair: "Put exactly one bare snake_case direct-child task name under `starts with:`.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::APP_START_DUPLICATE,
+        default_severity: Severity::Error,
+        explanation: "An executable app has multiple `starts with:` sections or multiple meaningful start declarations, making its root ambiguous.",
+        repair: "Keep one `starts with:` section with one meaningful bare task name.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::APP_START_INVALID_NAME,
+        default_severity: Severity::Error,
+        explanation: "An app start declaration is not one bare snake_case value identifier.",
+        repair: "Use a direct-child task name such as `run_tool`, without call syntax, paths, assignments, or state initialization.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::APP_START_NOT_CHILD,
+        default_severity: Severity::Error,
+        explanation: "An app start name does not resolve to a task directly nested in that app. App mode never falls back to global task lookup.",
+        repair: "Nest the named task directly in the app or name an existing direct child.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::MULTIPLE_EXECUTABLE_APPS,
+        default_severity: Severity::Error,
+        explanation: "Run input contains more than one top-level app, so there is no unique executable program root.",
+        repair: "Run exactly one top-level app input, or use `--entry <task>` for a direct legacy task probe.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::APP_START_INVALID_RESULT,
+        default_severity: Severity::Error,
+        explanation: "An app start task does not return `Unit` or `Result Unit, E`, so app completion would expose an unsupported program result.",
+        repair: "Return `Unit` (including an omitted result) or `Result Unit, ErrorType` from the start task.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNCHECKED_PROSE_CONTRACT,
         default_severity: Severity::Warning,
         explanation: "`hum run` saw a `needs:` or `ensures:` line that is honest prose rather than a predicate v1 expression, so it remains visible but unchecked. Predicate v1 is one comparison over parameters, `result`, arithmetic, `list_len(...)`, and `old(...)` of entry-readable parameter places in `ensures:` only.",

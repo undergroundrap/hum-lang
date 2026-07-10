@@ -39,6 +39,8 @@ Milestone 0 diagnostics contain:
 - `severity`: `error` or `warning`
 - `message`: human-readable explanation
 - `span`: source file, line, and column when available
+- `related_spans`: optional labeled secondary source sites for a structural
+  relationship
 - `help`: optional repair guidance
 
 Terminal shape:
@@ -57,9 +59,20 @@ JSON shape in `hum check --format json` and `hum graph`:
   "severity": "error",
   "message": "task `save_item` saves into `tasks` without listing it in `changes:`",
   "span": { "file": "examples/task.hum", "line": 14, "column": 3 },
+  "related_spans": [
+    {
+      "label": "declared task boundary",
+      "span": { "file": "examples/task.hum", "line": 4, "column": 1 }
+    }
+  ],
   "help": "Add `tasks` under `changes:` or avoid mutating it."
 }
 ```
+
+`related_spans` is omitted when the diagnostic has no secondary blamed site.
+Its labels are explanatory; the nested spans remain machine-readable source
+facts. Session X app-entry diagnostics use this existing diagnostic JSON
+surface for app, start declaration, and candidate task relationships.
 
 Diagnostic JSON commands:
 
@@ -235,6 +248,13 @@ Future ranges should be reserved before broad use:
 | `H0604` | error | read before declaration | A name is read before its later local declaration. |
 | `H0605` | error | unknown type name | A declaration annotation names a type that is not declared or reserved. |
 | `H0606` | error | return type mismatch | A trivially typed `return` expression does not match the task result type. |
+| `H0610` | error | app start missing | A top-level executable app has no `starts with:` section. |
+| `H0611` | error | app start empty | An app's `starts with:` section has no meaningful task name. |
+| `H0612` | error | app start duplicated | An app has multiple start sections or declarations. |
+| `H0613` | error | invalid app start name | An app start is not one bare snake_case task name. |
+| `H0614` | error | app start task is not a child | The named start task is not directly nested in the app; external names never satisfy it. |
+| `H0615` | error | multiple executable apps | Run input contains more than one top-level app. |
+| `H0616` | error | invalid app start result | The start task does not return `Unit` or `Result Unit, E`. |
 
 ### Executable Contracts
 

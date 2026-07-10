@@ -1,0 +1,18 @@
+task external_helper -> Int {
+  does:
+    return 7
+}
+
+app scoped_tool {
+  why:
+    prove app calls cannot escape to an external helper
+
+  starts with:
+    run_tool
+
+  task run_tool -> Unit {
+    does:
+      let value = external_helper()
+      return
+  }
+}

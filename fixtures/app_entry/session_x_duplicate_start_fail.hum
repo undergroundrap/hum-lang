@@ -1,0 +1,20 @@
+app duplicate_start {
+  why:
+    prove an app cannot declare two structural roots
+
+  starts with:
+    first
+
+  starts with:
+    second
+
+  task first -> Unit {
+    does:
+      return
+  }
+
+  task second -> Unit {
+    does:
+      return
+  }
+}

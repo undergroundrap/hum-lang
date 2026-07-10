@@ -1,0 +1,17 @@
+app duplicate_child {
+  why:
+    prove duplicate direct-child identity blocks app execution
+
+  starts with:
+    run_tool
+
+  task run_tool -> Unit {
+    does:
+      return
+  }
+
+  task run_tool -> Unit {
+    does:
+      return
+  }
+}

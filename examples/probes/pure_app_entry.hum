@@ -1,0 +1,17 @@
+module examples.probes.pure_app_entry
+
+app local_tool {
+  why:
+    prove a structural app entry accepts ordinary runner arguments
+
+  starts with:
+    run_tool
+
+  task run_tool(message: Text) -> Unit {
+    why:
+      consume one ordinary argument without producing program output
+
+    does:
+      return
+  }
+}

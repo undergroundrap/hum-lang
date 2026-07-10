@@ -352,6 +352,7 @@ cargo run -- effect-check --format json fixtures/effect_check/simple_pass.hum
 cargo run -- ownership-check fixtures/ownership_check/simple_pass.hum
 cargo run -- ownership-check --format json fixtures/ownership_check/simple_pass.hum
 cargo run -- run examples/probes/writable_field_aliases.hum --entry swap_xy_with_aliases --args '{x:1,y:2}'
+cargo run -- run examples/probes/pure_app_entry.hum --args hello
 cargo run -- ownership-check fixtures/ownership_check/session_v_program8_overlap_write_fail.hum
 cargo run -- resource-check fixtures/resource_check/simple_pass.hum
 cargo run -- resource-check --format json fixtures/resource_check/simple_pass.hum
@@ -388,7 +389,7 @@ Current CLI:
 
 - `hum check <file-or-dir>...`: parse Hum and run Milestone 0 intent checks
 - `hum check --format json <file-or-dir>...`: emit `hum.check.v0` diagnostics JSON for editors, CI, and agents
-- `hum run <file> [--entry <task>] [--args ...]`: interpret one checked Hum file in the first executable subset, with typed failure exit 1 and runtime traps exit 2
+- `hum run <file> [--entry <task>] [--args ...]`: run one structural app root when no entry is named, preserve legacy direct-task probing with `--entry`, use typed failure exit 1, and reserve exit 2 for runtime traps
 - Session W's failure slice requires explicit same-root `try` or explicit
   caller-root causal wrapping; multi-call failures retain every recognized
   call site and the root origin

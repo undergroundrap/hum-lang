@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod app_entry;
 mod ast;
 mod backend_contract;
 mod capabilities;
@@ -175,10 +176,51 @@ fn run() -> Result<ExitCode, String> {
 
     let loaded = load_program(&options.inputs)?;
     let program = loaded.program;
-    let diagnostics = loaded.diagnostics;
+    let mut diagnostics = loaded.diagnostics;
+    if options.command == "run" {
+        diagnostics.retain(|diagnostic| !app_entry::is_app_entry_diagnostic(diagnostic));
+        if options.run_entry.is_none()
+            && !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.severity == Severity::Error)
+        {
+            diagnostics.extend(app_entry::diagnostics(&program));
+        }
+    }
     let has_errors = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
+    let app_mode = options.command == "run"
+        && options.run_entry.is_none()
+        && !has_errors
+        && app_entry::analyze(&program).entry.is_some();
+
+    if app_mode {
+        if resolve::resolve_has_errors(&program, &diagnostics) {
+            eprint!("{}", resolve::resolve_text(&program, &diagnostics));
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            return Ok(ExitCode::from(1));
+        }
+        if type_check::type_check_has_errors(&program, &diagnostics) {
+            eprint!("{}", type_check::type_check_text(&program, &diagnostics));
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            return Ok(ExitCode::from(1));
+        }
+        if full_type_check::full_type_check_has_errors(&program, &diagnostics) {
+            eprint!(
+                "{}",
+                full_type_check::full_type_check_text(&program, &diagnostics)
+            );
+            if options.show_timings {
+                print_timings(&loaded.timings, loaded.total);
+            }
+            return Ok(ExitCode::from(1));
+        }
+    }
 
     match options.command.as_str() {
         "check" => {
@@ -226,8 +268,13 @@ fn run() -> Result<ExitCode, String> {
                     println!("{output}");
                     ExitCode::SUCCESS
                 }
+                run::RunOutcome::AppSuccess => ExitCode::SUCCESS,
                 run::RunOutcome::Failure(output) => {
                     println!("{output}");
+                    ExitCode::from(1)
+                }
+                run::RunOutcome::AppFailure(output) => {
+                    eprintln!("{output}");
                     ExitCode::from(1)
                 }
                 run::RunOutcome::ContractViolation => ExitCode::from(1),
@@ -2022,7 +2069,15 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
         let parse = parse_start.elapsed();
 
         let check_start = Instant::now();
-        let file_diagnostics = check::check_file(&parsed.file);
+        let mut file_diagnostics = check::check_file(&parsed.file);
+        if !parsed
+            .diagnostics
+            .iter()
+            .chain(&file_diagnostics)
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
+        {
+            file_diagnostics.extend(app_entry::diagnostics_for_file(&parsed.file));
+        }
         let check = check_start.elapsed();
 
         diagnostics.extend(parsed.diagnostics);

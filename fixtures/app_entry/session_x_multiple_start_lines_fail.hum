@@ -1,0 +1,18 @@
+app multiple_start_lines {
+  why:
+    prove one section cannot name multiple structural roots
+
+  starts with:
+    first
+    second
+
+  task first -> Unit {
+    does:
+      return
+  }
+
+  task second -> Unit {
+    does:
+      return
+  }
+}

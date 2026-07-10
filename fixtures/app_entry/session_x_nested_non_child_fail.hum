@@ -1,0 +1,17 @@
+app outer_tool {
+  why:
+    prove a task below a nested app is not a direct-child entry
+
+  starts with:
+    run_tool
+
+  app nested_tool {
+    why:
+      contain the non-child candidate task
+
+    task run_tool -> Unit {
+      does:
+        return
+    }
+  }
+}

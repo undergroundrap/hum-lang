@@ -97,14 +97,19 @@ app counter {
   why:
     count button presses and show the total
 
-  uses:
-    screen
-    storage
-
   starts with:
-    count: Int = 0
+    run_counter
+
+  task run_counter -> Unit {
+    does:
+      return
+  }
 }
 ```
+
+`starts with:` names exactly one task directly nested in the app. It is an
+executable entry declaration, not state initialization. App state
+initialization remains undesigned.
 
 ### Type
 

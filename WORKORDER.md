@@ -1,8 +1,9 @@
 # Hum Work Order 6: Overlapping Places And The First Local IO Slice
 
 Date: 2026-07-09
-Status: active; Sessions V and W accepted and committed; Session X awaits a
-separate BDFL authorization,
+Status: active; Sessions V and W accepted and committed; Session X implementation
+is complete and uncommitted pending architect-reviewer review; Session Y is not
+authorized,
 issued under delegated authority (`docs/GOVERNANCE.md`), BDFL veto open
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
 sessions.
@@ -359,8 +360,8 @@ Accepted corrective implementation evidence (2026-07-10):
   graph, and runtime exercise the positive surface. Existing schema IDs and CLI
   surface are unchanged.
 - Decision 0016 is accepted under delegated authority with the BDFL veto open.
-  Session X is the next unfinished session and remains unauthorized pending a
-  separate BDFL go signal.
+  At Session W closure, Session X was the next unfinished session and required
+  a separate BDFL go signal; that authorization was later issued for X only.
 
 ## Session X: structural executable app entry
 
@@ -418,6 +419,36 @@ Acceptance criteria:
 - Decision 0017 is complete enough to constrain Session Y but remains
   `proposed`; no delegated acceptance is recorded yet.
 - Standing checks pass. Stop. Session Y requires an explicit review go signal.
+
+Implementation evidence awaiting review (2026-07-10):
+
+- `examples/probes/pure_app_entry.hum` selects its directly nested `run_tool`,
+  binds the ordinary runner argument, exits 0, and leaves both output channels
+  empty. `examples/probes/fallible_app_entry.hum` proves `Result Unit, E`
+  success and renders `LaunchError.requested` with its preserved origin on
+  stderr at exit 1.
+- H0610-H0616 cover missing, empty, duplicate, invalid-name, non-child,
+  multiple-app, and invalid-result structure. Each permanent misuse fixture
+  emits exactly one source diagnostic in human and `hum.check.v0` JSON;
+  relationship diagnostics carry labeled app, declaration, and task spans.
+- The same-named external-task fixture is H0614 in app mode and remains
+  directly runnable through explicit `--entry`, demonstrating that app lookup
+  is lexical without changing the legacy probe. Separate passing fixtures pin
+  both direct-child entry shadowing and app-local helper-call lookup against
+  same-named failing external tasks across resolver, full type, effect,
+  ownership, resource, Core, graph, and runtime. External-only calls stop at
+  the app boundary under H0601.
+- App execution now consumes the existing resolver, declaration-type, and
+  recognized full-type gates. Permanent fixtures prove H0602 duplicate child,
+  H0605 unknown result root, H0606 Unit-return mismatch, and a body-only
+  full-type mismatch all stop before execution. Runtime independently refuses
+  to suppress a non-Unit value if a future checker regression reaches it.
+- The nested non-child fixture reports H0614 with the start declaration as
+  primary blame and labeled outer-app and candidate-task spans in human and
+  JSON output.
+- Decision 0017 remains proposed. No capability analysis or rejection,
+  operator grant, IO built-in, Core `output`, `os.stdio`, Path, or Session Y
+  behavior is present.
 
 ## Session Y: checked capability root
 
@@ -891,6 +922,8 @@ Acceptance criteria:
 
 Sessions V and W were accepted and committed as `acfb36f` and `2af02ae`.
 Decision 0016 is accepted under delegated authority with the BDFL veto open.
-Session X is the next unfinished session, has not begun, and remains
-unauthorized until the BDFL gives a separate explicit go signal. Publishing
-remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
+Session X was explicitly authorized and its implementation is complete but
+uncommitted pending architect-reviewer review. Session Y remains unauthorized
+until Session X receives an independent verdict and the BDFL gives a separate
+explicit go signal. Publishing remains a BDFL-reserved action under
+`docs/GOVERNANCE.md`.

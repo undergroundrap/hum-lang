@@ -66,6 +66,8 @@ TextMate grammar built from the same syntax surface.
 - `writable_field_alias_form`: the exact Session V local direct-field alias
   spelling recognized by the current compiler; it is metadata for one narrow
   form, not a general alias grammar
+- `app_start_form`: the exact structural app entry declaration; its line names
+  one directly nested task and is not a call or state initializer
 - `section_headers`: section order, obligation mapping, and hover catalog
 - `semantic_tokens`: shared token legend and Hum role mapping for editor and LSP
   adapters

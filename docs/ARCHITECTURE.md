@@ -101,6 +101,18 @@ carrier. This preserves local source blame before IO authority exists; it does
 not grant IO, implement recovery, or establish a complete `Result` model. See
 [decisions/0016-adopt-explicit-causal-typed-failure.md](decisions/0016-adopt-explicit-causal-typed-failure.md).
 
+Executable app entry is now structural: one top-level app names one directly
+nested `Unit` or `Result Unit, E` task through a single meaningful
+`starts with:` line. The shared app-entry analysis owns source diagnostics and
+runtime selection, so app mode never falls back to global task lookup. App
+callable identity stops at the app boundary across resolver, typed-failure,
+full-type, effect, and runtime analysis. Before app execution, the existing
+resolver, declaration-type, and recognized full-type gates must be clean;
+runtime also fails closed rather than hiding a non-Unit value. App success adds
+no result display and typed app failure keeps Session W's causal stderr path.
+This slice grants no capability, operator consent, IO, or Path semantics. Those
+remain evidence gates under proposed decision 0017.
+
 Session V's writable-field-alias slice is owned by one shared straight-line
 place analysis consumed by `ownership_check` and the interpreter. Resolver and
 effect rows recognize the same candidate as writable and defer authority and

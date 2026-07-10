@@ -7,6 +7,17 @@ app session_server {
     clock
     random.secure
 
+  starts with:
+    start_server
+
+  task start_server -> Unit {
+    why:
+      mark the structural executable root without claiming server IO exists
+
+    does:
+      return
+  }
+
   store sessions: map SessionId -> Session {
     expects:
       up to 20 million active sessions

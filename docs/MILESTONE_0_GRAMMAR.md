@@ -92,6 +92,12 @@ Current capture rules:
 - `result-type` is trimmed text after `->` in a task header. The parser captures `from` relationships as part of this result text; `hum ownership-check` gives the currently supported `ResultType from parameter` form its ownership meaning.
 - A nonconforming identifier produces `H0009`.
 
+For the current executable app slice, one top-level app has exactly one
+`starts with:` section with exactly one meaningful line matching
+`value-ident`. That name resolves only to a directly nested task. This is a
+checked structural rule layered on the permissive section parser; it is not a
+new item-header grammar production and does not define app state.
+
 ## Identifier Grammar
 
 Decision 0012 pins the current identifier grammar:

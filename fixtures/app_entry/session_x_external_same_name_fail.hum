@@ -1,0 +1,12 @@
+task run_tool -> Unit {
+  does:
+    return
+}
+
+app lexical_tool {
+  why:
+    prove app mode cannot select a same-named external task
+
+  starts with:
+    run_tool
+}

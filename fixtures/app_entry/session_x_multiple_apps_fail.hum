@@ -1,0 +1,25 @@
+app first_tool {
+  why:
+    provide the first otherwise valid executable root
+
+  starts with:
+    run_first
+
+  task run_first -> Unit {
+    does:
+      return
+  }
+}
+
+app second_tool {
+  why:
+    provide the second otherwise valid executable root
+
+  starts with:
+    run_second
+
+  task run_second -> Unit {
+    does:
+      return
+  }
+}

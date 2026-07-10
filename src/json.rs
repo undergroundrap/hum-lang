@@ -769,6 +769,21 @@ fn write_diagnostic(out: &mut String, diagnostic: &Diagnostic, indent: usize) {
         out.push_str(", \"span\": ");
         write_span(out, span);
     }
+    if !diagnostic.related_spans.is_empty() {
+        out.push_str(", \"related_spans\": [");
+        for (index, related) in diagnostic.related_spans.iter().enumerate() {
+            if index > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&format!(
+                "{{\"label\": {}, \"span\": ",
+                quote(&related.label)
+            ));
+            write_span(out, &related.span);
+            out.push('}');
+        }
+        out.push(']');
+    }
     if let Some(help) = &diagnostic.help {
         out.push_str(&format!(", \"help\": {}", quote(help)));
     }

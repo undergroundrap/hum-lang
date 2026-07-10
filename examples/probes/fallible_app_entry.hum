@@ -1,0 +1,27 @@
+module examples.probes.fallible_app_entry
+
+type LaunchError {
+  code: Text
+}
+
+app fallible_tool {
+  why:
+    prove app failure keeps the typed causal origin
+
+  starts with:
+    run_tool
+
+  task run_tool(should_fail: Bool) -> Result Unit, LaunchError {
+    why:
+      expose one deterministic app failure path
+
+    fails when:
+      the caller requests the failure probe
+
+    does:
+      if should_fail {
+        fail LaunchError.requested
+      }
+      return
+  }
+}

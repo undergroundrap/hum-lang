@@ -130,11 +130,29 @@ boundary.
 app reference_surface {
   why:
     explain the application
+
+  starts with:
+    run_reference
+
+  task run_reference -> Unit {
+    does:
+      return
+  }
 }
 ```
 
-An `app` groups program-level intent and may contain nested items. Milestone 0
-parses it and emits graph facts. Runtime application semantics are future work.
+An `app` groups program-level intent and may contain nested items. The current
+executable slice selects exactly one top-level app when `hum run` has no
+`--entry`. Its single meaningful `starts with:` line is one bare snake_case
+name of a directly nested task returning `Unit` or `Result Unit, E`. App-mode
+lookup never falls back to a same-named task outside the app. A successful app
+adds no automatic `Unit` output; typed failure retains the causal chain and is
+written to stderr. Files without an app keep legacy single-task selection, and
+`--entry` remains a direct task probe rather than app execution.
+
+`starts with:` does not initialize state. App state initialization remains
+undesigned. Capability closure, grants, and IO are not part of this structural
+entry slice.
 
 ### `type`
 
@@ -558,7 +576,7 @@ notes, review packets, sanitizer runs, and profile evidence.
 
 The `does:` block is executable only for the explicitly interpreted Milestone 1 subset, and remains future surface beyond that subset.
 
-Milestone 1 begins with `hum run <file> [--entry <task>] [--args ...]` over checked source for `examples/core/add.hum`, `examples/core/divide.hum`, and `examples/core/count_completed.hum`. The current tree-walking interpreter covers the forms those programs require: Int/Bool literals, arithmetic, comparisons, `let`, `change`, `set`, direct record field reads, direct field-place assignment with `set record.field = value`, direct numeric list element reads such as `items[0]`, local direct field-view bindings of the form `let view = borrow record.field`, local direct element-view bindings of the form `let view = borrow items[0]`, exact local writable field aliases of the form `let alias = change record.field`, `if`, `for each`, `return`, `fail`, task calls, typed failure values, predicate v1 `needs:`/`ensures:` checks including `old(...)` entry capture and `list_len(...)`, the simple list/record values needed by `count_completed`, the minimal list-growth operation `list_append(change list, item)`, the list-length read `list_len(list)` (also reachable from `does:` bodies as an ordinary length read), and the closed text view operation `slice_until(text, separator)`; `old(...)` remains contract-only vocabulary and traps with a clear message if called from a body. It also enforces the current narrow ownership subset at runtime: writing through a default `borrow` parameter or one of its direct fields traps with `H0802`, using a local after it was moved by `consume` or by return traps with `H0801`, leaving recognized Transaction-shaped resources unconsumed traps with `H0803`, consuming them twice traps with `H0804`, violating the V0 returned-view `from parameter` rule traps with `H0805`, structurally appending to a list during active iteration traps with `H0806`, using a local field view after that exact field was written traps with `H0807`, and using a local element view after `list_append` grew that list also traps with `H0807`. Writable aliases read and write through the exact owner field; H0808 rejects live overlapping access and H0809 rejects escape or unsupported alias shapes before body mutation. Integer overflow and division by zero trap instead of wrapping; executable contract violations exit as runtime failures with caller/task blame diagnostics.
+Milestone 1 begins with `hum run <file> [--entry <task>] [--args ...]` over checked source. With no `--entry`, one top-level app selects its directly nested structural start task; with no app, legacy single-task selection remains. Explicit `--entry` remains the direct task probe. The current tree-walking interpreter covers the forms required by the executable core fixtures: Int/Bool literals, arithmetic, comparisons, `let`, `change`, `set`, direct record field reads, direct field-place assignment with `set record.field = value`, direct numeric list element reads such as `items[0]`, local direct field-view bindings of the form `let view = borrow record.field`, local direct element-view bindings of the form `let view = borrow items[0]`, exact local writable field aliases of the form `let alias = change record.field`, `if`, `for each`, `return`, `fail`, task calls, typed failure values, predicate v1 `needs:`/`ensures:` checks including `old(...)` entry capture and `list_len(...)`, the simple list/record values needed by `count_completed`, the minimal list-growth operation `list_append(change list, item)`, the list-length read `list_len(list)` (also reachable from `does:` bodies as an ordinary length read), and the closed text view operation `slice_until(text, separator)`; `old(...)` remains contract-only vocabulary and traps with a clear message if called from a body. It also enforces the current narrow ownership subset at runtime: writing through a default `borrow` parameter or one of its direct fields traps with `H0802`, using a local after it was moved by `consume` or by return traps with `H0801`, leaving recognized Transaction-shaped resources unconsumed traps with `H0803`, consuming them twice traps with `H0804`, violating the V0 returned-view `from parameter` rule traps with `H0805`, structurally appending to a list during active iteration traps with `H0806`, using a local field view after that exact field was written traps with `H0807`, and using a local element view after `list_append` grew that list also traps with `H0807`. Writable aliases read and write through the exact owner field; H0808 rejects live overlapping access and H0809 rejects escape or unsupported alias shapes before body mutation. Integer overflow and division by zero trap instead of wrapping; executable contract violations exit as runtime failures with caller/task blame diagnostics.
 
 Session W adds only two explicit direct named-call failure forms: `let value =
 try fallible_call()` for equal nominal error roots, and `let value = try

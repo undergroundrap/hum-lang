@@ -362,7 +362,8 @@ fn collect_items(
             out.push(effect_item);
         }
         if let Item::App(app) = item {
-            collect_items(&app.items, blocked, failure_catalog, out);
+            let app_failure_catalog = FailureCatalog::from_items(&app.items);
+            collect_items(&app.items, blocked, &app_failure_catalog, out);
         }
     }
 }

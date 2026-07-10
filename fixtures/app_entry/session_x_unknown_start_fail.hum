@@ -1,0 +1,12 @@
+app unknown_start {
+  why:
+    prove an unknown start task fails closed
+
+  starts with:
+    missing_task
+
+  task other_task -> Unit {
+    does:
+      return
+  }
+}

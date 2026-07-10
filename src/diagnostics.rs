@@ -118,6 +118,32 @@ fn push_source_diagnostic(out: &mut String, diagnostic: &Diagnostic, indent: usi
             span.line,
             span.column
         ));
+        if !diagnostic.related_spans.is_empty() || diagnostic.help.is_some() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    if !diagnostic.related_spans.is_empty() {
+        push_indent(out, indent + 2);
+        out.push_str("\"related_spans\": [\n");
+        for (index, related) in diagnostic.related_spans.iter().enumerate() {
+            if index > 0 {
+                out.push_str(",\n");
+            }
+            push_indent(out, indent + 4);
+            out.push('{');
+            out.push_str(&format!(
+                "\"label\": {}, \"span\": {{\"file\": {}, \"line\": {}, \"column\": {}}}",
+                json_string(&related.label),
+                json_string(&related.span.file),
+                related.span.line,
+                related.span.column
+            ));
+            out.push('}');
+        }
+        out.push('\n');
+        push_indent(out, indent + 2);
+        out.push(']');
         if diagnostic.help.is_some() {
             out.push(',');
         }
