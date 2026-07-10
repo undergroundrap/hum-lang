@@ -1,0 +1,225 @@
+# Generics and Coherence Bake-Off for Hum
+
+## Overall takeaways
+
+### Research signals
+
+**Finding — for a contracts-first systems language, coherence is probably worth paying for, but only if the language also gives users an explicit escape hatch for orphan-rule pain. Confidence: High.** Rust still treats coherence as foundational: the Reference says an impl is incoherent if orphan rules fail or impls overlap, and explains that the orphan rule prevents conflicting cross-crate impls and protects upstream evolution. Carbon’s generics docs independently reach the same conclusion and explicitly frame coherence as desirable but costly, with orphan rules and overlap rules as the mechanism that keeps resolution stable. The notable 2024–2025 wrinkle is that Rust is still spending design and implementation effort on coherence itself: the new trait solver was stabilized first for coherence checking in late 2024, and Rust-for-Linux opened a 2025 experiment to relax orphan rules in binaries to see what real users actually want. That combination says two things at once: coherence buys real ecosystem stability, and orphan rules do create recurring ergonomic pain. cite
+
+**Finding — the strongest mainstream retrospective signal is not “add more power,” but “make abstraction boundaries more explicit.” Confidence: High.** Swift’s move to explicit `any` was justified on the grounds that existential types had become “active harm,” because the old spelling hid the cost and limitations of existentials and caused programmers to confuse existentials with generics. Go’s official guidance remains conservative even after shipping generics: the 2022 “When To Use Generics” post framed generics as appropriate only for repeated algorithms and data structures, while the 2025 “Generic interfaces” post warns directly that some signatures get complicated enough to validate earlier concerns about adding generics at all. These are not anti-generic sources; they are official project guidance from projects that shipped the features. cite
+
+**Finding — the public evidence base on monomorphization versus dictionary passing is thin on common, comparable benchmarks. Confidence: Medium.** The primary sources are strong on implementation rationale and weak on apples-to-apples measured outcomes. Rust compiler docs expose the real mechanics and code duplication of monomorphized items; Go’s FAQ and implementation docs describe its hybrid gcshape-plus-dictionary approach as an evolving tradeoff among compile time, runtime efficiency, and code size; Carbon’s terminology and witness-table appendix state the classic tradeoff directly, namely less code duplication in exchange for runtime indirection. But I did not find a recent, primary-source cross-language bake-off that compares these strategies on the same workloads. That absence matters for Hum because it argues against baking semantics into a cost model too early. cite
+
+**Finding — on “contracts on type parameters,” prior art exists, but the semantic gap is real. Confidence: Medium.** C++20 concepts explicitly distinguish syntactic satisfaction from semantic modeling, and the standard-library issue tracker still records ambiguity about when semantic constraints are imposed. Eiffel supports constrained genericity, but the constraints are class-based and nominal; contracts live on supplier routines and classes, not as first-class executable laws attached to a type argument. Dafny gets closer by combining traits, specifications, subset types, and type characteristics inside a verifier. Whiley is contracts-heavy overall, but the evidence I found for first-class behavioral predicates attached specifically to generic parameters is thin; one language issue explicitly says some notion of traits would be needed for template-style generics. In other words: many languages can constrain type parameters, few can make those constraints mean verified or executable behavioral laws. cite
+
+### Lessons for Hum
+
+Hum should likely separate three ideas that many ecosystems blur together:
+
+A **checked, coherent generic layer** for most public APIs. This is where library evolution, tooling, and predictable reasoning matter most.
+
+An **explicit erased or existential layer** for dynamic plugin-style or interpreter-style code. Swift’s `any` experience is a warning that erased forms should not look like generic forms. cite
+
+An **adapter or evidence layer** for behavioral promises. If Hum wants contracts on type parameters to mean more than “method names are present,” it should require either executable evidence, verified proof artifacts, or runtime-checkable witnesses. No mainstream system in this set gives a turnkey design for that; the closest neighbors split the world into syntax-only constraints, theorem-prover-only guarantees, or ordinary class/protocol contracts. cite
+
+### Concrete design gates or tests to adopt
+
+Hum should not decide generics from paper design alone. It should run explicit gates before freezing semantics:
+
+- A **coherence pain benchmark**: implement the same medium-sized extension-heavy library three ways—native impls, adapters/newtypes, and local scoped overrides—and record code size, boilerplate, error quality, and breakage when dependencies add new impls.
+- A **surface-syntax confusion test**: give users equivalent APIs in checked-generic and erased/existential forms, then measure whether they choose the intended abstraction. Swift’s `any` change exists because this confusion is common, not hypothetical. cite
+- A **cost-model neutrality gate**: ensure semantics do not depend on whether an instantiation is interpreted, dictionary-backed, or monomorphized. Go and Carbon both argue for keeping these as implementation strategies, not user-visible semantic forks. cite
+- A **law-bearing generic trial**: pick one or two standard abstractions such as `Sortable`, `HashEq`, or `TotalOrder`, and require not just signatures but laws. Then test whether users can actually author, debug, and falsify those laws with Hum’s runtime contract machinery.
+
+### What evidence would change the conclusion
+
+I would revise the “coherence is worth it” conclusion if Hum’s own adapter/newtype experiments showed persistent, high-friction ergonomics on real libraries without corresponding ecosystem-stability wins. I would also revise the “keep semantics independent of cost model” conclusion if Hum’s interpreter and Windows-first deployment profile produced overwhelming evidence that one lowering strategy dominates across compile time, runtime, binary size, and debuggability.
+
+## Rust traits, coherence, specialization, and GATs
+
+### Research signals
+
+**Finding — Rust’s current docs still defend coherence in exactly the terms Hum should care about: conflict avoidance and upstream evolution safety. Confidence: High.** The Rust Reference says trait impls are incoherent if orphan rules fail or overlap exists, and describes the orphan rule as preventing conflicting implementations across crates while letting upstream libraries add impls without fear of breaking downstream code. That is the strongest primary-source articulation in this set of why coherence exists at all. cite
+
+**Finding — orphan-rule pain is not theoretical; it is recurring enough that Rust is actively experimenting around it in 2025. Confidence: High.** The 2025 Rust-for-Linux experiment proposes temporarily disabling orphan rules for binary crates and replacing them with linting, precisely so the project can learn what kinds of violations users actually want. Older issues record similar pain themes—forward-compatibility hazards, useful patterns disabled, and strictness beyond what users expect. The most relevant recent signal is not the old complaints themselves, but that maintainers are still running fresh experiments to measure the cost. cite
+
+**Finding — Rust specialization is still stalled on soundness; the “stable subset” story is explicitly a stopgap. Confidence: High.** The specialization tracking issue still states that the implemented `specialization` feature is unsound and can cause undefined behavior without `unsafe`, while the unstable-book entry for `min_specialization` describes it as a minimal, sound subset intended for standard-library use until the soundness issues with specialization are fixed. This is one of the clearest negative results in the whole field: once specialization interacts with coherence and subtyping-like reasoning, the design space gets dangerous quickly. cite
+
+**Finding — GATs were worth stabilizing, but post-stabilization experience is still mixed and solver-dependent. Confidence: High.** Rust 1.65 stabilized GATs in November 2022 and described them as enabling patterns the language could not previously express. But the stabilization announcement is unusually candid about the remaining issues: implied `'static` from higher-ranked bounds, lack of object safety, borrow-checker limits, and non-local where-clause requirements. The 2024 trait-solver initiative update says the next-generation solver already removes inconsistencies and theoretical soundness issues in coherence, and several 2024–2026 GAT bug reports are explicitly labeled “fixed-by-next-solver.” That is good news, but it also means GAT ergonomics after stabilization have depended materially on trait-solver progress rather than being “done.” cite
+
+### Lessons for Hum
+
+Hum should learn two different lessons from Rust rather than one.
+
+The first lesson is positive: **coherence makes public generic APIs composable at ecosystem scale**. If a language wants libraries from different vendors to interoperate without local conformance roulette, coherence is hard to avoid. cite
+
+The second lesson is cautionary: **do not combine coherence, overlapping impls, and ambitious specialization too early**. Rust’s decade-long specialization story is a warning that “maybe later” can easily become “not safely yet.” For Hum, that suggests an MVP with coherent impls and no open-ended specialization, plus explicit adapters when users need local behavior changes. cite
+
+On GATs, the lesson is to keep advanced generic features aligned with the solver and diagnostics budget. A feature that is semantically elegant but only debuggable by implementers is too expensive for a contracts-first language, especially one with an evidence-native toolchain. cite
+
+### Concrete design gates or tests to adopt
+
+- **No-general-specialization gate for MVP.** If Hum wants specialization at all, start with a Carbon-like “final” or demonstrably non-overlapping form, not open-ended overlap. Rust’s record here is a strong reason to keep the first release narrow. cite
+- **Coherence + adapter bake-off.** Require every standard-library case that feels blocked by orphan rules to be represented twice: once with pure coherence and once with a sanctioned adapter/newtype/evidence pattern. If the adapter pattern is terrible, fix the adapter pattern before weakening coherence.
+- **Solver/diagnostic readiness gate for advanced features.** Before any Hum equivalent of GATs or higher-ranked associated members ships, require a test suite of intentionally failing programs where the compiler surfaces contract blame, type blame, and resolution blame in a way non-compiler engineers can act on.
+- **Object-erasure boundary test.** If Hum later supports erased generic interfaces, ensure the language surface makes it impossible to mistake an erased form for a checked generic form.
+
+### What evidence would change the conclusion
+
+If Rust stabilizes a broader, sound specialization model with convincing design notes and years of predictable ecosystem behavior, that would weaken the argument for Hum to avoid specialization in early versions. Likewise, if solver work eliminates most of the current GAT pain and object-safety restrictions, it would strengthen the case for richer associated-generic features earlier in Hum’s roadmap.
+
+## Swift protocols and Go generics in practice
+
+### Research signals
+
+**Finding — Swift’s main retrospective signal is that protocol abstraction and existential abstraction had been too easy to confuse. Confidence: High.** SE-0335 justified explicit `any` by saying the old spelling caused active harm, hid fundamental limitations, and led programmers toward existential types when they really wanted generics. Swift 5.7 and related proposals then layered in primary associated types, constrained existential types, and implicitly opened existentials, which improved what protocols and existentials can express without removing the conceptual split. cite
+
+**Finding — Swift still has a hard generic-versus-existential distinction that users continue to trip over in 2024. Confidence: Medium.** Swift forum responses from compiler contributors repeatedly explain that boxed protocol existentials do not satisfy generic conformance requirements in the ordinary way. The specific user confusion is contemporary even if the underlying rule is longstanding. This matters because it shows that better syntax alone does not erase the semantic distinction. The primary-source strength here is moderate because these are forum explanations, not formal proposals, but they are from core contributors and match the direction of the evolution process. cite
+
+**Finding — Go’s official guidance remains intentionally conservative after generics, and has grown more cautionary rather than less. Confidence: High.** “When To Use Generics” recommends generics for functions and types that use the same operations for all element types and warns against replacing interface types with type parameters just because generics exist. The 2025 “Generic interfaces” post demonstrates a more advanced pattern, but explicitly says the resulting signature can feel unreasonably complicated and that this was exactly what skeptics worried about before generics were added. The Go FAQ also states that generic methods are not expected to arrive because they conflict badly with interfaces and would require either runtime code generation or slow execution. cite
+
+**Finding — on actual team adoption, the newest official quantitative signal I found is still early and limited. Confidence: Medium.** The Go Developer Survey 2022 Q2 reported that 26% of respondents had begun using generics and 14% were already using them in production or released code, while 54% said they were not opposed but had no need yet. I found newer official survey posts in 2024 and 2026, but not a fresh public breakout specifically about generics adoption in those sources. So the hard official answer to “what teams actually use” is still thinner than many discussions assume. cite
+
+### Lessons for Hum
+
+Swift’s lesson for Hum is straightforward: **erased abstractions must be visibly distinct from checked generics**. If Hum has both static checked generics and dynamic or interpreted erased forms, they should not look alike in code or in diagnostics. Swift paid real language complexity to make that distinction explicit because hidden erasure was misleading users. cite
+
+Go’s lesson is different: **language power that makes signatures harder to read should be treated as an exceptional tool, not the baseline API style**. For Hum, that argues for a default generic style with minimal notation and principled constraints, while keeping higher-order or law-bearing constraints opt-in and tooling-assisted. If a feature needs several new names and nested abstractions to say one simple thing, it should probably not be the first answer library authors reach for. cite
+
+### Concrete design gates or tests to adopt
+
+- **Explicit erasure syntax gate.** Hum should require a visibly distinct spelling for erased or late-bound forms, comparable in spirit to Swift’s `any`. The exact syntax is a language-design choice; the separation is the important part. cite
+- **API readability trials.** Hand the same API brief to library authors and ask them to use only signatures, constraints, and contracts. Reject designs that need expert-level decoding for ordinary use cases.
+- **Interface-versus-generic guidance test.** Write an official Hum guide that answers: when should authors use an interface-like existential, when a coherent checked generic, and when an adapter/evidence object? If the guide cannot be made crisp with examples, the model is still too muddy.
+- **Adoption telemetry for the standard library.** Because Go’s public adoption signal is old and partial, Hum should plan from day one to measure which abstraction forms are actually used in its own ecosystem.
+
+### What evidence would change the conclusion
+
+If future Swift or Go primary sources show that users routinely prefer more expressive generic signatures and that tooling has made them easy to read and debug, I would soften the recommendation to keep Hum’s generic surface conservative. Right now, the strongest official retrospective evidence points the other way.
+
+## Zig comptime, OCaml modular implicits, and Carbon checked generics
+
+### Research signals
+
+**Finding — Zig demonstrates that “generics without a dedicated generics feature” is real, but it emits recurring signals about constraint expression and diagnostic cost. Confidence: Medium.** Zig’s language reference says generic data structures are built with `comptime` and ordinary functions returning types, not special-case syntax. That is powerful and elegant. But the issue tracker and adjacent community discussions repeatedly surface the other side of the design: requests for interfaces, complaints that `anytype` is too imprecise, bug reports where `@compileError` traces are degraded through `anytype` introspection, and long-running remarks that duck-typing errors are not always great. This is strong evidence that Zig’s model lowers syntax cost by shifting cost into tooling and diagnostics. It is not, however, backed by a systematic recent study, so the evidence level is medium rather than high. cite
+
+**Finding — OCaml modular implicits remain an active research/prototype area rather than a settled production feature. Confidence: High.** The strongest recent signals are the 2024 OCaml workshop paper on modular explicits, which positions modular explicits as the underlying language for modular implicits, the 2024–2025 community comments saying the current direction is to merge that work with first-class modules, and the continuing existence of experimental repositories rather than merged mainline support. The older modular-implicits fork still has open issues and no releases, which is not proof of failure but is a strong signal that the feature is not operationally mature. This is a classic “promising design, unfinished product” story. cite
+
+**Finding — Carbon has the clearest modern design rationale for a checked-generics system aimed at replacing template-style duck typing. Confidence: High.** Carbon’s generics overview states that checked generic definitions are typechecked once against a precise contract, while templates remain as a separate facility. Its terminology and coherence appendix make orphan rules, coherence, instantiation, and witness tables all first-class design concepts rather than accidental implementation details. Carbon explicitly calls coherence a goal, acknowledges the orphan-rule cost, and documents witness tables as a code-size-saving but indirection-adding strategy. Among current language projects, this is the closest direct precedent to the kind of “contracts-first generics” Hum seems to want. cite
+
+### Lessons for Hum
+
+Zig’s lesson is that **generic flexibility without named abstractions is not free**. If Hum wants rich contracts, blame assignment, and evidence-native tooling, it should not assume that “duck typing plus compile-time execution” will remain debuggable once the ecosystem grows. Zig gets away with a lot because it prioritizes metaprogramming power, but the issue record says users still ask for sharper interfaces and better diagnostics. cite
+
+OCaml’s lesson is that **implicit resolution systems are deep rabbit holes**. Modular implicits are intellectually attractive, but the implementation and coherence story is hard enough that the work is still in prototype territory a decade later. For Hum, that argues against adding implicit instance search or modular-implicit-style resolution to the core generic model in an early release. cite
+
+Carbon’s lesson is the most actionable: **make “checked generic” and “template/metaprogramming generic” different things, with different expectations**. Carbon’s model suggests a clean split between typechecked-once, coherent generics and more open-ended template-like instantiation. Hum likely wants the former for public APIs and evidence-bearing contracts, and a tightly scoped escape hatch for the latter only where compile-time computation is genuinely needed. cite
+
+### Concrete design gates or tests to adopt
+
+- **No implicit instance search in early Hum.** If Hum eventually wants inference over evidence objects or contract witnesses, delay that until the explicit system is proven usable.
+- **Checked-versus-template split trial.** Even if both are shipped eventually, prototype them separately and force standard-library authors to choose which one they are using and why.
+- **Diagnostic budget gate.** Borrow a page from Zig’s pain points and measure whether generic error messages remain local, blameful, and contract-aware in the presence of metaprogramming and associated constraints.
+- **Coherence appendix before stabilization.** Carbon’s docs are unusually explicit about why coherence exists and what alternatives were rejected. Hum should require this level of written design evidence before stabilization, not after. cite
+
+### What evidence would change the conclusion
+
+If OCaml lands a production-ready implicits system with a convincing operational story, or if Zig meaningfully improves interface expression and diagnostics without giving up its comptime style, then Hum could revisit more implicit or more structural forms. Today, the best evidence still favors explicit, checked, and coherent forms as the default.
+
+## Monomorphization, witness tables, and whether coherence is worth the pain
+
+### Research signals
+
+**Finding — monomorphization remains attractive because it exposes concrete code to the optimizer, but primary sources consistently associate it with code duplication and compiler work. Confidence: High.** Rust’s compiler internals explicitly model monomorphized “mono items,” and its partitioning docs distinguish “stable” non-generic code from “volatile” monomorphized instances. Carbon’s terminology says instantiation duplicates template code. Recent research on monomorphization likewise frames the classic tradeoff as avoiding runtime overhead at the price of duplicated code. cite
+
+**Finding — dictionary or witness-table strategies are attractive because they stabilize code size and separate semantics from duplication, but they introduce indirection and representation complexity. Confidence: High.** Go’s implementation docs describe its real compiler as a hybrid: gcshape-based sharing plus dictionaries passed to instantiated generic code. Carbon’s witness-table appendix and terminology describe witness tables as reducing generated code size at the expense of runtime indirection. Swift’s ABI docs make the same world visible at runtime through existential containers and witness tables, and Embedded Swift goes so far as to remove runtime witness tables entirely in a specialized environment. Across projects, the common theme is not that one strategy wins universally, but that languages need more than one lowering strategy. cite
+
+**Finding — the best current answer to “is coherence worth the orphan rule?” is yes for public extension points, no for all extension needs. Confidence: High.** Rust and Carbon both treat coherence as valuable enough to justify orphan rules. But both also expose the leftover demand for local adaptation: Rust via repeated orphan-rule complaints and experiments; Carbon via explicit discussion of the orphan-rule cost and the use of adapter-style solutions in related design areas. The synthesis is that coherence is worth it for shared public meaning, but not as the only customization mechanism a language offers. cite
+
+### Lessons for Hum
+
+Hum should likely make **coherence part of the semantic contract** for checked generics, while making **lowering strategy an implementation choice**. That means a Hum generic function should mean the same thing whether the interpreter executes it directly, the compiler passes an evidence object, or an ahead-of-time compiler later monomorphizes it for hot paths. The language-level contract should stay fixed. This is the direction suggested by Go’s implementation flexibility and Carbon’s explicit separation between semantic design and lowering techniques. cite
+
+On coherence, the right Hum stance is probably: **coherence by default, adapters by design, scoped/local overrides only if explicitly marked and never silently imported**. Swift’s scoped-conformance discussions show how fast “local conformances” become semantically tricky, especially around dynamic dispatch and existential formation. That is a warning sign, not a green light. cite
+
+### Concrete design gates or tests to adopt
+
+- **Semantic-invariance gate.** The same generic source program must preserve behavior, contract blame, and evidence traces under interpreted execution, witness-table lowering, and monomorphized lowering.
+- **Binary-size/runtime matrix.** For a fixed Hum workload suite, measure three backends: interpreted, dictionary/witness, and monomorphized. Publish code size, startup time, hot-loop throughput, and debug-quality regressions.
+- **Adapter-first coherence policy.** Require every “I wish I could orphan-impl this” use case in the standard library to demonstrate an adapter/evidence-based solution before considering scoped overrides.
+- **No silent local coherence breaks.** If Hum ever permits local overrides, make them lexically explicit and non-exporting by default. Swift’s scoped-conformance pitches show how subtle global meaning becomes otherwise. cite
+
+### What evidence would change the conclusion
+
+If Hum’s own measurements show that monomorphization is overwhelmingly better on all the workloads that matter, with acceptable code-size growth and tooling quality, then the implementation could bias toward monomorphization more aggressively. If, on the other hand, explicit adapters prove unworkable for common ecosystem patterns, then Hum may need a more sophisticated, but carefully delimited, local customization model.
+
+## Contracts on type parameters and what prior art actually supports
+
+### Research signals
+
+**Finding — C++20 concepts explicitly acknowledge semantic requirements, but the language still leaves a practical semantic gap. Confidence: High.** The draft standard says a type models a concept only if it satisfies the concept and meets any semantic requirements. Yet the Library Working Group has an open issue saying it is unclear when semantic constraints are imposed by use of concepts. That is the key point for Hum: C++ concepts can name semantics, but they do not in themselves provide a robust mechanism for proving, executing, or blaming those semantics across generic code. cite
+
+**Finding — Eiffel demonstrates nominal constrained generics plus ordinary routine/class contracts, not first-class law-bearing generic parameters. Confidence: High.** The language reference allows constraints after formal generic parameters, and Eiffel materials explain that constrained genericity lets the class use the features promised by the constraint class. Eiffel’s Design by Contract materials explain preconditions, postconditions, and invariants as contracts on classes and routines. This is important prior art, but it is not the same as attaching behavioral predicates directly to a type parameter as an independently checkable generic law. cite
+
+**Finding — Dafny gets closer than mainstream systems languages because specifications are part of the language and traits can carry behavioral requirements. Confidence: Medium.** The current reference manual describes built-in specification constructs, traits as abstractions of behavior, subset types, and restrictions/type characteristics on type parameters. It also allows overriding members to provide stronger specifications. That means a type parameter constrained by a trait can depend on specified behavior in a way that is meaningful to the verifier. However, this lives in a verification-oriented setting, not a mainstream runtime-checked systems-language toolchain. cite
+
+**Finding — Whiley is contract-heavy overall, but the evidence for behavioral predicates specifically on type parameters is thin. Confidence: Low to Medium.** Whiley publications strongly confirm preconditions, postconditions, invariants, flow typing, and verification as core design goals. They also confirm support for generics. But the closest direct signal I found for generic behavioral constraints is a language issue arguing that template-style generics would need something like traits for safety. So Whiley is relevant as proof that contracts and verification can be central in a practical language, but thin evidence as a model for “contracts on type parameters” specifically. cite
+
+### Lessons for Hum
+
+The strongest conclusion here is negative but useful: **there is no clean mainstream precedent for the exact Hum feature you asked about—generic parameters carrying behavioral predicates that are more than signatures.** C++ talks about semantics but leaves gaps; Eiffel constrains by nominal supplier classes; Dafny can verify behavioral assumptions but inside a proof-oriented environment; Whiley proves lots of program properties but offers thin evidence for law-bearing type parameters as a first-class generic feature. cite
+
+For Hum, that means contracts on type parameters should probably be treated as **evidence-carrying obligations**, not just bound syntax. A Hum generic bound like “`T` is a `TotalOrder`” should not merely expose comparison operations. It should come with one of the following:
+
+- executable law checks that can run in tests or debug modes,
+- proof objects or verified witness artifacts in higher-assurance settings,
+- or explicit trust boundaries where the language says the law is assumed, not established.
+
+That recommendation is an inference from the prior art rather than a direct quote from any one source, but it is the most consistent way to close the semantic gap revealed by those sources. cite
+
+### Concrete design gates or tests to adopt
+
+- **Separate shape constraints from law constraints.** For example, distinguish “has `compare` method” from “comparison satisfies total-order laws.”
+- **Require witness design for every law-bearing bound.** A contract on a type parameter must lower to something concrete: a runtime witness, a verifier artifact, or an explicit assumption marker.
+- **Run falsification suites against standard laws.** For every standard-library law-bearing abstraction, generate counterexample-driven tests that try to break associativity, ordering, hash/equality consistency, iterator validity, and so on.
+- **Blame routing test.** When a generic contract fails at runtime, verify that Hum can blame the right party: caller, callee, or witness provider. This is where Hum’s contract system can do something closer to its own vision than the prior art does.
+
+### What evidence would change the conclusion
+
+I would revise this conclusion if I found a production language with explicit, ergonomic, first-class behavioral contracts on type parameters that were both machine-checkable and broadly used. In the source set above, I did not find that. The prior art is valuable, but it is fragmented rather than convergent.
+
+## Recommendation for Hum
+
+### Research signals
+
+**Finding — the combined evidence points toward a two-layer design, not a single “one generics model for everything” design. Confidence: High.** Rust and Carbon argue for coherent public meaning; Swift argues for explicit erased forms; Go argues for conservative readability; Zig warns that unconstrained compile-time duck typing accumulates tooling cost; the contracts-oriented languages show that semantics need evidence, not just bound syntax. cite
+
+### Lessons for a new language
+
+My best current recommendation is:
+
+Hum should ship **coherent checked generics** as the default public abstraction mechanism. It should have an **explicit erased/existential form** for dynamic late binding. It should **defer general specialization**. And if it wants **contracts on type parameters**, it should make them **evidence-bearing and executable or verifiable**, not merely nominal.
+
+That implies a Hum design stack roughly like this:
+
+A first layer of checked generic parameters, typechecked once, coherent across packages, with interface-like and contract-like constraints.
+
+A second layer of erased values or dynamic interfaces, visibly distinct in syntax and diagnostics.
+
+A third layer of adapters/evidence objects/newtypes for local customization and orphan escapes.
+
+An optional optimization layer where the compiler or interpreter may choose dictionary passing, witness-table lowering, or monomorphization without changing source semantics.
+
+### Concrete design gates or tests to adopt
+
+Before Hum freezes the generics model, I would require all of the following:
+
+- **A coherence trial** using at least one extension-heavy library and one plugin-heavy library.
+- **A contracts-on-generics trial** centered on one law-bearing abstraction such as `TotalOrder`, including executable witnesses and precise blame.
+- **A cost-model trial** across interpreted, witness-based, and monomorphized lowering.
+- **A diagnostics trial** with novice and expert users, especially around failed contract witnesses, missing generic evidence, and erased-versus-checked confusion.
+- **A no-specialization MVP rule**, with any later specialization limited to provably disjoint or explicitly final cases.
+
+### What evidence would change the conclusion
+
+The recommendation would change if Hum’s own experiments showed one of three things: that coherence costs far more than it buys in the target ecosystem; that erased forms can be made just as understandable as checked generics without explicit syntax separation; or that law-bearing generic contracts are too operationally heavy to justify compared with simpler signature-based bounds. Right now, the primary sources point toward coherence plus explicitness plus evidence, not toward maximal generic power by default.

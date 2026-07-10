@@ -1,0 +1,199 @@
+# Structured Concurrency Bake-Off for Hum
+
+## Executive synthesis
+
+### Research signals
+
+**Finding — high confidence:** Across Trio, Kotlin, Swift, and Java Loom, the hardest problem was not “how to start child tasks,” but “what exactly cancellation means, when it can happen, and what cleanup is guaranteed afterward.” Trio made cancellation a first-class semantic model built around checkpoints and cancel scopes; Kotlin documents cooperative cancellation, prompt cancellation on `withContext`, and explicit use of `NonCancellable` for suspending cleanup; Swift documents cancellation as cooperative and explicitly calls it “a race”; Java StructuredTaskScope cancels by interrupting threads and still must wait in `close()` until unfinished subtasks really stop. The common pattern is that structure alone does not solve cancellation; each system needed extra rules for cancellation points, cleanup, and timeout composition. cite
+
+**Finding — medium confidence:** The strongest primary-source evidence for “structured concurrency working in practice” is uneven across systems. Trio’s evidence is mostly design docs plus 2024–2025 maintenance changes such as safer async-generator/channel handling, better cancellation diagnostics, and explicit fixes for nursery misnesting errors. Kotlin and Swift have clearer production-facing documentation and adoption signals. For Swift, a 2025 Swift.org server retrospective says `Sendable` adoption in Vapor coincided with the disappearance of monthly data-race crash reports; for Java, the main adoption-reality signal is negative or at least cautionary: the API remained in incubator/preview form from JDK 19 through JDK 26, which means the design was still moving in 2026. Official usage telemetry is **unknown**. cite
+
+**Finding — medium confidence, inference:** For Hum, the best starting point is “Trio-grade cancellation semantics, Swift-grade transfer checking, and Java-grade observability — but without Kotlin-style ambient context inheritance as the default authority model.” This is an inference from the sources rather than a claim any one source makes directly. Trio shows the clearest dynamic cancellation contract; Swift’s 2024–2025 concurrency work is the richest evidence for statically safe transfer of non-`Sendable` / noncopyable values across concurrent boundaries; Java provides the most explicit runtime tree and bounded dynamic-context story through StructuredTaskScope plus Scoped Values. Kotlin’s official docs demonstrate how easy it is for inherited context and ad hoc `Job` manipulation to create escape hatches and footguns. cite
+
+### Lessons for a new language
+
+Hum should treat **cancellation semantics as a language-design axis, not just a library API**. The sources point toward four durable lessons. First, cancellation must be scoped lexically over a task subtree, not as an ambient “kill this thing somehow” signal. Second, the runtime must distinguish **cancel-safe** operations from operations that may partially consume data or progress state. Third, cleanup needs a dedicated, narrow mechanism for bounded non-cancellable finalization. Fourth, child-task context inheritance must be split: cancellation and tracing metadata can be inherited automatically, but **authority** should be explicit rather than ambient. These are partly inference, but each piece maps directly to problems documented by the surveyed systems. cite
+
+### Concrete design gates or tests to adopt
+
+Hum should refuse to ship structured concurrency without passing four gates. One gate is a **cancellation contract gate**: every standard async primitive must be classified as cancel-safe, cancel-neutral, or cancel-unsafe, with docs and tests. A second is a **cleanup gate**: resources acquired before a cancellation point must either be impossible to leak by construction or require an explicit finalization scope. A third is an **authority gate**: spawning a child task must make inherited capabilities visible in the signature and in diagnostics. A fourth is an **observability gate**: task trees, cancellation causes, and timeout ancestry must be inspectable in tooling. These gates are design recommendations, not quoted source requirements, so treat them as inference grounded in the surveyed failures. cite
+
+### What evidence would change the conclusion
+
+This conclusion would change if there were strong primary-source evidence from 2024–2026 that one of the ecosystems solved cancellation ergonomics without lexical scoping, without cancel-point discipline, or without special cleanup mechanisms. It would also change if Java finalized StructuredTaskScope quickly and showed strong interrupt-based cancellation ergonomics in production, or if Swift/Kotlin published primary-source evidence showing that ambient task-local/context inheritance causes no practical authority or replay problems. That evidence is currently **thin** or **unknown**. cite
+
+## Trio nurseries
+
+### Research signals
+
+**Finding — high confidence:** Nathaniel J. Smith’s original 2018 argument for nurseries was that unstructured spawn is the concurrency analogue of `goto`: it destroys local reasoning, breaks automatic resource cleanup, and interferes with reliable error propagation. Trio’s current docs still encode that philosophy mechanically: nurseries always wait for child tasks to exit, prevent orphaned tasks, and make cancel scopes part of the structure rather than optional decoration. cite
+
+**Finding — high confidence:** Trio remains the clearest cancellation model in the surveyed set. Its docs say that every awaited operation in the `trio` namespace is cancellable; cancellation is checked at explicit checkpoints; and, critically, when a Trio primitive raises `Cancelled`, the operation is defined to have *not happened* unless a documented exception says otherwise. That “no partial commit unless documented” rule is unusually strong and directly addresses the hardest cancellation question. cite
+
+**Finding — high confidence:** Trio’s cleanup story is explicit and nuanced. Async cleanup is still cancellable, but cleanup operations such as async close are required to perform a minimum level of cleanup before re-raising `Cancelled`. Trio also exposes shielding lexically through cancel scopes and documents the intended use: rare cases such as bounded cleanup, not ordinary work. cite
+
+**Finding — medium confidence:** Practice revealed real edge cases, but they were mostly around the boundaries where Python’s model fights structured reasoning rather than in the nursery concept itself. Trio’s docs spend significant effort on async-generator cleanup because fallback finalization can happen later, under different context, in cancelled context, and after nurseries have closed; Trio 0.30.0 added `@trio.as_safe_channel` as the suggested fix for a linter rule about unsafe async generators; Trio 0.31.0 added cancellation reasons for debugging; and Trio 0.31.0 also made nursery misnesting fail with a helpful `RuntimeError` instead of catastrophic internal failure. That is good evidence that the hard parts in practice were cleanup timing and structural misuse, not the core nursery rule. cite
+
+### Lessons for a new language
+
+For Hum, Trio’s biggest lesson is that **cancellation points should be a language-and-runtime surface, not an implementation accident**. Trio’s checkpoints let reviewers ask a concrete question: “Can cancellation or interleaving happen here?” That is much better than models where cancellation can arrive at many implicit suspension points without a corresponding semantic contract for the operation underway. Hum should therefore make cancel points visible and audit-friendly, and it should adopt a default rule close to Trio’s: if a primitive says it is cancel-safe, cancellation means the primitive made no externally visible progress. cite
+
+A second lesson is that shielding is useful, but only when tightly constrained. Trio’s `shield=True` is lexically scoped and commonly described as an advanced feature for rare cases. Hum should imitate the *shape* of that mechanism, while narrowing its purpose even further: cleanup epilogues, protocol shutdown handshakes, and perhaps supervisor bookkeeping. A general “mask cancellation here because it is inconvenient” escape hatch will turn into the same footgun other ecosystems documented. cite
+
+### Concrete design gates or tests to adopt
+
+Hum should adopt a **Trio-style cancel-safety test suite** for the standard library. Every I/O send, receive, lock acquisition, channel receive, stream step, and timeout primitive should be tested under adversarial cancellation at every documented cancellation point, with assertions about whether the operation committed, partially committed, or rolled back. Trio’s own docs implicitly define this mental model; Hum should turn it into executable conformance tests. **Confidence: high.** cite
+
+Hum should also adopt a **misnesting/structure-violation gate**. Trio had to improve diagnostics for misnested nurseries in 2025; Hum should detect structural violations early and make them first-class runtime errors with task-tree context, not generic internal failures. **Confidence: medium.** cite
+
+### What evidence would change the conclusion
+
+I would downgrade Trio’s value as a model if newer primary sources showed that its “cancel means operation did not happen” rule caused large performance or implementation costs in real systems, or if production users widely bypassed the model through shielding or unstructured escapes. I do not see that evidence in the official material reviewed here. The evidence for broad industrial adoption statistics is **thin**, so this conclusion is about semantics quality more than market share. cite
+
+## Kotlin coroutine scopes
+
+### Research signals
+
+**Finding — high confidence:** Kotlin’s official model is fully structured by default: children inherit the parent coroutine context and become child `Job`s; parent cancellation recursively cancels children; and parents wait for children to finish. This is the most widely deployed “practical structured concurrency” story in the set. cite
+
+**Finding — high confidence:** Kotlin’s cancellation model is cooperative, not preemptive. Cancellation is observed at suspension points or through explicit checks such as `isActive`, `ensureActive()`, and `yield()`. Kotlin’s docs explicitly warn that catching `CancellationException` without rethrowing it breaks propagation. That is a major documented footgun because “catch all exceptions” patterns are common in application code. cite
+
+**Finding — high confidence:** Kotlin has a sharp cleanup story, but it is easy to use incorrectly. The docs recommend `withContext(NonCancellable)` for suspending cleanup in `finally`; at the same time, the docs explicitly warn that passing `NonCancellable` to `launch` or `async` breaks structured concurrency by severing the parent-child relationship, and the APIs are being deprecated in that direction. The docs also warn that `withContext` has prompt cancellation semantics, which can discard returned values; closeable resources returned from `withContext` therefore need careful handling to avoid leaks or lost cleanup. cite
+
+**Finding — high confidence:** Timeout composition in Kotlin is better than ad hoc timers but still semantics-heavy. `withTimeoutOrNull` is syntactically clean, yet the docs and API material repeatedly circle back to prompt cancellation, lost results, and closeable-resource hazards. This is not a syntax problem; it is a semantic one. cite
+
+**Finding — medium confidence:** Kotlin’s supervisor story is useful but footgun-prone. `supervisorScope` isolates child failures from sibling cancellation, which aligns with Hum’s supervisor direction, but the official docs also note that unhandled exceptions in `launch` children inside a supervisor scope can remain unhandled and potentially crash the program unless a `CoroutineExceptionHandler` is installed. That is practical evidence that “supervision” and “clean failure accounting” are not the same thing. cite
+
+### Lessons for a new language
+
+Kotlin’s main lesson for Hum is negative and valuable: **escape hatches must be specific and non-ambient**. Kotlin demonstrates that one cleanup-oriented escape hatch, `NonCancellable`, can be useful when lexically constrained, but disastrous when it becomes a context element for new child tasks. Hum should therefore forbid any “spawn child under non-cancellable context” pattern at the type or runtime-contract level. If Hum has masks or shields, they should apply to a lexical block inside an existing task, not to a newly created child task. cite
+
+Kotlin also shows that **context inheritance is a double-edged sword**. It is convenient for dispatchers, names, and debug context, but it also means authority-like data can flow to children by default. That may be acceptable for app frameworks, but it is a poor default for a capability-oriented systems language. For Hum, inherit cancellation lineage and diagnostics automatically; require capabilities and resource authority to be explicit in the spawn boundary. This is an inference from Kotlin’s documented inheritance model plus Hum’s capability goals. cite
+
+### Concrete design gates or tests to adopt
+
+Hum should adopt a **“swallowed cancellation” lint and runtime gate**. Any general exception handler that catches the language’s cancellation signal without rethrowing or translating it through an approved mechanism should be flagged. Kotlin’s docs make this footgun explicit; Hum can do better by enforcing it. **Confidence: high.** cite
+
+Hum should adopt a **resource handoff test** around timeout scopes. Acquire a linear or closeable resource inside a child operation, cancel the parent at every possible point, and verify that the resource is either closed, transferred, or reported as still owned — never silently dropped. Kotlin’s official examples show exactly why this matters. **Confidence: high.** cite
+
+### What evidence would change the conclusion
+
+I would soften this critique if JetBrains published 2024–2026 primary-source evidence showing that `NonCancellable`, `supervisorScope`, and prompt cancellation hazards were no longer common in production and that newer tooling or compiler checks eliminated the practical footguns. The official docs still present them as live concerns, so that evidence is currently **not present** in the material reviewed. cite
+
+## Swift structured concurrency
+
+### Research signals
+
+**Finding — high confidence:** Swift’s structured concurrency model gives strong task-tree semantics: structured tasks are `async let` and task groups; they are automatically cancelled when they go out of scope; cancelling a parent task cancels children; and task groups wait for all child tasks to complete before returning, even when canceled. Apple’s WWDC guidance explicitly says to prefer structured tasks whenever possible. cite
+
+**Finding — high confidence:** Swift’s cancellation semantics are cooperative and intentionally racey. Apple’s own explanation says cancellation sets `isCancelled`; code must poll via `Task.checkCancellation()` or `isCancelled`; and “cancellation is a race,” meaning a task may continue past a check if cancellation arrives afterward. `withTaskCancellationHandler` exists specifically for the case where the task is suspended and cannot poll. cite
+
+**Finding — high confidence:** Swift’s actor model avoids low-level data races, but actor reentrancy remained a real pain point. Apple’s 2022 talk says you must reason about actor invariants around `await` points because the actor can run other work while you are suspended, producing a “high-level data race” with unexpected state. A 2024 Swift Evolution proposal for `Mutex` says plainly that actors have “the actor reentrancy problem.” This is unusually direct primary-source language. cite
+
+**Finding — high confidence:** Swift 6 improved the static side of structured concurrency significantly, but the migration was still active work in 2024–2026. Swift 6 introduced an opt-in language mode that upgrades many data-race diagnostics to compiler errors, and the project explicitly says concurrency usability is still under active development. In 2024–2025, region-based isolation and `sending` proposals extended the system so non-`Sendable` values can be *transferred* safely when uniqueness can be proved, instead of forcing everything into `Sendable` or `@unchecked Sendable`. cite
+
+**Finding — medium confidence:** Swift’s adoption evidence is stronger than its critics often acknowledge. A 2025 Swift.org server retrospective says task-local values made distributed tracing easy and that after Vapor adopted `Sendable`, monthly reports of impossible-to-reproduce data-race crashes stopped. This is still anecdotal from a project insider, not broad telemetry, but it is meaningful primary evidence that stricter transfer/share boundaries improved real systems. cite
+
+### Lessons for a new language
+
+Swift’s central lesson for Hum is that **structure without transfer semantics is not enough**. Swift’s recent work on region isolation and `sending` is exactly the sort of thing a new systems language can benefit from at design time instead of retrofitting later. Hum already wants checked ownership, moves, views, and linear resources. The Swift evidence suggests Hum should make the parent/child task boundary an ownership boundary too: values are either shareable, transferred, or borrowed under explicit rules. Simply saying “this task is structured” does not answer whether a non-shareable value may cross into a child. cite
+
+Swift also shows that **actors are not a full answer to cancellation and invariants**. Even with strong isolation, any `await` inside an actor-executed operation can reopen the world. Hum’s “no general unwinding” direction fits the evidence: instead of pretending actor isolation makes multi-step invariants atomic, Hum should encourage or enforce single-owner critical sections that do not suspend while invariants are open, and explicit phase transitions when suspension must occur. cite
+
+### Concrete design gates or tests to adopt
+
+Hum should adopt a **no-suspend-while-owning-critical-linear-state** gate. If a function opens an invariant over a linear resource, mutable borrowed region, or exclusive capability, suspension should be prohibited unless the resource is explicitly moved into a suspension-safe state or transferred to a child/supervisor. Swift’s actor-reentrancy pain is strong evidence that this should be a language rule, not a style note. **Confidence: high.** cite
+
+Hum should also adopt a **task-transfer checker**. Spawn a child with a non-shareable object; demand either a move, a read-only view, or an explicitly audited shared capability. Swift’s `sending` and region-isolation work show that this can be stated precisely enough to matter. **Confidence: high.** cite
+
+### What evidence would change the conclusion
+
+This conclusion would change if Swift’s next waves of tooling and language changes made `Sendable`/transfer migration largely frictionless and published broader ecosystem data showing that reentrancy was no longer a major source of logic bugs. As of the official 2024–2026 sources reviewed here, the project still describes concurrency usability as active work, not solved work. cite
+
+## Java Loom structured task scopes
+
+### Research signals
+
+**Finding — high confidence:** Java’s official story is the clearest on why structured concurrency matters for observability. The JEPs repeatedly argue that the tree of parent and child tasks should be reified at runtime so cancellation, error propagation, deadlines, and thread-dump observability can use that tree rather than forcing developers to reconstruct relationships from unrelated threads. cite
+
+**Finding — high confidence:** Java’s cancellation semantics remain fundamentally interrupt-based. In StructuredTaskScope, `shutdown()` interrupts unfinished subtasks and wakes `join()`; `close()` then waits for any unfinished subtasks to finish. The JEP and API both warn that if subtasks do not respond promptly to interrupts — for example because they block in non-interruptible code — closing the scope can be delayed indefinitely. The API also says the state of subtasks completing “around the time” shutdown happens is not defined. This is the most explicit primary-source admission of cancellation ambiguity in the surveyed set. cite
+
+**Finding — high confidence:** Java’s “structured use is enforced” story is unusually strong. The API enforces that only the owner may join/close, detects out-of-structure use with `StructureViolationException`, captures scoped-value bindings at scope creation, and checks that bindings match at fork time. That is valuable runtime integrity, especially for observability and context propagation. cite
+
+**Finding — medium confidence:** Adoption reality is mixed. On one hand, JDK 25 and JDK 26 shipped/ship Loom-era structured concurrency and scoped values as official preview technologies, and Java 25/26 are GA releases. On the other hand, after incubation in JDK 19 and 20, structured concurrency was still only a preview through JDK 26, with API changes still happening in JEP 525. The official sources therefore support a cautious reading: the *idea* is mainstream inside Java, but the exact API surface was still not final in 2026. Official ecosystem usage numbers are **unknown**. cite
+
+### Lessons for a new language
+
+Java’s strongest lesson for Hum is that **runtime observability should be designed with the task tree, not bolted on later**. If Hum has supervisors, restart budgets, capability checks, and evidence-native tooling, then the runtime should expose a first-class task tree carrying parent/child edges, cancellation causes, deadlines, restart counts, and capability provenance. Java’s JEPs make a persuasive case that this matters as much as error propagation. cite
+
+Java also shows the cost of inheriting a legacy cancellation substrate. Interrupt-based cancellation is serviceable, but it leaves too much behavior to libraries and too much ambiguity around non-interruptible blocks and “completed around shutdown” races. Hum should avoid basing structured concurrency on a preexisting ambient cancel mechanism with weak commit semantics. Instead, Hum can define cancellation at the language/runtime primitive level and classify blocking FFI or OS operations explicitly. cite
+
+### Concrete design gates or tests to adopt
+
+Hum should adopt a **scope-close liveness gate**: the language/runtime must define what happens if a child ignores cancellation. One option is a bounded supervisor policy with escalation; another is explicit “uncancellable foreign block” annotations that prevent certain calls inside cancellable trees unless isolated. Java’s official warning about indefinite close delay shows why this cannot be left vague. **Confidence: high.** cite
+
+Hum should also adopt a **structure-violation runtime contract**. Java proves that enforcing lexical discipline dynamically is practical and helpful. If a task tries to fork outside ownership/ancestry rules, or tries to return from a scope with live children, the runtime should fail loudly with tree context. **Confidence: high.** cite
+
+### What evidence would change the conclusion
+
+I would revise this downward if future OpenJDK sources showed that interrupt-based cancellation acquired stronger operation-level guarantees than current docs suggest, or if the final API deliberately moved away from runtime-checked structure. I would revise it upward if official post-preview material showed strong production uptake and few interrupt-related pain reports. That evidence is **not yet available** in the primary sources reviewed here. cite
+
+## Cross-cutting design for capabilities, linear resources, and replay
+
+### Research signals
+
+**Finding — high confidence:** Capability-like context often flows to child tasks automatically in mainstream systems. Kotlin child coroutines inherit the parent context by default. Swift task-local values are implicitly carried with a task and available to child tasks; WWDC says all tasks except detached tasks inherit task-local values. Java Scoped Values are automatically inherited by StructuredTaskScope children, specifically to allow one-way dynamic-scope transmission to child threads. Trio is the outlier: its design leans more heavily on explicit argument passing and lexical cancel scopes than ambient dynamic context. cite
+
+**Finding — medium confidence, inference:** For a capability-secure system, those inheritance mechanisms behave a lot like **ambient authority propagation** unless carefully restricted. Java’s Scoped Values explicitly position themselves as one-way transmission with bounded lifetime, which is much better than `ThreadLocal`; Swift requires task-local values to be `Sendable`; yet both still default to inheritance, because convenience and tracing are the primary design targets. No reviewed source claims these are capability systems. The inference for Hum is that automatic inheritance of authority-bearing values is dangerous even when inheritance of tracing metadata is useful. cite
+
+**Finding — high confidence:** The linear-resource interaction with cancellation is real and already documented across ecosystems. Kotlin’s official examples show that prompt cancellation can lose a closeable resource unless cleanup is staged carefully in `finally`. Rust’s async-book says cancellation can occur at any `await`, that dropping a future cancels it, and that destructive partial reads can lose data; Tokio’s docs therefore classify many methods as cancel-safe or not cancel-safe and explain the operational consequences. Swift’s 2024–2025 work on noncopyable types, region isolation, and `sending` values is relevant because it treats concurrent transfer as a disciplined movement of ownership/isolation, not mere sharing. cite
+
+**Finding — medium confidence:** Direct evidence that structured concurrency by itself solves deterministic replay is **thin**. What the primary sources do support is a narrower claim: structured task trees improve observability and tracing. Swift task-local values are explicitly promoted for tracing distributed systems; Java emphasizes tree-shaped thread dumps and runtime hierarchy; Kotlin’s debug probes track creation, suspension, and resumption and can dump coroutines. None of these sources claims deterministic replay. Therefore the best evidence-backed statement is that structure improves the *recording surface* for replay, not replay determinism itself. cite
+
+### Lessons for a new language
+
+For capabilities, Hum should split inheritance into two classes. **Automatically inherited:** cancellation lineage, trace IDs, debug metadata, maybe deadline ancestry. **Explicitly inherited or forbidden by default:** capabilities that grant I/O, filesystem, network, process control, or privileged runtime operations. In other words, child tasks should inherit *coordination context* automatically, but *authority* only through explicit spawn parameters or an explicit narrowing clause. This is an inference, but it follows naturally from the dynamic-context inheritance patterns documented in Kotlin, Swift, and Java. cite
+
+For linear resources, Hum should make cancellation a typed ownership event. At a spawn boundary, a resource should be one of three things: borrowed immutably through a view, moved into the child, or wrapped in a supervisor-owned handle with explicit cancel finalization. On cancellation, the runtime should know whether the child must finish cleanup, whether the resource is returned unconsumed, or whether the supervisor assumes ownership. Current systems only approximate this through conventions; Hum could make it explicit in the language. The need is strongly evidenced even if this exact design is an inference. cite
+
+For replay, Hum should not promise more than the evidence supports. Structured concurrency helps by giving replay/logging a stable tree of forks, joins, cancels, deadlines, and supervisor decisions. But deterministic replay still requires recording external nondeterminism such as scheduler choices, time, I/O completion order, interrupts, and timeout races. The right claim is therefore: “structured concurrency is a replay aid, not a replay solution.” **Confidence: medium.** cite
+
+### Concrete design gates or tests to adopt
+
+Hum should adopt an **authority-flow gate**: when spawning `child`, tooling must be able to answer “which capabilities did `child` inherit, which were narrowed, and which were denied?” That should be visible in signatures and runtime traces, not hidden in task-local magic. **Confidence: high.** cite
+
+Hum should adopt a **linear-cancel conformance suite**: for every standard library type marked linear or uniquely owned, tests should cancel the task at every suspension point and verify one of three outcomes — resource finalized, resource returned, or resource ownership transferred and recorded. Anything else is a bug. **Confidence: high.** cite
+
+Hum should adopt a **record/replay evidence gate**: the runtime must emit fork, join, cancel, timeout, restart, and capability-flow events with stable task IDs and parent IDs. Without that, claims about deterministic incident reconstruction are too weak. **Confidence: medium; direct replay evidence is thin.** cite
+
+### What evidence would change the conclusion
+
+This conclusion would change if there were strong 2024–2026 primary-source evidence that automatic inherited contexts can safely carry authority in capability-secure systems, or that structured task trees alone materially reduce the data needed for deterministic replay in general-purpose async runtimes. I do not see that evidence here. On replay in particular, the evidence is plainly **thin**. cite
+
+## What Hum should design from scratch knowing all this
+
+### Research signals
+
+**Finding — high confidence, synthesis:** Trio contributes the best cancellation semantics, Swift contributes the best static transfer direction, Java contributes the best runtime structure/observability, and Kotlin contributes the clearest documentation of the footguns a practical system accumulates if cancellation, supervision, and inherited context are not sharply separated. This is a synthesis across sources, not a direct statement from any one source. cite
+
+### Lessons for a new language
+
+Hum should design structured concurrency around **task subtrees, not task handles**. A spawn should create a child inside an explicit lexical fault domain or supervisor scope. Timeouts should be cancel scopes over subtrees. A child failure should be translated through Hum’s supervisor policy, not through general unwinding. This aligns with your stated direction and with the strongest lessons from Trio and Loom. cite
+
+Hum should make **cancellation semantics part of the standard library specification**. Every async primitive should declare one of three statuses: cancel-safe, cancel-partial, or cancel-unsafe. For cancel-safe primitives, “canceled means no externally visible effect” should be the norm. For cancel-partial primitives, the partial effect must be explicitly specified. For cancel-unsafe primitives — especially FFI and foreign blocking calls — the type or effect system should force acknowledgement. Trio and Tokio show why this level of explicitness pays for itself. cite
+
+Hum should make **cleanup two-phase**. Phase one is the normal cancelable body. Phase two is a bounded finalization block that may suspend but runs under a tightly scoped shield with its own deadline/restart budget and with clear blame if it overruns. Kotlin and Trio both point to this pattern; Hum can make it first-class and auditable. cite
+
+Hum should make **ownership visible at concurrency boundaries**. Moving a linear resource into a child task should be syntactically and semantically different from lending a view or sharing a capability-safe proxy. Swift’s region-isolation and `sending` work is strong evidence that concurrency boundaries and ownership boundaries should meet explicitly. cite
+
+Hum should make **authority non-ambient by default**. Child tasks may inherit cancellation lineage and tracing metadata automatically, but effect capabilities should be passed explicitly or narrowed deliberately. In capability terms: a child should not accidentally inherit “can open files” just because the parent happened to have that capability in scope. This is a design inference, but the inheritance behavior documented for Kotlin, Swift, and Java is exactly the convenience path Hum should resist for authority-bearing data. cite
+
+Hum should make **replay/testing a first-class mode**. Structured concurrency gives you the natural event vocabulary: spawn, join, cancel, timeout, supervisor restart, capability transfer, ownership move, and checkpoint. A deterministic test scheduler can use that vocabulary to explore races; production traces can record the same vocabulary for postmortem replay assistance. The sources support the observability half directly; the replay half is an inference and should be labeled that way. cite
+
+### Concrete design gates or tests to adopt
+
+A minimally credible Hum design would pass these gates before stabilization. **Cancellation gate:** standard primitives are classified and adversarially tested at every checkpoint. **Cleanup gate:** all linear/closeable standard resources prove no silent leak or duplication under cancellation. **Authority gate:** task spawning requires explicit capability inheritance or narrowing, and tooling can render the result. **Observability gate:** runtime exposes the task tree, cancellation causes, timeout ancestry, restart history, and ownership transfers. **Replay gate:** a deterministic scheduler/test harness can drive checkpoints and cancel at each one. **Confidence: high for the first four gates; medium for the last, because direct replay evidence is thin.** cite
+
+### What evidence would change the conclusion
+
+I would change this recommendation if there were strong primary-source evidence that programmers prefer and safely use unstructured escape hatches in production without paying for it in cleanup bugs, authority leaks, or traceability loss. I would also change it if some 2024–2026 system showed that interrupt-based or exception-swallowing cancellation can be made predictably safe without explicit cancel-safety contracts. I do not see such evidence. Where the sources are silent — especially on deterministic replay and capability-secure task-local inheritance — the right label is **unknown** or **thin evidence**, not confidence theater. cite

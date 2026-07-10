@@ -1,0 +1,585 @@
+# Effect Polymorphism Bakeoff Corpus for Hum
+
+## Corpus frame
+
+### Research signals
+
+This report uses primary sources whenever possible: the Koka core effect paper and current Koka book and discussions; the Effekt technical report plus current documentation and repository; the Flix OOPSLA paper on Boolean unification, the current Flix docs, the PLDI 2024 associated-effects paper abstract, release notes, and issue tracker; and the Scala 3 capture-checking reference docs plus the 2025 extended paper on capture tracking over generic data structures. The recency signal is mixed: Scala and Flix have strong 2024–2026 evidence, Effekt has current 2026 docs but its core effect-polymorphism paper remains 2020, and Koka has current docs and 2025 maintainer discussions but the classic row-polymorphism paper is older. That age gap matters, but it does not erase the value of those primary design texts. cite
+
+For this corpus, I count **caller annotation burden** as the number of extra effect, capture, or capability annotations a caller must write beyond ordinary value arguments and ordinary lambda bodies in the happy path. That metric is intentionally narrow. One important result of the research is that the biggest differences among these systems are usually **not** at the happy-path caller site; they are in library-author burden, closure expressiveness, and diagnostics when things go wrong. **Confidence: high.** This is directly visible in Koka and Flix’s inference stories, Effekt’s contextual effect polymorphism, and Scala capture checking’s claim that many higher-order APIs remain unchanged. cite
+
+Empirical teachability evidence is thin across all four candidates. I found design papers, docs, migration reports, release notes, and issue trackers, but not controlled user studies comparing row effects, contextual capabilities, Boolean formulas, and capture sets head-to-head. Where a section says “teachability,” it is mostly grounded in author reports, library migration evidence, and diagnostic examples, not randomized user testing. **Confidence: medium.** cite
+
+### Lessons for Hum
+
+Hum should separate four questions that are easy to blur together. First, can the system express first-class wrappers, stored callbacks, and returned closures? Second, can the checker infer the right thing without infecting callers with annotations? Third, can an ordinary engineer understand the error when inference fails? Fourth, can the implementation coexist with Hum’s ownership, linear resources, and runtime contract blame? The corpus turns out to be most decisive on the first and third questions, not the second. **Confidence: high.** cite
+
+### Design gates for Hum
+
+Hum should turn this report into a mechanical gate suite. A candidate should not advance unless it can type-check the ten benchmark programs, explain rejection cases in one diagnostic each, preserve principal or near-principal inference on the happy path, and demonstrate how owned or linear resources interact with closure capture and effect polymorphism. It also needs a “public API hygiene” gate: no standard-library signature should become unreadable without a concrete measured payoff. **Confidence: high.** Koka and Flix explicitly care about inference and principal types; Scala capture has concrete migration statistics; Effekt explicitly trades expressiveness for simplicity through second-class computations. cite
+
+### What would change this conclusion
+
+A prototype beats argument. I would revise my conclusions materially if Hum built two toy front ends: one with row effects and one with capture checking or capabilities, then ran the ten-program corpus, a few ownership-heavy examples, and an error-snapshot suite through both. I would also revise the teachability judgment if Hum ran even a small internal study with fresh engineers and measured time-to-fix for deliberately broken examples. At present, the sources do not provide that bakeoff already. This is a genuine evidence gap. **Confidence: high.** cite
+
+## Koka style row polymorphism
+
+### Research signals
+
+Koka’s core calculus uses row-polymorphic effects with duplicate labels. In the classic paper, function types are written `τ1 -> ε τ2`; the exact higher-order rules are standard and explicit: `(APP)` says that if `Γ ⊢ e1 : τ2 -> ε τ | ε` and `Γ ⊢ e2 : τ2 | ε`, then `Γ ⊢ e1 e2 : τ | ε`, while `(LAM)` says that if `Γ, x : τ1 ⊢ e : τ2 | ε2`, then `Γ ⊢ λx.e : τ1 -> ε2 τ2 | ε`. The same paper argues that row polymorphism with duplicate labels preserves good inference behavior and makes effect elimination forms like `catch` precise without lacks constraints. **Confidence: high.** cite
+
+Koka’s current book still leans on effect abstraction and masking as real operational tools. The book’s `mask` examples show that higher-order functions can hide handled effects in their own implementation while remaining abstract in their external type, and the book explicitly notes that such masking is less common than plain propagated effects in practice. **Confidence: high.** cite
+
+Recent maintainer discussions are valuable because they document regrets in plain language. In 2025, Koka collaborators acknowledged two practical pain points: row “scalability” when many effects accumulate; and confusing error messages when aliases expand or when users expect a parameter effect to mean “may perform” rather than the more subtle maximum/open effect relation used by Koka’s checking. Those are not theoretical critics speaking from outside; they are current project maintainers and advanced users. **Confidence: medium-high.** cite
+
+A second relevant signal is inference completeness. The older Koka paper explicitly gives a sound and complete syntax-directed system and an inference algorithm, while warning that simplifying inferred types is delicate because principal inference can be lost if such simplification is applied in the wrong places. **Confidence: high.** cite
+
+A concise way to normalize the Koka higher-order typing story for Hum is this:
+
+```text
+Types
+  τ ::= ... | τ1 -> ε τ2
+  ε ::= <> | <l | μ>
+
+Higher-order rules
+  (LAM)  Γ, x : τ1 ⊢ e : τ2 | ε2
+         --------------------------------
+         Γ ⊢ λx. e : τ1 -> ε2 τ2 | ε
+
+  (APP)  Γ ⊢ e1 : τ2 -> ε τ | ε
+         Γ ⊢ e2 : τ2 | ε
+         ----------------------
+         Γ ⊢ e1 e2 : τ | ε
+
+  (CATCH) Γ ⊢ e1 : τ | <exn | ε>
+          Γ ⊢ e2 : () -> ε τ | ε
+          --------------------------
+          Γ ⊢ catch e1 e2 : τ | ε
+```
+
+That normalization matches the Koka paper’s rules and surface notation, with only minor typography cleanup. cite
+
+Here is the ten-program corpus in Koka-flavored pseudocode with full annotations:
+
+```koka
+fun map(xs: list<a>, f: a -> e b) : e list<b>
+  match xs
+    Nil         -> Nil
+    Cons(x,xs1) -> Cons(f(x), map(xs1, f))
+
+fun filter(xs: list<a>, p: a -> e bool) : e list<a>
+  match xs
+    Nil         -> Nil
+    Cons(x,xs1) -> if p(x) then Cons(x, filter(xs1, p)) else filter(xs1, p)
+
+fun fold(xs: list<a>, z: b, step: (b, a) -> e b) : e b
+  match xs
+    Nil         -> z
+    Cons(x,xs1) -> fold(xs1, step(z, x), step)
+
+fun retry(n: int, act: () -> <raise|string|e> a) : e maybe<a>
+  if n <= 0 then Nothing
+  else with ctl raise(msg)
+         if n == 1 then resume(nothing-value) else retry(n - 1, act)
+       val x = act()
+       Just(x)
+
+fun with-timeout(ms: int, act: () -> <timeout|e> a) : e maybe<a>
+  with ctl timeout()
+    Nothing
+  Just(act())
+
+fun parallel-map(xs: list<a>, f: a -> e b) : <async|e> list<b>
+  val tasks = xs.map(fn(x) spawn(fn() f(x)))
+  tasks.map(fn(t) await(t))
+
+type registry<e> = Registry(var cbs: vector<event -> e ()>)
+
+fun on(reg: registry<e>, cb: event -> e ()) : <state<reg>|e> ()
+  reg.cbs.push(cb)
+
+fun fire(reg: registry<e>, ev: event) : <state<reg>|e> ()
+  reg.cbs.foreach(fn(cb) cb(ev))
+
+fun make-handler(prefix: string) : event -> console ()
+  fn(ev) println(prefix ++ ev.name)
+
+fun memoize(f: a -> e b) : (a -> <state<h>|e> b)
+  val cache = hashmap()
+  fn(x)
+    match cache.get(x)
+      Just(y) -> y
+      Nothing ->
+        val y = f(x)
+        cache.put(x, y)
+        y
+
+fun with-log(f: a -> e b) : (a -> <console|e> b)
+  fn(x)
+    println("calling")
+    val y = f(x)
+    println("done")
+    y
+```
+
+These sketches follow Koka’s first-class function style and its standard effect-variable idiom. The important corpus fact is not the precise library names; it is that **all ten shapes are directly expressible** with first-class functions and row-polymorphic effects. **Confidence: high.** cite
+
+On the caller side, the happy-path annotation burden is usually zero. That is a real result, not a dodge: Koka’s principal value proposition is that rows are mostly inferred. The pain shows up when many effects unify across subsystem boundaries or when diagnostics expose expanded rows instead of the programmer’s mental abstraction. **Confidence: medium-high.** cite
+
+| Program | Happy-path caller burden |
+|---|---:|
+| map | 0 |
+| filter | 0 |
+| fold | 0 |
+| retry | 0 |
+| with_timeout | 0 |
+| parallel_map | 0 |
+| stored callback registry | 0 |
+| event handler returning closure | 0 |
+| memoizing wrapper | 0 |
+| logging middleware | 0 |
+
+### Lessons for Hum
+
+**Finding.** Koka is the cleanest fit if Hum insists on first-class higher-order programming all the way down: wrappers that return wrappers, stored callbacks, memoizers, and event closures all fit the model naturally. **Confidence: high.** cite
+
+**Finding.** Koka’s main risk for Hum is not basic expressiveness but row growth and mental-model drift. Current maintainers openly acknowledge scalability concerns and confusing explanations around open effects and parameter effects. For a systems language, that becomes especially important once API surfaces mix contracts, ownership, capabilities, and concurrency. **Confidence: medium-high.** cite
+
+For Hum, the biggest design lesson is that row polymorphism wants disciplined effect vocabulary. If you let every subsystem mint a dozen public effect labels, you recreate checked-exception sprawl. If instead you aggressively compress subsystem internals behind aliases and handler boundaries, row polymorphism stays attractive. This is an inference from the Koka evidence, not a claim made verbatim by the Koka authors. **Confidence: medium.** Supported by Koka maintainer guidance on aliases, subsystem-specific effect interfaces, and not leaking internals. cite
+
+### Design gates for Hum
+
+Hum should require a Koka-like prototype to pass four gates. First, the ten-program corpus must type-check with no caller-side effect annotations. Second, a public-API readability gate should fail any core library surface that exposes more than three public effect labels without an alias or a deliberate reason. Third, diagnostics must preserve written aliases in errors rather than eagerly expanding rows. Fourth, owned and linear resources must not be smuggled through inferred closures without an explicit escape story. The first three gates are directly motivated by Koka’s strengths and current regrets; the fourth is a Hum-specific extension. **Confidence: high for the first three, medium for the fourth.** cite
+
+### What would change this conclusion
+
+I would lower Koka if Hum’s corpus quickly produced effect-row explosion in actual subsystem composition, or if a prototype showed that row-based diagnostics remain confusing even after alias preservation and better notes. I would raise Koka further if a Hum prototype demonstrated that ownership- and contract-heavy APIs still keep signatures short and the broken-program diagnostics are understandable to non-PL specialists. Current evidence is promising but not decisive on that Hum-specific extension. **Confidence: medium-high.** cite
+
+## Effekt style capability passing
+
+### Research signals
+
+Effekt’s central move is contextual effect polymorphism: effects in result position are requirements on the calling context, while effects on block parameters are capabilities the block may use in that context. The official docs make this shift explicit, and the paper sells it as a way to get effect polymorphism **without** type-level effect variables or quantification. **Confidence: high.** cite
+
+The source-language typing rules are exact and notably simple. The important higher-order rules are `[Def]`, which binds a block type `(τ, σ) → τ0 / ε0`; `[BlockCall]`, which applies such a block; `[EffectCall]`, which introduces a required capability `{F}`; and `[Try]`, which discharges one handled effect from the required set. This is a serious strength for straightforward checker implementation. **Confidence: high.** cite
+
+Effekt’s core documented regret is equally explicit: computations are second-class. The docs state that computations cannot directly be stored, returned, or put into data structures; the paper’s limitation section says there is a large class of expressible programs but singles out representative examples that are not expressible, and gives explicit examples where a function cannot be returned. **Confidence: high.** cite
+
+Current status also matters. The repository says Effekt is a research-level language, actively changing, with a 2026 release cadence and current docs describing a compiler pipeline that type-checks and then translates to capability-passing style. That is strong evidence that this is not just a paper toy, but it is also explicit evidence of instability. **Confidence: high.** cite
+
+A compact normalization of the higher-order rules looks like this:
+
+```text
+Statement judgment
+  Γ | Δ | Σ ⊢ s : τ | ε
+
+Key higher-order rules
+  [Def]
+    Γ, x:τ | Δ, g:σ | Σ ⊢ s0 : τ0 | ε0'
+    Γ | Δ, f:(τ,σ) -> τ0 / ε0 | Σ ⊢ s : τ | ε
+    ------------------------------------------------
+    Γ | Δ | Σ ⊢ def f(x:τ, g:σ): τ0 / ε0 = s0; s : τ | (ε0' \ ε0) ∪ ε
+
+  [BlockCall]
+    Γ ⊢ e : τ     Δ(g)=σ     Δ(f)=(τ,σ)->τ' / ε
+    --------------------------------------------
+    Γ | Δ | Σ ⊢ f(e, g) : τ' | ε
+
+  [EffectCall]
+    Σ(F)=τ1 -> τ0     Γ ⊢ e1 : τ1
+    --------------------------------
+    Γ | Δ | Σ ⊢ do F(e1) : τ0 | {F}
+
+  [Try]
+    Σ(F)=τ1 -> τ0
+    Γ | Δ | Σ ⊢ s : τ | ε
+    Γ, x1:τ1 | Δ, resume:(τ0)->τ / ∅ | Σ ⊢ s' : τ | ε0
+    ----------------------------------------------------
+    Γ | Δ | Σ ⊢ try {s} with F {(x1:τ1) => s'} : τ | (ε \ {F}) ∪ ε0
+```
+
+This is only typography-normalized; the rule content matches the technical report. cite
+
+Here is the corpus in Effekt-flavored pseudocode. I separate direct hits from direct misses, because the misses are the decisive part of this candidate.
+
+```effekt
+// Direct hits
+
+def map[A, B](xs: List[A]) { f: A => B / {} }: List[B] / {} =
+  xs match {
+    case Nil()        => Nil()
+    case Cons(x, xs1) => Cons(f(x), map(xs1) { f })
+  }
+
+def filter[A](xs: List[A]) { p: A => Bool / {} }: List[A] / {} =
+  xs match {
+    case Nil()        => Nil()
+    case Cons(x, xs1) => if (p(x)) Cons(x, filter(xs1) { p }) else filter(xs1) { p }
+  }
+
+def fold[A, B](xs: List[A], z: B) { step: (B, A) => B / {} }: B / {} =
+  xs match {
+    case Nil()        => z
+    case Cons(x, xs1) => fold(xs1, step(z, x)) { step }
+  }
+
+effect Raise(msg: String): Unit
+def retry[A](n: Int) { act: () => A / { Raise } }: Option[A] / {} =
+  if (n <= 0) None()
+  else try { Some(act()) }
+       with Raise { (_: String) =>
+         retry(n - 1) { act }
+       }
+
+effect Timeout(): Unit
+def withTimeout[A](ms: Int) { act: () => A / { Timeout } }: Option[A] / {} =
+  try { Some(act()) } with Timeout { () => None() }
+
+// assumes scheduler/parallelism is builtin resource machinery, not user effect rows
+def parallelMap[A, B](xs: List[A]) { f: A => B / {} }: List[B] / {} =
+  // pseudocode: fork tasks, then join
+  joinAll(xs.map { x => fork { f(x) } })
+
+// Direct misses or required redesigns
+
+// Not expressible directly in core Effekt:
+// computations are second-class and cannot be stored in data structures.
+def callbackRegistry /* impossible as a value-level registry of blocks */
+
+// Not expressible directly in core Effekt:
+// blocks/functions cannot be returned.
+def makeHandler(prefix: String): /* impossible */
+
+// Not expressible directly in core Effekt:
+// a memoizing wrapper would need to return a wrapped block.
+def memoize[A, B](/* ... */): /* impossible */
+
+// Not expressible directly in core Effekt:
+// logging middleware that returns a new block is impossible;
+// the idiomatic replacement is an immediate around-call combinator.
+def withLogging[A, B](x: A) { f: A => B / {} }: B / {} = {
+  println("calling");
+  val y = f(x);
+  println("done");
+  y
+}
+```
+
+These sketches are faithful to Effekt’s documented block style and contextual effect reading. The killer corpus result is simple: **Effekt passes the block-taking half of the corpus and fails the closure-returning or closure-storing half by design.** **Confidence: high.** cite
+
+The happy-path caller burden on the successful half is again near zero. That is one of Effekt’s main selling points. But unlike Koka or Flix, the near-zero burden is purchased partly by removing entire classes of first-class higher-order values from the language. **Confidence: high.** cite
+
+| Program | Happy-path caller burden |
+|---|---:|
+| map | 0 |
+| filter | 0 |
+| fold | 0 |
+| retry | 0 |
+| with_timeout | 0 |
+| parallel_map | 0 |
+| stored callback registry | not expressible directly |
+| event handler returning closure | not expressible directly |
+| memoizing wrapper | not expressible directly |
+| logging middleware that returns a function | not expressible directly |
+
+### Lessons for Hum
+
+**Finding.** Effekt is the simplest checker story of the four if Hum is willing to make computations second-class. The source typing judgment is small, the mental model for handled requirements is crisp, and call sites are pleasantly light. **Confidence: high.** cite
+
+**Finding.** Effekt is a poor fit if Hum’s standard library must support stored callbacks, event closures, middleware that returns wrapped functions, or memoizers that return functions. That is not an edge case in your corpus; it is half the corpus. **Confidence: high.** cite
+
+**Finding.** The docs and paper offer a documented regret rather than pretending the limitation is free: second-class values do rule out some patterns from the literature. This honesty is useful for Hum, because it means you can reject or accept the trade clearly instead of discovering it late. **Confidence: high.** cite
+
+### Design gates for Hum
+
+For Hum, the decisive gate is binary: if first-class callbacks and wrapped closures are core language goals, a pure Effekt-like design should be rejected early. No amount of elegance in contextual effect polymorphism makes up for failing those APIs. A secondary gate is implementation: if Hum prototypes an Effekt-like checker, it should measure how much complexity moves from the type checker into later desugarings or capability-passing transformations. The paper and docs make that split explicit. **Confidence: high.** cite
+
+### What would change this conclusion
+
+I would raise Effekt only if Hum consciously decided to make long-lived callbacks and returned closures non-idiomatic or illegal in the core language, and if that decision harmonized with Hum’s systems goals. I would also revisit the candidate if Hum adopted a hybrid design that recovers first-class wrappers without losing the contextual capability story. The current sources do not show such a recovery in the core model I reviewed. **Confidence: medium-high.** cite
+
+## Flix style Boolean effect formulas
+
+### Research signals
+
+Flix’s effect system is built around set formulas and Boolean unification. The 2020 OOPSLA paper gives the exact core higher-order rules for `λeff`: `(T-Abs)` lifts the latent effect of the body onto the arrow type, while `(T-App)` combines the caller, callee, argument, and latent effects through conjunction. The same paper claims principal types modulo Boolean equivalence, and reports practical overhead rather than hand-waving around complexity. **Confidence: high.** cite
+
+The current Flix docs make the surface language concrete. Function types look like `a -> b \ ef`, common formulas are union `ef1 + ef2`, intersection `ef1 & ef2`, difference `ef1 - ef2`, and complement `~ef`, and the docs explicitly present higher-order examples such as `map`, composition, and effect exclusion for UI callbacks and recovery handlers. **Confidence: high.** cite
+
+Flix also has two highly relevant 2024–2025 signals. First, the PLDI 2024 associated-effects work and docs show that baseline signatures were sometimes too inflexible around traits and effectful instances; associated effects were introduced to let an instance contribute its own effect. Second, the 2025 releases and issue tracker show that error reporting around effects remains an active engineering problem: version `0.72.0` explicitly says “Improved effect error messages,” while a 2025 issue shows confusing multiple derived effect conflict errors for one underlying mismatch. **Confidence: high.** cite
+
+Teachability evidence for Flix is stronger than for the others, though still not a controlled bakeoff. The Onward 2022 principles paper explicitly argues for layered abstractions, duplicating simple APIs like `List.map` and `List.sum` so programmers do not need first to learn more abstract type-class forms, and for splitting compiler errors into more specific classes. That is unusually concrete evidence that the Flix team thinks about learnability and diagnostics as first-class product work. **Confidence: high.** cite
+
+A normalized statement of the exact higher-order rules is:
+
+```text
+Types
+  τ ::= ... | τ1 -φ-> τ2
+  φ ::= T | F | β | ¬φ | φ ∧ φ | φ ∨ φ
+
+(T-Abs)
+  Γ, x:τ1 ⊢ e : τ2 & φ
+  -----------------------------
+  Γ ⊢ λx.e : τ1 -φ-> τ2 & T
+
+(T-App)
+  Γ ⊢ e1 : τ1 -φ-> τ2 & φ1
+  Γ ⊢ e2 : τ1 & φ2
+  -----------------------------
+  Γ ⊢ e1 e2 : τ2 & (φ1 ∧ φ2 ∧ φ)
+```
+
+That is exactly the structure in the `λeff` paper, with symbol normalization only. cite
+
+Here is the corpus in Flix-flavored pseudocode:
+
+```flix
+def map[A, B](f: A -> B \ ef, xs: List[A]): List[B] \ ef =
+    match xs {
+        case Nil         => Nil
+        case x :: xs1    => f(x) :: map(f, xs1)
+    }
+
+def filter[A](p: A -> Bool \ ef, xs: List[A]): List[A] \ ef =
+    match xs {
+        case Nil         => Nil
+        case x :: xs1    => if (p(x)) x :: filter(p, xs1) else filter(p, xs1)
+    }
+
+def fold[A, B](step: (B, A) -> B \ ef, z: B, xs: List[A]): B \ ef =
+    match xs {
+        case Nil         => z
+        case x :: xs1    => fold(step, step(z, x), xs1)
+    }
+
+eff RetryErr
+def retry[A](n: Int32, act: Unit -> A \ (ef + RetryErr)): Option[A] \ ef =
+    if (n <= 0) None
+    else try {
+        Some(act(()))
+    } with RetryErr {
+        def RetryErr(): Option[A] = retry(n - 1, act)
+    }
+
+eff Timeout
+def withTimeout[A](ms: Int32, act: Unit -> A \ (ef + Timeout)): Option[A] \ ef =
+    try {
+        Some(act(()))
+    } with Timeout {
+        def Timeout(): Option[A] = None
+    }
+
+def parallelMap[A, B](f: A -> B \ ef, xs: List[A]): List[B] \ (ef + Par) =
+    Par.map(f, xs)
+
+type Registry[A, ef] = List[A -> Unit \ ef]
+
+def register(cb: Event -> Unit \ ef, reg: Registry[Event, ef]): Registry[Event, ef] =
+    cb :: reg
+
+def fire(ev: Event, reg: Registry[Event, ef]): Unit \ ef =
+    List.forEach(fn (cb) => cb(ev), reg)
+
+def makeHandler(prefix: String): Event -> Unit \ IO =
+    ev -> println(prefix + ev.name)
+
+def memoize[A, B](f: A -> B \ ef): A -> B \ (ef + Cache) =
+    Memo.of(f)
+
+def withLog[A, B](f: A -> B \ ef): A -> B \ (ef + IO) =
+    x -> {
+        println("calling");
+        let y = f(x);
+        println("done");
+        y
+    }
+```
+
+This corpus is faithful to the Flix effect-formula surface: the library author can precisely say “whatever `f` does, plus maybe `Par`,” or “all effects except `Block`,” or “this wrapper handles `Timeout` so the result does not expose it.” **Confidence: high.** cite
+
+The caller-side happy-path burden again stays near zero, because Flix pushes most of the complexity into inference, formulas, and library-signature design. But that is exactly why diagnostics matter so much here: when formulas do surface, the language must explain them extremely well or the power becomes self-defeating. The 2025 issue about multiple derived conflicts is not a fatal flaw, but it is a real warning sign. **Confidence: high.** cite
+
+| Program | Happy-path caller burden |
+|---|---:|
+| map | 0 |
+| filter | 0 |
+| fold | 0 |
+| retry | 0 |
+| with_timeout | 0 |
+| parallel_map | 0 |
+| stored callback registry | 0 |
+| event handler returning closure | 0 |
+| memoizing wrapper | 0 |
+| logging middleware | 0 |
+
+### Lessons for Hum
+
+**Finding.** Flix is the most expressive of the four candidates at the static effect level. If Hum needs not just “propagate callback effects” but also effect exclusion, effect algebra, and trait-level abstraction over effects, Flix shows that those features can live in one coherent system. **Confidence: high.** cite
+
+**Finding.** Flix’s main cost is checker and diagnostic complexity, not happy-path caller syntax. The authors are explicit that Boolean unification is practical, but the paper still acknowledges real overhead, and the issue tracker plus release notes show ongoing effort to make effect errors legible. **Confidence: high.** cite
+
+**Finding.** Flix’s own evolution is an important warning. Associated effects were introduced because ordinary trait signatures were sometimes too rigid to abstract over instance-specific effects. For Hum, that means a naïve formula system is unlikely to be the end of the story once traits or interfaces become central. **Confidence: high.** cite
+
+### Design gates for Hum
+
+If Hum prototypes a Flix-like checker, it should add two specific gates beyond the generic corpus. First, a compile-time gate: whole-project throughput must stay within an agreed slowdown budget on a medium-sized codebase, because Flix’s own evidence shows overhead is real even if manageable. Second, a diagnostics gate: any error involving `+`, `-`, `&`, or complements must produce a primary explanation in domain language, not just a raw formula mismatch. Third, if Hum grows interface-associated behavior, it should test associated effects early instead of pretending plain signatures will be enough forever. **Confidence: high.** cite
+
+### What would change this conclusion
+
+I would raise Flix if Hum demonstrated a concrete, recurring need for effect exclusion or trait-associated effects in its first-party libraries and if the prototype produced genuinely good explanations for formula-heavy failures. I would lower Flix if the first meaningful Hum prototype already suffered from formula-noise in signatures or multi-error cascades that engineers found hard to fix. The primary uncertainty is not expressiveness; it is whether the power pays for itself in a systems-language team. **Confidence: medium-high.** cite
+
+## Scala style capture checking
+
+### Research signals
+
+Scala 3 capture checking is explicitly framed as tracking references to capabilities in values. The official docs say it is experimental and unstable, but also show the central ergonomic claim: `A => B` is treated as a capture-polymorphic function type, effectively `A ->{cap} B`, so classic APIs like `List.map` can remain unchanged while still becoming “effect-polymorphic” if capabilities are your effect carriers. **Confidence: high.** cite
+
+The 2025 extended paper “What’s in the Box” goes one level deeper. It gives exact formal rules for abstraction, application, universal capture abstraction and application, and subcapturing in System Capless. It also reports concrete migration data: approximately 3% of lines changed in the capture-checked standard library, with about 87% of classes and 88% of methods requiring no signature change, largely thanks to boxing and inference. **Confidence: high.** cite
+
+The same source is also candid about where annotations do appear. Strict collection APIs often need no changes, `Iterator.map` does need a result capture set such as `Iterator[B]^{this, f}`, and some false positives are addressed by restricting certain parameters to **pure** functions `A -> B`. That is very relevant to Hum because it shows where the “lighter alternative” stops being invisible. **Confidence: high.** cite
+
+There is also a boundary condition to keep in mind. The separate “Pure Function Syntax” page says that pure function syntax without mature capture tracking should currently be read as documentation-first and manually checked; the official capture docs also continue to call the entire feature experimental. So this is promising and substantial, but not finished or fully settled. **Confidence: high.** cite
+
+The exact formal higher-order rules that matter here are:
+
+```text
+(abs)
+  C ; (Γ, x:T) ⊢ t : E      Γ ⊢ T wf
+  ------------------------------------
+  {} ; Γ ⊢ λ(x:T)t : (∀(x:T)E) ∧ (C \ x)
+
+(app)
+  C' ; Γ ⊢ x : (∀(z:T)E) ∧ C
+  C' ; Γ ⊢ y : T
+  ---------------------------
+  C' ; Γ ⊢ x y : [z := y]E
+
+(cabs)
+  C ; (Γ, c <: B) ⊢ t : E      Γ ⊢ C wf
+  --------------------------------------
+  {} ; Γ ⊢ λ[c <: B]t : (∀[c <: B]E) ∧ C
+
+(capp)
+  C' ; Γ ⊢ x : (∀[c <: D]E) ∧ C
+  ------------------------------
+  C' ; Γ ⊢ x[D] : [c := D]E
+```
+
+These are the System Capless rules as presented in the paper; the surface Scala syntax then layers convenient shorthands like `A => B`, `A -> B`, and `A ->{c} B` on top. cite
+
+A Scala-flavored corpus looks like this:
+
+```scala
+import language.experimental.captureChecking
+
+def map[A, B](xs: List[A], f: A => B): List[B] =
+  xs.map(f)
+
+def filter[A](xs: List[A], p: A => Boolean): List[A] =
+  xs.filter(p)
+
+def fold[A, B](xs: List[A], z: B, step: (B, A) => B): B =
+  xs.foldLeft(z)(step)
+
+trait CanRetry extends caps.Capability
+def retry[A](n: Int, op: () => A): Option[A] =
+  try Some(op()) catch case _: RetryErr if n > 1 => retry(n - 1, op)
+
+trait CanTimeout extends caps.Capability
+def withTimeout[A](ms: Int, op: () => A): Option[A] =
+  // pseudocode: timer capability modeled in implementation
+  Some(op())
+
+def parallelMap[A, B](xs: List[A], f: A => B): List[B] =
+  xs.par.map(f).toList
+
+class Registry:
+  private var cbs: List[Event => Unit] = Nil
+  def add(cb: Event => Unit): Unit =
+    cbs = cb :: cbs
+  def fire(ev: Event): Unit =
+    cbs.foreach(cb => cb(ev))
+
+def makeHandler(logger: Logger^): Event ->{logger} Unit =
+  (ev: Event) => logger.log(ev.name)
+
+def memoize[A, B](f: A => B, cache: Cache^): A ->{f, cache} B =
+  (x: A) =>
+    cache.getOrElseUpdate(x, f(x))
+
+def withLog[A, B](f: A => B, logger: Logger^): A ->{f, logger} B =
+  (x: A) =>
+    logger.log("calling")
+    val y = f(x)
+    logger.log("done")
+    y
+
+trait MyIterator[+A]:
+  def map[B](f: A => B): MyIterator[B]^{this, f}
+```
+
+This sketch is faithful to the official docs and the 2025 paper: unchanged `List.map`-style signatures for strict collections, explicit result capture sets for lazy iterators or wrappers, and explicit named capture sets when a returned closure retains `logger`, `cache`, or `f`. **Confidence: high.** cite
+
+The happy-path caller burden is very low on this corpus. In many cases it is zero. The cost moves into library signatures that return capturing values, explicit capability modeling, and conceptual overhead around boxes, reach capabilities, and capture sets. The migration numbers are encouraging, but the formal system is unquestionably more intricate than Koka’s or Effekt’s source checker. **Confidence: high.** cite
+
+| Program | Happy-path caller burden |
+|---|---:|
+| map | 0 |
+| filter | 0 |
+| fold | 0 |
+| retry | 0 |
+| with_timeout | 0 |
+| parallel_map | 0 |
+| stored callback registry | 0 |
+| event handler returning closure | 0 |
+| memoizing wrapper | 0 |
+| logging middleware | 0 |
+
+### Lessons for Hum
+
+**Finding.** Capture checking is the strongest “lighter alternative” in this field, because it truly keeps many familiar higher-order signatures unchanged while still tracking capability escape. That is a real ergonomic win, not marketing. **Confidence: high.** cite
+
+**Finding.** Capture checking is not a drop-in replacement for a general effect system unless Hum is willing to model the effects it cares about as capabilities. That can be a feature for a capability-oriented language, but it is still a design commitment. This statement is partly an inference from the Scala sources and partly explicit in the docs’ framing of effect polymorphism via capabilities. **Confidence: high.** cite
+
+**Finding.** The implementation model is sophisticated: boxes, reach capabilities, subcapturing, existential and universal capture quantification, and variance-aware substitution are not “small checker in a weekend” material. If Hum wants the lighter syntax, it should budget for a heavier type-theory core. **Confidence: high.** cite
+
+### Design gates for Hum
+
+For Hum, a capture-checking prototype should pass three specific gates. First, it must model authorities that Hum actually cares about—files, timers, schedulers, loggers, task handles, and owned resources—as capabilities in a way that preserves the intended security or lifetime story. Second, it must prove that returned closures cannot capture linear or moved resources unsafely. Third, it should demonstrate that strict standard-library APIs remain mostly unchanged while lazy or stateful ones receive explicit result annotations rather than mysterious inference failures. These gates are direct extrapolations from Scala’s migration evidence and formal rules. **Confidence: medium-high.** cite
+
+### What would change this conclusion
+
+I would raise capture checking materially if Hum discovered that most of its “effect” requirements are already naturally represented as explicit capabilities and if a prototype showed that ownership and capture could share one comprehensible mental model. I would lower it if Hum needed rich effect algebra—especially exclusion, handler-style subtraction, or value-independent effect formulas—that capture sets do not express cleanly. The present evidence says capture checking is excellent at escape and retention, but it is a different tool from row or formula effect systems. **Confidence: high.** cite
+
+## Synthesis for Hum
+
+### Research signals
+
+Across the corpus, the strongest empirical-style distinctions are these. Koka, Flix, and Scala capture all support the full ten-program shape space, though they pay in different places: Koka in row-scaling and explanation risk, Flix in formula complexity and ongoing diagnostic work, Scala in type-theory and implementation sophistication. Effekt keeps call sites and source typing admirably light, but fails the closure-returning and closure-storing half of the corpus by explicit design. **Confidence: high.** cite
+
+One concise matrix is:
+
+| Candidate | Corpus shape coverage | Checker complexity | Library-author burden | Caller burden | Biggest documented regret |
+|---|---|---|---|---|---|
+| Koka rows | full | medium | medium | low | row scaling, explanation/confusion |
+| Effekt capabilities | partial | low at source checker | low for block APIs, hard stop for stored/returned closures | low | second-class computations |
+| Flix Boolean formulas | full | high | high | low | formula-heavy diagnostics, extra abstraction machinery |
+| Scala capture | full if effects are capability-modeled | high | medium | low | experimental status, complex core machinery |
+
+This table is a synthesis from the cited primary sources, not a quoted table from any one paper. **Confidence: high.** cite
+
+### Lessons for Hum
+
+**Finding.** If Hum’s remaining boss fight really is the ten-program higher-order corpus, a pure Effekt-style design should not win. It is the only candidate that fails multiple benchmark shapes in the core model. **Confidence: high.** cite
+
+**Finding.** The real final choice is between Koka rows, Flix formulas, and Scala-style capture checking. Koka is the best baseline if Hum wants a recognizably direct effect system with first-class wrappers and comparatively straightforward inference. Flix is the strongest option if Hum already knows it needs effect algebra beyond rows, especially exclusion and effect-associated abstraction. Scala capture is the strongest lighter alternative if Hum wants to treat effectful authority as capability retention and escape rather than as an independent algebra of named effects. **Confidence: high.** cite
+
+**Provisional recommendation for Hum.** Adopt a **Koka-style row-polymorphic core** for first-class higher-order APIs, then add two narrow escape hatches only if evidence demands them: a targeted effect-exclusion feature later if real APIs need it, and a capture-style escape checker for closures over owned or scoped resources. Do **not** start with full Boolean formulas unless Hum already has clear flagship APIs that require exclusion or complement. Do **not** choose pure Effekt if returned closures and stored callbacks remain first-class design goals. Consider Scala-style capture checking only if Hum is prepared to make capabilities the main effect story rather than a side discipline. This recommendation is an inference from the corpus and the cited sources, not a claim any one source makes on its own. **Confidence: medium-high.** cite
+
+### Design gates for Hum
+
+If you want one concrete advancement rule, I would make it this: only a candidate that cleanly supports all ten programs, keeps happy-path caller burden at zero or near-zero, emits one understandable primary diagnostic for each broken-program variant, and shows a coherent story for closure capture of owned resources should move forward. On today’s evidence, that gate leaves Koka, Flix, and Scala capture in play, with Koka best positioned as the default first prototype. **Confidence: high.** cite
+
+### What would change this conclusion
+
+Three things would materially change my recommendation. First, if Hum demonstrates real effect-exclusion-heavy APIs early, Flix rises. Second, if Hum’s ownership and capability model naturally absorbs almost all interesting effects as retained authorities, Scala capture rises. Third, if a Hum row prototype quickly produces unreadable rows or confusing failures even with disciplined aliases and notes, Koka falls. Right now, those are live uncertainties rather than settled facts. **Confidence: high.** cite
