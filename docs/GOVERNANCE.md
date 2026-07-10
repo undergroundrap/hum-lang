@@ -122,6 +122,54 @@ The implementer agent's pushback mandate applies with extra force to
 delegated rulings: it is the second reviewer when the first reviewer is
 also the one ruling.
 
+## Scaling Notes: From One Crew To Many
+
+The operating model above assumes one crew: one BDFL, one architect-
+reviewer, one implementer, serial sessions, one pen. These notes
+pre-decide what changes when contributors multiply — written while the
+answers are cheap, not during the crisis. A "contributor" here is a
+crewed lane: a human operating their own implementer and reviewer
+agents. The unit of contribution is the lane, not the individual agent.
+
+Break points and their pre-chosen answers:
+
+1. The one-pen rule becomes per-lane. Serial dirty-tree review on `main`
+   is a solo-scale optimization. With parallel lanes, sessions move to
+   branches, review happens on the branch diff, and `main` holds only
+   reviewer-accepted work. The one-pen rule survives inside each lane.
+2. Session letters become per-work-order lanes. The global odometer
+   assumes one writer. With parallel work orders, each order owns its
+   session sequence ("Work Order 9 Session C"), and the odometer that
+   matters is the work-order number.
+3. Review authority stays independent, not centralized. A lane's
+   reviewer never reviews its own lane's implementation. Keystone
+   sessions (new binding forms, new diagnostic families, ADR-adjacent
+   work) escalate to the architect office for second review. Cross-lane
+   and cross-model-family review is preferred where available, because
+   same-family reviewers share blind spots.
+4. Ruling authority does not multiply. However many lanes exist, there
+   is one BDFL and one architect office holding delegated ruling. Lanes
+   propose through decision records and the RFC template; the review
+   bodies sketched below advise. Eight rulers is a committee, and the
+   regret ledger documents what committees did.
+5. Contended ledger files become append-only. The friction ledger and
+   scorecard are merge-conflict magnets under parallelism. Lanes append
+   session-scoped records; only retrospectives consolidate, and only the
+   architect office edits consolidated tables.
+6. Culture becomes CI. At one crew, the probe sets and honesty locks
+   transmit by practice. At many, anything not mechanically gated will
+   be skipped by someone sincere and busy. Every standing discipline in
+   AGENTS.md that can become a preflight check must become one before a
+   second lane opens.
+7. The work order remains the interface. Lanes coordinate through
+   issued work orders, accepted decision records, and `main` — never
+   through shared session state, chat context, or agent memory. If two
+   lanes need to talk, the conversation produces a work-order amendment
+   or an ADR, or it did not happen.
+
+None of this activates while the project is one crew. It exists so that
+opening the second lane is a mechanical step, not a redesign.
+
 ## Decision Principle
 
 ```text
