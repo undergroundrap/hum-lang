@@ -1144,9 +1144,11 @@ try {
   Assert-Json 'Session Z graph positive' $SessionZGraph
   $SessionZAllow = Read-NativeChannelsWithExit 'run Session Z exact allow' $Hum @('run', $SessionZPositive, '--allow', 'stdout.write', '--args', 'hello')
   if ($SessionZAllow.ExitCode -ne 0 -or $SessionZAllow.Stdout -ne 'hello' -or $SessionZAllow.Stderr -ne '') { throw 'Session Z exact allow must write only exact bytes with no newline or diagnostic channel output' }
-  $SessionZWindowsPath = 'examples\probes\bounded_stdout.hum'
-  $SessionZWindowsAllow = Read-NativeChannelsWithExit 'run Session Z Windows separator identity' $Hum @('run', $SessionZWindowsPath, '--allow', 'stdout.write', '--args', 'hello')
-  if ($SessionZWindowsAllow.ExitCode -ne $SessionZAllow.ExitCode -or $SessionZWindowsAllow.Stdout -ne $SessionZAllow.Stdout -or $SessionZWindowsAllow.Stderr -ne $SessionZAllow.Stderr) { throw 'Session Z forward-slash and backslash source paths must select the same output policy and channels' }
+  if ($IsWindows) {
+    $SessionZWindowsPath = 'examples\probes\bounded_stdout.hum'
+    $SessionZWindowsAllow = Read-NativeChannelsWithExit 'run Session Z Windows separator identity' $Hum @('run', $SessionZWindowsPath, '--allow', 'stdout.write', '--args', 'hello')
+    if ($SessionZWindowsAllow.ExitCode -ne $SessionZAllow.ExitCode -or $SessionZWindowsAllow.Stdout -ne $SessionZAllow.Stdout -or $SessionZWindowsAllow.Stderr -ne $SessionZAllow.Stderr) { throw 'Session Z forward-slash and backslash source paths must select the same output policy and channels' }
+  }
   $SessionZDuplicateAllow = Read-NativeChannelsWithExit 'run Session Z duplicate allow' $Hum @('run', $SessionZPositive, '--allow', 'stdout.write', '--allow=stdout.write', '--args', 'hello')
   if ($SessionZDuplicateAllow.ExitCode -ne 0 -or $SessionZDuplicateAllow.Stdout -ne 'hello' -or $SessionZDuplicateAllow.Stderr -ne '') { throw 'Session Z duplicate exact allows must be idempotent' }
   foreach ($Denied in @(
