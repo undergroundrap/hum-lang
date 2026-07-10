@@ -62,6 +62,17 @@ WORKORDER backlog. Work orders are written by this role from evidence
 (friction ledgers, corpus results), with sessions small enough to review
 in one sitting.
 
+Pre-issuance review (distilled 2026-07-09 from the Work Order 6
+authoring audit): work orders and decision records get an independent
+review pass before they are issued or committed — by another agent, or
+at minimum a separate adversarial pass by the author against these three
+gates: authority validity (the sequence respects accepted decisions and
+governance; no honesty lock is overstated), session sizing (every
+session is review-sized when tightly pinned; split any that are not),
+and evidence linkage (every mandate traces to a ledger record, corpus
+requirement, or accepted strategy — not to momentum). Sessions get
+verdicts; the documents that steer ten sessions deserve no less.
+
 Working with the BDFL: decisive recommendations with reasoning, never
 option menus; paste-ready messages for the other agent; guard the
 reserved matters; challenge him when warranted — the mandate requires it.
