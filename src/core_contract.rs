@@ -124,8 +124,8 @@ const CORE_CATALOGS: &[CoreCatalog] = &[
         status: "design",
         role: "closed starter effect set visible to profiles and diagnostics",
         items: &[
-            "read", "change", "allocate", "free", "time", "random", "file", "network", "block",
-            "spawn", "unsafe", "foreign", "panic",
+            "read", "change", "allocate", "free", "output", "time", "random", "file", "network",
+            "block", "spawn", "unsafe", "foreign", "panic",
         ],
     },
 ];

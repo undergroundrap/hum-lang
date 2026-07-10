@@ -1,9 +1,9 @@
 # Hum Work Order 6: Overlapping Places And The First Local IO Slice
 
 Date: 2026-07-09
-Status: active; Sessions V-X accepted and committed; Session Y implementation
-is complete and uncommitted pending architect-reviewer review; Session Z is not
-authorized,
+Status: active; Sessions V-Y accepted and committed; Session Z implementation
+is complete and uncommitted pending architect-reviewer review; Session AA is
+forbidden,
 issued under delegated authority (`docs/GOVERNANCE.md`), BDFL veto open
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
 sessions.
@@ -613,6 +613,56 @@ Acceptance criteria:
 - Standing checks pass. Stop. Session AA is forbidden until decision 0017 is
   accepted or the BDFL gives a contrary ruling.
 
+Implementation evidence awaiting review (2026-07-10):
+
+- `examples/probes/bounded_stdout.hum` prints its exact UTF-8 argument with no
+  newline only when source closure and exact `--allow stdout.write` intersect.
+  Default deny, explicit deny, and allow-plus-deny return the same typed
+  `OutputError.denied` cause under the app's W-style wrapper; direct `--entry`
+  remains H0620 even when allowed.
+- The runtime owns an injectable adapter and a 1 MiB rolling successful-byte
+  budget. Unit probes prove zero adapter calls on denial and limit rejection,
+  one opaque failing call for `OutputError.write_failed`, and preservation of
+  prior successful bytes when a later write fails.
+- H0621 exposes the output call, calling task, and structural app sites when
+  source authority is missing. H0622 rejects arity/type drift from the exact
+  `stdout_write(Text)` signature. Resolver, full type, effect, ownership,
+  resource, Core, graph, and runtime agree on the positive fixture.
+- An implicit-call fixture proves `stdout_write` remains a nominal fallible
+  operation under Session W: H0901 blocks execution before any output adapter
+  call unless the caller uses `try` or explicit causal wrapping.
+- A legacy task with `stdout.write` but no structural app is also rejected by
+  H0621 before runtime; operator allow cannot manufacture the missing app root.
+- A helper-backed output fixture proves H0618 still prevents authority
+  laundering when the helper and app declare `stdout.write` but their caller
+  omits the transitive budget.
+- Each request records typed in-memory operator-decision and operation-exercise
+  facts joined to Session Y's lexical source-policy ID, including exact grant
+  dimensions, the complete app/start/caller/output route and every call
+  occurrence, one-run lifetime, effective deny/allow, byte count, adapter-call
+  status, and stable result reason. Multi-hop and multiple-caller tests prove
+  distinct stable route IDs across repeated runs. A skipped-first-branch test
+  proves runtime selects the executed lexical call occurrence rather than a
+  task-name/execution-order cursor. Shared separator-normalized source identity
+  makes `/` and `\` Windows input spellings select the same policy ID and route
+  spans while original spans remain available for display. No runtime JSON or
+  persistence surface is claimed.
+- H0623 reserves the exact `stdout_write` callable name across all stages and
+  blocks a collision before runtime can substitute either body.
+- H0624 rejects output-reachable recursion with the recursive edge and complete
+  finite route-to-cycle evidence before execution. This bounded fail-closed
+  rule makes no general recursion claim. Authority remains more fundamental:
+  permanent combined-cause fixtures prove missing task/app coverage produces
+  exactly H0621 and missing caller coverage produces exactly H0618 across
+  human, JSON, effect, graph, and runtime preflight, with no H0624 duplicate.
+- `reserved_mapping_only` is non-satisfying for `requires:`; a pinned embedded
+  target fixture proves H1204 human/JSON/graph agreement for `os.stdio` without
+  claiming host probing or availability.
+- Core gains only `output`; target facts gain reserved `os.stdio` in every
+  fixture as `reserved_mapping_only`, explicitly not target availability.
+  No stdin, stderr writer, formatting, buffering-until-success, terminal,
+  process, clock, file, Path, prompt, wildcard, or Session AA surface is added.
+
 ## Session AA: runner-provided replay clock
 
 Purpose: add deterministic replay input without importing host time.
@@ -983,10 +1033,11 @@ Decision 0016 is accepted under delegated authority with the BDFL veto open.
 Session X was accepted by both reviewers independently (the Codex
 architect with zero findings; the cross-family reviewer on behavioral
 re-verification of the final hardened tree) and committed as `1605332`.
-Decision 0017 remains proposed pending Session Y and Z evidence. The BDFL
-authorized Session Y; its implementation is complete and uncommitted pending
-architect-reviewer review under the additional capability-grant criteria from
-research/2026-07-10-overnight-research-triage.md item 1. Session Z remains
-unauthorized until Session Y is accepted and the BDFL gives a separate explicit
-go signal. Publishing remains a BDFL-reserved action under
-`docs/GOVERNANCE.md`.
+Session Y was accepted, committed as `d30107d`, pushed by BDFL instruction,
+and passed both CI platforms. Decision 0017 remains proposed pending independent
+Session Z review. The BDFL authorized Session Z; its implementation is complete
+and uncommitted under the additional capability-grant criteria from
+research/2026-07-10-overnight-research-triage.md item 1. Session AA is forbidden
+until the architect-reviewer accepts decision 0017 under delegated authority or
+the BDFL gives a contrary ruling. Publishing remains a BDFL-reserved action
+under `docs/GOVERNANCE.md`.

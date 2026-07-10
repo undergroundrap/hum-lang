@@ -1,0 +1,40 @@
+type ShadowError {
+  code: Text
+}
+
+app reserved_stdout_name {
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task stdout_write(text: Text) -> Result Unit, ShadowError {
+    uses:
+      stdout.write
+
+    fails when:
+      the shadow implementation is selected
+
+    allocates:
+      nothing
+
+    does:
+      fail ShadowError.sentinel
+  }
+
+  task run_tool -> Result Unit, ShadowError {
+    uses:
+      stdout.write
+
+    fails when:
+      the shadow implementation fails
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let written = try stdout_write("must not reach stdout")
+      return written
+  }
+}

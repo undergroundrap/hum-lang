@@ -1,0 +1,14 @@
+task legacy_output -> Result Unit, OutputError {
+  uses:
+    stdout.write
+
+  fails when:
+    the output operation fails
+
+  allocates:
+    callee-defined allocation behavior
+
+  does:
+    let written = try stdout_write("blocked")
+    return written
+}

@@ -1,13 +1,16 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::{self, Write};
 
 use crate::app_entry;
 use crate::ast::{App, Item, ParamPermission, Program, SectionLine, Task};
+use crate::capability_root::{self, OutputPolicyFact};
 use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
 use crate::element_place;
 use crate::field_place;
 use crate::graph::is_meaningful_line_text;
+use crate::operator_grant::{GrantDecision, OperatorGrantPolicy};
 use crate::return_dependency;
 use crate::typed_failure::{self, FailureCatalog, FailureVariant};
 use crate::writable_field_alias::{self, AliasAnalysis, AliasBinding, AliasIssueKind};
@@ -26,6 +29,71 @@ pub enum RunOutcome {
 pub struct RunReport {
     pub outcome: RunOutcome,
     pub diagnostics: Vec<Diagnostic>,
+    pub authority_events: Vec<AuthorityAuditEvent>,
+}
+
+pub(crate) const OUTPUT_LIMIT_BYTES: usize = 1024 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthorityAuditEvent {
+    pub event_id: String,
+    pub event_sequence: usize,
+    pub request_id: String,
+    pub source_policy_id: String,
+    pub event_kind: &'static str,
+    pub authority_surface: &'static str,
+    pub capability_id: &'static str,
+    pub grant_kind: &'static str,
+    pub grant_scope: &'static str,
+    pub grant_strength: &'static str,
+    pub grant_lifetime: &'static str,
+    pub app_name: Option<String>,
+    pub task: String,
+    pub call_span: Span,
+    pub source_route: Vec<String>,
+    pub source_route_spans: Vec<Span>,
+    pub source_task_authorized: bool,
+    pub source_app_authorized: bool,
+    pub operator_allow_present: bool,
+    pub operator_deny_present: bool,
+    pub effective_decision: &'static str,
+    pub decision_reason: &'static str,
+    pub adapter_called: bool,
+    pub byte_count: usize,
+    pub result: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OutputAdapterError;
+
+pub(crate) trait OutputAdapter {
+    fn write(&mut self, bytes: &[u8]) -> Result<(), OutputAdapterError>;
+}
+
+pub(crate) struct StdoutOutputAdapter;
+
+impl OutputAdapter for StdoutOutputAdapter {
+    fn write(&mut self, bytes: &[u8]) -> Result<(), OutputAdapterError> {
+        io::stdout()
+            .lock()
+            .write_all(bytes)
+            .map_err(|_| OutputAdapterError)
+    }
+}
+
+#[cfg(test)]
+struct DeniedOutputAdapter;
+
+#[cfg(test)]
+impl OutputAdapter for DeniedOutputAdapter {
+    fn write(&mut self, _bytes: &[u8]) -> Result<(), OutputAdapterError> {
+        Err(OutputAdapterError)
+    }
+}
+
+struct OutputRuntime<'a> {
+    adapter: &'a mut dyn OutputAdapter,
+    successful_bytes: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -296,13 +364,43 @@ impl FailureValue {
     }
 }
 
+#[cfg(test)]
 pub fn run_program(program: &Program, entry: Option<&str>, raw_args: &[String]) -> RunReport {
+    let mut adapter = DeniedOutputAdapter;
+    run_program_with_output(
+        program,
+        entry,
+        raw_args,
+        &OperatorGrantPolicy::default(),
+        &mut adapter,
+    )
+}
+
+pub(crate) fn run_program_with_output(
+    program: &Program,
+    entry: Option<&str>,
+    raw_args: &[String],
+    grant_policy: &OperatorGrantPolicy,
+    output_adapter: &mut dyn OutputAdapter,
+) -> RunReport {
+    let output_policies = output_policy_map(capability_root::output_policy_facts(program));
     let interpreter = Interpreter {
         program,
         failure_catalog: FailureCatalog::from_program(program),
         diagnostics: RefCell::new(Vec::new()),
         active_iterations: RefCell::new(Vec::new()),
         active_app: RefCell::new(None),
+        grant_policy,
+        output: RefCell::new(OutputRuntime {
+            adapter: output_adapter,
+            successful_bytes: 0,
+        }),
+        output_policies,
+        output_call_cursors: RefCell::new(BTreeMap::new()),
+        output_task_call_cursors: RefCell::new(BTreeMap::new()),
+        active_task_route: RefCell::new(Vec::new()),
+        active_call_route: RefCell::new(Vec::new()),
+        authority_events: RefCell::new(Vec::new()),
     };
     let outcome = match interpreter.run(entry, raw_args) {
         Ok((TaskResult::Returned(value), false)) => RunOutcome::Success(display_value(&value)),
@@ -316,18 +414,97 @@ pub fn run_program(program: &Program, entry: Option<&str>, raw_args: &[String]) 
         Err(message) => RunOutcome::Trap(message),
     };
     let diagnostics = interpreter.diagnostics.into_inner();
+    let authority_events = interpreter.authority_events.into_inner();
     RunReport {
         outcome,
         diagnostics,
+        authority_events,
     }
 }
 
-struct Interpreter<'a> {
-    program: &'a Program,
+fn output_policy_map(
+    facts: Vec<OutputPolicyFact>,
+) -> BTreeMap<(String, usize), Vec<OutputPolicyFact>> {
+    let mut policies = BTreeMap::<(String, usize), Vec<OutputPolicyFact>>::new();
+    for fact in facts {
+        policies
+            .entry((fact.task.clone(), fact.call_span.line))
+            .or_default()
+            .push(fact);
+    }
+    for facts in policies.values_mut() {
+        facts.sort_by_key(|fact| fact.call_span.column);
+    }
+    policies
+}
+
+fn output_failure(variant: &str, span: Span) -> FailureValue {
+    FailureValue::root(
+        FailureVariant {
+            root: "OutputError".to_string(),
+            variant: variant.to_string(),
+        },
+        span,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn output_audit_event(
+    event_id: String,
+    event_sequence: usize,
+    request_id: String,
+    policy: &OutputPolicyFact,
+    event_kind: &'static str,
+    decision: GrantDecision,
+    operator_allow_present: bool,
+    operator_deny_present: bool,
+    adapter_called: bool,
+    byte_count: usize,
+    result: &'static str,
+) -> AuthorityAuditEvent {
+    AuthorityAuditEvent {
+        event_id,
+        event_sequence,
+        request_id,
+        source_policy_id: policy.policy_id.clone(),
+        event_kind,
+        authority_surface: "hum_run_cli",
+        capability_id: "stdout.write",
+        grant_kind: "output_stream",
+        grant_scope: "app_stdout",
+        grant_strength: "write",
+        grant_lifetime: "one_run",
+        app_name: policy.app_name.clone(),
+        task: policy.task.clone(),
+        call_span: policy.call_span.clone(),
+        source_route: policy.source_route.clone(),
+        source_route_spans: policy.source_route_spans.clone(),
+        source_task_authorized: true,
+        source_app_authorized: policy.app_name.is_some(),
+        operator_allow_present,
+        operator_deny_present,
+        effective_decision: decision.effective(),
+        decision_reason: decision.reason(),
+        adapter_called,
+        byte_count,
+        result,
+    }
+}
+
+struct Interpreter<'program, 'output> {
+    program: &'program Program,
     failure_catalog: FailureCatalog,
     diagnostics: RefCell<Vec<Diagnostic>>,
     active_iterations: RefCell<Vec<ActiveIteration>>,
-    active_app: RefCell<Option<&'a App>>,
+    active_app: RefCell<Option<&'program App>>,
+    grant_policy: &'output OperatorGrantPolicy,
+    output: RefCell<OutputRuntime<'output>>,
+    output_policies: BTreeMap<(String, usize), Vec<OutputPolicyFact>>,
+    output_call_cursors: RefCell<BTreeMap<(String, usize, String), usize>>,
+    output_task_call_cursors: RefCell<BTreeMap<(String, usize, String, String), usize>>,
+    active_task_route: RefCell<Vec<String>>,
+    active_call_route: RefCell<Vec<Span>>,
+    authority_events: RefCell<Vec<AuthorityAuditEvent>>,
 }
 
 enum TaskResult {
@@ -342,7 +519,7 @@ enum ContractKind {
     Ensures,
 }
 
-impl<'a> Interpreter<'a> {
+impl<'program, 'output> Interpreter<'program, 'output> {
     fn run(&self, entry: Option<&str>, raw_args: &[String]) -> Result<(TaskResult, bool), String> {
         let (task, app_mode) = self.entry_task(entry)?;
         let args = self.parse_args(task, raw_args)?;
@@ -350,7 +527,7 @@ impl<'a> Interpreter<'a> {
             .map(|result| (result, app_mode))
     }
 
-    fn entry_task(&self, entry: Option<&str>) -> Result<(&'a Task, bool), String> {
+    fn entry_task(&self, entry: Option<&str>) -> Result<(&'program Task, bool), String> {
         if let Some(name) = entry {
             return self
                 .find_task(name)
@@ -381,7 +558,7 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn find_task(&self, name: &str) -> Option<&'a Task> {
+    fn find_task(&self, name: &str) -> Option<&'program Task> {
         if let Some(app) = *self.active_app.borrow() {
             return find_task_in_items(&app.items, name);
         }
@@ -409,6 +586,14 @@ impl<'a> Interpreter<'a> {
     }
 
     fn execute_task(&self, task: &Task, args: Vec<Value>) -> Result<TaskResult, String> {
+        self.active_task_route.borrow_mut().push(task.name.clone());
+        let result = self.execute_task_body(task, args);
+        let popped = self.active_task_route.borrow_mut().pop();
+        debug_assert_eq!(popped.as_deref(), Some(task.name.as_str()));
+        result
+    }
+
+    fn execute_task_body(&self, task: &Task, args: Vec<Value>) -> Result<TaskResult, String> {
         let Some(does) = task.section("does") else {
             return Err(format!("task `{}` has no `does:` section", task.name));
         };
@@ -1183,6 +1368,9 @@ impl<'a> Interpreter<'a> {
         }
         if let Some((callee, args)) = split_call(text) {
             let callee = callee.trim();
+            if callee == "stdout_write" {
+                return self.eval_stdout_write(args, env, span, task_name);
+            }
             if return_dependency::is_closed_view_deriving_operation(callee) {
                 return self.eval_slice_until(args, env, span, task_name);
             }
@@ -1228,7 +1416,15 @@ impl<'a> Interpreter<'a> {
                     Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
                 }
             }
-            return match self.execute_task(task, values)? {
+            let route_call_span = self.next_output_route_call_span(task_name, &task.name, span);
+            if let Some(call_span) = &route_call_span {
+                self.active_call_route.borrow_mut().push(call_span.clone());
+            }
+            let result = self.execute_task(task, values);
+            if route_call_span.is_some() {
+                self.active_call_route.borrow_mut().pop();
+            }
+            return match result? {
                 TaskResult::Returned(value) => Ok(Evaluated::Value(value)),
                 TaskResult::Failed(value) => Ok(Evaluated::Failure(value)),
                 TaskResult::ContractViolation => Ok(Evaluated::ContractViolation),
@@ -1274,6 +1470,282 @@ impl<'a> Interpreter<'a> {
             return Ok(Evaluated::Value(Value::Variant(text.to_string())));
         }
         Err(format!("unknown expression `{text}`"))
+    }
+
+    fn eval_stdout_write(
+        &self,
+        args: &str,
+        env: &mut Env,
+        statement_span: &Span,
+        task_name: &str,
+    ) -> Result<Evaluated, String> {
+        let raw_args = split_arguments(args);
+        if raw_args.len() != 1 {
+            return Err(format!(
+                "stdout_write expects exactly 1 Text argument, got {}",
+                raw_args.len()
+            ));
+        }
+        let value = match self.eval_expr(raw_args[0], env, statement_span, task_name)? {
+            Evaluated::Value(value) => value,
+            Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
+        };
+        let Value::Text(text) = value else {
+            return Err("stdout_write expects a Text argument".to_string());
+        };
+        let policy = self.next_output_policy(task_name, statement_span)?;
+        let decision = self.grant_policy.stdout_write_decision();
+        let request_id = self.record_output_decision(&policy, decision, text.len());
+
+        if decision != GrantDecision::Allowed {
+            self.record_output_exercise(
+                &request_id,
+                &policy,
+                decision,
+                false,
+                text.len(),
+                "denied_before_adapter_v0",
+            );
+            return Ok(Evaluated::Failure(output_failure(
+                "denied",
+                policy.call_span,
+            )));
+        }
+
+        let mut output = self.output.borrow_mut();
+        let Some(next_total) = output.successful_bytes.checked_add(text.len()) else {
+            drop(output);
+            self.record_output_exercise(
+                &request_id,
+                &policy,
+                decision,
+                false,
+                text.len(),
+                "limit_rejected_before_adapter_v0",
+            );
+            return Ok(Evaluated::Failure(output_failure(
+                "limit_exceeded",
+                policy.call_span,
+            )));
+        };
+        if next_total > OUTPUT_LIMIT_BYTES {
+            drop(output);
+            self.record_output_exercise(
+                &request_id,
+                &policy,
+                decision,
+                false,
+                text.len(),
+                "limit_rejected_before_adapter_v0",
+            );
+            return Ok(Evaluated::Failure(output_failure(
+                "limit_exceeded",
+                policy.call_span,
+            )));
+        }
+        let write_result = output.adapter.write(text.as_bytes());
+        if write_result.is_ok() {
+            output.successful_bytes = next_total;
+        }
+        drop(output);
+        match write_result {
+            Ok(()) => {
+                self.record_output_exercise(
+                    &request_id,
+                    &policy,
+                    decision,
+                    true,
+                    text.len(),
+                    "write_succeeded_v0",
+                );
+                Ok(Evaluated::Value(Value::Unit))
+            }
+            Err(OutputAdapterError) => {
+                self.record_output_exercise(
+                    &request_id,
+                    &policy,
+                    decision,
+                    true,
+                    text.len(),
+                    "write_failed_v0",
+                );
+                Ok(Evaluated::Failure(output_failure(
+                    "write_failed",
+                    policy.call_span,
+                )))
+            }
+        }
+    }
+
+    fn next_output_policy(
+        &self,
+        task_name: &str,
+        statement_span: &Span,
+    ) -> Result<OutputPolicyFact, String> {
+        let key = (task_name.to_string(), statement_span.line);
+        let policies = self.output_policies.get(&key).ok_or_else(|| {
+            format!(
+                "{}: stdout_write has no checked source-policy fact",
+                location(statement_span)
+            )
+        })?;
+        let mut expected_route = self
+            .active_app
+            .borrow()
+            .map(|app| vec![app.name.clone()])
+            .unwrap_or_default();
+        expected_route.extend(self.active_task_route.borrow().iter().cloned());
+        let active_call_route = self.active_call_route.borrow().clone();
+        let matching = policies
+            .iter()
+            .filter(|policy| {
+                policy.source_route == expected_route
+                    && policy.source_route_spans.len() == active_call_route.len() + 1
+                    && same_span_identities(
+                        &policy.source_route_spans[..active_call_route.len()],
+                        &active_call_route,
+                    )
+                    && policy.source_route_spans.last().is_some_and(|span| {
+                        same_source_file(&span.file, &statement_span.file)
+                            && span.line == statement_span.line
+                    })
+            })
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
+            return Err(format!(
+                "{}: stdout_write has no checked source-policy fact for route `{}`",
+                location(statement_span),
+                expected_route.join(" -> ")
+            ));
+        }
+        let route_key = active_call_route
+            .iter()
+            .map(span_identity_key)
+            .collect::<Vec<_>>()
+            .join("->");
+        let cursor_key = (
+            task_name.to_string(),
+            statement_span.line,
+            format!("{}|{route_key}", expected_route.join("->")),
+        );
+        let mut cursors = self.output_call_cursors.borrow_mut();
+        let cursor = cursors.entry(cursor_key).or_default();
+        let policy = matching[*cursor % matching.len()].clone();
+        *cursor += 1;
+        Ok(policy.clone())
+    }
+
+    fn next_output_route_call_span(
+        &self,
+        caller: &str,
+        callee: &str,
+        statement_span: &Span,
+    ) -> Option<Span> {
+        let mut expected_prefix = (*self.active_app.borrow())
+            .map(|app| vec![app.name.clone()])
+            .unwrap_or_default();
+        expected_prefix.extend(self.active_task_route.borrow().iter().cloned());
+        expected_prefix.push(callee.to_string());
+        let active_call_route = self.active_call_route.borrow().clone();
+        let call_index = active_call_route.len();
+        let mut candidates = self
+            .output_policies
+            .values()
+            .flatten()
+            .filter(|policy| {
+                policy.source_route.starts_with(&expected_prefix)
+                    && policy.source_route_spans.len() > call_index
+                    && same_span_identities(
+                        &policy.source_route_spans[..call_index],
+                        &active_call_route,
+                    )
+                    && same_source_file(
+                        &policy.source_route_spans[call_index].file,
+                        &statement_span.file,
+                    )
+                    && policy.source_route_spans[call_index].line == statement_span.line
+            })
+            .map(|policy| policy.source_route_spans[call_index].clone())
+            .collect::<Vec<_>>();
+        candidates.sort_by_key(span_identity_key);
+        candidates.dedup_by(|left, right| same_span_identity(left, right));
+        if candidates.is_empty() {
+            return None;
+        }
+        let route_key = active_call_route
+            .iter()
+            .map(span_identity_key)
+            .collect::<Vec<_>>()
+            .join("->");
+        let key = (
+            caller.to_string(),
+            statement_span.line,
+            callee.to_string(),
+            route_key,
+        );
+        let mut cursors = self.output_task_call_cursors.borrow_mut();
+        let cursor = cursors.entry(key).or_default();
+        let span = candidates[*cursor % candidates.len()].clone();
+        *cursor += 1;
+        Some(span)
+    }
+
+    fn record_output_decision(
+        &self,
+        policy: &OutputPolicyFact,
+        decision: GrantDecision,
+        byte_count: usize,
+    ) -> String {
+        let mut events = self.authority_events.borrow_mut();
+        let ordinal = events
+            .iter()
+            .filter(|event| event.event_kind == "operator_decision")
+            .count()
+            + 1;
+        let request_id = format!("{}:request-{ordinal}", policy.policy_id);
+        let event_sequence = events.len() + 1;
+        events.push(output_audit_event(
+            format!("{request_id}:decision"),
+            event_sequence,
+            request_id.clone(),
+            policy,
+            "operator_decision",
+            decision,
+            self.grant_policy.allows_stdout_write(),
+            self.grant_policy.denies_stdout_write(),
+            false,
+            byte_count,
+            "decision_recorded_v0",
+        ));
+        request_id
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_output_exercise(
+        &self,
+        request_id: &str,
+        policy: &OutputPolicyFact,
+        decision: GrantDecision,
+        adapter_called: bool,
+        byte_count: usize,
+        result: &'static str,
+    ) {
+        let mut events = self.authority_events.borrow_mut();
+        let event_sequence = events.len() + 1;
+        events.push(output_audit_event(
+            format!("{request_id}:exercise"),
+            event_sequence,
+            request_id.to_string(),
+            policy,
+            "operation_exercise",
+            decision,
+            self.grant_policy.allows_stdout_write(),
+            self.grant_policy.denies_stdout_write(),
+            adapter_called,
+            byte_count,
+            result,
+        ));
     }
 
     fn eval_list_append(
@@ -2128,6 +2600,33 @@ fn location(span: &Span) -> String {
     )
 }
 
+fn same_source_file(left: &str, right: &str) -> bool {
+    crate::node_id::source_path_identity(left) == crate::node_id::source_path_identity(right)
+}
+
+fn same_span_identity(left: &Span, right: &Span) -> bool {
+    same_source_file(&left.file, &right.file)
+        && left.line == right.line
+        && left.column == right.column
+}
+
+fn same_span_identities(left: &[Span], right: &[Span]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| same_span_identity(left, right))
+}
+
+fn span_identity_key(span: &Span) -> String {
+    format!(
+        "{}:{}:{}",
+        crate::node_id::source_path_identity(&span.file),
+        span.line,
+        span.column
+    )
+}
+
 fn iteration_root(text: &str) -> Option<String> {
     let text = strip_borrow_or_change_argument(text).unwrap_or(text).trim();
     if text.is_empty()
@@ -2435,9 +2934,464 @@ mod tests {
     use crate::ast::Program;
     use crate::check;
     use crate::diagnostic::{DiagnosticCode, Severity};
+    use crate::operator_grant::OperatorGrantPolicy;
     use crate::parser;
 
-    use super::{RunOutcome, run_program};
+    use super::{
+        OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, RunOutcome, run_program,
+        run_program_with_output,
+    };
+
+    #[derive(Default)]
+    struct RecordingOutput {
+        writes: Vec<Vec<u8>>,
+        fail_on_call: Option<usize>,
+        calls: usize,
+    }
+
+    impl OutputAdapter for RecordingOutput {
+        fn write(&mut self, bytes: &[u8]) -> Result<(), OutputAdapterError> {
+            let call = self.calls;
+            self.calls += 1;
+            if self.fail_on_call == Some(call) {
+                return Err(OutputAdapterError);
+            }
+            self.writes.push(bytes.to_vec());
+            Ok(())
+        }
+    }
+
+    fn allowed_stdout() -> OperatorGrantPolicy {
+        let mut policy = OperatorGrantPolicy::default();
+        policy.allow("stdout.write").expect("exact allow");
+        policy
+    }
+
+    #[test]
+    fn bounded_stdout_writes_exact_utf8_and_records_joined_events() {
+        let program = fixture_program(
+            "examples/probes/bounded_stdout.hum",
+            include_str!("../examples/probes/bounded_stdout.hum"),
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(
+            &program,
+            None,
+            &["Hum λ".to_string()],
+            &allowed_stdout(),
+            &mut output,
+        );
+        assert_eq!(report.outcome, RunOutcome::AppSuccess);
+        assert_eq!(output.writes, vec!["Hum λ".as_bytes()]);
+        assert_eq!(output.calls, 1);
+        assert_eq!(report.authority_events.len(), 2);
+        assert_eq!(report.authority_events[0].event_sequence, 1);
+        assert_eq!(report.authority_events[1].event_sequence, 2);
+        assert_eq!(
+            report.authority_events[0].request_id,
+            report.authority_events[1].request_id
+        );
+        assert_eq!(report.authority_events[0].authority_surface, "hum_run_cli");
+        assert_eq!(
+            report.authority_events[0].app_name.as_deref(),
+            Some("bounded_stdout_probe")
+        );
+        assert_eq!(
+            report.authority_events[0].source_route,
+            ["bounded_stdout_probe", "run_tool", "emit"]
+        );
+        assert_eq!(report.authority_events[0].source_route_spans.len(), 2);
+        assert!(report.authority_events[0].source_task_authorized);
+        assert!(report.authority_events[0].source_app_authorized);
+        assert!(report.authority_events[0].operator_allow_present);
+        assert!(!report.authority_events[0].operator_deny_present);
+        assert_eq!(report.authority_events[0].effective_decision, "allow");
+        assert_eq!(report.authority_events[1].result, "write_succeeded_v0");
+        assert!(report.authority_events[1].adapter_called);
+        assert!(
+            report.authority_events[0]
+                .source_policy_id
+                .contains("source-capability-output-operation-stdout-write")
+        );
+    }
+
+    #[test]
+    fn bounded_stdout_path_separator_variants_keep_policy_identity_and_route() {
+        let source = include_str!("../examples/probes/bounded_stdout.hum");
+        let forward = fixture_program("examples/probes/bounded_stdout.hum", source);
+        let separator = char::from(92).to_string();
+        let backward_path = ["examples", "probes", "bounded_stdout.hum"].join(&separator);
+        let backward = fixture_program(&backward_path, source);
+        let mut forward_output = RecordingOutput::default();
+        let forward_report = run_program_with_output(
+            &forward,
+            None,
+            &["same".to_string()],
+            &allowed_stdout(),
+            &mut forward_output,
+        );
+        let mut backward_output = RecordingOutput::default();
+        let backward_report = run_program_with_output(
+            &backward,
+            None,
+            &["same".to_string()],
+            &allowed_stdout(),
+            &mut backward_output,
+        );
+        assert_eq!(forward_report.outcome, RunOutcome::AppSuccess);
+        assert_eq!(backward_report.outcome, RunOutcome::AppSuccess);
+        assert_eq!(forward_output.writes, vec![b"same".to_vec()]);
+        assert_eq!(backward_output.writes, forward_output.writes);
+        let forward_decision = &forward_report.authority_events[0];
+        let backward_decision = &backward_report.authority_events[0];
+        assert_eq!(
+            forward_decision.source_policy_id,
+            backward_decision.source_policy_id
+        );
+        assert_eq!(
+            forward_decision.source_route_spans,
+            backward_decision.source_route_spans
+        );
+        assert_eq!(
+            forward_decision.source_route,
+            backward_decision.source_route
+        );
+    }
+
+    #[test]
+    fn bounded_stdout_default_and_explicit_denial_never_call_adapter() {
+        let program = fixture_program(
+            "examples/probes/bounded_stdout.hum",
+            include_str!("../examples/probes/bounded_stdout.hum"),
+        );
+        for (expected_reason, mut policy) in [
+            ("default_empty_grant_set_v0", OperatorGrantPolicy::default()),
+            ("exact_deny_overrides_allow_v0", {
+                let mut policy = allowed_stdout();
+                policy.deny("stdout.write").expect("exact deny");
+                policy
+            }),
+        ] {
+            let mut output = RecordingOutput::default();
+            let report = run_program_with_output(
+                &program,
+                None,
+                &["blocked".to_string()],
+                &policy,
+                &mut output,
+            );
+            assert!(matches!(
+                report.outcome,
+                RunOutcome::AppFailure(ref chain) if chain.contains("OutputError.denied")
+            ));
+            assert!(output.writes.is_empty());
+            assert_eq!(output.calls, 0);
+            assert_eq!(report.authority_events[0].decision_reason, expected_reason);
+            assert_eq!(
+                report.authority_events[0].operator_allow_present,
+                expected_reason == "exact_deny_overrides_allow_v0"
+            );
+            assert_eq!(
+                report.authority_events[0].operator_deny_present,
+                expected_reason == "exact_deny_overrides_allow_v0"
+            );
+            assert!(!report.authority_events[1].adapter_called);
+            policy
+                .allow("stdout.write")
+                .expect("duplicate remains valid");
+        }
+    }
+
+    #[test]
+    fn bounded_stdout_write_failure_is_typed_and_opaque() {
+        let program = fixture_program(
+            "examples/probes/bounded_stdout.hum",
+            include_str!("../examples/probes/bounded_stdout.hum"),
+        );
+        let mut output = RecordingOutput {
+            fail_on_call: Some(0),
+            ..Default::default()
+        };
+        let report = run_program_with_output(
+            &program,
+            None,
+            &["fail".to_string()],
+            &allowed_stdout(),
+            &mut output,
+        );
+        assert!(matches!(
+            report.outcome,
+            RunOutcome::AppFailure(ref chain)
+                if chain.contains("AppError.output")
+                    && chain.contains("OutputError.write_failed")
+                    && !chain.contains("host")
+        ));
+        assert!(output.writes.is_empty());
+        assert_eq!(output.calls, 1);
+        assert_eq!(report.authority_events[1].result, "write_failed_v0");
+    }
+
+    #[test]
+    fn bounded_stdout_rolling_limit_rejects_before_second_adapter_call() {
+        let source = r#"app limit_probe {
+  uses:
+    stdout.write
+  starts with:
+    run_tool
+  task run_tool(first: Text, second: Text) -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      the rolling output limit is exceeded
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let first_write = try stdout_write(first)
+      let second_write = try stdout_write(second)
+      return second_write
+  }
+}
+"#;
+        let program = fixture_program("limit.hum", source);
+        let mut output = RecordingOutput::default();
+        let first = "a".repeat(OUTPUT_LIMIT_BYTES);
+        let report = run_program_with_output(
+            &program,
+            None,
+            &[first.clone(), "b".to_string()],
+            &allowed_stdout(),
+            &mut output,
+        );
+        assert!(matches!(
+            report.outcome,
+            RunOutcome::AppFailure(ref chain) if chain.contains("OutputError.limit_exceeded")
+        ));
+        assert_eq!(output.writes, vec![first.into_bytes()]);
+        assert_eq!(output.calls, 1);
+        assert_eq!(report.authority_events.len(), 4);
+        assert_eq!(
+            report.authority_events[3].result,
+            "limit_rejected_before_adapter_v0"
+        );
+        assert!(!report.authority_events[3].adapter_called);
+    }
+
+    #[test]
+    fn bounded_stdout_keeps_prior_bytes_when_later_adapter_write_fails() {
+        let source = r#"app partial_output_probe {
+  uses:
+    stdout.write
+  starts with:
+    run_tool
+  task run_tool -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      an adapter write fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let first = try stdout_write("first")
+      let second = try stdout_write("second")
+      return second
+  }
+}
+"#;
+        let program = fixture_program("partial.hum", source);
+        let mut output = RecordingOutput {
+            fail_on_call: Some(1),
+            ..Default::default()
+        };
+        let report = run_program_with_output(&program, None, &[], &allowed_stdout(), &mut output);
+        assert!(matches!(
+            report.outcome,
+            RunOutcome::AppFailure(ref chain) if chain.contains("OutputError.write_failed")
+        ));
+        assert_eq!(output.writes, vec![b"first".to_vec()]);
+        assert_eq!(output.calls, 2);
+    }
+
+    #[test]
+    fn bounded_stdout_audit_selects_complete_multiple_caller_routes_stably() {
+        let source = r#"app replay_probe {
+  uses:
+    stdout.write
+  starts with:
+    run_tool
+  task emit(text: Text) -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      output fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write(text)
+      return written
+  }
+  task left -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      left output fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try emit("L")
+      return written
+  }
+  task right -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      right output fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try emit("R")
+      return written
+  }
+  task run_tool -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      either output route fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let left_done = try left()
+      let right_done = try right()
+      return right_done
+  }
+}
+"#;
+        let program = fixture_program("replay.hum", source);
+        let mut first_output = RecordingOutput::default();
+        let first =
+            run_program_with_output(&program, None, &[], &allowed_stdout(), &mut first_output);
+        let mut second_output = RecordingOutput::default();
+        let second =
+            run_program_with_output(&program, None, &[], &allowed_stdout(), &mut second_output);
+        assert_eq!(first.outcome, RunOutcome::AppSuccess);
+        assert_eq!(first_output.writes, vec![b"L".to_vec(), b"R".to_vec()]);
+        assert_eq!(first_output.calls, 2);
+        let first_decisions = first
+            .authority_events
+            .iter()
+            .filter(|event| event.event_kind == "operator_decision")
+            .collect::<Vec<_>>();
+        let second_decisions = second
+            .authority_events
+            .iter()
+            .filter(|event| event.event_kind == "operator_decision")
+            .collect::<Vec<_>>();
+        assert_eq!(first_decisions.len(), 2);
+        assert_eq!(
+            first_decisions[0].source_route,
+            ["replay_probe", "run_tool", "left", "emit"]
+        );
+        assert_eq!(
+            first_decisions[1].source_route,
+            ["replay_probe", "run_tool", "right", "emit"]
+        );
+        assert_eq!(first_decisions[0].source_route_spans.len(), 3);
+        assert_eq!(first_decisions[1].source_route_spans.len(), 3);
+        assert_ne!(
+            first_decisions[0].source_policy_id,
+            first_decisions[1].source_policy_id
+        );
+        assert_eq!(
+            first_decisions
+                .iter()
+                .map(|event| &event.source_policy_id)
+                .collect::<Vec<_>>(),
+            second_decisions
+                .iter()
+                .map(|event| &event.source_policy_id)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn bounded_stdout_audit_selects_the_executed_conditional_call_occurrence() {
+        let source = r#"app conditional_probe {
+  uses:
+    stdout.write
+  starts with:
+    run_tool
+  task emit(text: Text) -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      output fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write(text)
+      return written
+  }
+  task run_tool(take_first: Bool) -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      selected output fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      if take_first {
+        let first = try emit("first")
+      }
+      if true {
+        let second = try emit("second")
+      }
+      return
+  }
+}
+"#;
+        let second_call_line = source
+            .lines()
+            .position(|line| line.contains("try emit(\"second\")"))
+            .expect("second call")
+            + 1;
+        let program = fixture_program("conditional.hum", source);
+        let mut first_output = RecordingOutput::default();
+        let first = run_program_with_output(
+            &program,
+            None,
+            &["false".to_string()],
+            &allowed_stdout(),
+            &mut first_output,
+        );
+        let mut second_output = RecordingOutput::default();
+        let second = run_program_with_output(
+            &program,
+            None,
+            &["false".to_string()],
+            &allowed_stdout(),
+            &mut second_output,
+        );
+        assert_eq!(first.outcome, RunOutcome::AppSuccess);
+        assert_eq!(first_output.writes, vec![b"second".to_vec()]);
+        let first_decision = first
+            .authority_events
+            .iter()
+            .find(|event| event.event_kind == "operator_decision")
+            .expect("decision event");
+        let second_decision = second
+            .authority_events
+            .iter()
+            .find(|event| event.event_kind == "operator_decision")
+            .expect("repeat decision event");
+        assert_eq!(first_decision.source_route_spans[0].line, second_call_line);
+        assert_eq!(
+            first_decision.source_policy_id,
+            second_decision.source_policy_id
+        );
+        assert_eq!(
+            first_decision.source_route_spans,
+            second_decision.source_route_spans
+        );
+    }
 
     #[test]
     fn runs_add_program() {

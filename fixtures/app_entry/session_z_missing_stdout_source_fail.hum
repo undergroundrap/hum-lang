@@ -1,0 +1,19 @@
+app missing_stdout_source {
+  why:
+    reject output whose task and app omit the source authority budget
+
+  starts with:
+    run_tool
+
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let written = try stdout_write("blocked")
+      return written
+  }
+}

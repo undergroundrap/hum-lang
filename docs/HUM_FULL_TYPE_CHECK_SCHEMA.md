@@ -106,6 +106,9 @@ The V0 gate checks only conservative statement contexts:
 - `list_append(change list, item)`: the built-in minimal list-growth operation
   is typed as `Unit`; list literals are accepted against explicit `List ...`
   annotations without element-type validation in V0.
+- `stdout_write(text)`: the only Session Z output built-in is typed as
+  `Result Unit, OutputError`; explicit propagation sees success type `Unit`,
+  and H0622 rejects any arity or checked argument type other than one `Text`.
 - `block_close` and `loop_header`: accepted as statements with no expression
   type obligation.
 

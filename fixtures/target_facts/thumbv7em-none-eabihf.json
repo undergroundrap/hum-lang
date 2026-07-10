@@ -42,6 +42,11 @@
       "note": "no native filesystem authority"
     },
     {
+      "family": "os.stdio",
+      "availability": "reserved_mapping_only",
+      "note": "stdio mapping is reserved; this fixture makes no target availability claim"
+    },
+    {
       "family": "os.clock",
       "availability": "device_specific",
       "note": "time depends on explicit hardware timer authority"

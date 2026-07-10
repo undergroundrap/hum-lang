@@ -200,6 +200,12 @@ const CAPABILITY_FAMILIES: &[CapabilityFamily] = &[
         absence_policy: "strict profiles deny hidden file authority",
     },
     CapabilityFamily {
+        family: "os.stdio",
+        status: "reserved",
+        examples: &["stdout"],
+        absence_policy: "stdio mapping requires explicit source authority and an exact operator grant",
+    },
+    CapabilityFamily {
         family: "os.clock",
         status: "reserved",
         examples: &["monotonic_time", "wall_time", "timers"],
@@ -254,6 +260,11 @@ const WINDOWS_CAPABILITIES: &[CapabilityAvailability] = &[
         note: "strict profiles still require declared roots",
     },
     CapabilityAvailability {
+        family: "os.stdio",
+        availability: "reserved_mapping_only",
+        note: "stdio mapping is reserved; this fixture makes no target availability claim",
+    },
+    CapabilityAvailability {
         family: "os.clock",
         availability: "monotonic_and_wall_available_profile_gated",
         note: "clock authority must stay visible to deterministic profiles",
@@ -292,6 +303,11 @@ const LINUX_CAPABILITIES: &[CapabilityAvailability] = &[
         note: "strict profiles still require declared roots",
     },
     CapabilityAvailability {
+        family: "os.stdio",
+        availability: "reserved_mapping_only",
+        note: "stdio mapping is reserved; this fixture makes no target availability claim",
+    },
+    CapabilityAvailability {
         family: "os.clock",
         availability: "monotonic_and_wall_available_profile_gated",
         note: "clock authority must stay visible to deterministic profiles",
@@ -328,6 +344,11 @@ const WASI_CAPABILITIES: &[CapabilityAvailability] = &[
         family: "os.filesystem",
         availability: "import_required",
         note: "preopened directories define authority",
+    },
+    CapabilityAvailability {
+        family: "os.stdio",
+        availability: "reserved_mapping_only",
+        note: "stdio mapping is reserved; this fixture makes no target availability claim",
     },
     CapabilityAvailability {
         family: "os.clock",
@@ -371,6 +392,11 @@ const EMBEDDED_CAPABILITIES: &[CapabilityAvailability] = &[
         family: "os.filesystem",
         availability: "absent_by_default",
         note: "no native filesystem authority",
+    },
+    CapabilityAvailability {
+        family: "os.stdio",
+        availability: "reserved_mapping_only",
+        note: "stdio mapping is reserved; this fixture makes no target availability claim",
     },
     CapabilityAvailability {
         family: "os.clock",
@@ -590,7 +616,7 @@ fn find_target_fixture(value: &str) -> Option<&'static TargetFixture> {
 fn is_unavailable_availability(availability: &str) -> bool {
     matches!(
         availability,
-        "absent_by_default" | "mostly_absent" | "absent_by_policy"
+        "absent_by_default" | "mostly_absent" | "absent_by_policy" | "reserved_mapping_only"
     )
 }
 
@@ -968,6 +994,11 @@ mod tests {
             .expect("known WASI fixture");
         assert_eq!(cpu.availability, "absent_by_policy");
         assert!(cpu.is_unavailable());
+
+        let stdio = target_required_capability_status("thumbv7em-none-eabihf", "os.stdio")
+            .expect("known embedded fixture");
+        assert_eq!(stdio.availability, "reserved_mapping_only");
+        assert!(stdio.is_unavailable());
         assert!(
             target_required_capability_status("wasm32-wasi-preview1", "os.telepathy").is_none()
         );
@@ -975,9 +1006,13 @@ mod tests {
         assert_eq!(
             unavailable_required_capability_families(
                 &["wasm32-wasi-preview1".to_string()],
-                &["os.clock".to_string(), "os.network".to_string()]
+                &[
+                    "os.clock".to_string(),
+                    "os.network".to_string(),
+                    "os.stdio".to_string()
+                ]
             ),
-            vec!["os.network".to_string()]
+            vec!["os.network".to_string(), "os.stdio".to_string()]
         );
     }
 

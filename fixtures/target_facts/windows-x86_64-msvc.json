@@ -37,6 +37,11 @@
       "note": "strict profiles still require declared roots"
     },
     {
+      "family": "os.stdio",
+      "availability": "reserved_mapping_only",
+      "note": "stdio mapping is reserved; this fixture makes no target availability claim"
+    },
+    {
       "family": "os.clock",
       "availability": "monotonic_and_wall_available_profile_gated",
       "note": "clock authority must stay visible to deterministic profiles"

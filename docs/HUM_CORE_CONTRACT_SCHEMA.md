@@ -90,6 +90,11 @@ Each `core_catalogs` entry has:
 V0 names the starter families without claiming the compiler can lower source
 bodies into them yet.
 
+The closed `effects` catalog includes Session Z's additive `output` value.
+That catalog entry does not itself grant authority or claim a complete effect
+system; the executable operation still requires checked source closure, an
+exact one-run operator grant, and the bounded output adapter.
+
 ## Contract Lowering Shape
 
 Each `contract_lowering` entry has:

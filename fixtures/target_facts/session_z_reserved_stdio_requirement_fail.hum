@@ -1,0 +1,11 @@
+task reserved_stdio_requirement -> Unit {
+  targets:
+    triple: thumbv7em-none-eabihf
+    requires: os.stdio
+
+  allocates:
+    nothing
+
+  does:
+    return
+}

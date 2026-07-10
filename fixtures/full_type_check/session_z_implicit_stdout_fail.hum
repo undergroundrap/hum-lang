@@ -1,0 +1,22 @@
+app implicit_stdout_failure {
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task run_tool -> Result Unit, OutputError {
+    uses:
+      stdout.write
+
+    fails when:
+      the output operation fails
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let written = stdout_write("must not print")
+      return written
+  }
+}

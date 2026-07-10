@@ -10,8 +10,24 @@ pub const TYPE_ENV_SCHEMA: &str = "hum.type_env.v0";
 pub const TYPE_ENV_MODE: &str = "declaration_inventory_no_type_check";
 
 const RESERVED_TYPE_ROOTS: &[&str] = &[
-    "Unit", "Bool", "Int", "UInt", "Float", "Text", "Bytes", "Result", "Option", "Maybe", "list",
-    "List", "Vec", "Slice", "Span", "Map", "Set",
+    "Unit",
+    "Bool",
+    "Int",
+    "UInt",
+    "Float",
+    "Text",
+    "Bytes",
+    "OutputError",
+    "Result",
+    "Option",
+    "Maybe",
+    "list",
+    "List",
+    "Vec",
+    "Slice",
+    "Span",
+    "Map",
+    "Set",
 ];
 
 const NON_CLAIMS: &[&str] = &[

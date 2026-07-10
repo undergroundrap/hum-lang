@@ -1,5 +1,9 @@
 use crate::diagnostic::Span;
 
+pub fn source_path_identity(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
 pub fn file(path: &str) -> String {
     format!("file:{}", component(path))
 }
@@ -65,7 +69,7 @@ fn component(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{file, line, span};
+    use super::{file, line, source_path_identity, span};
     use crate::diagnostic::Span;
 
     #[test]
@@ -81,5 +85,9 @@ mod tests {
             "item:examples/task-list.hum:12:1:task-add-item"
         );
         assert_eq!(line(&source_span), "line:examples/task-list.hum:12:1");
+        assert_eq!(
+            source_path_identity("Examples\\Task List.hum"),
+            source_path_identity("Examples/Task List.hum")
+        );
     }
 }

@@ -37,6 +37,11 @@
       "note": "preopened directories define authority"
     },
     {
+      "family": "os.stdio",
+      "availability": "reserved_mapping_only",
+      "note": "stdio mapping is reserved; this fixture makes no target availability claim"
+    },
+    {
       "family": "os.clock",
       "availability": "host_import_profile_gated",
       "note": "clock depends on host imports and deterministic profile policy"

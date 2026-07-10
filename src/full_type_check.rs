@@ -4,7 +4,7 @@ use crate::ast::{Item, Param, Program, Section};
 use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
 use crate::core_verify;
-use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
 use crate::element_place;
 use crate::field_place::{self, FieldTypeMap};
 use crate::return_dependency;
@@ -95,6 +95,13 @@ struct TypedStatement {
 struct TypeFact {
     type_text: String,
     source: &'static str,
+}
+
+struct StdoutWriteTypeIssue {
+    call_source: String,
+    call_span: Span,
+    actual_type: Option<TypeFact>,
+    reason: &'static str,
 }
 
 pub fn full_type_check_has_errors(program: &Program, diagnostics: &[Diagnostic]) -> bool {
@@ -412,6 +419,28 @@ fn type_statement(
         );
     }
 
+    if let Some(issue) = stdout_write_type_issue(statement, environment, task_returns, field_types)
+    {
+        let mut typed = typed_statement(
+            statement,
+            index,
+            Some(issue.call_source),
+            Some("Text".to_string()),
+            issue.actual_type,
+            "rejected_invalid_stdout_write_call_v0",
+            Some(issue.reason),
+        );
+        typed.failure_form = Some("bounded_output_builtin");
+        typed.call_span = Some(issue.call_span);
+        typed.caller_span = Some(item.span().clone());
+        typed.diagnostic_code = Some(DiagnosticCode::INVALID_STDOUT_WRITE_CALL.as_str());
+        typed.help = Some(
+            "Pass exactly one checked `Text` argument to `stdout_write`, then handle its `OutputError` explicitly."
+                .to_string(),
+        );
+        return typed;
+    }
+
     if let Some(fact) = failure_fact {
         let effect_owned_missing_declaration = fact.diagnostic_code
             == Some(crate::diagnostic::DiagnosticCode::MISSING_FAILURE_DECLARATION);
@@ -477,6 +506,80 @@ fn type_statement(
         status,
         reason,
     )
+}
+
+fn stdout_write_type_issue(
+    statement: &BodyStatement,
+    environment: &BTreeMap<String, TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+) -> Option<StdoutWriteTypeIssue> {
+    let expression = expression_text_for_statement(statement)?;
+    let expression_offset = statement.text.find(expression).unwrap_or(0);
+    let call = typed_failure::calls_in_expression(expression)
+        .into_iter()
+        .find(|call| call.callee == "stdout_write")?;
+    let call_span = Span {
+        file: statement.span.file.clone(),
+        line: statement.span.line,
+        column: statement.span.column
+            + statement.text[..expression_offset + call.source_offset]
+                .chars()
+                .count(),
+    };
+    let args = call
+        .source
+        .strip_prefix("stdout_write(")?
+        .strip_suffix(')')?;
+    let arguments = split_call_arguments(args);
+    if arguments.len() != 1 {
+        return Some(StdoutWriteTypeIssue {
+            call_source: call.source,
+            call_span,
+            actual_type: None,
+            reason: "stdout_write_requires_exactly_one_argument_v0",
+        });
+    }
+    let actual_type = infer_expression_type(arguments[0], environment, task_returns, field_types);
+    if actual_type
+        .as_ref()
+        .is_some_and(|actual| actual.type_text == "Text")
+    {
+        return None;
+    }
+    Some(StdoutWriteTypeIssue {
+        call_source: call.source,
+        call_span,
+        actual_type,
+        reason: "stdout_write_argument_must_be_text_v0",
+    })
+}
+
+fn split_call_arguments(text: &str) -> Vec<&str> {
+    let mut arguments = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0isize;
+    let mut in_string = false;
+    for (index, ch) in text.char_indices() {
+        match ch {
+            '"' => in_string = !in_string,
+            '(' | '[' | '{' if !in_string => depth += 1,
+            ')' | ']' | '}' if !in_string => depth -= 1,
+            ',' if !in_string && depth == 0 => {
+                let argument = text[start..index].trim();
+                if !argument.is_empty() {
+                    arguments.push(argument);
+                }
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    let argument = text[start..].trim();
+    if !argument.is_empty() {
+        arguments.push(argument);
+    }
+    arguments
 }
 
 fn expected_type_for_statement(
@@ -628,7 +731,7 @@ fn apply_failure_fact(statement: &mut TypedStatement, fact: &FailureFact) {
 }
 
 fn task_return_types(program: &Program) -> BTreeMap<String, TypeFact> {
-    let mut returns = BTreeMap::new();
+    let mut returns = session_z_builtin_return_types();
     for file in &program.files {
         collect_task_return_types(&file.items, &mut returns);
     }
@@ -636,9 +739,16 @@ fn task_return_types(program: &Program) -> BTreeMap<String, TypeFact> {
 }
 
 fn task_return_types_from_items(items: &[Item]) -> BTreeMap<String, TypeFact> {
-    let mut returns = BTreeMap::new();
+    let mut returns = session_z_builtin_return_types();
     collect_task_return_types(items, &mut returns);
     returns
+}
+
+fn session_z_builtin_return_types() -> BTreeMap<String, TypeFact> {
+    BTreeMap::from([(
+        name_key("stdout_write"),
+        type_fact("Unit", "stdout_write_builtin_v0"),
+    )])
 }
 
 fn collect_task_return_types(items: &[Item], returns: &mut BTreeMap<String, TypeFact>) {
@@ -1027,6 +1137,7 @@ fn is_blocking_statement(statement: &TypedStatement) -> bool {
         statement.status,
         "rejected_statement_type_mismatch_v0"
             | "rejected_typed_failure_relationship_v0"
+            | "rejected_invalid_stdout_write_call_v0"
             | "unchecked_statement_type_v0"
             | "blocked_unsupported_statement_v0"
             | "not_checked_blocked_by_prior_errors_v0"
@@ -1081,6 +1192,7 @@ impl FullTypeCheckReport {
                         | "accepted_typed_failure_deferred_to_effect_v0"
                         | "rejected_typed_failure_relationship_v0"
                         | "rejected_statement_type_mismatch_v0"
+                        | "rejected_invalid_stdout_write_call_v0"
                 )
             })
             .count()
@@ -1115,6 +1227,7 @@ impl FullTypeCheckReport {
                     statement.status,
                     "rejected_statement_type_mismatch_v0"
                         | "rejected_typed_failure_relationship_v0"
+                        | "rejected_invalid_stdout_write_call_v0"
                 )
             })
             .count()

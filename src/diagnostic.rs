@@ -102,6 +102,12 @@ impl DiagnosticCode {
         Self::new("H0619", "app capability maximum is incomplete");
     pub const ENTRY_CAPABILITY_BYPASS: Self =
         Self::new("H0620", "direct entry cannot carry external authority");
+    pub const OUTPUT_CAPABILITY_UNDECLARED: Self =
+        Self::new("H0621", "stdout operation lacks source authority");
+    pub const INVALID_STDOUT_WRITE_CALL: Self = Self::new("H0622", "invalid stdout_write call");
+    pub const RESERVED_BUILTIN_NAME: Self = Self::new("H0623", "reserved built-in name redeclared");
+    pub const OUTPUT_RECURSION_UNSUPPORTED: Self =
+        Self::new("H0624", "output-reachable recursion unsupported");
     pub const UNCHECKED_PROSE_CONTRACT: Self = Self::new("H0701", "unchecked prose contract");
     pub const NEEDS_CONTRACT_VIOLATION: Self = Self::new("H0702", "needs contract violation");
     pub const ENSURES_CONTRACT_VIOLATION: Self = Self::new("H0703", "ensures contract violation");

@@ -825,8 +825,11 @@ impl ResolverContext {
                     definition.definition_kind,
                 )
             });
-        let app_local_callee =
-            input.reference_kind == "callee_ref" && self.scope_is_within_app_boundary(scope_id);
+        let builtin_callee =
+            input.reference_kind == "callee_ref" && input.name.trim() == "stdout_write";
+        let app_local_callee = input.reference_kind == "callee_ref"
+            && self.scope_is_within_app_boundary(scope_id)
+            && !builtin_callee;
         let external =
             (input.external_if_unresolved || is_external_root(input.name)) && !app_local_callee;
         let id = format!(
@@ -835,26 +838,31 @@ impl ResolverContext {
         );
         self.reference_serial += 1;
 
-        let (resolution_status, resolved_definition_id, reason) =
-            if let Some((definition_id, mutable, definition_kind)) = resolved {
-                if input.mutable_required && !mutable && definition_kind != "parameter" {
-                    (
-                        "resolved_immutable_place_v0",
-                        Some(definition_id),
-                        Some("target_is_not_mutable"),
-                    )
-                } else {
-                    ("resolved_v0", Some(definition_id), None)
-                }
-            } else if external {
+        let (resolution_status, resolved_definition_id, reason) = if builtin_callee {
+            (
+                "builtin_reference_v0",
+                None,
+                Some("session_z_stdout_builtin_v0"),
+            )
+        } else if let Some((definition_id, mutable, definition_kind)) = resolved {
+            if input.mutable_required && !mutable && definition_kind != "parameter" {
                 (
-                    "external_reference_v0",
-                    None,
-                    Some("outside_current_source_or_capability_v0"),
+                    "resolved_immutable_place_v0",
+                    Some(definition_id),
+                    Some("target_is_not_mutable"),
                 )
             } else {
-                ("unresolved_v0", None, Some("name_not_in_visible_scope"))
-            };
+                ("resolved_v0", Some(definition_id), None)
+            }
+        } else if external {
+            (
+                "external_reference_v0",
+                None,
+                Some("outside_current_source_or_capability_v0"),
+            )
+        } else {
+            ("unresolved_v0", None, Some("name_not_in_visible_scope"))
+        };
 
         self.references.push(ResolveReference {
             id: id.clone(),

@@ -281,8 +281,8 @@ try {
   foreach ($Code in @('H0610', 'H0611', 'H0612', 'H0613', 'H0614', 'H0615', 'H0616')) {
     if (-not $DiagnosticsJson.Contains("`"code`": `"$Code`"")) { throw "diagnostic catalog JSON is missing $Code" }
   }
-  foreach ($Code in @('H0617', 'H0618', 'H0619', 'H0620')) {
-    if (-not $DiagnosticsJson.Contains("`"code`": `"$Code`"")) { throw "diagnostic catalog JSON is missing Session Y $Code" }
+  foreach ($Code in @('H0617', 'H0618', 'H0619', 'H0620', 'H0621', 'H0622', 'H0623', 'H0624')) {
+    if (-not $DiagnosticsJson.Contains("`"code`": `"$Code`"")) { throw "diagnostic catalog JSON is missing authority diagnostic $Code" }
   }
   if (-not $DiagnosticsJson.Contains('"code": "H0701"')) { throw 'diagnostic catalog JSON is missing H0701' }
   if (-not $DiagnosticsJson.Contains('"code": "H0702"')) { throw 'diagnostic catalog JSON is missing H0702' }
@@ -354,6 +354,7 @@ try {
   if (-not $CoreContractJson.Contains('"lowers_from_schema": "hum.semantic_graph.v0"')) { throw 'Core contract JSON is missing semantic graph source schema' }
   if (-not $CoreContractJson.Contains('"lowers_to_schema": "hum.ir_contract.v0"')) { throw 'Core contract JSON is missing Hum IR target schema' }
   if (-not $CoreContractJson.Contains('"name": "statements"')) { throw 'Core contract JSON is missing statements catalog' }
+  if (-not $CoreContractJson.Contains('"output"')) { throw 'Core contract JSON is missing Session Z output effect' }
   if (-not $CoreContractJson.Contains('"set_place"')) { throw 'Core contract JSON is missing set_place statement' }
   if (-not $CoreContractJson.Contains('"id": "body_grammar"')) { throw 'Core contract JSON is missing body_grammar gate' }
   if (-not $CoreContractJson.Contains('"status": "partial_v0"')) { throw 'Core contract JSON is missing partial_v0 body grammar status' }
@@ -457,6 +458,8 @@ try {
   if (-not $TargetFactsJson.Contains('"field_catalog"')) { throw 'target facts JSON is missing field catalog' }
   if (-not $TargetFactsJson.Contains('"capability_families"')) { throw 'target facts JSON is missing capability families' }
   if (-not $TargetFactsJson.Contains('"family": "os.clock"')) { throw 'target facts JSON is missing clock capability family' }
+  if (-not $TargetFactsJson.Contains('"family": "os.stdio"')) { throw 'target facts JSON is missing reserved stdio capability family' }
+  if ([regex]::Matches($TargetFactsJson, '"family": "os\.stdio"').Count -ne 5 -or [regex]::Matches($TargetFactsJson, '"availability": "reserved_mapping_only"').Count -ne 4) { throw 'target facts JSON must reserve os.stdio in the catalog and all four fixtures without availability claims' }
   if (-not $TargetFactsJson.Contains('"availability": "host_import_profile_gated"')) { throw 'target facts JSON is missing WASI clock/random availability' }
   if (-not $TargetFactsJson.Contains('"id": "windows-x86_64-msvc"')) { throw 'target facts JSON is missing Windows fixture' }
   if (-not $TargetFactsJson.Contains('"id": "wasm32-wasi-preview1"')) { throw 'target facts JSON is missing WASI fixture' }
@@ -473,6 +476,8 @@ try {
     if ($FixtureJson.absence_policy -ne 'unknown_or_absent_capabilities_fail_closed') { throw "target fact fixture $($Fixture.Name) must fail closed" }
     if ($null -eq $FixtureJson.facts.triple) { throw "target fact fixture $($Fixture.Name) is missing facts.triple" }
     if ($null -eq $FixtureJson.capabilities -or @($FixtureJson.capabilities).Count -eq 0) { throw "target fact fixture $($Fixture.Name) is missing capabilities" }
+    $Stdio = @($FixtureJson.capabilities | Where-Object { $_.family -eq 'os.stdio' })
+    if ($Stdio.Count -ne 1 -or $Stdio[0].availability -ne 'reserved_mapping_only') { throw "target fact fixture $($Fixture.Name) must reserve os.stdio without claiming availability" }
     if ($null -eq $FixtureJson.non_claims -or @($FixtureJson.non_claims).Count -eq 0) { throw "target fact fixture $($Fixture.Name) is missing non_claims" }
   }
 
@@ -1042,7 +1047,7 @@ try {
   $SessionYRoutes = @($SessionYEffectParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $null -ne $_.capability_id })
   if ($SessionYRoutes.Count -ne 15) { throw "Session Y positive expected 15 source-policy rows, got $($SessionYRoutes.Count)" }
   $SessionYPolicy = @{
-    'stdout.write' = @{ Core = 'output'; Target = 'bounded_bootstrap_stdout_adapter_reserved_os.stdio'; Kind = 'output_stream'; Scope = 'app_stdout'; Strength = 'write'; Mapping = 'reserved_until_session_z_v0' }
+    'stdout.write' = @{ Core = 'output'; Target = 'bounded_bootstrap_stdout_adapter_reserved_os.stdio'; Kind = 'output_stream'; Scope = 'app_stdout'; Strength = 'write'; Mapping = 'implemented_bounded_output_v0_reserved_os.stdio_mapping' }
     'clock.replay' = @{ Core = 'time'; Target = 'ordered_runner_replay_input_no_host_clock'; Kind = 'replay_input'; Scope = 'runner_tick_sequence'; Strength = 'read_ordered'; Mapping = 'reserved_until_session_aa_v0' }
     'files.read' = @{ Core = 'file'; Target = 'one_exact_native_path_via_os.filesystem_adapter'; Kind = 'file'; Scope = 'exact_native_path'; Strength = 'read'; Mapping = 'reserved_until_session_ad_v0' }
   }
@@ -1129,6 +1134,165 @@ try {
   }
   $RunSessionYPureEntry = Read-NativeOutputWithExit 'run Session Y pure direct entry compatibility' $Hum @('run', 'examples/probes/pure_app_entry.hum', '--entry', 'run_tool', '--args', 'hello')
   if ($RunSessionYPureEntry.ExitCode -ne 0 -or $RunSessionYPureEntry.Output.Trim() -ne '()') { throw 'Session Y must preserve pure direct --entry behavior' }
+
+  $SessionZPositive = 'examples/probes/bounded_stdout.hum'
+  foreach ($Command in @('resolve', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutput "Session Z $Command positive" $Hum @($Command, '--format', 'json', $SessionZPositive)
+    Assert-Json "Session Z $Command positive" $Surface
+  }
+  $SessionZGraph = Read-NativeOutput 'Session Z graph positive' $Hum @('graph', $SessionZPositive)
+  Assert-Json 'Session Z graph positive' $SessionZGraph
+  $SessionZAllow = Read-NativeChannelsWithExit 'run Session Z exact allow' $Hum @('run', $SessionZPositive, '--allow', 'stdout.write', '--args', 'hello')
+  if ($SessionZAllow.ExitCode -ne 0 -or $SessionZAllow.Stdout -ne 'hello' -or $SessionZAllow.Stderr -ne '') { throw 'Session Z exact allow must write only exact bytes with no newline or diagnostic channel output' }
+  $SessionZWindowsPath = 'examples\probes\bounded_stdout.hum'
+  $SessionZWindowsAllow = Read-NativeChannelsWithExit 'run Session Z Windows separator identity' $Hum @('run', $SessionZWindowsPath, '--allow', 'stdout.write', '--args', 'hello')
+  if ($SessionZWindowsAllow.ExitCode -ne $SessionZAllow.ExitCode -or $SessionZWindowsAllow.Stdout -ne $SessionZAllow.Stdout -or $SessionZWindowsAllow.Stderr -ne $SessionZAllow.Stderr) { throw 'Session Z forward-slash and backslash source paths must select the same output policy and channels' }
+  $SessionZDuplicateAllow = Read-NativeChannelsWithExit 'run Session Z duplicate allow' $Hum @('run', $SessionZPositive, '--allow', 'stdout.write', '--allow=stdout.write', '--args', 'hello')
+  if ($SessionZDuplicateAllow.ExitCode -ne 0 -or $SessionZDuplicateAllow.Stdout -ne 'hello' -or $SessionZDuplicateAllow.Stderr -ne '') { throw 'Session Z duplicate exact allows must be idempotent' }
+  foreach ($Denied in @(
+    @{ Name = 'default deny'; Args = @('run', $SessionZPositive, '--args', 'blocked') },
+    @{ Name = 'explicit deny'; Args = @('run', $SessionZPositive, '--deny', 'stdout.write', '--args', 'blocked') },
+    @{ Name = 'deny overrides allow'; Args = @('run', $SessionZPositive, '--allow', 'stdout.write', '--deny', 'stdout.write', '--args', 'blocked') }
+  )) {
+    $DeniedRun = Read-NativeChannelsWithExit "run Session Z $($Denied.Name)" $Hum $Denied.Args
+    if ($DeniedRun.ExitCode -ne 1 -or $DeniedRun.Stdout -ne '' -or -not $DeniedRun.Stderr.Contains('failure: AppError.output') -or -not $DeniedRun.Stderr.Contains('caused by: OutputError.denied') -or -not $DeniedRun.Stderr.Contains('while calling `stdout_write`') -or $DeniedRun.Stderr.Contains('runtime trap')) { throw "Session Z $($Denied.Name) must be a typed causal denial with zero program output" }
+  }
+  $SessionZEntry = Read-NativeChannelsWithExit 'run Session Z allowed direct entry rejection' $Hum @('run', $SessionZPositive, '--allow', 'stdout.write', '--entry', 'run_tool', '--args', 'blocked')
+  if ($SessionZEntry.ExitCode -ne 1 -or $SessionZEntry.Stdout -ne '' -or [regex]::Matches($SessionZEntry.Stderr, 'error\[H0620\]').Count -ne 1) { throw 'Session Z --entry must not bypass the app even with an allow' }
+
+  foreach ($Usage in @(
+    @{ Name = 'unknown allow'; Args = @('run', $SessionZPositive, '--allow', 'files.read'); Text = 'does not recognize `files.read`' },
+    @{ Name = 'payload allow'; Args = @('run', $SessionZPositive, '--allow=stdout.write:console'); Text = 'forbidden payload' },
+    @{ Name = 'missing allow value'; Args = @('run', $SessionZPositive, '--allow'); Text = 'requires an exact grant' }
+  )) {
+    $UsageRun = Read-NativeChannelsWithExit "run Session Z $($Usage.Name)" $Hum $Usage.Args
+    if ($UsageRun.ExitCode -ne 2 -or $UsageRun.Stdout -ne '' -or -not $UsageRun.Stderr.Contains($Usage.Text)) { throw "Session Z $($Usage.Name) must be a stable CLI usage error" }
+  }
+
+  $SessionZMissing = 'fixtures/app_entry/session_z_missing_stdout_source_fail.hum'
+  $SessionZMissingHuman = Read-NativeOutputWithExit 'check Session Z missing source human' $Hum @('check', $SessionZMissing)
+  $SessionZMissingJson = Read-NativeOutputWithExit 'check Session Z missing source JSON' $Hum @('check', '--format', 'json', $SessionZMissing)
+  if ($SessionZMissingHuman.ExitCode -ne 1 -or [regex]::Matches($SessionZMissingHuman.Output, 'error\[H0621\]').Count -ne 1 -or $SessionZMissingJson.ExitCode -ne 1) { throw 'Session Z missing source authority must emit exactly one H0621' }
+  Assert-Json 'check Session Z missing source JSON' $SessionZMissingJson.Output
+  $SessionZMissingParsed = $SessionZMissingJson.Output | ConvertFrom-Json
+  $SessionZMissingDiagnostic = @($SessionZMissingParsed.diagnostics | Where-Object { $_.code -eq 'H0621' })[0]
+  if ($null -eq $SessionZMissingDiagnostic -or @($SessionZMissingDiagnostic.related_spans).Count -ne 2 -or -not $SessionZMissingHuman.Output.Contains($SessionZMissingDiagnostic.message) -or -not $SessionZMissingHuman.Output.Contains($SessionZMissingDiagnostic.help)) { throw 'Session Z H0621 human/JSON call-task-app blame disagrees' }
+  $SessionZMissingEffect = Read-NativeOutputWithExit 'effect check Session Z missing source' $Hum @('effect-check', '--format', 'json', $SessionZMissing)
+  if ($SessionZMissingEffect.ExitCode -ne 1) { throw 'Session Z missing source effect check must block' }
+  Assert-Json 'effect check Session Z missing source' $SessionZMissingEffect.Output
+  $SessionZMissingEffectParsed = $SessionZMissingEffect.Output | ConvertFrom-Json
+  $SessionZMissingRow = @($SessionZMissingEffectParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $_.status -eq 'rejected_missing_output_source_authority_v0' })[0]
+  if ($null -eq $SessionZMissingRow -or $SessionZMissingRow.diagnostic_code -ne 'H0621' -or $null -eq $SessionZMissingRow.app_span -or $null -eq $SessionZMissingRow.caller_span -or @($SessionZMissingRow.route_spans).Count -ne 1) { throw 'Session Z effect row must preserve H0621 call-task-app policy facts' }
+  $SessionZMissingRun = Read-NativeChannelsWithExit 'run Session Z missing source' $Hum @('run', $SessionZMissing, '--allow', 'stdout.write')
+  if ($SessionZMissingRun.ExitCode -ne 1 -or $SessionZMissingRun.Stdout -ne '' -or [regex]::Matches($SessionZMissingRun.Stderr, 'error\[H0621\]').Count -ne 1 -or $SessionZMissingRun.Stderr.Contains('runtime trap')) { throw 'Session Z H0621 must block before adapter execution' }
+  $SessionZLegacyOutput = Read-NativeChannelsWithExit 'run Session Z legacy output without app' $Hum @('run', 'fixtures/app_entry/session_z_legacy_output_without_app_fail.hum', '--allow', 'stdout.write')
+  if ($SessionZLegacyOutput.ExitCode -ne 1 -or $SessionZLegacyOutput.Stdout -ne '' -or [regex]::Matches($SessionZLegacyOutput.Stderr, 'error\[H0621\]').Count -ne 1 -or -not $SessionZLegacyOutput.Stderr.Contains('app declaration') -or $SessionZLegacyOutput.Stderr.Contains('runtime trap')) { throw 'Session Z output without a structural app must fail statically under H0621' }
+  $SessionZMissingCaller = Read-NativeChannelsWithExit 'run Session Z output authority laundering' $Hum @('run', 'fixtures/app_entry/session_z_missing_output_caller_fail.hum', '--allow', 'stdout.write')
+  if ($SessionZMissingCaller.ExitCode -ne 1 -or $SessionZMissingCaller.Stdout -ne '' -or [regex]::Matches($SessionZMissingCaller.Stderr, 'error\[H0618\]').Count -ne 1 -or -not $SessionZMissingCaller.Stderr.Contains('run_tool') -or -not $SessionZMissingCaller.Stderr.Contains('emit') -or $SessionZMissingCaller.Stderr.Contains('error[H0621]') -or $SessionZMissingCaller.Stderr.Contains('runtime trap')) { throw 'Session Z helper routing must reject authority laundering under H0618 before runtime' }
+
+  $SessionZReservedName = 'fixtures/app_entry/session_z_reserved_stdout_name_fail.hum'
+  $SessionZReservedNameHuman = Read-NativeOutputWithExit 'check Session Z reserved stdout name human' $Hum @('check', $SessionZReservedName)
+  $SessionZReservedNameJson = Read-NativeOutputWithExit 'check Session Z reserved stdout name JSON' $Hum @('check', '--format', 'json', $SessionZReservedName)
+  if ($SessionZReservedNameHuman.ExitCode -ne 1 -or [regex]::Matches($SessionZReservedNameHuman.Output, 'error\[H0623\]').Count -ne 1 -or $SessionZReservedNameJson.ExitCode -ne 1) { throw 'Session Z reserved stdout name must produce exactly one H0623' }
+  Assert-Json 'check Session Z reserved stdout name JSON' $SessionZReservedNameJson.Output
+  $SessionZReservedNameParsed = $SessionZReservedNameJson.Output | ConvertFrom-Json
+  if (@($SessionZReservedNameParsed.diagnostics | Where-Object { $_.code -eq 'H0623' }).Count -ne 1) { throw 'Session Z H0623 human/JSON identity disagrees' }
+  foreach ($Command in @('resolve', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutputWithExit "Session Z reserved stdout name $Command" $Hum @($Command, '--format', 'json', $SessionZReservedName)
+    if ($Surface.ExitCode -ne 1) { throw "Session Z reserved stdout name must block $Command" }
+    Assert-Json "Session Z reserved stdout name $Command" $Surface.Output
+  }
+  $SessionZReservedNameRun = Read-NativeChannelsWithExit 'run Session Z reserved stdout name' $Hum @('run', $SessionZReservedName, '--allow', 'stdout.write')
+  if ($SessionZReservedNameRun.ExitCode -ne 1 -or $SessionZReservedNameRun.Stdout -ne '' -or [regex]::Matches($SessionZReservedNameRun.Stderr, 'error\[H0623\]').Count -ne 1 -or $SessionZReservedNameRun.Stderr.Contains('ShadowError.sentinel')) { throw 'Session Z H0623 must prevent runtime from substituting either callable body' }
+
+  $SessionZOutputRecursion = 'fixtures/app_entry/session_z_output_recursion_fail.hum'
+  $SessionZOutputRecursionHuman = Read-NativeOutputWithExit 'check Session Z output recursion human' $Hum @('check', $SessionZOutputRecursion)
+  $SessionZOutputRecursionJson = Read-NativeOutputWithExit 'check Session Z output recursion JSON' $Hum @('check', '--format', 'json', $SessionZOutputRecursion)
+  if ($SessionZOutputRecursionHuman.ExitCode -ne 1 -or [regex]::Matches($SessionZOutputRecursionHuman.Output, 'error\[H0624\]').Count -ne 1 -or $SessionZOutputRecursionJson.ExitCode -ne 1) { throw 'Session Z output-reachable recursion must produce exactly one H0624' }
+  Assert-Json 'check Session Z output recursion JSON' $SessionZOutputRecursionJson.Output
+  $SessionZOutputRecursionParsed = $SessionZOutputRecursionJson.Output | ConvertFrom-Json
+  $SessionZOutputRecursionDiagnostic = @($SessionZOutputRecursionParsed.diagnostics | Where-Object { $_.code -eq 'H0624' })[0]
+  if ($null -eq $SessionZOutputRecursionDiagnostic -or @($SessionZOutputRecursionDiagnostic.related_spans).Count -lt 5 -or -not $SessionZOutputRecursionDiagnostic.message.Contains('emit_again')) { throw 'Session Z H0624 must preserve the recursive task and complete finite route-to-cycle blame' }
+  foreach ($Command in @('resolve', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutputWithExit "Session Z output recursion $Command" $Hum @($Command, '--format', 'json', $SessionZOutputRecursion)
+    if ($Surface.ExitCode -ne 1) { throw "Session Z output recursion must block $Command" }
+    Assert-Json "Session Z output recursion $Command" $Surface.Output
+  }
+  $SessionZOutputRecursionGraph = Read-NativeOutputWithExit 'graph Session Z output recursion' $Hum @('graph', $SessionZOutputRecursion)
+  if ($SessionZOutputRecursionGraph.ExitCode -ne 1) { throw 'Session Z output recursion must block graph' }
+  Assert-Json 'graph Session Z output recursion' $SessionZOutputRecursionGraph.Output
+  $SessionZOutputRecursionRun = Read-NativeChannelsWithExit 'run Session Z output recursion' $Hum @('run', $SessionZOutputRecursion, '--allow', 'stdout.write')
+  if ($SessionZOutputRecursionRun.ExitCode -ne 1 -or $SessionZOutputRecursionRun.Stdout -ne '' -or [regex]::Matches($SessionZOutputRecursionRun.Stderr, 'error\[H0624\]').Count -ne 1 -or $SessionZOutputRecursionRun.Stderr.Contains('runtime trap')) { throw 'Session Z H0624 must reject before output or a generic runtime trap' }
+
+  foreach ($Precedence in @(
+    @{ Name = 'recursion plus missing source authority'; Path = 'fixtures/app_entry/session_z_recursion_missing_source_precedence_fail.hum'; Code = 'H0621'; Status = 'rejected_missing_output_source_authority_v0' },
+    @{ Name = 'recursion plus missing caller authority'; Path = 'fixtures/app_entry/session_z_recursion_missing_caller_precedence_fail.hum'; Code = 'H0618'; Status = 'rejected_missing_caller_capability_v0' }
+  )) {
+    $PrecedenceHuman = Read-NativeOutputWithExit "check Session Z $($Precedence.Name) human" $Hum @('check', $Precedence.Path)
+    $PrecedenceJson = Read-NativeOutputWithExit "check Session Z $($Precedence.Name) JSON" $Hum @('check', '--format', 'json', $Precedence.Path)
+    if ($PrecedenceHuman.ExitCode -ne 1 -or [regex]::Matches($PrecedenceHuman.Output, "error\[$($Precedence.Code)\]").Count -ne 1 -or $PrecedenceHuman.Output.Contains('H0624') -or $PrecedenceJson.ExitCode -ne 1) { throw "Session Z $($Precedence.Name) must have exactly one fundamental $($Precedence.Code) diagnostic" }
+    Assert-Json "check Session Z $($Precedence.Name) JSON" $PrecedenceJson.Output
+    $PrecedenceJsonParsed = $PrecedenceJson.Output | ConvertFrom-Json
+    $PrecedenceErrors = @($PrecedenceJsonParsed.diagnostics | Where-Object { $_.severity -eq 'error' })
+    if ($PrecedenceErrors.Count -ne 1 -or $PrecedenceErrors[0].code -ne $Precedence.Code) { throw "Session Z $($Precedence.Name) JSON ownership disagrees" }
+
+    $PrecedenceEffect = Read-NativeOutputWithExit "effect Session Z $($Precedence.Name)" $Hum @('effect-check', '--format', 'json', $Precedence.Path)
+    if ($PrecedenceEffect.ExitCode -ne 1) { throw "Session Z $($Precedence.Name) must block effect checking" }
+    Assert-Json "effect Session Z $($Precedence.Name)" $PrecedenceEffect.Output
+    $PrecedenceEffectParsed = $PrecedenceEffect.Output | ConvertFrom-Json
+    $PrecedenceRejectedRows = @($PrecedenceEffectParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $null -ne $_.diagnostic_code })
+    if ($PrecedenceRejectedRows.Count -ne 1 -or $PrecedenceRejectedRows[0].diagnostic_code -ne $Precedence.Code -or $PrecedenceRejectedRows[0].status -ne $Precedence.Status) { throw "Session Z $($Precedence.Name) effect ownership disagrees" }
+
+    $PrecedenceGraph = Read-NativeOutputWithExit "graph Session Z $($Precedence.Name)" $Hum @('graph', $Precedence.Path)
+    if ($PrecedenceGraph.ExitCode -ne 1) { throw "Session Z $($Precedence.Name) must block graph" }
+    Assert-Json "graph Session Z $($Precedence.Name)" $PrecedenceGraph.Output
+    $PrecedenceGraphParsed = $PrecedenceGraph.Output | ConvertFrom-Json
+    $PrecedenceGraphErrors = @($PrecedenceGraphParsed.diagnostics | Where-Object { $_.severity -eq 'error' })
+    if ($PrecedenceGraphErrors.Count -ne 1 -or $PrecedenceGraphErrors[0].code -ne $Precedence.Code) { throw "Session Z $($Precedence.Name) graph ownership disagrees" }
+
+    $PrecedenceRun = Read-NativeChannelsWithExit "run Session Z $($Precedence.Name)" $Hum @('run', $Precedence.Path, '--allow', 'stdout.write')
+    if ($PrecedenceRun.ExitCode -ne 1 -or $PrecedenceRun.Stdout -ne '' -or [regex]::Matches($PrecedenceRun.Stderr, "error\[$($Precedence.Code)\]").Count -ne 1 -or $PrecedenceRun.Stderr.Contains('H0624') -or $PrecedenceRun.Stderr.Contains('runtime trap')) { throw "Session Z $($Precedence.Name) runtime-preflight ownership disagrees" }
+  }
+
+  $SessionZReservedTarget = 'fixtures/target_facts/session_z_reserved_stdio_requirement_fail.hum'
+  $SessionZReservedTargetHuman = Read-NativeOutputWithExit 'check Session Z reserved stdio target human' $Hum @('check', $SessionZReservedTarget)
+  $SessionZReservedTargetJson = Read-NativeOutputWithExit 'check Session Z reserved stdio target JSON' $Hum @('check', '--format', 'json', $SessionZReservedTarget)
+  if ($SessionZReservedTargetHuman.ExitCode -ne 1 -or [regex]::Matches($SessionZReservedTargetHuman.Output, 'error\[H1204\]').Count -ne 1 -or -not $SessionZReservedTargetHuman.Output.Contains('reserved_mapping_only') -or $SessionZReservedTargetJson.ExitCode -ne 1) { throw 'Session Z reserved os.stdio mapping must fail closed under H1204' }
+  Assert-Json 'check Session Z reserved stdio target JSON' $SessionZReservedTargetJson.Output
+  $SessionZReservedTargetParsed = $SessionZReservedTargetJson.Output | ConvertFrom-Json
+  $SessionZReservedTargetDiagnostic = @($SessionZReservedTargetParsed.diagnostics | Where-Object { $_.code -eq 'H1204' })[0]
+  if ($null -eq $SessionZReservedTargetDiagnostic -or -not $SessionZReservedTargetDiagnostic.message.Contains('os.stdio') -or -not $SessionZReservedTargetDiagnostic.message.Contains('reserved_mapping_only')) { throw 'Session Z reserved target H1204 JSON lacks exact non-availability facts' }
+  $SessionZReservedTargetGraph = Read-NativeOutputWithExit 'graph Session Z reserved stdio target' $Hum @('graph', $SessionZReservedTarget)
+  if ($SessionZReservedTargetGraph.ExitCode -ne 1) { throw 'Session Z reserved stdio target graph must retain the blocker' }
+  Assert-Json 'graph Session Z reserved stdio target' $SessionZReservedTargetGraph.Output
+  $SessionZReservedTargetGraphParsed = $SessionZReservedTargetGraph.Output | ConvertFrom-Json
+  if (@($SessionZReservedTargetGraphParsed.portability.unavailable_capability_families) -notcontains 'os.stdio') { throw 'Session Z graph must classify reserved os.stdio as non-satisfying' }
+
+  $SessionZWrongType = Read-NativeOutputWithExit 'full type Session Z wrong output argument' $Hum @('full-type-check', '--format', 'json', 'fixtures/full_type_check/session_z_stdout_wrong_type_fail.hum')
+  if ($SessionZWrongType.ExitCode -ne 1) { throw 'Session Z wrong output argument must block full type' }
+  Assert-Json 'full type Session Z wrong output argument' $SessionZWrongType.Output
+  $SessionZWrongTypeParsed = $SessionZWrongType.Output | ConvertFrom-Json
+  $SessionZWrongTypeRow = @($SessionZWrongTypeParsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0622' })[0]
+  if ($null -eq $SessionZWrongTypeRow -or $SessionZWrongTypeRow.expected_type -ne 'Text' -or $SessionZWrongTypeRow.actual_type -ne 'integer_literal') { throw 'Session Z H0622 must pin the exact Text argument signature' }
+
+  $SessionZImplicit = 'fixtures/full_type_check/session_z_implicit_stdout_fail.hum'
+  $SessionZImplicitType = Read-NativeOutputWithExit 'full type Session Z implicit output failure' $Hum @('full-type-check', '--format', 'json', $SessionZImplicit)
+  if ($SessionZImplicitType.ExitCode -ne 1) { throw 'Session Z implicit output call must block full type' }
+  Assert-Json 'full type Session Z implicit output failure' $SessionZImplicitType.Output
+  $SessionZImplicitTypeParsed = $SessionZImplicitType.Output | ConvertFrom-Json
+  $SessionZImplicitRows = @($SessionZImplicitTypeParsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0901' })
+  if ($SessionZImplicitRows.Count -ne 1 -or $SessionZImplicitRows[0].callee -ne 'stdout_write' -or $SessionZImplicitRows[0].callee_result_root -ne 'OutputError') { throw 'Session Z implicit output call must preserve the Session W H0901 doctrine' }
+  $SessionZImplicitRun = Read-NativeChannelsWithExit 'run Session Z implicit output failure' $Hum @('run', $SessionZImplicit, '--allow', 'stdout.write')
+  if ($SessionZImplicitRun.ExitCode -ne 1 -or $SessionZImplicitRun.Stdout -ne '' -or [regex]::Matches($SessionZImplicitRun.Stderr, 'diagnostic=H0901').Count -ne 1 -or $SessionZImplicitRun.Stderr.Contains('runtime trap')) { throw 'Session Z implicit output call must fail before the output adapter' }
+
+  $SessionZEffect = Read-NativeOutput 'effect check Session Z output policy' $Hum @('effect-check', '--format', 'json', $SessionZPositive)
+  Assert-Json 'effect check Session Z output policy' $SessionZEffect
+  $SessionZEffectParsed = $SessionZEffect | ConvertFrom-Json
+  $SessionZOutputRow = @($SessionZEffectParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $_.status -eq 'accepted_declared_output_operation_v0' })[0]
+  if ($null -eq $SessionZOutputRow -or $SessionZOutputRow.capability_id -ne 'stdout.write' -or $SessionZOutputRow.core_effect -ne 'output' -or $SessionZOutputRow.grant_lifetime -ne 'one_run' -or $SessionZOutputRow.mapping_status -ne 'implemented_bounded_output_v0_reserved_os.stdio_mapping' -or @($SessionZOutputRow.route_tasks).Count -ne 3 -or $SessionZOutputRow.route_tasks[0] -ne 'bounded_stdout_probe' -or $SessionZOutputRow.route_tasks[1] -ne 'run_tool' -or $SessionZOutputRow.route_tasks[2] -ne 'emit' -or @($SessionZOutputRow.route_spans).Count -ne 2) { throw 'Session Z output policy row is missing the complete source and forensic route' }
+
+  $SessionZHelp = Read-NativeOutput 'Session Z help text' $Hum @('--help')
+  if (-not $SessionZHelp.Contains('--allow stdout.write') -or -not $SessionZHelp.Contains('--deny stdout.write')) { throw 'Session Z help must document exact output grant and deny flags' }
 
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson

@@ -324,6 +324,7 @@ read
 change
 allocate
 free
+output
 time
 random
 file
@@ -343,13 +344,14 @@ Rules:
 - Effects are emitted into `hum graph`.
 - A profile may forbid an effect.
 
-Session Y pins the first executable source-capability mapping without widening
-the Core effect catalog or executing an operation: `stdout.write` maps to the
-reserved `output` effect that lands in Session Z, `clock.replay` maps to `time`
-without host-clock authority, and `files.read` maps to `file`. App and task
-declarations form a checked closed direct-call budget. Existing effect boundary
-rows preserve the typed source policy and route; no operator grant, host action,
-or complete effect-system claim follows from that declaration.
+Session Y pins the executable source-capability mappings: `stdout.write` maps
+to `output`, `clock.replay` maps to `time` without host-clock authority, and
+`files.read` maps to `file`. Session Z implements only the bounded `output`
+operation behind the checked app/task route and an exact one-run operator
+grant. Existing effect boundary rows preserve the typed source policy and call
+sites over the complete app/start/caller/output route; in-memory runtime
+decision/exercise facts join that route-specific policy ID without claiming a
+runtime JSON schema or a complete effect system.
 
 ## Failure
 

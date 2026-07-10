@@ -1,0 +1,50 @@
+type AppError {
+  code: Text
+}
+
+app bounded_stdout_probe {
+  why:
+    prove exact bounded output under source authority and operator consent
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task emit(text: Text) -> Result Unit, OutputError {
+    why:
+      expose the built-in output failure as a typed result
+
+    uses:
+      stdout.write
+
+    fails when:
+      the operator denies output, the run limit is exceeded, or the adapter write fails
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let written = try stdout_write(text)
+      return written
+  }
+
+  task run_tool(text: Text) -> Result Unit, AppError {
+    why:
+      add app context while preserving the OutputError cause
+
+    uses:
+      stdout.write
+
+    fails when:
+      bounded output fails while running the app
+
+    allocates:
+      up to one causal wrapper frame when output fails
+
+    does:
+      let written = try emit(text) or fail AppError.output
+      return written
+  }
+}

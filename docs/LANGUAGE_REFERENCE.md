@@ -156,8 +156,21 @@ undesigned. Session Y recognizes exactly `stdout.write`, `clock.replay`, and
 reachable tasks declare direct and transitive capability budgets, callers cover
 callee closure, and the app covers the start closure. Stable effect-policy IDs
 and structured route sites make that source policy auditable. These declarations
-are not operator grants and perform no IO. `--entry` remains a pure probe and
-rejects an authority-bearing task closure.
+are not operator grants. Session Z adds repeatable exact `--allow stdout.write`
+and `--deny stdout.write`; the default is deny, duplicates are idempotent, and
+deny wins. The only operation is
+`stdout_write(text: Text) -> Result Unit, OutputError`. It writes exact UTF-8
+bytes immediately with no newline through the app adapter after source closure,
+operator consent, and the 1 MiB rolling limit succeed. Denial, limit rejection,
+and adapter failure are typed `OutputError` values. `--entry` remains a pure
+probe and rejects an authority-bearing task closure even when allowed.
+The exact `stdout_write` name is reserved; a user task declaration with that
+name is H0623 rather than a shadowing rule that could differ between stages.
+Output-reachable recursive call cycles are H0624 in this bounded slice; use an
+explicit bounded loop or non-recursive task chain so the audit route remains
+finite and exact. Missing task/app authority remains H0621 and missing caller
+closure remains H0618 instead; H0624 is checked only after that route is valid.
+This is not a general recursion ban.
 
 ### `type`
 

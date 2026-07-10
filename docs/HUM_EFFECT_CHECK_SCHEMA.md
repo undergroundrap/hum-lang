@@ -157,6 +157,9 @@ V0 recognizes and checks:
 - `rejected_unknown_source_capability_v0`
 - `rejected_missing_caller_capability_v0`
 - `rejected_app_capability_mismatch_v0`
+- `accepted_declared_output_operation_v0`
+- `rejected_missing_output_source_authority_v0`
+- `rejected_output_reachable_recursion_v0`
 
 Session Y capability boundary rows reuse the existing schema and add structured
 policy fields only on those rows: exact `capability_id`, reserved `core_effect`
@@ -167,13 +170,26 @@ diagnostic identity, and repair help. The row `id` is the stable source-policy
 join key. Call-backed rows derive it from the exact lexical call site, so
 different callees and repeated calls on one statement remain unique and
 deterministic. It can later join an operator decision and operation exercise
-event; neither event exists in Session Y.
+event. Session Z's runtime records the first typed in-memory decision and
+exercise facts against this ID. Reachable output rows carry the complete
+structural app-to-start-to-leaf `route_tasks` and every intervening call plus
+output occurrence in `route_spans`; distinct paths to one leaf receive
+distinct stable IDs. Policy identity normalizes source path separators, while
+the structured spans remain display evidence. `hum effect-check` remains
+non-executing and does not emit
+those runtime events. Output-reachable recursive cycles are rejected under
+H0624 because this bounded slice does not claim an infinite or summarized audit
+route.
 
 The three pinned capabilities are typed exact one-run budgets. Unknown
 sandbox-bypass spellings such as process, FFI, unsafe, or unrestricted import
 are classified under `sandbox_bypass_authority`, never laundered into the
 ordinary tier. Session Y implements no wildcard, persistence, prompt, operator
-grant, deny, host operation, or audit log.
+grant, deny, host operation, or audit log. Session Z adds only exact
+`stdout.write` grant/deny at runtime; output call rows carry Core effect
+`output`, exact lexical call provenance, and the implemented bounded-adapter
+mapping status. No wildcard, persistence, prompt, or broader capability is
+added.
 
 ## Honesty Rules
 

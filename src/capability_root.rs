@@ -93,6 +93,16 @@ pub(crate) struct CapabilityAnalysis {
     pub routes: Vec<CapabilityRouteFact>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OutputPolicyFact {
+    pub policy_id: String,
+    pub app_name: Option<String>,
+    pub task: String,
+    pub call_span: Span,
+    pub source_route: Vec<String>,
+    pub source_route_spans: Vec<Span>,
+}
+
 #[derive(Debug, Clone)]
 struct Requirement {
     origin_task: String,
@@ -121,11 +131,29 @@ struct TaskNode<'a> {
     capabilities: BTreeMap<SourceCapability, Span>,
     unknown_capabilities: Vec<(String, Span)>,
     calls: Vec<CallEdge>,
+    output_calls: Vec<Span>,
 }
 
 struct TaskGraph<'a> {
     tasks: BTreeMap<String, TaskNode<'a>>,
     order: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ReachableOutputRoute {
+    task: String,
+    call_span: Span,
+    task_route: Vec<String>,
+    call_route: Vec<Span>,
+}
+
+#[derive(Debug, Clone)]
+struct OutputRecursionIssue {
+    caller: String,
+    callee: String,
+    call_span: Span,
+    task_route: Vec<String>,
+    call_route: Vec<Span>,
 }
 
 impl SourceCapability {
@@ -149,7 +177,7 @@ impl SourceCapability {
                 grant_strength: "write",
                 grant_lifetime: "one_run",
                 severity_tier: "ordinary_external_authority",
-                mapping_status: "reserved_until_session_z_v0",
+                mapping_status: "implemented_bounded_output_v0_reserved_os.stdio_mapping",
             },
             Self::ClockReplay => CapabilitySpec {
                 id: "clock.replay",
@@ -178,14 +206,32 @@ impl SourceCapability {
 }
 
 pub(crate) fn analyze(program: &Program) -> CapabilityAnalysis {
-    let Some(entry) = app_entry::analyze(program).entry else {
-        return CapabilityAnalysis::default();
-    };
-    analyze_app(entry.app, entry.task)
+    match app_entry::analyze(program).entry {
+        Some(entry) => analyze_app(entry.app, entry.task),
+        None => analyze_unrooted_output(program),
+    }
 }
 
 pub(crate) fn diagnostics(program: &Program) -> Vec<Diagnostic> {
     analyze(program).diagnostics
+}
+
+pub(crate) fn output_policy_facts(program: &Program) -> Vec<OutputPolicyFact> {
+    analyze(program)
+        .routes
+        .into_iter()
+        .filter(|route| route.check == "source_capability_output_operation")
+        .filter_map(|route| {
+            Some(OutputPolicyFact {
+                policy_id: route.id,
+                app_name: route.app_name,
+                task: route.caller?,
+                call_span: route.primary_span,
+                source_route: route.route_tasks,
+                source_route_spans: route.route_spans,
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn entry_diagnostics(program: &Program, entry_name: &str) -> Vec<Diagnostic> {
@@ -216,6 +262,17 @@ pub(crate) fn entry_diagnostics(program: &Program, entry_name: &str) -> Vec<Diag
             );
         }
         return vec![diagnostic];
+    }
+    if let Some((origin_task, call_span)) =
+        reachable_output_call(&graph, &node.task.name, &mut BTreeSet::new())
+        && !graph.tasks[&origin_task]
+            .capabilities
+            .contains_key(&SourceCapability::StdoutWrite)
+    {
+        let origin = graph.tasks[&origin_task].task;
+        return vec![missing_output_source_diagnostic(
+            None, origin, &call_span, false, true,
+        )];
     }
     let closures = compute_closures(&graph);
     let Some((capability, requirement)) = closures
@@ -260,16 +317,91 @@ pub(crate) fn is_capability_diagnostic(diagnostic: &Diagnostic) -> bool {
             | DiagnosticCode::MISSING_CALLER_CAPABILITY
             | DiagnosticCode::APP_CAPABILITY_MISMATCH
             | DiagnosticCode::ENTRY_CAPABILITY_BYPASS
+            | DiagnosticCode::OUTPUT_CAPABILITY_UNDECLARED
+            | DiagnosticCode::OUTPUT_RECURSION_UNSUPPORTED
     )
 }
 
 fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
     let graph = build_task_graph(&app.items);
+    let output_recursion = output_reachable_recursion(&graph, &start.name);
+    let reachable_output_routes = reachable_output_routes(&graph, &start.name);
     let closures = compute_closures(&graph);
     let (app_capabilities, app_unknown) = declarations(&app.sections);
     let entry_span = start_declaration_span(app).unwrap_or_else(|| start.span.clone());
     let mut diagnostics = Vec::new();
     let mut routes = Vec::new();
+    let output_recursion_has_complete_authority = app_capabilities
+        .contains_key(&SourceCapability::StdoutWrite)
+        && !reachable_output_routes.is_empty()
+        && reachable_output_routes.iter().all(|route| {
+            route.task_route.iter().all(|task_name| {
+                graph.tasks.get(task_name).is_some_and(|node| {
+                    node.capabilities
+                        .contains_key(&SourceCapability::StdoutWrite)
+                })
+            })
+        });
+
+    if let Some(issue) = output_recursion
+        .as_ref()
+        .filter(|_| output_recursion_has_complete_authority)
+    {
+        let caller = &graph.tasks[&issue.caller].task;
+        let callee = &graph.tasks[&issue.callee].task;
+        let mut diagnostic = Diagnostic::error(
+            DiagnosticCode::OUTPUT_RECURSION_UNSUPPORTED,
+            format!(
+                "recursive call from task `{}` to `{}` can reach `stdout_write`, but Session Z requires a finite exact output route",
+                issue.caller, issue.callee
+            ),
+            Some(issue.call_span.clone()),
+        )
+        .with_related_span(
+            format!("recursive caller task `{}`", issue.caller),
+            caller.span.clone(),
+        )
+        .with_related_span(
+            format!("re-entered task `{}`", issue.callee),
+            callee.span.clone(),
+        )
+        .with_related_span(
+            format!("structural app `{}`", app.name),
+            app.span.clone(),
+        )
+        .with_help(
+            "Rewrite this output-bearing recursion as an explicit bounded loop or a non-recursive task chain so every output exercise has one finite auditable route.",
+        );
+        for (index, span) in issue.call_route.iter().enumerate() {
+            diagnostic = diagnostic.with_related_span(
+                format!("output-recursion route call {}", index + 1),
+                span.clone(),
+            );
+        }
+        diagnostics.push(diagnostic);
+        let mut route_tasks = vec![app.name.clone()];
+        route_tasks.extend(issue.task_route.clone());
+        routes.push(route_fact(
+            "source_capability_output_recursion",
+            "rejected_output_reachable_recursion_v0",
+            Some("finite_output_route_required_for_forensic_replay_v0"),
+            Some(DiagnosticCode::OUTPUT_RECURSION_UNSUPPORTED.as_str()),
+            SourceCapability::StdoutWrite.spec(),
+            caller.span.clone(),
+            issue.call_span.clone(),
+            Some(app),
+            Some(caller),
+            Some(callee),
+            None,
+            Some(entry_span.clone()),
+            route_tasks,
+            issue.call_route.clone(),
+            Some(
+                "Replace output-bearing recursion with an explicit bounded loop or non-recursive task chain."
+                    .to_string(),
+            ),
+        ));
+    }
 
     for (capability, span) in app_unknown {
         diagnostics.push(unknown_capability_diagnostic(
@@ -312,6 +444,69 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                 node.task,
                 *capability,
                 declaration_span,
+            ));
+        }
+        for call_span in &node.output_calls {
+            let task_covers = node
+                .capabilities
+                .contains_key(&SourceCapability::StdoutWrite);
+            let app_covers = app_capabilities.contains_key(&SourceCapability::StdoutWrite);
+            if !task_covers || !app_covers {
+                diagnostics.push(missing_output_source_diagnostic(
+                    Some(app),
+                    node.task,
+                    call_span,
+                    task_covers,
+                    app_covers,
+                ));
+            }
+        }
+    }
+
+    for output_route in &reachable_output_routes {
+        let node = &graph.tasks[&output_route.task];
+        let task_covers = node
+            .capabilities
+            .contains_key(&SourceCapability::StdoutWrite);
+        let app_covers = app_capabilities.contains_key(&SourceCapability::StdoutWrite);
+        let mut route_tasks = vec![app.name.clone()];
+        route_tasks.extend(output_route.task_route.clone());
+        routes.push(output_operation_route(
+            Some(app),
+            node.task,
+            Some(&entry_span),
+            &output_route.call_span,
+            node.capabilities.get(&SourceCapability::StdoutWrite),
+            task_covers,
+            app_covers,
+            route_tasks,
+            output_route.call_route.clone(),
+        ));
+    }
+
+    for task_name in &graph.order {
+        let node = &graph.tasks[task_name];
+        for call_span in &node.output_calls {
+            let is_reachable = reachable_output_routes
+                .iter()
+                .any(|route| route.task == node.task.name && route.call_span == *call_span);
+            if is_reachable {
+                continue;
+            }
+            let task_covers = node
+                .capabilities
+                .contains_key(&SourceCapability::StdoutWrite);
+            let app_covers = app_capabilities.contains_key(&SourceCapability::StdoutWrite);
+            routes.push(output_operation_route(
+                Some(app),
+                node.task,
+                Some(&entry_span),
+                call_span,
+                node.capabilities.get(&SourceCapability::StdoutWrite),
+                task_covers,
+                app_covers,
+                vec![app.name.clone(), node.task.name.clone()],
+                vec![call_span.clone()],
             ));
         }
     }
@@ -362,7 +557,13 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
         for (capability, requirement) in start_requirements {
             let app_covers = app_capabilities.contains_key(capability);
             let task_route_complete = route_is_declared(&graph, *capability, requirement);
-            if !app_covers && task_route_complete {
+            let output_call_owns_missing_app = *capability == SourceCapability::StdoutWrite
+                && !app_covers
+                && graph
+                    .tasks
+                    .values()
+                    .any(|node| !node.output_calls.is_empty());
+            if !app_covers && task_route_complete && !output_call_owns_missing_app {
                 diagnostics.push(app_mismatch_diagnostic(
                     app,
                     start,
@@ -389,6 +590,40 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
     }
 }
 
+fn analyze_unrooted_output(program: &Program) -> CapabilityAnalysis {
+    let mut analysis = CapabilityAnalysis::default();
+    for file in &program.files {
+        let graph = build_task_graph(&file.items);
+        for task_name in &graph.order {
+            let node = &graph.tasks[task_name];
+            for call_span in &node.output_calls {
+                let task_covers = node
+                    .capabilities
+                    .contains_key(&SourceCapability::StdoutWrite);
+                analysis.diagnostics.push(missing_output_source_diagnostic(
+                    None,
+                    node.task,
+                    call_span,
+                    task_covers,
+                    false,
+                ));
+                analysis.routes.push(output_operation_route(
+                    None,
+                    node.task,
+                    None,
+                    call_span,
+                    node.capabilities.get(&SourceCapability::StdoutWrite),
+                    task_covers,
+                    false,
+                    vec![node.task.name.clone()],
+                    vec![call_span.clone()],
+                ));
+            }
+        }
+    }
+    analysis
+}
+
 fn build_task_graph(items: &[Item]) -> TaskGraph<'_> {
     let mut tasks = BTreeMap::new();
     let mut order = Vec::new();
@@ -406,6 +641,7 @@ fn build_task_graph(items: &[Item]) -> TaskGraph<'_> {
                     capabilities,
                     unknown_capabilities,
                     calls: Vec::new(),
+                    output_calls: Vec::new(),
                 },
             );
         }
@@ -413,37 +649,154 @@ fn build_task_graph(items: &[Item]) -> TaskGraph<'_> {
     let known_names = tasks.keys().cloned().collect::<BTreeSet<_>>();
     for task_name in &order {
         let task = tasks[task_name].task;
-        let calls = task
-            .section("does")
-            .map(core_body::analyze_does_section)
-            .into_iter()
-            .flat_map(|body| body.statements)
-            .flat_map(|statement| {
+        let mut calls = Vec::new();
+        let mut output_calls = Vec::new();
+        if let Some(body) = task.section("does").map(core_body::analyze_does_section) {
+            for statement in body.statements {
                 let Some(expression) = typed_failure::statement_expression(&statement) else {
-                    return Vec::new();
+                    continue;
                 };
                 let expression_offset = statement.text.find(expression).unwrap_or(0);
-                typed_failure::calls_in_expression(expression)
-                    .into_iter()
-                    .filter(|call| known_names.contains(&call.callee))
-                    .map(|call| {
-                        let byte_offset = expression_offset + call.source_offset;
-                        let column_offset = statement.text[..byte_offset].chars().count();
-                        CallEdge {
+                for call in typed_failure::calls_in_expression(expression) {
+                    let byte_offset = expression_offset + call.source_offset;
+                    let column_offset = statement.text[..byte_offset].chars().count();
+                    let span = Span {
+                        file: statement.span.file.clone(),
+                        line: statement.span.line,
+                        column: statement.span.column + column_offset,
+                    };
+                    if call.callee == "stdout_write" {
+                        output_calls.push(span.clone());
+                    } else if known_names.contains(&call.callee) {
+                        calls.push(CallEdge {
                             callee: call.callee,
-                            span: Span {
-                                file: statement.span.file.clone(),
-                                line: statement.span.line,
-                                column: statement.span.column + column_offset,
-                            },
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        tasks.get_mut(task_name).expect("task exists").calls = calls;
+                            span,
+                        });
+                    }
+                }
+            }
+        }
+        let node = tasks.get_mut(task_name).expect("task exists");
+        node.calls = calls;
+        node.output_calls = output_calls;
     }
     TaskGraph { tasks, order }
+}
+
+fn reachable_output_routes(graph: &TaskGraph<'_>, start: &str) -> Vec<ReachableOutputRoute> {
+    let mut routes = Vec::new();
+    let mut active = BTreeSet::new();
+    let mut task_route = vec![start.to_string()];
+    let mut call_route = Vec::new();
+    collect_reachable_output_routes(
+        graph,
+        start,
+        &mut active,
+        &mut task_route,
+        &mut call_route,
+        &mut routes,
+    );
+    routes
+}
+
+fn output_reachable_recursion(graph: &TaskGraph<'_>, start: &str) -> Option<OutputRecursionIssue> {
+    find_output_reachable_recursion(graph, start, &mut vec![start.to_string()], &mut Vec::new())
+}
+
+fn find_output_reachable_recursion(
+    graph: &TaskGraph<'_>,
+    task_name: &str,
+    task_route: &mut Vec<String>,
+    call_route: &mut Vec<Span>,
+) -> Option<OutputRecursionIssue> {
+    let node = graph.tasks.get(task_name)?;
+    for call in &node.calls {
+        if task_route.contains(&call.callee) {
+            if task_reaches_output(graph, &call.callee, &mut BTreeSet::new()) {
+                let mut recursive_tasks = task_route.clone();
+                recursive_tasks.push(call.callee.clone());
+                let mut recursive_calls = call_route.clone();
+                recursive_calls.push(call.span.clone());
+                return Some(OutputRecursionIssue {
+                    caller: task_name.to_string(),
+                    callee: call.callee.clone(),
+                    call_span: call.span.clone(),
+                    task_route: recursive_tasks,
+                    call_route: recursive_calls,
+                });
+            }
+            continue;
+        }
+        task_route.push(call.callee.clone());
+        call_route.push(call.span.clone());
+        let issue = find_output_reachable_recursion(graph, &call.callee, task_route, call_route);
+        call_route.pop();
+        task_route.pop();
+        if issue.is_some() {
+            return issue;
+        }
+    }
+    None
+}
+
+fn task_reaches_output(
+    graph: &TaskGraph<'_>,
+    task_name: &str,
+    visited: &mut BTreeSet<String>,
+) -> bool {
+    if !visited.insert(task_name.to_string()) {
+        return false;
+    }
+    let Some(node) = graph.tasks.get(task_name) else {
+        return false;
+    };
+    !node.output_calls.is_empty()
+        || node
+            .calls
+            .iter()
+            .any(|call| task_reaches_output(graph, &call.callee, visited))
+}
+
+fn collect_reachable_output_routes(
+    graph: &TaskGraph<'_>,
+    task_name: &str,
+    active: &mut BTreeSet<String>,
+    task_route: &mut Vec<String>,
+    call_route: &mut Vec<Span>,
+    routes: &mut Vec<ReachableOutputRoute>,
+) {
+    if !active.insert(task_name.to_string()) {
+        return;
+    }
+    let Some(node) = graph.tasks.get(task_name) else {
+        active.remove(task_name);
+        return;
+    };
+    for call_span in &node.output_calls {
+        let mut route_spans = call_route.clone();
+        route_spans.push(call_span.clone());
+        routes.push(ReachableOutputRoute {
+            task: task_name.to_string(),
+            call_span: call_span.clone(),
+            task_route: task_route.clone(),
+            call_route: route_spans,
+        });
+    }
+    for call in &node.calls {
+        task_route.push(call.callee.clone());
+        call_route.push(call.span.clone());
+        collect_reachable_output_routes(
+            graph,
+            &call.callee,
+            active,
+            task_route,
+            call_route,
+            routes,
+        );
+        call_route.pop();
+        task_route.pop();
+    }
+    active.remove(task_name);
 }
 
 fn reachable_unknown_requirement(
@@ -477,6 +830,28 @@ fn reachable_unknown_from(
             requirement.route_spans.insert(0, call.span.clone());
             path.remove(task_name);
             return Some(requirement);
+        }
+    }
+    path.remove(task_name);
+    None
+}
+
+fn reachable_output_call(
+    graph: &TaskGraph<'_>,
+    task_name: &str,
+    path: &mut BTreeSet<String>,
+) -> Option<(String, Span)> {
+    let node = graph.tasks.get(task_name)?;
+    if let Some(span) = node.output_calls.first() {
+        return Some((node.task.name.clone(), span.clone()));
+    }
+    if !path.insert(task_name.to_string()) {
+        return None;
+    }
+    for call in &node.calls {
+        if let Some(found) = reachable_output_call(graph, &call.callee, path) {
+            path.remove(task_name);
+            return Some(found);
         }
     }
     path.remove(task_name);
@@ -862,6 +1237,97 @@ fn app_closure_route(
         requirement.route_spans.clone(),
         help,
     )
+}
+
+fn missing_output_source_diagnostic(
+    app: Option<&App>,
+    task: &Task,
+    call_span: &Span,
+    task_covers: bool,
+    app_covers: bool,
+) -> Diagnostic {
+    let (missing, verb) = match (task_covers, app_covers) {
+        (false, false) => ("the task and app declarations", "do"),
+        (false, true) => ("the task declaration", "does"),
+        (true, false) => ("the app declaration", "does"),
+        (true, true) => ("no declaration", "does"),
+    };
+    let mut diagnostic = Diagnostic::error(
+        DiagnosticCode::OUTPUT_CAPABILITY_UNDECLARED,
+        format!(
+            "`stdout_write` requires exact `stdout.write` source authority, but {missing} {verb} not cover this call"
+        ),
+        Some(call_span.clone()),
+    )
+    .with_related_span(
+        format!("calling task `{}` authority boundary", task.name),
+        task.span.clone(),
+    )
+    .with_help(
+        "Add exact `stdout.write` under the calling task and structural app `uses:` sections, preserving every caller closure, or remove the output call. Source declarations are budgets, not operator consent."
+            .to_string(),
+    );
+    if let Some(app) = app {
+        diagnostic = diagnostic.with_related_span(
+            format!("app `{}` maximum authority", app.name),
+            app.span.clone(),
+        );
+    }
+    diagnostic
+}
+
+#[allow(clippy::too_many_arguments)]
+fn output_operation_route(
+    app: Option<&App>,
+    task: &Task,
+    entry_span: Option<&Span>,
+    call_span: &Span,
+    declaration_span: Option<&Span>,
+    task_covers: bool,
+    app_covers: bool,
+    route_tasks: Vec<String>,
+    route_spans: Vec<Span>,
+) -> CapabilityRouteFact {
+    let covered = task_covers && app_covers;
+    let route_identity = format!(
+        "{}-{}",
+        route_tasks.join("-"),
+        route_spans
+            .iter()
+            .map(|span| format!("{}-{}-{}", span.file, span.line, span.column))
+            .collect::<Vec<_>>()
+            .join("-")
+    );
+    let mut fact = route_fact(
+        "source_capability_output_operation",
+        if covered {
+            "accepted_declared_output_operation_v0"
+        } else {
+            "rejected_missing_output_source_authority_v0"
+        },
+        (!covered).then_some("stdout_write_requires_task_and_app_source_authority_v0"),
+        (!covered).then_some(DiagnosticCode::OUTPUT_CAPABILITY_UNDECLARED.as_str()),
+        SourceCapability::StdoutWrite.spec(),
+        task.span.clone(),
+        call_span.clone(),
+        app,
+        Some(task),
+        None,
+        declaration_span.cloned(),
+        entry_span.cloned(),
+        route_tasks,
+        route_spans,
+        (!covered).then(|| {
+            "Add exact `stdout.write` to both the task and app source authority budgets."
+                .to_string()
+        }),
+    );
+    fact.id = node_id::span(
+        "capability-policy",
+        call_span,
+        &format!("source-capability-output-operation-stdout-write-{route_identity}"),
+    );
+    fact
 }
 
 fn unknown_route(

@@ -1,0 +1,31 @@
+app recursion_missing_source {
+  starts with:
+    run_tool
+
+  task emit_again(remaining: Int) -> Result Unit, OutputError {
+    fails when:
+      recursive output fails
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      if remaining > 0 {
+        let again = try emit_again(remaining - 1)
+      }
+      let written = try stdout_write("must not print")
+      return written
+  }
+
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      recursive output fails
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let written = try emit_again(1)
+      return written
+  }
+}

@@ -118,6 +118,7 @@ Reserved V0 families include:
 - `target.memory`
 - `target.path`
 - `os.filesystem`
+- `os.stdio`
 - `os.clock`
 - `os.random`
 - `os.process`
@@ -163,8 +164,14 @@ Each record `capabilities` entry has:
 
 Availability is not permission. A target may have a filesystem, process model,
 or network stack while a strict Hum profile denies it. For Milestone 0,
-`absent_by_default`, `mostly_absent`, and omitted capability entries are treated
-as unavailable for source `requires:` checks.
+`absent_by_default`, `mostly_absent`, `reserved_mapping_only`, and omitted
+capability entries are treated as unavailable for source `requires:` checks.
+
+Session Z adds `os.stdio` to every fixture with
+`reserved_mapping_only`. This is a mapping reservation, not target
+availability, host probing, permission, profile enforcement, or process-spawn
+authority. It does not satisfy a source `requires: os.stdio`; that requirement
+fails closed under H1204 until a target record advertises real availability.
 
 ## Semantic Graph Link
 

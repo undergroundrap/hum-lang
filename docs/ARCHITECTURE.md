@@ -118,9 +118,26 @@ start closure. Existing effect boundary rows preserve a stable source-policy ID,
 the typed kind/scope/strength/one-run lifetime, severity tier, and every
 app/task/call/declaration route site. These facts authorize no host action:
 operator grants, denies, prompts, persistence, wildcards, decision/use audit
-events, IO, and Path semantics remain later evidence gates. `--entry` stays a
-pure probe and is rejected when its selected closure carries any pinned source
-authority.
+events, IO, and Path semantics remain later evidence gates. Session Z adds the
+one bounded exception: exact one-run `stdout.write` grants intersect with the
+source route, exact deny wins, and `stdout_write(Text)` performs immediate
+no-newline UTF-8 writes through an injectable adapter under a 1 MiB per-run
+limit. Denial, limit, and opaque adapter failure are typed `OutputError` paths;
+runtime decision/exercise facts join the stable source-policy ID with the
+complete app/start/caller/output route and call occurrences. `stdout_write` is
+reserved against user task declarations, and reserved target mappings do not
+satisfy `requires:`. Runtime policy selection uses the actual dynamic lexical
+call occurrences, including conditionally selected same-callee paths, and uses
+shared separator-normalized source identity so equivalent Windows `/` and `\`
+inputs cannot change policy selection. Original spans remain display evidence.
+H0624
+rejects output-reachable recursion because Session Z has no finite exact route
+model for it, but only after task/caller/app authority coverage is valid;
+H0621/H0618 retain precedence for missing authority. Ordinary recursion is not
+thereby banned. This adds no prompt,
+persistence, wildcard, broader IO, runtime JSON, or target-availability claim.
+`--entry` stays a pure probe and is rejected when its selected closure
+carries any pinned source authority.
 
 Session V's writable-field-alias slice is owned by one shared straight-line
 place analysis consumed by `ownership_check` and the interpreter. Resolver and

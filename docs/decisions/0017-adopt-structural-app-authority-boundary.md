@@ -1,7 +1,7 @@
 # 0017: Adopt A Structural App And Explicit Authority Boundary
 
 Date: 2026-07-10
-Status: proposed
+Status: accepted under delegated authority (BDFL veto open)
 
 ## Context
 
@@ -83,9 +83,20 @@ task-coupled and never a startup prompt. A future audit trail must join the
 source policy snapshot, operator decision event, and operation exercise event
 through stable request/policy IDs, with the exact effective intersection,
 deny, requesting task/package/source route, rationale surface, lifetime, and
-decision reason sufficient for forensic replay. Session Y supplies only the
-source snapshot and policy join ID; Session Z must supply the first decision
-and exercise evidence.
+decision reason sufficient for forensic replay. Session Y supplies the source
+snapshot and policy join ID. Session Z supplies typed in-memory one-run
+decision/exercise facts joined to that ID, including the complete
+app/start/caller/output route and every call occurrence. Multiple paths to one
+leaf retain distinct stable IDs, and runtime selection keys the actual dynamic
+lexical call occurrences rather than task names or execution order. Shared
+separator-normalized source identity makes equivalent Windows `/` and `\`
+input spellings select the same policy without rewriting display spans. H0624
+rejects output-reachable recursion until a finite or summarized causal audit
+model is separately earned, but only after H0621/H0618 authority coverage is
+valid. The exact `stdout_write` name is reserved
+against user task declarations, and `reserved_mapping_only` cannot satisfy a
+source `requires:` declaration. Session Z deliberately adds no runtime JSON or
+persistence surface.
 
 ### Path Boundary
 
@@ -118,11 +129,12 @@ round-trips and hidden Windows network/device mappings from being mistaken for
 local file authority.
 
 Sessions X and Y implement structural selection plus the checked source
-capability root. They do not implement operator flags, prompts, persistence,
-wildcards, decision/exercise audit events, IO built-ins, Core `output`,
-`os.stdio`, Path values, host queries, or filesystem access. The proposal
-remains open until Session Z supplies operator-grant and bounded-output
-evidence.
+capability root. Session Z adds only exact one-run `stdout.write` allow/deny,
+deny-wins intersection, bounded immediate output, typed failure, Core `output`,
+reserved `os.stdio`, and joined in-memory decision/exercise evidence. It adds
+no prompts, persistence, wildcards, runtime JSON, broader IO, target
+availability, Path values, host queries, or filesystem access. The proposal
+remains open for independent review of Sessions X-Z together.
 
 ## Alternatives Rejected By The Proposal
 
@@ -164,6 +176,6 @@ Rejected because deterministic runner input must not silently become
 
 This proposal deliberately sequences identity, source authority, operator
 consent, and host adaptation. Sessions X and Y prove identity and the checked
-source maximum/closure. The architect-reviewer may accept Session Y and
-authorize Session Z, but must not accept this record until the operator-grant
-and bounded-output evidence is independently verified.
+source maximum/closure. Session Z now supplies the operator-grant and
+bounded-output evidence. The record remains proposed; only the independent
+architect-reviewer may accept it after verifying Sessions X-Z together.

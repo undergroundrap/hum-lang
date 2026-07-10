@@ -64,6 +64,19 @@ fn check_item(item: &Item, diagnostics: &mut Vec<Diagnostic>) {
 fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     check_target_declarations("task", &task.name, &task.sections, diagnostics);
 
+    if task.name == "stdout_write" {
+        diagnostics.push(
+            Diagnostic::error(
+                DiagnosticCode::RESERVED_BUILTIN_NAME,
+                "task `stdout_write` redeclares Hum's reserved bounded-output built-in",
+                Some(task.span.clone()),
+            )
+            .with_help(
+                "Rename this user task; `stdout_write` is reserved for `stdout_write(text: Text) -> Result Unit, OutputError`.",
+            ),
+        );
+    }
+
     if task.section("why").is_none() && task_missing_why_is_suspicious(task) {
         diagnostics.push(
             Diagnostic::warning(

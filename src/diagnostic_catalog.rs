@@ -295,6 +295,30 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Run the structural app without `--entry`, or select a task whose complete direct-call closure is pure.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::OUTPUT_CAPABILITY_UNDECLARED,
+        default_severity: Severity::Error,
+        explanation: "A `stdout_write` call is executable only when both its task and containing app declare exact `stdout.write` source authority.",
+        repair: "Add exact `stdout.write` to the blamed task and app `uses:` sections, preserving caller closure, or remove the output call.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::INVALID_STDOUT_WRITE_CALL,
+        default_severity: Severity::Error,
+        explanation: "The bounded output built-in has exactly one signature: `stdout_write(text: Text) -> Result Unit, OutputError`.",
+        repair: "Pass exactly one checked `Text` argument and handle the typed `OutputError` with the authorized explicit propagation or wrapping form.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::RESERVED_BUILTIN_NAME,
+        default_severity: Severity::Error,
+        explanation: "A user task redeclares the exact `stdout_write` name reserved for Hum's bounded output built-in, which would split callable identity across stages.",
+        repair: "Rename the user task and keep `stdout_write` reserved for `stdout_write(text: Text) -> Result Unit, OutputError`.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::OUTPUT_RECURSION_UNSUPPORTED,
+        default_severity: Severity::Error,
+        explanation: "A recursive call cycle is reachable from the structural app start and can reach bounded output, but Session Z audit routes require finite exact call-occurrence identities.",
+        repair: "Rewrite the output-bearing recursion as an explicit bounded loop or a non-recursive task chain so every output route has a finite auditable call path.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNCHECKED_PROSE_CONTRACT,
         default_severity: Severity::Warning,
         explanation: "`hum run` saw a `needs:` or `ensures:` line that is honest prose rather than a predicate v1 expression, so it remains visible but unchecked. Predicate v1 is one comparison over parameters, `result`, arithmetic, `list_len(...)`, and `old(...)` of entry-readable parameter places in `ensures:` only.",

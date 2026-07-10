@@ -29,6 +29,7 @@ mod json;
 mod lsp;
 mod math_obligations;
 mod node_id;
+mod operator_grant;
 mod ownership_check;
 mod parser;
 mod profile_check;
@@ -278,8 +279,14 @@ fn run() -> Result<ExitCode, String> {
                 return Ok(ExitCode::from(1));
             }
 
-            let report =
-                run::run_program(&program, options.run_entry.as_deref(), &options.run_args);
+            let mut output_adapter = run::StdoutOutputAdapter;
+            let report = run::run_program_with_output(
+                &program,
+                options.run_entry.as_deref(),
+                &options.run_args,
+                &options.run_authority,
+                &mut output_adapter,
+            );
             print_diagnostics(&report.diagnostics);
             let code = match report.outcome {
                 run::RunOutcome::Success(output) => {
@@ -873,6 +880,7 @@ struct CliOptions {
     inputs: Vec<PathBuf>,
     run_entry: Option<String>,
     run_args: Vec<String>,
+    run_authority: operator_grant::OperatorGrantPolicy,
     show_timings: bool,
     check_format: CheckFormat,
     syntax_format: SyntaxFormat,
@@ -962,6 +970,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     let mut raw_inputs = Vec::new();
     let mut run_entry = None;
     let mut run_args = Vec::new();
+    let mut run_authority = operator_grant::OperatorGrantPolicy::default();
     let mut check_format = CheckFormat::Human;
     let mut syntax_format = SyntaxFormat::Json;
     let mut version_format = VersionFormat::Human;
@@ -1006,6 +1015,39 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                     return Err("`run --entry` requires a task name".to_string());
                 }
                 run_entry = Some(value.to_string());
+            }
+            "--allow" if command == "run" => {
+                let Some(value) = args.next() else {
+                    return Err("`hum run --allow` requires an exact grant".to_string());
+                };
+                run_authority.allow(&value)?;
+            }
+            flag if command == "run" && flag.starts_with("--allow=") => {
+                let value = flag.trim_start_matches("--allow=");
+                if value.is_empty() {
+                    return Err("`hum run --allow` requires an exact grant".to_string());
+                }
+                run_authority.allow(value)?;
+            }
+            "--deny" if command == "run" => {
+                let Some(value) = args.next() else {
+                    return Err("`hum run --deny` requires an exact capability".to_string());
+                };
+                run_authority.deny(&value)?;
+            }
+            flag if command == "run" && flag.starts_with("--deny=") => {
+                let value = flag.trim_start_matches("--deny=");
+                if value.is_empty() {
+                    return Err("`hum run --deny` requires an exact capability".to_string());
+                }
+                run_authority.deny(value)?;
+            }
+            "--allow" | "--deny" => {
+                return Err(format!("`{arg}` is supported only by `hum run`"));
+            }
+            flag if flag.starts_with("--allow=") || flag.starts_with("--deny=") => {
+                let flag_name = flag.split_once('=').map_or(flag, |(name, _)| name);
+                return Err(format!("`{flag_name}` is supported only by `hum run`"));
             }
             "--args" if command == "run" => {
                 run_args.extend(args);
@@ -1198,6 +1240,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1240,6 +1283,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1282,6 +1326,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1324,6 +1369,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1366,6 +1412,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1408,6 +1455,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1450,6 +1498,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1492,6 +1541,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1534,6 +1584,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1576,6 +1627,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1624,6 +1676,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1666,6 +1719,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1708,6 +1762,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
             inputs: Vec::new(),
             run_entry: None,
             run_args: Vec::new(),
+            run_authority: run_authority.clone(),
             show_timings,
             check_format,
             syntax_format,
@@ -1751,6 +1806,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
         inputs,
         run_entry,
         run_args,
+        run_authority,
         show_timings,
         check_format,
         syntax_format,
@@ -2219,7 +2275,9 @@ fn print_help() {
     println!();
     println!("Usage:");
     println!("  hum check [--format human|json] [--timings] <file-or-dir>...");
-    println!("  hum run [--timings] <file> [--entry <task>] [--args ...]");
+    println!(
+        "  hum run [--timings] [--allow stdout.write] [--deny stdout.write] <file> [--entry <task>] [--args ...]"
+    );
     println!("  hum graph [--timings] <file-or-dir>...");
     println!("  hum evidence [--format human|json] [--timings] <file-or-dir>...");
     println!(
@@ -2295,6 +2353,8 @@ fn print_help() {
     println!("  --format    Choose command output format where supported");
     println!("  --out-dir   Write one math obligation JSON file per obligation");
     println!("  --entry     Select the task used by `hum run`");
+    println!("  --allow     Add an exact one-run operator grant; Session Z accepts stdout.write");
+    println!("  --deny      Deny an exact capability; deny overrides allow");
     println!("  --args      Pass all remaining values to `hum run`");
 }
 #[cfg(test)]
@@ -2339,6 +2399,43 @@ mod tests {
         assert_eq!(options.inputs, vec![PathBuf::from("examples/core/add.hum")]);
         assert_eq!(options.run_entry.as_deref(), Some("add"));
         assert_eq!(options.run_args, vec!["2".to_string(), "3".to_string()]);
+    }
+
+    #[test]
+    fn parses_repeatable_exact_output_grants_with_deny_precedence() {
+        let options = parse_cli(vec![
+            "run".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+            "--allow".to_string(),
+            "stdout.write".to_string(),
+            "--allow=stdout.write".to_string(),
+            "--deny".to_string(),
+            "stdout.write".to_string(),
+        ])
+        .expect("bounded output flags");
+        assert_eq!(
+            options.run_authority.stdout_write_decision(),
+            crate::operator_grant::GrantDecision::DeniedExplicit
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_or_payload_output_grants() {
+        let unknown = parse_cli(vec![
+            "run".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+            "--allow=files.read".to_string(),
+        ])
+        .expect_err("unknown grant");
+        assert!(unknown.contains("does not recognize `files.read`"));
+
+        let payload = parse_cli(vec![
+            "run".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+            "--allow=stdout.write:console".to_string(),
+        ])
+        .expect_err("payload grant");
+        assert!(payload.contains("forbidden payload"));
     }
 
     #[test]

@@ -154,6 +154,7 @@ V0 reference kinds include:
 
 - `resolved_v0`
 - `external_reference_v0`
+- `builtin_reference_v0` for the exact Session Z `stdout_write` callee only
 - `unresolved_v0`
 - `resolved_immutable_place_v0`
 

@@ -1,0 +1,34 @@
+app missing_output_caller {
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task emit -> Result Unit, OutputError {
+    uses:
+      stdout.write
+
+    fails when:
+      the output operation fails
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let written = try stdout_write("blocked")
+      return written
+  }
+
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      nested output fails
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let written = try emit()
+      return written
+  }
+}
