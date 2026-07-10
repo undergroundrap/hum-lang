@@ -1,0 +1,20 @@
+module fixtures.full_type_check.session_w_try_prefix_fallible_fail
+
+type SourceError {
+  code: Text
+}
+
+task try_value() -> Result UInt, SourceError {
+  fails when:
+    the source fails
+  does:
+    fail SourceError.origin
+}
+
+task caller() -> Result UInt, SourceError {
+  fails when:
+    the source fails
+  does:
+    let value = try_value()
+    return value
+}

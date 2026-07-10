@@ -53,6 +53,8 @@ TextMate grammar built from the same syntax surface.
 ## Top-Level Fields
 
 - `schema`: schema name, currently `hum.syntax_surface.v0`
+- `typed_failure_forms`: the two exact direct-call propagation/wrapping forms;
+  this metadata does not imply general call typing or expression-level `try`
 - `source_extension`: canonical source extension, currently `.hum`
 - `module_keyword`: keyword used for module declarations
 - `item_kinds`: top-level and nested declaration kinds recognized by the

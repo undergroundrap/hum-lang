@@ -9,6 +9,7 @@
     {"include": "#identifiers"},
     {"include": "#parameter-permissions"},
     {"include": "#writable-field-aliases"},
+    {"include": "#typed-failures"},
     {"include": "#sections"},
     {"include": "#test-modifiers"}
   ],
@@ -39,6 +40,11 @@
     "parameter-permissions": {
       "patterns": [
         {"name": "storage.modifier.parameter-permission.hum", "match": "(^|[,(][[:space:]]*)(borrow|change|consume)(?=[[:space:]]+[a-z_][a-z0-9_]*[[:space:]]*:)"}
+      ]
+    },
+    "typed-failures": {
+      "patterns": [
+        {"name": "keyword.control.typed-failure.hum", "match": "(^|[^[:alnum:]_])(try|fail)($|[^[:alnum:]_])"}
       ]
     },
     "writable-field-aliases": {

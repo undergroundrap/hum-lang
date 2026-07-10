@@ -129,6 +129,11 @@ Each operation row has:
 - `expression`: compact expression preview root, or `null`
 - `reason`: optional blocker or honesty reason
 
+An H0906 unsupported-`try` fact lowers only as
+`blocked_unsupported_try_expression` with `blocked_operation_v0`, a null
+expression, and the shared stable reason. It is never a lowered executable
+operation.
+
 Lowered V0 operation families include:
 
 - `return`

@@ -1,0 +1,12 @@
+module fixtures.full_type_check.session_w_trying_infallible_pass
+
+task trying() -> UInt {
+  does:
+    return 7
+}
+
+task caller() -> UInt {
+  does:
+    let value = trying()
+    return value
+}

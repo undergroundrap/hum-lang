@@ -1,0 +1,28 @@
+module fixtures.full_type_check.session_w_incompatible_unwrapped_fail
+
+type SourceError {
+  code: Text
+}
+
+type CallerError {
+  code: Text
+}
+
+task source() -> Result UInt, SourceError {
+  why:
+    expose a source error root
+  fails when:
+    the source fails
+  does:
+    fail SourceError.origin
+}
+
+task caller() -> Result UInt, CallerError {
+  why:
+    reject unwrapped propagation across error roots
+  fails when:
+    the caller operation fails
+  does:
+    let value = try source()
+    return value
+}

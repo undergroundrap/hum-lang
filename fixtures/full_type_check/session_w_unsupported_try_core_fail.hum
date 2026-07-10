@@ -1,0 +1,83 @@
+module fixtures.full_type_check.session_w_unsupported_try_core_fail
+
+type SourceError {
+  code: Text
+}
+
+task source(seed: UInt) -> Result UInt, SourceError {
+  fails when:
+    the source fails
+  does:
+    fail SourceError.origin
+}
+
+task return_try(seed: UInt) -> Result UInt, SourceError {
+  fails when:
+    the source fails
+  does:
+    return try source(seed)
+}
+
+task non_call_try() -> Result UInt, SourceError {
+  fails when:
+    the expression fails
+  does:
+    let value = try 7
+    return value
+}
+
+task nested_try(seed: UInt) -> Result UInt, SourceError {
+  fails when:
+    the nested call fails
+  does:
+    let value = try source(source(seed))
+    return value
+}
+
+task chained_try(seed: UInt) -> Result UInt, SourceError {
+  fails when:
+    the chained expression fails
+  does:
+    let value = try try source(seed)
+    return value
+}
+
+task permission_try(seed: UInt) -> Result UInt, SourceError {
+  fails when:
+    the permission-bearing call fails
+  does:
+    let value = try source(borrow seed)
+    return value
+}
+
+task dotted_try(seed: UInt) -> Result UInt, SourceError {
+  fails when:
+    the dotted call fails
+  does:
+    let value = try group.source(seed)
+    return value
+}
+
+task unknown_try() -> Result UInt, SourceError {
+  fails when:
+    the unknown call fails
+  does:
+    let value = try missing()
+    return value
+}
+
+task malformed_wrap(seed: UInt) -> Result UInt, SourceError {
+  fails when:
+    the malformed wrapper fails
+  does:
+    let value = try source(seed) or fail
+    return value
+}
+
+task annotated_try(seed: UInt) -> Result UInt, SourceError {
+  fails when:
+    the annotated binding fails
+  does:
+    let value: UInt = try source(seed)
+    return value
+}

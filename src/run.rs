@@ -8,6 +8,7 @@ use crate::element_place;
 use crate::field_place;
 use crate::graph::is_meaningful_line_text;
 use crate::return_dependency;
+use crate::typed_failure::{self, FailureCatalog, FailureVariant};
 use crate::writable_field_alias::{self, AliasAnalysis, AliasBinding, AliasIssueKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +39,7 @@ enum Value {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Evaluated {
     Value(Value),
-    Failure(Value),
+    Failure(FailureValue),
     ContractViolation,
 }
 
@@ -50,7 +51,7 @@ enum Flow {
         root: Option<String>,
         span: Span,
     },
-    Fail(Value),
+    Fail(FailureValue),
     ContractViolation,
 }
 
@@ -197,15 +198,111 @@ struct ActiveIteration {
     span: Span,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FailureValue {
+    root: FailureVariant,
+    root_origin: Span,
+    steps: Vec<FailureStep>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FailureStep {
+    Propagate {
+        span: Span,
+        callee: String,
+    },
+    Wrap {
+        outer: FailureVariant,
+        span: Span,
+        callee: String,
+    },
+}
+
+impl FailureValue {
+    fn root(root: FailureVariant, root_origin: Span) -> Self {
+        Self {
+            root,
+            root_origin,
+            steps: Vec::new(),
+        }
+    }
+
+    fn propagate(mut self, span: Span, callee: String) -> Self {
+        self.steps.push(FailureStep::Propagate { span, callee });
+        self
+    }
+
+    fn wrap(mut self, outer: FailureVariant, span: Span, callee: String) -> Self {
+        self.steps.push(FailureStep::Wrap {
+            outer,
+            span,
+            callee,
+        });
+        self
+    }
+
+    fn identity(&self) -> String {
+        self.steps
+            .iter()
+            .rev()
+            .find_map(|step| match step {
+                FailureStep::Wrap { outer, .. } => Some(outer.identity()),
+                FailureStep::Propagate { .. } => None,
+            })
+            .unwrap_or_else(|| self.root.identity())
+    }
+
+    fn render(&self) -> String {
+        let identities = self
+            .steps
+            .iter()
+            .rev()
+            .filter_map(|step| match step {
+                FailureStep::Wrap { outer, .. } => Some(outer.identity()),
+                FailureStep::Propagate { .. } => None,
+            })
+            .chain(std::iter::once(self.root.identity()))
+            .collect::<Vec<_>>();
+        let mut out = format!("failure: {}", identities[0]);
+        let mut wrap_index = 0;
+        for step in self.steps.iter().rev() {
+            match step {
+                FailureStep::Propagate { span, callee } => out.push_str(&format!(
+                    "\n  propagated at {} while calling `{callee}`",
+                    location(span)
+                )),
+                FailureStep::Wrap {
+                    outer: _,
+                    span,
+                    callee,
+                } => {
+                    out.push_str(&format!(
+                        "\n  wrapped at {} while calling `{callee}`",
+                        location(span)
+                    ));
+                    wrap_index += 1;
+                    out.push_str(&format!("\ncaused by: {}", identities[wrap_index]));
+                }
+            }
+        }
+        out.push_str(&format!(
+            "\n  originated at {}",
+            location(&self.root_origin)
+        ));
+        out
+    }
+}
+
 pub fn run_program(program: &Program, entry: Option<&str>, raw_args: &[String]) -> RunReport {
     let interpreter = Interpreter {
         program,
+        failure_catalog: FailureCatalog::from_program(program),
         diagnostics: RefCell::new(Vec::new()),
         active_iterations: RefCell::new(Vec::new()),
     };
     let outcome = match interpreter.run(entry, raw_args) {
         Ok(TaskResult::Returned(value)) => RunOutcome::Success(display_value(&value)),
-        Ok(TaskResult::Failed(value)) => RunOutcome::Failure(display_value(&value)),
+        Ok(TaskResult::Failed(value)) => RunOutcome::Failure(value.render()),
         Ok(TaskResult::ContractViolation) => RunOutcome::ContractViolation,
         Err(message) => RunOutcome::Trap(message),
     };
@@ -218,13 +315,14 @@ pub fn run_program(program: &Program, entry: Option<&str>, raw_args: &[String]) 
 
 struct Interpreter<'a> {
     program: &'a Program,
+    failure_catalog: FailureCatalog,
     diagnostics: RefCell<Vec<Diagnostic>>,
     active_iterations: RefCell<Vec<ActiveIteration>>,
 }
 
 enum TaskResult {
     Returned(Value),
-    Failed(Value),
+    Failed(FailureValue),
     ContractViolation,
 }
 
@@ -307,6 +405,7 @@ impl<'a> Interpreter<'a> {
         }
         let alias_analysis =
             writable_field_alias::analyze_with_existing_names(&body.statements, &existing_names);
+        self.preflight_typed_failures(task, &body.statements)?;
         self.preflight_writable_aliases(task, &body.statements, &alias_analysis)?;
 
         let mut env = Env::new();
@@ -422,6 +521,29 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
+    fn preflight_typed_failures(
+        &self,
+        task: &Task,
+        statements: &[BodyStatement],
+    ) -> Result<(), String> {
+        let analysis = typed_failure::analyze_task(task, statements, &self.failure_catalog);
+        let Some(fact) = analysis
+            .facts
+            .values()
+            .find(|fact| fact.diagnostic_code.is_some())
+        else {
+            return Ok(());
+        };
+        let code = fact.diagnostic_code.expect("checked above");
+        let message = typed_failure::diagnostic_message(fact);
+        let mut diagnostic = Diagnostic::error(code, message.clone(), Some(fact.call_span.clone()));
+        if let Some(help) = &fact.help {
+            diagnostic = diagnostic.with_help(help.clone());
+        }
+        self.diagnostics.borrow_mut().push(diagnostic);
+        Err(format!("{}: {message}", code.as_str()))
+    }
+
     fn writable_alias_authority_trap(
         &self,
         task: &Task,
@@ -497,7 +619,7 @@ impl<'a> Interpreter<'a> {
                     Evaluated::Failure(value) => {
                         return Err(format!(
                             "old capture of `{inner}` produced failure {}",
-                            display_value(&value)
+                            value.identity()
                         ));
                     }
                     Evaluated::ContractViolation => {
@@ -547,7 +669,7 @@ impl<'a> Interpreter<'a> {
                 Evaluated::Failure(value) => {
                     return Err(format!(
                         "contract predicate `{text}` produced failure {}",
-                        display_value(&value)
+                        value.identity()
                     ));
                 }
                 Evaluated::ContractViolation => return Ok(false),
@@ -690,13 +812,14 @@ impl<'a> Interpreter<'a> {
             }
 
             if let Some(expr) = strip_keyword(text, "fail") {
-                return match self.eval_expr(expr, env, &line.span, task_name)? {
-                    Evaluated::Value(value) | Evaluated::Failure(value) => {
-                        self.ensure_linear_closed_on_exit(env, task_name, "fail", &line.span)?;
-                        Ok(Flow::Fail(value))
-                    }
-                    Evaluated::ContractViolation => Ok(Flow::ContractViolation),
+                let Some(variant) = typed_failure::parse_failure_variant(expr) else {
+                    return Err(format!(
+                        "{}: typed `fail` requires `ErrorRoot.variant`",
+                        line.location
+                    ));
                 };
+                self.ensure_linear_closed_on_exit(env, task_name, "fail", &line.span)?;
+                return Ok(Flow::Fail(FailureValue::root(variant, line.span.clone())));
             }
 
             if let Some(rest) = strip_keyword(text, "change") {
@@ -822,6 +945,27 @@ impl<'a> Interpreter<'a> {
         let text = trim_outer_parens(text.trim());
         if text.is_empty() {
             return Ok(Evaluated::Value(Value::Unit));
+        }
+
+        if typed_failure::is_try_candidate(text) {
+            let parsed = typed_failure::parse_try_expression(text).ok_or_else(|| {
+                format!(
+                    "{}: unsupported typed-failure propagation shape",
+                    location(span)
+                )
+            })?;
+            return match self.eval_expr(&parsed.call.source, env, span, task_name)? {
+                Evaluated::Value(value) => Ok(Evaluated::Value(value)),
+                Evaluated::Failure(failure) => {
+                    let failure = if let Some(wrapper) = parsed.wrapper {
+                        failure.wrap(wrapper, span.clone(), parsed.call.callee)
+                    } else {
+                        failure.propagate(span.clone(), parsed.call.callee)
+                    };
+                    Ok(Evaluated::Failure(failure))
+                }
+                Evaluated::ContractViolation => Ok(Evaluated::ContractViolation),
+            };
         }
 
         if let Some((left, right)) = split_word_operator(text, "or") {
@@ -1941,6 +2085,15 @@ fn display_value(value: &Value) -> String {
     }
 }
 
+fn location(span: &Span) -> String {
+    format!(
+        "{}:{}:{}",
+        span.file.replace('\\', "/"),
+        span.line,
+        span.column
+    )
+}
+
 fn iteration_root(text: &str) -> Option<String> {
     let text = strip_borrow_or_change_argument(text).unwrap_or(text).trim();
     if text.is_empty()
@@ -2308,6 +2461,9 @@ type MathError {
 }
 
 task fail_now() -> Result Int, MathError {
+  fails when:
+    divisor is zero
+
   does:
     fail MathError.divide_by_zero
 }
@@ -2316,12 +2472,85 @@ task fail_now() -> Result Int, MathError {
         let report = run_program(&program, Some("fail_now"), &[]);
         assert_eq!(
             report.outcome,
-            RunOutcome::Failure("MathError.divide_by_zero".to_string())
+            RunOutcome::Failure(
+                "failure: MathError.divide_by_zero\n  originated at typed_failure.hum:12:5"
+                    .to_string()
+            )
         );
         assert!(
             report.diagnostics.is_empty(),
             "diagnostics: {:#?}",
             report.diagnostics
+        );
+    }
+
+    #[test]
+    fn causal_failure_chain_keeps_outer_to_root_sites() {
+        let program = fixture_program(
+            "examples/probes/causal_failures.hum",
+            include_str!("../examples/probes/causal_failures.hum"),
+        );
+        let report = run_program(&program, Some("outer_value"), &["true".to_string()]);
+        let RunOutcome::Failure(chain) = report.outcome else {
+            panic!("expected typed failure, got {:?}", report.outcome);
+        };
+        let expected = [
+            "failure: OuterError.context",
+            ":74:5 while calling `middle_value`",
+            "caused by: MiddleError.context",
+            ":59:5 while calling `root_value`",
+            "caused by: RootError.origin",
+            "originated at examples/probes/causal_failures.hum:27:7",
+        ];
+        for text in expected {
+            assert!(chain.contains(text), "missing {text}: {chain}");
+        }
+    }
+
+    #[test]
+    fn causal_failure_renders_direct_origin_and_same_root_propagation_once() {
+        let program = fixture_program(
+            "examples/probes/causal_failures.hum",
+            include_str!("../examples/probes/causal_failures.hum"),
+        );
+
+        let direct = run_program(&program, Some("root_value"), &["true".to_string()]);
+        let RunOutcome::Failure(direct_chain) = direct.outcome else {
+            panic!("expected direct typed failure, got {:?}", direct.outcome);
+        };
+        assert!(direct_chain.starts_with("failure: RootError.origin"));
+        assert_eq!(direct_chain.matches("originated at").count(), 1);
+        assert!(direct_chain.contains("causal_failures.hum:27:7"));
+
+        let propagated = run_program(&program, Some("same_root"), &["true".to_string()]);
+        let RunOutcome::Failure(propagated_chain) = propagated.outcome else {
+            panic!(
+                "expected propagated typed failure, got {:?}",
+                propagated.outcome
+            );
+        };
+        assert!(propagated_chain.starts_with("failure: RootError.origin"));
+        assert_eq!(propagated_chain.matches("propagated at").count(), 1);
+        assert_eq!(propagated_chain.matches("originated at").count(), 1);
+        assert!(propagated_chain.contains("while calling `root_value`"));
+    }
+
+    #[test]
+    fn implicit_fallible_call_rejects_with_shared_diagnostic() {
+        let program = fixture_program(
+            "fixtures/full_type_check/session_w_implicit_fallible_call_fail.hum",
+            include_str!("../fixtures/full_type_check/session_w_implicit_fallible_call_fail.hum"),
+        );
+        let report = run_program(&program, Some("caller"), &[]);
+        assert!(matches!(report.outcome, RunOutcome::Trap(ref text) if text.contains("H0901")));
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::FALLIBLE_CALL_REQUIRES_TRY
+        );
+        assert!(
+            report.diagnostics[0]
+                .render()
+                .contains("callee declared at")
         );
     }
 

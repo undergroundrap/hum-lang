@@ -1,0 +1,32 @@
+module fixtures.full_type_check.session_w_wrong_wrapper_root_fail
+
+type SourceError {
+  code: Text
+}
+
+type CallerError {
+  code: Text
+}
+
+type OtherError {
+  code: Text
+}
+
+task source() -> Result UInt, SourceError {
+  why:
+    expose a source error root
+  fails when:
+    the source fails
+  does:
+    fail SourceError.origin
+}
+
+task caller() -> Result UInt, CallerError {
+  why:
+    reject context from a root the caller does not declare
+  fails when:
+    the caller operation fails
+  does:
+    let value = try source() or fail OtherError.context
+    return value
+}

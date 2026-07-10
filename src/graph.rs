@@ -163,6 +163,69 @@ pub fn is_meaningful_line_text(text: &str) -> bool {
     !text.is_empty() && !text.starts_with('#') && !text.starts_with("//")
 }
 
+pub fn hollow_contract_reason(text: &str) -> Option<&'static str> {
+    let lower = text.trim().to_ascii_lowercase();
+    let compact = lower.split_whitespace().collect::<String>();
+    if matches!(
+        compact.as_str(),
+        "result==result" | "value==value" | "item==item" | "state==state"
+    ) {
+        return Some("the claim is tautological");
+    }
+
+    let normalized = normalize_contract_text(&lower);
+    if normalized.is_empty() {
+        return None;
+    }
+
+    if normalized.starts_with("todo")
+        || normalized.starts_with("tbd")
+        || normalized.starts_with("fix later")
+    {
+        return Some("the claim is still a placeholder");
+    }
+
+    if matches!(
+        normalized.as_str(),
+        "true"
+            | "always"
+            | "always true"
+            | "ok"
+            | "okay"
+            | "works"
+            | "it works"
+            | "valid"
+            | "correct"
+            | "safe"
+            | "secure"
+            | "fast"
+            | "optimized"
+            | "good"
+            | "good enough"
+            | "must work"
+            | "everything works"
+    ) {
+        return Some("the claim is too generic to test or prove");
+    }
+
+    None
+}
+
+fn normalize_contract_text(text: &str) -> String {
+    let mut normalized = String::new();
+    let mut previous_was_space = false;
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch);
+            previous_was_space = false;
+        } else if !previous_was_space {
+            normalized.push(' ');
+            previous_was_space = true;
+        }
+    }
+    normalized.trim().to_string()
+}
+
 pub fn normalize_coverage(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

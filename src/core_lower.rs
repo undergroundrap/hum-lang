@@ -8,6 +8,7 @@ use crate::ir_contract;
 use crate::node_id;
 use crate::resolve;
 use crate::type_check::{self, CheckedReturnSummary};
+use crate::typed_failure::{self, FailureCatalog, FailureFact};
 use crate::version;
 
 pub const CORE_LOWER_SCHEMA: &str = "hum.core_lower.v0";
@@ -281,6 +282,7 @@ pub(crate) fn build_core_lower_report(
     let type_check_summary = type_check::type_check_summary(program, diagnostics);
     let core_preview_summary = core_preview::core_preview_readiness_summary(program, diagnostics);
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
+    let failure_catalog = FailureCatalog::from_program(program);
     let errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
@@ -294,6 +296,7 @@ pub(crate) fn build_core_lower_report(
             errors,
             resolve_summary.resolver_errors,
             type_check_summary.type_errors,
+            &failure_catalog,
             &mut core_items,
         );
     }
@@ -324,6 +327,7 @@ fn collect_items(
     source_errors: usize,
     resolver_errors: usize,
     type_errors: usize,
+    failure_catalog: &FailureCatalog,
     core_items: &mut Vec<CoreLowerItem>,
 ) {
     for item in items {
@@ -333,6 +337,7 @@ fn collect_items(
             source_errors,
             resolver_errors,
             type_errors,
+            failure_catalog,
         ) {
             core_items.push(core_item);
         }
@@ -343,6 +348,7 @@ fn collect_items(
                 source_errors,
                 resolver_errors,
                 type_errors,
+                failure_catalog,
                 core_items,
             );
         }
@@ -355,12 +361,17 @@ fn core_item(
     source_errors: usize,
     resolver_errors: usize,
     type_errors: usize,
+    failure_catalog: &FailureCatalog,
 ) -> Option<CoreLowerItem> {
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
     let body = core_body::analyze_does_section(does);
-    let operations = lower_operations(item, &body, checked_returns);
+    let failure_analysis = match item {
+        Item::Task(task) => typed_failure::analyze_task(task, &body.statements, failure_catalog),
+        _ => Default::default(),
+    };
+    let operations = lower_operations(item, &body, checked_returns, &failure_analysis.facts);
     let mut blockers = item_blockers(
         item,
         &body,
@@ -405,11 +416,20 @@ fn lower_operations(
     item: &Item,
     body: &BodyGrammarReport,
     checked_returns: &[CheckedReturnSummary],
+    failure_facts: &std::collections::BTreeMap<usize, FailureFact>,
 ) -> Vec<CoreLowerOperation> {
     body.statements
         .iter()
         .enumerate()
-        .map(|(index, statement)| lower_operation(item, index, statement, checked_returns))
+        .map(|(index, statement)| {
+            lower_operation(
+                item,
+                index,
+                statement,
+                checked_returns,
+                failure_facts.get(&index),
+            )
+        })
         .collect()
 }
 
@@ -418,7 +438,29 @@ fn lower_operation(
     index: usize,
     statement: &BodyStatement,
     checked_returns: &[CheckedReturnSummary],
+    failure_fact: Option<&FailureFact>,
 ) -> CoreLowerOperation {
+    if let Some(fact) = failure_fact
+        && fact.diagnostic_code
+            == Some(crate::diagnostic::DiagnosticCode::UNSUPPORTED_TRY_EXPRESSION)
+    {
+        return CoreLowerOperation {
+            id: node_id::span(
+                "core-op",
+                &statement.span,
+                &format!("{index} blocked_unsupported_try"),
+            ),
+            index,
+            span: portable_span(&statement.span),
+            surface_text: statement.text.clone(),
+            source_kind: statement.kind,
+            source_status: statement.status,
+            core_operation: "blocked_unsupported_try_expression",
+            status: "blocked_operation_v0",
+            expression: None,
+            reason: fact.reason.or(Some("unsupported_try_expression_shape_v0")),
+        };
+    }
     let (core_operation, status, fallback_reason) = core_operation_for(statement);
     let mut expression = expression_text_for_statement(statement).map(|text| {
         lower_expression(

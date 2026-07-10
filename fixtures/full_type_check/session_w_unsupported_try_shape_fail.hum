@@ -1,0 +1,24 @@
+module fixtures.full_type_check.session_w_unsupported_try_shape_fail
+
+type SourceError {
+  code: Text
+}
+
+task source() -> Result UInt, SourceError {
+  why:
+    expose a known fallible source
+  fails when:
+    the source fails
+  does:
+    fail SourceError.origin
+}
+
+task caller() -> Result UInt, SourceError {
+  why:
+    reject a nested try expression outside the pinned forms
+  fails when:
+    the source fails
+  does:
+    let value = try source() + 1
+    return value
+}

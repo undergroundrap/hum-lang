@@ -1,0 +1,34 @@
+module fixtures.full_type_check.session_w_precedence_fail
+
+type RootError {
+  code: Text
+}
+
+type OtherError {
+  code: Text
+}
+
+task source() -> Result UInt, RootError {
+  fails when:
+    the source fails
+  does:
+    fail RootError.origin
+}
+
+task implicit_missing_declaration() -> Result UInt, RootError {
+  does:
+    let value = source()
+    return value
+}
+
+task incompatible_missing_declaration() -> Result UInt, OtherError {
+  does:
+    let value = try source()
+    return value
+}
+
+task unsupported_missing_declaration() -> Result UInt, RootError {
+  does:
+    let value = try source() + 1
+    return value
+}

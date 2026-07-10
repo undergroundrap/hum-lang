@@ -172,6 +172,10 @@ Current rule families include:
   consistency, expression-preview provenance, and non-claim fields on the
   current `hum.core_lower.v0` artifact.
 - It may verify blocked lowering rows as honest blockers.
+- For Session W H0906 rows, verification requires the
+  `blocked_unsupported_try_expression` operation, absent expression semantics,
+  and matching blocker reason; passing those checks verifies blocker honesty,
+  not the rejected expression.
 - It must keep `execution_ready` and `ir_ready` at `0` in V0.
 - `hum ir-readiness` may consume this summary as a compiler gate, but still must
   block before full type checking, effect checking, ownership/resource/profile

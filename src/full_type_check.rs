@@ -9,6 +9,7 @@ use crate::element_place;
 use crate::field_place::{self, FieldTypeMap};
 use crate::return_dependency;
 use crate::type_check;
+use crate::typed_failure::{self, FailureCatalog, FailureFact};
 use crate::version;
 use crate::writable_field_alias;
 
@@ -78,6 +79,16 @@ struct TypedStatement {
     type_source: Option<&'static str>,
     status: &'static str,
     reason: Option<&'static str>,
+    failure_form: Option<&'static str>,
+    callee: Option<String>,
+    callee_result_root: Option<String>,
+    caller_result_root: Option<String>,
+    wrapper_root: Option<String>,
+    call_span: Option<Span>,
+    callee_span: Option<Span>,
+    caller_span: Option<Span>,
+    diagnostic_code: Option<&'static str>,
+    help: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +199,21 @@ pub fn full_type_check_text(program: &Program, diagnostics: &[Diagnostic]) -> St
                 if let Some(reason) = statement.reason {
                     out.push_str(&format!(" reason={reason}"));
                 }
+                if let Some(code) = statement.diagnostic_code {
+                    out.push_str(&format!(" diagnostic={code}"));
+                }
+                if let Some(form) = statement.failure_form {
+                    out.push_str(&format!(" failure_form={form}"));
+                }
+                if let Some(root) = &statement.callee_result_root {
+                    out.push_str(&format!(" callee_root={root}"));
+                }
+                if let Some(root) = &statement.caller_result_root {
+                    out.push_str(&format!(" caller_root={root}"));
+                }
+                if let Some(help) = &statement.help {
+                    out.push_str(&format!(" help={help}"));
+                }
                 out.push('\n');
             }
         }
@@ -252,6 +278,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
         || type_check_summary.type_errors > 0
         || core_verify_summary.failed_checks > 0;
     let task_returns = task_return_types(program);
+    let failure_catalog = FailureCatalog::from_program(program);
     let field_types = field_place::collect_field_types(program);
     let mut items = Vec::new();
     for file in &program.files {
@@ -259,6 +286,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
             &file.items,
             blocked,
             &task_returns,
+            &failure_catalog,
             &field_types,
             &mut items,
         );
@@ -278,15 +306,25 @@ fn collect_items(
     items: &[Item],
     blocked: bool,
     task_returns: &BTreeMap<String, TypeFact>,
+    failure_catalog: &FailureCatalog,
     field_types: &FieldTypeMap,
     out: &mut Vec<FullTypeItem>,
 ) {
     for item in items {
-        if let Some(typed_item) = type_item(item, blocked, task_returns, field_types) {
+        if let Some(typed_item) =
+            type_item(item, blocked, task_returns, failure_catalog, field_types)
+        {
             out.push(typed_item);
         }
         if let Item::App(app) = item {
-            collect_items(&app.items, blocked, task_returns, field_types, out);
+            collect_items(
+                &app.items,
+                blocked,
+                task_returns,
+                failure_catalog,
+                field_types,
+                out,
+            );
         }
     }
 }
@@ -295,12 +333,17 @@ fn type_item(
     item: &Item,
     blocked: bool,
     task_returns: &BTreeMap<String, TypeFact>,
+    failure_catalog: &FailureCatalog,
     field_types: &FieldTypeMap,
 ) -> Option<FullTypeItem> {
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
     let body = core_body::analyze_does_section(does);
+    let failure_analysis = match item {
+        Item::Task(task) => typed_failure::analyze_task(task, &body.statements, failure_catalog),
+        _ => Default::default(),
+    };
     let mut environment = initial_environment(item_params(item));
     let mut statements = Vec::new();
     for (index, statement) in body.statements.iter().enumerate() {
@@ -312,6 +355,7 @@ fn type_item(
             task_returns,
             field_types,
             blocked,
+            failure_analysis.facts.get(&index),
         );
         statements.push(typed);
     }
@@ -329,6 +373,7 @@ fn type_item(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn type_statement(
     item: &Item,
     index: usize,
@@ -337,6 +382,7 @@ fn type_statement(
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
     blocked: bool,
+    failure_fact: Option<&FailureFact>,
 ) -> TypedStatement {
     if blocked {
         return typed_statement(
@@ -362,6 +408,49 @@ fn type_statement(
                 .reason
                 .or(Some("statement_not_in_core_body_grammar_v0")),
         );
+    }
+
+    if let Some(fact) = failure_fact {
+        let effect_owned_missing_declaration = fact.diagnostic_code
+            == Some(crate::diagnostic::DiagnosticCode::MISSING_FAILURE_DECLARATION);
+        let actual = fact
+            .success_type
+            .as_ref()
+            .map(|type_text| type_fact(type_text, "typed_failure_success_v0"));
+        let expected_type = if statement.kind == "fail" {
+            fact.caller_result_root.clone()
+        } else {
+            binding_annotation(statement)
+        };
+        let mut typed = typed_statement(
+            statement,
+            index,
+            expression_text_for_statement(statement).map(str::to_string),
+            expected_type,
+            actual.clone(),
+            if effect_owned_missing_declaration {
+                "accepted_typed_failure_deferred_to_effect_v0"
+            } else {
+                fact.status
+            },
+            if effect_owned_missing_declaration {
+                Some("fails_when_declaration_deferred_to_effect_v0")
+            } else {
+                fact.reason
+            },
+        );
+        apply_failure_fact(&mut typed, fact);
+        if effect_owned_missing_declaration {
+            typed.diagnostic_code = None;
+            typed.help = None;
+        }
+        if matches!(statement.kind, "let_binding" | "mutable_binding")
+            && (fact.diagnostic_code.is_none() || effect_owned_missing_declaration)
+            && let Some((name, type_fact)) = binding_type_fact(statement, actual.as_ref())
+        {
+            environment.insert(name_key(&name), type_fact);
+        }
+        return typed;
     }
 
     let expression_text = expression_text_for_statement(statement).map(str::to_string);
@@ -510,7 +599,30 @@ fn typed_statement(
         type_source: actual.map(|fact| fact.source),
         status,
         reason,
+        failure_form: None,
+        callee: None,
+        callee_result_root: None,
+        caller_result_root: None,
+        wrapper_root: None,
+        call_span: None,
+        callee_span: None,
+        caller_span: None,
+        diagnostic_code: None,
+        help: None,
     }
+}
+
+fn apply_failure_fact(statement: &mut TypedStatement, fact: &FailureFact) {
+    statement.failure_form = Some(fact.form);
+    statement.callee = fact.callee.clone();
+    statement.callee_result_root = fact.callee_result_root.clone();
+    statement.caller_result_root = fact.caller_result_root.clone();
+    statement.wrapper_root = fact.wrapper_root.clone();
+    statement.call_span = Some(fact.call_span.clone());
+    statement.callee_span = fact.callee_span.clone();
+    statement.caller_span = Some(fact.caller_span.clone());
+    statement.diagnostic_code = fact.diagnostic_code.map(|code| code.as_str());
+    statement.help = fact.help.clone();
 }
 
 fn task_return_types(program: &Program) -> BTreeMap<String, TypeFact> {
@@ -892,7 +1004,7 @@ fn item_status(statements: &[TypedStatement], blocked: bool) -> &'static str {
         "blocked_by_prior_errors"
     } else if statements
         .iter()
-        .any(|statement| statement.status == "rejected_statement_type_mismatch_v0")
+        .any(|statement| statement.status.starts_with("rejected_"))
     {
         "full_type_errors_v0"
     } else if statements.iter().any(is_blocking_statement) {
@@ -906,6 +1018,7 @@ fn is_blocking_statement(statement: &TypedStatement) -> bool {
     matches!(
         statement.status,
         "rejected_statement_type_mismatch_v0"
+            | "rejected_typed_failure_relationship_v0"
             | "unchecked_statement_type_v0"
             | "blocked_unsupported_statement_v0"
             | "not_checked_blocked_by_prior_errors_v0"
@@ -954,6 +1067,11 @@ impl FullTypeCheckReport {
                         | "accepted_inferred_binding_type_v0"
                         | "accepted_writable_field_alias_candidate_deferred_to_ownership_v0"
                         | "accepted_no_expression_type_obligation_v0"
+                        | "accepted_same_root_failure_propagation_v0"
+                        | "accepted_causal_failure_wrap_v0"
+                        | "accepted_nominal_direct_failure_v0"
+                        | "accepted_typed_failure_deferred_to_effect_v0"
+                        | "rejected_typed_failure_relationship_v0"
                         | "rejected_statement_type_mismatch_v0"
                 )
             })
@@ -971,6 +1089,10 @@ impl FullTypeCheckReport {
                         | "accepted_inferred_binding_type_v0"
                         | "accepted_writable_field_alias_candidate_deferred_to_ownership_v0"
                         | "accepted_no_expression_type_obligation_v0"
+                        | "accepted_same_root_failure_propagation_v0"
+                        | "accepted_causal_failure_wrap_v0"
+                        | "accepted_nominal_direct_failure_v0"
+                        | "accepted_typed_failure_deferred_to_effect_v0"
                 )
             })
             .count()
@@ -980,7 +1102,13 @@ impl FullTypeCheckReport {
         self.items
             .iter()
             .flat_map(|item| item.statements.iter())
-            .filter(|statement| statement.status == "rejected_statement_type_mismatch_v0")
+            .filter(|statement| {
+                matches!(
+                    statement.status,
+                    "rejected_statement_type_mismatch_v0"
+                        | "rejected_typed_failure_relationship_v0"
+                )
+            })
             .count()
     }
 
@@ -1312,7 +1440,65 @@ fn push_statement(out: &mut String, statement: &TypedStatement, indent: usize) {
     );
     push_optional_string_field(out, indent + 2, "type_source", statement.type_source, true);
     push_string_field(out, indent + 2, "status", statement.status, true);
-    push_optional_string_field(out, indent + 2, "reason", statement.reason, false);
+    push_optional_string_field(out, indent + 2, "reason", statement.reason, true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "failure_form",
+        statement.failure_form,
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "callee", statement.callee.as_deref(), true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "callee_result_root",
+        statement.callee_result_root.as_deref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "caller_result_root",
+        statement.caller_result_root.as_deref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "wrapper_root",
+        statement.wrapper_root.as_deref(),
+        true,
+    );
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "call_span",
+        statement.call_span.as_ref(),
+        true,
+    );
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "callee_span",
+        statement.callee_span.as_ref(),
+        true,
+    );
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "caller_span",
+        statement.caller_span.as_ref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "diagnostic_code",
+        statement.diagnostic_code,
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "help", statement.help.as_deref(), false);
     push_indent(out, indent);
     out.push('}');
 }
@@ -1343,6 +1529,24 @@ fn push_span_field(out: &mut String, indent: usize, key: &str, span: &Span, comm
     ));
     out.push('}');
     push_comma_newline(out, comma);
+}
+
+fn push_optional_span_field(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    span: Option<&Span>,
+    comma: bool,
+) {
+    match span {
+        Some(span) => push_span_field(out, indent, key, span, comma),
+        None => {
+            push_indent(out, indent);
+            push_json_string(out, key);
+            out.push_str(": null");
+            push_comma_newline(out, comma);
+        }
+    }
 }
 
 fn push_optional_string_field(

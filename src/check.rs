@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use crate::ast::{Item, Section, SourceFile, Task, Test};
 use crate::core_body;
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+use crate::graph::hollow_contract_reason;
 use crate::{syntax, target_facts, writable_field_alias};
 
 pub fn check_file(file: &SourceFile) -> Vec<Diagnostic> {
@@ -511,69 +512,6 @@ fn check_contract_quality(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
             );
         }
     }
-}
-
-fn hollow_contract_reason(text: &str) -> Option<&'static str> {
-    let lower = text.trim().to_ascii_lowercase();
-    let compact = lower.split_whitespace().collect::<String>();
-    if matches!(
-        compact.as_str(),
-        "result==result" | "value==value" | "item==item" | "state==state"
-    ) {
-        return Some("the claim is tautological");
-    }
-
-    let normalized = normalize_contract_text(&lower);
-    if normalized.is_empty() {
-        return None;
-    }
-
-    if normalized.starts_with("todo")
-        || normalized.starts_with("tbd")
-        || normalized.starts_with("fix later")
-    {
-        return Some("the claim is still a placeholder");
-    }
-
-    if matches!(
-        normalized.as_str(),
-        "true"
-            | "always"
-            | "always true"
-            | "ok"
-            | "okay"
-            | "works"
-            | "it works"
-            | "valid"
-            | "correct"
-            | "safe"
-            | "secure"
-            | "fast"
-            | "optimized"
-            | "good"
-            | "good enough"
-            | "must work"
-            | "everything works"
-    ) {
-        return Some("the claim is too generic to test or prove");
-    }
-
-    None
-}
-
-fn normalize_contract_text(text: &str) -> String {
-    let mut normalized = String::new();
-    let mut previous_was_space = false;
-    for ch in text.chars() {
-        if ch.is_ascii_alphanumeric() {
-            normalized.push(ch);
-            previous_was_space = false;
-        } else if !previous_was_space {
-            normalized.push(' ');
-            previous_was_space = true;
-        }
-    }
-    normalized.trim().to_string()
 }
 
 fn check_declared_mutation(task: &Task, diagnostics: &mut Vec<Diagnostic>) {

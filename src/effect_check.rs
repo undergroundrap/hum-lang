@@ -6,6 +6,7 @@ use crate::core_contract;
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::full_type_check;
 use crate::graph::is_meaningful_line_text;
+use crate::typed_failure::{self, FailureCatalog, FailureFact};
 use crate::version;
 use crate::writable_field_alias;
 
@@ -114,6 +115,16 @@ struct EffectStatement {
     declaration: Option<String>,
     status: &'static str,
     reason: Option<&'static str>,
+    failure_form: Option<&'static str>,
+    callee: Option<String>,
+    callee_result_root: Option<String>,
+    caller_result_root: Option<String>,
+    wrapper_root: Option<String>,
+    call_span: Option<Span>,
+    callee_span: Option<Span>,
+    caller_span: Option<Span>,
+    diagnostic_code: Option<&'static str>,
+    help: Option<String>,
 }
 
 struct EffectBoundaryCheck {
@@ -244,6 +255,24 @@ pub fn effect_check_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
                 if let Some(reason) = statement.reason {
                     out.push_str(&format!(" reason={reason}"));
                 }
+                if let Some(code) = statement.diagnostic_code {
+                    out.push_str(&format!(" code={code}"));
+                }
+                if let Some(form) = statement.failure_form {
+                    out.push_str(&format!(" failure_form={form}"));
+                }
+                if let Some(root) = &statement.callee_result_root {
+                    out.push_str(&format!(" callee_result_root={root}"));
+                }
+                if let Some(root) = &statement.caller_result_root {
+                    out.push_str(&format!(" caller_result_root={root}"));
+                }
+                if let Some(root) = &statement.wrapper_root {
+                    out.push_str(&format!(" wrapper_root={root}"));
+                }
+                if let Some(help) = &statement.help {
+                    out.push_str(&format!(" help={help}"));
+                }
                 out.push('\n');
             }
             for check in &item.boundary_checks {
@@ -307,9 +336,10 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckRep
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
         .count();
     let blocked = source_errors > 0 || full_type_check_summary.blocking_issues > 0;
+    let failure_catalog = FailureCatalog::from_program(program);
     let mut items = Vec::new();
     for file in &program.files {
-        collect_items(&file.items, blocked, &mut items);
+        collect_items(&file.items, blocked, &failure_catalog, &mut items);
     }
 
     EffectCheckReport {
@@ -321,22 +351,31 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckRep
     }
 }
 
-fn collect_items(items: &[Item], blocked: bool, out: &mut Vec<EffectItem>) {
+fn collect_items(
+    items: &[Item],
+    blocked: bool,
+    failure_catalog: &FailureCatalog,
+    out: &mut Vec<EffectItem>,
+) {
     for item in items {
-        if let Some(effect_item) = check_item(item, blocked) {
+        if let Some(effect_item) = check_item(item, blocked, failure_catalog) {
             out.push(effect_item);
         }
         if let Item::App(app) = item {
-            collect_items(&app.items, blocked, out);
+            collect_items(&app.items, blocked, failure_catalog, out);
         }
     }
 }
 
-fn check_item(item: &Item, blocked: bool) -> Option<EffectItem> {
+fn check_item(item: &Item, blocked: bool, failure_catalog: &FailureCatalog) -> Option<EffectItem> {
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
     let body = core_body::analyze_does_section(does);
+    let failure_analysis = match item {
+        Item::Task(task) => typed_failure::analyze_task(task, &body.statements, failure_catalog),
+        _ => Default::default(),
+    };
     let declarations = collect_declarations(item_sections(item));
     let local_mutables = local_mutables(&body.statements);
     let writable_aliases = body
@@ -364,6 +403,7 @@ fn check_item(item: &Item, blocked: bool) -> Option<EffectItem> {
             &writable_aliases,
             &parameter_roots,
             blocked,
+            failure_analysis.facts.get(&index),
         ));
     }
     let boundary_checks = boundary_checks(item, &declarations, &body.statements, &statements);
@@ -383,6 +423,7 @@ fn check_item(item: &Item, blocked: bool) -> Option<EffectItem> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_statement_effect(
     statement: &BodyStatement,
     index: usize,
@@ -391,6 +432,7 @@ fn check_statement_effect(
     writable_aliases: &BTreeMap<String, Option<String>>,
     parameter_roots: &BTreeSet<String>,
     blocked: bool,
+    failure_fact: Option<&FailureFact>,
 ) -> EffectStatement {
     if blocked {
         return effect_statement(
@@ -416,6 +458,44 @@ fn check_statement_effect(
                 .reason
                 .or(Some("statement_not_in_core_body_grammar_v0")),
         );
+    }
+
+    if let Some(fact) = failure_fact {
+        let mut row = effect_statement(
+            statement,
+            index,
+            if fact.form == "failure_wrap" {
+                "typed_failure_wrap"
+            } else if fact.form == "direct_failure" {
+                "typed_failure"
+            } else {
+                "typed_failure_propagation"
+            },
+            fact.callee.clone(),
+            if fact.diagnostic_code
+                == Some(crate::diagnostic::DiagnosticCode::MISSING_FAILURE_DECLARATION)
+            {
+                None
+            } else {
+                Some("fails when".to_string())
+            },
+            if fact.diagnostic_code
+                == Some(crate::diagnostic::DiagnosticCode::MISSING_FAILURE_DECLARATION)
+            {
+                "rejected_missing_fails_when_declaration_v0"
+            } else if fact.diagnostic_code.is_some() {
+                "rejected_typed_failure_relationship_v0"
+            } else if fact.form == "failure_wrap" {
+                "accepted_declared_failure_wrap_v0"
+            } else if fact.form == "failure_propagation" {
+                "accepted_declared_failure_propagation_v0"
+            } else {
+                "accepted_declared_failure_v0"
+            },
+            fact.reason,
+        );
+        apply_failure_fact(&mut row, fact);
+        return row;
     }
 
     match statement.kind {
@@ -685,7 +765,30 @@ fn effect_statement(
         declaration,
         status,
         reason,
+        failure_form: None,
+        callee: None,
+        callee_result_root: None,
+        caller_result_root: None,
+        wrapper_root: None,
+        call_span: None,
+        callee_span: None,
+        caller_span: None,
+        diagnostic_code: None,
+        help: None,
     }
+}
+
+fn apply_failure_fact(statement: &mut EffectStatement, fact: &FailureFact) {
+    statement.failure_form = Some(fact.form);
+    statement.callee = fact.callee.clone();
+    statement.callee_result_root = fact.callee_result_root.clone();
+    statement.caller_result_root = fact.caller_result_root.clone();
+    statement.wrapper_root = fact.wrapper_root.clone();
+    statement.call_span = Some(fact.call_span.clone());
+    statement.callee_span = fact.callee_span.clone();
+    statement.caller_span = Some(fact.caller_span.clone());
+    statement.diagnostic_code = fact.diagnostic_code.map(|code| code.as_str());
+    statement.help = fact.help.clone();
 }
 
 fn boundary_checks(
@@ -781,7 +884,12 @@ fn declared_facts(sections: &[Section], name: &'static str) -> Vec<DeclaredFact>
         .flat_map(|section| {
             section.lines.iter().filter_map(move |line| {
                 let text = line.text.trim();
-                if !is_meaningful_line_text(text) {
+                let is_meaningful = if name == "fails when" {
+                    typed_failure::is_meaningful_failure_declaration(text)
+                } else {
+                    is_meaningful_line_text(text)
+                };
+                if !is_meaningful {
                     return None;
                 }
                 Some(DeclaredFact {
@@ -913,7 +1021,11 @@ fn avoid_contradiction(
 ) -> Option<&'static str> {
     let lowered = avoid_text.to_ascii_lowercase();
     for statement in effect_statements {
-        if statement.effect_kind == "typed_failure" && lowered.contains("fail") {
+        if matches!(
+            statement.effect_kind,
+            "typed_failure" | "typed_failure_propagation" | "typed_failure_wrap"
+        ) && lowered.contains("fail")
+        {
             return Some("avoids_failure_but_body_can_fail_v0");
         }
         if let Some(target) = &statement.target {
@@ -1169,7 +1281,12 @@ impl EffectCheckReport {
         self.items
             .iter()
             .flat_map(|item| item.statements.iter())
-            .filter(|statement| statement.effect_kind == "typed_failure")
+            .filter(|statement| {
+                matches!(
+                    statement.effect_kind,
+                    "typed_failure" | "typed_failure_propagation" | "typed_failure_wrap"
+                )
+            })
             .count()
     }
 
@@ -1605,7 +1722,65 @@ fn push_statement(out: &mut String, statement: &EffectStatement, indent: usize) 
         true,
     );
     push_string_field(out, indent + 2, "status", statement.status, true);
-    push_optional_string_field(out, indent + 2, "reason", statement.reason, false);
+    push_optional_string_field(out, indent + 2, "reason", statement.reason, true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "failure_form",
+        statement.failure_form,
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "callee", statement.callee.as_deref(), true);
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "callee_result_root",
+        statement.callee_result_root.as_deref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "caller_result_root",
+        statement.caller_result_root.as_deref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "wrapper_root",
+        statement.wrapper_root.as_deref(),
+        true,
+    );
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "call_span",
+        statement.call_span.as_ref(),
+        true,
+    );
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "callee_span",
+        statement.callee_span.as_ref(),
+        true,
+    );
+    push_optional_span_field(
+        out,
+        indent + 2,
+        "caller_span",
+        statement.caller_span.as_ref(),
+        true,
+    );
+    push_optional_string_field(
+        out,
+        indent + 2,
+        "diagnostic_code",
+        statement.diagnostic_code,
+        true,
+    );
+    push_optional_string_field(out, indent + 2, "help", statement.help.as_deref(), false);
     push_indent(out, indent);
     out.push('}');
 }
@@ -1672,6 +1847,24 @@ fn push_span_field(out: &mut String, indent: usize, key: &str, span: &Span, comm
     ));
     out.push('}');
     push_comma_newline(out, comma);
+}
+
+fn push_optional_span_field(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    span: Option<&Span>,
+    comma: bool,
+) {
+    match span {
+        Some(span) => push_span_field(out, indent, key, span, comma),
+        None => {
+            push_indent(out, indent);
+            push_json_string(out, key);
+            out.push_str(": null");
+            push_comma_newline(out, comma);
+        }
+    }
 }
 
 fn push_optional_string_field(

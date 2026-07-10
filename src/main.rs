@@ -42,6 +42,7 @@ mod target_facts;
 mod test_skeletons;
 mod type_check;
 mod type_env;
+mod typed_failure;
 mod version;
 mod writable_field_alias;
 

@@ -1,0 +1,76 @@
+module examples.probes.causal_failures
+
+type RootError {
+  code: Text
+}
+
+type MiddleError {
+  code: Text
+}
+
+type OuterError {
+  code: Text
+}
+
+task root_value(should_fail: Bool) -> Result UInt, RootError {
+  why:
+    provide the root failure and the success value for propagation probes
+
+  fails when:
+    the requested root operation fails
+
+  allocates:
+    up to one causal failure root when the operation fails
+
+  does:
+    if should_fail {
+      fail RootError.origin
+    }
+
+    return 7
+}
+
+task same_root(should_fail: Bool) -> Result UInt, RootError {
+  why:
+    prove explicit same-root propagation without wrapping
+
+  fails when:
+    the root operation fails
+
+  allocates:
+    up to one causal propagation frame when the operation fails
+
+  does:
+    let value = try root_value(should_fail)
+    return value
+}
+
+task middle_value(should_fail: Bool) -> Result UInt, MiddleError {
+  why:
+    preserve the root cause while adding middle-layer context
+
+  fails when:
+    the root operation fails in the middle layer
+
+  allocates:
+    up to one causal wrapper frame when the operation fails
+
+  does:
+    let value = try root_value(should_fail) or fail MiddleError.context
+    return value
+}
+
+task outer_value(should_fail: Bool) -> Result UInt, OuterError {
+  why:
+    preserve every cause while adding outer-layer context
+
+  fails when:
+    the middle operation fails in the outer layer
+
+  allocates:
+    up to one causal wrapper frame when the operation fails
+
+  does:
+    let value = try middle_value(should_fail) or fail OuterError.context
+    return value
+}

@@ -647,6 +647,22 @@ task load_profile(id: UserId) -> Result Profile, LoadProfileError {
 
 Callers must handle failure explicitly.
 
+The first checked propagation slice is deliberately narrow:
+
+```hum
+let value = try fallible_call()
+let value = try fallible_call() or fail OuterError.context
+```
+
+The unwrapped form requires identical nominal caller and callee error roots.
+The wrapper root must match the caller root and preserves the inner cause.
+Known fallible calls without `try` reject in every currently executable
+expression position, including nested calls and loop collections. Runtime
+failure chains retain root origin and every recognized propagation/wrapping
+site; they are exit-1 typed failures, not traps. This does not add recovery,
+exceptions, first-class `Result`, checked variant membership, or general call
+typing.
+
 ## Concurrency
 
 Concurrency must declare shared state and cancellation behavior.

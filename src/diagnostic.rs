@@ -98,6 +98,17 @@ impl DiagnosticCode {
     pub const WRITABLE_ALIAS_OVERLAP: Self = Self::new("H0808", "writable alias overlap");
     pub const UNSUPPORTED_WRITABLE_ALIAS: Self = Self::new("H0809", "unsupported writable alias");
 
+    pub const FALLIBLE_CALL_REQUIRES_TRY: Self = Self::new("H0901", "fallible call requires try");
+    pub const INCOMPATIBLE_FAILURE_PROPAGATION: Self =
+        Self::new("H0902", "incompatible failure propagation");
+    pub const FAILURE_WRAPPER_ROOT_MISMATCH: Self =
+        Self::new("H0903", "failure wrapper root mismatch");
+    pub const TRY_ON_INFALLIBLE_CALL: Self = Self::new("H0904", "try on infallible call");
+    pub const DIRECT_FAILURE_ROOT_MISMATCH: Self =
+        Self::new("H0905", "direct failure root mismatch");
+    pub const UNSUPPORTED_TRY_EXPRESSION: Self = Self::new("H0906", "unsupported try expression");
+    pub const MISSING_FAILURE_DECLARATION: Self = Self::new("H0907", "missing failure declaration");
+
     pub const UNKNOWN_TARGET_FACT_RECORD: Self = Self::new("H1201", "unknown target fact record");
     pub const UNKNOWN_CAPABILITY_FAMILY: Self = Self::new("H1202", "unknown capability family");
     pub const UNSUPPORTED_TARGET_DECLARATION: Self =

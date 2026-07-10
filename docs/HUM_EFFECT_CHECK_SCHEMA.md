@@ -110,6 +110,13 @@ V0 recognizes and checks:
 - parameter mutation through `set parameter = value` is accepted as a parameter-permission fact deferred to `hum ownership-check`
 - external mutation through `set target = value` or `save value in target` only when `target` is declared under `changes:`
 - `fail value` only when the item has a meaningful `fails when:` section
+- recognized same-root propagation and caller-root causal wrapping count as
+  typed failure and require the same meaningful `fails when:` declaration;
+  statement rows expose their nominal roots and call/callee/caller sites
+- failure-declaration quality reuses the hollow-contract rule, so placeholders
+  such as `todo`, `tbd`, tautologies, and generic claims do not satisfy H0907
+- direct failure, same-root propagation, and caller-root wrapping each
+  contradict an `avoids: failure` declaration
 - obvious ambient reads for known roots such as `clock`, `time`, `random`, `crypto`, `file`, `network`, `env`, `process`, `os`, `registry`, `device`, `sensor`, `storage`, `database`, and `http` only when declared under `uses:`
 - `trusts:` only when paired with `protects:`
 - security-sensitive uses or body text such as `random`, `crypto`, `password`, `token`, `network`, or `socket` only when paired with `protects:`
@@ -125,6 +132,9 @@ V0 recognizes and checks:
 - `accepted_declared_change_v0`
 - `accepted_parameter_mutation_deferred_to_ownership_v0`
 - `accepted_declared_failure_v0`
+- `accepted_declared_failure_propagation_v0`
+- `accepted_declared_failure_wrap_v0`
+- `rejected_typed_failure_relationship_v0`
 - `accepted_declared_use_v0`
 - `rejected_missing_changes_declaration_v0`
 - `rejected_missing_fails_when_declaration_v0`

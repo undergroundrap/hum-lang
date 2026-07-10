@@ -207,8 +207,17 @@ match expression
 try expression
 ```
 
-`try expression` unwraps a `Result` in a task that declares compatible failure.
-It is not punctuation magic. It lowers to a `match` on success/failure.
+Session W recognizes only `let value = try named_call(arguments)` and
+`let value = try named_call(arguments) or fail CallerError.context`, with
+ordinary value arguments. The first form requires identical nominal caller and
+callee error roots. The second requires the wrapper root to equal the caller
+root and retains the inner cause. These forms lower conceptually to a
+success/failure match; they do not create first-class `Result` values or a
+general expression-level `try` operator.
+
+Any unsupported `try` shape remains an explicit blocked operation through Core
+preview, lower, and verify. Core verification may verify that blocker as honest;
+it does not verify or lower the rejected expression as executable semantics.
 
 The first executable built-in operation call is `list_append(change list,
 item)`. It mutates the named list place and returns `Unit`; it is not a
@@ -347,6 +356,10 @@ Rules:
 - A task may fail only with a declared failure type.
 - Callers must handle or propagate failure.
 - `try` propagates only compatible failure values.
+- known fallible calls require one of the explicit recognized `try` forms;
+  wrapping records the caller-root context without discarding the cause.
+- the executable causal carrier records root origin plus each recognized
+  propagation or wrapping site and renders outer-to-root.
 - There are no exceptions in the core.
 - Panics are not ordinary failure; they are contract bugs or profile-defined
   fail-stop behavior.

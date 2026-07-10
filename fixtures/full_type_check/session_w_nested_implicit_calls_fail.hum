@@ -1,0 +1,51 @@
+module fixtures.full_type_check.session_w_nested_implicit_calls_fail
+
+type SourceError {
+  code: Text
+}
+
+task source() -> Result UInt, SourceError {
+  fails when:
+    the scalar source fails
+  does:
+    fail SourceError.scalar
+}
+
+task source_list() -> Result List UInt, SourceError {
+  fails when:
+    the list source fails
+  does:
+    fail SourceError.list
+}
+
+task identity(value: UInt) -> UInt {
+  does:
+    return value
+}
+
+task operator_caller() -> Result UInt, SourceError {
+  fails when:
+    the nested source fails
+  does:
+    let value = source() + 1
+    return value
+}
+
+task argument_caller() -> Result UInt, SourceError {
+  fails when:
+    the argument source fails
+  does:
+    let value = identity(source())
+    return value
+}
+
+task loop_caller() -> Result UInt, SourceError {
+  fails when:
+    the loop collection source fails
+  does:
+    change total: UInt = 0
+    for each value in source_list() {
+      set total = total + value
+    }
+    return total
+}

@@ -1,0 +1,36 @@
+module fixtures.effect_check.session_w_avoids_failure_fail
+
+type SourceError {
+  code: Text
+}
+
+type OuterError {
+  code: Text
+}
+
+task source() -> Result UInt, SourceError {
+  fails when:
+    the source fails
+  does:
+    fail SourceError.origin
+}
+
+task propagation_avoids_failure() -> Result UInt, SourceError {
+  fails when:
+    the source fails
+  avoids:
+    failure
+  does:
+    let value = try source()
+    return value
+}
+
+task wrapping_avoids_failure() -> Result UInt, OuterError {
+  fails when:
+    the source fails through the wrapper
+  avoids:
+    failure
+  does:
+    let value = try source() or fail OuterError.context
+    return value
+}

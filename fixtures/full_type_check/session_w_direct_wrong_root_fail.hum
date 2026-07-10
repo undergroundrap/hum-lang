@@ -1,0 +1,18 @@
+module fixtures.full_type_check.session_w_direct_wrong_root_fail
+
+type CallerError {
+  code: Text
+}
+
+type OtherError {
+  code: Text
+}
+
+task caller() -> Result UInt, CallerError {
+  why:
+    reject a direct failure from the wrong nominal root
+  fails when:
+    the caller operation fails
+  does:
+    fail OtherError.origin
+}

@@ -1,0 +1,23 @@
+module fixtures.effect_check.session_w_placeholder_fails_when_propagation_fail
+
+type RootError {
+  code: Text
+}
+
+task source(flag: Bool) -> Result UInt, RootError {
+  fails when:
+    flag requests the root failure
+  does:
+    if flag {
+      fail RootError.origin
+    }
+    return 7
+}
+
+task caller(flag: Bool) -> Result UInt, RootError {
+  fails when:
+    todo
+  does:
+    let value = try source(flag)
+    return value
+}

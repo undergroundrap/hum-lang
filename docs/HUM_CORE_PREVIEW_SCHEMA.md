@@ -120,6 +120,10 @@ Each `statements` row has:
   no standalone expression text
 - `reason`: optional blocker or context reason
 
+Session W's shared typed-failure analysis maps every H0906 unsupported-`try`
+fact to `core_operation: unsupported_try_expression`, `status: blocked_v0`, and
+the same stable reason. Such a row is not `lowerable_preview_v0`.
+
 ## Name Preview Shape
 
 `name_preview` is a candidate-local binding/reference preview only. It walks the

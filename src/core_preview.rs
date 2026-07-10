@@ -7,6 +7,7 @@ use crate::core_expr::{
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::is_meaningful_line_text;
 use crate::type_check::{self, CheckedReturnSummary};
+use crate::typed_failure::{self, FailureCatalog, FailureFact};
 use crate::version;
 
 pub const CORE_PREVIEW_SCHEMA: &str = "hum.core_preview.v0";
@@ -375,8 +376,15 @@ pub fn core_preview_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CorePreviewReport {
     let mut candidates = Vec::new();
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
+    let failure_catalog = FailureCatalog::from_program(program);
     for file in &program.files {
-        collect_candidates_from_items(&file.items, diagnostics, &checked_returns, &mut candidates);
+        collect_candidates_from_items(
+            &file.items,
+            diagnostics,
+            &checked_returns,
+            &failure_catalog,
+            &mut candidates,
+        );
     }
 
     let errors = diagnostics
@@ -400,14 +408,22 @@ fn collect_candidates_from_items(
     items: &[Item],
     diagnostics: &[Diagnostic],
     checked_returns: &[CheckedReturnSummary],
+    failure_catalog: &FailureCatalog,
     candidates: &mut Vec<CoreCandidate>,
 ) {
     for item in items {
-        if let Some(candidate) = core_candidate(item, diagnostics, checked_returns) {
+        if let Some(candidate) = core_candidate(item, diagnostics, checked_returns, failure_catalog)
+        {
             candidates.push(candidate);
         }
         if let Item::App(app) = item {
-            collect_candidates_from_items(&app.items, diagnostics, checked_returns, candidates);
+            collect_candidates_from_items(
+                &app.items,
+                diagnostics,
+                checked_returns,
+                failure_catalog,
+                candidates,
+            );
         }
     }
 }
@@ -416,12 +432,22 @@ fn core_candidate(
     item: &Item,
     diagnostics: &[Diagnostic],
     checked_returns: &[CheckedReturnSummary],
+    failure_catalog: &FailureCatalog,
 ) -> Option<CoreCandidate> {
     let section = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
     let body = core_body::analyze_does_section(section);
-    let statements = core_statement_previews(item, &body.statements, checked_returns);
+    let failure_analysis = match item {
+        Item::Task(task) => typed_failure::analyze_task(task, &body.statements, failure_catalog),
+        _ => Default::default(),
+    };
+    let statements = core_statement_previews(
+        item,
+        &body.statements,
+        checked_returns,
+        &failure_analysis.facts,
+    );
     let has_errors = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
@@ -514,12 +540,13 @@ fn core_statement_previews(
     item: &Item,
     statements: &[BodyStatement],
     checked_returns: &[CheckedReturnSummary],
+    failure_facts: &std::collections::BTreeMap<usize, FailureFact>,
 ) -> Vec<CoreStatementPreview> {
     let mut previews = Vec::new();
     let mut in_record_literal = false;
 
-    for statement in statements {
-        let mut preview = core_statement_preview(statement);
+    for (index, statement) in statements.iter().enumerate() {
+        let mut preview = core_statement_preview(statement, failure_facts.get(&index));
         if let Some(checked_return) = checked_return_for_statement(item, statement, checked_returns)
         {
             annotate_return_expression_type(&mut preview, checked_return);
@@ -538,7 +565,10 @@ fn core_statement_previews(
 
     previews
 }
-fn core_statement_preview(statement: &BodyStatement) -> CoreStatementPreview {
+fn core_statement_preview(
+    statement: &BodyStatement,
+    failure_fact: Option<&FailureFact>,
+) -> CoreStatementPreview {
     let (core_operation, status, fallback_reason) = match statement.kind {
         "return" => ("return", "lowerable_preview_v0", None),
         "fail" => ("fail", "lowerable_preview_v0", None),
@@ -574,7 +604,13 @@ fn core_statement_preview(statement: &BodyStatement) -> CoreStatementPreview {
         _ => ("unknown", "blocked_v0", Some("not_in_core_preview_v0")),
     };
 
-    let status = if statement.status == "unsupported_v0" {
+    let unsupported_try_reason = failure_fact.and_then(|fact| {
+        (fact.diagnostic_code
+            == Some(crate::diagnostic::DiagnosticCode::UNSUPPORTED_TRY_EXPRESSION))
+        .then_some(fact.reason)
+        .flatten()
+    });
+    let status = if statement.status == "unsupported_v0" || unsupported_try_reason.is_some() {
         "blocked_v0"
     } else {
         status
@@ -587,11 +623,17 @@ fn core_statement_preview(statement: &BodyStatement) -> CoreStatementPreview {
         text: statement.text.clone(),
         source_kind: statement.kind,
         source_status: statement.status,
-        core_operation,
+        core_operation: if unsupported_try_reason.is_some() {
+            "unsupported_try_expression"
+        } else {
+            core_operation
+        },
         status,
         expression_kind: statement.expression_kind,
         expression_preview,
-        reason: statement.reason.or(fallback_reason),
+        reason: unsupported_try_reason
+            .or(statement.reason)
+            .or(fallback_reason),
     }
 }
 

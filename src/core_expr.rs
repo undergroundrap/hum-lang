@@ -1,4 +1,5 @@
 use crate::element_place;
+use crate::typed_failure;
 
 #[derive(Debug, Clone)]
 pub struct CoreExpressionPreview {
@@ -74,6 +75,26 @@ const OPERATOR_PATTERNS: &[(&str, &str)] = &[
 
 pub fn analyze_expression(text: &str) -> CoreExpressionPreview {
     let text = text.trim();
+    if typed_failure::is_try_candidate(text) {
+        if let Some(parsed) = typed_failure::parse_try_expression(text) {
+            return expression(
+                "try_call_like",
+                "atom_preview_v0",
+                text,
+                call_atoms(&parsed.call.source),
+                vec![],
+                None,
+            );
+        }
+        return expression(
+            "unsupported_try_expression",
+            "surface_phrase_preview_v0",
+            text,
+            Vec::new(),
+            vec![],
+            Some("unsupported_try_expression_shape_v0"),
+        );
+    }
     if text.is_empty() {
         return expression("unit", "atom_preview_v0", text, vec![], vec![], None);
     }
@@ -172,10 +193,14 @@ fn build_ast_preview(
                 .collect(),
             reason,
         )
-    } else if kind == "call_like" {
+    } else if matches!(kind, "call_like" | "try_call_like") {
         branch_node(
             "root",
-            "call_candidate",
+            if kind == "try_call_like" {
+                "try_call_candidate"
+            } else {
+                "call_candidate"
+            },
             text,
             None,
             atoms
@@ -502,5 +527,13 @@ mod tests {
         assert_eq!(surface.kind, "condition_or_surface_binary");
         assert_eq!(surface.operators, vec!["returns"]);
         assert_eq!(surface.ast.root.form, "binary_operation_candidate");
+    }
+
+    #[test]
+    fn recognizes_try_call_without_inventing_a_try_callee() {
+        let expression = analyze_expression("try load(7) or fail OuterError.context");
+        assert_eq!(expression.kind, "try_call_like");
+        assert_eq!(expression.atoms[0].text, "load");
+        assert_eq!(expression.ast.root.form, "try_call_candidate");
     }
 }

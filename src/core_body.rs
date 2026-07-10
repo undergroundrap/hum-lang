@@ -1,6 +1,7 @@
 use crate::ast::Section;
 use crate::diagnostic::Span;
 use crate::graph::is_meaningful_line_text;
+use crate::typed_failure;
 
 pub const CORE_BODY_GRAMMAR_STATUS: &str = "partial_v0";
 
@@ -306,7 +307,9 @@ fn expression_kind_for_condition(text: &str) -> &'static str {
 
 fn expression_kind(text: &str) -> &'static str {
     let text = text.trim();
-    if text.is_empty() {
+    if typed_failure::is_try_candidate(text) {
+        "try_call_like"
+    } else if text.is_empty() {
         "unit"
     } else if text == "true" || text == "false" {
         "bool_literal"

@@ -1,0 +1,22 @@
+module fixtures.full_type_check.session_w_try_infallible_fail
+
+type CallerError {
+  code: Text
+}
+
+task source() -> UInt {
+  why:
+    provide an infallible source
+  does:
+    return 7
+}
+
+task caller() -> Result UInt, CallerError {
+  why:
+    reject try on an infallible task
+  fails when:
+    the caller operation fails
+  does:
+    let value = try source()
+    return value
+}

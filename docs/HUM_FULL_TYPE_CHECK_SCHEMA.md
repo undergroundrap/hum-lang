@@ -90,6 +90,19 @@ The V0 gate checks only conservative statement contexts:
 - `set_place`: the assigned expression must match a known local, parameter, or direct declared `root.field` place type.
 - direct element reads such as `items[0]`: the result type is the element type of a local or parameter annotated as `List T`.
 - simple task calls: known callee result types may type the call expression; `consume value` delegates to the consumed value type inside call arguments.
+- explicit typed failure: `let value = try named_call(arguments)` accepts only
+  equal nominal caller/callee error roots; `let value = try
+  named_call(arguments) or fail CallerError.context` requires the wrapper root
+  to equal the caller root. Rows expose `failure_form`, callee/caller/wrapper
+  roots, call/callee/caller spans, stable diagnostic code, and repair help.
+  Known fallible calls without `try` reject in every currently executable
+  expression position, including nested operator/call arguments and loop
+  collections, and the five other Session W misuse classes reject. `try` is
+  recognized as a bounded keyword, so ordinary names such as `trying` and
+  `try_value` retain their normal call meaning. Unsupported `try` shapes carry
+  H0906 facts while Core preview/lower/verify retain matching blockers. A
+  missing meaningful `fails when:` is typed here and deliberately deferred to
+  the effect gate after higher-priority relationship errors are ruled out.
 - `list_append(change list, item)`: the built-in minimal list-growth operation
   is typed as `Unit`; list literals are accepted against explicit `List ...`
   annotations without element-type validation in V0.

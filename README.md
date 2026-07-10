@@ -389,6 +389,9 @@ Current CLI:
 - `hum check <file-or-dir>...`: parse Hum and run Milestone 0 intent checks
 - `hum check --format json <file-or-dir>...`: emit `hum.check.v0` diagnostics JSON for editors, CI, and agents
 - `hum run <file> [--entry <task>] [--args ...]`: interpret one checked Hum file in the first executable subset, with typed failure exit 1 and runtime traps exit 2
+- Session W's failure slice requires explicit same-root `try` or explicit
+  caller-root causal wrapping; multi-call failures retain every recognized
+  call site and the root origin
 - `hum evidence [--format human|json] <file-or-dir>...`: emit `hum.evidence.v0` security/trust evidence status for humans, agents, and CI wrappers
 - `hum math-obligations [--format human|json] [--out-dir <dir>] <file-or-dir>...`: emit `hum.math_obligations.v0` reports and optional per-obligation `hum.math_obligation.v0` files for external contract validators
 - `hum resource-report [--format human|json] <file-or-dir>...`: emit `hum.resource_report.v0` source-declared resource, layout, and optimization claim inventory

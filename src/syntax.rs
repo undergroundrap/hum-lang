@@ -7,6 +7,10 @@ pub const VALUE_IDENTIFIER_PATTERN: &str = "[a-z_][a-z0-9_]*";
 pub const TYPE_IDENTIFIER_PATTERN: &str = "[A-Z][A-Za-z0-9]*";
 pub const PARAMETER_PERMISSION_MODES: &[&str] = &["borrow", "change", "consume"];
 pub const WRITABLE_FIELD_ALIAS_FORM: &str = "let <alias> = change <owner>.<field>";
+pub const TYPED_FAILURE_FORMS: &[&str] = &[
+    "let <value> = try <fallible_call>(<ordinary_value_arguments>)",
+    "let <value> = try <fallible_call>(<ordinary_value_arguments>) or fail <CallerError>.<context>",
+];
 pub const DOUBLE_SLASH_COMMENT_PREFIX: &str = concat!("/", "/");
 pub const COMMENT_PREFIXES: &[&str] = &["#", DOUBLE_SLASH_COMMENT_PREFIX];
 pub const TEST_MODIFIERS: &[&str] = &[
@@ -181,6 +185,12 @@ pub const SEMANTIC_TOKEN_RULES: &[SemanticTokenRule] = &[
         token_type: "keyword",
         modifiers: &["declaration", "modification"],
         hum_role: "local_field_alias",
+    },
+    SemanticTokenRule {
+        source: "typed_failure_control",
+        token_type: "keyword",
+        modifiers: &[],
+        hum_role: "explicit_failure_propagation",
     },
     SemanticTokenRule {
         source: "parameter_name",
@@ -406,6 +416,13 @@ pub fn syntax_json() -> String {
         WRITABLE_FIELD_ALIAS_FORM,
         true,
     );
+    push_string_array(
+        &mut out,
+        2,
+        "typed_failure_forms",
+        TYPED_FAILURE_FORMS,
+        true,
+    );
     push_indent(&mut out, 2);
     out.push_str("\"section_headers\": {\n");
     push_string_array(&mut out, 4, "task_order", TASK_SECTION_ORDER, true);
@@ -459,6 +476,7 @@ pub fn textmate_json() -> String {
         "^[[:space:]]*let[[:space:]]+{}[[:space:]]*=[[:space:]]*change[[:space:]]+{}\\.{}[[:space:]]*$",
         VALUE_IDENTIFIER_PATTERN, VALUE_IDENTIFIER_PATTERN, VALUE_IDENTIFIER_PATTERN
     );
+    let typed_failure_control_pattern = "(^|[^[:alnum:]_])(try|fail)($|[^[:alnum:]_])".to_string();
     let module_identifier_pattern = format!(
         "^[[:space:]]*{}[[:space:]]+{}(\\.({}))*",
         regex_word_literal(MODULE_KEYWORD),
@@ -508,6 +526,10 @@ pub fn textmate_json() -> String {
         name: "storage.modifier.writable-field-alias.hum",
         pattern: writable_field_alias_pattern,
     }];
+    let typed_failure_rules = [TextMateRule {
+        name: "keyword.control.typed-failure.hum",
+        pattern: typed_failure_control_pattern,
+    }];
     let identifier_rules = [
         TextMateRule {
             name: "entity.name.namespace.module.hum",
@@ -536,6 +558,7 @@ pub fn textmate_json() -> String {
     push_include(&mut out, 4, "#identifiers", true);
     push_include(&mut out, 4, "#parameter-permissions", true);
     push_include(&mut out, 4, "#writable-field-aliases", true);
+    push_include(&mut out, 4, "#typed-failures", true);
     push_include(&mut out, 4, "#sections", true);
     push_include(&mut out, 4, "#test-modifiers", false);
     push_indent(&mut out, 2);
@@ -553,6 +576,7 @@ pub fn textmate_json() -> String {
         &parameter_permission_rules,
         true,
     );
+    push_repository_matches(&mut out, 4, "typed-failures", &typed_failure_rules, true);
     push_repository_matches(
         &mut out,
         4,
@@ -868,6 +892,8 @@ mod tests {
             )
         );
         assert!(json.contains("\"source\": \"writable_field_alias_permission\""));
+        assert!(json.contains("\"typed_failure_forms\": ["));
+        assert!(json.contains("\"source\": \"typed_failure_control\""));
         assert!(json.contains(
             "{\"source\": \"section:protects\", \"token_type\": \"keyword\", \"modifiers\": [\"documentation\"], \"hum_role\": \"security\"}"
         ));
@@ -884,6 +910,8 @@ mod tests {
         assert!(json.contains("#parameter-permissions"));
         assert!(json.contains("#writable-field-aliases"));
         assert!(json.contains("storage.modifier.writable-field-alias.hum"));
+        assert!(json.contains("keyword.control.typed-failure.hum"));
+        assert!(json.contains("try|fail"));
         assert!(json.contains("^[[:space:]]*let[[:space:]]+"));
         assert!(!json.contains("(=[[:space:]]*)(change)"));
         assert!(json.contains("borrow|change|consume"));

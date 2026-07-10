@@ -154,11 +154,11 @@ Current ranges:
 - `H060x`: checked resolution and type checking
 - `H070x`: executable contract diagnostics
 - `H080x`: ownership and borrowing
+- `H090x`: explicit typed failure
 - `H120x`: backend, target, and debug metadata
 
 Future ranges should be reserved before broad use:
 
-- `H090x`: packages, capabilities, and Nectar
 - `H100x`: unsafe, FFI, ABI, and provenance
 - `H110x`: runtime profile and certification policy violations
 - `H130x`: concurrency and memory ordering
@@ -257,6 +257,18 @@ Future ranges should be reserved before broad use:
 | `H0807` | error | stale view | A local field or element view was used after a recognized invalidating write or list growth; re-borrow after the change or copy the value before the change. |
 | `H0808` | error | writable alias overlap | A direct read, direct write, owner-wide access, or second writable alias may overlap an exact direct-field writable alias before its last syntactic use; use a definitely distinct field or end the alias's last use first. |
 | `H0809` | error | unsupported writable alias | A writable alias escapes or uses a form outside the exact local direct-field, straight-line slice; keep it local and direct or copy the field value. |
+
+### Explicit Typed Failure
+
+| Code | Severity | Title | Meaning |
+|---|---|---|---|
+| `H0901` | error | fallible call requires try | A known fallible task call would propagate implicitly. |
+| `H0902` | error | incompatible failure propagation | Unwrapped `try` uses different caller and callee error roots. |
+| `H0903` | error | failure wrapper root mismatch | The wrapper root differs from the caller's declared error root. |
+| `H0904` | error | try on infallible call | `try` targets a task without a declared Result error root. |
+| `H0905` | error | direct failure root mismatch | Direct `fail` uses a root different from the task result root. |
+| `H0906` | error | unsupported try expression | A `try` expression is outside the two recognized direct-call forms. |
+| `H0907` | error | missing failure declaration | Typed failure lacks a meaningful `fails when:` declaration; hollow placeholders such as `todo` do not satisfy it. |
 
 ### Target And Backend Metadata
 

@@ -520,6 +520,7 @@ fn verify_operation(
                 &operation.id,
                 Some(&operation.span),
                 operation.source_status == "unsupported_v0"
+                    || blocked_operation_family(operation.core_operation)
                     || !operation_kind_requires_expression(operation.source_kind),
                 "expression_absence_consistent",
                 "operation expression absence is consistent with source kind",
@@ -649,6 +650,7 @@ fn blocked_operation_family(core_operation: &str) -> bool {
     matches!(
         core_operation,
         "blocked_surface_statement"
+            | "blocked_unsupported_try_expression"
             | "record_construction_field"
             | "contract_context"
             | "test_expectation"

@@ -1,0 +1,12 @@
+module fixtures.effect_check.session_w_placeholder_fails_when_direct_fail
+
+type RootError {
+  code: Text
+}
+
+task caller() -> Result UInt, RootError {
+  fails when:
+    todo
+  does:
+    fail RootError.origin
+}

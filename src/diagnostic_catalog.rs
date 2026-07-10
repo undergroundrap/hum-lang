@@ -301,6 +301,48 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Keep the alias local and straight-line over one direct field; do not pass, return, store, nest, rebind, or use it across control flow.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::FALLIBLE_CALL_REQUIRES_TRY,
+        default_severity: Severity::Error,
+        explanation: "A known task with a nominal error result was called without explicit propagation or wrapping.",
+        repair: "Write `try call()` for a matching caller error root, or `try call() or fail CallerError.context` to preserve and wrap the cause.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::INCOMPATIBLE_FAILURE_PROPAGATION,
+        default_severity: Severity::Error,
+        explanation: "An unwrapped `try` would propagate a callee error root different from the caller's declared error root.",
+        repair: "Wrap the cause under the caller's root or make the nominal roots equal deliberately.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::FAILURE_WRAPPER_ROOT_MISMATCH,
+        default_severity: Severity::Error,
+        explanation: "A causal wrapper uses a nominal root different from the caller's declared error root.",
+        repair: "Use a wrapper variant under the caller's declared error root.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::TRY_ON_INFALLIBLE_CALL,
+        default_severity: Severity::Error,
+        explanation: "`try` was applied to a known task whose result has no typed error root.",
+        repair: "Remove `try` and call the infallible task directly.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::DIRECT_FAILURE_ROOT_MISMATCH,
+        default_severity: Severity::Error,
+        explanation: "A direct `fail Root.variant` uses a root different from the enclosing task result.",
+        repair: "Fail with a variant under the caller's declared error root or change the result deliberately.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::UNSUPPORTED_TRY_EXPRESSION,
+        default_severity: Severity::Error,
+        explanation: "A `try` expression is outside the exact direct named-call Session W slice.",
+        repair: "Use `let value = try named_call(...)` with ordinary value arguments, optionally followed by `or fail CallerError.context`.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::MISSING_FAILURE_DECLARATION,
+        default_severity: Severity::Error,
+        explanation: "A task can directly fail, propagate, or wrap a typed failure but has no meaningful `fails when:` declaration.",
+        repair: "Add a concrete `fails when:` condition for the visible failure path.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
         default_severity: Severity::Error,
         explanation: "A `targets:` section names a target fact record that Hum does not publish in `hum target-facts`.",
@@ -413,6 +455,10 @@ mod tests {
         assert_eq!(
             find("H0809").map(|info| info.code),
             Some(DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS)
+        );
+        assert_eq!(
+            find("H0907").map(|info| info.code),
+            Some(DiagnosticCode::MISSING_FAILURE_DECLARATION)
         );
         assert_eq!(
             find("H1201").map(|info| info.code),

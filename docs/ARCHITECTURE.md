@@ -89,6 +89,18 @@ parse/current
 
 `full_type_check` now exists as a narrow recognized Core/body statement type gate, `effect_check` now exists as a narrow recognized Core/body effect gate, `ownership_check` now exists as a narrow local ownership fact gate, `resource_check` now exists as a narrow declared allocation/resource intent gate, and `profile_check` now exists as a narrow runtime profile policy gate. These report gates remain non-executing and must not claim complete type safety, effect safety, ownership safety, memory safety, allocation-freedom proof, strict profile enforcement, IR emission, backend readiness, or safety-critical readiness. `hum run` begins Milestone 1 executable semantics only for the explicitly interpreted first Formal Core subset; it does not turn the report gates into proof, memory-safety, optimization, IR, backend, or certification claims.
 
+Typed-failure doctrine: a known fallible call in any currently executable
+expression position never propagates invisibly. Shared analysis finds calls at
+the expression root, inside operators and call arguments, and in executable
+loop collections. The accepted propagation surface remains only an explicit
+direct named call using same-root `try` or caller-root wrapping. Full type owns
+nominal compatibility, effect check owns the meaningful `fails when:`
+obligation and `avoids: failure` contradiction, Core preserves exact blockers
+for unsupported `try` shapes, and runtime owns the causal root/call-site
+carrier. This preserves local source blame before IO authority exists; it does
+not grant IO, implement recovery, or establish a complete `Result` model. See
+[decisions/0016-adopt-explicit-causal-typed-failure.md](decisions/0016-adopt-explicit-causal-typed-failure.md).
+
 Session V's writable-field-alias slice is owned by one shared straight-line
 place analysis consumed by `ownership_check` and the interpreter. Resolver and
 effect rows recognize the same candidate as writable and defer authority and

@@ -682,6 +682,170 @@ try {
   if (-not $RunSessionVBorrowOverlap.Output.Contains('H0802')) { throw "Session V borrowed-owner overlap expected H0802, got $($RunSessionVBorrowOverlap.Output)" }
   if ($RunSessionVBorrowOverlap.Output.Contains('H0808')) { throw "Session V borrowed-owner overlap must keep authority precedence, got $($RunSessionVBorrowOverlap.Output)" }
 
+  $RunSessionWSameRoot = Read-NativeOutputWithExit 'run Session W same-root success' $Hum @('run', 'examples/probes/causal_failures.hum', '--entry', 'same_root', '--args', 'false')
+  if ($RunSessionWSameRoot.ExitCode -ne 0 -or $RunSessionWSameRoot.Output.Trim() -ne '7') { throw "Session W same-root success expected 7, got $($RunSessionWSameRoot.Output)" }
+
+  $RunSessionWWrapSuccess = Read-NativeOutputWithExit 'run Session W wrapping success' $Hum @('run', 'examples/probes/causal_failures.hum', '--entry', 'outer_value', '--args', 'false')
+  if ($RunSessionWWrapSuccess.ExitCode -ne 0 -or $RunSessionWWrapSuccess.Output.Trim() -ne '7') { throw "Session W wrapping success expected 7, got $($RunSessionWWrapSuccess.Output)" }
+
+  $RunSessionWCause = Read-NativeOutputWithExit 'run Session W causal chain' $Hum @('run', 'examples/probes/causal_failures.hum', '--entry', 'outer_value', '--args', 'true')
+  if ($RunSessionWCause.ExitCode -ne 1) { throw "Session W causal chain expected exit 1, got $($RunSessionWCause.ExitCode)" }
+  foreach ($Expected in @('failure: OuterError.context', 'caused by: MiddleError.context', 'caused by: RootError.origin', ':74:5', ':59:5', ':27:7')) {
+    if (-not $RunSessionWCause.Output.Contains($Expected)) { throw "Session W causal chain is missing $Expected" }
+  }
+  if ($RunSessionWCause.Output.Contains('runtime trap')) { throw 'Session W typed failure must not be labeled a runtime trap' }
+
+  $RunSessionWRootCause = Read-NativeOutputWithExit 'run Session W direct root cause' $Hum @('run', 'examples/probes/causal_failures.hum', '--entry', 'root_value', '--args', 'true')
+  if ($RunSessionWRootCause.ExitCode -ne 1) { throw "Session W direct root cause expected exit 1, got $($RunSessionWRootCause.ExitCode)" }
+  foreach ($Expected in @('failure: RootError.origin', 'originated at examples/probes/causal_failures.hum:27:7')) {
+    if (-not $RunSessionWRootCause.Output.Contains($Expected)) { throw "Session W direct root cause is missing $Expected" }
+  }
+
+  $RunSessionWSameRootCause = Read-NativeOutputWithExit 'run Session W same-root cause' $Hum @('run', 'examples/probes/causal_failures.hum', '--entry', 'same_root', '--args', 'true')
+  if ($RunSessionWSameRootCause.ExitCode -ne 1) { throw "Session W same-root cause expected exit 1, got $($RunSessionWSameRootCause.ExitCode)" }
+  foreach ($Expected in @('failure: RootError.origin', 'propagated at examples/probes/causal_failures.hum:44:5', 'originated at examples/probes/causal_failures.hum:27:7')) {
+    if (-not $RunSessionWSameRootCause.Output.Contains($Expected)) { throw "Session W same-root cause is missing $Expected" }
+  }
+
+  $SessionWMisuses = @(
+    @{ Path = 'fixtures/full_type_check/session_w_implicit_fallible_call_fail.hum'; Code = 'H0901' },
+    @{ Path = 'fixtures/full_type_check/session_w_incompatible_unwrapped_fail.hum'; Code = 'H0902' },
+    @{ Path = 'fixtures/full_type_check/session_w_wrong_wrapper_root_fail.hum'; Code = 'H0903' },
+    @{ Path = 'fixtures/full_type_check/session_w_try_infallible_fail.hum'; Code = 'H0904' },
+    @{ Path = 'fixtures/full_type_check/session_w_direct_wrong_root_fail.hum'; Code = 'H0905' },
+    @{ Path = 'fixtures/full_type_check/session_w_unsupported_try_shape_fail.hum'; Code = 'H0906' }
+  )
+  foreach ($Misuse in $SessionWMisuses) {
+    $Human = Read-NativeOutputWithExit "full type Session W $($Misuse.Code) human" $Hum @('full-type-check', $Misuse.Path)
+    if ($Human.ExitCode -ne 1 -or -not $Human.Output.Contains($Misuse.Code) -or -not $Human.Output.Contains('help=')) { throw "Session W human evidence is incomplete for $($Misuse.Code)" }
+    $Json = Read-NativeOutputWithExit "full type Session W $($Misuse.Code) JSON" $Hum @('full-type-check', '--format', 'json', $Misuse.Path)
+    if ($Json.ExitCode -ne 1) { throw "Session W JSON expected exit 1 for $($Misuse.Code)" }
+    Assert-Json "full type Session W $($Misuse.Code) JSON" $Json.Output
+    foreach ($Expected in @("`"diagnostic_code`": `"$($Misuse.Code)`"", '"call_span":', '"caller_span":', '"help":')) {
+      if (-not $Json.Output.Contains($Expected)) { throw "Session W JSON is missing $Expected for $($Misuse.Code)" }
+    }
+    $Runtime = Read-NativeOutputWithExit "run Session W $($Misuse.Code) misuse" $Hum @('run', $Misuse.Path, '--entry', 'caller')
+    if ($Runtime.ExitCode -ne 2) { throw "Session W runtime expected rejection exit 2 for $($Misuse.Code), got $($Runtime.ExitCode)" }
+    foreach ($Expected in @($Misuse.Code, 'call site', 'caller', 'help:')) {
+      if (-not $Runtime.Output.Contains($Expected)) { throw "Session W runtime is missing $Expected for $($Misuse.Code)" }
+    }
+  }
+
+  $NestedImplicitHuman = Read-NativeOutputWithExit 'full type Session W nested implicit calls human' $Hum @('full-type-check', 'fixtures/full_type_check/session_w_nested_implicit_calls_fail.hum')
+  if ($NestedImplicitHuman.ExitCode -ne 1 -or [regex]::Matches($NestedImplicitHuman.Output, 'diagnostic=H0901').Count -ne 3) { throw 'Session W nested implicit calls must produce exactly three human H0901 rows' }
+  $NestedImplicit = Read-NativeOutputWithExit 'full type Session W nested implicit calls JSON' $Hum @('full-type-check', '--format', 'json', 'fixtures/full_type_check/session_w_nested_implicit_calls_fail.hum')
+  if ($NestedImplicit.ExitCode -ne 1) { throw 'Session W nested implicit calls expected full-type exit 1' }
+  Assert-Json 'full type Session W nested implicit calls JSON' $NestedImplicit.Output
+  if ([regex]::Matches($NestedImplicit.Output, '"diagnostic_code": "H0901"').Count -ne 3) { throw 'Session W nested implicit calls must produce exactly three H0901 rows' }
+  foreach ($Expected in @('"callee": "source"', '"callee": "source_list"', '"statement_kind": "for_each_header"')) {
+    if (-not $NestedImplicit.Output.Contains($Expected)) { throw "Session W nested implicit call evidence is missing $Expected" }
+  }
+  if ($NestedImplicit.Output.Contains('H0906')) { throw 'Session W nested implicit calls must not be misclassified as unsupported try forms' }
+  foreach ($Entry in @('operator_caller', 'argument_caller', 'loop_caller')) {
+    $Runtime = Read-NativeOutputWithExit "run Session W nested implicit $Entry" $Hum @('run', 'fixtures/full_type_check/session_w_nested_implicit_calls_fail.hum', '--entry', $Entry)
+    if ($Runtime.ExitCode -ne 2 -or -not $Runtime.Output.Contains('H0901')) { throw "Session W nested implicit $Entry expected runtime H0901 exit 2" }
+  }
+
+  $TryingFullType = Read-NativeOutput 'full type Session W trying-prefix pass JSON' $Hum @('full-type-check', '--format', 'json', 'fixtures/full_type_check/session_w_trying_infallible_pass.hum')
+  Assert-Json 'full type Session W trying-prefix pass JSON' $TryingFullType
+  if (-not $TryingFullType.Contains('"blocking_issues": 0') -or $TryingFullType.Contains('H0906')) { throw 'Session W ordinary trying() call must pass without H0906' }
+  $TryingRuntime = Read-NativeOutputWithExit 'run Session W trying-prefix pass' $Hum @('run', 'fixtures/full_type_check/session_w_trying_infallible_pass.hum', '--entry', 'caller')
+  if ($TryingRuntime.ExitCode -ne 0 -or $TryingRuntime.Output.Trim() -ne '7') { throw "Session W ordinary trying() call expected 7, got $($TryingRuntime.Output)" }
+
+  $TryPrefix = Read-NativeOutputWithExit 'full type Session W try-prefix fallible call JSON' $Hum @('full-type-check', '--format', 'json', 'fixtures/full_type_check/session_w_try_prefix_fallible_fail.hum')
+  if ($TryPrefix.ExitCode -ne 1) { throw 'Session W try_value() implicit fallible call expected full-type exit 1' }
+  Assert-Json 'full type Session W try-prefix fallible call JSON' $TryPrefix.Output
+  if (-not $TryPrefix.Output.Contains('"diagnostic_code": "H0901"') -or $TryPrefix.Output.Contains('H0906')) { throw 'Session W try_value() must produce H0901 rather than H0906' }
+  $TryPrefixRuntime = Read-NativeOutputWithExit 'run Session W try-prefix fallible call' $Hum @('run', 'fixtures/full_type_check/session_w_try_prefix_fallible_fail.hum', '--entry', 'caller')
+  if ($TryPrefixRuntime.ExitCode -ne 2 -or -not $TryPrefixRuntime.Output.Contains('H0901') -or $TryPrefixRuntime.Output.Contains('H0906')) { throw 'Session W try_value() runtime must produce H0901 rather than H0906' }
+
+  $UnsupportedTry = Read-NativeOutputWithExit 'full type Session W unsupported try Core corpus JSON' $Hum @('full-type-check', '--format', 'json', 'fixtures/full_type_check/session_w_unsupported_try_core_fail.hum')
+  if ($UnsupportedTry.ExitCode -ne 1) { throw 'Session W unsupported try Core corpus expected full-type exit 1' }
+  Assert-Json 'full type Session W unsupported try Core corpus JSON' $UnsupportedTry.Output
+  if ([regex]::Matches($UnsupportedTry.Output, '"diagnostic_code": "H0906"').Count -ne 9) { throw 'Session W unsupported try Core corpus must produce exactly nine H0906 rows' }
+
+  $UnsupportedPreview = Read-NativeOutput 'core preview Session W unsupported try JSON' $Hum @('core-preview', '--format', 'json', 'fixtures/full_type_check/session_w_unsupported_try_core_fail.hum')
+  Assert-Json 'core preview Session W unsupported try JSON' $UnsupportedPreview
+  if (-not $UnsupportedPreview.Contains('"blocked_statements": 9') -or [regex]::Matches($UnsupportedPreview, '"core_operation": "unsupported_try_expression"').Count -lt 9) { throw 'Session W Core preview must block all nine unsupported try forms' }
+
+  $UnsupportedLower = Read-NativeOutput 'core lower Session W unsupported try JSON' $Hum @('core-lower', '--format', 'json', 'fixtures/full_type_check/session_w_unsupported_try_core_fail.hum')
+  Assert-Json 'core lower Session W unsupported try JSON' $UnsupportedLower
+  if (-not $UnsupportedLower.Contains('"blocked_operations": 9') -or [regex]::Matches($UnsupportedLower, '"core_operation": "blocked_unsupported_try_expression"').Count -ne 9) { throw 'Session W Core lower must preserve all nine unsupported try blockers' }
+
+  $UnsupportedVerify = Read-NativeOutput 'core verify Session W unsupported try JSON' $Hum @('core-verify', '--format', 'json', 'fixtures/full_type_check/session_w_unsupported_try_core_fail.hum')
+  Assert-Json 'core verify Session W unsupported try JSON' $UnsupportedVerify
+  foreach ($Expected in @('"lower_blocked_operations": 9', '"failed_checks": 0')) {
+    if (-not $UnsupportedVerify.Contains($Expected)) { throw "Session W Core verify unsupported try evidence is missing $Expected" }
+  }
+  $UnsupportedRuntime = Read-NativeOutputWithExit 'run Session W unsupported nested try' $Hum @('run', 'fixtures/full_type_check/session_w_unsupported_try_core_fail.hum', '--entry', 'nested_try', '--args', '1')
+  if ($UnsupportedRuntime.ExitCode -ne 2 -or -not $UnsupportedRuntime.Output.Contains('H0906')) { throw 'Session W unsupported nested try expected runtime H0906 exit 2' }
+
+  $SessionWPrecedence = Read-NativeOutputWithExit 'full type Session W precedence JSON' $Hum @('full-type-check', '--format', 'json', 'fixtures/full_type_check/session_w_precedence_fail.hum')
+  if ($SessionWPrecedence.ExitCode -ne 1) { throw 'Session W precedence fixture expected full-type exit 1' }
+  Assert-Json 'full type Session W precedence JSON' $SessionWPrecedence.Output
+  foreach ($Code in @('H0901', 'H0902', 'H0906')) {
+    if ([regex]::Matches($SessionWPrecedence.Output, "`"diagnostic_code`": `"$Code`"").Count -ne 1) { throw "Session W precedence fixture expected exactly one $Code" }
+  }
+  if ($SessionWPrecedence.Output.Contains('H0907')) { throw 'Session W relationship diagnostics must take precedence over H0907' }
+
+  $AvoidsFailure = Read-NativeOutputWithExit 'effect Session W avoids failure JSON' $Hum @('effect-check', '--format', 'json', 'fixtures/effect_check/session_w_avoids_failure_fail.hum')
+  if ($AvoidsFailure.ExitCode -ne 1) { throw 'Session W avoids failure fixture expected effect exit 1' }
+  Assert-Json 'effect Session W avoids failure JSON' $AvoidsFailure.Output
+  foreach ($Expected in @('"effect_kind": "typed_failure_propagation"', '"effect_kind": "typed_failure_wrap"', '"rejected_boundary_checks": 2')) {
+    if (-not $AvoidsFailure.Output.Contains($Expected)) { throw "Session W avoids failure evidence is missing $Expected" }
+  }
+
+  $FullTypeWJson = Read-NativeOutput 'full type Session W positive JSON' $Hum @('full-type-check', '--format', 'json', 'examples/probes/causal_failures.hum')
+  Assert-Json 'full type Session W positive JSON' $FullTypeWJson
+  foreach ($Expected in @('accepted_same_root_failure_propagation_v0', 'accepted_causal_failure_wrap_v0', '"blocking_issues": 0', '"callee_result_root": "RootError"', '"caller_result_root": "OuterError"')) {
+    if (-not $FullTypeWJson.Contains($Expected)) { throw "Session W full type positive JSON is missing $Expected" }
+  }
+
+  $EffectWJson = Read-NativeOutput 'effect Session W positive JSON' $Hum @('effect-check', '--format', 'json', 'examples/probes/causal_failures.hum')
+  Assert-Json 'effect Session W positive JSON' $EffectWJson
+  foreach ($Expected in @('accepted_declared_failure_propagation_v0', 'accepted_declared_failure_wrap_v0', '"blocking_issues": 0')) {
+    if (-not $EffectWJson.Contains($Expected)) { throw "Session W effect positive JSON is missing $Expected" }
+  }
+
+  $EffectWMissing = Read-NativeOutputWithExit 'effect Session W missing fails when JSON' $Hum @('effect-check', '--format', 'json', 'fixtures/effect_check/session_w_missing_fails_when_fail.hum')
+  if ($EffectWMissing.ExitCode -ne 1) { throw 'Session W missing fails-when effect fixture expected exit 1' }
+  Assert-Json 'effect Session W missing fails when JSON' $EffectWMissing.Output
+  foreach ($Expected in @('"diagnostic_code": "H0907"', 'rejected_missing_fails_when_declaration_v0', '"caller_span":', '"help":')) {
+    if (-not $EffectWMissing.Output.Contains($Expected)) { throw "Session W missing fails-when JSON is missing $Expected" }
+  }
+
+  $SessionWPlaceholderFailures = @(
+    @{ Name = 'propagation'; Path = 'fixtures/effect_check/session_w_placeholder_fails_when_propagation_fail.hum'; Form = 'failure_propagation'; Args = @('true') },
+    @{ Name = 'direct failure'; Path = 'fixtures/effect_check/session_w_placeholder_fails_when_direct_fail.hum'; Form = 'direct_failure'; Args = @() },
+    @{ Name = 'wrapping'; Path = 'fixtures/effect_check/session_w_placeholder_fails_when_wrap_fail.hum'; Form = 'failure_wrap'; Args = @('true') }
+  )
+  foreach ($Fixture in $SessionWPlaceholderFailures) {
+    $Human = Read-NativeOutputWithExit "effect Session W placeholder $($Fixture.Name) human" $Hum @('effect-check', $Fixture.Path)
+    if ($Human.ExitCode -ne 1 -or [regex]::Matches($Human.Output, 'code=H0907').Count -ne 1) { throw "Session W placeholder $($Fixture.Name) must produce exactly one human H0907 row" }
+    foreach ($Expected in @('rejected_missing_fails_when_declaration_v0', "failure_form=$($Fixture.Form)")) {
+      if (-not $Human.Output.Contains($Expected)) { throw "Session W placeholder $($Fixture.Name) human evidence is missing $Expected" }
+    }
+
+    $Json = Read-NativeOutputWithExit "effect Session W placeholder $($Fixture.Name) JSON" $Hum @('effect-check', '--format', 'json', $Fixture.Path)
+    if ($Json.ExitCode -ne 1) { throw "Session W placeholder $($Fixture.Name) expected effect JSON exit 1" }
+    Assert-Json "effect Session W placeholder $($Fixture.Name) JSON" $Json.Output
+    if ([regex]::Matches($Json.Output, '"diagnostic_code": "H0907"').Count -ne 1) { throw "Session W placeholder $($Fixture.Name) must produce exactly one JSON H0907 row" }
+    foreach ($Expected in @('rejected_missing_fails_when_declaration_v0', "`"failure_form`": `"$($Fixture.Form)`"", 'typed_failure_requires_fails_when_v0')) {
+      if (-not $Json.Output.Contains($Expected)) { throw "Session W placeholder $($Fixture.Name) JSON evidence is missing $Expected" }
+    }
+
+    $RunArgs = @('run', $Fixture.Path, '--entry', 'caller')
+    if ($Fixture.Args.Count -gt 0) { $RunArgs += @('--args') + $Fixture.Args }
+    $Runtime = Read-NativeOutputWithExit "run Session W placeholder $($Fixture.Name)" $Hum $RunArgs
+    if ($Runtime.ExitCode -ne 2 -or -not $Runtime.Output.Contains('H0907')) { throw "Session W placeholder $($Fixture.Name) must reject before execution with runtime H0907 exit 2" }
+    if ($Runtime.Output.Contains('failure: RootError.origin')) { throw "Session W placeholder $($Fixture.Name) executed instead of failing preflight" }
+  }
+
+  foreach ($Command in @('resolve', 'core-preview', 'core-lower', 'core-verify', 'ownership-check', 'resource-check')) {
+    $Surface = Read-NativeOutput "Session W $Command positive" $Hum @($Command, '--format', 'json', 'examples/probes/causal_failures.hum')
+    Assert-Json "Session W $Command positive" $Surface
+  }
+
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }
