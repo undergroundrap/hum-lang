@@ -1,11 +1,11 @@
 # Hum Work Order 6: Overlapping Places And The First Local IO Slice
 
 Date: 2026-07-09
-Status: active; Sessions V-AC accepted and committed; decision 0017 accepted
+Status: active; Sessions V-AD accepted and committed; decision 0017 accepted
 under delegated authority, BDFL veto open, including its dated threat-scoped
-`fixed_local_v0` amendment; Session AD is authorized and under uncommitted
-implementation review; Session AE remains unauthorized; issued under delegated authority
-(`docs/GOVERNANCE.md`)
+`fixed_local_v0` amendment; Session AE is next but remains unauthorized pending
+the separately reviewed workflow-continuity amendment and a distinct BDFL go
+signal; issued under delegated authority (`docs/GOVERNANCE.md`)
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
 sessions.
 Predecessor: Work Order 5, Sessions R-U. Commit `8a6dd1c` was the initially
@@ -1089,9 +1089,12 @@ CI in workflow `29131490535`. Session AB was accepted and committed as
 Windows CI passed in workflow `29134255620`. Session AC was accepted and
 committed as `0a55dd1`; its Ubuntu portability repair was committed as
 `b16e5b4`, and Ubuntu and Windows CI passed in workflow `29139203385`.
-Sessions V-AC are therefore accepted and committed. Decision 0017 remains
-accepted under delegated authority with the BDFL veto open, including its
-dated threat-scoped `fixed_local_v0` amendment. The BDFL authorized Session AD;
-its worktree remains uncommitted pending independent review. Session AE remains
-unauthorized.
+Session AD was accepted and committed as `d8ddbcf`; its Ubuntu portability
+repair was committed as `3e5ad09`, and Ubuntu and Windows CI passed in workflow
+`29141310647`. Sessions V-AD are therefore accepted and committed. Decision
+0017 remains accepted under delegated authority with the BDFL veto open,
+including its
+dated threat-scoped `fixed_local_v0` amendment. Session AE is next but remains
+unauthorized pending the separately reviewed workflow-continuity amendment and
+a distinct BDFL go signal.
 Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
