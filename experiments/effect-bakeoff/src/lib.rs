@@ -6,6 +6,7 @@ pub mod eligibility;
 pub mod inventory;
 pub mod normalize;
 pub mod result_contract;
+pub mod row_candidate;
 
 #[cfg(test)]
 mod tests {

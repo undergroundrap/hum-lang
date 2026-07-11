@@ -13,6 +13,10 @@ impl CheckedInInventory {
 
 pub fn candidate_inventory(candidate_id: &str) -> Option<CheckedInInventory> {
     match candidate_id {
+        "row_polymorphism" => Some(CheckedInInventory {
+            sources: &[include_str!("row_candidate.rs")],
+            manifests: &[include_str!("../Cargo.toml")],
+        }),
         #[cfg(test)]
         "mock_candidate" => Some(CheckedInInventory {
             sources: &[include_str!("lib.rs")],
