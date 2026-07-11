@@ -124,6 +124,49 @@ The implementer agent's pushback mandate applies with extra force to
 delegated rulings: it is the second reviewer when the first reviewer is
 also the one ruling.
 
+### Workflow Continuity (BDFL-directed amendment, 2026-07-11)
+
+Hum's operating cycle is implementer -> independent architect-reviewer ->
+implementer commit -> BDFL-authorized push and CI -> Work Order status update
+-> separate next-session go signal. Each prompt names the active role and exact
+scope. Each stopped gate names the next actor and provides a paste-ready prompt
+when the next action is known; if authority is missing, that prompt requests
+it. Routing work creates no standing manager or coordinator role and carries
+no authority of its own. No stage silently authorizes the next one.
+
+Roles are repository runbooks, not model or chat identities. Full context is a
+cold start from repository ground truth; remembered conversation is only a
+cache. Independence attaches to a deliverable: an agent that authored, edited,
+generated, or directly directed any part of it cannot issue its independent
+architect-reviewer verdict. Direct direction means producing or controlling
+implementation work, including through another agent; findings, acceptance
+criteria, and bounded corrective requirements remain review. If a reviewer
+accidentally implements, the work is preserved rather than reverted to restore
+the appearance of independence, its report is reclassified as implementation
+evidence, and a fresh cold-start reviewer verifies the unchanged deliverable.
+The accidental author may provide facts but may not issue or advocate the
+verdict. It may work on a later unrelated deliverable, but never becomes
+retrospectively independent for work it authored.
+
+Git history, the active Work Order, accepted decisions, fixtures, diagnostics,
+and check evidence are the durable handoff. Chats are replaceable; essential
+state that exists only in conversation must be moved into an existing
+authoritative repository artifact, not a separate handoff file or required
+transcript. The per-lane one-pen and independent-reviewer rules in "Scaling
+Notes: From One Crew To Many" preserve this boundary as contributors multiply;
+cross-lane and cross-model-family review remains preferred for keystone work,
+while ruling and publishing authority do not multiply.
+
+The operational mutation gates and platform-configuration review discipline
+are specified in `AGENTS.md`. They do not alter the architect-reviewer's duty
+to challenge, the implementer's pushback mandate, delegated ruling with the
+BDFL veto open, the red-main CI exception, or any BDFL-only reserved matter.
+Agents may record an exact, explicit BDFL governance ruling as a constrained
+writing task; they may not originate, broaden, accept, or silently reinterpret
+one. Such a patch remains uncommitted until an independent review checks
+authority validity, internal consistency, non-duplication, and unintended
+power expansion.
+
 ## Bake-Off Doctrine
 
 Decision 0014 (the ownership model) was decided by a method, not a mood,

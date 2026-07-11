@@ -133,6 +133,64 @@ Implementation discipline for cross-stage features (same distillation):
   states which probes were run and which the implementer could not
   express, so the reviewer aims at the gaps.
 
+### Workflow continuity and independent handoffs
+
+Every task prompt begins by naming the active role and its exact authorized
+scope. "Full context" means cold-starting from the complete repository ground
+truth in the required read order. Chat history may help navigation, but it is
+never authority; roles come from these runbooks, not from a model, chat, or
+remembered context.
+
+The normal cycle is: implementer -> independent architect-reviewer ->
+implementer commit -> BDFL-authorized push and CI -> Work Order status update
+-> separate next-session go signal. No next session, corrective expansion,
+commit, push, decision ruling, Work Order issuance, or publication is implied
+by completing the prior step. Implementers leave work uncommitted for review
+unless explicitly instructed otherwise. Review acceptance authorizes only the
+stated commit, not a push or the next session. Pushes and remote CI inspection
+still require BDFL instruction except for the red-main emergency rule below.
+Accepted commit and CI evidence are recorded in the Work Order before the next
+session is authorized.
+
+Review independence attaches to the deliverable. An agent that authored,
+edited, generated, or directly directed any part of a deliverable cannot issue
+its independent architect-reviewer verdict. Direct direction means producing
+or controlling implementation work, including through another agent; findings,
+acceptance criteria, and bounded corrective requirements are review, not
+authorship. If a reviewer accidentally writes the worktree, stop and preserve
+the work; do not revert it merely to restore the appearance of independence.
+Treat that agent's output only as an implementer report and send the unchanged
+worktree to a fresh cold-start architect-reviewer. The accidental author may
+supply factual implementation evidence but may not issue or advocate the
+verdict. That chat may work on a later unrelated deliverable, but it can never
+become retrospectively independent for work it authored.
+
+Every stopped-gate report names the next actor -- BDFL, implementer, or
+architect-reviewer -- and, when the next action is known, supplies a
+paste-ready prompt. If authority is still required, the prompt requests it
+rather than phrasing the action as approved. This routing assistance creates
+no manager or coordinator role and carries no decision, governance,
+publishing, or implementation authority.
+
+Git history, `WORKORDER.md`, accepted decisions, fixtures, diagnostics, and
+check evidence are the durable handoff. Chats and model memory are
+replaceable; do not create a separate handoff document or require giant chat
+transcripts. Essential state that exists only in conversation is a
+documentation defect and must move into an existing authoritative repository
+artifact.
+
+For platform-specific or `cfg`-gated work, the implementation report
+enumerates every affected production and test compilation configuration. Run
+host warnings-denied Clippy and every already available, proven cross-target
+check. Report any configuration that could not be exercised as an explicit
+review and CI coverage gap. The reviewer inspects non-host branches for unused
+production or test surfaces and platform-semantic drift. Do not mandate a
+cross-target command until it is proven reliable on the supported Windows
+setup without linking requirements, hidden downloads, or undeclared machine
+changes. CI remains the final cross-platform authority; a platform-only
+post-push failure is a missing implementation or review probe, not routine
+cleanup.
+
 ### Pushes and CI emergencies
 
 Pushes are BDFL-performed or BDFL-instructed per batch; agents never push
