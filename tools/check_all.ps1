@@ -251,6 +251,7 @@ try {
   Invoke-Native 'cargo fmt --check' $Cargo @('fmt', '--check')
   Invoke-Native 'cargo test' $Cargo @('test')
   Invoke-Native 'Windows drive locality adapter tests' $Cargo @('test', '-p', 'windows-drive-locality')
+  Invoke-Native 'effect bake-off corpus harness tests' $Cargo @('test', '--manifest-path', 'experiments/effect-bakeoff/Cargo.toml', '--target-dir', 'target/effect-bakeoff')
   Invoke-Native 'cargo clippy' $Cargo @('clippy', '--all-targets', '--', '-D', 'warnings')
   Invoke-Native 'Windows drive locality adapter clippy' $Cargo @('clippy', '-p', 'windows-drive-locality', '--all-targets', '--', '-D', 'warnings')
   Invoke-Native 'cargo build' $Cargo @('build')

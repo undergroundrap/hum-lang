@@ -1,0 +1,30 @@
+# case_id|variant_id|source_requirement_origins|operator_consent_origins|operation_exercise_origins|capture_origins
+effect.pure_map|positive|none_explicit@map.call|none_explicit@map.call|none_explicit@callback.call|none_explicit@map.call
+effect.pure_map|misuse_callback_shape|none_explicit@map.call|none_explicit@map.call|none_explicit@callback.call|none_explicit@map.call
+effect.effectful_map|positive|callback.requirement@callback.call|none_explicit@map.call|callback.requirement@callback.call|none_explicit@map.call
+effect.effectful_map|misuse_erased_requirement|callback.requirement@callback.call|none_explicit@map.call|callback.requirement@callback.call|none_explicit@map.call
+effect.filter_retain|positive_two_list_odd_filter|predicate.requirement@predicate.call|none_explicit@filter.call|predicate.requirement@predicate.call|input list view@input.view
+effect.filter_retain|positive_retain_delete|predicate.requirement@predicate.call|none_explicit@retain.call|predicate.requirement@predicate.call|retained item view@item.view
+effect.filter_retain|misuse_same_list_mutation|predicate.requirement@predicate.call|none_explicit@filter.call|predicate.requirement@predicate.call|active iteration@iteration.active
+effect.filter_retain|misuse_stale_retained_view|predicate.requirement@retain.call|none_explicit@retain.call|predicate.requirement@retain.call|deleted item view@item.view
+effect.fold|positive|step.requirement@step.call|none_explicit@fold.call|step.requirement@step.call|none_explicit@fold.call
+effect.fold|misuse_erased_step|step.requirement@step.call|none_explicit@fold.call|step.requirement@step.call|none_explicit@fold.call
+effect.retry|positive|retry.failure@retry.call;action.remaining_requirement@action.call|none_explicit@retry.call|retry.failure@retry.handle;action.remaining_requirement@action.call|none_explicit@retry.call
+effect.retry|misuse_erased_remaining|retry.failure@retry.call;action.remaining_requirement@action.call|none_explicit@retry.call|retry.failure@retry.handle;action.remaining_requirement@action.call|none_explicit@retry.call
+effect.with_timeout|positive_type_only|timeout.requirement@timeout.handle;action.remaining_requirement@action.call|none_explicit@timeout.call|none_explicit@timeout.call|none_explicit@timeout.call
+effect.with_timeout|misuse_claims_runtime|timeout.requirement@timeout.handle|none_explicit@timeout.call|none_explicit@timeout.call|none_explicit@timeout.call
+effect.parallel_map|positive_type_only|parallel.requirement@parallel.call;callback.requirement@callback.call|none_explicit@parallel.call|none_explicit@parallel.call|none_explicit@parallel.call
+effect.parallel_map|misuse_erased_callback|parallel.requirement@parallel.call;callback.requirement@callback.call|none_explicit@parallel.call|none_explicit@parallel.call|none_explicit@parallel.call
+effect.callback_registry|positive|callback.requirement@register.call|none_explicit@register.call|callback.requirement@fire.call|caller state@caller.state;registration@register.call
+effect.callback_registry|misuse_outlives_state|callback.requirement@register.call|none_explicit@register.call|callback.requirement@fire.call|caller state@caller.state;registration@register.call
+effect.event_handler_factory|positive|output.requirement@handler.call|logging.grant_exact@factory.call|output.requirement@handler.call|prefix@factory.call;exact logging authority@authority.capture
+effect.event_handler_factory|misuse_laundered_authority|output.requirement@handler.call|logging.grant_exact@factory.call|output.requirement@handler.call|exact logging authority@authority.capture
+effect.memoizing_wrapper|positive|wrapped.requirement@wrapper.call|none_explicit@memoize.call|wrapped.requirement@wrapper.call|cache state@cache.capture;wrapped callable@wrapped.definition
+effect.memoizing_wrapper|misuse_hidden_cache|wrapped.requirement@wrapper.call|none_explicit@memoize.call|wrapped.requirement@wrapper.call|cache state@cache.capture;wrapped callable@wrapped.definition
+effect.logging_middleware|positive|output.requirement@wrapper.call;wrapped.requirement@wrapped.call|logging.grant_exact@middleware.call|output.requirement@wrapper.call;wrapped.requirement@wrapped.call|wrapped callable@wrapped.definition;logging authority@authority.capture
+effect.logging_middleware|misuse_erased_wrapped|output.requirement@wrapper.call;wrapped.requirement@wrapped.call|logging.grant_exact@middleware.call|output.requirement@wrapper.call;wrapped.requirement@wrapped.call|wrapped callable@wrapped.definition;logging authority@authority.capture
+effect.linear_capture|positive_move|resource.operation@closure.call|none_explicit@factory.call|resource.operation@closure.call|owned resource@resource.capture
+effect.linear_capture|misuse_move_without_transfer|resource.operation@closure.call|none_explicit@factory.call|resource.operation@closure.call|owned resource@resource.capture
+effect.linear_capture|misuse_escape|resource.operation@closure.call|none_explicit@factory.call|resource.operation@closure.call|linear resource@resource.capture
+effect.linear_capture|misuse_double_use|resource.operation@first.use|none_explicit@factory.call|resource.operation@first.use|linear resource@resource.capture
+effect.linear_capture|misuse_outlives|transaction.operation@late.use|none_explicit@register.call|transaction.operation@late.use|transaction resource@transaction.capture;registration@register.call

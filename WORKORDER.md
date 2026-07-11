@@ -4,10 +4,10 @@ Date: 2026-07-11
 Status: issued; independently reviewed and accepted by the BDFL; the complete
 stack is commit `c10a210`, with Ubuntu and Windows CI passed in workflow
 `29145110803`; Session AF is accepted and committed as `7991ef6`, with Ubuntu
-and Windows CI passed in workflow `29160088909`; Session AG is next but remains
-unauthorized pending a separate BDFL go signal; Sessions AH-AK and all later
-work remain unauthorized; no implementation session, decision ruling, commit,
-push, or scope expansion is implicitly authorized
+and Windows CI passed in workflow `29160088909`; the BDFL authorized Session AG,
+whose implementation is uncommitted and awaiting independent review; Sessions
+AH-AK and all later work remain unauthorized; no implementation session,
+decision ruling, commit, push, or scope expansion is implicitly authorized
 Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
 bounded planning authorization. Independent pre-issuance reviewer: a fresh
 architect-reviewer that did not author or edit this deliverable. Future
@@ -970,8 +970,8 @@ committed. The independently reviewed Work Order 7 stack was accepted by the
 BDFL and committed as `c10a210`; Ubuntu and Windows CI passed in workflow
 `29145110803`. Work Order 7 is issued. The BDFL authorized Session AF; its
 implementation was accepted and committed as `7991ef6`, and Ubuntu and Windows
-CI passed in workflow `29160088909`. Session AG is next but remains unauthorized
-pending a separate BDFL go signal. Sessions AH-AK and every later session are
-unauthorized. No implementation session, decision ruling, commit, push, or
-scope expansion is implicitly authorized.
+CI passed in workflow `29160088909`. The BDFL authorized Session AG; its
+implementation is uncommitted and awaiting independent review. Sessions AH-AK
+and every later session are unauthorized. No implementation session, decision
+ruling, commit, push, or scope expansion is implicitly authorized.
 Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
