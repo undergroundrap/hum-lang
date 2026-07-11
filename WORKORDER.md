@@ -3,9 +3,11 @@
 Date: 2026-07-11
 Status: issued; independently reviewed and accepted by the BDFL; the complete
 stack is commit `c10a210`, with Ubuntu and Windows CI passed in workflow
-`29145110803`; Session AF is authorized and its complete implementation remains
-uncommitted pending independent architect-reviewer review; no later session,
-decision ruling, commit, or push is implicitly authorized
+`29145110803`; Session AF is accepted and committed as `7991ef6`, with Ubuntu
+and Windows CI passed in workflow `29160088909`; Session AG is next but remains
+unauthorized pending a separate BDFL go signal; Sessions AH-AK and all later
+work remain unauthorized; no implementation session, decision ruling, commit,
+push, or scope expansion is implicitly authorized
 Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
 bounded planning authorization. Independent pre-issuance reviewer: a fresh
 architect-reviewer that did not author or edit this deliverable. Future
@@ -967,7 +969,9 @@ Work Order 6 remains closed at `d601054`; Sessions V-AE are accepted and
 committed. The independently reviewed Work Order 7 stack was accepted by the
 BDFL and committed as `c10a210`; Ubuntu and Windows CI passed in workflow
 `29145110803`. Work Order 7 is issued. The BDFL authorized Session AF; its
-complete worktree is uncommitted pending independent architect-reviewer review.
-Sessions AG-AK and every later session are unauthorized. No review verdict,
-commit, push, decision ruling, or later work is implicitly authorized.
+implementation was accepted and committed as `7991ef6`, and Ubuntu and Windows
+CI passed in workflow `29160088909`. Session AG is next but remains unauthorized
+pending a separate BDFL go signal. Sessions AH-AK and every later session are
+unauthorized. No implementation session, decision ruling, commit, push, or
+scope expansion is implicitly authorized.
 Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
