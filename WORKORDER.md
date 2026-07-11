@@ -1,13 +1,12 @@
 # Hum Work Order 6: Overlapping Places And The First Local IO Slice
 
 Date: 2026-07-09
-Status: active; Sessions V-AD accepted and committed; decision 0017 accepted
-under delegated authority, BDFL veto open, including its dated threat-scoped
-`fixed_local_v0` amendment; workflow-continuity amendment independently
-accepted and committed as `9222d3f`, with Ubuntu and Windows CI passed in
-workflow `29142082459`; Session AE is authorized and its implementation remains
-uncommitted pending independent architect-reviewer review; no later session is
-authorized; issued under delegated authority
+Status: closed; Sessions V-AE accepted and committed; Session AE is commit
+`82f87e2`, with Ubuntu and Windows CI passed in workflow `29143163659`;
+decision 0017 remains accepted under delegated authority, BDFL veto open,
+including its dated threat-scoped `fixed_local_v0` amendment; no later session
+is authorized; further implementation requires a new work order and a separate
+BDFL go signal; issued under delegated authority
 (`docs/GOVERNANCE.md`)
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
 sessions.
@@ -1099,7 +1098,8 @@ repair was committed as `3e5ad09`, and Ubuntu and Windows CI passed in workflow
 including its dated threat-scoped `fixed_local_v0` amendment. The
 workflow-continuity amendment was independently accepted and committed as
 `9222d3f`, and Ubuntu and Windows CI passed in workflow `29142082459`. Session
-AE was authorized by a distinct BDFL go signal. Its implementation remains
-uncommitted pending independent architect-reviewer review; Work Order 6 is not
-accepted closed until that verdict. No later session is authorized.
+AE was accepted and committed as `82f87e2`, and Ubuntu and Windows CI passed in
+workflow `29143163659`. Sessions V-AE are therefore accepted and committed,
+and Work Order 6 is closed. No later session is authorized. Further
+implementation requires a new work order and a separate BDFL go signal.
 Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
