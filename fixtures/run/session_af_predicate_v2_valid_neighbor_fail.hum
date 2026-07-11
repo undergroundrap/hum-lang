@@ -1,0 +1,10 @@
+module fixtures.run.session_af_predicate_v2_valid_neighbor_fail
+
+task valid_neighbor() -> UInt {
+  why:
+    pin the executable adjacent recognition case
+  ensures:
+    result == 2
+  does:
+    return 1
+}

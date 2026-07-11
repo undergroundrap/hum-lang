@@ -1,0 +1,10 @@
+module fixtures.run.session_af_predicate_v2_lone_bang_fail
+
+task lone_bang() -> UInt {
+  why:
+    pin predicate-shaped lone bang ownership
+  ensures:
+    result ! 2
+  does:
+    return 2
+}

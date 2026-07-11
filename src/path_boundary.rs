@@ -9,15 +9,20 @@ use crate::typed_failure;
 pub(crate) fn diagnostics(program: &Program) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for file in &program.files {
-        check_scope(&file.items, None, &mut diagnostics);
+        check_scope(program, &file.items, None, &mut diagnostics);
     }
     diagnostics
 }
 
-fn check_scope(items: &[Item], selected: Option<&Task>, diagnostics: &mut Vec<Diagnostic>) {
+fn check_scope(
+    program: &Program,
+    items: &[Item],
+    selected: Option<&Task>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     for item in items {
         match item {
-            Item::App(app) => check_scope(&app.items, local_start_task(app), diagnostics),
+            Item::App(app) => check_scope(program, &app.items, local_start_task(app), diagnostics),
             Item::Type(type_def) => {
                 if type_def.name == "Path" {
                     diagnostics.push(invalid_declaration(
@@ -44,7 +49,7 @@ fn check_scope(items: &[Item], selected: Option<&Task>, diagnostics: &mut Vec<Di
                     None,
                 ));
             }
-            Item::Task(task) => check_task_signature(task, selected, diagnostics),
+            Item::Task(task) => check_task_signature(program, task, selected, diagnostics),
             Item::Test(test) => {
                 if let Some(parameter) = test
                     .params
@@ -129,7 +134,12 @@ fn local_start_task(app: &App) -> Option<&Task> {
     })
 }
 
-fn check_task_signature(task: &Task, selected: Option<&Task>, diagnostics: &mut Vec<Diagnostic>) {
+fn check_task_signature(
+    program: &Program,
+    task: &Task,
+    selected: Option<&Task>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     if task.result.as_deref().is_some_and(contains_path_type) {
         diagnostics.push(invalid_declaration(
             "opaque Path cannot be returned from a task",
@@ -175,7 +185,12 @@ fn check_task_signature(task: &Task, selected: Option<&Task>, diagnostics: &mut 
         task.section(name).and_then(|section| {
             section.lines.iter().find(|line| {
                 is_meaningful_line_text(&line.text)
-                    && crate::run::predicate_v1_eligible(task, name, &line.text)
+                    && crate::predicate::fact_for_line(program, task, name, line).is_some_and(
+                        |fact| {
+                            fact.ast.is_some()
+                                && fact.reason == "opaque_path_inspection_owned_by_h0630"
+                        },
+                    )
                     && contains_identifier(&line.text, &parameter.name)
             })
         })

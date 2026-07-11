@@ -1,0 +1,22 @@
+module fixtures.run.session_af_predicate_v2_inequality_pass
+
+task text_inequality() -> Text {
+  why:
+    prove exact Text inequality
+  ensures:
+    result != "check"
+  does:
+    return "parse"
+}
+
+task list_inequality() -> List Text {
+  why:
+    prove exact ordered List Text inequality
+  ensures:
+    result != ["parse", "run"]
+  does:
+    change output: List Text = []
+    let first: Unit = list_append(change output, "parse")
+    let second: Unit = list_append(change output, "check")
+    return output
+}

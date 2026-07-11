@@ -6,6 +6,7 @@ use crate::core_preview;
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::ir_contract;
 use crate::node_id;
+use crate::predicate::{self, PredicateFact, RecognitionStatus};
 use crate::resolve;
 use crate::type_check::{self, CheckedReturnSummary};
 use crate::typed_failure::{self, FailureCatalog, FailureFact};
@@ -148,6 +149,7 @@ pub fn core_lower_text(program: &Program, diagnostics: &[Diagnostic]) -> String 
 
     if report.core_items.is_empty() {
         out.push_str("core_items: none\n");
+        out.push_str(&predicate::analyze_program(program).place_facts_text());
         return out;
     }
 
@@ -193,6 +195,7 @@ pub fn core_lower_text(program: &Program, diagnostics: &[Diagnostic]) -> String 
         }
     }
 
+    out.push_str(&predicate::analyze_program(program).place_facts_text());
     out
 }
 
@@ -243,6 +246,11 @@ pub fn core_lower_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
     );
     push_summary(&mut out, &report, 2, true);
     push_items(&mut out, &report.core_items, 2, true);
+    push_indent(&mut out, 2);
+    push_json_string(&mut out, "predicate_place_facts");
+    out.push_str(": ");
+    out.push_str(&predicate::analyze_program(program).place_facts_json());
+    out.push_str(",\n");
     push_string_array(&mut out, 2, "non_goals_v0", NON_GOALS, false);
     out.push_str("}\n");
     out
@@ -283,6 +291,7 @@ pub(crate) fn build_core_lower_report(
     let core_preview_summary = core_preview::core_preview_readiness_summary(program, diagnostics);
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
     let failure_catalog = FailureCatalog::from_program(program);
+    let predicate_facts = predicate::analyze_program(program);
     let errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
@@ -297,6 +306,7 @@ pub(crate) fn build_core_lower_report(
             resolve_summary.resolver_errors,
             type_check_summary.type_errors,
             &failure_catalog,
+            predicate_facts.facts(),
             &mut core_items,
         );
     }
@@ -321,6 +331,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreLowerRepor
     build_core_lower_report(program, diagnostics)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_items(
     items: &[Item],
     checked_returns: &[CheckedReturnSummary],
@@ -328,6 +339,7 @@ fn collect_items(
     resolver_errors: usize,
     type_errors: usize,
     failure_catalog: &FailureCatalog,
+    predicate_facts: &[PredicateFact],
     core_items: &mut Vec<CoreLowerItem>,
 ) {
     for item in items {
@@ -338,6 +350,7 @@ fn collect_items(
             resolver_errors,
             type_errors,
             failure_catalog,
+            predicate_facts,
         ) {
             core_items.push(core_item);
         }
@@ -349,6 +362,7 @@ fn collect_items(
                 resolver_errors,
                 type_errors,
                 failure_catalog,
+                predicate_facts,
                 core_items,
             );
         }
@@ -362,6 +376,7 @@ fn core_item(
     resolver_errors: usize,
     type_errors: usize,
     failure_catalog: &FailureCatalog,
+    predicate_facts: &[PredicateFact],
 ) -> Option<CoreLowerItem> {
     let does = item_sections(item)
         .iter()
@@ -371,7 +386,13 @@ fn core_item(
         Item::Task(task) => typed_failure::analyze_task(task, &body.statements, failure_catalog),
         _ => Default::default(),
     };
-    let operations = lower_operations(item, &body, checked_returns, &failure_analysis.facts);
+    let operations = lower_operations(
+        item,
+        &body,
+        checked_returns,
+        &failure_analysis.facts,
+        predicate_facts,
+    );
     let mut blockers = item_blockers(
         item,
         &body,
@@ -417,8 +438,10 @@ fn lower_operations(
     body: &BodyGrammarReport,
     checked_returns: &[CheckedReturnSummary],
     failure_facts: &std::collections::BTreeMap<usize, FailureFact>,
+    predicate_facts: &[PredicateFact],
 ) -> Vec<CoreLowerOperation> {
-    body.statements
+    let mut operations = body
+        .statements
         .iter()
         .enumerate()
         .map(|(index, statement)| {
@@ -430,7 +453,53 @@ fn lower_operations(
                 failure_facts.get(&index),
             )
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if let Item::Task(task) = item {
+        let first_predicate_index = operations.len();
+        operations.extend(
+            predicate_facts
+                .iter()
+                .filter(|fact| fact.task_span == task.span)
+                .filter(|fact| fact.status != RecognitionStatus::NonExecutableProse)
+                .enumerate()
+                .map(|(offset, fact)| {
+                    lower_predicate_operation(first_predicate_index + offset, fact)
+                }),
+        );
+    }
+    operations
+}
+
+fn lower_predicate_operation(index: usize, fact: &PredicateFact) -> CoreLowerOperation {
+    let accepted = fact.status == RecognitionStatus::RecognizedTyped;
+    let expression = accepted.then(|| {
+        let preview = core_preview::predicate_expression_preview_for_lowering(fact);
+        expression_from_preview(&preview)
+    });
+    CoreLowerOperation {
+        id: node_id::span(
+            "core-op",
+            &fact.line_span,
+            &format!("{index} predicate {}", fact.status.as_str()),
+        ),
+        index,
+        span: portable_span(&fact.line_span),
+        surface_text: fact.text.clone(),
+        source_kind: "contract_predicate",
+        source_status: fact.status.as_str(),
+        core_operation: if accepted {
+            "checked_contract_predicate_v2"
+        } else {
+            "blocked_contract_predicate_v2"
+        },
+        status: if accepted {
+            "lowered_unverified_operation_v0"
+        } else {
+            "blocked_operation_v0"
+        },
+        expression,
+        reason: Some(fact.reason),
+    }
 }
 
 fn lower_operation(

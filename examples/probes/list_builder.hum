@@ -14,7 +14,7 @@ task builder_demo() -> List Text {
 
   ensures:
     list_len(result) == 3
-    completed list contains parse check run
+    result == ["parse", "check", "run"]
 
   does:
     change builder: List Text = []

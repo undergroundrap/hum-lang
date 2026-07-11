@@ -5,6 +5,7 @@ use crate::core_body::{self, BodyStatement};
 use crate::core_expr::{self, CoreExpressionPreview};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
 use crate::graph::is_meaningful_line_text;
+use crate::predicate;
 use crate::version;
 use crate::writable_field_alias;
 
@@ -54,6 +55,16 @@ pub struct ResolveDefinitionSummary {
     pub state_kind: &'static str,
     pub source_span: Span,
     pub status: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolveScopeSummary {
+    pub id: String,
+    pub parent_scope_id: Option<String>,
+    pub scope_kind: &'static str,
+    pub owner_kind: &'static str,
+    pub owner_name: String,
+    pub source_span: Option<Span>,
 }
 
 #[derive(Debug, Clone)]
@@ -193,6 +204,24 @@ pub fn resolve_definition_summaries(
         .collect()
 }
 
+pub fn resolve_scope_summaries(
+    program: &Program,
+    source_diagnostics: &[Diagnostic],
+) -> Vec<ResolveScopeSummary> {
+    build_report(program, source_diagnostics)
+        .scopes
+        .iter()
+        .map(|scope| ResolveScopeSummary {
+            id: scope.id.clone(),
+            parent_scope_id: scope.parent_scope_id.clone(),
+            scope_kind: scope.scope_kind,
+            owner_kind: scope.owner_kind,
+            owner_name: scope.owner_name.clone(),
+            source_span: scope.source_span.clone(),
+        })
+        .collect()
+}
+
 pub fn resolve_text(program: &Program, source_diagnostics: &[Diagnostic]) -> String {
     let report = build_report(program, source_diagnostics);
     let mut out = String::new();
@@ -238,6 +267,7 @@ pub fn resolve_text(program: &Program, source_diagnostics: &[Diagnostic]) -> Str
         }
     }
 
+    out.push_str(&predicate::analyze_program(program).place_facts_text());
     out.push_str("non_claims:\n");
     for non_claim in NON_CLAIMS {
         out.push_str(&format!("  - {non_claim}\n"));
@@ -261,6 +291,11 @@ pub fn resolve_json(program: &Program, source_diagnostics: &[Diagnostic]) -> Str
     push_definitions(&mut out, 2, &report.definitions, true);
     push_references(&mut out, 2, &report.references, true);
     push_diagnostics(&mut out, 2, &report.diagnostics, true);
+    push_indent(&mut out, 2);
+    push_json_string(&mut out, "predicate_place_facts");
+    out.push_str(": ");
+    out.push_str(&predicate::analyze_program(program).place_facts_json());
+    out.push_str(",\n");
     push_string_array(&mut out, 2, "non_claims_v0", NON_CLAIMS, false);
     out.push_str("}\n");
     out

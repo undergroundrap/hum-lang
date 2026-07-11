@@ -7,6 +7,7 @@ use crate::graph::{
     is_meaningful_line_text, linked_test_count, test_obligations,
 };
 use crate::node_id;
+use crate::predicate::{self, PredicateFact};
 use crate::return_dependency;
 use crate::target_facts;
 
@@ -20,6 +21,7 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
         .count();
     let warnings = diagnostics.len().saturating_sub(errors);
     let test_coverages = collect_test_coverages(program);
+    let predicate_facts = predicate::analyze_program(program);
 
     out.push_str("{\n");
     out.push_str(&format!(
@@ -62,11 +64,21 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
         write_symbols(&mut out, &file.items, 8);
         out.push_str("\n      ],\n");
         out.push_str("      \"items\": [\n");
-        write_items(&mut out, &file.items, 0, 8, &test_coverages);
+        write_items(
+            &mut out,
+            &file.items,
+            0,
+            8,
+            &test_coverages,
+            predicate_facts.facts(),
+        );
         out.push_str("\n      ]\n");
         out.push_str("    }");
     }
     out.push_str("\n  ],\n");
+    out.push_str("  \"predicate_place_facts\": ");
+    out.push_str(&predicate_facts.place_facts_json());
+    out.push_str(",\n");
 
     out.push_str("  \"diagnostics\": [\n");
     for (index, diagnostic) in diagnostics.iter().enumerate() {
@@ -393,14 +405,21 @@ fn write_items(
     start_index: usize,
     indent: usize,
     test_coverages: &[TestCoverage<'_>],
+    predicate_facts: &[PredicateFact],
 ) {
     for (offset, item) in items.iter().enumerate() {
         comma_line(out, start_index + offset, indent);
-        write_item(out, item, indent, test_coverages);
+        write_item(out, item, indent, test_coverages, predicate_facts);
     }
 }
 
-fn write_item(out: &mut String, item: &Item, indent: usize, test_coverages: &[TestCoverage<'_>]) {
+fn write_item(
+    out: &mut String,
+    item: &Item,
+    indent: usize,
+    test_coverages: &[TestCoverage<'_>],
+    predicate_facts: &[PredicateFact],
+) {
     let pad = " ".repeat(indent);
     out.push_str(&format!("{pad}{{\n"));
     out.push_str(&format!("{pad}  \"id\": {},\n", quote(&item_node_id(item))));
@@ -415,7 +434,14 @@ fn write_item(out: &mut String, item: &Item, indent: usize, test_coverages: &[Te
             write_sections_field(out, &app.sections, indent + 2);
             out.push_str(",\n");
             out.push_str(&format!("{pad}  \"items\": [\n"));
-            write_items(out, &app.items, 0, indent + 4, test_coverages);
+            write_items(
+                out,
+                &app.items,
+                0,
+                indent + 4,
+                test_coverages,
+                predicate_facts,
+            );
             out.push_str(&format!("\n{pad}  ]\n"));
         }
         Item::Type(type_def) => {
@@ -461,7 +487,7 @@ fn write_item(out: &mut String, item: &Item, indent: usize, test_coverages: &[Te
             out.push_str(",\n");
             write_sections_field(out, &task.sections, indent + 2);
             out.push_str(",\n");
-            write_test_obligations_field(out, task, indent + 2, test_coverages);
+            write_test_obligations_field(out, task, indent + 2, test_coverages, predicate_facts);
             out.push_str(",\n");
             write_evidence_obligations_field(out, task, indent + 2, test_coverages);
             out.push('\n');
@@ -609,6 +635,7 @@ fn write_test_obligations_field(
     task: &Task,
     indent: usize,
     test_coverages: &[TestCoverage<'_>],
+    predicate_facts: &[PredicateFact],
 ) {
     let pad = " ".repeat(indent);
     out.push_str(&format!("{pad}\"test_obligations\": ["));
@@ -627,6 +654,20 @@ fn write_test_obligations_field(
             quote(obligation.source_section)
         ));
         out.push_str(&format!("\"text\": {}, ", quote(&obligation.line.text)));
+        if matches!(obligation.source_section, "needs" | "ensures")
+            && let Some(fact) = predicate_facts.iter().find(|fact| {
+                fact.task == task.name
+                    && fact.task_span == task.span
+                    && fact.section == obligation.source_section
+                    && fact.line_span == obligation.line.span
+            })
+        {
+            out.push_str(&format!(
+                "\"predicate_recognition_status\": {}, \"predicate_reason\": {}, ",
+                quote(fact.status.as_str()),
+                quote(fact.reason)
+            ));
+        }
         out.push_str("\"span\": ");
         write_span(out, &obligation.line.span);
         out.push_str(&format!(", \"covers\": {}", quote(&obligation.covers)));

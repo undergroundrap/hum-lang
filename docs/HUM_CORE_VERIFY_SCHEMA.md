@@ -176,6 +176,13 @@ Current rule families include:
   `blocked_unsupported_try_expression` operation, absent expression semantics,
   and matching blocker reason; passing those checks verifies blocker honesty,
   not the rejected expression.
+- For Session AF contract rows, verification accepts only the shared typed
+  recognition status with `checked_contract_predicate_v2`, or a malformed/
+  semantic rejection with `blocked_contract_predicate_v2` and a matching
+  blocker reason. Accepted rows preserve a non-null `predicate_ast_v2`
+  comparison expression with typed Bool provenance and contract-only pure
+  effect status. `predicate_place_facts` retain the shared lexical scope,
+  definition, resolution, eligibility, type, and span evidence.
 - It must keep `execution_ready` and `ir_ready` at `0` in V0.
 - `hum ir-readiness` may consume this summary as a compiler gate, but still must
   block before full type checking, effect checking, ownership/resource/profile

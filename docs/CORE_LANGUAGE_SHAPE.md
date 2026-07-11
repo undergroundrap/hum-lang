@@ -378,7 +378,7 @@ friction:
   severity: blocked
   indicts: contracts
   proposal: Session Q must carry a mandated contracts work-order item: either predicate v1 with pre-state references or the contract-check-mode ADR, chosen from the full friction ledger
-  resolution: resolved in Session T by `old(place)` in `ensures:` with entry capture; `swap_xy` now checks `result.x == old(point.y)`/`result.y == old(point.x)`, `complete_item` checks `result.title == old(item.title)`, and `fixtures/run/session_t_wrong_swap_contract.hum` proves a sabotaged swap fails with H0703 task blame; `old(...)` outside `ensures:` stays honest prose (H0701)
+  resolution: resolved in Session T by `old(place)` in `ensures:` with entry capture; `swap_xy` now checks `result.x == old(point.y)`/`result.y == old(point.x)`, `complete_item` checks `result.title == old(item.title)`, and `fixtures/run/session_t_wrong_swap_contract.hum` proves a sabotaged swap fails with H0703 task blame; Session AF's deterministic candidate boundary now rejects `old(...)` outside `ensures:` as semantic H0704 rather than unchecked prose
 
 friction:
   program: docs/bakeoff/CORPUS.md:330
@@ -635,3 +635,14 @@ before those decisions would prebuild Bytes, directory input, hashing,
 manifests, JSON, and evidence-output authority without their own pinned gates.
 Work Order 6 ends with the integrated evidence; no later session is implicitly
 authorized.
+
+### Session AF Predicate v2 payment (uncommitted review state)
+
+The exact-three contract-vocabulary trigger is implemented for review:
+`word_count` now checks the intended `list_count` relation, `builder_demo`
+checks exact ordered list content, and `element_views` checks Text equality.
+One shared lexical/parser/type fact gives honest prose to H0701, malformed or
+ill-typed executable intent to H0704, opaque Path inspection to H0630, and only
+typed accepted predicates to H0702/H0703 evaluation. This pays the three active
+Predicate v2 records if independently accepted; it is not yet accepted and
+does not implement decision 0015 classification, proof, profiles, or elision.

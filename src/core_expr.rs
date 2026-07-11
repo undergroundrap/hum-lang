@@ -53,6 +53,10 @@ pub const CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_TYPE_STATUS: &str =
 pub const CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_MISMATCH_STATUS: &str =
     "checked_trivial_return_type_mismatch_v0";
 pub const CORE_EXPRESSION_EFFECT_STATUS: &str = "not_effect_checked_v0";
+pub const CORE_PREDICATE_EXPRESSION_STATUS: &str = "typed_predicate_ast_v2";
+pub const CORE_PREDICATE_AST_STATUS: &str = "predicate_ast_v2";
+pub const CORE_PREDICATE_TYPE_STATUS: &str = "predicate_v2_typed_v0";
+pub const CORE_PREDICATE_EFFECT_STATUS: &str = "contract_only_pure_v0";
 
 const OPERATOR_PATTERNS: &[(&str, &str)] = &[
     (" fails with ", "fails_with"),

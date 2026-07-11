@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::ast::{App, Field, Item, Param, Program, Store, Task, Test, TypeDef};
 use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::predicate;
 use crate::resolve;
 use crate::return_dependency;
 use crate::version;
@@ -190,6 +191,7 @@ pub fn type_env_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
         }
     }
 
+    out.push_str(&predicate::analyze_program(program).place_facts_text());
     out.push_str("non_claims:\n");
     for non_claim in NON_CLAIMS {
         out.push_str(&format!("  - {non_claim}\n"));
@@ -219,6 +221,11 @@ pub fn type_env_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
     );
     push_type_names(&mut out, 2, &report.type_names, true);
     push_declarations(&mut out, 2, &report.declarations, true);
+    push_indent(&mut out, 2);
+    push_json_string(&mut out, "predicate_place_facts");
+    out.push_str(": ");
+    out.push_str(&predicate::analyze_program(program).place_facts_json());
+    out.push_str(",\n");
     push_string_array(&mut out, 2, "non_claims_v0", NON_CLAIMS, false);
     out.push_str("}\n");
     out

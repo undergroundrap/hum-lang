@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Write};
+use std::sync::Arc;
 
 use crate::app_entry;
 use crate::ast::{App, Item, ParamPermission, Program, SectionLine, Task};
@@ -17,6 +18,7 @@ use crate::file_read::{
 use crate::graph::is_meaningful_line_text;
 use crate::native_path::{ValidatedNativePath, validate_native_path};
 use crate::operator_grant::{GrantDecision, OperatorGrantPolicy};
+use crate::predicate::{self, Arithmetic, Comparison, Expr, PredicateAst, RecognitionStatus};
 use crate::return_dependency;
 use crate::typed_failure::{self, FailureCatalog, FailureVariant};
 use crate::writable_field_alias::{self, AliasAnalysis, AliasBinding, AliasIssueKind};
@@ -28,6 +30,7 @@ pub enum RunOutcome {
     Failure(String),
     AppFailure(String),
     ContractViolation,
+    PreflightRejected,
     Trap(String),
 }
 
@@ -479,8 +482,10 @@ pub(crate) fn run_program_with_file_adapters(
     let output_policies = output_policy_map(capability_root::output_policy_facts(program));
     let replay_policies = replay_policy_map(capability_root::replay_policy_facts(program));
     let file_policies = file_policy_map(capability_root::file_policy_facts(program));
+    let predicate_analysis = predicate::analyze_program(program);
     let interpreter = Interpreter {
         program,
+        predicate_analysis,
         failure_catalog: FailureCatalog::from_program(program),
         diagnostics: RefCell::new(Vec::new()),
         active_iterations: RefCell::new(Vec::new()),
@@ -519,6 +524,7 @@ pub(crate) fn run_program_with_file_adapters(
         Ok((TaskResult::Failed(value), false)) => RunOutcome::Failure(value.render()),
         Ok((TaskResult::Failed(value), true)) => RunOutcome::AppFailure(value.render()),
         Ok((TaskResult::ContractViolation, _)) => RunOutcome::ContractViolation,
+        Err(message) if message.starts_with("H0704:") => RunOutcome::PreflightRejected,
         Err(message) => RunOutcome::Trap(message),
     };
     let diagnostics = interpreter.diagnostics.into_inner();
@@ -756,6 +762,7 @@ fn file_audit_event(
 
 struct Interpreter<'program, 'output> {
     program: &'program Program,
+    predicate_analysis: Arc<predicate::PredicateAnalysis>,
     failure_catalog: FailureCatalog,
     diagnostics: RefCell<Vec<Diagnostic>>,
     active_iterations: RefCell<Vec<ActiveIteration>>,
@@ -796,6 +803,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         raw_args: &[OsString],
     ) -> Result<(TaskResult, bool), String> {
         let (task, app_mode) = self.entry_task(entry)?;
+        self.preflight_reachable_predicates(task)?;
         let args = self.parse_args(task, raw_args, app_mode)?;
         self.execute_task(task, args)
             .map(|result| (result, app_mode))
@@ -1109,20 +1117,19 @@ impl<'program, 'output> Interpreter<'program, 'output> {
     }
 
     fn capture_old_contract_values(&self, task: &Task, env: &mut Env) -> Result<(), String> {
-        let Some(section) = task.section("ensures") else {
-            return Ok(());
-        };
-        for line in &section.lines {
-            let text = line.text.trim();
-            if !is_meaningful_line_text(text) || !predicate_v1_eligible(task, "ensures", text) {
+        for fact in self.predicate_analysis.facts_for_task(task).filter(|fact| {
+            fact.section == "ensures" && fact.status == RecognitionStatus::RecognizedTyped
+        }) {
+            let Some(ast) = fact.ast.as_ref() else {
                 continue;
-            }
-            for inner in collect_old_references(text) {
+            };
+            for place in old_places(ast) {
+                let inner = place.text();
                 let key = format!("old({inner})");
                 if env.contains_key(&key) {
                     continue;
                 }
-                let value = match self.eval_expr(&inner, env, &line.span, &task.name)? {
+                let value = match self.eval_expr(&inner, env, &fact.line_span, &task.name)? {
                     Evaluated::Value(value) => value,
                     Evaluated::Failure(value) => {
                         return Err(format!(
@@ -1136,6 +1143,22 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 };
                 env.insert(key, RuntimeBinding::local(value, false));
             }
+        }
+        Ok(())
+    }
+
+    fn preflight_reachable_predicates(&self, entry: &Task) -> Result<(), String> {
+        let diagnostics = self.predicate_analysis.reachable_diagnostics(
+            self.program,
+            entry,
+            *self.active_app.borrow(),
+        );
+        if !diagnostics.is_empty() {
+            self.diagnostics.borrow_mut().extend(diagnostics);
+            return Err(format!(
+                "{}: invalid executable predicate",
+                DiagnosticCode::INVALID_EXECUTABLE_PREDICATE.as_str()
+            ));
         }
         Ok(())
     }
@@ -1157,7 +1180,13 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 continue;
             }
 
-            if !predicate_v1_eligible(task, section_name, text) {
+            let Some(fact) = self
+                .predicate_analysis
+                .fact_for_line(task, section_name, line)
+            else {
+                continue;
+            };
+            if fact.status == RecognitionStatus::NonExecutableProse {
                 self.diagnostics.borrow_mut().push(
                     Diagnostic::warning(
                         DiagnosticCode::UNCHECKED_PROSE_CONTRACT,
@@ -1165,22 +1194,15 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                         Some(line.span.clone()),
                     )
                     .with_help(
-                        "Predicate v1 checks one comparison over parameters, `result`, arithmetic, `list_len(...)`, and `old(...)` of entry-readable parameter places in `ensures:`; prose remains visible but unchecked.",
+                        "Predicate v2 checks one typed comparison over eligible places, including exact Text/List Text equality and contract-only `list_count`; prose remains visible but unchecked.",
                     ),
                 );
                 continue;
             }
-
-            let value = match self.eval_expr(text, env, &line.span, &task.name)? {
-                Evaluated::Value(value) => value,
-                Evaluated::Failure(value) => {
-                    return Err(format!(
-                        "contract predicate `{text}` produced failure {}",
-                        value.identity()
-                    ));
-                }
-                Evaluated::ContractViolation => return Ok(false),
-            };
+            let ast = fact.ast.as_ref().ok_or_else(|| {
+                format!("typed predicate fact for `{text}` is missing its accepted AST")
+            })?;
+            let value = self.eval_predicate(ast, env, &line.span, &task.name)?;
             if as_bool(&value)? {
                 continue;
             }
@@ -1208,6 +1230,96 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         }
 
         Ok(true)
+    }
+
+    fn eval_predicate(
+        &self,
+        ast: &PredicateAst,
+        env: &mut Env,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Value, String> {
+        let left = self.eval_predicate_expr(&ast.left, env, span, task_name)?;
+        let right = self.eval_predicate_expr(&ast.right, env, span, task_name)?;
+        let value = match ast.comparison {
+            Comparison::Eq => left == right,
+            Comparison::NotEq => left != right,
+            Comparison::Less => as_int(&left)? < as_int(&right)?,
+            Comparison::LessEq => as_int(&left)? <= as_int(&right)?,
+            Comparison::Greater => as_int(&left)? > as_int(&right)?,
+            Comparison::GreaterEq => as_int(&left)? >= as_int(&right)?,
+        };
+        Ok(Value::Bool(value))
+    }
+
+    fn eval_predicate_expr(
+        &self,
+        expr: &Expr,
+        env: &mut Env,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Value, String> {
+        match expr {
+            Expr::Bool(value, _) => Ok(Value::Bool(*value)),
+            Expr::Integer(value, _) => Ok(Value::Int(*value)),
+            Expr::Text(value, _) => Ok(Value::Text(value.clone())),
+            Expr::ListText(values, _) => Ok(Value::List(
+                values.iter().cloned().map(Value::Text).collect(),
+            )),
+            Expr::Place(place) => match self.eval_expr(&place.text(), env, span, task_name)? {
+                Evaluated::Value(value) => Ok(value),
+                Evaluated::Failure(value) => Err(format!(
+                    "predicate place `{}` produced failure {}",
+                    place.text(),
+                    value.identity()
+                )),
+                Evaluated::ContractViolation => {
+                    Err("predicate place evaluation hit a contract violation".to_string())
+                }
+            },
+            Expr::Old(place, _) => env
+                .get(&format!("old({})", place.text()))
+                .map(|binding| binding.value.clone())
+                .ok_or_else(|| format!("old({}) was not captured at task entry", place.text())),
+            Expr::ListLen(place, _) => {
+                let value =
+                    self.eval_predicate_expr(&Expr::Place(place.clone()), env, span, task_name)?;
+                let Value::List(values) = value else {
+                    return Err("typed list_len predicate fact evaluated a non-list".to_string());
+                };
+                Ok(Value::Int(values.len() as i64))
+            }
+            Expr::ListCount(list, text, _) => {
+                let list = self.eval_predicate_expr(list, env, span, task_name)?;
+                let text = self.eval_predicate_expr(text, env, span, task_name)?;
+                let Value::List(values) = list else {
+                    return Err("typed list_count fact evaluated a non-list".to_string());
+                };
+                let Value::Text(needle) = text else {
+                    return Err("typed list_count fact evaluated a non-Text match".to_string());
+                };
+                Ok(Value::Int(
+                    values
+                        .iter()
+                        .filter(|value| matches!(value, Value::Text(item) if item == &needle))
+                        .count() as i64,
+                ))
+            }
+            Expr::Binary(left, operator, right, _) => {
+                let left = as_int(&self.eval_predicate_expr(left, env, span, task_name)?)?;
+                let right = as_int(&self.eval_predicate_expr(right, env, span, task_name)?)?;
+                let value = match operator {
+                    Arithmetic::Add => left.checked_add(right),
+                    Arithmetic::Subtract => left.checked_sub(right),
+                    Arithmetic::Multiply => left.checked_mul(right),
+                    Arithmetic::Divide if right == 0 => None,
+                    Arithmetic::Divide => left.checked_div(right),
+                }
+                .ok_or_else(|| "integer failure in typed predicate evaluation".to_string())?;
+                Ok(Value::Int(value))
+            }
+            Expr::Group(inner, _) => self.eval_predicate_expr(inner, env, span, task_name),
+        }
     }
 
     fn eval_block(
@@ -1682,6 +1794,9 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             }
             if callee == "list_len" {
                 return self.eval_list_len(args, env, span, task_name);
+            }
+            if callee == "list_count" {
+                return Err("list_count is contract-only Predicate v2 vocabulary".to_string());
             }
             let Some(task) = self.find_task(callee) else {
                 return Err(format!("task `{callee}` was not found"));
@@ -3046,130 +3161,31 @@ impl ContractKind {
     }
 }
 
-fn contract_allowed_names(task: &Task, kind: ContractKind) -> BTreeSet<String> {
-    let mut names = task
-        .params
-        .iter()
-        .map(|param| param.name.clone())
-        .collect::<BTreeSet<_>>();
-    if kind == ContractKind::Ensures {
-        names.insert("result".to_string());
-    }
-    names
-}
-
-pub(crate) fn predicate_v1_eligible(task: &Task, section_name: &str, text: &str) -> bool {
-    let kind = match section_name {
-        "needs" => ContractKind::Needs,
-        "ensures" => ContractKind::Ensures,
-        _ => return false,
-    };
-    let allowed_names = contract_allowed_names(task, kind);
-    validate_predicate_v1(text, &allowed_names, kind == ContractKind::Ensures)
-}
-
-fn validate_predicate_v1(text: &str, allowed_names: &BTreeSet<String>, allow_old: bool) -> bool {
-    let text = trim_outer_parens(text.trim());
-    let Some((left, _op, right)) =
-        split_top_level_operator(text, &["==", "!=", "<=", ">=", "<", ">"])
-    else {
-        return false;
-    };
-
-    split_top_level_operator(left, &["==", "!=", "<=", ">=", "<", ">"]).is_none()
-        && split_top_level_operator(right, &["==", "!=", "<=", ">=", "<", ">"]).is_none()
-        && validate_contract_operand(left, allowed_names, allow_old)
-        && validate_contract_operand(right, allowed_names, allow_old)
-}
-
-fn validate_contract_operand(
-    text: &str,
-    allowed_names: &BTreeSet<String>,
-    allow_old: bool,
-) -> bool {
-    let text = trim_outer_parens(text.trim());
-    if text.is_empty()
-        || split_word_operator(text, "and").is_some()
-        || split_word_operator(text, "or").is_some()
-    {
-        return false;
-    }
-    if let Some((left, _op, right)) = split_top_level_operator(text, &["+", "-"]) {
-        return validate_contract_operand(left, allowed_names, allow_old)
-            && validate_contract_operand(right, allowed_names, allow_old);
-    }
-    if let Some((left, _op, right)) = split_top_level_operator(text, &["*", "/"]) {
-        return validate_contract_operand(left, allowed_names, allow_old)
-            && validate_contract_operand(right, allowed_names, allow_old);
-    }
-    if let Some(inner) = contract_call_operand(text, "old") {
-        return allow_old && validate_old_inner(inner, allowed_names);
-    }
-    if let Some(inner) = contract_call_operand(text, "list_len") {
-        return allowed_names.contains(inner)
-            || field_place::split_field_place(inner)
-                .is_some_and(|(root, _field)| allowed_names.contains(root));
-    }
-    text == "true"
-        || text == "false"
-        || parse_int_literal(text).is_ok()
-        || allowed_names.contains(text)
-        || field_place::split_field_place(text)
-            .is_some_and(|(root, _field)| allowed_names.contains(root))
-}
-
-fn contract_call_operand<'a>(text: &'a str, name: &str) -> Option<&'a str> {
-    // Canonical strictness: the exact `name(` prefix with no gap, so spaced
-    // forms fall to honest prose instead of validating without capturing.
-    let inner = text
-        .strip_prefix(name)?
-        .strip_prefix('(')?
-        .strip_suffix(')')?
-        .trim();
-    // The inner form must be a simple place, not a nested expression with
-    // top-level parentheses or commas.
-    (!inner.is_empty() && !inner.contains('(') && !inner.contains(',')).then_some(inner)
-}
-
-fn validate_old_inner(inner: &str, allowed_names: &BTreeSet<String>) -> bool {
-    // old(...) captures entry state: parameters or parameter fields only,
-    // never `result`, which does not exist at entry.
-    validate_entry_readable_place(inner, allowed_names)
-}
-
-fn validate_entry_readable_place(inner: &str, allowed_names: &BTreeSet<String>) -> bool {
-    if inner == "result" {
-        return false;
-    }
-    if allowed_names.contains(inner) {
-        return true;
-    }
-    field_place::split_field_place(inner)
-        .is_some_and(|(root, _field)| root != "result" && allowed_names.contains(root))
-}
-
-fn collect_old_references(text: &str) -> Vec<String> {
-    let mut found = Vec::new();
-    let bytes = text.as_bytes();
-    let mut index = 0;
-    while let Some(offset) = text[index..].find("old(") {
-        let start = index + offset;
-        let preceded_by_word =
-            start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
-        let inner_start = start + 4;
-        let Some(close_offset) = text[inner_start..].find(')') else {
-            break;
-        };
-        let inner = text[inner_start..inner_start + close_offset].trim();
-        if !preceded_by_word && !inner.is_empty() && !inner.contains('(') && !inner.contains(',') {
-            let owned = inner.to_string();
-            if !found.contains(&owned) {
-                found.push(owned);
+fn old_places(ast: &PredicateAst) -> Vec<crate::predicate::Place> {
+    fn collect(expr: &Expr, out: &mut Vec<crate::predicate::Place>) {
+        match expr {
+            Expr::Old(place, _) => {
+                if !out.iter().any(|found| found.text() == place.text()) {
+                    out.push(place.clone());
+                }
             }
+            Expr::ListCount(left, right, _) | Expr::Binary(left, _, right, _) => {
+                collect(left, out);
+                collect(right, out);
+            }
+            Expr::Group(inner, _) => collect(inner, out),
+            Expr::Bool(_, _)
+            | Expr::Integer(_, _)
+            | Expr::Text(_, _)
+            | Expr::ListText(_, _)
+            | Expr::Place(_)
+            | Expr::ListLen(_, _) => {}
         }
-        index = inner_start + close_offset + 1;
     }
-    found
+    let mut places = Vec::new();
+    collect(&ast.left, &mut places);
+    collect(&ast.right, &mut places);
+    places
 }
 
 fn executable_lines(lines: &[SectionLine]) -> Vec<ExecLine> {
@@ -5295,7 +5311,7 @@ task fail_now() -> Result Int, MathError {
     }
 
     #[test]
-    fn builder_list_len_contract_checks_and_content_stays_prose() {
+    fn builder_list_len_and_exact_content_contracts_are_checked() {
         let program = fixture_program(
             "examples/probes/list_builder.hum",
             include_str!("../examples/probes/list_builder.hum"),
@@ -5305,20 +5321,11 @@ task fail_now() -> Result Int, MathError {
             report.outcome,
             RunOutcome::Success("[parse, check, run]".to_string())
         );
-        assert_eq!(
-            report.diagnostics.len(),
-            1,
-            "only the content claim stays prose: {:#?}",
-            report.diagnostics
-        );
-        assert_eq!(
-            report.diagnostics[0].code,
-            DiagnosticCode::UNCHECKED_PROSE_CONTRACT
-        );
+        assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
     }
 
     #[test]
-    fn spaced_old_falls_to_honest_prose_never_traps() {
+    fn spaced_old_is_malformed_executable_predicate() {
         let source = r#"module tests.spaced_old
 
 task echo_amount(amount: UInt) -> UInt {
@@ -5334,21 +5341,16 @@ task echo_amount(amount: UInt) -> UInt {
 "#;
         let program = fixture_program("tests/spaced_old.hum", source);
         let report = run_program(&program, Some("echo_amount"), &["7".to_string()]);
-        assert_eq!(report.outcome, RunOutcome::Success("7".to_string()));
-        assert_eq!(
-            report.diagnostics.len(),
-            1,
-            "spaced old must warn as prose, not trap: {:#?}",
-            report.diagnostics
-        );
+        assert_eq!(report.outcome, RunOutcome::PreflightRejected);
+        assert_eq!(report.diagnostics.len(), 1, "{:#?}", report.diagnostics);
         assert_eq!(
             report.diagnostics[0].code,
-            DiagnosticCode::UNCHECKED_PROSE_CONTRACT
+            DiagnosticCode::INVALID_EXECUTABLE_PREDICATE
         );
     }
 
     #[test]
-    fn spaced_list_len_falls_to_honest_prose() {
+    fn spaced_list_len_is_malformed_executable_predicate() {
         let source = r#"module tests.spaced_list_len
 
 task make_items() -> List Text {
@@ -5370,7 +5372,7 @@ task make_items() -> List Text {
         assert_eq!(report.diagnostics.len(), 1, "{:#?}", report.diagnostics);
         assert_eq!(
             report.diagnostics[0].code,
-            DiagnosticCode::UNCHECKED_PROSE_CONTRACT
+            DiagnosticCode::INVALID_EXECUTABLE_PREDICATE
         );
     }
 
@@ -5418,17 +5420,17 @@ task echo_amount(amount: UInt) -> UInt {
     }
 
     #[test]
-    fn old_in_needs_stays_honest_prose() {
+    fn old_in_needs_is_semantically_rejected_before_evaluation() {
         let program = fixture_program(
             "fixtures/run/session_t_old_in_needs_prose.hum",
             include_str!("../fixtures/run/session_t_old_in_needs_prose.hum"),
         );
         let report = run_program(&program, Some("old_in_needs_demo"), &[]);
-        assert_eq!(report.outcome, RunOutcome::Success("7".to_string()));
+        assert_eq!(report.outcome, RunOutcome::PreflightRejected);
         assert_eq!(report.diagnostics.len(), 1);
         let rendered = report.diagnostics[0].render();
         assert!(
-            rendered.contains("unchecked prose needs contract: amount == old(amount)"),
+            rendered.contains("H0704") && rendered.contains("old_place_not_entry_readable_v2"),
             "{rendered}"
         );
     }
@@ -5720,6 +5722,40 @@ task unchecked_divide(a: Int, b: Int) -> Int {
             report.diagnostics[0].code,
             DiagnosticCode::BORROW_PARAMETER_MUTATION
         );
+    }
+
+    #[test]
+    fn predicate_preflight_aggregates_all_independent_h0704_rows() {
+        let program = fixture_program(
+            "fixtures/full_type_check/session_af_predicate_v2_boundary_fail.hum",
+            include_str!("../fixtures/full_type_check/session_af_predicate_v2_boundary_fail.hum"),
+        );
+        let report = run_program(&program, Some("malformed_boundaries"), &[]);
+        assert_eq!(report.outcome, RunOutcome::PreflightRejected);
+        assert_eq!(report.diagnostics.len(), 19);
+        assert!(
+            report.diagnostics.iter().all(|diagnostic| {
+                diagnostic.code == DiagnosticCode::INVALID_EXECUTABLE_PREDICATE
+            })
+        );
+    }
+
+    #[test]
+    fn reachable_predicate_preflight_precedes_output_adapter() {
+        let program = fixture_program(
+            "fixtures/run/session_af_predicate_v2_reachable_callee_fail.hum",
+            include_str!("../fixtures/run/session_af_predicate_v2_reachable_callee_fail.hum"),
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(&program, None, &[], &allowed_stdout(), &mut output);
+        assert_eq!(report.outcome, RunOutcome::PreflightRejected);
+        assert_eq!(output.calls, 0);
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::INVALID_EXECUTABLE_PREDICATE
+        );
+        assert!(report.diagnostics[0].render().contains("result = 1"));
     }
 
     fn fixture_program(path: &str, source: &str) -> Program {

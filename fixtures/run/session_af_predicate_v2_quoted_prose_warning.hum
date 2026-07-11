@@ -1,0 +1,10 @@
+module fixtures.run.session_af_predicate_v2_quoted_prose_warning
+
+task quoted_prose() -> UInt {
+  why:
+    keep predicate-looking Text opaque to intent scanning
+  ensures:
+    "result == list_count(items, hum)"
+  does:
+    return 2
+}

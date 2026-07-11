@@ -1,0 +1,24 @@
+module fixtures.full_type_check.session_af_predicate_v2_calls_and_types_fail
+
+task helper(items: List Text) -> UInt {
+  why:
+    provide a forbidden arbitrary helper operand
+  does:
+    return 2
+}
+
+task invalid_calls(items: List Text, text_value: Text, number: UInt) -> UInt {
+  why:
+    pin Predicate v2 call and type boundaries
+  ensures:
+    result == list_count(items)
+    result == list_count(number, "hum")
+    result == list_count(items, number)
+    result == helper(items)
+    text_value == 2
+    items < ["hum"]
+    items == items
+    result == ["hum", 2]
+  does:
+    return 2
+}

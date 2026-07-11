@@ -1,0 +1,12 @@
+module fixtures.run.session_af_predicate_v2_wrong_content_fail
+
+task wrong_content() -> List Text {
+  why:
+    prove exact ordered list content rejects a same-length wrong result
+
+  ensures:
+    result == ["parse", "check", "run"]
+
+  does:
+    return ["parse", "run", "check"]
+}

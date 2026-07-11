@@ -1,0 +1,12 @@
+module fixtures.full_type_check.session_af_predicate_v2_text_uint_fail
+
+task wrong_type(text_value: Text) -> UInt {
+  why:
+    pin typed Predicate v2 rejection
+
+  ensures:
+    text_value == 2
+
+  does:
+    return 2
+}

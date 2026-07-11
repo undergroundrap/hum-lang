@@ -6,6 +6,7 @@ use crate::core_expr::{
 };
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::is_meaningful_line_text;
+use crate::predicate::{self, Expr as PredicateExpr, PredicateFact, RecognitionStatus};
 use crate::type_check::{self, CheckedReturnSummary};
 use crate::typed_failure::{self, FailureCatalog, FailureFact};
 use crate::version;
@@ -246,6 +247,7 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
 
     if report.candidates.is_empty() {
         out.push_str("core_candidates: none\n");
+        out.push_str(&predicate::analyze_program(program).place_facts_text());
         return out;
     }
 
@@ -299,6 +301,7 @@ pub fn core_preview_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         }
     }
 
+    out.push_str(&predicate::analyze_program(program).place_facts_text());
     out
 }
 
@@ -351,6 +354,11 @@ pub fn core_preview_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
     );
     push_summary(&mut out, &report, 2, true);
     push_candidates(&mut out, &report.candidates, 2, true);
+    push_indent(&mut out, 2);
+    push_json_string(&mut out, "predicate_place_facts");
+    out.push_str(": ");
+    out.push_str(&predicate::analyze_program(program).place_facts_json());
+    out.push_str(",\n");
     push_string_array(
         &mut out,
         2,
@@ -377,12 +385,14 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CorePreviewRep
     let mut candidates = Vec::new();
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
     let failure_catalog = FailureCatalog::from_program(program);
+    let predicate_facts = predicate::analyze_program(program);
     for file in &program.files {
         collect_candidates_from_items(
             &file.items,
             diagnostics,
             &checked_returns,
             &failure_catalog,
+            predicate_facts.facts(),
             &mut candidates,
         );
     }
@@ -409,11 +419,17 @@ fn collect_candidates_from_items(
     diagnostics: &[Diagnostic],
     checked_returns: &[CheckedReturnSummary],
     failure_catalog: &FailureCatalog,
+    predicate_facts: &[PredicateFact],
     candidates: &mut Vec<CoreCandidate>,
 ) {
     for item in items {
-        if let Some(candidate) = core_candidate(item, diagnostics, checked_returns, failure_catalog)
-        {
+        if let Some(candidate) = core_candidate(
+            item,
+            diagnostics,
+            checked_returns,
+            failure_catalog,
+            predicate_facts,
+        ) {
             candidates.push(candidate);
         }
         if let Item::App(app) = item {
@@ -422,6 +438,7 @@ fn collect_candidates_from_items(
                 diagnostics,
                 checked_returns,
                 failure_catalog,
+                predicate_facts,
                 candidates,
             );
         }
@@ -433,6 +450,7 @@ fn core_candidate(
     diagnostics: &[Diagnostic],
     checked_returns: &[CheckedReturnSummary],
     failure_catalog: &FailureCatalog,
+    predicate_facts: &[PredicateFact],
 ) -> Option<CoreCandidate> {
     let section = item_sections(item)
         .iter()
@@ -442,12 +460,20 @@ fn core_candidate(
         Item::Task(task) => typed_failure::analyze_task(task, &body.statements, failure_catalog),
         _ => Default::default(),
     };
-    let statements = core_statement_previews(
+    let mut statements = core_statement_previews(
         item,
         &body.statements,
         checked_returns,
         &failure_analysis.facts,
     );
+    if let Item::Task(task) = item {
+        statements.extend(
+            predicate_facts
+                .iter()
+                .filter(|fact| fact.task_span == task.span)
+                .map(predicate_statement_preview),
+        );
+    }
     let has_errors = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
@@ -534,6 +560,128 @@ fn core_candidate(
         block_preview,
         statements,
     })
+}
+
+fn predicate_statement_preview(fact: &PredicateFact) -> CoreStatementPreview {
+    let accepted = fact.status == RecognitionStatus::RecognizedTyped;
+    let prose = fact.status == RecognitionStatus::NonExecutableProse;
+    CoreStatementPreview {
+        span: fact.line_span.clone(),
+        text: fact.text.clone(),
+        source_kind: "contract_predicate",
+        source_status: fact.status.as_str(),
+        core_operation: if accepted {
+            "checked_contract_predicate_v2"
+        } else if prose {
+            "unchecked_prose_contract_v0"
+        } else {
+            "blocked_contract_predicate_v2"
+        },
+        status: if accepted {
+            "lowerable_preview_v0"
+        } else if prose {
+            "contextual_preview_v0"
+        } else {
+            "blocked_v0"
+        },
+        expression_kind: accepted.then_some("checked_contract_predicate_v2"),
+        expression_preview: accepted.then(|| predicate_expression_preview_for_lowering(fact)),
+        reason: Some(fact.reason),
+    }
+}
+
+pub(crate) fn predicate_expression_preview_for_lowering(
+    fact: &PredicateFact,
+) -> CoreExpressionPreview {
+    fn node(expr: &PredicateExpr, source: &str, next_id: &mut usize) -> CoreExpressionNode {
+        let id = format!("predicate_expr_{}", *next_id);
+        *next_id += 1;
+        let range = expr.range();
+        let text = source
+            .get(range.start..range.end)
+            .unwrap_or(source)
+            .to_string();
+        let (form, operator, children) = match expr {
+            PredicateExpr::Bool(_, _) => ("bool_literal", None, Vec::new()),
+            PredicateExpr::Integer(_, _) => ("integer_literal", None, Vec::new()),
+            PredicateExpr::Text(_, _) => ("text_literal", None, Vec::new()),
+            PredicateExpr::ListText(_, _) => ("list_text_literal", None, Vec::new()),
+            PredicateExpr::Place(_) => ("predicate_place", None, Vec::new()),
+            PredicateExpr::Old(_, _) => ("old_place", None, Vec::new()),
+            PredicateExpr::ListLen(_, _) => ("list_len", None, Vec::new()),
+            PredicateExpr::ListCount(left, right, _) => (
+                "list_count",
+                None,
+                vec![node(left, source, next_id), node(right, source, next_id)],
+            ),
+            PredicateExpr::Binary(left, arithmetic, right, _) => (
+                "arithmetic",
+                Some(match arithmetic {
+                    predicate::Arithmetic::Add => "+",
+                    predicate::Arithmetic::Subtract => "-",
+                    predicate::Arithmetic::Multiply => "*",
+                    predicate::Arithmetic::Divide => "/",
+                }),
+                vec![node(left, source, next_id), node(right, source, next_id)],
+            ),
+            PredicateExpr::Group(inner, _) => ("group", None, vec![node(inner, source, next_id)]),
+        };
+        CoreExpressionNode {
+            id,
+            form,
+            text,
+            operator,
+            type_status: core_expr::CORE_PREDICATE_TYPE_STATUS,
+            type_text: None,
+            type_source: Some("shared_predicate_analysis_v2"),
+            effect_status: core_expr::CORE_PREDICATE_EFFECT_STATUS,
+            children,
+            reason: None,
+        }
+    }
+
+    let ast = fact.ast.as_ref().expect("accepted predicate has AST");
+    let mut next_id = 0;
+    let left = node(&ast.left, &fact.text, &mut next_id);
+    let right = node(&ast.right, &fact.text, &mut next_id);
+    let root = CoreExpressionNode {
+        id: format!("predicate_expr_{next_id}"),
+        form: "predicate_comparison",
+        text: fact.text.clone(),
+        operator: fact.comparison,
+        type_status: core_expr::CORE_PREDICATE_TYPE_STATUS,
+        type_text: Some("Bool".to_string()),
+        type_source: Some("shared_predicate_analysis_v2"),
+        effect_status: core_expr::CORE_PREDICATE_EFFECT_STATUS,
+        children: vec![left, right],
+        reason: None,
+    };
+    next_id += 1;
+    CoreExpressionPreview {
+        text: fact.text.clone(),
+        kind: "checked_contract_predicate_v2",
+        status: core_expr::CORE_PREDICATE_EXPRESSION_STATUS,
+        atoms: fact
+            .places
+            .iter()
+            .map(|place| ExpressionAtom {
+                text: place.text.clone(),
+                kind: "predicate_place",
+                status: place.resolution,
+            })
+            .collect(),
+        operators: vec![fact.comparison.expect("accepted predicate operator")],
+        ast: CoreExpressionAstPreview {
+            status: core_expr::CORE_PREDICATE_AST_STATUS,
+            type_status: core_expr::CORE_PREDICATE_TYPE_STATUS,
+            type_text: Some("Bool".to_string()),
+            type_source: Some("shared_predicate_analysis_v2"),
+            effect_status: core_expr::CORE_PREDICATE_EFFECT_STATUS,
+            node_count: next_id,
+            root,
+        },
+        reason: None,
+    }
 }
 
 fn core_statement_previews(

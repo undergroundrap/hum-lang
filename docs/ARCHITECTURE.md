@@ -193,6 +193,22 @@ causal. Core records `file` and the target mapping remains the reserved
 sandbox claim. Concurrent path mutation remains outside the alpha threat
 model.
 
+Session AF replaces the split Predicate v1 string recognizer/evaluator with one
+shared Predicate v2 fact. The fact owns the exact horizontal-whitespace
+grammar, intent signal, bounded delimiter parse, syntactic places, later
+resolution/eligibility/type checks, and accepted AST consumed by full type,
+downstream gates, Core, graph, and runtime. Predicate v2 adds only exact Text
+and ordered `List Text` equality/inequality plus contract-only
+`list_count(List Text, Text) -> UInt`. H0701 owns genuine prose, H0704 owns
+malformed or ill-typed executable candidates, H0630 retains opaque-Path
+precedence, and only recognized typed facts reach H0702/H0703 evaluation.
+These recognition statuses are not decision 0015 proof/trust classifications.
+Each parsed command memoizes one immutable analysis; resolver/type/Core/graph
+reports reference its per-place lexical identities, and runtime indexes that
+same analysis for reachable-task preflight, `old(...)` capture, and evaluation.
+Runtime rejects every independent H0704 in the selected reachable task subtree
+before argument conversion, task bodies, or authority adapters run.
+
 Session V's writable-field-alias slice is owned by one shared straight-line
 place analysis consumed by `ownership_check` and the interpreter. Resolver and
 effect rows recognize the same candidate as writable and defer authority and

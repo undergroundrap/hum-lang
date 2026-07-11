@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use crate::ast::{Item, Program, Task};
 use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
+use crate::predicate;
 use crate::return_dependency;
 use crate::type_env::{self, TypeDeclaration, TypeEnvReport};
 use crate::version;
@@ -273,6 +274,7 @@ pub fn type_check_text(program: &Program, diagnostics: &[Diagnostic]) -> String 
         }
     }
 
+    out.push_str(&predicate::analyze_program(program).place_facts_text());
     out.push_str("non_claims:\n");
     for non_claim in NON_CLAIMS {
         out.push_str(&format!("  - {non_claim}\n"));
@@ -296,6 +298,11 @@ pub fn type_check_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
     push_checked_declarations(&mut out, &report.checked_declarations, 2, true);
     push_checked_returns(&mut out, &report.checked_returns, 2, true);
     push_diagnostics(&mut out, &report.diagnostics, 2, true);
+    push_indent(&mut out, 2);
+    push_json_string(&mut out, "predicate_place_facts");
+    out.push_str(": ");
+    out.push_str(&predicate::analyze_program(program).place_facts_json());
+    out.push_str(",\n");
     push_string_array(&mut out, 2, "non_claims_v0", NON_CLAIMS, false);
     out.push_str("}\n");
     out

@@ -1,0 +1,42 @@
+type ReachablePredicateError {
+  code: Text
+}
+
+app predicate_preflight_before_output {
+  why:
+    prove every reachable contract is rejected before any adapter call
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task invalid_helper() -> UInt {
+    why:
+      supply a reachable malformed contract
+    ensures:
+      result = 1
+    does:
+      return 1
+  }
+
+  task run_tool() -> Result Unit, ReachablePredicateError {
+    why:
+      place output textually before the malformed helper call
+
+    uses:
+      stdout.write
+
+    fails when:
+      bounded output fails
+
+    allocates:
+      up to one causal wrapper frame when output fails
+
+    does:
+      let written = try stdout_write("must not print") or fail ReachablePredicateError.output
+      let ignored = invalid_helper()
+      return written
+  }
+}

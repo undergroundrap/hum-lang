@@ -1,0 +1,71 @@
+module fixtures.full_type_check.session_af_predicate_v2_places_fail
+
+task helper_task() -> UInt {
+  why:
+    provide a resolved but predicate-ineligible definition
+  does:
+    return 2
+}
+
+task malformed_place() -> UInt {
+  why:
+    pin syntactically malformed place ownership
+  ensures:
+    item..done == true
+  does:
+    return 2
+}
+
+task missing_place_root() -> UInt {
+  why:
+    pin a leading-dot syntactic place boundary
+  ensures:
+    .item == true
+  does:
+    return 2
+}
+
+task missing_place_field() -> UInt {
+  why:
+    pin a trailing-dot syntactic place boundary
+  ensures:
+    item. == true
+  does:
+    return 2
+}
+
+task unresolved_place() -> UInt {
+  why:
+    pin unresolved syntactic place ownership
+  ensures:
+    missing_value == 2
+  does:
+    return 2
+}
+
+task ineligible_place() -> UInt {
+  why:
+    pin resolved non-contract definition ownership
+  ensures:
+    helper_task == 2
+  does:
+    return 2
+}
+
+task eligible_wrong_type(text_value: Text) -> UInt {
+  why:
+    pin eligible place type rejection
+  ensures:
+    text_value == 2
+  does:
+    return 2
+}
+
+task eligible_place() -> UInt {
+  why:
+    pin accepted place outcome
+  ensures:
+    result == 2
+  does:
+    return 2
+}

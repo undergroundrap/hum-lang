@@ -35,6 +35,7 @@ mod operator_grant;
 mod ownership_check;
 mod parser;
 mod path_boundary;
+mod predicate;
 mod profile_check;
 mod resolve;
 mod resource_check;
@@ -244,6 +245,19 @@ fn run() -> Result<ExitCode, String> {
             return Ok(ExitCode::from(1));
         }
         if full_type_check::full_type_check_has_errors(&program, &diagnostics) {
+            if full_type_check::full_type_check_has_only_predicate_errors(&program, &diagnostics)
+                && let Some(entry) = app_entry::analyze(&program).entry
+            {
+                let predicate_diagnostics = predicate::analyze_program(&program)
+                    .reachable_diagnostics(&program, entry.task, Some(entry.app));
+                if !predicate_diagnostics.is_empty() {
+                    print_diagnostics(&predicate_diagnostics);
+                    if options.show_timings {
+                        print_timings(&loaded.timings, loaded.total);
+                    }
+                    return Ok(ExitCode::from(2));
+                }
+            }
             eprint!(
                 "{}",
                 full_type_check::full_type_check_text(&program, &diagnostics)
@@ -320,6 +334,7 @@ fn run() -> Result<ExitCode, String> {
                     ExitCode::from(1)
                 }
                 run::RunOutcome::ContractViolation => ExitCode::from(1),
+                run::RunOutcome::PreflightRejected => ExitCode::from(2),
                 run::RunOutcome::Trap(message) => {
                     eprintln!("runtime trap: {message}");
                     ExitCode::from(2)

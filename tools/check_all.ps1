@@ -303,6 +303,7 @@ try {
   if (-not $DiagnosticsJson.Contains('"code": "H0701"')) { throw 'diagnostic catalog JSON is missing H0701' }
   if (-not $DiagnosticsJson.Contains('"code": "H0702"')) { throw 'diagnostic catalog JSON is missing H0702' }
   if (-not $DiagnosticsJson.Contains('"code": "H0703"')) { throw 'diagnostic catalog JSON is missing H0703' }
+  if (-not $DiagnosticsJson.Contains('"code": "H0704"')) { throw 'diagnostic catalog JSON is missing H0704' }
   if (-not $DiagnosticsJson.Contains('"code": "H0801"')) { throw 'diagnostic catalog JSON is missing H0801' }
   if (-not $DiagnosticsJson.Contains('"code": "H0802"')) { throw 'diagnostic catalog JSON is missing H0802' }
   if (-not $DiagnosticsJson.Contains('"code": "H0803"')) { throw 'diagnostic catalog JSON is missing H0803' }
@@ -657,15 +658,109 @@ try {
   if (-not $RunSessionTWrongSwap.Output.Contains('H0703')) { throw "Session T wrong-swap run expected H0703, got $($RunSessionTWrongSwap.Output)" }
   if (-not $RunSessionTWrongSwap.Output.Contains('result.x == old(point.y)')) { throw "Session T wrong-swap run expected old() contract text, got $($RunSessionTWrongSwap.Output)" }
 
-  $RunSessionTOldInNeeds = Read-NativeOutputWithExit 'run Session T old-in-needs prose boundary fixture' $Hum @('run', 'fixtures/run/session_t_old_in_needs_prose.hum', '--entry', 'old_in_needs_demo')
-  if ($RunSessionTOldInNeeds.ExitCode -ne 0) { throw "Session T old-in-needs run expected exit 0, got $($RunSessionTOldInNeeds.ExitCode)" }
-  if (-not $RunSessionTOldInNeeds.Output.Contains('H0701')) { throw "Session T old-in-needs run expected H0701 prose warning, got $($RunSessionTOldInNeeds.Output)" }
+  $RunSessionTOldInNeeds = Read-NativeOutputWithExit 'run Session AF old-in-needs semantic boundary fixture' $Hum @('run', 'fixtures/run/session_t_old_in_needs_prose.hum', '--entry', 'old_in_needs_demo')
+  if ($RunSessionTOldInNeeds.ExitCode -ne 2) { throw "Session AF old-in-needs run expected exit 2, got $($RunSessionTOldInNeeds.ExitCode)" }
+  if (-not $RunSessionTOldInNeeds.Output.Contains('H0704')) { throw "Session AF old-in-needs run expected H0704, got $($RunSessionTOldInNeeds.Output)" }
 
   $RunSessionTBuilderLen = Read-NativeOutputWithExit 'run Session T builder list_len contract fixture' $Hum @('run', 'examples/probes/list_builder.hum', '--entry', 'builder_demo')
   if ($RunSessionTBuilderLen.ExitCode -ne 0) { throw "Session T builder list_len run expected exit 0, got $($RunSessionTBuilderLen.ExitCode)" }
   if ($RunSessionTBuilderLen.Output.Contains('list_len(result) == 3') -and $RunSessionTBuilderLen.Output.Contains('H0701')) {
     if ($RunSessionTBuilderLen.Output -match 'H0701[^\r\n]*list_len') { throw "Session T list_len contract must be checked, not prose: $($RunSessionTBuilderLen.Output)" }
   }
+
+  foreach ($Positive in @(
+    @{ File = 'examples/probes/word_count.hum'; Entry = 'count_hum_literal'; Expected = '2' },
+    @{ File = 'examples/probes/list_builder.hum'; Entry = 'builder_demo'; Expected = '[parse, check, run]' },
+    @{ File = 'examples/probes/element_views.hum'; Entry = 'element_view_before_growth'; Expected = 'parse' }
+  )) {
+    $RunPredicateV2 = Read-NativeOutputWithExit "run Session AF positive $($Positive.Entry)" $Hum @('run', $Positive.File, '--entry', $Positive.Entry)
+    if ($RunPredicateV2.ExitCode -ne 0 -or $RunPredicateV2.Output.Trim() -ne $Positive.Expected) { throw "Session AF positive $($Positive.Entry) expected $($Positive.Expected), got $($RunPredicateV2.Output)" }
+    if ($RunPredicateV2.Output.Contains('H0701') -or $RunPredicateV2.Output.Contains('H0704')) { throw "Session AF positive $($Positive.Entry) must be executable without H0701/H0704" }
+  }
+
+  foreach ($Wrong in @(
+    @{ File = 'fixtures/run/session_af_predicate_v2_wrong_count_fail.hum'; Entry = 'wrong_count' },
+    @{ File = 'fixtures/run/session_af_predicate_v2_wrong_content_fail.hum'; Entry = 'wrong_content' },
+    @{ File = 'fixtures/run/session_af_predicate_v2_wrong_text_fail.hum'; Entry = 'wrong_text' },
+    @{ File = 'fixtures/run/session_af_predicate_v2_valid_neighbor_fail.hum'; Entry = 'valid_neighbor' }
+  )) {
+    $RunPredicateV2Wrong = Read-NativeOutputWithExit "run Session AF wrong implementation $($Wrong.Entry)" $Hum @('run', $Wrong.File, '--entry', $Wrong.Entry)
+    if ($RunPredicateV2Wrong.ExitCode -ne 1 -or -not $RunPredicateV2Wrong.Output.Contains('H0703') -or $RunPredicateV2Wrong.Output.Contains('H0704')) { throw "Session AF wrong implementation must be exactly H0703: $($RunPredicateV2Wrong.Output)" }
+  }
+
+  $PredicateV2Human = Read-NativeOutputWithExit 'full type Session AF typed rejection' $Hum @('full-type-check', 'fixtures/full_type_check/session_af_predicate_v2_text_uint_fail.hum')
+  $PredicateV2Json = Read-NativeOutputWithExit 'full type JSON Session AF typed rejection' $Hum @('full-type-check', '--format', 'json', 'fixtures/full_type_check/session_af_predicate_v2_text_uint_fail.hum')
+  foreach ($Evidence in @($PredicateV2Human.Output, $PredicateV2Json.Output)) {
+    foreach ($Expected in @('H0704', 'rejected_executable_predicate_semantics_v2', 'cross_type_comparison_v2', 'Text', 'integer literal', 'intent_span', 'offending_span')) {
+      if (-not $Evidence.Contains($Expected)) { throw "Session AF H0704 evidence missing ${Expected}: $Evidence" }
+    }
+  }
+  $PredicateV2Run = Read-NativeOutputWithExit 'run Session AF typed rejection preflight' $Hum @('run', 'fixtures/full_type_check/session_af_predicate_v2_text_uint_fail.hum', '--entry', 'wrong_type', '--args', 'text')
+  if ($PredicateV2Run.ExitCode -ne 2 -or -not $PredicateV2Run.Output.Contains('H0704') -or $PredicateV2Run.Output.Contains('H0701') -or $PredicateV2Run.Output.Contains('runtime trap')) { throw "Session AF typed rejection must be H0704 preflight without prose/trap: $($PredicateV2Run.Output)" }
+
+  foreach ($Prose in @('fixtures/run/session_af_predicate_v2_prose_warning.hum','fixtures/run/session_af_predicate_v2_quoted_prose_warning.hum')) {
+    $PredicateV2Prose = Read-NativeOutputWithExit 'run Session AF honest prose' $Hum @('run', $Prose)
+    if ($PredicateV2Prose.ExitCode -ne 0 -or -not $PredicateV2Prose.Output.Contains('H0701') -or $PredicateV2Prose.Output.Contains('H0704')) { throw "Session AF prose boundary must remain H0701: $($PredicateV2Prose.Output)" }
+  }
+
+  foreach ($Malformed in @(
+    @{ File = 'fixtures/run/session_af_predicate_v2_malformed_neighbor_fail.hum'; Entry = 'malformed_neighbor' },
+    @{ File = 'fixtures/run/session_af_predicate_v2_lone_bang_fail.hum'; Entry = 'lone_bang' }
+  )) {
+    $PredicateV2Malformed = Read-NativeOutputWithExit 'run Session AF malformed boundary' $Hum @('run', $Malformed.File, '--entry', $Malformed.Entry)
+    if ($PredicateV2Malformed.ExitCode -ne 2 -or -not $PredicateV2Malformed.Output.Contains('H0704') -or $PredicateV2Malformed.Output.Contains('H0701') -or $PredicateV2Malformed.Output.Contains('runtime trap')) { throw "Session AF malformed boundary must be exact H0704: $($PredicateV2Malformed.Output)" }
+  }
+
+  foreach ($PositiveInequality in @(
+    @{ Entry = 'text_inequality'; Expected = 'parse' },
+    @{ Entry = 'list_inequality'; Expected = '[parse, check]' }
+  )) {
+    $Run = Read-NativeOutputWithExit "run Session AF positive inequality $($PositiveInequality.Entry)" $Hum @('run', 'fixtures/run/session_af_predicate_v2_inequality_pass.hum', '--entry', $PositiveInequality.Entry)
+    if ($Run.ExitCode -ne 0 -or $Run.Output.Trim() -ne $PositiveInequality.Expected) { throw "Session AF positive inequality failed: $($Run.Output)" }
+  }
+  foreach ($FalseInequality in @('false_text_inequality', 'false_list_inequality')) {
+    $Run = Read-NativeOutputWithExit "run Session AF false inequality $FalseInequality" $Hum @('run', 'fixtures/run/session_af_predicate_v2_inequality_fail.hum', '--entry', $FalseInequality)
+    if ($Run.ExitCode -ne 1 -or [regex]::Matches($Run.Output, 'error\[H0703\]').Count -ne 1 -or $Run.Output.Contains('H0704')) { throw "Session AF false inequality must be exactly H0703: $($Run.Output)" }
+  }
+
+  $PredicateV2Places = 'fixtures/full_type_check/session_af_predicate_v2_places_fail.hum'
+  foreach ($SurfaceName in @('resolve', 'type-env', 'type-check', 'core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutputWithExit "Session AF structured place facts $SurfaceName" $Hum @($SurfaceName, '--format', 'json', $PredicateV2Places)
+    if ($Surface.ExitCode -ne 0) { throw "Session AF place fixture unexpectedly blocked $SurfaceName" }
+    Assert-Json "Session AF structured place facts $SurfaceName" $Surface.Output
+    foreach ($Expected in @('predicate_place_facts', 'scope_id', 'root_definition_id', 'definition_id', 'resolution', 'eligibility', 'missing_value', 'helper_task', 'text_value', 'result')) {
+      if (-not $Surface.Output.Contains($Expected)) { throw "Session AF $SurfaceName place facts missing $Expected" }
+    }
+  }
+  $PlaceFullType = Read-NativeOutputWithExit 'Session AF structured place facts full type' $Hum @('full-type-check', '--format', 'json', $PredicateV2Places)
+  if ($PlaceFullType.ExitCode -ne 1) { throw 'Session AF place fixture must block full type' }
+  Assert-Json 'Session AF structured place facts full type' $PlaceFullType.Output
+  foreach ($Expected in @('"places"', 'scope_id', 'root_definition_id', 'definition_id', 'resolution', 'eligibility', 'predicate_place_unresolved_v2', 'predicate_place_ineligible_v2', 'cross_type_comparison_v2')) {
+    if (-not $PlaceFullType.Output.Contains($Expected)) { throw "Session AF full type place facts missing $Expected" }
+  }
+  $CrossType = @((($PlaceFullType.Output | ConvertFrom-Json).predicate_facts) | Where-Object { $_.reason -eq 'cross_type_comparison_v2' })
+  if ($CrossType.Count -ne 1 -or $CrossType[0].offending_span.column -le $CrossType[0].places[0].span.column) { throw 'Session AF cross-type H0704 must blame the mismatched right operand, not its left place or operator' }
+  $PlaceGraph = Read-NativeOutputWithExit 'Session AF structured place facts graph' $Hum @('graph', $PredicateV2Places)
+  if ($PlaceGraph.ExitCode -ne 0) { throw 'Session AF place fixture graph must remain available' }
+  Assert-Json 'Session AF structured place facts graph' $PlaceGraph.Output
+  if (-not $PlaceGraph.Output.Contains('predicate_place_facts') -or -not $PlaceGraph.Output.Contains('missing_value')) { throw 'Session AF graph must expose structured predicate place facts' }
+  foreach ($MalformedPlace in @('item..done == true', '.item == true', 'item. == true')) {
+    if (-not $PlaceFullType.Output.Contains($MalformedPlace)) { throw "Session AF malformed place matrix missing $MalformedPlace" }
+  }
+
+  $Aggregate = Read-NativeOutputWithExit 'run Session AF aggregate malformed candidates' $Hum @('run', 'fixtures/full_type_check/session_af_predicate_v2_boundary_fail.hum', '--entry', 'malformed_boundaries')
+  if ($Aggregate.ExitCode -ne 2 -or [regex]::Matches($Aggregate.Output, 'error\[H0704\]').Count -ne 19 -or $Aggregate.Output.Contains('runtime trap')) { throw "Session AF runtime must aggregate all 19 independent H0704 rows exactly once: $($Aggregate.Output)" }
+
+  $Reachable = Read-NativeChannelsWithExit 'run Session AF reachable malformed callee before output' $Hum @('run', 'fixtures/run/session_af_predicate_v2_reachable_callee_fail.hum', '--allow', 'stdout.write')
+  if ($Reachable.ExitCode -ne 2 -or $Reachable.Stdout -ne '' -or [regex]::Matches($Reachable.Stderr, 'error\[H0704\]').Count -ne 1 -or $Reachable.Stderr.Contains('runtime trap')) { throw 'Session AF reachable malformed callee must reject with exactly one H0704 and exit 2 before output or any generic trap' }
+  $MixedPredicateTypeJson = Read-NativeOutputWithExit 'full type Session AF mixed predicate and body type failure' $Hum @('full-type-check', '--format', 'json', 'fixtures/run/session_af_predicate_v2_mixed_full_type_fail.hum')
+  if ($MixedPredicateTypeJson.ExitCode -ne 1) { throw 'Session AF mixed fixture must block full type' }
+  Assert-Json 'full type Session AF mixed predicate and body type failure' $MixedPredicateTypeJson.Output
+  $MixedPredicateTypeParsed = $MixedPredicateTypeJson.Output | ConvertFrom-Json
+  $MixedH0704 = @($MixedPredicateTypeParsed.predicate_facts | Where-Object { $_.diagnostic_code -eq 'H0704' })
+  if ($MixedPredicateTypeParsed.summary.rejected_statements -ne 1 -or $MixedPredicateTypeParsed.summary.unchecked_statements -ne 0 -or $MixedPredicateTypeParsed.summary.unsupported_statements -ne 0 -or $MixedH0704.Count -ne 1 -or $MixedPredicateTypeParsed.summary.blocking_issues -ne 2) { throw 'Session AF mixed fixture must contain exactly one rejected body statement and one H0704 with no third blocker' }
+  $MixedPredicateType = Read-NativeChannelsWithExit 'run Session AF mixed predicate and full-type failure' $Hum @('run', 'fixtures/run/session_af_predicate_v2_mixed_full_type_fail.hum')
+  if ($MixedPredicateType.ExitCode -ne 1 -or $MixedPredicateType.Stdout -ne '' -or -not $MixedPredicateType.Stderr.Contains('rejected_statement_type_mismatch_v0') -or -not $MixedPredicateType.Stderr.Contains('H0704') -or $MixedPredicateType.Stderr.Contains('runtime trap')) { throw 'Session AF mixed full-type failures must remain exit 1 and preserve exactly the predicate and independent type evidence without a trap' }
 
   $RunSessionVWriteThrough = Read-NativeOutput 'run Session V writable alias write-through fixture' $Hum @('run', 'examples/probes/writable_field_aliases.hum', '--entry', 'write_x_through_alias', '--args', '{x:1,y:2}')
   if ($RunSessionVWriteThrough.Trim() -ne '{x: 9, y: 2}') { throw "Session V write-through expected {x: 9, y: 2}, got $RunSessionVWriteThrough" }
@@ -1455,7 +1550,7 @@ try {
   Assert-Json 'Session AB graph positive' $SessionABGraph
   $SessionABTypeEnv = Read-NativeOutput 'Session AB reserved Path type' $Hum @('type-env', '--format', 'json', $SessionABPositive)
   if (-not $SessionABTypeEnv.Contains('"text": "Path"') -or -not $SessionABTypeEnv.Contains('"status": "reserved_type_v0"')) { throw 'Session AB Path must be a reserved opaque type root' }
-  $SessionABProse = 'fixtures/full_type_check/session_ab_path_comparison_prose_pass.hum'
+  $SessionABProse = 'fixtures/full_type_check/session_af_path_trailing_prose_fail.hum'
   $SessionABProseHuman = Read-NativeOutputWithExit 'check Session AB comparison-shaped Path prose human' $Hum @('check', $SessionABProse)
   $SessionABProseJson = Read-NativeOutputWithExit 'check Session AB comparison-shaped Path prose JSON' $Hum @('check', '--format', 'json', $SessionABProse)
   if ($SessionABProseHuman.ExitCode -ne 0 -or $SessionABProseHuman.Output.Contains('H0630') -or $SessionABProseJson.ExitCode -ne 0) { throw 'Session AB comparison-shaped unchecked prose must remain statically unblocked without H0630' }
@@ -1463,10 +1558,20 @@ try {
   $SessionABProseParsed = $SessionABProseJson.Output | ConvertFrom-Json
   $SessionABProseDiagnostics = @($SessionABProseParsed.diagnostics)
   if ($SessionABProseDiagnostics.Count -ne 0) { throw 'Session AB comparison-shaped prose must have no static source diagnostic' }
-  foreach ($Command in @('resolve', 'type-env', 'type-check', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+  foreach ($Command in @('resolve', 'type-env', 'type-check')) {
     $Surface = Read-NativeOutputWithExit "Session AB comparison-shaped prose $Command" $Hum @($Command, '--format', 'json', $SessionABProse)
     if ($Surface.ExitCode -ne 0 -or $Surface.Output.Contains('H0630')) { throw "Session AB comparison-shaped prose must remain unblocked in $Command" }
     Assert-Json "Session AB comparison-shaped prose $Command" $Surface.Output
+  }
+  foreach ($Command in @('core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutputWithExit "Session AF comparison-shaped Path malformed Core $Command" $Hum @($Command, '--format', 'json', $SessionABProse)
+    if ($Surface.ExitCode -ne 0 -or -not $Surface.Output.Contains('blocked_contract_predicate_v2') -or $Surface.Output.Contains('H0630')) { throw "Session AF comparison-shaped Path malformed contract must preserve a Core blocker in $Command" }
+    Assert-Json "Session AF comparison-shaped Path malformed Core $Command" $Surface.Output
+  }
+  foreach ($Command in @('full-type-check', 'effect-check', 'ownership-check', 'resource-check')) {
+    $Surface = Read-NativeOutputWithExit "Session AF comparison-shaped Path malformed $Command" $Hum @($Command, '--format', 'json', $SessionABProse)
+    if ($Surface.ExitCode -ne 1 -or $Surface.Output.Contains('H0630')) { throw "Session AF comparison-shaped Path malformed contract must block $Command without H0630" }
+    Assert-Json "Session AF comparison-shaped Path malformed $Command" $Surface.Output
   }
   $SessionABSeparator = [string][char]92
   $SessionABMissingPath = 'C' + ':' + $SessionABSeparator + 'hum-session-ab' + $SessionABSeparator + 'missing.bin'
@@ -1506,7 +1611,7 @@ try {
     if ($SessionABRun.ExitCode -ne 0 -or $SessionABRun.Stdout -ne 'path accepted' -or $SessionABRun.Stderr -ne '') { throw 'Session AB positive must emit only the fixed literal without probing or displaying Path' }
 
     $SessionABProseRun = Read-NativeChannelsWithExit 'run Session AB comparison-shaped Path prose' $Hum @('run', $SessionABProse, '--args', $SessionABArgument)
-    if ($SessionABProseRun.ExitCode -ne 0 -or $SessionABProseRun.Stdout -ne '' -or [regex]::Matches($SessionABProseRun.Stderr, 'warning\[H0701\]').Count -ne 1 -or $SessionABProseRun.Stderr.Contains('H0630') -or $SessionABProseRun.Stderr.Contains('runtime trap')) { throw 'Session AB comparison-shaped prose runtime must warn H0701 without inspecting Path' }
+    if ($SessionABProseRun.ExitCode -ne 2 -or $SessionABProseRun.Stdout -ne '' -or -not $SessionABProseRun.Stderr.Contains('H0704') -or $SessionABProseRun.Stderr.Contains('H0630') -or $SessionABProseRun.Stderr.Contains('runtime trap')) { throw 'Session AF comparison-shaped Path malformed contract must block as H0704 with exit 2 without inspecting Path' }
 
     $SessionABGrant = Read-NativeChannelsWithExit 'run Session AB nonexistent exact grant and deny' $Hum @('run', $SessionABPositive, '--allow', 'stdout.write', $SessionABGrantFlag, $SessionABGrantFlag, '--deny', 'files.read', '--args', $SessionABArgument)
     if ($SessionABGrant.ExitCode -ne 0 -or $SessionABGrant.Stdout -ne 'path accepted' -or $SessionABGrant.Stderr -ne '') { throw 'Session AB nonexistent exact grant must parse idempotently and deny without authorizing a host operation' }

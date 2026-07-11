@@ -134,6 +134,13 @@ An H0906 unsupported-`try` fact lowers only as
 expression, and the shared stable reason. It is never a lowered executable
 operation.
 
+Session AF lowers accepted shared predicate facts as
+`checked_contract_predicate_v2` with a non-null `predicate_ast_v2` expression
+whose root is `predicate_comparison`, and preserves malformed/semantic H0704 facts as
+`blocked_contract_predicate_v2` with the exact shared reason and source status.
+The lowerer consumes the analyzer fact and does not recognize contract strings
+independently.
+
 Lowered V0 operation families include:
 
 - `return`

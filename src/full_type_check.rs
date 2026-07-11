@@ -7,6 +7,7 @@ use crate::core_verify;
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
 use crate::element_place;
 use crate::field_place::{self, FieldTypeMap};
+use crate::predicate::{self, PredicateFact};
 use crate::return_dependency;
 use crate::type_check;
 use crate::typed_failure::{self, FailureCatalog, FailureFact};
@@ -58,6 +59,7 @@ struct FullTypeCheckReport {
     files: usize,
     item_count: usize,
     source_errors: usize,
+    predicates: Vec<PredicateFact>,
 }
 
 struct FullTypeItem {
@@ -119,6 +121,21 @@ struct FileReadTypeIssue {
 
 pub fn full_type_check_has_errors(program: &Program, diagnostics: &[Diagnostic]) -> bool {
     full_type_check_summary(program, diagnostics).blocking_issues > 0
+}
+
+pub fn full_type_check_has_only_predicate_errors(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> bool {
+    let report = build_report(program, diagnostics);
+    report.rejected_predicates() > 0
+        && report.source_errors == 0
+        && report.type_check_summary.resolver_errors == 0
+        && report.type_check_summary.type_errors == 0
+        && report.core_verify_summary.failed_checks == 0
+        && report.rejected_statements() == 0
+        && report.unchecked_statements() == 0
+        && report.unsupported_statements() == 0
 }
 
 pub fn full_type_check_summary(
@@ -239,6 +256,68 @@ pub fn full_type_check_text(program: &Program, diagnostics: &[Diagnostic]) -> St
         }
     }
 
+    if report.predicates.is_empty() {
+        out.push_str("predicate_facts: none\n");
+    } else {
+        out.push_str("predicate_facts:\n");
+        for fact in &report.predicates {
+            out.push_str(&format!(
+                "  {}:{}:{} [{}] task=`{}` section={} reason={} text=`{}`",
+                fact.line_span.file.replace('\\', "/"),
+                fact.line_span.line,
+                fact.line_span.column,
+                fact.status.as_str(),
+                fact.task,
+                fact.section,
+                fact.reason,
+                fact.text
+            ));
+            for place in &fact.places {
+                out.push_str(&format!(
+                    " place=`{}` place_span={}:{}:{} scope={} definition={} root_definition={} resolution={} eligibility={} type={}",
+                    place.text,
+                    place.span.file.replace('\\', "/"),
+                    place.span.line,
+                    place.span.column,
+                    place.scope_id,
+                    place.definition_id.as_deref().unwrap_or("none"),
+                    place.root_definition_id.as_deref().unwrap_or("none"),
+                    place.resolution,
+                    place.eligibility,
+                    place.type_text.as_deref().unwrap_or("unknown")
+                ));
+            }
+            if let Some(expected) = &fact.expected {
+                out.push_str(&format!(" expected={expected}"));
+            }
+            if let Some(actual) = &fact.actual {
+                out.push_str(&format!(" actual={actual}"));
+            }
+            if let Some(operator) = fact.comparison {
+                out.push_str(&format!(" operator={operator}"));
+            }
+            if let (Some(left), Some(right)) = (&fact.left_type, &fact.right_type) {
+                out.push_str(&format!(" left_type={left} right_type={right}"));
+            }
+            if fact.blocks() {
+                out.push_str(&format!(" diagnostic=H0704 help={}", fact.repair()));
+            }
+            if let Some(span) = &fact.intent_span {
+                out.push_str(&format!(
+                    " intent_span={}:{}:{}",
+                    span.file, span.line, span.column
+                ));
+            }
+            if let Some(span) = &fact.offending_span {
+                out.push_str(&format!(
+                    " offending_span={}:{}:{}",
+                    span.file, span.line, span.column
+                ));
+            }
+            out.push('\n');
+        }
+    }
+
     out.push_str("non_claims:\n");
     for non_claim in NON_CLAIMS {
         out.push_str(&format!("  - {non_claim}\n"));
@@ -281,6 +360,7 @@ pub fn full_type_check_json(program: &Program, diagnostics: &[Diagnostic]) -> St
     push_dependency_summaries(&mut out, &report, 2, true);
     push_summary(&mut out, &report, 2, true);
     push_items(&mut out, &report.items, 2, true);
+    push_predicates(&mut out, &report.predicates, 2, true);
     push_string_array(&mut out, 2, "non_claims_v0", NON_CLAIMS, false);
     out.push_str("}\n");
     out
@@ -300,6 +380,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
     let task_returns = task_return_types(program);
     let failure_catalog = FailureCatalog::from_program(program);
     let field_types = field_place::collect_field_types(program);
+    let predicates = predicate::analyze_program(program);
     let mut items = Vec::new();
     for file in &program.files {
         collect_items(
@@ -319,6 +400,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
         files: program.files.len(),
         item_count: count_items(program),
         source_errors,
+        predicates: predicates.facts().to_vec(),
     }
 }
 
@@ -1293,7 +1375,7 @@ impl FullTypeCheckReport {
             "blocked_by_type_errors"
         } else if self.core_verify_summary.failed_checks > 0 {
             "blocked_by_core_verify_errors"
-        } else if self.rejected_statements() > 0 {
+        } else if self.rejected_statements() > 0 || self.rejected_predicates() > 0 {
             "full_type_errors_v0"
         } else if self.unchecked_statements() > 0 || self.unsupported_statements() > 0 {
             "blocked_by_unchecked_body_types_v0"
@@ -1405,7 +1487,145 @@ impl FullTypeCheckReport {
             + self.rejected_statements()
             + self.unchecked_statements()
             + self.unsupported_statements()
+            + self.rejected_predicates()
     }
+
+    fn rejected_predicates(&self) -> usize {
+        self.predicates.iter().filter(|fact| fact.blocks()).count()
+    }
+}
+
+fn push_predicates(out: &mut String, facts: &[PredicateFact], indent: usize, comma: bool) {
+    push_indent(out, indent);
+    push_json_string(out, "predicate_facts");
+    out.push_str(": [\n");
+    for (index, fact) in facts.iter().enumerate() {
+        push_indent(out, indent + 2);
+        out.push_str("{\n");
+        push_string_field(out, indent + 4, "task", &fact.task, true);
+        push_span_field(out, indent + 4, "task_span", &fact.task_span, true);
+        push_string_field(out, indent + 4, "section", &fact.section, true);
+        push_string_field(out, indent + 4, "text", &fact.text, true);
+        push_string_field(
+            out,
+            indent + 4,
+            "predicate_recognition_status",
+            fact.status.as_str(),
+            true,
+        );
+        push_string_field(out, indent + 4, "reason", fact.reason, true);
+        push_string_field(
+            out,
+            indent + 4,
+            "diagnostic_code",
+            if fact.blocks() { "H0704" } else { "none" },
+            true,
+        );
+        push_indent(out, indent + 4);
+        push_json_string(out, "places");
+        out.push_str(": [");
+        for (place_index, place) in fact.places.iter().enumerate() {
+            if place_index > 0 {
+                out.push_str(", ");
+            }
+            out.push('{');
+            push_json_string(out, "text");
+            out.push_str(": ");
+            push_json_string(out, &place.text);
+            out.push_str(", ");
+            push_json_string(out, "span");
+            out.push_str(": {");
+            push_json_string(out, "file");
+            out.push_str(": ");
+            push_json_string(out, &place.span.file.replace('\\', "/"));
+            out.push_str(&format!(
+                ", \"line\": {}, \"column\": {}",
+                place.span.line, place.span.column
+            ));
+            out.push_str("}, ");
+            for (name, value) in [
+                ("scope_id", Some(place.scope_id.as_str())),
+                ("root_definition_id", place.root_definition_id.as_deref()),
+                ("definition_id", place.definition_id.as_deref()),
+                ("resolution", Some(place.resolution)),
+                ("eligibility", Some(place.eligibility)),
+                ("type", place.type_text.as_deref()),
+            ] {
+                push_json_string(out, name);
+                out.push_str(": ");
+                push_json_string(out, value.unwrap_or("none"));
+                if name != "type" {
+                    out.push_str(", ");
+                }
+            }
+            out.push('}');
+        }
+        out.push_str("],\n");
+        push_string_field(
+            out,
+            indent + 4,
+            "expected",
+            fact.expected.as_deref().unwrap_or("none"),
+            true,
+        );
+        push_string_field(
+            out,
+            indent + 4,
+            "actual",
+            fact.actual.as_deref().unwrap_or("none"),
+            true,
+        );
+        push_string_field(
+            out,
+            indent + 4,
+            "comparison_operator",
+            fact.comparison.unwrap_or("none"),
+            true,
+        );
+        push_string_field(
+            out,
+            indent + 4,
+            "left_type",
+            fact.left_type.as_deref().unwrap_or("unknown"),
+            true,
+        );
+        push_string_field(
+            out,
+            indent + 4,
+            "right_type",
+            fact.right_type.as_deref().unwrap_or("unknown"),
+            true,
+        );
+        push_string_field(out, indent + 4, "repair", &fact.repair(), true);
+        push_optional_span_field(
+            out,
+            indent + 4,
+            "intent_span",
+            fact.intent_span.as_ref(),
+            true,
+        );
+        push_optional_span_field(
+            out,
+            indent + 4,
+            "offending_span",
+            fact.offending_span.as_ref(),
+            true,
+        );
+        push_usize_field(
+            out,
+            indent + 4,
+            "delimiter_depth",
+            fact.delimiter_depth,
+            true,
+        );
+        push_span_field(out, indent + 4, "line_span", &fact.line_span, false);
+        push_indent(out, indent + 2);
+        out.push('}');
+        push_comma_newline(out, index + 1 < facts.len());
+    }
+    push_indent(out, indent);
+    out.push(']');
+    push_comma_newline(out, comma);
 }
 
 fn count_items(program: &Program) -> usize {

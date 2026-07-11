@@ -1,0 +1,12 @@
+module fixtures.run.session_af_predicate_v2_wrong_count_fail
+
+task wrong_count() -> UInt {
+  why:
+    prove content count rejects a plausible wrong UInt
+
+  ensures:
+    result == list_count(["hum", "lang", "hum", "agent"], "hum")
+
+  does:
+    return 1
+}

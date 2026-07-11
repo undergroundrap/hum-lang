@@ -5,6 +5,7 @@ use crate::core_lower::{self, CoreLowerItem, CoreLowerOperation, CoreLowerReport
 use crate::core_preview;
 use crate::diagnostic::{Diagnostic, Span};
 use crate::ir_contract;
+use crate::predicate;
 use crate::resolve;
 use crate::type_check;
 use crate::version;
@@ -160,6 +161,7 @@ pub fn core_verify_text(program: &Program, diagnostics: &[Diagnostic]) -> String
         }
     }
 
+    out.push_str(&predicate::analyze_program(program).place_facts_text());
     out
 }
 
@@ -226,6 +228,11 @@ pub fn core_verify_json(program: &Program, diagnostics: &[Diagnostic]) -> String
     push_core_lower_summary(&mut out, &report, 2, true);
     push_items(&mut out, &report, 2, true);
     push_checks(&mut out, &report.checks, 2, true);
+    push_indent(&mut out, 2);
+    push_json_string(&mut out, "predicate_place_facts");
+    out.push_str(": ");
+    out.push_str(&predicate::analyze_program(program).place_facts_json());
+    out.push_str(",\n");
     push_string_array(&mut out, 2, "non_goals_v0", NON_GOALS, false);
     out.push_str("}\n");
     out
@@ -508,7 +515,11 @@ fn verify_operation(
                 "operation_expression",
                 &operation.id,
                 Some(&operation.span),
-                expression.effect_status == core_expr::CORE_EXPRESSION_EFFECT_STATUS,
+                matches!(
+                    expression.effect_status,
+                    core_expr::CORE_EXPRESSION_EFFECT_STATUS
+                        | core_expr::CORE_PREDICATE_EFFECT_STATUS
+                ),
                 "effect_claim_honesty",
                 "expression effects remain not checked",
             );
@@ -622,6 +633,14 @@ fn operation_status_consistent(operation: &CoreLowerOperation) -> bool {
 fn source_status_consistent(operation: &CoreLowerOperation) -> bool {
     match operation.source_status {
         "recognized_v0" => true,
+        "recognized_typed_executable_predicate_v2" => {
+            operation.core_operation == "checked_contract_predicate_v2"
+                && operation.status == "lowered_unverified_operation_v0"
+        }
+        "malformed_executable_predicate_v2" | "rejected_executable_predicate_semantics_v2" => {
+            operation.core_operation == "blocked_contract_predicate_v2"
+                && operation.status == "blocked_operation_v0"
+        }
         "unsupported_v0" => {
             operation.status == "blocked_operation_v0" && operation.expression.is_none()
         }
@@ -643,6 +662,7 @@ fn lowered_operation_family(core_operation: &str) -> bool {
             | "for_index"
             | "loop"
             | "block_close"
+            | "checked_contract_predicate_v2"
     )
 }
 
@@ -654,6 +674,7 @@ fn blocked_operation_family(core_operation: &str) -> bool {
             | "record_construction_field"
             | "contract_context"
             | "test_expectation"
+            | "blocked_contract_predicate_v2"
     )
 }
 
@@ -683,6 +704,7 @@ fn valid_expression_status(status: &str) -> bool {
             | "compound_preview_v0"
             | "contextual_preview_v0"
             | "surface_phrase_preview_v0"
+            | core_expr::CORE_PREDICATE_EXPRESSION_STATUS
     )
 }
 
@@ -692,6 +714,7 @@ fn valid_expression_ast_status(status: &str) -> bool {
         core_expr::CORE_EXPRESSION_AST_STATUS
             | core_expr::CORE_EXPRESSION_CONTEXTUAL_AST_STATUS
             | core_expr::CORE_EXPRESSION_SURFACE_AST_STATUS
+            | core_expr::CORE_PREDICATE_AST_STATUS
     )
 }
 
@@ -701,6 +724,7 @@ fn valid_type_status(status: &str) -> bool {
         core_expr::CORE_EXPRESSION_TYPE_STATUS
             | core_expr::CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_TYPE_STATUS
             | core_expr::CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_MISMATCH_STATUS
+            | core_expr::CORE_PREDICATE_TYPE_STATUS
     )
 }
 

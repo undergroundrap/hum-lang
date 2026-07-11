@@ -375,8 +375,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::UNCHECKED_PROSE_CONTRACT,
         default_severity: Severity::Warning,
-        explanation: "`hum run` saw a `needs:` or `ensures:` line that is honest prose rather than a predicate v1 expression, so it remains visible but unchecked. Predicate v1 is one comparison over parameters, `result`, arithmetic, `list_len(...)`, and `old(...)` of entry-readable parameter places in `ensures:` only.",
-        repair: "Use one canonical comparison such as `b != 0`, `result == a + b`, `result.title == old(item.title)`, or `list_len(result) == 3` when the contract is meant to execute now; keep prose when it is intentionally unchecked.",
+        explanation: "`hum run` saw a meaningful `needs:` or `ensures:` line with no Predicate v2 intent signal, so it remains visible honest prose rather than executable contract text.",
+        repair: "Use one typed Predicate v2 comparison such as `b != 0`, `result.title == old(item.title)`, `result == \"parse\"`, or `result == list_count(items, \"hum\")` when the contract is meant to execute now; keep prose when it is intentionally unchecked.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::NEEDS_CONTRACT_VIOLATION,
@@ -389,6 +389,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         default_severity: Severity::Error,
         explanation: "A runtime `ensures:` predicate evaluated to false after a successful return, so the task implementation broke its own success promise.",
         repair: "Fix the task body or adjust the contract to match the intended result.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::INVALID_EXECUTABLE_PREDICATE,
+        default_severity: Severity::Error,
+        explanation: "A contract line signals executable Predicate v2 intent but has malformed syntax, an ineligible or unresolved place, or an unsupported operand/operator type. It is rejected before evaluation rather than treated as prose.",
+        repair: "Use one complete typed comparison over eligible task parameters or `result`, with exact Text/List Text equality or `list_count(List Text, Text)` where appropriate.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::USE_AFTER_MOVE,

@@ -318,6 +318,14 @@ Milestone 0 keeps normalized contract facts, such as `test_obligations` and
 `evidence_obligations`, separate from raw section lines so tools can choose
 either source-faithful or normalized views.
 
+Session AF annotates existing `needs:`/`ensures:` obligation rows with the
+shared `predicate_recognition_status` and stable predicate reason. This is an
+existing graph relationship extension under `hum.semantic_graph.v0`, not a new
+proof/trust classification or command. The graph also exposes
+`predicate_place_facts`: every syntactic place has an exact span, lexical scope,
+definition identity, resolution, eligibility, and type from the same immutable
+analysis used by the checked reports and runtime.
+
 ## Diagnostics
 
 Diagnostics contain:

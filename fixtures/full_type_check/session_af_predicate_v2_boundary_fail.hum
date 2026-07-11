@@ -1,0 +1,30 @@
+module fixtures.full_type_check.session_af_predicate_v2_boundary_fail
+
+task malformed_boundaries(items: List Text) -> UInt {
+  why:
+    pin malformed Predicate v2 ownership
+
+  ensures:
+    result = 2
+    result === 2
+    result ! = 2
+    result ! 2
+    result!2
+    result <> 2
+    list_count (items, "hum") == result
+    list_count(items) == result
+    old (result) == result
+    result == ["parse"
+    result == ["parse")]
+    (result == 2
+    result == "parse
+    result == "parse""
+    @result == 2
+    , result == 2
+    == result
+    result == 2 matching words
+    list_counted(items, "hum") == result
+
+  does:
+    return 2
+}

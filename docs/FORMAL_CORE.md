@@ -311,7 +311,15 @@ protects: safety/security obligation
 trusts:   explicit unchecked assumption
 ```
 
-Milestone 1 can check only a small part of this. Current executable predicate v0 applies to `needs:` and `ensures:` only: one canonical comparison over task parameters, direct field paths rooted in task parameters, integer/bool literals, arithmetic operands, and `result` or direct field paths rooted in `result` in `ensures:`. Lines outside that grammar remain graph-visible prose and produce an unchecked-contract warning under `hum run`; they are not errors and they are not silently treated as proof.
+Milestone 1 checks one comparison per `needs:` or `ensures:` line. Predicate v2
+preserves numeric/Bool arithmetic, direct eligible places, `old(place)`, and
+`list_len(place)`, and adds exact Text equality/inequality, exact ordered
+`List Text` equality/inequality, and contract-only
+`list_count(List Text, Text) -> UInt`. One shared typed fact lowers accepted
+predicates as a preserved typed comparison AST with lexical place identities,
+and blocks malformed or ill-typed executable candidates with H0704;
+meaningful lines with no executable intent remain graph-visible H0701 prose.
+No recognized predicate is treated as proof or elided.
 
 The graph should still preserve the obligations so future tools do not have to rediscover them.
 

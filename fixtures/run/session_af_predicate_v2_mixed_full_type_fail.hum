@@ -1,0 +1,17 @@
+app predicate_and_body_type_failure {
+  why:
+    prove H0704-only exit remapping never hides an independent full-type error
+
+  starts with:
+    run_tool
+
+  task run_tool() -> Unit {
+    why:
+      combine one malformed predicate with one body type mismatch
+    ensures:
+      result = result
+    does:
+      let wrong: UInt = "wrong"
+      return
+  }
+}

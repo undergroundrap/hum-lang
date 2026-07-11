@@ -1,6 +1,6 @@
-app path_contract_prose_probe {
+app path_contract_malformed_probe {
   why:
-    keep comparison-shaped prose unchecked without inspecting opaque Path
+    keep Predicate v2 trailing-prose ownership separate from opaque Path inspection
 
   starts with:
     run_tool

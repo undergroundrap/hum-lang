@@ -280,6 +280,7 @@ Future ranges should be reserved before broad use:
 | `H0701` | warning | unchecked prose contract | `hum run` kept a prose `needs:` or `ensures:` line visible but unchecked. |
 | `H0702` | error | needs contract violation | A runtime `needs:` predicate was false; blame belongs to the caller. |
 | `H0703` | error | ensures contract violation | A runtime `ensures:` predicate was false after success; blame belongs to the task. |
+| `H0704` | error | invalid executable predicate | A signaled Predicate v2 candidate is malformed, unresolved/ineligible, or ill-typed and is rejected before evaluation. |
 
 ### Ownership And Borrowing
 

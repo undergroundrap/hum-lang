@@ -1,0 +1,10 @@
+module fixtures.run.session_af_predicate_v2_prose_warning
+
+task prose_neighbor() -> UInt {
+  why:
+    pin honest non-executable prose ownership
+  ensures:
+    result equals two
+  does:
+    return 2
+}

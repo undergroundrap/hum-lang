@@ -124,6 +124,13 @@ Session W's shared typed-failure analysis maps every H0906 unsupported-`try`
 fact to `core_operation: unsupported_try_expression`, `status: blocked_v0`, and
 the same stable reason. Such a row is not `lowerable_preview_v0`.
 
+Session AF adds contract rows from the shared Predicate v2 fact:
+`checked_contract_predicate_v2` is lowerable preview evidence with the accepted
+comparison AST, typed Bool root, operand children, and structured place atoms,
+`blocked_contract_predicate_v2` preserves the exact H0704 reason, and honest
+prose remains contextual `unchecked_prose_contract_v0`. Core preview does not
+re-parse contract text.
+
 ## Name Preview Shape
 
 `name_preview` is a candidate-local binding/reference preview only. It walks the

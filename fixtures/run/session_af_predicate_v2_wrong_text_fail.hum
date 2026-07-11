@@ -1,0 +1,12 @@
+module fixtures.run.session_af_predicate_v2_wrong_text_fail
+
+task wrong_text() -> Text {
+  why:
+    prove exact Text equality rejects a different result
+
+  ensures:
+    result == "parse"
+
+  does:
+    return "check"
+}

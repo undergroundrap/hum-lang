@@ -166,7 +166,7 @@ effect-polymorphism/retain boundary.
 | 9 | Returning a view derived from a parameter | Runs | `examples/probes/first_word.hum` runs `first_word("hum language") -> hum`; graph and ownership JSON expose the dependency from result to `text`; local and non-closed derivations reject with H0805. | Internal references such as `from parser.buffer` remain blocked; the closed derivation set is intentionally tiny. |
 | 10 | Transaction that must commit or roll back exactly once | Runs | `examples/probes/transaction_once.hum` returns `ok`; Session K misuse fixtures reject missing close, double close, and one-branch close with H0803/H0804. | The linear-resource marker is still Transaction-shaped rather than source-visible and general. |
 | 11 | Updating one record field while preserving the rest | Runs | `examples/probes/field_places.hum` accepts direct `set item.done = true` in `complete_item` under the checked preservation contract `result.title == old(item.title)`, which now runs with zero warnings; the run-only fixture `fixtures/run/session_o_complete_item_field_place.hum` prints `{done: true, title: hum}`; `fixtures/ownership_check/session_r_stale_item_field_view_fail.hum` rejects stale `item.done` views with H0807. | Nested places and general aliases are not implemented; record-update expression syntax remains future ergonomics. |
-| 12 | Builder accumulating a growing list then handing it away | Runs | `examples/probes/list_builder.hum` runs `builder_demo() -> [parse, check, run]` under the checked `list_len(result) == 3` contract with the content claim staying honestly prose; `builder_contract_demo() -> 3` fires a checked predicate contract; add-after-finish rejects with H0801; `fixtures/ownership_check/session_s_stale_element_view_fail.hum` rejects stale `items[0]` views after `list_append` with H0807; `examples/probes/element_views.hum` proves copying the element value survives growth. | Retain, list-content predicates, and the broader list stdlib surface are not implemented. |
+| 12 | Builder accumulating a growing list then handing it away | Runs | `examples/probes/list_builder.hum` runs `builder_demo() -> [parse, check, run]` under both checked `list_len(result) == 3` and exact ordered-content Predicate v2 contracts; `builder_contract_demo() -> 3` fires a checked predicate contract; add-after-finish rejects with H0801; `fixtures/ownership_check/session_s_stale_element_view_fail.hum` rejects stale `items[0]` views after `list_append` with H0807; `examples/probes/element_views.hum` proves copying the element value survives growth under exact Text equality. | Retain and the broader list stdlib surface are not implemented. |
 
 ### Honesty locks after Session Q
 
@@ -352,3 +352,14 @@ Bytes, directory input, hashing, manifests, JSON evidence, and evidence-output
 authority. Deferring that wedge costs a flagship real-tool proof; forcing it
 now costs architectural honesty. Predicate v2 first, then the effect bake-off,
 is the decisive next sequence.
+
+### Session AF Predicate v2 payment (uncommitted review state)
+
+Session AF implements the exact three triggered records without changing the
+ownership corpus score: `word_count` checks its content-conditional count with
+contract-only `list_count`, `builder_demo` checks exact ordered `List Text`
+content, and `element_views` checks exact Text equality. Wrong implementations
+fail H0703, and malformed or ill-typed executable candidates fail H0704 rather
+than becoming H0701 or a trap. The three Predicate v2 friction records are
+therefore paid in the uncommitted review worktree; this is not acceptance and
+adds no effect-polymorphism or ownership credit.

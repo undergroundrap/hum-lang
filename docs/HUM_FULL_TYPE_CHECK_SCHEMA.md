@@ -48,6 +48,7 @@ compiler-roadmap checks, and `hum ir-readiness`.
   "dependencies": {},
   "summary": {},
   "typed_items": [],
+  "predicate_facts": [],
   "non_claims_v0": []
 }
 ```
@@ -67,6 +68,17 @@ compiler-roadmap checks, and `hum ir-readiness`.
 - `blocked_by_source_errors`: source diagnostics include errors.
 
 ## Checked V0 Statements
+
+Session AF also reports `predicate_facts` for every meaningful `needs:` and
+`ensures:` line. Each row carries the closed `predicate_recognition_status`,
+reason, task/section/text, intent/offending/line spans, and one structured row
+for every syntactic place. Each place row carries its exact span, lexical scope
+ID, root and final definition IDs when resolved, resolution, contract
+eligibility, and type. It also records expected/actual shape or type,
+delimiter depth, repair, and H0704 ownership. These are lexical/typed
+recognition facts, not decision 0015 proof/trust classifications. Rejected
+facts contribute to `blocking_issues`; accepted facts are the only predicates
+runtime may evaluate.
 
 The V0 gate checks only conservative statement contexts:
 

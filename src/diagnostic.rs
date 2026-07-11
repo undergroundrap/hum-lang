@@ -129,6 +129,8 @@ impl DiagnosticCode {
     pub const UNCHECKED_PROSE_CONTRACT: Self = Self::new("H0701", "unchecked prose contract");
     pub const NEEDS_CONTRACT_VIOLATION: Self = Self::new("H0702", "needs contract violation");
     pub const ENSURES_CONTRACT_VIOLATION: Self = Self::new("H0703", "ensures contract violation");
+    pub const INVALID_EXECUTABLE_PREDICATE: Self =
+        Self::new("H0704", "invalid executable predicate");
 
     pub const USE_AFTER_MOVE: Self = Self::new("H0801", "use after move");
     pub const BORROW_PARAMETER_MUTATION: Self = Self::new("H0802", "borrowed parameter written");

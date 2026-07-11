@@ -5,7 +5,7 @@ task count_hum_literal() -> UInt {
     probe a tiny CLI-shaped word count over a literal text list
 
   ensures:
-    result == 2
+    result == list_count(["hum", "lang", "hum", "agent"], "hum")
 
   cost:
     time: O(words)
@@ -30,7 +30,7 @@ test count_hum_literal counts matching words unit {
     pin word count probe behavior
 
   covers:
-    count_hum_literal ensures result == 2
+    count_hum_literal ensures result == list_count(["hum", "lang", "hum", "agent"], "hum")
 
   does:
     expect count_hum_literal() returns 2
