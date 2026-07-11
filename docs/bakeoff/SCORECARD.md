@@ -1,7 +1,7 @@
 # Ownership Bake-Off Scorecard
 
 Date: 2026-07-08
-Status: Session V implementation retrospective for Work Order 6, pending review
+Status: Session AE implementation retrospective for Work Order 6, pending review
 Corpus: [CORPUS.md](CORPUS.md)
 
 ## Purpose
@@ -284,3 +284,71 @@ ownership safety, borrow soundness, memory-safety completeness, internal
 references, general aliases, stored aliases, nested or element aliases, broad
 disjoint-field projection, broad flow-sensitive borrowing, concurrency
 ownership, mature list semantics, or general linear resources.
+
+### Session AE composition evidence and final burn-down
+
+`examples/probes/integrated_local_app.hum` composes the accepted app boundary,
+one runner-owned opaque `Path`, one exact UTF-8 file read, one replay tick, and
+bounded stdout. Injected adapter evidence runs the complete app twice with
+identical source, native path identity, file bytes, declarations, exact grants,
+denies, and replay input; both runs produce the same two output writes, empty
+diagnostics, `AppSuccess`, and repeat-stable authority events. A changed tick
+selects a different fixed literal, and changed file bytes change the first
+write. Missing-file evidence preserves `IntegratedAppError.file` outside
+`FileReadError.not_found`, with the wrapper call and root-origin source site.
+Exact file, replay, and stdout denies each win over their matching allow and
+record zero calls to the denied adapter.
+
+This is adoption evidence, not a thirteenth ownership program and not a repair
+for any blocked corpus row. The final Work Order 6 burn-down remains exactly
+5/12 fully running plus Program 3 partial. Programs 8, 9, 10, 11, and 12 are
+full. Program 8 remains full only because
+`fixtures/ownership_check/session_v_program8_overlap_write_fail.hum` still
+rejects the pinned overlapping alias/two-write misuse with H0808; neither IO
+composition nor a weaker H0802/H0807 fixture can substitute for that evidence.
+Program 3 still has ordinary same-collection mutation rejection through H0806,
+but still lacks the exact two-list odd-filter positive, retain-style positive
+deletion, and stale retained-item-view rejection after deletion. No TBD,
+degenerate fixture, hosted-adapter success, or IO behavior changes those counts.
+
+Reapplying the three-strike rule leaves ownership at two active records and
+therefore below the trigger: the Transaction-shaped general linear marker and
+internal references. Contracts remain triggered at exactly three active
+Predicate v2 vocabulary records: conditional content/count for `word_count`,
+list content for `builder_demo`, and text-literal equality for `element_views`.
+Decision 0015 paid the separate check-mode policy record; it did not implement
+or erase these three vocabulary demands.
+
+Decision 0014's honesty lock narrows no further in Session AE. The integrated
+app proves capability composition, not general aliases, stored aliases,
+internal references, nested or element aliases, broad disjoint-field
+projection, broad flow-sensitive borrowing, general linear resources, full
+ownership safety, borrow soundness, or memory-safety completeness. Decision
+0015's lock also remains complete: every recognized executable predicate still
+runs, and Hum has no contract classifier, build-mode contract policy, proof
+evidence, elision, or basis for calling a defensive guard unreachable.
+
+### Recommendation after Session AE
+
+Issue a new work order whose first implementation item is the exact Predicate
+v2 repair demanded by the triggered ledger: conditional content/count,
+list-content predicates, and Text-literal equality, each admitted only with
+typed operands and non-degenerate rejection fixtures. Deferring this again
+would leave `word_count`'s intended content-conditional relation represented
+only by the weaker hard-coded checked equality `result == 2`, while
+`builder_demo`'s list-content intent and `element_views`' Text equality remain
+unchecked prose. It would also ignore the repository's three-strike rule at
+the point specifically reserved for reapplication.
+
+After that bounded payment, run the effect-polymorphism bake-off as the next
+architectural decision, using the pinned higher-order corpus rather than
+selecting a model from prose. Deferring it keeps Program 3's retain positive,
+Program 4, closures, callbacks, tasks-as-values, and higher-order standard
+library design blocked. Internal references follow as the next ownership
+repair; deferring them keeps Program 5 and natural parser-held views blocked.
+The researched air-gapped update-validator wedge should then drive the next
+adoption slice, but starting it immediately would either fake or pre-decide
+Bytes, directory input, hashing, manifests, JSON evidence, and evidence-output
+authority. Deferring that wedge costs a flagship real-tool proof; forcing it
+now costs architectural honesty. Predicate v2 first, then the effect bake-off,
+is the decisive next sequence.

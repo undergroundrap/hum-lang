@@ -3778,7 +3778,7 @@ mod tests {
         run_program, run_program_with_adapters, run_program_with_output,
     };
     #[cfg(windows)]
-    use super::{RunAdapters, Value, parse_arg, run_program_with_file_adapters};
+    use super::{RunAdapters, RunReport, Value, parse_arg, run_program_with_file_adapters};
 
     #[derive(Default)]
     struct RecordingOutput {
@@ -3907,6 +3907,198 @@ mod tests {
             policy.deny("files.read").expect("exact file deny");
         }
         policy
+    }
+
+    #[cfg(windows)]
+    fn integrated_policy(path: &OsStr) -> OperatorGrantPolicy {
+        let mut policy = exact_file_policy(path, false);
+        policy.allow("clock.replay").expect("exact replay allow");
+        policy
+    }
+
+    #[cfg(windows)]
+    fn run_integrated_fixture(
+        path: &OsStr,
+        file_text: &str,
+        ticks: &[i64],
+        policy: &OperatorGrantPolicy,
+    ) -> (
+        RunReport,
+        RecordingOutput,
+        RecordingReplay,
+        RecordingLocality,
+        RecordingFileRead,
+    ) {
+        let program = fixture_program(
+            "examples/probes/integrated_local_app.hum",
+            include_str!("../examples/probes/integrated_local_app.hum"),
+        );
+        let mut output = RecordingOutput::default();
+        let mut replay = RecordingReplay::new(ticks);
+        let mut locality = RecordingLocality {
+            result: InjectedLocality::Fixed,
+            calls: 0,
+        };
+        let mut files = RecordingFileRead::success(file_text);
+        let report = run_program_with_file_adapters(
+            &program,
+            None,
+            &[path.to_os_string()],
+            policy,
+            RunAdapters {
+                output: &mut output,
+                replay: &mut replay,
+                file_locality: &mut locality,
+                file: &mut files,
+            },
+        );
+        (report, output, replay, locality, files)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn integrated_local_app_is_repeatable_for_complete_inputs() {
+        let path = OsString::from(format!("C:{}session-ae{}input.txt", '\\', '\\'));
+        let text = "Hum reads exact UTF-8: lambda=λ\n";
+        let policy = integrated_policy(&path);
+
+        let first = run_integrated_fixture(&path, text, &[7], &policy);
+        let second = run_integrated_fixture(&path, text, &[7], &policy);
+
+        assert_eq!(first.0, second.0);
+        assert_eq!(first.0.outcome, RunOutcome::AppSuccess);
+        assert!(first.0.diagnostics.is_empty());
+        assert_eq!(
+            first.1.writes,
+            vec![text.as_bytes().to_vec(), b"seven".to_vec()]
+        );
+        assert_eq!(first.1.calls, 2);
+        assert_eq!(first.2.calls, 1);
+        assert_eq!(first.3.calls, 1);
+        assert_eq!(first.4.calls, 1);
+        assert_eq!(first.4.paths, vec![path.clone()]);
+        assert_eq!(second.1.writes, first.1.writes);
+        assert_eq!(second.2.calls, first.2.calls);
+        assert_eq!(second.3.calls, first.3.calls);
+        assert_eq!(second.4.calls, first.4.calls);
+
+        let changed_tick = run_integrated_fixture(&path, text, &[8], &policy);
+        assert_eq!(changed_tick.0.outcome, RunOutcome::AppSuccess);
+        assert_eq!(
+            changed_tick.1.writes,
+            vec![text.as_bytes().to_vec(), b"other".to_vec()]
+        );
+
+        let changed_bytes = run_integrated_fixture(&path, "changed input\n", &[7], &policy);
+        assert_eq!(changed_bytes.0.outcome, RunOutcome::AppSuccess);
+        assert_eq!(
+            changed_bytes.1.writes,
+            vec![b"changed input\n".to_vec(), b"seven".to_vec()]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn integrated_local_app_missing_file_keeps_outer_to_root_cause() {
+        let program = fixture_program(
+            "examples/probes/integrated_local_app.hum",
+            include_str!("../examples/probes/integrated_local_app.hum"),
+        );
+        let path = OsString::from(format!("C:{}session-ae{}missing.txt", '\\', '\\'));
+        let mut output = RecordingOutput::default();
+        let mut replay = RecordingReplay::new(&[7]);
+        let mut locality = RecordingLocality {
+            result: InjectedLocality::Fixed,
+            calls: 0,
+        };
+        let mut files = RecordingFileRead::failure(FileReadAdapterError::NotFound);
+        let report = run_program_with_file_adapters(
+            &program,
+            None,
+            std::slice::from_ref(&path),
+            &integrated_policy(&path),
+            RunAdapters {
+                output: &mut output,
+                replay: &mut replay,
+                file_locality: &mut locality,
+                file: &mut files,
+            },
+        );
+        let RunOutcome::AppFailure(chain) = report.outcome else {
+            panic!("expected typed app failure, got {:?}", report.outcome);
+        };
+        assert!(chain.contains("failure: IntegratedAppError.file"));
+        assert!(chain.contains("caused by: FileReadError.not_found"));
+        assert!(chain.contains("while calling `files_read_text`"));
+        assert!(chain.contains("originated at examples/probes/integrated_local_app.hum:33:22"));
+        assert!(!chain.contains("runtime trap"));
+        assert_eq!(locality.calls, 1);
+        assert_eq!(files.calls, 1);
+        assert_eq!(replay.calls, 0);
+        assert_eq!(output.calls, 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn integrated_local_app_exact_denies_precede_their_adapters() {
+        let path = OsString::from(format!("C:{}session-ae{}input.txt", '\\', '\\'));
+        let text = "must remain adapter-bounded";
+
+        let mut file_denied = integrated_policy(&path);
+        file_denied.deny("files.read").expect("exact file deny");
+        let file = run_integrated_fixture(&path, text, &[7], &file_denied);
+        assert!(
+            matches!(&file.0.outcome, RunOutcome::AppFailure(chain) if chain.contains("FileReadError.denied"))
+        );
+        assert_eq!(
+            (file.1.calls, file.2.calls, file.3.calls, file.4.calls),
+            (0, 0, 0, 0)
+        );
+
+        let mut replay_denied = integrated_policy(&path);
+        replay_denied
+            .deny("clock.replay")
+            .expect("exact replay deny");
+        let replay = run_integrated_fixture(&path, text, &[7], &replay_denied);
+        assert!(
+            matches!(&replay.0.outcome, RunOutcome::AppFailure(chain) if chain.contains("ReplayClockError.denied"))
+        );
+        assert_eq!(
+            (
+                replay.1.calls,
+                replay.2.calls,
+                replay.3.calls,
+                replay.4.calls
+            ),
+            (0, 0, 1, 1)
+        );
+
+        let mut output_denied = integrated_policy(&path);
+        output_denied
+            .deny("stdout.write")
+            .expect("exact output deny");
+        let output = run_integrated_fixture(&path, text, &[7], &output_denied);
+        assert!(
+            matches!(&output.0.outcome, RunOutcome::AppFailure(chain) if chain.contains("OutputError.denied"))
+        );
+        assert_eq!(
+            (
+                output.1.calls,
+                output.2.calls,
+                output.3.calls,
+                output.4.calls
+            ),
+            (0, 1, 1, 1)
+        );
+
+        for report in [&file.0, &replay.0, &output.0] {
+            assert!(report.authority_events.iter().any(|event| {
+                event.operator_allow_present
+                    && event.operator_deny_present
+                    && event.effective_decision == "deny"
+                    && !event.adapter_called
+            }));
+        }
     }
 
     #[cfg(windows)]

@@ -552,3 +552,86 @@ lifetime. General aliases, stored or passed aliases, nested/element aliases,
 internal references, broad disjoint-field projection, broad flow-sensitive
 borrowing, full ownership safety, borrow soundness, and memory-safety
 completeness remain unimplemented and unclaimed.
+
+## Session AE integrated-app friction and Work Order 6 closeout
+
+The integrated evidence is `examples/probes/integrated_local_app.hum`. It is a
+real composition probe for accepted capability slices, not ownership-corpus
+coverage. Its implementation friction is recorded by category so adapter and
+threat-model limits are not laundered into language claims.
+
+friction:
+  category: language gap
+  program: examples/probes/integrated_local_app.hum:35
+  wanted: emit file content together with a replay-derived explanatory value
+  forced: perform separate immediate writes and select only fixed Text literals because Text concatenation, formatting, interpolation, and UInt-to-Text conversion are absent
+  severity: awkward
+  indicts: text-output-language
+  proposal: decide Text/Bytes/OsText boundaries and formatting only after evidence distinguishes allocation, encoding, and effect costs
+
+friction:
+  category: bootstrap-adapter limit
+  program: examples/probes/integrated_local_app.hum:33
+  wanted: run one exact UTF-8 read as a portable application boundary
+  forced: use the Windows-only threat-scoped fixed_local_v0 adapter; unsupported or unclassified hosts fail closed before candidate access
+  severity: blocked
+  indicts: bootstrap-file-adapter
+  proposal: retain the bootstrap limitation until a separate portable filesystem and target-availability design is authorized
+
+friction:
+  category: threat-model exclusion
+  program: docs/decisions/0017-adopt-structural-app-authority-boundary.md fixed_local_v0 amendment
+  wanted: claim that exact grants plus locality checking form a complete filesystem sandbox
+  forced: exclude deceptive kernels, drivers, firmware, hypervisors, and concurrent mutation; the evidence proves only the documented threat-scoped observation and access order
+  severity: blocked
+  indicts: filesystem-containment
+  proposal: require an explicit sandbox and race-containment design before making hostile-process or complete-filesystem claims
+
+friction:
+  category: deliberately deferred convenience
+  program: examples/probes/integrated_local_app.hum:35
+  wanted: write a durable machine-readable evidence dossier for a real offline tool
+  forced: emit only bounded stdout because directories, file writes, JSON IO, hashing, manifests, and evidence-directory output are deliberately absent
+  severity: awkward
+  indicts: adoption-tooling
+  proposal: let the pinned air-gapped update-validator wedge sequence these features without smuggling them into the Session AE composition proof
+
+Reapplying the three-strike rule to every active unresolved record at Work Order
+6 close gives:
+
+| Indicted area | Active count | Records | Three-strike result |
+| --- | ---: | --- | --- |
+| ownership | 2 | Transaction-shaped general linear marker; internal-reference `from parser.buffer`. | Not triggered. Session AE adds no ownership evidence or ownership corpus credit. |
+| contracts | 3 | Predicate v2 conditional content/count for `word_count`; list content for `builder_demo`; Text-literal equality for `element_views`. | Triggered at exactly three. Decision 0015 resolved check-mode policy only; a new work order must carry the bounded Predicate v2 response. |
+| stdlib | 1 partial | Append exists; retain, capacity/profile behavior, and richer list surface remain. | Not triggered; retain remains effect-polymorphism-gated. |
+| core-body-grammar | 1 | Standalone close/effect calls require throwaway bindings. | Not triggered. |
+| checker | 1 | Contract predicate operand type confusion can still generic-trap. | Not triggered; Predicate v2 must not widen this gap. |
+| text-output-language | 1 | Integrated output requires separate writes and fixed literals. | Not triggered. |
+| bootstrap-file-adapter | 1 | Exact read is Windows-only and threat-scoped. | Not triggered; this is an adapter limit, not portable filesystem support. |
+| filesystem-containment | 1 | Complete sandbox and concurrent-mutation protection are excluded. | Not triggered; this is a threat-model boundary, not a shipped safety claim. |
+| adoption-tooling | 1 | No directories, writes, JSON, hashing, manifests, or evidence dossier. | Not triggered; convenience remains deliberately deferred. |
+
+Decision 0014's honesty lock narrows no further: Session AE proves composition,
+not internal references, general aliases, stored aliases, nested/element
+aliases, broad disjoint-field projection, broad flow-sensitive borrowing,
+general linear resources, full ownership safety, borrow soundness, or
+memory-safety completeness. Decision 0015 also remains fully claim-locked:
+every recognized executable predicate runs, and no classifier, build-mode
+policy, proof evidence, contract elision, or unreachable-guard conclusion
+exists.
+
+Recommendation: the next work order must pay the triggered exact-three
+Predicate v2 vocabulary debt first, then run the researched
+effect-polymorphism bake-off. Deferring Predicate v2 leaves `word_count`'s
+intended content-conditional relation represented only by the weaker hard-coded
+checked equality `result == 2`, while `builder_demo`'s list-content intent and
+`element_views`' Text equality remain unchecked prose; that still violates the
+ledger mandate. Deferring effect polymorphism keeps Program 3's retain
+positive, Program 4, closures, callbacks, tasks-as-values, and higher-order
+stdlib blocked. Internal references remain the next ownership repair; their
+deferral keeps Program 5 and natural parser state blocked. The air-gapped
+update-validator wedge remains the next adoption destination, but beginning it
+before those decisions would prebuild Bytes, directory input, hashing,
+manifests, JSON, and evidence-output authority without their own pinned gates.
+Work Order 6 ends with the integrated evidence; no later session is implicitly
+authorized.

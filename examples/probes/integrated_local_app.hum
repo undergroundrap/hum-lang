@@ -1,0 +1,43 @@
+type IntegratedAppError {
+  code: Text
+}
+
+app integrated_local_app {
+  why:
+    compose one exact file read, one replay tick, and bounded output
+
+  uses:
+    files.read
+    clock.replay
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Result Unit, IntegratedAppError {
+    why:
+      read the runner-owned file and select one fixed replay literal
+
+    uses:
+      files.read
+      clock.replay
+      stdout.write
+
+    fails when:
+      exact file reading, replay input, or bounded output fails
+
+    allocates:
+      one bounded file buffer and up to one causal wrapper frame
+
+    does:
+      let text = try files_read_text(input) or fail IntegratedAppError.file
+      let tick = try clock_replay_tick() or fail IntegratedAppError.replay
+      let file_written = try stdout_write(text) or fail IntegratedAppError.output
+      if tick == 7 {
+        let selected_seven = try stdout_write("seven") or fail IntegratedAppError.output
+        return selected_seven
+      }
+      let selected_other = try stdout_write("other") or fail IntegratedAppError.output
+      return selected_other
+  }
+}

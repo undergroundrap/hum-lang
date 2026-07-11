@@ -1593,6 +1593,29 @@ try {
     }
   }
 
+  $SessionAEPositive = 'examples/probes/integrated_local_app.hum'
+  foreach ($Command in @('resolve', 'type-env', 'type-check', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutput "Session AE $Command integrated app" $Hum @($Command, '--format', 'json', $SessionAEPositive)
+    Assert-Json "Session AE $Command integrated app" $Surface
+  }
+  $SessionAEGraph = Read-NativeOutput 'Session AE graph integrated app' $Hum @('graph', $SessionAEPositive)
+  Assert-Json 'Session AE graph integrated app' $SessionAEGraph
+
+  $SessionAEEffect = Read-NativeOutput 'Session AE composed capability rows' $Hum @('effect-check', '--format', 'json', $SessionAEPositive)
+  Assert-Json 'Session AE composed capability rows' $SessionAEEffect
+  $SessionAEEffectParsed = $SessionAEEffect | ConvertFrom-Json
+  $SessionAEOperations = @($SessionAEEffectParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $_.check -in @('source_capability_output_operation', 'source_capability_replay_operation', 'source_capability_file_operation') })
+  foreach ($Capability in @('files.read', 'clock.replay')) {
+    $Rows = @($SessionAEOperations | Where-Object { $_.capability_id -eq $Capability })
+    if ($Rows.Count -ne 1 -or @($Rows[0].route_tasks).Count -ne 2 -or $Rows[0].route_tasks[0] -ne 'integrated_local_app' -or $Rows[0].route_tasks[1] -ne 'run_tool') { throw "Session AE $Capability must preserve one complete integrated source-policy route" }
+  }
+  $SessionAEOutputRows = @($SessionAEOperations | Where-Object { $_.capability_id -eq 'stdout.write' })
+  if ($SessionAEOutputRows.Count -ne 3 -or @($SessionAEOutputRows | Select-Object -ExpandProperty id -Unique).Count -ne 3) { throw 'Session AE must preserve three distinct bounded-output call occurrences' }
+
+  $SessionVProgram8 = Read-NativeOutputWithExit 'Session AE Program 8 pinned overlap honesty lock' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_v_program8_overlap_write_fail.hum')
+  if ($SessionVProgram8.ExitCode -ne 1 -or -not $SessionVProgram8.Output.Contains('"diagnostic_code": "H0808"')) { throw 'Session AE may count Program 8 only while the exact Session V H0808 misuse remains green' }
+  Assert-Json 'Session AE Program 8 pinned overlap honesty lock' $SessionVProgram8.Output
+
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson
   if (-not $CheckJson.Contains('"schema": "hum.check.v0"')) { throw 'check JSON is missing hum.check.v0 schema' }
