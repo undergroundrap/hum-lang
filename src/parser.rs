@@ -339,7 +339,9 @@ impl Parser {
             None => (rest, None),
         };
 
-        let (name, params, trailing) = self.parse_callable_signature(signature, line_number);
+        let signature_column = self.span(line_number).column + "task ".len();
+        let (name, params, trailing) =
+            self.parse_callable_signature(signature, line_number, signature_column);
         self.validate_identifier("task name", &name, IdentifierKind::Value, line_number);
         if !trailing.trim().is_empty() {
             self.diagnostics.push(Diagnostic::warning(
@@ -358,7 +360,9 @@ impl Parser {
     ) -> (String, Vec<Param>, Vec<String>) {
         let rest = header.trim_start_matches("test ").trim();
         if rest.contains('(') {
-            let (name, params, trailing) = self.parse_callable_signature(rest, line_number);
+            let signature_column = self.span(line_number).column + "test ".len();
+            let (name, params, trailing) =
+                self.parse_callable_signature(rest, line_number, signature_column);
             let modifiers = trailing
                 .split_whitespace()
                 .map(str::to_string)
@@ -383,6 +387,7 @@ impl Parser {
         &mut self,
         signature: &str,
         line_number: usize,
+        signature_column: usize,
     ) -> (String, Vec<Param>, String) {
         let Some(open) = signature.find('(') else {
             return (signature.trim().to_string(), Vec::new(), String::new());
@@ -406,18 +411,33 @@ impl Parser {
         let name = signature[..open].trim().to_string();
         let params_text = &signature[open + 1..close];
         let trailing = signature[close + 1..].trim().to_string();
-        let params = self.parse_params(params_text, line_number);
+        let params = self.parse_params(
+            params_text,
+            line_number,
+            signature_column + signature[..open + 1].chars().count(),
+        );
         (name, params, trailing)
     }
 
-    fn parse_params(&mut self, params_text: &str, line_number: usize) -> Vec<Param> {
+    fn parse_params(
+        &mut self,
+        params_text: &str,
+        line_number: usize,
+        params_column: usize,
+    ) -> Vec<Param> {
         let mut params = Vec::new();
         if params_text.trim().is_empty() {
             return params;
         }
 
+        let mut byte_offset = 0;
         for raw_param in params_text.split(',') {
             let param = raw_param.trim();
+            let leading_bytes = raw_param.len() - raw_param.trim_start().len();
+            let column = params_column
+                + params_text[..byte_offset].chars().count()
+                + raw_param[..leading_bytes].chars().count();
+            let param_span = Span::new(self.path.clone(), line_number, column);
             if let Some((name, ty)) = param.split_once(':') {
                 let (permission, name) = parse_param_permission(name.trim());
                 let name = name.to_string();
@@ -431,15 +451,16 @@ impl Parser {
                     name,
                     ty: ty.trim().to_string(),
                     permission,
-                    span: self.span(line_number),
+                    span: param_span,
                 });
             } else {
                 self.diagnostics.push(Diagnostic::error(
                     DiagnosticCode::PARAMETER_MISSING_TYPE,
                     format!("parameter `{param}` is missing a type"),
-                    Some(self.span(line_number)),
+                    Some(param_span),
                 ));
             }
+            byte_offset += raw_param.len() + 1;
         }
         params
     }

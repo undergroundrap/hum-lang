@@ -126,7 +126,16 @@ AA adds exact one-run `clock.replay` consent plus repeatable
 `--replay-tick <UInt>` runner input, bounded to 1024 values. The exact
 `clock_replay_tick() -> Result UInt, ReplayClockError` operation consumes that
 sequence in order. Denial and exhaustion are typed failures; replay values do
-not grant authority, and no host clock is read.
+not grant authority, and no host clock is read. Session AB reserves opaque
+`Path` as a runner-only native identity for at most one structural app start
+parameter. On Windows, one ordinary drive-letter-rooted argument is preserved
+through `args_os`/`OsString` after lexical rejection of relative, traversal,
+namespace, ADS, trailing-dot/space, empty-component, and normalized DOS-device
+spellings. The value has no source construction, display, conversion,
+comparison, storage, return, or path API. One exact native
+`--allow files.read=<path>` payload may be parsed idempotently and exact
+`--deny files.read` wins, but both argument and grant remain
+`locality_unclassified`; neither performs or authorizes metadata or file reads.
 
 ### Type
 

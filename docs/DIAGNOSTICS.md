@@ -267,6 +267,8 @@ Future ranges should be reserved before broad use:
 | `H0626` | error | invalid clock_replay_tick call | The runner-replay built-in receives an argument instead of using its exact zero-argument signature. |
 | `H0627` | error | reserved replay built-in name redeclared | A user task attempts to redeclare the exact `clock_replay_tick` built-in name. |
 | `H0628` | error | replay-reachable recursion unsupported | A recursive call cycle can reach replay input, so Session AA cannot assign a finite exact audit route. |
+| `H0629` | error | invalid opaque Path boundary | `Path` appears outside the one permitted structural app start parameter or in return/storage position. |
+| `H0630` | error | opaque Path cannot be constructed or used in source | Source attempts to construct, pass, inspect, store, return, compare, or transform runner-owned Path identity. |
 
 ### Executable Contracts
 

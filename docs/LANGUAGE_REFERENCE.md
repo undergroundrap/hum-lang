@@ -184,6 +184,21 @@ missing direct authority, invalid arity, reserved-name collision, and
 replay-reachable recursion. This controls one replay input only: it does not
 read `os.clock` or claim whole-program determinism or deterministic scheduling.
 
+Session AB adds one opaque runner-owned `Path` parameter for structural app
+entry. `hum run` preserves that argument through the native OS string boundary;
+it is never reconstructed from `String`. Hum source has no Path literal,
+conversion, display, comparison, concatenation, component, join, parent,
+storage, return, or general library operation. H0629 rejects Path declarations
+outside the one start parameter, and H0630 rejects source construction or use.
+Direct `--entry` cannot inject Path. On Windows the invocation accepts only an
+ordinary drive-letter-rooted lexical candidate and rejects the namespace,
+traversal, ADS, empty-component, trailing-dot/space, and DOS-device classes
+pinned by the Work Order before host access. One exact native
+`--allow files.read=<path>` payload is retained separately from the Path input;
+duplicates are idempotent, distinct payloads reject, and exact
+`--deny files.read` wins. Both facts remain `locality_unclassified` and support
+no metadata or file read. Non-Windows Path execution remains unavailable.
+
 ### `type`
 
 ```hum

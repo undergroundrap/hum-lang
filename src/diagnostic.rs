@@ -116,6 +116,11 @@ impl DiagnosticCode {
         Self::new("H0627", "reserved replay built-in name redeclared");
     pub const REPLAY_RECURSION_UNSUPPORTED: Self =
         Self::new("H0628", "replay-reachable recursion unsupported");
+    pub const INVALID_PATH_BOUNDARY: Self = Self::new("H0629", "invalid opaque Path boundary");
+    pub const PATH_SOURCE_CONSTRUCTION: Self = Self::new(
+        "H0630",
+        "opaque Path cannot be constructed or used in source",
+    );
     pub const UNCHECKED_PROSE_CONTRACT: Self = Self::new("H0701", "unchecked prose contract");
     pub const NEEDS_CONTRACT_VIOLATION: Self = Self::new("H0702", "needs contract violation");
     pub const ENSURES_CONTRACT_VIOLATION: Self = Self::new("H0703", "ensures contract violation");

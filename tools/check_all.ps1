@@ -281,7 +281,7 @@ try {
   foreach ($Code in @('H0610', 'H0611', 'H0612', 'H0613', 'H0614', 'H0615', 'H0616')) {
     if (-not $DiagnosticsJson.Contains("`"code`": `"$Code`"")) { throw "diagnostic catalog JSON is missing $Code" }
   }
-  foreach ($Code in @('H0617', 'H0618', 'H0619', 'H0620', 'H0621', 'H0622', 'H0623', 'H0624', 'H0625', 'H0626', 'H0627', 'H0628')) {
+  foreach ($Code in @('H0617', 'H0618', 'H0619', 'H0620', 'H0621', 'H0622', 'H0623', 'H0624', 'H0625', 'H0626', 'H0627', 'H0628', 'H0629', 'H0630')) {
     if (-not $DiagnosticsJson.Contains("`"code`": `"$Code`"")) { throw "diagnostic catalog JSON is missing authority diagnostic $Code" }
   }
   if (-not $DiagnosticsJson.Contains('"code": "H0701"')) { throw 'diagnostic catalog JSON is missing H0701' }
@@ -1163,7 +1163,7 @@ try {
   if ($SessionZEntry.ExitCode -ne 1 -or $SessionZEntry.Stdout -ne '' -or [regex]::Matches($SessionZEntry.Stderr, 'error\[H0620\]').Count -ne 1) { throw 'Session Z --entry must not bypass the app even with an allow' }
 
   foreach ($Usage in @(
-    @{ Name = 'unknown allow'; Args = @('run', $SessionZPositive, '--allow', 'files.read'); Text = 'does not recognize `files.read`' },
+    @{ Name = 'incomplete file allow'; Args = @('run', $SessionZPositive, '--allow', 'files.read'); Text = 'incomplete grant' },
     @{ Name = 'payload allow'; Args = @('run', $SessionZPositive, '--allow=stdout.write:console'); Text = 'forbidden payload' },
     @{ Name = 'missing allow value'; Args = @('run', $SessionZPositive, '--allow'); Text = 'requires an exact grant' }
   )) {
@@ -1427,8 +1427,103 @@ try {
   if ($SessionAATooMany.ExitCode -ne 2 -or $SessionAATooMany.Stdout -ne '' -or -not $SessionAATooMany.Stderr.Contains('at most 1024')) { throw 'Session AA must reject more than 1024 replay ticks as CLI usage' }
 
   $SessionAAHelp = Read-NativeOutput 'Session AA help text' $Hum @('--help')
-  $SessionAAUsage = '  hum run [--timings] [--allow stdout.write] [--deny stdout.write] [--allow clock.replay] [--deny clock.replay] [--replay-tick <UInt>]... <file> [--entry <task>] [--args ...]'
+  $SessionAAUsage = '  hum run [--timings] [--allow stdout.write] [--deny stdout.write] [--allow clock.replay] [--deny clock.replay] [--allow files.read=<path>] [--deny files.read] [--replay-tick <UInt>]... <file> [--entry <task>] [--args ...]'
   if (-not $SessionAAHelp.Contains($SessionAAUsage)) { throw 'Session AA canonical Usage line must document exact output/replay consent and repeatable bounded runner input' }
+
+  $SessionABPositive = 'examples/probes/opaque_native_path.hum'
+  foreach ($Command in @('resolve', 'type-env', 'type-check', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutput "Session AB $Command positive" $Hum @($Command, '--format', 'json', $SessionABPositive)
+    Assert-Json "Session AB $Command positive" $Surface
+  }
+  $SessionABGraph = Read-NativeOutput 'Session AB graph positive' $Hum @('graph', $SessionABPositive)
+  Assert-Json 'Session AB graph positive' $SessionABGraph
+  $SessionABTypeEnv = Read-NativeOutput 'Session AB reserved Path type' $Hum @('type-env', '--format', 'json', $SessionABPositive)
+  if (-not $SessionABTypeEnv.Contains('"text": "Path"') -or -not $SessionABTypeEnv.Contains('"status": "reserved_type_v0"')) { throw 'Session AB Path must be a reserved opaque type root' }
+  $SessionABProse = 'fixtures/full_type_check/session_ab_path_comparison_prose_pass.hum'
+  $SessionABProseHuman = Read-NativeOutputWithExit 'check Session AB comparison-shaped Path prose human' $Hum @('check', $SessionABProse)
+  $SessionABProseJson = Read-NativeOutputWithExit 'check Session AB comparison-shaped Path prose JSON' $Hum @('check', '--format', 'json', $SessionABProse)
+  if ($SessionABProseHuman.ExitCode -ne 0 -or $SessionABProseHuman.Output.Contains('H0630') -or $SessionABProseJson.ExitCode -ne 0) { throw 'Session AB comparison-shaped unchecked prose must remain statically unblocked without H0630' }
+  Assert-Json 'check Session AB comparison-shaped Path prose JSON' $SessionABProseJson.Output
+  $SessionABProseParsed = $SessionABProseJson.Output | ConvertFrom-Json
+  $SessionABProseDiagnostics = @($SessionABProseParsed.diagnostics)
+  if ($SessionABProseDiagnostics.Count -ne 0) { throw 'Session AB comparison-shaped prose must have no static source diagnostic' }
+  foreach ($Command in @('resolve', 'type-env', 'type-check', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutputWithExit "Session AB comparison-shaped prose $Command" $Hum @($Command, '--format', 'json', $SessionABProse)
+    if ($Surface.ExitCode -ne 0 -or $Surface.Output.Contains('H0630')) { throw "Session AB comparison-shaped prose must remain unblocked in $Command" }
+    Assert-Json "Session AB comparison-shaped prose $Command" $Surface.Output
+  }
+  $SessionABSeparator = [string][char]92
+  $SessionABMissingPath = 'C' + ':' + $SessionABSeparator + 'hum-session-ab' + $SessionABSeparator + 'missing.bin'
+
+  foreach ($Misuse in @(
+    @{ Name = 'multiple Path parameters'; Path = 'fixtures/app_entry/session_ab_multiple_path_parameters_fail.hum'; Code = 'H0629' },
+    @{ Name = 'Text literal Path construction'; Path = 'fixtures/full_type_check/session_ab_text_literal_path_fail.hum'; Code = 'H0630' },
+    @{ Name = 'Path source storage'; Path = 'fixtures/full_type_check/session_ab_path_storage_fail.hum'; Code = 'H0630' },
+    @{ Name = 'Path contract comparison'; Path = 'fixtures/full_type_check/session_ab_path_contract_comparison_fail.hum'; Code = 'H0630' },
+    @{ Name = 'test Path construction'; Path = 'fixtures/full_type_check/session_ab_test_path_construction_fail.hum'; Code = 'H0630' }
+  )) {
+    $Human = Read-NativeOutputWithExit "check Session AB $($Misuse.Name) human" $Hum @('check', $Misuse.Path)
+    $Json = Read-NativeOutputWithExit "check Session AB $($Misuse.Name) JSON" $Hum @('check', '--format', 'json', $Misuse.Path)
+    if ($Human.ExitCode -ne 1 -or [regex]::Matches($Human.Output, "error\[$($Misuse.Code)\]").Count -ne 1 -or $Json.ExitCode -ne 1) { throw "Session AB $($Misuse.Name) must produce exactly one $($Misuse.Code)" }
+    Assert-Json "check Session AB $($Misuse.Name) JSON" $Json.Output
+    $Parsed = $Json.Output | ConvertFrom-Json
+    $Errors = @($Parsed.diagnostics | Where-Object { $_.severity -eq 'error' })
+    if ($Errors.Count -ne 1 -or $Errors[0].code -ne $Misuse.Code -or -not $Human.Output.Contains($Errors[0].message) -or -not $Human.Output.Contains($Errors[0].help)) { throw "Session AB $($Misuse.Name) human/JSON ownership disagrees" }
+    if ($Misuse.Code -eq 'H0629') {
+      $FirstPath = @($Errors[0].related_spans | Where-Object { $_.label -eq 'first Path parameter' })
+      if ($FirstPath.Count -ne 1 -or $FirstPath[0].span.line -ne $Errors[0].span.line -or $FirstPath[0].span.column -eq $Errors[0].span.column) { throw 'Session AB H0629 must blame distinct first and conflicting Path parameter columns' }
+    }
+    foreach ($Command in @('resolve', 'type-env', 'type-check', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+      $Blocked = Read-NativeOutputWithExit "Session AB $($Misuse.Name) $Command" $Hum @($Command, '--format', 'json', $Misuse.Path)
+      if ($Blocked.ExitCode -ne 1) { throw "Session AB $($Misuse.Name) must block $Command" }
+      Assert-Json "Session AB $($Misuse.Name) $Command" $Blocked.Output
+    }
+    $BlockedRun = Read-NativeChannelsWithExit "run Session AB $($Misuse.Name)" $Hum @('run', $Misuse.Path, '--args', $SessionABMissingPath)
+    if ($BlockedRun.ExitCode -ne 1 -or $BlockedRun.Stdout -ne '' -or [regex]::Matches($BlockedRun.Stderr, "error\[$($Misuse.Code)\]").Count -ne 1 -or $BlockedRun.Stderr.Contains('runtime trap')) { throw "Session AB $($Misuse.Name) runtime preflight ownership disagrees" }
+  }
+
+  if ($env:OS -eq 'Windows_NT') {
+    $SessionABArgument = 'C' + ':' + $SessionABSeparator + 'hum-session-ab' + $SessionABSeparator + 'definitely-missing.bin'
+    $SessionABGrantPath = 'C' + ':' + $SessionABSeparator + 'hum-session-ab' + $SessionABSeparator + 'grant-missing.bin'
+    $SessionABGrantFlag = '--allow=files.read=' + $SessionABGrantPath
+    $SessionABRun = Read-NativeChannelsWithExit 'run Session AB opaque Path positive' $Hum @('run', $SessionABPositive, '--allow', 'stdout.write', '--args', $SessionABArgument)
+    if ($SessionABRun.ExitCode -ne 0 -or $SessionABRun.Stdout -ne 'path accepted' -or $SessionABRun.Stderr -ne '') { throw 'Session AB positive must emit only the fixed literal without probing or displaying Path' }
+
+    $SessionABProseRun = Read-NativeChannelsWithExit 'run Session AB comparison-shaped Path prose' $Hum @('run', $SessionABProse, '--args', $SessionABArgument)
+    if ($SessionABProseRun.ExitCode -ne 0 -or $SessionABProseRun.Stdout -ne '' -or [regex]::Matches($SessionABProseRun.Stderr, 'warning\[H0701\]').Count -ne 1 -or $SessionABProseRun.Stderr.Contains('H0630') -or $SessionABProseRun.Stderr.Contains('runtime trap')) { throw 'Session AB comparison-shaped prose runtime must warn H0701 without inspecting Path' }
+
+    $SessionABGrant = Read-NativeChannelsWithExit 'run Session AB nonexistent exact grant and deny' $Hum @('run', $SessionABPositive, '--allow', 'stdout.write', $SessionABGrantFlag, $SessionABGrantFlag, '--deny', 'files.read', '--args', $SessionABArgument)
+    if ($SessionABGrant.ExitCode -ne 0 -or $SessionABGrant.Stdout -ne 'path accepted' -or $SessionABGrant.Stderr -ne '') { throw 'Session AB nonexistent exact grant must parse idempotently and deny without authorizing a host operation' }
+
+    $SessionABFirstPath = 'C' + ':' + $SessionABSeparator + 'one' + $SessionABSeparator + 'missing.bin'
+    $SessionABSecondPath = 'D' + ':' + $SessionABSeparator + 'two' + $SessionABSeparator + 'missing.bin'
+    $SessionABDistinctGrant = Read-NativeChannelsWithExit 'run Session AB distinct file grants' $Hum @('run', $SessionABPositive, ('--allow=files.read=' + $SessionABFirstPath), ('--allow=files.read=' + $SessionABSecondPath), '--args', $SessionABFirstPath)
+    if ($SessionABDistinctGrant.ExitCode -ne 2 -or $SessionABDistinctGrant.Stdout -ne '' -or -not $SessionABDistinctGrant.Stderr.Contains('at most one distinct')) { throw 'Session AB must reject two distinct files.read payloads as CLI usage' }
+
+    foreach ($Rejected in @(
+      @{ Name = 'relative'; Value = ('relative' + $SessionABSeparator + 'file'); Reason = 'not_ordinary_drive_letter_rooted_v0' },
+      @{ Name = 'drive relative'; Value = 'C:file'; Reason = 'not_ordinary_drive_letter_rooted_v0' },
+      @{ Name = 'traversal'; Value = ('C' + ':' + $SessionABSeparator + 'one' + $SessionABSeparator + '..' + $SessionABSeparator + 'file'); Reason = 'dot_or_dot_dot_component_forbidden_v0' },
+      @{ Name = 'empty component'; Value = ('C' + ':' + $SessionABSeparator + 'one' + $SessionABSeparator + $SessionABSeparator + 'file'); Reason = 'empty_path_component_forbidden_v0' },
+      @{ Name = 'UNC'; Value = ($SessionABSeparator + $SessionABSeparator + 'server' + $SessionABSeparator + 'share' + $SessionABSeparator + 'file'); Reason = 'windows_namespace_prefix_forbidden_v0' },
+      @{ Name = 'verbatim'; Value = ($SessionABSeparator + $SessionABSeparator + '?' + $SessionABSeparator + 'C' + ':' + $SessionABSeparator + 'file'); Reason = 'windows_namespace_prefix_forbidden_v0' },
+      @{ Name = 'device'; Value = ($SessionABSeparator + $SessionABSeparator + '.' + $SessionABSeparator + 'C' + ':' + $SessionABSeparator + 'file'); Reason = 'windows_namespace_prefix_forbidden_v0' },
+      @{ Name = 'ADS'; Value = ('C' + ':' + $SessionABSeparator + 'one' + $SessionABSeparator + 'file:stream'); Reason = 'alternate_data_stream_or_extra_colon_forbidden_v0' },
+      @{ Name = 'trailing dot'; Value = ('C' + ':' + $SessionABSeparator + 'one' + $SessionABSeparator + 'name.'); Reason = 'component_trailing_dot_or_space_forbidden_v0' },
+      @{ Name = 'DOS device'; Value = ('C' + ':' + $SessionABSeparator + 'one' + $SessionABSeparator + 'CON.txt'); Reason = 'win32_dos_device_alias_forbidden_v0' }
+    )) {
+      $RejectedRun = Read-NativeChannelsWithExit "run Session AB rejected $($Rejected.Name) Path" $Hum @('run', $SessionABPositive, '--args', $Rejected.Value)
+      if ($RejectedRun.ExitCode -ne 2 -or $RejectedRun.Stdout -ne '' -or -not $RejectedRun.Stderr.Contains($Rejected.Reason) -or -not $RejectedRun.Stderr.Contains('no host access was attempted')) { throw "Session AB rejected $($Rejected.Name) Path must fail before host access" }
+    }
+
+    $SessionABMultipleArgs = Read-NativeChannelsWithExit 'run Session AB multiple Path arguments' $Hum @('run', $SessionABPositive, '--args', $SessionABFirstPath, $SessionABSecondPath)
+    if ($SessionABMultipleArgs.ExitCode -ne 2 -or $SessionABMultipleArgs.Stdout -ne '' -or -not $SessionABMultipleArgs.Stderr.Contains('expects 1 argument(s), got 2')) { throw 'Session AB must reject more than one runtime Path argument' }
+
+    $SessionABDirect = Read-NativeChannelsWithExit 'run Session AB direct entry Path' $Hum @('run', 'fixtures/app_entry/session_ab_direct_entry_path_fail.hum', '--entry', 'run_tool', '--args', $SessionABMissingPath)
+    if ($SessionABDirect.ExitCode -ne 2 -or $SessionABDirect.Stdout -ne '' -or -not $SessionABDirect.Stderr.Contains('constructed only by structural app entry')) { throw 'Session AB direct entry must not construct opaque Path' }
+  }
+
+  if (-not $SessionAAHelp.Contains('--allow files.read=<path>') -or -not $SessionAAHelp.Contains('--deny files.read')) { throw 'Session AB help must document the one exact native file grant and deny' }
 
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson

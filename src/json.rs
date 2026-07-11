@@ -1232,7 +1232,7 @@ type WorkItem {
 
         assert!(json.contains("\"id\": \"file:demo.hum\""));
         assert!(json.contains("\"id\": \"item:demo.hum:1:1:task-add_task\""));
-        assert!(json.contains("\"id\": \"param:demo.hum:1:1:0-title\""));
+        assert!(json.contains("\"id\": \"param:demo.hum:1:15:0-title\""));
         assert!(json.contains("\"id\": \"section:demo.hum:2:3:why\""));
         assert!(json.contains("\"id\": \"line:demo.hum:3:5\""));
     }

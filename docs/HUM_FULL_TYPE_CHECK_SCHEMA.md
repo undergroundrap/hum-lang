@@ -113,6 +113,10 @@ The V0 gate checks only conservative statement contexts:
   `Result UInt, ReplayClockError`; explicit propagation sees success type
   `UInt`, and H0626 rejects any argument under the exact zero-argument
   signature.
+- `Path`: Session AB recognizes the reserved annotation only for the one
+  structural app start parameter. H0629/H0630 source diagnostics block other
+  declarations and every source construction or use before full type; no Path
+  expression, conversion, return, storage, or call typing is claimed.
 - `block_close` and `loop_header`: accepted as statements with no expression
   type obligation.
 

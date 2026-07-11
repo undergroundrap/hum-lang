@@ -1,0 +1,12 @@
+app multiple_path_probe {
+  why:
+    reject more than one runner-owned Path parameter
+
+  starts with:
+    run_tool
+
+  task run_tool(left: Path, right: Path) -> Unit {
+    does:
+      return
+  }
+}

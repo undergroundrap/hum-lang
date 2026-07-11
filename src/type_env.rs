@@ -17,6 +17,7 @@ const RESERVED_TYPE_ROOTS: &[&str] = &[
     "Float",
     "Text",
     "Bytes",
+    "Path",
     "OutputError",
     "ReplayClockError",
     "Result",

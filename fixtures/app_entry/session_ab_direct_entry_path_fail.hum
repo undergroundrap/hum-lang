@@ -1,0 +1,12 @@
+app direct_path_probe {
+  why:
+    reject opaque Path construction through direct entry
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Unit {
+    does:
+      return
+  }
+}

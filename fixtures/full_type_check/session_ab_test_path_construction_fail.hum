@@ -1,0 +1,20 @@
+app path_test_probe {
+  why:
+    reject source construction of an opaque Path from a test body
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Unit {
+    does:
+      return
+  }
+
+  test source_path_construction unit {
+    covers:
+      source construction remains unavailable in tests
+
+    does:
+      expect run_tool("not a native Path") returns Unit
+  }
+}

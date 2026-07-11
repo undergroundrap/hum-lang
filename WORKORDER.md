@@ -2,10 +2,9 @@
 
 Date: 2026-07-09
 Status: active; Sessions V-AA accepted and committed; decision 0017 accepted
-under delegated authority, BDFL veto open; Session AA is commit `77f5f88` and
-passed Ubuntu and Windows CI in workflow `29131490535`; Session AB is next but
-remains unauthorized pending a separate BDFL go signal; issued under delegated
-authority (`docs/GOVERNANCE.md`)
+under delegated authority, BDFL veto open; Session AB implementation is
+complete and uncommitted pending architect-reviewer review; Session AC is
+forbidden; issued under delegated authority (`docs/GOVERNANCE.md`)
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
 sessions.
 Predecessor: Work Order 5, Sessions R-U. Commit `8a6dd1c` was the initially
@@ -1066,6 +1065,7 @@ and passed both CI platforms. Session Z was accepted and committed as
 veto open. CI portability repair `b168a60` passed Ubuntu and Windows CI.
 Session AA was accepted, committed as `77f5f88`, and passed Ubuntu and Windows
 CI in workflow `29131490535`. Sessions V-AA are therefore accepted and
-committed. Session AB is next but remains unauthorized pending a separate BDFL
-go signal.
+committed. Session AB was authorized by a separate BDFL go signal; its
+implementation is complete and uncommitted pending architect-reviewer review.
+Session AC is forbidden.
 Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.

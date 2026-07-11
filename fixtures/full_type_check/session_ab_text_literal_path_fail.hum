@@ -1,0 +1,18 @@
+app path_literal_probe {
+  why:
+    reject source construction of opaque native Path identity
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Unit {
+    does:
+      return
+  }
+
+  task misuse -> Unit {
+    does:
+      run_tool("source Text is not a Path")
+      return
+  }
+}

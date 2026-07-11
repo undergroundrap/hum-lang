@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::ffi::{OsStr, OsString};
 use std::io::{self, Write};
 
 use crate::app_entry;
@@ -10,6 +11,7 @@ use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
 use crate::element_place;
 use crate::field_place;
 use crate::graph::is_meaningful_line_text;
+use crate::native_path::{ValidatedNativePath, validate_native_path};
 use crate::operator_grant::{GrantDecision, OperatorGrantPolicy};
 use crate::return_dependency;
 use crate::typed_failure::{self, FailureCatalog, FailureVariant};
@@ -134,6 +136,7 @@ enum Value {
     Record(BTreeMap<String, Value>),
     List(Vec<Value>),
     Variant(String),
+    Path(ValidatedNativePath),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -397,10 +400,11 @@ impl FailureValue {
 pub fn run_program(program: &Program, entry: Option<&str>, raw_args: &[String]) -> RunReport {
     let mut adapter = DeniedOutputAdapter;
     let mut replay = RunnerReplayAdapter::new(Vec::new());
+    let raw_args = raw_args.iter().map(OsString::from).collect::<Vec<_>>();
     run_program_with_adapters(
         program,
         entry,
-        raw_args,
+        &raw_args,
         &OperatorGrantPolicy::default(),
         &mut adapter,
         &mut replay,
@@ -416,10 +420,11 @@ pub(crate) fn run_program_with_output(
     output_adapter: &mut dyn OutputAdapter,
 ) -> RunReport {
     let mut replay = RunnerReplayAdapter::new(Vec::new());
+    let raw_args = raw_args.iter().map(OsString::from).collect::<Vec<_>>();
     run_program_with_adapters(
         program,
         entry,
-        raw_args,
+        &raw_args,
         grant_policy,
         output_adapter,
         &mut replay,
@@ -429,7 +434,7 @@ pub(crate) fn run_program_with_output(
 pub(crate) fn run_program_with_adapters(
     program: &Program,
     entry: Option<&str>,
-    raw_args: &[String],
+    raw_args: &[OsString],
     grant_policy: &OperatorGrantPolicy,
     output_adapter: &mut dyn OutputAdapter,
     replay_adapter: &mut dyn ReplayAdapter,
@@ -461,7 +466,10 @@ pub(crate) fn run_program_with_adapters(
         authority_events: RefCell::new(Vec::new()),
     };
     let outcome = match interpreter.run(entry, raw_args) {
-        Ok((TaskResult::Returned(value), false)) => RunOutcome::Success(display_value(&value)),
+        Ok((TaskResult::Returned(value), false)) => match display_value(&value) {
+            Ok(display) => RunOutcome::Success(display),
+            Err(message) => RunOutcome::Trap(message),
+        },
         Ok((TaskResult::Returned(Value::Unit), true)) => RunOutcome::AppSuccess,
         Ok((TaskResult::Returned(_), true)) => RunOutcome::Trap(
             "app start returned a non-Unit value after static checking".to_string(),
@@ -655,9 +663,13 @@ enum ContractKind {
 }
 
 impl<'program, 'output> Interpreter<'program, 'output> {
-    fn run(&self, entry: Option<&str>, raw_args: &[String]) -> Result<(TaskResult, bool), String> {
+    fn run(
+        &self,
+        entry: Option<&str>,
+        raw_args: &[OsString],
+    ) -> Result<(TaskResult, bool), String> {
         let (task, app_mode) = self.entry_task(entry)?;
-        let args = self.parse_args(task, raw_args)?;
+        let args = self.parse_args(task, raw_args, app_mode)?;
         self.execute_task(task, args)
             .map(|result| (result, app_mode))
     }
@@ -703,7 +715,12 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             .find_map(|file| find_task_in_items(&file.items, name))
     }
 
-    fn parse_args(&self, task: &Task, raw_args: &[String]) -> Result<Vec<Value>, String> {
+    fn parse_args(
+        &self,
+        task: &Task,
+        raw_args: &[OsString],
+        app_mode: bool,
+    ) -> Result<Vec<Value>, String> {
         if raw_args.len() != task.params.len() {
             return Err(format!(
                 "task `{}` expects {} argument(s), got {}",
@@ -713,10 +730,22 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             ));
         }
 
+        let path_parameters = task
+            .params
+            .iter()
+            .filter(|parameter| parameter.ty.trim() == "Path")
+            .count();
+        if path_parameters > 1 {
+            return Err(format!(
+                "task `{}` declares more than one Path parameter; structural app entry accepts at most one",
+                task.name
+            ));
+        }
+
         task.params
             .iter()
             .zip(raw_args)
-            .map(|(param, raw)| parse_arg(&param.ty, raw))
+            .map(|(param, raw)| parse_arg(&param.ty, raw, app_mode))
             .collect()
     }
 
@@ -956,11 +985,9 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         let Some(section) = task.section("ensures") else {
             return Ok(());
         };
-        let allowed_names = contract_allowed_names(task, ContractKind::Ensures);
         for line in &section.lines {
             let text = line.text.trim();
-            if !is_meaningful_line_text(text) || !validate_predicate_v1(text, &allowed_names, true)
-            {
+            if !is_meaningful_line_text(text) || !predicate_v1_eligible(task, "ensures", text) {
                 continue;
             }
             for inner in collect_old_references(text) {
@@ -997,14 +1024,13 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             return Ok(true);
         };
 
-        let allowed_names = contract_allowed_names(task, kind);
         for line in &section.lines {
             let text = line.text.trim();
             if !is_meaningful_line_text(text) {
                 continue;
             }
 
-            if !validate_predicate_v1(text, &allowed_names, kind == ContractKind::Ensures) {
+            if !predicate_v1_eligible(task, section_name, text) {
                 self.diagnostics.borrow_mut().push(
                     Diagnostic::warning(
                         DiagnosticCode::UNCHECKED_PROSE_CONTRACT,
@@ -2616,6 +2642,16 @@ fn contract_allowed_names(task: &Task, kind: ContractKind) -> BTreeSet<String> {
     names
 }
 
+pub(crate) fn predicate_v1_eligible(task: &Task, section_name: &str, text: &str) -> bool {
+    let kind = match section_name {
+        "needs" => ContractKind::Needs,
+        "ensures" => ContractKind::Ensures,
+        _ => return false,
+    };
+    let allowed_names = contract_allowed_names(task, kind);
+    validate_predicate_v1(text, &allowed_names, kind == ContractKind::Ensures)
+}
+
 fn validate_predicate_v1(text: &str, allowed_names: &BTreeSet<String>, allow_old: bool) -> bool {
     let text = trim_outer_parens(text.trim());
     let Some((left, _op, right)) =
@@ -2759,7 +2795,28 @@ fn find_task_in_items<'a>(items: &'a [Item], name: &str) -> Option<&'a Task> {
     None
 }
 
-fn parse_arg(ty: &str, raw: &str) -> Result<Value, String> {
+fn parse_arg(ty: &str, raw: &OsStr, app_mode: bool) -> Result<Value, String> {
+    if ty.trim() == "Path" {
+        if !app_mode {
+            return Err(
+                "opaque Path arguments can be constructed only by structural app entry; direct `--entry` is forbidden"
+                    .to_string(),
+            );
+        }
+        return validate_native_path(raw).map(Value::Path).map_err(|issue| {
+            format!(
+                "structural app Path argument rejected because {}; reason={}; no host access was attempted",
+                issue.description(),
+                issue.reason()
+            )
+        });
+    }
+    let raw = raw.to_str().ok_or_else(|| {
+        format!(
+            "non-Unicode argument is valid only for an opaque Path parameter, not `{}`",
+            ty.trim()
+        )
+    })?;
     match ty.trim() {
         "Int" => parse_int_literal(raw).map(Value::Int),
         "UInt" => {
@@ -2796,7 +2853,7 @@ fn parse_list_arg(element_ty: &str, raw: &str) -> Result<Value, String> {
 fn parse_list_element(element_ty: &str, raw: &str) -> Result<Value, String> {
     match element_ty {
         "Bool" => parse_bool(raw).map(Value::Bool),
-        "Int" | "UInt" | "Text" => parse_arg(element_ty, raw),
+        "Int" | "UInt" | "Text" => parse_arg(element_ty, OsStr::new(raw), false),
         other => parse_record_arg(other, raw),
     }
 }
@@ -2887,47 +2944,61 @@ fn parse_int_literal(text: &str) -> Result<i64, String> {
 fn as_int(value: &Value) -> Result<i64, String> {
     match value {
         Value::Int(value) => Ok(*value),
-        other => Err(format!("expected Int value, got {}", display_value(other))),
+        other => Err(format!("expected Int value, got {}", value_kind(other))),
     }
 }
 
 fn as_bool(value: &Value) -> Result<bool, String> {
     match value {
         Value::Bool(value) => Ok(*value),
-        other => Err(format!("expected Bool value, got {}", display_value(other))),
+        other => Err(format!("expected Bool value, got {}", value_kind(other))),
     }
 }
 
 fn as_text(value: &Value) -> Result<&str, String> {
     match value {
         Value::Text(value) => Ok(value),
-        other => Err(format!("expected Text value, got {}", display_value(other))),
+        other => Err(format!("expected Text value, got {}", value_kind(other))),
     }
 }
 
-fn display_value(value: &Value) -> String {
+fn display_value(value: &Value) -> Result<String, String> {
     match value {
-        Value::Unit => "()".to_string(),
-        Value::Int(value) => value.to_string(),
-        Value::Bool(value) => value.to_string(),
-        Value::Text(value) => value.clone(),
-        Value::Variant(value) => value.clone(),
+        Value::Unit => Ok("()".to_string()),
+        Value::Int(value) => Ok(value.to_string()),
+        Value::Bool(value) => Ok(value.to_string()),
+        Value::Text(value) => Ok(value.clone()),
+        Value::Variant(value) => Ok(value.clone()),
+        Value::Path(_) => Err("opaque Path values have no display surface".to_string()),
         Value::List(values) => {
             let body = values
                 .iter()
                 .map(display_value)
-                .collect::<Vec<_>>()
+                .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
-            format!("[{body}]")
+            Ok(format!("[{body}]"))
         }
         Value::Record(fields) => {
             let body = fields
                 .iter()
-                .map(|(name, value)| format!("{name}: {}", display_value(value)))
-                .collect::<Vec<_>>()
+                .map(|(name, value)| display_value(value).map(|value| format!("{name}: {value}")))
+                .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
-            format!("{{{body}}}")
+            Ok(format!("{{{body}}}"))
         }
+    }
+}
+
+fn value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Unit => "Unit",
+        Value::Int(_) => "Int",
+        Value::Bool(_) => "Bool",
+        Value::Text(_) => "Text",
+        Value::Record(_) => "record",
+        Value::List(_) => "list",
+        Value::Variant(_) => "variant",
+        Value::Path(_) => "opaque Path",
     }
 }
 
@@ -3271,6 +3342,8 @@ fn outer_parens_wrap(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::{OsStr, OsString};
+
     use crate::ast::Program;
     use crate::check;
     use crate::diagnostic::{DiagnosticCode, Severity};
@@ -3278,8 +3351,8 @@ mod tests {
     use crate::parser;
 
     use super::{
-        OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, ReplayAdapter, RunOutcome,
-        run_program, run_program_with_adapters, run_program_with_output,
+        OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, ReplayAdapter, RunOutcome, Value,
+        parse_arg, run_program, run_program_with_adapters, run_program_with_output,
     };
 
     #[derive(Default)]
@@ -3333,6 +3406,80 @@ mod tests {
         let mut policy = allowed_stdout();
         policy.allow("clock.replay").expect("exact replay allow");
         policy
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn opaque_native_path_entry_runs_fixed_output_without_host_access() {
+        let program = fixture_program(
+            "examples/probes/opaque_native_path.hum",
+            include_str!("../examples/probes/opaque_native_path.hum"),
+        );
+        let mut output = RecordingOutput::default();
+        let mut replay = RecordingReplay::new(&[]);
+        let args = vec![OsString::from(format!(
+            "C:{}hum-session-ab{}definitely-missing.bin",
+            char::from(92),
+            char::from(92)
+        ))];
+        let report = run_program_with_adapters(
+            &program,
+            None,
+            &args,
+            &allowed_stdout(),
+            &mut output,
+            &mut replay,
+        );
+        assert_eq!(report.outcome, RunOutcome::AppSuccess);
+        assert_eq!(output.writes, vec![b"path accepted".to_vec()]);
+        assert_eq!(output.calls, 1);
+        assert_eq!(replay.calls, 0);
+
+        let path_source = include_str!("native_path.rs");
+        let grant_source = include_str!("operator_grant.rs");
+        for forbidden in [
+            concat!(".meta", "data("),
+            concat!("File::", "open("),
+            concat!("canonical", "ize("),
+            concat!("read_", "to_string("),
+            concat!("read_", "to_end("),
+        ] {
+            assert!(!path_source.contains(forbidden));
+            assert!(!grant_source.contains(forbidden));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn runtime_path_value_preserves_non_string_code_units() {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+        let units = vec![
+            u16::from(b'C'),
+            u16::from(b':'),
+            u16::from(b'\\'),
+            u16::from(b'o'),
+            u16::from(b'p'),
+            u16::from(b'a'),
+            u16::from(b'q'),
+            u16::from(b'u'),
+            u16::from(b'e'),
+            u16::from(b'\\'),
+            0xd800,
+        ];
+        let raw = OsString::from_wide(&units);
+        let value = parse_arg("Path", &raw, true).expect("runner-owned native Path");
+        let Value::Path(path) = value else {
+            panic!("expected opaque Path value");
+        };
+        assert_eq!(path.as_os_str().encode_wide().collect::<Vec<_>>(), units);
+        assert_eq!(path.locality(), "locality_unclassified");
+        let direct = format!("C:{}opaque", char::from(92));
+        assert!(
+            parse_arg("Path", OsStr::new(&direct), false)
+                .unwrap_err()
+                .contains("structural app entry")
+        );
     }
 
     #[test]

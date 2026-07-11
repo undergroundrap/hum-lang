@@ -198,6 +198,13 @@ and exercise facts record the selected policy ID, sequence index, and consumed
 tick in memory. No wildcard, persistence, prompt, host clock, runtime JSON, or
 broader capability is added.
 
+Session AB adds no file effect or operation row. The opaque runner-owned Path
+parameter is inert, and H0629/H0630 block invalid declarations or source use
+before effect checking. Exact native `files.read=<path>` operator payloads are
+parsed separately but remain `locality_unclassified` and cannot satisfy or
+exercise `files.read`; no host access or runtime audit event is invented for a
+non-operation.
+
 ## Honesty Rules
 
 - `hum effect-check` must not execute code.

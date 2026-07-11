@@ -343,6 +343,18 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Rewrite the replay-bearing recursion as an explicit bounded loop or a non-recursive task chain so every replay route has a finite auditable call path.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::INVALID_PATH_BOUNDARY,
+        default_severity: Severity::Error,
+        explanation: "Opaque Path identity appears outside the single runner-constructed structural app start parameter, or appears in a return or storage declaration.",
+        repair: "Keep exactly one `Path` parameter only on the structural app start task; Path has no source construction, return, or storage surface in Session AB.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::PATH_SOURCE_CONSTRUCTION,
+        default_severity: Severity::Error,
+        explanation: "Hum source attempts to construct, pass, inspect, store, return, compare, or otherwise use the runner-owned opaque Path value.",
+        repair: "Keep the Path parameter inert and provide it only as one native OS argument to structural `hum run` app entry.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::UNCHECKED_PROSE_CONTRACT,
         default_severity: Severity::Warning,
         explanation: "`hum run` saw a `needs:` or `ensures:` line that is honest prose rather than a predicate v1 expression, so it remains visible but unchecked. Predicate v1 is one comparison over parameters, `result`, arithmetic, `list_len(...)`, and `old(...)` of entry-readable parameter places in `ensures:` only.",

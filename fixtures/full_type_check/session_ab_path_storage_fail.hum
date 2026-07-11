@@ -1,0 +1,13 @@
+app path_storage_probe {
+  why:
+    reject storing or otherwise using opaque Path in source
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Unit {
+    does:
+      let saved = input
+      return
+  }
+}

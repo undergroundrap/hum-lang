@@ -1,0 +1,32 @@
+type PathAppError {
+  code: Text
+}
+
+app opaque_native_path_probe {
+  why:
+    prove lossless runner Path injection without source inspection or host reads
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Result Unit, PathAppError {
+    why:
+      accept one inert native Path and emit only a fixed literal
+
+    uses:
+      stdout.write
+
+    fails when:
+      bounded fixed output fails
+
+    allocates:
+      up to one causal wrapper frame when output fails
+
+    does:
+      let written = try stdout_write("path accepted") or fail PathAppError.output
+      return written
+  }
+}

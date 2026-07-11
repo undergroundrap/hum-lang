@@ -1,0 +1,18 @@
+app path_contract_prose_probe {
+  why:
+    keep comparison-shaped prose unchecked without inspecting opaque Path
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Unit {
+    ensures:
+      input == input according to unchecked prose
+
+    allocates:
+      nothing
+
+    does:
+      return
+  }
+}

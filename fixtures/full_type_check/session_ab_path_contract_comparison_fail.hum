@@ -1,0 +1,15 @@
+app path_contract_probe {
+  why:
+    reject opaque Path comparison in an executable contract
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Unit {
+    ensures:
+      input == input
+
+    does:
+      return
+  }
+}

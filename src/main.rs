@@ -28,10 +28,12 @@ mod ir_readiness;
 mod json;
 mod lsp;
 mod math_obligations;
+mod native_path;
 mod node_id;
 mod operator_grant;
 mod ownership_check;
 mod parser;
+mod path_boundary;
 mod profile_check;
 mod resolve;
 mod resource_check;
@@ -50,6 +52,7 @@ mod version;
 mod writable_field_alias;
 
 use std::env;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -69,17 +72,21 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<ExitCode, String> {
-    let args = env::args().skip(1).collect::<Vec<_>>();
-    if args.is_empty() || args.iter().any(|arg| arg == "--help" || arg == "-h") {
+    let args = env::args_os().skip(1).collect::<Vec<_>>();
+    if args.is_empty()
+        || args
+            .iter()
+            .any(|arg| arg == OsStr::new("--help") || arg == OsStr::new("-h"))
+    {
         print_help();
         return Ok(ExitCode::SUCCESS);
     }
-    if args.len() == 1 && matches!(args[0].as_str(), "--version" | "-V") {
+    if args.len() == 1 && (args[0] == OsStr::new("--version") || args[0] == OsStr::new("-V")) {
         print!("{}", version::version_text());
         return Ok(ExitCode::SUCCESS);
     }
 
-    let options = parse_cli(args)?;
+    let options = parse_cli_os(args)?;
     if options.command == "syntax" {
         match options.syntax_format {
             SyntaxFormat::Json => print!("{}", syntax::syntax_json()),
@@ -179,6 +186,12 @@ fn run() -> Result<ExitCode, String> {
     let loaded = load_program(&options.inputs)?;
     let program = loaded.program;
     let mut diagnostics = loaded.diagnostics;
+    if !diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        diagnostics.extend(path_boundary::diagnostics(&program));
+    }
     if options.command == "run" {
         diagnostics.retain(|diagnostic| {
             !app_entry::is_app_entry_diagnostic(diagnostic)
@@ -882,7 +895,7 @@ struct CliOptions {
     command: String,
     inputs: Vec<PathBuf>,
     run_entry: Option<String>,
-    run_args: Vec<String>,
+    run_args: Vec<OsString>,
     run_authority: operator_grant::OperatorGrantPolicy,
     run_replay_ticks: Vec<i64>,
     show_timings: bool,
@@ -928,7 +941,47 @@ struct FileTiming {
     check: Duration,
 }
 
+#[cfg(test)]
 fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
+    parse_cli_os(args.into_iter().map(OsString::from).collect())
+}
+
+fn parse_cli_os(args: Vec<OsString>) -> Result<CliOptions, String> {
+    let native_run_args = native_run_args(&args)?;
+    let native_authority = native_operator_policy(&args)?;
+    let native_start = native_run_argument_start(&args);
+    let normalized = args
+        .iter()
+        .enumerate()
+        .map(|(index, arg)| {
+            if let Some(text) = arg.to_str() {
+                return Ok(text.to_string());
+            }
+            if native_start.is_some_and(|start| index >= start) {
+                return Ok("__hum_opaque_native_argument__".to_string());
+            }
+            if crate::native_path::strip_ascii_prefix(arg, "--allow=")
+                .and_then(|grant| crate::native_path::strip_ascii_prefix(&grant, "files.read="))
+                .is_some()
+            {
+                return Ok(native_file_grant_placeholder());
+            }
+            if index > 0
+                && args[index - 1] == OsStr::new("--allow")
+                && crate::native_path::strip_ascii_prefix(arg, "files.read=").is_some()
+            {
+                return Ok(native_file_grant_value_placeholder());
+            }
+            Err("non-Unicode CLI input is accepted only as a structural app Path argument or native `files.read=<path>` grant".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut options = parse_cli_text(normalized)?;
+    options.run_args = native_run_args;
+    options.run_authority = native_authority;
+    Ok(options)
+}
+
+fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
     let command = args[0].clone();
     if !matches!(
         command.as_str(),
@@ -1074,15 +1127,15 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
                 return Err("`--replay-tick` is supported only by `hum run`".to_string());
             }
             "--args" if command == "run" => {
-                run_args.extend(args);
+                run_args.extend(args.map(OsString::from));
                 break;
             }
             flag if command == "run" && flag.starts_with("--args=") => {
                 let value = flag.trim_start_matches("--args=");
                 if !value.is_empty() {
-                    run_args.push(value.to_string());
+                    run_args.push(OsString::from(value));
                 }
-                run_args.extend(args);
+                run_args.extend(args.map(OsString::from));
                 break;
             }
             "--out-dir" if command == "math-obligations" => {
@@ -1875,6 +1928,95 @@ fn parse_cli(args: Vec<String>) -> Result<CliOptions, String> {
     })
 }
 
+fn native_run_argument_start(args: &[OsString]) -> Option<usize> {
+    args.iter().enumerate().find_map(|(index, arg)| {
+        if arg == OsStr::new("--args") {
+            Some(index + 1)
+        } else {
+            crate::native_path::strip_ascii_prefix(arg, "--args=").map(|_| index)
+        }
+    })
+}
+
+fn native_run_args(args: &[OsString]) -> Result<Vec<OsString>, String> {
+    for (index, arg) in args.iter().enumerate() {
+        if arg == OsStr::new("--args") {
+            return Ok(args[index + 1..].to_vec());
+        }
+        if let Some(first) = crate::native_path::strip_ascii_prefix(arg, "--args=") {
+            let mut values = Vec::new();
+            if !first.is_empty() {
+                values.push(first);
+            }
+            values.extend_from_slice(&args[index + 1..]);
+            return Ok(values);
+        }
+    }
+    Ok(Vec::new())
+}
+
+fn native_operator_policy(
+    args: &[OsString],
+) -> Result<operator_grant::OperatorGrantPolicy, String> {
+    let mut policy = operator_grant::OperatorGrantPolicy::default();
+    let mut index = 1usize;
+    while index < args.len() {
+        let arg = &args[index];
+        if arg == OsStr::new("--args")
+            || crate::native_path::strip_ascii_prefix(arg, "--args=").is_some()
+        {
+            break;
+        }
+        if arg == OsStr::new("--allow") || arg == OsStr::new("--deny") {
+            let Some(value) = args.get(index + 1) else {
+                break;
+            };
+            if arg == OsStr::new("--allow") {
+                policy.allow_os(value)?;
+            } else {
+                policy.deny_os(value)?;
+            }
+            index += 2;
+            continue;
+        }
+        if let Some(value) = crate::native_path::strip_ascii_prefix(arg, "--allow=") {
+            policy.allow_os(&value)?;
+        } else if let Some(value) = crate::native_path::strip_ascii_prefix(arg, "--deny=") {
+            policy.deny_os(&value)?;
+        }
+        index += 1;
+    }
+    Ok(policy)
+}
+
+#[cfg(windows)]
+fn native_file_grant_placeholder() -> String {
+    format!(
+        "--allow=files.read=C:{}hum-session-ab{}native-placeholder",
+        char::from(92),
+        char::from(92)
+    )
+}
+
+#[cfg(not(windows))]
+fn native_file_grant_placeholder() -> String {
+    "--allow=files.read=/native-path-unavailable".to_string()
+}
+
+#[cfg(windows)]
+fn native_file_grant_value_placeholder() -> String {
+    format!(
+        "files.read=C:{}hum-session-ab{}native-placeholder",
+        char::from(92),
+        char::from(92)
+    )
+}
+
+#[cfg(not(windows))]
+fn native_file_grant_value_placeholder() -> String {
+    "files.read=/native-path-unavailable".to_string()
+}
+
 const MAX_REPLAY_TICKS: usize = 1024;
 
 fn push_replay_tick(ticks: &mut Vec<i64>, text: &str) -> Result<(), String> {
@@ -2334,7 +2476,7 @@ fn print_help() {
     println!("Usage:");
     println!("  hum check [--format human|json] [--timings] <file-or-dir>...");
     println!(
-        "  hum run [--timings] [--allow stdout.write] [--deny stdout.write] [--allow clock.replay] [--deny clock.replay] [--replay-tick <UInt>]... <file> [--entry <task>] [--args ...]"
+        "  hum run [--timings] [--allow stdout.write] [--deny stdout.write] [--allow clock.replay] [--deny clock.replay] [--allow files.read=<path>] [--deny files.read] [--replay-tick <UInt>]... <file> [--entry <task>] [--args ...]"
     );
     println!("  hum graph [--timings] <file-or-dir>...");
     println!("  hum evidence [--format human|json] [--timings] <file-or-dir>...");
@@ -2412,17 +2554,18 @@ fn print_help() {
     println!("  --out-dir   Write one math obligation JSON file per obligation");
     println!("  --entry     Select the task used by `hum run`");
     println!(
-        "  --allow     Add an exact one-run grant, e.g. --allow stdout.write or --allow clock.replay"
+        "  --allow     Grant exactly: stdout.write, clock.replay, or one native files.read=<path>"
     );
-    println!(
-        "  --deny      Deny exactly, e.g. --deny stdout.write or --deny clock.replay; deny wins"
-    );
+    println!("  --deny      Deny exactly: stdout.write, clock.replay, or files.read; deny wins");
     println!("  --replay-tick  Add one ordered runner replay UInt; repeatable up to 1024 values");
     println!("  --args      Pass all remaining values to `hum run`");
 }
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::path::PathBuf;
+
+    use crate::operator_grant::GrantDecision;
 
     use super::{
         BackendContractFormat, CapabilitiesFormat, CheckFormat, CoreContractFormat,
@@ -2430,8 +2573,20 @@ mod tests {
         EvidenceFormat, ExplainFormat, IrContractFormat, IrReadinessFormat, LspFormat,
         MathObligationsFormat, ResolveFormat, ResourceReportFormat, RuntimeProfilesFormat,
         StateModelFormat, SyntaxFormat, TargetFactsFormat, TypeCheckFormat, TypeEnvFormat,
-        VersionFormat, load_program, parse_cli,
+        VersionFormat, load_program, parse_cli, parse_cli_os,
     };
+
+    #[cfg(windows)]
+    fn native_drive_path(drive: char, suffix: &str) -> OsString {
+        OsString::from(format!("{drive}:{}{}", char::from(92), suffix))
+    }
+
+    #[cfg(windows)]
+    fn native_file_grant(drive: char, suffix: &str) -> OsString {
+        let mut grant = OsString::from("files.read=");
+        grant.push(native_drive_path(drive, suffix));
+        grant
+    }
 
     #[test]
     fn parses_check_json_format() {
@@ -2461,7 +2616,10 @@ mod tests {
         assert_eq!(options.command, "run");
         assert_eq!(options.inputs, vec![PathBuf::from("examples/core/add.hum")]);
         assert_eq!(options.run_entry.as_deref(), Some("add"));
-        assert_eq!(options.run_args, vec!["2".to_string(), "3".to_string()]);
+        assert_eq!(
+            options.run_args,
+            vec![OsString::from("2"), OsString::from("3")]
+        );
     }
 
     #[test]
@@ -2524,14 +2682,14 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_or_payload_output_grants() {
+    fn rejects_incomplete_file_and_payload_output_grants() {
         let unknown = parse_cli(vec![
             "run".to_string(),
             "examples/probes/bounded_stdout.hum".to_string(),
             "--allow=files.read".to_string(),
         ])
-        .expect_err("unknown grant");
-        assert!(unknown.contains("does not recognize `files.read`"));
+        .expect_err("incomplete file grant");
+        assert!(unknown.contains("incomplete grant"));
 
         let payload = parse_cli(vec![
             "run".to_string(),
@@ -2540,6 +2698,73 @@ mod tests {
         ])
         .expect_err("payload grant");
         assert!(payload.contains("forbidden payload"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn preserves_native_path_argument_and_exact_file_grant_separately() {
+        let argument = native_drive_path('C', "hum-session-ab\\argument-missing.bin");
+        let grant = native_file_grant('C', "hum-session-ab\\grant-missing.bin");
+        let options = parse_cli_os(vec![
+            OsString::from("run"),
+            OsString::from("examples/probes/opaque_native_path.hum"),
+            OsString::from("--allow"),
+            grant.clone(),
+            OsString::from("--allow"),
+            grant,
+            OsString::from("--deny"),
+            OsString::from("files.read"),
+            OsString::from("--args"),
+            argument.clone(),
+        ])
+        .expect("native path CLI");
+        assert_eq!(options.run_args, [argument]);
+        assert_eq!(
+            options.run_authority.files_read_decision(),
+            GrantDecision::DeniedExplicit
+        );
+        assert_eq!(
+            options
+                .run_authority
+                .files_read_grant()
+                .expect("exact native grant")
+                .locality(),
+            "locality_unclassified"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_distinct_or_lexically_invalid_native_file_grants() {
+        let mut first = OsString::from("--allow=");
+        first.push(native_file_grant('C', "one\\missing.bin"));
+        let mut second = OsString::from("--allow=");
+        second.push(native_file_grant('D', "two\\missing.bin"));
+        let distinct = parse_cli_os(vec![
+            OsString::from("run"),
+            OsString::from("examples/probes/opaque_native_path.hum"),
+            first,
+            second,
+            OsString::from("--args"),
+            native_drive_path('C', "one\\missing.bin"),
+        ])
+        .expect_err("distinct native grants");
+        assert!(distinct.contains("at most one distinct"));
+
+        let separator = char::from(92);
+        let invalid_grant = format!(
+            "--allow=files.read={separator}{separator}server{separator}share{separator}file"
+        );
+        let invalid = parse_cli_os(vec![
+            OsString::from("run"),
+            OsString::from("examples/probes/opaque_native_path.hum"),
+            OsString::from(invalid_grant),
+            OsString::from("--args"),
+            native_drive_path('C', "one\\missing.bin"),
+        ])
+        .expect_err("UNC grant");
+        assert!(invalid.contains("windows_namespace_prefix_forbidden_v0"));
+        assert!(invalid.contains("no host access was attempted"));
     }
 
     #[test]

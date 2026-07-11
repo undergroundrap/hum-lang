@@ -152,6 +152,20 @@ H0619 authority precedence. This is controlled replay input, not `os.clock`, a
 host-time API, deterministic scheduling, randomness, or whole-program
 determinism.
 
+Session AB adds an opaque native `Path` identity at the runner/app-entry
+boundary without adding a file operation. Only one `Path` parameter on the
+structural app start may receive one native `OsString` argument; source cannot
+construct, inspect, display, compare, store, return, or transform it, and
+direct `--entry` cannot inject it. Windows accepts only a lexically ordinary
+drive-letter-rooted `Prefix::Disk` spelling after rejecting relative,
+traversal, namespace, ADS, empty-component, trailing-dot/space, and normalized
+DOS-device aliases. This evidence is deliberately weaker than locality:
+accepted Path arguments and exact native `files.read=<path>` grant payloads
+remain `locality_unclassified`. Duplicate identical grants are idempotent,
+two distinct payloads reject, and exact deny wins. No metadata, open,
+canonicalization, contents, host classification, general Path API, or
+non-Windows file support exists yet.
+
 Session V's writable-field-alias slice is owned by one shared straight-line
 place analysis consumed by `ownership_check` and the interpreter. Resolver and
 effect rows recognize the same candidate as writable and defer authority and

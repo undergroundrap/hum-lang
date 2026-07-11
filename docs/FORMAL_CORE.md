@@ -356,6 +356,13 @@ decision/exercise facts join that route-specific policy ID. This adds neither
 a runtime JSON schema nor a complete effect system, host-clock access, or a
 whole-program determinism claim.
 
+Session AB adds no Core file operation or effect. The reserved `Path` type is
+an inert runner-to-app-entry identity only. Its accepted Windows lexical status
+is `locality_unclassified`, as is the separately parsed exact
+`files.read=<path>` grant payload. Source construction/use is blocked before
+Core, and no metadata, canonicalization, open, content read, locality probe,
+or non-Windows host operation occurs.
+
 ## Failure
 
 Failure is explicit.
