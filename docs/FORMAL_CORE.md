@@ -358,10 +358,13 @@ whole-program determinism claim.
 
 Session AB adds no Core file operation or effect. The reserved `Path` type is
 an inert runner-to-app-entry identity only. Its accepted Windows lexical status
-is `locality_unclassified`, as is the separately parsed exact
-`files.read=<path>` grant payload. Source construction/use is blocked before
-Core, and no metadata, canonicalization, open, content read, locality probe,
-or non-Windows host operation occurs.
+begins as `locality_unclassified`, as does the separately parsed exact
+`files.read=<path>` grant payload. Session AC may narrow that internal status
+to threat-scoped `fixed_local_v0` only through the isolated stable
+drive/mapping, dependency, extent, and physical-disk evidence chain, without
+adding a Core file operation or effect. Source construction/use is blocked
+before Core, and no candidate metadata, canonicalization, candidate open,
+content read, or non-Windows foreign operation occurs.
 
 ## Failure
 

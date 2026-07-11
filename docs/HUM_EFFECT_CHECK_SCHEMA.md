@@ -201,9 +201,12 @@ broader capability is added.
 Session AB adds no file effect or operation row. The opaque runner-owned Path
 parameter is inert, and H0629/H0630 block invalid declarations or source use
 before effect checking. Exact native `files.read=<path>` operator payloads are
-parsed separately but remain `locality_unclassified` and cannot satisfy or
-exercise `files.read`; no host access or runtime audit event is invented for a
-non-operation.
+parsed separately and begin `locality_unclassified`. Session AC may narrow the
+internal Path or grant status to threat-scoped `fixed_local_v0` only from the
+complete stable drive/mapping, empty-dependency, bounded extent, and direct
+non-removable ATA/SATA/NVMe evidence chain. Neither status can satisfy or
+exercise `files.read`; no file effect, candidate access, or runtime audit event
+is invented for a non-operation.
 
 ## Honesty Rules
 

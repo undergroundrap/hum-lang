@@ -1,17 +1,43 @@
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 
-#[derive(Clone, PartialEq, Eq)]
+use windows_drive_locality::{DriveLocality, DriveRoot};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativePathLocality {
+    Unclassified,
+    FixedLocal,
+}
+
+impl NativePathLocality {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Unclassified => "locality_unclassified",
+            Self::FixedLocal => "fixed_local_v0",
+        }
+    }
+}
+
+#[derive(Clone)]
 pub(crate) struct ValidatedNativePath {
     raw: OsString,
+    locality: NativePathLocality,
 }
+
+impl PartialEq for ValidatedNativePath {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw == other.raw
+    }
+}
+
+impl Eq for ValidatedNativePath {}
 
 impl fmt::Debug for ValidatedNativePath {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ValidatedNativePath")
             .field("identity", &"opaque_native_path")
-            .field("locality", &"locality_unclassified")
+            .field("locality", &self.locality.as_str())
             .finish()
     }
 }
@@ -24,7 +50,7 @@ impl ValidatedNativePath {
 
     #[cfg(all(test, windows))]
     pub(crate) fn locality(&self) -> &'static str {
-        "locality_unclassified"
+        self.locality.as_str()
     }
 }
 
@@ -100,7 +126,38 @@ pub(crate) fn validate_native_path(raw: &OsStr) -> Result<ValidatedNativePath, N
     validate_platform_path(raw)?;
     Ok(ValidatedNativePath {
         raw: raw.to_os_string(),
+        locality: classify_validated_drive(raw),
     })
+}
+
+#[cfg(windows)]
+fn classify_validated_drive(raw: &OsStr) -> NativePathLocality {
+    use std::os::windows::ffi::OsStrExt;
+
+    let letter = raw
+        .encode_wide()
+        .next()
+        .and_then(|unit| u8::try_from(unit).ok())
+        .and_then(DriveRoot::from_ascii_letter);
+    letter
+        .map(windows_drive_locality::classify)
+        .map_or(NativePathLocality::Unclassified, locality_from_drive)
+}
+
+#[cfg(not(windows))]
+fn classify_validated_drive(_raw: &OsStr) -> NativePathLocality {
+    NativePathLocality::Unclassified
+}
+
+fn locality_from_drive(locality: DriveLocality) -> NativePathLocality {
+    match locality {
+        DriveLocality::FixedLocal => NativePathLocality::FixedLocal,
+        DriveLocality::Remote
+        | DriveLocality::Substituted
+        | DriveLocality::Removable
+        | DriveLocality::Unsupported
+        | DriveLocality::Unknown => NativePathLocality::Unclassified,
+    }
 }
 
 #[cfg(not(windows))]
@@ -284,13 +341,52 @@ mod tests {
         );
     }
 
+    #[test]
+    fn only_fixed_local_observation_narrows_internal_status() {
+        use windows_drive_locality::DriveLocality;
+
+        assert_eq!(
+            super::locality_from_drive(DriveLocality::FixedLocal).as_str(),
+            "fixed_local_v0"
+        );
+        for locality in [
+            DriveLocality::Remote,
+            DriveLocality::Substituted,
+            DriveLocality::Removable,
+            DriveLocality::Unsupported,
+            DriveLocality::Unknown,
+        ] {
+            assert_eq!(
+                super::locality_from_drive(locality).as_str(),
+                "locality_unclassified",
+                "{locality:?}"
+            );
+        }
+    }
+
     #[cfg(windows)]
     #[test]
-    fn accepts_drive_rooted_native_identity_without_host_access() {
+    fn accepts_drive_rooted_native_identity_without_candidate_access() {
         let raw = drive_path("hum-session-ab\\missing.bin");
         let path = validate_native_path(OsStr::new(&raw)).expect("lexically clean path");
-        assert_eq!(path.locality(), "locality_unclassified");
+        assert!(matches!(
+            path.locality(),
+            "fixed_local_v0" | "locality_unclassified"
+        ));
         assert_eq!(path.as_os_str(), OsStr::new(&raw));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn repository_drive_smoke_classifies_or_fails_closed_without_candidate_access() {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let bytes = manifest_dir.as_bytes();
+        assert!(bytes.len() >= 3 && bytes[1] == b':' && matches!(bytes[2], b'/' | b'\\'));
+        let root = windows_drive_locality::DriveRoot::from_ascii_letter(bytes[0])
+            .expect("repository drive letter");
+        let result = windows_drive_locality::classify(root);
+        eprintln!("Session AC repository-drive classification: {result:?}");
+        assert_ne!(result, windows_drive_locality::DriveLocality::Unsupported);
     }
 
     #[cfg(windows)]

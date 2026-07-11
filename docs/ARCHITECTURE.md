@@ -163,8 +163,21 @@ DOS-device aliases. This evidence is deliberately weaker than locality:
 accepted Path arguments and exact native `files.read=<path>` grant payloads
 remain `locality_unclassified`. Duplicate identical grants are idempotent,
 two distinct payloads reject, and exact deny wins. No metadata, open,
-canonicalization, contents, host classification, general Path API, or
-non-Windows file support exists yet.
+canonicalization, contents, general Path API, or non-Windows file support is
+added by that boundary.
+
+Session AC adds one isolated bootstrap adapter that may narrow the internal
+status to threat-scoped `fixed_local_v0`. Under a trusted Windows kernel,
+storage-driver stack, and non-deceptive hypervisor, the complete observable
+backing chain must contain no mapped, network, fabric, file-backed, virtual,
+removable, or unknown layer. `GetDriveTypeW` and `QueryDosDeviceW` are only
+preliminary evidence. A zero-access synthesized volume handle must report no
+type-2 storage dependency and a complete nonempty extent list; every synthesized
+physical-disk handle must report non-removable ATA, SATA, or NVMe; and the drive
+type/mapping must be identical after inspection. Everything else remains
+unclassified. The main crate remains unsafe-free, candidate paths are never
+opened, and this is not a portable Path model, target-availability claim, or
+filesystem sandbox.
 
 Session V's writable-field-alias slice is owned by one shared straight-line
 place analysis consumed by `ownership_check` and the interpreter. Resolver and

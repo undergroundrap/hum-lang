@@ -3413,7 +3413,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn opaque_native_path_entry_runs_fixed_output_without_host_access() {
+    fn opaque_native_path_entry_runs_fixed_output_without_candidate_access() {
         let program = fixture_program(
             "examples/probes/opaque_native_path.hum",
             include_str!("../examples/probes/opaque_native_path.hum"),
@@ -3476,7 +3476,10 @@ mod tests {
             panic!("expected opaque Path value");
         };
         assert_eq!(path.as_os_str().encode_wide().collect::<Vec<_>>(), units);
-        assert_eq!(path.locality(), "locality_unclassified");
+        assert!(matches!(
+            path.locality(),
+            "fixed_local_v0" | "locality_unclassified"
+        ));
         let direct = format!("C:{}opaque", char::from(92));
         assert!(
             parse_arg("Path", OsStr::new(&direct), false)

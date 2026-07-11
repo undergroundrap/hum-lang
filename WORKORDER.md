@@ -1,10 +1,9 @@
 # Hum Work Order 6: Overlapping Places And The First Local IO Slice
 
 Date: 2026-07-09
-Status: active; Sessions V-AB accepted and committed; decision 0017 accepted
-under delegated authority, BDFL veto open; Session AC is next but remains
-unauthorized pending a separate BDFL go signal; issued under delegated
-authority (`docs/GOVERNANCE.md`)
+Status: active; Sessions V-AB accepted and committed; Session AC accepted;
+decision 0017 accepted under delegated authority, BDFL veto open; Session AD
+remains unauthorized; issued under delegated authority (`docs/GOVERNANCE.md`)
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
 sessions.
 Predecessor: Work Order 5, Sessions R-U. Commit `8a6dd1c` was the initially
@@ -798,8 +797,10 @@ Acceptance criteria:
 
 ## Session AC: audited Windows fixed-local drive classification
 
-Purpose: determine whether an AB drive-letter candidate is truly fixed local
-without opening the candidate file or hiding network authority.
+Purpose: determine whether an AB drive-letter candidate earns the
+threat-scoped `fixed_local_v0` status without opening the candidate file or
+hiding mapped, network, fabric, file-backed, virtual, removable, or unknown
+storage authority.
 
 Scope:
 
@@ -807,45 +808,61 @@ Scope:
    Add one small path dependency crate dedicated to Windows drive locality. The
    main Hum binary crate retains `#![forbid(unsafe_code)]`; unsafe code cannot be
    moved into the main crate, widened, or exposed to Hum source.
-2. The adapter may call only the Windows `GetDriveTypeW` and `QueryDosDeviceW`
-   APIs needed to distinguish fixed local disks from remote, substituted,
-   removable, device, or unknown mappings. Use no third-party download, child
-   process, environment input, registry access, candidate metadata/open, or
-   network call. The adapter's safe public API accepts only an already-lexically
-   validated drive root and returns a closed enum such as `FixedLocal`,
-   `Remote`, `Substituted`, `Unsupported`, or `Unknown`.
-3. Accept `FixedLocal` only when both API results support an ordinary fixed
-   local volume. Remote/MUP, SUBST or other indirection, removable/media,
-   unsupported, malformed, API-failure, and unknown results fail closed. Do not
-   open first and classify later.
-4. Keep every unsafe block inside the adapter crate, minimize and comment its
-   invariant, use bounded NUL-terminated UTF-16 buffers, check all return values
-   and lengths, and enable `unsafe_op_in_unsafe_fn` denial. No general Win32
-   binding, raw handle, or arbitrary symbol lookup is authorized.
-5. This work order explicitly mandates one new review packet:
+2. `fixed_local_v0` is a threat-scoped property. Under a trusted Windows
+   kernel, trusted storage drivers, and a non-deceptive hypervisor, the complete
+   observable backing chain contains no mapped, network, fabric, file-backed,
+   virtual, removable, or unknown layer. It is not a filesystem sandbox or a
+   claim against a malicious kernel, driver, firmware, or hypervisor.
+3. `GetDriveTypeW` plus `QueryDosDeviceW` is preliminary evidence only and can
+   never produce `FixedLocal` by itself. The adapter may additionally call only:
+   `CreateFileW` with desired access zero for a synthesized volume device and
+   synthesized physical-disk devices; `DeviceIoControl` with exactly
+   `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS` and
+   `IOCTL_STORAGE_QUERY_PROPERTY`/`StorageDeviceProperty`/
+   `PropertyStandardQuery`; `GetStorageDependencyInformation` type 2 on the
+   volume handle; and `CloseHandle`.
+4. Accept `FixedLocal` only when `DRIVE_FIXED` and one ordinary stable
+   `HarddiskVolumeN` mapping are unchanged after inspection, dependency
+   information is complete and empty, the bounded extent list is complete and
+   nonempty, every extent's synthesized physical disk reports non-removable,
+   and every bus is exactly ATA, SATA, or NVMe. VHD/VHDX/ISO dependencies;
+   iSCSI, NVMe-oF, Virtual, FileBackedVirtual, Spaces, Fibre, RAID, SCSI, SAS,
+   removable media; topology changes; partial buffers; API failures; unknown
+   and future values; and unsupported hosts all fail closed as unclassified.
+5. Keep every unsafe block and foreign declaration inside the adapter crate,
+   minimize and comment each invariant, use bounded buffers, check every return
+   value and length, and enable `unsafe_op_in_unsafe_fn` denial. Handles are
+   private, query-only, and closed exactly once. No candidate path is opened.
+   WMI, COM, SetupDi, registry, processes, environment input, networking,
+   dynamic loading, arbitrary IOCTLs, general Win32 bindings, vendor/model
+   heuristics, and symbol lookup are forbidden.
+6. This work order explicitly mandates one new review packet:
    `docs/SESSION_AC_WINDOWS_LOCALITY_REVIEW.md`. It records the exact foreign
    signatures, why safe Rust std is insufficient, pre/postconditions, buffer
    bounds, encoding, failure mapping, TCB impact, forbidden calls, test matrix,
    and rollback. This packet describes bootstrap implementation risk; it does
    not create Hum unsafe/FFI syntax or profile support.
-6. Inject the two OS-query results for exhaustive unit tests. A Windows smoke
-   test classifies the already-used repository drive without reading a
-   candidate file. Non-Windows builds return `Unsupported` without compiling or
-   executing foreign calls. Tests prove every non-fixed or ambiguous result
-   blocks and no file adapter is invoked.
-7. Existing report/schema IDs, CLI flags, Hum grammar, and capability names do
+7. Inject the complete observation chain for exhaustive deterministic tests.
+   Cover VHD dependencies, UNC-hosted-VHD observations, iSCSI, NVMe-oF,
+   Virtual, FileBackedVirtual, Spaces, Fibre, RAID, SCSI/SAS, multiple extents,
+   all buffer/API failures, stable rechecks, direct ATA/SATA/NVMe positives,
+   removable media, and unknown future values. A hosted Windows repository-drive
+   smoke may fail closed rather than falsely require `FixedLocal`. Non-Windows
+   builds return `Unsupported` without foreign calls.
+8. Existing report/schema IDs, CLI flags, Hum grammar, and capability names do
    not change in this session. Only the internal Path/grant status may narrow
-   from `locality_unclassified` to `fixed_local`.
+   from `locality_unclassified` to `fixed_local_v0`.
 
 Acceptance criteria:
 
 - The main crate still forbids unsafe code; the isolated adapter and mandated
   packet enumerate every foreign call and unsafe invariant.
-- Windows fixed-local classification passes for the repository drive; remote,
-  mapped/substituted, removable, malformed, API-failure, and unknown cases fail
-  closed in injected tests.
+- Direct injected ATA/SATA/NVMe chains pass. The hosted repository-drive smoke
+  may pass or fail closed. Every dependency, disallowed bus, removable,
+  malformed, partial, changed, failed, unsupported, or unknown chain remains
+  unclassified.
 - Classification performs no candidate metadata/open, network, process,
-  environment, registry, or file-content access.
+  environment, registry, file-content access, or non-authorized device query.
 - No Hum output claims general FFI, unsafe, target availability, portable paths,
   or a filesystem sandbox.
 - Standing checks pass. Stop. Do not begin Session AD.
@@ -870,7 +887,8 @@ Scope:
    `FileReadError.denied`, while a different exact grant returns
    `FileReadError.outside_grant`. Both occur before host metadata/open and unit
    tests prove zero adapter calls. Deny wins.
-3. Revalidate AB's lexical path class and require AC's `fixed_local` result
+3. Revalidate AB's lexical path class and require AC's threat-scoped
+   `fixed_local_v0` result
    before the file adapter call. Non-Windows, unclassified, or non-fixed
    locality returns `FileReadError.unavailable` with no candidate probe. After
    authority succeeds, fail closed on any directory, symlink, junction, or
@@ -1068,6 +1086,7 @@ CI in workflow `29131490535`. Session AB was accepted and committed as
 `4d02901`. Its portability repair was committed as `3da2fb1`, and Ubuntu and
 Windows CI passed in workflow `29134255620`. Sessions V-AB are therefore
 accepted and committed. Decision 0017 remains accepted under delegated
-authority with the BDFL veto open. Session AC is next but remains unauthorized
-pending a separate BDFL go signal.
+authority with the BDFL veto open. Session AC is accepted with the
+threat-scoped `fixed_local_v0` meaning recorded in decision 0017's dated
+amendment. Session AD remains unauthorized.
 Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.

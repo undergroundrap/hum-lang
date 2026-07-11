@@ -134,8 +134,15 @@ namespace, ADS, trailing-dot/space, empty-component, and normalized DOS-device
 spellings. The value has no source construction, display, conversion,
 comparison, storage, return, or path API. One exact native
 `--allow files.read=<path>` payload may be parsed idempotently and exact
-`--deny files.read` wins, but both argument and grant remain
-`locality_unclassified`; neither performs or authorizes metadata or file reads.
+`--deny files.read` wins. Session AC may narrow either internal status from
+`locality_unclassified` to threat-scoped `fixed_local_v0` only when stable
+drive/mapping observations, an empty storage-dependency query, a complete
+nonempty extent list, and non-removable ATA/SATA/NVMe descriptors for every
+backing disk all agree. Under its trusted-kernel/storage-driver/non-deceptive-
+hypervisor boundary, this excludes observable mapped, network, fabric,
+file-backed, virtual, removable, and unknown layers. Classification opens only
+synthesized query-only volume/disk devices with desired access zero; it neither
+performs nor authorizes candidate metadata, candidate open, or file reads.
 
 ### Type
 

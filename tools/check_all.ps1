@@ -250,8 +250,24 @@ Push-Location $RepoRoot
 try {
   Invoke-Native 'cargo fmt --check' $Cargo @('fmt', '--check')
   Invoke-Native 'cargo test' $Cargo @('test')
+  Invoke-Native 'Windows drive locality adapter tests' $Cargo @('test', '-p', 'windows-drive-locality')
   Invoke-Native 'cargo clippy' $Cargo @('clippy', '--all-targets', '--', '-D', 'warnings')
+  Invoke-Native 'Windows drive locality adapter clippy' $Cargo @('clippy', '-p', 'windows-drive-locality', '--all-targets', '--', '-D', 'warnings')
   Invoke-Native 'cargo build' $Cargo @('build')
+
+  $MainSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/main.rs'))
+  if (-not $MainSource.StartsWith('#![forbid(unsafe_code)]')) { throw 'Session AC main crate must retain forbid(unsafe_code)' }
+  $LocalitySource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'crates/windows-drive-locality/src/lib.rs'))
+  if (-not $LocalitySource.Contains('#![deny(unsafe_op_in_unsafe_fn)]')) { throw 'Session AC locality adapter must deny unsafe_op_in_unsafe_fn' }
+  foreach ($Symbol in @('GetDriveTypeW', 'QueryDosDeviceW', 'CreateFileW', 'DeviceIoControl', 'GetStorageDependencyInformation', 'CloseHandle')) {
+    if ([regex]::Matches($LocalitySource, "\b$Symbol\s*\(").Count -ne 2) { throw "Session AC locality adapter foreign-symbol allowlist drifted for $Symbol" }
+  }
+  $Ioctls = @([regex]::Matches($LocalitySource, '\bIOCTL_[A-Z0-9_]+\b') | ForEach-Object { $_.Value } | Sort-Object -Unique)
+  if ($Ioctls.Count -ne 2 -or $Ioctls[0] -ne 'IOCTL_STORAGE_QUERY_PROPERTY' -or $Ioctls[1] -ne 'IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS') { throw 'Session AC locality adapter IOCTL allowlist drifted' }
+  if ([regex]::Matches($LocalitySource, '\bunsafe\s*\{').Count -ne 6 -or [regex]::Matches($LocalitySource, 'unsafe\s+extern').Count -ne 2) { throw 'Session AC locality adapter unsafe-block inventory drifted' }
+  foreach ($Forbidden in @('std::fs', 'File::open', 'OpenOptions', 'canonicalize(', 'metadata(', 'read_to_', 'std::process', 'std::env', 'Command::', 'RegOpenKey', 'WMI', 'CoCreateInstance', 'SetupDi', 'LoadLibrary', 'GetProcAddress', 'WinHttp', 'WinSock', 'VendorIdOffset', 'ProductIdOffset')) {
+    if ($LocalitySource.Contains($Forbidden)) { throw "Session AC locality adapter contains forbidden host surface: $Forbidden" }
+  }
 
   $HumName = if ($env:OS -eq 'Windows_NT') { 'hum.exe' } else { 'hum' }
   $Hum = Join-Path (Join-Path (Join-Path $RepoRoot 'target') 'debug') $HumName

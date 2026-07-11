@@ -220,10 +220,10 @@ mod tests {
         policy.allow_os(&first).expect("native grant");
         policy.allow_os(&first).expect("duplicate native grant");
         assert_eq!(policy.files_read_decision(), GrantDecision::Allowed);
-        assert_eq!(
+        assert!(matches!(
             policy.files_read_grant().expect("grant").locality(),
-            "locality_unclassified"
-        );
+            "fixed_local_v0" | "locality_unclassified"
+        ));
         assert!(
             policy
                 .allow_os(&grant('D', "different\\missing.bin"))

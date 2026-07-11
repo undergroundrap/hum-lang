@@ -2726,14 +2726,14 @@ mod tests {
             options.run_authority.files_read_decision(),
             GrantDecision::DeniedExplicit
         );
-        assert_eq!(
+        assert!(matches!(
             options
                 .run_authority
                 .files_read_grant()
                 .expect("exact native grant")
                 .locality(),
-            "locality_unclassified"
-        );
+            "fixed_local_v0" | "locality_unclassified"
+        ));
     }
 
     #[cfg(windows)]

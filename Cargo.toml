@@ -9,3 +9,4 @@ name = "hum"
 path = "src/main.rs"
 
 [dependencies]
+windows-drive-locality = { path = "crates/windows-drive-locality" }

@@ -196,8 +196,15 @@ traversal, ADS, empty-component, trailing-dot/space, and DOS-device classes
 pinned by the Work Order before host access. One exact native
 `--allow files.read=<path>` payload is retained separately from the Path input;
 duplicates are idempotent, distinct payloads reject, and exact
-`--deny files.read` wins. Both facts remain `locality_unclassified` and support
-no metadata or file read. Non-Windows Path execution remains unavailable.
+`--deny files.read` wins. Both facts begin `locality_unclassified`. Session AC's
+isolated Windows adapter may narrow an internal status to threat-scoped
+`fixed_local_v0` only when stable drive/mapping observations, an empty storage
+dependency result, a complete bounded extent list, and non-removable
+ATA/SATA/NVMe descriptors for every backing disk agree. It opens only
+synthesized volume/disk devices with desired access zero and never opens the
+candidate path. This supports no candidate metadata, file read, portable
+locality, or filesystem-sandbox claim. Non-Windows Path execution remains
+unavailable.
 
 ### `type`
 

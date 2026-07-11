@@ -5,3 +5,10 @@ version = 4
 [[package]]
 name = "hum-lang"
 version = "0.0.1"
+dependencies = [
+ "windows-drive-locality",
+]
+
+[[package]]
+name = "windows-drive-locality"
+version = "0.0.1"

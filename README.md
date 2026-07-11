@@ -393,7 +393,7 @@ Current CLI:
 - `hum run [--allow <exact-capability>] [--deny <exact-capability>] [--replay-tick <UInt>] <file> [--entry <task>] [--args ...]`: run one structural app root with default-deny bounded output, runner-provided replay input, and on Windows at most one opaque native Path start argument; exact deny overrides allow, direct entry stays pure, typed failures use exit 1, and invocation/runtime traps use exit 2
 - `examples/probes/bounded_stdout.hum`: prove exact no-newline UTF-8 output plus W-style causal wrapping of `OutputError`
 - `examples/probes/runner_replay_clock.hum`: prove ordered replay-tick consumption, literal output selection, and W-style `ReplayClockError` exhaustion without host-clock access
-- `examples/probes/opaque_native_path.hum`: prove one lossless runner-owned Path reaches structural app entry and selects only fixed output without display, metadata, locality classification, or file reads
+- `examples/probes/opaque_native_path.hum`: prove one lossless runner-owned Path reaches structural app entry and selects only fixed output without display, candidate metadata, candidate open, or file reads
 - Session W's failure slice requires explicit same-root `try` or explicit
   caller-root causal wrapping; multi-call failures retain every recognized
   call site and the root origin

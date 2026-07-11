@@ -113,12 +113,34 @@ evidence is not proof of locality and authorizes no file operation.
 
 Fixed-local classification is isolated in one small audited bootstrap adapter,
 outside the main crate that continues to forbid unsafe code. That adapter may
-use only bounded calls to `GetDriveTypeW` and `QueryDosDeviceW` over an already
-validated drive root to reject remote, mapped/substituted, removable, device,
-unsupported, API-failure, or unknown mappings before any candidate metadata or
-open. It performs no network, process, environment, registry, candidate-file,
-or content access. Non-Windows classification fails as unsupported in this
-initial slice.
+use only the bounded query chain recorded by Session AC over an already
+validated drive root and synthesized volume/physical-disk device names. It
+performs no network, process, environment, registry, candidate-file, or content
+access. Non-Windows classification fails as unsupported in this initial slice.
+
+### 2026-07-11 Amendment: Threat-Scoped `fixed_local_v0`
+
+`fixed_local_v0` means that, under a trusted Windows kernel, trusted storage
+drivers, and a non-deceptive hypervisor, the complete observable backing chain
+contains no mapped, network, fabric, file-backed, virtual, removable, or
+unknown layer. It is not proof against a malicious or deceptive member of that
+TCB and is not a filesystem sandbox.
+
+`GetDriveTypeW` plus `QueryDosDeviceW` is insufficient by itself because fixed
+media and an ordinary volume-manager mapping do not disclose all backing
+transport. The bounded adapter must also find no type-2 VHD/VHDX/ISO storage
+dependency, obtain a complete nonempty physical extent list, accept every
+backing disk as non-removable with bus type exactly ATA, SATA, or NVMe, and
+observe identical drive-type and mapping facts after inspection. All fabric,
+virtual, file-backed, removable, partial, failed, changing, unsupported, or
+unknown evidence remains `locality_unclassified`.
+
+The only additional calls are zero-desired-access `CreateFileW` for synthesized
+volume and physical-disk device names, the two named query-only
+`DeviceIoControl` requests, type-2 `GetStorageDependencyInformation`, and
+`CloseHandle`. Candidate files are never opened or inspected. Session AD may
+rely only on this exact threat-scoped property and remains unauthorized until
+Session AC is accepted.
 
 ## Consequences
 
