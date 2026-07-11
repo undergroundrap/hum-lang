@@ -6,10 +6,12 @@ stack is commit `c10a210`, with Ubuntu and Windows CI passed in workflow
 `29145110803`; Session AF is accepted and committed as `7991ef6`, with Ubuntu
 and Windows CI passed in workflow `29160088909`; Session AG is accepted and
 committed as `13f3142`, with Ubuntu and Windows CI passed in workflow
-`29168356268`; Session AH is next but remains unauthorized pending a separate
-BDFL go signal; Sessions AI-AK and all later work remain unauthorized; no
-candidate implementation, selection, decision ruling, commit, push, or scope
-expansion is implicitly authorized
+`29168356268`; Session AH is accepted and committed as `f342c07`, with Ubuntu
+job `86591386810` and Windows job `86591386800` passed in workflow
+`29170727489`; Session AI is next but remains unauthorized pending a separate
+BDFL go signal; Sessions AJ-AK and all later work remain unauthorized; no
+candidate selection, decision ruling, implementation session, commit, push, or
+scope expansion is implicitly authorized
 Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
 bounded planning authorization. Independent pre-issuance reviewer: a fresh
 architect-reviewer that did not author or edit this deliverable. Future
@@ -974,8 +976,10 @@ BDFL and committed as `c10a210`; Ubuntu and Windows CI passed in workflow
 implementation was accepted and committed as `7991ef6`, and Ubuntu and Windows
 CI passed in workflow `29160088909`. Session AG is accepted and committed as
 `13f3142`; Ubuntu and Windows CI passed in workflow `29168356268`. Session AH is
-next but remains unauthorized pending a separate BDFL go signal. Sessions
-AI-AK and every later session are unauthorized. No candidate implementation,
-selection, decision ruling, commit, push, or scope expansion is implicitly
+accepted and committed as `f342c07`; Ubuntu job `86591386810` and Windows job
+`86591386800` passed in workflow `29170727489`. Session AI is next but remains
+unauthorized pending a separate BDFL go signal. Sessions AJ-AK and every later
+session are unauthorized. No candidate selection, decision ruling,
+implementation session, commit, push, or scope expansion is implicitly
 authorized.
 Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
