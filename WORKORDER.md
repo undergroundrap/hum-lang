@@ -1,1105 +1,973 @@
-# Hum Work Order 6: Overlapping Places And The First Local IO Slice
+# Hum Work Order 7 (Proposed): Predicate V2 And The Effect-Polymorphism Bake-Off
 
-Date: 2026-07-09
-Status: closed; Sessions V-AE accepted and committed; Session AE is commit
-`82f87e2`, with Ubuntu and Windows CI passed in workflow `29143163659`;
-decision 0017 remains accepted under delegated authority, BDFL veto open,
-including its dated threat-scoped `fixed_local_v0` amendment; no later session
-is authorized; further implementation requires a new work order and a separate
-BDFL go signal; issued under delegated authority
-(`docs/GOVERNANCE.md`)
-Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
-sessions.
-Predecessor: Work Order 5, Sessions R-U. Commit `8a6dd1c` was the initially
-reported Session U snapshot, not an accepted closure point. The BDFL accepted
-the corrective Session U verdict, decision 0015, and this Work Order 6 stack;
-commit `6d7ccb7` is the approved Work Order 5 closure and Work Order 6 issue
-point.
+Date: 2026-07-11
+Status: proposed and unauthorized for implementation; authored under an
+explicit BDFL architecture/documentation planning authorization; issuance
+requires an independent pre-issuance architect-reviewer verdict, BDFL
+acceptance of this complete work-order stack, and a separate BDFL go signal for
+Session AF; no session in this order is authorized yet
+Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
+bounded planning authorization. Independent pre-issuance reviewer: a fresh
+architect-reviewer that did not author or edit this deliverable. Future
+implementer: agent sessions only after the required gates.
+Predecessor: Work Order 6, Sessions V-AE, closed and committed at `d601054`.
+The closed Work Order 6 text remains in git history and is not reopened by this
+proposal.
 
-## Corrected predecessor state
+## Authority and issuance gate
 
-The historical Session R mandate called its fixtures "programs 8 and 11
-misuses." That label was inaccurate. Session R delivered local stale
-field-view invalidation and H0807 evidence. It did not express or reject the
-pinned Program 8 case: a live writable alias to `point.x` overlapping a second
-write path to the same storage. Corrective Session U therefore records:
+This file is a proposal, not an issued implementation mandate. Authoring it
+does not transfer governance authority, accept a decision, authorize Session
+AF, or authorize any later session. Before any implementation begins, all
+three gates must occur in order:
 
-- 4/12 corpus programs fully running: 9, 10, 11, and 12;
-- Program 3 partial only for ordinary same-list mutation rejection, with the
-  two-list odd-filter positive, retain positive, and stale retained-item-view
-  misuse still absent;
-- Program 8 positive-only partial, because the direct field swap runs but the
-  overlapping writable-alias misuse is absent;
-- ownership at exactly three active records and triggered under the
-  three-strike rule;
-- contracts at four active records and triggered under the same rule.
+1. a fresh cold-start architect-reviewer independently reviews this complete
+   work-order stack for authority validity, session sizing, evidence linkage,
+   accepted-decision compatibility, and claim honesty;
+2. the BDFL explicitly accepts the work-order stack; and
+3. the BDFL gives a separate go signal for Session AF.
 
-H0802 borrowed-parameter permission and H0807 stale-view invalidation are
-adjacent evidence, not substitutes for Program 8's required overlap check.
-This correction is the baseline for every count in this order.
+Acceptance of this stack would authorize only the sequence and gates written
+here. Each session still requires its own independent verdict, accepted commit
+and CI evidence recorded here, and a separate BDFL go signal for the next
+session. No review, commit, push, CI success, decision proposal, or delegated
+ruling silently authorizes the following session.
 
-## Decision and sequence
+## Evidence authority and governance reconciliation
 
-Work Order 6 takes one path, in this order:
+The accepted Session AE retrospective is the authorization source:
+
+- `docs/CORE_LANGUAGE_SHAPE.md` records exactly three active Predicate v2
+  vocabulary records and applies the three-strike rule;
+- `docs/bakeoff/SCORECARD.md` requires Predicate v2 first, then the
+  effect-polymorphism bake-off;
+- `examples/probes/word_count.hum` currently checks only the weaker hard-coded
+  equality `result == 2`, not its intended content-conditional relation;
+- `examples/probes/list_builder.hum` keeps its list-content intent as unchecked
+  prose; and
+- `examples/probes/element_views.hum` keeps Text-literal equality as unchecked
+  prose.
+
+Governance names effect polymorphism and higher-order tasks as bake-off queue
+item one, but also states that the newest retrospective ledger re-decides the
+queue authorization and that Session AE's ledger currently holds that power.
+This order does not amend governance or demote the effect bake-off. It pays the
+triggered, bounded Predicate v2 debt first, then resumes governance queue item
+one. The remaining governance bake-off queue is unchanged.
+
+Research is input, not authority. The newest snapshots are skeptical evidence
+links, not accepted recommendations:
+
+- `docs/research/2026-07-10-overnight-research-triage.md`;
+- `docs/research/deep/2026-07-10-effect-polymorphism-corpus.txt`; and
+- `docs/research/deep/2026-07-10-flagship-wedge.txt`.
+
+In particular, the research preference for Koka-style rows is not a Hum
+decision. Koka-style rows, Flix-style Boolean formulas, and capture-oriented
+checking remain genuine candidates until the repository corpus and prototypes
+eliminate one transparently. Effekt-style second-class computation is not
+silently rejected from a research summary: Session AG must record, against the
+pinned model-neutral requirements, whether its inability to store callbacks or
+return closures makes it ineligible without candidate-specific restructuring.
+
+## Mandatory sequence
+
+Work Order 7 takes one path:
 
 ```text
-V  overlapping-place repair for Program 8
-W  explicit causal typed-failure slice and proposed decision 0016
-X  structural executable app entry and proposed decision 0017
-Y  checked source capability root under proposed decision 0017
-Z  bounded stdout, operator grants, and decision 0017 evidence gate
-AA runner-provided replay clock
-AB opaque native Path boundary, with no host file read
-AC audited Windows fixed-local drive classification, with no file read
-AD hardened exact-file text read
-AE integrated app, ledger, and retrospective
+AF  exact-three Predicate v2 repair
+AG  pinned model-neutral effect/higher-order corpus and experimental harness
+AH  Koka-style row-polymorphism best-advocate prototype
+AI  Flix-style Boolean-formula best-advocate prototype
+AJ  capture-oriented checking best-advocate prototype
+AK  cross-candidate scorecard and proposed effect-polymorphism decision
 ```
 
-This order is mandatory.
+The order is mandatory. AF must be accepted before AG begins. The corpus must
+be accepted and frozen before any candidate prototype begins. Every candidate
+uses the same corpus and harness. Scoring and model selection occur only after
+all three candidate sessions are independently accepted. Work Order 7 does not
+implement the selected effect model in the production compiler or language.
 
-1. Session V pays the renewed ownership trigger and decision 0014's
-   disjoint-field repair before internal references.
-2. Session W settles explicit propagation and causal wrapping before any IO
-   operation exists. IO must not create unstructured string errors first and
-   repair them later.
-3. Session X makes the structural app entry executable and records the complete
-   proposed app/capability decision without yet implementing capability
-   closure. Session Y supplies the checked source-authority evidence and
-   Session Z supplies the operator-grant/first-IO evidence before the proposal
-   may be ruled accepted. Entry is therefore designed with the IO vocabulary,
-   not as a generic `main()` added earlier.
-4. Sessions Z, AA, AB, AC, and AD add one independently reviewable boundary at
-   a time. Session AE proves composition and closes the order.
+## Global accepted-decision locks
 
-Do not authorize a later session merely because an earlier implementation is
-present. Every session ends at its gate and requires an independent reviewer
-verdict plus an explicit go signal for the next session.
+### Decision 0015: contracts
 
-## Contract-policy ruling carried into this order
+Every recognized executable `needs:` and `ensures:` predicate continues to run
+under `hum run`. Predicate v2 adds vocabulary only. This order may not add or
+imply:
 
-[Decision 0015](docs/decisions/0015-adopt-classified-runtime-contract-policy.md)
-settles the Session U mandated contract-check-mode question under delegated
-authority, with the BDFL veto open. Current Hum still checks every executable
-predicate contract and assigns no classification. This order does not
-implement a classifier, release/debug profile, proof evidence, or elision.
+- a decision 0015 proof/trust contract classifier or output such as `proved`,
+  `boundary`, `unproved`, or `external-trust`;
+- debug/release contract profiles or build-mode policy;
+- proof or evidence fields for contract discharge;
+- contract elision or an optimization based on a written predicate;
+- a conclusion that a defensive body guard is unreachable; or
+- a global contract enable/disable toggle.
 
-Decision 0015 resolves only the `divide` check-mode record. The three active
-Predicate v2 vocabulary records remain: conditional content/count for
-`word_count`, list content for `builder_demo`, and text-literal equality for
-`element_views`. They are deliberately deferred through Session AE so this
-order remains one ownership repair followed by one coherent adoption slice.
-Session AE must reapply the three-strike rule; this paragraph must not be used
-to call contracts de-triggered.
+This ban does not prohibit AF's closed lexical/parser/type recognition status,
+named `predicate_recognition_status`. That status says only whether contract
+text is non-executable prose, a malformed candidate, semantically rejected, or
+a recognized typed executable predicate. It carries no proof, trust-boundary,
+build-mode, elision, optimization, enforcement-profile, or unreachable-code
+meaning and is never a decision 0015 classification.
 
-## Ground-truth honesty locks
+### Decision 0014: ownership
 
-These are facts about the implementation at issue time, not aspirations:
+Session V earned only the exact local direct-field writable-alias slice already
+recorded by decision 0014. This order does not add or claim internal references,
+stored aliases, nested or element aliases, general disjoint-place inference,
+broad flow-sensitive borrowing, general closure-capture soundness, full
+ownership safety, borrow soundness, or memory-safety completeness.
 
-- `Result T, E` is currently an annotated task return channel, not a
-  first-class runtime `Result` value. A failed call propagates implicitly,
-  without nominal compatibility checking.
-- Failure values currently discard their origin and call sites. Error variant
-  membership and exhaustiveness are not checked.
-- `app` is parsed and graphed but has no execution semantics. `SPEC.md` uses
-  `starts with:` as draft initial-state prose; Session X deliberately retires
-  that never-implemented interpretation.
-- `hum run --entry` recursively selects a task and prints direct-task returned
-  values and failures to stdout. That direct-task behavior is a probe surface,
-  not program stdout semantics.
-- `hum effect-check` is a narrow task-local recognized-body gate. It does not
-  prove general transitive effects or effect polymorphism.
-- There are no runtime IO built-ins, operator grants, executable profiles, or
-  OS sandbox today.
-- `hum capabilities` reports toolchain discovery surfaces. It is not runtime
-  authority and must not be presented as such.
+Candidate prototypes must model captured owned and Transaction-shaped linear
+resources honestly. Prototype evidence is not production ownership evidence
+and cannot narrow a decision 0014 lock.
 
-Each session may narrow only the lock it proves. No output may silently rewrite
-these baseline limitations into broad language claims.
+### Decision 0017: authority
 
-## Global safety and scope boundaries
+App/task `uses:` declarations remain source budgets, never operator consent.
+Exact operator grants, default deny, deny-wins, native Path identity, finite
+source routes, and the source-policy/decision/exercise distinction remain
+unchanged. Effect variables, formulas, or capture sets may describe latent or
+captured requirements; they may not:
 
-All sessions are local and offline-first. The following are banned throughout
-this order unless a session below names an exact exception:
+- create authority, widen an app maximum, or manufacture operator consent;
+- erase exact capability identity or native Path identity;
+- turn ambient process authority into an inferred effect;
+- merge source policy, operator decision, and operation exercise facts;
+- hide captured authority or resources inside an unannotated closure value; or
+- call the Windows bootstrap adapter portable IO or a filesystem sandbox.
 
-- internal references, nested/self-referential stored views, general alias
-  inference, alias-to-alias propagation, element aliases, broad flow-sensitive
-  borrowing, and a full ownership or borrow-soundness claim;
-- closures, tasks-as-values, callbacks, effect polymorphism, `retain`,
-  higher-order standard-library work, and general transitive-effect claims;
-- concurrency, threads, scheduling, network, process execution, environment
-  reads, randomness, host wall/monotonic clocks, plugins, dynamic loading,
-  unsafe, FFI, backends, and package behavior. The sole bootstrap exception is
-  Session AC's isolated, audited Windows drive-locality adapter; it is not Hum
-  language unsafe/FFI and may expose no general foreign-call surface;
-- filesystem writes, directory reads, globs, recursive traversal, current
-  working-directory authority, implicit path conversion, and arbitrary roots;
-- exceptions, unwind, catch/recovery syntax, ambient backtraces, erased
-  any-error values, string-only context, and panic as ordinary failure;
-- a general capability-value system, linear-capability proof, general Path or
-  OsText API, complete stdlib IO, process sandbox, portable-IO claim, runtime
-  profile enforcement, or target availability claim;
-- implementation of decision 0015's contract classifier, build profiles,
-  evidence schema, or check elision;
-- public-alpha, full sandbox, deterministic-mode, complete effect-safety,
-  memory-safety-completeness, or safety-critical-readiness claims.
+## Global scope and safety boundaries
 
-No new schema identifier, CLI subcommand, report surface, pipeline gate, or
-runtime profile is authorized. The following narrow changes are explicitly
-authorized and no others:
+Unless a session below names an exact exception, the following remain banned:
 
-- additive statement/check/status values inside existing human and JSON report
-  shapes when a session below requires a machine-readable fact;
-- the existing Core effect catalog gains `output` in Session Z;
-- the existing target-facts family catalog gains reserved `os.stdio` in
-  Session Z, synchronized with its documentation and fixtures, without any
-  availability or permission claim;
-- `hum run` gains only the `--allow`, `--deny`, and replay-sequence flags named
-  in Sessions Z and AA. No new subcommand or `hum run --format json` is implied.
+- production closures, lambdas, tasks-as-values, callbacks, higher-order
+  standard-library APIs, effect variables, effect formulas, capture syntax,
+  handlers, effect subtraction, or production effect inference;
+- internal references or any other ownership repair;
+- concurrency, threads, scheduling, parallel execution, cancellation, shared
+  state, async runtime behavior, or fault-domain semantics;
+- new IO operations, capabilities, grants, prompts, persistence, wildcards,
+  host clocks, randomness, process execution, environment reads, network,
+  unsafe, FFI, plugins, dynamic loading, or package behavior;
+- Bytes, directories, enumeration, hashing, manifests, canonical JSON IO, file
+  writing, evidence directories, signature verification, or sandbox claims;
+- a new CLI subcommand, public report surface, runtime JSON surface, runtime
+  profile, production schema identifier, backend, or pipeline stage; and
+- public-alpha, complete effect-safety, deterministic-mode, full ownership,
+  portable-IO, or flagship-tool claims.
 
-Tests may read only checked-in repository fixtures or isolated temporary files.
-They must not modify source files, user files, or paths outside their isolated
-test directory. No test may use the network, host clock, environment as input,
-or shell/process execution from Hum code.
+Session AG is expressly allowed to add one isolated offline experimental Rust
+crate under `experiments/effect-bakeoff/`, one model-neutral bake-off document,
+one corpus data set, and a proportional existing-preflight invocation. Sessions
+AH-AJ may add candidate modules and advocate documents only inside that
+experimental boundary. Those artifacts are not production Hum syntax,
+compiler stages, schemas, or runtime behavior.
 
-## Standing semantic and diagnostic gate
+All tests remain local and offline. They may use only checked-in fixtures or
+isolated temporary data, and may not access the network, host clock, process
+environment as semantic input, user files, or paths outside their test
+directory.
 
-Every session below must satisfy all of these rules in addition to its local
-acceptance criteria:
+## Standing evidence, diagnostic, and cross-stage gate
 
-1. Every new source rejection rule has a non-degenerate misuse fixture and a
-   stable H-code. Help names every relevant source site, the violated
-   relationship, and an exact repair. A single primary span is insufficient
-   when blame also belongs to a binding, declaration, call, or conflicting
-   site; those secondary sites must appear in rendered help and structured
-   facts.
-2. Human and JSON output agree wherever an existing JSON surface exists.
-   Runtime-only output has no invented JSON analogue. Static and runtime
-   enforcement consume the same checked fact and diagnostic identity when both
-   surfaces implement the same rule.
-3. A source declaration mismatch is a checked diagnostic and prevents host
-   action. A missing or denied operator grant is a typed operation failure with
-   exit 1 and performs no host action. A malformed CLI invocation remains a CLI
-   usage error; do not mislabel it as a source diagnostic.
-4. Existing report/schema IDs remain unchanged. Additive status values are
-   documented and golden outputs stay synchronized. Do not add fields merely
-   to make the diff look evidence-native when existing section, statement, or
-   boundary-check rows carry the fact honestly.
-5. New surface syntax updates `SPEC.md`, the language reference, grammar and
-   syntax metadata, TextMate output, README/showcase material, and Formal Core
-   only where actually affected. Examples longer than five lines remain
-   extracted from checked fixtures under preflight discipline.
-6. The interpreter, resolver, full type check, effect check, ownership check,
-   resource check, Core preview/lower/verify, graph, and docs must not disagree
-   about whether a recognized form is supported. A report may remain explicitly
-   blocked, but it may not call an executed form pure, unsupported, or checked
-   under a broader rule than exists.
-7. Run the session's targeted commands, `cargo test`,
-   `.\tools\check_all.ps1`, and `git diff --check`. Leave the session
-   uncommitted and stop for review.
+Every session must satisfy its local criteria plus these standing rules:
 
-## Session V: narrow writable field aliases (Program 8)
+1. Positive evidence observes the claimed behavior. Declaration-only,
+   unused-binding, weakened, TBD, or candidate-specific substitute fixtures do
+   not count.
+2. Every production source rejection introduced by AF has one stable H-code,
+   one fundamental diagnostic, structured primary and related sites, and help
+   naming the violated type/relationship and exact repair. Human and existing
+   JSON surfaces agree. Runtime preflight uses the same shared fact and code.
+3. Combined-cause fixtures pin precedence. A specific Predicate v2 type/shape
+   failure cannot be masked by H0701 prose warning, resolver unknown-name,
+   generic full-type blockers, or a runtime trap.
+4. Resolver, type environment, type check, full type, effect, ownership,
+   resource, Core preview/lower/verify, graph, and runtime agree on every AF
+   form. A stage may expose an exact honest blocker, but may not call an
+   accepted predicate prose, unchecked, unsupported, or more general than it
+   is.
+5. Candidate sessions add no Hum H-codes. Experimental diagnostics use stable
+   corpus-case IDs, deterministic reason IDs, one primary explanation, and
+   structured blame relationships, but are not production diagnostics or a
+   public schema.
+6. Candidate results separate `proven by this prototype` from `requires
+   unimplemented machinery`. Hidden allocation, erased effects, ambient
+   capabilities, unimplemented inference, future ownership repairs, and
+   candidate-specific program restructuring receive no credit.
+7. Host `cargo fmt --check`, `cargo test`, and warnings-denied Clippy must pass.
+   The isolated experiment tests, targeted fixtures, `git diff --check`, and
+   `.\tools\check_all.ps1` must pass. Platform/configuration gaps are enumerated
+   honestly; no unproven cross-target command is mandated.
+8. Leave each session uncommitted and stop for independent review. The reviewer
+   issues exactly one verdict and may authorize only the scoped commit. The
+   BDFL alone may authorize push and the next session.
 
-Implementation status: accepted and committed as `acfb36f`. Session W was
-accepted and committed as `2af02ae`.
+## Session AF: exact-three Predicate v2 repair
 
-Purpose: pay the exact Program 8 overlap record before any other ownership
-work.
+Purpose: pay the active contract-vocabulary trigger as one coherent bounded
+repair before higher-order work.
 
-Scope:
+### Exact executable vocabulary
 
-1. Recognize exactly this local direct-field form in a straight-line task body:
+Predicate v2 retains Predicate v1's one-comparison-per-line structure,
+arithmetic, `old(place)`, and `list_len(place)`. It adds only:
+
+1. Text operands and Text literals for `==` and `!=`.
+2. Exact ordered `List Text` content equality against a `List Text` literal for
+   `==` and `!=`. Equality compares length and every UTF-8 Text value in order;
+   it is not membership, subset, set, locale, normalization, or collation.
+3. The contract-only operand form:
 
    ```hum
-   let alias_to_x = change point.x
+   list_count(list_text_operand, text_operand)
    ```
 
-   The owner must already carry visible mutation authority. The binding is a
-   writable view of that exact direct field, not a copied value. `set
-   alias_to_x = value` writes through to `point.x`.
-2. The alias lifetime begins at the binding and ends after its last syntactic
-   use in the same straight-line body. While live, a direct read, direct write,
-   owner-wide access, or second writable alias that may overlap `point.x`
-   rejects. Access to the definitely distinct direct field `point.y` remains
-   accepted.
-3. Alias creation or use inside a branch/loop, passing, returning, storing,
-   alias-to-alias binding, nested places, list elements, and rebinding stay
-   outside the recognized slice and fail closed with one stable
-   unsupported-writable-alias diagnostic and representative misuse fixtures.
-   Do not infer broader lifetimes from this straight-line last-use rule.
-4. Allocate H0808 to the overlap rule. Its diagnostic names the alias binding,
-   the conflicting site, the overlapping source place, why the writes are not
-   known independent, and a concrete fix such as using a distinct field or
-   ending the alias's last use before the access. Use one additional stable
-   ownership code if the unsupported/escape rule cannot honestly share H0808.
-5. `hum ownership-check` human and existing JSON rows expose the same alias,
-   place, lifetime, conflict, and status facts used by runtime enforcement. No
-   new schema ID or ownership report surface.
-6. Add hand-written fixtures proving: write-through changes the owner;
-   distinct-field access survives; overlapping direct read rejects;
-   overlapping direct write rejects; a second alias rejects; and at least one
-   escape/unsupported form rejects. The pinned Program 8 fixture must use a
-   live alias to `point.x`; H0802 and H0807 do not count.
-7. Update `docs/bakeoff/SCORECARD.md` only after the exact positive and pinned
-   misuse pass. Then Program 8 becomes fully running, the corrected count is
-   5/12 full plus Program 3 partial, and the ledger annotates only this overlap
-   record resolved. Narrow the decision 0014 lock to this exact local form.
-
-Acceptance criteria:
-
-- The positive write-through fixture observes the changed owner value; it is
-  not a declaration-only or unused-alias proof.
-- The pinned misuse fires H0808 and names both source sites plus the fix in
-  human output, ownership JSON, and runtime evidence where those surfaces
-  apply.
-- The distinct-field fixture passes, and the read/second-alias/escape fixtures
-  prove the stated fail-closed boundary.
-- Program 8 alone moves from partial to full; no internal-reference or general
-  alias claim appears.
-- Standing checks pass. Stop. Do not begin Session W.
-
-Implementation evidence:
-
-- `examples/probes/writable_field_aliases.hum` observes real write-through as
-  `{x: 9, y: 2}`, swaps through two distinct live aliases as `{x: 2, y: 1}`,
-  accepts direct `point.y` access while the `point.x` alias is live as
-  `{x: 2, y: 7}`, and accepts a sequential same-field alias after last use as
-  `{x: 7, y: 2}`.
-- `fixtures/ownership_check/session_v_program8_overlap_write_fail.hum` is the
-  pinned non-degenerate Program 8 misuse. Human ownership output, ownership
-  JSON, and runtime all report H0808 with binding, conflict, and last-use sites
-  plus the distinct-field/end-last-use repairs.
-- The direct-read and second-alias fixtures also report H0808. Escape,
-  control-flow, permission-wrapper, owner-rebinding, and visible-name-collision
-  fixtures report H0809. Acquiring the alias from a borrowed owner remains the separate H0802
-  permission failure and takes precedence over a body that would otherwise
-  contain an overlap.
-- Resolver, full type, effect, ownership, resource, Core preview/lower/verify,
-  graph, runtime, `cargo test`, and `tools/check_all.ps1` agree on the exact
-  slice. No schema ID, command, report surface, or pipeline gate was added.
-
-## Session W: explicit causal typed failure
-
-Purpose: make the first IO errors composable before IO exists.
-
-Scope:
-
-1. Add only these recognized direct named-call forms, with ordinary value
-   arguments:
-
-   ```hum
-   let value = try fallible_call()
-   let value = try fallible_call() or fail OuterError.context
-   ```
-
-   `try call()` propagates only when the callee and caller declare the same
-   nominal error root. `try call() or fail OuterError.context` wraps an inner
-   failure in a variant whose root matches the caller's declared error root and
-   preserves the inner cause.
-2. A known fallible call without `try`, incompatible unwrapped propagation, a
-   wrapper with the wrong caller root, `try` on an infallible call, direct
-   `fail WrongRoot.case`, and an unsupported `try` expression shape each reject
-   under stable diagnostics with a dedicated misuse fixture. Help names the
-   call or fail site, callee header/result root when relevant, caller
-   header/result root, and exact repair.
-3. Replace the runtime's origin-free failure payload for this slice with a
-   causal carrier that preserves the nominal root/variant string, root origin
-   span, and every propagation or wrapping span. Render a stable outer-to-root
-   chain with source locations and exit 1. A typed failure is not a runtime
-   trap.
-4. The ordinary same-root positive and a wrapping positive must execute. A
-   root failure wrapped across at least two calls must display the outer error,
-   both call/wrap sites, and root origin without dropping or reversing blame.
-5. Effect checking treats recognized propagation/wrapping as typed failure and
-   requires the existing `fails when:` declaration. Existing full-type/effect
-   report rows and diagnostic JSON expose nominal compatibility and sites; no
-   new schema or run JSON.
-6. Do not claim first-class Result values, checked variant membership,
-   exhaustiveness, recovery, narrowing, exceptions, backtraces, or general
-   call typing. Permission-bearing `borrow`/`change`/`consume` call arguments
-   remain outside this `try` slice.
-7. Author proposed decision 0016 recording these semantics and killing:
-   implicit fallible calls, incompatible implicit propagation, string-only
-   context, exceptions/unwind, erased any-error propagation, and ambient
-   backtraces. The implementer leaves its status `proposed`.
-
-Acceptance criteria:
-
-- All named positive and misuse fixtures pass with human/JSON agreement where
-  JSON exists, and the causal runtime chain contains every required source
-  site.
-- Core/report surfaces either recognize the forms consistently or state an
-  exact blocker; none silently call the accepted path pure or unsupported.
-- The reviewer independently inspects the executable evidence. Only the
-  architect-reviewer may change decision 0016 to
-  `accepted under delegated authority (BDFL veto open)` and issue its BDFL
-  brief.
-- Standing checks pass. Stop. Session X is forbidden until decision 0016 is
-  accepted or the BDFL gives a contrary ruling.
-
-Accepted corrective implementation evidence (2026-07-10):
-
-- `examples/probes/causal_failures.hum` executes same-root and wrapping success
-  as `7`. Its two-wrap failure exits 1 and renders `OuterError.context`, both
-  wrapping sites, `MiddleError.context`, `RootError.origin`, and the root
-  origin in outer-to-root order. Direct root and same-root propagation failures
-  also render the preserved root origin.
-- H0901-H0906 each have a dedicated full-type misuse fixture with human/JSON
-  root and call/callee/caller site facts plus precise repair help. H0907 pins
-  the effect-owned meaningful-`fails when:` rejection.
-- H0901 additionally rejects known fallible calls nested in an operator, a
-  call argument, and a `for each` collection. Token-bounded recognition keeps
-  ordinary `trying()` valid and diagnoses an implicit fallible `try_value()`
-  as H0901 rather than H0906.
-- Nine adversarial unsupported-`try` shapes produce H0906 in full type and
-  remain explicit blockers through Core preview/lower/verify. Relationship
-  diagnostics H0901, H0902, and H0906 take precedence over H0907 in the pinned
-  combined fixture.
-- Effect checking rejects both propagation and wrapping when a task declares
-  `avoids: failure`.
-- The shared failure-declaration quality rule rejects `fails when: todo` with
-  exactly H0907 for direct failure, same-root propagation, and wrapping;
-  runtime rejects each fixture during preflight before executing the failure.
-- Resolver, full type, effect, ownership, resource, Core preview/lower/verify,
-  graph, and runtime exercise the positive surface. Existing schema IDs and CLI
-  surface are unchanged.
-- Decision 0016 is accepted under delegated authority with the BDFL veto open.
-  At Session W closure, Session X was the next unfinished session and required
-  a separate BDFL go signal; that authorization was later issued for X only.
-
-## Session X: structural executable app entry
-
-Purpose: execute one pure app root without also implementing capability
-analysis or IO.
-
-Scope:
-
-1. The executable form is exactly one top-level `app` in the run input. It has
-   one meaningful `starts with:` line containing one bare snake_case name of a
-   task directly nested in that app:
-
-   ```hum
-   app local_tool {
-     starts with:
-       run_tool
-   }
-   ```
-
-   The start task returns `Unit` or `Result Unit, E`. Existing `--args` values
-   bind its parameters. App-mode name resolution stays inside that app and
-   cannot select a same-named task outside it.
-2. With no `--entry`, a valid executable app is selected. Files without an app
-   preserve legacy single-task behavior. `--entry` remains a direct pure-task
-   probe and does not become app mode.
-3. In app mode, a pure Unit success prints nothing. A typed failure exits 1 and
-   renders Session W's causal chain to stderr. Source diagnostics go to stderr.
-   Legacy direct pure-task returned-value/failure display remains unchanged and
-   is regression-tested.
-4. Add stable misuse fixtures for missing, empty, or duplicate `starts with:`,
-   unknown or non-child start, multiple executable apps, invalid start result,
-   and a same-named task outside the app. Relevant app, task, and start sites
-   appear in blame/help and existing diagnostic JSON.
-5. Explicitly retire `SPEC.md`'s old draft interpretation of `starts with:` as
-   state initialization. State initialization remains undesigned; do not add a
-   replacement feature.
-6. Author proposed decision 0017 with both halves of the intended ruling: the
-   structural app semantics proved here and the exact capability vocabulary,
-   grant algebra scheduled for Session Y, and Path boundary scheduled for
-   Sessions AB-AC, including the isolated audited bootstrap locality adapter
-   needed to reject hidden Windows network/device mappings.
-   It remains `proposed` after X. The reviewer may accept the X implementation
-   and explicitly authorize Y, but must not issue the delegated ruling until Y
-   supplies the capability-root evidence.
-7. Do not add capability closure, capability rejection rules, operator grant
-   flags, IO built-ins, Core `output`, or `os.stdio` in this session.
-
-Acceptance criteria:
-
-- A hand-written pure app runs by its nested start task, emits no automatic
-  `Unit`, and a same-named external task cannot be selected through app mode.
-- Every structural misuse above fires one stable blamed diagnostic; human and
-  existing JSON agree.
-- Legacy no-app and direct pure `--entry` behavior remains compatible.
-- Decision 0017 is complete enough to constrain Session Y but remains
-  `proposed`; no delegated acceptance is recorded yet.
-- Standing checks pass. Stop. Session Y requires an explicit review go signal.
-
-Accepted implementation evidence (2026-07-10):
-
-- `examples/probes/pure_app_entry.hum` selects its directly nested `run_tool`,
-  binds the ordinary runner argument, exits 0, and leaves both output channels
-  empty. `examples/probes/fallible_app_entry.hum` proves `Result Unit, E`
-  success and renders `LaunchError.requested` with its preserved origin on
-  stderr at exit 1.
-- H0610-H0616 cover missing, empty, duplicate, invalid-name, non-child,
-  multiple-app, and invalid-result structure. Each permanent misuse fixture
-  emits exactly one source diagnostic in human and `hum.check.v0` JSON;
-  relationship diagnostics carry labeled app, declaration, and task spans.
-- The same-named external-task fixture is H0614 in app mode and remains
-  directly runnable through explicit `--entry`, demonstrating that app lookup
-  is lexical without changing the legacy probe. Separate passing fixtures pin
-  both direct-child entry shadowing and app-local helper-call lookup against
-  same-named failing external tasks across resolver, full type, effect,
-  ownership, resource, Core, graph, and runtime. External-only calls stop at
-  the app boundary under H0601.
-- App execution now consumes the existing resolver, declaration-type, and
-  recognized full-type gates. Permanent fixtures prove H0602 duplicate child,
-  H0605 unknown result root, H0606 Unit-return mismatch, and a body-only
-  full-type mismatch all stop before execution. Runtime independently refuses
-  to suppress a non-Unit value if a future checker regression reaches it.
-- The nested non-child fixture reports H0614 with the start declaration as
-  primary blame and labeled outer-app and candidate-task spans in human and
-  JSON output.
-- Decision 0017 remains proposed. No capability analysis or rejection,
-  operator grant, IO built-in, Core `output`, `os.stdio`, Path, or Session Y
-  behavior is present.
-
-## Session Y: checked capability root
-
-Purpose: make the X app the maximum source authority declaration before any
-external operation exists.
-
-Scope:
-
-1. Pin exactly these source capability IDs and mappings for this order:
-
-   | Source capability | Core effect | Runtime/target meaning |
-   | --- | --- | --- |
-   | `stdout.write` | `output` | bounded bootstrap stdout adapter; reserved `os.stdio` mapping lands in Z |
-   | `clock.replay` | `time` | ordered runner-provided replay input; explicitly no `os.clock` requirement or host-clock access |
-   | `files.read` | `file` | one exact local file through the bootstrap adapter and existing `os.filesystem` family |
-
-   Other `uses:` lines remain ordinary dependencies and grant no runtime
-   authority. Dotted capability-like names outside this pinned set reject in
-   executable app/task authority positions. Reconcile the lone
-   `filesystem.read` example in `docs/SAFETY_OF_MAKER_AND_USER.md` to the pinned
-   `files.read` spelling already used by `SPEC.md`, `docs/SECURITY_MODEL.md`,
-   and `docs/LANGUAGE_SUBSET_0_1.md`.
-2. App `uses:` is the program's maximum source authority, never operator
-   consent. For recognized fixed calls, every task declares its direct and
-   transitive external capabilities, every caller covers its callee closure,
-   and the app covers the start-task closure. An unidentifiable call in this
-   executable subset fails closed. This is closed direct-call capability
-   analysis, not effect polymorphism or a complete effect system.
-3. A pinned capability declared on a task is an authority budget even before
-   its operation ships; over-declaration is security-relevant and must be
-   covered by callers and the app. A positive nested helper fixture with a
-   declared capability proves transitive closure while remaining host-effect
-   free. Do not claim that the unused declaration proves an IO operation.
-4. Pin the later grant algebra: effective operation authority is the
-   intersection of the app declaration, the reachable task declaration, and
-   the operator's exact grant, minus any matching deny. The default operator
-   grant set is empty and deny wins. Source declaration is never consent.
-5. `--entry` remains a pure probe. A task whose recognized direct-call closure
-   requires any pinned external capability rejects under `--entry`, even after
-   operator flags exist.
-6. Add stable misuse fixtures for unknown capability ID, missing caller
-   transitive declaration, app/task mismatch, and `--entry` authority bypass.
-   Relevant app, task, call, declaration, and entry sites appear in blame/help
-   and existing diagnostic/effect JSON. Existing effect boundary rows expose
-   the minimal closure facts; no new schema ID or report surface.
-7. Add the source-authority evidence to proposed decision 0017 without changing
-   its status. It
-   kills ambient process authority, authority-bearing `--entry`,
-   declaration-as-consent, implicit current directory, path-as-Text, global
-   task lookup in app mode, and replay-to-`os.clock` mapping.
-8. Do not add operator grant flags or any IO built-in in this session.
-
-Acceptance criteria:
-
-- The positive nested-helper app runs without host effects and existing human/
-  JSON effect facts show the exact capability closure without calling it IO.
-- Every capability mismatch above fires a stable blamed diagnostic with all
-  relevant sites; human and existing JSON agree.
-- Direct pure `--entry` remains compatible; authority-bearing `--entry` is
-  blocked.
-- The reviewer independently inspects X and Y evidence together. Decision 0017
-  remains `proposed`; the reviewer may explicitly authorize Session Z as the
-  final operator-grant/IO evidence slice but must not rule yet.
-- Standing checks pass. Stop. Session Z requires an explicit review go signal.
-
-Implementation evidence awaiting review (2026-07-10):
-
-- `examples/probes/capability_root.hum` executes a real nested helper call and
-  exits with no output or host operation. App, caller, and helper each declare
-  exact `stdout.write`, `clock.replay`, and `files.read` source budgets.
-- Existing effect boundary rows expose task budgets, caller closure, and app
-  maximum/start closure under stable source-policy IDs. Each row carries the
-  exact capability's kind, scope, strength, one-run lifetime, ordinary
-  severity tier, reserved mapping status, and structured app/task/call/
-  declaration route sites. These are source policy snapshots, not grants or
-  IO evidence.
-- H0617 rejects `process.run` and classifies it as the separate
-  `sandbox_bypass_authority` tier. H0618 blames caller, callee, call, and origin
-  declaration for missing transitive coverage. H0619 blames app, start, entry,
-  and origin for an incomplete maximum. H0620 blocks an authority-bearing
-  `--entry` while the same fixture remains valid in structural app mode.
-- The shared analyzer reuses the Session W executable-expression call scanner,
-  so nested/operator call positions cannot silently escape closure analysis.
-  Existing resolver H0601 remains the fail-closed owner for an unidentifiable
-  app-local callee.
-- Corrective fixtures prove `--entry` traverses reachable callees and rejects
-  transitive `process.run` and `stdout.*` declarations with routed H0617 before
-  execution. A three-call single-statement fixture, including a repeated
-  callee, proves source-policy IDs are unique per lexical occurrence and stable
-  across repeated effect reports.
-- Proposed decision 0017 now pins exact grant dimensions, a separate
-  sandbox-bypass tier, task-coupled/no-startup-prompt consent, explicit
-  persistence and dangerous-wildcard treatment, and the future forensic join
-  of policy snapshot, decision event, and exercise event. Session Y implements
-  only the source snapshot and policy join ID; it adds no operator flags,
-  grants, prompts, persistence, IO, Core `output`, or `os.stdio`.
-
-## Session Z: bounded stdout capability
-
-Purpose: add the first real external effect under the Y authority root.
-
-Scope:
-
-1. Add repeatable `hum run --allow <grant>` and `--deny <capability>` flags.
-   In this session the only valid grant is `stdout.write`; it carries no
-   payload. The default is deny and an exact deny overrides an allow. Exact
-   duplicate flags are idempotent; allow plus deny is valid and deny wins.
-   Unknown capabilities, forbidden payloads, or malformed invocations are
-   stable CLI usage errors.
-2. Add exactly:
-
-   ```hum
-   stdout_write(text: Text) -> Result Unit, OutputError
-   ```
-
-   It immediately writes the exact UTF-8 bytes of `text` through the app output
-   adapter, with no implicit newline. A rolling per-run budget is checked before
-   each call and is bounded to 1 MiB; exceeding it is
-   `OutputError.limit_exceeded` with no adapter call. Adapter write failure is
-   exactly `OutputError.write_failed`, never a trap. Raw host error strings are
-   not the typed identity or a stable diagnostic key.
-3. The call requires `stdout.write` in the task/caller/app closure and an
-   operator allow. Missing source declarations are static blamed diagnostics.
-   Missing or denied operator grants return a typed `OutputError.denied` before
-   the adapter is called. `--entry` cannot bypass the app even when allowed.
-4. Separate the app program-output channel from legacy direct-task result
-   display. Each accepted `stdout_write` is immediate; a later typed failure
-   does not retract bytes written by earlier successful calls. Successful app
-   completion adds no `Unit` or return-value line. Typed app failure and
-   diagnostics go to stderr. Do not describe stdout as transactional or
-   buffered-until-success, and do not add stdin, stderr-writing, formatting,
-   interpolation, a separate flush phase, terminal detection, or atomic-output
-   claims.
-5. Add Core `output` as the one mandated additive effect catalog value. Add
-   reserved target family `os.stdio` to the existing target-facts catalog,
-   schema documentation, and all target fixtures. It means stdio mapping only;
-   it grants no process-spawn authority, claims no target availability, and
-   does not make target facts or profiles runtime-enforcing.
-6. Use an injectable output adapter. Unit tests cover success, denial with zero
-   adapter calls, deterministic `OutputError.write_failed`, the byte bound, and
-   prior successful bytes remaining visible when a later call fails. A
-   hand-written Hum app proves exact output and W-style call-site wrapping of an
-   output failure.
-7. Complete proposed decision 0017's executable evidence. The implementer
-   leaves its status `proposed`; the reviewer applies any delegated ruling only
-   after independently verifying Sessions X-Z together.
-
-Acceptance criteria:
-
-- The app prints exact bytes only with app/task declarations and the operator
-  allow; default deny and explicit deny fail as typed errors without calling
-  the adapter.
-- Missing declaration fixtures identify call, task, and app sites in human and
-  existing JSON. No runtime JSON surface is claimed.
-- The failing-adapter and output-limit tests return typed causal failures; no
-  host write occurs after denial or limit rejection.
-- Core, target-facts, docs, fixtures, and help text stay synchronized under
-  their existing schema IDs.
-- Only the architect-reviewer may now change decision 0017 to
-  `accepted under delegated authority (BDFL veto open)` and issue its BDFL
-  brief.
-- Standing checks pass. Stop. Session AA is forbidden until decision 0017 is
-  accepted or the BDFL gives a contrary ruling.
-
-Implementation evidence awaiting review (2026-07-10):
-
-- `examples/probes/bounded_stdout.hum` prints its exact UTF-8 argument with no
-  newline only when source closure and exact `--allow stdout.write` intersect.
-  Default deny, explicit deny, and allow-plus-deny return the same typed
-  `OutputError.denied` cause under the app's W-style wrapper; direct `--entry`
-  remains H0620 even when allowed.
-- The runtime owns an injectable adapter and a 1 MiB rolling successful-byte
-  budget. Unit probes prove zero adapter calls on denial and limit rejection,
-  one opaque failing call for `OutputError.write_failed`, and preservation of
-  prior successful bytes when a later write fails.
-- H0621 exposes the output call, calling task, and structural app sites when
-  source authority is missing. H0622 rejects arity/type drift from the exact
-  `stdout_write(Text)` signature. Resolver, full type, effect, ownership,
-  resource, Core, graph, and runtime agree on the positive fixture.
-- An implicit-call fixture proves `stdout_write` remains a nominal fallible
-  operation under Session W: H0901 blocks execution before any output adapter
-  call unless the caller uses `try` or explicit causal wrapping.
-- A legacy task with `stdout.write` but no structural app is also rejected by
-  H0621 before runtime; operator allow cannot manufacture the missing app root.
-- A helper-backed output fixture proves H0618 still prevents authority
-  laundering when the helper and app declare `stdout.write` but their caller
-  omits the transitive budget.
-- Each request records typed in-memory operator-decision and operation-exercise
-  facts joined to Session Y's lexical source-policy ID, including exact grant
-  dimensions, the complete app/start/caller/output route and every call
-  occurrence, one-run lifetime, effective deny/allow, byte count, adapter-call
-  status, and stable result reason. Multi-hop and multiple-caller tests prove
-  distinct stable route IDs across repeated runs. A skipped-first-branch test
-  proves runtime selects the executed lexical call occurrence rather than a
-  task-name/execution-order cursor. Shared separator-normalized source identity
-  makes `/` and `\` Windows input spellings select the same policy ID and route
-  spans while original spans remain available for display. No runtime JSON or
-  persistence surface is claimed.
-- H0623 reserves the exact `stdout_write` callable name across all stages and
-  blocks a collision before runtime can substitute either body.
-- H0624 rejects output-reachable recursion with the recursive edge and complete
-  finite route-to-cycle evidence before execution. This bounded fail-closed
-  rule makes no general recursion claim. Authority remains more fundamental:
-  permanent combined-cause fixtures prove missing task/app coverage produces
-  exactly H0621 and missing caller coverage produces exactly H0618 across
-  human, JSON, effect, graph, and runtime preflight, with no H0624 duplicate.
-- `reserved_mapping_only` is non-satisfying for `requires:`; a pinned embedded
-  target fixture proves H1204 human/JSON/graph agreement for `os.stdio` without
-  claiming host probing or availability.
-- Core gains only `output`; target facts gain reserved `os.stdio` in every
-  fixture as `reserved_mapping_only`, explicitly not target availability.
-  No stdin, stderr writer, formatting, buffering-until-success, terminal,
-  process, clock, file, Path, prompt, wildcard, or Session AA surface is added.
-
-## Session AA: runner-provided replay clock
-
-Purpose: add deterministic replay input without importing host time.
-
-Scope:
-
-1. Add exactly:
-
-   ```hum
-   clock_replay_tick() -> Result UInt, ReplayClockError
-   ```
-
-   Each call consumes the next UInt from an ordered runner-provided sequence.
-   Add repeatable `hum run --replay-tick <UInt>` with a maximum of 1024 values.
-   `--allow clock.replay` is separately required; replay values are input, not
-   authority.
-2. The call requires `clock.replay` through task/caller/app declarations and
-   operator allow. Default/explicit denial returns
-   `ReplayClockError.denied`; an empty or exhausted sequence returns
-   `ReplayClockError.exhausted`. Neither path reads a host clock or calls the
-   replay adapter after rejection.
-3. Lower this operation to the existing Core `time` effect with an explicit
-   runner-replay status/reason in existing effect rows. It does not require
-   `os.clock`, and no code path may use `SystemTime`, monotonic host time,
-   environment input, scheduling state, or randomness.
-4. Add the declaration/grant/deny misuse fixtures required by the standing
-   gate and an exhaustion fixture whose error is wrapped through Session W's
-   causal chain.
-5. A fixture selects literal stdout text by comparing the tick. Do not add
-   UInt-to-Text conversion, interpolation, or text concatenation. Two runs with
-   identical source, ordinary args, grants, tick sequence, and no `--timings`
-   must have byte-identical stdout, stderr, and exit code.
-
-Acceptance criteria:
-
-- Ordered consumption, exhaustion, default deny, explicit deny, maximum length,
-  and zero host-clock access have direct tests.
-- Identical runner replay inputs reproduce exact process output, while a
-  changed tick predictably changes the selected literal.
-- Docs say only that replay-clock input is controlled. They do not claim whole
-  program determinism, deterministic scheduling, or `os.clock` support.
-- Standing checks pass. Stop. Do not begin Session AB.
-
-Implementation evidence awaiting review (2026-07-10):
-
-- `examples/probes/runner_replay_clock.hum` consumes two runner ticks through a
-  nested helper. Inputs `1, 7` select exact stdout bytes `seven`; `1, 8`
-  selects `other`; identical complete inputs reproduce stdout, stderr, and exit
-  status.
-- Exact `clock.replay` source closure and operator allow are independent of the
-  tick sequence. Default and explicit denial return
-  `ReplayClockError.denied` with zero replay-adapter calls; a one-value sequence
-  returns `ReplayClockError.exhausted` on the second call and preserves the
-  `ReplayAppError.replay` wrapper, helper call, propagation site, and root
-  origin.
-- H0625-H0628 pin missing task/app replay authority, invalid zero-argument
-  signature, reserved built-in identity, and replay-reachable recursion.
-  Permanent combined-cause fixtures preserve H0625/H0618 precedence before
-  recursion, and H0626 precedes the effect-owned missing-`fails when:` rule.
-- Existing effect boundary rows map route-specific replay operations to Core
-  `time` with `implemented_runner_replay_input_v0_no_os.clock`, complete
-  app/start/caller/operation spans, and stable policy IDs. In-memory decision
-  and exercise facts join those IDs to the ordered sequence index and consumed
-  tick. No runtime JSON surface is added.
-- Unit and CLI tests cover ordered consumption, repeat stability, changed-tick
-  selection, default/explicit denial, exhaustion, the 1024-value limit,
-  separator-normalized policy identity, zero host-clock symbols, and replay
-  adapter call counts.
-
-## Session AB: opaque native Path boundary, no host read
-
-Purpose: make path identity non-Text and lossless before file contents can be
-observed.
-
-Scope:
-
-1. Add an opaque runtime `Path` value constructed only by the app runner for at
-   most one `Path` parameter of the nested start task. Preserve native OS text
-   through an `args_os`/`OsString` boundary. Converting the current String CLI
-   value back into a path is not lossless evidence.
-2. `Path` has no source literal, Text conversion, display, comparison,
-   concatenation, component, join, parent, return, storage, or general stdlib
-   API in this order. It is an inert path identity, not authority. Direct
-   `--entry` cannot construct it; only app entry can.
-3. The lexical host path candidate in this order is Windows-first and narrower
-   than "absolute": accept only an ordinary drive-letter-rooted spelling
-   (`Prefix::Disk`). Reject before metadata/open: relative and drive-relative
-   forms; empty, `.` or `..` components; UNC; verbatim, device, `GLOBALROOT`,
-   volume-GUID, and NT namespace prefixes; alternate data streams or any colon
-   after the drive prefix; components ending in a dot or space; and the full
-   case-insensitive Win32 DOS-device normalization set, including `CON`, `PRN`,
-   `AUX`, `NUL`, `CLOCK$`, `CONIN$`, `CONOUT$`, `COM1`-`COM9`,
-   `LPT1`-`LPT9`, and the recognized superscript-digit COM/LPT aliases, with
-   extension, trailing-dot, or trailing-space aliases. More than one Path
-   argument rejects.
-
-   `Prefix::Disk` is only lexical evidence. The Path and exact grant remain
-   `locality_unclassified` until Session AC; neither may authorize a file
-   operation. Non-Windows host file access remains unavailable in this order.
-   These are invocation-boundary errors with no host access, not fake source
-   diagnostics.
-4. Extend the existing `--allow` payload parser to represent at most one exact
-   native `files.read=<path>` grant and exact `--deny files.read`, still without
-   reading metadata or contents. Preserve the grant as native path identity.
-   Apply the same lexical-path rejection to grant payloads. Two distinct
-   `files.read` payloads are a CLI usage error; exact duplicate grants are
-   idempotent and deny still wins. The Path argument need not be granted until
-   an operation uses it in AD;
-   source spelling and operator consent remain separate facts.
-5. Add a source misuse fixture for a Text literal where Path is required and
-   any other new source rejection rule. Add platform-native unit tests proving
-   non-Text path code units round-trip without loss. A nonexistent absolute
-   Path and nonexistent exact grant must parse and reach the no-read test
-   harness, proving this session made no filesystem probe.
-6. A small app may accept the Path and emit a fixed stdout literal, but must not
-   inspect or stringify it. The observable proof is entry construction plus
-   the internal lossless round-trip and zero-host-access adapter test, not a
-   degenerate path-as-Text echo.
-
-Acceptance criteria:
-
-- Native path round-trip tests pass on the supported platform, including a
-  value not representable as ordinary Rust `String` where the platform API can
-  construct one.
-- Relative/traversal/multiple/literal/direct-entry misuse and every lexically
-  banned Windows UNC/device/volume/ADS/DOS-device/normalized-alias path class
-  rejects before host access with stable applicable diagnostics or invocation
-  errors.
-- A nonexistent clean absolute path proves no metadata or content read occurs.
-- No docs claim fixed-local classification, a general Path API, portable path
-  semantics, or file-read support yet.
-- Standing checks pass. Stop. Do not begin Session AC.
-
-## Session AC: audited Windows fixed-local drive classification
-
-Purpose: determine whether an AB drive-letter candidate earns the
-threat-scoped `fixed_local_v0` status without opening the candidate file or
-hiding mapped, network, fabric, file-backed, virtual, removable, or unknown
-storage authority.
-
-Scope:
-
-1. This session is the sole exception to the global bootstrap unsafe/FFI ban.
-   Add one small path dependency crate dedicated to Windows drive locality. The
-   main Hum binary crate retains `#![forbid(unsafe_code)]`; unsafe code cannot be
-   moved into the main crate, widened, or exposed to Hum source.
-2. `fixed_local_v0` is a threat-scoped property. Under a trusted Windows
-   kernel, trusted storage drivers, and a non-deceptive hypervisor, the complete
-   observable backing chain contains no mapped, network, fabric, file-backed,
-   virtual, removable, or unknown layer. It is not a filesystem sandbox or a
-   claim against a malicious kernel, driver, firmware, or hypervisor.
-3. `GetDriveTypeW` plus `QueryDosDeviceW` is preliminary evidence only and can
-   never produce `FixedLocal` by itself. The adapter may additionally call only:
-   `CreateFileW` with desired access zero for a synthesized volume device and
-   synthesized physical-disk devices; `DeviceIoControl` with exactly
-   `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS` and
-   `IOCTL_STORAGE_QUERY_PROPERTY`/`StorageDeviceProperty`/
-   `PropertyStandardQuery`; `GetStorageDependencyInformation` type 2 on the
-   volume handle; and `CloseHandle`.
-4. Accept `FixedLocal` only when `DRIVE_FIXED` and one ordinary stable
-   `HarddiskVolumeN` mapping are unchanged after inspection, dependency
-   information is complete and empty, the bounded extent list is complete and
-   nonempty, every extent's synthesized physical disk reports non-removable,
-   and every bus is exactly ATA, SATA, or NVMe. VHD/VHDX/ISO dependencies;
-   iSCSI, NVMe-oF, Virtual, FileBackedVirtual, Spaces, Fibre, RAID, SCSI, SAS,
-   removable media; topology changes; partial buffers; API failures; unknown
-   and future values; and unsupported hosts all fail closed as unclassified.
-5. Keep every unsafe block and foreign declaration inside the adapter crate,
-   minimize and comment each invariant, use bounded buffers, check every return
-   value and length, and enable `unsafe_op_in_unsafe_fn` denial. Handles are
-   private, query-only, and closed exactly once. No candidate path is opened.
-   WMI, COM, SetupDi, registry, processes, environment input, networking,
-   dynamic loading, arbitrary IOCTLs, general Win32 bindings, vendor/model
-   heuristics, and symbol lookup are forbidden.
-6. This work order explicitly mandates one new review packet:
-   `docs/SESSION_AC_WINDOWS_LOCALITY_REVIEW.md`. It records the exact foreign
-   signatures, why safe Rust std is insufficient, pre/postconditions, buffer
-   bounds, encoding, failure mapping, TCB impact, forbidden calls, test matrix,
-   and rollback. This packet describes bootstrap implementation risk; it does
-   not create Hum unsafe/FFI syntax or profile support.
-7. Inject the complete observation chain for exhaustive deterministic tests.
-   Cover VHD dependencies, UNC-hosted-VHD observations, iSCSI, NVMe-oF,
-   Virtual, FileBackedVirtual, Spaces, Fibre, RAID, SCSI/SAS, multiple extents,
-   all buffer/API failures, stable rechecks, direct ATA/SATA/NVMe positives,
-   removable media, and unknown future values. A hosted Windows repository-drive
-   smoke may fail closed rather than falsely require `FixedLocal`. Non-Windows
-   builds return `Unsupported` without foreign calls.
-8. Existing report/schema IDs, CLI flags, Hum grammar, and capability names do
-   not change in this session. Only the internal Path/grant status may narrow
-   from `locality_unclassified` to `fixed_local_v0`.
-
-Acceptance criteria:
-
-- The main crate still forbids unsafe code; the isolated adapter and mandated
-  packet enumerate every foreign call and unsafe invariant.
-- Direct injected ATA/SATA/NVMe chains pass. The hosted repository-drive smoke
-  may pass or fail closed. Every dependency, disallowed bus, removable,
-  malformed, partial, changed, failed, unsupported, or unknown chain remains
-  unclassified.
-- Classification performs no candidate metadata/open, network, process,
-  environment, registry, file-content access, or non-authorized device query.
-- No Hum output claims general FFI, unsafe, target availability, portable paths,
-  or a filesystem sandbox.
-- Standing checks pass. Stop. Do not begin Session AD.
-
-## Session AD: hardened exact-file text read
-
-Purpose: read one explicitly granted local file through the AB Path boundary.
-
-Scope:
-
-1. Add exactly:
-
-   ```hum
-   files_read_text(path: Path) -> Result Text, FileReadError
-   ```
-
-   It requires `files.read` through task/caller/app declarations and an exact
-   operator grant whose native path identity matches `path`.
-2. A missing task, caller, or app `files.read` declaration is a static blamed
-   source diagnostic and prevents runtime. Only after source checks pass does
-   operator authority apply: default deny or exact deny returns
-   `FileReadError.denied`, while a different exact grant returns
-   `FileReadError.outside_grant`. Both occur before host metadata/open and unit
-   tests prove zero adapter calls. Deny wins.
-3. Revalidate AB's lexical path class and require AC's threat-scoped
-   `fixed_local_v0` result
-   before the file adapter call. Non-Windows, unclassified, or non-fixed
-   locality returns `FileReadError.unavailable` with no candidate probe. After
-   authority succeeds, fail closed on any directory, symlink, junction, or
-   Windows reparse component. Deterministic adapter/attribute tests cover
-   Windows reparse behavior and every banned UNC/device/volume/ADS/DOS-device
-   class; do not rely on silently skipped privileged symlink tests or
-   open-then-decide classification.
-4. Open only the one file, read at most 1 MiB, and decode strict UTF-8. Return
-   exactly named typed variants `FileReadError.denied`,
-   `FileReadError.outside_grant`, `FileReadError.unsafe_path`,
-   `FileReadError.unavailable`, `FileReadError.not_found`,
-   `FileReadError.not_file`, `FileReadError.too_large`,
-   `FileReadError.invalid_utf8`, and `FileReadError.io_failed`. Preserve the
-   root origin and any W wrapper sites. Map host error kinds deterministically;
-   raw host error strings are not the typed identity or a stable diagnostic
-   key.
-5. Map `files.read` to Core `file` and the already reserved
-   `os.filesystem` family. The implementation is the local bootstrap adapter;
-   it is not a portable-IO, target-availability, profile-enforcement, or OS
-   sandbox claim.
-6. No directory enumeration, root grant, glob, recursive read, file write,
-   create/delete, current-directory fallback, source path literal, or path
-   convenience API. Concurrent attackers or processes mutating a granted path
-   during the run remain explicitly outside the alpha threat model; therefore
-   this is not a complete filesystem sandbox.
-7. Hand-written fixtures cover a successful checked-in UTF-8 file and source
-   declaration misuse. Isolated adapter/temp tests cover every typed runtime
-   failure without touching user files.
-
-Acceptance criteria:
-
-- The exact checked-in file reads only under all three authority layers; a
-  different Path, default deny, and explicit deny perform zero host opens.
-- Every typed failure is tested, bounded, causal, and exit 1 rather than a trap.
-- Traversal/reparse/symlink/junction, directory, UNC/network, device namespace,
-  volume, ADS, DOS-device, mapped-drive, and unknown-locality cases fail closed
-  under deterministic tests. No write occurs in any path.
-- Human and existing JSON agree for source checks; runtime output makes no JSON
-  claim.
-- Standing checks pass. Stop. Do not begin Session AE.
-
-## Session AE: integrated local app and retrospective four
-
-Purpose: prove the three capability slices compose without widening their
-claims, then close Work Order 6.
-
-Scope:
-
-1. Write one hand-authored executable app whose nested start task:
-   - receives one opaque Path from the runner;
-   - reads that one exact granted UTF-8 fixture;
-   - consumes one runner replay tick;
-   - selects a fixed Text literal from the tick rather than adding formatting;
-   - writes the file Text and selected literal through bounded stdout; and
-   - wraps a missing-file failure in an app error while retaining the complete
-     file origin and wrapper/call trail.
-2. Identical source, ordinary args, exact file bytes, app/task declarations,
-   operator grants/denies, and replay sequence must produce byte-identical
-   stdout, stderr, and exit code. A path string alone is not the replay input;
-   changed file bytes are a changed input.
-3. Keep output composition within shipped surface. Multiple stdout writes and
-   tick-selected literals are allowed; Text concatenation, formatting,
-   interpolation, UInt conversion, JSON IO, hashing, and evidence-directory
-   output are not.
-4. Update `docs/bakeoff/SCORECARD.md` and
-   `docs/CORE_LANGUAGE_SHAPE.md` from actual evidence:
-   - Program 8 is full only if Session V's exact alias misuse remains green;
-   - the expected corpus count is 5/12 full plus Program 3 partial;
-   - this IO app is adoption evidence, not ownership-corpus coverage;
-   - reapply the three-strike rule, including the exact-three Predicate v2
-     vocabulary remainder;
-   - review every decision 0014 and 0015 honesty lock; and
-   - recommend the next work decisively with concrete deferral costs.
-5. Record new friction without laundering it into a shipped claim. The
-   retrospective must distinguish language gaps, bootstrap-adapter limits,
-   threat-model exclusions, and conveniences deliberately deferred.
-
-Acceptance criteria:
-
-- The integrated success runs twice with byte-identical results under identical
-  complete inputs. The missing-file run exits 1 and shows the full outer-to-root
-  causal trail with relevant source sites.
-- Denied stdout, replay, and file grants each fail before the corresponding
-  host adapter action; deny continues to win.
-- Corpus and ledger counts are exact, no TBD or degenerate substitute is
-  counted, and no IO result is mislabeled as ownership coverage.
-- The three-strike rule and honesty locks are visibly reapplied.
-- Standing checks pass. Stop: Work Order 6 ends. Session AF requires a new work
-  order and explicit authorization.
+   It returns `UInt` equal to the number of elements exactly equal to the Text
+   operand. The list operand may be an allowed `List Text` parameter/result
+   place or a `List Text` literal. The match operand may be an allowed Text
+   parameter/result place or Text literal. It is not a predicate task, closure,
+   arbitrary helper call, general collection fold, or body/stdlib API.
+
+The three source contracts become exactly:
+
+```hum
+result == list_count(["hum", "lang", "hum", "agent"], "hum")
+result == ["parse", "check", "run"]
+result == "parse"
+```
+
+The first replaces only `word_count`'s weaker hard-coded equality. The second
+replaces only `builder_demo`'s unchecked list-content prose; its checked
+`list_len(result) == 3` may remain as separate evidence. The third makes the
+existing `element_views` Text equality executable. Existing result types and
+program behavior do not change.
+
+### Complete H0701/H0704 lexical ownership boundary
+
+The shared analyzer first assigns recognition status to the complete trimmed
+contract line. Blank lines, comments, and already-owned hollow-contract cases
+retain their existing handling. Whitespace productions are exact:
+
+```text
+hws0 := *(SP / HTAB)
+hws1 := 1*(SP / HTAB)
+```
+
+`hws0` is zero or more ASCII spaces or tabs where spacing is optional. `hws1`
+is one or more ASCII spaces or tabs where a boundary rule requires separation.
+Neither production consumes CR, LF, or any other Unicode whitespace, and a
+contract line contains no executable newline.
+
+An executable-predicate intent signal exists when, outside a well-formed Text
+literal, any of these holds:
+
+1. any punctuation from `=`, `<`, or `>` occurs;
+2. `!` is followed by `hws0` and `=`, or is lexically between a complete
+   operand-ending token and, after `hws0`, an accepted operand-starting token;
+3. a token-boundary spelling of `old`, `list_len`, or `list_count` is followed
+   immediately by `(` or by `hws1` and `(`.
+
+For rule 2, operand-ending tokens are an identifier, boolean, integer, valid
+Text literal, `)`, or `]`; operand-starting tokens are the exact starters listed
+below. Thus `result ! 2`, `result!2`, and `(result) ! "x"` enter the malformed
+candidate envelope, while terminal prose punctuation such as `must hold!` does
+not.
+
+Text-literal contents are opaque to this scan. Therefore prose such as
+`completed list contains parse check run`, `result equals two`, and the whole
+Text literal `"result == list_count(items, hum)"` has no intent signal and
+remains H0701. `result = 2`, `result === 2`, `result ! = 2`, `result ! 2`,
+`list_count (items, "hum") == result`, and `helper(items) == result` do have an
+intent signal and enter the candidate envelope. A token such as `list_counted`
+does not trigger rule 3, but an unquoted comparison operator later on the same
+line still triggers rule 1. Only a Text literal accepted by the existing lexer
+shields its contents. An unterminated or otherwise malformed quote does not
+hide punctuation; both `result == "parse` and `"result == 2` enter the envelope
+and receive H0704.
+
+After an intent signal, the only accepted grammar is:
+
+```text
+predicate       := operand hws0 comparison hws0 operand
+comparison      := "==" | "!=" | "<=" | ">=" | "<" | ">"
+operand         := additive
+additive        := multiplicative (hws0 ("+" | "-") hws0 multiplicative)*
+multiplicative  := primary (hws0 ("*" | "/") hws0 primary)*
+primary         := boolean | integer | place | text_literal
+                 | list_text_literal | old_call | list_len_call
+                 | list_count_call | "(" hws0 operand hws0 ")"
+place           := identifier | identifier "." identifier
+old_call        := "old(" hws0 place hws0 ")"
+list_len_call   := "list_len(" hws0 place hws0 ")"
+list_count_call := "list_count(" hws0 list_source hws0 "," hws0 text_source hws0 ")"
+list_source     := place | list_text_literal
+text_source     := place | text_literal
+list_text_literal := "[]"
+                   | "[" hws0 text_literal
+                     (hws0 "," hws0 text_literal)* hws0 "]"
+```
+
+`boolean`, `integer`, `text_literal`, identifier, direct-field place, and
+integer-literal spelling reuse the existing Hum token definitions. AF adds no
+escape syntax or numeric syntax. `place` is purely syntactic and uses exactly
+the already authorized predicate place surface: one identifier or one direct
+field composed of two identifiers. It admits no element/index, nested field,
+call, or permission-bearing form. Parsing never requires the place to resolve,
+be a parameter/result, be section-eligible, or have a particular type.
+Resolution, section eligibility, `old(...)` entry-readability, and operand type
+are applied only after the complete grammar parses.
+
+The accepted first non-whitespace operand tokens are `true`, `false`, an
+existing decimal integer literal (including only the existing signed form), an
+identifier/place, `"`, `[`, `(`, or the exact no-gap call tokens `old(`,
+`list_len(`, and `list_count(`. No other starter is accepted. Once an intent
+signal exists, empty input, a leading comparison/comma, `@`, `{`, `]`, or any
+other starter is malformed H0704.
+
+The complete trimmed line must match one `predicate`; chained comparisons and
+trailing tokens are invalid. Multi-character comparison operators are atomic:
+whitespace inside them is invalid. Optional spacing exists only at `hws0`
+positions. No executable production uses `hws1`; the intent scan uses it to
+distinguish a spaced known-call near miss from the accepted no-gap call token.
+Accepted known-call spellings have no gap between the call name and `(`. Calls do not nest: `old` and `list_len` take one
+syntactic place, and `list_count` takes only the two source forms above. Lists
+are flat Text lists, have no trailing comma, and cannot contain expressions or
+nested lists. Parentheses/brackets/call delimiters must match, and the shared
+analyzer accepts at most 16 simultaneously open delimiter frames. Exceeding
+that bound is H0704, not a recursion failure or trap.
+
+Predicate recognition order is deterministic, and
+`predicate_recognition_status` has exactly four closed values:
+
+1. A meaningful line with no intent signal has
+   `predicate_recognition_status = non_executable_prose_v0` and remains H0701.
+   No later predicate parser or evaluator sees it.
+2. A signaled line that cannot match the complete grammar has
+   `predicate_recognition_status = malformed_executable_predicate_v2` and
+   receives H0704. This includes an invalid/empty operand starter, punctuation
+   near-miss operator, known-call spacing near miss, malformed place,
+   missing/extra/mismatched delimiter, illegal nesting, invalid list separator,
+   arbitrary call operand, or trailing token/prose.
+3. A grammar-valid candidate proceeds through place resolution, section
+   eligibility, and operand typing. Any failure has
+   `predicate_recognition_status = rejected_executable_predicate_semantics_v2`.
+   Existing H0630 retains precedence for a resolved, eligible, well-formed
+   candidate that attempts to inspect opaque `Path`. Otherwise an unresolved
+   place, resolved but predicate-ineligible place, invalid operator/type
+   combination, cross-type equality, or invalid call argument type receives
+   H0704 with the semantic reason.
+4. Only a grammar-valid and type-valid fact has
+   `predicate_recognition_status = recognized_typed_executable_predicate_v2`
+   and reaches evaluation. A false `needs:` is H0702 and a false `ensures:` is
+   H0703. A true predicate passes. No malformed or ill-typed candidate reaches
+   the evaluator.
+
+The one shared recognition fact contains `predicate_recognition_status`,
+tokens, delimiter depth/result, intent-signal span, parsed operands/operator,
+syntactic places, resolution/eligibility/type results when available, and every
+source span. Static checking and runtime preflight consume that fact; neither
+may rescan the line or independently decide H0701 versus H0704.
+
+### Typed analysis and diagnostics
+
+Move eligibility, operand parsing, type facts, and evaluation for executable
+predicates into one shared Predicate v2 analysis consumed by full type,
+downstream gates, graph facts where already represented, and runtime. Do not
+maintain separate string-pattern interpretations in static and runtime paths.
+The shared fact records section, comparison operator, operand kinds and types,
+`list_count` argument types, syntactic places, resolution/eligibility results,
+result type, and source spans. `predicate_recognition_status` is only a
+lexical/parser/type-recognition fact and emits no decision 0015 proof/trust
+classification.
+
+Allocate H0704 to a signaled executable-predicate candidate whose complete
+grammar, operator, arity, operand kind, or operand type is invalid. H0704 names the task
+and section, expected and actual types/shapes, the offending operand/call site,
+and a concrete valid replacement. It appears in full-type human and existing
+JSON output and blocks runtime through the same fact. H0701 remains only the
+warning for honest prose; it must not absorb malformed or ill-typed canonical
+Predicate v2 forms. H0702 and H0703 remain caller-blamed `needs:` and
+task-blamed `ensures:` runtime violations.
+
+Required precedence probes include: one ill-typed canonical Predicate v2 line
+that would otherwise fall through as prose (H0704, not H0701); Path use inside a
+Predicate v2-looking comparison (the existing H0630 Path boundary owns it, not
+H0704); and a false well-typed predicate (H0702/H0703, not H0704). Each offending
+line has one owning diagnostic and no generic trap; independent errors on other
+source lines are not suppressed.
+
+### AF cross-stage surfaces
+
+Resolver and type environment preserve referenced definition/type identity;
+type/full type expose accepted or H0704-rejected operand facts; effect,
+ownership, and resource consume the prior typed result without re-parsing the
+contract; Core preview/lower/verify preserve the checked predicate or its exact
+blocker; graph exposes the existing contract relationship honestly; and runtime
+evaluates only the shared accepted fact after clean preflight. Existing schema
+IDs and commands remain unchanged.
+
+### Permanent evidence
+
+Update the three hand-authored probes named above. Add non-degenerate fixtures
+that prove:
+
+- `word_count` returns the count relation, and a wrong implementation that
+  still returns a plausible UInt fails H0703;
+- `builder_demo` checks exact ordered content, and a same-length wrong-content
+  implementation fails H0703;
+- `element_views` checks Text equality, and a different Text result fails
+  H0703;
+- Text-vs-UInt comparison, mixed/non-Text list content, wrong `list_count`
+  arity/type, list ordering comparison, arbitrary helper-call operands, and
+  malformed canonical-looking forms fail with H0704 rather than H0701 or a
+  trap; and
+- ordinary non-predicate prose remains H0701 and existing Predicate v1
+  `old(...)`/`list_len(...)` evidence remains green.
+
+Place outcomes are pinned after a signaled line enters the envelope:
+
+| Place outcome | Representative candidate | Recognition status and owner |
+| --- | --- | --- |
+| syntactically malformed | `item..done == true`, `.item == true`, `item. == true` | `malformed_executable_predicate_v2`; exactly H0704 |
+| syntactically valid but unresolved | `missing_value == 2` | `rejected_executable_predicate_semantics_v2`; exactly H0704 with unresolved-place reason |
+| resolved but predicate-ineligible | `helper_task == 2` where `helper_task` resolves to a task/non-contract value | `rejected_executable_predicate_semantics_v2`; exactly H0704 with ineligible-place reason |
+| eligible place, wrong operand type | `text_value == 2` for a Text parameter/result | `rejected_executable_predicate_semantics_v2`; exactly H0704 with expected/actual types |
+| eligible and correctly typed | `result == 2` for UInt result | `recognized_typed_executable_predicate_v2`; executable, then pass or H0703 |
+
+Full-type human, JSON, and `hum run` preflight assert the same recognition
+status, reason, syntactic place, resolution/eligibility/type facts, spans,
+exact diagnostic count, and repair for every row. None becomes H0701, a generic
+resolver/type diagnostic, or a runtime trap.
+
+The permanent boundary matrix is exact:
+
+| Boundary | Representative lines | Required owner |
+| --- | --- | --- |
+| punctuation operator near misses | `result = 2`, `result === 2`, `result ! = 2`, `result ! 2`, `result!2`, `result <> 2` | one H0704 each |
+| prose operator word | `result equals two` | H0701 only |
+| malformed known calls | `list_count (items, "hum") == result`, `list_count(items) == result`, `old (item) == result` | one H0704 each |
+| missing/extra/mismatched delimiters | `result == ["parse"`, `result == ["parse")]`, `(result == "parse"`, `result == "parse`, `result == "parse""` | one H0704 each |
+| invalid operand starters | `@result == 2`, `, result == 2`, `== result` | one H0704 each |
+| canonical-looking trailing prose | `result == 2 matching words` | one H0704 |
+| quoted predicate-like Text as prose | `"result == list_count(items, hum)"` | H0701 only; inner spelling is never scanned |
+| token/call boundary near misses | `list_counted(items, "hum") == result`, `list_count (items, "hum") == result` | one H0704 each; first is arbitrary call, second is bad canonical spacing |
+| delimiter-depth limit | a generated-in-test 16-frame valid operand and a 17-frame counterpart | accepted at 16; H0704 at 17 |
+| lone predicate-shaped `!` | `result ! 2`, `result!2`, `(result) ! "x"` | one H0704 each in human/JSON/runtime preflight; no H0701 or trap |
+| adjacent recognition triplet | three one-token-neighbor fixtures: prose `result equals two`, malformed `result = 2`, valid `result == 2` | respectively H0701, H0704, and executable fact/H0702-or-H0703 behavior |
+
+Full-type human and existing JSON expose the same H0704 reason,
+`predicate_recognition_status`, intent span, offending span, task/section site,
+expected shape/type, and repair.
+`hum run` preflight renders that same H0704 and exits 2 before any task body or
+contract evaluation. H0701 remains a non-blocking runtime warning. Boundary
+fixtures assert exact counts and absence of the competing H0701/H0704 code and
+generic traps as applicable.
+
+Suggested stable fixture families are
+`fixtures/full_type_check/session_af_predicate_v2_*` and
+`fixtures/run/session_af_predicate_v2_*`; names must describe the misuse, not
+the desired implementation.
+
+### AF bans
+
+No boolean connectives, quantifiers, binders, lambdas, predicate task values,
+general helper calls, general list equality, generic element equality, Text
+ordering, normalization/collation, membership, `contains`, body-reachable
+`list_count`, decision 0015 proof/trust classifier, profile/proof/elision work,
+or new schema/command.
+
+### AF acceptance criteria
+
+- All three intended contracts execute and reject their wrong implementations;
+  none remains H0701 prose and none is replaced by a hard-coded substitute.
+- H0704 owns every pinned invalid canonical form with typed structured facts,
+  stable blame, actionable repair, and static/runtime precedence.
+- Every named compiler/report/Core/graph/runtime surface agrees, and no existing
+  Predicate v1 or Path-boundary behavior regresses.
+- The standing checks pass. Stop. Session AG remains unauthorized pending AF's
+  independent verdict, accepted commit and CI record, and a separate BDFL go.
+
+## Session AG: model-neutral corpus and experimental harness
+
+Purpose: freeze the exam before any effect candidate can shape it.
+
+### Authorized artifacts
+
+This session may add exactly one maintained corpus document,
+`docs/bakeoff/EFFECT_POLYMORPHISM_CORPUS.md`, and one isolated no-dependency
+Rust crate under `experiments/effect-bakeoff/`. The crate is an offline test
+harness only. It is not linked by the Hum binary, reachable from Hum source, or
+exposed as a CLI/report/schema. Add one proportional invocation to the existing
+preflight so corpus and experiment tests cannot silently rot.
+
+The shared corpus representation describes behavior and relationships only:
+values, callable inputs/results, call sites, stored or returned callables,
+latent operations, captured values/authority/resources, ownership transfer,
+registration lifetime, and expected blame sites. It contains no row variable,
+Boolean formula, capture-set syntax, candidate name, handler mechanism, hidden
+allocation, or candidate-specific rewrite.
+
+### Frozen candidate-neutral executable result contract
+
+Before any advocate begins, AG defines one closed Rust result type consumed by
+the shared harness and AK scorecard. Every candidate emits exactly one result
+per corpus case/variant with these required fields:
+
+```text
+candidate_id
+case_id
+variant_id
+candidate_native_result
+candidate_native_evidence
+neutral_normalized_summary
+status
+required_source_annotations
+inferred_requirement_facts
+inferred_capture_facts
+allocation_facts
+resource_facts
+added_machinery
+primary_reason
+primary_blame_site
+related_blame_sites
+repair_direction
+implementation_cost
+analysis_cost
+diagnostic_cost
+missing_evidence
+```
+
+`candidate_native_result` preserves the candidate's own normalized terminology.
+`candidate_native_evidence` is a sorted key/value evidence bag for audit only;
+it cannot create a score field. `neutral_normalized_summary` uses only corpus
+terms: callable input/result, propagated/handled requirement, stored/returned
+callable, capture/escape, exact authority requirement, ownership transfer, and
+resource lifetime. `status` is exactly `accepted`, `rejected`, `unsupported`,
+or `incomplete`; unsupported is not accepted, and incomplete is a hard evidence
+failure.
+
+Annotation facts record source site, purpose, and whether the annotation is
+required or inferred. Requirement and capture facts record stable corpus
+identity, origin/route, retained/propagated/handled disposition, and affected
+callable. Allocation/resource facts record kind, trigger, lifetime, cleanup or
+transfer owner, and whether the fact is explicit or merely prototype-assumed.
+`added_machinery` records layer (`language`, `checker`, `runtime`, `ownership`,
+or `tooling`), implementation state, and whether the scorecard may credit it;
+anything not implemented and exercised is uncredited.
+
+The diagnostic fields are mandatory for every rejected case. `primary_reason`
+uses the frozen corpus reason ID, the primary and related sites use frozen
+corpus site IDs, and `repair_direction` must preserve the model-neutral repair
+goal. Candidate-native jargon may appear only in native evidence and rendered
+explanation, not replace the neutral reason or sites.
+
+AG freezes these execution and normalization rules:
+
+- fixture inputs, positive/misuse variants, expected semantic observations,
+  required reason IDs, and required blame-site sets are immutable corpus data;
+- lists and maps sort by stable corpus ID; source routes retain semantic order;
+  candidate variables alpha-normalize by first structural occurrence; path
+  separators normalize only for identity, never display evidence;
+- each candidate runs from a fresh harness state twice, and the complete neutral
+  result must be byte-identical after canonical serialization;
+- a missing field, empty required site set, unreported allocation/resource,
+  omitted added machinery, failed normalization, or absent cost measurement
+  appends `missing_evidence` and forces `status = incomplete`; missing evidence
+  is never zero, pure, free, inferred, or favorable;
+- extra candidate-specific top-level fields are rejected. Native terminology
+  fits only in the two frozen native fields and has no independent scoring
+  weight.
+
+AG also freezes the cost method. `implementation_cost` is deterministic
+nonblank/noncomment candidate-module lines plus dependency count.
+`analysis_cost` is candidate-reported and harness-checked counts of visited
+corpus nodes, generated facts/constraints, normalization steps, and maximum
+live analysis items; process wall time may be recorded as non-scoring host
+context only. `diagnostic_cost` records primary-diagnostic count, required-site
+coverage, rendered UTF-8 byte count, candidate-native term count, and whether a
+model-neutral repair is present. The hard gates are complete corpus coverage,
+one primary diagnostic, full required-site coverage, no authority/ownership
+laundering, and no missing evidence. AK compares the frozen raw measures and
+may not invent a favorable default, hidden weight, or candidate-only metric.
+
+The harness contains malformed-result tests for every required field and proves
+that omission is incomplete. Any later change to this result contract,
+normalization, corpus observations, or cost method is a common corpus correction
+that stops the active advocate sequence, receives independent review, and
+forces every completed candidate to rerun.
+
+### Pinned distinguishing corpus
+
+Pin positive and misuse variants, stable case IDs, and frequency/rationale for:
+
+1. pure `map`;
+2. effectful `map` with inferred callback effects;
+3. `filter`/`retain`, including Program 3's two-list odd-filter positive,
+   retain-style positive deletion, same-list mutation rejection, and stale
+   retained-item-view rejection after deletion;
+4. `fold` with an effectful step;
+5. `retry` around a fallible callable without erasing its remaining effects;
+6. `with_timeout`-shaped handled requirements as a type-system case only, with
+   no scheduler or clock implementation credit;
+7. `parallel_map` as a latent-effect composition case only, with no concurrency
+   implementation credit;
+8. a stored callback registry that captures caller state and has an explicit
+   registration/lifetime misuse;
+9. an event-handler factory returning a closure that captures authority;
+10. a memoizing wrapper returning a callable that captures cache state and
+    allocation/resource intent;
+11. logging middleware that adds output while preserving the wrapped callable's
+    effects; and
+12. closure capture of an owned or Transaction-shaped linear resource,
+    including move, escape, double-use, and outlives misuse.
+
+Each misuse specifies one fundamental reason and structured callable,
+definition, capture, resource, call, registration/return, and use sites as
+applicable. The corpus separately measures effect inference, closure/resource
+capture, authority preservation, blame, caller annotation burden, public
+signature burden, and near-principal inference. `Near-principal` means the
+prototype produces one stable most-general summary within its admitted model,
+up to documented normalization/renaming, without requiring a caller annotation
+for the ordinary positive cases; it is not a proof of global principal types.
+
+### Corpus locks
+
+- Candidate-specific restructuring receives no credit. An around-call helper
+  cannot substitute for a returned wrapper; an owner table cannot substitute
+  for captured caller state; copying cannot substitute for an owned view or
+  resource; and a monomorphic callback cannot substitute for inferred latent
+  effects.
+- Existing Hum authority IDs remain exact. Corpus authority facts distinguish
+  source requirement, operator consent, and operation exercise.
+- Allocation and resource capture are explicit. A candidate cannot hide a
+  closure environment, cache, box, reference count, or registry allocation.
+- The harness rejects missing/duplicate case IDs, missing positive or misuse
+  halves, missing blame relationships, candidate vocabulary in the neutral
+  corpus, unpriced restructuring, incomplete candidate results, extra result
+  fields, and candidate output that cannot normalize into the frozen contract.
+- Session AG records the pure Effekt-style eligibility result transparently
+  against stored-callback and returned-closure requirements. Research prose
+  alone cannot eliminate it.
+
+### AG bans
+
+No production Hum module, syntax, compiler stage, runtime path, H-code, public
+schema/report, candidate implementation, candidate score, model selection,
+production higher-order fixture, or candidate-specific corpus vocabulary. The
+session may validate the exam but may not answer it.
+
+### AG cross-stage and diagnostic expectations
+
+No production compiler stage changes. Existing Hum stages must remain exactly
+as before and must not claim that corpus-only higher-order shapes are supported.
+Experimental diagnostics use corpus IDs and deterministic reason/blame facts,
+not H-codes. The new preflight invocation checks only the isolated crate and
+corpus integrity; it is not a new Hum pipeline stage.
+
+### AG acceptance criteria
+
+- The corpus contains all twelve exact shapes and misuse relationships, with no
+  model mechanism or candidate-specific substitute.
+- The harness fails on a deliberately malformed in-test corpus and passes the
+  checked-in corpus; no production Hum crate or surface depends on it.
+- The frozen candidate-neutral result contract, normalization, expected
+  observations, missing-evidence rule, and cost method reject malformed or
+  incomplete mock-candidate output before AH begins.
+- An independent reviewer verifies the corpus before any candidate sees an
+  editable exam. After acceptance, corpus changes require a separately reviewed
+  common correction and force every completed candidate to rerun.
+- The standing checks pass. Stop. Session AH remains unauthorized pending the
+  full gate and a separate BDFL go.
+
+## Session AH: Koka-style row-polymorphism advocate
+
+Purpose: give open effect rows their strongest honest prototype over the frozen
+corpus.
+
+### Scope
+
+Add only a row-candidate module and best-advocate document inside the AG
+experimental boundary. Implement open effect rows with stable labels and tail
+variables, latent callable effects, application propagation, exact handled
+label removal needed by the retry/timeout cases, alias-preserving rendering,
+and stable normalization/renaming for near-principal comparisons. Duplicate
+label behavior must be stated and tested rather than assumed.
+
+The candidate must represent returned/stored callables and expose closure
+environment allocation and captured owned/linear resources. If row effects
+alone cannot enforce resource escape or exact authority retention, record the
+additional capture/ownership side condition and price it as non-row machinery;
+do not credit decision 0014 or 0017 for an unimplemented bridge.
+
+### Evidence and diagnostics
+
+Run every frozen positive/misuse case and emit exactly AG's frozen candidate-
+neutral result contract. Preserve normalized latent rows only in the frozen
+candidate-native evidence fields; comparison uses the neutral summary,
+annotation, inference, allocation/resource, added-machinery, diagnostic, and
+cost fields. Add order/renaming stability tests, row growth stress,
+alias-preserving error snapshots, and a captured-linear-resource escape test.
+
+### Bans
+
+No production syntax/checker/runtime change, no corpus rewrite, no Boolean
+formula or capture-set emulation hidden inside the row candidate, no hidden
+effect labels or closure allocation, and no claim that the prototype proves
+principal inference, ownership soundness, or authority safety.
+
+### AH cross-stage surfaces
+
+Only the isolated experiment crate and its preflight invocation may consume
+row-candidate results. Production resolver, type, effect, ownership, resource,
+Core, graph, and runtime output remain byte-for-byte unaffected by the
+candidate mechanism except for unrelated deterministic build metadata.
+
+### AH acceptance criteria
+
+- The unchanged corpus produces a complete auditable row-candidate result; all
+  failures and added side machinery are explicit and uncredited.
+- Ordinary positive cases meet or clearly fail the near-principal/no-caller-
+  annotation gate, and diagnostics are deterministic and single-cause.
+- The standing checks pass. Stop. Session AI remains unauthorized pending the
+  full gate and a separate BDFL go.
+
+## Session AI: Flix-style Boolean-formula advocate
+
+Purpose: give Boolean effect formulas their strongest honest prototype over the
+same frozen corpus.
+
+### Scope
+
+Add only a formula-candidate module and best-advocate document inside the AG
+experimental boundary. Implement latent callable effect formulas with variables
+and the exact union, intersection, difference, complement, and equivalence/
+normalization behavior needed to test the corpus. Inference results must be
+stable modulo documented Boolean equivalence. Raw solver/formula output is not
+an acceptable user diagnostic.
+
+The candidate must represent stored/returned callables and price normalization,
+unification, associated-effect pressure, compile-time cost, closure allocation,
+and any separate ownership/capture rule. Authority labels remain exact and may
+not be simplified into an ambient `IO` or erased top effect.
+
+### Evidence and diagnostics
+
+Run every unchanged positive/misuse case and emit exactly AG's frozen candidate-
+neutral result contract. Preserve normalized Boolean formulas only in the
+frozen candidate-native evidence fields; no formula-specific comparison field
+or scoring rule may be added. Add formula-equivalence and order-stability tests,
+an effect-exclusion case, a formula-growth/throughput measurement on a bounded
+synthetic graph, a single-cause diagnostic snapshot that explains formulas in
+domain language, and captured-linear-resource/authority escape tests.
+
+### Bans
+
+No production change, corpus rewrite, candidate-specific restructuring,
+unpriced solver or associated-effect machinery, raw multi-error cascades,
+hidden allocation, erased effects, or claim that principal inference or
+performance is proved beyond the prototype measurements.
+
+### AI cross-stage surfaces
+
+Only the isolated experiment crate and its preflight invocation may consume
+formula-candidate results. Production resolver, type, effect, ownership,
+resource, Core, graph, and runtime gain no formula facts, syntax, or status.
+
+### AI acceptance criteria
+
+- The unchanged corpus produces a complete auditable formula-candidate result
+  with equivalence normalization and measured bounded prototype cost.
+- Every misuse has one comprehensible primary reason and the same relationship
+  sites required by the corpus; formula machinery never substitutes noise for
+  blame.
+- The standing checks pass. Stop. Session AJ remains unauthorized pending the
+  full gate and a separate BDFL go.
+
+## Session AJ: capture-oriented checking advocate
+
+Purpose: test whether capability/capture retention can provide Hum's effect
+story without weakening decisions 0014 or 0017.
+
+### Scope
+
+Add only a capture-candidate module and best-advocate document inside the AG
+experimental boundary. Implement explicit and inferred capture sets for
+callable values, result capture for returned/stored closures, subcapture needed
+by the corpus, and stable normalization/renaming. Distinguish:
+
+- capturing an ordinary immutable value;
+- moving or borrowing owned state;
+- retaining a Transaction-shaped linear resource;
+- retaining a source authority requirement; and
+- actual operator consent and operation exercise, which are not captures and
+  cannot be inferred into existence.
+
+If failure, state, or handled requirements need effect facts in addition to
+capture sets, expose and price the hybrid machinery. Do not call a capture-only
+answer complete by silently dropping non-capability effects.
+
+### Evidence and diagnostics
+
+Run every unchanged positive/misuse case and emit exactly AG's frozen candidate-
+neutral result contract. Preserve normalized capture sets only in the frozen
+candidate-native evidence fields; no capture-specific comparison field or
+scoring rule may be added. Add capture-substitution and order-stability tests,
+strict-vs-lazy result-capture comparisons, captured native authority identity,
+owned/linear move and escape misuses, and a test proving that a closure's
+capture set neither grants operator consent nor widens its app authority
+maximum.
+
+### Bans
+
+No production change, corpus rewrite, capability-as-consent, ambient capture
+root, hidden box/allocation, decision 0014 narrowing, decision 0017 widening,
+or claim that capture checking alone models effects the prototype represents
+with additional machinery.
+
+### AJ cross-stage surfaces
+
+Only the isolated experiment crate and its preflight invocation may consume
+capture-candidate results. Production resolver, type, effect, ownership,
+resource, Core, graph, authority audit, and runtime gain no capture facts,
+syntax, inference, or status.
+
+### AJ acceptance criteria
+
+- The unchanged corpus produces a complete auditable capture-candidate result;
+  capability retention, resource ownership, and external consent remain
+  distinct.
+- Ordinary positive cases meet or clearly fail the near-principal/signature-
+  burden gates, and every misuse produces one stable relationship diagnostic.
+- The standing checks pass. Stop. Session AK remains unauthorized pending the
+  full gate and a separate BDFL go.
+
+## Session AK: cross-candidate scoring and proposed decision
+
+Purpose: select a model only if repository evidence earns a selection.
+
+### Scope
+
+Freeze candidate code before scoring. Rerun all three prototypes against the
+same corpus and compare:
+
+1. exact positive and misuse coverage without restructuring;
+2. near-principal inference and stability;
+3. caller and public-signature annotation burden;
+4. one-diagnostic blame quality and repair direction;
+5. returned/stored closure expressiveness;
+6. owned and linear resource capture safety;
+7. decision 0017 authority integrity;
+8. explicit allocation/resource cost;
+9. checker complexity and bounded prototype throughput;
+10. Core/graph/tooling fit and migration path; and
+11. beginner and library-author pedagogy.
+
+Separate proven prototype facts from proposed production repairs. Give no
+credit for unimplemented machinery, hidden allocation, ambient capabilities,
+erased effects, future ownership work, or candidate-specific restructuring.
+Record eliminated candidates and salvageable ideas explicitly.
+
+Update the existing bake-off scorecard only with verified candidate results.
+Author `docs/decisions/0018-adopt-effect-polymorphism-model.md` with status
+exactly `proposed` only if at least one candidate clears every non-negotiable
+corpus, diagnostic, near-principal, ownership-capture, and authority gate. If no
+candidate clears the gate, do not choose the least-bad score: leave 0018 absent
+or proposed-blocked, identify the smallest shared evidence gap, and stop for a
+new bounded BDFL ruling.
+
+The proposed decision must state the chosen core rule, inference boundary,
+callable/capture semantics, diagnostics, Core and graph implications,
+allocation/resource visibility, rejected alternatives, salvaged mechanisms,
+migration, performance evidence, pedagogy, and every honesty lock. It must not
+implement production behavior.
+
+### AK bans and cross-stage surfaces
+
+No candidate code changes during scoring, corpus edits, production compiler or
+runtime changes, Hum syntax, H-codes, schema/report additions, selected-model
+hooks, effect implementation, internal references, higher-order stdlib, or
+flagship-wedge surface. Production resolver, type, effect, ownership, resource,
+Core, graph, and runtime remain unchanged; only the isolated experiment,
+scorecard, and proposed decision may report the comparison.
+
+### Decision gate
+
+The implementer cannot accept decision 0018. Only an independent
+architect-reviewer that verifies the frozen corpus, every candidate result, and
+the scorecard may exercise delegated ruling authority by changing the status to
+exactly `accepted under delegated authority (BDFL veto open)` and delivering the
+required BDFL brief. The BDFL may veto or directly rule. A decision acceptance
+does not authorize production effect-polymorphism implementation.
+
+### AK acceptance criteria
+
+- Every score traces to reproducible corpus output and prices all extra
+  machinery symmetrically.
+- The recommendation is decisive only if a candidate clears the gates; the ADR
+  kills alternatives and records salvage without overstating prototype proof.
+- Accepted decisions 0014, 0015, and 0017 remain unchanged and fully locked.
+- The standing checks pass. Stop. Work Order 7 ends at the decision gate. No
+  production effect implementation or later session is authorized.
 
 ## Deliberate deferrals and concrete cost
 
-- Internal references follow decision 0014's disjoint-field repair but are not
-  inside this IO slice. Program 5 and natural self-referential parser state stay
-  blocked for all of Work Order 6, at least until Work Order 7.
-- Effect polymorphism remains deferred. Programs 3 and 4, retain, closures,
-  callbacks, tasks-as-values, and higher-order stdlib remain blocked for all of
-  this order, at least until Work Order 7.
-- Predicate v2 remains deferred despite its exact-three active vocabulary
-  records. Content-conditional count, list content, and text-literal equality
-  remain unchecked through AE; AE must decide the next mandated response.
-- The Transaction-shaped linear marker remains non-general. Capabilities in
-  this order are explicit declarations/grants, not evidence that general linear
-  resources exist.
-- Replay ticks defer deterministic run mode: no virtual wall clock, seeded
-  random, fixed scheduler, stable map iteration, or full trace/replay proof.
-- Runner grants defer a real process/OS sandbox, runtime profile enforcement,
-  and evidence bundles. Denied code paths are tested, but hostile OS/process
-  containment is not claimed.
-- Exact UTF-8 file read defers Bytes IO, directories, writes, output
-  directories, JSON, hashing, manifests, SBOM/provenance, and the HumGate demo.
-  The first real-tool adoption artifact remains incomplete after this order.
-- App entry defers modules/packages, multi-file app linkage, service entry,
-  cancellation, signals, stdin, environment, and process exit APIs.
+### Internal references
 
-## Preserved backlog after this order
+Internal references remain the next ownership repair whenever ownership work
+resumes after this mandated sequence. They are not implemented or prototyped by
+Work Order 7. Deferral keeps ownership corpus Program 5 blocked: a parser cannot
+naturally own a buffer while storing a checked view into that buffer. Parser
+state must continue using less-direct coordinates, re-presentation, copies, or
+an explicitly different owner arrangement, none of which earns Program 5
+credit.
 
-1. Full deterministic run mode: virtual clock, seeded random, fixed schedule,
-   stable promised iteration, trace, and bit-for-bit replay evidence.
-2. Semantic diff (`hum diff`) for effect/contract/capability deltas.
-3. Machine-applicable fixes (`hum fix --apply`), still gating the public
-   agent-native repair claim. The eval that gates the broader
-   agent-native claim now has a researched design (see
-   research/2026-07-10-overnight-research-triage.md item 9): staged
-   claims, sealed post-cutoff task sets, hidden tests and grader,
-   cheat-labeled trajectories, causal diagnostic-utilization metrics,
-   ~384-task statistics, Windows-native primary track.
-4. Process/OS sandbox enforcement beyond the narrow runner grant flags.
-5. Fault containment design before concurrency syntax.
-6. Units of measure after type-system maturity.
-7. Language editions before public-alpha stability promises.
-8. Decision 0015 implementation: contract classifier, build-mode policy,
-   proof/evidence fields, and elision only after proof. No global toggle.
-9. Predicate v2, grown only from the three active vocabulary records and future
-   ledger evidence.
-10. List surface beyond append: retain after effect polymorphism, capacity, and
-    profile behavior.
-11. Numerics policy: checked defaults, explicit families, benchmark gate,
-    floating-point regimes, and decimal library-first.
-12. Text tiers: Bytes, Text, and OsText, with the AB Path slice not mistaken for
-    that full model.
-13. Source hardening: bidi-control rejection and explicit ASCII identifier
-    policy.
-14. Ownership after V: internal references, then broader flow-sensitive
-    borrowing; the general linear marker remains ledger-driven.
-15. Effect-polymorphism decision for closures, tasks-as-values, retain,
-    callbacks, and higher-order stdlib. Bake-off corpus research is
-    complete (triage item 2): Effekt-style second-class computations are
-    eliminated (stored callbacks and returned closures inexpressible by
-    design); the candidates are Koka rows vs Flix formulas vs
-    Scala-style capture checking, with capture checking possibly
-    underweighted given decision 0017's authority-as-values direction;
-    gates are the ten-program corpus, one-diagnostic rejections,
-    near-principal inference, and closure capture of owned resources.
-16. Canonical spec-of-record demo using existing graph/contract facts, without
-    claiming exported enforcement.
-17. Stdlib-labs admission when built-ins reach the constitution's evidence
-    threshold.
-18. Error recovery/narrowing beyond W's propagation and wrapping slice.
-19. Entry expansion beyond X's one-file, one-app, direct-child task root.
-20. Module paths bound to file paths when multi-file programs land; imports
-    remain non-executing.
-21. The free canonical Hum book, with chapters only for shipped features and
-    all examples extracted from checked fixtures.
-22. IO after AD: Bytes, directories, bounded evidence writes, canonical JSON,
-    hashing, manifests, and only then the HumGate wedge. The wedge now
-    has a researched identity (triage item 3): the air-gapped update
-    validator — one command, one verdict, one evidence dossier — whose
-    v1 primitive set is nearly what Sessions Z-AD build, whose first
-    customer is Hum's own release kit per the toolchain report, and
-    whose launch must pass the seven killer-demo tests (under a minute,
-    zero network, crisp tamper failure, evidence proving its own limited
-    effects, incumbent comparison).
-23. Docs anti-drift hardening: extend the preflight so documented claims
-    are machine-checked where cheap — backtick-quoted fixture paths in
-    docs must exist on disk; the DIAGNOSTICS.md table must stay in sync
-    with the diagnostic catalog; scorecard "Runs" rows must name
-    fixtures that exist. Prose drift episodes (the Session R mislabel,
-    the Program 8 accounting) motivate this; the docs-claims sweep probe
-    covers wording, this item covers referents.
+### Production effect polymorphism
+
+This order selects a model but does not ship it. Until a later accepted work
+order implements the selected semantics, Program 3's retain positive, Program
+4, closures, callbacks, tasks-as-values, higher-order stdlib, and higher-order
+contract blame remain unsupported. Experimental acceptance is no production
+language claim.
+
+### Air-gapped update validator
+
+The air-gapped update validator remains the next adoption destination, not a
+Session AF-AK deliverable. Deferral costs Hum its flagship real-tool proof and
+evidence dossier. Building it now would pre-decide or fake Bytes, directory
+input, hashing, manifests, canonical JSON IO, file writing, evidence-directory
+authority, signature/provenance policy, and sandbox claims. None may be
+prebuilt, reserved through speculative hooks, or credited in this order.
+
+### Other governance queue items
+
+Structured concurrency/shared state, generics/coherence, allocation/container
+identity, numeric modes, and Text/Bytes/Path remain in their existing governance
+order. This proposal neither authorizes nor reorders them.
+
+## Evidence links for independent pre-issuance review
+
+The fresh reviewer must verify at least:
+
+- predecessor closure and CI state from `git log`, this file's predecessor
+  commit, and the accepted Session AE ledger;
+- the exact three source programs and current H0701/runtime behavior;
+- decisions 0014, 0015, and 0017 in full;
+- `docs/bakeoff/CORPUS.md`, `docs/bakeoff/SCORECARD.md`, and the Session AE
+  portion of `docs/CORE_LANGUAGE_SHAPE.md`;
+- governance bake-off doctrine, delegated ruling, workflow continuity, and
+  session-definition-of-done rules;
+- all three named research snapshots with their provenance limitations; and
+- whether AF remains one review-sized coherent predicate repair and AG-AK each
+  remain independently review-sized without becoming documentation-only theater.
 
 ## Current authorization gate
 
-Sessions V and W were accepted and committed as `acfb36f` and `2af02ae`.
-Decision 0016 is accepted under delegated authority with the BDFL veto open.
-Session X was accepted by both reviewers independently (the Codex
-architect with zero findings; the cross-family reviewer on behavioral
-re-verification of the final hardened tree) and committed as `1605332`.
-Session Y was accepted, committed as `d30107d`, pushed by BDFL instruction,
-and passed both CI platforms. Session Z was accepted and committed as
-`fdffd43`. Decision 0017 is accepted under delegated authority with the BDFL
-veto open. CI portability repair `b168a60` passed Ubuntu and Windows CI.
-Session AA was accepted, committed as `77f5f88`, and passed Ubuntu and Windows
-CI in workflow `29131490535`. Session AB was accepted and committed as
-`4d02901`. Its portability repair was committed as `3da2fb1`, and Ubuntu and
-Windows CI passed in workflow `29134255620`. Session AC was accepted and
-committed as `0a55dd1`; its Ubuntu portability repair was committed as
-`b16e5b4`, and Ubuntu and Windows CI passed in workflow `29139203385`.
-Session AD was accepted and committed as `d8ddbcf`; its Ubuntu portability
-repair was committed as `3e5ad09`, and Ubuntu and Windows CI passed in workflow
-`29141310647`. Sessions V-AD are therefore accepted and committed. Decision
-0017 remains accepted under delegated authority with the BDFL veto open,
-including its dated threat-scoped `fixed_local_v0` amendment. The
-workflow-continuity amendment was independently accepted and committed as
-`9222d3f`, and Ubuntu and Windows CI passed in workflow `29142082459`. Session
-AE was accepted and committed as `82f87e2`, and Ubuntu and Windows CI passed in
-workflow `29143163659`. Sessions V-AE are therefore accepted and committed,
-and Work Order 6 is closed. No later session is authorized. Further
-implementation requires a new work order and a separate BDFL go signal.
-Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
+Work Order 6 is closed at `d601054`; Sessions V-AE are accepted and committed.
+This Work Order 7 stack is proposed and unissued. Session AF is unauthorized.
+Sessions AG-AK and every later session are unauthorized. No decision is
+accepted or proposed by the act of writing this work order. Publishing remains
+a BDFL-reserved action under `docs/GOVERNANCE.md`.
