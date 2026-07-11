@@ -1,35 +1,32 @@
-# Hum Work Order 7 (Proposed): Predicate V2 And The Effect-Polymorphism Bake-Off
+# Hum Work Order 7: Predicate V2 And The Effect-Polymorphism Bake-Off
 
 Date: 2026-07-11
-Status: proposed and unauthorized for implementation; authored under an
-explicit BDFL architecture/documentation planning authorization; issuance
-requires an independent pre-issuance architect-reviewer verdict, BDFL
-acceptance of this complete work-order stack, and a separate BDFL go signal for
-Session AF; no session in this order is authorized yet
+Status: issued; independently reviewed and accepted by the BDFL; the complete
+stack is commit `c10a210`, with Ubuntu and Windows CI passed in workflow
+`29145110803`; Session AF is next but remains unauthorized pending a separate
+BDFL go signal; no implementation session, decision ruling, or later work is
+implicitly authorized
 Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
 bounded planning authorization. Independent pre-issuance reviewer: a fresh
 architect-reviewer that did not author or edit this deliverable. Future
 implementer: agent sessions only after the required gates.
 Predecessor: Work Order 6, Sessions V-AE, closed and committed at `d601054`.
 The closed Work Order 6 text remains in git history and is not reopened by this
-proposal.
+order.
 
 ## Authority and issuance gate
 
-This file is a proposal, not an issued implementation mandate. Authoring it
-does not transfer governance authority, accept a decision, authorize Session
-AF, or authorize any later session. Before any implementation begins, all
-three gates must occur in order:
+This file is the issued Work Order 7 sequence, not authorization for an
+implementation session or decision ruling. Independent pre-issuance review and
+BDFL acceptance are complete in commit `c10a210`; Ubuntu and Windows CI passed
+in workflow `29145110803`. Before Session AF implementation begins, the final
+gate below must still occur:
 
-1. a fresh cold-start architect-reviewer independently reviews this complete
-   work-order stack for authority validity, session sizing, evidence linkage,
-   accepted-decision compatibility, and claim honesty;
-2. the BDFL explicitly accepts the work-order stack; and
-3. the BDFL gives a separate go signal for Session AF.
+1. the BDFL gives a separate go signal for Session AF.
 
-Acceptance of this stack would authorize only the sequence and gates written
-here. Each session still requires its own independent verdict, accepted commit
-and CI evidence recorded here, and a separate BDFL go signal for the next
+Acceptance and issuance of this stack authorize only the sequence and gates
+written here. Each session still requires its own independent verdict,
+accepted commit and CI evidence recorded here, and a separate BDFL go signal for the next
 session. No review, commit, push, CI success, decision proposal, or delegated
 ruling silently authorizes the following session.
 
@@ -966,8 +963,11 @@ The fresh reviewer must verify at least:
 
 ## Current authorization gate
 
-Work Order 6 is closed at `d601054`; Sessions V-AE are accepted and committed.
-This Work Order 7 stack is proposed and unissued. Session AF is unauthorized.
-Sessions AG-AK and every later session are unauthorized. No decision is
-accepted or proposed by the act of writing this work order. Publishing remains
-a BDFL-reserved action under `docs/GOVERNANCE.md`.
+Work Order 6 remains closed at `d601054`; Sessions V-AE are accepted and
+committed. The independently reviewed Work Order 7 stack was accepted by the
+BDFL and committed as `c10a210`; Ubuntu and Windows CI passed in workflow
+`29145110803`. Work Order 7 is issued. Session AF is next but remains
+unauthorized pending a separate BDFL go signal. Sessions AG-AK and every later
+session are unauthorized. No implementation session, decision ruling, or later
+work is implicitly authorized. Publishing remains a BDFL-reserved action under
+`docs/GOVERNANCE.md`.
