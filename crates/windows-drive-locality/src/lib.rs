@@ -44,6 +44,7 @@ pub enum DriveLocality {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(any(windows, test))]
 enum DriveTypeObservation {
     Unknown,
     MissingRoot,
@@ -56,6 +57,7 @@ enum DriveTypeObservation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(any(windows, test))]
 enum QueryState<T> {
     Complete(T),
     ApiFailure,
@@ -63,14 +65,17 @@ enum QueryState<T> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(any(windows, test))]
 struct PreliminaryObservation {
     drive_type: DriveTypeObservation,
     mapping: QueryState<Vec<u16>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(any(windows, test))]
 enum DependencyObservation {
     None,
+    #[cfg(windows)]
     Present,
     #[cfg(test)]
     Vhd,
@@ -83,6 +88,7 @@ enum DependencyObservation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(any(windows, test))]
 struct ExtentObservation {
     disk_number: u32,
     starting_offset: i64,
@@ -90,6 +96,7 @@ struct ExtentObservation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(any(windows, test))]
 struct DiskObservation {
     disk_number: u32,
     removable: bool,
@@ -97,6 +104,7 @@ struct DiskObservation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(any(windows, test))]
 struct InspectionEvidence {
     before: PreliminaryObservation,
     dependency: QueryState<DependencyObservation>,
@@ -107,11 +115,13 @@ struct InspectionEvidence {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(any(windows, test))]
 enum PreliminaryClass {
     Candidate,
     Closed(DriveLocality),
 }
 
+#[cfg(any(windows, test))]
 fn classify_preliminary(observation: &PreliminaryObservation) -> PreliminaryClass {
     let target = match &observation.mapping {
         QueryState::Complete(target) if !target.is_empty() => target.as_slice(),
@@ -146,6 +156,7 @@ fn classify_preliminary(observation: &PreliminaryObservation) -> PreliminaryClas
     }
 }
 
+#[cfg(any(windows, test))]
 fn classify_evidence(evidence: &InspectionEvidence) -> DriveLocality {
     let PreliminaryClass::Candidate = classify_preliminary(&evidence.before) else {
         let PreliminaryClass::Closed(result) = classify_preliminary(&evidence.before) else {
@@ -242,6 +253,7 @@ pub fn classify(root: DriveRoot) -> DriveLocality {
     })
 }
 
+#[cfg(any(windows, test))]
 fn is_ordinary_fixed_target(target: &[u16]) -> bool {
     const PREFIX: &str = r"\Device\HarddiskVolume";
     let Some(suffix) = strip_ascii_prefix_case_insensitive(target, PREFIX) else {
@@ -253,10 +265,12 @@ fn is_ordinary_fixed_target(target: &[u16]) -> bool {
             .all(|unit| *unit >= u16::from(b'0') && *unit <= u16::from(b'9'))
 }
 
+#[cfg(any(windows, test))]
 fn starts_ascii_case_insensitive(value: &[u16], prefix: &str) -> bool {
     strip_ascii_prefix_case_insensitive(value, prefix).is_some()
 }
 
+#[cfg(any(windows, test))]
 fn strip_ascii_prefix_case_insensitive<'a>(value: &'a [u16], prefix: &str) -> Option<&'a [u16]> {
     let bytes = prefix.as_bytes();
     if value.len() < bytes.len() {
@@ -274,6 +288,7 @@ fn strip_ascii_prefix_case_insensitive<'a>(value: &'a [u16], prefix: &str) -> Op
 
 #[cfg(test)]
 const BUS_TYPE_SCSI: u32 = 1;
+#[cfg(any(windows, test))]
 const BUS_TYPE_ATA: u32 = 3;
 #[cfg(test)]
 const BUS_TYPE_FIBRE: u32 = 6;
@@ -283,6 +298,7 @@ const BUS_TYPE_RAID: u32 = 8;
 const BUS_TYPE_ISCSI: u32 = 9;
 #[cfg(test)]
 const BUS_TYPE_SAS: u32 = 10;
+#[cfg(any(windows, test))]
 const BUS_TYPE_SATA: u32 = 11;
 #[cfg(test)]
 const BUS_TYPE_VIRTUAL: u32 = 14;
@@ -290,6 +306,7 @@ const BUS_TYPE_VIRTUAL: u32 = 14;
 const BUS_TYPE_FILE_BACKED_VIRTUAL: u32 = 15;
 #[cfg(test)]
 const BUS_TYPE_SPACES: u32 = 16;
+#[cfg(any(windows, test))]
 const BUS_TYPE_NVME: u32 = 17;
 #[cfg(test)]
 const BUS_TYPE_NVMEOF: u32 = 20;
@@ -682,6 +699,7 @@ fn decode_device_mapping(buffer: &[u16], returned: u32) -> QueryState<Vec<u16>> 
     QueryState::Complete(initialized[..first_nul].to_vec())
 }
 
+#[cfg(windows)]
 fn read_u32(buffer: &[u8], offset: usize) -> Option<u32> {
     buffer
         .get(offset..offset.checked_add(4)?)?
@@ -690,6 +708,7 @@ fn read_u32(buffer: &[u8], offset: usize) -> Option<u32> {
         .map(u32::from_ne_bytes)
 }
 
+#[cfg(windows)]
 fn read_i64(buffer: &[u8], offset: usize) -> Option<i64> {
     buffer
         .get(offset..offset.checked_add(8)?)?
@@ -1075,7 +1094,27 @@ mod tests {
                 DriveLocality::Removable,
             ),
             (
+                DriveTypeObservation::Optical,
+                r"\Device\HarddiskVolume3",
+                DriveLocality::Removable,
+            ),
+            (
+                DriveTypeObservation::RamDisk,
+                r"\Device\HarddiskVolume3",
+                DriveLocality::Removable,
+            ),
+            (
                 DriveTypeObservation::Unknown,
+                r"\Device\HarddiskVolume3",
+                DriveLocality::Unknown,
+            ),
+            (
+                DriveTypeObservation::MissingRoot,
+                r"\Device\HarddiskVolume3",
+                DriveLocality::Unknown,
+            ),
+            (
+                DriveTypeObservation::Other,
                 r"\Device\HarddiskVolume3",
                 DriveLocality::Unknown,
             ),

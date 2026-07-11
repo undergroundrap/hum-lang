@@ -1,11 +1,15 @@
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 
-use windows_drive_locality::{DriveLocality, DriveRoot};
+#[cfg(any(windows, test))]
+use windows_drive_locality::DriveLocality;
+#[cfg(windows)]
+use windows_drive_locality::DriveRoot;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativePathLocality {
     Unclassified,
+    #[cfg(any(windows, test))]
     FixedLocal,
 }
 
@@ -13,6 +17,7 @@ impl NativePathLocality {
     fn as_str(self) -> &'static str {
         match self {
             Self::Unclassified => "locality_unclassified",
+            #[cfg(any(windows, test))]
             Self::FixedLocal => "fixed_local_v0",
         }
     }
@@ -149,6 +154,7 @@ fn classify_validated_drive(_raw: &OsStr) -> NativePathLocality {
     NativePathLocality::Unclassified
 }
 
+#[cfg(any(windows, test))]
 fn locality_from_drive(locality: DriveLocality) -> NativePathLocality {
     match locality {
         DriveLocality::FixedLocal => NativePathLocality::FixedLocal,
