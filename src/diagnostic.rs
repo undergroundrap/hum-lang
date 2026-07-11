@@ -121,6 +121,11 @@ impl DiagnosticCode {
         "H0630",
         "opaque Path cannot be constructed or used in source",
     );
+    pub const FILE_CAPABILITY_UNDECLARED: Self =
+        Self::new("H0631", "file operation lacks source authority");
+    pub const INVALID_FILE_READ_CALL: Self = Self::new("H0632", "invalid files_read_text call");
+    pub const RESERVED_FILE_READ_BUILTIN_NAME: Self =
+        Self::new("H0633", "reserved file-read built-in name redeclared");
     pub const UNCHECKED_PROSE_CONTRACT: Self = Self::new("H0701", "unchecked prose contract");
     pub const NEEDS_CONTRACT_VIOLATION: Self = Self::new("H0702", "needs contract violation");
     pub const ENSURES_CONTRACT_VIOLATION: Self = Self::new("H0703", "ensures contract violation");

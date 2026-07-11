@@ -113,9 +113,14 @@ The V0 gate checks only conservative statement contexts:
   `Result UInt, ReplayClockError`; explicit propagation sees success type
   `UInt`, and H0626 rejects any argument under the exact zero-argument
   signature.
+- `files_read_text(path)`: the Session AD hardened file-read builtin is typed
+  as `Result Text, FileReadError`; explicit propagation sees success type
+  `Text`, and H0632 rejects any arity or checked argument type other than one
+  opaque `Path`.
 - `Path`: Session AB recognizes the reserved annotation only for the one
   structural app start parameter. H0629/H0630 source diagnostics block other
-  declarations and every source construction or use before full type; no Path
+  declarations and every source construction or use except Session AD's exact
+  `files_read_text(path)` consumption before full type; no other Path
   expression, conversion, return, storage, or call typing is claimed.
 - `block_close` and `loop_header`: accepted as statements with no expression
   type obligation.

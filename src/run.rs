@@ -5,11 +5,15 @@ use std::io::{self, Write};
 
 use crate::app_entry;
 use crate::ast::{App, Item, ParamPermission, Program, SectionLine, Task};
-use crate::capability_root::{self, OutputPolicyFact, ReplayPolicyFact};
+use crate::capability_root::{self, FilePolicyFact, OutputPolicyFact, ReplayPolicyFact};
 use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
 use crate::element_place;
 use crate::field_place;
+use crate::file_read::{
+    FileLocalityAdapter, FileLocalityError, FileReadAdapter, HostFileLocalityAdapter,
+    HostFileReadAdapter,
+};
 use crate::graph::is_meaningful_line_text;
 use crate::native_path::{ValidatedNativePath, validate_native_path};
 use crate::operator_grant::{GrantDecision, OperatorGrantPolicy};
@@ -64,6 +68,9 @@ pub struct AuthorityAuditEvent {
     pub byte_count: usize,
     pub replay_index: Option<usize>,
     pub replay_tick: Option<i64>,
+    pub native_path_identity: Option<OsString>,
+    pub native_path_matched: Option<bool>,
+    pub locality_status: Option<&'static str>,
     pub result: &'static str,
 }
 
@@ -106,6 +113,13 @@ pub(crate) trait ReplayAdapter {
 
 pub(crate) struct RunnerReplayAdapter {
     ticks: VecDeque<i64>,
+}
+
+pub(crate) struct RunAdapters<'a> {
+    output: &'a mut dyn OutputAdapter,
+    replay: &'a mut dyn ReplayAdapter,
+    file_locality: &'a mut dyn FileLocalityAdapter,
+    file: &'a mut dyn FileReadAdapter,
 }
 
 impl RunnerReplayAdapter {
@@ -439,8 +453,32 @@ pub(crate) fn run_program_with_adapters(
     output_adapter: &mut dyn OutputAdapter,
     replay_adapter: &mut dyn ReplayAdapter,
 ) -> RunReport {
+    let mut file_adapter = HostFileReadAdapter;
+    let mut locality_adapter = HostFileLocalityAdapter;
+    run_program_with_file_adapters(
+        program,
+        entry,
+        raw_args,
+        grant_policy,
+        RunAdapters {
+            output: output_adapter,
+            replay: replay_adapter,
+            file_locality: &mut locality_adapter,
+            file: &mut file_adapter,
+        },
+    )
+}
+
+pub(crate) fn run_program_with_file_adapters(
+    program: &Program,
+    entry: Option<&str>,
+    raw_args: &[OsString],
+    grant_policy: &OperatorGrantPolicy,
+    adapters: RunAdapters<'_>,
+) -> RunReport {
     let output_policies = output_policy_map(capability_root::output_policy_facts(program));
     let replay_policies = replay_policy_map(capability_root::replay_policy_facts(program));
+    let file_policies = file_policy_map(capability_root::file_policy_facts(program));
     let interpreter = Interpreter {
         program,
         failure_catalog: FailureCatalog::from_program(program),
@@ -449,17 +487,21 @@ pub(crate) fn run_program_with_adapters(
         active_app: RefCell::new(None),
         grant_policy,
         output: RefCell::new(OutputRuntime {
-            adapter: output_adapter,
+            adapter: adapters.output,
             successful_bytes: 0,
         }),
         replay: RefCell::new(ReplayRuntime {
-            adapter: replay_adapter,
+            adapter: adapters.replay,
             consumed: 0,
         }),
+        file_adapter: RefCell::new(adapters.file),
+        file_locality: RefCell::new(adapters.file_locality),
         output_policies,
         replay_policies,
+        file_policies,
         output_call_cursors: RefCell::new(BTreeMap::new()),
         replay_call_cursors: RefCell::new(BTreeMap::new()),
+        file_call_cursors: RefCell::new(BTreeMap::new()),
         output_task_call_cursors: RefCell::new(BTreeMap::new()),
         active_task_route: RefCell::new(Vec::new()),
         active_call_route: RefCell::new(Vec::new()),
@@ -520,6 +562,20 @@ fn replay_policy_map(
     policies
 }
 
+fn file_policy_map(facts: Vec<FilePolicyFact>) -> BTreeMap<(String, usize), Vec<FilePolicyFact>> {
+    let mut policies = BTreeMap::<(String, usize), Vec<FilePolicyFact>>::new();
+    for fact in facts {
+        policies
+            .entry((fact.task.clone(), fact.call_span.line))
+            .or_default()
+            .push(fact);
+    }
+    for facts in policies.values_mut() {
+        facts.sort_by_key(|fact| fact.call_span.column);
+    }
+    policies
+}
+
 fn output_failure(variant: &str, span: Span) -> FailureValue {
     FailureValue::root(
         FailureVariant {
@@ -534,6 +590,16 @@ fn replay_failure(variant: &str, span: Span) -> FailureValue {
     FailureValue::root(
         FailureVariant {
             root: "ReplayClockError".to_string(),
+            variant: variant.to_string(),
+        },
+        span,
+    )
+}
+
+fn file_failure(variant: &str, span: Span) -> FailureValue {
+    FailureValue::root(
+        FailureVariant {
+            root: "FileReadError".to_string(),
             variant: variant.to_string(),
         },
         span,
@@ -581,6 +647,9 @@ fn output_audit_event(
         byte_count,
         replay_index: None,
         replay_tick: None,
+        native_path_identity: None,
+        native_path_matched: None,
+        locality_status: None,
         result,
     }
 }
@@ -627,6 +696,60 @@ fn replay_audit_event(
         byte_count: 0,
         replay_index: Some(replay_index),
         replay_tick,
+        native_path_identity: None,
+        native_path_matched: None,
+        locality_status: None,
+        result,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn file_audit_event(
+    event_id: String,
+    event_sequence: usize,
+    request_id: String,
+    policy: &FilePolicyFact,
+    event_kind: &'static str,
+    decision: GrantDecision,
+    operator_allow_present: bool,
+    operator_deny_present: bool,
+    adapter_called: bool,
+    byte_count: usize,
+    native_path_identity: OsString,
+    native_path_matched: bool,
+    locality_status: &'static str,
+    result: &'static str,
+) -> AuthorityAuditEvent {
+    AuthorityAuditEvent {
+        event_id,
+        event_sequence,
+        request_id,
+        source_policy_id: policy.policy_id.clone(),
+        event_kind,
+        authority_surface: "hum_run_cli",
+        capability_id: "files.read",
+        grant_kind: "file",
+        grant_scope: "exact_native_path",
+        grant_strength: "read",
+        grant_lifetime: "one_run",
+        app_name: policy.app_name.clone(),
+        task: policy.task.clone(),
+        call_span: policy.call_span.clone(),
+        source_route: policy.source_route.clone(),
+        source_route_spans: policy.source_route_spans.clone(),
+        source_task_authorized: true,
+        source_app_authorized: policy.app_name.is_some(),
+        operator_allow_present,
+        operator_deny_present,
+        effective_decision: decision.effective(),
+        decision_reason: decision.reason(),
+        adapter_called,
+        byte_count,
+        replay_index: None,
+        replay_tick: None,
+        native_path_identity: Some(native_path_identity),
+        native_path_matched: Some(native_path_matched),
+        locality_status: Some(locality_status),
         result,
     }
 }
@@ -640,10 +763,14 @@ struct Interpreter<'program, 'output> {
     grant_policy: &'output OperatorGrantPolicy,
     output: RefCell<OutputRuntime<'output>>,
     replay: RefCell<ReplayRuntime<'output>>,
+    file_adapter: RefCell<&'output mut dyn FileReadAdapter>,
+    file_locality: RefCell<&'output mut dyn FileLocalityAdapter>,
     output_policies: BTreeMap<(String, usize), Vec<OutputPolicyFact>>,
     replay_policies: BTreeMap<(String, usize), Vec<ReplayPolicyFact>>,
+    file_policies: BTreeMap<(String, usize), Vec<FilePolicyFact>>,
     output_call_cursors: RefCell<BTreeMap<(String, usize, String), usize>>,
     replay_call_cursors: RefCell<BTreeMap<(String, usize, String), usize>>,
+    file_call_cursors: RefCell<BTreeMap<(String, usize, String), usize>>,
     output_task_call_cursors: RefCell<BTreeMap<(String, usize, String, String), usize>>,
     active_task_route: RefCell<Vec<String>>,
     active_call_route: RefCell<Vec<Span>>,
@@ -1535,6 +1662,9 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             if callee == "clock_replay_tick" {
                 return self.eval_clock_replay_tick(args, span, task_name);
             }
+            if callee == "files_read_text" {
+                return self.eval_files_read_text(args, env, span, task_name);
+            }
             if return_dependency::is_closed_view_deriving_operation(callee) {
                 return self.eval_slice_until(args, env, span, task_name);
             }
@@ -1805,6 +1935,205 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         }
     }
 
+    fn eval_files_read_text(
+        &self,
+        args: &str,
+        env: &mut Env,
+        statement_span: &Span,
+        task_name: &str,
+    ) -> Result<Evaluated, String> {
+        let raw_args = split_arguments(args);
+        if raw_args.len() != 1 {
+            return Err(format!(
+                "files_read_text expects exactly 1 Path argument, got {}",
+                raw_args.len()
+            ));
+        }
+        let value = match self.eval_expr(raw_args[0], env, statement_span, task_name)? {
+            Evaluated::Value(value) => value,
+            Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
+        };
+        let Value::Path(path) = value else {
+            return Err("files_read_text expects an opaque Path argument".to_string());
+        };
+
+        let policy = self.next_file_policy(task_name, statement_span)?;
+        let decision = self.grant_policy.files_read_decision();
+        let grant_matches = self
+            .grant_policy
+            .files_read_grant()
+            .is_some_and(|grant| grant == &path);
+        let request_id = self.record_file_decision(&policy, decision, &path, grant_matches);
+
+        if decision != GrantDecision::Allowed {
+            self.record_file_exercise(
+                &request_id,
+                &policy,
+                decision,
+                &path,
+                grant_matches,
+                false,
+                0,
+                "denied_before_candidate_access_v0",
+            );
+            return Ok(Evaluated::Failure(file_failure("denied", policy.call_span)));
+        }
+        if !grant_matches {
+            self.record_file_exercise(
+                &request_id,
+                &policy,
+                decision,
+                &path,
+                false,
+                false,
+                0,
+                "outside_exact_native_grant_before_candidate_access_v0",
+            );
+            return Ok(Evaluated::Failure(file_failure(
+                "outside_grant",
+                policy.call_span,
+            )));
+        }
+
+        let revalidated = match self.file_locality.borrow_mut().revalidate(&path) {
+            Ok(path) => path,
+            Err(error) => {
+                let (variant, reason) = match error {
+                    FileLocalityError::Unavailable => (
+                        "unavailable",
+                        "unsupported_or_unclassified_host_before_candidate_access_v0",
+                    ),
+                    FileLocalityError::UnsafePath => (
+                        "unsafe_path",
+                        "lexical_revalidation_failed_before_candidate_access_v0",
+                    ),
+                };
+                self.record_file_exercise(
+                    &request_id,
+                    &policy,
+                    decision,
+                    &path,
+                    true,
+                    false,
+                    0,
+                    reason,
+                );
+                return Ok(Evaluated::Failure(file_failure(variant, policy.call_span)));
+            }
+        };
+        if !revalidated.is_fixed_local() {
+            self.record_file_exercise(
+                &request_id,
+                &policy,
+                decision,
+                &revalidated,
+                true,
+                false,
+                0,
+                "fixed_local_v0_not_proven_before_candidate_access_v0",
+            );
+            return Ok(Evaluated::Failure(file_failure(
+                "unavailable",
+                policy.call_span,
+            )));
+        }
+
+        let result = self
+            .file_adapter
+            .borrow_mut()
+            .read_text(revalidated.as_os_str());
+        match result {
+            Ok(text) => {
+                self.record_file_exercise(
+                    &request_id,
+                    &policy,
+                    decision,
+                    &revalidated,
+                    true,
+                    true,
+                    text.len(),
+                    "exact_utf8_read_succeeded_v0",
+                );
+                Ok(Evaluated::Value(Value::Text(text)))
+            }
+            Err(error) => {
+                self.record_file_exercise(
+                    &request_id,
+                    &policy,
+                    decision,
+                    &revalidated,
+                    true,
+                    true,
+                    0,
+                    error.result_reason(),
+                );
+                Ok(Evaluated::Failure(file_failure(
+                    error.variant(),
+                    policy.call_span,
+                )))
+            }
+        }
+    }
+
+    fn next_file_policy(
+        &self,
+        task_name: &str,
+        statement_span: &Span,
+    ) -> Result<FilePolicyFact, String> {
+        let key = (task_name.to_string(), statement_span.line);
+        let policies = self.file_policies.get(&key).ok_or_else(|| {
+            format!(
+                "{}: files_read_text has no checked source-policy fact",
+                location(statement_span)
+            )
+        })?;
+        let mut expected_route = self
+            .active_app
+            .borrow()
+            .map(|app| vec![app.name.clone()])
+            .unwrap_or_default();
+        expected_route.extend(self.active_task_route.borrow().iter().cloned());
+        let active_call_route = self.active_call_route.borrow().clone();
+        let matching = policies
+            .iter()
+            .filter(|policy| {
+                policy.source_route == expected_route
+                    && policy.source_route_spans.len() == active_call_route.len() + 1
+                    && same_span_identities(
+                        &policy.source_route_spans[..active_call_route.len()],
+                        &active_call_route,
+                    )
+                    && policy.source_route_spans.last().is_some_and(|span| {
+                        same_source_file(&span.file, &statement_span.file)
+                            && span.line == statement_span.line
+                    })
+            })
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
+            return Err(format!(
+                "{}: files_read_text has no checked source-policy fact for route `{}`",
+                location(statement_span),
+                expected_route.join(" -> ")
+            ));
+        }
+        let route_key = active_call_route
+            .iter()
+            .map(span_identity_key)
+            .collect::<Vec<_>>()
+            .join("->");
+        let cursor_key = (
+            task_name.to_string(),
+            statement_span.line,
+            format!("{}|{route_key}", expected_route.join("->")),
+        );
+        let mut cursors = self.file_call_cursors.borrow_mut();
+        let cursor = cursors.entry(cursor_key).or_default();
+        let policy = matching[*cursor % matching.len()].clone();
+        *cursor += 1;
+        Ok(policy.clone())
+    }
+
     fn next_replay_policy(
         &self,
         task_name: &str,
@@ -1972,6 +2301,25 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 })
                 .map(|policy| policy.source_route_spans[call_index].clone()),
         );
+        candidates.extend(
+            self.file_policies
+                .values()
+                .flatten()
+                .filter(|policy| {
+                    policy.source_route.starts_with(&expected_prefix)
+                        && policy.source_route_spans.len() > call_index
+                        && same_span_identities(
+                            &policy.source_route_spans[..call_index],
+                            &active_call_route,
+                        )
+                        && same_source_file(
+                            &policy.source_route_spans[call_index].file,
+                            &statement_span.file,
+                        )
+                        && policy.source_route_spans[call_index].line == statement_span.line
+                })
+                .map(|policy| policy.source_route_spans[call_index].clone()),
+        );
         candidates.sort_by_key(span_identity_key);
         candidates.dedup_by(|left, right| same_span_identity(left, right));
         if candidates.is_empty() {
@@ -2110,6 +2458,74 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             adapter_called,
             replay_index,
             replay_tick,
+            result,
+        ));
+    }
+
+    fn record_file_decision(
+        &self,
+        policy: &FilePolicyFact,
+        decision: GrantDecision,
+        path: &ValidatedNativePath,
+        native_path_matched: bool,
+    ) -> String {
+        let mut events = self.authority_events.borrow_mut();
+        let ordinal = events
+            .iter()
+            .filter(|event| {
+                event.event_kind == "operator_decision" && event.capability_id == "files.read"
+            })
+            .count()
+            + 1;
+        let request_id = format!("{}:request-{ordinal}", policy.policy_id);
+        let event_sequence = events.len() + 1;
+        events.push(file_audit_event(
+            format!("{request_id}:decision"),
+            event_sequence,
+            request_id.clone(),
+            policy,
+            "operator_decision",
+            decision,
+            self.grant_policy.allows_files_read(),
+            self.grant_policy.denies_files_read(),
+            false,
+            0,
+            path.as_os_str().to_os_string(),
+            native_path_matched,
+            path.locality(),
+            "decision_recorded_v0",
+        ));
+        request_id
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_file_exercise(
+        &self,
+        request_id: &str,
+        policy: &FilePolicyFact,
+        decision: GrantDecision,
+        path: &ValidatedNativePath,
+        native_path_matched: bool,
+        adapter_called: bool,
+        byte_count: usize,
+        result: &'static str,
+    ) {
+        let mut events = self.authority_events.borrow_mut();
+        let event_sequence = events.len() + 1;
+        events.push(file_audit_event(
+            format!("{request_id}:exercise"),
+            event_sequence,
+            request_id.to_string(),
+            policy,
+            "operation_exercise",
+            decision,
+            self.grant_policy.allows_files_read(),
+            self.grant_policy.denies_files_read(),
+            adapter_called,
+            byte_count,
+            path.as_os_str().to_os_string(),
+            native_path_matched,
+            path.locality(),
             result,
         ));
     }
@@ -3348,6 +3764,12 @@ mod tests {
     use crate::ast::Program;
     use crate::check;
     use crate::diagnostic::{DiagnosticCode, Severity};
+    #[cfg(windows)]
+    use crate::file_read::{
+        FileLocalityAdapter, FileLocalityError, FileReadAdapter, FileReadAdapterError,
+    };
+    #[cfg(windows)]
+    use crate::native_path::ValidatedNativePath;
     use crate::operator_grant::OperatorGrantPolicy;
     use crate::parser;
 
@@ -3356,7 +3778,7 @@ mod tests {
         run_program, run_program_with_adapters, run_program_with_output,
     };
     #[cfg(windows)]
-    use super::{Value, parse_arg};
+    use super::{RunAdapters, Value, parse_arg, run_program_with_file_adapters};
 
     #[derive(Default)]
     struct RecordingOutput {
@@ -3399,6 +3821,70 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    struct RecordingFileRead {
+        result: Result<String, FileReadAdapterError>,
+        calls: usize,
+        paths: Vec<OsString>,
+    }
+
+    #[cfg(windows)]
+    impl RecordingFileRead {
+        fn success(text: &str) -> Self {
+            Self {
+                result: Ok(text.to_string()),
+                calls: 0,
+                paths: Vec::new(),
+            }
+        }
+
+        fn failure(error: FileReadAdapterError) -> Self {
+            Self {
+                result: Err(error),
+                calls: 0,
+                paths: Vec::new(),
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    impl FileReadAdapter for RecordingFileRead {
+        fn read_text(&mut self, path: &OsStr) -> Result<String, FileReadAdapterError> {
+            self.calls += 1;
+            self.paths.push(path.to_os_string());
+            self.result.clone()
+        }
+    }
+
+    #[cfg(windows)]
+    #[derive(Debug, Clone, Copy)]
+    enum InjectedLocality {
+        Fixed,
+        Unavailable,
+        Unsafe,
+    }
+
+    #[cfg(windows)]
+    struct RecordingLocality {
+        result: InjectedLocality,
+        calls: usize,
+    }
+
+    #[cfg(windows)]
+    impl FileLocalityAdapter for RecordingLocality {
+        fn revalidate(
+            &mut self,
+            path: &ValidatedNativePath,
+        ) -> Result<ValidatedNativePath, FileLocalityError> {
+            self.calls += 1;
+            match self.result {
+                InjectedLocality::Fixed => Ok(path.fixed_local_for_test()),
+                InjectedLocality::Unavailable => Err(FileLocalityError::Unavailable),
+                InjectedLocality::Unsafe => Err(FileLocalityError::UnsafePath),
+            }
+        }
+    }
+
     fn allowed_stdout() -> OperatorGrantPolicy {
         let mut policy = OperatorGrantPolicy::default();
         policy.allow("stdout.write").expect("exact allow");
@@ -3408,6 +3894,18 @@ mod tests {
     fn allowed_replay_and_stdout() -> OperatorGrantPolicy {
         let mut policy = allowed_stdout();
         policy.allow("clock.replay").expect("exact replay allow");
+        policy
+    }
+
+    #[cfg(windows)]
+    fn exact_file_policy(path: &OsStr, deny: bool) -> OperatorGrantPolicy {
+        let mut policy = allowed_stdout();
+        let mut grant = OsString::from("files.read=");
+        grant.push(path);
+        policy.allow_os(&grant).expect("exact native file allow");
+        if deny {
+            policy.deny("files.read").expect("exact file deny");
+        }
         policy
     }
 
@@ -3486,6 +3984,211 @@ mod tests {
                 .unwrap_err()
                 .contains("structural app entry")
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn exact_file_read_writes_checked_utf8_and_joins_forensic_events() {
+        let program = fixture_program(
+            "examples/probes/exact_file_read.hum",
+            include_str!("../examples/probes/exact_file_read.hum"),
+        );
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures/file_read/session_ad_utf8.txt")
+            .into_os_string();
+        let text = "Hum reads exact UTF-8: lambda=λ\n";
+        let mut output = RecordingOutput::default();
+        let mut replay = RecordingReplay::new(&[]);
+        let mut locality = RecordingLocality {
+            result: InjectedLocality::Fixed,
+            calls: 0,
+        };
+        let mut files = RecordingFileRead::success(text);
+        let report = run_program_with_file_adapters(
+            &program,
+            None,
+            std::slice::from_ref(&path),
+            &exact_file_policy(&path, false),
+            RunAdapters {
+                output: &mut output,
+                replay: &mut replay,
+                file_locality: &mut locality,
+                file: &mut files,
+            },
+        );
+
+        assert_eq!(report.outcome, RunOutcome::AppSuccess);
+        assert_eq!(output.writes, vec![text.as_bytes().to_vec()]);
+        assert_eq!(output.calls, 1);
+        assert_eq!(locality.calls, 1);
+        assert_eq!(files.calls, 1);
+        assert_eq!(files.paths.as_slice(), std::slice::from_ref(&path));
+        let file_events = report
+            .authority_events
+            .iter()
+            .filter(|event| event.capability_id == "files.read")
+            .collect::<Vec<_>>();
+        assert_eq!(file_events.len(), 2);
+        assert_eq!(file_events[0].request_id, file_events[1].request_id);
+        assert_eq!(file_events[0].native_path_identity, Some(path.clone()));
+        assert_eq!(file_events[0].native_path_matched, Some(true));
+        assert_eq!(file_events[1].locality_status, Some("fixed_local_v0"));
+        assert_eq!(file_events[1].byte_count, text.len());
+        assert!(file_events[1].adapter_called);
+        assert_eq!(
+            file_events[1].source_route,
+            ["exact_file_read_probe", "run_tool"]
+        );
+        assert_eq!(file_events[1].source_route_spans.len(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn file_authority_precedence_rejects_before_locality_or_candidate_adapter() {
+        let program = fixture_program(
+            "examples/probes/exact_file_read.hum",
+            include_str!("../examples/probes/exact_file_read.hum"),
+        );
+        let input = OsString::from(format!("C:{}session-ad{}input.txt", '\\', '\\'));
+        let other = OsString::from(format!("C:{}session-ad{}other.txt", '\\', '\\'));
+
+        let cases = [
+            (allowed_stdout(), "FileReadError.denied"),
+            (exact_file_policy(&input, true), "FileReadError.denied"),
+            (
+                exact_file_policy(&other, false),
+                "FileReadError.outside_grant",
+            ),
+        ];
+        for (policy, expected) in cases {
+            let mut output = RecordingOutput::default();
+            let mut replay = RecordingReplay::new(&[]);
+            let mut locality = RecordingLocality {
+                result: InjectedLocality::Fixed,
+                calls: 0,
+            };
+            let mut files = RecordingFileRead::success("must not read");
+            let report = run_program_with_file_adapters(
+                &program,
+                None,
+                std::slice::from_ref(&input),
+                &policy,
+                RunAdapters {
+                    output: &mut output,
+                    replay: &mut replay,
+                    file_locality: &mut locality,
+                    file: &mut files,
+                },
+            );
+            let RunOutcome::AppFailure(chain) = report.outcome else {
+                panic!("expected typed app failure, got {:?}", report.outcome);
+            };
+            assert!(chain.contains("failure: FileAppError.file"));
+            assert!(chain.contains(&format!("caused by: {expected}")));
+            assert!(chain.contains("while calling `files_read_text`"));
+            assert!(!chain.contains("runtime trap"));
+            assert_eq!(locality.calls, 0);
+            assert_eq!(files.calls, 0);
+            assert_eq!(output.calls, 0);
+            let exercise = report
+                .authority_events
+                .iter()
+                .find(|event| {
+                    event.capability_id == "files.read" && event.event_kind == "operation_exercise"
+                })
+                .expect("file exercise");
+            assert!(!exercise.adapter_called);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn locality_and_every_file_adapter_failure_are_typed_and_causal() {
+        let program = fixture_program(
+            "examples/probes/exact_file_read.hum",
+            include_str!("../examples/probes/exact_file_read.hum"),
+        );
+        let input = OsString::from(format!("C:{}session-ad{}input.txt", '\\', '\\'));
+
+        for (locality_result, adapter_error, expected, expected_file_calls) in [
+            (
+                InjectedLocality::Unavailable,
+                FileReadAdapterError::IoFailed,
+                "FileReadError.unavailable",
+                0,
+            ),
+            (
+                InjectedLocality::Unsafe,
+                FileReadAdapterError::IoFailed,
+                "FileReadError.unsafe_path",
+                0,
+            ),
+            (
+                InjectedLocality::Fixed,
+                FileReadAdapterError::UnsafePath,
+                "FileReadError.unsafe_path",
+                1,
+            ),
+            (
+                InjectedLocality::Fixed,
+                FileReadAdapterError::NotFound,
+                "FileReadError.not_found",
+                1,
+            ),
+            (
+                InjectedLocality::Fixed,
+                FileReadAdapterError::NotFile,
+                "FileReadError.not_file",
+                1,
+            ),
+            (
+                InjectedLocality::Fixed,
+                FileReadAdapterError::TooLarge,
+                "FileReadError.too_large",
+                1,
+            ),
+            (
+                InjectedLocality::Fixed,
+                FileReadAdapterError::InvalidUtf8,
+                "FileReadError.invalid_utf8",
+                1,
+            ),
+            (
+                InjectedLocality::Fixed,
+                FileReadAdapterError::IoFailed,
+                "FileReadError.io_failed",
+                1,
+            ),
+        ] {
+            let mut output = RecordingOutput::default();
+            let mut replay = RecordingReplay::new(&[]);
+            let mut locality = RecordingLocality {
+                result: locality_result,
+                calls: 0,
+            };
+            let mut files = RecordingFileRead::failure(adapter_error);
+            let report = run_program_with_file_adapters(
+                &program,
+                None,
+                std::slice::from_ref(&input),
+                &exact_file_policy(&input, false),
+                RunAdapters {
+                    output: &mut output,
+                    replay: &mut replay,
+                    file_locality: &mut locality,
+                    file: &mut files,
+                },
+            );
+            let RunOutcome::AppFailure(chain) = report.outcome else {
+                panic!("expected typed app failure, got {:?}", report.outcome);
+            };
+            assert!(chain.contains("failure: FileAppError.file"));
+            assert!(chain.contains(&format!("caused by: {expected}")));
+            assert!(chain.contains("originated at examples/probes/exact_file_read.hum:31:22"));
+            assert_eq!(locality.calls, 1);
+            assert_eq!(files.calls, expected_file_calls);
+            assert_eq!(output.calls, 0);
+        }
     }
 
     #[test]

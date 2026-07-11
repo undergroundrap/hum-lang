@@ -20,6 +20,7 @@ const RESERVED_TYPE_ROOTS: &[&str] = &[
     "Path",
     "OutputError",
     "ReplayClockError",
+    "FileReadError",
     "Result",
     "Option",
     "Maybe",

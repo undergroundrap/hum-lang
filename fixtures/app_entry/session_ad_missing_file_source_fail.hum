@@ -1,0 +1,19 @@
+app missing_file_source {
+  why:
+    reject a file operation outside task and app source authority
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Result Unit, FileReadError {
+    fails when:
+      the exact file operation fails
+
+    allocates:
+      one bounded file buffer
+
+    does:
+      let text = try files_read_text(input)
+      return
+  }
+}

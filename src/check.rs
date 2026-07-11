@@ -90,6 +90,19 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
         );
     }
 
+    if task.name == "files_read_text" {
+        diagnostics.push(
+            Diagnostic::error(
+                DiagnosticCode::RESERVED_FILE_READ_BUILTIN_NAME,
+                "task `files_read_text` redeclares Hum's reserved hardened file-read built-in",
+                Some(task.span.clone()),
+            )
+            .with_help(
+                "Rename this user task; `files_read_text` is reserved for `files_read_text(path: Path) -> Result Text, FileReadError`.",
+            ),
+        );
+    }
+
     if task.section("why").is_none() && task_missing_why_is_suspicious(task) {
         diagnostics.push(
             Diagnostic::warning(

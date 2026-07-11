@@ -179,6 +179,20 @@ unclassified. The main crate remains unsafe-free, candidate paths are never
 opened, and this is not a portable Path model, target-availability claim, or
 filesystem sandbox.
 
+Session AD adds the first bounded file operation:
+`files_read_text(path: Path) -> Result Text, FileReadError`. The operation is
+reachable only through complete `files.read` task/caller/app source closure and
+one exact matching native operator grant; default or explicit deny wins and a
+different grant is outside authority before candidate access. The runner
+revalidates the AB lexical class and AC `fixed_local_v0` evidence before the
+safe file adapter examines components. The adapter rejects every reparse,
+symlink, junction, directory, or non-file path, performs one read-only file
+open, reads at most 1 MiB, and decodes strict UTF-8. Failures are typed and
+causal. Core records `file` and the target mapping remains the reserved
+`os.filesystem` family rather than an availability, portability, profile, or
+sandbox claim. Concurrent path mutation remains outside the alpha threat
+model.
+
 Session V's writable-field-alias slice is owned by one shared straight-line
 place analysis consumed by `ownership_check` and the interpreter. Resolver and
 effect rows recognize the same candidate as writable and defer authority and

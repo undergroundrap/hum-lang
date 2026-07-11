@@ -366,6 +366,16 @@ adding a Core file operation or effect. Source construction/use is blocked
 before Core, and no candidate metadata, canonicalization, candidate open,
 content read, or non-Windows foreign operation occurs.
 
+Session AD implements the exact Core `file` operation behind
+`files_read_text(Path) -> Result Text, FileReadError`. The accepted row carries
+the complete finite source-policy route and mapping status
+`implemented_hardened_exact_file_read_v0_reserved_os.filesystem`. Runtime
+authority remains the task/caller/app declaration intersection with one exact
+native grant minus deny. Lexical and `fixed_local_v0` evidence precede the
+single read-only candidate open; the result is bounded to 1 MiB and strict
+UTF-8. This adds no general Path value, directory effect, file mutation,
+portable filesystem semantics, target availability, or sandbox proof.
+
 ## Failure
 
 Failure is explicit.

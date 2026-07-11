@@ -182,9 +182,10 @@ fn check_task_signature(task: &Task, selected: Option<&Task>, diagnostics: &mut 
     });
     let body_use = task.section("does").and_then(|does| {
         let body = core_body::analyze_does_section(does);
-        body.statements
-            .into_iter()
-            .find(|statement| contains_identifier(&statement.text, &parameter.name))
+        body.statements.into_iter().find(|statement| {
+            contains_identifier(&statement.text, &parameter.name)
+                && !is_exact_file_read_consumption(statement, &parameter.name)
+        })
     });
     let source_use = contract_use
         .map(|line| line.span.clone())
@@ -194,7 +195,7 @@ fn check_task_signature(task: &Task, selected: Option<&Task>, diagnostics: &mut 
             Diagnostic::error(
                 DiagnosticCode::PATH_SOURCE_CONSTRUCTION,
                 format!(
-                    "task `{}` uses opaque Path parameter `{}` in source; Session AB permits entry injection only",
+                    "task `{}` uses opaque Path parameter `{}` outside the exact hardened file-read boundary",
                     task.name, parameter.name
                 ),
                 Some(span),
@@ -202,10 +203,58 @@ fn check_task_signature(task: &Task, selected: Option<&Task>, diagnostics: &mut 
             .with_related_span("runner-owned Path parameter", parameter.span.clone())
             .with_related_span("structural app start task", task.span.clone())
             .with_help(
-                "Keep the Path parameter inert: do not display, compare, store, return, pass, inspect, or transform it in source during Session AB.",
+                "Pass the runner-owned Path only as the sole argument to `files_read_text`; do not display, compare, store, return, pass elsewhere, inspect, or transform it.",
             ),
         );
     }
+}
+
+fn is_exact_file_read_consumption(statement: &core_body::BodyStatement, parameter: &str) -> bool {
+    let Some(expression) = expression_text(&statement.text) else {
+        return false;
+    };
+    let Some(call) = typed_failure::calls_in_expression(expression)
+        .into_iter()
+        .find(|call| call.callee == "files_read_text")
+    else {
+        return false;
+    };
+    let Some(arguments) = call
+        .source
+        .strip_prefix("files_read_text(")
+        .and_then(|source| source.strip_suffix(')'))
+    else {
+        return false;
+    };
+    arguments.trim() == parameter && identifier_occurrences(&statement.text, parameter) == 1
+}
+
+fn identifier_occurrences(text: &str, expected: &str) -> usize {
+    let mut count = 0usize;
+    let mut token = String::new();
+    let mut in_string = false;
+    for character in text.chars().chain(std::iter::once(' ')) {
+        if character == '"' {
+            if !in_string && token == expected {
+                count += 1;
+            }
+            token.clear();
+            in_string = !in_string;
+            continue;
+        }
+        if in_string {
+            continue;
+        }
+        if character.is_ascii_alphanumeric() || character == '_' {
+            token.push(character);
+        } else {
+            if token == expected {
+                count += 1;
+            }
+            token.clear();
+        }
+    }
+    count
 }
 
 fn check_source_path_construction(
@@ -357,6 +406,32 @@ mod tests {
       input == input according to unchecked prose
     does:
       let label = "input"
+      return
+  }
+}"#,
+        );
+        assert!(diagnostics(&program).is_empty());
+    }
+
+    #[test]
+    fn accepts_only_exact_hardened_file_read_consumption_of_path() {
+        let program = program(
+            r#"app file_probe {
+  why:
+    consume one opaque path
+  uses:
+    files.read
+  starts with:
+    run_tool
+  task run_tool(input: Path) -> Result Unit, FileReadError {
+    uses:
+      files.read
+    fails when:
+      exact file reading fails
+    allocates:
+      one bounded file buffer
+    does:
+      let text = try files_read_text(input)
       return
   }
 }"#,

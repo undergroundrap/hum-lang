@@ -1,0 +1,35 @@
+type FileAppError {
+  code: Text
+}
+
+app exact_file_read_probe {
+  why:
+    read one exact granted UTF-8 file and write its bytes unchanged
+
+  uses:
+    files.read
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Result Unit, FileAppError {
+    why:
+      compose the opaque Path boundary with one bounded text read
+
+    uses:
+      files.read
+      stdout.write
+
+    fails when:
+      exact file reading or bounded output fails
+
+    allocates:
+      one bounded file buffer and up to one causal wrapper frame
+
+    does:
+      let text = try files_read_text(input) or fail FileAppError.file
+      let written = try stdout_write(text) or fail FileAppError.output
+      return written
+  }
+}

@@ -163,6 +163,8 @@ V0 recognizes and checks:
 - `accepted_declared_runner_replay_operation_v0`
 - `rejected_missing_replay_source_authority_v0`
 - `rejected_replay_reachable_recursion_v0`
+- `accepted_declared_exact_file_read_operation_v0`
+- `rejected_missing_file_source_authority_v0`
 
 Session Y capability boundary rows reuse the existing schema and add structured
 policy fields only on those rows: exact `capability_id`, reserved `core_effect`
@@ -198,7 +200,7 @@ and exercise facts record the selected policy ID, sequence index, and consumed
 tick in memory. No wildcard, persistence, prompt, host clock, runtime JSON, or
 broader capability is added.
 
-Session AB adds no file effect or operation row. The opaque runner-owned Path
+Sessions AB and AC add no file operation row. The opaque runner-owned Path
 parameter is inert, and H0629/H0630 block invalid declarations or source use
 before effect checking. Exact native `files.read=<path>` operator payloads are
 parsed separately and begin `locality_unclassified`. Session AC may narrow the
@@ -206,7 +208,16 @@ internal Path or grant status to threat-scoped `fixed_local_v0` only from the
 complete stable drive/mapping, empty-dependency, bounded extent, and direct
 non-removable ATA/SATA/NVMe evidence chain. Neither status can satisfy or
 exercise `files.read`; no file effect, candidate access, or runtime audit event
-is invented for a non-operation.
+is invented before Session AD.
+
+Session AD adds `source_capability_file_operation` with Core effect `file`, the
+complete app/start/caller/call route, and mapping status
+`implemented_hardened_exact_file_read_v0_reserved_os.filesystem`. Runtime
+decision/exercise facts join that stable policy ID to the exact native path
+identity, grant match, locality status, adapter-call status, byte count, and
+typed result. `hum effect-check` reports those source facts without executing,
+opening, or reading the candidate and without claiming runtime JSON, target
+availability, portable IO, or sandbox enforcement.
 
 ## Honesty Rules
 

@@ -48,14 +48,31 @@ impl fmt::Debug for ValidatedNativePath {
 }
 
 impl ValidatedNativePath {
-    #[cfg(all(test, windows))]
     pub(crate) fn as_os_str(&self) -> &OsStr {
         &self.raw
     }
 
-    #[cfg(all(test, windows))]
     pub(crate) fn locality(&self) -> &'static str {
         self.locality.as_str()
+    }
+
+    pub(crate) fn is_fixed_local(&self) -> bool {
+        #[cfg(any(windows, test))]
+        {
+            self.locality == NativePathLocality::FixedLocal
+        }
+        #[cfg(not(any(windows, test)))]
+        {
+            false
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fixed_local_for_test(&self) -> Self {
+        Self {
+            raw: self.raw.clone(),
+            locality: NativePathLocality::FixedLocal,
+        }
     }
 }
 
@@ -80,6 +97,17 @@ pub(crate) enum NativePathIssue {
 }
 
 impl NativePathIssue {
+    pub(crate) fn is_unsupported_host(self) -> bool {
+        #[cfg(not(windows))]
+        {
+            self == Self::UnsupportedHost
+        }
+        #[cfg(windows)]
+        {
+            false
+        }
+    }
+
     pub(crate) fn reason(self) -> &'static str {
         match self {
             #[cfg(not(windows))]

@@ -93,12 +93,10 @@ impl OperatorGrantPolicy {
         self.decision(CLOCK_REPLAY)
     }
 
-    #[cfg(all(test, windows))]
     pub(crate) fn files_read_decision(&self) -> GrantDecision {
         self.decision(FILES_READ)
     }
 
-    #[cfg(all(test, windows))]
     pub(crate) fn files_read_grant(&self) -> Option<&ValidatedNativePath> {
         self.files_read.as_ref()
     }
@@ -127,6 +125,14 @@ impl OperatorGrantPolicy {
 
     pub(crate) fn denies_clock_replay(&self) -> bool {
         self.denies.contains(CLOCK_REPLAY)
+    }
+
+    pub(crate) fn allows_files_read(&self) -> bool {
+        self.allows.contains(FILES_READ)
+    }
+
+    pub(crate) fn denies_files_read(&self) -> bool {
+        self.denies.contains(FILES_READ)
     }
 }
 

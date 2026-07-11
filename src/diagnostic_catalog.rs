@@ -351,8 +351,26 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::PATH_SOURCE_CONSTRUCTION,
         default_severity: Severity::Error,
-        explanation: "Hum source attempts to construct, pass, inspect, store, return, compare, or otherwise use the runner-owned opaque Path value.",
-        repair: "Keep the Path parameter inert and provide it only as one native OS argument to structural `hum run` app entry.",
+        explanation: "Hum source attempts to construct, pass, inspect, store, return, compare, or otherwise use the runner-owned opaque Path value outside the exact hardened file-read consumption.",
+        repair: "Provide Path only through structural app entry and pass it only as the sole argument to `files_read_text`; keep every other Path operation absent.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::FILE_CAPABILITY_UNDECLARED,
+        default_severity: Severity::Error,
+        explanation: "A `files_read_text` call is executable only when its task, every caller, and the containing app declare exact `files.read` source authority.",
+        repair: "Add exact `files.read` to the blamed task and app `uses:` sections, preserving caller closure, or remove the file call; source declaration does not grant operator consent.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::INVALID_FILE_READ_CALL,
+        default_severity: Severity::Error,
+        explanation: "The hardened file-read built-in has exactly one signature: `files_read_text(path: Path) -> Result Text, FileReadError`.",
+        repair: "Pass exactly the runner-owned opaque Path and handle `FileReadError` with explicit propagation or causal wrapping.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::RESERVED_FILE_READ_BUILTIN_NAME,
+        default_severity: Severity::Error,
+        explanation: "A user task redeclares the exact `files_read_text` name reserved for Hum's hardened exact-file reader, which would split callable identity across stages.",
+        repair: "Rename the user task and keep `files_read_text` reserved for `files_read_text(path: Path) -> Result Text, FileReadError`.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::UNCHECKED_PROSE_CONTRACT,

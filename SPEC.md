@@ -143,6 +143,15 @@ hypervisor boundary, this excludes observable mapped, network, fabric,
 file-backed, virtual, removable, and unknown layers. Classification opens only
 synthesized query-only volume/disk devices with desired access zero; it neither
 performs nor authorizes candidate metadata, candidate open, or file reads.
+Session AD adds exactly
+`files_read_text(path: Path) -> Result Text, FileReadError`. Source authority
+must cover `files.read` through the task/caller/app closure, and operator
+consent must be one matching native `files.read=<path>` grant with deny-wins
+precedence. Lexical revalidation and `fixed_local_v0` complete before candidate
+access. The reader rejects reparse components, directories, missing or
+non-files, reads at most 1 MiB through one read-only open, and decodes strict
+UTF-8. This is a Windows bootstrap adapter, not portable IO or a filesystem
+sandbox.
 
 ### Type
 

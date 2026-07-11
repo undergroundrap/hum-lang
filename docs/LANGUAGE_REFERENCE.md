@@ -189,7 +189,8 @@ entry. `hum run` preserves that argument through the native OS string boundary;
 it is never reconstructed from `String`. Hum source has no Path literal,
 conversion, display, comparison, concatenation, component, join, parent,
 storage, return, or general library operation. H0629 rejects Path declarations
-outside the one start parameter, and H0630 rejects source construction or use.
+outside the one start parameter, and H0630 rejects source construction or use
+outside Session AD's exact hardened reader consumption.
 Direct `--entry` cannot inject Path. On Windows the invocation accepts only an
 ordinary drive-letter-rooted lexical candidate and rejects the namespace,
 traversal, ADS, empty-component, trailing-dot/space, and DOS-device classes
@@ -205,6 +206,20 @@ synthesized volume/disk devices with desired access zero and never opens the
 candidate path. This supports no candidate metadata, file read, portable
 locality, or filesystem-sandbox claim. Non-Windows Path execution remains
 unavailable.
+
+Session AD permits the otherwise opaque Path to appear only as the sole
+argument of `files_read_text(path: Path) -> Result Text, FileReadError` on the
+structural start task. H0631 requires complete `files.read` source closure;
+H0632 owns the exact Path signature; and H0633 reserves the builtin name.
+Default or exact operator denial returns `FileReadError.denied`, while a
+different exact native grant returns `FileReadError.outside_grant`, before
+candidate access. Lexical or reparse rejection is `unsafe_path`; unsupported or
+unclassified locality is `unavailable`; and candidate outcomes are
+`not_found`, `not_file`, `too_large`, `invalid_utf8`, or `io_failed`. The
+adapter performs one read-only file open only after the authority and
+`fixed_local_v0` gates, reads at most 1 MiB, and accepts strict UTF-8. There is
+no directory, write, glob, recursive, current-directory, portable-IO, or
+filesystem-sandbox surface.
 
 ### `type`
 

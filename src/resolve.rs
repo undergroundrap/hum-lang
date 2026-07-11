@@ -827,7 +827,10 @@ impl ResolverContext {
             });
         let builtin_name = input.name.trim();
         let builtin_callee = input.reference_kind == "callee_ref"
-            && matches!(builtin_name, "stdout_write" | "clock_replay_tick");
+            && matches!(
+                builtin_name,
+                "stdout_write" | "clock_replay_tick" | "files_read_text"
+            );
         let app_local_callee = input.reference_kind == "callee_ref"
             && self.scope_is_within_app_boundary(scope_id)
             && !builtin_callee;
@@ -843,10 +846,11 @@ impl ResolverContext {
             (
                 "builtin_reference_v0",
                 None,
-                Some(if builtin_name == "stdout_write" {
-                    "session_z_stdout_builtin_v0"
-                } else {
-                    "session_aa_runner_replay_builtin_v0"
+                Some(match builtin_name {
+                    "stdout_write" => "session_z_stdout_builtin_v0",
+                    "clock_replay_tick" => "session_aa_runner_replay_builtin_v0",
+                    "files_read_text" => "session_ad_exact_file_read_builtin_v0",
+                    _ => unreachable!("pinned builtin"),
                 }),
             )
         } else if let Some((definition_id, mutable, definition_kind)) = resolved {

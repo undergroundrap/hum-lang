@@ -116,6 +116,19 @@ fn insert_session_z_builtins(out: &mut BTreeMap<String, TaskFailureSignature>) {
             },
         },
     );
+    out.insert(
+        "files_read_text".to_string(),
+        TaskFailureSignature {
+            name: "files_read_text".to_string(),
+            success_type: Some("Text".to_string()),
+            error_root: Some("FileReadError".to_string()),
+            span: Span {
+                file: "<builtin:files_read_text>".to_string(),
+                line: 1,
+                column: 1,
+            },
+        },
+    );
 }
 
 pub(crate) fn analyze_task(

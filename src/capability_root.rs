@@ -113,6 +113,16 @@ pub(crate) struct ReplayPolicyFact {
     pub source_route_spans: Vec<Span>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FilePolicyFact {
+    pub policy_id: String,
+    pub app_name: Option<String>,
+    pub task: String,
+    pub call_span: Span,
+    pub source_route: Vec<String>,
+    pub source_route_spans: Vec<Span>,
+}
+
 #[derive(Debug, Clone)]
 struct Requirement {
     origin_task: String,
@@ -143,6 +153,7 @@ struct TaskNode<'a> {
     calls: Vec<CallEdge>,
     output_calls: Vec<Span>,
     replay_calls: Vec<Span>,
+    file_calls: Vec<Span>,
 }
 
 struct TaskGraph<'a> {
@@ -160,6 +171,14 @@ struct ReachableOutputRoute {
 
 #[derive(Debug, Clone)]
 struct ReachableReplayRoute {
+    task: String,
+    call_span: Span,
+    task_route: Vec<String>,
+    call_route: Vec<Span>,
+}
+
+#[derive(Debug, Clone)]
+struct ReachableFileRoute {
     task: String,
     call_span: Span,
     task_route: Vec<String>,
@@ -218,7 +237,7 @@ impl SourceCapability {
                 grant_strength: "read",
                 grant_lifetime: "one_run",
                 severity_tier: "ordinary_external_authority",
-                mapping_status: "reserved_until_session_ad_v0",
+                mapping_status: "implemented_hardened_exact_file_read_v0_reserved_os.filesystem",
             },
         }
     }
@@ -260,6 +279,24 @@ pub(crate) fn replay_policy_facts(program: &Program) -> Vec<ReplayPolicyFact> {
         .filter(|route| route.check == "source_capability_replay_operation")
         .filter_map(|route| {
             Some(ReplayPolicyFact {
+                policy_id: route.id,
+                app_name: route.app_name,
+                task: route.caller?,
+                call_span: route.primary_span,
+                source_route: route.route_tasks,
+                source_route_spans: route.route_spans,
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn file_policy_facts(program: &Program) -> Vec<FilePolicyFact> {
+    analyze(program)
+        .routes
+        .into_iter()
+        .filter(|route| route.check == "source_capability_file_operation")
+        .filter_map(|route| {
+            Some(FilePolicyFact {
                 policy_id: route.id,
                 app_name: route.app_name,
                 task: route.caller?,
@@ -322,6 +359,17 @@ pub(crate) fn entry_diagnostics(program: &Program, entry_name: &str) -> Vec<Diag
             None, origin, &call_span, false, true,
         )];
     }
+    if let Some((origin_task, call_span)) =
+        reachable_file_call(&graph, &node.task.name, &mut BTreeSet::new())
+        && !graph.tasks[&origin_task]
+            .capabilities
+            .contains_key(&SourceCapability::FilesRead)
+    {
+        let origin = graph.tasks[&origin_task].task;
+        return vec![missing_file_source_diagnostic(
+            None, origin, &call_span, false, true,
+        )];
+    }
     let closures = compute_closures(&graph);
     let Some((capability, requirement)) = closures
         .get(&task.name)
@@ -369,6 +417,7 @@ pub(crate) fn is_capability_diagnostic(diagnostic: &Diagnostic) -> bool {
             | DiagnosticCode::OUTPUT_RECURSION_UNSUPPORTED
             | DiagnosticCode::REPLAY_CAPABILITY_UNDECLARED
             | DiagnosticCode::REPLAY_RECURSION_UNSUPPORTED
+            | DiagnosticCode::FILE_CAPABILITY_UNDECLARED
     )
 }
 
@@ -378,6 +427,7 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
     let replay_recursion = replay_reachable_recursion(&graph, &start.name);
     let reachable_output_routes = reachable_output_routes(&graph, &start.name);
     let reachable_replay_routes = reachable_replay_routes(&graph, &start.name);
+    let reachable_file_routes = reachable_file_routes(&graph, &start.name);
     let closures = compute_closures(&graph);
     let (app_capabilities, app_unknown) = declarations(&app.sections);
     let entry_span = start_declaration_span(app).unwrap_or_else(|| start.span.clone());
@@ -599,6 +649,19 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                 ));
             }
         }
+        for call_span in &node.file_calls {
+            let task_covers = node.capabilities.contains_key(&SourceCapability::FilesRead);
+            let app_covers = app_capabilities.contains_key(&SourceCapability::FilesRead);
+            if !task_covers || !app_covers {
+                diagnostics.push(missing_file_source_diagnostic(
+                    Some(app),
+                    node.task,
+                    call_span,
+                    task_covers,
+                    app_covers,
+                ));
+            }
+        }
     }
 
     for output_route in &reachable_output_routes {
@@ -640,6 +703,25 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
             app_covers,
             route_tasks,
             replay_route.call_route.clone(),
+        ));
+    }
+
+    for file_route in &reachable_file_routes {
+        let node = &graph.tasks[&file_route.task];
+        let task_covers = node.capabilities.contains_key(&SourceCapability::FilesRead);
+        let app_covers = app_capabilities.contains_key(&SourceCapability::FilesRead);
+        let mut route_tasks = vec![app.name.clone()];
+        route_tasks.extend(file_route.task_route.clone());
+        routes.push(file_operation_route(
+            Some(app),
+            node.task,
+            Some(&entry_span),
+            &file_route.call_span,
+            node.capabilities.get(&SourceCapability::FilesRead),
+            task_covers,
+            app_covers,
+            route_tasks,
+            file_route.call_route.clone(),
         ));
     }
 
@@ -685,6 +767,27 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                 Some(&entry_span),
                 call_span,
                 node.capabilities.get(&SourceCapability::ClockReplay),
+                task_covers,
+                app_covers,
+                vec![app.name.clone(), node.task.name.clone()],
+                vec![call_span.clone()],
+            ));
+        }
+        for call_span in &node.file_calls {
+            let is_reachable = reachable_file_routes
+                .iter()
+                .any(|route| route.task == node.task.name && route.call_span == *call_span);
+            if is_reachable {
+                continue;
+            }
+            let task_covers = node.capabilities.contains_key(&SourceCapability::FilesRead);
+            let app_covers = app_capabilities.contains_key(&SourceCapability::FilesRead);
+            routes.push(file_operation_route(
+                Some(app),
+                node.task,
+                Some(&entry_span),
+                call_span,
+                node.capabilities.get(&SourceCapability::FilesRead),
                 task_covers,
                 app_covers,
                 vec![app.name.clone(), node.task.name.clone()],
@@ -749,7 +852,9 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                         .tasks
                         .values()
                         .any(|node| !node.replay_calls.is_empty()),
-                    SourceCapability::FilesRead => false,
+                    SourceCapability::FilesRead => {
+                        graph.tasks.values().any(|node| !node.file_calls.is_empty())
+                    }
                 };
             if !app_covers && task_route_complete && !operation_call_owns_missing_app {
                 diagnostics.push(app_mismatch_diagnostic(
@@ -830,6 +935,27 @@ fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
                     vec![call_span.clone()],
                 ));
             }
+            for call_span in &node.file_calls {
+                let task_covers = node.capabilities.contains_key(&SourceCapability::FilesRead);
+                analysis.diagnostics.push(missing_file_source_diagnostic(
+                    None,
+                    node.task,
+                    call_span,
+                    task_covers,
+                    false,
+                ));
+                analysis.routes.push(file_operation_route(
+                    None,
+                    node.task,
+                    None,
+                    call_span,
+                    node.capabilities.get(&SourceCapability::FilesRead),
+                    task_covers,
+                    false,
+                    vec![node.task.name.clone()],
+                    vec![call_span.clone()],
+                ));
+            }
         }
     }
     analysis
@@ -854,6 +980,7 @@ fn build_task_graph(items: &[Item]) -> TaskGraph<'_> {
                     calls: Vec::new(),
                     output_calls: Vec::new(),
                     replay_calls: Vec::new(),
+                    file_calls: Vec::new(),
                 },
             );
         }
@@ -864,6 +991,7 @@ fn build_task_graph(items: &[Item]) -> TaskGraph<'_> {
         let mut calls = Vec::new();
         let mut output_calls = Vec::new();
         let mut replay_calls = Vec::new();
+        let mut file_calls = Vec::new();
         if let Some(body) = task.section("does").map(core_body::analyze_does_section) {
             for statement in body.statements {
                 let Some(expression) = typed_failure::statement_expression(&statement) else {
@@ -882,6 +1010,8 @@ fn build_task_graph(items: &[Item]) -> TaskGraph<'_> {
                         output_calls.push(span.clone());
                     } else if call.callee == "clock_replay_tick" {
                         replay_calls.push(span.clone());
+                    } else if call.callee == "files_read_text" {
+                        file_calls.push(span.clone());
                     } else if known_names.contains(&call.callee) {
                         calls.push(CallEdge {
                             callee: call.callee,
@@ -895,6 +1025,7 @@ fn build_task_graph(items: &[Item]) -> TaskGraph<'_> {
         node.calls = calls;
         node.output_calls = output_calls;
         node.replay_calls = replay_calls;
+        node.file_calls = file_calls;
     }
     TaskGraph { tasks, order }
 }
@@ -995,7 +1126,7 @@ fn task_reaches_operation(
     let has_direct_operation = match capability {
         SourceCapability::StdoutWrite => !node.output_calls.is_empty(),
         SourceCapability::ClockReplay => !node.replay_calls.is_empty(),
-        SourceCapability::FilesRead => false,
+        SourceCapability::FilesRead => !node.file_calls.is_empty(),
     };
     has_direct_operation
         || node
@@ -1104,6 +1235,57 @@ fn collect_reachable_replay_routes(
     active.remove(task_name);
 }
 
+fn reachable_file_routes(graph: &TaskGraph<'_>, start: &str) -> Vec<ReachableFileRoute> {
+    let mut routes = Vec::new();
+    let mut active = BTreeSet::new();
+    let mut task_route = vec![start.to_string()];
+    let mut call_route = Vec::new();
+    collect_reachable_file_routes(
+        graph,
+        start,
+        &mut active,
+        &mut task_route,
+        &mut call_route,
+        &mut routes,
+    );
+    routes
+}
+
+fn collect_reachable_file_routes(
+    graph: &TaskGraph<'_>,
+    task_name: &str,
+    active: &mut BTreeSet<String>,
+    task_route: &mut Vec<String>,
+    call_route: &mut Vec<Span>,
+    routes: &mut Vec<ReachableFileRoute>,
+) {
+    if !active.insert(task_name.to_string()) {
+        return;
+    }
+    let Some(node) = graph.tasks.get(task_name) else {
+        active.remove(task_name);
+        return;
+    };
+    for call_span in &node.file_calls {
+        let mut route_spans = call_route.clone();
+        route_spans.push(call_span.clone());
+        routes.push(ReachableFileRoute {
+            task: task_name.to_string(),
+            call_span: call_span.clone(),
+            task_route: task_route.clone(),
+            call_route: route_spans,
+        });
+    }
+    for call in &node.calls {
+        task_route.push(call.callee.clone());
+        call_route.push(call.span.clone());
+        collect_reachable_file_routes(graph, &call.callee, active, task_route, call_route, routes);
+        call_route.pop();
+        task_route.pop();
+    }
+    active.remove(task_name);
+}
+
 fn reachable_unknown_requirement(
     graph: &TaskGraph<'_>,
     task_name: &str,
@@ -1182,6 +1364,26 @@ fn reachable_replay_call(
         }
     }
     path.remove(task_name);
+    None
+}
+
+fn reachable_file_call(
+    graph: &TaskGraph<'_>,
+    task_name: &str,
+    visited: &mut BTreeSet<String>,
+) -> Option<(String, Span)> {
+    if !visited.insert(task_name.to_string()) {
+        return None;
+    }
+    let node = graph.tasks.get(task_name)?;
+    if let Some(span) = node.file_calls.first() {
+        return Some((task_name.to_string(), span.clone()));
+    }
+    for call in &node.calls {
+        if let Some(found) = reachable_file_call(graph, &call.callee, visited) {
+            return Some(found);
+        }
+    }
     None
 }
 
@@ -1640,6 +1842,43 @@ fn missing_replay_source_diagnostic(
     diagnostic
 }
 
+fn missing_file_source_diagnostic(
+    app: Option<&App>,
+    task: &Task,
+    call_span: &Span,
+    task_covers: bool,
+    app_covers: bool,
+) -> Diagnostic {
+    let (missing, verb) = match (task_covers, app_covers) {
+        (false, false) => ("the task and app declarations", "do"),
+        (false, true) => ("the task declaration", "does"),
+        (true, false) => ("the app declaration", "does"),
+        (true, true) => ("no declaration", "does"),
+    };
+    let mut diagnostic = Diagnostic::error(
+        DiagnosticCode::FILE_CAPABILITY_UNDECLARED,
+        format!(
+            "`files_read_text` requires exact `files.read` source authority, but {missing} {verb} not cover this call"
+        ),
+        Some(call_span.clone()),
+    )
+    .with_related_span(
+        format!("calling task `{}` authority boundary", task.name),
+        task.span.clone(),
+    )
+    .with_help(
+        "Add exact `files.read` under the calling task and structural app `uses:` sections, preserving every caller closure, or remove the file call. Source declarations are budgets, not operator consent; the operator must separately grant the exact native path."
+            .to_string(),
+    );
+    if let Some(app) = app {
+        diagnostic = diagnostic.with_related_span(
+            format!("app `{}` maximum authority", app.name),
+            app.span.clone(),
+        );
+    }
+    diagnostic
+}
+
 #[allow(clippy::too_many_arguments)]
 fn output_operation_route(
     app: Option<&App>,
@@ -1744,6 +1983,59 @@ fn replay_operation_route(
         "capability-policy",
         call_span,
         &format!("source-capability-replay-operation-clock-replay-{route_identity}"),
+    );
+    fact
+}
+
+#[allow(clippy::too_many_arguments)]
+fn file_operation_route(
+    app: Option<&App>,
+    task: &Task,
+    entry_span: Option<&Span>,
+    call_span: &Span,
+    declaration_span: Option<&Span>,
+    task_covers: bool,
+    app_covers: bool,
+    route_tasks: Vec<String>,
+    route_spans: Vec<Span>,
+) -> CapabilityRouteFact {
+    let covered = task_covers && app_covers;
+    let route_identity = format!(
+        "{}-{}",
+        route_tasks.join("-"),
+        route_spans
+            .iter()
+            .map(|span| format!("{}-{}-{}", span.file, span.line, span.column))
+            .collect::<Vec<_>>()
+            .join("-")
+    );
+    let mut fact = route_fact(
+        "source_capability_file_operation",
+        if covered {
+            "accepted_declared_exact_file_read_operation_v0"
+        } else {
+            "rejected_missing_file_source_authority_v0"
+        },
+        (!covered).then_some("files_read_text_requires_task_and_app_source_authority_v0"),
+        (!covered).then_some(DiagnosticCode::FILE_CAPABILITY_UNDECLARED.as_str()),
+        SourceCapability::FilesRead.spec(),
+        task.span.clone(),
+        call_span.clone(),
+        app,
+        Some(task),
+        None,
+        declaration_span.cloned(),
+        entry_span.cloned(),
+        route_tasks,
+        route_spans,
+        (!covered).then(|| {
+            "Add exact `files.read` to both the task and app source authority budgets.".to_string()
+        }),
+    );
+    fact.id = node_id::span(
+        "capability-policy",
+        call_span,
+        &format!("source-capability-file-operation-files-read-{route_identity}"),
     );
     fact
 }

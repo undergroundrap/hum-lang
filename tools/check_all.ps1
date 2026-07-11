@@ -1065,7 +1065,7 @@ try {
   $SessionYPolicy = @{
     'stdout.write' = @{ Core = 'output'; Target = 'bounded_bootstrap_stdout_adapter_reserved_os.stdio'; Kind = 'output_stream'; Scope = 'app_stdout'; Strength = 'write'; Mapping = 'implemented_bounded_output_v0_reserved_os.stdio_mapping' }
     'clock.replay' = @{ Core = 'time'; Target = 'ordered_runner_replay_input_no_host_clock'; Kind = 'replay_input'; Scope = 'runner_tick_sequence'; Strength = 'read_ordered'; Mapping = 'implemented_runner_replay_input_v0_no_os.clock' }
-    'files.read' = @{ Core = 'file'; Target = 'one_exact_native_path_via_os.filesystem_adapter'; Kind = 'file'; Scope = 'exact_native_path'; Strength = 'read'; Mapping = 'reserved_until_session_ad_v0' }
+    'files.read' = @{ Core = 'file'; Target = 'one_exact_native_path_via_os.filesystem_adapter'; Kind = 'file'; Scope = 'exact_native_path'; Strength = 'read'; Mapping = 'implemented_hardened_exact_file_read_v0_reserved_os.filesystem' }
   }
   foreach ($Capability in @('stdout.write', 'clock.replay', 'files.read')) {
     $CapabilityRows = @($SessionYRoutes | Where-Object { $_.capability_id -eq $Capability })
@@ -1104,7 +1104,7 @@ try {
   $SessionYOccurrencesRepeatParsed = $SessionYOccurrencesRepeat | ConvertFrom-Json
   $SessionYOccurrenceRepeatIds = @($SessionYOccurrencesRepeatParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $_.status -eq 'accepted_caller_capability_closure_v0' -and $_.caller -eq 'run_tool' -and $_.capability_id -eq 'stdout.write' } | ForEach-Object { $_.id })
   if ((@($SessionYOccurrenceRows.id) -join ',') -ne ($SessionYOccurrenceRepeatIds -join ',')) { throw 'Session Y lexical policy identities must repeat deterministically' }
-  foreach ($Expected in @('no operator grant, consent prompt, persistence, or wildcard authority', 'no host capability operation or audit exercise event')) {
+  foreach ($Expected in @('effect report does not prove operator grants, consent prompts, persistence, or wildcard authority', 'effect report performs no host capability operation or runtime audit exercise')) {
     if (-not $SessionYEffect.Contains($Expected)) { throw "Session Y effect honesty lock is missing $Expected" }
   }
 
@@ -1540,6 +1540,58 @@ try {
   }
 
   if (-not $SessionAAHelp.Contains('--allow files.read=<path>') -or -not $SessionAAHelp.Contains('--deny files.read')) { throw 'Session AB help must document the one exact native file grant and deny' }
+
+  $SessionADPositive = 'examples/probes/exact_file_read.hum'
+  foreach ($Command in @('resolve', 'type-env', 'type-check', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
+    $Surface = Read-NativeOutput "Session AD $Command positive" $Hum @($Command, '--format', 'json', $SessionADPositive)
+    Assert-Json "Session AD $Command positive" $Surface
+  }
+  $SessionADGraph = Read-NativeOutput 'Session AD graph positive' $Hum @('graph', $SessionADPositive)
+  Assert-Json 'Session AD graph positive' $SessionADGraph
+
+  $SessionADEffect = Read-NativeOutput 'Session AD file policy effect row' $Hum @('effect-check', '--format', 'json', $SessionADPositive)
+  Assert-Json 'Session AD file policy effect row' $SessionADEffect
+  $SessionADEffectParsed = $SessionADEffect | ConvertFrom-Json
+  $SessionADFileRows = @($SessionADEffectParsed.effect_items | ForEach-Object { $_.boundary_checks } | Where-Object { $_.status -eq 'accepted_declared_exact_file_read_operation_v0' })
+  if ($SessionADFileRows.Count -ne 1 -or $SessionADFileRows[0].capability_id -ne 'files.read' -or $SessionADFileRows[0].core_effect -ne 'file' -or $SessionADFileRows[0].mapping_status -ne 'implemented_hardened_exact_file_read_v0_reserved_os.filesystem' -or @($SessionADFileRows[0].route_tasks).Count -ne 2 -or @($SessionADFileRows[0].route_spans).Count -ne 1) { throw 'Session AD file row must preserve Core file, exact mapping status, and complete route identity' }
+
+  foreach ($Misuse in @(
+    @{ Name = 'missing file source'; Path = 'fixtures/app_entry/session_ad_missing_file_source_fail.hum'; Surface = 'check'; Code = 'H0631' },
+    @{ Name = 'wrong file argument type'; Path = 'fixtures/full_type_check/session_ad_file_read_wrong_type_fail.hum'; Surface = 'full-type-check'; Code = 'H0632' },
+    @{ Name = 'reserved file builtin'; Path = 'fixtures/app_entry/session_ad_reserved_file_read_name_fail.hum'; Surface = 'check'; Code = 'H0633' }
+  )) {
+    $Human = Read-NativeOutputWithExit "Session AD $($Misuse.Name) human" $Hum @($Misuse.Surface, $Misuse.Path)
+    $Json = Read-NativeOutputWithExit "Session AD $($Misuse.Name) JSON" $Hum @($Misuse.Surface, '--format', 'json', $Misuse.Path)
+    if ($Human.ExitCode -ne 1 -or -not $Human.Output.Contains($Misuse.Code) -or $Json.ExitCode -ne 1 -or -not $Json.Output.Contains(('"diagnostic_code": "' + $Misuse.Code + '"')) -and -not $Json.Output.Contains(('"code": "' + $Misuse.Code + '"'))) { throw "Session AD $($Misuse.Name) must agree on $($Misuse.Code) in human and JSON" }
+    Assert-Json "Session AD $($Misuse.Name) JSON" $Json.Output
+  }
+
+  $SessionADImplicit = Read-NativeOutputWithExit 'Session AD implicit file failure JSON' $Hum @('full-type-check', '--format', 'json', 'fixtures/full_type_check/session_ad_implicit_file_read_fail.hum')
+  if ($SessionADImplicit.ExitCode -ne 1 -or -not $SessionADImplicit.Output.Contains('"diagnostic_code": "H0901"') -or -not $SessionADImplicit.Output.Contains('"callee": "files_read_text"') -or $SessionADImplicit.Output.Contains('H0630')) { throw 'Session AD implicit file call must preserve H0901 without Path-boundary masking' }
+  Assert-Json 'Session AD implicit file failure JSON' $SessionADImplicit.Output
+
+  if ($env:OS -eq 'Windows_NT') {
+    $SessionADPath = (Resolve-Path 'fixtures/file_read/session_ad_utf8.txt').Path
+    $SessionADGrant = '--allow=files.read=' + $SessionADPath
+    foreach ($Denied in @(
+      @{ Name = 'default deny'; Args = @('run', $SessionADPositive, '--allow', 'stdout.write', '--args', $SessionADPath) },
+      @{ Name = 'exact deny'; Args = @('run', $SessionADPositive, '--allow', 'stdout.write', $SessionADGrant, '--deny', 'files.read', '--args', $SessionADPath) }
+    )) {
+      $Run = Read-NativeChannelsWithExit "Session AD $($Denied.Name)" $Hum $Denied.Args
+      if ($Run.ExitCode -ne 1 -or $Run.Stdout -ne '' -or -not $Run.Stderr.Contains('failure: FileAppError.file') -or -not $Run.Stderr.Contains('caused by: FileReadError.denied') -or -not $Run.Stderr.Contains('while calling `files_read_text`') -or $Run.Stderr.Contains('runtime trap')) { throw "Session AD $($Denied.Name) must be causal typed denial before candidate access" }
+    }
+
+    $SessionADOtherPath = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($SessionADPath), 'different.txt')
+    $SessionADOutside = Read-NativeChannelsWithExit 'Session AD outside exact grant' $Hum @('run', $SessionADPositive, '--allow', 'stdout.write', ('--allow=files.read=' + $SessionADOtherPath), '--args', $SessionADPath)
+    if ($SessionADOutside.ExitCode -ne 1 -or $SessionADOutside.Stdout -ne '' -or -not $SessionADOutside.Stderr.Contains('caused by: FileReadError.outside_grant') -or $SessionADOutside.Stderr.Contains('runtime trap')) { throw 'Session AD a different exact native grant must fail outside authority before candidate access' }
+
+    $SessionADHosted = Read-NativeChannelsWithExit 'Session AD hosted exact file' $Hum @('run', $SessionADPositive, '--allow', 'stdout.write', $SessionADGrant, '--args', $SessionADPath)
+    if ($SessionADHosted.ExitCode -eq 0) {
+      if (-not $SessionADHosted.Stdout.Contains('Hum reads exact UTF-8: lambda=') -or $SessionADHosted.Stderr -ne '') { throw 'Session AD fixed-local hosted success must emit only the checked fixture bytes' }
+    } elseif ($SessionADHosted.ExitCode -ne 1 -or $SessionADHosted.Stdout -ne '' -or -not $SessionADHosted.Stderr.Contains('caused by: FileReadError.unavailable') -or $SessionADHosted.Stderr.Contains('runtime trap')) {
+      throw 'Session AD hosted drive may only succeed under fixed_local_v0 or fail closed as typed unavailable'
+    }
+  }
 
   $CheckJson = Read-NativeOutput 'check JSON' $Hum @('check', '--format', 'json', 'examples/reference_surface.hum')
   Assert-Json 'check JSON' $CheckJson

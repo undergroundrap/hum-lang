@@ -110,6 +110,13 @@ struct ReplayTickTypeIssue {
     reason: &'static str,
 }
 
+struct FileReadTypeIssue {
+    call_source: String,
+    call_span: Span,
+    actual_type: Option<TypeFact>,
+    reason: &'static str,
+}
+
 pub fn full_type_check_has_errors(program: &Program, diagnostics: &[Diagnostic]) -> bool {
     full_type_check_summary(program, diagnostics).blocking_issues > 0
 }
@@ -468,6 +475,27 @@ fn type_statement(
         return typed;
     }
 
+    if let Some(issue) = file_read_type_issue(statement, environment, task_returns, field_types) {
+        let mut typed = typed_statement(
+            statement,
+            index,
+            Some(issue.call_source),
+            Some("Path".to_string()),
+            issue.actual_type,
+            "rejected_invalid_files_read_text_call_v0",
+            Some(issue.reason),
+        );
+        typed.failure_form = Some("hardened_exact_file_read_builtin");
+        typed.call_span = Some(issue.call_span);
+        typed.caller_span = Some(item.span().clone());
+        typed.diagnostic_code = Some(DiagnosticCode::INVALID_FILE_READ_CALL.as_str());
+        typed.help = Some(
+            "Pass exactly the runner-owned opaque `Path` to `files_read_text`, then handle its `FileReadError` explicitly."
+                .to_string(),
+        );
+        return typed;
+    }
+
     if let Some(fact) = failure_fact {
         let effect_owned_missing_declaration = fact.diagnostic_code
             == Some(crate::diagnostic::DiagnosticCode::MISSING_FAILURE_DECLARATION);
@@ -604,6 +632,53 @@ fn replay_tick_type_issue(statement: &BodyStatement) -> Option<ReplayTickTypeIss
         call_source: call.source,
         call_span,
         reason: "clock_replay_tick_requires_zero_arguments_v0",
+    })
+}
+
+fn file_read_type_issue(
+    statement: &BodyStatement,
+    environment: &BTreeMap<String, TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+) -> Option<FileReadTypeIssue> {
+    let expression = expression_text_for_statement(statement)?;
+    let expression_offset = statement.text.find(expression).unwrap_or(0);
+    let call = typed_failure::calls_in_expression(expression)
+        .into_iter()
+        .find(|call| call.callee == "files_read_text")?;
+    let call_span = Span {
+        file: statement.span.file.clone(),
+        line: statement.span.line,
+        column: statement.span.column
+            + statement.text[..expression_offset + call.source_offset]
+                .chars()
+                .count(),
+    };
+    let args = call
+        .source
+        .strip_prefix("files_read_text(")?
+        .strip_suffix(')')?;
+    let arguments = split_call_arguments(args);
+    if arguments.len() != 1 {
+        return Some(FileReadTypeIssue {
+            call_source: call.source,
+            call_span,
+            actual_type: None,
+            reason: "files_read_text_requires_exactly_one_argument_v0",
+        });
+    }
+    let actual_type = infer_expression_type(arguments[0], environment, task_returns, field_types);
+    if actual_type
+        .as_ref()
+        .is_some_and(|actual| actual.type_text == "Path")
+    {
+        return None;
+    }
+    Some(FileReadTypeIssue {
+        call_source: call.source,
+        call_span,
+        actual_type,
+        reason: "files_read_text_argument_must_be_opaque_path_v0",
     })
 }
 
@@ -805,6 +880,10 @@ fn session_z_builtin_return_types() -> BTreeMap<String, TypeFact> {
         (
             name_key("clock_replay_tick"),
             type_fact("UInt", "runner_replay_builtin_v0"),
+        ),
+        (
+            name_key("files_read_text"),
+            type_fact("Text", "hardened_exact_file_read_builtin_v0"),
         ),
     ])
 }
@@ -1197,6 +1276,7 @@ fn is_blocking_statement(statement: &TypedStatement) -> bool {
             | "rejected_typed_failure_relationship_v0"
             | "rejected_invalid_stdout_write_call_v0"
             | "rejected_invalid_clock_replay_call_v0"
+            | "rejected_invalid_files_read_text_call_v0"
             | "unchecked_statement_type_v0"
             | "blocked_unsupported_statement_v0"
             | "not_checked_blocked_by_prior_errors_v0"
@@ -1253,6 +1333,7 @@ impl FullTypeCheckReport {
                         | "rejected_statement_type_mismatch_v0"
                         | "rejected_invalid_stdout_write_call_v0"
                         | "rejected_invalid_clock_replay_call_v0"
+                        | "rejected_invalid_files_read_text_call_v0"
                 )
             })
             .count()
@@ -1289,6 +1370,7 @@ impl FullTypeCheckReport {
                         | "rejected_typed_failure_relationship_v0"
                         | "rejected_invalid_stdout_write_call_v0"
                         | "rejected_invalid_clock_replay_call_v0"
+                        | "rejected_invalid_files_read_text_call_v0"
                 )
             })
             .count()

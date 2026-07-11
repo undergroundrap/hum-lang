@@ -1,0 +1,17 @@
+app reserved_file_reader_name {
+  why:
+    keep the exact file-read builtin identity consistent across stages
+
+  starts with:
+    run_tool
+
+  task files_read_text(input: Text) -> Text {
+    does:
+      return input
+  }
+
+  task run_tool -> Unit {
+    does:
+      return
+  }
+}
