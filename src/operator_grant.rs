@@ -93,12 +93,12 @@ impl OperatorGrantPolicy {
         self.decision(CLOCK_REPLAY)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn files_read_decision(&self) -> GrantDecision {
         self.decision(FILES_READ)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn files_read_grant(&self) -> Option<&ValidatedNativePath> {
         self.files_read.as_ref()
     }

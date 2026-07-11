@@ -3342,6 +3342,7 @@ fn outer_parens_wrap(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
     use std::ffi::{OsStr, OsString};
 
     use crate::ast::Program;
@@ -3351,9 +3352,11 @@ mod tests {
     use crate::parser;
 
     use super::{
-        OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, ReplayAdapter, RunOutcome, Value,
-        parse_arg, run_program, run_program_with_adapters, run_program_with_output,
+        OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, ReplayAdapter, RunOutcome,
+        run_program, run_program_with_adapters, run_program_with_output,
     };
+    #[cfg(windows)]
+    use super::{Value, parse_arg};
 
     #[derive(Default)]
     struct RecordingOutput {

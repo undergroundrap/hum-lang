@@ -17,57 +17,80 @@ impl fmt::Debug for ValidatedNativePath {
 }
 
 impl ValidatedNativePath {
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn as_os_str(&self) -> &OsStr {
         &self.raw
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn locality(&self) -> &'static str {
         "locality_unclassified"
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(windows, allow(dead_code))]
 pub(crate) enum NativePathIssue {
+    #[cfg(not(windows))]
     UnsupportedHost,
+    #[cfg(windows)]
     NotOrdinaryDriveRooted,
+    #[cfg(windows)]
     NamespacePrefix,
+    #[cfg(windows)]
     EmptyComponent,
+    #[cfg(windows)]
     DotComponent,
+    #[cfg(windows)]
     AlternateDataStream,
+    #[cfg(windows)]
     TrailingDotOrSpace,
+    #[cfg(windows)]
     DosDeviceAlias,
 }
 
 impl NativePathIssue {
     pub(crate) fn reason(self) -> &'static str {
         match self {
+            #[cfg(not(windows))]
             Self::UnsupportedHost => "native_path_input_unavailable_on_non_windows_v0",
+            #[cfg(windows)]
             Self::NotOrdinaryDriveRooted => "not_ordinary_drive_letter_rooted_v0",
+            #[cfg(windows)]
             Self::NamespacePrefix => "windows_namespace_prefix_forbidden_v0",
+            #[cfg(windows)]
             Self::EmptyComponent => "empty_path_component_forbidden_v0",
+            #[cfg(windows)]
             Self::DotComponent => "dot_or_dot_dot_component_forbidden_v0",
+            #[cfg(windows)]
             Self::AlternateDataStream => "alternate_data_stream_or_extra_colon_forbidden_v0",
+            #[cfg(windows)]
             Self::TrailingDotOrSpace => "component_trailing_dot_or_space_forbidden_v0",
+            #[cfg(windows)]
             Self::DosDeviceAlias => "win32_dos_device_alias_forbidden_v0",
         }
     }
 
     pub(crate) fn description(self) -> &'static str {
         match self {
+            #[cfg(not(windows))]
             Self::UnsupportedHost => "native Path input is unavailable on this non-Windows host",
+            #[cfg(windows)]
             Self::NotOrdinaryDriveRooted => {
                 "the path is not an ordinary drive-letter-rooted Windows spelling"
             }
+            #[cfg(windows)]
             Self::NamespacePrefix => {
                 "the path uses a UNC, verbatim, device, or NT namespace prefix"
             }
+            #[cfg(windows)]
             Self::EmptyComponent => "the path contains an empty component",
+            #[cfg(windows)]
             Self::DotComponent => "the path contains `.` or `..` traversal",
+            #[cfg(windows)]
             Self::AlternateDataStream => "the path contains a colon after the drive prefix",
+            #[cfg(windows)]
             Self::TrailingDotOrSpace => "a path component ends in a dot or space",
+            #[cfg(windows)]
             Self::DosDeviceAlias => "a path component normalizes to a reserved Win32 DOS device",
         }
     }

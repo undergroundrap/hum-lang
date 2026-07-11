@@ -2565,15 +2565,18 @@ mod tests {
     use std::ffi::OsString;
     use std::path::PathBuf;
 
+    #[cfg(windows)]
     use crate::operator_grant::GrantDecision;
 
+    #[cfg(windows)]
+    use super::parse_cli_os;
     use super::{
         BackendContractFormat, CapabilitiesFormat, CheckFormat, CoreContractFormat,
         CoreLowerFormat, CorePreviewFormat, CoreVerifyFormat, DiagnosticsFormat, DoctorFormat,
         EvidenceFormat, ExplainFormat, IrContractFormat, IrReadinessFormat, LspFormat,
         MathObligationsFormat, ResolveFormat, ResourceReportFormat, RuntimeProfilesFormat,
         StateModelFormat, SyntaxFormat, TargetFactsFormat, TypeCheckFormat, TypeEnvFormat,
-        VersionFormat, load_program, parse_cli, parse_cli_os,
+        VersionFormat, load_program, parse_cli,
     };
 
     #[cfg(windows)]
