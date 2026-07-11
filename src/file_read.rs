@@ -4,14 +4,20 @@ use std::io::Read;
 
 use crate::native_path::{ValidatedNativePath, validate_native_path};
 
+#[cfg(any(windows, test))]
 pub(crate) const FILE_READ_LIMIT_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FileReadAdapterError {
+    #[cfg(any(windows, test))]
     UnsafePath,
+    #[cfg(windows)]
     NotFound,
+    #[cfg(any(windows, test))]
     NotFile,
+    #[cfg(any(windows, test))]
     TooLarge,
+    #[cfg(any(windows, test))]
     InvalidUtf8,
     IoFailed,
 }
@@ -19,10 +25,15 @@ pub(crate) enum FileReadAdapterError {
 impl FileReadAdapterError {
     pub(crate) fn variant(self) -> &'static str {
         match self {
+            #[cfg(any(windows, test))]
             Self::UnsafePath => "unsafe_path",
+            #[cfg(windows)]
             Self::NotFound => "not_found",
+            #[cfg(any(windows, test))]
             Self::NotFile => "not_file",
+            #[cfg(any(windows, test))]
             Self::TooLarge => "too_large",
+            #[cfg(any(windows, test))]
             Self::InvalidUtf8 => "invalid_utf8",
             Self::IoFailed => "io_failed",
         }
@@ -30,10 +41,15 @@ impl FileReadAdapterError {
 
     pub(crate) fn result_reason(self) -> &'static str {
         match self {
+            #[cfg(any(windows, test))]
             Self::UnsafePath => "reparse_or_unsafe_component_rejected_v0",
+            #[cfg(windows)]
             Self::NotFound => "candidate_not_found_v0",
+            #[cfg(any(windows, test))]
             Self::NotFile => "candidate_is_not_one_regular_file_v0",
+            #[cfg(any(windows, test))]
             Self::TooLarge => "one_mibibyte_limit_exceeded_v0",
+            #[cfg(any(windows, test))]
             Self::InvalidUtf8 => "strict_utf8_decode_failed_v0",
             Self::IoFailed => "opaque_host_io_failure_v0",
         }
@@ -90,6 +106,7 @@ impl FileReadAdapter for HostFileReadAdapter {
     }
 }
 
+#[cfg(any(windows, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ComponentKind {
     Directory,
@@ -97,6 +114,7 @@ enum ComponentKind {
     Other,
 }
 
+#[cfg(any(windows, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ComponentEvidence {
     kind: ComponentKind,
@@ -105,6 +123,7 @@ struct ComponentEvidence {
     final_component: bool,
 }
 
+#[cfg(any(windows, test))]
 fn validate_component_evidence(evidence: &[ComponentEvidence]) -> Result<(), FileReadAdapterError> {
     let Some((last, parents)) = evidence.split_last() else {
         return Err(FileReadAdapterError::UnsafePath);

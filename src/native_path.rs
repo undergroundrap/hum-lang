@@ -67,7 +67,7 @@ impl ValidatedNativePath {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn fixed_local_for_test(&self) -> Self {
         Self {
             raw: self.raw.clone(),
