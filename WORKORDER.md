@@ -3,9 +3,11 @@
 Date: 2026-07-09
 Status: active; Sessions V-AD accepted and committed; decision 0017 accepted
 under delegated authority, BDFL veto open, including its dated threat-scoped
-`fixed_local_v0` amendment; Session AE is next but remains unauthorized pending
-the separately reviewed workflow-continuity amendment and a distinct BDFL go
-signal; issued under delegated authority (`docs/GOVERNANCE.md`)
+`fixed_local_v0` amendment; workflow-continuity amendment independently
+accepted and committed as `9222d3f`, with Ubuntu and Windows CI passed in
+workflow `29142082459`; Session AE is next but remains unauthorized pending a
+distinct BDFL go signal; issued under delegated authority
+(`docs/GOVERNANCE.md`)
 Owner: BDFL (Ocean). Reviewer/ruler: architect-reviewer. Implementer: agent
 sessions.
 Predecessor: Work Order 5, Sessions R-U. Commit `8a6dd1c` was the initially
@@ -1093,8 +1095,8 @@ Session AD was accepted and committed as `d8ddbcf`; its Ubuntu portability
 repair was committed as `3e5ad09`, and Ubuntu and Windows CI passed in workflow
 `29141310647`. Sessions V-AD are therefore accepted and committed. Decision
 0017 remains accepted under delegated authority with the BDFL veto open,
-including its
-dated threat-scoped `fixed_local_v0` amendment. Session AE is next but remains
-unauthorized pending the separately reviewed workflow-continuity amendment and
-a distinct BDFL go signal.
+including its dated threat-scoped `fixed_local_v0` amendment. The
+workflow-continuity amendment was independently accepted and committed as
+`9222d3f`, and Ubuntu and Windows CI passed in workflow `29142082459`. Session
+AE is next but remains unauthorized pending a distinct BDFL go signal.
 Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
