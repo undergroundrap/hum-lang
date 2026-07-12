@@ -1,996 +1,881 @@
-# Hum Work Order 8: Canonical Callable Semantic Spine
+# Hum Work Order 9: Canonical Diagnostic Allocation And Cause Identity
 
 Date: 2026-07-12
-Status: issued by the BDFL. The independently accepted bytes are commit
-`956b51f`, published by successful workflow `29183983775` (Ubuntu job
-`86626699948`; Windows job `86626699928`). Sessions AL-AM are accepted and
-committed: Session AL is `b881f2a`; Session AM is `7075c71`, with successful
-workflow `29210958890` (Ubuntu job `86698465601`, 1m 24s; Windows job
-`86698465587`, 2m 40s). Work Order 8 is closed.
-Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
-bounded Work Order 8 planning authorization. Independent pre-issuance reviewer:
-a fresh architect-reviewer that did not author or edit this deliverable.
-Future implementer: agent sessions only after every applicable gate.
-Predecessor: Work Order 7, Sessions AF-AK, closed and committed at `e7dbadb`.
-Session AK and accepted decision 0018 are commit `1b324fb`. The closed Work
-Order 7 text remains authoritative in git history and is not reopened here.
+Status: proposed and unauthorized for implementation. Independent
+pre-issuance review, BDFL acceptance of the complete stack, durable publication
+with successful Ubuntu and Windows CI, and a separate BDFL go signal are all
+required before Session AN may begin.
+Owner: BDFL (Ocean).
+Work-order author: architect-reviewer acting only under the bounded Work Order
+9 planning authorization.
+Independent pre-issuance reviewer: a fresh architect-reviewer that did not
+author, edit, generate, or directly direct this deliverable.
+Future implementer: an implementer agent only after every applicable gate.
+Predecessor: Work Order 8, Sessions AL-AM, closed at `047ad02`.
 
 ## Authority, evidence, and issuance gate
 
-This document records a BDFL-directed architecture plan. It does not transfer
-governance authority, accept or amend a decision, or authorize implementation.
-The predecessor evidence is:
+This document promotes confirmed GitHub Issue #1, "Architecture inbox:
+centralize diagnostic namespace and cause identity." The issue is an
+architecture-inbox record, not implementation authority. The BDFL has
+authorized only this architecture/documentation planning pass.
 
-- Work Order 7 closure: `e7dbadb`;
-- Session AK plus accepted decision 0018: `1b324fb`;
-- successful workflow: `29178915990`;
-- successful Ubuntu job: `86613010219`; and
-- successful Windows job: `86613010224`.
+Repository ground truth at authoring time is:
 
-The BDFL ruling, author incorporation, independent `ACCEPT`, BDFL acceptance,
-scoped commit, publication, and CI gates are complete. The durable issuance
-evidence is:
+- clean `main` synchronized with `origin/main` at `047ad02`;
+- Work Order 8 issued at `956b51f`;
+- Session AL accepted at `b881f2a`;
+- Session AM accepted at `7075c71`;
+- Work Order 8 closed at `047ad02`; and
+- workflow `29211168677` successful for Ubuntu and Windows on that closure.
 
-- issued Work Order 8 commit: `956b51f`;
-- successful workflow: `29183983775`;
-- successful Ubuntu job: `86626699948`; and
-- successful Windows job: `86626699928`.
+Work Order 8 remains closed in git history. This document does not reopen its
+callable syntax, row semantics, H1401-H1402 allocation, decisions, fixtures, or
+acceptance evidence.
 
-The only remaining gate before implementation is a separate BDFL go signal for
-Session AL.
+This proposal does not:
 
-Any authoritative source-form, scope, diagnostic, fixture, or gate mutation
-after the independent `ACCEPT` invalidates that verdict and requires fresh
-independent review of the complete changed document. A BDFL ruling has
-authority, but it is not
-silently treated as already reviewed. An exact scoped commit of the reviewed
-bytes does not change the deliverable and does not require a second reviewer.
+- issue Work Order 9;
+- authorize Session AN or any implementation;
+- accept, amend, or create a decision record;
+- allocate or renumber a diagnostic code;
+- change diagnostic meaning, severity, message, help, span, precedence, or
+  exit behavior;
+- add a public Hum command, report, schema identifier, JSON field, or pipeline
+  gate;
+- comment on or close GitHub Issue #1; or
+- authorize a commit, push, release, or other publication.
 
-Acceptance or commitment of this document alone does not authorize Session AL.
-Each accepted session still requires its own scoped commit, successful CI,
-independent review, recorded handoff, and a separate BDFL go signal before the
-next session. No review, commit, push, CI result, or decision status silently
-authorizes a following session.
+Any authoritative scope, family, cause, precedence, fixture, or gate mutation
+after the independent pre-issuance verdict invalidates that verdict and
+requires fresh independent review of the complete changed document. Acceptance
+of this document does not authorize implementation. BDFL acceptance, durable
+publication with green CI, and a separate BDFL go signal for Session AN remain
+distinct gates.
 
-Research is input, not authority. The accepted Session AG corpus, the accepted
-Session AH-AJ prototypes, the Session AK scorecard, and decisions 0014-0018
-control whenever research prose disagrees with repository evidence. In
-particular, none of these research snapshots creates production syntax or
-implementation credit:
+## Promotion evidence and defect statement
 
-- `docs/research/2026-07-10-overnight-research-triage.md`;
-- `docs/research/deep/2026-07-10-effect-polymorphism-corpus.txt`; and
-- `docs/research/deep/2026-07-10-flagship-wedge.txt`.
+The architecture triage confirmed both halves of Issue #1.
 
-## Accepted-decision locks
+### Allocation drift
 
-Every Session AL-AM implementation and review must preserve these locks.
+The implemented catalog has 87 active exact codes. The 87 `DiagnosticCode`
+values, 87 catalog entries, and 87 current-code rows in
+`docs/DIAGNOSTICS.md` are individually unique and agree today. That exact-code
+check is necessary but insufficient.
+
+Other repository documents still claim incompatible ownership:
+
+- `docs/DIAGNOSTICS.md` assigns H080 to ownership, H090 to explicit typed
+  failure, H100 to future unsafe/FFI/ABI/provenance, H110 to future runtime
+  profile/certification, H120 to backend/target/debug metadata, and H130 to
+  future concurrency/memory ordering.
+- `docs/DIAGNOSTICS_SCHEMA_0_1.md`,
+  `docs/EFFECT_REPORT_SCHEMA_0_1.md`, `docs/RUNTIME_PROFILES.md`, and
+  `docs/LANGUAGE_SUBSET_0_1.md` still use H100/H1001 for profile denial.
+- `docs/SECURITY_MODEL.md` proposes H080 for package/supply-chain and H090 for
+  unsafe/FFI, including exact H0803 and H0904 examples that now mean ownership
+  and typed failure.
+- `docs/UNSAFE_POLICY.md` proposes H0901-H0908 for unsafe diagnostics even
+  though H0901-H0907 are active typed-failure codes.
+- active callable codes H1401-H1402 are documented and implemented, but the
+  range list omits the H140 family.
+
+The standing preflight passes while those contradictions remain. Existing
+checks prove exact active-code uniqueness and selected catalog presence; they
+do not prove range ownership, reserved-family integrity, retired-code
+non-reuse, or checked-document agreement.
+
+### Cause and stage drift
+
+`DiagnosticCode`, `Diagnostic`, and `DiagnosticInfo` do not carry a stable
+fundamental-cause identity, semantic owner, owning stage, or exact prior-blocker
+reference. Existing analyzers often retain reason strings, but those strings
+are not one closed repository-wide identity domain.
+
+Current precedence and propagation therefore rely on local conventions:
+
+- callable analysis suppresses by same-line matching plus a hard-coded code
+  list;
+- full type and effect checking recognize H0907 ownership through exact-code
+  comparisons;
+- effect, ownership, resource, and profile reports replace exact earlier
+  causes with generic prior-error status and counts; and
+- runtime reconstructs some ownership and typed-failure diagnostics rather
+  than consuming one canonical emitted occurrence.
+
+A representative H0901 probe produced the specific diagnostic at full type,
+while downstream stages retained only anonymous prior-error status/counts.
+The current fixtures do not show a user-visible duplicate in that case, but the
+system cannot prove that two stage-created diagnostics are the same occurrence
+or reject an accidental replacement.
+
+The accepted Session AL-AM callable facts are useful evidence, not a general
+solution: their diagnostic IDs and reasons are local to `src/callable.rs`, and
+their `prior_owns` filter still depends on code and line rather than a canonical
+cause occurrence.
+
+## Accepted-decision and architecture locks
+
+Every Session AN-AQ implementation and review must preserve the following.
+
+### Evidence-native and resolver ordering
+
+- Diagnostic registry facts are internal compiler truth, not another prose
+  ledger.
+- Parser-owned source nodes and resolver-owned semantic identities precede
+  type, effect, ownership, resource, runtime, and graph claims.
+- A span is evidence about an occurrence. A span, message, help string, code,
+  or display name alone is never semantic cause identity.
+- Existing human and JSON diagnostics remain the public projections. Internal
+  identity does not imply a new public surface.
 
 ### Decision 0014: ownership
 
-- `borrow`, `change`, and `consume` remain distinct permissions.
-- Aliasing, move, mutation, resource, and lifetime safety are not implied by an
-  effect row or callable type.
-- The first slice accepts no permission-bearing callable parameter, callable
-  argument, callable result, or indirect call argument.
-- No copying, owner table, monomorphic substitution, hidden box, or runtime
-  reference may stand in for ownership proof.
-- Internal references remain deferred and receive no ownership credit here.
+- H0801-H0809 keep their accepted ownership meanings and precedence.
+- Runtime and ownership checking may share an analyzer, but may not
+  independently own the same fundamental occurrence.
+- Cause migration grants no new ownership, borrow, alias, lifetime, linearity,
+  memory-safety, or resource proof.
+- No H080 code is reassigned to supply-chain diagnostics.
 
 ### Decision 0015: executable contracts
 
 - Every recognized executable predicate continues to run.
-- Callable analysis adds no proof/trust classifier, enforcement profile,
-  predicate elision, build-mode distinction, global contract toggle, or
-  unreachable-guard conclusion.
-- Callable fixtures may contain ordinary checked predicates, but callable
-  support does not alter Predicate v2 recognition or H0701-H0704 ownership.
+- H0701-H0704 meanings and recognition/runtime precedence remain unchanged.
+- No proof/trust classification, elision, global contract toggle, enforcement
+  profile, or unreachable-guard conclusion is added.
+- Cause identity is not proof classification.
 
 ### Decision 0016: nominal causal typed failure
 
-- Nominal roots and variants, explicit `try`, explicit wrapping, causal origin,
-  propagation, and wrapping sites remain exact.
-- No implicit fallible call, erased any-error propagation, exception, unwind,
-  catch, recovery, or ambient backtrace is introduced.
-- The canonical callable representation reserves an exact optional nominal
-  failure-root field. Session AL accepts only `none`; it does not make indirect
-  fallible calls legal. Later work may use that field only under a separately
-  reviewed slice that preserves H0901-H0907.
+- H0901-H0907 retain exact nominal roots, explicit `try`/wrapping, causal
+  sites, meaningful `fails when:`, and current stage ownership.
+- H0907 remains fundamentally owned by effect checking; full type may defer to
+  that cause but may not emit or replace it.
+- No implicit propagation, erased any-error, exception, unwind, recovery,
+  catch, ambient backtrace, or first-class Result widening is introduced.
+- No H090 code is reassigned to unsafe/FFI diagnostics.
 
 ### Decision 0017: authority
 
-- Source authority, operator consent, and exercised operation remain separate.
-- A latent row or captured authority never grants authority, manufactures
-  consent, expands an app maximum, or proves that an adapter ran.
-- Existing exact authorities, deny-wins behavior, app/task/caller closure,
-  forensic route identity, and H0617-H0633/H1204 precedence remain unchanged.
-- Sessions AL-AM contain no authority-bearing callable or indirect authority-
-  bearing operation. A future row slice may represent an exact latent authority
-  requirement only as evidence and under a new accepted work order; this order
-  does not modify grant policy.
+- Source authority, operator consent, and operation exercise remain separate.
+- H0617-H0633 and H1204 preserve exact authority, path, target, deny-wins, and
+  adapter-precedence behavior.
+- Cause identity cannot manufacture authority, consent, a route, locality, or
+  adapter exercise.
+- Zero-adapter blocked-path evidence remains mandatory.
 
-### Decision 0018: selected effect model
+### Decision 0018 and Work Order 8: callable effects
 
-- First-class callable types carry an open multiset row of exact latent labels
-  and at most one structural tail variable.
-- Application propagates the latent row. Duplicate labels remain duplicates;
-  aliases and stable identities are preserved.
-- Exact one-occurrence handling is type-level evidence only and remains outside
-  Work Order 8.
-- Rows do not prove captures, ownership, resource lifetime, allocation,
-  authority, consent, or operation exercise.
-- Stored and returned callables require explicit environment and companion
-  facts. Work Order 8 does not claim those facts are implemented.
-- Formula and capture prototype mechanisms remain research evidence, not
-  parallel production effect cores.
+- H1401-H1402 remain the accepted callable diagnostics with their current
+  reasons, spans, precedence, runtime preflight, Core blockers, and graph
+  relationships.
+- H1400-H1499 is recorded as the already-active callable/latent-row family; this
+  records the accepted H1401-H1402 allocation and does not allocate another
+  code.
+- Open rows remain type/effect evidence only. Cause migration grants no
+  handling, capture, callable environment, allocation, authority, ownership,
+  or runtime semantics.
+- Session AM's exact occurrence, alias, row, tail, substitution, application,
+  Core, and graph identities remain unchanged.
 
-## Incorporated BDFL source-form ruling
+## Canonical diagnostic model
 
-The BDFL approved this exact bounded source-form ruling on 2026-07-12. It
-selects only the AL-AM spellings and boundaries below. It does not issue this
-Work Order, authorize Session AL, select later callable syntax, or amend
-decision 0018.
+The final Work Order 9 result has one internal authority in
+`src/diagnostic_catalog.rs`. Existing documentation and output become checked
+projections. No generated or manually maintained second registry is allowed.
 
-### Complete AL positive program
+### Exact family intervals
 
-The exact UTF-8 source is:
+The registry uses inclusive numeric intervals. This removes the ambiguity of
+shorthand such as `H060x`, which currently contains H0633. The intervals below
+record existing active or reserved doctrine; they do not allocate any new
+exact code.
 
-```hum
-module examples.probes.passed_pure_callable
+| Inclusive interval | Status | Stable family owner | Existing semantic domain |
+| --- | --- | --- | --- |
+| H0000-H0099 | active | `source_shape` | parser and source shape |
+| H0100-H0199 | active | `intent_shape` | item shape and intent discipline |
+| H0200-H0299 | active | `declared_state_effects` | effects, mutation, and declared state changes |
+| H0300-H0399 | active | `cost_contracts` | cost and performance contracts |
+| H0400-H0499 | active | `security_trust` | security and trust boundaries |
+| H0500-H0599 | active | `test_evidence` | tests and regression obligations |
+| H0600-H0699 | active | `front_end_semantics` | checked names, types, structural app/authority, and Path boundaries |
+| H0700-H0799 | active | `executable_contracts` | executable contract diagnostics |
+| H0800-H0899 | active | `ownership_borrowing` | ownership and borrowing |
+| H0900-H0999 | active | `nominal_typed_failure` | explicit nominal typed failure |
+| H1000-H1099 | reserved | `unsafe_ffi_provenance` | unsafe, FFI, ABI, and provenance |
+| H1100-H1199 | reserved | `runtime_profile_policy` | runtime profile and certification policy |
+| H1200-H1299 | active | `target_backend_metadata` | backend, target, portability, and debug metadata |
+| H1300-H1399 | reserved | `concurrency_memory_ordering` | concurrency and memory ordering |
+| H1400-H1499 | active | `callable_effect_rows` | callable and latent-row diagnostics |
 
-task increment(value: UInt) -> UInt {
-  why:
-    provide the first pure named task value
+Intervals absent from this table are unallocated, not implicitly free. A later
+work order must update the registry under independent review before any such
+family is used.
 
-  ensures:
-    result == value + 1
+At baseline:
 
-  cost:
-    time: O(1)
-    space: O(1)
-    check: warn
+- exactly 87 exact codes are active;
+- no exact code is retired;
+- no exact code is reserved inside a reserved family;
+- H1000-H1099, H1100-H1199, and H1300-H1399 reserve families only; and
+- no placeholder such as H1001 or H1101 is an allocation.
 
-  does:
-    return value + 1
-}
+### Family and code records
 
-task double(value: UInt) -> UInt {
-  why:
-    provide an independent sabotage callable
-
-  ensures:
-    result == value * 2
-
-  cost:
-    time: O(1)
-    space: O(1)
-    check: warn
-
-  does:
-    return value * 2
-}
-
-task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
-  why:
-    apply exactly one passed pure callable
-
-  needs:
-    value < 1000000
-
-  cost:
-    time: O(1)
-    space: O(1)
-    check: warn
-
-  does:
-    return transform(value)
-}
-
-task run_passed_callable -> UInt {
-  why:
-    observe the passed callable result through runtime execution
-
-  ensures:
-    result == 42
-
-  cost:
-    time: O(1)
-    space: O(1)
-    check: warn
-
-  does:
-    return apply_once(increment, 41)
-}
-```
-
-The positive invocation is:
-
-```powershell
-hum run examples/probes/passed_pure_callable.hum --entry run_passed_callable
-```
-
-The semantic result is `UInt 42`; stdout is UTF-8 bytes `34 32 0A`; exit status
-is zero. No H1401-H1402 diagnostic is permitted.
-
-The receiver has no honest general postcondition expressible in Predicate v2
-because its result depends on an opaque callable. Positive evidence therefore
-requires zero errors and zero H1401-H1402 diagnostics while pinning any existing
-nonblocking H0107/H0109 warning. No tautological or filler contract may be added
-to manufacture a warning-free fixture.
-
-### Callable type and parameter
-
-The exact callable type spelling is:
-
-```hum
-task(UInt) -> UInt
-```
-
-The grammar is:
+The canonical registry must eventually own closed records equivalent to:
 
 ```text
-hws0          ::= *(SP / HTAB)
-hws1          ::= 1*(SP / HTAB)
-ordinary-type ::= type-ident
-callable-type ::= "task" "(" hws0 ordinary-type hws0 ")" hws1 "->" hws1 ordinary-type
-callable-param ::= value-ident ":" hws1 callable-type
+DiagnosticFamilySpec
+  exact inclusive start and end
+  stable family key
+  semantic domain owner
+  status: active | reserved | retired
+  governing doctrine/decision references
+
+DiagnosticCodeSpec
+  opaque internal key
+  exact Hdddd spelling
+  family key
+  title
+  default severity
+  semantic owner
+  owning stage or shared analyzer
+  status: active | reserved | retired
+  explanation
+  repair
+  governing doctrine/decision references
 ```
 
-For AL-AM, the only accepted ordinary type on both sides is `UInt`. There is no
-whitespace between `task` and `(`. Horizontal whitespace never consumes a
-newline. Comments are not accepted inside `callable-type`, and callable types
-cannot nest.
+Exact code/title/severity/explanation/repair literals live only in the
+registry. `src/diagnostic.rs` may retain carrier types, spans, rendering, and
+registry-backed accessors, but it may not remain an independent code/title
+allocation table. Emitters use opaque registered keys rather than constructing
+code strings.
 
-The source spelling is row-elided; it does not assert a Boolean `pure`
-property. AL accepts it only when the resolved task value's inferred latent row
-is exactly closed and empty. AM permits one internal file-local structural tail
-during analysis. No public, recursive, stored, or returned generalization
-follows from the omitted row.
+Retirement is append-only. A retired code remains in the registry with its
+last semantic owner and may never be reused. The initial retired set is
+explicitly empty. Reserved family space is not evidence that an exact code is
+reserved.
 
-The exact callable parameter is:
+### Fundamental cause and occurrence identity
 
-```hum
-transform: task(UInt) -> UInt
-```
+A diagnostic code groups user-facing repairs; it is not necessarily one
+fundamental cause. H0704 and H1401 already have multiple closed reasons.
 
-The parameter name is `transform`. At least one SP/HTAB is mandatory after the
-colon. No permission keyword, newline, or comment is permitted inside the
-parameter. The receiver has exactly one callable parameter and exactly one
-ordinary `UInt` parameter. Its canonical header is:
-
-```hum
-task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
-```
-
-The comma is followed by `hws1`.
-
-### Direct task value and indirect application
-
-The exact task-value occurrence is `increment` in:
-
-```hum
-apply_once(increment, 41)
-```
-
-Its grammar is:
+The final cause model must distinguish:
 
 ```text
-task-value ::= value-ident
+DiagnosticCauseSpec
+  opaque cause key
+  stable reason projection
+  diagnostic code key
+  semantic owner
+  one owning stage or shared analyzer
+  permitted precedence relationships
+  required semantic origin/route kinds
+
+DiagnosticOccurrenceId
+  cause key
+  parser- or resolver-owned source/semantic node identity
+  exact relationship/route identity when the cause is relational
 ```
 
-Only an unqualified identifier resolving to a task definition in the same file
-and permitted lexical task/app subtree is a task value. Dotted names, fields,
-module paths, locals, parameters, literals, parenthesized expressions,
-conditionals, call results, and anonymous forms are not task values.
+The ID is never derived only from code, message, help, title, display name,
+line, column, or rendered text. Parser-owned diagnostics use parser source-node
+identity. Later diagnostics use resolver/analyzer relationship identities.
+Spans remain structured blame evidence and may participate in the underlying
+source-node identity, but a bare span is not sufficient.
 
-Normal lexical resolution occurs first. A same-named local or parameter wins
-and must not fall back to the hidden task. Its task-value use then receives
-H1401 with the shadowing definition as related evidence.
+Two distinct occurrences may share a code and cause key. They must retain
+distinct occurrence IDs. The same occurrence emitted twice is an internal
+invariant violation, not a condition to deduplicate silently. A corrupted or
+duplicate cause must fail closed through the existing internal invariant path;
+it receives no new H-code and must not become an ordinary user error.
 
-The exact indirect application is `transform(value)` in:
+Static registry corruption is rejected by unit tests and the existing
+preflight before publication; AN adds no runtime registry command. Once the
+collector exists, a dynamically detected duplicate/owner/substitution
+invariant exits the affected CLI invocation with status 2, writes no stdout,
+executes no body or adapter, and reports an internal diagnostic-invariant error
+on stderr without an H-code. This path is a compiler-bug channel, not a source
+diagnostic or typed operational failure. Its exact text is private and receives
+no compatibility promise, but tests must distinguish it from a generic source
+runtime trap.
 
-```hum
-return transform(value)
-```
+### Owning stage, prior blockers, and precedence
 
-Its grammar is:
+Each cause has exactly one fundamental owner. Other stages may:
+
+- consume it;
+- preserve an exact internal `PriorBlockerRef` to its occurrence ID;
+- project their existing blocked status/count; or
+- omit a stage-local check because the exact prior cause owns the case.
+
+They may not recreate the diagnostic, substitute a generic cause, change its
+code, or claim ownership.
+
+Precedence is relational, not one global numeric ranking. A closed rule names:
+
+- the dominant cause key;
+- the suppressed cause key;
+- the semantic relationship/site on which they compete; and
+- the stage that applies the rule.
+
+Same-line matching, code-prefix membership, message matching, and hard-coded
+unregistered code lists are not precedence. Two independent causes on the same
+line remain two causes unless a registered semantic precedence rule says
+otherwise.
+
+The existing externally visible precedence is frozen. If migration reveals
+that current outputs disagree about which cause fundamentally owns a case, the
+session stops for an explicit architecture/decision gate. Work Order 9 does not
+choose new user-visible precedence.
+
+Identity-set normalization is insertion-independent. Public ordering is a
+separate compatibility fact. The collector must use a closed order key
+equivalent to:
 
 ```text
-indirect-application ::= callable-param-ident "(" hws0 ordinary-value-ident hws0 ")"
+existing public surface
+existing stage-projection ordinal for that surface
+normalized source-path identity
+primary line and column evidence
+cause key
+semantic occurrence/route identity
 ```
 
-The callee resolves to the one callable parameter. The argument resolves to the
-receiver's one ordinary `UInt` parameter. No task call, indirect call,
-arithmetic expression, permission wrapper, field, element, or literal is
-accepted as the indirect argument in AL. The application is the complete return
-expression; AL permits no intermediate binding. Exactly one indirect
-application is required. Chaining and nesting are unsupported.
+Before replacing any collector, the implementer pins the current complete
+surface ordering and proves the closed ordinals reproduce it. If no such key
+can reproduce current output without changing semantics, the session stops;
+it may not sort diagnostics into a newly preferred order. Related spans retain
+their existing analyzer-owned order.
 
-### Closed lexical envelope
+### Public compatibility boundary
 
-- `hws0` is zero or more ASCII SP/HTAB; `hws1` is one or more.
-- Horizontal whitespace never includes CR or LF.
-- The accepted type is `"task" "(" hws0 "UInt" hws0 ")" hws1 "->" hws1 "UInt"`.
-- A task value is one `value-ident` with identifier boundaries on both sides.
-- The accepted application is `value-ident "(" hws0 value-ident hws0 ")"`.
-- The task value occurs only as the first argument of the resolved receiving-
-  task call; the second argument is the ordinary `UInt` value.
-- Value identifiers remain `[a-z_][a-z0-9_]*`; type identifiers remain
-  `[A-Z][A-Za-z0-9]*` under decision 0012.
-- Comments may occur before or after complete lines, never inside a callable
-  type, callable parameter, task value, or indirect application.
-- Callable-type and indirect-application nesting are zero.
-- One receiver has at most one task-value argument, one callable parameter, and
-  one indirect application.
+Work Order 9 adds internal truth only.
 
-### Name and scope ownership
-
-- An unresolved task value is H0601 at the identifier, with help to declare or
-  name a visible same-file task.
-- Duplicate task definitions remain H0602 with both spans.
-- A local/parameter shadow wins lexical resolution; its task-value use is H1401
-  with the non-task definition as related evidence.
-- Any other non-task task-value is H1401 at the value use with its resolved
-  definition related.
-- A local shadowing the callable parameter is H0602 with both definitions.
-- Application outside the callable parameter's scope is H0601.
-- A cross-file task value or callable relationship is H1401 at the task-value or
-  receiver call, with the external definition related when available.
-
-### Malformed and unsupported corpus
-
-H1401 is `invalid or unsupported callable form`, with reason
-`invalid_or_unsupported_callable_form_v0`. It owns canonical-looking malformed
-callable types/applications and recognized forms outside the slice. Existing
-parser diagnostics retain malformed outer item/header ownership.
-
-| Case | Exact source | Owner |
-| --- | --- | --- |
-| missing outer task-parameter close | `task apply_once(transform: task(UInt) -> UInt, value: UInt -> UInt {` | H0007 |
-| missing indirect close | `return transform(value` | H1401 |
-| extra close | `return transform(value))` | H1401 |
-| mismatched delimiters | `return transform[value)` | H1401 |
-| zero indirect arguments | `return transform()` | H1402 |
-| two indirect arguments | `return transform(value, value)` | H1402 |
-| trailing prose | `return transform(value) later` | H1401 |
-| chained application | `return transform(value)(value)` | H1401 |
-| nested application | `return transform(increment(value))` | H1401 |
-| anonymous callable | `return apply_once(task(value) { return value + 1 }, 41)` | H1401 |
-| stored callable | `let saved = transform` | H1401 |
-| returned callable | `return transform` | H1401 |
-| permission-bearing callable type | `transform: task(change UInt) -> UInt` | H1401 |
-| permission-bearing argument | `return transform(change value)` | H1401 |
-| known fallible task passed as pure | `return apply_once(fallible_increment, 41)` | H1402 |
-| zero application | `return value` | H1401 |
-| second application | `return transform(first)` after `let first = transform(value)` | H1401 |
-
-For the known fallible task, H1402 reports expected `failure_root = none` and
-the exact actual nominal root, with the task definition related. Zero
-application uses reason `required_exactly_one_callable_application_v0` at the
-callable parameter/receiver relationship. A second application blames the
-second occurrence and relates the first without a duplicate competing error.
-
-Unknown ordinary types remain H0605; invalid identifiers remain H0009;
-malformed outer task headers retain H0003/H0006/H0007/H0008; wrong resolved
-callable input, result, or failure root is H1402.
-
-### AL observation and sabotage
-
-AL input and result are `UInt`.
-
-| Form | Expected result |
-| --- | ---: |
-| `apply_once(increment, 41)` | 42 |
-| `apply_once(increment, 40)` | 41 |
-| `apply_once(double, 41)` | 82 |
-
-Permanent evidence must fail if `apply_once` ignores either input, directly
-calls `increment`, returns a constant, resolves by display name, or accepts
-poisoned expected-result metadata as semantic input.
-
-### AM row presentation and nonempty observation
-
-There is no AM row source syntax. The callable type remains
-`task(UInt) -> UInt`, and its latent row is inferred. AL accepts only an
-inferred closed-empty result. AM may generate one internal structural tail for
-the single file-local nonrecursive callable-parameter relationship. The tail is
-semantic evidence, not source syntax or a public-signature rule. No user-written
-row variable/alias, effect annotation, handler annotation, effect exclusion,
-formula, or associated effect is introduced.
-
-AM uses the existing non-authority-bearing Core `change` effect. Its exact
-positive source is:
-
-```hum
-module examples.probes.passed_callable_row
-
-task bump_with_local(value: UInt) -> UInt {
-  why:
-    expose an existing non-authority-bearing local mutation effect
-
-  ensures:
-    result == value + 1
-
-  cost:
-    time: O(1)
-    space: O(1)
-    check: warn
-
-  does:
-    change current: UInt = value
-    set current = current + 1
-    return current
-}
-
-task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
-  why:
-    propagate one inferred callable row
-
-  needs:
-    value < 1000000
-
-  cost:
-    time: O(1)
-    space: O(1)
-    check: warn
-
-  does:
-    return transform(value)
-}
-
-task run_passed_callable_row -> UInt {
-  why:
-    observe the effectful callable result without external authority
-
-  ensures:
-    result == 42
-
-  cost:
-    time: O(1)
-    space: O(1)
-    check: warn
-
-  does:
-    return apply_once(bump_with_local, 41)
-}
-```
-
-Runtime returns 42, writes UTF-8 bytes `34 32 0A`, exits zero, and calls no
-adapter. Source authority, operator consent, and exercised external operation
-are all absent.
-
-The expected row has distinct `change` occurrences at the mutable declaration
-and `set` origins. Application substitutes the complete multiset for the one
-internal tail and propagates every occurrence without deduplication. If existing
-canonical Core classification proves the mutable declaration permission-only,
-the row contains only the `set` occurrence; the implementation may not invent a
-duplicate. A separate two-`set` fixture then proves duplicate-label behavior.
-
-### Visibility and generalization boundary
-
-AL-AM accept only one nonrecursive same-file callable-parameter relationship
-and one indirect application.
-
-- Cross-file callable use is H1401 at the use with receiving-task/call-site
-  evidence; there is no public row inference.
-- A recursive relationship is H1401 at the recursive edge with caller, callee,
-  and route spans; there is no recursive generalization or monomorphic fallback.
-- Stored callable use is H1401 with no environment allocation or retained-
-  capture fact.
-- Returned callable use is H1401 with no returned environment or lifetime fact.
-
-A future public, recursive, stored, or returned callable boundary must expose a
-stable row variable or named alias under a later accepted work order. This
-ruling selects no spelling for that future boundary.
-
-The pinned corpus reuses existing identifier, task-header, call-argument, and
-body boundaries. It introduces no anonymous function, closure literal, generic
-type parameter, permission-bearing callable, storage, callable return, handler,
-recovery, or higher-order library API. The independent reviewer must verify the
-complete incorporated ruling before any AL go signal.
+- `hum diagnostics`, `hum explain`, `hum check`, stage human/JSON reports,
+  graph output, Core output, and runtime output keep their existing schema
+  identifiers and fields.
+- Exact active codes, titles, default severities, explanations, repairs,
+  messages, help, primary/related spans, diagnostic counts, exit statuses, and
+  zero-adapter behavior remain unchanged.
+- No cause ID, owner, stage, family status, or prior-blocker ID is added to a
+  public JSON surface in this work order.
+- Internal tests may inspect those facts directly.
+- Corrected documentation must not claim that an unimplemented profile,
+  unsafe, supply-chain, or concurrency diagnostic has an exact allocated code.
 
 ## Mandatory sequence and stopping point
 
-Work Order 8 contains only two production sessions:
+Work Order 9 contains exactly four implementation sessions:
 
 ```text
-AL  canonical callable facts plus one passed pure callable vertical slice
-AM  latent open-row propagation through that callable application
-STOP  retrospective and a new work order before handling or environments
+AN  canonical family/code/status registry and checked documentation projections
+AO  cause/occurrence identity for typed failure and callable vertical slices
+AP  remaining static compiler emitters and exact prior-blocker propagation
+AQ  runtime/top-level composition closure and repository-wide audit
+STOP  close Issue #1 only after separate authorization; author the next work order separately
 ```
 
-This is the smallest safe production sequence. AL proves that one semantic
-spine can survive every existing stage before effect polymorphism is added. AM
-then adds the selected row mechanism while callable identity, invocation, and
-runtime behavior are already independently accepted.
-
-The remaining accepted architectural order is mandatory but deferred:
-
-1. exact one-occurrence type-level handling;
-2. returned callable environments;
-3. stored callable environments and registration lifetime;
-4. immutable-value and exact-authority capture bridging;
-5. owned, borrowed, and linear-resource capture/lifetime bridging; and
-6. higher-order standard-library APIs last.
-
-Handling is not included because no source spelling or recovery boundary has
-been pinned. Environments are not included because representation, allocation,
-cleanup, and lifetime facts deserve independent evidence after application is
-stable. The capture/ownership/resource/authority bridge is split because each
-domain has different existing diagnostic ownership and a row cannot launder
-any of them. Library APIs would multiply unsupported shapes before the
-foundation is proven. A post-AM retrospective must recommend the next bounded
-work order; it may not silently start the deferred list.
-
-## Canonical semantic spine
-
-Sessions AL and AM use one shared, immutable, memoized production analysis in
-`src/callable.rs`. It must be constructed from typed syntax nodes plus resolver
-scope/definition/reference identities. A source slice may be retained for
-display and blame, but no semantic branch may be selected by rescanning that
-slice. Formatted AST output, debug text, rendered diagnostics, JSON, names, and
-display strings are never semantic inputs. The analysis is built once per
-parsed program/command after resolver identity exists and is passed to every
-consumer.
-
-The shared analysis owns these closed facts:
-
-- `CallableDefinitionFact`: stable callable ID, source path/span, lexical scope
-  ID, resolver definition ID, ordered ordinary input definitions and types,
-  result type, exact optional nominal failure root, and definition status;
-- `CallableTypeFact`: stable type ID, ordered ordinary input types, result type,
-  exact optional nominal failure root, and latent-row ID;
-- `LatentEffectRowFact`: stable row ID, exact ordered-normalized multiset of
-  label identities, optional structural tail-variable identity, closed/open
-  status, aliases, and source/inference origins;
-- `CallableValueFact`: stable value-use ID, source span, referring lexical scope,
-  resolver reference ID, resolved task definition ID, expected callable-type
-  ID, and recognition/resolution/type status;
-- `CallableApplicationFact`: stable application ID, caller definition ID,
-  callable-parameter definition ID, callable-value/definition IDs, invocation
-  span, ordered ordinary argument definition/value facts, result type, nominal
-  failure root, input and output row IDs, and status/reason/blame sites; and
-- `CallableDiagnosticFact`: stable diagnostic ID, H-code, fundamental reason,
-  primary span, ordered related spans, and one actionable repair direction.
-
-Stable IDs derive from normalized source identity, lexical definition identity,
-and exact occurrence spans. Display spans retain original source spelling.
-Paths normalize separators only for identity comparison, matching existing
-forensic practice. Row normalization is deterministic, preserves duplicate
-labels, preserves aliases as diagnostic evidence, and alpha-renames a single
-tail by first semantic occurrence. It never concatenates tail names or treats a
-set as a multiset.
-
-The following identities are distinct closed semantic domains even when two
-display names match: source-node ID, lexical-scope ID, definition ID, reference
-ID, callable-definition ID, callable-type ID, callable-value/use ID, callable-
-parameter ID, ordinary parameter/result type ID, nominal failure-root ID,
-application-occurrence ID, row ID, row-variable ID, effect-label-occurrence ID,
-alias ID, substitution ID, route ID, and diagnostic ID. Names, aliases, and
-spans may explain an identity but may not replace it. Tests must construct
-same-named definitions and renamed aliases/tails that would fail under name-
-based identity.
-
-Facts are authoritative only within their proven status. Parser facts do not
-claim resolution; resolver facts do not claim typing; type facts do not claim
-ownership, authority, allocation, Core lowering, or execution. Unsupported or
-blocked facts remain visible with an honest blocker and never become a more
-complete downstream fact.
-
-The AL core identity model must survive later stored/returned callable work
-without semantic replacement. A later environment is a companion fact keyed by
-the accepted callable-value/use identity; it may add allocation, retained
-values, authority/resources, cleanup owner, and lifetime without changing the
-meaning of the callable definition, type, application, failure root, latent row,
-or source relationships accepted here. AL does not predeclare empty environment
-fields, enum variants, ABI promises, boxes, or extension hooks. Unsupported
-storage, return, or capture is represented by the closed recognition/diagnostic
-boundary and exercised H1401 fixtures, not by unused placeholder metadata.
-
-The AL runtime task handle is a private nonescaping projection from the same
-callable-value/use and resolved-definition identities. It is neither the
-canonical semantic identity nor a promise that future callable environments use
-the same physical representation. Replacing that private projection later is
-permitted; replacing the accepted semantic identity/relationship model is not.
-
-### Competing-recognizer retirement gate
-
-Before code edits, the integration map must inventory every existing call,
-expression, task-header, and type recognizer that could observe the pinned
-callable forms, including source-string helpers in resolver, Core, ownership,
-and runtime modules. For each recognizer the implementer must state exactly one
-outcome:
-
-- deleted because the canonical structured analysis supersedes it;
-- narrowed and permanently tested as disjoint from callable syntax; or
-- retained only as a projection consuming canonical facts, with no source
-  recognition authority.
-
-No old helper may remain as a fallback when canonical analysis is blocked.
-Permanent sabotage tests must make a legacy recognizer disagree with a
-canonical fact and prove every stage and runtime follow the canonical fact. The
-parser is the only source recognizer. `src/callable.rs` accepts only structured
-AST nodes plus resolver scope/definition/reference identities and must expose no
-source-text or line-string recognition entry point. The preflight must reject a
-new callable/row source scan anywhere outside `src/parser.rs`. If a recognizer
-cannot be retired or made provably disjoint within the session, stop rather
-than accept two semantic spines.
-
-### Required pre-edit integration map
-
-Before editing code in either session, the implementer must report an exact map
-from the pinned source corpus to:
-
-- syntax nodes and parser entry points in `src/ast.rs` and `src/parser.rs`;
-- lexical scopes, definitions, references, and call links in
-  `src/resolve.rs::build_report`, `Resolver::resolve_callable`, and
-  `Resolver::resolve_statement_references`;
-- canonical type references in `src/type_env.rs::build_report`;
-- declaration/return checking in `src/type_check.rs::build_report`;
-- statement and application checking in `src/full_type_check.rs::build_report`;
-- effect propagation in `src/effect_check.rs::build_report` and
-  `check_statement_effect`;
-- ownership and resource blockers in `src/ownership_check.rs::build_report` and
-  `src/resource_check.rs::build_report`;
-- Core representation in `src/core_preview.rs::build_report`,
-  `src/core_lower.rs::build_report`/`lower_expression`, and
-  `src/core_verify.rs::build_report`/`verify_operation`;
-- definition/use and row relations in `src/graph.rs`;
-- runtime preflight and `Interpreter::execute_task`, `eval_expr`, and the
-  indirect-application insertion point in `src/run.rs`; and
-- human and JSON rendering in the existing command surfaces.
-
-The map must name every new or changed structure and function, its input fact,
-its output claim, and its exact blocker. For every stage it must classify the
-stage action as exactly one or more of: consumes a canonical fact, validates an
-invariant over it, projects it into a typed downstream representation, or
-exposes an exact honest blocker. It must also include the competing-recognizer
-inventory and retirement outcome. If implementation evidence shows this map
-cannot stay shared and review-sized, stop for architecture review instead of
-adding a second analyzer or downstream string pattern.
-
-## Diagnostics and precedence
-
-H100x, H110x, and H130x remain reserved by existing diagnostic doctrine for
-unsafe/FFI/ABI/provenance, runtime-profile/certification, and concurrency/memory-
-ordering diagnostics. Work Order 8 uses the otherwise unreserved H140x family
-and introduces only two production source diagnostics:
-
-- H1401 `invalid_or_unsupported_callable_form_v0`: a canonical-looking
-  callable type/value/application is malformed or outside the authorized direct
-  passed-callable slice; and
-- H1402 `callable_signature_mismatch_v0`: resolved callable input, result, or
-  exact failure-root identity does not match the expected callable type.
-
-No production H-code is reserved for latent-row mismatch or ambiguous row
-inference in Work Order 8. The authorized AM slice has one internal tail, one
-relationship, and one application, so its structural substitution is unique.
-Ambiguity is not a producible source case and is deferred with public/recursive/
-stored/returned generalization.
-
-Missing, substituted, deduplicated, erased, prematurely closed, or foreign-tail
-row facts are deliberately corrupted in-test semantic/Core artifacts. They must
-fail Core verification with stable verifier reason IDs and relationship sites;
-they are not source diagnostics and never enter runtime preflight as H-codes.
-
-Precedence follows the real pipeline. Existing parser diagnostics own malformed
-outer headers. H1401 owns canonical callable candidates after parser
-recognition, except unresolved names remain H0601 and duplicates remain H0602.
-H1402 is emitted only after resolution, ordinary typing, and nominal failure-
-root comparison. The effect stage consumes the canonical valid or blocked fact
-and may expose the same earlier blocker; it does not wait for ownership or
-resource checking. Ownership and resource stages then consume the earlier
-status and retain H0801-H0809 ownership of their own independent causes.
-Core/lowering never upgrades a blocked fact.
-
-Unknown ordinary types remain H0605. Ordinary statement mismatches retain their
-existing full-type diagnostic. H0901-H0907 own typed-failure causes.
-H0617-H0633 and H1204 own authority causes. No post-resource collector or
-pipeline inversion is introduced.
-
-Each fundamental cause produces exactly one primary diagnostic in human and
-JSON surfaces with compatible spans, facts, and repair direction. Runtime
-preflight consumes the same collected blockers before task arguments, bodies,
-callable environments, or adapters. An unsupported callable form never falls
-through to a generic resolver/type error or runtime trap. Independent errors on
-independent statements remain independently visible; precedence must not mask
-them into one synthetic callable error.
-
-## Session AL: passed pure callable vertical slice
-
-Purpose: prove the smallest real first-class task value through one canonical
-semantic spine without effects, captures, storage, or allocation.
-
-### AL authorized language and semantics
-
-Only the exact BDFL-pinned spellings are recognized. Their semantic envelope is:
-
-- one named task declaration used as a callable value;
-- one receiving task with exactly one callable parameter;
-- the callable has exactly one ordinary, non-permission-bearing parameter and
-  one ordinary result;
-- the callable has no nominal failure root; its row-elided type is accepted in
-  AL only when analysis infers an exact closed empty latent row;
-- the caller passes the direct task name in the pinned argument position;
-- the receiver invokes that parameter exactly once with one already-typed
-  ordinary value; and
-- the real returned value is observed through existing runtime behavior.
-
-The positive fixture must be hand-authored Hum source, produce a nonconstant
-result that depends on both the supplied callable and its ordinary argument,
-and fail if the receiver ignores the callable, substitutes a direct named call,
-or returns a canned value. The fixture must run twice from fresh state with
-byte-identical stdout, stderr, exit status, callable IDs, call route, Core facts,
-and graph relations. Human/JSON reports must contain zero errors and zero
-H1401-H1402 rows; only exact pinned existing H0107/H0109 doctrine warnings are
-allowed. No filler contract may silence them.
-
-### AL module and stage scope
-
-AL may add `src/callable.rs`, the minimum AST/parser nodes selected by the BDFL
-ruling, renderer/schema fields required by existing commands, and permanent
-fixtures. The shared analyzer must be consumed by:
-
-- resolver: callable parameter/value definitions, direct task-value reference,
-  and indirect application link;
-- type environment: canonical callable type and exact ordinary component types;
-- type/full-type: exact input/result/failure-root compatibility and application
-  result type;
-- effect: an explicitly inferred closed empty latent row, never a `pure` Boolean
-  or a claim inferred from missing analysis;
-- ownership/resource: explicit `not_applicable_to_al_ordinary_value_v0` facts,
-  not ownership or allocation proof;
-- Core preview/lower/verify: a callable type/value/application node with stable
-  IDs and the inferred closed empty row, preserved without string reparsing;
-- graph: definition, value-use, passed-as-argument, parameter-bind, and
-  application edges with exact source spans;
-- runtime: one nonallocating direct task handle bound to the callable parameter
-  and one indirect dispatch through the resolved definition ID; and
-- human/JSON: the same status, IDs, row, result, reasons, spans, and repairs.
-
-The runtime representation is a nonescaping handle to an existing task
-definition, not a heap closure or first-class runtime `Result`. AL must report
-zero callable-environment allocation and no retained values/resources/authority.
-That report is slice-specific evidence, not a general allocation-free claim.
-
-The exact AL file envelope is limited to:
-
-- syntax and analysis: `src/ast.rs`, `src/parser.rs`, `src/syntax.rs`, the new
-  `src/callable.rs`, and `src/resolve.rs`;
-- existing semantic consumers: `src/type_env.rs`, `src/type_check.rs`,
-  `src/full_type_check.rs`, `src/effect_check.rs`, `src/ownership_check.rs`,
-  `src/resource_check.rs`, `src/core_expr.rs`, `src/core_preview.rs`,
-  `src/core_lower.rs`, `src/core_verify.rs`, `src/graph.rs`, and `src/run.rs`;
-- existing render/catalog wiring only as necessary: `src/diagnostic.rs`,
-  `src/diagnostic_catalog.rs`, `src/diagnostics.rs`, `src/json.rs`,
-  `src/main.rs`, and the crate module declaration;
-- existing authoritative documentation/schema files that directly describe
-  those changed surfaces: `SPEC.md`, `docs/ARCHITECTURE.md`,
-  `docs/DIAGNOSTICS.md`, `docs/FORMAL_CORE.md`,
-  `docs/LANGUAGE_REFERENCE.md`, `docs/MILESTONE_0_GRAMMAR.md`,
-  `docs/SYNTAX_SURFACE_SCHEMA.md`, the existing resolve/type/effect/ownership/
-  resource/Core/graph schema documents, and the TextMate grammar; and
-- new Session AL fixtures under `fixtures/`, one positive probe under
-  `examples/probes/`, focused Rust unit tests beside the changed modules, and
-  proportional assertions in `tools/check_all.ps1`.
-
-No README, governance, decision, research, bake-off corpus, scorecard,
-experiment, target-facts, grant, capability, Path, file, clock, output, runtime-
-profile, release, or unrelated example file belongs to AL. If a required fact
-cannot be represented inside this envelope, preserve the worktree and stop for
-architecture review.
-
-### AL positive and misuse evidence
-
-Permanent evidence must include at least:
-
-1. the nondegenerate positive described above;
-2. wrong callable input type;
-3. wrong callable result type;
-4. a fallible task supplied where the exact failure root is `none`;
-5. an unresolved task value;
-6. a non-task value in the callable argument position;
-7. an anonymous/nested/chained/returned/stored callable attempt;
-8. a callable with zero or multiple parameters;
-9. a permission-bearing callable parameter or call argument;
-10. a callable invoked zero times or more than once where the pinned slice
-    requires exactly one application;
-11. malformed and near-miss forms from the pinned syntax corpus; and
-12. a mixed fixture proving an independent body-type error is not masked;
-13. two same-named task definitions in distinct lexical scopes and a renamed
-    callable parameter proving semantic identity does not follow display names;
-14. poisoned expected result/reason data proving the implementation follows the
-    parsed/resolved relationship rather than fixture polarity;
-15. a deliberately corrupted callable/Core identity, application link, type,
-    or closed-row fact rejected by Core verification; and
-16. a legacy-recognizer sabotage proving a source-string helper cannot override
-    or rescue a blocked canonical fact.
-
-Every misuse must pin human and JSON code, message, help, primary/related spans,
-stable reason, and runtime preflight result. H1401-H1402 cases must exit before
-body execution with zero adapter calls and no generic trap. Resolver through
-Core verify and graph must either consume the shared blocked fact or state the
-same exact honest blocker.
-
-### AL bans
-
-No open row, row variable, nonempty latent label, handler, recovery, catch,
-anonymous closure, callable return, callable storage, multiple application,
-partial application, currying, generic callable type, overloading, dynamic
-dispatch, function pointer ABI, permission-bearing callable, indirect fallible
-call, implicit propagation, retained environment, allocation, capture,
-authority-bearing operation, IO, higher-order library API, production migration
-tool, new command, new pipeline gate, runtime JSON surface, or Session AM hook.
-
-### AL acceptance criteria and hard stop
-
-- The exact pinned source corpus is the only recognized slice and fails closed
-  at every boundary.
-- The positive depends on actual indirect application and produces the same
-  value and evidence twice.
-- All existing stages share one callable analysis; no consumer reparses source.
-- Every competing recognizer is deleted, provably disjoint, or a nonauthoritative
-  projection, with permanent sabotage evidence.
-- Exact ordinary types and `failure_root = none` agree from resolver through
-  runtime.
-- The accepted semantic identity model can acquire later companion environment
-  facts without changing callable/type/application/row meaning or reserving
-  speculative fields now.
-- Core and graph preserve identity and call relationships without claiming
-  captures or allocation.
-- Existing direct calls, Predicate v2, typed failures, ownership, authority,
-  app entry, Core, and runtime fixtures remain unchanged.
-- All session and standing checks pass. Stop. Session AM remains unauthorized
-  pending independent review, scoped commit, successful CI, recorded handoff,
-  and a separate BDFL go signal.
-
-## Session AM: latent open-row propagation through application
-
-Purpose: extend the accepted AL application with the smallest production form
-of decision 0018's open multiset row, while leaving handling and callable
-environments absent.
-
-### AM authorized semantics
-
-AM reuses the exact accepted AL syntax and identities. It adds no new callable
-shape. The shared analyzer may infer:
-
-- exact latent label identities from the already checked callable body;
-- a deterministic normalized multiset that preserves duplicate occurrences;
-- at most one structural tail variable for the receiving callable;
-- stable alias evidence without treating aliases as distinct effects; and
-- one structural substitution at the accepted application, propagating all
-  labels and the open tail into the caller.
-
-AM inference is intentionally local and nonrecursive. It operates only over the
-single pinned file-local callable-parameter relationship and its one application
-site. It does not generalize a recursive strongly connected component, export a
-callable-accepting signature across a file/app boundary, infer a stored or
-returned callable signature, or choose a value restriction. Those shapes fail
-at the pinned H1401 boundary rather than receiving a monomorphic default.
-
-Decision 0018's future boundary remains binding: a public, recursive, stored,
-or returned callable signature must expose a stable row variable or named alias
-under a later accepted work order. AM's local inference may not be reused as an
-implicit public-signature rule. No result from AM claims global principal
-inference, recursive generalization, effect exclusion, associated effects, or
-handler-polymorphic inference.
-
-The BDFL-pinned AM corpus must select an already accepted, non-authority-bearing
-operation or checker-visible requirement for the nonempty-row observation. It
-must not invent a new effect operation merely to test rows. If repository
-evidence cannot provide such an observation without adding authority,
-ownership, failure, handler, or IO scope, AM must stop for a bounded architecture
-ruling rather than use a synthetic production effect.
-
-Rows are type/effect evidence. AM does not execute a handler or change runtime
-behavior for the underlying operation. The runtime positive must still execute
-the accepted callable application and observe its real result; effect-check,
-Core, and graph output must separately expose the propagated row. A negative
-fixture must prove that dropping, renaming, deduplicating, closing, or replacing
-the inferred tail fails closed.
-
-### AM module and stage scope
-
-`src/callable.rs` remains the only row analyzer. AM may extend its facts and the
-existing stage schemas/renderers, but may not add a second effect-polymorphism
-engine. Required consumers are:
-
-- resolver: unchanged callable identities plus stable row-alias references;
-- type environment/type/full-type: callable row variable, substitution, and
-  application result without caller annotation in the ordinary positive;
-- effect: exact input/output rows and one application-propagation relationship;
-- ownership/resource: unchanged honest nonclaims and blockers;
-- Core preview/lower/verify: exact label multiset, tail ID, substitution, and
-  application propagation relationship;
-- graph: row-variable, label-occurrence, alias, substitution, and propagation
-  nodes/edges linked to callable definitions and the application span;
-- runtime preflight: shared H1401/H1402 source blockers before execution, with
-  no row strings interpreted by the evaluator; structurally corrupted row facts
-  exist only in verifier unit tests and are not runtime inputs; and
-- human/JSON: deterministic identical facts, reasons, spans, aliases, and repair.
-
-No stage may call an accepted row closed, pure, handled, authority-safe,
-ownership-safe, allocation-free, or principal beyond the facts it actually
-consumes. Near-principal evidence is bounded to the accepted fixture: the
-ordinary positive requires no caller-supplied row annotation and two fresh
-analyses yield alpha-equivalent then byte-identical normalized output.
-
-### AM positive, misuse, and stress evidence
-
-Permanent evidence must include:
-
-1. the accepted AL empty-row positive unchanged;
-2. one nonempty-row callable application whose real result and static row are
-   both observed;
-3. two callables with order-permuted source requirements that normalize
-   identically;
-4. renamed tail variables that normalize identically by first semantic use;
-5. duplicate labels that remain two occurrences;
-6. a nested, chained, or second indirect application producing H1401 because
-   AM retains AL's exactly-one-application boundary;
-7. in-test corrupted semantic/Core facts for a missing label, substituted
-   label, deduplicated label, erased row, prematurely closed tail, and foreign
-   tail, each rejected by Core verification with one stable verifier reason and
-   the exact relationship sites;
-8. a bounded 256-label internal analyzer stress test preserving multiset and
-   tail identity without adding a production source surface; and
-9. poisoned expected output/reason fixtures proving analysis follows callable
-    structure rather than test polarity.
-
-The evidence must also include public/cross-file, recursive, stored, and
-returned boundary misuses proving that AM refuses to silently monomorphize or
-generalize them. A same-named row variable in two lexical scopes and two
-distinct tail identities with identical display spelling must remain distinct.
-
-The stress test proves only deterministic bounded behavior, not production
-throughput, global principal inference, or an accepted row-size limit. Every
-structured fact and relationship field needs an independent mutation test.
-Missing, duplicate, contradictory, extra, reordered, or unknown identities fail
-closed. Human/JSON diagnostics contain domain language and source aliases, not
-raw substitutions or solver dumps.
-
-### AM bans
-
-No handler syntax or runtime, exact-label removal, recovery, catch, exception,
-unwind, callable storage/return, runtime environment, capture set, allocation,
-cleanup, ownership/lifetime bridge, permission-bearing callable, indirect
-authority-bearing operation, consent inference, capability grant, new IO,
-effect exclusion, Boolean formula core, capture-only effect core, associated
-effect, generic higher-order API, callback registry, retry, timeout, parallel
-execution, scheduler, migration tool, command, gate, or later-session hook.
-
-AM may change only `src/callable.rs`, the AL semantic consumers and renderers
-that must expose the additional row fact, their directly corresponding existing
-schema/doctrine files, focused fixtures/tests, and proportional
-`tools/check_all.ps1` assertions. It may not revisit AL syntax, change the
-accepted callable shape, edit governance/decisions/research/bake-off artifacts,
-or touch authority/adapter modules. Any need outside that envelope is a hard
-stop for architecture review.
-
-### AM acceptance criteria and hard stop
-
-- Exact label multisets, aliases, and the single structural tail survive
-  resolution, typing, effect checking, Core, graph, diagnostics, and runtime
-  preflight through shared facts.
-- Application propagates the complete row without loss, deduplication,
-  substitution by spelling, or authority/ownership laundering.
-- The ordinary positive has bounded near-principal inference with no caller row
-  annotation and repeat-stable output.
-- Local inference remains confined to the pinned nonrecursive relationship;
-  public, recursive, stored, and returned boundaries fail closed without a
-  temporary monomorphic or implicit-generalization rule.
-- H1401/H1402 follow parser/resolver/full-type precedence and are consumed as
-  prior blockers by effect, ownership, and resource stages. Row-corruption
-  mutations are verifier failures, not user H-codes or runtime diagnostics.
-- AL and every standing fixture remain green.
-- All session and standing checks pass. Stop. Work Order 8 ends. No handling,
-  environment, bridge, library, or later session is authorized.
-
-## Cross-stage command and evidence matrix
-
-Each session must independently run every positive and misuse fixture through:
-
+AN is mandatory first. No later Work Order 9 session and no unrelated language,
+stdlib, IO, ownership, effect, or adoption work may begin before AN is
+independently accepted, committed, published, green on Ubuntu and Windows, and
+recorded in this file. Each following session requires the same cycle plus a
+separate BDFL go signal.
+
+The compiler-ready stdlib remains the next adoption direction supported by the
+2026-07-12 research triage. It is intentionally not part of Work Order 9.
+Diagnostic centralization goes first because new compiler/stdlib work would
+otherwise allocate and propagate causes through a contradictory namespace.
+
+Session sizing is semantic, not just a path count. AN changes allocation truth
+only. AO proves two vertical slices. AP has the widest file envelope, but every
+permitted change is the same carrier migration: consume, validate, or preserve
+one exact prior-cause set without changing stage logic or public output. If any
+AP stage needs a new diagnostic rule, precedence rule, schema field, or source
+behavior, AP is no longer review-sized and must stop for a separately reviewed
+Work Order amendment. AQ changes only composition/runtime ownership after the
+static migration is accepted.
+
+## Session AN: canonical allocation registry and checked projections
+
+Purpose: make allocation mechanically single-source before changing diagnostic
+transport.
+
+### AN exact integration map
+
+Production/internal Rust scope:
+
+- `src/diagnostic_catalog.rs`: sole family/code/status allocation registry,
+  exhaustive validator, and registry tests;
+- `src/diagnostic.rs`: carrier types, spans, rendering, and registry-backed
+  code access only;
+- `src/diagnostics.rs`: unchanged public catalog/check projections plus
+  semantic-equivalence tests; and
+- `tools/check_all.ps1`: one proportional registry/projection invocation,
+  replacing selected-code string checks where the registry makes them
+  redundant.
+
+Checked documentation projections:
+
+- `docs/DIAGNOSTICS.md`;
+- `docs/DIAGNOSTICS_SCHEMA_0_1.md`;
+- `docs/EFFECT_REPORT_SCHEMA_0_1.md`;
+- `docs/SECURITY_MODEL.md`;
+- `docs/UNSAFE_POLICY.md`;
+- `docs/RUNTIME_PROFILES.md`;
+- `docs/LANGUAGE_SUBSET_0_1.md`; and
+- `docs/PORTABILITY_BOUNDARY_MODEL.md`.
+
+No other production, fixture, schema, governance, decision, research,
+architecture, Work Order, Cargo manifest, editor, example, or runtime file is
+authorized. Malformed-registry evidence belongs in focused Rust unit tests, not
+in a new public schema or second data file. If this exact envelope cannot make
+the catalog authoritative, preserve the worktree and stop for architecture
+review.
+
+### AN required behavior and permanent evidence
+
+The registry validator must reject independently:
+
+1. overlapping inclusive family intervals;
+2. the same interval with two semantic owners;
+3. duplicate exact code spellings;
+4. duplicate opaque code keys;
+5. an active exact code outside its family;
+6. an exact active/retired code inside a differently owned family;
+7. reuse or semantic mutation of a retired code in an in-test frozen prior
+   record comparison;
+8. a reserved family treated as an exact-code allocation;
+9. malformed code spelling, inverted interval, or interval outside
+   H0000-H9999; status is a closed Rust domain with no string/unknown
+   construction path;
+10. a code/title/severity/explanation/repair mismatch between registry and
+    public catalog projection;
+11. a checked document claiming an unknown or contradictory exact code;
+12. a checked document assigning a family to a different semantic domain; and
+13. omission of H1400-H1499 or any of the 87 active codes from the checked
+    projection.
+
+The positive baseline proves exactly 87 active codes, zero retired exact codes,
+the three reserved family intervals, nonoverlapping ownership, deterministic
+ordering by numeric code, and repeat-identical validation.
+
+Documentation corrections must:
+
+- preserve active H080, H090, H120, and H140 meanings;
+- remove the unallocated H0403-H0405 examples and the stale H0803/H0904
+  security examples as exact allocations, preserving their ideas only as
+  family-level future prose;
+- remove H0901-H0908 unsafe allocation claims;
+- replace stale exact H1001 profile examples with one explicit
+  `<unallocated-profile-diagnostic>` placeholder and prose saying that no exact
+  profile code is allocated;
+- name H1100-H1199 as the reserved profile family without reserving H1101 or
+  another exact code;
+- state that illustrative portability examples do not allocate exact codes;
+  and
+- link every checked projection back to `src/diagnostic_catalog.rs` as the
+  internal authority and `docs/DIAGNOSTICS.md` as the human projection.
+
+The placeholder is not a valid H-code and the projection validator must treat
+only that exact closed token as an allowed unallocated example. No other
+wildcard or escape syntax is allowed.
+
+### AN human/JSON/runtime compatibility
+
+- `hum diagnostics` and `hum explain` human/JSON semantics are unchanged for
+  all 87 active codes.
+- `hum check` and every stage/runtime diagnostic render exactly as before.
+- No runtime path changes and no adapter is exercised by registry validation.
+- The implementer records before/after hashes of the current human and JSON
+  catalog outputs in the session report; those hashes are evidence, not a new
+  committed snapshot ledger.
+
+### AN bans
+
+No cause/occurrence carrier, emitter migration, precedence change, diagnostic
+renumbering, new exact reservation, public field, schema identifier, command,
+report, pipeline stage, build script, dependency, code generation step, runtime
+change, Issue mutation, decision record, or Session AO hook beyond the
+registry-backed opaque code key needed by AN.
+
+Do not mechanically generate repository docs at build or runtime. Checked
+projections are validated inputs; the compiler does not write the worktree.
+
+### AN acceptance criteria and hard stop
+
+- One registry owns every exact code allocation fact; checked documents may
+  project registered literals and later sessions remove production classifiers.
+- All 87 active code meanings and public outputs are preserved.
+- All listed stale documents are corrected and mechanically checked.
+- Every required malformed registry/projection independently fails.
+- Removing the collision test or reintroducing H1001/H090 unsafe drift makes
+  the standing check fail.
+- Root tests, preflight, and platform checks pass.
+- Stop. Session AO remains unauthorized pending independent review, scoped
+  commit, BDFL-authorized publication, successful Ubuntu/Windows CI, recorded
+  handoff, and a separate BDFL go signal.
+
+## Session AO: cause identity for typed failure and callable diagnostics
+
+Purpose: prove the internal cause model on the two accepted cross-stage systems
+that exposed the defect most clearly, without migrating every emitter at once.
+
+### AO exact integration map
+
+Authorized files are limited to:
+
+- `src/diagnostic_catalog.rs`;
+- `src/diagnostic.rs`;
+- `src/typed_failure.rs`;
+- `src/callable.rs`;
+- `src/full_type_check.rs`;
+- `src/effect_check.rs`;
+- `src/main.rs` only at the existing diagnostic collection insertion point;
+- `src/run.rs` only for typed-failure/callable preflight consumption;
+- focused new fixtures under `fixtures/diagnostics/session_ao_*`; and
+- proportional assertions in `tools/check_all.ps1`.
+
+No Core, graph, parser, resolver, ownership, authority, documentation, schema,
+decision, Cargo, editor, or unrelated fixture file is authorized. Existing
+Session W and AL-AM fixtures remain the primary corpus and may not be rewritten.
+
+### AO cause ownership
+
+AO must register and consume every currently reachable H0901-H0907 and
+H1401-H1402 fundamental reason. It must preserve these owners:
+
+- H0901-H0906 nominal/form compatibility: shared typed-failure analysis with
+  full type as the fundamental diagnostic stage;
+- H0907 meaningful failure declaration: shared typed-failure analysis with
+  effect check as the fundamental diagnostic stage; and
+- H1401-H1402 callable shape/signature reasons: shared callable analysis as a
+  shared preflight owner, projected consistently into the existing stages and
+  runtime preflight.
+
+Full type may carry an exact H0907 prior-blocker reference but may not emit
+H0907. Effect/runtime may consume H0901-H0906 or H1401-H1402 but may not
+reconstruct their occurrences.
+
+The existing callable `detail_reason` values become registered cause keys or
+closed projections of them. The broad H1401/H1402 reason remains user-facing;
+each detail cause keeps its existing stable reason and repair.
+
+### AO permanent evidence
+
+Add focused fixtures/tests proving:
+
+1. one H0901 source occurrence has one owner and the same occurrence reference
+   through full type, downstream blocking, and runtime preflight;
+2. H0907 is owned once by effect checking while full type defers exactly;
+3. one H1401 and one H1402 occurrence retain callable application/definition
+   relationship identity through every existing consumer;
+4. injecting the same typed-failure occurrence from two stages fails closed;
+5. replacing an exact prior blocker with a generic or different-code cause
+   fails closed;
+6. two distinct occurrences with the same code and cause are both preserved;
+7. code-only, span-only, line-only, message-only, help-only, or display-name-
+   only identities collide in the adversarial fixture and are rejected;
+8. two independent causes on one source line remain distinct unless a
+   registered semantic precedence rule suppresses one;
+9. H0605/H0630/H090 precedence over callable diagnostics remains exactly as
+   accepted, using semantic sites rather than the old hard-coded same-line
+   list; and
+10. mutating cause key, owner, owning stage, semantic origin, relationship
+    route, or occurrence ID independently fails.
+
+At least these new permanent fixtures are required:
+
+- `fixtures/diagnostics/session_ao_typed_failure_prior_blocker_fail.hum`;
+- `fixtures/diagnostics/session_ao_callable_prior_blocker_fail.hum`;
+- `fixtures/diagnostics/session_ao_adjacent_distinct_causes_fail.hum`; and
+- `fixtures/diagnostics/session_ao_same_code_distinct_occurrences_fail.hum`.
+
+If an existing fixture can carry one case without mutation, the new fixture may
+be omitted only when the permanent Rust/preflight assertion names and proves
+the exact relationship above.
+
+### AO human/JSON/runtime compatibility
+
+- Existing Session W and AL-AM human/JSON codes, messages, help, spans, counts,
+  blocker statuses, Core/graph projections, runtime exits, and outputs are
+  unchanged.
+- H090/H140 blocked runtime paths execute no body or adapter and never fall to
+  a generic trap.
+- No internal cause/occurrence field is serialized publicly.
+- Two fresh runs produce the same existing public bytes and the same internal
+  occurrence IDs.
+
+### AO bans
+
+No new H-code, family, public field, schema, stage, command, row/callable
+semantic, typed-failure semantic, handler, recovery, authority, ownership,
+runtime operation, allocation, generated docs, or migration of unrelated
+diagnostic families.
+
+No silent deduplication. No global numeric precedence rank. No source-text
+reparse or line-string reconstruction may create cause identity.
+
+### AO acceptance criteria and hard stop
+
+- Every H090/H140 cause has one registered owner and stable occurrence identity.
+- Typed-failure and callable runtime paths consume, rather than recreate, the
+  canonical occurrence.
+- H0907 and callable precedence remain exact.
+- All duplicate/replacement/identity mutations fail independently.
+- Every public surface is compatibility-clean.
+- All session and standing checks pass.
+- Stop. Session AP remains unauthorized pending the complete review/commit/
+  publication/CI/status cycle and a separate BDFL go signal.
+
+## Session AP: remaining static emitters and prior-blocker propagation
+
+Purpose: migrate the rest of the static compiler to registered causes and exact
+prior-blocker references while preserving all current diagnostic behavior.
+
+### AP exact integration map
+
+Authorized source files are:
+
+- `src/parser.rs`;
+- `src/check.rs`;
+- `src/resolve.rs`;
+- `src/type_env.rs`;
+- `src/type_check.rs`;
+- `src/full_type_check.rs` and `src/effect_check.rs` only to generalize AO's
+  exact blocker carrier to registered AP causes;
+- `src/app_entry.rs`;
+- `src/capability_root.rs`;
+- `src/path_boundary.rs`;
+- `src/predicate.rs`;
+- `src/ownership_check.rs`;
+- `src/resource_check.rs`;
+- `src/profile_check.rs`;
+- `src/core_preview.rs`, `src/core_lower.rs`, and `src/core_verify.rs` only to
+  consume, validate, or preserve the exact prior cause set without adding a
+  public field;
+- `src/graph.rs` only to consume the same cause set and preserve existing graph
+  output;
+- `src/ir_readiness.rs` only to validate the exact prior cause set behind its
+  existing readiness status;
+- `src/diagnostic_catalog.rs` only for registered cause/precedence entries;
+- `src/diagnostic.rs` only for shared carrier validation;
+- focused fixtures under `fixtures/diagnostics/session_ap_*`; and
+- proportional `tools/check_all.ps1` assertions.
+
+`src/main.rs`, `src/run.rs`, `src/json.rs`, and `src/diagnostics.rs` remain
+outside AP; AQ owns final composition, runtime, and public compatibility
+closure. No Core/graph schema, documentation, decision, Cargo, editor, example,
+or unrelated fixture change is authorized.
+
+### AP static ownership rules
+
+- Parser/source-shape causes use parser-owned source-node identity.
+- Resolver/type causes use resolver definitions, references, scopes, type
+  relationships, and exact source nodes.
+- App/authority/path causes use their existing app, task, call, declaration,
+  policy, and Path relationship IDs. Cause identity does not invent authority
+  or routes.
+- Predicate causes use the accepted memoized Predicate v2 recognition/place
+  facts. Prose warnings and malformed/typed predicate causes remain distinct.
+- Ownership causes use existing place, move, alias, view, resource, path, and
+  last-use identities.
+- Resource/profile stages preserve exact upstream occurrence references rather
+  than anonymous replacement causes.
+- Type environment, Core preview/lower/verify, graph, and IR readiness do not
+  become diagnostic owners merely because they validate or project a blocked
+  state. Each consumes or validates the exact originating occurrence set and
+  keeps its existing public status/count/output.
+
+The registry must contain every fundamental reason reachable from these
+emitters. A cause key may map to an existing reason projection, but no emitter
+may provide an unregistered arbitrary reason string as identity.
+
+### AP permanent evidence
+
+The static migration must independently prove:
+
+1. every active code emitted by AP has at least one registered cause and one
+   exact owner;
+2. every registered AP cause has a real positive or misuse path, or is marked
+   unreachable and rejected as dead registry data;
+3. parser versus resolver, resolver versus type, authority versus ownership,
+   Path versus predicate, effect versus ownership, and ownership versus
+   resource/profile combined causes keep existing precedence;
+4. two same-line independent diagnostics remain independent;
+5. the same prior blocker carried through full type/effect/ownership/resource/
+   profile retains one occurrence identity and one owner;
+6. missing, duplicate, substituted, reordered, or extra blocker references
+   fail closed;
+7. mutating code key, cause key, owner, stage, semantic node, relationship
+   route, primary span evidence, or required related-site set fails
+   independently; and
+8. every stage's existing blocker status and issue count remain unchanged.
+
+Required new evidence names are:
+
+- `fixtures/diagnostics/session_ap_parser_resolver_precedence_fail.hum`;
+- `fixtures/diagnostics/session_ap_path_predicate_precedence_fail.hum`;
+- `fixtures/diagnostics/session_ap_authority_ownership_precedence_fail.hum`;
+- `fixtures/diagnostics/session_ap_same_line_independent_causes_fail.hum`; and
+- `fixtures/diagnostics/session_ap_prior_blocker_chain_fail.hum`.
+
+An existing permanent fixture may substitute for one named file only when
+preflight runs it through the complete relevant human/JSON stage matrix and
+asserts the exact occurrence/owner relationship through internal tests.
+
+### AP human/JSON/runtime compatibility
+
+AP does not change runtime. Static human/JSON codes, messages, help, primary
+and related spans, counts, status values, reason projections, Core blockers,
+and graph facts remain exactly compatible. Existing runtime behavior must stay
+green through standing tests even though runtime migration waits for AQ.
+
+### AP bans
+
+No runtime/top-level collector change, public cause field, new code/family,
+diagnostic semantic change, profile enforcement, contract classification,
+authority grant, ownership widening, new resource proof, Core/graph field,
+schema, command, pipeline gate, dependency, or unrelated refactor.
+
+No code-prefix, same-line, message, or display-name classifier may replace a
+registered cause/precedence rule in migrated static paths.
+
+### AP acceptance criteria and hard stop
+
+- Every static emitter in scope uses registered cause identity.
+- Every downstream static blocker keeps the exact origin occurrence internally.
+- Existing precedence and public output are unchanged.
+- All field and combined-cause mutations fail closed.
+- Existing H010/H060/H070/H080/H120 and authority/path matrices remain green.
+- All session and standing checks pass.
+- Stop. Session AQ remains unauthorized pending the complete review/commit/
+  publication/CI/status cycle and a separate BDFL go signal.
+
+## Session AQ: runtime and top-level composition closure
+
+Purpose: remove the final independent reconstruction paths, make the collector
+enforce one owner per occurrence, and prove repository-wide closure.
+
+### AQ exact integration map
+
+Authorized files are limited to:
+
+- `src/main.rs`;
+- `src/run.rs`;
+- `src/diagnostics.rs`;
+- `src/json.rs` only for compatibility tests, not new fields;
+- `src/app_entry.rs` and `src/capability_root.rs` only to remove superseded
+  hard-coded diagnostic classifiers;
+- `src/diagnostic.rs` and `src/diagnostic_catalog.rs` only for final collector
+  enforcement and audit closure;
+- focused fixtures under `fixtures/diagnostics/session_aq_*`; and
+- proportional `tools/check_all.ps1` assertions.
+
+No other compiler stage, docs/schema, decision, Work Order, Cargo, editor,
+example, adapter, grant, target, experiment, or research file is authorized.
+
+### AQ composition and runtime rules
+
+- Top-level collection accepts one canonical occurrence from its owning
+  analyzer/stage.
+- Recomputing app/capability applicability may select a different canonical
+  analysis scope, but may not delete/recreate diagnostics by hard-coded code
+  membership.
+- Runtime preflight consumes the same static/shared cause occurrence for
+  parser, resolver, callable, predicate, authority, Path, typed-failure,
+  ownership, and resource blockers.
+- Runtime-execution-owned H0702/H0703 and true runtime invariant/trap paths keep
+  their current distinct channels.
+- A duplicate occurrence, owner mismatch, or prior-blocker replacement is an
+  internal invariant failure. It is never silently deduplicated or rendered as
+  a second user diagnostic.
+- Multiple real occurrences sharing one code remain visible in deterministic
+  semantic/source order.
+- Collection order changes may not alter cause identity, precedence, or public
+  output ordering.
+
+### AQ permanent evidence and repository audit
+
+Add permanent evidence proving:
+
+1. one shared static/runtime typed-failure cause and one shared ownership cause
+   are emitted once and consumed by runtime preflight;
+2. duplicate injection from static and runtime paths fails closed;
+3. two real same-code occurrences remain two diagnostics;
+4. app/capability recomputation preserves occurrence identity and exact route;
+5. blocked authority, Path, predicate, callable, typed-failure, ownership, and
+   resource paths call zero adapters and preserve existing exits;
+6. runtime contract violations remain runtime-owned and do not collide with
+   preflight causes;
+7. different collector insertion orders normalize identically and two fresh
+   runs are byte-identical;
+8. deleting or restoring a superseded hard-coded classifier changes a sabotage
+   result and is caught;
+9. no production Rust source outside `src/diagnostic_catalog.rs` contains a raw
+   exact H-code allocation or an unregistered cause-identity literal; and
+10. every active code, registered cause, owner, stage, and precedence rule has
+    at least one validation path.
+
+Required new fixtures/tests include:
+
+- `fixtures/diagnostics/session_aq_static_runtime_shared_cause_fail.hum`;
+- `fixtures/diagnostics/session_aq_same_code_distinct_occurrences_fail.hum`;
+- `fixtures/diagnostics/session_aq_app_scope_reanalysis_fail.hum`; and
+- an in-test collector-order/duplicate-emitter mutation matrix.
+
+The source audit may allow raw H-code strings only in the canonical registry,
+checked documentation projections, test expectations, and fixture snapshots.
+It must reject allocations or production classifiers elsewhere. Test strings
+are evidence, not authority.
+
+### AQ human/JSON/runtime compatibility
+
+- Existing public commands and schemas are unchanged.
+- All active diagnostic output remains exact in code, title, severity, message,
+  help, spans, count, ordering, and exit behavior.
+- Runtime typed failures remain exit 1; source/preflight misuse retains current
+  exit 1 or 2 ownership; invariant traps remain a separate compiler-bug
+  channel.
+- No adapter is called on a blocked path.
+- Graph/Core/status outputs preserve current facts and do not expose internal
+  registry metadata.
+
+### AQ bans
+
+No new diagnostic, public registry command, public cause field, schema, report,
+stage, runtime operation, handler, recovery, IO, authority, ownership,
+resource, callable, row, standard-library, migration, GitHub mutation, or
+decision ruling.
+
+No message cleanup, severity adjustment, help rewrite, span improvement, or
+precedence correction may ride along. Record such findings for a later
+explicitly authorized session.
+
+### AQ acceptance criteria and hard stop
+
+- One registry owns allocation and cause identity repository-wide.
+- One fundamental occurrence has one owner and one emitted diagnostic.
+- Downstream stages and runtime preserve exact internal blocker references.
+- Every superseded code/line/message classifier is deleted or proven
+  nonauthoritative by sabotage.
+- All public outputs and accepted semantics remain unchanged.
+- Complete negative mutation, fixture, and projection matrices pass.
+- All standing checks and Ubuntu/Windows CI pass after separate authorization.
+- Stop. Work Order 9 ends. No issue closure, stdlib work, Session AR, or later
+  implementation is authorized by AQ completion.
+
+## Cross-session evidence matrix
+
+Every session must independently run its affected positive and misuse evidence
+through every applicable existing surface:
+
+- `hum check` human and JSON;
 - `hum resolve` human and JSON;
 - `hum type-env` human and JSON;
 - `hum type-check` human and JSON;
@@ -998,21 +883,34 @@ Each session must independently run every positive and misuse fixture through:
 - `hum effect-check` human and JSON;
 - `hum ownership-check` human and JSON;
 - `hum resource-check` human and JSON;
-- `hum core-preview` human and JSON;
-- `hum core-lower` human and JSON;
-- `hum core-verify` human and JSON;
-- `hum graph` using its existing surface;
-- `hum run` for runtime behavior and preflight; and
-- `hum diagnostics`/`hum explain` human and JSON for every new H-code.
+- `hum profile-check` human and JSON;
+- `hum core-preview`, `core-lower`, and `core-verify` human and JSON;
+- `hum graph` using the existing surface;
+- `hum run` where runtime/preflight is applicable; and
+- `hum diagnostics` and `hum explain` human and JSON.
 
-The permanent preflight must assert the complete matrix, exact diagnostic
-counts, zero generic traps, zero adapter calls for blocked forms, stable IDs,
-stage agreement, Core verification, graph relationships, repeatability, and
-scope hygiene. No new report, schema identifier, command, runtime JSON surface,
-or pipeline gate is authorized; proportional fields extend only the existing
-surfaces named above.
+A stage may expose its existing blocked status instead of the originating
+diagnostic, but its internal blocker reference must point to the exact
+occurrence. Public JSON is not extended to prove that fact; focused Rust tests
+inspect it.
 
-Before handoff, run:
+Every session must verify:
+
+- exact active-code count and deterministic registry order;
+- no new or renumbered code;
+- exact public diagnostic compatibility;
+- same-code distinct-occurrence preservation;
+- duplicate-cause and replacement rejection;
+- combined-cause precedence;
+- zero adapters on blocked paths;
+- no generic trap for source misuse;
+- repeat-stable IDs and outputs; and
+- absence of unrelated work.
+
+## Standing commands and configuration coverage
+
+Before every implementation handoff and independent review, run targeted
+fixtures/tests and then:
 
 ```powershell
 cargo fmt --check
@@ -1022,125 +920,134 @@ git diff --check
 .\tools\check_all.ps1
 ```
 
-Also run every targeted fixture command explicitly rather than trusting the
-preflight summary. The reviewer must rerun them independently.
+The implementer and reviewer must enumerate all affected configurations:
 
-## Compilation and platform coverage
+- ordinary Windows production build;
+- unit and fixture tests;
+- doctests if present;
+- all-target warnings-denied Clippy;
+- the existing effect-bakeoff and Windows-locality dependency checks run by
+  preflight;
+- text, public, and release readiness; and
+- Ubuntu and Windows CI after an authorized push.
 
-The implementer and reviewer must enumerate every affected production and test
-configuration: ordinary binary/library compilation, unit tests, integration
-fixtures, doctests if present, all-target Clippy, and the preflight's release and
-public-readiness paths. Any new `cfg`, feature, optional dependency, or target-
-specific branch is out of scope.
+No new `cfg`, feature, optional dependency, build dependency, generated source,
+target-specific branch, or platform API is authorized. If a non-host target is
+not installed locally, state the gap and inspect any affected platform-neutral
+code manually. Do not download a target or modify global Git configuration.
 
-The host Windows configuration must be executed locally. After a separately
-authorized push, the existing Ubuntu and Windows CI jobs must both pass before
-the session handoff can be closed. No work order may mandate an unproven cross-
-target command merely to claim coverage. If another target is not installed,
-record the gap, inspect all relevant non-host branches manually, and state why
-the platform-neutral facts remain valid. Do not download a target, alter global
-Git configuration, or add platform scaffolding to hide the gap.
+## Decision gate
 
-## Deliberate deferrals and concrete costs
+No new decision record is required for:
 
-### Type-level handling
+- centralizing existing allocations;
+- correcting stale aspirational examples to match accepted active codes;
+- adding internal cause/occurrence/stage identity;
+- preserving exact prior blockers internally; or
+- deleting redundant classifiers while public behavior remains identical.
 
-Deferral means effect rows can describe and propagate requirements but cannot
-yet subtract one handled occurrence. This blocks typed retry/timeout wrapper
-shapes and any handler relationship in Core or graph. It avoids prematurely
-choosing source syntax or implying recovery; decision 0016 remains exact.
+Stop and request an explicit architecture/decision gate before:
 
-### Returned and stored callable environments
+- renumbering, retiring, or materially redefining an active code;
+- changing an accepted semantic owner or fundamental emitting stage;
+- changing which cause wins a user-visible precedence case;
+- changing severity, message, help, primary/related blame, count, ordering, or
+  exit behavior;
+- allocating a new family or exact code; or
+- exposing registry/cause identity through a public command, report, schema, or
+  JSON field.
 
-Deferral means event-handler factories, memoizing wrappers, logging middleware,
-registries, and resource-bearing returned/stored callables remain unsupported.
-No closure allocation, retained environment, cleanup owner, registration
-lifetime, or runtime callable environment exists after Work Order 8.
+The decision gate is not permission to continue the current session. Preserve
+the worktree and wait for a separately reviewed ruling/amendment.
 
-### Capture, ownership, resource, and authority bridge
+## Explicit exclusions and honesty locks
 
-Deferral means even a sound row does not authorize higher-order captured state.
-Immutable retention, moved/borrowed ownership, linear resources, exact authority
-identity, escape, transfer, and lifetime remain unsupported. Authority cannot be
-laundered through a callable, and operator consent cannot be captured or
-inferred.
+Work Order 9 implements no language feature. In particular, it adds or implies
+none of:
 
-### Higher-order standard library
+- new syntax, type, effect, ownership, borrow, resource, profile, capability,
+  path, contract, failure, callable, handler, recovery, or runtime semantics;
+- proof that diagnostics are complete, minimal, optimal, or globally
+  principal;
+- proof that every compiler bug is converted into a diagnostic;
+- automatic issue closure or future allocation authority;
+- public stability beyond existing pre-alpha commitments;
+- a generated documentation system or public registry API;
+- source-diagnostic accumulation as a first-class Hum value;
+- standard-library diagnostics, line maps, Bytes, Text, compiler support,
+  filesystem APIs, or self-hosting machinery; or
+- Session AR or another Work Order.
 
-No `map`, effectful map, retain/filter, fold, retry, timeout, parallel map,
-callback registry, wrapper, or middleware API is reserved or prebuilt. Their
-cost is continued lack of ergonomic higher-order programs. Adding them earlier
-would make library shape conceal missing callable environments and bridges.
+The 2026-07-12 stdlib research distinguishes operational typed failure, source
+diagnostics as data, and compiler invariant failure. Work Order 9 preserves
+that distinction. It centralizes compiler diagnostic identity; it does not turn
+typed operational failure or invariant traps into source diagnostics.
 
-### Internal references
+## Completion and Issue #1 disposition
 
-Internal references remain the next ownership repair when ownership work
-resumes. Program 5 still cannot naturally store a checked view into a parser's
-owned buffer and receives no credit from callable rows.
+GitHub Issue #1 remains open throughout AN-AQ. Its implementation sessions do
+not comment on, narrow, label, or close it.
 
-### Air-gapped update validator
+After AQ is independently accepted, committed, published, green on Ubuntu and
+Windows, and recorded in this Work Order, the BDFL may separately authorize a
+read-only closure audit and then separately authorize a GitHub comment/close
+operation. The issue closes only when evidence proves:
 
-The validator remains the next adoption destination after the required
-foundation. No Bytes, directory input, hashing, manifest, canonical JSON IO,
-file writing, evidence directory, signature/provenance, or sandbox claim may be
-prebuilt here. Deferral continues to cost the flagship real-tool proof, but
-forcing it into callable foundations would fake both IO and security evidence.
+- one allocation registry;
+- checked documentation projections;
+- no active overlap or out-of-family code;
+- append-only retirement protection;
+- registered cause and owner identity;
+- exact prior-blocker propagation;
+- duplicate/replacement failure evidence; and
+- no public or semantic scope expansion.
 
 ## Independent pre-issuance review requirements
 
-The fresh reviewer must cold-start from repository ground truth and verify:
+The fresh reviewer must cold-start from repository ground truth and review the
+complete proposed Work Order 9. The author is disqualified from issuing or
+advocating the verdict.
 
-- clean synchronized `main` at `e7dbadb` before this documentation change;
-- Work Order 7 closure and the exact Session AK/decision/CI evidence above;
-- governance authority, one-pen discipline, independent review, and separate go
-  signals;
-- decisions 0014, 0015, 0016, 0017, and 0018 in full;
-- the complete Session AG corpus/result contract, Session AH-AJ candidates, and
-  Session AK scorecard;
-- current AST/parser/type/runtime reality, especially the absence of accepted
-  callable syntax and runtime environments;
-- the complete incorporated BDFL source corpus, lexical envelope, diagnostic-
-  ownership table, and nonempty-row ruling;
-- the shared semantic spine, diagnostic precedence, integration map, fixtures,
-  allocation/authority nonclaims, and hard stops;
-- explicit stable semantic identities rather than name/display-string identity;
-- construction from parsed/resolved nodes rather than shared line-string scans;
-- retirement or proven disjointness of every competing recognizer;
-- durability of the callable identity model when later companion environment
-  facts arrive, without speculative placeholder fields;
-- the local inference boundary and explicit deferral of public/recursive/
-  stored/returned generalization;
-- whether AL and AM are each independently review-sized; and
-- whether stopping before handlers/environments/bridges is the smallest safe
-  boundary.
+The review must verify:
 
-Only `WORKORDER.md` may differ. Research recommendations must remain hypotheses.
-The reviewer must run `git diff --check` and `.\tools\check_all.ps1`, report
-P0/P1/P2 findings with exact lines, and issue exactly one pre-issuance verdict.
-The author of this document is disqualified from that verdict.
+- clean synchronized baseline `047ad02` and Work Order 8 closure;
+- Issue #1's exact current body and non-authoritative status;
+- the 87-code baseline and every conflicting allocation document;
+- exact inclusive family intervals, especially H060, H100/H110, H120, and
+  H140;
+- that recording H140 preserves, rather than reallocates, H1401-H1402;
+- the distinction between code, cause, occurrence, owner, stage, span, route,
+  and precedence;
+- that a code may have multiple causes and multiple occurrences without
+  permitting duplicate emission;
+- AN-AQ session sizing, file envelopes, tests, compatibility locks, and hard
+  stops;
+- decisions 0014-0018 and resolver/evidence-native ordering;
+- absence of a new public command/schema/report/pipeline gate;
+- the explicit decision gate for any semantic change;
+- preservation of the three error channels;
+- diagnostic work as the first mandatory Work Order 9 sequence;
+- continued deferral of stdlib and unrelated adoption work; and
+- that only `WORKORDER.md` changed.
+
+The reviewer must run:
+
+```powershell
+git diff --check
+.\tools\check_all.ps1
+```
+
+It reports P0/P1/P2 findings with exact lines and exactly one verdict: ACCEPT,
+ACCEPT WITH REQUIRED FIX, or REJECT. It must not edit, commit, push, accept a
+decision, issue Work Order 9, authorize Session AN, or begin implementation.
 
 ## Current authorization gate
 
-Work Order 7 remains closed at `e7dbadb`. Session AK and accepted decision 0018
-remain `1b324fb`, with workflow `29178915990`, Ubuntu job `86613010219`, and
-Windows job `86613010224` successful. Work Order 8 is issued at `956b51f`, with
-workflow `29183983775`, Ubuntu job `86626699948`, and Windows job `86626699928`
-successful. Session AL is accepted and committed as `b881f2a`, with workflow
-`29207914442`, Ubuntu job `86690460804` successful in 1m 36s, and Windows job
-`86690460817` successful in 2m 43s. Session AM is accepted and committed as
-`7075c71`, with workflow `29210958890`, Ubuntu job `86698465601` successful in
-1m 24s, and Windows job `86698465587` successful in 2m 40s. Sessions AL-AM are
-complete, and Work Order 8 is closed.
+Work Order 8 remains closed at `047ad02`. GitHub Issue #1 is confirmed and open.
+This Work Order 9 stack is proposed, unissued, and unauthorized for
+implementation.
 
-GitHub Issue #1 remains a queued architecture-inbox item. Its next action
-belongs to a fresh architect-reviewer after this closure is committed and green
-in CI, but before another Work Order is authored. This status update does not
-authorize implementing, amending, or closing Issue #1.
-
-No Session AN, production handling, callable-environment work, deferred phase,
-or later implementation is authorized. Further implementation requires a new
-independently reviewed Work Order, BDFL acceptance, and a separate session go
-signal. No implementation session, decision ruling, commit, push,
-diagnostic-registry work, or scope expansion is implicitly authorized by this
-status update. Publishing remains a BDFL-reserved action under
-`docs/GOVERNANCE.md`.
+The next allowed action is a fresh independent pre-issuance architect-reviewer
+verdict on the exact uncommitted `WORKORDER.md` bytes. No Session AN, diagnostic
+registry implementation, code allocation, decision ruling, commit, push, issue
+mutation, stdlib work, Session AR, or later implementation is authorized.
