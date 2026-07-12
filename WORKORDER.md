@@ -1,979 +1,1133 @@
-# Hum Work Order 7: Predicate V2 And The Effect-Polymorphism Bake-Off
+# Hum Work Order 8: Canonical Callable Semantic Spine
 
-Date: 2026-07-11
-Status: closed; Sessions AF-AK are accepted and committed. Session AK and
-accepted decision 0018 are commit `1b324fb`; Ubuntu job `86613010219` passed
-in 1m 08s and Windows job `86613010224` passed in 2m 02s in workflow
-`29178915990`. Decision 0018 is accepted under delegated authority, BDFL veto
-open. No production effect-polymorphism implementation, later implementation
-session, or Work Order 8 is authorized or issued.
+Date: 2026-07-12
+Status: proposed and unissued. The BDFL source-form ruling is incorporated
+below. No implementation session is authorized. One independent pre-issuance
+architect-reviewer must examine these exact bytes before BDFL acceptance. A
+separate BDFL go signal remains required before Session AL.
 Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
-bounded planning authorization. Independent pre-issuance reviewer: a fresh
-architect-reviewer that did not author or edit this deliverable. Future
-implementer: agent sessions only after the required gates.
-Predecessor: Work Order 6, Sessions V-AE, closed and committed at `d601054`.
-The closed Work Order 6 text remains in git history and is not reopened by this
-order.
+bounded Work Order 8 planning authorization. Independent pre-issuance reviewer:
+a fresh architect-reviewer that did not author or edit this deliverable.
+Future implementer: agent sessions only after every applicable gate.
+Predecessor: Work Order 7, Sessions AF-AK, closed and committed at `e7dbadb`.
+Session AK and accepted decision 0018 are commit `1b324fb`. The closed Work
+Order 7 text remains authoritative in git history and is not reopened here.
 
-## Authority and issuance gate
+## Authority, evidence, and issuance gate
 
-This file is the issued Work Order 7 sequence, not authorization for an
-implementation session or decision ruling. Independent pre-issuance review and
-BDFL acceptance are complete in commit `c10a210`; Ubuntu and Windows CI passed
-in workflow `29145110803`. Before Session AF implementation begins, the final
-gate below must still occur:
+This document records a BDFL-directed architecture plan. It does not transfer
+governance authority, accept or amend a decision, issue Work Order 8, or
+authorize implementation. The predecessor evidence is:
 
-1. the BDFL gives a separate go signal for Session AF.
+- Work Order 7 closure: `e7dbadb`;
+- Session AK plus accepted decision 0018: `1b324fb`;
+- successful workflow: `29178915990`;
+- successful Ubuntu job: `86613010219`; and
+- successful Windows job: `86613010224`.
 
-Acceptance and issuance of this stack authorize only the sequence and gates
-written here. Each session still requires its own independent verdict,
-accepted commit and CI evidence recorded here, and a separate BDFL go signal for the next
-session. No review, commit, push, CI success, decision proposal, or delegated
-ruling silently authorizes the following session.
+The BDFL ruling and author incorporation gates are complete. Work Order 8 can
+be issued only after the remaining gates occur in order:
 
-## Evidence authority and governance reconciliation
+1. a fresh architect-reviewer that did not author or edit any part of the final
+   document issues one independent pre-issuance verdict over these exact bytes;
+2. after `ACCEPT`, the BDFL accepts the reviewed stack and separately authorizes
+   the exact reviewed bytes to be committed and published as the issued Work
+   Order, with the required CI inspected to completion; and
+3. only after that durable handoff, the BDFL gives a separate go signal for
+   Session AL.
 
-The accepted Session AE retrospective is the authorization source:
+Any authoritative source-form, scope, diagnostic, fixture, or gate mutation
+after step 1 invalidates that verdict and requires fresh independent review of
+the complete changed document. A BDFL ruling has authority, but it is not
+silently treated as already reviewed. An exact scoped commit of the reviewed
+bytes does not change the deliverable and does not require a second reviewer.
 
-- `docs/CORE_LANGUAGE_SHAPE.md` records exactly three active Predicate v2
-  vocabulary records and applies the three-strike rule;
-- `docs/bakeoff/SCORECARD.md` requires Predicate v2 first, then the
-  effect-polymorphism bake-off;
-- `examples/probes/word_count.hum` currently checks only the weaker hard-coded
-  equality `result == 2`, not its intended content-conditional relation;
-- `examples/probes/list_builder.hum` keeps its list-content intent as unchecked
-  prose; and
-- `examples/probes/element_views.hum` keeps Text-literal equality as unchecked
-  prose.
+Acceptance or commitment of this document alone does not authorize Session AL.
+Each accepted session still requires its own scoped commit, successful CI,
+independent review, recorded handoff, and a separate BDFL go signal before the
+next session. No review, commit, push, CI result, or decision status silently
+authorizes a following session.
 
-Governance names effect polymorphism and higher-order tasks as bake-off queue
-item one, but also states that the newest retrospective ledger re-decides the
-queue authorization and that Session AE's ledger currently holds that power.
-This order does not amend governance or demote the effect bake-off. It pays the
-triggered, bounded Predicate v2 debt first, then resumes governance queue item
-one. The remaining governance bake-off queue is unchanged.
-
-Research is input, not authority. The newest snapshots are skeptical evidence
-links, not accepted recommendations:
+Research is input, not authority. The accepted Session AG corpus, the accepted
+Session AH-AJ prototypes, the Session AK scorecard, and decisions 0014-0018
+control whenever research prose disagrees with repository evidence. In
+particular, none of these research snapshots creates production syntax or
+implementation credit:
 
 - `docs/research/2026-07-10-overnight-research-triage.md`;
 - `docs/research/deep/2026-07-10-effect-polymorphism-corpus.txt`; and
 - `docs/research/deep/2026-07-10-flagship-wedge.txt`.
 
-In particular, the research preference for Koka-style rows is not a Hum
-decision. Koka-style rows, Flix-style Boolean formulas, and capture-oriented
-checking remain genuine candidates until the repository corpus and prototypes
-eliminate one transparently. Effekt-style second-class computation is not
-silently rejected from a research summary: Session AG must record, against the
-pinned model-neutral requirements, whether its inability to store callbacks or
-return closures makes it ineligible without candidate-specific restructuring.
+## Accepted-decision locks
 
-## Mandatory sequence
-
-Work Order 7 takes one path:
-
-```text
-AF  exact-three Predicate v2 repair
-AG  pinned model-neutral effect/higher-order corpus and experimental harness
-AH  Koka-style row-polymorphism best-advocate prototype
-AI  Flix-style Boolean-formula best-advocate prototype
-AJ  capture-oriented checking best-advocate prototype
-AK  cross-candidate scorecard and proposed effect-polymorphism decision
-```
-
-The order is mandatory. AF must be accepted before AG begins. The corpus must
-be accepted and frozen before any candidate prototype begins. Every candidate
-uses the same corpus and harness. Scoring and model selection occur only after
-all three candidate sessions are independently accepted. Work Order 7 does not
-implement the selected effect model in the production compiler or language.
-
-## Global accepted-decision locks
-
-### Decision 0015: contracts
-
-Every recognized executable `needs:` and `ensures:` predicate continues to run
-under `hum run`. Predicate v2 adds vocabulary only. This order may not add or
-imply:
-
-- a decision 0015 proof/trust contract classifier or output such as `proved`,
-  `boundary`, `unproved`, or `external-trust`;
-- debug/release contract profiles or build-mode policy;
-- proof or evidence fields for contract discharge;
-- contract elision or an optimization based on a written predicate;
-- a conclusion that a defensive body guard is unreachable; or
-- a global contract enable/disable toggle.
-
-This ban does not prohibit AF's closed lexical/parser/type recognition status,
-named `predicate_recognition_status`. That status says only whether contract
-text is non-executable prose, a malformed candidate, semantically rejected, or
-a recognized typed executable predicate. It carries no proof, trust-boundary,
-build-mode, elision, optimization, enforcement-profile, or unreachable-code
-meaning and is never a decision 0015 classification.
+Every Session AL-AM implementation and review must preserve these locks.
 
 ### Decision 0014: ownership
 
-Session V earned only the exact local direct-field writable-alias slice already
-recorded by decision 0014. This order does not add or claim internal references,
-stored aliases, nested or element aliases, general disjoint-place inference,
-broad flow-sensitive borrowing, general closure-capture soundness, full
-ownership safety, borrow soundness, or memory-safety completeness.
+- `borrow`, `change`, and `consume` remain distinct permissions.
+- Aliasing, move, mutation, resource, and lifetime safety are not implied by an
+  effect row or callable type.
+- The first slice accepts no permission-bearing callable parameter, callable
+  argument, callable result, or indirect call argument.
+- No copying, owner table, monomorphic substitution, hidden box, or runtime
+  reference may stand in for ownership proof.
+- Internal references remain deferred and receive no ownership credit here.
 
-Candidate prototypes must model captured owned and Transaction-shaped linear
-resources honestly. Prototype evidence is not production ownership evidence
-and cannot narrow a decision 0014 lock.
+### Decision 0015: executable contracts
+
+- Every recognized executable predicate continues to run.
+- Callable analysis adds no proof/trust classifier, enforcement profile,
+  predicate elision, build-mode distinction, global contract toggle, or
+  unreachable-guard conclusion.
+- Callable fixtures may contain ordinary checked predicates, but callable
+  support does not alter Predicate v2 recognition or H0701-H0704 ownership.
+
+### Decision 0016: nominal causal typed failure
+
+- Nominal roots and variants, explicit `try`, explicit wrapping, causal origin,
+  propagation, and wrapping sites remain exact.
+- No implicit fallible call, erased any-error propagation, exception, unwind,
+  catch, recovery, or ambient backtrace is introduced.
+- The canonical callable representation reserves an exact optional nominal
+  failure-root field. Session AL accepts only `none`; it does not make indirect
+  fallible calls legal. Later work may use that field only under a separately
+  reviewed slice that preserves H0901-H0907.
 
 ### Decision 0017: authority
 
-App/task `uses:` declarations remain source budgets, never operator consent.
-Exact operator grants, default deny, deny-wins, native Path identity, finite
-source routes, and the source-policy/decision/exercise distinction remain
-unchanged. Effect variables, formulas, or capture sets may describe latent or
-captured requirements; they may not:
+- Source authority, operator consent, and exercised operation remain separate.
+- A latent row or captured authority never grants authority, manufactures
+  consent, expands an app maximum, or proves that an adapter ran.
+- Existing exact authorities, deny-wins behavior, app/task/caller closure,
+  forensic route identity, and H0617-H0633/H1204 precedence remain unchanged.
+- Sessions AL-AM contain no authority-bearing callable or indirect authority-
+  bearing operation. A future row slice may represent an exact latent authority
+  requirement only as evidence and under a new accepted work order; this order
+  does not modify grant policy.
 
-- create authority, widen an app maximum, or manufacture operator consent;
-- erase exact capability identity or native Path identity;
-- turn ambient process authority into an inferred effect;
-- merge source policy, operator decision, and operation exercise facts;
-- hide captured authority or resources inside an unannotated closure value; or
-- call the Windows bootstrap adapter portable IO or a filesystem sandbox.
+### Decision 0018: selected effect model
 
-## Global scope and safety boundaries
+- First-class callable types carry an open multiset row of exact latent labels
+  and at most one structural tail variable.
+- Application propagates the latent row. Duplicate labels remain duplicates;
+  aliases and stable identities are preserved.
+- Exact one-occurrence handling is type-level evidence only and remains outside
+  Work Order 8.
+- Rows do not prove captures, ownership, resource lifetime, allocation,
+  authority, consent, or operation exercise.
+- Stored and returned callables require explicit environment and companion
+  facts. Work Order 8 does not claim those facts are implemented.
+- Formula and capture prototype mechanisms remain research evidence, not
+  parallel production effect cores.
 
-Unless a session below names an exact exception, the following remain banned:
+## Incorporated BDFL source-form ruling
 
-- production closures, lambdas, tasks-as-values, callbacks, higher-order
-  standard-library APIs, effect variables, effect formulas, capture syntax,
-  handlers, effect subtraction, or production effect inference;
-- internal references or any other ownership repair;
-- concurrency, threads, scheduling, parallel execution, cancellation, shared
-  state, async runtime behavior, or fault-domain semantics;
-- new IO operations, capabilities, grants, prompts, persistence, wildcards,
-  host clocks, randomness, process execution, environment reads, network,
-  unsafe, FFI, plugins, dynamic loading, or package behavior;
-- Bytes, directories, enumeration, hashing, manifests, canonical JSON IO, file
-  writing, evidence directories, signature verification, or sandbox claims;
-- a new CLI subcommand, public report surface, runtime JSON surface, runtime
-  profile, production schema identifier, backend, or pipeline stage; and
-- public-alpha, complete effect-safety, deterministic-mode, full ownership,
-  portable-IO, or flagship-tool claims.
+The BDFL approved this exact bounded source-form ruling on 2026-07-12. It
+selects only the AL-AM spellings and boundaries below. It does not issue this
+Work Order, authorize Session AL, select later callable syntax, or amend
+decision 0018.
 
-Session AG is expressly allowed to add one isolated offline experimental Rust
-crate under `experiments/effect-bakeoff/`, one model-neutral bake-off document,
-one corpus data set, and a proportional existing-preflight invocation. Sessions
-AH-AJ may add candidate modules and advocate documents only inside that
-experimental boundary. Those artifacts are not production Hum syntax,
-compiler stages, schemas, or runtime behavior.
+### Complete AL positive program
 
-All tests remain local and offline. They may use only checked-in fixtures or
-isolated temporary data, and may not access the network, host clock, process
-environment as semantic input, user files, or paths outside their test
-directory.
-
-## Standing evidence, diagnostic, and cross-stage gate
-
-Every session must satisfy its local criteria plus these standing rules:
-
-1. Positive evidence observes the claimed behavior. Declaration-only,
-   unused-binding, weakened, TBD, or candidate-specific substitute fixtures do
-   not count.
-2. Every production source rejection introduced by AF has one stable H-code,
-   one fundamental diagnostic, structured primary and related sites, and help
-   naming the violated type/relationship and exact repair. Human and existing
-   JSON surfaces agree. Runtime preflight uses the same shared fact and code.
-3. Combined-cause fixtures pin precedence. A specific Predicate v2 type/shape
-   failure cannot be masked by H0701 prose warning, resolver unknown-name,
-   generic full-type blockers, or a runtime trap.
-4. Resolver, type environment, type check, full type, effect, ownership,
-   resource, Core preview/lower/verify, graph, and runtime agree on every AF
-   form. A stage may expose an exact honest blocker, but may not call an
-   accepted predicate prose, unchecked, unsupported, or more general than it
-   is.
-5. Candidate sessions add no Hum H-codes. Experimental diagnostics use stable
-   corpus-case IDs, deterministic reason IDs, one primary explanation, and
-   structured blame relationships, but are not production diagnostics or a
-   public schema.
-6. Candidate results separate `proven by this prototype` from `requires
-   unimplemented machinery`. Hidden allocation, erased effects, ambient
-   capabilities, unimplemented inference, future ownership repairs, and
-   candidate-specific program restructuring receive no credit.
-7. Host `cargo fmt --check`, `cargo test`, and warnings-denied Clippy must pass.
-   The isolated experiment tests, targeted fixtures, `git diff --check`, and
-   `.\tools\check_all.ps1` must pass. Platform/configuration gaps are enumerated
-   honestly; no unproven cross-target command is mandated.
-8. Leave each session uncommitted and stop for independent review. The reviewer
-   issues exactly one verdict and may authorize only the scoped commit. The
-   BDFL alone may authorize push and the next session.
-
-## Session AF: exact-three Predicate v2 repair
-
-Purpose: pay the active contract-vocabulary trigger as one coherent bounded
-repair before higher-order work.
-
-### Exact executable vocabulary
-
-Predicate v2 retains Predicate v1's one-comparison-per-line structure,
-arithmetic, `old(place)`, and `list_len(place)`. It adds only:
-
-1. Text operands and Text literals for `==` and `!=`.
-2. Exact ordered `List Text` content equality against a `List Text` literal for
-   `==` and `!=`. Equality compares length and every UTF-8 Text value in order;
-   it is not membership, subset, set, locale, normalization, or collation.
-3. The contract-only operand form:
-
-   ```hum
-   list_count(list_text_operand, text_operand)
-   ```
-
-   It returns `UInt` equal to the number of elements exactly equal to the Text
-   operand. The list operand may be an allowed `List Text` parameter/result
-   place or a `List Text` literal. The match operand may be an allowed Text
-   parameter/result place or Text literal. It is not a predicate task, closure,
-   arbitrary helper call, general collection fold, or body/stdlib API.
-
-The three source contracts become exactly:
+The exact UTF-8 source is:
 
 ```hum
-result == list_count(["hum", "lang", "hum", "agent"], "hum")
-result == ["parse", "check", "run"]
-result == "parse"
+module examples.probes.passed_pure_callable
+
+task increment(value: UInt) -> UInt {
+  why:
+    provide the first pure named task value
+
+  ensures:
+    result == value + 1
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return value + 1
+}
+
+task double(value: UInt) -> UInt {
+  why:
+    provide an independent sabotage callable
+
+  ensures:
+    result == value * 2
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return value * 2
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  why:
+    apply exactly one passed pure callable
+
+  needs:
+    value < 1000000
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return transform(value)
+}
+
+task run_passed_callable -> UInt {
+  why:
+    observe the passed callable result through runtime execution
+
+  ensures:
+    result == 42
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return apply_once(increment, 41)
+}
 ```
 
-The first replaces only `word_count`'s weaker hard-coded equality. The second
-replaces only `builder_demo`'s unchecked list-content prose; its checked
-`list_len(result) == 3` may remain as separate evidence. The third makes the
-existing `element_views` Text equality executable. Existing result types and
-program behavior do not change.
+The positive invocation is:
 
-### Complete H0701/H0704 lexical ownership boundary
+```powershell
+hum run examples/probes/passed_pure_callable.hum --entry run_passed_callable
+```
 
-The shared analyzer first assigns recognition status to the complete trimmed
-contract line. Blank lines, comments, and already-owned hollow-contract cases
-retain their existing handling. Whitespace productions are exact:
+The semantic result is `UInt 42`; stdout is UTF-8 bytes `34 32 0A`; exit status
+is zero. No H1401-H1402 diagnostic is permitted.
+
+The receiver has no honest general postcondition expressible in Predicate v2
+because its result depends on an opaque callable. Positive evidence therefore
+requires zero errors and zero H1401-H1402 diagnostics while pinning any existing
+nonblocking H0107/H0109 warning. No tautological or filler contract may be added
+to manufacture a warning-free fixture.
+
+### Callable type and parameter
+
+The exact callable type spelling is:
+
+```hum
+task(UInt) -> UInt
+```
+
+The grammar is:
 
 ```text
-hws0 := *(SP / HTAB)
-hws1 := 1*(SP / HTAB)
+hws0          ::= *(SP / HTAB)
+hws1          ::= 1*(SP / HTAB)
+ordinary-type ::= type-ident
+callable-type ::= "task" "(" hws0 ordinary-type hws0 ")" hws1 "->" hws1 ordinary-type
+callable-param ::= value-ident ":" hws1 callable-type
 ```
 
-`hws0` is zero or more ASCII spaces or tabs where spacing is optional. `hws1`
-is one or more ASCII spaces or tabs where a boundary rule requires separation.
-Neither production consumes CR, LF, or any other Unicode whitespace, and a
-contract line contains no executable newline.
+For AL-AM, the only accepted ordinary type on both sides is `UInt`. There is no
+whitespace between `task` and `(`. Horizontal whitespace never consumes a
+newline. Comments are not accepted inside `callable-type`, and callable types
+cannot nest.
 
-An executable-predicate intent signal exists when, outside a well-formed Text
-literal, any of these holds:
+The source spelling is row-elided; it does not assert a Boolean `pure`
+property. AL accepts it only when the resolved task value's inferred latent row
+is exactly closed and empty. AM permits one internal file-local structural tail
+during analysis. No public, recursive, stored, or returned generalization
+follows from the omitted row.
 
-1. any punctuation from `=`, `<`, or `>` occurs;
-2. `!` is followed by `hws0` and `=`, or is lexically between a complete
-   operand-ending token and, after `hws0`, an accepted operand-starting token;
-3. a token-boundary spelling of `old`, `list_len`, or `list_count` is followed
-   immediately by `(` or by `hws1` and `(`.
+The exact callable parameter is:
 
-For rule 2, operand-ending tokens are an identifier, boolean, integer, valid
-Text literal, `)`, or `]`; operand-starting tokens are the exact starters listed
-below. Thus `result ! 2`, `result!2`, and `(result) ! "x"` enter the malformed
-candidate envelope, while terminal prose punctuation such as `must hold!` does
-not.
+```hum
+transform: task(UInt) -> UInt
+```
 
-Text-literal contents are opaque to this scan. Therefore prose such as
-`completed list contains parse check run`, `result equals two`, and the whole
-Text literal `"result == list_count(items, hum)"` has no intent signal and
-remains H0701. `result = 2`, `result === 2`, `result ! = 2`, `result ! 2`,
-`list_count (items, "hum") == result`, and `helper(items) == result` do have an
-intent signal and enter the candidate envelope. A token such as `list_counted`
-does not trigger rule 3, but an unquoted comparison operator later on the same
-line still triggers rule 1. Only a Text literal accepted by the existing lexer
-shields its contents. An unterminated or otherwise malformed quote does not
-hide punctuation; both `result == "parse` and `"result == 2` enter the envelope
-and receive H0704.
+The parameter name is `transform`. At least one SP/HTAB is mandatory after the
+colon. No permission keyword, newline, or comment is permitted inside the
+parameter. The receiver has exactly one callable parameter and exactly one
+ordinary `UInt` parameter. Its canonical header is:
 
-After an intent signal, the only accepted grammar is:
+```hum
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+```
+
+The comma is followed by `hws1`.
+
+### Direct task value and indirect application
+
+The exact task-value occurrence is `increment` in:
+
+```hum
+apply_once(increment, 41)
+```
+
+Its grammar is:
 
 ```text
-predicate       := operand hws0 comparison hws0 operand
-comparison      := "==" | "!=" | "<=" | ">=" | "<" | ">"
-operand         := additive
-additive        := multiplicative (hws0 ("+" | "-") hws0 multiplicative)*
-multiplicative  := primary (hws0 ("*" | "/") hws0 primary)*
-primary         := boolean | integer | place | text_literal
-                 | list_text_literal | old_call | list_len_call
-                 | list_count_call | "(" hws0 operand hws0 ")"
-place           := identifier | identifier "." identifier
-old_call        := "old(" hws0 place hws0 ")"
-list_len_call   := "list_len(" hws0 place hws0 ")"
-list_count_call := "list_count(" hws0 list_source hws0 "," hws0 text_source hws0 ")"
-list_source     := place | list_text_literal
-text_source     := place | text_literal
-list_text_literal := "[]"
-                   | "[" hws0 text_literal
-                     (hws0 "," hws0 text_literal)* hws0 "]"
+task-value ::= value-ident
 ```
 
-`boolean`, `integer`, `text_literal`, identifier, direct-field place, and
-integer-literal spelling reuse the existing Hum token definitions. AF adds no
-escape syntax or numeric syntax. `place` is purely syntactic and uses exactly
-the already authorized predicate place surface: one identifier or one direct
-field composed of two identifiers. It admits no element/index, nested field,
-call, or permission-bearing form. Parsing never requires the place to resolve,
-be a parameter/result, be section-eligible, or have a particular type.
-Resolution, section eligibility, `old(...)` entry-readability, and operand type
-are applied only after the complete grammar parses.
+Only an unqualified identifier resolving to a task definition in the same file
+and permitted lexical task/app subtree is a task value. Dotted names, fields,
+module paths, locals, parameters, literals, parenthesized expressions,
+conditionals, call results, and anonymous forms are not task values.
 
-The accepted first non-whitespace operand tokens are `true`, `false`, an
-existing decimal integer literal (including only the existing signed form), an
-identifier/place, `"`, `[`, `(`, or the exact no-gap call tokens `old(`,
-`list_len(`, and `list_count(`. No other starter is accepted. Once an intent
-signal exists, empty input, a leading comparison/comma, `@`, `{`, `]`, or any
-other starter is malformed H0704.
+Normal lexical resolution occurs first. A same-named local or parameter wins
+and must not fall back to the hidden task. Its task-value use then receives
+H1401 with the shadowing definition as related evidence.
 
-The complete trimmed line must match one `predicate`; chained comparisons and
-trailing tokens are invalid. Multi-character comparison operators are atomic:
-whitespace inside them is invalid. Optional spacing exists only at `hws0`
-positions. No executable production uses `hws1`; the intent scan uses it to
-distinguish a spaced known-call near miss from the accepted no-gap call token.
-Accepted known-call spellings have no gap between the call name and `(`. Calls do not nest: `old` and `list_len` take one
-syntactic place, and `list_count` takes only the two source forms above. Lists
-are flat Text lists, have no trailing comma, and cannot contain expressions or
-nested lists. Parentheses/brackets/call delimiters must match, and the shared
-analyzer accepts at most 16 simultaneously open delimiter frames. Exceeding
-that bound is H0704, not a recursion failure or trap.
+The exact indirect application is `transform(value)` in:
 
-Predicate recognition order is deterministic, and
-`predicate_recognition_status` has exactly four closed values:
+```hum
+return transform(value)
+```
 
-1. A meaningful line with no intent signal has
-   `predicate_recognition_status = non_executable_prose_v0` and remains H0701.
-   No later predicate parser or evaluator sees it.
-2. A signaled line that cannot match the complete grammar has
-   `predicate_recognition_status = malformed_executable_predicate_v2` and
-   receives H0704. This includes an invalid/empty operand starter, punctuation
-   near-miss operator, known-call spacing near miss, malformed place,
-   missing/extra/mismatched delimiter, illegal nesting, invalid list separator,
-   arbitrary call operand, or trailing token/prose.
-3. A grammar-valid candidate proceeds through place resolution, section
-   eligibility, and operand typing. Any failure has
-   `predicate_recognition_status = rejected_executable_predicate_semantics_v2`.
-   Existing H0630 retains precedence for a resolved, eligible, well-formed
-   candidate that attempts to inspect opaque `Path`. Otherwise an unresolved
-   place, resolved but predicate-ineligible place, invalid operator/type
-   combination, cross-type equality, or invalid call argument type receives
-   H0704 with the semantic reason.
-4. Only a grammar-valid and type-valid fact has
-   `predicate_recognition_status = recognized_typed_executable_predicate_v2`
-   and reaches evaluation. A false `needs:` is H0702 and a false `ensures:` is
-   H0703. A true predicate passes. No malformed or ill-typed candidate reaches
-   the evaluator.
+Its grammar is:
 
-The one shared recognition fact contains `predicate_recognition_status`,
-tokens, delimiter depth/result, intent-signal span, parsed operands/operator,
-syntactic places, resolution/eligibility/type results when available, and every
-source span. Static checking and runtime preflight consume that fact; neither
-may rescan the line or independently decide H0701 versus H0704.
+```text
+indirect-application ::= callable-param-ident "(" hws0 ordinary-value-ident hws0 ")"
+```
 
-### Typed analysis and diagnostics
+The callee resolves to the one callable parameter. The argument resolves to the
+receiver's one ordinary `UInt` parameter. No task call, indirect call,
+arithmetic expression, permission wrapper, field, element, or literal is
+accepted as the indirect argument in AL. The application is the complete return
+expression; AL permits no intermediate binding. Exactly one indirect
+application is required. Chaining and nesting are unsupported.
 
-Move eligibility, operand parsing, type facts, and evaluation for executable
-predicates into one shared Predicate v2 analysis consumed by full type,
-downstream gates, graph facts where already represented, and runtime. Do not
-maintain separate string-pattern interpretations in static and runtime paths.
-The shared fact records section, comparison operator, operand kinds and types,
-`list_count` argument types, syntactic places, resolution/eligibility results,
-result type, and source spans. `predicate_recognition_status` is only a
-lexical/parser/type-recognition fact and emits no decision 0015 proof/trust
-classification.
+### Closed lexical envelope
 
-Allocate H0704 to a signaled executable-predicate candidate whose complete
-grammar, operator, arity, operand kind, or operand type is invalid. H0704 names the task
-and section, expected and actual types/shapes, the offending operand/call site,
-and a concrete valid replacement. It appears in full-type human and existing
-JSON output and blocks runtime through the same fact. H0701 remains only the
-warning for honest prose; it must not absorb malformed or ill-typed canonical
-Predicate v2 forms. H0702 and H0703 remain caller-blamed `needs:` and
-task-blamed `ensures:` runtime violations.
+- `hws0` is zero or more ASCII SP/HTAB; `hws1` is one or more.
+- Horizontal whitespace never includes CR or LF.
+- The accepted type is `"task" "(" hws0 "UInt" hws0 ")" hws1 "->" hws1 "UInt"`.
+- A task value is one `value-ident` with identifier boundaries on both sides.
+- The accepted application is `value-ident "(" hws0 value-ident hws0 ")"`.
+- The task value occurs only as the first argument of the resolved receiving-
+  task call; the second argument is the ordinary `UInt` value.
+- Value identifiers remain `[a-z_][a-z0-9_]*`; type identifiers remain
+  `[A-Z][A-Za-z0-9]*` under decision 0012.
+- Comments may occur before or after complete lines, never inside a callable
+  type, callable parameter, task value, or indirect application.
+- Callable-type and indirect-application nesting are zero.
+- One receiver has at most one task-value argument, one callable parameter, and
+  one indirect application.
 
-Required precedence probes include: one ill-typed canonical Predicate v2 line
-that would otherwise fall through as prose (H0704, not H0701); Path use inside a
-Predicate v2-looking comparison (the existing H0630 Path boundary owns it, not
-H0704); and a false well-typed predicate (H0702/H0703, not H0704). Each offending
-line has one owning diagnostic and no generic trap; independent errors on other
-source lines are not suppressed.
+### Name and scope ownership
 
-### AF cross-stage surfaces
+- An unresolved task value is H0601 at the identifier, with help to declare or
+  name a visible same-file task.
+- Duplicate task definitions remain H0602 with both spans.
+- A local/parameter shadow wins lexical resolution; its task-value use is H1401
+  with the non-task definition as related evidence.
+- Any other non-task task-value is H1401 at the value use with its resolved
+  definition related.
+- A local shadowing the callable parameter is H0602 with both definitions.
+- Application outside the callable parameter's scope is H0601.
+- A cross-file task value or callable relationship is H1401 at the task-value or
+  receiver call, with the external definition related when available.
 
-Resolver and type environment preserve referenced definition/type identity;
-type/full type expose accepted or H0704-rejected operand facts; effect,
-ownership, and resource consume the prior typed result without re-parsing the
-contract; Core preview/lower/verify preserve the checked predicate or its exact
-blocker; graph exposes the existing contract relationship honestly; and runtime
-evaluates only the shared accepted fact after clean preflight. Existing schema
-IDs and commands remain unchanged.
+### Malformed and unsupported corpus
 
-### Permanent evidence
+H1401 is `invalid or unsupported callable form`, with reason
+`invalid_or_unsupported_callable_form_v0`. It owns canonical-looking malformed
+callable types/applications and recognized forms outside the slice. Existing
+parser diagnostics retain malformed outer item/header ownership.
 
-Update the three hand-authored probes named above. Add non-degenerate fixtures
-that prove:
-
-- `word_count` returns the count relation, and a wrong implementation that
-  still returns a plausible UInt fails H0703;
-- `builder_demo` checks exact ordered content, and a same-length wrong-content
-  implementation fails H0703;
-- `element_views` checks Text equality, and a different Text result fails
-  H0703;
-- Text-vs-UInt comparison, mixed/non-Text list content, wrong `list_count`
-  arity/type, list ordering comparison, arbitrary helper-call operands, and
-  malformed canonical-looking forms fail with H0704 rather than H0701 or a
-  trap; and
-- ordinary non-predicate prose remains H0701 and existing Predicate v1
-  `old(...)`/`list_len(...)` evidence remains green.
-
-Place outcomes are pinned after a signaled line enters the envelope:
-
-| Place outcome | Representative candidate | Recognition status and owner |
+| Case | Exact source | Owner |
 | --- | --- | --- |
-| syntactically malformed | `item..done == true`, `.item == true`, `item. == true` | `malformed_executable_predicate_v2`; exactly H0704 |
-| syntactically valid but unresolved | `missing_value == 2` | `rejected_executable_predicate_semantics_v2`; exactly H0704 with unresolved-place reason |
-| resolved but predicate-ineligible | `helper_task == 2` where `helper_task` resolves to a task/non-contract value | `rejected_executable_predicate_semantics_v2`; exactly H0704 with ineligible-place reason |
-| eligible place, wrong operand type | `text_value == 2` for a Text parameter/result | `rejected_executable_predicate_semantics_v2`; exactly H0704 with expected/actual types |
-| eligible and correctly typed | `result == 2` for UInt result | `recognized_typed_executable_predicate_v2`; executable, then pass or H0703 |
+| missing outer task-parameter close | `task apply_once(transform: task(UInt) -> UInt, value: UInt -> UInt {` | H0007 |
+| missing indirect close | `return transform(value` | H1401 |
+| extra close | `return transform(value))` | H1401 |
+| mismatched delimiters | `return transform[value)` | H1401 |
+| zero indirect arguments | `return transform()` | H1402 |
+| two indirect arguments | `return transform(value, value)` | H1402 |
+| trailing prose | `return transform(value) later` | H1401 |
+| chained application | `return transform(value)(value)` | H1401 |
+| nested application | `return transform(increment(value))` | H1401 |
+| anonymous callable | `return apply_once(task(value) { return value + 1 }, 41)` | H1401 |
+| stored callable | `let saved = transform` | H1401 |
+| returned callable | `return transform` | H1401 |
+| permission-bearing callable type | `transform: task(change UInt) -> UInt` | H1401 |
+| permission-bearing argument | `return transform(change value)` | H1401 |
+| known fallible task passed as pure | `return apply_once(fallible_increment, 41)` | H1402 |
+| zero application | `return value` | H1401 |
+| second application | `return transform(first)` after `let first = transform(value)` | H1401 |
 
-Full-type human, JSON, and `hum run` preflight assert the same recognition
-status, reason, syntactic place, resolution/eligibility/type facts, spans,
-exact diagnostic count, and repair for every row. None becomes H0701, a generic
-resolver/type diagnostic, or a runtime trap.
+For the known fallible task, H1402 reports expected `failure_root = none` and
+the exact actual nominal root, with the task definition related. Zero
+application uses reason `required_exactly_one_callable_application_v0` at the
+callable parameter/receiver relationship. A second application blames the
+second occurrence and relates the first without a duplicate competing error.
 
-The permanent boundary matrix is exact:
+Unknown ordinary types remain H0605; invalid identifiers remain H0009;
+malformed outer task headers retain H0003/H0006/H0007/H0008; wrong resolved
+callable input, result, or failure root is H1402.
 
-| Boundary | Representative lines | Required owner |
-| --- | --- | --- |
-| punctuation operator near misses | `result = 2`, `result === 2`, `result ! = 2`, `result ! 2`, `result!2`, `result <> 2` | one H0704 each |
-| prose operator word | `result equals two` | H0701 only |
-| malformed known calls | `list_count (items, "hum") == result`, `list_count(items) == result`, `old (item) == result` | one H0704 each |
-| missing/extra/mismatched delimiters | `result == ["parse"`, `result == ["parse")]`, `(result == "parse"`, `result == "parse`, `result == "parse""` | one H0704 each |
-| invalid operand starters | `@result == 2`, `, result == 2`, `== result` | one H0704 each |
-| canonical-looking trailing prose | `result == 2 matching words` | one H0704 |
-| quoted predicate-like Text as prose | `"result == list_count(items, hum)"` | H0701 only; inner spelling is never scanned |
-| token/call boundary near misses | `list_counted(items, "hum") == result`, `list_count (items, "hum") == result` | one H0704 each; first is arbitrary call, second is bad canonical spacing |
-| delimiter-depth limit | a generated-in-test 16-frame valid operand and a 17-frame counterpart | accepted at 16; H0704 at 17 |
-| lone predicate-shaped `!` | `result ! 2`, `result!2`, `(result) ! "x"` | one H0704 each in human/JSON/runtime preflight; no H0701 or trap |
-| adjacent recognition triplet | three one-token-neighbor fixtures: prose `result equals two`, malformed `result = 2`, valid `result == 2` | respectively H0701, H0704, and executable fact/H0702-or-H0703 behavior |
+### AL observation and sabotage
 
-Full-type human and existing JSON expose the same H0704 reason,
-`predicate_recognition_status`, intent span, offending span, task/section site,
-expected shape/type, and repair.
-`hum run` preflight renders that same H0704 and exits 2 before any task body or
-contract evaluation. H0701 remains a non-blocking runtime warning. Boundary
-fixtures assert exact counts and absence of the competing H0701/H0704 code and
-generic traps as applicable.
+AL input and result are `UInt`.
 
-Suggested stable fixture families are
-`fixtures/full_type_check/session_af_predicate_v2_*` and
-`fixtures/run/session_af_predicate_v2_*`; names must describe the misuse, not
-the desired implementation.
+| Form | Expected result |
+| --- | ---: |
+| `apply_once(increment, 41)` | 42 |
+| `apply_once(increment, 40)` | 41 |
+| `apply_once(double, 41)` | 82 |
 
-### AF bans
+Permanent evidence must fail if `apply_once` ignores either input, directly
+calls `increment`, returns a constant, resolves by display name, or accepts
+poisoned expected-result metadata as semantic input.
 
-No boolean connectives, quantifiers, binders, lambdas, predicate task values,
-general helper calls, general list equality, generic element equality, Text
-ordering, normalization/collation, membership, `contains`, body-reachable
-`list_count`, decision 0015 proof/trust classifier, profile/proof/elision work,
-or new schema/command.
+### AM row presentation and nonempty observation
 
-### AF acceptance criteria
+There is no AM row source syntax. The callable type remains
+`task(UInt) -> UInt`, and its latent row is inferred. AL accepts only an
+inferred closed-empty result. AM may generate one internal structural tail for
+the single file-local nonrecursive callable-parameter relationship. The tail is
+semantic evidence, not source syntax or a public-signature rule. No user-written
+row variable/alias, effect annotation, handler annotation, effect exclusion,
+formula, or associated effect is introduced.
 
-- All three intended contracts execute and reject their wrong implementations;
-  none remains H0701 prose and none is replaced by a hard-coded substitute.
-- H0704 owns every pinned invalid canonical form with typed structured facts,
-  stable blame, actionable repair, and static/runtime precedence.
-- Every named compiler/report/Core/graph/runtime surface agrees, and no existing
-  Predicate v1 or Path-boundary behavior regresses.
-- The standing checks pass. Stop. Session AG remains unauthorized pending AF's
-  independent verdict, accepted commit and CI record, and a separate BDFL go.
+AM uses the existing non-authority-bearing Core `change` effect. Its exact
+positive source is:
 
-## Session AG: model-neutral corpus and experimental harness
+```hum
+module examples.probes.passed_callable_row
 
-Purpose: freeze the exam before any effect candidate can shape it.
+task bump_with_local(value: UInt) -> UInt {
+  why:
+    expose an existing non-authority-bearing local mutation effect
 
-### Authorized artifacts
+  ensures:
+    result == value + 1
 
-This session may add exactly one maintained corpus document,
-`docs/bakeoff/EFFECT_POLYMORPHISM_CORPUS.md`, and one isolated no-dependency
-Rust crate under `experiments/effect-bakeoff/`. The crate is an offline test
-harness only. It is not linked by the Hum binary, reachable from Hum source, or
-exposed as a CLI/report/schema. Add one proportional invocation to the existing
-preflight so corpus and experiment tests cannot silently rot.
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
 
-The shared corpus representation describes behavior and relationships only:
-values, callable inputs/results, call sites, stored or returned callables,
-latent operations, captured values/authority/resources, ownership transfer,
-registration lifetime, and expected blame sites. It contains no row variable,
-Boolean formula, capture-set syntax, candidate name, handler mechanism, hidden
-allocation, or candidate-specific rewrite.
+  does:
+    change current: UInt = value
+    set current = current + 1
+    return current
+}
 
-### Frozen candidate-neutral executable result contract
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  why:
+    propagate one inferred callable row
 
-Before any advocate begins, AG defines one closed Rust result type consumed by
-the shared harness and AK scorecard. Every candidate emits exactly one result
-per corpus case/variant with these required fields:
+  needs:
+    value < 1000000
 
-```text
-candidate_id
-case_id
-variant_id
-candidate_native_result
-candidate_native_evidence
-neutral_normalized_summary
-status
-required_source_annotations
-inferred_requirement_facts
-inferred_capture_facts
-allocation_facts
-resource_facts
-added_machinery
-primary_reason
-primary_blame_site
-related_blame_sites
-repair_direction
-implementation_cost
-analysis_cost
-diagnostic_cost
-missing_evidence
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return transform(value)
+}
+
+task run_passed_callable_row -> UInt {
+  why:
+    observe the effectful callable result without external authority
+
+  ensures:
+    result == 42
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return apply_once(bump_with_local, 41)
+}
 ```
 
-`candidate_native_result` preserves the candidate's own normalized terminology.
-`candidate_native_evidence` is a sorted key/value evidence bag for audit only;
-it cannot create a score field. `neutral_normalized_summary` uses only corpus
-terms: callable input/result, propagated/handled requirement, stored/returned
-callable, capture/escape, exact authority requirement, ownership transfer, and
-resource lifetime. `status` is exactly `accepted`, `rejected`, `unsupported`,
-or `incomplete`; unsupported is not accepted, and incomplete is a hard evidence
-failure.
-
-Annotation facts record source site, purpose, and whether the annotation is
-required or inferred. Requirement and capture facts record stable corpus
-identity, origin/route, retained/propagated/handled disposition, and affected
-callable. Allocation/resource facts record kind, trigger, lifetime, cleanup or
-transfer owner, and whether the fact is explicit or merely prototype-assumed.
-`added_machinery` records layer (`language`, `checker`, `runtime`, `ownership`,
-or `tooling`), implementation state, and whether the scorecard may credit it;
-anything not implemented and exercised is uncredited.
-
-The diagnostic fields are mandatory for every rejected case. `primary_reason`
-uses the frozen corpus reason ID, the primary and related sites use frozen
-corpus site IDs, and `repair_direction` must preserve the model-neutral repair
-goal. Candidate-native jargon may appear only in native evidence and rendered
-explanation, not replace the neutral reason or sites.
-
-AG freezes these execution and normalization rules:
-
-- fixture inputs, positive/misuse variants, expected semantic observations,
-  required reason IDs, and required blame-site sets are immutable corpus data;
-- lists and maps sort by stable corpus ID; source routes retain semantic order;
-  candidate variables alpha-normalize by first structural occurrence; path
-  separators normalize only for identity, never display evidence;
-- each candidate runs from a fresh harness state twice, and the complete neutral
-  result must be byte-identical after canonical serialization;
-- a missing field, empty required site set, unreported allocation/resource,
-  omitted added machinery, failed normalization, or absent cost measurement
-  appends `missing_evidence` and forces `status = incomplete`; missing evidence
-  is never zero, pure, free, inferred, or favorable;
-- extra candidate-specific top-level fields are rejected. Native terminology
-  fits only in the two frozen native fields and has no independent scoring
-  weight.
-
-AG also freezes the cost method. `implementation_cost` is deterministic
-nonblank/noncomment candidate-module lines plus dependency count.
-`analysis_cost` is candidate-reported and harness-checked counts of visited
-corpus nodes, generated facts/constraints, normalization steps, and maximum
-live analysis items; process wall time may be recorded as non-scoring host
-context only. `diagnostic_cost` records primary-diagnostic count, required-site
-coverage, rendered UTF-8 byte count, candidate-native term count, and whether a
-model-neutral repair is present. The hard gates are complete corpus coverage,
-one primary diagnostic, full required-site coverage, no authority/ownership
-laundering, and no missing evidence. AK compares the frozen raw measures and
-may not invent a favorable default, hidden weight, or candidate-only metric.
-
-The harness contains malformed-result tests for every required field and proves
-that omission is incomplete. Any later change to this result contract,
-normalization, corpus observations, or cost method is a common corpus correction
-that stops the active advocate sequence, receives independent review, and
-forces every completed candidate to rerun.
-
-### Pinned distinguishing corpus
-
-Pin positive and misuse variants, stable case IDs, and frequency/rationale for:
-
-1. pure `map`;
-2. effectful `map` with inferred callback effects;
-3. `filter`/`retain`, including Program 3's two-list odd-filter positive,
-   retain-style positive deletion, same-list mutation rejection, and stale
-   retained-item-view rejection after deletion;
-4. `fold` with an effectful step;
-5. `retry` around a fallible callable without erasing its remaining effects;
-6. `with_timeout`-shaped handled requirements as a type-system case only, with
-   no scheduler or clock implementation credit;
-7. `parallel_map` as a latent-effect composition case only, with no concurrency
-   implementation credit;
-8. a stored callback registry that captures caller state and has an explicit
-   registration/lifetime misuse;
-9. an event-handler factory returning a closure that captures authority;
-10. a memoizing wrapper returning a callable that captures cache state and
-    allocation/resource intent;
-11. logging middleware that adds output while preserving the wrapped callable's
-    effects; and
-12. closure capture of an owned or Transaction-shaped linear resource,
-    including move, escape, double-use, and outlives misuse.
-
-Each misuse specifies one fundamental reason and structured callable,
-definition, capture, resource, call, registration/return, and use sites as
-applicable. The corpus separately measures effect inference, closure/resource
-capture, authority preservation, blame, caller annotation burden, public
-signature burden, and near-principal inference. `Near-principal` means the
-prototype produces one stable most-general summary within its admitted model,
-up to documented normalization/renaming, without requiring a caller annotation
-for the ordinary positive cases; it is not a proof of global principal types.
-
-### Corpus locks
-
-- Candidate-specific restructuring receives no credit. An around-call helper
-  cannot substitute for a returned wrapper; an owner table cannot substitute
-  for captured caller state; copying cannot substitute for an owned view or
-  resource; and a monomorphic callback cannot substitute for inferred latent
-  effects.
-- Existing Hum authority IDs remain exact. Corpus authority facts distinguish
-  source requirement, operator consent, and operation exercise.
-- Allocation and resource capture are explicit. A candidate cannot hide a
-  closure environment, cache, box, reference count, or registry allocation.
-- The harness rejects missing/duplicate case IDs, missing positive or misuse
-  halves, missing blame relationships, candidate vocabulary in the neutral
-  corpus, unpriced restructuring, incomplete candidate results, extra result
-  fields, and candidate output that cannot normalize into the frozen contract.
-- Session AG records the pure Effekt-style eligibility result transparently
-  against stored-callback and returned-closure requirements. Research prose
-  alone cannot eliminate it.
-
-### AG bans
-
-No production Hum module, syntax, compiler stage, runtime path, H-code, public
-schema/report, candidate implementation, candidate score, model selection,
-production higher-order fixture, or candidate-specific corpus vocabulary. The
-session may validate the exam but may not answer it.
-
-### AG cross-stage and diagnostic expectations
-
-No production compiler stage changes. Existing Hum stages must remain exactly
-as before and must not claim that corpus-only higher-order shapes are supported.
-Experimental diagnostics use corpus IDs and deterministic reason/blame facts,
-not H-codes. The new preflight invocation checks only the isolated crate and
-corpus integrity; it is not a new Hum pipeline stage.
-
-### AG acceptance criteria
-
-- The corpus contains all twelve exact shapes and misuse relationships, with no
-  model mechanism or candidate-specific substitute.
-- The harness fails on a deliberately malformed in-test corpus and passes the
-  checked-in corpus; no production Hum crate or surface depends on it.
-- The frozen candidate-neutral result contract, normalization, expected
-  observations, missing-evidence rule, and cost method reject malformed or
-  incomplete mock-candidate output before AH begins.
-- An independent reviewer verifies the corpus before any candidate sees an
-  editable exam. After acceptance, corpus changes require a separately reviewed
-  common correction and force every completed candidate to rerun.
-- The standing checks pass. Stop. Session AH remains unauthorized pending the
-  full gate and a separate BDFL go.
-
-## Session AH: Koka-style row-polymorphism advocate
-
-Purpose: give open effect rows their strongest honest prototype over the frozen
-corpus.
-
-### Scope
-
-Add only a row-candidate module and best-advocate document inside the AG
-experimental boundary. Implement open effect rows with stable labels and tail
-variables, latent callable effects, application propagation, exact handled
-label removal needed by the retry/timeout cases, alias-preserving rendering,
-and stable normalization/renaming for near-principal comparisons. Duplicate
-label behavior must be stated and tested rather than assumed.
-
-The candidate must represent returned/stored callables and expose closure
-environment allocation and captured owned/linear resources. If row effects
-alone cannot enforce resource escape or exact authority retention, record the
-additional capture/ownership side condition and price it as non-row machinery;
-do not credit decision 0014 or 0017 for an unimplemented bridge.
-
-### Evidence and diagnostics
-
-Run every frozen positive/misuse case and emit exactly AG's frozen candidate-
-neutral result contract. Preserve normalized latent rows only in the frozen
-candidate-native evidence fields; comparison uses the neutral summary,
-annotation, inference, allocation/resource, added-machinery, diagnostic, and
-cost fields. Add order/renaming stability tests, row growth stress,
-alias-preserving error snapshots, and a captured-linear-resource escape test.
-
-### Bans
-
-No production syntax/checker/runtime change, no corpus rewrite, no Boolean
-formula or capture-set emulation hidden inside the row candidate, no hidden
-effect labels or closure allocation, and no claim that the prototype proves
-principal inference, ownership soundness, or authority safety.
-
-### AH cross-stage surfaces
-
-Only the isolated experiment crate and its preflight invocation may consume
-row-candidate results. Production resolver, type, effect, ownership, resource,
-Core, graph, and runtime output remain byte-for-byte unaffected by the
-candidate mechanism except for unrelated deterministic build metadata.
-
-### AH acceptance criteria
-
-- The unchanged corpus produces a complete auditable row-candidate result; all
-  failures and added side machinery are explicit and uncredited.
-- Ordinary positive cases meet or clearly fail the near-principal/no-caller-
-  annotation gate, and diagnostics are deterministic and single-cause.
-- The standing checks pass. Stop. Session AI remains unauthorized pending the
-  full gate and a separate BDFL go.
-
-## Session AI: Flix-style Boolean-formula advocate
-
-Purpose: give Boolean effect formulas their strongest honest prototype over the
-same frozen corpus.
-
-### Scope
-
-Add only a formula-candidate module and best-advocate document inside the AG
-experimental boundary. Implement latent callable effect formulas with variables
-and the exact union, intersection, difference, complement, and equivalence/
-normalization behavior needed to test the corpus. Inference results must be
-stable modulo documented Boolean equivalence. Raw solver/formula output is not
-an acceptable user diagnostic.
-
-The candidate must represent stored/returned callables and price normalization,
-unification, associated-effect pressure, compile-time cost, closure allocation,
-and any separate ownership/capture rule. Authority labels remain exact and may
-not be simplified into an ambient `IO` or erased top effect.
-
-### Evidence and diagnostics
-
-Run every unchanged positive/misuse case and emit exactly AG's frozen candidate-
-neutral result contract. Preserve normalized Boolean formulas only in the
-frozen candidate-native evidence fields; no formula-specific comparison field
-or scoring rule may be added. Add formula-equivalence and order-stability tests,
-an effect-exclusion case, a formula-growth/throughput measurement on a bounded
-synthetic graph, a single-cause diagnostic snapshot that explains formulas in
-domain language, and captured-linear-resource/authority escape tests.
-
-### Bans
-
-No production change, corpus rewrite, candidate-specific restructuring,
-unpriced solver or associated-effect machinery, raw multi-error cascades,
-hidden allocation, erased effects, or claim that principal inference or
-performance is proved beyond the prototype measurements.
-
-### AI cross-stage surfaces
-
-Only the isolated experiment crate and its preflight invocation may consume
-formula-candidate results. Production resolver, type, effect, ownership,
-resource, Core, graph, and runtime gain no formula facts, syntax, or status.
-
-### AI acceptance criteria
-
-- The unchanged corpus produces a complete auditable formula-candidate result
-  with equivalence normalization and measured bounded prototype cost.
-- Every misuse has one comprehensible primary reason and the same relationship
-  sites required by the corpus; formula machinery never substitutes noise for
-  blame.
-- The standing checks pass. Stop. Session AJ remains unauthorized pending the
-  full gate and a separate BDFL go.
-
-## Session AJ: capture-oriented checking advocate
-
-Purpose: test whether capability/capture retention can provide Hum's effect
-story without weakening decisions 0014 or 0017.
-
-### Scope
-
-Add only a capture-candidate module and best-advocate document inside the AG
-experimental boundary. Implement explicit and inferred capture sets for
-callable values, result capture for returned/stored closures, subcapture needed
-by the corpus, and stable normalization/renaming. Distinguish:
-
-- capturing an ordinary immutable value;
-- moving or borrowing owned state;
-- retaining a Transaction-shaped linear resource;
-- retaining a source authority requirement; and
-- actual operator consent and operation exercise, which are not captures and
-  cannot be inferred into existence.
-
-If failure, state, or handled requirements need effect facts in addition to
-capture sets, expose and price the hybrid machinery. Do not call a capture-only
-answer complete by silently dropping non-capability effects.
-
-### Evidence and diagnostics
-
-Run every unchanged positive/misuse case and emit exactly AG's frozen candidate-
-neutral result contract. Preserve normalized capture sets only in the frozen
-candidate-native evidence fields; no capture-specific comparison field or
-scoring rule may be added. Add capture-substitution and order-stability tests,
-strict-vs-lazy result-capture comparisons, captured native authority identity,
-owned/linear move and escape misuses, and a test proving that a closure's
-capture set neither grants operator consent nor widens its app authority
-maximum.
-
-### Bans
-
-No production change, corpus rewrite, capability-as-consent, ambient capture
-root, hidden box/allocation, decision 0014 narrowing, decision 0017 widening,
-or claim that capture checking alone models effects the prototype represents
-with additional machinery.
-
-### AJ cross-stage surfaces
-
-Only the isolated experiment crate and its preflight invocation may consume
-capture-candidate results. Production resolver, type, effect, ownership,
-resource, Core, graph, authority audit, and runtime gain no capture facts,
-syntax, inference, or status.
-
-### AJ acceptance criteria
-
-- The unchanged corpus produces a complete auditable capture-candidate result;
-  capability retention, resource ownership, and external consent remain
-  distinct.
-- Ordinary positive cases meet or clearly fail the near-principal/signature-
-  burden gates, and every misuse produces one stable relationship diagnostic.
-- The standing checks pass. Stop. Session AK remains unauthorized pending the
-  full gate and a separate BDFL go.
-
-## Session AK: cross-candidate scoring and proposed decision
-
-Purpose: select a model only if repository evidence earns a selection.
-
-### Scope
-
-Freeze candidate code before scoring. Rerun all three prototypes against the
-same corpus and compare:
-
-1. exact positive and misuse coverage without restructuring;
-2. near-principal inference and stability;
-3. caller and public-signature annotation burden;
-4. one-diagnostic blame quality and repair direction;
-5. returned/stored closure expressiveness;
-6. owned and linear resource capture safety;
-7. decision 0017 authority integrity;
-8. explicit allocation/resource cost;
-9. checker complexity and bounded prototype throughput;
-10. Core/graph/tooling fit and migration path; and
-11. beginner and library-author pedagogy.
-
-Separate proven prototype facts from proposed production repairs. Give no
-credit for unimplemented machinery, hidden allocation, ambient capabilities,
-erased effects, future ownership work, or candidate-specific restructuring.
-Record eliminated candidates and salvageable ideas explicitly.
-
-Update the existing bake-off scorecard only with verified candidate results.
-Author `docs/decisions/0018-adopt-effect-polymorphism-model.md` with status
-exactly `proposed` only if at least one candidate clears every non-negotiable
-corpus, diagnostic, near-principal, ownership-capture, and authority gate. If no
-candidate clears the gate, do not choose the least-bad score: leave 0018 absent
-or proposed-blocked, identify the smallest shared evidence gap, and stop for a
-new bounded BDFL ruling.
-
-The proposed decision must state the chosen core rule, inference boundary,
-callable/capture semantics, diagnostics, Core and graph implications,
-allocation/resource visibility, rejected alternatives, salvaged mechanisms,
-migration, performance evidence, pedagogy, and every honesty lock. It must not
-implement production behavior.
-
-### AK bans and cross-stage surfaces
-
-No candidate code changes during scoring, corpus edits, production compiler or
-runtime changes, Hum syntax, H-codes, schema/report additions, selected-model
-hooks, effect implementation, internal references, higher-order stdlib, or
-flagship-wedge surface. Production resolver, type, effect, ownership, resource,
-Core, graph, and runtime remain unchanged; only the isolated experiment,
-scorecard, and proposed decision may report the comparison.
-
-### Decision gate
-
-The implementer cannot accept decision 0018. Only an independent
-architect-reviewer that verifies the frozen corpus, every candidate result, and
-the scorecard may exercise delegated ruling authority by changing the status to
-exactly `accepted under delegated authority (BDFL veto open)` and delivering the
-required BDFL brief. The BDFL may veto or directly rule. A decision acceptance
-does not authorize production effect-polymorphism implementation.
-
-### AK acceptance criteria
-
-- Every score traces to reproducible corpus output and prices all extra
-  machinery symmetrically.
-- The recommendation is decisive only if a candidate clears the gates; the ADR
-  kills alternatives and records salvage without overstating prototype proof.
-- Accepted decisions 0014, 0015, and 0017 remain unchanged and fully locked.
-- The standing checks pass. Stop. Work Order 7 ends at the decision gate. No
-  production effect implementation or later session is authorized.
-
-## Deliberate deferrals and concrete cost
+Runtime returns 42, writes UTF-8 bytes `34 32 0A`, exits zero, and calls no
+adapter. Source authority, operator consent, and exercised external operation
+are all absent.
+
+The expected row has distinct `change` occurrences at the mutable declaration
+and `set` origins. Application substitutes the complete multiset for the one
+internal tail and propagates every occurrence without deduplication. If existing
+canonical Core classification proves the mutable declaration permission-only,
+the row contains only the `set` occurrence; the implementation may not invent a
+duplicate. A separate two-`set` fixture then proves duplicate-label behavior.
+
+### Visibility and generalization boundary
+
+AL-AM accept only one nonrecursive same-file callable-parameter relationship
+and one indirect application.
+
+- Cross-file callable use is H1401 at the use with receiving-task/call-site
+  evidence; there is no public row inference.
+- A recursive relationship is H1401 at the recursive edge with caller, callee,
+  and route spans; there is no recursive generalization or monomorphic fallback.
+- Stored callable use is H1401 with no environment allocation or retained-
+  capture fact.
+- Returned callable use is H1401 with no returned environment or lifetime fact.
+
+A future public, recursive, stored, or returned callable boundary must expose a
+stable row variable or named alias under a later accepted work order. This
+ruling selects no spelling for that future boundary.
+
+The pinned corpus reuses existing identifier, task-header, call-argument, and
+body boundaries. It introduces no anonymous function, closure literal, generic
+type parameter, permission-bearing callable, storage, callable return, handler,
+recovery, or higher-order library API. The independent reviewer must verify the
+complete incorporated ruling before any AL go signal.
+
+## Mandatory sequence and stopping point
+
+Work Order 8 contains only two production sessions:
+
+```text
+AL  canonical callable facts plus one passed pure callable vertical slice
+AM  latent open-row propagation through that callable application
+STOP  retrospective and a new work order before handling or environments
+```
+
+This is the smallest safe production sequence. AL proves that one semantic
+spine can survive every existing stage before effect polymorphism is added. AM
+then adds the selected row mechanism while callable identity, invocation, and
+runtime behavior are already independently accepted.
+
+The remaining accepted architectural order is mandatory but deferred:
+
+1. exact one-occurrence type-level handling;
+2. returned callable environments;
+3. stored callable environments and registration lifetime;
+4. immutable-value and exact-authority capture bridging;
+5. owned, borrowed, and linear-resource capture/lifetime bridging; and
+6. higher-order standard-library APIs last.
+
+Handling is not included because no source spelling or recovery boundary has
+been pinned. Environments are not included because representation, allocation,
+cleanup, and lifetime facts deserve independent evidence after application is
+stable. The capture/ownership/resource/authority bridge is split because each
+domain has different existing diagnostic ownership and a row cannot launder
+any of them. Library APIs would multiply unsupported shapes before the
+foundation is proven. A post-AM retrospective must recommend the next bounded
+work order; it may not silently start the deferred list.
+
+## Canonical semantic spine
+
+Sessions AL and AM use one shared, immutable, memoized production analysis in
+`src/callable.rs`. It must be constructed from typed syntax nodes plus resolver
+scope/definition/reference identities. A source slice may be retained for
+display and blame, but no semantic branch may be selected by rescanning that
+slice. Formatted AST output, debug text, rendered diagnostics, JSON, names, and
+display strings are never semantic inputs. The analysis is built once per
+parsed program/command after resolver identity exists and is passed to every
+consumer.
+
+The shared analysis owns these closed facts:
+
+- `CallableDefinitionFact`: stable callable ID, source path/span, lexical scope
+  ID, resolver definition ID, ordered ordinary input definitions and types,
+  result type, exact optional nominal failure root, and definition status;
+- `CallableTypeFact`: stable type ID, ordered ordinary input types, result type,
+  exact optional nominal failure root, and latent-row ID;
+- `LatentEffectRowFact`: stable row ID, exact ordered-normalized multiset of
+  label identities, optional structural tail-variable identity, closed/open
+  status, aliases, and source/inference origins;
+- `CallableValueFact`: stable value-use ID, source span, referring lexical scope,
+  resolver reference ID, resolved task definition ID, expected callable-type
+  ID, and recognition/resolution/type status;
+- `CallableApplicationFact`: stable application ID, caller definition ID,
+  callable-parameter definition ID, callable-value/definition IDs, invocation
+  span, ordered ordinary argument definition/value facts, result type, nominal
+  failure root, input and output row IDs, and status/reason/blame sites; and
+- `CallableDiagnosticFact`: stable diagnostic ID, H-code, fundamental reason,
+  primary span, ordered related spans, and one actionable repair direction.
+
+Stable IDs derive from normalized source identity, lexical definition identity,
+and exact occurrence spans. Display spans retain original source spelling.
+Paths normalize separators only for identity comparison, matching existing
+forensic practice. Row normalization is deterministic, preserves duplicate
+labels, preserves aliases as diagnostic evidence, and alpha-renames a single
+tail by first semantic occurrence. It never concatenates tail names or treats a
+set as a multiset.
+
+The following identities are distinct closed semantic domains even when two
+display names match: source-node ID, lexical-scope ID, definition ID, reference
+ID, callable-definition ID, callable-type ID, callable-value/use ID, callable-
+parameter ID, ordinary parameter/result type ID, nominal failure-root ID,
+application-occurrence ID, row ID, row-variable ID, effect-label-occurrence ID,
+alias ID, substitution ID, route ID, and diagnostic ID. Names, aliases, and
+spans may explain an identity but may not replace it. Tests must construct
+same-named definitions and renamed aliases/tails that would fail under name-
+based identity.
+
+Facts are authoritative only within their proven status. Parser facts do not
+claim resolution; resolver facts do not claim typing; type facts do not claim
+ownership, authority, allocation, Core lowering, or execution. Unsupported or
+blocked facts remain visible with an honest blocker and never become a more
+complete downstream fact.
+
+The AL core identity model must survive later stored/returned callable work
+without semantic replacement. A later environment is a companion fact keyed by
+the accepted callable-value/use identity; it may add allocation, retained
+values, authority/resources, cleanup owner, and lifetime without changing the
+meaning of the callable definition, type, application, failure root, latent row,
+or source relationships accepted here. AL does not predeclare empty environment
+fields, enum variants, ABI promises, boxes, or extension hooks. Unsupported
+storage, return, or capture is represented by the closed recognition/diagnostic
+boundary and exercised H1401 fixtures, not by unused placeholder metadata.
+
+The AL runtime task handle is a private nonescaping projection from the same
+callable-value/use and resolved-definition identities. It is neither the
+canonical semantic identity nor a promise that future callable environments use
+the same physical representation. Replacing that private projection later is
+permitted; replacing the accepted semantic identity/relationship model is not.
+
+### Competing-recognizer retirement gate
+
+Before code edits, the integration map must inventory every existing call,
+expression, task-header, and type recognizer that could observe the pinned
+callable forms, including source-string helpers in resolver, Core, ownership,
+and runtime modules. For each recognizer the implementer must state exactly one
+outcome:
+
+- deleted because the canonical structured analysis supersedes it;
+- narrowed and permanently tested as disjoint from callable syntax; or
+- retained only as a projection consuming canonical facts, with no source
+  recognition authority.
+
+No old helper may remain as a fallback when canonical analysis is blocked.
+Permanent sabotage tests must make a legacy recognizer disagree with a
+canonical fact and prove every stage and runtime follow the canonical fact. The
+parser is the only source recognizer. `src/callable.rs` accepts only structured
+AST nodes plus resolver scope/definition/reference identities and must expose no
+source-text or line-string recognition entry point. The preflight must reject a
+new callable/row source scan anywhere outside `src/parser.rs`. If a recognizer
+cannot be retired or made provably disjoint within the session, stop rather
+than accept two semantic spines.
+
+### Required pre-edit integration map
+
+Before editing code in either session, the implementer must report an exact map
+from the pinned source corpus to:
+
+- syntax nodes and parser entry points in `src/ast.rs` and `src/parser.rs`;
+- lexical scopes, definitions, references, and call links in
+  `src/resolve.rs::build_report`, `Resolver::resolve_callable`, and
+  `Resolver::resolve_statement_references`;
+- canonical type references in `src/type_env.rs::build_report`;
+- declaration/return checking in `src/type_check.rs::build_report`;
+- statement and application checking in `src/full_type_check.rs::build_report`;
+- effect propagation in `src/effect_check.rs::build_report` and
+  `check_statement_effect`;
+- ownership and resource blockers in `src/ownership_check.rs::build_report` and
+  `src/resource_check.rs::build_report`;
+- Core representation in `src/core_preview.rs::build_report`,
+  `src/core_lower.rs::build_report`/`lower_expression`, and
+  `src/core_verify.rs::build_report`/`verify_operation`;
+- definition/use and row relations in `src/graph.rs`;
+- runtime preflight and `Interpreter::execute_task`, `eval_expr`, and the
+  indirect-application insertion point in `src/run.rs`; and
+- human and JSON rendering in the existing command surfaces.
+
+The map must name every new or changed structure and function, its input fact,
+its output claim, and its exact blocker. For every stage it must classify the
+stage action as exactly one or more of: consumes a canonical fact, validates an
+invariant over it, projects it into a typed downstream representation, or
+exposes an exact honest blocker. It must also include the competing-recognizer
+inventory and retirement outcome. If implementation evidence shows this map
+cannot stay shared and review-sized, stop for architecture review instead of
+adding a second analyzer or downstream string pattern.
+
+## Diagnostics and precedence
+
+H100x, H110x, and H130x remain reserved by existing diagnostic doctrine for
+unsafe/FFI/ABI/provenance, runtime-profile/certification, and concurrency/memory-
+ordering diagnostics. Work Order 8 uses the otherwise unreserved H140x family
+and introduces only two production source diagnostics:
+
+- H1401 `invalid_or_unsupported_callable_form_v0`: a canonical-looking
+  callable type/value/application is malformed or outside the authorized direct
+  passed-callable slice; and
+- H1402 `callable_signature_mismatch_v0`: resolved callable input, result, or
+  exact failure-root identity does not match the expected callable type.
+
+No production H-code is reserved for latent-row mismatch or ambiguous row
+inference in Work Order 8. The authorized AM slice has one internal tail, one
+relationship, and one application, so its structural substitution is unique.
+Ambiguity is not a producible source case and is deferred with public/recursive/
+stored/returned generalization.
+
+Missing, substituted, deduplicated, erased, prematurely closed, or foreign-tail
+row facts are deliberately corrupted in-test semantic/Core artifacts. They must
+fail Core verification with stable verifier reason IDs and relationship sites;
+they are not source diagnostics and never enter runtime preflight as H-codes.
+
+Precedence follows the real pipeline. Existing parser diagnostics own malformed
+outer headers. H1401 owns canonical callable candidates after parser
+recognition, except unresolved names remain H0601 and duplicates remain H0602.
+H1402 is emitted only after resolution, ordinary typing, and nominal failure-
+root comparison. The effect stage consumes the canonical valid or blocked fact
+and may expose the same earlier blocker; it does not wait for ownership or
+resource checking. Ownership and resource stages then consume the earlier
+status and retain H0801-H0809 ownership of their own independent causes.
+Core/lowering never upgrades a blocked fact.
+
+Unknown ordinary types remain H0605. Ordinary statement mismatches retain their
+existing full-type diagnostic. H0901-H0907 own typed-failure causes.
+H0617-H0633 and H1204 own authority causes. No post-resource collector or
+pipeline inversion is introduced.
+
+Each fundamental cause produces exactly one primary diagnostic in human and
+JSON surfaces with compatible spans, facts, and repair direction. Runtime
+preflight consumes the same collected blockers before task arguments, bodies,
+callable environments, or adapters. An unsupported callable form never falls
+through to a generic resolver/type error or runtime trap. Independent errors on
+independent statements remain independently visible; precedence must not mask
+them into one synthetic callable error.
+
+## Session AL: passed pure callable vertical slice
+
+Purpose: prove the smallest real first-class task value through one canonical
+semantic spine without effects, captures, storage, or allocation.
+
+### AL authorized language and semantics
+
+Only the exact BDFL-pinned spellings are recognized. Their semantic envelope is:
+
+- one named task declaration used as a callable value;
+- one receiving task with exactly one callable parameter;
+- the callable has exactly one ordinary, non-permission-bearing parameter and
+  one ordinary result;
+- the callable has no nominal failure root; its row-elided type is accepted in
+  AL only when analysis infers an exact closed empty latent row;
+- the caller passes the direct task name in the pinned argument position;
+- the receiver invokes that parameter exactly once with one already-typed
+  ordinary value; and
+- the real returned value is observed through existing runtime behavior.
+
+The positive fixture must be hand-authored Hum source, produce a nonconstant
+result that depends on both the supplied callable and its ordinary argument,
+and fail if the receiver ignores the callable, substitutes a direct named call,
+or returns a canned value. The fixture must run twice from fresh state with
+byte-identical stdout, stderr, exit status, callable IDs, call route, Core facts,
+and graph relations. Human/JSON reports must contain zero errors and zero
+H1401-H1402 rows; only exact pinned existing H0107/H0109 doctrine warnings are
+allowed. No filler contract may silence them.
+
+### AL module and stage scope
+
+AL may add `src/callable.rs`, the minimum AST/parser nodes selected by the BDFL
+ruling, renderer/schema fields required by existing commands, and permanent
+fixtures. The shared analyzer must be consumed by:
+
+- resolver: callable parameter/value definitions, direct task-value reference,
+  and indirect application link;
+- type environment: canonical callable type and exact ordinary component types;
+- type/full-type: exact input/result/failure-root compatibility and application
+  result type;
+- effect: an explicitly inferred closed empty latent row, never a `pure` Boolean
+  or a claim inferred from missing analysis;
+- ownership/resource: explicit `not_applicable_to_al_ordinary_value_v0` facts,
+  not ownership or allocation proof;
+- Core preview/lower/verify: a callable type/value/application node with stable
+  IDs and the inferred closed empty row, preserved without string reparsing;
+- graph: definition, value-use, passed-as-argument, parameter-bind, and
+  application edges with exact source spans;
+- runtime: one nonallocating direct task handle bound to the callable parameter
+  and one indirect dispatch through the resolved definition ID; and
+- human/JSON: the same status, IDs, row, result, reasons, spans, and repairs.
+
+The runtime representation is a nonescaping handle to an existing task
+definition, not a heap closure or first-class runtime `Result`. AL must report
+zero callable-environment allocation and no retained values/resources/authority.
+That report is slice-specific evidence, not a general allocation-free claim.
+
+The exact AL file envelope is limited to:
+
+- syntax and analysis: `src/ast.rs`, `src/parser.rs`, `src/syntax.rs`, the new
+  `src/callable.rs`, and `src/resolve.rs`;
+- existing semantic consumers: `src/type_env.rs`, `src/type_check.rs`,
+  `src/full_type_check.rs`, `src/effect_check.rs`, `src/ownership_check.rs`,
+  `src/resource_check.rs`, `src/core_expr.rs`, `src/core_preview.rs`,
+  `src/core_lower.rs`, `src/core_verify.rs`, `src/graph.rs`, and `src/run.rs`;
+- existing render/catalog wiring only as necessary: `src/diagnostic.rs`,
+  `src/diagnostic_catalog.rs`, `src/diagnostics.rs`, `src/json.rs`,
+  `src/main.rs`, and the crate module declaration;
+- existing authoritative documentation/schema files that directly describe
+  those changed surfaces: `SPEC.md`, `docs/ARCHITECTURE.md`,
+  `docs/DIAGNOSTICS.md`, `docs/FORMAL_CORE.md`,
+  `docs/LANGUAGE_REFERENCE.md`, `docs/MILESTONE_0_GRAMMAR.md`,
+  `docs/SYNTAX_SURFACE_SCHEMA.md`, the existing resolve/type/effect/ownership/
+  resource/Core/graph schema documents, and the TextMate grammar; and
+- new Session AL fixtures under `fixtures/`, one positive probe under
+  `examples/probes/`, focused Rust unit tests beside the changed modules, and
+  proportional assertions in `tools/check_all.ps1`.
+
+No README, governance, decision, research, bake-off corpus, scorecard,
+experiment, target-facts, grant, capability, Path, file, clock, output, runtime-
+profile, release, or unrelated example file belongs to AL. If a required fact
+cannot be represented inside this envelope, preserve the worktree and stop for
+architecture review.
+
+### AL positive and misuse evidence
+
+Permanent evidence must include at least:
+
+1. the nondegenerate positive described above;
+2. wrong callable input type;
+3. wrong callable result type;
+4. a fallible task supplied where the exact failure root is `none`;
+5. an unresolved task value;
+6. a non-task value in the callable argument position;
+7. an anonymous/nested/chained/returned/stored callable attempt;
+8. a callable with zero or multiple parameters;
+9. a permission-bearing callable parameter or call argument;
+10. a callable invoked zero times or more than once where the pinned slice
+    requires exactly one application;
+11. malformed and near-miss forms from the pinned syntax corpus; and
+12. a mixed fixture proving an independent body-type error is not masked;
+13. two same-named task definitions in distinct lexical scopes and a renamed
+    callable parameter proving semantic identity does not follow display names;
+14. poisoned expected result/reason data proving the implementation follows the
+    parsed/resolved relationship rather than fixture polarity;
+15. a deliberately corrupted callable/Core identity, application link, type,
+    or closed-row fact rejected by Core verification; and
+16. a legacy-recognizer sabotage proving a source-string helper cannot override
+    or rescue a blocked canonical fact.
+
+Every misuse must pin human and JSON code, message, help, primary/related spans,
+stable reason, and runtime preflight result. H1401-H1402 cases must exit before
+body execution with zero adapter calls and no generic trap. Resolver through
+Core verify and graph must either consume the shared blocked fact or state the
+same exact honest blocker.
+
+### AL bans
+
+No open row, row variable, nonempty latent label, handler, recovery, catch,
+anonymous closure, callable return, callable storage, multiple application,
+partial application, currying, generic callable type, overloading, dynamic
+dispatch, function pointer ABI, permission-bearing callable, indirect fallible
+call, implicit propagation, retained environment, allocation, capture,
+authority-bearing operation, IO, higher-order library API, production migration
+tool, new command, new pipeline gate, runtime JSON surface, or Session AM hook.
+
+### AL acceptance criteria and hard stop
+
+- The exact pinned source corpus is the only recognized slice and fails closed
+  at every boundary.
+- The positive depends on actual indirect application and produces the same
+  value and evidence twice.
+- All existing stages share one callable analysis; no consumer reparses source.
+- Every competing recognizer is deleted, provably disjoint, or a nonauthoritative
+  projection, with permanent sabotage evidence.
+- Exact ordinary types and `failure_root = none` agree from resolver through
+  runtime.
+- The accepted semantic identity model can acquire later companion environment
+  facts without changing callable/type/application/row meaning or reserving
+  speculative fields now.
+- Core and graph preserve identity and call relationships without claiming
+  captures or allocation.
+- Existing direct calls, Predicate v2, typed failures, ownership, authority,
+  app entry, Core, and runtime fixtures remain unchanged.
+- All session and standing checks pass. Stop. Session AM remains unauthorized
+  pending independent review, scoped commit, successful CI, recorded handoff,
+  and a separate BDFL go signal.
+
+## Session AM: latent open-row propagation through application
+
+Purpose: extend the accepted AL application with the smallest production form
+of decision 0018's open multiset row, while leaving handling and callable
+environments absent.
+
+### AM authorized semantics
+
+AM reuses the exact accepted AL syntax and identities. It adds no new callable
+shape. The shared analyzer may infer:
+
+- exact latent label identities from the already checked callable body;
+- a deterministic normalized multiset that preserves duplicate occurrences;
+- at most one structural tail variable for the receiving callable;
+- stable alias evidence without treating aliases as distinct effects; and
+- one structural substitution at the accepted application, propagating all
+  labels and the open tail into the caller.
+
+AM inference is intentionally local and nonrecursive. It operates only over the
+single pinned file-local callable-parameter relationship and its one application
+site. It does not generalize a recursive strongly connected component, export a
+callable-accepting signature across a file/app boundary, infer a stored or
+returned callable signature, or choose a value restriction. Those shapes fail
+at the pinned H1401 boundary rather than receiving a monomorphic default.
+
+Decision 0018's future boundary remains binding: a public, recursive, stored,
+or returned callable signature must expose a stable row variable or named alias
+under a later accepted work order. AM's local inference may not be reused as an
+implicit public-signature rule. No result from AM claims global principal
+inference, recursive generalization, effect exclusion, associated effects, or
+handler-polymorphic inference.
+
+The BDFL-pinned AM corpus must select an already accepted, non-authority-bearing
+operation or checker-visible requirement for the nonempty-row observation. It
+must not invent a new effect operation merely to test rows. If repository
+evidence cannot provide such an observation without adding authority,
+ownership, failure, handler, or IO scope, AM must stop for a bounded architecture
+ruling rather than use a synthetic production effect.
+
+Rows are type/effect evidence. AM does not execute a handler or change runtime
+behavior for the underlying operation. The runtime positive must still execute
+the accepted callable application and observe its real result; effect-check,
+Core, and graph output must separately expose the propagated row. A negative
+fixture must prove that dropping, renaming, deduplicating, closing, or replacing
+the inferred tail fails closed.
+
+### AM module and stage scope
+
+`src/callable.rs` remains the only row analyzer. AM may extend its facts and the
+existing stage schemas/renderers, but may not add a second effect-polymorphism
+engine. Required consumers are:
+
+- resolver: unchanged callable identities plus stable row-alias references;
+- type environment/type/full-type: callable row variable, substitution, and
+  application result without caller annotation in the ordinary positive;
+- effect: exact input/output rows and one application-propagation relationship;
+- ownership/resource: unchanged honest nonclaims and blockers;
+- Core preview/lower/verify: exact label multiset, tail ID, substitution, and
+  application propagation relationship;
+- graph: row-variable, label-occurrence, alias, substitution, and propagation
+  nodes/edges linked to callable definitions and the application span;
+- runtime preflight: shared H1401/H1402 source blockers before execution, with
+  no row strings interpreted by the evaluator; structurally corrupted row facts
+  exist only in verifier unit tests and are not runtime inputs; and
+- human/JSON: deterministic identical facts, reasons, spans, aliases, and repair.
+
+No stage may call an accepted row closed, pure, handled, authority-safe,
+ownership-safe, allocation-free, or principal beyond the facts it actually
+consumes. Near-principal evidence is bounded to the accepted fixture: the
+ordinary positive requires no caller-supplied row annotation and two fresh
+analyses yield alpha-equivalent then byte-identical normalized output.
+
+### AM positive, misuse, and stress evidence
+
+Permanent evidence must include:
+
+1. the accepted AL empty-row positive unchanged;
+2. one nonempty-row callable application whose real result and static row are
+   both observed;
+3. two callables with order-permuted source requirements that normalize
+   identically;
+4. renamed tail variables that normalize identically by first semantic use;
+5. duplicate labels that remain two occurrences;
+6. a nested, chained, or second indirect application producing H1401 because
+   AM retains AL's exactly-one-application boundary;
+7. in-test corrupted semantic/Core facts for a missing label, substituted
+   label, deduplicated label, erased row, prematurely closed tail, and foreign
+   tail, each rejected by Core verification with one stable verifier reason and
+   the exact relationship sites;
+8. a bounded 256-label internal analyzer stress test preserving multiset and
+   tail identity without adding a production source surface; and
+9. poisoned expected output/reason fixtures proving analysis follows callable
+    structure rather than test polarity.
+
+The evidence must also include public/cross-file, recursive, stored, and
+returned boundary misuses proving that AM refuses to silently monomorphize or
+generalize them. A same-named row variable in two lexical scopes and two
+distinct tail identities with identical display spelling must remain distinct.
+
+The stress test proves only deterministic bounded behavior, not production
+throughput, global principal inference, or an accepted row-size limit. Every
+structured fact and relationship field needs an independent mutation test.
+Missing, duplicate, contradictory, extra, reordered, or unknown identities fail
+closed. Human/JSON diagnostics contain domain language and source aliases, not
+raw substitutions or solver dumps.
+
+### AM bans
+
+No handler syntax or runtime, exact-label removal, recovery, catch, exception,
+unwind, callable storage/return, runtime environment, capture set, allocation,
+cleanup, ownership/lifetime bridge, permission-bearing callable, indirect
+authority-bearing operation, consent inference, capability grant, new IO,
+effect exclusion, Boolean formula core, capture-only effect core, associated
+effect, generic higher-order API, callback registry, retry, timeout, parallel
+execution, scheduler, migration tool, command, gate, or later-session hook.
+
+AM may change only `src/callable.rs`, the AL semantic consumers and renderers
+that must expose the additional row fact, their directly corresponding existing
+schema/doctrine files, focused fixtures/tests, and proportional
+`tools/check_all.ps1` assertions. It may not revisit AL syntax, change the
+accepted callable shape, edit governance/decisions/research/bake-off artifacts,
+or touch authority/adapter modules. Any need outside that envelope is a hard
+stop for architecture review.
+
+### AM acceptance criteria and hard stop
+
+- Exact label multisets, aliases, and the single structural tail survive
+  resolution, typing, effect checking, Core, graph, diagnostics, and runtime
+  preflight through shared facts.
+- Application propagates the complete row without loss, deduplication,
+  substitution by spelling, or authority/ownership laundering.
+- The ordinary positive has bounded near-principal inference with no caller row
+  annotation and repeat-stable output.
+- Local inference remains confined to the pinned nonrecursive relationship;
+  public, recursive, stored, and returned boundaries fail closed without a
+  temporary monomorphic or implicit-generalization rule.
+- H1401/H1402 follow parser/resolver/full-type precedence and are consumed as
+  prior blockers by effect, ownership, and resource stages. Row-corruption
+  mutations are verifier failures, not user H-codes or runtime diagnostics.
+- AL and every standing fixture remain green.
+- All session and standing checks pass. Stop. Work Order 8 ends. No handling,
+  environment, bridge, library, or later session is authorized.
+
+## Cross-stage command and evidence matrix
+
+Each session must independently run every positive and misuse fixture through:
+
+- `hum resolve` human and JSON;
+- `hum type-env` human and JSON;
+- `hum type-check` human and JSON;
+- `hum full-type-check` human and JSON;
+- `hum effect-check` human and JSON;
+- `hum ownership-check` human and JSON;
+- `hum resource-check` human and JSON;
+- `hum core-preview` human and JSON;
+- `hum core-lower` human and JSON;
+- `hum core-verify` human and JSON;
+- `hum graph` using its existing surface;
+- `hum run` for runtime behavior and preflight; and
+- `hum diagnostics`/`hum explain` human and JSON for every new H-code.
+
+The permanent preflight must assert the complete matrix, exact diagnostic
+counts, zero generic traps, zero adapter calls for blocked forms, stable IDs,
+stage agreement, Core verification, graph relationships, repeatability, and
+scope hygiene. No new report, schema identifier, command, runtime JSON surface,
+or pipeline gate is authorized; proportional fields extend only the existing
+surfaces named above.
+
+Before handoff, run:
+
+```powershell
+cargo fmt --check
+cargo test
+cargo clippy --all-targets -- -D warnings
+git diff --check
+.\tools\check_all.ps1
+```
+
+Also run every targeted fixture command explicitly rather than trusting the
+preflight summary. The reviewer must rerun them independently.
+
+## Compilation and platform coverage
+
+The implementer and reviewer must enumerate every affected production and test
+configuration: ordinary binary/library compilation, unit tests, integration
+fixtures, doctests if present, all-target Clippy, and the preflight's release and
+public-readiness paths. Any new `cfg`, feature, optional dependency, or target-
+specific branch is out of scope.
+
+The host Windows configuration must be executed locally. After a separately
+authorized push, the existing Ubuntu and Windows CI jobs must both pass before
+the session handoff can be closed. No work order may mandate an unproven cross-
+target command merely to claim coverage. If another target is not installed,
+record the gap, inspect all relevant non-host branches manually, and state why
+the platform-neutral facts remain valid. Do not download a target, alter global
+Git configuration, or add platform scaffolding to hide the gap.
+
+## Deliberate deferrals and concrete costs
+
+### Type-level handling
+
+Deferral means effect rows can describe and propagate requirements but cannot
+yet subtract one handled occurrence. This blocks typed retry/timeout wrapper
+shapes and any handler relationship in Core or graph. It avoids prematurely
+choosing source syntax or implying recovery; decision 0016 remains exact.
+
+### Returned and stored callable environments
+
+Deferral means event-handler factories, memoizing wrappers, logging middleware,
+registries, and resource-bearing returned/stored callables remain unsupported.
+No closure allocation, retained environment, cleanup owner, registration
+lifetime, or runtime callable environment exists after Work Order 8.
+
+### Capture, ownership, resource, and authority bridge
+
+Deferral means even a sound row does not authorize higher-order captured state.
+Immutable retention, moved/borrowed ownership, linear resources, exact authority
+identity, escape, transfer, and lifetime remain unsupported. Authority cannot be
+laundered through a callable, and operator consent cannot be captured or
+inferred.
+
+### Higher-order standard library
+
+No `map`, effectful map, retain/filter, fold, retry, timeout, parallel map,
+callback registry, wrapper, or middleware API is reserved or prebuilt. Their
+cost is continued lack of ergonomic higher-order programs. Adding them earlier
+would make library shape conceal missing callable environments and bridges.
 
 ### Internal references
 
-Internal references remain the next ownership repair whenever ownership work
-resumes after this mandated sequence. They are not implemented or prototyped by
-Work Order 7. Deferral keeps ownership corpus Program 5 blocked: a parser cannot
-naturally own a buffer while storing a checked view into that buffer. Parser
-state must continue using less-direct coordinates, re-presentation, copies, or
-an explicitly different owner arrangement, none of which earns Program 5
-credit.
-
-### Production effect polymorphism
-
-This order selects a model but does not ship it. Until a later accepted work
-order implements the selected semantics, Program 3's retain positive, Program
-4, closures, callbacks, tasks-as-values, higher-order stdlib, and higher-order
-contract blame remain unsupported. Experimental acceptance is no production
-language claim.
+Internal references remain the next ownership repair when ownership work
+resumes. Program 5 still cannot naturally store a checked view into a parser's
+owned buffer and receives no credit from callable rows.
 
 ### Air-gapped update validator
 
-The air-gapped update validator remains the next adoption destination, not a
-Session AF-AK deliverable. Deferral costs Hum its flagship real-tool proof and
-evidence dossier. Building it now would pre-decide or fake Bytes, directory
-input, hashing, manifests, canonical JSON IO, file writing, evidence-directory
-authority, signature/provenance policy, and sandbox claims. None may be
-prebuilt, reserved through speculative hooks, or credited in this order.
+The validator remains the next adoption destination after the required
+foundation. No Bytes, directory input, hashing, manifest, canonical JSON IO,
+file writing, evidence directory, signature/provenance, or sandbox claim may be
+prebuilt here. Deferral continues to cost the flagship real-tool proof, but
+forcing it into callable foundations would fake both IO and security evidence.
 
-### Other governance queue items
+## Independent pre-issuance review requirements
 
-Structured concurrency/shared state, generics/coherence, allocation/container
-identity, numeric modes, and Text/Bytes/Path remain in their existing governance
-order. This proposal neither authorizes nor reorders them.
+The fresh reviewer must cold-start from repository ground truth and verify:
 
-## Evidence links for independent pre-issuance review
+- clean synchronized `main` at `e7dbadb` before this documentation change;
+- Work Order 7 closure and the exact Session AK/decision/CI evidence above;
+- governance authority, one-pen discipline, independent review, and separate go
+  signals;
+- decisions 0014, 0015, 0016, 0017, and 0018 in full;
+- the complete Session AG corpus/result contract, Session AH-AJ candidates, and
+  Session AK scorecard;
+- current AST/parser/type/runtime reality, especially the absence of accepted
+  callable syntax and runtime environments;
+- the complete incorporated BDFL source corpus, lexical envelope, diagnostic-
+  ownership table, and nonempty-row ruling;
+- the shared semantic spine, diagnostic precedence, integration map, fixtures,
+  allocation/authority nonclaims, and hard stops;
+- explicit stable semantic identities rather than name/display-string identity;
+- construction from parsed/resolved nodes rather than shared line-string scans;
+- retirement or proven disjointness of every competing recognizer;
+- durability of the callable identity model when later companion environment
+  facts arrive, without speculative placeholder fields;
+- the local inference boundary and explicit deferral of public/recursive/
+  stored/returned generalization;
+- whether AL and AM are each independently review-sized; and
+- whether stopping before handlers/environments/bridges is the smallest safe
+  boundary.
 
-The fresh reviewer must verify at least:
-
-- predecessor closure and CI state from `git log`, this file's predecessor
-  commit, and the accepted Session AE ledger;
-- the exact three source programs and current H0701/runtime behavior;
-- decisions 0014, 0015, and 0017 in full;
-- `docs/bakeoff/CORPUS.md`, `docs/bakeoff/SCORECARD.md`, and the Session AE
-  portion of `docs/CORE_LANGUAGE_SHAPE.md`;
-- governance bake-off doctrine, delegated ruling, workflow continuity, and
-  session-definition-of-done rules;
-- all three named research snapshots with their provenance limitations; and
-- whether AF remains one review-sized coherent predicate repair and AG-AK each
-  remain independently review-sized without becoming documentation-only theater.
+Only `WORKORDER.md` may differ. Research recommendations must remain hypotheses.
+The reviewer must run `git diff --check` and `.\tools\check_all.ps1`, report
+P0/P1/P2 findings with exact lines, and issue exactly one pre-issuance verdict.
+The author of this document is disqualified from that verdict.
 
 ## Current authorization gate
 
-Work Order 6 remains closed at `d601054`. Work Order 7 is closed; Sessions
-AF-AK are accepted and committed. Session AK and accepted decision 0018 are
-commit `1b324fb`; decision 0018 is accepted under delegated authority, BDFL
-veto open. Ubuntu job `86613010219` passed in 1m 08s and Windows job
-`86613010224` passed in 2m 02s in workflow `29178915990`.
+Work Order 7 remains closed at `e7dbadb`. Session AK and accepted decision 0018
+remain `1b324fb`, with workflow `29178915990`, Ubuntu job `86613010219`, and
+Windows job `86613010224` successful. Work Order 8 is proposed and unissued.
 
-No production effect-polymorphism implementation is authorized. No later
-implementation session or Work Order 8 is issued. Further production work
-requires a new independently reviewed Work Order, separate BDFL acceptance,
-and separate BDFL go signals. No implementation session, decision ruling,
-commit, push, production effect work, or scope expansion is implicitly
-authorized.
-Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
+The current next action belongs only to one fresh architect-reviewer: review the
+complete final document without editing it and issue one pre-issuance verdict.
+Any later authoritative mutation requires fresh review.
+
+Session AL remains unauthorized until the ruling is incorporated, the complete
+document receives an independent `ACCEPT`, the BDFL accepts/issues that exact
+stack, and the BDFL gives a separate go signal. Session AM and every deferred
+phase remain unauthorized. No compiler/runtime implementation, decision ruling,
+commit, push, or publication is authorized by this document. Publishing remains
+a BDFL-reserved action under `docs/GOVERNANCE.md`.
