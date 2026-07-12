@@ -2,6 +2,37 @@
 
 Date: 2026-07-06
 
+## Pending Evidence-Based Refinements (2026-07-12)
+
+Two independent deep-research passes on the compiler-ready standard library
+converged on refinements to the layer plan below. They are research input,
+not accepted design; apply them through the stdlib work order (after the
+callable-spine work order), not by rewriting this doc now. See
+[research/2026-07-12-minimum-compiler-ready-stdlib-triage.md](research/2026-07-12-minimum-compiler-ready-stdlib-triage.md)
+for the full triage and sources. Summary of the refinements to weigh:
+
+- The compiler-ready dependency closure is deliberately larger than the
+  permanently stable stdlib: do not freeze interning, typed compiler IDs,
+  arenas, SCC/graph utilities, or backend helpers as stable `std` just
+  because the first compiler needs them. Use maturity states
+  bootstrap-private / foundation-experimental / stable.
+- Move `std.text` (and no-alloc UTF-8) earlier: a self-hosting compiler is
+  a text processor first.
+- Add `std.os` as its own layer (opaque path/name + target facts), mapping
+  onto the shipped native Path boundary; never treat a path as `Text`.
+- Split compiler-essential literal decoding from any generic `parse`
+  framework (generic parsing is post-self-host).
+- Add a minimal `compiler.backend` emission path (bytecode / emit-C /
+  object) to the pre-self-host line; it seeds a future backend-selection
+  decision tied to the `.exe`/`.dll` story.
+- Model three distinct error channels (operational failure, source
+  diagnostics, compiler-invariant failure) rather than one; this aligns
+  with decision 0016.
+- Prefer compact typed IDs over `Rc`/`Arc` for compiler graphs; reference
+  counting is not part of the minimum library (aligns with decision 0014).
+- Prove self-hosting as a stage-2 fixed point: semantic equivalence first,
+  byte-identical reproducibility later under a declared profile.
+
 ## Brutal Starting Point
 
 Hum should not start by writing a giant standard library in Hum.
