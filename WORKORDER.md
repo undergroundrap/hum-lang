@@ -10,10 +10,12 @@ committed as `13f3142`, with Ubuntu and Windows CI passed in workflow
 job `86591386810` and Windows job `86591386800` passed in workflow
 `29170727489`; Session AI is accepted and committed as `6639090`, with Ubuntu
 job `86606136546` passed in 1m 02s and Windows job `86606136541` passed in
-2m 00s in workflow `29176355216`; Session AJ is next but remains unauthorized
-pending a separate BDFL go signal; Session AK and all later work remain
-unauthorized; no candidate selection, decision ruling, implementation session,
-commit, push, or scope expansion is implicitly authorized
+2m 00s in workflow `29176355216`; Session AJ is accepted and committed as
+`cfa4875`, with Ubuntu job `86609314833` passed in 1m 01s and Windows job
+`86609314810` passed in 2m 08s in workflow `29177570546`; Session AK is next
+but remains unauthorized pending a separate BDFL go signal; no candidate
+selection, decision ruling, implementation session, commit, push, production
+effect work, or scope expansion is implicitly authorized
 Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
 bounded planning authorization. Independent pre-issuance reviewer: a fresh
 architect-reviewer that did not author or edit this deliverable. Future
@@ -981,9 +983,11 @@ CI passed in workflow `29160088909`. Session AG is accepted and committed as
 accepted and committed as `f342c07`; Ubuntu job `86591386810` and Windows job
 `86591386800` passed in workflow `29170727489`. Session AI is accepted and
 committed as `6639090`; Ubuntu job `86606136546` passed in 1m 02s and Windows
-job `86606136541` passed in 2m 00s in workflow `29176355216`. Session AJ is next
-but remains unauthorized pending a separate BDFL go signal. Session AK and
-every later session are unauthorized. No candidate selection, decision ruling,
-implementation session, commit, push, or scope expansion is implicitly
+job `86606136541` passed in 2m 00s in workflow `29176355216`. Session AJ is
+accepted and committed as `cfa4875`; Ubuntu job `86609314833` passed in
+1m 01s and Windows job `86609314810` passed in 2m 08s in workflow
+`29177570546`. Session AK is next but remains unauthorized pending a separate
+BDFL go signal. No candidate selection, decision ruling, implementation
+session, commit, push, production effect work, or scope expansion is implicitly
 authorized.
 Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
