@@ -8,10 +8,12 @@ and Windows CI passed in workflow `29160088909`; Session AG is accepted and
 committed as `13f3142`, with Ubuntu and Windows CI passed in workflow
 `29168356268`; Session AH is accepted and committed as `f342c07`, with Ubuntu
 job `86591386810` and Windows job `86591386800` passed in workflow
-`29170727489`; Session AI is next but remains unauthorized pending a separate
-BDFL go signal; Sessions AJ-AK and all later work remain unauthorized; no
-candidate selection, decision ruling, implementation session, commit, push, or
-scope expansion is implicitly authorized
+`29170727489`; Session AI is accepted and committed as `6639090`, with Ubuntu
+job `86606136546` passed in 1m 02s and Windows job `86606136541` passed in
+2m 00s in workflow `29176355216`; Session AJ is next but remains unauthorized
+pending a separate BDFL go signal; Session AK and all later work remain
+unauthorized; no candidate selection, decision ruling, implementation session,
+commit, push, or scope expansion is implicitly authorized
 Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
 bounded planning authorization. Independent pre-issuance reviewer: a fresh
 architect-reviewer that did not author or edit this deliverable. Future
@@ -977,9 +979,11 @@ implementation was accepted and committed as `7991ef6`, and Ubuntu and Windows
 CI passed in workflow `29160088909`. Session AG is accepted and committed as
 `13f3142`; Ubuntu and Windows CI passed in workflow `29168356268`. Session AH is
 accepted and committed as `f342c07`; Ubuntu job `86591386810` and Windows job
-`86591386800` passed in workflow `29170727489`. Session AI is next but remains
-unauthorized pending a separate BDFL go signal. Sessions AJ-AK and every later
-session are unauthorized. No candidate selection, decision ruling,
+`86591386800` passed in workflow `29170727489`. Session AI is accepted and
+committed as `6639090`; Ubuntu job `86606136546` passed in 1m 02s and Windows
+job `86606136541` passed in 2m 00s in workflow `29176355216`. Session AJ is next
+but remains unauthorized pending a separate BDFL go signal. Session AK and
+every later session are unauthorized. No candidate selection, decision ruling,
 implementation session, commit, push, or scope expansion is implicitly
 authorized.
 Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
