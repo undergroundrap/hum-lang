@@ -1,4 +1,5 @@
 use crate::ast::{Item, Param, Program, Section, Task};
+use crate::callable;
 use crate::core_body::{self, BodyGrammarReport, BodyStatement};
 use crate::core_contract;
 use crate::core_expr::{self, CoreExpressionPreview};
@@ -295,7 +296,8 @@ pub(crate) fn build_core_lower_report(
     let errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
-        .count();
+        .count()
+        + callable::stage_blockers(program, "core_lower");
     let warnings = diagnostics.len().saturating_sub(errors);
     let mut core_items = Vec::new();
     for file in &program.files {

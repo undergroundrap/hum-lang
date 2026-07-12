@@ -406,3 +406,9 @@ The graph should eventually expose stable links for source-map provenance,
 visualizers, debug probe sites, generated checks, contract/effect/profile ids,
 and optimized-code explanations. Until verified Core Hum and Hum IR lowering exist, these
 remain reserved future links.
+
+## Session AL Callable Edges
+
+The existing graph JSON embeds callable `definition`, `value_use`,
+`passed_as_argument`, `parameter_bind`, and `application` edges. Every edge is
+joined by stable resolver/callable IDs and carries its exact source span.

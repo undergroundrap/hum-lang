@@ -1,0 +1,11 @@
+module fixtures.callable.session_al_unrelated_unknown_type_pass
+
+task invalid_unreachable(value: MissingType) -> UInt {
+  does:
+    return 1
+}
+
+task healthy -> UInt {
+  does:
+    return 7
+}

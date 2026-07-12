@@ -1,0 +1,11 @@
+module fixtures.callable.cross_file.caller
+
+task increment(value: UInt) -> UInt {
+  does:
+    return value + 1
+}
+
+task run(value: UInt) -> UInt {
+  does:
+    return apply_once(increment, value)
+}

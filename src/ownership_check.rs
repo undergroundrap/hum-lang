@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast::{Item, ParamPermission, Program, Section};
+use crate::callable;
 use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
@@ -78,6 +79,7 @@ struct OwnershipCheckReport {
     files: usize,
     item_count: usize,
     source_errors: usize,
+    callable_blockers: usize,
 }
 
 struct OwnershipItem {
@@ -473,6 +475,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> OwnershipCheck
         files: program.files.len(),
         item_count: count_items(program),
         source_errors,
+        callable_blockers: callable::stage_blockers(program, "ownership_check"),
     }
 }
 
@@ -2655,6 +2658,8 @@ impl OwnershipCheckReport {
             "blocked_by_full_type_check_errors"
         } else if self.effect_check_errors() > 0 {
             "blocked_by_effect_check_errors"
+        } else if self.callable_blockers > 0 {
+            "blocked_by_callable_errors_v0"
         } else if self.rejected_statements() > 0
             || self.rejected_return_dependencies() > 0
             || self.rejected_boundary_checks() > 0

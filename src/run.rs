@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::app_entry;
 use crate::ast::{App, Item, ParamPermission, Program, SectionLine, Task};
+use crate::callable::{self, CallableAnalysis};
 use crate::capability_root::{self, FilePolicyFact, OutputPolicyFact, ReplayPolicyFact};
 use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
@@ -20,6 +21,7 @@ use crate::native_path::{ValidatedNativePath, validate_native_path};
 use crate::operator_grant::{GrantDecision, OperatorGrantPolicy};
 use crate::predicate::{self, Arithmetic, Comparison, Expr, PredicateAst, RecognitionStatus};
 use crate::return_dependency;
+use crate::type_check;
 use crate::typed_failure::{self, FailureCatalog, FailureVariant};
 use crate::writable_field_alias::{self, AliasAnalysis, AliasBinding, AliasIssueKind};
 
@@ -154,6 +156,7 @@ enum Value {
     List(Vec<Value>),
     Variant(String),
     Path(ValidatedNativePath),
+    Callable { target_definition_id: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,6 +196,7 @@ enum RuntimePermission {
 #[derive(Debug, Clone)]
 struct RuntimeBinding {
     value: Value,
+    definition_id: Option<String>,
     permission: RuntimePermission,
     writable: bool,
     moved_at: Option<Span>,
@@ -229,9 +233,10 @@ struct RuntimeView {
 }
 
 impl RuntimeBinding {
-    fn parameter(value: Value, permission: ParamPermission) -> Self {
+    fn parameter(value: Value, permission: ParamPermission, definition_id: Option<String>) -> Self {
         Self {
             value,
+            definition_id,
             permission: RuntimePermission::from(permission),
             writable: permission != ParamPermission::Borrow,
             moved_at: None,
@@ -245,6 +250,7 @@ impl RuntimeBinding {
     fn local(value: Value, linear: bool) -> Self {
         Self {
             value,
+            definition_id: None,
             permission: RuntimePermission::Local,
             writable: false,
             moved_at: None,
@@ -258,6 +264,7 @@ impl RuntimeBinding {
     fn mutable_local(value: Value, linear: bool) -> Self {
         Self {
             value,
+            definition_id: None,
             permission: RuntimePermission::Local,
             writable: true,
             moved_at: None,
@@ -271,6 +278,7 @@ impl RuntimeBinding {
     fn writable_alias(source_place: String) -> Self {
         Self {
             value: Value::Unit,
+            definition_id: None,
             permission: RuntimePermission::Local,
             writable: true,
             moved_at: None,
@@ -284,6 +292,7 @@ impl RuntimeBinding {
     fn view(value: Value, kind: RuntimeViewKind, source_place: String, bound_at: Span) -> Self {
         Self {
             value,
+            definition_id: None,
             permission: RuntimePermission::Local,
             writable: false,
             moved_at: None,
@@ -483,8 +492,10 @@ pub(crate) fn run_program_with_file_adapters(
     let replay_policies = replay_policy_map(capability_root::replay_policy_facts(program));
     let file_policies = file_policy_map(capability_root::file_policy_facts(program));
     let predicate_analysis = predicate::analyze_program(program);
+    let callable_analysis = callable::analyze_program(program);
     let interpreter = Interpreter {
         program,
+        callable_analysis,
         predicate_analysis,
         failure_catalog: FailureCatalog::from_program(program),
         diagnostics: RefCell::new(Vec::new()),
@@ -509,7 +520,9 @@ pub(crate) fn run_program_with_file_adapters(
         file_call_cursors: RefCell::new(BTreeMap::new()),
         output_task_call_cursors: RefCell::new(BTreeMap::new()),
         active_task_route: RefCell::new(Vec::new()),
+        active_task_definition_ids: RefCell::new(Vec::new()),
         active_call_route: RefCell::new(Vec::new()),
+        active_callable_applications: RefCell::new(Vec::new()),
         authority_events: RefCell::new(Vec::new()),
     };
     let outcome = match interpreter.run(entry, raw_args) {
@@ -524,7 +537,15 @@ pub(crate) fn run_program_with_file_adapters(
         Ok((TaskResult::Failed(value), false)) => RunOutcome::Failure(value.render()),
         Ok((TaskResult::Failed(value), true)) => RunOutcome::AppFailure(value.render()),
         Ok((TaskResult::ContractViolation, _)) => RunOutcome::ContractViolation,
-        Err(message) if message.starts_with("H0704:") => RunOutcome::PreflightRejected,
+        Err(message)
+            if message.starts_with("H0704:")
+                || message.starts_with("H1401:")
+                || message.starts_with("H1402:")
+                || message.starts_with("H0605:")
+                || message.starts_with("H0601:") =>
+        {
+            RunOutcome::PreflightRejected
+        }
         Err(message) => RunOutcome::Trap(message),
     };
     let diagnostics = interpreter.diagnostics.into_inner();
@@ -762,6 +783,7 @@ fn file_audit_event(
 
 struct Interpreter<'program, 'output> {
     program: &'program Program,
+    callable_analysis: Arc<CallableAnalysis>,
     predicate_analysis: Arc<predicate::PredicateAnalysis>,
     failure_catalog: FailureCatalog,
     diagnostics: RefCell<Vec<Diagnostic>>,
@@ -780,7 +802,9 @@ struct Interpreter<'program, 'output> {
     file_call_cursors: RefCell<BTreeMap<(String, usize, String), usize>>,
     output_task_call_cursors: RefCell<BTreeMap<(String, usize, String, String), usize>>,
     active_task_route: RefCell<Vec<String>>,
+    active_task_definition_ids: RefCell<Vec<String>>,
     active_call_route: RefCell<Vec<Span>>,
+    active_callable_applications: RefCell<Vec<String>>,
     authority_events: RefCell<Vec<AuthorityAuditEvent>>,
 }
 
@@ -803,10 +827,91 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         raw_args: &[OsString],
     ) -> Result<(TaskResult, bool), String> {
         let (task, app_mode) = self.entry_task(entry)?;
+        let reachable_tasks = self.reachable_type_tasks(task);
+        let unknown_type_diagnostics =
+            type_check::unknown_type_diagnostics_for_tasks(self.program, &[], &reachable_tasks);
+        if let Some(first) = unknown_type_diagnostics.first() {
+            let code = first.code.as_str();
+            self.diagnostics
+                .borrow_mut()
+                .extend(unknown_type_diagnostics);
+            return Err(format!("{code}: type preflight rejected"));
+        }
+        let callable_diagnostics = callable::diagnostics(self.program, &[]);
+        if let Some(first) = callable_diagnostics.first() {
+            let code = first.code.as_str();
+            self.diagnostics.borrow_mut().extend(callable_diagnostics);
+            return Err(format!("{code}: callable preflight rejected"));
+        }
         self.preflight_reachable_predicates(task)?;
         let args = self.parse_args(task, raw_args, app_mode)?;
         self.execute_task(task, args)
             .map(|result| (result, app_mode))
+    }
+
+    fn reachable_type_tasks(&self, entry: &'program Task) -> Vec<&'program Task> {
+        let mut pending = vec![entry];
+        let mut visited = BTreeSet::new();
+        let mut reachable = Vec::new();
+        while let Some(task) = pending.pop() {
+            let identity = (task.span.file.clone(), task.span.line, task.span.column);
+            if !visited.insert(identity) {
+                continue;
+            }
+            reachable.push(task);
+            for target_definition_id in self
+                .callable_analysis
+                .callable_argument_target_definition_ids(task)
+            {
+                if let Some(target) = self.task_by_definition_id(target_definition_id) {
+                    pending.push(target);
+                }
+            }
+            let Some(does) = task.section("does") else {
+                continue;
+            };
+            let body = core_body::analyze_does_section(does);
+            for statement in &body.statements {
+                let mut resolver_owned_callable_occurrence = false;
+                if let Some(application) = self
+                    .callable_analysis
+                    .direct_application(task, &statement.span)
+                {
+                    resolver_owned_callable_occurrence = true;
+                    if let Some(receiver) =
+                        self.task_by_definition_id(&application.receiver_definition_id)
+                    {
+                        pending.push(receiver);
+                    }
+                    if let Some(target) =
+                        self.task_by_definition_id(&application.target_definition_id)
+                    {
+                        pending.push(target);
+                    }
+                }
+                for receiver_definition_id in self
+                    .callable_analysis
+                    .callable_callee_target_definition_ids(task, &statement.span)
+                {
+                    resolver_owned_callable_occurrence = true;
+                    if let Some(receiver) = self.task_by_definition_id(receiver_definition_id) {
+                        pending.push(receiver);
+                    }
+                }
+                if resolver_owned_callable_occurrence {
+                    continue;
+                }
+                let Some(expression) = typed_failure::statement_expression(statement) else {
+                    continue;
+                };
+                for call in typed_failure::calls_in_expression(expression) {
+                    if let Some(callee) = self.find_task(&call.callee) {
+                        pending.push(callee);
+                    }
+                }
+            }
+        }
+        reachable
     }
 
     fn entry_task(&self, entry: Option<&str>) -> Result<(&'program Task, bool), String> {
@@ -886,10 +991,34 @@ impl<'program, 'output> Interpreter<'program, 'output> {
 
     fn execute_task(&self, task: &Task, args: Vec<Value>) -> Result<TaskResult, String> {
         self.active_task_route.borrow_mut().push(task.name.clone());
+        let definition_id = self
+            .callable_analysis
+            .definition_id_for_task(task)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("runtime-task:{}:{}", task.name, task.span.line));
+        self.active_task_definition_ids
+            .borrow_mut()
+            .push(definition_id);
         let result = self.execute_task_body(task, args);
+        self.active_task_definition_ids.borrow_mut().pop();
         let popped = self.active_task_route.borrow_mut().pop();
         debug_assert_eq!(popped.as_deref(), Some(task.name.as_str()));
         result
+    }
+
+    fn current_task(&self) -> Option<&'program Task> {
+        let id = self.active_task_definition_ids.borrow().last()?.clone();
+        self.task_by_definition_id(&id)
+    }
+
+    fn task_by_definition_id(&self, definition_id: &str) -> Option<&'program Task> {
+        let mut tasks = Vec::new();
+        for file in &self.program.files {
+            collect_tasks(&file.items, &mut tasks);
+        }
+        tasks
+            .into_iter()
+            .find(|task| self.callable_analysis.definition_id_for_task(task) == Some(definition_id))
     }
 
     fn execute_task_body(&self, task: &Task, args: Vec<Value>) -> Result<TaskResult, String> {
@@ -921,9 +1050,13 @@ impl<'program, 'output> Interpreter<'program, 'output> {
 
         let mut env = Env::new();
         for (param, value) in task.params.iter().zip(args) {
+            let definition_id = self
+                .callable_analysis
+                .definition_id_for_span(&param.span)
+                .map(str::to_string);
             env.insert(
                 param.name.clone(),
-                RuntimeBinding::parameter(value, param.permission),
+                RuntimeBinding::parameter(value, param.permission, definition_id),
             );
         }
 
@@ -1765,6 +1898,79 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 }
             }
             return Ok(Evaluated::Value(Value::Record(fields)));
+        }
+        let active_callable_application =
+            self.active_callable_applications.borrow().last().cloned();
+        if let Some(current_task) = self.current_task()
+            && let Some(application_id) = active_callable_application.as_deref()
+            && let Some(application) = self.callable_analysis.indirect_application_with_id(
+                current_task,
+                span,
+                application_id,
+            )
+        {
+            let target_definition_id = match self
+                .binding_by_definition_id(env, &application.callable_parameter_definition_id)
+                .map(|binding| &binding.value)
+            {
+                Some(Value::Callable {
+                    target_definition_id,
+                }) if target_definition_id == &application.target_definition_id => {
+                    target_definition_id.clone()
+                }
+                _ => {
+                    return Err(
+                        "runtime callable identity disagrees with checked application fact"
+                            .to_string(),
+                    );
+                }
+            };
+            let value = self.read_value_by_definition_id(
+                env,
+                &application.ordinary_parameter_definition_id,
+                span,
+                task_name,
+            )?;
+            let target = self
+                .task_by_definition_id(&target_definition_id)
+                .ok_or_else(|| "checked callable target definition is unavailable".to_string())?;
+            return match self.execute_task(target, vec![value])? {
+                TaskResult::Returned(value) => Ok(Evaluated::Value(value)),
+                TaskResult::Failed(value) => Ok(Evaluated::Failure(value)),
+                TaskResult::ContractViolation => Ok(Evaluated::ContractViolation),
+            };
+        }
+        if let Some(current_task) = self.current_task()
+            && let Some(application) = self
+                .callable_analysis
+                .direct_application(current_task, span)
+        {
+            let value = match &application.ordinary_argument {
+                callable::OrdinaryArgumentFact::UIntLiteral(value) => {
+                    Value::Int(i64::try_from(*value).map_err(|_| {
+                        "checked UInt callable argument exceeds runtime Int".to_string()
+                    })?)
+                }
+                callable::OrdinaryArgumentFact::Definition { definition_id, .. } => {
+                    self.read_value_by_definition_id(env, definition_id, span, task_name)?
+                }
+            };
+            let receiver = self
+                .task_by_definition_id(&application.receiver_definition_id)
+                .ok_or_else(|| "checked callable receiver definition is unavailable".to_string())?;
+            let callable = Value::Callable {
+                target_definition_id: application.target_definition_id.clone(),
+            };
+            self.active_callable_applications
+                .borrow_mut()
+                .push(application.id.clone());
+            let result = self.execute_task(receiver, vec![callable, value]);
+            self.active_callable_applications.borrow_mut().pop();
+            return match result? {
+                TaskResult::Returned(value) => Ok(Evaluated::Value(value)),
+                TaskResult::Failed(value) => Ok(Evaluated::Failure(value)),
+                TaskResult::ContractViolation => Ok(Evaluated::ContractViolation),
+            };
         }
         if let Some((callee, args)) = split_call(text) {
             let callee = callee.trim();
@@ -2790,6 +2996,29 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         Ok(binding.value.clone())
     }
 
+    fn binding_by_definition_id<'env>(
+        &self,
+        env: &'env Env,
+        definition_id: &str,
+    ) -> Option<&'env RuntimeBinding> {
+        env.values()
+            .find(|binding| binding.definition_id.as_deref() == Some(definition_id))
+    }
+
+    fn read_value_by_definition_id(
+        &self,
+        env: &Env,
+        definition_id: &str,
+        span: &Span,
+        task_name: &str,
+    ) -> Result<Value, String> {
+        let (name, _binding) = env
+            .iter()
+            .find(|(_name, binding)| binding.definition_id.as_deref() == Some(definition_id))
+            .ok_or_else(|| "checked runtime binding definition is unavailable".to_string())?;
+        self.read_value(env, name, span, task_name)
+    }
+
     fn read_direct_field_value(
         &self,
         env: &Env,
@@ -3402,6 +3631,9 @@ fn display_value(value: &Value) -> Result<String, String> {
         Value::Text(value) => Ok(value.clone()),
         Value::Variant(value) => Ok(value.clone()),
         Value::Path(_) => Err("opaque Path values have no display surface".to_string()),
+        Value::Callable { .. } => {
+            Err("runtime callable handles have no display surface".to_string())
+        }
         Value::List(values) => {
             let body = values
                 .iter()
@@ -3431,6 +3663,7 @@ fn value_kind(value: &Value) -> &'static str {
         Value::List(_) => "list",
         Value::Variant(_) => "variant",
         Value::Path(_) => "opaque Path",
+        Value::Callable { .. } => "runtime callable handle",
     }
 }
 
@@ -5756,6 +5989,98 @@ task unchecked_divide(a: Int, b: Int) -> Int {
             DiagnosticCode::INVALID_EXECUTABLE_PREDICATE
         );
         assert!(report.diagnostics[0].render().contains("result = 1"));
+    }
+
+    #[test]
+    fn passed_callable_runtime_depends_on_callable_identity_and_ordinary_value() {
+        let program = fixture_program(
+            "passed_callable_runtime.hum",
+            r#"task increment(value: UInt) -> UInt {
+  does:
+    return value + 1
+}
+
+task double(value: UInt) -> UInt {
+  does:
+    return value * 2
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task increment_41 -> UInt {
+  does:
+    return apply_once(increment, 41)
+}
+
+task increment_40 -> UInt {
+  does:
+    return apply_once(increment, 40)
+}
+
+task double_41 -> UInt {
+  does:
+    return apply_once(double, 41)
+}
+"#,
+        );
+        assert_eq!(
+            run_program(&program, Some("increment_41"), &[]).outcome,
+            RunOutcome::Success("42".to_string())
+        );
+        assert_eq!(
+            run_program(&program, Some("increment_40"), &[]).outcome,
+            RunOutcome::Success("41".to_string())
+        );
+        assert_eq!(
+            run_program(&program, Some("double_41"), &[]).outcome,
+            RunOutcome::Success("82".to_string())
+        );
+    }
+
+    #[test]
+    fn callable_preflight_rejects_before_output_adapter() {
+        let program = fixture_program(
+            "fixtures/callable/session_al_wrong_input_fail.hum",
+            include_str!("../fixtures/callable/session_al_wrong_input_fail.hum"),
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(
+            &program,
+            Some("run"),
+            &[],
+            &OperatorGrantPolicy::default(),
+            &mut output,
+        );
+        assert_eq!(report.outcome, RunOutcome::PreflightRejected);
+        assert_eq!(output.calls, 0);
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::CALLABLE_SIGNATURE_MISMATCH
+        );
+
+        let escaped = fixture_program(
+            "fixtures/callable/session_al_nested_callable_escape_fail.hum",
+            include_str!("../fixtures/callable/session_al_nested_callable_escape_fail.hum"),
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(
+            &escaped,
+            Some("apply_once"),
+            &[],
+            &OperatorGrantPolicy::default(),
+            &mut output,
+        );
+        assert_eq!(report.outcome, RunOutcome::PreflightRejected);
+        assert_eq!(output.calls, 0);
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::INVALID_CALLABLE_FORM
+        );
     }
 
     fn fixture_program(path: &str, source: &str) -> Program {

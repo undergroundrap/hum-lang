@@ -1,0 +1,4 @@
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value
+}

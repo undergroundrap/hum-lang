@@ -3,6 +3,7 @@
 mod app_entry;
 mod ast;
 mod backend_contract;
+mod callable;
 mod capabilities;
 mod capability_root;
 mod check;
@@ -194,6 +195,13 @@ fn run() -> Result<ExitCode, String> {
     {
         diagnostics.extend(path_boundary::diagnostics(&program));
     }
+    if options.command == "check"
+        && !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        diagnostics.extend(callable::diagnostics(&program, &diagnostics));
+    }
     if options.command == "run" {
         diagnostics.retain(|diagnostic| {
             !app_entry::is_app_entry_diagnostic(diagnostic)
@@ -224,6 +232,10 @@ fn run() -> Result<ExitCode, String> {
     let has_errors = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
+    let callable_stage = options.command.replace('-', "_");
+    let has_callable_errors =
+        options.command != "run" && callable::stage_blockers(&program, &callable_stage) > 0;
+    let has_stage_type_errors = !stage_type_diagnostics(&program, &callable_stage).is_empty();
     let app_mode = options.command == "run"
         && options.run_entry.is_none()
         && !has_errors
@@ -346,15 +358,24 @@ fn run() -> Result<ExitCode, String> {
             Ok(code)
         }
         "graph" => {
-            println!("{}", json::program_to_json(&program, &diagnostics));
+            println!(
+                "{}",
+                callable_json_report(
+                    json::program_to_json(&program, &diagnostics),
+                    &program,
+                    "graph"
+                )
+            );
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors || has_callable_errors || has_stage_type_errors {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "evidence" => {
             if options.evidence_format == EvidenceFormat::Human {
@@ -407,11 +428,13 @@ fn run() -> Result<ExitCode, String> {
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors || has_callable_errors || has_stage_type_errors {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "resource-report" => {
             if options.resource_report_format == ResourceReportFormat::Human {
@@ -430,11 +453,13 @@ fn run() -> Result<ExitCode, String> {
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors || has_callable_errors || has_stage_type_errors {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "core-preview" => {
             if options.core_preview_format == CorePreviewFormat::Human {
@@ -444,24 +469,34 @@ fn run() -> Result<ExitCode, String> {
                 CorePreviewFormat::Human => {
                     print!(
                         "{}",
-                        core_preview::core_preview_text(&program, &diagnostics)
+                        callable_text_report(
+                            core_preview::core_preview_text(&program, &diagnostics),
+                            &program,
+                            "core_preview"
+                        )
                     )
                 }
                 CorePreviewFormat::Json => {
                     print!(
                         "{}",
-                        core_preview::core_preview_json(&program, &diagnostics)
+                        callable_json_report(
+                            core_preview::core_preview_json(&program, &diagnostics),
+                            &program,
+                            "core_preview"
+                        )
                     )
                 }
             }
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors || has_callable_errors || has_stage_type_errors {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "core-lower" => {
             if options.core_lower_format == CoreLowerFormat::Human {
@@ -469,43 +504,80 @@ fn run() -> Result<ExitCode, String> {
             }
             match options.core_lower_format {
                 CoreLowerFormat::Human => {
-                    print!("{}", core_lower::core_lower_text(&program, &diagnostics))
+                    print!(
+                        "{}",
+                        callable_text_report(
+                            core_lower::core_lower_text(&program, &diagnostics),
+                            &program,
+                            "core_lower"
+                        )
+                    )
                 }
                 CoreLowerFormat::Json => {
-                    print!("{}", core_lower::core_lower_json(&program, &diagnostics))
+                    print!(
+                        "{}",
+                        callable_json_report(
+                            core_lower::core_lower_json(&program, &diagnostics),
+                            &program,
+                            "core_lower"
+                        )
+                    )
                 }
             }
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors || has_callable_errors || has_stage_type_errors {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "core-verify" => {
             if options.core_verify_format == CoreVerifyFormat::Human {
                 print_diagnostics(&diagnostics);
             }
             let has_core_verify_errors =
-                core_verify::core_verify_has_errors(&program, &diagnostics);
+                core_verify::core_verify_has_errors(&program, &diagnostics)
+                    || !callable::analyze_program(&program).verify().is_empty();
             match options.core_verify_format {
                 CoreVerifyFormat::Human => {
-                    print!("{}", core_verify::core_verify_text(&program, &diagnostics))
+                    print!(
+                        "{}",
+                        callable_text_report(
+                            core_verify::core_verify_text(&program, &diagnostics),
+                            &program,
+                            "core_verify"
+                        )
+                    )
                 }
                 CoreVerifyFormat::Json => {
-                    print!("{}", core_verify::core_verify_json(&program, &diagnostics))
+                    print!(
+                        "{}",
+                        callable_json_report(
+                            core_verify::core_verify_json(&program, &diagnostics),
+                            &program,
+                            "core_verify"
+                        )
+                    )
                 }
             }
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors || has_core_verify_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors
+                    || has_callable_errors
+                    || has_stage_type_errors
+                    || has_core_verify_errors
+                {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "resolve" => {
             if options.resolve_format == ResolveFormat::Human {
@@ -514,20 +586,36 @@ fn run() -> Result<ExitCode, String> {
             let has_resolver_errors = resolve::resolve_has_errors(&program, &diagnostics);
             match options.resolve_format {
                 ResolveFormat::Human => {
-                    print!("{}", resolve::resolve_text(&program, &diagnostics))
+                    print!(
+                        "{}",
+                        callable_text_report(
+                            resolve::resolve_text(&program, &diagnostics),
+                            &program,
+                            "resolve"
+                        )
+                    )
                 }
                 ResolveFormat::Json => {
-                    print!("{}", resolve::resolve_json(&program, &diagnostics))
+                    print!(
+                        "{}",
+                        callable_json_report(
+                            resolve::resolve_json(&program, &diagnostics),
+                            &program,
+                            "resolve"
+                        )
+                    )
                 }
             }
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors || has_resolver_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors || has_callable_errors || has_resolver_errors {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "type-env" => {
             if options.type_env_format == TypeEnvFormat::Human {
@@ -536,20 +624,36 @@ fn run() -> Result<ExitCode, String> {
             let has_type_env_errors = type_env::type_env_has_errors(&program, &diagnostics);
             match options.type_env_format {
                 TypeEnvFormat::Human => {
-                    print!("{}", type_env::type_env_text(&program, &diagnostics))
+                    print!(
+                        "{}",
+                        callable_text_report(
+                            type_env::type_env_text(&program, &diagnostics),
+                            &program,
+                            "type_env"
+                        )
+                    )
                 }
                 TypeEnvFormat::Json => {
-                    print!("{}", type_env::type_env_json(&program, &diagnostics))
+                    print!(
+                        "{}",
+                        callable_json_report(
+                            type_env::type_env_json(&program, &diagnostics),
+                            &program,
+                            "type_env"
+                        )
+                    )
                 }
             }
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors || has_type_env_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors || has_callable_errors || has_type_env_errors {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "type-check" => {
             if options.type_check_format == TypeCheckFormat::Human {
@@ -558,20 +662,36 @@ fn run() -> Result<ExitCode, String> {
             let has_type_check_errors = type_check::type_check_has_errors(&program, &diagnostics);
             match options.type_check_format {
                 TypeCheckFormat::Human => {
-                    print!("{}", type_check::type_check_text(&program, &diagnostics))
+                    print!(
+                        "{}",
+                        callable_text_report(
+                            type_check::type_check_text(&program, &diagnostics),
+                            &program,
+                            "type_check"
+                        )
+                    )
                 }
                 TypeCheckFormat::Json => {
-                    print!("{}", type_check::type_check_json(&program, &diagnostics))
+                    print!(
+                        "{}",
+                        callable_json_report(
+                            type_check::type_check_json(&program, &diagnostics),
+                            &program,
+                            "type_check"
+                        )
+                    )
                 }
             }
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors || has_type_check_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors || has_callable_errors || has_type_check_errors {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "full-type-check" => {
             if options.type_check_format == TypeCheckFormat::Human {
@@ -582,21 +702,31 @@ fn run() -> Result<ExitCode, String> {
             match options.type_check_format {
                 TypeCheckFormat::Human => print!(
                     "{}",
-                    full_type_check::full_type_check_text(&program, &diagnostics)
+                    callable_text_report(
+                        full_type_check::full_type_check_text(&program, &diagnostics),
+                        &program,
+                        "full_type_check"
+                    )
                 ),
                 TypeCheckFormat::Json => print!(
                     "{}",
-                    full_type_check::full_type_check_json(&program, &diagnostics)
+                    callable_json_report(
+                        full_type_check::full_type_check_json(&program, &diagnostics),
+                        &program,
+                        "full_type_check"
+                    )
                 ),
             }
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors || has_full_type_check_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors || has_callable_errors || has_full_type_check_errors {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "effect-check" => {
             if options.type_check_format == TypeCheckFormat::Human {
@@ -608,24 +738,34 @@ fn run() -> Result<ExitCode, String> {
                 TypeCheckFormat::Human => {
                     print!(
                         "{}",
-                        effect_check::effect_check_text(&program, &diagnostics)
+                        callable_text_report(
+                            effect_check::effect_check_text(&program, &diagnostics),
+                            &program,
+                            "effect_check"
+                        )
                     )
                 }
                 TypeCheckFormat::Json => {
                     print!(
                         "{}",
-                        effect_check::effect_check_json(&program, &diagnostics)
+                        callable_json_report(
+                            effect_check::effect_check_json(&program, &diagnostics),
+                            &program,
+                            "effect_check"
+                        )
                     )
                 }
             }
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors || has_effect_check_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors || has_callable_errors || has_effect_check_errors {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "ownership-check" => {
             if options.type_check_format == TypeCheckFormat::Human {
@@ -637,24 +777,34 @@ fn run() -> Result<ExitCode, String> {
                 TypeCheckFormat::Human => {
                     print!(
                         "{}",
-                        ownership_check::ownership_check_text(&program, &diagnostics)
+                        callable_text_report(
+                            ownership_check::ownership_check_text(&program, &diagnostics),
+                            &program,
+                            "ownership_check"
+                        )
                     )
                 }
                 TypeCheckFormat::Json => {
                     print!(
                         "{}",
-                        ownership_check::ownership_check_json(&program, &diagnostics)
+                        callable_json_report(
+                            ownership_check::ownership_check_json(&program, &diagnostics),
+                            &program,
+                            "ownership_check"
+                        )
                     )
                 }
             }
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors || has_ownership_check_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors || has_callable_errors || has_ownership_check_errors {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "resource-check" => {
             if options.type_check_format == TypeCheckFormat::Human {
@@ -666,24 +816,34 @@ fn run() -> Result<ExitCode, String> {
                 TypeCheckFormat::Human => {
                     print!(
                         "{}",
-                        resource_check::resource_check_text(&program, &diagnostics)
+                        callable_text_report(
+                            resource_check::resource_check_text(&program, &diagnostics),
+                            &program,
+                            "resource_check"
+                        )
                     )
                 }
                 TypeCheckFormat::Json => {
                     print!(
                         "{}",
-                        resource_check::resource_check_json(&program, &diagnostics)
+                        callable_json_report(
+                            resource_check::resource_check_json(&program, &diagnostics),
+                            &program,
+                            "resource_check"
+                        )
                     )
                 }
             }
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors || has_resource_check_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(
+                if has_errors || has_callable_errors || has_resource_check_errors {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                },
+            )
         }
         "profile-check" => {
             if options.type_check_format == TypeCheckFormat::Human {
@@ -2460,6 +2620,40 @@ fn collect_hum_files(path: &Path, inputs: &mut Vec<PathBuf>) -> Result<(), Strin
 fn print_diagnostics(diagnostics: &[Diagnostic]) {
     for diagnostic in diagnostics {
         eprintln!("{}", diagnostic.render());
+    }
+}
+
+fn callable_text_report(mut report: String, program: &Program, stage: &str) -> String {
+    for diagnostic in stage_type_diagnostics(program, stage) {
+        report.push_str(&diagnostic.render());
+        report.push('\n');
+    }
+    callable::append_text(&mut report, program, stage);
+    report
+}
+
+fn callable_json_report(report: String, program: &Program, stage: &str) -> String {
+    diagnostics::inject_json(
+        callable::inject_json(report, program, stage),
+        &stage_type_diagnostics(program, stage),
+    )
+}
+
+fn stage_type_diagnostics(program: &Program, stage: &str) -> Vec<Diagnostic> {
+    if matches!(
+        stage,
+        "full_type_check"
+            | "effect_check"
+            | "ownership_check"
+            | "resource_check"
+            | "core_preview"
+            | "core_lower"
+            | "core_verify"
+            | "graph"
+    ) {
+        type_check::unknown_type_diagnostics(program, &[])
+    } else {
+        Vec::new()
     }
 }
 

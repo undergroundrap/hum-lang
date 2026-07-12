@@ -282,6 +282,13 @@ Future ranges should be reserved before broad use:
 | `H0703` | error | ensures contract violation | A runtime `ensures:` predicate was false after success; blame belongs to the task. |
 | `H0704` | error | invalid executable predicate | A signaled Predicate v2 candidate is malformed, unresolved/ineligible, or ill-typed and is rejected before evaluation. |
 
+### Passed Callables
+
+| Code | Severity | Title | Meaning |
+|---|---|---|---|
+| `H1401` | error | invalid or unsupported callable form | A callable-shaped type, value, or application is malformed or outside the exact Session AL envelope. |
+| `H1402` | error | callable signature mismatch | The resolved task value disagrees with exact `task(UInt) -> UInt`, `failure_root = none`, or the checked ordinary argument/result relationship. |
+
 ### Ownership And Borrowing
 
 | Code | Severity | Title | Meaning |

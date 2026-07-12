@@ -188,3 +188,11 @@ profile checker, interpreter, optimizer, IR emitter, backend adapter, proof
 producer, or safety-case generator. It makes no executable semantics claim and
 keeps `no executable semantics` as a hard non-claim. It is the next compiler gate
 on the way to those capabilities, not a substitute for them.
+
+## Session AL Callable Facts
+
+The full-type report consumes the shared application fact to type the one
+indirect return as `UInt`. A malformed callable statement may retain the
+existing `unchecked_statement_type_v0` row as honest underlying body coverage,
+but its shared H1401/H1402 fact is the blocker and it never reaches evaluation
+or a generic runtime trap.

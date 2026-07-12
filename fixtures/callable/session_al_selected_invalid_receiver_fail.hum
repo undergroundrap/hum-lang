@@ -1,0 +1,16 @@
+module fixtures.callable.session_al_selected_invalid_receiver_fail
+
+task increment(value: UInt) -> UInt {
+  does:
+    return value + 1
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: MissingType) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run_tool(value: UInt) -> UInt {
+  does:
+    return apply_once(increment, value)
+}

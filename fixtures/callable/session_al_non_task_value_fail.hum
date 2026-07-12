@@ -1,0 +1,14 @@
+task increment(value: UInt) -> UInt {
+  does:
+    return value + 1
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run(increment: UInt) -> UInt {
+  does:
+    return apply_once(increment, 41)
+}

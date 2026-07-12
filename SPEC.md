@@ -500,6 +500,14 @@ failure behavior, or review, it should eventually become compiler-visible.
 
 ## Executable Core And Control Flow
 
+The first passed-callable slice recognizes only `task(UInt) -> UInt` on one
+receiver parameter, one same-file resolved task value, and one complete
+`transform(value)` return expression. Its omitted latent row is accepted only
+after shared analysis establishes a closed empty row and no nominal failure
+root. The runtime value is a nonescaping definition handle, not a closure or
+source-visible value. H1401 rejects unsupported forms and H1402 rejects exact
+signature/failure-root mismatches before execution.
+
 Hum should provide the constructs programmers expect, but with readable and
 checkable forms.
 

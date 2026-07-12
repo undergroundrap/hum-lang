@@ -1,18 +1,18 @@
 use crate::diagnostic::Span;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Program {
     pub files: Vec<SourceFile>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFile {
     pub path: String,
     pub module: Option<String>,
     pub items: Vec<Item>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
     App(App),
     Type(TypeDef),
@@ -21,7 +21,7 @@ pub enum Item {
     Test(Test),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct App {
     pub name: String,
     pub sections: Vec<Section>,
@@ -29,7 +29,7 @@ pub struct App {
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeDef {
     pub name: String,
     pub fields: Vec<Field>,
@@ -37,7 +37,7 @@ pub struct TypeDef {
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Store {
     pub name: String,
     pub ty: String,
@@ -45,16 +45,19 @@ pub struct Store {
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     pub name: String,
     pub params: Vec<Param>,
     pub result: Option<String>,
+    pub result_syntax: Option<TypeSyntax>,
     pub sections: Vec<Section>,
+    pub effect_syntax: Vec<ParsedEffectDeclaration>,
+    pub body_syntax: Vec<ParsedBodyStatement>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Test {
     pub name: String,
     pub params: Vec<Param>,
@@ -63,7 +66,7 @@ pub struct Test {
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field {
     pub name: String,
     pub ty: String,
@@ -87,22 +90,140 @@ impl ParamPermission {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param {
     pub name: String,
     pub ty: String,
+    pub type_syntax: TypeSyntax,
     pub permission: ParamPermission,
+    pub permission_explicit: bool,
+    pub type_hws_valid: bool,
+    pub separator_hws_valid: bool,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeSyntax {
+    pub kind: TypeSyntaxKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypeSyntaxKind {
+    Named {
+        name: String,
+    },
+    Result {
+        value: Box<TypeSyntax>,
+        failure_root: String,
+    },
+    Callable(CallableTypeSyntax),
+    CallableCandidate {
+        reason: &'static str,
+    },
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallableTypeSyntax {
+    pub inputs: Vec<TypeSyntax>,
+    pub result: Box<TypeSyntax>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedBodyStatement {
+    pub kind: ParsedBodyStatementKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedBodyStatementKind {
+    Return(ParsedExpression),
+    Binding {
+        mutable: bool,
+        name: Option<ParsedIdentifier>,
+        value: Option<ParsedExpression>,
+    },
+    Other {
+        expressions: Vec<ParsedExpression>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedEffectDeclaration {
+    pub kind: ParsedEffectDeclarationKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedEffectDeclarationKind {
+    Use,
+    Change,
+    Failure,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedExpression {
+    pub kind: ParsedExpressionKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedExpressionKind {
+    Identifier(ParsedIdentifier),
+    UIntLiteral(u64),
+    Call(ParsedCall),
+    Permission {
+        permission: ParamPermission,
+        value: Box<ParsedExpression>,
+    },
+    Compound {
+        operands: Vec<ParsedExpression>,
+    },
+    Unsupported {
+        reason: &'static str,
+    },
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedCall {
+    pub callee: Box<ParsedExpression>,
+    pub arguments: Vec<ParsedExpression>,
+    pub argument_separators_hws_valid: bool,
+    pub close_status: ParsedCallCloseStatus,
+    pub trailing_status: ParsedCallTrailingStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedCallCloseStatus {
+    Closed,
+    Missing,
+    Mismatched,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedCallTrailingStatus {
+    Complete,
+    ExtraClose,
+    Chained,
+    Prose,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedIdentifier {
+    pub name: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
     pub name: String,
     pub lines: Vec<SectionLine>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SectionLine {
     pub text: String,
     pub span: Span,

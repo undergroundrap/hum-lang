@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use crate::ast::{Item, Program, Task};
+use crate::ast::{Item, Program, Task, TypeSyntaxKind};
+use crate::callable;
 use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
 use crate::predicate;
@@ -26,6 +27,7 @@ const NON_CLAIMS: &[&str] = &[
 #[derive(Debug, Clone)]
 struct TypeCheckReport {
     type_env: TypeEnvReport,
+    callable_blockers: usize,
     checked_declarations: Vec<CheckedDeclaration>,
     checked_returns: Vec<CheckedReturn>,
     diagnostics: Vec<TypeCheckDiagnostic>,
@@ -154,6 +156,73 @@ pub fn type_check_summary(program: &Program, diagnostics: &[Diagnostic]) -> Type
         type_errors: report.type_error_count(),
         type_warnings: report.type_warning_count(),
     }
+}
+
+pub(crate) fn unknown_type_diagnostics(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> Vec<Diagnostic> {
+    build_report(program, diagnostics)
+        .diagnostics
+        .into_iter()
+        .filter(|diagnostic| {
+            diagnostic.code == DiagnosticCode::UNKNOWN_TYPE_NAME
+                && !callable_parameter_owns_span(program, &diagnostic.source_span)
+        })
+        .map(|diagnostic| {
+            Diagnostic::error(
+                diagnostic.code,
+                diagnostic.message,
+                Some(diagnostic.source_span),
+            )
+            .with_help(diagnostic.help)
+        })
+        .collect()
+}
+
+pub(crate) fn unknown_type_diagnostics_for_tasks(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    tasks: &[&Task],
+) -> Vec<Diagnostic> {
+    unknown_type_diagnostics(program, diagnostics)
+        .into_iter()
+        .filter(|diagnostic| {
+            diagnostic.span.as_ref().is_some_and(|span| {
+                tasks.iter().any(|task| {
+                    task.params.iter().any(|param| same_span(&param.span, span))
+                        || task
+                            .result_syntax
+                            .as_ref()
+                            .is_some_and(|result| same_span(&result.span, span))
+                })
+            })
+        })
+        .collect()
+}
+
+fn same_span(left: &Span, right: &Span) -> bool {
+    left.file.replace('\\', "/") == right.file.replace('\\', "/")
+        && left.line == right.line
+        && left.column == right.column
+}
+
+fn callable_parameter_owns_span(program: &Program, span: &Span) -> bool {
+    fn visit(items: &[Item], span: &Span) -> bool {
+        items.iter().any(|item| match item {
+            Item::App(app) => visit(&app.items, span),
+            Item::Task(task) => task.params.iter().any(|param| {
+                matches!(
+                    param.type_syntax.kind,
+                    TypeSyntaxKind::Callable(_) | TypeSyntaxKind::CallableCandidate { .. }
+                ) && param.span.file == span.file
+                    && param.span.line == span.line
+                    && param.span.column == span.column
+            }),
+            _ => false,
+        })
+    }
+    program.files.iter().any(|file| visit(&file.items, span))
 }
 
 pub fn checked_return_summaries(
@@ -310,6 +379,7 @@ pub fn type_check_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeCheckReport {
     let type_env_report = type_env::type_env_report(program, diagnostics);
+    let callable_blockers = callable::stage_blockers(program, "type_check");
     let blocked =
         type_env_report.source_errors > 0 || type_env_report.resolver_summary.resolver_errors > 0;
     let checked_declarations = type_env_report
@@ -330,6 +400,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeCheckRepor
 
     TypeCheckReport {
         type_env: type_env_report,
+        callable_blockers,
         checked_declarations,
         checked_returns,
         diagnostics,
@@ -772,6 +843,8 @@ impl TypeCheckReport {
             "blocked_by_resolver_errors"
         } else if self.type_error_count() > 0 {
             "type_errors_v0"
+        } else if self.callable_blockers > 0 {
+            "blocked_by_callable_errors_v0"
         } else {
             "declaration_annotations_and_trivial_returns_checked_v0"
         }

@@ -124,6 +124,22 @@ param              ::= param-permission? param-name ":" param-type
 param-permission  ::= "borrow" | "change" | "consume"
 ```
 
+Session AL adds one nested parameter type without changing general signature
+grammar:
+
+```text
+hws0          ::= *(SP / HTAB)
+hws1          ::= 1*(SP / HTAB)
+ordinary-type ::= type-ident
+callable-type ::= "task" "(" hws0 ordinary-type hws0 ")" hws1 "->" hws1 ordinary-type
+callable-param ::= value-ident ":" hws1 callable-type
+task-value ::= value-ident
+indirect-application ::= value-ident "(" hws0 value-ident hws0 ")"
+```
+
+Both ordinary types must be `UInt`; comments, newlines, nesting, permissions,
+storage, return, chaining, and extra arguments are outside this slice.
+
 Current capture rules:
 
 - For tasks, `callable-name` is a value identifier before the first `(`.

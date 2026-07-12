@@ -1,4 +1,5 @@
 use crate::ast::{Item, Program, Section, Task};
+use crate::callable::{self, CallableAnalysis};
 use crate::core_body;
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::is_meaningful_line_text;
@@ -69,6 +70,7 @@ struct ResourceItem {
 #[derive(Default)]
 struct ResourceDeclarations {
     allocations: Vec<DeclaredResource>,
+    constant_space: Option<DeclaredResource>,
 }
 
 struct DeclaredResource {
@@ -234,8 +236,9 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ResourceCheckR
     let blocked = source_errors > 0 || ownership_check_summary.blocking_issues > 0;
     let mut items = Vec::new();
     let mut tasks = 0;
+    let callables = callable::analyze_program(program);
     for file in &program.files {
-        collect_items(&file.items, blocked, &mut tasks, &mut items);
+        collect_items(&file.items, blocked, &callables, &mut tasks, &mut items);
     }
     ResourceCheckReport {
         ownership_check_summary,
@@ -247,13 +250,19 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ResourceCheckR
     }
 }
 
-fn collect_items(items: &[Item], blocked: bool, tasks: &mut usize, out: &mut Vec<ResourceItem>) {
+fn collect_items(
+    items: &[Item],
+    blocked: bool,
+    callables: &CallableAnalysis,
+    tasks: &mut usize,
+    out: &mut Vec<ResourceItem>,
+) {
     for item in items {
         match item {
-            Item::App(app) => collect_items(&app.items, blocked, tasks, out),
+            Item::App(app) => collect_items(&app.items, blocked, callables, tasks, out),
             Item::Task(task) => {
                 *tasks += 1;
-                if let Some(item) = check_task(task, blocked) {
+                if let Some(item) = check_task(task, blocked, callables) {
                     out.push(item);
                 }
             }
@@ -262,11 +271,18 @@ fn collect_items(items: &[Item], blocked: bool, tasks: &mut usize, out: &mut Vec
     }
 }
 
-fn check_task(task: &Task, blocked: bool) -> Option<ResourceItem> {
+fn check_task(task: &Task, blocked: bool, callables: &CallableAnalysis) -> Option<ResourceItem> {
     let does = task.section("does")?;
     let body = core_body::analyze_does_section(does);
     let declarations = collect_resource_declarations(&task.sections);
-    let checks = task_resource_checks(task, &declarations, &body.statements, blocked);
+    let checks = task_resource_checks(
+        task,
+        &declarations,
+        &body.statements,
+        blocked,
+        callables.task_participates(task),
+        callables.is_nonretained_closed_empty_task_definition(task),
+    );
     let status = item_status(&checks, blocked);
     Some(ResourceItem {
         id: prefixed_id(
@@ -287,6 +303,8 @@ fn task_resource_checks(
     declarations: &ResourceDeclarations,
     statements: &[core_body::BodyStatement],
     blocked: bool,
+    callable_slice_participant: bool,
+    nonretained_closed_empty_task_definition: bool,
 ) -> Vec<ResourceCheck> {
     if blocked {
         return vec![resource_check(
@@ -299,6 +317,33 @@ fn task_resource_checks(
     }
 
     if declarations.allocations.is_empty() {
+        if callable_slice_participant {
+            return vec![resource_check(
+                task,
+                "callable_resource_relationship",
+                None,
+                "not_applicable_to_al_ordinary_value_v0",
+                Some("nonretained_definition_handle_has_no_callable_environment_v0"),
+            )];
+        }
+        if nonretained_closed_empty_task_definition
+            && declarations.constant_space.is_some()
+            && !statements.iter().any(has_visible_allocation_risk)
+            && !statements
+                .iter()
+                .any(|statement| statement.expression_kind == Some("call_like"))
+        {
+            return vec![resource_check(
+                task,
+                "callable_definition_constant_space",
+                declarations
+                    .constant_space
+                    .as_ref()
+                    .map(|declaration| declaration.normalized.clone()),
+                "accepted_nonretained_callable_definition_constant_space_v0",
+                Some("explicit_constant_space_and_no_visible_allocation_or_call_v0"),
+            )];
+        }
         return vec![resource_check(
             task,
             "allocation_intent_declared",
@@ -367,6 +412,16 @@ fn collect_resource_declarations(sections: &[Section]) -> ResourceDeclarations {
                 ));
             } else if section.name == "cost" && normalized_starts_with(&line.text, "allocates:") {
                 declarations.allocations.push(declared_resource(
+                    "cost",
+                    line.text
+                        .split_once(':')
+                        .map(|(_key, value)| value.trim())
+                        .unwrap_or(&line.text),
+                    &line.span,
+                ));
+            } else if section.name == "cost" && normalize_resource_text(&line.text) == "space: o(1)"
+            {
+                declarations.constant_space = Some(declared_resource(
                     "cost",
                     line.text
                         .split_once(':')

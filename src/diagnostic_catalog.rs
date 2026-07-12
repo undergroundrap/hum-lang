@@ -397,6 +397,18 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Use one complete typed comparison over eligible task parameters or `result`, with exact Text/List Text equality or `list_count(List Text, Text)` where appropriate.",
     },
     DiagnosticInfo {
+        code: DiagnosticCode::INVALID_CALLABLE_FORM,
+        default_severity: Severity::Error,
+        explanation: "A callable type, task value, or indirect call signals passed-callable intent but falls outside the one-parameter pure callable slice.",
+        repair: "Use one same-file `task(UInt) -> UInt` value, pass it to one receiver, and invoke it exactly once as `transform(value)`.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::CALLABLE_SIGNATURE_MISMATCH,
+        default_severity: Severity::Error,
+        explanation: "A passed task value does not match the receiver's exact callable input, result, or closed-empty latent-effect requirements.",
+        repair: "Pass a same-file infallible `task(UInt) -> UInt` whose inferred latent effect row is closed and empty.",
+    },
+    DiagnosticInfo {
         code: DiagnosticCode::USE_AFTER_MOVE,
         default_severity: Severity::Error,
         explanation: "A value was used after an earlier `consume` argument or return moved its ownership authority away from the current place.",
@@ -621,6 +633,14 @@ mod tests {
         assert_eq!(
             find("H1205").map(|info| info.code),
             Some(DiagnosticCode::CONFLICTING_TARGET_CAPABILITY)
+        );
+        assert_eq!(
+            find("H1401").map(|info| info.code),
+            Some(DiagnosticCode::INVALID_CALLABLE_FORM)
+        );
+        assert_eq!(
+            find("H1402").map(|info| info.code),
+            Some(DiagnosticCode::CALLABLE_SIGNATURE_MISMATCH)
         );
         assert!(find("H9999").is_none());
     }

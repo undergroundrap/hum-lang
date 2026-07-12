@@ -1,4 +1,5 @@
 use crate::ast::Program;
+use crate::callable;
 use crate::core_contract;
 use crate::core_expr;
 use crate::core_lower::{self, CoreLowerItem, CoreLowerOperation, CoreLowerReport};
@@ -276,7 +277,31 @@ pub fn core_verify_readiness_summary(
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreVerifyReport {
     let lower = core_lower::build_core_lower_report(program, diagnostics);
-    let checks = verify_lower_report(&lower);
+    let mut checks = verify_lower_report(&lower);
+    let callable_failures = callable::analyze_program(program).verify();
+    if callable_failures.is_empty() {
+        push_check(
+            &mut checks,
+            "callable_semantic_spine",
+            "session-al-callable-facts",
+            None,
+            true,
+            "callable_closed_fact_consistency",
+            "callable definition, type, row, value, and application facts are internally consistent",
+        );
+    } else {
+        for failure in callable_failures {
+            push_check(
+                &mut checks,
+                "callable_semantic_spine",
+                "session-al-callable-facts",
+                None,
+                false,
+                failure,
+                format!("callable fact verification failed: {failure}"),
+            );
+        }
+    }
     CoreVerifyReport { lower, checks }
 }
 

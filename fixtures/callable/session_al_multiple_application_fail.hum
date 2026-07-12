@@ -1,0 +1,5 @@
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    let first = transform(value)
+    return transform(first)
+}

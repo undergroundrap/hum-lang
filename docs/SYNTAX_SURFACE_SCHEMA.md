@@ -63,6 +63,8 @@ TextMate grammar built from the same syntax surface.
 - `comment_prefixes`: line comment prefixes recognized inside sections
 - `test_modifiers`: recognized leading modifiers for `test` declarations
 - `parameter_permission_modes`: parameter permission words recognized in callable signatures; unmarked parameters default to `borrow`
+- `passed_pure_callable_type`: the exact Session AL `task(UInt) -> UInt` spelling
+- `passed_pure_callable_application`: the exact complete indirect application `transform(value)`
 - `writable_field_alias_form`: the exact Session V local direct-field alias
   spelling recognized by the current compiler; it is metadata for one narrow
   form, not a general alias grammar

@@ -244,3 +244,9 @@ The command is local-first:
 ## Non-Goals For V0
 
 V0 does not provide a complete effect system. It is a narrow source-visible gate that lets the compiler honestly move from recognized body typing to effect visibility before future ownership, profile, IR verification, and backend work.
+
+## Session AL Callable Facts
+
+The embedded callable row has exact `labels=[]`, `tail_id=none`, and origin
+`inferred_from_checked_callable_body_v0`. This is a closed-empty latent row,
+not a `pure` Boolean or evidence for open-row inference.

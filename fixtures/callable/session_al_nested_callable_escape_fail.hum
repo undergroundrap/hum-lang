@@ -1,0 +1,12 @@
+module fixtures.callable.session_al_nested_callable_escape_fail
+
+task identity(value: UInt) -> UInt {
+  does:
+    return value
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    let leaked = identity(transform)
+    return transform(value)
+}

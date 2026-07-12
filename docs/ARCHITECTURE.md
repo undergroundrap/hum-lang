@@ -209,6 +209,16 @@ same analysis for reachable-task preflight, `old(...)` capture, and evaluation.
 Runtime rejects every independent H0704 in the selected reachable task subtree
 before argument conversion, task bodies, or authority adapters run.
 
+Session AL adds one memoized callable analysis in `src/callable.rs`. The parser
+owns delimiter-aware type/body nodes; resolver IDs establish task, parameter,
+value-use, and application identity. Resolver, type/effect/ownership/resource,
+Core, graph, and runtime consume that immutable relationship. Only one
+same-file `task(UInt) -> UInt` value and one `transform(value)` application are
+accepted, with `failure_root = none` and an inferred closed-empty latent row.
+Runtime carries a private nonescaping resolved-definition handle with no
+callable environment. This is not general higher-order typing, capture,
+allocation proof, public generalization, open rows, or handling.
+
 Session V's writable-field-alias slice is owned by one shared straight-line
 place analysis consumed by `ownership_check` and the interpreter. Resolver and
 effect rows recognize the same candidate as writable and defer authority and

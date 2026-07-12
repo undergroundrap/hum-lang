@@ -206,3 +206,9 @@ inference, effect facts, ownership facts, profile enforcement, or safety claims.
 The emitted non-goals include `no Hum IR emission`.
 It is the first durable source-to-Core artifact boundary future passes must
 verify before Hum can honestly run code.
+
+## Session AL Callable Nodes
+
+The lowered report preserves the same callable type/value/application IDs,
+resolver relationship, result type, failure root, and closed-row identity. It
+does not lower closures, captures, handlers, or open rows.

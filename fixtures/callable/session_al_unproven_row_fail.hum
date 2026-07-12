@@ -1,0 +1,19 @@
+task helper(value: UInt) -> UInt {
+  does:
+    return value
+}
+
+task delegated(value: UInt) -> UInt {
+  does:
+    return helper(value)
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run -> UInt {
+  does:
+    return apply_once(delegated, 41)
+}

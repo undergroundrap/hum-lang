@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::ast::{Item, Program, Section, SectionLine, Task};
+use crate::callable;
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::graph::{
     TestCoverage, collect_test_coverages, coverage_key, coverage_match_kind, evidence_obligations,
@@ -18,7 +19,8 @@ pub fn program_to_json(program: &Program, diagnostics: &[Diagnostic]) -> String 
     let errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
-        .count();
+        .count()
+        + callable::stage_blockers(program, "graph");
     let warnings = diagnostics.len().saturating_sub(errors);
     let test_coverages = collect_test_coverages(program);
     let predicate_facts = predicate::analyze_program(program);

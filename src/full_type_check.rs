@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::ast::{Item, Param, Program, Section};
+use crate::callable::{self, CallableAnalysis};
 use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
 use crate::core_verify;
@@ -369,6 +370,7 @@ pub fn full_type_check_json(program: &Program, diagnostics: &[Diagnostic]) -> St
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckReport {
     let type_check_summary = type_check::type_check_summary(program, diagnostics);
     let core_verify_summary = core_verify::core_verify_readiness_summary(program, diagnostics);
+    let callables = callable::analyze_program(program);
     let source_errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
@@ -389,6 +391,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
             &task_returns,
             &failure_catalog,
             &field_types,
+            &callables,
             &mut items,
         );
     }
@@ -410,12 +413,18 @@ fn collect_items(
     task_returns: &BTreeMap<String, TypeFact>,
     failure_catalog: &FailureCatalog,
     field_types: &FieldTypeMap,
+    callables: &CallableAnalysis,
     out: &mut Vec<FullTypeItem>,
 ) {
     for item in items {
-        if let Some(typed_item) =
-            type_item(item, blocked, task_returns, failure_catalog, field_types)
-        {
+        if let Some(typed_item) = type_item(
+            item,
+            blocked,
+            task_returns,
+            failure_catalog,
+            field_types,
+            callables,
+        ) {
             out.push(typed_item);
         }
         if let Item::App(app) = item {
@@ -427,6 +436,7 @@ fn collect_items(
                 &app_task_returns,
                 &app_failure_catalog,
                 field_types,
+                callables,
                 out,
             );
         }
@@ -439,6 +449,7 @@ fn type_item(
     task_returns: &BTreeMap<String, TypeFact>,
     failure_catalog: &FailureCatalog,
     field_types: &FieldTypeMap,
+    callables: &CallableAnalysis,
 ) -> Option<FullTypeItem> {
     let does = item_sections(item)
         .iter()
@@ -460,6 +471,7 @@ fn type_item(
             field_types,
             blocked,
             failure_analysis.facts.get(&index),
+            callables,
         );
         statements.push(typed);
     }
@@ -487,6 +499,7 @@ fn type_statement(
     field_types: &FieldTypeMap,
     blocked: bool,
     failure_fact: Option<&FailureFact>,
+    callables: &CallableAnalysis,
 ) -> TypedStatement {
     if blocked {
         return typed_statement(
@@ -623,8 +636,21 @@ fn type_statement(
 
     let expression_text = expression_text_for_statement(statement).map(str::to_string);
     let expected_type = expected_type_for_statement(item, statement, environment, field_types);
-    let actual = expression_text.as_deref().and_then(|expression| {
-        infer_expression_type(expression, environment, task_returns, field_types)
+    let callable_actual = match item {
+        Item::Task(task) => callables
+            .indirect_application(task, &statement.span)
+            .map(|fact| {
+                type_fact(
+                    &fact.result_type,
+                    "checked_indirect_callable_application_v0",
+                )
+            }),
+        _ => None,
+    };
+    let actual = callable_actual.or_else(|| {
+        expression_text.as_deref().and_then(|expression| {
+            infer_expression_type(expression, environment, task_returns, field_types)
+        })
     });
     let (status, reason) = statement_status(statement, expected_type.as_deref(), actual.as_ref());
 
@@ -1127,6 +1153,11 @@ fn infer_expression_type(
     {
         return Some(fact);
     }
+    if let Some(fact) =
+        infer_multiplicative_expression_type(text, environment, task_returns, field_types)
+    {
+        return Some(fact);
+    }
     if let Some((callee, _args)) = split_call(text) {
         if callee == "list_append" {
             return Some(type_fact("Unit", "list_append_builtin_v0"));
@@ -1149,6 +1180,25 @@ fn infer_additive_expression_type(
         Some(TypeFact {
             type_text: left.type_text,
             source: "additive_expression_v0",
+        })
+    } else {
+        None
+    }
+}
+
+fn infer_multiplicative_expression_type(
+    text: &str,
+    environment: &BTreeMap<String, TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+) -> Option<TypeFact> {
+    let (left, right) = text.split_once(" * ")?;
+    let left = infer_expression_type(left, environment, task_returns, field_types)?;
+    let right = infer_expression_type(right, environment, task_returns, field_types)?;
+    if right.type_text == "integer_literal" || left.type_text == right.type_text {
+        Some(TypeFact {
+            type_text: left.type_text,
+            source: "multiplicative_expression_v0",
         })
     } else {
         None

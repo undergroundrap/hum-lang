@@ -1,4 +1,5 @@
 use crate::ast::{Item, Param, Program, Section, SectionLine};
+use crate::callable;
 use crate::core_body::{self, BodyGrammarReport, BodyStatement};
 use crate::core_contract;
 use crate::core_expr::{
@@ -400,7 +401,8 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CorePreviewRep
     let errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
-        .count();
+        .count()
+        + callable::stage_blockers(program, "core_preview");
     let warnings = diagnostics.len().saturating_sub(errors);
 
     CorePreviewReport {

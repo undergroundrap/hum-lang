@@ -148,3 +148,9 @@ V0 return checking recognizes only trivial expression types: parameters, explici
 ## Non-Goals For V0
 
 V0 does not produce Core Hum, Hum IR, bytecode, machine code, proof artifacts, layout evidence, ABI evidence, monomorphization plans, trait resolution, borrow checking, effect checking, or executable behavior.
+
+## Session AL Callable Facts
+
+`callable_facts` carries exact input/result/failure-root compatibility and the
+resolved task-value relationship. H1401/H1402 are prior blockers; no general
+call typing is claimed.

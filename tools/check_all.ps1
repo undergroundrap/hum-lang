@@ -763,6 +763,135 @@ try {
   $MixedPredicateType = Read-NativeChannelsWithExit 'run Session AF mixed predicate and full-type failure' $Hum @('run', 'fixtures/run/session_af_predicate_v2_mixed_full_type_fail.hum')
   if ($MixedPredicateType.ExitCode -ne 1 -or $MixedPredicateType.Stdout -ne '' -or -not $MixedPredicateType.Stderr.Contains('rejected_statement_type_mismatch_v0') -or -not $MixedPredicateType.Stderr.Contains('H0704') -or $MixedPredicateType.Stderr.Contains('runtime trap')) { throw 'Session AF mixed full-type failures must remain exit 1 and preserve exactly the predicate and independent type evidence without a trap' }
 
+  $CallablePositive = 'examples/probes/passed_pure_callable.hum'
+  $CallablePositiveSource = Get-Content -Raw -LiteralPath $CallablePositive
+  if ($CallablePositiveSource.Contains('allocates:')) { throw 'Session AL pinned positive source must not add an allocation declaration' }
+  $CallableFirst = Read-NativeChannelsWithExit 'run Session AL passed pure callable first fresh run' $Hum @('run', $CallablePositive, '--entry', 'run_passed_callable')
+  $CallableSecond = Read-NativeChannelsWithExit 'run Session AL passed pure callable second fresh run' $Hum @('run', $CallablePositive, '--entry', 'run_passed_callable')
+  foreach ($Run in @($CallableFirst, $CallableSecond)) {
+    if ($Run.ExitCode -ne 0 -or $Run.Stdout -ne "42`n" -or $Run.Stderr -ne '') { throw "Session AL positive must produce exact bytes 34 32 0A with empty stderr: stdout=$($Run.Stdout) stderr=$($Run.Stderr)" }
+  }
+  if ($CallableFirst.Stdout -ne $CallableSecond.Stdout -or $CallableFirst.Stderr -ne $CallableSecond.Stderr -or $CallableFirst.ExitCode -ne $CallableSecond.ExitCode) { throw 'Session AL fresh runs must be byte-identical' }
+
+  foreach ($Surface in @('resolve','type-env','type-check','full-type-check','effect-check','ownership-check','resource-check','core-preview','core-lower','core-verify')) {
+    $CallableSurface = Read-NativeOutputWithExit "Session AL positive $Surface JSON" $Hum @($Surface, '--format', 'json', $CallablePositive)
+    if ($CallableSurface.ExitCode -ne 0) { throw "Session AL positive blocked $Surface" }
+    Assert-Json "Session AL positive $Surface JSON" $CallableSurface.Output
+    foreach ($Expected in @('canonical_callable_semantic_spine_al_v0','accepted_al_v0','closed_empty_v0','failure_root','none','application_facts')) {
+      if (-not $CallableSurface.Output.Contains($Expected)) { throw "Session AL $Surface missing $Expected" }
+    }
+    if ($CallableSurface.Output.Contains('H1401') -or $CallableSurface.Output.Contains('H1402')) { throw "Session AL positive unexpectedly contains callable diagnostics in $Surface" }
+    if ($Surface.StartsWith('core-') -and -not $CallableSurface.Output.Contains('core_nodes')) { throw "Session AL $Surface must expose callable Core nodes" }
+  }
+  $CallableGraph = Read-NativeOutputWithExit 'Session AL positive graph' $Hum @('graph', $CallablePositive)
+  if ($CallableGraph.ExitCode -ne 0) { throw 'Session AL graph positive blocked' }
+  Assert-Json 'Session AL positive graph' $CallableGraph.Output
+  foreach ($Expected in @('definition','value_use','passed_as_argument','parameter_bind','application')) {
+    if (-not $CallableGraph.Output.Contains($Expected)) { throw "Session AL graph missing $Expected edge" }
+  }
+
+  $CallableLexical = Read-NativeOutputWithExit 'run Session AL lexical identity fixture' $Hum @('run', 'fixtures/callable/session_al_lexical_identity_pass.hum', '--entry', 'run_tool')
+  if ($CallableLexical.ExitCode -ne 0 -or $CallableLexical.Output.Trim() -ne '42') { throw "Session AL lexical identity must select the nested resolved task: $($CallableLexical.Output)" }
+  $CallableShadowedInvalid = Read-NativeChannelsWithExit 'run Session AL shadowed invalid receiver identity' $Hum @('run', 'fixtures/callable/session_al_shadowed_invalid_receiver_pass.hum', '--entry', 'run_tool')
+  if ($CallableShadowedInvalid.ExitCode -ne 0 -or $CallableShadowedInvalid.Stdout.Trim() -ne '42' -or $CallableShadowedInvalid.Stderr.Contains('H0605') -or $CallableShadowedInvalid.Stderr.Contains('H1401') -or $CallableShadowedInvalid.Stderr.Contains('H1402') -or $CallableShadowedInvalid.Stderr.Contains('runtime trap')) { throw 'Session AL runtime reachability must follow the resolver-owned app-local receiver identity' }
+  $CallableSelectedInvalidReceiver = Read-NativeChannelsWithExit 'run Session AL selected invalid receiver H0605' $Hum @('run', 'fixtures/callable/session_al_selected_invalid_receiver_fail.hum', '--entry', 'run_tool', '--args', '1')
+  if ($CallableSelectedInvalidReceiver.ExitCode -ne 2 -or $CallableSelectedInvalidReceiver.Stdout -ne '' -or [regex]::Matches($CallableSelectedInvalidReceiver.Stderr, 'error\[H0605\]').Count -ne 1 -or $CallableSelectedInvalidReceiver.Stderr.Contains('H1401') -or $CallableSelectedInvalidReceiver.Stderr.Contains('H1402') -or $CallableSelectedInvalidReceiver.Stderr.Contains('runtime trap')) { throw 'Session AL genuinely selected invalid receiver must retain H0605 ownership' }
+
+  foreach ($Misuse in @(
+    @{ File = 'fixtures/callable/session_al_wrong_input_fail.hum'; Entry = 'run'; Code = 'H1402' },
+    @{ File = 'fixtures/callable/session_al_wrong_result_fail.hum'; Entry = 'run'; Code = 'H1402' },
+    @{ File = 'fixtures/callable/session_al_fallible_task_fail.hum'; Entry = 'run'; Code = 'H1402' },
+    @{ File = 'fixtures/callable/session_al_unproven_row_fail.hum'; Entry = 'run'; Code = 'H1402' },
+    @{ File = 'fixtures/callable/session_al_unresolved_value_fail.hum'; Entry = 'run'; Code = 'H0601' },
+    @{ File = 'fixtures/callable/session_al_non_task_value_fail.hum'; Entry = 'run'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_stored_callable_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_set_transport_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_compound_transport_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_save_transport_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_zero_application_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_multiple_application_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_permission_type_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_permission_argument_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_parameter_hws_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_argument_hws_fail.hum'; Entry = 'run'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_missing_indirect_close_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_mismatched_delimiter_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_zero_indirect_arguments_fail.hum'; Entry = 'apply_once'; Code = 'H1402' },
+    @{ File = 'fixtures/callable/session_al_two_indirect_arguments_fail.hum'; Entry = 'apply_once'; Code = 'H1402' },
+    @{ File = 'fixtures/callable/session_al_extra_indirect_close_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_trailing_indirect_prose_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_chained_application_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_nested_application_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_returned_callable_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_anonymous_callable_fail.hum'; Entry = 'run'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_nested_callable_escape_fail.hum'; Entry = 'apply_once'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_recursive_relationship_fail.hum'; Entry = 'run'; Code = 'H1401' },
+    @{ File = 'fixtures/callable/session_al_zero_target_params_fail.hum'; Entry = 'run'; Code = 'H1402' },
+    @{ File = 'fixtures/callable/session_al_multiple_target_params_fail.hum'; Entry = 'run'; Code = 'H1402' }
+  )) {
+    $CallableStages = if ($Misuse.Code -eq 'H1402') {
+      foreach ($EarlySurface in @('resolve','type-env')) {
+        $CallableEarlySurface = Read-NativeOutputWithExit "Session AL H1402 deferred through $EarlySurface $($Misuse.File)" $Hum @($EarlySurface, '--format', 'json', $Misuse.File)
+        if ($CallableEarlySurface.ExitCode -ne 0 -or $CallableEarlySurface.Output.Contains('H1402')) { throw "Session AL H1402 must wait for ordinary typing at ${EarlySurface}: $($Misuse.File)" }
+      }
+      @('type-check','full-type-check','effect-check','ownership-check','resource-check','core-preview','core-lower','core-verify')
+    } else {
+      @('resolve','type-env','type-check','full-type-check','effect-check','ownership-check','resource-check','core-preview','core-lower','core-verify')
+    }
+    foreach ($Surface in $CallableStages) {
+      foreach ($Format in @('human','json')) {
+        $CallableMisuseSurface = Read-NativeOutputWithExit "Session AL misuse $Surface $Format $($Misuse.File)" $Hum @($Surface, '--format', $Format, $Misuse.File)
+        if ($CallableMisuseSurface.ExitCode -ne 1) { throw "Session AL misuse must block $Surface ${Format}: $($Misuse.File)" }
+        if ($Format -eq 'json') { Assert-Json "Session AL misuse $Surface JSON $($Misuse.File)" $CallableMisuseSurface.Output }
+        $CallableExpectedEvidence = if ($Misuse.Code.StartsWith('H140')) { @($Misuse.Code, 'detail_reason', 'primary_span', 'help', 'related') } else { @($Misuse.Code) }
+        foreach ($Expected in $CallableExpectedEvidence) {
+          if (-not $CallableMisuseSurface.Output.Contains($Expected)) { throw "Session AL misuse $Surface $Format lacks ${Expected}: $($Misuse.File)" }
+        }
+      }
+    }
+    $CallableMisuseRun = Read-NativeChannelsWithExit "Session AL misuse runtime $($Misuse.File)" $Hum @('run', $Misuse.File, '--entry', $Misuse.Entry)
+    if ($CallableMisuseRun.ExitCode -ne 2 -or $CallableMisuseRun.Stdout -ne '' -or -not $CallableMisuseRun.Stderr.Contains($Misuse.Code) -or $CallableMisuseRun.Stderr.Contains('runtime trap')) { throw "Session AL misuse must preflight before output without a trap: $($Misuse.File)" }
+  }
+
+  foreach ($Surface in @('resolve','type-env','type-check','full-type-check','effect-check','ownership-check','resource-check','core-preview','core-lower','core-verify')) {
+    foreach ($Format in @('human','json')) {
+      $CallableCrossFile = Read-NativeOutputWithExit "Session AL cross-file H1401 $Surface $Format" $Hum @($Surface, '--format', $Format, 'fixtures/callable/session_al_cross_file_fail')
+      if ($CallableCrossFile.ExitCode -ne 1 -or -not $CallableCrossFile.Output.Contains('H1401') -or -not $CallableCrossFile.Output.Contains('cross_file_callable_value_unsupported_v0') -or -not $CallableCrossFile.Output.Contains('related')) { throw "Session AL cross-file callable boundary must be owned by H1401 with relationship spans in $Surface $Format" }
+      if ($Format -eq 'json') { Assert-Json "Session AL cross-file H1401 $Surface JSON" $CallableCrossFile.Output }
+    }
+  }
+  $CallableUnknownResolve = Read-NativeOutputWithExit 'Session AL unknown ordinary type resolver precedence' $Hum @('resolve', '--format', 'json', 'fixtures/callable/session_al_unknown_ordinary_type_fail.hum')
+  if ($CallableUnknownResolve.ExitCode -ne 0 -or $CallableUnknownResolve.Output.Contains('H1402')) { throw 'Session AL unknown ordinary type must not be claimed by H1402 during resolution' }
+  $CallableUnknownType = Read-NativeOutputWithExit 'Session AL unknown ordinary type H0605 precedence' $Hum @('type-check', '--format', 'json', 'fixtures/callable/session_al_unknown_ordinary_type_fail.hum')
+  if ($CallableUnknownType.ExitCode -ne 1 -or -not $CallableUnknownType.Output.Contains('H0605') -or $CallableUnknownType.Output.Contains('H1402')) { throw 'Session AL unknown ordinary type must be owned only by H0605' }
+  foreach ($Surface in @('full-type-check','effect-check','ownership-check','resource-check','core-preview','core-lower','core-verify')) {
+    foreach ($Format in @('human','json')) {
+      $CallableUnknownLater = Read-NativeOutputWithExit "Session AL unknown ordinary type $Surface $Format" $Hum @($Surface, '--format', $Format, 'fixtures/callable/session_al_unknown_ordinary_type_fail.hum')
+      if ($CallableUnknownLater.ExitCode -ne 1 -or [regex]::Matches($CallableUnknownLater.Output, 'H0605').Count -lt 1 -or $CallableUnknownLater.Output.Contains('H1402') -or $CallableUnknownLater.Output.Contains('runtime trap')) { throw "Session AL unknown ordinary type must preserve H0605 through $Surface $Format" }
+      if ($Format -eq 'json') { Assert-Json "Session AL unknown ordinary type $Surface JSON" $CallableUnknownLater.Output }
+    }
+  }
+  $CallableUnknownRun = Read-NativeChannelsWithExit 'Session AL unknown ordinary type runtime preflight' $Hum @('run', 'fixtures/callable/session_al_unknown_ordinary_type_fail.hum', '--entry', 'unknown', '--args', '1')
+  if ($CallableUnknownRun.ExitCode -ne 2 -or $CallableUnknownRun.Stdout -ne '' -or [regex]::Matches($CallableUnknownRun.Stderr, 'error\[H0605\]').Count -ne 1 -or $CallableUnknownRun.Stderr.Contains('H1402') -or $CallableUnknownRun.Stderr.Contains('runtime trap')) { throw 'Session AL unknown ordinary type must preflight as exactly H0605 before runtime' }
+  $CallableUnknownRoute = Read-NativeChannelsWithExit 'Session AL reachable callable target H0605 preflight' $Hum @('run', 'fixtures/callable/session_al_unknown_ordinary_type_fail.hum', '--entry', 'run', '--args', '1')
+  if ($CallableUnknownRoute.ExitCode -ne 2 -or $CallableUnknownRoute.Stdout -ne '' -or [regex]::Matches($CallableUnknownRoute.Stderr, 'error\[H0605\]').Count -ne 1 -or $CallableUnknownRoute.Stderr.Contains('H1402') -or $CallableUnknownRoute.Stderr.Contains('runtime trap')) { throw 'Session AL H0605 must follow the selected callable route before runtime' }
+  $CallableHealthyUnrelated = Read-NativeChannelsWithExit 'Session AL unrelated unknown type does not block healthy entry' $Hum @('run', 'fixtures/callable/session_al_unrelated_unknown_type_pass.hum', '--entry', 'healthy')
+  if ($CallableHealthyUnrelated.ExitCode -ne 0 -or $CallableHealthyUnrelated.Stdout.Trim() -ne '7' -or $CallableHealthyUnrelated.Stderr.Contains('H0605') -or $CallableHealthyUnrelated.Stderr.Contains('runtime trap')) { throw 'Session AL H0605 runtime preflight must be scoped to the selected reachable route' }
+  $CallableResourceNonparticipant = Read-NativeOutputWithExit 'Session AL unrelated resource task remains checked' $Hum @('resource-check', '--format', 'json', 'fixtures/callable/session_al_resource_nonparticipant_fail.hum')
+  if ($CallableResourceNonparticipant.ExitCode -ne 1 -or -not $CallableResourceNonparticipant.Output.Contains('hum_resource_item_unrelated') -or -not $CallableResourceNonparticipant.Output.Contains('rejected_missing_allocation_declaration_v0')) { throw 'Session AL resource exemption must apply only to exact callable participants' }
+  $CallableOuterClose = Read-NativeOutputWithExit 'Session AL malformed outer task header' $Hum @('check', 'fixtures/callable/session_al_missing_outer_close_fail.hum')
+  if ($CallableOuterClose.ExitCode -ne 1 -or -not $CallableOuterClose.Output.Contains('H0007') -or $CallableOuterClose.Output.Contains('H1401')) { throw 'Session AL malformed outer task header must remain owned by H0007' }
+  $CallableMixed = Read-NativeOutputWithExit 'Session AL mixed callable and body type errors' $Hum @('full-type-check', '--format', 'json', 'fixtures/callable/session_al_mixed_body_type_fail.hum')
+  if ($CallableMixed.ExitCode -ne 1) { throw 'Session AL mixed fixture must block full type' }
+  Assert-Json 'Session AL mixed callable and body type errors' $CallableMixed.Output
+  $CallableMixedJson = $CallableMixed.Output | ConvertFrom-Json
+  if ($CallableMixedJson.summary.rejected_statements -ne 1 -or $CallableMixedJson.summary.accepted_statements -ne 1 -or $CallableMixedJson.summary.unchecked_statements -ne 1 -or $CallableMixedJson.callable_facts.diagnostics -ne 1 -or -not $CallableMixed.Output.Contains('rejected_statement_type_mismatch_v0') -or -not $CallableMixed.Output.Contains('H1401')) { throw 'Session AL mixed fixture must preserve one independent body mismatch, one accepted bare return, and only the malformed callable statement as unchecked beside one callable blocker' }
+
+  foreach ($Code in @('H1401','H1402')) {
+    $CallableExplain = Read-NativeOutputWithExit "Session AL explain $Code" $Hum @('explain', $Code)
+    if ($CallableExplain.ExitCode -ne 0 -or -not $CallableExplain.Output.Contains($Code)) { throw "Session AL diagnostic catalog missing $Code" }
+  }
+
   $RunSessionVWriteThrough = Read-NativeOutput 'run Session V writable alias write-through fixture' $Hum @('run', 'examples/probes/writable_field_aliases.hum', '--entry', 'write_x_through_alias', '--args', '{x:1,y:2}')
   if ($RunSessionVWriteThrough.Trim() -ne '{x: 9, y: 2}') { throw "Session V write-through expected {x: 9, y: 2}, got $RunSessionVWriteThrough" }
 

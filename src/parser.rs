@@ -1,6 +1,9 @@
 use crate::ast::{
-    App, Field, Item, Param, ParamPermission, Section, SectionLine, SourceFile, Store, Task, Test,
-    TypeDef,
+    App, CallableTypeSyntax, Field, Item, Param, ParamPermission, ParsedBodyStatement,
+    ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus, ParsedCallTrailingStatus,
+    ParsedEffectDeclaration, ParsedEffectDeclarationKind, ParsedExpression, ParsedExpressionKind,
+    ParsedIdentifier, Section, SectionLine, SourceFile, Store, Task, Test, TypeDef, TypeSyntax,
+    TypeSyntaxKind,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
 use crate::syntax;
@@ -212,12 +215,17 @@ impl Parser {
                 span,
             })
         } else if header.starts_with("task ") {
-            let (name, params, result) = self.parse_task_header(header, line.number);
+            let (name, params, result, result_syntax) = self.parse_task_header(header, line.number);
+            let effect_syntax = parse_task_effect_syntax(&sections);
+            let body_syntax = parse_task_body_syntax(&sections);
             Item::Task(Task {
                 name,
                 params,
                 result,
+                result_syntax,
                 sections,
+                effect_syntax,
+                body_syntax,
                 span,
             })
         } else if header.starts_with("test ") {
@@ -332,11 +340,15 @@ impl Parser {
         &mut self,
         header: &str,
         line_number: usize,
-    ) -> (String, Vec<Param>, Option<String>) {
+    ) -> (String, Vec<Param>, Option<String>, Option<TypeSyntax>) {
         let rest = header.trim_start_matches("task ").trim();
-        let (signature, result) = match rest.split_once("->") {
-            Some((left, right)) => (left.trim(), Some(right.trim().to_string())),
-            None => (rest, None),
+        let (signature, result, result_offset) = match find_top_level_arrow(rest) {
+            Some(index) => (
+                rest[..index].trim(),
+                Some(rest[index + 2..].trim().to_string()),
+                Some(index + 2 + rest[index + 2..].len() - rest[index + 2..].trim_start().len()),
+            ),
+            None => (rest, None, None),
         };
 
         let signature_column = self.span(line_number).column + "task ".len();
@@ -350,7 +362,12 @@ impl Parser {
                 Some(self.span(line_number)),
             ));
         }
-        (name, params, result)
+        let result_syntax = result.as_ref().map(|result| {
+            let column =
+                self.span(line_number).column + "task ".len() + result_offset.unwrap_or_default();
+            parse_type_syntax(result, Span::new(self.path.clone(), line_number, column))
+        });
+        (name, params, result, result_syntax)
     }
 
     fn parse_test_header(
@@ -392,10 +409,7 @@ impl Parser {
         let Some(open) = signature.find('(') else {
             return (signature.trim().to_string(), Vec::new(), String::new());
         };
-        let Some(close) = signature[open + 1..]
-            .find(')')
-            .map(|offset| open + 1 + offset)
-        else {
+        let Some(close) = matching_delimiter(signature, open, '(', ')') else {
             self.diagnostics.push(Diagnostic::error(
                 DiagnosticCode::CALLABLE_SIGNATURE_MISSING_CLOSE_PAREN,
                 "callable signature is missing `)`",
@@ -431,7 +445,11 @@ impl Parser {
         }
 
         let mut byte_offset = 0;
-        for raw_param in params_text.split(',') {
+        for (param_index, raw_param) in split_top_level_ranges(params_text, ',')
+            .into_iter()
+            .enumerate()
+        {
+            let raw_param = &params_text[raw_param.clone()];
             let param = raw_param.trim();
             let leading_bytes = raw_param.len() - raw_param.trim_start().len();
             let column = params_column
@@ -439,8 +457,17 @@ impl Parser {
                 + raw_param[..leading_bytes].chars().count();
             let param_span = Span::new(self.path.clone(), line_number, column);
             if let Some((name, ty)) = param.split_once(':') {
-                let (permission, name) = parse_param_permission(name.trim());
+                let (permission, permission_explicit, name) = parse_param_permission(name.trim());
                 let name = name.to_string();
+                let colon = param.find(':').unwrap_or_default();
+                let raw_type = &param[colon + 1..];
+                let type_hws_valid = raw_type
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|byte| matches!(byte, b' ' | b'\t'));
+                let type_leading = raw_type.len() - raw_type.trim_start().len();
+                let type_column = column + param[..colon + 1].chars().count() + type_leading;
+                let ty = ty.trim().to_string();
                 self.validate_identifier(
                     "parameter name",
                     &name,
@@ -449,8 +476,15 @@ impl Parser {
                 );
                 params.push(Param {
                     name,
-                    ty: ty.trim().to_string(),
+                    type_syntax: parse_type_syntax(
+                        &ty,
+                        Span::new(self.path.clone(), line_number, type_column),
+                    ),
+                    ty,
                     permission,
+                    permission_explicit,
+                    type_hws_valid,
+                    separator_hws_valid: param_index == 0 || leading_bytes > 0,
                     span: param_span,
                 });
             } else {
@@ -530,19 +564,510 @@ impl Parser {
     }
 }
 
-fn parse_param_permission(raw_name: &str) -> (ParamPermission, &str) {
+fn parse_task_body_syntax(sections: &[Section]) -> Vec<ParsedBodyStatement> {
+    let Some(section) = sections.iter().find(|section| section.name == "does") else {
+        return Vec::new();
+    };
+    section
+        .lines
+        .iter()
+        .filter_map(parse_body_statement_syntax)
+        .collect()
+}
+
+fn parse_task_effect_syntax(sections: &[Section]) -> Vec<ParsedEffectDeclaration> {
+    sections
+        .iter()
+        .filter_map(|section| {
+            let kind = match section.name.as_str() {
+                "uses" => ParsedEffectDeclarationKind::Use,
+                "changes" => ParsedEffectDeclarationKind::Change,
+                "fails when" => ParsedEffectDeclarationKind::Failure,
+                _ => return None,
+            };
+            Some(section.lines.iter().filter_map(move |line| {
+                let text = line.text.trim();
+                (!text.is_empty() && !text.starts_with('#') && !text.starts_with("//")).then(|| {
+                    ParsedEffectDeclaration {
+                        kind,
+                        span: line.span.clone(),
+                    }
+                })
+            }))
+        })
+        .flatten()
+        .collect()
+}
+
+fn parse_body_statement_syntax(line: &SectionLine) -> Option<ParsedBodyStatement> {
+    let text = line.text.trim();
+    if text.is_empty() || text.starts_with('#') || text.starts_with("//") {
+        return None;
+    }
+    if let Some(rest) = keyword_rest(text, "return") {
+        let offset = text.len() - rest.len();
+        return Some(ParsedBodyStatement {
+            kind: ParsedBodyStatementKind::Return(parse_expression_syntax(
+                rest,
+                offset_span(&line.span, offset),
+            )),
+            span: line.span.clone(),
+        });
+    }
+    for (keyword, mutable) in [("let", false), ("change", true)] {
+        if let Some(rest) = keyword_rest(text, keyword) {
+            let rest_offset = text.len() - rest.len();
+            let (left, value) = find_top_level_char(rest, '=').map_or((rest, None), |index| {
+                (&rest[..index], Some(&rest[index + 1..]))
+            });
+            let name_text = left
+                .split_once(':')
+                .map_or(left, |(name, _annotation)| name)
+                .trim();
+            let name_offset = rest.find(name_text).unwrap_or_default();
+            let name = is_value_identifier(name_text).then(|| ParsedIdentifier {
+                name: name_text.to_string(),
+                span: offset_span(&line.span, rest_offset + name_offset),
+            });
+            let value = value.map(|value| {
+                let leading = value.len() - value.trim_start().len();
+                let value = value.trim();
+                let equals = find_top_level_char(rest, '=').unwrap_or(rest.len());
+                parse_expression_syntax(
+                    value,
+                    offset_span(&line.span, rest_offset + equals + 1 + leading),
+                )
+            });
+            return Some(ParsedBodyStatement {
+                kind: ParsedBodyStatementKind::Binding {
+                    mutable,
+                    name,
+                    value,
+                },
+                span: line.span.clone(),
+            });
+        }
+    }
+    Some(ParsedBodyStatement {
+        kind: ParsedBodyStatementKind::Other {
+            expressions: parse_other_statement_expressions(text, &line.span),
+        },
+        span: line.span.clone(),
+    })
+}
+
+fn parse_other_statement_expressions(text: &str, span: &Span) -> Vec<ParsedExpression> {
+    let candidate = if let Some(rest) = keyword_rest(text, "set") {
+        find_top_level_char(rest, '=')
+            .map(|index| (&rest[index + 1..], text.len() - rest.len() + index + 1))
+    } else if let Some(rest) = keyword_rest(text, "save") {
+        let value = rest.split_once(" in ").map_or(rest, |(value, _)| value);
+        Some((value, text.len() - rest.len()))
+    } else if let Some(rest) = keyword_rest(text, "expect") {
+        Some((rest, text.len() - rest.len()))
+    } else if let Some(rest) = keyword_rest(text, "fail") {
+        Some((rest, text.len() - rest.len()))
+    } else if let Some(rest) = keyword_rest(text, "if") {
+        Some((
+            rest.trim_end_matches('{').trim_end(),
+            text.len() - rest.len(),
+        ))
+    } else if let Some(rest) = keyword_rest(text, "while") {
+        Some((
+            rest.trim_end_matches('{').trim_end(),
+            text.len() - rest.len(),
+        ))
+    } else if let Some(rest) = keyword_rest(text, "for each") {
+        rest.split_once(" in ").map(|(_, collection)| {
+            (
+                collection.trim_end_matches('{').trim_end(),
+                text.len() - collection.len(),
+            )
+        })
+    } else if text != "}" && !text.ends_with(':') {
+        Some((text, 0))
+    } else {
+        None
+    };
+    candidate
+        .filter(|(expression, _)| !expression.trim().is_empty())
+        .map(|(expression, offset)| {
+            vec![parse_expression_syntax(
+                expression,
+                offset_span(span, offset),
+            )]
+        })
+        .unwrap_or_default()
+}
+
+fn parse_expression_syntax(text: &str, span: Span) -> ParsedExpression {
+    let leading = text.len() - text.trim_start().len();
+    let text = text.trim();
+    let span = offset_span(&span, leading);
+    for (keyword, permission) in [
+        ("borrow", ParamPermission::Borrow),
+        ("change", ParamPermission::Change),
+        ("consume", ParamPermission::Consume),
+    ] {
+        if let Some(rest) = keyword_rest(text, keyword) {
+            let offset = text.len() - rest.len();
+            return ParsedExpression {
+                kind: ParsedExpressionKind::Permission {
+                    permission,
+                    value: Box::new(parse_expression_syntax(rest, offset_span(&span, offset))),
+                },
+                span,
+            };
+        }
+    }
+    if is_value_identifier(text) {
+        return ParsedExpression {
+            kind: ParsedExpressionKind::Identifier(ParsedIdentifier {
+                name: text.to_string(),
+                span: span.clone(),
+            }),
+            span,
+        };
+    }
+    if !text.is_empty() && text.chars().all(|ch| ch.is_ascii_digit()) {
+        return ParsedExpression {
+            kind: text.parse::<u64>().map_or(
+                ParsedExpressionKind::Unsupported {
+                    reason: "uint_literal_out_of_range_v0",
+                },
+                ParsedExpressionKind::UIntLiteral,
+            ),
+            span,
+        };
+    }
+
+    if let Some(open) = text.find('(') {
+        let callee_text = text[..open].trim();
+        let callee_offset = text[..open].find(callee_text).unwrap_or_default();
+        let callee = parse_expression_syntax(callee_text, offset_span(&span, callee_offset));
+        let (inside, close, trailing) = match matching_delimiter(text, open, '(', ')') {
+            Some(close) => (
+                &text[open + 1..close],
+                ParsedCallCloseStatus::Closed,
+                &text[close + 1..],
+            ),
+            None => (&text[open + 1..], ParsedCallCloseStatus::Missing, ""),
+        };
+        let argument_ranges = split_top_level_ranges(inside, ',');
+        let argument_separators_hws_valid = argument_ranges.iter().skip(1).all(|range| {
+            inside[range.clone()]
+                .as_bytes()
+                .first()
+                .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+        });
+        let arguments = argument_ranges
+            .into_iter()
+            .filter_map(|range| {
+                let raw = &inside[range.clone()];
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    return None;
+                }
+                let leading = raw.len() - raw.trim_start().len();
+                Some(parse_expression_syntax(
+                    trimmed,
+                    offset_span(&span, open + 1 + range.start + leading),
+                ))
+            })
+            .collect();
+        let trailing = classify_call_trailing(trailing);
+        return ParsedExpression {
+            kind: ParsedExpressionKind::Call(ParsedCall {
+                callee: Box::new(callee),
+                arguments,
+                argument_separators_hws_valid,
+                close_status: close,
+                trailing_status: trailing,
+            }),
+            span,
+        };
+    }
+
+    if let Some(open) = text.find('[')
+        && text[open + 1..].contains(')')
+    {
+        let callee_text = text[..open].trim();
+        let callee = parse_expression_syntax(callee_text, span.clone());
+        return ParsedExpression {
+            kind: ParsedExpressionKind::Call(ParsedCall {
+                callee: Box::new(callee),
+                arguments: Vec::new(),
+                argument_separators_hws_valid: true,
+                close_status: ParsedCallCloseStatus::Mismatched,
+                trailing_status: ParsedCallTrailingStatus::Complete,
+            }),
+            span,
+        };
+    }
+
+    let operands = compound_identifier_operands(text, &span);
+    if !operands.is_empty() {
+        return ParsedExpression {
+            kind: ParsedExpressionKind::Compound { operands },
+            span,
+        };
+    }
+
+    ParsedExpression {
+        kind: if text.contains("task") || text.contains(')') || text.contains('(') {
+            ParsedExpressionKind::Unsupported {
+                reason: "unsupported_callable_expression_shape_v0",
+            }
+        } else {
+            ParsedExpressionKind::Other
+        },
+        span,
+    }
+}
+
+fn compound_identifier_operands(text: &str, span: &Span) -> Vec<ParsedExpression> {
+    let bytes = text.as_bytes();
+    let mut operands = Vec::new();
+    let mut index = 0;
+    let mut quoted = false;
+    let mut escaped = false;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                quoted = false;
+            }
+            index += 1;
+            continue;
+        }
+        if byte == b'"' {
+            quoted = true;
+            index += 1;
+            continue;
+        }
+        if byte.is_ascii_lowercase() || byte == b'_' {
+            let start = index;
+            index += 1;
+            while index < bytes.len()
+                && (bytes[index].is_ascii_lowercase()
+                    || bytes[index].is_ascii_digit()
+                    || bytes[index] == b'_')
+            {
+                index += 1;
+            }
+            let name = &text[start..index];
+            if is_value_identifier(name) {
+                let identifier_span = offset_span(span, start);
+                operands.push(ParsedExpression {
+                    kind: ParsedExpressionKind::Identifier(ParsedIdentifier {
+                        name: name.to_string(),
+                        span: identifier_span.clone(),
+                    }),
+                    span: identifier_span,
+                });
+            }
+            continue;
+        }
+        index += 1;
+    }
+    operands
+}
+
+fn classify_call_trailing(trailing: &str) -> ParsedCallTrailingStatus {
+    let trailing = trailing.trim();
+    if trailing.is_empty() {
+        ParsedCallTrailingStatus::Complete
+    } else if trailing.chars().all(|ch| ch == ')') {
+        ParsedCallTrailingStatus::ExtraClose
+    } else if trailing.starts_with('(') {
+        ParsedCallTrailingStatus::Chained
+    } else {
+        ParsedCallTrailingStatus::Prose
+    }
+}
+
+fn parse_type_syntax(text: &str, span: Span) -> TypeSyntax {
+    let text = text.trim();
+    if let Some(rest) = text.strip_prefix("Result ")
+        && let Some(comma) = find_top_level_char(rest, ',')
+    {
+        let value_text = rest[..comma].trim();
+        let root = rest[comma + 1..].trim();
+        return TypeSyntax {
+            kind: TypeSyntaxKind::Result {
+                value: Box::new(parse_type_syntax(value_text, span.clone())),
+                failure_root: root.to_string(),
+            },
+            span,
+        };
+    }
+    if text.starts_with("task") {
+        return TypeSyntax {
+            kind: parse_callable_type_syntax(text, &span),
+            span,
+        };
+    }
+    TypeSyntax {
+        kind: if is_type_identifier(text) {
+            TypeSyntaxKind::Named {
+                name: text.to_string(),
+            }
+        } else {
+            TypeSyntaxKind::Other
+        },
+        span,
+    }
+}
+
+fn parse_callable_type_syntax(text: &str, span: &Span) -> TypeSyntaxKind {
+    let Some(rest) = text.strip_prefix("task(") else {
+        return TypeSyntaxKind::CallableCandidate {
+            reason: "callable_type_requires_task_open_paren_v0",
+        };
+    };
+    let open = "task".len();
+    let Some(close) = matching_delimiter(text, open, '(', ')') else {
+        return TypeSyntaxKind::CallableCandidate {
+            reason: "callable_type_missing_close_paren_v0",
+        };
+    };
+    let after = &text[close + 1..];
+    let leading = after.len() - after.trim_start_matches([' ', '\t']).len();
+    if leading == 0 {
+        return TypeSyntaxKind::CallableCandidate {
+            reason: "callable_type_requires_space_before_arrow_v0",
+        };
+    }
+    let after = &after[leading..];
+    let Some(result_text) = after.strip_prefix("->") else {
+        return TypeSyntaxKind::CallableCandidate {
+            reason: "callable_type_missing_arrow_v0",
+        };
+    };
+    let result_leading = result_text.len() - result_text.trim_start_matches([' ', '\t']).len();
+    if result_leading == 0 || result_text[result_leading..].is_empty() {
+        return TypeSyntaxKind::CallableCandidate {
+            reason: "callable_type_requires_result_v0",
+        };
+    }
+    let inside = &rest[..close - open - 1];
+    let inputs = split_top_level_ranges(inside, ',')
+        .into_iter()
+        .filter_map(|range| {
+            let raw = &inside[range.clone()];
+            let value = raw.trim();
+            (!value.is_empty())
+                .then(|| parse_type_syntax(value, offset_span(span, open + 1 + range.start)))
+        })
+        .collect();
+    let result = parse_type_syntax(
+        result_text[result_leading..].trim(),
+        offset_span(span, close + 1 + leading + 2 + result_leading),
+    );
+    TypeSyntaxKind::Callable(CallableTypeSyntax {
+        inputs,
+        result: Box::new(result),
+    })
+}
+
+fn keyword_rest<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
+    text.strip_prefix(keyword)
+        .and_then(|rest| rest.strip_prefix([' ', '\t']))
+        .map(|rest| rest.trim_start_matches([' ', '\t']))
+}
+
+fn find_top_level_arrow(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    while index + 1 < bytes.len() {
+        match bytes[index] {
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
+            b'-' if bytes[index + 1] == b'>' && depth == 0 => return Some(index),
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+fn matching_delimiter(text: &str, open: usize, open_ch: char, close_ch: char) -> Option<usize> {
+    let mut depth = 0usize;
+    for (index, ch) in text.char_indices().skip_while(|(index, _)| *index < open) {
+        if ch == open_ch {
+            depth += 1;
+        } else if ch == close_ch {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+    }
+    None
+}
+
+fn split_top_level_ranges(text: &str, delimiter: char) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0usize;
+    for (index, ch) in text.char_indices() {
+        match ch {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ if ch == delimiter && depth == 0 => {
+                ranges.push(start..index);
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    ranges.push(start..text.len());
+    ranges
+}
+
+fn find_top_level_char(text: &str, needle: char) -> Option<usize> {
+    let mut depth = 0usize;
+    for (index, ch) in text.char_indices() {
+        match ch {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ if ch == needle && depth == 0 => return Some(index),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn offset_span(span: &Span, byte_offset: usize) -> Span {
+    Span::new(span.file.clone(), span.line, span.column + byte_offset)
+}
+
+fn is_value_identifier(text: &str) -> bool {
+    is_valid_identifier(text, IdentifierKind::Value)
+}
+
+fn is_type_identifier(text: &str) -> bool {
+    is_valid_identifier(text, IdentifierKind::Type)
+}
+
+fn parse_param_permission(raw_name: &str) -> (ParamPermission, bool, &str) {
     let raw_name = raw_name.trim();
     let Some(first) = raw_name.split_whitespace().next() else {
-        return (ParamPermission::Borrow, raw_name);
+        return (ParamPermission::Borrow, false, raw_name);
     };
     let permission = match first {
         "borrow" => ParamPermission::Borrow,
         "change" => ParamPermission::Change,
         "consume" => ParamPermission::Consume,
-        _ => return (ParamPermission::Borrow, raw_name),
+        _ => return (ParamPermission::Borrow, false, raw_name),
     };
     let name = raw_name[first.len()..].trim();
-    (permission, name)
+    (permission, true, name)
 }
 
 fn is_valid_identifier(name: &str, kind: IdentifierKind) -> bool {
@@ -646,7 +1171,9 @@ fn is_section_header(trimmed: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::parse_source;
-    use crate::ast::Item;
+    use crate::ast::{
+        Item, ParsedBodyStatementKind, ParsedCallCloseStatus, ParsedExpressionKind, TypeSyntaxKind,
+    };
     use crate::diagnostic::{DiagnosticCode, Severity};
 
     #[test]
@@ -873,5 +1400,47 @@ task add_task(title: Text) -> Result Task, TaskError {
         let why = task.section("why").expect("why section");
         assert_eq!(why.lines[0].text, "# keep this visible to graph consumers");
         assert_eq!(why.lines[1].text, "explain the thing");
+    }
+
+    #[test]
+    fn callable_type_and_indirect_call_are_parser_owned_nodes() {
+        let parsed = parse_source(
+            "callable_nodes.hum",
+            "task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {\n  does:\n    return transform(value)\n}\n",
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("task")
+        };
+        let TypeSyntaxKind::Callable(callable) = &task.params[0].type_syntax.kind else {
+            panic!("callable type")
+        };
+        assert_eq!(callable.inputs.len(), 1);
+        let ParsedBodyStatementKind::Return(expression) = &task.body_syntax[0].kind else {
+            panic!("return")
+        };
+        let ParsedExpressionKind::Call(call) = &expression.kind else {
+            panic!("call")
+        };
+        assert_eq!(call.close_status, ParsedCallCloseStatus::Closed);
+        assert_eq!(call.arguments.len(), 1);
+    }
+
+    #[test]
+    fn missing_indirect_close_remains_a_structured_candidate() {
+        let parsed = parse_source(
+            "callable_missing_close.hum",
+            "task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {\n  does:\n    return transform(value\n}\n",
+        );
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("task")
+        };
+        let ParsedBodyStatementKind::Return(expression) = &task.body_syntax[0].kind else {
+            panic!("return")
+        };
+        let ParsedExpressionKind::Call(call) = &expression.kind else {
+            panic!("call candidate")
+        };
+        assert_eq!(call.close_status, ParsedCallCloseStatus::Missing);
     }
 }

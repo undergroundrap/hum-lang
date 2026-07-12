@@ -165,6 +165,10 @@ impl DiagnosticCode {
     pub const CONFLICTING_TARGET_CAPABILITY: Self =
         Self::new("H1205", "conflicting target capability declaration");
 
+    pub const INVALID_CALLABLE_FORM: Self =
+        Self::new("H1401", "invalid or unsupported callable form");
+    pub const CALLABLE_SIGNATURE_MISMATCH: Self = Self::new("H1402", "callable signature mismatch");
+
     pub const fn new(value: &'static str, title: &'static str) -> Self {
         Self { value, title }
     }

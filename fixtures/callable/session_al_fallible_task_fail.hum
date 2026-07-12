@@ -1,0 +1,24 @@
+type CallError {
+  code: Text
+}
+
+task fallible_increment(value: UInt) -> Result UInt, CallError {
+  fails when:
+    the increment fails
+
+  allocates:
+    one causal failure value on failure
+
+  does:
+    return value + 1
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run -> UInt {
+  does:
+    return apply_once(fallible_increment, 41)
+}

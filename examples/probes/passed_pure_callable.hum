@@ -1,0 +1,65 @@
+module examples.probes.passed_pure_callable
+
+task increment(value: UInt) -> UInt {
+  why:
+    provide the first pure named task value
+
+  ensures:
+    result == value + 1
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return value + 1
+}
+
+task double(value: UInt) -> UInt {
+  why:
+    provide an independent sabotage callable
+
+  ensures:
+    result == value * 2
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return value * 2
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  why:
+    apply exactly one passed pure callable
+
+  needs:
+    value < 1000000
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return transform(value)
+}
+
+task run_passed_callable -> UInt {
+  why:
+    observe the passed callable result through runtime execution
+
+  ensures:
+    result == 42
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return apply_once(increment, 41)
+}

@@ -206,3 +206,12 @@ adapter input, proof artifacts, optimized code, executable behavior, broad type
 inference, effect facts, ownership facts, profile enforcement, or safety claims.
 It verifies the shape and honesty of the non-executing artifact boundary so the
 next compiler blockers are visible and compiler-checkable.
+
+## Session AL Callable Verification
+
+Verification fails closed when a callable definition loses any ordered input
+identity or exact signature field; a callable type loses its row or exact
+`UInt`/no-failure fields; a closed-empty row gains a label or tail, changes its
+status, or loses its checked-body origin; a task value loses its type, target,
+reference, or closed status; or an application loses/corrupts its value, row,
+definition, status, reason, result, or failure-root relationship.

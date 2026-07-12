@@ -189,3 +189,9 @@ The command is local-first:
 ## Non-Goals For V0
 
 V0 does not provide a complete ownership or borrowing system. Session V adds no general aliases, internal references, nested/element aliases, stored aliases, or broad flow-sensitive borrowing. It is a narrow source-visible gate that lets the compiler honestly move from recognized effect visibility to local ownership facts before future resource, profile, IR verification, and backend work.
+
+## Session AL Callable Facts
+
+The nonescaping definition handle reports
+`not_applicable_to_al_ordinary_value_v0`; it proves no capture, environment,
+borrow, move, or general callable ownership rule.

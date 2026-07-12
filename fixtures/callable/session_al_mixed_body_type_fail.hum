@@ -1,0 +1,10 @@
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value
+}
+
+task independent_type_error -> Unit {
+  does:
+    let wrong: UInt = "wrong"
+    return
+}

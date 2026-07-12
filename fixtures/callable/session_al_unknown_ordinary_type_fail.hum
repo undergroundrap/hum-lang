@@ -1,0 +1,16 @@
+module fixtures.callable.session_al_unknown_ordinary_type_fail
+
+task unknown(value: MissingType) -> UInt {
+  does:
+    return 1
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run(value: UInt) -> UInt {
+  does:
+    return apply_once(unknown, value)
+}

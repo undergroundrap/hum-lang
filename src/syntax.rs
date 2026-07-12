@@ -8,6 +8,8 @@ pub const TYPE_IDENTIFIER_PATTERN: &str = "[A-Z][A-Za-z0-9]*";
 pub const PARAMETER_PERMISSION_MODES: &[&str] = &["borrow", "change", "consume"];
 pub const WRITABLE_FIELD_ALIAS_FORM: &str = "let <alias> = change <owner>.<field>";
 pub const APP_START_FORM: &str = "starts with: <direct_child_task_name>";
+pub const PASSED_PURE_CALLABLE_TYPE: &str = "task(UInt) -> UInt";
+pub const PASSED_PURE_CALLABLE_APPLICATION: &str = "transform(value)";
 pub const TYPED_FAILURE_FORMS: &[&str] = &[
     "let <value> = try <fallible_call>(<ordinary_value_arguments>)",
     "let <value> = try <fallible_call>(<ordinary_value_arguments>) or fail <CallerError>.<context>",
@@ -429,6 +431,20 @@ pub fn syntax_json() -> String {
         true,
     );
     push_string_property(&mut out, 2, "app_start_form", APP_START_FORM, true);
+    push_string_property(
+        &mut out,
+        2,
+        "passed_pure_callable_type",
+        PASSED_PURE_CALLABLE_TYPE,
+        true,
+    );
+    push_string_property(
+        &mut out,
+        2,
+        "passed_pure_callable_application",
+        PASSED_PURE_CALLABLE_APPLICATION,
+        true,
+    );
     push_string_array(
         &mut out,
         2,
@@ -490,6 +506,8 @@ pub fn textmate_json() -> String {
         VALUE_IDENTIFIER_PATTERN, VALUE_IDENTIFIER_PATTERN, VALUE_IDENTIFIER_PATTERN
     );
     let typed_failure_control_pattern = "(^|[^[:alnum:]_])(try|fail)($|[^[:alnum:]_])".to_string();
+    let callable_type_pattern =
+        "task[(][[:space:]]*UInt[[:space:]]*[)][[:space:]]+->[[:space:]]+UInt".to_string();
     let module_identifier_pattern = format!(
         "^[[:space:]]*{}[[:space:]]+{}(\\.({}))*",
         regex_word_literal(MODULE_KEYWORD),
@@ -543,6 +561,10 @@ pub fn textmate_json() -> String {
         name: "keyword.control.typed-failure.hum",
         pattern: typed_failure_control_pattern,
     }];
+    let callable_type_rules = [TextMateRule {
+        name: "storage.type.callable.pure.hum",
+        pattern: callable_type_pattern,
+    }];
     let identifier_rules = [
         TextMateRule {
             name: "entity.name.namespace.module.hum",
@@ -570,6 +592,7 @@ pub fn textmate_json() -> String {
     push_include(&mut out, 4, "#items", true);
     push_include(&mut out, 4, "#identifiers", true);
     push_include(&mut out, 4, "#parameter-permissions", true);
+    push_include(&mut out, 4, "#callable-types", true);
     push_include(&mut out, 4, "#writable-field-aliases", true);
     push_include(&mut out, 4, "#typed-failures", true);
     push_include(&mut out, 4, "#sections", true);
@@ -589,6 +612,7 @@ pub fn textmate_json() -> String {
         &parameter_permission_rules,
         true,
     );
+    push_repository_matches(&mut out, 4, "callable-types", &callable_type_rules, true);
     push_repository_matches(&mut out, 4, "typed-failures", &typed_failure_rules, true);
     push_repository_matches(
         &mut out,

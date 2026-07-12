@@ -73,6 +73,29 @@ pub fn check_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
     out
 }
 
+pub(crate) fn inject_json(mut report: String, diagnostics: &[Diagnostic]) -> String {
+    if diagnostics.is_empty() {
+        return report;
+    }
+    let mut field = String::from("  \"pipeline_diagnostics\": [\n");
+    for (index, diagnostic) in diagnostics.iter().enumerate() {
+        if index > 0 {
+            field.push_str(",\n");
+        }
+        push_source_diagnostic(&mut field, diagnostic, 4);
+    }
+    field.push_str("\n  ]");
+    if let Some(close) = report.rfind("\n}") {
+        let comma = if report[..close].trim_end().ends_with(',') {
+            ""
+        } else {
+            ","
+        };
+        report.insert_str(close, &format!("{comma}\n{field}"));
+    }
+    report
+}
+
 fn push_diagnostic_info(out: &mut String, info: &DiagnosticInfo, indent: usize) {
     push_indent(out, indent);
     out.push_str("{\n");

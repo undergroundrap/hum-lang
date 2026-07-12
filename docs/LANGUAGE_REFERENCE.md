@@ -269,6 +269,13 @@ A `task` is Hum's function-like unit. It combines a callable header, checked
 intent sections, and a `does:` body. Milestone 0 parses and checks task shape
 but does not execute the body.
 
+Session AL permits one passed pure task value: a receiver parameter may have
+the exact type `task(UInt) -> UInt`, a caller may pass one unqualified same-file
+task name, and the receiver may return exactly `transform(value)`. Resolution
+precedes this analysis. The row-elided source type is accepted only for an
+inferred closed-empty latent row and no failure root. Task values cannot be
+stored, returned, displayed, compared, captured, qualified, or constructed.
+
 ### `test`
 
 ```hum
@@ -664,6 +671,11 @@ collections. The runtime prints a stable outer-to-root causal chain with root
 origin and all recognized call sites. Permission-bearing call arguments, first-class
 `Result`, variant membership, recovery, exceptions, ambient backtraces, and
 general call typing remain unsupported.
+
+The interpreter also executes the exact Session AL passed-callable slice using
+a private resolved-definition handle. The handle is nonescaping and has no
+source conversion or display surface; this does not add general closures or
+higher-order runtime values.
 
 The report gates remain non-executing. `hum core-preview` maps recognized lines into Core Hum candidate operations and explicit blockers without executing, type-checking, effect-checking, or emitting IR. `hum resolve` performs the first checked pass over scopes, definitions, references, and mutable-place targets. `hum type-env` records declared type names and annotations with resolver identity. `hum type-check` validates declaration annotation names without expression inference or body checking. `hum full-type-check`, `hum effect-check`, `hum ownership-check`, and `hum resource-check` report recognized facts and blockers without execution or IR emission. `hum ir-readiness` consumes the checked resolver, type, Core verifier, full-type-check, effect-check, ownership-check, and resource-check summaries before any future lowering claim. New executable syntax must still become checkable, lower into [FORMAL_CORE.md](FORMAL_CORE.md), and preserve the non-claims of the report surfaces before it becomes stable.
 

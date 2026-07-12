@@ -136,3 +136,16 @@ The command is local-first:
 ## Non-Goals For V0
 
 V0 does not provide a complete resource, allocator, cost, region, profile, or memory-safety system. It is a narrow source-visible gate that lets the compiler honestly move from recognized local ownership facts to declared allocation/resource intent before future profile, IR verification, and backend work.
+
+## Session AL Callable Facts
+
+Participating tasks report `not_applicable_to_al_ordinary_value_v0` because
+the runtime value is one nonretained definition handle with zero callable
+environment. This is slice evidence, not allocation-freedom proof.
+
+An otherwise nonparticipating exact `UInt -> UInt` task definition in the AL
+exam may report `accepted_nonretained_callable_definition_constant_space_v0`
+only when its existing `cost:` declares `space: O(1)` and its structured body
+contains neither visible allocation construction nor a call. This consumes the
+exam's resource claim without adding an `allocates:` declaration or exempting
+unrelated tasks that lack that claim.

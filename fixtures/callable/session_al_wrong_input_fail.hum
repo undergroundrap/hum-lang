@@ -1,0 +1,14 @@
+task text_task(value: Text) -> UInt {
+  does:
+    return 1
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run -> UInt {
+  does:
+    return apply_once(text_task, 41)
+}

@@ -1,0 +1,6 @@
+module fixtures.callable.session_al_mismatched_delimiter_fail
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform[value)
+}

@@ -1,0 +1,11 @@
+module fixtures.callable.session_al_recursive_relationship_fail
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run(value: UInt) -> UInt {
+  does:
+    return apply_once(apply_once, value)
+}

@@ -529,3 +529,8 @@ adapter input, proof artifacts, optimized code, executable behavior, independent
 type checking, broad expression type inference, module or global name resolution,
 or checked name resolution. It is a conservative preview of what the next true
 lowering pass must make precise.
+
+## Session AL Callable Nodes
+
+`callable_facts.core_nodes` previews stable `callable_type`, `callable_value`,
+and `callable_application` nodes with the shared closed-row identity.

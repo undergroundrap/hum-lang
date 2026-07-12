@@ -129,6 +129,7 @@ record { field: Type, ... }
 variant { Case(Type), ... }
 maybe Type
 Result Type, Error
+task(UInt) -> UInt    # Session AL only
 ```
 
 Rules:
@@ -206,6 +207,13 @@ if expression
 match expression
 try expression
 ```
+
+Session AL adds three bounded Core facts: `callable_type`, `callable_value`, and
+`callable_application`. They preserve resolver definition/reference IDs, the
+exact input/result types, `failure_root = none`, and one closed-empty latent-row
+ID. The application binds a private task-definition handle and dispatches once;
+it creates no source-visible closure, capture environment, open effect row, or
+general callable operation.
 
 Session W recognizes only `let value = try named_call(arguments)` and
 `let value = try named_call(arguments) or fail CallerError.context`, with

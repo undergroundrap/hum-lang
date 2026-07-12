@@ -179,3 +179,10 @@ V0 does not lower Surface Hum to executable Core Hum, execute tasks, fully type-
 fully check body effects, fully check ownership and borrowing, fully prove resource or allocation behavior, choose a backend, optimize programs, prove memory safety, or
 emit artifacts. It names the boring executable core boundary future work must
 satisfy before those claims are honest.
+
+## Session AL Callable Boundary
+
+The existing catalogs include one `callable_definition_handle_al` value, the
+exact `task(UInt) -> UInt` type, and bounded `callable_value` and
+`callable_application_al` expressions. These names authorize no closure
+environment, capture, storage, return, open effect row, or general dispatch.

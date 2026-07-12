@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::ast::{Item, Param, ParamPermission, Program, Section};
+use crate::ast::{
+    Item, Param, ParamPermission, ParsedBodyStatement, ParsedBodyStatementKind, ParsedExpression,
+    ParsedExpressionKind, Program, Section, TypeSyntaxKind,
+};
 use crate::core_body::{self, BodyStatement};
 use crate::core_expr::{self, CoreExpressionPreview};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
@@ -67,6 +70,19 @@ pub struct ResolveScopeSummary {
     pub source_span: Option<Span>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolveReferenceSummary {
+    pub id: String,
+    pub name: String,
+    pub normalized_name: String,
+    pub reference_kind: &'static str,
+    pub scope_id: String,
+    pub source_span: Span,
+    pub resolution_status: &'static str,
+    pub resolved_definition_id: Option<String>,
+    pub reason: Option<&'static str>,
+}
+
 #[derive(Debug, Clone)]
 struct ResolveScope {
     id: String,
@@ -103,6 +119,15 @@ struct ResolveReference {
     resolution_status: &'static str,
     resolved_definition_id: Option<String>,
     reason: Option<&'static str>,
+}
+
+struct CallableResolveInput<'a> {
+    owner_kind: &'static str,
+    owner_name: &'a str,
+    params: &'a [Param],
+    sections: &'a [Section],
+    span: &'a Span,
+    body_syntax: Option<&'a [ParsedBodyStatement]>,
 }
 
 #[derive(Debug, Clone)]
@@ -149,6 +174,9 @@ struct ResolverContext {
     scope_serial: usize,
     definition_serial: usize,
     reference_serial: usize,
+    callable_receiver_definition_ids: BTreeSet<String>,
+    callable_parameter_definition_ids: BTreeSet<String>,
+    task_definition_ids_by_name: BTreeMap<String, Vec<String>>,
 }
 
 pub fn resolve_has_errors(program: &Program, source_diagnostics: &[Diagnostic]) -> bool {
@@ -218,6 +246,27 @@ pub fn resolve_scope_summaries(
             owner_kind: scope.owner_kind,
             owner_name: scope.owner_name.clone(),
             source_span: scope.source_span.clone(),
+        })
+        .collect()
+}
+
+pub fn resolve_reference_summaries(
+    program: &Program,
+    source_diagnostics: &[Diagnostic],
+) -> Vec<ResolveReferenceSummary> {
+    build_report(program, source_diagnostics)
+        .references
+        .iter()
+        .map(|reference| ResolveReferenceSummary {
+            id: reference.id.clone(),
+            name: reference.name.clone(),
+            normalized_name: reference.normalized_name.clone(),
+            reference_kind: reference.reference_kind,
+            scope_id: reference.scope_id.clone(),
+            source_span: reference.source_span.clone(),
+            resolution_status: reference.resolution_status,
+            resolved_definition_id: reference.resolved_definition_id.clone(),
+            reason: reference.reason,
         })
         .collect()
 }
@@ -302,7 +351,8 @@ pub fn resolve_json(program: &Program, source_diagnostics: &[Diagnostic]) -> Str
 }
 
 fn build_report(program: &Program, source_diagnostics: &[Diagnostic]) -> ResolveReport {
-    let mut context = ResolverContext::new();
+    let mut context = ResolverContext::new(program);
+    let mut file_scopes = Vec::new();
     for (file_index, file) in program.files.iter().enumerate() {
         let file_scope = context.add_scope(
             None,
@@ -313,7 +363,11 @@ fn build_report(program: &Program, source_diagnostics: &[Diagnostic]) -> Resolve
             format!("file_{file_index}_{}", id_fragment(&file.path)),
         );
         context.collect_item_definitions(&file.items, &file_scope);
-        context.resolve_items(&file.items, &file_scope);
+        file_scopes.push(file_scope);
+    }
+    context.register_top_level_callable_definitions(program);
+    for (file, file_scope) in program.files.iter().zip(&file_scopes) {
+        context.resolve_items(&file.items, file_scope);
     }
 
     let source_errors = source_diagnostics
@@ -335,7 +389,8 @@ fn build_report(program: &Program, source_diagnostics: &[Diagnostic]) -> Resolve
 }
 
 impl ResolverContext {
-    fn new() -> Self {
+    fn new(program: &Program) -> Self {
+        let _ = program;
         Self {
             scopes: Vec::new(),
             definitions: Vec::new(),
@@ -346,6 +401,42 @@ impl ResolverContext {
             scope_serial: 0,
             definition_serial: 0,
             reference_serial: 0,
+            callable_receiver_definition_ids: BTreeSet::new(),
+            callable_parameter_definition_ids: BTreeSet::new(),
+            task_definition_ids_by_name: BTreeMap::new(),
+        }
+    }
+
+    fn register_top_level_callable_definitions(&mut self, program: &Program) {
+        for file in &program.files {
+            self.register_callable_definitions_in_items(&file.items);
+        }
+    }
+
+    fn register_callable_definitions_in_items(&mut self, items: &[Item]) {
+        for item in items {
+            let Item::Task(task) = item else {
+                continue;
+            };
+            let Some(definition) = self.definitions.iter().find(|definition| {
+                definition.definition_kind == "task"
+                    && same_span(&definition.source_span, &task.span)
+            }) else {
+                continue;
+            };
+            self.task_definition_ids_by_name
+                .entry(definition.normalized_name.clone())
+                .or_default()
+                .push(definition.id.clone());
+            if task.params.iter().any(|param| {
+                matches!(
+                    param.type_syntax.kind,
+                    TypeSyntaxKind::Callable(_) | TypeSyntaxKind::CallableCandidate { .. }
+                )
+            }) {
+                self.callable_receiver_definition_ids
+                    .insert(definition.id.clone());
+            }
         }
     }
 
@@ -426,6 +517,7 @@ impl ResolverContext {
                         format!("app_{}_scope", id_fragment(&app.name)),
                     );
                     self.collect_item_definitions(&app.items, &app_scope);
+                    self.register_callable_definitions_in_items(&app.items);
                     self.resolve_items(&app.items, &app_scope);
                 }
                 Item::Type(type_def) => {
@@ -455,36 +547,42 @@ impl ResolverContext {
                 Item::Task(task) => {
                     self.resolve_callable(
                         scope_id,
-                        "task",
-                        &task.name,
-                        &task.params,
-                        &task.sections,
-                        &task.span,
+                        CallableResolveInput {
+                            owner_kind: "task",
+                            owner_name: &task.name,
+                            params: &task.params,
+                            sections: &task.sections,
+                            span: &task.span,
+                            body_syntax: Some(task.body_syntax.as_slice()),
+                        },
                     );
                 }
                 Item::Test(test) => {
                     self.resolve_callable(
                         scope_id,
-                        "test",
-                        &test.name,
-                        &test.params,
-                        &test.sections,
-                        &test.span,
+                        CallableResolveInput {
+                            owner_kind: "test",
+                            owner_name: &test.name,
+                            params: &test.params,
+                            sections: &test.sections,
+                            span: &test.span,
+                            body_syntax: None,
+                        },
                     );
                 }
             }
         }
     }
 
-    fn resolve_callable(
-        &mut self,
-        parent_scope_id: &str,
-        owner_kind: &'static str,
-        owner_name: &str,
-        params: &[Param],
-        sections: &[Section],
-        span: &Span,
-    ) {
+    fn resolve_callable(&mut self, parent_scope_id: &str, input: CallableResolveInput<'_>) {
+        let CallableResolveInput {
+            owner_kind,
+            owner_name,
+            params,
+            sections,
+            span,
+            body_syntax,
+        } = input;
         let callable_scope = self.add_scope(
             Some(parent_scope_id),
             "callable",
@@ -494,7 +592,7 @@ impl ResolverContext {
             format!("{}_{}_scope", owner_kind, id_fragment(owner_name)),
         );
         for param in params {
-            self.add_definition(
+            let definition_id = self.add_definition(
                 &callable_scope,
                 DefinitionInput {
                     name: &param.name,
@@ -505,6 +603,13 @@ impl ResolverContext {
                     defer_duplicate_diagnostic: false,
                 },
             );
+            if matches!(
+                param.type_syntax.kind,
+                TypeSyntaxKind::Callable(_) | TypeSyntaxKind::CallableCandidate { .. }
+            ) && let Some(definition_id) = definition_id
+            {
+                self.callable_parameter_definition_ids.insert(definition_id);
+            }
         }
 
         self.resolve_declared_sections(&callable_scope, sections);
@@ -512,6 +617,153 @@ impl ResolverContext {
         if let Some(section) = find_section(sections, "does") {
             self.resolve_does_section(&callable_scope, section);
         }
+        if let Some(body_syntax) = body_syntax {
+            self.resolve_structured_callable_references(&callable_scope, body_syntax);
+        }
+    }
+
+    fn resolve_structured_callable_references(
+        &mut self,
+        scope_id: &str,
+        statements: &[ParsedBodyStatement],
+    ) {
+        for statement in statements {
+            match &statement.kind {
+                ParsedBodyStatementKind::Return(expression) => {
+                    self.resolve_structured_expression(scope_id, expression, false);
+                }
+                ParsedBodyStatementKind::Binding { value, .. } => {
+                    if let Some(expression) = value {
+                        self.resolve_structured_expression(scope_id, expression, false);
+                    }
+                }
+                ParsedBodyStatementKind::Other { expressions } => {
+                    for expression in expressions {
+                        self.resolve_structured_expression(scope_id, expression, false);
+                    }
+                }
+            }
+        }
+    }
+
+    fn resolve_structured_expression(
+        &mut self,
+        scope_id: &str,
+        expression: &ParsedExpression,
+        argument_position: bool,
+    ) {
+        match &expression.kind {
+            ParsedExpressionKind::Identifier(identifier) => {
+                let resolved = self
+                    .resolve_definition(scope_id, &name_key(&identifier.name), "callable_value_ref")
+                    .map(|definition| definition.id.clone());
+                if argument_position
+                    || resolved.as_ref().is_some_and(|definition_id| {
+                        self.callable_parameter_definition_ids
+                            .contains(definition_id)
+                    })
+                {
+                    self.add_reference(
+                        scope_id,
+                        PendingReferenceInput {
+                            name: &identifier.name,
+                            reference_kind: if argument_position {
+                                "callable_argument_ref"
+                            } else {
+                                "callable_value_ref"
+                            },
+                            mutable_required: false,
+                            external_if_unresolved: false,
+                            span: &identifier.span,
+                        },
+                    );
+                }
+            }
+            ParsedExpressionKind::Call(call) => {
+                let mut callable_argument_positions = false;
+                if let ParsedExpressionKind::Identifier(identifier) = &call.callee.kind {
+                    let normalized = name_key(&identifier.name);
+                    let target = self
+                        .resolve_definition(scope_id, &normalized, "callable_callee_ref")
+                        .map(|definition| definition.id.clone())
+                        .or_else(|| {
+                            self.unique_cross_file_callable_receiver(scope_id, &normalized)
+                        });
+                    if let Some(target) = target {
+                        let direct_callable_receiver =
+                            self.callable_receiver_definition_ids.contains(&target);
+                        let indirect_callable_parameter =
+                            self.callable_parameter_definition_ids.contains(&target);
+                        callable_argument_positions =
+                            direct_callable_receiver || indirect_callable_parameter;
+                        if direct_callable_receiver || indirect_callable_parameter {
+                            self.add_reference(
+                                scope_id,
+                                PendingReferenceInput {
+                                    name: &identifier.name,
+                                    reference_kind: "callable_callee_ref",
+                                    mutable_required: false,
+                                    external_if_unresolved: false,
+                                    span: &identifier.span,
+                                },
+                            );
+                        }
+                    }
+                }
+                for argument in &call.arguments {
+                    self.resolve_structured_expression(
+                        scope_id,
+                        argument,
+                        callable_argument_positions,
+                    );
+                }
+            }
+            ParsedExpressionKind::Permission { value, .. } => {
+                self.resolve_structured_expression(scope_id, value, argument_position);
+            }
+            ParsedExpressionKind::Compound { operands } => {
+                for operand in operands {
+                    self.resolve_structured_expression(scope_id, operand, argument_position);
+                }
+            }
+            ParsedExpressionKind::UIntLiteral(_)
+            | ParsedExpressionKind::Unsupported { .. }
+            | ParsedExpressionKind::Other => {}
+        }
+    }
+
+    fn unique_cross_file_callable_receiver(
+        &self,
+        scope_id: &str,
+        normalized_name: &str,
+    ) -> Option<String> {
+        let matches = self
+            .task_definition_ids_by_name
+            .get(normalized_name)?
+            .iter()
+            .filter(|definition_id| {
+                self.callable_receiver_definition_ids
+                    .contains(*definition_id)
+                    && self.definition_is_in_another_file(scope_id, definition_id)
+            })
+            .collect::<Vec<_>>();
+        (matches.len() == 1).then(|| matches[0].clone())
+    }
+
+    fn definition_is_in_another_file(&self, scope_id: &str, definition_id: &str) -> bool {
+        let Some(scope_file) = self
+            .scopes
+            .iter()
+            .find(|scope| scope.id == scope_id)
+            .and_then(|scope| scope.source_span.as_ref())
+            .map(|span| portable_path(&span.file))
+        else {
+            return false;
+        };
+        self.definitions
+            .iter()
+            .find(|definition| definition.id == definition_id)
+            .is_some_and(|definition| portable_path(&definition.source_span.file) != scope_file)
     }
 
     fn resolve_declared_sections(&mut self, scope_id: &str, sections: &[Section]) {
@@ -851,7 +1103,7 @@ impl ResolverContext {
         if normalized_name.is_empty() {
             return None;
         }
-        let resolved = self
+        let lexical_resolved = self
             .resolve_definition(scope_id, &normalized_name, input.reference_kind)
             .map(|definition| {
                 (
@@ -860,6 +1112,53 @@ impl ResolverContext {
                     definition.definition_kind,
                 )
             });
+        let cross_file_resolved = if lexical_resolved.is_none() {
+            match input.reference_kind {
+                "callee_ref" | "callable_callee_ref" => self
+                    .unique_cross_file_callable_receiver(scope_id, &normalized_name)
+                    .and_then(|definition_id| {
+                        self.definitions
+                            .iter()
+                            .find(|definition| definition.id == definition_id)
+                            .map(|definition| {
+                                (
+                                    definition.id.clone(),
+                                    definition.mutable,
+                                    definition.definition_kind,
+                                )
+                            })
+                    }),
+                "callable_argument_ref" => self
+                    .task_definition_ids_by_name
+                    .get(&normalized_name)
+                    .map(|definitions| {
+                        definitions
+                            .iter()
+                            .filter(|definition_id| {
+                                self.definition_is_in_another_file(scope_id, definition_id)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|definitions| definitions.len() == 1)
+                    .and_then(|definitions| {
+                        let definition_id = definitions[0];
+                        self.definitions
+                            .iter()
+                            .find(|definition| &definition.id == definition_id)
+                            .map(|definition| {
+                                (
+                                    definition.id.clone(),
+                                    definition.mutable,
+                                    definition.definition_kind,
+                                )
+                            })
+                    }),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let resolved = lexical_resolved.or(cross_file_resolved.clone());
         let builtin_name = input.name.trim();
         let builtin_callee = input.reference_kind == "callee_ref"
             && matches!(
@@ -896,7 +1195,15 @@ impl ResolverContext {
                     Some("target_is_not_mutable"),
                 )
             } else {
-                ("resolved_v0", Some(definition_id), None)
+                (
+                    if cross_file_resolved.is_some() {
+                        "cross_file_callable_candidate_v0"
+                    } else {
+                        "resolved_v0"
+                    },
+                    Some(definition_id),
+                    None,
+                )
             }
         } else if external {
             (
@@ -953,8 +1260,11 @@ impl ResolverContext {
                 .get(&key)
                 .map(|definition| &self.definitions[definition.index])
                 .filter(|definition| {
-                    reference_kind != "callee_ref"
-                        || matches!(definition.definition_kind, "task" | "test" | "type")
+                    !matches!(reference_kind, "callee_ref" | "callable_callee_ref")
+                        || matches!(
+                            definition.definition_kind,
+                            "task" | "test" | "type" | "parameter"
+                        )
                 })
             {
                 return Some(definition);
@@ -1414,6 +1724,12 @@ fn portable_span(span: &Span) -> Span {
         line: span.line,
         column: span.column,
     }
+}
+
+fn same_span(left: &Span, right: &Span) -> bool {
+    portable_path(&left.file) == portable_path(&right.file)
+        && left.line == right.line
+        && left.column == right.column
 }
 
 fn portable_path(path: &str) -> String {

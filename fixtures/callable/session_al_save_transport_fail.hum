@@ -1,0 +1,12 @@
+module fixtures.callable.session_al_save_transport_fail
+
+store saved: UInt {
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  changes:
+    saved
+  does:
+    save transform in saved
+    return transform(value)
+}

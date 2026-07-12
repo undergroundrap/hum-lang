@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::ast::{App, Field, Item, Param, Program, Store, Task, Test, TypeDef};
+use crate::callable;
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::predicate;
 use crate::resolve;
@@ -23,6 +24,7 @@ const RESERVED_TYPE_ROOTS: &[&str] = &[
     "ReplayClockError",
     "FileReadError",
     "Result",
+    "task",
     "Option",
     "Maybe",
     "list",
@@ -52,6 +54,7 @@ pub struct TypeEnvReport {
     pub source_warnings: usize,
     pub resolver_summary: resolve::ResolveReadinessSummary,
     pub resolver_definitions: Vec<resolve::ResolveDefinitionSummary>,
+    pub callable_blockers: usize,
     pub type_names: Vec<TypeNameFact>,
     pub declarations: Vec<TypeDeclaration>,
 }
@@ -240,6 +243,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeEnvReport 
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
         .count();
     let source_warnings = diagnostics.len().saturating_sub(source_errors);
+    let callable_blockers = callable::stage_blockers(program, "type_env");
 
     let mut type_names = Vec::new();
     let mut declarations = Vec::new();
@@ -260,6 +264,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeEnvReport 
         source_warnings,
         resolver_summary,
         resolver_definitions,
+        callable_blockers,
         type_names,
         declarations,
     }
@@ -642,6 +647,8 @@ impl TypeEnvReport {
             "blocked_by_resolver_errors"
         } else if self.unknown_type_references() > 0 {
             "type_environment_with_unknowns_v0"
+        } else if self.callable_blockers > 0 {
+            "blocked_by_callable_errors_v0"
         } else {
             "type_environment_v0"
         }

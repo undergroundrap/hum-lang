@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast::{Item, Program, Section};
+use crate::callable;
 use crate::capability_root::{self, CapabilityRouteFact};
 use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
@@ -78,6 +79,7 @@ struct EffectCheckReport {
     files: usize,
     item_count: usize,
     source_errors: usize,
+    callable_blockers: usize,
 }
 
 struct EffectItem {
@@ -399,6 +401,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckRep
         files: program.files.len(),
         item_count: count_items(program),
         source_errors,
+        callable_blockers: callable::stage_blockers(program, "effect_check"),
     }
 }
 
@@ -1228,6 +1231,8 @@ impl EffectCheckReport {
             "blocked_by_core_verify_errors"
         } else if self.full_type_check_errors() > 0 {
             "blocked_by_full_type_check_errors"
+        } else if self.callable_blockers > 0 {
+            "blocked_by_callable_errors_v0"
         } else if self.rejected_statements() > 0 || self.rejected_boundary_checks() > 0 {
             "effect_errors_v0"
         } else if self.unchecked_statements() > 0 {

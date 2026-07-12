@@ -140,3 +140,9 @@ or generic semantics claim.
 V0 does not produce Core Hum, Hum IR, bytecode, machine code, proof artifacts,
 layout evidence, ABI evidence, monomorphization plans, trait resolution, or
 executable behavior.
+
+## Session AL Callable Facts
+
+`callable_facts` records exact `task(UInt) -> UInt` components and their
+resolver identities. `task` is a reserved type root only for this bounded
+structured callable type; it is not a general type constructor.

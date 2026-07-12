@@ -1,0 +1,16 @@
+module fixtures.callable.session_al_multiple_target_params_fail
+
+task two_inputs(left: UInt, right: UInt) -> UInt {
+  does:
+    return left
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run -> UInt {
+  does:
+    return apply_once(two_inputs, 41)
+}

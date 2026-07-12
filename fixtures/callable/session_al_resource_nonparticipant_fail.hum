@@ -1,0 +1,21 @@
+module fixtures.callable.session_al_resource_nonparticipant_fail
+
+task increment(value: UInt) -> UInt {
+  does:
+    return value + 1
+}
+
+task unrelated(value: UInt) -> UInt {
+  does:
+    return value
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run(value: UInt) -> UInt {
+  does:
+    return apply_once(increment, value)
+}

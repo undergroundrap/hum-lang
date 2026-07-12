@@ -1,0 +1,16 @@
+module fixtures.callable.session_al_zero_target_params_fail
+
+task no_input -> UInt {
+  does:
+    return 1
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run -> UInt {
+  does:
+    return apply_once(no_input, 41)
+}
