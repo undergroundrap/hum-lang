@@ -1,21 +1,12 @@
 # Hum Work Order 7: Predicate V2 And The Effect-Polymorphism Bake-Off
 
 Date: 2026-07-11
-Status: issued; independently reviewed and accepted by the BDFL; the complete
-stack is commit `c10a210`, with Ubuntu and Windows CI passed in workflow
-`29145110803`; Session AF is accepted and committed as `7991ef6`, with Ubuntu
-and Windows CI passed in workflow `29160088909`; Session AG is accepted and
-committed as `13f3142`, with Ubuntu and Windows CI passed in workflow
-`29168356268`; Session AH is accepted and committed as `f342c07`, with Ubuntu
-job `86591386810` and Windows job `86591386800` passed in workflow
-`29170727489`; Session AI is accepted and committed as `6639090`, with Ubuntu
-job `86606136546` passed in 1m 02s and Windows job `86606136541` passed in
-2m 00s in workflow `29176355216`; Session AJ is accepted and committed as
-`cfa4875`, with Ubuntu job `86609314833` passed in 1m 01s and Windows job
-`86609314810` passed in 2m 08s in workflow `29177570546`; Session AK is next
-but remains unauthorized pending a separate BDFL go signal; no candidate
-selection, decision ruling, implementation session, commit, push, production
-effect work, or scope expansion is implicitly authorized
+Status: closed; Sessions AF-AK are accepted and committed. Session AK and
+accepted decision 0018 are commit `1b324fb`; Ubuntu job `86613010219` passed
+in 1m 08s and Windows job `86613010224` passed in 2m 02s in workflow
+`29178915990`. Decision 0018 is accepted under delegated authority, BDFL veto
+open. No production effect-polymorphism implementation, later implementation
+session, or Work Order 8 is authorized or issued.
 Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
 bounded planning authorization. Independent pre-issuance reviewer: a fresh
 architect-reviewer that did not author or edit this deliverable. Future
@@ -973,21 +964,16 @@ The fresh reviewer must verify at least:
 
 ## Current authorization gate
 
-Work Order 6 remains closed at `d601054`; Sessions V-AE are accepted and
-committed. The independently reviewed Work Order 7 stack was accepted by the
-BDFL and committed as `c10a210`; Ubuntu and Windows CI passed in workflow
-`29145110803`. Work Order 7 is issued. The BDFL authorized Session AF; its
-implementation was accepted and committed as `7991ef6`, and Ubuntu and Windows
-CI passed in workflow `29160088909`. Session AG is accepted and committed as
-`13f3142`; Ubuntu and Windows CI passed in workflow `29168356268`. Session AH is
-accepted and committed as `f342c07`; Ubuntu job `86591386810` and Windows job
-`86591386800` passed in workflow `29170727489`. Session AI is accepted and
-committed as `6639090`; Ubuntu job `86606136546` passed in 1m 02s and Windows
-job `86606136541` passed in 2m 00s in workflow `29176355216`. Session AJ is
-accepted and committed as `cfa4875`; Ubuntu job `86609314833` passed in
-1m 01s and Windows job `86609314810` passed in 2m 08s in workflow
-`29177570546`. Session AK is next but remains unauthorized pending a separate
-BDFL go signal. No candidate selection, decision ruling, implementation
-session, commit, push, production effect work, or scope expansion is implicitly
+Work Order 6 remains closed at `d601054`. Work Order 7 is closed; Sessions
+AF-AK are accepted and committed. Session AK and accepted decision 0018 are
+commit `1b324fb`; decision 0018 is accepted under delegated authority, BDFL
+veto open. Ubuntu job `86613010219` passed in 1m 08s and Windows job
+`86613010224` passed in 2m 02s in workflow `29178915990`.
+
+No production effect-polymorphism implementation is authorized. No later
+implementation session or Work Order 8 is issued. Further production work
+requires a new independently reviewed Work Order, separate BDFL acceptance,
+and separate BDFL go signals. No implementation session, decision ruling,
+commit, push, production effect work, or scope expansion is implicitly
 authorized.
 Publishing remains a BDFL-reserved action under `docs/GOVERNANCE.md`.
