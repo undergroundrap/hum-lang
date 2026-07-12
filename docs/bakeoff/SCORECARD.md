@@ -1,15 +1,21 @@
-# Ownership Bake-Off Scorecard
+# Ownership and Effect-Polymorphism Bake-Off Scorecard
 
-Date: 2026-07-08
-Status: Session AE implementation retrospective for Work Order 6, pending review
-Corpus: [CORPUS.md](CORPUS.md)
+Date: 2026-07-11
+Status: Session AK comparison independently reviewed; decision 0018 accepted
+under delegated authority with the BDFL veto open
+Corpora: [Ownership corpus](CORPUS.md) and
+[effect-polymorphism corpus](EFFECT_POLYMORPHISM_CORPUS.md)
 
 ## Purpose
 
-This scorecard compares the three ownership candidates against the pinned
-twelve-program corpus. It is evidence for decision record
-[0014](../decisions/0014-adopt-ownership-model.md), which is now accepted
-under delegated authority with the BDFL veto open.
+This cumulative scorecard records two separately frozen bake-offs. The
+ownership comparison against the twelve-program ownership corpus is evidence
+for accepted decision
+[0014](../decisions/0014-adopt-ownership-model.md). The effect-polymorphism
+comparison against the twelve-case, 29-variant higher-order corpus is evidence
+for accepted decision
+[0018](../decisions/0018-adopt-effect-polymorphism-model.md). Neither design
+comparison by itself claims production implementation.
 
 ## Score Key
 
@@ -353,13 +359,167 @@ authority. Deferring that wedge costs a flagship real-tool proof; forcing it
 now costs architectural honesty. Predicate v2 first, then the effect bake-off,
 is the decisive next sequence.
 
-### Session AF Predicate v2 payment (uncommitted review state)
+### Session AF Predicate v2 payment (accepted)
 
-Session AF implements the exact three triggered records without changing the
-ownership corpus score: `word_count` checks its content-conditional count with
-contract-only `list_count`, `builder_demo` checks exact ordered `List Text`
-content, and `element_views` checks exact Text equality. Wrong implementations
-fail H0703, and malformed or ill-typed executable candidates fail H0704 rather
-than becoming H0701 or a trap. The three Predicate v2 friction records are
-therefore paid in the uncommitted review worktree; this is not acceptance and
-adds no effect-polymorphism or ownership credit.
+Accepted Session AF, committed as `7991ef6`, paid the exact three triggered
+records without changing the ownership corpus score: `word_count` checks its
+content-conditional count with contract-only `list_count`, `builder_demo`
+checks exact ordered `List Text` content, and `element_views` checks exact Text
+equality. Wrong implementations fail H0703, and malformed or ill-typed
+executable candidates fail H0704 rather than becoming H0701 or a trap. This
+payment adds no effect-polymorphism or ownership credit.
+
+## Session AK effect-polymorphism bake-off
+
+Session AK freezes the accepted Session AG corpus and harness plus the accepted
+AH-AJ candidate code. No candidate module, advocate document, corpus row,
+relationship origin, neutral result field, normalization rule, inventory, or
+cost rule changed during scoring. Each harness-owned factory ran twice from
+fresh state; every candidate produced byte-identical canonical output and then
+passed the same closed result validator.
+
+### Common exam result
+
+The exam remains exactly 12 cases and 29 variants: 13 positives and 16
+misuses. All three candidates accept all 13 positives, reject all 16 misuses,
+and produce zero unsupported or incomplete results. Every rejection has one
+primary diagnostic, covers all 36 required relationship sites across the 16
+misuses, preserves the model-neutral reason and repair, and exposes allocation,
+resource, authority, ownership, and unimplemented-machinery facts through the
+same contract.
+
+| Case | Positive variants | Misuse variants | Row | Formula | Capture |
+| --- | ---: | ---: | --- | --- | --- |
+| Pure map | 1 | 1 | complete | complete | complete |
+| Effectful map | 1 | 1 | complete | complete | complete |
+| Filter/retain | 2 | 2 | complete | complete | complete |
+| Fold | 1 | 1 | complete | complete | complete |
+| Retry | 1 | 1 | complete | complete | complete |
+| Timeout, type-only | 1 | 1 | complete; runtime uncredited | complete; runtime uncredited | complete; runtime uncredited |
+| Parallel map, type-only | 1 | 1 | complete; runtime uncredited | complete; runtime uncredited | complete; runtime uncredited |
+| Callback registry | 1 | 1 | complete | complete | complete |
+| Event-handler factory | 1 | 1 | complete | complete | complete |
+| Memoizing wrapper | 1 | 1 | complete | complete | complete |
+| Logging middleware | 1 | 1 | complete | complete | complete |
+| Linear capture | 1 | 4 | complete with separate guards | complete with separate guards | complete with retention plus separate guards |
+| **Total** | **13** | **16** | **13 accepted / 16 rejected** | **13 accepted / 16 rejected** | **13 accepted / 16 rejected** |
+
+Pure Effekt-style second-class computations remain ineligible without
+restructuring for the stored callback, returned handler, returned memoizer,
+returned logging wrapper, and returned/stored resource-bearing callable. An
+around-call helper does not satisfy those frozen relationships, so this family
+does not enter the three-way score.
+
+### Exact measured cost
+
+All implementation counts come from the harness-owned checked-in source
+inventory. Every candidate has zero dependencies. Analysis totals aggregate
+the same 29 results; ranges are per result. Canonical byte count is audit size,
+not a weighted score.
+
+| Measurement | Open rows | Boolean formulas | Capture-oriented |
+| --- | ---: | ---: | ---: |
+| Nonblank/noncomment implementation lines | 1,568 | 1,692 | 2,030 |
+| Canonical result bytes | 110,106 | 121,621 | 131,914 |
+| Visited nodes, total (range) | 138 (2-7) | 166 (2-9) | 206 (2-11) |
+| Generated facts, total (range) | 65 (1-3) | 75 (1-4) | 108 (1-6) |
+| Generated constraints, total (range) | 109 (1-6) | 137 (1-8) | 177 (1-10) |
+| Normalization steps, total (range) | 98 (2-5) | 116 (2-6) | 119 (2-6) |
+| Maximum live items | 1 | 1 | 1 |
+| Rejected diagnostic UTF-8 bytes | 4,193 | 4,791 | 4,816 |
+| Required/covered misuse sites | 36/36 | 36/36 | 36/36 |
+| Positive source annotations | 13 inferred | 13 inferred | 13 inferred |
+
+The bounded stress probes are not treated as a common throughput benchmark.
+Rows deterministically normalize 256 labels. Formulas evaluate 4,096 truth
+assignments for 12 atoms and fail closed above a 16-atom shared domain.
+Capture checking normalizes 12 atoms in the synthetic probe, has a 64-atom
+fail-closed bound on every solver path, and measures strict/lazy result
+retention. No candidate has production wall-time, whole-program scaling, or a
+medium-project throughput claim.
+
+### Allocation, resources, and machinery
+
+Every candidate reports the same neutral allocation domains:
+`callable_environment`, `registry_storage`, `cache_storage`, and explicit
+`none_explicit`. Every candidate reports the same resource domains, including
+iteration/view state, cache state, registration, owned/linear/transaction
+resources, and explicit none. Callable environments, timeout execution, and
+parallel execution remain unimplemented and uncreditable for all three.
+
+Creditable candidate machinery is deliberately narrow:
+
+- rows: open-row inference/application/handling;
+- formulas: the Boolean solver plus associated-requirement constraints; and
+- capture: retained-environment solving, result-retention analysis, and hybrid
+  requirement facts.
+
+Callable-shape, exact-authority-retention, allocation-visibility, place/view,
+registration-lifetime, machinery-credit, and linear-resource guards are
+implemented but uncreditable companion checks. The formula candidate also
+prices an uncreditable associated-requirement guard. The capture candidate
+also prices an uncreditable hybrid-requirement guard. No candidate receives
+ownership or authority credit merely for naming an effect, formula, or capture.
+
+### Eleven-criterion comparison
+
+`Clears` means the bounded prototype passes the issued evidence gate. It does
+not mean production support exists. `Pressure` records a real implementation
+or pedagogy cost without turning it into a hidden numerical weight.
+
+| Criterion | Open rows | Boolean formulas | Capture-oriented | Finding |
+| --- | --- | --- | --- | --- |
+| 1. Exact coverage without restructuring | Clears 13/16 | Clears 13/16 | Clears 13/16 | Tie; pure Effekt is separately ineligible. |
+| 2. Near-principal inference and stability | Clears bounded alpha/order/application tests; 256-label deterministic probe | Clears modulo exact Boolean equivalence only inside the 16-atom bound | Clears bounded substitution/subcapture and strict/lazy tests inside 64 atoms | Rows provide the broadest direct effect evidence with the least bounded machinery; none proves global principal inference. |
+| 3. Caller and public-signature burden | All 13 positive annotations inferred; public higher-order boundaries need rows/aliases | All 13 inferred; public boundaries also carry formulas and associated requirements | All 13 inferred; stored/returned boundaries expose captures plus hybrid effects | Ordinary caller tie; rows have the smallest library-author vocabulary. |
+| 4. Diagnostic blame and repair | 16 single-cause diagnostics, 36/36 sites, 4,193 bytes; alias-preserving snapshot | 16, 36/36, 4,791 bytes; raw truth vectors excluded | 16, 36/36, 4,816 bytes; raw capture sets excluded | All clear; rows are smallest and retain written aliases. |
+| 5. Returned/stored closure expressiveness | Clears every actual frozen shape | Clears every actual frozen shape | Clears every actual frozen shape with explicit result retention | Tie on type-model shape; runtime callable environments remain unimplemented for all. |
+| 6. Owned/linear capture safety | Clears only with separate uncreditable ownership/lifetime guards | Same, plus associated pressure | Native retention is strongest, but ownership/lifetime guards still remain separate and uncreditable | No candidate proves ownership soundness; capture supplies the best companion mechanism. |
+| 7. Decision 0017 authority integrity | Exact identity and the three policy roles remain separate through a companion guard | Same | Exact retained identity is native, while consent/exercise remain outside captures | All clear the bounded gate; none proves production authority safety. |
+| 8. Allocation/resource cost | Complete neutral facts; closure runtime unimplemented | Same | Same, with strict/lazy environment evidence | Tie on required visible cost; no hidden allocation receives credit. |
+| 9. Checker complexity and bounded cost | Lowest source and all trace totals; linear 256-label normalization evidence | Higher totals; exact truth-function normalization is exponential and associated machinery is required | Highest source and trace totals; capture plus hybrid effect machinery are both required | Rows win the bounded cost comparison. |
+| 10. Core/graph/tooling and migration fit | Direct latent row on callable types, application propagation, exact handling, and preserved aliases fit existing Core effect vocabulary | Requires Boolean formula equivalence and associated requirements across Core/graph/tooling | Requires both retained-environment facts and a separate hybrid effect channel | Rows are the smallest migration spine; all production integration remains unimplemented. |
+| 11. Beginner/library pedagogy | One question: what may this callable do? Exact capture/authority remains a separate advanced relationship | Formula algebra is powerful but unnecessary for this corpus and hardest to explain | The useful `does` versus `keeps` distinction is clear, but capture plus hybrid effects is a two-system story | Rows are the paved-road core; capture vocabulary survives for escape/retention diagnostics. No user study exists. |
+
+### Gate result and recommendation
+
+All three candidates clear the mechanical corpus, diagnostic, bounded
+near-principal, ownership/resource-capture, and authority-integrity gates only
+with their explicitly priced companion guards. Open rows win the actual model
+choice because they express every non-capability effect directly, have the
+lowest implementation and analysis cost, preserve effect aliases in blame,
+and require neither unused Boolean algebra nor a second hybrid effect system.
+
+Recommend an open row-polymorphic latent-effect core: callable application
+propagates an open multiset row, and a handler removes exactly one matching
+label while preserving unrelated labels and the open tail. This is a proposed
+language rule, not production authorization.
+
+Salvage from capture checking:
+
+- explicit retained-environment facts for stored/returned callables;
+- strict/lazy result-retention analysis;
+- exact authority identity retention without consent inference; and
+- ownership/linear-resource escape and lifetime diagnostics.
+
+These are companion checks, not effects laundered into captures, and decision
+0014/0017 do not provide them for free.
+
+Salvage from Boolean formulas:
+
+- exact equivalence tests as an experimental verifier;
+- domain-language diagnostics rather than solver dumps; and
+- targeted exclusion only if a future pinned real API proves that rows plus
+  exact handling cannot express the requirement.
+
+Full complement/intersection/difference and associated-effect machinery are
+rejected from the paved-road core because the frozen corpus supplies no payoff
+for their complexity. Capture-only effects are rejected because retry,
+failure, timeout, parallel, state, and wrapped requirements still need a
+separate effect system. Pure second-class computations remain rejected as the
+core because they cannot represent the frozen first-class callable shapes.
+
+The recommendation does not implement higher-order values, closures, effect
+rows, handlers, capture checking, Core/graph facts, runtime environments, or
+stdlib APIs. Decision 0018 remains subject to independent review and delegated
+ruling; even acceptance would authorize no production implementation.
