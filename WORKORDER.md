@@ -1,10 +1,10 @@
 # Hum Work Order 8: Canonical Callable Semantic Spine
 
 Date: 2026-07-12
-Status: proposed and unissued. The BDFL source-form ruling is incorporated
-below. No implementation session is authorized. One independent pre-issuance
-architect-reviewer must examine these exact bytes before BDFL acceptance. A
-separate BDFL go signal remains required before Session AL.
+Status: issued by the BDFL. The independently accepted bytes are commit
+`956b51f`, published by successful workflow `29183983775` (Ubuntu job
+`86626699948`; Windows job `86626699928`). No implementation session is
+authorized. A separate BDFL go signal remains required before Session AL.
 Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
 bounded Work Order 8 planning authorization. Independent pre-issuance reviewer:
 a fresh architect-reviewer that did not author or edit this deliverable.
@@ -16,8 +16,8 @@ Order 7 text remains authoritative in git history and is not reopened here.
 ## Authority, evidence, and issuance gate
 
 This document records a BDFL-directed architecture plan. It does not transfer
-governance authority, accept or amend a decision, issue Work Order 8, or
-authorize implementation. The predecessor evidence is:
+governance authority, accept or amend a decision, or authorize implementation.
+The predecessor evidence is:
 
 - Work Order 7 closure: `e7dbadb`;
 - Session AK plus accepted decision 0018: `1b324fb`;
@@ -25,20 +25,22 @@ authorize implementation. The predecessor evidence is:
 - successful Ubuntu job: `86613010219`; and
 - successful Windows job: `86613010224`.
 
-The BDFL ruling and author incorporation gates are complete. Work Order 8 can
-be issued only after the remaining gates occur in order:
+The BDFL ruling, author incorporation, independent `ACCEPT`, BDFL acceptance,
+scoped commit, publication, and CI gates are complete. The durable issuance
+evidence is:
 
-1. a fresh architect-reviewer that did not author or edit any part of the final
-   document issues one independent pre-issuance verdict over these exact bytes;
-2. after `ACCEPT`, the BDFL accepts the reviewed stack and separately authorizes
-   the exact reviewed bytes to be committed and published as the issued Work
-   Order, with the required CI inspected to completion; and
-3. only after that durable handoff, the BDFL gives a separate go signal for
-   Session AL.
+- issued Work Order 8 commit: `956b51f`;
+- successful workflow: `29183983775`;
+- successful Ubuntu job: `86626699948`; and
+- successful Windows job: `86626699928`.
+
+The only remaining gate before implementation is a separate BDFL go signal for
+Session AL.
 
 Any authoritative source-form, scope, diagnostic, fixture, or gate mutation
-after step 1 invalidates that verdict and requires fresh independent review of
-the complete changed document. A BDFL ruling has authority, but it is not
+after the independent `ACCEPT` invalidates that verdict and requires fresh
+independent review of the complete changed document. A BDFL ruling has
+authority, but it is not
 silently treated as already reviewed. An exact scoped commit of the reviewed
 bytes does not change the deliverable and does not require a second reviewer.
 
@@ -1119,15 +1121,15 @@ The author of this document is disqualified from that verdict.
 
 Work Order 7 remains closed at `e7dbadb`. Session AK and accepted decision 0018
 remain `1b324fb`, with workflow `29178915990`, Ubuntu job `86613010219`, and
-Windows job `86613010224` successful. Work Order 8 is proposed and unissued.
+Windows job `86613010224` successful. Work Order 8 is issued at `956b51f`, with
+workflow `29183983775`, Ubuntu job `86626699948`, and Windows job `86626699928`
+successful.
 
-The current next action belongs only to one fresh architect-reviewer: review the
-complete final document without editing it and issue one pre-issuance verdict.
-Any later authoritative mutation requires fresh review.
+The current next action belongs only to the BDFL: give a separate go signal for
+Session AL or leave implementation stopped.
 
-Session AL remains unauthorized until the ruling is incorporated, the complete
-document receives an independent `ACCEPT`, the BDFL accepts/issues that exact
-stack, and the BDFL gives a separate go signal. Session AM and every deferred
-phase remain unauthorized. No compiler/runtime implementation, decision ruling,
-commit, push, or publication is authorized by this document. Publishing remains
-a BDFL-reserved action under `docs/GOVERNANCE.md`.
+Session AL remains unauthorized until the BDFL gives that separate go signal.
+Session AM and every deferred phase remain unauthorized. No compiler/runtime
+implementation, decision ruling, further commit, push, or publication is
+authorized by this status update. Publishing remains a BDFL-reserved action
+under `docs/GOVERNANCE.md`.
