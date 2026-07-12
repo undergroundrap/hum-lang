@@ -85,12 +85,56 @@ escaping advisory). Adopt as standing stdlib gates:
 - Bias to dependency injection over ambient authority (Gleam's portable
   compiler is the positive example; maps onto Hum capabilities).
 
+## Companion Pass (2026-07-12, second agent, recommendation excerpt only)
+
+A second stdlib research pass returned a recommendation that strongly
+CONFIRMS the report above -- same shape: compiler-ready is a narrow line
+below the full user stdlib, split into a stabilize-first set (core, alloc,
+data, text, os, io) and a provide-but-keep-unstable set (diagnostics,
+compiler-support, backend), with the same defer list (generic parsing,
+broad collections, async, networking, packages, full Unicode,
+serialization, memory-mapping, file-watching, parallel compilation). Two
+independent passes converging on the same line raises confidence. Only the
+recommendation excerpt was provided; no full report was archived.
+
+Three genuinely additive findings adopted:
+
+1. compiler.backend is an explicit pre-self-host line item: "the narrowest
+   viable bytecode, C, object, or linker bridge." The first report stopped
+   at diagnostics/CFG; this correctly notes that self-hosting needs SOME
+   code-emission path. This surfaces a real future decision (emit-C vs
+   bytecode vs native object) that ties to the backend ladder and the
+   eventual .exe/.dll story. Seed for a backend-selection decision at the
+   self-host milestone; not settled now.
+2. std.os as a distinct layer: opaque path/name handling plus target
+   facts. Maps directly onto already-shipped work -- the native Path
+   boundary (Session AB) and target-facts surfaces. The stdlib order
+   should carry `std.os` as its own layer rather than folding paths into
+   a generic fs module.
+3. compiler.support enumerated concretely (the rustc-shaped toolkit):
+   symbols/interning, typed IDs and IndexVec, compiler arenas, bitsets,
+   sparse sets, worklists, SCC/topological utilities, fast ephemeral maps,
+   and stable compiler hashing. Sharper than the first report's
+   "arena/intern/diag/CFG." This becomes the concrete contents of the
+   internal `compiler_support` modules.
+
+Minor structural notes: the companion folds args/environment/buffering
+into `std.io` and puts sorting/binary-search into `std.data`; it places
+"contracts, blame substrate, comparison/hash laws" explicitly in
+`std.core`, which fits Hum's model and the law-bearing-bounds direction
+from the generics research.
+
 ## Routing
 
 - Feeds the future stdlib work order (after Work Order 8). The pre-self-
-  host checklist becomes that order's session map; the Section 4 gates
+  host checklist (now including `std.os` and a minimal `compiler.backend`
+  emission path) becomes that order's session map; the Section 4 gates
   become its standing locks.
-- The "text earlier" and "compiler-support is not public std" corrections
-  should be folded into STDLIB_STRATEGY when that work order opens.
+- The "text earlier," "compiler-support is not public std," "std.os as its
+  own layer," and "a minimal backend/emission path is pre-self-host"
+  corrections should be folded into STDLIB_STRATEGY when that work order
+  opens.
+- New decision seed for the self-host milestone: how Hum emits code to
+  bootstrap (emit-C-and-shell-out vs bytecode vs native object). Not now.
 - Not actionable now: Work Order 8 (callable spine) precedes all stdlib
   work and changes what the stdlib can express.
