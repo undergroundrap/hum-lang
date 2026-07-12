@@ -1,10 +1,12 @@
 # Hum Work Order 9: Canonical Diagnostic Allocation And Cause Identity
 
 Date: 2026-07-12
-Status: proposed and unauthorized for implementation. Independent
-pre-issuance review, BDFL acceptance of the complete stack, durable publication
-with successful Ubuntu and Windows CI, and a separate BDFL go signal are all
-required before Session AN may begin.
+Status: issued by the BDFL. The independently accepted and BDFL-accepted bytes
+are commit `45796dd688f9f28bb0c3290e8029e33ee2d20802`, published by successful
+workflow `29212987679` (Ubuntu job `86703742601`, 1m 28s; Windows job
+`86703742589`, 2m 30s). Historical proposal and pre-issuance language below is
+preserved as reviewed issuance history. Session AN is next but remains
+unauthorized pending a separate BDFL go signal.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -1044,10 +1046,12 @@ decision, issue Work Order 9, authorize Session AN, or begin implementation.
 ## Current authorization gate
 
 Work Order 8 remains closed at `047ad02`. GitHub Issue #1 is confirmed and open.
-This Work Order 9 stack is proposed, unissued, and unauthorized for
-implementation.
+Work Order 9 was independently accepted, accepted by the BDFL, committed as
+`45796dd688f9f28bb0c3290e8029e33ee2d20802`, and published by successful
+workflow `29212987679`: Ubuntu job `86703742601` succeeded in 1m 28s and
+Windows job `86703742589` succeeded in 2m 30s. Work Order 9 is issued.
 
-The next allowed action is a fresh independent pre-issuance architect-reviewer
-verdict on the exact uncommitted `WORKORDER.md` bytes. No Session AN, diagnostic
-registry implementation, code allocation, decision ruling, commit, push, issue
-mutation, stdlib work, Session AR, or later implementation is authorized.
+Session AN is next but remains unauthorized pending a separate BDFL go signal.
+No diagnostic-registry implementation, code allocation, decision ruling, issue
+mutation, stdlib work, Session AR, or later implementation is authorized by
+this status update.
