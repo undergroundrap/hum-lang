@@ -3,10 +3,10 @@
 Date: 2026-07-12
 Status: issued by the BDFL. The independently accepted bytes are commit
 `956b51f`, published by successful workflow `29183983775` (Ubuntu job
-`86626699948`; Windows job `86626699928`). Session AL is accepted and committed
-as `b881f2a`, with successful workflow `29207914442` (Ubuntu job `86690460804`,
-1m 36s; Windows job `86690460817`, 2m 43s). Session AM is next but remains
-unauthorized pending a separate BDFL go signal.
+`86626699948`; Windows job `86626699928`). Sessions AL-AM are accepted and
+committed: Session AL is `b881f2a`; Session AM is `7075c71`, with successful
+workflow `29210958890` (Ubuntu job `86698465601`, 1m 24s; Windows job
+`86698465587`, 2m 40s). Work Order 8 is closed.
 Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
 bounded Work Order 8 planning authorization. Independent pre-issuance reviewer:
 a fresh architect-reviewer that did not author or edit this deliverable.
@@ -1127,12 +1127,20 @@ Windows job `86613010224` successful. Work Order 8 is issued at `956b51f`, with
 workflow `29183983775`, Ubuntu job `86626699948`, and Windows job `86626699928`
 successful. Session AL is accepted and committed as `b881f2a`, with workflow
 `29207914442`, Ubuntu job `86690460804` successful in 1m 36s, and Windows job
-`86690460817` successful in 2m 43s.
+`86690460817` successful in 2m 43s. Session AM is accepted and committed as
+`7075c71`, with workflow `29210958890`, Ubuntu job `86698465601` successful in
+1m 24s, and Windows job `86698465587` successful in 2m 40s. Sessions AL-AM are
+complete, and Work Order 8 is closed.
 
-The current next action belongs only to the BDFL: give a separate go signal for
-Session AM or leave implementation stopped.
+GitHub Issue #1 remains a queued architecture-inbox item. Its next action
+belongs to a fresh architect-reviewer after this closure is committed and green
+in CI, but before another Work Order is authored. This status update does not
+authorize implementing, amending, or closing Issue #1.
 
-Session AM and every deferred phase remain unauthorized. No implementation
-session, decision ruling, commit, push, diagnostic-registry work, or scope
-expansion is implicitly authorized by this status update. Publishing remains a
-BDFL-reserved action under `docs/GOVERNANCE.md`.
+No Session AN, production handling, callable-environment work, deferred phase,
+or later implementation is authorized. Further implementation requires a new
+independently reviewed Work Order, BDFL acceptance, and a separate session go
+signal. No implementation session, decision ruling, commit, push,
+diagnostic-registry work, or scope expansion is implicitly authorized by this
+status update. Publishing remains a BDFL-reserved action under
+`docs/GOVERNANCE.md`.
