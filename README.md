@@ -475,7 +475,10 @@ available. See
 
 Copyright (c) 2026 Ocean Bennett
 
-This project is licensed under the GNU Affero General Public License v3.0 with an additional visible attribution requirement. See:
+This project is licensed under the Apache License, Version 2.0. You may use,
+modify, and distribute it, including in commercial and closed-source work,
+under the Apache-2.0 terms. See:
 
-- `LICENSE` for the full AGPL-3.0 license text
-- `NOTICE.md` for the visible attribution requirement
+- `LICENSE` for the full Apache-2.0 license text (includes an explicit patent grant)
+- `NOTICE.md` for attribution and the courtesy credit request
+- `TRADEMARK.md` for the Hum name policy (the code is free; the name is protected)

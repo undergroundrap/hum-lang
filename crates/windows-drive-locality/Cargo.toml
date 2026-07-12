@@ -2,7 +2,7 @@
 name = "windows-drive-locality"
 version = "0.0.1"
 edition = "2024"
-license = "AGPL-3.0-only"
+license = "Apache-2.0"
 
 [lib]
 path = "src/lib.rs"

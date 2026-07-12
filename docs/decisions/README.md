@@ -35,6 +35,7 @@ standard library direction, backend strategy, or release posture.
 | [0016](0016-adopt-explicit-causal-typed-failure.md) | accepted under delegated authority (BDFL veto open) | Require explicit nominal propagation and preserve causal failure sites. |
 | [0017](0017-adopt-structural-app-authority-boundary.md) | accepted under delegated authority (BDFL veto open) | Make the executable app structural, source authority bounded, operator consent explicit, and native paths non-Text. |
 | [0018](0018-adopt-effect-polymorphism-model.md) | accepted under delegated authority (BDFL veto open) | Adopt open row-polymorphic effects with explicit capture guards. |
+| [0019](0019-relicense-apache-2.0.md) | accepted (BDFL reserved matter) | Relicense from AGPL-3.0 to Apache-2.0; add a trademark/name policy. |
 
 ## Template
 
