@@ -5993,51 +5993,40 @@ task unchecked_divide(a: Int, b: Int) -> Int {
 
     #[test]
     fn passed_callable_runtime_depends_on_callable_identity_and_ordinary_value() {
-        let program = fixture_program(
-            "passed_callable_runtime.hum",
-            r#"task increment(value: UInt) -> UInt {
+        let cases = [
+            ("increment", 41, "42"),
+            ("increment", 40, "41"),
+            ("double", 41, "82"),
+        ];
+        for (target, value, expected) in cases {
+            let source = format!(
+                r#"task increment(value: UInt) -> UInt {{
   does:
     return value + 1
-}
+}}
 
-task double(value: UInt) -> UInt {
+task double(value: UInt) -> UInt {{
   does:
     return value * 2
-}
+}}
 
-task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {{
   does:
     return transform(value)
-}
+}}
 
-task increment_41 -> UInt {
+task run -> UInt {{
   does:
-    return apply_once(increment, 41)
-}
-
-task increment_40 -> UInt {
-  does:
-    return apply_once(increment, 40)
-}
-
-task double_41 -> UInt {
-  does:
-    return apply_once(double, 41)
-}
-"#,
-        );
-        assert_eq!(
-            run_program(&program, Some("increment_41"), &[]).outcome,
-            RunOutcome::Success("42".to_string())
-        );
-        assert_eq!(
-            run_program(&program, Some("increment_40"), &[]).outcome,
-            RunOutcome::Success("41".to_string())
-        );
-        assert_eq!(
-            run_program(&program, Some("double_41"), &[]).outcome,
-            RunOutcome::Success("82".to_string())
-        );
+    return apply_once({target}, {value})
+}}
+"#
+            );
+            let program = fixture_program("passed_callable_runtime.hum", &source);
+            assert_eq!(
+                run_program(&program, Some("run"), &[]).outcome,
+                RunOutcome::Success(expected.to_string())
+            );
+        }
     }
 
     #[test]

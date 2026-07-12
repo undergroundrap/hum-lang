@@ -1,0 +1,51 @@
+module examples.probes.passed_callable_row
+
+task bump_with_local(value: UInt) -> UInt {
+  why:
+    expose an existing non-authority-bearing local mutation effect
+
+  ensures:
+    result == value + 1
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    change current: UInt = value
+    set current = current + 1
+    return current
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  why:
+    propagate one inferred callable row
+
+  needs:
+    value < 1000000
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return transform(value)
+}
+
+task run_passed_callable_row -> UInt {
+  why:
+    observe the effectful callable result without external authority
+
+  ensures:
+    result == 42
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return apply_once(bump_with_local, 41)
+}

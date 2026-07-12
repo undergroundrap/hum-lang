@@ -1,0 +1,28 @@
+module fixtures.callable.session_am_mixed_pure_effectful_applications_fail
+
+task identity(value: UInt) -> UInt {
+  does:
+    return value
+}
+
+task bump(value: UInt) -> UInt {
+  does:
+    change current: UInt = value
+    set current = current + 1
+    return current
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run_pure -> UInt {
+  does:
+    return apply_once(identity, 41)
+}
+
+task run_effectful -> UInt {
+  does:
+    return apply_once(bump, 41)
+}

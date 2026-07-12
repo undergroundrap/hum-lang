@@ -215,3 +215,14 @@ identity or exact signature field; a callable type loses its row or exact
 status, or loses its checked-body origin; a task value loses its type, target,
 reference, or closed status; or an application loses/corrupts its value, row,
 definition, status, reason, result, or failure-root relationship.
+Session AM verifies exact label-occurrence, alias, tail, argument-row,
+output-row, application, and substitution identities. Missing, deduplicated,
+foreign, prematurely closed, or substituted row relationships fail the
+callable semantic-spine verification and are not user H-codes. Exact row
+members are occurrence IDs; normalized label and tail aliases exist only for
+deterministic comparison and cannot replace those identities. More than one
+direct relationship or application for the same resolver-owned receiver is
+outside this bounded Core slice. Core projection tests independently corrupt
+each node's kind, identity, relationship, and result/status field; graph
+projection tests do the same for edge kind, identity, endpoints, owner,
+application, and span.

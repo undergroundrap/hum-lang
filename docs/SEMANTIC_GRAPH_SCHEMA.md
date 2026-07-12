@@ -412,3 +412,13 @@ remain reserved future links.
 The existing graph JSON embeds callable `definition`, `value_use`,
 `passed_as_argument`, `parameter_bind`, and `application` edges. Every edge is
 joined by stable resolver/callable IDs and carries its exact source span.
+Session AM adds `effect_label_occurrence`, `effect_alias`, and
+`row_substitution` edges. Their endpoints are stable semantic identities and
+their spans preserve the originating mutation or application occurrence. Row
+membership names the exact occurrence IDs; normalized `change` and `row0`
+aliases remain separate comparison facts and cannot collapse same-spelled
+occurrences or distinct tails. Each callable edge also carries its own stable
+edge ID, the resolver-owned receiver definition, and the exact application ID.
+The `row_variable` edge joins the input row to its exact tail at the direct
+application span; occurrence and alias edges retain the mutation span while
+remaining joined to that same application.

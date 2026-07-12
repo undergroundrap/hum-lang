@@ -195,3 +195,6 @@ V0 does not provide a complete ownership or borrowing system. Session V adds no 
 The nonescaping definition handle reports
 `not_applicable_to_al_ordinary_value_v0`; it proves no capture, environment,
 borrow, move, or general callable ownership rule.
+For the Session AM nonempty-row slice the same nonclaim is reported as
+`not_applicable_to_am_ordinary_value_v0`; row propagation does not upgrade it
+into ownership, lifetime, resource, or capture evidence.

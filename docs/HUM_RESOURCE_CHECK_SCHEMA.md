@@ -149,3 +149,6 @@ only when its existing `cost:` declares `space: O(1)` and its structured body
 contains neither visible allocation construction nor a call. This consumes the
 exam's resource claim without adding an `allocates:` declaration or exempting
 unrelated tasks that lack that claim.
+Session AM participants report `not_applicable_to_am_ordinary_value_v0` for
+the same nonretained handle boundary. A propagated row is not allocation or
+cleanup evidence.

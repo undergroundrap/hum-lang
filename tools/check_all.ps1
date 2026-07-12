@@ -777,7 +777,7 @@ try {
     $CallableSurface = Read-NativeOutputWithExit "Session AL positive $Surface JSON" $Hum @($Surface, '--format', 'json', $CallablePositive)
     if ($CallableSurface.ExitCode -ne 0) { throw "Session AL positive blocked $Surface" }
     Assert-Json "Session AL positive $Surface JSON" $CallableSurface.Output
-    foreach ($Expected in @('canonical_callable_semantic_spine_al_v0','accepted_al_v0','closed_empty_v0','failure_root','none','application_facts')) {
+    foreach ($Expected in @('canonical_callable_semantic_spine_am_v0','accepted_al_v0','closed_empty_v0','failure_root','none','application_facts')) {
       if (-not $CallableSurface.Output.Contains($Expected)) { throw "Session AL $Surface missing $Expected" }
     }
     if ($CallableSurface.Output.Contains('H1401') -or $CallableSurface.Output.Contains('H1402')) { throw "Session AL positive unexpectedly contains callable diagnostics in $Surface" }
@@ -891,6 +891,107 @@ try {
     $CallableExplain = Read-NativeOutputWithExit "Session AL explain $Code" $Hum @('explain', $Code)
     if ($CallableExplain.ExitCode -ne 0 -or -not $CallableExplain.Output.Contains($Code)) { throw "Session AL diagnostic catalog missing $Code" }
   }
+
+  $CallableRowPositive = 'examples/probes/passed_callable_row.hum'
+  $CallableRowFirst = Read-NativeChannelsWithExit 'run Session AM callable row first fresh run' $Hum @('run', $CallableRowPositive, '--entry', 'run_passed_callable_row')
+  $CallableRowSecond = Read-NativeChannelsWithExit 'run Session AM callable row second fresh run' $Hum @('run', $CallableRowPositive, '--entry', 'run_passed_callable_row')
+  foreach ($Run in @($CallableRowFirst, $CallableRowSecond)) {
+    if ($Run.ExitCode -ne 0 -or $Run.Stdout -ne "42`n" -or $Run.Stderr -ne '') { throw 'Session AM nonempty-row positive must produce exact 42 newline with empty stderr' }
+  }
+  if ($CallableRowFirst.Stdout -ne $CallableRowSecond.Stdout -or $CallableRowFirst.Stderr -ne $CallableRowSecond.Stderr -or $CallableRowFirst.ExitCode -ne $CallableRowSecond.ExitCode) { throw 'Session AM fresh runtime runs must be byte-identical' }
+  foreach ($Surface in @('resolve','type-env','type-check','full-type-check','effect-check','ownership-check','resource-check','core-preview','core-lower','core-verify')) {
+    foreach ($Format in @('human','json')) {
+      $CallableRowArgs = if ($Format -eq 'json') { @($Surface, '--format', 'json', $CallableRowPositive) } else { @($Surface, $CallableRowPositive) }
+      $CallableRowSurface = Read-NativeOutputWithExit "Session AM nonempty row $Surface $Format" $Hum $CallableRowArgs
+      if ($CallableRowSurface.ExitCode -ne 0) { throw "Session AM nonempty-row positive blocked $Surface $Format" }
+      if ($Format -eq 'json') { Assert-Json "Session AM nonempty row $Surface JSON" $CallableRowSurface.Output }
+      foreach ($Expected in @('canonical_callable_semantic_spine_am_v0','accepted_am_v0','open_single_tail_v0','complete_latent_row_propagated_v0','normalized_labels','normalized_tail')) {
+        if (-not $CallableRowSurface.Output.Contains($Expected)) { throw "Session AM $Surface $Format missing $Expected" }
+      }
+      if ($Format -eq 'json') {
+        foreach ($Expected in @('effect_label_occurrence_facts','row_substitution_facts','resolver_reference_id','target_definition_id')) {
+          if (-not $CallableRowSurface.Output.Contains($Expected)) { throw "Session AM $Surface JSON missing $Expected" }
+        }
+      }
+    }
+  }
+
+  function Assert-SessionAmGraphFacts($Label, $GraphReport, $ExpectRowRelationships) {
+    $Edges = @($GraphReport.callable_facts.graph_edges)
+    if ($Edges.Count -eq 0) { throw "$Label has no callable graph edges" }
+    foreach ($Edge in $Edges) {
+      if ([string]::IsNullOrWhiteSpace($Edge.id) -or [string]::IsNullOrWhiteSpace($Edge.kind) -or [string]::IsNullOrWhiteSpace($Edge.from) -or [string]::IsNullOrWhiteSpace($Edge.to) -or [string]::IsNullOrWhiteSpace($Edge.owner_definition_id) -or [string]::IsNullOrWhiteSpace($Edge.application_id) -or [string]::IsNullOrWhiteSpace($Edge.span)) { throw "$Label has an incomplete callable graph edge" }
+    }
+    $Applications = @($GraphReport.callable_facts.application_facts)
+    if ($Applications.Count -ne 1) { throw "$Label must expose exactly one accepted application" }
+    $Application = $Applications[0]
+    foreach ($Edge in $Edges) {
+      if ($Edge.application_id -ne $Application.id -or $Edge.owner_definition_id -ne $Application.receiver_definition_id) { throw "$Label graph edge is not joined to the exact receiver and application" }
+    }
+    $RowKinds = @('effect_label_occurrence','effect_alias','row_variable','row_substitution','row_argument','row_propagation')
+    if ($ExpectRowRelationships) {
+      foreach ($Kind in $RowKinds) {
+        if (@($Edges | Where-Object kind -eq $Kind).Count -lt 1) { throw "$Label missing exact $Kind graph relationship" }
+      }
+      $Substitutions = @($GraphReport.callable_facts.row_substitution_facts)
+      if ($Substitutions.Count -ne 1) { throw "$Label must expose exactly one row substitution" }
+      $Substitution = $Substitutions[0]
+      $RowVariable = @($Edges | Where-Object kind -eq 'row_variable')
+      if ($RowVariable.Count -ne 1 -or $RowVariable[0].from -ne $Substitution.input_row_id -or $RowVariable[0].to -ne $Substitution.tail_id -or $RowVariable[0].span -ne $Application.direct_call_span) { throw "$Label row variable must retain exact row, tail, and application span" }
+      $Occurrences = @($GraphReport.callable_facts.effect_label_occurrence_facts)
+      foreach ($Occurrence in $Occurrences) {
+        $OccurrenceEdge = @($Edges | Where-Object { $_.kind -eq 'effect_label_occurrence' -and $_.from -eq $Occurrence.owner_definition_id -and $_.to -eq $Occurrence.id -and $_.span -eq $Occurrence.source_span })
+        $AliasEdge = @($Edges | Where-Object { $_.kind -eq 'effect_alias' -and $_.from -eq $Occurrence.alias_id -and $_.to -eq $Occurrence.id -and $_.span -eq $Occurrence.source_span })
+        if ($OccurrenceEdge.Count -ne 1 -or $AliasEdge.Count -ne 1) { throw "$Label occurrence and alias edges must preserve exact identities and spans" }
+      }
+    } elseif (@($Edges | Where-Object { $RowKinds -contains $_.kind }).Count -ne 0) {
+      throw "$Label must not expose row relationships for the retained closed-empty application"
+    }
+  }
+
+  $CallableRowGraph = Read-NativeOutputWithExit 'Session AM nonempty row graph' $Hum @('graph', $CallableRowPositive)
+  if ($CallableRowGraph.ExitCode -ne 0) { throw 'Session AM graph positive blocked' }
+  Assert-Json 'Session AM nonempty row graph' $CallableRowGraph.Output
+  $CallableRowGraphReport = $CallableRowGraph.Output | ConvertFrom-Json
+  Assert-SessionAmGraphFacts 'Session AM positive' $CallableRowGraphReport $true
+
+  $CallableAmBoundaries = @(
+    @{ File = 'fixtures/callable/session_am_multiple_direct_applications_fail.hum'; Entry = 'run_second'; Mixed = $false },
+    @{ File = 'fixtures/callable/session_am_mixed_pure_effectful_applications_fail.hum'; Entry = 'run_effectful'; Mixed = $true }
+  )
+  foreach ($Boundary in $CallableAmBoundaries) {
+    foreach ($Surface in @('resolve','type-env','type-check','full-type-check','effect-check','ownership-check','resource-check','core-preview','core-lower','core-verify')) {
+      foreach ($Format in @('human','json')) {
+        $BoundaryArgs = if ($Format -eq 'json') { @($Surface, '--format', 'json', $Boundary.File) } else { @($Surface, $Boundary.File) }
+        $BoundarySurface = Read-NativeOutputWithExit "Session AM single-relationship boundary $Surface $Format $($Boundary.File)" $Hum $BoundaryArgs
+        if ($BoundarySurface.ExitCode -ne 1) { throw "Session AM single-relationship boundary must block $Surface $Format for $($Boundary.File)" }
+        if ($Format -eq 'json') {
+          Assert-Json "Session AM single-relationship boundary $Surface JSON $($Boundary.File)" $BoundarySurface.Output
+          $BoundaryReport = $BoundarySurface.Output | ConvertFrom-Json
+          if ($BoundaryReport.callable_facts.diagnostics -ne 1) { throw "Session AM boundary must own one JSON diagnostic in $Surface for $($Boundary.File)" }
+        } elseif ([regex]::Matches($BoundarySurface.Output, 'code=H1401').Count -ne 1) {
+          throw "Session AM boundary must own one human H1401 in $Surface for $($Boundary.File)"
+        }
+        if (-not $BoundarySurface.Output.Contains('H1401') -or -not $BoundarySurface.Output.Contains('multiple_direct_callable_applications_unsupported_v0') -or $BoundarySurface.Output.Contains('H1402') -or $BoundarySurface.Output.Contains('runtime trap')) { throw "Session AM single-relationship boundary ownership disagrees in $Surface $Format for $($Boundary.File)" }
+      }
+    }
+    $BoundaryGraph = Read-NativeOutputWithExit "Session AM single-relationship graph $($Boundary.File)" $Hum @('graph', $Boundary.File)
+    if ($BoundaryGraph.ExitCode -ne 1) { throw "Session AM graph boundary must block for $($Boundary.File)" }
+    Assert-Json "Session AM single-relationship graph $($Boundary.File)" $BoundaryGraph.Output
+    $BoundaryGraphReport = $BoundaryGraph.Output | ConvertFrom-Json
+    if ($BoundaryGraphReport.callable_facts.diagnostics -ne 1) { throw "Session AM graph boundary must retain exactly one callable diagnostic for $($Boundary.File)" }
+    Assert-SessionAmGraphFacts "Session AM boundary $($Boundary.File)" $BoundaryGraphReport (-not $Boundary.Mixed)
+    $BoundaryRun = Read-NativeChannelsWithExit "Session AM single-relationship runtime $($Boundary.File)" $Hum @('run', $Boundary.File, '--entry', $Boundary.Entry)
+    if ($BoundaryRun.ExitCode -ne 2 -or $BoundaryRun.Stdout -ne '' -or [regex]::Matches($BoundaryRun.Stderr, 'error\[H1401\]').Count -ne 1 -or $BoundaryRun.Stderr.Contains('H1402') -or $BoundaryRun.Stderr.Contains('runtime trap')) { throw "Session AM runtime boundary must reject once before execution for $($Boundary.File)" }
+    if ($Boundary.Mixed) {
+      $MixedJson = Read-NativeOutputWithExit 'Session AM mixed pure/effectful retained row' $Hum @('full-type-check', '--format', 'json', $Boundary.File)
+      $MixedReport = $MixedJson.Output | ConvertFrom-Json
+      if ($MixedReport.callable_facts.applications -ne 1 -or $MixedReport.callable_facts.substitutions -ne 0 -or -not $MixedJson.Output.Contains('closed_empty_v0') -or $MixedJson.Output.Contains('open_single_tail_v0')) { throw 'Session AM rejected second effectful application must not rewrite the accepted pure receiver row' }
+    }
+  }
+
+  $CallableAmOutsideRow = Read-NativeOutputWithExit 'Session AM bounded-row H1402 reason' $Hum @('full-type-check', '--format', 'json', 'fixtures/callable/session_al_unproven_row_fail.hum')
+  if ($CallableAmOutsideRow.ExitCode -ne 1 -or -not $CallableAmOutsideRow.Output.Contains('callable_latent_row_outside_bounded_am_slice_v0') -or $CallableAmOutsideRow.Output.Contains('callable_latent_row_not_closed_empty_v0')) { throw 'Session AM H1402 must describe the bounded empty/change row slice' }
 
   $RunSessionVWriteThrough = Read-NativeOutput 'run Session V writable alias write-through fixture' $Hum @('run', 'examples/probes/writable_field_aliases.hum', '--entry', 'write_x_through_alias', '--args', '{x:1,y:2}')
   if ($RunSessionVWriteThrough.Trim() -ne '{x: 9, y: 2}') { throw "Session V write-through expected {x: 9, y: 2}, got $RunSessionVWriteThrough" }

@@ -336,3 +336,11 @@ Which semantic graph facts does it require?
 Which profile or evidence gates does it change?
 What must Milestone 0 ignore for now?
 ```
+Session AM extends that same analysis with one local, nonrecursive structural
+row tail. Exact `change` occurrences are resolver-owned identities, duplicates
+remain duplicates, and one application substitution propagates the complete
+row. Their normalized label spelling and alpha-stable tail alias are separate
+comparison facts, not semantic identity. The slice rejects a second direct
+relationship or application for the same resolver-owned receiver. Rows remain
+type/effect evidence only: they grant no authority, consent, ownership,
+resource lifetime, allocation proof, capture, or handling.

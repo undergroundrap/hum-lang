@@ -625,3 +625,9 @@ The source can read like a careful engineer explaining intent. The core must rea
 like a small machine for promises, effects, state, failure, and control flow.
 
 That is how Hum stays friendly without becoming fuzzy.
+Session AM attaches one internal open row tail to this unchanged callable type
+for the single local relationship. Application substitutes a closed multiset
+of exact resolver-owned `change` occurrence IDs and preserves duplicates and
+aliases. Normalized label spelling and the alpha-stable `row0` tail name are
+comparison evidence, never semantic identity. The row is not runtime handling
+or an ownership/authority fact.

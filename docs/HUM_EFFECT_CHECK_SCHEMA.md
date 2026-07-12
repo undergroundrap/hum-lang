@@ -250,3 +250,12 @@ V0 does not provide a complete effect system. It is a narrow source-visible gate
 The embedded callable row has exact `labels=[]`, `tail_id=none`, and origin
 `inferred_from_checked_callable_body_v0`. This is a closed-empty latent row,
 not a `pure` Boolean or evidence for open-row inference.
+Session AM extends `callable_facts` with `effect_label_occurrence_facts` and
+`row_substitution_facts`. The accepted nonempty slice reports
+`open_single_tail_v0`, exact resolver-owned occurrence IDs separately from
+their normalized `change` spelling, one exact tail ID separately from its
+alpha-stable `row0` normalization, and `complete_latent_row_propagated_v0`.
+The bounded slice accepts exactly one direct relationship and application per
+resolver-owned receiver.
+These facts do not grant authority or claim handling, captures, allocation,
+ownership, or global principal inference.

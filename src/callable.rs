@@ -13,7 +13,7 @@ use crate::resolve::{
     self, ResolveDefinitionSummary, ResolveReferenceSummary, ResolveScopeSummary,
 };
 
-pub(crate) const CALLABLE_FACT_MODEL: &str = "canonical_callable_semantic_spine_al_v0";
+pub(crate) const CALLABLE_FACT_MODEL: &str = "canonical_callable_semantic_spine_am_v0";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CallableDefinitionFact {
@@ -42,9 +42,34 @@ pub(crate) struct CallableTypeFact {
 pub(crate) struct LatentEffectRowFact {
     pub(crate) id: String,
     pub(crate) labels: Vec<String>,
+    pub(crate) normalized_labels: Vec<String>,
     pub(crate) tail_id: Option<String>,
+    pub(crate) tail_alias: Option<String>,
+    pub(crate) normalized_tail: Option<String>,
     pub(crate) status: &'static str,
     pub(crate) origin: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EffectLabelOccurrenceFact {
+    pub(crate) id: String,
+    pub(crate) label: &'static str,
+    pub(crate) alias_id: String,
+    pub(crate) resolver_reference_id: String,
+    pub(crate) source_span: Span,
+    pub(crate) owner_definition_id: String,
+    pub(crate) target_definition_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RowSubstitutionFact {
+    pub(crate) id: String,
+    pub(crate) application_id: String,
+    pub(crate) input_row_id: String,
+    pub(crate) tail_id: String,
+    pub(crate) argument_row_id: String,
+    pub(crate) output_row_id: String,
+    pub(crate) status: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,11 +126,32 @@ pub(crate) struct CallableDiagnosticFact {
     pub(crate) diagnostic: Diagnostic,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CallableCoreNodeFact {
+    kind: String,
+    id: String,
+    relationship_id: String,
+    result_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CallableGraphEdgeFact {
+    id: String,
+    kind: String,
+    from: String,
+    to: String,
+    owner_definition_id: String,
+    application_id: String,
+    source_span: Span,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CallableAnalysis {
     pub(crate) definitions: Vec<CallableDefinitionFact>,
     pub(crate) types: Vec<CallableTypeFact>,
     pub(crate) rows: Vec<LatentEffectRowFact>,
+    pub(crate) label_occurrences: Vec<EffectLabelOccurrenceFact>,
+    pub(crate) substitutions: Vec<RowSubstitutionFact>,
     pub(crate) values: Vec<CallableValueFact>,
     pub(crate) applications: Vec<CallableApplicationFact>,
     pub(crate) diagnostics: Vec<CallableDiagnosticFact>,
@@ -117,6 +163,8 @@ pub(crate) struct CallableAnalysis {
     canonical_definitions: Vec<CallableDefinitionFact>,
     canonical_types: Vec<CallableTypeFact>,
     canonical_rows: Vec<LatentEffectRowFact>,
+    canonical_label_occurrences: Vec<EffectLabelOccurrenceFact>,
+    canonical_substitutions: Vec<RowSubstitutionFact>,
     canonical_values: Vec<CallableValueFact>,
     canonical_applications: Vec<CallableApplicationFact>,
     canonical_diagnostics: Vec<CallableDiagnosticFact>,
@@ -240,6 +288,7 @@ impl CallableAnalysis {
             .iter()
             .map(|receiver| (receiver.entry.definition_id.clone(), receiver.clone()))
             .collect::<BTreeMap<_, _>>();
+        let mut direct_relationship_spans: BTreeMap<String, Span> = BTreeMap::new();
         for caller in &tasks {
             for statement in &caller.task.body_syntax {
                 visit_statement_calls(statement, &mut |statement_span, expression, call| {
@@ -257,6 +306,17 @@ impl CallableAnalysis {
                     let Some(receiver) = receiver_by_definition.get(receiver_id) else {
                         return;
                     };
+                    if let Some(first_span) = direct_relationship_spans.get(receiver_id) {
+                        analysis.push_invalid(
+                            &expression.span,
+                            "Session AM accepts exactly one direct callable relationship and application",
+                            "multiple_direct_callable_applications_unsupported_v0",
+                            vec![first_span.clone(), receiver.entry.task.span.clone()],
+                        );
+                        return;
+                    }
+                    direct_relationship_spans
+                        .insert(receiver_id.to_string(), portable_span(&expression.span));
                     analysis.analyze_direct_application(
                         caller,
                         statement_span,
@@ -275,12 +335,16 @@ impl CallableAnalysis {
         analysis.definitions.sort_by(|a, b| a.id.cmp(&b.id));
         analysis.types.sort_by(|a, b| a.id.cmp(&b.id));
         analysis.rows.sort_by(|a, b| a.id.cmp(&b.id));
+        analysis.label_occurrences.sort_by(|a, b| a.id.cmp(&b.id));
+        analysis.substitutions.sort_by(|a, b| a.id.cmp(&b.id));
         analysis.values.sort_by(|a, b| a.id.cmp(&b.id));
         analysis.applications.sort_by(|a, b| a.id.cmp(&b.id));
         analysis.diagnostics.sort_by(|a, b| a.id.cmp(&b.id));
         analysis.canonical_definitions = analysis.definitions.clone();
         analysis.canonical_types = analysis.types.clone();
         analysis.canonical_rows = analysis.rows.clone();
+        analysis.canonical_label_occurrences = analysis.label_occurrences.clone();
+        analysis.canonical_substitutions = analysis.substitutions.clone();
         analysis.canonical_values = analysis.values.clone();
         analysis.canonical_applications = analysis.applications.clone();
         analysis.canonical_diagnostics = analysis.diagnostics.clone();
@@ -576,7 +640,10 @@ impl CallableAnalysis {
         self.rows.push(LatentEffectRowFact {
             id: row_id.clone(),
             labels: Vec::new(),
+            normalized_labels: Vec::new(),
             tail_id: None,
+            tail_alias: None,
+            normalized_tail: None,
             status: if valid {
                 "closed_empty_v0"
             } else {
@@ -769,11 +836,13 @@ impl CallableAnalysis {
             );
             return;
         }
-        if !task_has_closed_empty_latent_row(target.task) {
+        let change_origins =
+            task_change_origins(target, &self.resolver_references, &self.resolver_scopes);
+        if !task_has_supported_am_latent_row(target.task, &change_origins) {
             self.push_mismatch(
                 &identifier.span,
-                "the passed task does not infer the required closed-empty latent effect row",
-                "callable_latent_row_not_closed_empty_v0",
+                "the passed task has a latent effect outside the bounded empty/change row slice",
+                "callable_latent_row_outside_bounded_am_slice_v0",
                 vec![
                     target.task.span.clone(),
                     receiver.callable_param.type_syntax.span.clone(),
@@ -807,6 +876,86 @@ impl CallableAnalysis {
             return;
         };
         let application_id = semantic_id("callable-application", &expression.span);
+        let mut output_row_id = receiver.row_id.clone();
+        let mut application_status = "accepted_al_indirect_application_v0";
+        let mut application_reason = "canonical_callable_relationship_checked_v0";
+        if !change_origins.is_empty() {
+            let tail_id = semantic_id("row-tail", &receiver.callable_param.type_syntax.span);
+            if let Some(row) = self.rows.iter_mut().find(|row| row.id == receiver.row_id) {
+                row.tail_id = Some(tail_id.clone());
+                row.tail_alias = Some("row".to_string());
+                row.normalized_tail = Some("row0".to_string());
+                row.status = "open_single_tail_v0";
+            }
+            if let Some(callable_type) = self
+                .types
+                .iter_mut()
+                .find(|fact| fact.id == receiver.callable_type_id)
+            {
+                callable_type.status = "recognized_open_callable_type_v0";
+            }
+            let mut occurrence_ids = Vec::new();
+            let mut normalized_labels = Vec::new();
+            for origin in change_origins {
+                let id = semantic_id("effect-label-change", &origin.source_span);
+                let alias_id = semantic_id("effect-alias-change", &origin.source_span);
+                occurrence_ids.push(id.clone());
+                normalized_labels.push("change".to_string());
+                if !self
+                    .label_occurrences
+                    .iter()
+                    .any(|occurrence| occurrence.id == id)
+                {
+                    self.label_occurrences.push(EffectLabelOccurrenceFact {
+                        id,
+                        label: "change",
+                        alias_id,
+                        resolver_reference_id: origin.id.clone(),
+                        source_span: portable_span(&origin.source_span),
+                        owner_definition_id: target.definition_id.clone(),
+                        target_definition_id: origin
+                            .resolved_definition_id
+                            .clone()
+                            .unwrap_or_else(|| missing_id("mutation-target", &origin.source_span)),
+                    });
+                }
+            }
+            occurrence_ids.sort();
+            normalized_labels.sort();
+            output_row_id = semantic_id("latent-row-output", &expression.span);
+            let argument_row_id = semantic_id("latent-row-argument", &identifier.span);
+            self.rows.push(LatentEffectRowFact {
+                id: argument_row_id.clone(),
+                labels: occurrence_ids.clone(),
+                normalized_labels: normalized_labels.clone(),
+                tail_id: None,
+                tail_alias: None,
+                normalized_tail: None,
+                status: "closed_nonempty_change_v0",
+                origin: "inferred_from_checked_callable_body_v0",
+            });
+            self.rows.push(LatentEffectRowFact {
+                id: output_row_id.clone(),
+                labels: occurrence_ids,
+                normalized_labels,
+                tail_id: None,
+                tail_alias: None,
+                normalized_tail: None,
+                status: "propagated_nonempty_change_v0",
+                origin: "substituted_at_callable_application_v0",
+            });
+            self.substitutions.push(RowSubstitutionFact {
+                id: semantic_id("row-substitution", &expression.span),
+                application_id: application_id.clone(),
+                input_row_id: receiver.row_id.clone(),
+                tail_id,
+                argument_row_id,
+                output_row_id: output_row_id.clone(),
+                status: "accepted_single_structural_substitution_v0",
+            });
+            application_status = "accepted_am_indirect_application_v0";
+            application_reason = "complete_latent_row_propagated_v0";
+        }
         self.applications.push(CallableApplicationFact {
             id: application_id,
             caller_definition_id: caller.definition_id.clone(),
@@ -830,9 +979,9 @@ impl CallableAnalysis {
             result_type: "UInt".to_string(),
             failure_root: None,
             input_row_id: receiver.row_id.clone(),
-            output_row_id: receiver.row_id.clone(),
-            status: "accepted_al_indirect_application_v0",
-            reason: "canonical_callable_relationship_checked_v0",
+            output_row_id,
+            status: application_status,
+            reason: application_reason,
         });
     }
 
@@ -1046,6 +1195,14 @@ impl CallableAnalysis {
         })
     }
 
+    pub(crate) fn bridge_status(&self) -> &'static str {
+        if self.substitutions.is_empty() {
+            "not_applicable_to_al_ordinary_value_v0"
+        } else {
+            "not_applicable_to_am_ordinary_value_v0"
+        }
+    }
+
     pub(crate) fn is_nonretained_closed_empty_task_definition(&self, task: &Task) -> bool {
         task.params.len() == 1
             && is_named(&task.params[0].type_syntax, "UInt")
@@ -1058,13 +1215,16 @@ impl CallableAnalysis {
 
     pub(crate) fn text(&self, stage: &str) -> String {
         let diagnostics = self.diagnostics_for_stage(stage);
+        let bridge_status = self.bridge_status();
         let mut out = format!(
-            "callable_facts: model={} stage={} definitions={} types={} rows={} values={} applications={} diagnostics={} status={}\n",
+            "callable_facts: model={} stage={} definitions={} types={} rows={} label_occurrences={} substitutions={} values={} applications={} diagnostics={} status={}\n",
             CALLABLE_FACT_MODEL,
             stage,
             self.definitions.len(),
             self.types.len(),
             self.rows.len(),
+            self.label_occurrences.len(),
+            self.substitutions.len(),
             self.values.len(),
             self.applications.len(),
             diagnostics.len(),
@@ -1073,7 +1233,11 @@ impl CallableAnalysis {
             } else if self.types.is_empty() {
                 "not_applicable_v0"
             } else {
-                "accepted_al_v0"
+                if self.substitutions.is_empty() {
+                    "accepted_al_v0"
+                } else {
+                    "accepted_am_v0"
+                }
             }
         );
         for fact in &self.definitions {
@@ -1094,12 +1258,36 @@ impl CallableAnalysis {
         }
         for row in &self.rows {
             out.push_str(&format!(
-                "  row id={} labels=[{}] tail={} status={} origin={}\n",
+                "  row id={} labels=[{}] normalized_labels=[{}] tail={} tail_alias={} normalized_tail={} status={} origin={}\n",
                 row.id,
                 row.labels.join(","),
+                row.normalized_labels.join(","),
                 row.tail_id.as_deref().unwrap_or("none"),
+                row.tail_alias.as_deref().unwrap_or("none"),
+                row.normalized_tail.as_deref().unwrap_or("none"),
                 row.status,
                 row.origin
+            ));
+        }
+        for fact in &self.label_occurrences {
+            out.push_str(&format!(
+                "  label_occurrence id={} label={} alias={} resolver_reference={} owner={} target={} span={}:{}:{}\n",
+                fact.id,
+                fact.label,
+                fact.alias_id,
+                fact.resolver_reference_id,
+                fact.owner_definition_id,
+                fact.target_definition_id,
+                fact.source_span.file,
+                fact.source_span.line,
+                fact.source_span.column
+            ));
+        }
+        for fact in &self.substitutions {
+            out.push_str(&format!(
+                "  row_substitution id={} application={} input_row={} tail={} argument_row={} output_row={} status={}\n",
+                fact.id, fact.application_id, fact.input_row_id, fact.tail_id,
+                fact.argument_row_id, fact.output_row_id, fact.status
             ));
         }
         for fact in &self.values {
@@ -1151,7 +1339,7 @@ impl CallableAnalysis {
             }
         }
         if !self.types.is_empty() {
-            out.push_str("  bridge ownership=not_applicable_to_al_ordinary_value_v0 resource=not_applicable_to_al_ordinary_value_v0 callable_environment_allocations=0 retained_values=0 retained_resources=0 retained_authority=0\n");
+            out.push_str(&format!("  bridge ownership={bridge_status} resource={bridge_status} callable_environment_allocations=0 retained_values=0 retained_resources=0 retained_authority=0\n"));
         }
         if stage.starts_with("core_") {
             for fact in &self.types {
@@ -1176,12 +1364,13 @@ impl CallableAnalysis {
                 ));
             }
         }
-        out.push_str("  nonclaims: no_capture no_environment no_general_allocation_proof no_ownership_proof no_authority_proof no_open_row\n");
+        out.push_str("  nonclaims: no_capture no_environment no_general_allocation_proof no_ownership_proof no_authority_proof no_handler no_global_principal_inference\n");
         out
     }
 
     pub(crate) fn json(&self, stage: &str) -> String {
         let diagnostics = self.diagnostics_for_stage(stage);
+        let bridge_status = self.bridge_status();
         let mut out = String::new();
         out.push_str("{\n");
         json_string_field(&mut out, 2, "model", CALLABLE_FACT_MODEL, true);
@@ -1195,13 +1384,25 @@ impl CallableAnalysis {
             } else if self.types.is_empty() {
                 "not_applicable_v0"
             } else {
-                "accepted_al_v0"
+                if self.substitutions.is_empty() {
+                    "accepted_al_v0"
+                } else {
+                    "accepted_am_v0"
+                }
             },
             true,
         );
         json_usize_field(&mut out, 2, "definitions", self.definitions.len(), true);
         json_usize_field(&mut out, 2, "types", self.types.len(), true);
         json_usize_field(&mut out, 2, "rows", self.rows.len(), true);
+        json_usize_field(
+            &mut out,
+            2,
+            "label_occurrences",
+            self.label_occurrences.len(),
+            true,
+        );
+        json_usize_field(&mut out, 2, "substitutions", self.substitutions.len(), true);
         json_usize_field(&mut out, 2, "values", self.values.len(), true);
         json_usize_field(&mut out, 2, "applications", self.applications.len(), true);
         json_usize_field(&mut out, 2, "diagnostics", diagnostics.len(), true);
@@ -1212,7 +1413,7 @@ impl CallableAnalysis {
             if self.types.is_empty() {
                 "not_applicable_v0"
             } else {
-                "not_applicable_to_al_ordinary_value_v0"
+                bridge_status
             },
             true,
         );
@@ -1223,7 +1424,7 @@ impl CallableAnalysis {
             if self.types.is_empty() {
                 "not_applicable_v0"
             } else {
-                "not_applicable_to_al_ordinary_value_v0"
+                bridge_status
             },
             true,
         );
@@ -1234,13 +1435,15 @@ impl CallableAnalysis {
         push_json_definitions(&mut out, &self.definitions, true);
         push_json_types(&mut out, &self.types, true);
         push_json_rows(&mut out, &self.rows, true);
+        push_json_label_occurrences(&mut out, &self.label_occurrences, true);
+        push_json_substitutions(&mut out, &self.substitutions, true);
         push_json_values(&mut out, &self.values, true);
         push_json_applications(&mut out, &self.applications, true);
         push_json_diagnostics(&mut out, &diagnostics, true);
         if stage.starts_with("core_") {
             push_json_core_nodes(&mut out, self, false);
         } else if stage == "graph" {
-            push_json_graph_edges(&mut out, &self.applications, false);
+            push_json_graph_edges(&mut out, self, false);
         } else {
             json_indent(&mut out, 2);
             out.push_str("\"stage_relationships\": []\n");
@@ -1266,6 +1469,21 @@ impl CallableAnalysis {
             .iter()
             .map(|fact| fact.id.as_str())
             .collect::<BTreeSet<_>>();
+        let label_ids = self
+            .label_occurrences
+            .iter()
+            .map(|fact| fact.id.as_str())
+            .collect::<BTreeSet<_>>();
+        let label_alias_ids = self
+            .label_occurrences
+            .iter()
+            .map(|fact| fact.alias_id.as_str())
+            .collect::<BTreeSet<_>>();
+        let substitution_ids = self
+            .substitutions
+            .iter()
+            .map(|fact| fact.id.as_str())
+            .collect::<BTreeSet<_>>();
         let value_ids = self
             .values
             .iter()
@@ -1284,15 +1502,40 @@ impl CallableAnalysis {
         if definition_ids.len() != self.definitions.len()
             || type_ids.len() != self.types.len()
             || row_ids.len() != self.rows.len()
+            || label_ids.len() != self.label_occurrences.len()
+            || label_alias_ids.len() != self.label_occurrences.len()
+            || substitution_ids.len() != self.substitutions.len()
             || value_ids.len() != self.values.len()
             || application_ids.len() != self.applications.len()
             || diagnostic_ids.len() != self.diagnostics.len()
         {
             failures.push("callable_fact_identity_not_unique_v0");
         }
+        let application_receivers = self
+            .applications
+            .iter()
+            .map(|fact| fact.receiver_definition_id.as_str())
+            .collect::<BTreeSet<_>>();
+        let substituted_receivers = self
+            .substitutions
+            .iter()
+            .filter_map(|substitution| {
+                self.applications
+                    .iter()
+                    .find(|application| application.id == substitution.application_id)
+                    .map(|application| application.receiver_definition_id.as_str())
+            })
+            .collect::<BTreeSet<_>>();
+        if application_receivers.len() != self.applications.len()
+            || substituted_receivers.len() != self.substitutions.len()
+        {
+            failures.push("callable_multiple_relationships_outside_am_v0");
+        }
         if self.definitions != self.canonical_definitions
             || self.types != self.canonical_types
             || self.rows != self.canonical_rows
+            || self.label_occurrences != self.canonical_label_occurrences
+            || self.substitutions != self.canonical_substitutions
             || self.values != self.canonical_values
             || self.applications != self.canonical_applications
             || self.diagnostics != self.canonical_diagnostics
@@ -1356,12 +1599,73 @@ impl CallableAnalysis {
             }
         }
         for row in &self.rows {
-            if !row.labels.is_empty()
-                || row.tail_id.is_some()
-                || !matches!(row.status, "closed_empty_v0" | "blocked_v0")
-                || row.origin != "inferred_from_checked_callable_body_v0"
+            let valid = match row.status {
+                "closed_empty_v0" | "blocked_v0" => {
+                    row.labels.is_empty()
+                        && row.normalized_labels.is_empty()
+                        && row.tail_id.is_none()
+                        && row.tail_alias.is_none()
+                        && row.normalized_tail.is_none()
+                }
+                "open_single_tail_v0" => {
+                    row.labels.is_empty()
+                        && row.normalized_labels.is_empty()
+                        && row.tail_id.is_some()
+                        && row.tail_alias.as_deref() == Some("row")
+                        && row.normalized_tail.as_deref() == Some("row0")
+                }
+                "closed_nonempty_change_v0" | "propagated_nonempty_change_v0" => {
+                    !row.labels.is_empty()
+                        && row.labels.iter().all(|id| label_ids.contains(id.as_str()))
+                        && row.normalized_labels.len() == row.labels.len()
+                        && row.normalized_labels.iter().all(|label| label == "change")
+                        && row.tail_id.is_none()
+                        && row.tail_alias.is_none()
+                        && row.normalized_tail.is_none()
+                }
+                _ => false,
+            };
+            if !valid
+                || !matches!(
+                    row.origin,
+                    "inferred_from_checked_callable_body_v0"
+                        | "substituted_at_callable_application_v0"
+                )
             {
-                failures.push("callable_latent_row_not_closed_empty_v0");
+                failures.push("callable_latent_row_relationship_corrupt_v0");
+            }
+        }
+        for fact in &self.label_occurrences {
+            let exact_reference = self.resolver_references.iter().find(|reference| {
+                reference.id == fact.resolver_reference_id
+                    && reference.reference_kind == "mutation_target"
+                    && same_span(&reference.source_span, &fact.source_span)
+                    && reference.resolved_definition_id.as_deref()
+                        == Some(fact.target_definition_id.as_str())
+            });
+            let owner_scope = self.resolver_scopes.iter().find(|scope| {
+                scope.scope_kind == "callable"
+                    && scope.owner_kind == "task"
+                    && self.resolver_definitions.iter().any(|definition| {
+                        definition.id == fact.owner_definition_id
+                            && scope
+                                .source_span
+                                .as_ref()
+                                .is_some_and(|span| same_span(span, &definition.source_span))
+                    })
+            });
+            if fact.id != semantic_id("effect-label-change", &fact.source_span)
+                || fact.label != "change"
+                || fact.alias_id != semantic_id("effect-alias-change", &fact.source_span)
+                || exact_reference.is_none()
+                || owner_scope.is_none()
+                || !exact_reference.is_some_and(|reference| {
+                    owner_scope.is_some_and(|scope| {
+                        scope_is_within(&reference.scope_id, &scope.id, &self.resolver_scopes)
+                    })
+                })
+            {
+                failures.push("callable_effect_label_occurrence_corrupt_v0");
             }
         }
         for fact in &self.types {
@@ -1374,15 +1678,17 @@ impl CallableAnalysis {
                 || fact.failure_root.is_some()
                 || !matches!(
                     fact.status,
-                    "recognized_closed_empty_callable_type_v0" | "blocked_callable_type_v0"
+                    "recognized_closed_empty_callable_type_v0"
+                        | "recognized_open_callable_type_v0"
+                        | "blocked_callable_type_v0"
                 )
             {
                 failures.push("callable_type_signature_corrupt_v0");
             }
-            let expected_row_status = if fact.status == "recognized_closed_empty_callable_type_v0" {
-                "closed_empty_v0"
-            } else {
-                "blocked_v0"
+            let expected_row_status = match fact.status {
+                "recognized_closed_empty_callable_type_v0" => "closed_empty_v0",
+                "recognized_open_callable_type_v0" => "open_single_tail_v0",
+                _ => "blocked_v0",
             };
             if self
                 .rows
@@ -1436,7 +1742,11 @@ impl CallableAnalysis {
             {
                 failures.push("callable_application_missing_row_v0");
             }
-            if fact.input_row_id != fact.output_row_id {
+            let is_al = fact.status == "accepted_al_indirect_application_v0";
+            let is_am = fact.status == "accepted_am_indirect_application_v0";
+            if (is_al && fact.input_row_id != fact.output_row_id)
+                || (is_am && fact.input_row_id == fact.output_row_id)
+            {
                 failures.push("callable_application_row_identity_mismatch_v0");
             }
             if fact.result_type != "UInt" || fact.failure_root.is_some() {
@@ -1445,8 +1755,9 @@ impl CallableAnalysis {
             if fact.id.is_empty()
                 || fact.callable_parameter_name.is_empty()
                 || fact.ordinary_parameter_name.is_empty()
-                || fact.status != "accepted_al_indirect_application_v0"
-                || fact.reason != "canonical_callable_relationship_checked_v0"
+                || !(is_al || is_am)
+                || (is_al && fact.reason != "canonical_callable_relationship_checked_v0")
+                || (is_am && fact.reason != "complete_latent_row_propagated_v0")
             {
                 failures.push("callable_application_fact_corrupt_v0");
             }
@@ -1532,6 +1843,42 @@ impl CallableAnalysis {
                 || !indirect_reference_exact
             {
                 failures.push("callable_application_resolver_relationship_corrupt_v0");
+            }
+        }
+        for fact in &self.substitutions {
+            let input = self.rows.iter().find(|row| row.id == fact.input_row_id);
+            let argument = self.rows.iter().find(|row| row.id == fact.argument_row_id);
+            let output = self.rows.iter().find(|row| row.id == fact.output_row_id);
+            let application = self
+                .applications
+                .iter()
+                .find(|app| app.id == fact.application_id);
+            let mut expected_occurrence_ids = application.map_or_else(Vec::new, |application| {
+                self.label_occurrences
+                    .iter()
+                    .filter(|label| label.owner_definition_id == application.target_definition_id)
+                    .map(|label| label.id.clone())
+                    .collect::<Vec<_>>()
+            });
+            expected_occurrence_ids.sort();
+            if fact.id.is_empty()
+                || application.is_some_and(|application| {
+                    fact.id != semantic_id("row-substitution", &application.direct_call_span)
+                        || fact.input_row_id != application.input_row_id
+                        || fact.output_row_id != application.output_row_id
+                })
+                || fact.status != "accepted_single_structural_substitution_v0"
+                || input.and_then(|row| row.tail_id.as_deref()) != Some(fact.tail_id.as_str())
+                || argument.is_none()
+                || output.is_none()
+                || application.is_none()
+                || argument.map(|row| &row.labels) != output.map(|row| &row.labels)
+                || argument.map(|row| &row.normalized_labels)
+                    != output.map(|row| &row.normalized_labels)
+                || argument.map(|row| &row.labels) != Some(&expected_occurrence_ids)
+                || output.map(|row| &row.labels) != Some(&expected_occurrence_ids)
+            {
+                failures.push("callable_row_substitution_relationship_corrupt_v0");
             }
         }
         for fact in &self.diagnostics {
@@ -1905,6 +2252,72 @@ fn task_has_closed_empty_latent_row(task: &Task) -> bool {
         })
 }
 
+fn task_has_supported_am_latent_row(
+    task: &Task,
+    change_origins: &[ResolveReferenceSummary],
+) -> bool {
+    if !task.effect_syntax.is_empty() {
+        return false;
+    }
+    if change_origins.is_empty() {
+        return task_has_closed_empty_latent_row(task);
+    }
+    !task
+        .body_syntax
+        .iter()
+        .any(|statement| match &statement.kind {
+            ParsedBodyStatementKind::Return(expression) => expression_contains_call(expression),
+            ParsedBodyStatementKind::Binding { value, .. } => {
+                value.as_ref().is_some_and(expression_contains_call)
+            }
+            ParsedBodyStatementKind::Other { expressions } => {
+                expressions.iter().any(expression_contains_call)
+            }
+        })
+}
+
+fn task_change_origins(
+    task: &TaskEntry<'_>,
+    references: &[ResolveReferenceSummary],
+    scopes: &[ResolveScopeSummary],
+) -> Vec<ResolveReferenceSummary> {
+    let mut origins = references
+        .iter()
+        .filter(|reference| {
+            reference.reference_kind == "mutation_target"
+                && scope_is_within(&reference.scope_id, &task.callable_scope_id, scopes)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    origins.sort_by_key(|reference| {
+        (
+            node_id::source_path_identity(&reference.source_span.file),
+            reference.source_span.line,
+            reference.source_span.column,
+            reference.id.clone(),
+        )
+    });
+    origins
+}
+
+fn scope_is_within(scope_id: &str, ancestor_id: &str, scopes: &[ResolveScopeSummary]) -> bool {
+    let mut current = Some(scope_id);
+    let mut visited = BTreeSet::new();
+    while let Some(id) = current {
+        if id == ancestor_id {
+            return true;
+        }
+        if !visited.insert(id) {
+            return false;
+        }
+        current = scopes
+            .iter()
+            .find(|scope| scope.id == id)
+            .and_then(|scope| scope.parent_scope_id.as_deref());
+    }
+    false
+}
+
 fn expression_contains_call(expression: &ParsedExpression) -> bool {
     match &expression.kind {
         ParsedExpressionKind::Call(_) => true,
@@ -2110,11 +2523,80 @@ fn push_json_rows(out: &mut String, facts: &[LatentEffectRowFact], comma: bool) 
         json_string_field(
             out,
             6,
+            "normalized_labels",
+            &fact.normalized_labels.join(","),
+            true,
+        );
+        json_string_field(
+            out,
+            6,
             "tail_id",
             fact.tail_id.as_deref().unwrap_or("none"),
             true,
         );
+        json_string_field(
+            out,
+            6,
+            "tail_alias",
+            fact.tail_alias.as_deref().unwrap_or("none"),
+            true,
+        );
+        json_string_field(
+            out,
+            6,
+            "normalized_tail",
+            fact.normalized_tail.as_deref().unwrap_or("none"),
+            true,
+        );
         json_string_field(out, 6, "origin", fact.origin, true);
+        json_string_field(out, 6, "status", fact.status, false);
+    });
+}
+
+fn push_json_label_occurrences(out: &mut String, facts: &[EffectLabelOccurrenceFact], comma: bool) {
+    push_json_fact_array(
+        out,
+        "effect_label_occurrence_facts",
+        facts,
+        comma,
+        |out, fact| {
+            json_string_field(out, 6, "id", &fact.id, true);
+            json_string_field(out, 6, "label", fact.label, true);
+            json_string_field(out, 6, "alias_id", &fact.alias_id, true);
+            json_string_field(
+                out,
+                6,
+                "resolver_reference_id",
+                &fact.resolver_reference_id,
+                true,
+            );
+            json_string_field(
+                out,
+                6,
+                "owner_definition_id",
+                &fact.owner_definition_id,
+                true,
+            );
+            json_string_field(
+                out,
+                6,
+                "target_definition_id",
+                &fact.target_definition_id,
+                true,
+            );
+            json_string_field(out, 6, "source_span", &span_text(&fact.source_span), false);
+        },
+    );
+}
+
+fn push_json_substitutions(out: &mut String, facts: &[RowSubstitutionFact], comma: bool) {
+    push_json_fact_array(out, "row_substitution_facts", facts, comma, |out, fact| {
+        json_string_field(out, 6, "id", &fact.id, true);
+        json_string_field(out, 6, "application_id", &fact.application_id, true);
+        json_string_field(out, 6, "input_row_id", &fact.input_row_id, true);
+        json_string_field(out, 6, "tail_id", &fact.tail_id, true);
+        json_string_field(out, 6, "argument_row_id", &fact.argument_row_id, true);
+        json_string_field(out, 6, "output_row_id", &fact.output_row_id, true);
         json_string_field(out, 6, "status", fact.status, false);
     });
 }
@@ -2292,38 +2774,14 @@ fn push_json_applications(out: &mut String, facts: &[CallableApplicationFact], c
 fn push_json_core_nodes(out: &mut String, analysis: &CallableAnalysis, comma: bool) {
     json_indent(out, 2);
     out.push_str("\"core_nodes\": [\n");
-    let mut nodes = Vec::new();
-    nodes.extend(analysis.types.iter().map(|fact| {
-        (
-            "callable_type",
-            fact.id.as_str(),
-            fact.latent_row_id.as_str(),
-            fact.result_type.as_str(),
-        )
-    }));
-    nodes.extend(analysis.values.iter().map(|fact| {
-        (
-            "callable_value",
-            fact.id.as_str(),
-            fact.resolved_task_definition_id.as_str(),
-            "task(UInt) -> UInt",
-        )
-    }));
-    nodes.extend(analysis.applications.iter().map(|fact| {
-        (
-            "callable_application",
-            fact.id.as_str(),
-            fact.callable_value_id.as_str(),
-            fact.result_type.as_str(),
-        )
-    }));
-    for (index, (kind, id, relationship_id, result_type)) in nodes.iter().enumerate() {
+    let nodes = core_node_facts(analysis);
+    for (index, node) in nodes.iter().enumerate() {
         json_indent(out, 4);
         out.push_str("{\n");
-        json_string_field(out, 6, "kind", kind, true);
-        json_string_field(out, 6, "id", id, true);
-        json_string_field(out, 6, "relationship_id", relationship_id, true);
-        json_string_field(out, 6, "result_type", result_type, false);
+        json_string_field(out, 6, "kind", &node.kind, true);
+        json_string_field(out, 6, "id", &node.id, true);
+        json_string_field(out, 6, "relationship_id", &node.relationship_id, true);
+        json_string_field(out, 6, "result_type", &node.result_type, false);
         json_indent(out, 4);
         out.push_str(if index + 1 == nodes.len() {
             "}\n"
@@ -2335,49 +2793,26 @@ fn push_json_core_nodes(out: &mut String, analysis: &CallableAnalysis, comma: bo
     out.push_str(if comma { "],\n" } else { "]\n" });
 }
 
-fn push_json_graph_edges(out: &mut String, facts: &[CallableApplicationFact], comma: bool) {
+fn push_json_graph_edges(out: &mut String, analysis: &CallableAnalysis, comma: bool) {
     json_indent(out, 2);
     out.push_str("\"graph_edges\": [\n");
-    let mut edges = Vec::new();
-    for fact in facts {
-        edges.push((
-            "definition",
-            fact.target_definition_id.as_str(),
-            fact.callable_value_id.as_str(),
-            span_text(&fact.direct_call_span),
-        ));
-        edges.push((
-            "value_use",
-            fact.callable_value_id.as_str(),
-            fact.id.as_str(),
-            span_text(&fact.direct_call_span),
-        ));
-        edges.push((
-            "passed_as_argument",
-            fact.callable_value_id.as_str(),
-            fact.callable_parameter_definition_id.as_str(),
-            span_text(&fact.direct_call_span),
-        ));
-        edges.push((
-            "parameter_bind",
-            fact.callable_parameter_definition_id.as_str(),
-            fact.target_definition_id.as_str(),
-            span_text(&fact.indirect_call_span),
-        ));
-        edges.push((
-            "application",
-            fact.callable_parameter_definition_id.as_str(),
-            fact.id.as_str(),
-            span_text(&fact.indirect_call_span),
-        ));
-    }
-    for (index, (kind, from, to, span)) in edges.iter().enumerate() {
+    let edges = graph_edge_facts(analysis);
+    for (index, edge) in edges.iter().enumerate() {
         json_indent(out, 4);
         out.push_str("{\n");
-        json_string_field(out, 6, "kind", kind, true);
-        json_string_field(out, 6, "from", from, true);
-        json_string_field(out, 6, "to", to, true);
-        json_string_field(out, 6, "span", span, false);
+        json_string_field(out, 6, "id", &edge.id, true);
+        json_string_field(out, 6, "kind", &edge.kind, true);
+        json_string_field(out, 6, "from", &edge.from, true);
+        json_string_field(out, 6, "to", &edge.to, true);
+        json_string_field(
+            out,
+            6,
+            "owner_definition_id",
+            &edge.owner_definition_id,
+            true,
+        );
+        json_string_field(out, 6, "application_id", &edge.application_id, true);
+        json_string_field(out, 6, "span", &span_text(&edge.source_span), false);
         json_indent(out, 4);
         out.push_str(if index + 1 == edges.len() {
             "}\n"
@@ -2387,6 +2822,251 @@ fn push_json_graph_edges(out: &mut String, facts: &[CallableApplicationFact], co
     }
     json_indent(out, 2);
     out.push_str(if comma { "],\n" } else { "]\n" });
+}
+
+fn core_node_facts(analysis: &CallableAnalysis) -> Vec<CallableCoreNodeFact> {
+    let mut nodes = Vec::new();
+    nodes.extend(analysis.types.iter().map(|fact| CallableCoreNodeFact {
+        kind: "callable_type".to_string(),
+        id: fact.id.clone(),
+        relationship_id: fact.latent_row_id.clone(),
+        result_type: fact.result_type.clone(),
+    }));
+    nodes.extend(analysis.values.iter().map(|fact| CallableCoreNodeFact {
+        kind: "callable_value".to_string(),
+        id: fact.id.clone(),
+        relationship_id: fact.resolved_task_definition_id.clone(),
+        result_type: "task(UInt) -> UInt".to_string(),
+    }));
+    nodes.extend(
+        analysis
+            .applications
+            .iter()
+            .map(|fact| CallableCoreNodeFact {
+                kind: "callable_application".to_string(),
+                id: fact.id.clone(),
+                relationship_id: fact.callable_value_id.clone(),
+                result_type: fact.result_type.clone(),
+            }),
+    );
+    nodes.extend(analysis.rows.iter().map(|fact| CallableCoreNodeFact {
+        kind: "latent_effect_row".to_string(),
+        id: fact.id.clone(),
+        relationship_id: if fact.labels.is_empty() {
+            fact.tail_id.clone().unwrap_or_else(|| "closed".to_string())
+        } else {
+            fact.labels.join(",")
+        },
+        result_type: fact.status.to_string(),
+    }));
+    nodes.extend(
+        analysis
+            .label_occurrences
+            .iter()
+            .map(|fact| CallableCoreNodeFact {
+                kind: "effect_label_occurrence".to_string(),
+                id: fact.id.clone(),
+                relationship_id: fact.alias_id.clone(),
+                result_type: fact.target_definition_id.clone(),
+            }),
+    );
+    nodes.extend(
+        analysis
+            .substitutions
+            .iter()
+            .map(|fact| CallableCoreNodeFact {
+                kind: "row_substitution".to_string(),
+                id: fact.id.clone(),
+                relationship_id: format!(
+                    "{}>{}>{}",
+                    fact.input_row_id, fact.argument_row_id, fact.output_row_id
+                ),
+                result_type: fact.status.to_string(),
+            }),
+    );
+    nodes
+}
+
+#[cfg(test)]
+fn verify_core_node_facts(
+    analysis: &CallableAnalysis,
+    facts: &[CallableCoreNodeFact],
+) -> Vec<&'static str> {
+    let expected = core_node_facts(analysis);
+    let ids = facts
+        .iter()
+        .map(|fact| fact.id.as_str())
+        .collect::<BTreeSet<_>>();
+    if facts != expected || ids.len() != facts.len() {
+        vec!["callable_core_projection_relationship_corrupt_v0"]
+    } else {
+        Vec::new()
+    }
+}
+
+fn push_graph_edge(
+    edges: &mut Vec<CallableGraphEdgeFact>,
+    kind: &str,
+    from: &str,
+    to: &str,
+    owner_definition_id: &str,
+    application_id: &str,
+    source_span: &Span,
+) {
+    edges.push(CallableGraphEdgeFact {
+        id: semantic_id(
+            &format!("callable-graph-{kind}-{application_id}-{from}-{to}"),
+            source_span,
+        ),
+        kind: kind.to_string(),
+        from: from.to_string(),
+        to: to.to_string(),
+        owner_definition_id: owner_definition_id.to_string(),
+        application_id: application_id.to_string(),
+        source_span: portable_span(source_span),
+    });
+}
+
+fn graph_edge_facts(analysis: &CallableAnalysis) -> Vec<CallableGraphEdgeFact> {
+    let mut edges = Vec::new();
+    for application in &analysis.applications {
+        for (kind, from, to, span) in [
+            (
+                "definition",
+                application.target_definition_id.as_str(),
+                application.callable_value_id.as_str(),
+                &application.direct_call_span,
+            ),
+            (
+                "value_use",
+                application.callable_value_id.as_str(),
+                application.id.as_str(),
+                &application.direct_call_span,
+            ),
+            (
+                "passed_as_argument",
+                application.callable_value_id.as_str(),
+                application.callable_parameter_definition_id.as_str(),
+                &application.direct_call_span,
+            ),
+            (
+                "parameter_bind",
+                application.callable_parameter_definition_id.as_str(),
+                application.target_definition_id.as_str(),
+                &application.indirect_call_span,
+            ),
+            (
+                "application",
+                application.callable_parameter_definition_id.as_str(),
+                application.id.as_str(),
+                &application.indirect_call_span,
+            ),
+        ] {
+            push_graph_edge(
+                &mut edges,
+                kind,
+                from,
+                to,
+                &application.receiver_definition_id,
+                &application.id,
+                span,
+            );
+        }
+    }
+    for substitution in &analysis.substitutions {
+        let Some(application) = analysis
+            .applications
+            .iter()
+            .find(|application| application.id == substitution.application_id)
+        else {
+            continue;
+        };
+        for occurrence in analysis
+            .label_occurrences
+            .iter()
+            .filter(|occurrence| occurrence.owner_definition_id == application.target_definition_id)
+        {
+            push_graph_edge(
+                &mut edges,
+                "effect_label_occurrence",
+                &occurrence.owner_definition_id,
+                &occurrence.id,
+                &application.receiver_definition_id,
+                &application.id,
+                &occurrence.source_span,
+            );
+            push_graph_edge(
+                &mut edges,
+                "effect_alias",
+                &occurrence.alias_id,
+                &occurrence.id,
+                &application.receiver_definition_id,
+                &application.id,
+                &occurrence.source_span,
+            );
+        }
+        for (kind, from, to) in [
+            (
+                "row_variable",
+                substitution.input_row_id.as_str(),
+                substitution.tail_id.as_str(),
+            ),
+            (
+                "row_substitution",
+                substitution.input_row_id.as_str(),
+                substitution.output_row_id.as_str(),
+            ),
+            (
+                "row_argument",
+                substitution.argument_row_id.as_str(),
+                substitution.tail_id.as_str(),
+            ),
+            (
+                "row_propagation",
+                substitution.argument_row_id.as_str(),
+                substitution.output_row_id.as_str(),
+            ),
+        ] {
+            push_graph_edge(
+                &mut edges,
+                kind,
+                from,
+                to,
+                &application.receiver_definition_id,
+                &application.id,
+                &application.direct_call_span,
+            );
+        }
+    }
+    edges
+}
+
+#[cfg(test)]
+fn verify_graph_edge_facts(
+    analysis: &CallableAnalysis,
+    facts: &[CallableGraphEdgeFact],
+) -> Vec<&'static str> {
+    let expected = graph_edge_facts(analysis);
+    let ids = facts
+        .iter()
+        .map(|fact| fact.id.as_str())
+        .collect::<BTreeSet<_>>();
+    if facts != expected
+        || ids.len() != facts.len()
+        || facts.iter().any(|fact| {
+            fact.id.is_empty()
+                || fact.kind.is_empty()
+                || fact.from.is_empty()
+                || fact.to.is_empty()
+                || fact.owner_definition_id.is_empty()
+                || fact.application_id.is_empty()
+                || fact.source_span.file.is_empty()
+        })
+    {
+        vec!["callable_graph_projection_relationship_corrupt_v0"]
+    } else {
+        Vec::new()
+    }
 }
 
 fn push_json_diagnostics(out: &mut String, facts: &[CallableDiagnosticFact], comma: bool) {
@@ -2459,7 +3139,10 @@ fn push_json_diagnostics(out: &mut String, facts: &[CallableDiagnosticFact], com
 
 #[cfg(test)]
 mod tests {
-    use super::{CALLABLE_FACT_MODEL, OrdinaryArgumentFact, analyze_program};
+    use super::{
+        CALLABLE_FACT_MODEL, OrdinaryArgumentFact, analyze_program, core_node_facts,
+        graph_edge_facts, verify_core_node_facts, verify_graph_edge_facts,
+    };
     use crate::ast::{Item, ParsedExpressionKind};
     use crate::parser::parse_source;
     use std::sync::Arc;
@@ -2481,6 +3164,534 @@ task run -> UInt {
     return apply_once(increment, 41)
 }
 "#;
+
+    const AM_SOURCE: &str = r#"module tests.callable_row
+
+task bump(value: UInt) -> UInt {
+  does:
+    change current: UInt = value
+    set current = current + 1
+    set current = current + 1
+    return current
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run -> UInt {
+  does:
+    return apply_once(bump, 40)
+}
+"#;
+
+    #[test]
+    fn am_rows_preserve_duplicate_occurrences_and_fail_closed_on_corruption() {
+        let parsed = parse_source("callable_row.hum", AM_SOURCE);
+        let program = crate::ast::Program {
+            files: vec![parsed.file],
+        };
+        let analysis = analyze_program(&program);
+        assert!(analysis.verify().is_empty(), "{:?}", analysis.verify());
+        assert_eq!(analysis.label_occurrences.len(), 2);
+        assert_ne!(
+            analysis.label_occurrences[0].id,
+            analysis.label_occurrences[1].id
+        );
+        assert_ne!(
+            analysis.label_occurrences[0].alias_id,
+            analysis.label_occurrences[1].alias_id
+        );
+        assert_eq!(analysis.label_occurrences[0].label, "change");
+        assert_eq!(analysis.label_occurrences[1].label, "change");
+        assert_eq!(analysis.substitutions.len(), 1);
+        let substitution = &analysis.substitutions[0];
+        let argument = analysis
+            .rows
+            .iter()
+            .find(|row| row.id == substitution.argument_row_id)
+            .unwrap();
+        let output = analysis
+            .rows
+            .iter()
+            .find(|row| row.id == substitution.output_row_id)
+            .unwrap();
+        assert_eq!(argument.labels.len(), 2);
+        assert_eq!(argument.labels, output.labels);
+
+        let mut corrupt = (*analysis).clone();
+        corrupt
+            .rows
+            .iter_mut()
+            .find(|row| row.id == substitution.output_row_id)
+            .unwrap()
+            .labels
+            .pop();
+        assert!(
+            corrupt
+                .verify()
+                .contains(&"callable_fact_source_relationship_corrupt_v0")
+        );
+        assert!(
+            corrupt
+                .verify()
+                .contains(&"callable_row_substitution_relationship_corrupt_v0")
+        );
+
+        let mut corrupt = (*analysis).clone();
+        corrupt.substitutions[0].tail_id = "foreign-tail".to_string();
+        assert!(
+            corrupt
+                .verify()
+                .contains(&"callable_row_substitution_relationship_corrupt_v0")
+        );
+
+        let mut corrupt = (*analysis).clone();
+        corrupt
+            .rows
+            .iter_mut()
+            .find(|row| row.id == substitution.argument_row_id)
+            .unwrap()
+            .labels[0] = "foreign".to_string();
+        assert!(
+            corrupt
+                .verify()
+                .contains(&"callable_latent_row_relationship_corrupt_v0")
+        );
+
+        for field in ["normalized_labels", "tail_alias", "normalized_tail"] {
+            let mut corrupt = (*analysis).clone();
+            let row = corrupt
+                .rows
+                .iter_mut()
+                .find(|row| row.id == substitution.input_row_id)
+                .unwrap();
+            match field {
+                "normalized_labels" => row.normalized_labels.push("failure".to_string()),
+                "tail_alias" => row.tail_alias = Some("other".to_string()),
+                "normalized_tail" => row.normalized_tail = Some("row1".to_string()),
+                _ => unreachable!(),
+            }
+            assert!(
+                corrupt
+                    .verify()
+                    .contains(&"callable_latent_row_relationship_corrupt_v0"),
+                "{field}: {:?}",
+                corrupt.verify()
+            );
+        }
+
+        let mut corrupt = (*analysis).clone();
+        corrupt
+            .rows
+            .iter_mut()
+            .find(|row| row.id == substitution.output_row_id)
+            .unwrap()
+            .labels
+            .clear();
+        assert!(
+            corrupt
+                .verify()
+                .contains(&"callable_latent_row_relationship_corrupt_v0")
+        );
+
+        let mut corrupt = (*analysis).clone();
+        corrupt
+            .rows
+            .iter_mut()
+            .find(|row| row.id == substitution.input_row_id)
+            .unwrap()
+            .tail_id = None;
+        assert!(
+            corrupt
+                .verify()
+                .contains(&"callable_latent_row_relationship_corrupt_v0")
+        );
+
+        let mut corrupt = (*analysis).clone();
+        corrupt
+            .rows
+            .retain(|row| row.id != substitution.argument_row_id);
+        assert!(
+            corrupt
+                .verify()
+                .contains(&"callable_application_missing_row_v0")
+                || corrupt
+                    .verify()
+                    .contains(&"callable_row_substitution_relationship_corrupt_v0")
+        );
+
+        let mut corrupt = (*analysis).clone();
+        corrupt.label_occurrences[0].alias_id = "poisoned-alias".to_string();
+        assert!(
+            corrupt
+                .verify()
+                .contains(&"callable_effect_label_occurrence_corrupt_v0")
+        );
+
+        let mut corrupt = (*analysis).clone();
+        corrupt.label_occurrences[1].alias_id = corrupt.label_occurrences[0].alias_id.clone();
+        assert!(
+            corrupt
+                .verify()
+                .contains(&"callable_fact_identity_not_unique_v0")
+        );
+
+        for field in ["id", "label", "reference", "span", "owner", "target"] {
+            let mut corrupt = (*analysis).clone();
+            match field {
+                "id" => corrupt.label_occurrences[0].id = "wrong-id".to_string(),
+                "label" => corrupt.label_occurrences[0].label = "failure",
+                "reference" => {
+                    corrupt.label_occurrences[0].resolver_reference_id = "wrong-ref".to_string()
+                }
+                "span" => corrupt.label_occurrences[0].source_span.column += 1,
+                "owner" => {
+                    corrupt.label_occurrences[0].owner_definition_id = "wrong-owner".to_string()
+                }
+                "target" => {
+                    corrupt.label_occurrences[0].target_definition_id = "wrong-target".to_string()
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                corrupt
+                    .verify()
+                    .contains(&"callable_effect_label_occurrence_corrupt_v0"),
+                "{field}: {:?}",
+                corrupt.verify()
+            );
+        }
+        for field in [
+            "id",
+            "application",
+            "input",
+            "tail",
+            "argument",
+            "output",
+            "status",
+        ] {
+            let mut corrupt = (*analysis).clone();
+            match field {
+                "id" => corrupt.substitutions[0].id = "wrong-id".to_string(),
+                "application" => {
+                    corrupt.substitutions[0].application_id = "wrong-application".to_string()
+                }
+                "input" => corrupt.substitutions[0].input_row_id = "wrong-input".to_string(),
+                "tail" => corrupt.substitutions[0].tail_id = "wrong-tail".to_string(),
+                "argument" => {
+                    corrupt.substitutions[0].argument_row_id = "wrong-argument".to_string()
+                }
+                "output" => corrupt.substitutions[0].output_row_id = "wrong-output".to_string(),
+                "status" => corrupt.substitutions[0].status = "wrong-status",
+                _ => unreachable!(),
+            }
+            assert!(
+                corrupt
+                    .verify()
+                    .contains(&"callable_row_substitution_relationship_corrupt_v0"),
+                "{field}: {:?}",
+                corrupt.verify()
+            );
+        }
+    }
+
+    #[test]
+    fn am_256_label_stress_is_deterministic_and_bounded() {
+        let mut source = String::from(
+            "module tests.stress\n\ntask bump(value: UInt) -> UInt {\n  does:\n    change current: UInt = value\n",
+        );
+        for _ in 0..256 {
+            source.push_str("    set current = current + 1\n");
+        }
+        source.push_str("    return current\n}\n\ntask apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {\n  does:\n    return transform(value)\n}\n\ntask run -> UInt {\n  does:\n    return apply_once(bump, 0)\n}\n");
+        let parsed = parse_source("stress.hum", &source);
+        let program = crate::ast::Program {
+            files: vec![parsed.file],
+        };
+        let first = analyze_program(&program);
+        let second = analyze_program(&program);
+        assert_eq!(first.label_occurrences.len(), 256);
+        assert_eq!(first.json("core_verify"), second.json("core_verify"));
+        assert!(first.verify().is_empty(), "{:?}", first.verify());
+    }
+
+    #[test]
+    fn am_application_core_and_graph_fields_fail_closed_independently() {
+        let parsed = parse_source("callable_row.hum", AM_SOURCE);
+        let analysis = analyze_program(&crate::ast::Program {
+            files: vec![parsed.file],
+        });
+        assert!(analysis.verify().is_empty(), "{:?}", analysis.verify());
+
+        for field in [
+            "id",
+            "caller_definition_id",
+            "caller_span",
+            "receiver_definition_id",
+            "receiver_span",
+            "callable_parameter_definition_id",
+            "callable_parameter_name",
+            "ordinary_parameter_definition_id",
+            "ordinary_parameter_name",
+            "callable_value_id",
+            "target_definition_id",
+            "direct_call_span",
+            "indirect_call_span",
+            "direct_statement_span",
+            "indirect_statement_span",
+            "ordinary_argument",
+            "result_type",
+            "failure_root",
+            "input_row_id",
+            "output_row_id",
+            "status",
+            "reason",
+        ] {
+            let mut corrupt = (*analysis).clone();
+            let application = &mut corrupt.applications[0];
+            match field {
+                "id" => application.id = "wrong".to_string(),
+                "caller_definition_id" => application.caller_definition_id = "wrong".to_string(),
+                "caller_span" => application.caller_span.column += 1,
+                "receiver_definition_id" => {
+                    application.receiver_definition_id = "wrong".to_string()
+                }
+                "receiver_span" => application.receiver_span.column += 1,
+                "callable_parameter_definition_id" => {
+                    application.callable_parameter_definition_id = "wrong".to_string()
+                }
+                "callable_parameter_name" => {
+                    application.callable_parameter_name = "wrong".to_string()
+                }
+                "ordinary_parameter_definition_id" => {
+                    application.ordinary_parameter_definition_id = "wrong".to_string()
+                }
+                "ordinary_parameter_name" => {
+                    application.ordinary_parameter_name = "wrong".to_string()
+                }
+                "callable_value_id" => application.callable_value_id = "wrong".to_string(),
+                "target_definition_id" => application.target_definition_id = "wrong".to_string(),
+                "direct_call_span" => application.direct_call_span.column += 1,
+                "indirect_call_span" => application.indirect_call_span.column += 1,
+                "direct_statement_span" => application.direct_statement_span.column += 1,
+                "indirect_statement_span" => application.indirect_statement_span.column += 1,
+                "ordinary_argument" => {
+                    application.ordinary_argument = OrdinaryArgumentFact::UIntLiteral(999)
+                }
+                "result_type" => application.result_type = "Text".to_string(),
+                "failure_root" => application.failure_root = Some("Wrong".to_string()),
+                "input_row_id" => application.input_row_id = "wrong".to_string(),
+                "output_row_id" => application.output_row_id = "wrong".to_string(),
+                "status" => application.status = "wrong",
+                "reason" => application.reason = "wrong",
+                _ => unreachable!(),
+            }
+            assert!(
+                corrupt
+                    .verify()
+                    .contains(&"callable_fact_source_relationship_corrupt_v0"),
+                "application {field}: {:?}",
+                corrupt.verify()
+            );
+        }
+
+        let core_nodes = core_node_facts(&analysis);
+        assert!(verify_core_node_facts(&analysis, &core_nodes).is_empty());
+        for index in 0..core_nodes.len() {
+            for field in ["kind", "id", "relationship_id", "result_type"] {
+                let mut corrupt = core_nodes.clone();
+                match field {
+                    "kind" => corrupt[index].kind = "wrong".to_string(),
+                    "id" => corrupt[index].id = "wrong".to_string(),
+                    "relationship_id" => corrupt[index].relationship_id = "wrong".to_string(),
+                    "result_type" => corrupt[index].result_type = "wrong".to_string(),
+                    _ => unreachable!(),
+                }
+                assert_eq!(
+                    verify_core_node_facts(&analysis, &corrupt),
+                    ["callable_core_projection_relationship_corrupt_v0"],
+                    "core node {index} {field}"
+                );
+            }
+        }
+
+        let graph_edges = graph_edge_facts(&analysis);
+        assert!(verify_graph_edge_facts(&analysis, &graph_edges).is_empty());
+        for index in 0..graph_edges.len() {
+            for field in [
+                "id",
+                "kind",
+                "from",
+                "to",
+                "owner_definition_id",
+                "application_id",
+                "source_span",
+            ] {
+                let mut corrupt = graph_edges.clone();
+                match field {
+                    "id" => corrupt[index].id = "wrong".to_string(),
+                    "kind" => corrupt[index].kind = "wrong".to_string(),
+                    "from" => corrupt[index].from = "wrong".to_string(),
+                    "to" => corrupt[index].to = "wrong".to_string(),
+                    "owner_definition_id" => {
+                        corrupt[index].owner_definition_id = "wrong".to_string()
+                    }
+                    "application_id" => corrupt[index].application_id = "wrong".to_string(),
+                    "source_span" => corrupt[index].source_span.column += 1,
+                    _ => unreachable!(),
+                }
+                assert_eq!(
+                    verify_graph_edge_facts(&analysis, &corrupt),
+                    ["callable_graph_projection_relationship_corrupt_v0"],
+                    "graph edge {index} {field}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn am_order_permutation_normalizes_identically() {
+        let first_source = AM_SOURCE.replace(
+            "change current: UInt = value\n    set current = current + 1\n    set current = current + 1\n    return current",
+            "change first: UInt = value\n    change second: UInt = value\n    set first = first + 1\n    set second = second + 1\n    return first",
+        );
+        let second_source = format!(
+            "\n{}",
+            first_source.replace(
+                "set first = first + 1\n    set second = second + 1",
+                "set second = second + 1\n    set first = first + 1",
+            )
+        );
+        let first_parsed = parse_source("order.hum", &first_source);
+        let second_parsed = parse_source("order.hum", &second_source);
+        let first = analyze_program(&crate::ast::Program {
+            files: vec![first_parsed.file],
+        });
+        let second = analyze_program(&crate::ast::Program {
+            files: vec![second_parsed.file],
+        });
+        let first_sub = &first.substitutions[0];
+        let second_sub = &second.substitutions[0];
+        let first_row = first
+            .rows
+            .iter()
+            .find(|row| row.id == first_sub.output_row_id)
+            .unwrap();
+        let second_row = second
+            .rows
+            .iter()
+            .find(|row| row.id == second_sub.output_row_id)
+            .unwrap();
+        assert_eq!(first_row.normalized_labels, ["change", "change"]);
+        assert_eq!(first_row.normalized_labels, second_row.normalized_labels);
+        assert_ne!(first_row.labels, second_row.labels);
+        assert_ne!(first_sub.tail_id, second_sub.tail_id);
+        let first_input = first
+            .rows
+            .iter()
+            .find(|row| row.id == first_sub.input_row_id)
+            .unwrap();
+        let second_input = second
+            .rows
+            .iter()
+            .find(|row| row.id == second_sub.input_row_id)
+            .unwrap();
+        assert_eq!(first_input.tail_alias, second_input.tail_alias);
+        assert_eq!(first_input.normalized_tail, second_input.normalized_tail);
+    }
+
+    #[test]
+    fn am_same_spelled_tails_remain_distinct_per_receiver() {
+        let source = r#"module tests.distinct_tails
+
+task bump_left(value: UInt) -> UInt {
+  does:
+    change left: UInt = value
+    set left = left + 1
+    return left
+}
+
+task bump_right(value: UInt) -> UInt {
+  does:
+    change right: UInt = value
+    set right = right + 1
+    return right
+}
+
+task apply_left(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task apply_right(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run_left -> UInt {
+  does:
+    return apply_left(bump_left, 40)
+}
+
+task run_right -> UInt {
+  does:
+    return apply_right(bump_right, 41)
+}
+"#;
+        let parsed = parse_source("distinct_tails.hum", source);
+        let analysis = analyze_program(&crate::ast::Program {
+            files: vec![parsed.file],
+        });
+        assert!(analysis.verify().is_empty(), "{:?}", analysis.verify());
+        assert_eq!(analysis.substitutions.len(), 2);
+        let first_tail = &analysis.substitutions[0].tail_id;
+        let second_tail = &analysis.substitutions[1].tail_id;
+        assert_ne!(first_tail, second_tail);
+        for substitution in &analysis.substitutions {
+            let input = analysis
+                .rows
+                .iter()
+                .find(|row| row.id == substitution.input_row_id)
+                .unwrap();
+            assert_eq!(input.tail_id.as_ref(), Some(&substitution.tail_id));
+            assert_eq!(input.tail_alias.as_deref(), Some("row"));
+            assert_eq!(input.normalized_tail.as_deref(), Some("row0"));
+        }
+
+        let first_application = analysis
+            .applications
+            .iter()
+            .find(|application| application.id == analysis.substitutions[0].application_id)
+            .unwrap();
+        let other_occurrence_id = analysis
+            .label_occurrences
+            .iter()
+            .find(|occurrence| {
+                occurrence.owner_definition_id != first_application.target_definition_id
+            })
+            .unwrap()
+            .id
+            .clone();
+        let mut corrupt = (*analysis).clone();
+        let substitution = corrupt.substitutions[0].clone();
+        for row_id in [substitution.argument_row_id, substitution.output_row_id] {
+            corrupt
+                .rows
+                .iter_mut()
+                .find(|row| row.id == row_id)
+                .unwrap()
+                .labels = vec![other_occurrence_id.clone()];
+        }
+        assert!(
+            corrupt
+                .verify()
+                .contains(&"callable_row_substitution_relationship_corrupt_v0"),
+            "{:?}",
+            corrupt.verify()
+        );
+    }
 
     #[test]
     fn parser_nodes_drive_one_memoized_callable_analysis() {
@@ -2606,19 +3817,19 @@ task run -> UInt {
             let expected = match mutate {
                 "label" => {
                     corrupt.rows[0].labels.push("io".to_string());
-                    "callable_latent_row_not_closed_empty_v0"
+                    "callable_latent_row_relationship_corrupt_v0"
                 }
                 "tail" => {
                     corrupt.rows[0].tail_id = Some("foreign-tail".to_string());
-                    "callable_latent_row_not_closed_empty_v0"
+                    "callable_latent_row_relationship_corrupt_v0"
                 }
                 "row_status" => {
                     corrupt.rows[0].status = "open_v0";
-                    "callable_latent_row_not_closed_empty_v0"
+                    "callable_latent_row_relationship_corrupt_v0"
                 }
                 "row_origin" => {
                     corrupt.rows[0].origin = "missing_origin_v0";
-                    "callable_latent_row_not_closed_empty_v0"
+                    "callable_latent_row_relationship_corrupt_v0"
                 }
                 "type_input" => {
                     corrupt.types[0].input_types = vec!["Text".to_string()];

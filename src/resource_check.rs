@@ -281,6 +281,7 @@ fn check_task(task: &Task, blocked: bool, callables: &CallableAnalysis) -> Optio
         &body.statements,
         blocked,
         callables.task_participates(task),
+        callables.bridge_status(),
         callables.is_nonretained_closed_empty_task_definition(task),
     );
     let status = item_status(&checks, blocked);
@@ -304,6 +305,7 @@ fn task_resource_checks(
     statements: &[core_body::BodyStatement],
     blocked: bool,
     callable_slice_participant: bool,
+    callable_bridge_status: &'static str,
     nonretained_closed_empty_task_definition: bool,
 ) -> Vec<ResourceCheck> {
     if blocked {
@@ -322,7 +324,7 @@ fn task_resource_checks(
                 task,
                 "callable_resource_relationship",
                 None,
-                "not_applicable_to_al_ordinary_value_v0",
+                callable_bridge_status,
                 Some("nonretained_definition_handle_has_no_callable_environment_v0"),
             )];
         }

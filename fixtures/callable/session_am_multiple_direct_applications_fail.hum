@@ -1,0 +1,23 @@
+module fixtures.callable.session_am_multiple_direct_applications_fail
+
+task bump(value: UInt) -> UInt {
+  does:
+    change current: UInt = value
+    set current = current + 1
+    return current
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {
+  does:
+    return transform(value)
+}
+
+task run_first -> UInt {
+  does:
+    return apply_once(bump, 40)
+}
+
+task run_second -> UInt {
+  does:
+    return apply_once(bump, 41)
+}

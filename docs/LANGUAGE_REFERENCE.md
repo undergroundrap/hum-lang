@@ -984,3 +984,7 @@ This reference is intentionally incomplete. The next gaps to close are:
 
 Until those are pinned, broad syntax expansion should stay in design docs, not
 in stable Hum.
+Session AM keeps the same source spelling and infers one local latent row for
+the accepted application. A task with checked local `set` operations propagates
+their exact `change` occurrences through the callable call. There is no row
+syntax, public generalization, handler, callable storage, or callable return.

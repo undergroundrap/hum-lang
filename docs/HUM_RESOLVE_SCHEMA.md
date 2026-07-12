@@ -209,7 +209,7 @@ successor schema.
 ## Session AL Callable Facts
 
 Reports embed a `callable_facts` field using the bounded
-`canonical_callable_semantic_spine_al_v0` model: parser-owned callable
+`canonical_callable_semantic_spine_am_v0` model: parser-owned callable
 references retain resolver definition, parameter, task-value, and application
 IDs with exact spans. Display names never determine dispatch. This is not a new
 report or schema identifier.
