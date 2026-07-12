@@ -1,0 +1,181 @@
+# Hum and the Minimum Compiler-Ready Standard Library
+
+## The minimum stdlib to self-host a compiler
+
+**Research signals**
+
+**Rust.** Rust reached a self-hosting milestone in April 2011: the Rust compiler written in Rust could compile itself, and the prior bootstrap compiler was written in OCaml. Later, as Rust moved toward stability, RFC 0040 split the standard library into a stable facade over lower layers and explicitly separated collections, text, runtime, and synchronization concerns. In that design, `libcollections` and `vec` were the allocation-assuming container layer; `libtext` depended on collections for string buffers; and the `libstd` facade was the stable batteries included surface whose reexported paths would become sticky after release. RFC 1184 then laid groundwork for stabilizing `core`/`no_std`, explicitly distinguishing the no-`std` world from the rest of the stack. The important signal is that Rusts original self-hosting happened *before* the later `core`/allocation/facade cleanup, but the project still felt compelled to carve out a tiny no-alloc spine and push allocation-dependent text and collections upward before stabilization. 
+
+**Go.** Go 1.5 is one of the clearest bootstrap case studies. The release notes say that the compiler and runtime were now implemented in Go and assembler, with the C implementation removed from the toolchain proper. The Go 1.5 bootstrap plan is even more revealing: build `cmd/dist` with Go 1.4, use it to build the Go 1.x compiler toolchain with Go 1.4, rebuild the toolchain with itself, build `cmd/go`, and only *then* build the remaining standard library and commands. That step ordering is the key fact: the compiler toolchain and driver did **not** need the full standard library to exist first. 
+
+**Zig.** Zigs official stage documents tell a similar story but with a more elaborate ladder. In 0.10.0, the self-hosted compiler became the default, replacing the C++ stage1 compiler as the main user-facing implementation. In 0.11.0, the project described the explicit stage split: stage1 in `src/stage1/*`, compiled with the system toolchain; stage2/3/4 in Zig, each compiled by the previous stage. In December 2022, Zig published the next bootstrap simplification: a minimal WASI interpreter built from C source translates the self-hosted compiler into C, and the system C compiler then builds the resulting stage2 binary. At the same time, Zigs release notes repeatedly state that the standard library is still unstable and functions as a language/toolchain testbed until compiler, language, and package manager stabilization catch up. This is strong evidence that a language can cross the self-hosting line while its stdlib is still intentionally unsettled. 
+
+**OCaml.** OCaml is the main counterexample to an aggressively tiny bootstrap layer. The OCaml repo describes the system as mostly written in OCaml, with the runtime in C. Current bootstrap documentation says the source tree ships a `boot/` directory, and a stable bootstrap state means `boot/` contains `ocamlrun` plus all `*.cm*` files of the standard library. The documented bootstrap flow is: build `ocamlrun` in C, use `boot/ocamlc` and `ocamlrun` to compile the current sources, and then rebuild the runtime/`ocamlrun`, `ocamlc`, and related pieces with `make coreall`. The evidence here is plain: OCamls bootstrap line historically carried a much fatter precompiled standard-library payload than Gos or TypeScripts. Exact identification of the *indispensable* subset is **thin evidence** in the official docs, because the bootstrap docs talk about the whole `stdlib` artifact set rather than a minimized compiler-only subset. 
+
+**TypeScript.** TypeScript shows the opposite extreme: a self-hosting compiler can sit on top of a very narrow host boundary. The official Compiler API docs say a barebones compiler needs `createProgram`, and that all interaction with the underlying system is abstracted through `CompilerHost`: read/write files, get current directory, ensure files/directories exist, and query host properties like case sensitivity and newline conventions. The compiler internals notes add that the compilers main internal pressure is symbol tables and immutable phase outputs rather than a broad stdlib surface. So TypeScripts self-hosting story is not grow a huge stdlib first; it is depend on the host runtime plus a thin system interface. 
+
+**Roc and Gleam.** These are valuable non-self-hosting controls. Rocs FAQ says the plan is to **never** write the compiler in Roc, explicitly because the compiler should use a language with lower-level memory control; the site materials currently distinguish an older stable Rust-based compiler from a newer Zig compiler. Gleams FAQ is equally direct: the compiler is written in Rust, was switched from Erlang prototypes for maintainability and type-safety reasons, and the team does not see a compiler rewrite into Gleam as worthwhile. Gleams browser-hosted tour also notes that compiler I/O is dependency-injected, which keeps the compiler portable without requiring a giant ambient stdlib. These projects are evidence that self-hosting is a milestone worth choosing, not an automatic prerequisite for language success. 
+
+**Synthesis.** Across the documented cases, the recurring pre-self-host set is much smaller than a normal user stdlib. The repeated requirements are: scalar/core types, slices or arrays, a growable contiguous buffer, string/byte handling, allocation, a symbol-table-grade map, minimal path/filesystem I/O, formatting/diagnostics, and a narrow host boundary. Repeatedly *absent* from the self-host line are networking, cryptography, GUI, advanced process management, databases, and most convenience APIs. Gos build graph is the strongest evidence for this, TypeScripts `CompilerHost` is the cleanest abstraction of it, Zig proves the stdlib can still be unstable at that line, and OCaml is the caution that if the compiler grows entangled with the stdlib early, the bootstrap payload expands fast. 
+
+**Lessons for Hum**
+
+Hum should aim for a **compiler-ready stdlib**, not a **general-purpose stdlib**. The cross-language evidence points toward a bootstrap set centered on memory, text, maps, files, and diagnostics, with everything else deferred. Go and TypeScript are especially relevant because they show the compiler can come first and the rest of the stdlib can come later; Zig strengthens that lesson by showing even stdlib stabilization itself can wait. OCaml is the example to avoid if Hum wants to keep the pre-self-host surface small. 
+
+For Hum specifically, the minimum public stdlib should be shaped around the compilers real needs: ownership-safe buffers, borrowed views/slices, explicit allocation, deterministic text handling, typed failure for file/parse/emit errors, and capability-scoped filesystem access. That last point is a Hum-specific design recommendation, but it fits the evidence: the successful bootstrap stories rely on thin host boundaries, not ambient authority. **[Unsourced inference: this is a Hum-specific synthesis, not something any cited project states in Hums terms.]**
+
+**Concrete design gates or ordered checklist**
+
+The smallest recurring set before self-host looks like this:
+
+1. `std.core`: scalars, booleans, ordering/equality, tuples/enums, `Option`/`Result`, slices/views, arithmetic, and enough traits/patterns to make collections and text usable. Rusts `core` work and the Rust safety-critical survey both support a rich-but-austere spine here.   
+2. `std.alloc`: one allocator story plus raw memory primitives needed to build `Vec`, `String`-like buffers, and arenas. Rust RFC 0040s layering and Zigs compiler emphasis both support putting allocation below real containers.   
+3. `std.text`: UTF-8/bytes view, owned text buffer, scanning, splitting, formatting, span/line utilities. Rusts old `libtext` split and TypeScripts compiler-host boundary both show text is pre-self-host, not post-self-host.   
+4. `std.data`: `Vec` first, then one fast map/set suitable for symbol tables. Go, Rust, TypeScript, and LLVM all point here.   
+5. `std.fs.path`: open/read source files, write artifacts, create directories, path normalization, current-directory handling, case-sensitivity awareness on Windows. TypeScripts `CompilerHost` makes this especially explicit.   
+6. Minimal diagnostics: formatting to buffers, source spans, file/line mapping, typed error reporting. TypeScript and rustc both lean hard on this shape.   
+
+Everything after thatnetworking, subprocess management beyond a tiny escape hatch, concurrency primitives, time, randomness, compression, package-manager APIs, regexes, serialization frameworks, rich parser-combinator librariesshould be treated as post-self-host unless the compiler demonstrably cannot proceed without them. Gos documented build graph is the strongest primary-source support for that cutoff. 
+
+**What evidence would change the conclusion**
+
+The main thing that would change this conclusion would be a primary-source audit of a modern self-hosting compiler showing it *could not* bootstrap without significantly more library surfacefor example, a compiler that genuinely required concurrency, network fetch, or a large parsing framework before it could build itself. I did **not** find such evidence in the primary sources above. The thinnest areas are the exact minimized import set for Go 1.5s compiler packages and the exact indispensable OCaml stdlib subset; if a source-level audit of those trees showed a materially larger mandatory set, the recommended Hum cutoff would need to move upward. That is currently **thin evidence**, not a resolved dispute. 
+
+## What a compiler specifically stresses
+
+**Research signals**
+
+Compilers are unusually hard on a very small cluster of library features. Rusts compiler guide says string interning stores one immutable copy of repeated strings and uses interned symbols already at lexing time; the glossary defines interning as a way to reduce memory usage and allocations. The same guide says rustc allocates a large amount of data in long-lived arenas precisely to reduce allocation/deallocation churn, and notes that many intermediate representations are interned so equality can collapse to pointer comparison. 
+
+Hash tables are another repeated hot spot. The Rust Performance Book says `rustc-hash`s `FxHashMap`/`FxHashSet` are non-cryptographic and fast, especially for integer-heavy workloads, and have outperformed other hashers within rustc. That is exactly the canonical compiler tradeoff: high trusted-input throughput matters more than adversarial-hash resistance inside the compilers own internal tables. 
+
+LLVM/Clang make the same pattern visible from another angle. Clangs preprocessor uses `llvm::FoldingSet` for canonicalized macro structures, and LLVM tooling commonly pairs `StringMap` with `BumpPtrAllocator`. Those are not cute optimizations; they are proof that compiler teams routinely outgrow generic library defaults and adopt storage specialized for canonicalization, pointer stability, and high churn. 
+
+TypeScripts compiler notes are useful because they expose the semantic workload directly. The binder builds symbol tables; the checker then works from those rather than reparsing meaning each time. The phases keep prior structures mostly immutable, so the checker relies on look-aside tables such as merged-symbol tables instead of mutating earlier results in place. That is a strong signal for Hum: compilers want persistent identities, symbol tables, and cheap auxiliary indexes more than they want a fancy general stdlib. 
+
+Graph and control-flow data structures matter too, but often as compiler-internal support libraries rather than public stdlib APIs. In rustcs dominators implementation, the compiler even special-cases very small path graphs because those are common in MIR bodies. That is a reminder that compiler data structures are not just maps and trees; they are frequently tuned around the actual shapes of IR. 
+
+The I/O story is narrower than many language teams initially assume. TypeScripts official barebones compiler host only needs file reads/writes, cwd/path facts, and host properties like case sensitivity and newline style. Gos 1.5 build process likewise separates the self-hosted toolchain from the rest of the standard library build. This is evidence that compiler I/O is decisive but narrow: read source, resolve paths, write artifacts, maybe watch files in tooling modes, and not much else. 
+
+**Lessons for Hum**
+
+For Hum, the pressure points are not all collections; they are a very particular set:
+
+- a fast growable vector,
+- a fast non-adversarial hash map,
+- string/byte interning,
+- arena or bump allocation with stable addresses,
+- source-text indexing and span/line mapping,
+- path/file I/O with Windows-aware semantics,
+- graph helpers for IR/control-flow,
+- and clear typed errors/diagnostics.
+
+That is where compiler time and memory go in the evidence above. Rust and LLVM both show that compiler teams routinely build custom layers because the generic stdlib defaults are too allocation-heavy, too defensive, or too indirect for hot symbol-table and IR paths. 
+
+The implication is important: Hum does **not** need to solve the collections problem in general before self-hosting. It needs to solve the compiler collections problem. A deliberately narrow `Vec`, `Arena`, `InternTable`, `HashMap`, `Path`, `File`, and `DiagBuffer` is more valuable than a broad but under-tuned zoo of containers. That conclusion is a synthesis across the cited systems, not a single-source quote. 
+
+Because Hum has checked ownership, capabilities, and causal typed failure, those same components should expose the right semantic hooks early. Arena lifetimes and moved-vs-viewed text slices are directly on model; filesystem and artifact emission should require explicit capabilities; and diagnostic emission should preserve typed provenance rather than collapse early to unstructured strings. **[Unsourced inference: this recommendation applies cited compiler workload evidence to Hums design model rather than restating a source.]**
+
+**Concrete design gates or a concrete ordered checklist**
+
+A compiler-stress checklist for Hum, in descending urgency, is:
+
+1. **`Vec`/slice/view performance gate.** The implementation must support amortized growth, cheap slicing/views, and low-overhead iteration, because text, token streams, AST child lists, IR blocks, and work queues all lean on it. Rusts historical split explicitly singled out `vec` as foundational to higher text and collection layers.   
+2. **Fast map/set gate.** Provide one default hash map tuned for compiler internals, not one tuned for hostile network input. rustcs use of `FxHashMap` is the archetype.   
+3. **Arena/bump gate.** Provide either a tiny std arena or an allocator API simple enough that the compiler can build one immediately. rustc and LLVM both validate this need.   
+4. **Interning gate.** String/symbol interning must be easy to implement and cheap to query. rustc interns at lexing and in many IR layers.   
+5. **Text indexing gate.** UTF-8 byte spans, line tables, and formatting buffers must be present before self-host, because diagnostics and source mapping are not optional. TypeScripts and rustcs documentation both support this.   
+6. **Filesystem/path gate.** Reading source trees and writing outputs must work over explicit capability-bearing APIs, with special attention to Windows path and case rules. TypeScript names case sensitivity and newline convention explicitly in the minimal host.   
+7. **IR graph gate.** A minimal graph toolkit can live in compiler-support code rather than public std, but Hum needs some answer before self-host for dominators, CFG edges, and worklists. rustcs tuned dominators implementation shows this is real, not theoretical.   
+
+**What evidence would change the conclusion**
+
+If Hums compiler architecture were intentionally persistent/immutable end-to-end, optimized around persistent maps/ropes instead of arenas and bump allocation, that would weaken the case for arena-first design. I did not find a primary-source self-hosting case in this research set where that alternative clearly won. Likewise, if Hums typed-failure and effect system imposed heavy costs on the obvious fast-path structures, real benchmark evidence on a prototype compiler could justify relaxing some of the public-library semantics for compiler-internal support crates. At the moment, the evidence still points to fast, specialized, allocation-aware as the winning profile. 
+
+## Build order and the compiler-ready line
+
+**Research signals**
+
+The strongest bootstrap-order evidence comes from Go, not from rhetoric. Gos documented order is: build the toolchain, rebuild it with itself, build `cmd/go`, then build the remaining standard library and commands. That means the compiler-ready line is below the full stdlib. TypeScript points the same direction conceptually: the compiler only requires a `CompilerHost` boundary that can read/write files and answer a few system questions. Zig adds a third confirmation: the project could make the self-hosted compiler the default while still calling the standard library unstable and testbed-like. OCaml is the outlier because its bootstrap flow explicitly expects `boot/` to contain the compiled standard library artifacts. Taken together, the pressure test says Hum should put the self-host line closer to Go/TypeScript/Zig than to OCaml. 
+
+Rusts layering adds a second lesson: if you do decide to expose more than the absolute minimum before self-host, keep the stable surface narrow and the internal crate structure flexible. RFC 0040s facade model exists precisely so the project could continue moving pieces underneath without freezing the whole architecture too early. 
+
+**Lessons for Hum**
+
+Hums current sequence`std.core` then allocation then collections then I/O/parseis directionally right, but the evidence suggests two sharpenings.
+
+First, **text belongs earlier than many stdlib plans place it**. Rusts old split explicitly separated text as its own allocation-dependent layer; TypeScripts minimal compiler host proves the compiler cannot meaningfully proceed without a narrow text/filesystem model. A self-hosting compiler is a text processor before it is anything else. 
+
+Second, **compiler support does not have to equal public stdlib**. Arena allocators, interning tables, line maps, CFG helpers, and even a very fast internal hash map can ship as unstable `compiler_support` crates or internal modules first. Go and Zig both support the general pattern of getting the compiler over the line before the rest of the library story is finished. 
+
+**Concrete design gates or a concrete ordered checklist**
+
+Below is a dependency-correct checklist Hum could adopt. Pre-self-host means needed before Hum can plausibly compile Hum. Post-self-host means safe to defer if the compiler and build driver can proceed without it.
+
+| Order | Library item | Depends on | Pre- or post-self-host | Why this side of the line |
+|---|---|---|---|---|
+| 1 | `std.core` with `Option`, `Result`, slices/views, arithmetic, comparisons, basic iteration hooks | none | **Pre** | Rusts `core`/`no_std` work and the recurring compiler core across systems make this non-negotiable.  |
+| 2 | `std.alloc` with one allocator API and enough raw memory to build vectors and arenas | `std.core` | **Pre** | Rusts historical split and compiler allocator evidence both put allocation below real containers.  |
+| 3 | `std.text` with byte/UTF-8 views, owned text buffer, scan/split/search, formatting buffer | `std.core`, `std.alloc` | **Pre** | Compilers are text-heavy; Rust split text upward from core, and TypeScripts minimal host implicitly requires this layer.  |
+| 4 | `std.data.vec` | `std.core`, `std.alloc` | **Pre** | Repeatedly the most load-bearing compiler collection.  |
+| 5 | `std.data.mapset` with one fast hash map/set | `std.core`, `std.alloc`, `std.data.vec` | **Pre** | Symbol tables, interners, scopes, caches. rustc and TS both support this.  |
+| 6 | `compiler_support.mem` with arena/bump allocator | `std.alloc`, `std.data.vec` | **Pre** | Needed very early, but not necessarily as polished public stdlib.  |
+| 7 | `compiler_support.intern` | `std.text`, `std.data.mapset`, arena | **Pre** | rustc/LLVM evidence says interning is a first-order need.  |
+| 8 | `std.fs` / `std.path` over explicit capabilities, with file read/write, mkdir, cwd, path joins/normalization | `std.core`, `std.text`, `std.alloc` | **Pre** | TypeScripts `CompilerHost` and Gos build graph both justify this as the minimum I/O boundary.  |
+| 9 | `compiler_support.diag` with source spans, line map, pretty-print buffers, typed file/parse/emit failures | text, fs/path, vec/map | **Pre** | A self-hosting compiler without serious diagnostics is unrealistic.  |
+| 10 | `compiler_support.graph` / CFG helpers | vec/map/arena | **Pre** | Required by nontrivial IR and optimization passes, but can stay compiler-local at first.  |
+| 11 | `std.cli` / minimal env arg parsing | fs/path, text | **Pre** | Needed by the compiler driver, but can stay tiny. Gos order supports this.  |
+| 12 | Parsing helpers, richer collections, subprocess APIs, threads, time, network, archive/compression, regex, package-manager APIs | varies | **Post** | None of the strongest bootstrap sources show these as prerequisites for self-host.  |
+
+The **compiler-ready line** should therefore be drawn **after** basic filesystem/path, diagnostics, interning, arena allocation, `Vec`, and one fast map are in place, but **before** richer parsing libraries, networking, concurrency, packages, and most user-facing batteries included conveniences. Gos and TypeScripts primary sources are the cleanest support for that line. 
+
+One Hum-specific refinement: if your build pipeline can leave final linking to the Rust-hosted interpreter/tool driver for one milestone, then subprocess/process APIs can remain safely post-self-host. If Hum must own end-to-end artifact production earlier, then a *tiny* process-exec capability may have to move just across the line. **[Unsourced inference: this depends on Hums build architecture, not on a cited projects exact milestone.]**
+
+**What evidence would change the conclusion**
+
+This checklist would change if Hum decides that self-hosting includes package resolution, dependency fetch, or full platform-native linking from day one. None of the primary sources above force that definition; Go, TypeScript, and Zig all support a narrower one. The checklist would also need revision if a Hum prototype showed that contracts, effect rows, or linear-resource APIs are too awkward to express without higher-level utility modules earlier in the stack. That would be product-specific evidence overriding cross-language bootstrap patterns. 
+
+## Mistakes and regrets
+
+**Research signals**
+
+The strongest repeated regret is **stabilizing too much too early**. Rust RFC 0040 says that once a path is reexported from the `std` facade and released, that path must remain stable; the whole point of the facade was to preserve freedom to rearrange the underlying crates *before* the public surface became cemented. Rust RFC 0235 then shows why that mattered: before collections API stabilization, the team documented concrete problems with collection traits, diverging APIs, poor iterator story, and inconsistent design. In other words, the Rust team saw the trap in time and reworked collections *before* locking them forever. 
+
+Gos modern standard-library evolution shows the same trap from the other side: some original APIs shipped, the compatibility promise worked, and later the team concluded that mistakes in those APIs could no longer be fixed compatibly. The official `math/rand/v2` post explicitly says that over time the team realized some original APIs were mistakes, and that the standard library now needed a versioned `v2` package path to move forward. That is not abstract governance philosophy; it is a direct admission of the cost of getting an API wrong in a stable stdlib. 
+
+Zigs explicit answer has been to keep the standard library unstable while the language, compiler, and package manager are still moving. The release notes say the stdlib is a testbed and that experimentation and breakage are allowed before later stabilization. This is the cleanest primary-source defense against premature stdlib freeze in a young systems language. 
+
+OCaml provides another useful signal: the repository README now lists multiple tools and libraries that used to be part of the distribution but are maintained separately today, including `Graphics`, `Num`, `Stream`/`Genlex`, `ocamlbuild`, and `camlp4`. That is evidence that once bundled, always bundled is not an iron law; pieces can be ejected when they age badly or stop fitting the core. But it is also evidence that bundling decisions create long tails and migration pain. 
+
+Host-language idioms can also become traps. TypeScripts compiler-host abstraction exists to keep the compiler portable across hosts, but issue history shows the compiler at times relied on Node-specific behavior such as unconditional use of the `crypto` module, and a TypeScript issue explicitly argued for making host-provided `ts.sys` easier to inject for other environments. Gleam took the opposite tack in recent tooling work: the compilers I/O is dependency-injected, which is why the compiler can run in-memory in the browser. These are compelling examples of why compilers and stdlibs should not casually hardwire ambient host assumptions. 
+
+Windows-specific process and string/quoting behavior are another source of painful API lock-in. Rusts 2024 security advisory on `std::process::Command` for Windows batch files explains that the team could not fully fix argument escaping in all cases and still preserve the API contract, so the mitigation had to work within those compatibility constraints. For a Windows-first language like Hum, that is a concrete warning: OS-string, path, and process APIs calcify fast and can become security liabilities when their semantics are underspecified. 
+
+On the too much or too little in core question, current Rust evidence is nuanced rather than ideological. RFC 1184 shows how carefully the project treated `core`/`no_std` stabilization. A 2026 Rust safety-critical blog then says `core` is the spine in `no_std` settings and is rich enough to matter, but also reports recurring requests for more no-std-friendly building blocks such as fixed-size collections and predictable math. That is strong evidence against both extremes: a skeletal core is painful, but a bloated pre-alloc core is also a maintenance trap. 
+
+**Lessons for Hum**
+
+The evidence favors **minimal stable core + aggressively unstable compiler-support and higher-level libraries** during Hums current phase. Rust and Go both show the long cost of getting stable library APIs wrong. Zig shows the value of explicitly delaying stdlib stabilization until the language and compiler stop moving under it. OCaml shows that undoing earlier bundling is possible, but messy. 
+
+For collections, Hum should prefer a narrow set of well-motivated primitives over a broad hierarchy of abstract traits/protocols. Rusts pre-1.0 collections RFC is unusually direct evidence that generalized trait designs and divergent APIs can age badly very quickly. The compiler will tell you which operations actually matter; start there. 
+
+For strings, paths, and process APIs, Hum should be especially conservative because the language is Windows-first. Rusts Windows process escaping advisory is a reminder that these APIs are where simple abstractions go to die. Hum should specify text, OS strings, paths, and command construction in painfully explicit terms before calling anything stable. 
+
+For the `core` layer, the Rust evidence suggests a target shape: rich enough that compiler and safety-critical code can live on it comfortably, but small enough to audit and evolve. `Option`, `Result`, slices/views, `Cell`-like primitives, formatting traits or buffer protocols, and maybe a few fixed-capacity utilities belong closer to the line than people often think; hash maps, owned strings, file I/O, and high-level builders do not. 
+
+Finally, do **not** design Hums stdlib as Rust, but renamed. The cited evidence does not say that sentence directly, but it strongly supports the underlying warning: stable APIs become sticky, host assumptions leak in, and compiler realities dominate early design. Hum has contracts, caller/task/pre-state blame, capability-scoped effects, ownership moves/views, and typed causal failure. Those semantics should show up in Hums public APIs from the start, or the project risks freezing a library shape that reflects the Rust-hosted interpreters habits instead of Hums own model. **[Unsourced inference: this is a design judgment grounded in the cited stability/host-coupling evidence, not a direct statement from a source.]**
+
+**Concrete design gates or a concrete ordered checklist**
+
+A regret-avoidance checklist for Hum:
+
+- **Freeze `std.core` last, not first.** Stabilize names and paths only after at least one compiler-internal release cycle has exercised them. Rusts facade rationale and Gos `v2` lesson both support this.   
+- **Stabilize capability-bearing I/O only after Windows semantics are nailed down.** Process launch, path normalization, cwd semantics, case sensitivity, and quoting should not be well refine later APIs. TypeScript and Rust both show why.   
+- **Keep compiler-support libraries unstable and separable from user-facing stdlib.** Arena, interning, diagnostics, and CFG helpers should evolve quickly until the self-hosted compiler proves them out. Zigs stdlib policy is the direct precedent.   
+- **Bundle narrowly.** If a module is primarily there to help the compiler or host-tool driver, make it internal or explicitly unstable first. OCamls later extraction of formerly bundled components is the cautionary tale.   
+- **Bias toward dependency injection over ambient authority.** Gleams compiler portability story is a clean positive example. For Hum, that maps naturally onto capability-based effects.   
+- **Version unstable batteries in public if necessary.** Gos `math/rand/v2` is now the official proof that even stdlib packages may need explicit replacement paths.   
+
+**What evidence would change the conclusion**
+
+If Hums early users strongly reject a minimal stable stdlib and the project can show, with real migration data, that a broader bundled library materially accelerates adoption without freezing bad APIs, then the minimal stable core recommendation should be revisited. I did not find primary-source evidence here that broad early bundling is the better long-term choice for a young systems language. The closest counterweight is Gos success with a large stdlib, but even Gos current maintainers now document the costs of original API mistakes and the need for `v2` packages and experimental `x/` incubation paths. That makes the pro-broad-stdlib case look weaker for Hums present stage, not stronger. 
