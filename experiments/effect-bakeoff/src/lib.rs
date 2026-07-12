@@ -3,6 +3,7 @@
 pub mod corpus;
 pub mod cost;
 pub mod eligibility;
+pub mod formula_candidate;
 pub mod inventory;
 pub mod normalize;
 pub mod result_contract;
