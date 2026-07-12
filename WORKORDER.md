@@ -3,8 +3,10 @@
 Date: 2026-07-12
 Status: issued by the BDFL. The independently accepted bytes are commit
 `956b51f`, published by successful workflow `29183983775` (Ubuntu job
-`86626699948`; Windows job `86626699928`). No implementation session is
-authorized. A separate BDFL go signal remains required before Session AL.
+`86626699948`; Windows job `86626699928`). Session AL is accepted and committed
+as `b881f2a`, with successful workflow `29207914442` (Ubuntu job `86690460804`,
+1m 36s; Windows job `86690460817`, 2m 43s). Session AM is next but remains
+unauthorized pending a separate BDFL go signal.
 Owner: BDFL (Ocean). Work-order author: architect-reviewer acting under the
 bounded Work Order 8 planning authorization. Independent pre-issuance reviewer:
 a fresh architect-reviewer that did not author or edit this deliverable.
@@ -1123,13 +1125,14 @@ Work Order 7 remains closed at `e7dbadb`. Session AK and accepted decision 0018
 remain `1b324fb`, with workflow `29178915990`, Ubuntu job `86613010219`, and
 Windows job `86613010224` successful. Work Order 8 is issued at `956b51f`, with
 workflow `29183983775`, Ubuntu job `86626699948`, and Windows job `86626699928`
-successful.
+successful. Session AL is accepted and committed as `b881f2a`, with workflow
+`29207914442`, Ubuntu job `86690460804` successful in 1m 36s, and Windows job
+`86690460817` successful in 2m 43s.
 
 The current next action belongs only to the BDFL: give a separate go signal for
-Session AL or leave implementation stopped.
+Session AM or leave implementation stopped.
 
-Session AL remains unauthorized until the BDFL gives that separate go signal.
-Session AM and every deferred phase remain unauthorized. No compiler/runtime
-implementation, decision ruling, further commit, push, or publication is
-authorized by this status update. Publishing remains a BDFL-reserved action
-under `docs/GOVERNANCE.md`.
+Session AM and every deferred phase remain unauthorized. No implementation
+session, decision ruling, commit, push, diagnostic-registry work, or scope
+expansion is implicitly authorized by this status update. Publishing remains a
+BDFL-reserved action under `docs/GOVERNANCE.md`.
