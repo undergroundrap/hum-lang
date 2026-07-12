@@ -13,6 +13,10 @@ impl CheckedInInventory {
 
 pub fn candidate_inventory(candidate_id: &str) -> Option<CheckedInInventory> {
     match candidate_id {
+        "capture_checking" => Some(CheckedInInventory {
+            sources: &[include_str!("capture_candidate.rs")],
+            manifests: &[include_str!("../Cargo.toml")],
+        }),
         "boolean_formulas" => Some(CheckedInInventory {
             sources: &[include_str!("formula_candidate.rs")],
             manifests: &[include_str!("../Cargo.toml")],

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod capture_candidate;
 pub mod corpus;
 pub mod cost;
 pub mod eligibility;
