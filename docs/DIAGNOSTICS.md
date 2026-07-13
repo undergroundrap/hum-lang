@@ -6,6 +6,11 @@ Date: 2026-07-09
 
 Diagnostics are part of the language.
 
+The canonical internal allocation authority is
+[`src/diagnostic_catalog.rs`](../src/diagnostic_catalog.rs). This document is
+its checked human projection; it does not independently allocate codes or
+families.
+
 Hum is trying to make systems programming readable, safe, fast, and friendly to
 agents. That only works if the compiler explains problems with stable facts, not
 just terminal prose.
@@ -128,7 +133,7 @@ JSON shape in `hum diagnostics --format json`:
 ```json
 {
   "schema": "hum.diagnostic_catalog.v0",
-  "count": 53,
+  "count": 87,
   "diagnostics": [
     {
       "code": "H0201",
@@ -156,25 +161,28 @@ Rules:
 
 ## Code Ranges
 
-Current ranges:
+Canonical inclusive family intervals:
 
-- `H000x`: parser and source shape
-- `H010x`: item shape and intent block discipline
-- `H020x`: effects, mutation, and declared state changes
-- `H030x`: cost and performance contracts
-- `H040x`: security and trust boundaries
-- `H050x`: tests and regression obligations
-- `H060x`: checked resolution and type checking
-- `H070x`: executable contract diagnostics
-- `H080x`: ownership and borrowing
-- `H090x`: explicit typed failure
-- `H120x`: backend, target, and debug metadata
+| Inclusive interval | Status | Semantic owner | Domain |
+|---|---|---|---|
+| `H0000-H0099` | active | `source_shape` | parser and source shape |
+| `H0100-H0199` | active | `intent_shape` | item shape and intent discipline |
+| `H0200-H0299` | active | `declared_state_effects` | effects, mutation, and declared state changes |
+| `H0300-H0399` | active | `cost_contracts` | cost and performance contracts |
+| `H0400-H0499` | active | `security_trust` | security and trust boundaries |
+| `H0500-H0599` | active | `test_evidence` | tests and regression obligations |
+| `H0600-H0699` | active | `front_end_semantics` | checked names, types, structural app/authority, and Path boundaries |
+| `H0700-H0799` | active | `executable_contracts` | executable contract diagnostics |
+| `H0800-H0899` | active | `ownership_borrowing` | ownership and borrowing |
+| `H0900-H0999` | active | `nominal_typed_failure` | explicit nominal typed failure |
+| `H1000-H1099` | reserved | `unsafe_ffi_provenance` | unsafe, FFI, ABI, and provenance |
+| `H1100-H1199` | reserved | `runtime_profile_policy` | runtime profile and certification policy |
+| `H1200-H1299` | active | `target_backend_metadata` | backend, target, portability, and debug metadata |
+| `H1300-H1399` | reserved | `concurrency_memory_ordering` | concurrency and memory ordering |
+| `H1400-H1499` | active | `callable_effect_rows` | callable and latent-row diagnostics |
 
-Future ranges should be reserved before broad use:
-
-- `H100x`: unsafe, FFI, ABI, and provenance
-- `H110x`: runtime profile and certification policy violations
-- `H130x`: concurrency and memory ordering
+Reserved families allocate no exact code. Intervals absent from this table are
+unallocated rather than implicitly free.
 
 ## Current Codes
 

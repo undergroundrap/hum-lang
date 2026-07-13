@@ -2,6 +2,1013 @@ use crate::diagnostic::{DiagnosticCode, Severity};
 
 pub const DIAGNOSTIC_EXPLAIN_SCHEMA: &str = "hum.diagnostic_explain.v0";
 pub const DIAGNOSTIC_CATALOG_SCHEMA: &str = "hum.diagnostic_catalog.v0";
+#[cfg(test)]
+const UNALLOCATED_PROFILE_DIAGNOSTIC: &str = "<unallocated-profile-diagnostic>";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DiagnosticCodeKey(u16);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DiagnosticFamilyKey(&'static str);
+
+impl DiagnosticFamilyKey {
+    pub const SOURCE_SHAPE: Self = Self("source_shape");
+    pub const INTENT_SHAPE: Self = Self("intent_shape");
+    pub const DECLARED_STATE_EFFECTS: Self = Self("declared_state_effects");
+    pub const COST_CONTRACTS: Self = Self("cost_contracts");
+    pub const SECURITY_TRUST: Self = Self("security_trust");
+    pub const TEST_EVIDENCE: Self = Self("test_evidence");
+    pub const FRONT_END_SEMANTICS: Self = Self("front_end_semantics");
+    pub const EXECUTABLE_CONTRACTS: Self = Self("executable_contracts");
+    pub const OWNERSHIP_BORROWING: Self = Self("ownership_borrowing");
+    pub const NOMINAL_TYPED_FAILURE: Self = Self("nominal_typed_failure");
+    pub const UNSAFE_FFI_PROVENANCE: Self = Self("unsafe_ffi_provenance");
+    pub const RUNTIME_PROFILE_POLICY: Self = Self("runtime_profile_policy");
+    pub const TARGET_BACKEND_METADATA: Self = Self("target_backend_metadata");
+    pub const CONCURRENCY_MEMORY_ORDERING: Self = Self("concurrency_memory_ordering");
+    pub const CALLABLE_EFFECT_ROWS: Self = Self("callable_effect_rows");
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AllocationStatus {
+    Active,
+    Reserved,
+    Retired,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiagnosticFamilySpec {
+    pub start: u16,
+    pub end: u16,
+    pub key: DiagnosticFamilyKey,
+    pub semantic_owner: &'static str,
+    pub status: AllocationStatus,
+    pub doctrine: &'static [&'static str],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiagnosticCodeAllocation {
+    pub key: DiagnosticCodeKey,
+    pub public_ordinal: u16,
+    pub spelling: &'static str,
+    pub title: &'static str,
+    pub family: DiagnosticFamilyKey,
+    pub semantic_owner: &'static str,
+    pub owning_stage: &'static str,
+    pub status: AllocationStatus,
+}
+
+const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
+    match key.0 {
+        0..=63 => key.0,
+        64..=84 => key.0 + 2,
+        85 => 64,
+        86 => 65,
+        _ => u16::MAX,
+    }
+}
+
+pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
+    DiagnosticFamilySpec {
+        start: 0,
+        end: 99,
+        key: DiagnosticFamilyKey::SOURCE_SHAPE,
+        semantic_owner: "source_shape",
+        status: AllocationStatus::Active,
+        doctrine: &["decisions/0001", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 100,
+        end: 199,
+        key: DiagnosticFamilyKey::INTENT_SHAPE,
+        semantic_owner: "intent_shape",
+        status: AllocationStatus::Active,
+        doctrine: &["decisions/0009", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 200,
+        end: 299,
+        key: DiagnosticFamilyKey::DECLARED_STATE_EFFECTS,
+        semantic_owner: "declared_state_effects",
+        status: AllocationStatus::Active,
+        doctrine: &["decisions/0010", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 300,
+        end: 399,
+        key: DiagnosticFamilyKey::COST_CONTRACTS,
+        semantic_owner: "cost_contracts",
+        status: AllocationStatus::Active,
+        doctrine: &["decisions/0006", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 400,
+        end: 499,
+        key: DiagnosticFamilyKey::SECURITY_TRUST,
+        semantic_owner: "security_trust",
+        status: AllocationStatus::Active,
+        doctrine: &["docs/SECURITY_MODEL.md", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 500,
+        end: 599,
+        key: DiagnosticFamilyKey::TEST_EVIDENCE,
+        semantic_owner: "test_evidence",
+        status: AllocationStatus::Active,
+        doctrine: &["decisions/0004", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 600,
+        end: 699,
+        key: DiagnosticFamilyKey::FRONT_END_SEMANTICS,
+        semantic_owner: "front_end_semantics",
+        status: AllocationStatus::Active,
+        doctrine: &["decisions/0011", "decisions/0017", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 700,
+        end: 799,
+        key: DiagnosticFamilyKey::EXECUTABLE_CONTRACTS,
+        semantic_owner: "executable_contracts",
+        status: AllocationStatus::Active,
+        doctrine: &["decisions/0015", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 800,
+        end: 899,
+        key: DiagnosticFamilyKey::OWNERSHIP_BORROWING,
+        semantic_owner: "ownership_borrowing",
+        status: AllocationStatus::Active,
+        doctrine: &["decisions/0014", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 900,
+        end: 999,
+        key: DiagnosticFamilyKey::NOMINAL_TYPED_FAILURE,
+        semantic_owner: "nominal_typed_failure",
+        status: AllocationStatus::Active,
+        doctrine: &["decisions/0016", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 1000,
+        end: 1099,
+        key: DiagnosticFamilyKey::UNSAFE_FFI_PROVENANCE,
+        semantic_owner: "unsafe_ffi_provenance",
+        status: AllocationStatus::Reserved,
+        doctrine: &["docs/UNSAFE_POLICY.md", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 1100,
+        end: 1199,
+        key: DiagnosticFamilyKey::RUNTIME_PROFILE_POLICY,
+        semantic_owner: "runtime_profile_policy",
+        status: AllocationStatus::Reserved,
+        doctrine: &["docs/RUNTIME_PROFILES.md", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 1200,
+        end: 1299,
+        key: DiagnosticFamilyKey::TARGET_BACKEND_METADATA,
+        semantic_owner: "target_backend_metadata",
+        status: AllocationStatus::Active,
+        doctrine: &["docs/PORTABILITY_BOUNDARY_MODEL.md", "WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 1300,
+        end: 1399,
+        key: DiagnosticFamilyKey::CONCURRENCY_MEMORY_ORDERING,
+        semantic_owner: "concurrency_memory_ordering",
+        status: AllocationStatus::Reserved,
+        doctrine: &["WORKORDER.md"],
+    },
+    DiagnosticFamilySpec {
+        start: 1400,
+        end: 1499,
+        key: DiagnosticFamilyKey::CALLABLE_EFFECT_ROWS,
+        semantic_owner: "callable_effect_rows",
+        status: AllocationStatus::Active,
+        doctrine: &["decisions/0018", "WORKORDER.md"],
+    },
+];
+
+macro_rules! diagnostic_code_allocations {
+    ($(($index:expr, $name:ident, $spelling:literal, $title:literal, $family:ident, $owner:literal, $stage:literal)),+ $(,)?) => {
+        impl DiagnosticCodeKey {
+            $(pub const $name: Self = Self($index);)+
+        }
+
+        impl DiagnosticCode {
+            $(pub const $name: Self = Self::from_key(DiagnosticCodeKey::$name);)+
+        }
+
+        pub const DIAGNOSTIC_CODE_ALLOCATIONS: &[DiagnosticCodeAllocation] = &[
+            $(DiagnosticCodeAllocation {
+                key: DiagnosticCodeKey::$name,
+                public_ordinal: historical_public_ordinal(DiagnosticCodeKey::$name),
+                spelling: $spelling,
+                title: $title,
+                family: DiagnosticFamilyKey::$family,
+                semantic_owner: $owner,
+                owning_stage: $stage,
+                status: AllocationStatus::Active,
+            }),+
+        ];
+    };
+}
+
+#[rustfmt::skip]
+diagnostic_code_allocations!(
+    (
+        0,
+        UNEXPECTED_TOP_LEVEL_LINE,
+        "H0001",
+        "unexpected top-level line",
+        SOURCE_SHAPE,
+        "source_shape",
+        "parser"
+    ),
+    (
+        1,
+        NESTED_ITEM_EXTENDS_PAST_BLOCK,
+        "H0002",
+        "nested item extends past containing block",
+        SOURCE_SHAPE,
+        "source_shape",
+        "parser"
+    ),
+    (
+        2,
+        ITEM_HEADER_MISSING_OPEN_BRACE,
+        "H0003",
+        "item header missing opening brace",
+        SOURCE_SHAPE,
+        "source_shape",
+        "parser"
+    ),
+    (
+        3,
+        ITEM_BLOCK_MISSING_CLOSE_BRACE,
+        "H0004",
+        "item block missing closing brace",
+        SOURCE_SHAPE,
+        "source_shape",
+        "parser"
+    ),
+    (
+        4,
+        UNKNOWN_ITEM_KIND,
+        "H0005",
+        "unknown item kind",
+        SOURCE_SHAPE,
+        "source_shape",
+        "parser"
+    ),
+    (
+        5,
+        UNEXPECTED_SIGNATURE_TEXT,
+        "H0006",
+        "unexpected callable signature text",
+        SOURCE_SHAPE,
+        "source_shape",
+        "parser"
+    ),
+    (
+        6,
+        CALLABLE_SIGNATURE_MISSING_CLOSE_PAREN,
+        "H0007",
+        "callable signature missing close parenthesis",
+        SOURCE_SHAPE,
+        "source_shape",
+        "parser"
+    ),
+    (
+        7,
+        PARAMETER_MISSING_TYPE,
+        "H0008",
+        "parameter missing type",
+        SOURCE_SHAPE,
+        "source_shape",
+        "parser"
+    ),
+    (
+        8,
+        INVALID_IDENTIFIER,
+        "H0009",
+        "invalid identifier",
+        SOURCE_SHAPE,
+        "source_shape",
+        "parser"
+    ),
+    (
+        9,
+        APP_MISSING_WHY,
+        "H0101",
+        "app missing why section",
+        INTENT_SHAPE,
+        "intent_shape",
+        "check"
+    ),
+    (
+        10,
+        TYPE_MISSING_SHAPE,
+        "H0102",
+        "type missing shape",
+        INTENT_SHAPE,
+        "intent_shape",
+        "check"
+    ),
+    (
+        11,
+        STORE_MISSING_TYPE,
+        "H0103",
+        "store missing type",
+        INTENT_SHAPE,
+        "intent_shape",
+        "check"
+    ),
+    (
+        12,
+        STORE_MISSING_PURPOSE,
+        "H0104",
+        "store missing purpose",
+        INTENT_SHAPE,
+        "intent_shape",
+        "check"
+    ),
+    (
+        13,
+        MISSING_REQUIRED_SECTION,
+        "H0105",
+        "item missing required section",
+        INTENT_SHAPE,
+        "intent_shape",
+        "check"
+    ),
+    (
+        14,
+        DUPLICATE_SECTION,
+        "H0106",
+        "duplicate section",
+        INTENT_SHAPE,
+        "intent_shape",
+        "check"
+    ),
+    (
+        15,
+        TASK_MISSING_NEEDS,
+        "H0107",
+        "task missing needs section",
+        INTENT_SHAPE,
+        "intent_shape",
+        "check"
+    ),
+    (
+        16,
+        SECTION_OUT_OF_ORDER,
+        "H0108",
+        "section out of order",
+        INTENT_SHAPE,
+        "intent_shape",
+        "check"
+    ),
+    (
+        17,
+        TASK_MISSING_ENSURES,
+        "H0109",
+        "task return missing ensures section",
+        INTENT_SHAPE,
+        "intent_shape",
+        "check"
+    ),
+    (
+        18,
+        HOLLOW_CONTRACT_LINE,
+        "H0110",
+        "hollow contract line",
+        INTENT_SHAPE,
+        "intent_shape",
+        "check"
+    ),
+    (
+        19,
+        UNDECLARED_SAVE_TARGET,
+        "H0201",
+        "save target not declared in changes",
+        DECLARED_STATE_EFFECTS,
+        "declared_state_effects",
+        "check"
+    ),
+    (
+        20,
+        UNDECLARED_SET_TARGET,
+        "H0202",
+        "set target not declared mutable",
+        DECLARED_STATE_EFFECTS,
+        "declared_state_effects",
+        "check"
+    ),
+    (
+        21,
+        TASK_MISSING_COST,
+        "H0301",
+        "task missing cost section",
+        COST_CONTRACTS,
+        "cost_contracts",
+        "check"
+    ),
+    (
+        22,
+        COST_MISSING_CHECK,
+        "H0302",
+        "cost missing check level",
+        COST_CONTRACTS,
+        "cost_contracts",
+        "check"
+    ),
+    (
+        23,
+        COMPILE_COST_MISSING_TIME,
+        "H0303",
+        "compile cost missing time claim",
+        COST_CONTRACTS,
+        "cost_contracts",
+        "check"
+    ),
+    (
+        24,
+        CONSTANT_COST_HAS_FOR_EACH,
+        "H0304",
+        "constant cost claim has iteration",
+        COST_CONTRACTS,
+        "cost_contracts",
+        "check"
+    ),
+    (
+        25,
+        COMPILE_COST_UNBOUNDED_WHILE,
+        "H0305",
+        "compile cost has unbounded-looking while",
+        COST_CONTRACTS,
+        "cost_contracts",
+        "check"
+    ),
+    (
+        26,
+        SECURITY_MISSING_PROTECTS,
+        "H0401",
+        "security-sensitive task missing protects",
+        SECURITY_TRUST,
+        "security_trust",
+        "check"
+    ),
+    (
+        27,
+        TRUSTS_MISSING_PROTECTS,
+        "H0402",
+        "trust boundary missing protects",
+        SECURITY_TRUST,
+        "security_trust",
+        "check"
+    ),
+    (
+        28,
+        TEST_MISSING_COVERS,
+        "H0501",
+        "test missing covers section",
+        TEST_EVIDENCE,
+        "test_evidence",
+        "check"
+    ),
+    (
+        29,
+        REGRESSION_MISSING_NOTE,
+        "H0502",
+        "regression test missing regression note",
+        TEST_EVIDENCE,
+        "test_evidence",
+        "check"
+    ),
+    (
+        30,
+        UNRESOLVED_NAME,
+        "H0601",
+        "unresolved name",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "resolve"
+    ),
+    (
+        31,
+        DUPLICATE_NAME_IN_SCOPE,
+        "H0602",
+        "duplicate name in scope",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "resolve"
+    ),
+    (
+        32,
+        SET_TARGET_IMMUTABLE,
+        "H0603",
+        "set target is immutable",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "resolve"
+    ),
+    (
+        33,
+        READ_BEFORE_DECLARE,
+        "H0604",
+        "read before declaration",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "resolve"
+    ),
+    (
+        34,
+        UNKNOWN_TYPE_NAME,
+        "H0605",
+        "unknown type name",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "type_check"
+    ),
+    (
+        35,
+        RETURN_TYPE_MISMATCH,
+        "H0606",
+        "return type mismatch",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "type_check"
+    ),
+    (
+        36,
+        APP_START_MISSING,
+        "H0610",
+        "app start missing",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "app_entry"
+    ),
+    (
+        37,
+        APP_START_EMPTY,
+        "H0611",
+        "app start empty",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "app_entry"
+    ),
+    (
+        38,
+        APP_START_DUPLICATE,
+        "H0612",
+        "app start duplicated",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "app_entry"
+    ),
+    (
+        39,
+        APP_START_INVALID_NAME,
+        "H0613",
+        "invalid app start name",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "app_entry"
+    ),
+    (
+        40,
+        APP_START_NOT_CHILD,
+        "H0614",
+        "app start task is not a child",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "app_entry"
+    ),
+    (
+        41,
+        MULTIPLE_EXECUTABLE_APPS,
+        "H0615",
+        "multiple executable apps",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "app_entry"
+    ),
+    (
+        42,
+        APP_START_INVALID_RESULT,
+        "H0616",
+        "invalid app start result",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "app_entry"
+    ),
+    (
+        43,
+        UNKNOWN_SOURCE_CAPABILITY,
+        "H0617",
+        "unknown source capability",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        44,
+        MISSING_CALLER_CAPABILITY,
+        "H0618",
+        "caller capability closure is incomplete",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        45,
+        APP_CAPABILITY_MISMATCH,
+        "H0619",
+        "app capability maximum is incomplete",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        46,
+        ENTRY_CAPABILITY_BYPASS,
+        "H0620",
+        "direct entry cannot carry external authority",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        47,
+        OUTPUT_CAPABILITY_UNDECLARED,
+        "H0621",
+        "stdout operation lacks source authority",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        48,
+        INVALID_STDOUT_WRITE_CALL,
+        "H0622",
+        "invalid stdout_write call",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        49,
+        RESERVED_BUILTIN_NAME,
+        "H0623",
+        "reserved built-in name redeclared",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        50,
+        OUTPUT_RECURSION_UNSUPPORTED,
+        "H0624",
+        "output-reachable recursion unsupported",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        51,
+        REPLAY_CAPABILITY_UNDECLARED,
+        "H0625",
+        "replay operation lacks source authority",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        52,
+        INVALID_CLOCK_REPLAY_CALL,
+        "H0626",
+        "invalid clock_replay_tick call",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        53,
+        RESERVED_REPLAY_BUILTIN_NAME,
+        "H0627",
+        "reserved replay built-in name redeclared",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        54,
+        REPLAY_RECURSION_UNSUPPORTED,
+        "H0628",
+        "replay-reachable recursion unsupported",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        55,
+        INVALID_PATH_BOUNDARY,
+        "H0629",
+        "invalid opaque Path boundary",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "path_boundary"
+    ),
+    (
+        56,
+        PATH_SOURCE_CONSTRUCTION,
+        "H0630",
+        "opaque Path cannot be constructed or used in source",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "path_boundary"
+    ),
+    (
+        57,
+        FILE_CAPABILITY_UNDECLARED,
+        "H0631",
+        "file operation lacks source authority",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "capability_root"
+    ),
+    (
+        58,
+        INVALID_FILE_READ_CALL,
+        "H0632",
+        "invalid files_read_text call",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "file_read"
+    ),
+    (
+        59,
+        RESERVED_FILE_READ_BUILTIN_NAME,
+        "H0633",
+        "reserved file-read built-in name redeclared",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "file_read"
+    ),
+    (
+        60,
+        UNCHECKED_PROSE_CONTRACT,
+        "H0701",
+        "unchecked prose contract",
+        EXECUTABLE_CONTRACTS,
+        "executable_contracts",
+        "predicate"
+    ),
+    (
+        61,
+        NEEDS_CONTRACT_VIOLATION,
+        "H0702",
+        "needs contract violation",
+        EXECUTABLE_CONTRACTS,
+        "executable_contracts",
+        "run"
+    ),
+    (
+        62,
+        ENSURES_CONTRACT_VIOLATION,
+        "H0703",
+        "ensures contract violation",
+        EXECUTABLE_CONTRACTS,
+        "executable_contracts",
+        "run"
+    ),
+    (
+        63,
+        INVALID_EXECUTABLE_PREDICATE,
+        "H0704",
+        "invalid executable predicate",
+        EXECUTABLE_CONTRACTS,
+        "executable_contracts",
+        "predicate"
+    ),
+    (
+        64,
+        USE_AFTER_MOVE,
+        "H0801",
+        "use after move",
+        OWNERSHIP_BORROWING,
+        "ownership_borrowing",
+        "ownership_check"
+    ),
+    (
+        65,
+        BORROW_PARAMETER_MUTATION,
+        "H0802",
+        "borrowed parameter written",
+        OWNERSHIP_BORROWING,
+        "ownership_borrowing",
+        "ownership_check"
+    ),
+    (
+        66,
+        LINEAR_RESOURCE_NOT_CONSUMED,
+        "H0803",
+        "linear resource not consumed",
+        OWNERSHIP_BORROWING,
+        "ownership_borrowing",
+        "ownership_check"
+    ),
+    (
+        67,
+        LINEAR_RESOURCE_CONSUMED_TWICE,
+        "H0804",
+        "linear resource consumed twice",
+        OWNERSHIP_BORROWING,
+        "ownership_borrowing",
+        "ownership_check"
+    ),
+    (
+        68,
+        RETURN_DEPENDENCY_NOT_PARAMETER,
+        "H0805",
+        "return dependency is not a parameter",
+        OWNERSHIP_BORROWING,
+        "ownership_borrowing",
+        "ownership_check"
+    ),
+    (
+        69,
+        ITERATION_MUTATION_CONFLICT,
+        "H0806",
+        "iteration mutation conflict",
+        OWNERSHIP_BORROWING,
+        "ownership_borrowing",
+        "ownership_check"
+    ),
+    (
+        70,
+        STALE_FIELD_VIEW,
+        "H0807",
+        "stale view",
+        OWNERSHIP_BORROWING,
+        "ownership_borrowing",
+        "ownership_check"
+    ),
+    (
+        71,
+        WRITABLE_ALIAS_OVERLAP,
+        "H0808",
+        "writable alias overlap",
+        OWNERSHIP_BORROWING,
+        "ownership_borrowing",
+        "ownership_check"
+    ),
+    (
+        72,
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "H0809",
+        "unsupported writable alias",
+        OWNERSHIP_BORROWING,
+        "ownership_borrowing",
+        "ownership_check"
+    ),
+    (
+        73,
+        FALLIBLE_CALL_REQUIRES_TRY,
+        "H0901",
+        "fallible call requires try",
+        NOMINAL_TYPED_FAILURE,
+        "nominal_typed_failure",
+        "full_type_check"
+    ),
+    (
+        74,
+        INCOMPATIBLE_FAILURE_PROPAGATION,
+        "H0902",
+        "incompatible failure propagation",
+        NOMINAL_TYPED_FAILURE,
+        "nominal_typed_failure",
+        "full_type_check"
+    ),
+    (
+        75,
+        FAILURE_WRAPPER_ROOT_MISMATCH,
+        "H0903",
+        "failure wrapper root mismatch",
+        NOMINAL_TYPED_FAILURE,
+        "nominal_typed_failure",
+        "full_type_check"
+    ),
+    (
+        76,
+        TRY_ON_INFALLIBLE_CALL,
+        "H0904",
+        "try on infallible call",
+        NOMINAL_TYPED_FAILURE,
+        "nominal_typed_failure",
+        "full_type_check"
+    ),
+    (
+        77,
+        DIRECT_FAILURE_ROOT_MISMATCH,
+        "H0905",
+        "direct failure root mismatch",
+        NOMINAL_TYPED_FAILURE,
+        "nominal_typed_failure",
+        "full_type_check"
+    ),
+    (
+        78,
+        UNSUPPORTED_TRY_EXPRESSION,
+        "H0906",
+        "unsupported try expression",
+        NOMINAL_TYPED_FAILURE,
+        "nominal_typed_failure",
+        "full_type_check"
+    ),
+    (
+        79,
+        MISSING_FAILURE_DECLARATION,
+        "H0907",
+        "missing failure declaration",
+        NOMINAL_TYPED_FAILURE,
+        "nominal_typed_failure",
+        "effect_check"
+    ),
+    (
+        80,
+        UNKNOWN_TARGET_FACT_RECORD,
+        "H1201",
+        "unknown target fact record",
+        TARGET_BACKEND_METADATA,
+        "target_backend_metadata",
+        "check"
+    ),
+    (
+        81,
+        UNKNOWN_CAPABILITY_FAMILY,
+        "H1202",
+        "unknown capability family",
+        TARGET_BACKEND_METADATA,
+        "target_backend_metadata",
+        "check"
+    ),
+    (
+        82,
+        UNSUPPORTED_TARGET_DECLARATION,
+        "H1203",
+        "unsupported target declaration",
+        TARGET_BACKEND_METADATA,
+        "target_backend_metadata",
+        "check"
+    ),
+    (
+        83,
+        REQUIRED_CAPABILITY_UNAVAILABLE,
+        "H1204",
+        "required capability unavailable on target",
+        TARGET_BACKEND_METADATA,
+        "target_backend_metadata",
+        "check"
+    ),
+    (
+        84,
+        CONFLICTING_TARGET_CAPABILITY,
+        "H1205",
+        "conflicting target capability declaration",
+        TARGET_BACKEND_METADATA,
+        "target_backend_metadata",
+        "check"
+    ),
+    (
+        85,
+        INVALID_CALLABLE_FORM,
+        "H1401",
+        "invalid or unsupported callable form",
+        CALLABLE_EFFECT_ROWS,
+        "callable_effect_rows",
+        "callable"
+    ),
+    (
+        86,
+        CALLABLE_SIGNATURE_MISMATCH,
+        "H1402",
+        "callable signature mismatch",
+        CALLABLE_EFFECT_ROWS,
+        "callable_effect_rows",
+        "callable"
+    ),
+);
+
+pub fn allocation(key: DiagnosticCodeKey) -> &'static DiagnosticCodeAllocation {
+    DIAGNOSTIC_CODE_ALLOCATIONS
+        .iter()
+        .find(|allocation| allocation.key == key)
+        .expect("diagnostic code key must be registered")
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct DiagnosticInfo {
@@ -536,20 +1543,313 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     },
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RegistrySummary {
+    active_codes: usize,
+    retired_codes: usize,
+    reserved_families: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RegistryValidationError {
+    MalformedFamilyInterval,
+    DuplicateFamilyKey,
+    MalformedRegistryMetadata,
+    FamilyIntervalOwnerConflict,
+    OverlappingFamilyIntervals,
+    MalformedCodeSpelling,
+    DuplicateCodeSpelling,
+    DuplicateCodeKey,
+    NonDeterministicCodeOrder,
+    InvalidPublicOrdinal,
+    CodeOutsideDeclaredFamily,
+    CodeOwnedByDifferentFamily,
+    ReservedFamilyExactAllocation,
+    ReservedExactCodeAllocation,
+    MissingCatalogDetail,
+    DuplicateCatalogDetail,
+    UnknownCatalogDetail,
+    CatalogProjectionMismatch,
+    CatalogProjectionOrderMismatch,
+    RetiredCodeReuseOrMutation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RetiredCodeRecord {
+    allocation: DiagnosticCodeAllocation,
+    default_severity: Severity,
+    explanation: &'static str,
+    repair: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CatalogProjection<'a> {
+    key: DiagnosticCodeKey,
+    spelling: &'a str,
+    title: &'a str,
+    default_severity: Severity,
+    explanation: &'a str,
+    repair: &'a str,
+}
+
+const FROZEN_RETIRED_CODES: &[RetiredCodeRecord] = &[];
+
+fn parse_code_spelling(spelling: &str) -> Result<u16, RegistryValidationError> {
+    let bytes = spelling.as_bytes();
+    if bytes.len() != 5 || bytes[0] != b'H' || !bytes[1..].iter().all(u8::is_ascii_digit) {
+        return Err(RegistryValidationError::MalformedCodeSpelling);
+    }
+    spelling[1..]
+        .parse::<u16>()
+        .map_err(|_| RegistryValidationError::MalformedCodeSpelling)
+}
+
+fn validate_registry(
+    families: &[DiagnosticFamilySpec],
+    allocations: &[DiagnosticCodeAllocation],
+    details: &[DiagnosticInfo],
+    frozen_retired: &[RetiredCodeRecord],
+) -> Result<RegistrySummary, RegistryValidationError> {
+    for (index, family) in families.iter().enumerate() {
+        if family.start > family.end || family.end > 9999 {
+            return Err(RegistryValidationError::MalformedFamilyInterval);
+        }
+        for other in &families[..index] {
+            if family.key == other.key {
+                return Err(RegistryValidationError::DuplicateFamilyKey);
+            }
+            if family.start == other.start
+                && family.end == other.end
+                && family.semantic_owner != other.semantic_owner
+            {
+                return Err(RegistryValidationError::FamilyIntervalOwnerConflict);
+            }
+            if family.start <= other.end && other.start <= family.end {
+                return Err(RegistryValidationError::OverlappingFamilyIntervals);
+            }
+        }
+        if family.key.0.is_empty()
+            || family.semantic_owner.is_empty()
+            || family.key.0 != family.semantic_owner
+            || family.doctrine.is_empty()
+            || family.doctrine.iter().any(|reference| reference.is_empty())
+        {
+            return Err(RegistryValidationError::MalformedRegistryMetadata);
+        }
+    }
+
+    let mut previous_number = None;
+    for (index, allocation) in allocations.iter().enumerate() {
+        if allocation.title.is_empty()
+            || allocation.semantic_owner.is_empty()
+            || allocation.owning_stage.is_empty()
+        {
+            return Err(RegistryValidationError::MalformedRegistryMetadata);
+        }
+        for other in &allocations[..index] {
+            if allocation.spelling == other.spelling {
+                return Err(RegistryValidationError::DuplicateCodeSpelling);
+            }
+            if allocation.key == other.key {
+                return Err(RegistryValidationError::DuplicateCodeKey);
+            }
+            if allocation.public_ordinal == other.public_ordinal {
+                return Err(RegistryValidationError::InvalidPublicOrdinal);
+            }
+        }
+        if usize::from(allocation.public_ordinal) >= allocations.len() {
+            return Err(RegistryValidationError::InvalidPublicOrdinal);
+        }
+
+        let number = parse_code_spelling(allocation.spelling)?;
+        if let Some(previous) = previous_number
+            && number <= previous
+        {
+            return Err(RegistryValidationError::NonDeterministicCodeOrder);
+        }
+        previous_number = Some(number);
+
+        if allocation.status == AllocationStatus::Reserved {
+            return Err(RegistryValidationError::ReservedExactCodeAllocation);
+        }
+        let declared_family = families
+            .iter()
+            .find(|family| family.key == allocation.family)
+            .ok_or(RegistryValidationError::CodeOutsideDeclaredFamily)?;
+        if number < declared_family.start || number > declared_family.end {
+            return Err(RegistryValidationError::CodeOutsideDeclaredFamily);
+        }
+        let numeric_family = families
+            .iter()
+            .find(|family| number >= family.start && number <= family.end)
+            .ok_or(RegistryValidationError::CodeOutsideDeclaredFamily)?;
+        if numeric_family.key != allocation.family
+            || numeric_family.semantic_owner != allocation.semantic_owner
+        {
+            return Err(RegistryValidationError::CodeOwnedByDifferentFamily);
+        }
+        if numeric_family.status == AllocationStatus::Reserved {
+            return Err(RegistryValidationError::ReservedFamilyExactAllocation);
+        }
+    }
+
+    for (index, detail) in details.iter().enumerate() {
+        let key = detail.code.key();
+        if details[..index].iter().any(|other| other.code.key() == key) {
+            return Err(RegistryValidationError::DuplicateCatalogDetail);
+        }
+        if !allocations.iter().any(|allocation| allocation.key == key) {
+            return Err(RegistryValidationError::UnknownCatalogDetail);
+        }
+    }
+    if allocations.iter().any(|allocation| {
+        !details
+            .iter()
+            .any(|detail| detail.code.key() == allocation.key)
+    }) {
+        return Err(RegistryValidationError::MissingCatalogDetail);
+    }
+
+    validate_retired_history(allocations, details, frozen_retired)?;
+
+    Ok(RegistrySummary {
+        active_codes: allocations
+            .iter()
+            .filter(|allocation| allocation.status == AllocationStatus::Active)
+            .count(),
+        retired_codes: allocations
+            .iter()
+            .filter(|allocation| allocation.status == AllocationStatus::Retired)
+            .count(),
+        reserved_families: families
+            .iter()
+            .filter(|family| family.status == AllocationStatus::Reserved)
+            .count(),
+    })
+}
+
+fn validate_retired_history(
+    allocations: &[DiagnosticCodeAllocation],
+    details: &[DiagnosticInfo],
+    frozen_retired: &[RetiredCodeRecord],
+) -> Result<(), RegistryValidationError> {
+    for prior in frozen_retired {
+        let Some(current) = allocations.iter().find(|allocation| {
+            allocation.key == prior.allocation.key
+                || allocation.spelling == prior.allocation.spelling
+        }) else {
+            return Err(RegistryValidationError::RetiredCodeReuseOrMutation);
+        };
+        let Some(detail) = details
+            .iter()
+            .find(|detail| detail.code.key() == current.key)
+        else {
+            return Err(RegistryValidationError::RetiredCodeReuseOrMutation);
+        };
+        if current != &prior.allocation
+            || current.status != AllocationStatus::Retired
+            || detail.default_severity != prior.default_severity
+            || detail.explanation != prior.explanation
+            || detail.repair != prior.repair
+        {
+            return Err(RegistryValidationError::RetiredCodeReuseOrMutation);
+        }
+    }
+    Ok(())
+}
+
+fn catalog_projection(details: &[DiagnosticInfo]) -> Vec<CatalogProjection<'static>> {
+    details
+        .iter()
+        .map(|detail| CatalogProjection {
+            key: detail.code.key(),
+            spelling: detail.code.as_str(),
+            title: detail.code.title(),
+            default_severity: detail.default_severity,
+            explanation: detail.explanation,
+            repair: detail.repair,
+        })
+        .collect()
+}
+
+fn validate_catalog_projection(
+    allocations: &[DiagnosticCodeAllocation],
+    details: &[DiagnosticInfo],
+    projection: &[CatalogProjection<'_>],
+) -> Result<(), RegistryValidationError> {
+    if projection.len() != allocations.len() || projection.len() != details.len() {
+        return Err(RegistryValidationError::CatalogProjectionMismatch);
+    }
+    for (index, projected) in projection.iter().enumerate() {
+        if projection[..index]
+            .iter()
+            .any(|other| other.key == projected.key)
+        {
+            return Err(RegistryValidationError::CatalogProjectionMismatch);
+        }
+        let Some(allocation) = allocations
+            .iter()
+            .find(|allocation| allocation.key == projected.key)
+        else {
+            return Err(RegistryValidationError::CatalogProjectionMismatch);
+        };
+        let Some(detail) = details
+            .iter()
+            .find(|detail| detail.code.key() == projected.key)
+        else {
+            return Err(RegistryValidationError::CatalogProjectionMismatch);
+        };
+        if usize::from(allocation.public_ordinal) != index {
+            return Err(RegistryValidationError::CatalogProjectionOrderMismatch);
+        }
+        if projected.spelling != allocation.spelling
+            || projected.title != allocation.title
+            || projected.default_severity != detail.default_severity
+            || projected.explanation != detail.explanation
+            || projected.repair != detail.repair
+        {
+            return Err(RegistryValidationError::CatalogProjectionMismatch);
+        }
+    }
+    Ok(())
+}
+
+fn validate_static_registry() -> Result<RegistrySummary, RegistryValidationError> {
+    let summary = validate_registry(
+        DIAGNOSTIC_FAMILIES,
+        DIAGNOSTIC_CODE_ALLOCATIONS,
+        DIAGNOSTICS,
+        FROZEN_RETIRED_CODES,
+    )?;
+    validate_catalog_projection(
+        DIAGNOSTIC_CODE_ALLOCATIONS,
+        DIAGNOSTICS,
+        &catalog_projection(DIAGNOSTICS),
+    )?;
+    Ok(summary)
+}
+
 pub fn all() -> &'static [DiagnosticInfo] {
+    validate_static_registry().expect("canonical diagnostic registry must be valid");
     DIAGNOSTICS
 }
 
 pub fn find(code: &str) -> Option<&'static DiagnosticInfo> {
     let code = code.trim();
-    DIAGNOSTICS
+    all()
         .iter()
         .find(|info| info.code.as_str().eq_ignore_ascii_case(code))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{all, find};
+    use super::{
+        AllocationStatus, CatalogProjection, DIAGNOSTIC_CODE_ALLOCATIONS, DIAGNOSTIC_FAMILIES,
+        DIAGNOSTICS, DiagnosticCodeAllocation, DiagnosticCodeKey, DiagnosticFamilyKey,
+        DiagnosticInfo, RegistryValidationError, RetiredCodeRecord, UNALLOCATED_PROFILE_DIAGNOSTIC,
+        all, catalog_projection, find, parse_code_spelling, validate_catalog_projection,
+        validate_registry, validate_retired_history, validate_static_registry,
+    };
     use crate::diagnostic::DiagnosticCode;
 
     #[test]
@@ -654,5 +1954,761 @@ mod tests {
         codes.sort();
         codes.dedup();
         assert_eq!(codes.len(), all().len());
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum DocumentKind {
+        HumanCatalog,
+        DiagnosticsSchema,
+        EffectReport,
+        Security,
+        Unsafe,
+        RuntimeProfiles,
+        LanguageSubset,
+        Portability,
+    }
+
+    #[derive(Clone, Copy)]
+    struct CheckedDocument<'a> {
+        kind: DocumentKind,
+        path: &'static str,
+        text: &'a str,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum DocumentValidationError {
+        MissingAuthorityLink,
+        UnknownExactCode,
+        WildcardCodeEscape,
+        ContradictoryExactCode,
+        ContradictoryFamilyOwner,
+        MissingActiveCode,
+        MissingFamily,
+        InvalidPlaceholder,
+    }
+
+    fn checked_documents() -> [CheckedDocument<'static>; 8] {
+        [
+            CheckedDocument {
+                kind: DocumentKind::HumanCatalog,
+                path: "docs/DIAGNOSTICS.md",
+                text: include_str!("../docs/DIAGNOSTICS.md"),
+            },
+            CheckedDocument {
+                kind: DocumentKind::DiagnosticsSchema,
+                path: "docs/DIAGNOSTICS_SCHEMA_0_1.md",
+                text: include_str!("../docs/DIAGNOSTICS_SCHEMA_0_1.md"),
+            },
+            CheckedDocument {
+                kind: DocumentKind::EffectReport,
+                path: "docs/EFFECT_REPORT_SCHEMA_0_1.md",
+                text: include_str!("../docs/EFFECT_REPORT_SCHEMA_0_1.md"),
+            },
+            CheckedDocument {
+                kind: DocumentKind::Security,
+                path: "docs/SECURITY_MODEL.md",
+                text: include_str!("../docs/SECURITY_MODEL.md"),
+            },
+            CheckedDocument {
+                kind: DocumentKind::Unsafe,
+                path: "docs/UNSAFE_POLICY.md",
+                text: include_str!("../docs/UNSAFE_POLICY.md"),
+            },
+            CheckedDocument {
+                kind: DocumentKind::RuntimeProfiles,
+                path: "docs/RUNTIME_PROFILES.md",
+                text: include_str!("../docs/RUNTIME_PROFILES.md"),
+            },
+            CheckedDocument {
+                kind: DocumentKind::LanguageSubset,
+                path: "docs/LANGUAGE_SUBSET_0_1.md",
+                text: include_str!("../docs/LANGUAGE_SUBSET_0_1.md"),
+            },
+            CheckedDocument {
+                kind: DocumentKind::Portability,
+                path: "docs/PORTABILITY_BOUNDARY_MODEL.md",
+                text: include_str!("../docs/PORTABILITY_BOUNDARY_MODEL.md"),
+            },
+        ]
+    }
+
+    fn status_text(status: AllocationStatus) -> &'static str {
+        match status {
+            AllocationStatus::Active => "active",
+            AllocationStatus::Reserved => "reserved",
+            AllocationStatus::Retired => "retired",
+        }
+    }
+
+    fn strip_ticks(value: &str) -> &str {
+        value.trim().trim_matches('`')
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct ExactCodeToken {
+        number: u16,
+        start: usize,
+    }
+
+    fn is_code_shape_lead(byte: u8) -> bool {
+        byte.is_ascii_digit() || matches!(byte, b'x' | b'X' | b'?' | b'*' | b'_' | b'#')
+    }
+
+    fn is_code_shape_continuation(byte: u8) -> bool {
+        byte.is_ascii_alphanumeric() || matches!(byte, b'?' | b'*' | b'_' | b'#')
+    }
+
+    fn exact_code_tokens(text: &str) -> Result<Vec<ExactCodeToken>, DocumentValidationError> {
+        let bytes = text.as_bytes();
+        let mut codes = Vec::new();
+        let mut index = 0;
+        while index < bytes.len() {
+            if bytes[index] != b'H'
+                || (index > 0
+                    && (bytes[index - 1].is_ascii_alphanumeric() || bytes[index - 1] == b'_'))
+                || index + 1 == bytes.len()
+                || !is_code_shape_lead(bytes[index + 1])
+            {
+                index += 1;
+                continue;
+            }
+
+            let has_exact_digits = index + 5 <= bytes.len()
+                && bytes[index + 1..index + 5].iter().all(u8::is_ascii_digit);
+            if !has_exact_digits {
+                return Err(DocumentValidationError::WildcardCodeEscape);
+            }
+
+            let exact_end = index + 5;
+            let is_range = exact_end + 6 <= bytes.len()
+                && bytes[exact_end] == b'-'
+                && bytes[exact_end + 1] == b'H'
+                && bytes[exact_end + 2..exact_end + 6]
+                    .iter()
+                    .all(u8::is_ascii_digit)
+                && (exact_end + 6 == bytes.len()
+                    || !is_code_shape_continuation(bytes[exact_end + 6]));
+            if is_range {
+                index = exact_end + 6;
+                continue;
+            }
+            if exact_end < bytes.len() && is_code_shape_continuation(bytes[exact_end]) {
+                return Err(DocumentValidationError::WildcardCodeEscape);
+            }
+
+            let spelling = &text[index..exact_end];
+            let number = parse_code_spelling(spelling)
+                .map_err(|_| DocumentValidationError::UnknownExactCode)?;
+            if !DIAGNOSTIC_CODE_ALLOCATIONS
+                .iter()
+                .any(|allocation| allocation.spelling == spelling)
+            {
+                return Err(DocumentValidationError::UnknownExactCode);
+            }
+            codes.push(ExactCodeToken {
+                number,
+                start: index,
+            });
+            index = exact_end;
+        }
+        Ok(codes)
+    }
+
+    fn validate_schema_exact_code_claim(
+        text: &str,
+        token: ExactCodeToken,
+    ) -> Result<(), DocumentValidationError> {
+        let spelling = &text[token.start..token.start + 5];
+        let allocation = DIAGNOSTIC_CODE_ALLOCATIONS
+            .iter()
+            .find(|allocation| allocation.spelling == spelling)
+            .ok_or(DocumentValidationError::UnknownExactCode)?;
+        let detail = DIAGNOSTICS
+            .iter()
+            .find(|detail| detail.code.key() == allocation.key)
+            .ok_or(DocumentValidationError::MissingActiveCode)?;
+        let object_start = text[..token.start]
+            .rfind('{')
+            .ok_or(DocumentValidationError::ContradictoryExactCode)?;
+        let object_end = token.start
+            + text[token.start..]
+                .find('}')
+                .ok_or(DocumentValidationError::ContradictoryExactCode)?;
+        let object = &text[object_start..=object_end];
+        let expected_code = format!("\"code\": \"{}\"", allocation.spelling);
+        let expected_title = format!("\"title\": \"{}\"", allocation.title);
+        let expected_severity = format!("\"severity\": \"{}\"", detail.default_severity.as_str());
+        if !object.contains(&expected_code)
+            || !object.contains(&expected_title)
+            || !object.contains(&expected_severity)
+        {
+            return Err(DocumentValidationError::ContradictoryExactCode);
+        }
+        Ok(())
+    }
+
+    fn validate_document_tokens(
+        kind: DocumentKind,
+        text: &str,
+    ) -> Result<(), DocumentValidationError> {
+        let lines = text.lines().collect::<Vec<_>>();
+        for line in &lines {
+            let bytes = line.as_bytes();
+            for index in 0..bytes.len().saturating_sub(10) {
+                let range = &bytes[index..index + 11];
+                if range[0] != b'H'
+                    || range[5] != b'-'
+                    || range[6] != b'H'
+                    || !range[1..5].iter().all(u8::is_ascii_digit)
+                    || !range[7..11].iter().all(u8::is_ascii_digit)
+                {
+                    continue;
+                }
+                let start = std::str::from_utf8(&range[1..5])
+                    .expect("ASCII family start")
+                    .parse::<u16>()
+                    .expect("numeric family start");
+                let end = std::str::from_utf8(&range[7..11])
+                    .expect("ASCII family end")
+                    .parse::<u16>()
+                    .expect("numeric family end");
+                let Some(family) = DIAGNOSTIC_FAMILIES
+                    .iter()
+                    .find(|family| family.start == start && family.end == end)
+                else {
+                    return Err(DocumentValidationError::ContradictoryFamilyOwner);
+                };
+                if !line.contains(family.key.0) {
+                    return Err(DocumentValidationError::ContradictoryFamilyOwner);
+                }
+            }
+        }
+
+        let codes = exact_code_tokens(text)?;
+        if kind == DocumentKind::DiagnosticsSchema {
+            for code in codes {
+                validate_schema_exact_code_claim(text, code)?;
+            }
+        } else if kind != DocumentKind::HumanCatalog && !codes.is_empty() {
+            return Err(DocumentValidationError::ContradictoryExactCode);
+        }
+
+        let placeholder_count = text.matches(UNALLOCATED_PROFILE_DIAGNOSTIC).count();
+        let other_placeholder = text
+            .replace(UNALLOCATED_PROFILE_DIAGNOSTIC, "")
+            .contains("<unallocated-");
+        if other_placeholder
+            || (kind == DocumentKind::RuntimeProfiles && placeholder_count != 1)
+            || (kind != DocumentKind::RuntimeProfiles && placeholder_count != 0)
+        {
+            return Err(DocumentValidationError::InvalidPlaceholder);
+        }
+        Ok(())
+    }
+
+    fn validate_human_projection(text: &str) -> Result<(), DocumentValidationError> {
+        let mut code_rows = Vec::new();
+        for line in text
+            .lines()
+            .filter(|line| line.trim_start().starts_with('|'))
+        {
+            let cells = line.split('|').map(str::trim).collect::<Vec<_>>();
+            if cells.len() < 5 {
+                continue;
+            }
+            let code = strip_ticks(cells[1]);
+            if code.len() == 5
+                && code.starts_with('H')
+                && code[1..].bytes().all(|byte| byte.is_ascii_digit())
+            {
+                let Some(allocation) = DIAGNOSTIC_CODE_ALLOCATIONS
+                    .iter()
+                    .find(|allocation| allocation.spelling == code)
+                else {
+                    return Err(DocumentValidationError::UnknownExactCode);
+                };
+                let Some(detail) = DIAGNOSTICS
+                    .iter()
+                    .find(|detail| detail.code.key() == allocation.key)
+                else {
+                    return Err(DocumentValidationError::MissingActiveCode);
+                };
+                if cells[2] != detail.default_severity.as_str() || cells[3] != allocation.title {
+                    return Err(DocumentValidationError::ContradictoryExactCode);
+                }
+                if code_rows.contains(&allocation.key) {
+                    return Err(DocumentValidationError::ContradictoryExactCode);
+                }
+                code_rows.push(allocation.key);
+            }
+        }
+        if DIAGNOSTIC_CODE_ALLOCATIONS
+            .iter()
+            .filter(|allocation| allocation.status == AllocationStatus::Active)
+            .any(|allocation| !code_rows.contains(&allocation.key))
+        {
+            return Err(DocumentValidationError::MissingActiveCode);
+        }
+
+        for family in DIAGNOSTIC_FAMILIES {
+            let range = format!("H{:04}-H{:04}", family.start, family.end);
+            let matching = text.lines().find(|line| {
+                let cells = line.split('|').map(str::trim).collect::<Vec<_>>();
+                cells.len() >= 5 && strip_ticks(cells[1]) == range
+            });
+            let Some(line) = matching else {
+                return Err(DocumentValidationError::MissingFamily);
+            };
+            let cells = line.split('|').map(str::trim).collect::<Vec<_>>();
+            if cells[2] != status_text(family.status) || strip_ticks(cells[3]) != family.key.0 {
+                return Err(DocumentValidationError::ContradictoryFamilyOwner);
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_checked_documents(
+        documents: &[CheckedDocument<'_>],
+    ) -> Result<(), DocumentValidationError> {
+        for document in documents {
+            if !document.text.contains("../src/diagnostic_catalog.rs")
+                || (document.kind != DocumentKind::HumanCatalog
+                    && !document.text.contains("DIAGNOSTICS.md"))
+                || (document.kind == DocumentKind::HumanCatalog
+                    && !document.text.contains("human projection"))
+            {
+                return Err(DocumentValidationError::MissingAuthorityLink);
+            }
+            validate_document_tokens(document.kind, document.text)?;
+            if document.kind == DocumentKind::HumanCatalog {
+                validate_human_projection(document.text)?;
+            }
+            assert!(document.path.starts_with("docs/"));
+        }
+        Ok(())
+    }
+
+    fn one_detail(code: DiagnosticCode) -> DiagnosticInfo {
+        DiagnosticInfo {
+            code,
+            default_severity: crate::diagnostic::Severity::Error,
+            explanation: "frozen explanation",
+            repair: "frozen repair",
+        }
+    }
+
+    #[test]
+    fn canonical_registry_and_checked_projections_are_valid() {
+        let summary = validate_static_registry().expect("canonical registry");
+        assert_eq!(summary.active_codes, 87);
+        assert_eq!(summary.retired_codes, 0);
+        assert_eq!(summary.reserved_families, 3);
+        assert_eq!(validate_static_registry(), Ok(summary));
+        validate_checked_documents(&checked_documents()).expect("checked documents");
+    }
+
+    #[test]
+    fn family_interval_failures_are_independent() {
+        let mut overlap = DIAGNOSTIC_FAMILIES.to_vec();
+        overlap[1].start = overlap[0].end;
+        assert_eq!(
+            validate_registry(&overlap, DIAGNOSTIC_CODE_ALLOCATIONS, DIAGNOSTICS, &[]),
+            Err(RegistryValidationError::OverlappingFamilyIntervals)
+        );
+
+        let mut conflicting_owner = DIAGNOSTIC_FAMILIES.to_vec();
+        conflicting_owner[1].start = conflicting_owner[0].start;
+        conflicting_owner[1].end = conflicting_owner[0].end;
+        conflicting_owner[1].semantic_owner = "different_owner";
+        assert_eq!(
+            validate_registry(
+                &conflicting_owner,
+                DIAGNOSTIC_CODE_ALLOCATIONS,
+                DIAGNOSTICS,
+                &[]
+            ),
+            Err(RegistryValidationError::FamilyIntervalOwnerConflict)
+        );
+
+        let mut duplicate_key = DIAGNOSTIC_FAMILIES.to_vec();
+        duplicate_key[1].key = duplicate_key[0].key;
+        assert_eq!(
+            validate_registry(
+                &duplicate_key,
+                DIAGNOSTIC_CODE_ALLOCATIONS,
+                DIAGNOSTICS,
+                &[]
+            ),
+            Err(RegistryValidationError::DuplicateFamilyKey)
+        );
+
+        let mut missing_doctrine = DIAGNOSTIC_FAMILIES.to_vec();
+        missing_doctrine[0].doctrine = &[];
+        assert_eq!(
+            validate_registry(
+                &missing_doctrine,
+                DIAGNOSTIC_CODE_ALLOCATIONS,
+                DIAGNOSTICS,
+                &[]
+            ),
+            Err(RegistryValidationError::MalformedRegistryMetadata)
+        );
+    }
+
+    #[test]
+    fn exact_code_identity_and_ownership_failures_are_independent() {
+        let mut duplicate_spelling = DIAGNOSTIC_CODE_ALLOCATIONS.to_vec();
+        duplicate_spelling[1].spelling = duplicate_spelling[0].spelling;
+        assert_eq!(
+            validate_registry(DIAGNOSTIC_FAMILIES, &duplicate_spelling, DIAGNOSTICS, &[]),
+            Err(RegistryValidationError::DuplicateCodeSpelling)
+        );
+
+        let mut duplicate_key = DIAGNOSTIC_CODE_ALLOCATIONS.to_vec();
+        duplicate_key[1].key = duplicate_key[0].key;
+        assert_eq!(
+            validate_registry(DIAGNOSTIC_FAMILIES, &duplicate_key, DIAGNOSTICS, &[]),
+            Err(RegistryValidationError::DuplicateCodeKey)
+        );
+
+        let mut outside = DIAGNOSTIC_CODE_ALLOCATIONS.to_vec();
+        outside[0].family = DiagnosticFamilyKey::INTENT_SHAPE;
+        outside[0].semantic_owner = "intent_shape";
+        assert_eq!(
+            validate_registry(DIAGNOSTIC_FAMILIES, &outside, DIAGNOSTICS, &[]),
+            Err(RegistryValidationError::CodeOutsideDeclaredFamily)
+        );
+
+        let mut wrong_owner = DIAGNOSTIC_CODE_ALLOCATIONS.to_vec();
+        wrong_owner[0].semantic_owner = "different_owner";
+        assert_eq!(
+            validate_registry(DIAGNOSTIC_FAMILIES, &wrong_owner, DIAGNOSTICS, &[]),
+            Err(RegistryValidationError::CodeOwnedByDifferentFamily)
+        );
+
+        wrong_owner[0].status = AllocationStatus::Retired;
+        assert_eq!(
+            validate_registry(DIAGNOSTIC_FAMILIES, &wrong_owner, DIAGNOSTICS, &[]),
+            Err(RegistryValidationError::CodeOwnedByDifferentFamily)
+        );
+
+        let mut reordered = DIAGNOSTIC_CODE_ALLOCATIONS.to_vec();
+        reordered.swap(0, 1);
+        assert_eq!(
+            validate_registry(DIAGNOSTIC_FAMILIES, &reordered, DIAGNOSTICS, &[]),
+            Err(RegistryValidationError::NonDeterministicCodeOrder)
+        );
+
+        let mut duplicate_public_ordinal = DIAGNOSTIC_CODE_ALLOCATIONS.to_vec();
+        duplicate_public_ordinal[1].public_ordinal = duplicate_public_ordinal[0].public_ordinal;
+        assert_eq!(
+            validate_registry(
+                DIAGNOSTIC_FAMILIES,
+                &duplicate_public_ordinal,
+                DIAGNOSTICS,
+                &[]
+            ),
+            Err(RegistryValidationError::InvalidPublicOrdinal)
+        );
+
+        let mut missing_public_ordinal = DIAGNOSTIC_CODE_ALLOCATIONS.to_vec();
+        missing_public_ordinal[0].public_ordinal = u16::MAX;
+        assert_eq!(
+            validate_registry(
+                DIAGNOSTIC_FAMILIES,
+                &missing_public_ordinal,
+                DIAGNOSTICS,
+                &[]
+            ),
+            Err(RegistryValidationError::InvalidPublicOrdinal)
+        );
+
+        let mut missing_stage = DIAGNOSTIC_CODE_ALLOCATIONS.to_vec();
+        missing_stage[0].owning_stage = "";
+        assert_eq!(
+            validate_registry(DIAGNOSTIC_FAMILIES, &missing_stage, DIAGNOSTICS, &[]),
+            Err(RegistryValidationError::MalformedRegistryMetadata)
+        );
+    }
+
+    #[test]
+    fn reserved_and_malformed_allocations_fail_closed() {
+        let reserved_key = DiagnosticCodeKey(500);
+        let reserved = DiagnosticCodeAllocation {
+            key: reserved_key,
+            public_ordinal: 0,
+            spelling: "H1001",
+            title: "must remain unallocated",
+            family: DiagnosticFamilyKey::UNSAFE_FFI_PROVENANCE,
+            semantic_owner: "unsafe_ffi_provenance",
+            owning_stage: "none",
+            status: AllocationStatus::Active,
+        };
+        let reserved_detail = one_detail(DiagnosticCode::from_key(reserved_key));
+        assert_eq!(
+            validate_registry(
+                &[DIAGNOSTIC_FAMILIES[10]],
+                &[reserved],
+                &[reserved_detail],
+                &[]
+            ),
+            Err(RegistryValidationError::ReservedFamilyExactAllocation)
+        );
+
+        let mut exact_reserved = DIAGNOSTIC_CODE_ALLOCATIONS.to_vec();
+        exact_reserved[0].status = AllocationStatus::Reserved;
+        assert_eq!(
+            validate_registry(DIAGNOSTIC_FAMILIES, &exact_reserved, DIAGNOSTICS, &[]),
+            Err(RegistryValidationError::ReservedExactCodeAllocation)
+        );
+
+        let mut malformed = DIAGNOSTIC_CODE_ALLOCATIONS.to_vec();
+        malformed[0].spelling = "H001";
+        assert_eq!(
+            validate_registry(DIAGNOSTIC_FAMILIES, &malformed, DIAGNOSTICS, &[]),
+            Err(RegistryValidationError::MalformedCodeSpelling)
+        );
+
+        let mut inverted = DIAGNOSTIC_FAMILIES.to_vec();
+        inverted[0].start = 100;
+        inverted[0].end = 99;
+        assert_eq!(
+            validate_registry(&inverted, DIAGNOSTIC_CODE_ALLOCATIONS, DIAGNOSTICS, &[]),
+            Err(RegistryValidationError::MalformedFamilyInterval)
+        );
+
+        let mut beyond = DIAGNOSTIC_FAMILIES.to_vec();
+        beyond[14].end = 10_000;
+        assert_eq!(
+            validate_registry(&beyond, DIAGNOSTIC_CODE_ALLOCATIONS, DIAGNOSTICS, &[]),
+            Err(RegistryValidationError::MalformedFamilyInterval)
+        );
+    }
+
+    #[test]
+    fn retired_allocations_are_append_only_and_semantically_frozen() {
+        let mut allocation = DIAGNOSTIC_CODE_ALLOCATIONS[0];
+        allocation.status = AllocationStatus::Retired;
+        let detail = DIAGNOSTICS[0];
+        let prior = RetiredCodeRecord {
+            allocation,
+            default_severity: detail.default_severity,
+            explanation: detail.explanation,
+            repair: detail.repair,
+        };
+        assert_eq!(
+            validate_retired_history(&[allocation], &[detail], &[prior]),
+            Ok(())
+        );
+
+        let mut reused = allocation;
+        reused.status = AllocationStatus::Active;
+        assert_eq!(
+            validate_retired_history(&[reused], &[detail], &[prior]),
+            Err(RegistryValidationError::RetiredCodeReuseOrMutation)
+        );
+
+        let mut mutated = allocation;
+        mutated.title = "mutated retired meaning";
+        assert_eq!(
+            validate_retired_history(&[mutated], &[detail], &[prior]),
+            Err(RegistryValidationError::RetiredCodeReuseOrMutation)
+        );
+    }
+
+    #[test]
+    fn public_catalog_projection_rejects_every_semantic_field_mismatch() {
+        let baseline = catalog_projection(DIAGNOSTICS);
+        assert_eq!(
+            validate_catalog_projection(DIAGNOSTIC_CODE_ALLOCATIONS, DIAGNOSTICS, &baseline),
+            Ok(())
+        );
+
+        for field in 0..6 {
+            let mut mutation = baseline.clone();
+            mutation[0] = match field {
+                0 => CatalogProjection {
+                    key: baseline[1].key,
+                    ..mutation[0]
+                },
+                1 => CatalogProjection {
+                    spelling: "H9999",
+                    ..mutation[0]
+                },
+                2 => CatalogProjection {
+                    title: "wrong title",
+                    ..mutation[0]
+                },
+                3 => CatalogProjection {
+                    default_severity: crate::diagnostic::Severity::Error,
+                    ..mutation[0]
+                },
+                4 => CatalogProjection {
+                    explanation: "wrong explanation",
+                    ..mutation[0]
+                },
+                _ => CatalogProjection {
+                    repair: "wrong repair",
+                    ..mutation[0]
+                },
+            };
+            if field == 3 && baseline[0].default_severity == crate::diagnostic::Severity::Error {
+                mutation[0].default_severity = crate::diagnostic::Severity::Warning;
+            }
+            assert_eq!(
+                validate_catalog_projection(DIAGNOSTIC_CODE_ALLOCATIONS, DIAGNOSTICS, &mutation),
+                Err(if field == 0 {
+                    RegistryValidationError::CatalogProjectionOrderMismatch
+                } else {
+                    RegistryValidationError::CatalogProjectionMismatch
+                }),
+                "field {field}"
+            );
+        }
+
+        let mut swapped = baseline.clone();
+        swapped.swap(0, 1);
+        assert_eq!(
+            validate_catalog_projection(DIAGNOSTIC_CODE_ALLOCATIONS, DIAGNOSTICS, &swapped),
+            Err(RegistryValidationError::CatalogProjectionOrderMismatch)
+        );
+
+        let missing = &baseline[1..];
+        assert_eq!(
+            validate_catalog_projection(DIAGNOSTIC_CODE_ALLOCATIONS, DIAGNOSTICS, missing),
+            Err(RegistryValidationError::CatalogProjectionMismatch)
+        );
+
+        let mut duplicate = baseline.clone();
+        duplicate[1] = duplicate[0];
+        assert_eq!(
+            validate_catalog_projection(DIAGNOSTIC_CODE_ALLOCATIONS, DIAGNOSTICS, &duplicate),
+            Err(RegistryValidationError::CatalogProjectionMismatch)
+        );
+
+        let mut extra = baseline.clone();
+        extra.push(baseline[0]);
+        assert_eq!(
+            validate_catalog_projection(DIAGNOSTIC_CODE_ALLOCATIONS, DIAGNOSTICS, &extra),
+            Err(RegistryValidationError::CatalogProjectionMismatch)
+        );
+    }
+
+    #[test]
+    fn catalog_detail_coverage_rejects_missing_duplicate_and_unknown_rows() {
+        let missing = &DIAGNOSTICS[1..];
+        assert_eq!(
+            validate_registry(
+                DIAGNOSTIC_FAMILIES,
+                DIAGNOSTIC_CODE_ALLOCATIONS,
+                missing,
+                &[]
+            ),
+            Err(RegistryValidationError::MissingCatalogDetail)
+        );
+
+        let mut duplicate = DIAGNOSTICS.to_vec();
+        duplicate.push(DIAGNOSTICS[0]);
+        assert_eq!(
+            validate_registry(
+                DIAGNOSTIC_FAMILIES,
+                DIAGNOSTIC_CODE_ALLOCATIONS,
+                &duplicate,
+                &[]
+            ),
+            Err(RegistryValidationError::DuplicateCatalogDetail)
+        );
+
+        let unknown = one_detail(DiagnosticCode::from_key(DiagnosticCodeKey(999)));
+        let mut with_unknown = DIAGNOSTICS.to_vec();
+        with_unknown.push(unknown);
+        assert_eq!(
+            validate_registry(
+                DIAGNOSTIC_FAMILIES,
+                DIAGNOSTIC_CODE_ALLOCATIONS,
+                &with_unknown,
+                &[]
+            ),
+            Err(RegistryValidationError::UnknownCatalogDetail)
+        );
+    }
+
+    #[test]
+    fn checked_documents_reject_unknown_contradictory_and_missing_projections() {
+        assert_eq!(
+            validate_document_tokens(DocumentKind::Security, "future H9999 allocation"),
+            Err(DocumentValidationError::UnknownExactCode)
+        );
+        for shape in ["H12xx", "H10??", "H100*", "H10_1", "H1x01", "H1001suffix"] {
+            assert_eq!(
+                validate_document_tokens(DocumentKind::Portability, shape),
+                Err(DocumentValidationError::WildcardCodeEscape),
+                "shape {shape}"
+            );
+        }
+        assert_eq!(
+            validate_document_tokens(
+                DocumentKind::Security,
+                "`H1000-H1099` is owned by `wrong_owner`"
+            ),
+            Err(DocumentValidationError::ContradictoryFamilyOwner)
+        );
+
+        let human = include_str!("../docs/DIAGNOSTICS.md");
+        let wrong_title = human.replacen(
+            "| `H0001` | warning | unexpected top-level line |",
+            "| `H0001` | warning | wrong title |",
+            1,
+        );
+        assert_eq!(
+            validate_human_projection(&wrong_title),
+            Err(DocumentValidationError::ContradictoryExactCode)
+        );
+
+        let wrong_family = human.replacen(
+            "| `H0000-H0099` | active | `source_shape` |",
+            "| `H0000-H0099` | active | `wrong_owner` |",
+            1,
+        );
+        assert_eq!(
+            validate_human_projection(&wrong_family),
+            Err(DocumentValidationError::ContradictoryFamilyOwner)
+        );
+
+        let missing_code = human
+            .lines()
+            .filter(|line| !line.starts_with("| `H1402` |"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            validate_human_projection(&missing_code),
+            Err(DocumentValidationError::MissingActiveCode)
+        );
+
+        let missing_family = human
+            .lines()
+            .filter(|line| !line.starts_with("| `H1400-H1499` |"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            validate_human_projection(&missing_family),
+            Err(DocumentValidationError::MissingFamily)
+        );
+
+        for document in checked_documents()
+            .into_iter()
+            .filter(|document| document.kind != DocumentKind::HumanCatalog)
+        {
+            let substituted = format!(
+                "{}\n\nerror[H0201]: runtime profile denied this operation\n",
+                document.text
+            );
+            assert_eq!(
+                validate_document_tokens(document.kind, &substituted),
+                Err(DocumentValidationError::ContradictoryExactCode),
+                "known-code semantic substitution in {}",
+                document.path
+            );
+        }
     }
 }

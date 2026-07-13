@@ -20,6 +20,10 @@ run packages, call foreign code, or probe host capabilities. This model is the
 contract future executable work must satisfy before Hum claims serious embedded,
 enterprise, safety-critical, or cross-platform readiness.
 
+Exact diagnostic allocations come only from
+[`src/diagnostic_catalog.rs`](../src/diagnostic_catalog.rs); the checked human
+projection is [DIAGNOSTICS.md](DIAGNOSTICS.md).
+
 ## Boundary Rule
 
 Portable Hum code must not depend on hidden platform facts.
@@ -340,19 +344,20 @@ these facts instead of inferring portability from filenames or comments.
 Future portability diagnostics should be specific:
 
 ```text
-error H12xx: profile denies wall-clock time
+future portability diagnostic: profile denies wall-clock time
 help: use monotonic time, replay time, or add an explicit profile exception
 
-error H12xx: target path semantics are ambiguous
+future portability diagnostic: target path semantics are ambiguous
 help: declare whether this path is a package path, source path, artifact path,
 or OS filesystem path
 
-error H12xx: target does not provide atomic u64
+future portability diagnostic: target does not provide atomic u64
 help: use a smaller atomic, add a target requirement, or choose a profile that
 allows a fallback lock
 ```
 
-Codes are illustrative. Final codes belong in [DIAGNOSTICS.md](DIAGNOSTICS.md).
+These examples allocate no exact code. Final allocations belong in the
+canonical registry and its [DIAGNOSTICS.md](DIAGNOSTICS.md) human projection.
 
 ## Rejected Shortcuts
 

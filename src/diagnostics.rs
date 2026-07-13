@@ -244,6 +244,61 @@ mod tests {
     }
 
     #[test]
+    fn registry_catalog_and_check_projections_are_semantically_equivalent() {
+        let catalog = crate::diagnostic_catalog::all();
+        assert_eq!(catalog.len(), 87);
+
+        let text = diagnostics_text();
+        assert!(text.starts_with("Hum diagnostics (87 codes)\n"));
+        let json = diagnostics_json();
+        assert!(json.contains("\"count\": 87"));
+
+        for info in catalog {
+            let text_row = format!(
+                "{} {} {}\n",
+                info.code.as_str(),
+                info.default_severity.as_str(),
+                info.code.title()
+            );
+            assert_eq!(text.matches(&text_row).count(), 1, "{}", info.code.as_str());
+            for expected in [
+                format!("\"code\": {}", super::json_string(info.code.as_str())),
+                format!("\"title\": {}", super::json_string(info.code.title())),
+                format!(
+                    "\"default_severity\": {}",
+                    super::json_string(info.default_severity.as_str())
+                ),
+                format!("\"explanation\": {}", super::json_string(info.explanation)),
+                format!("\"repair\": {}", super::json_string(info.repair)),
+            ] {
+                assert!(
+                    json.contains(&expected),
+                    "{} missing {expected}",
+                    info.code.as_str()
+                );
+            }
+
+            let source = Diagnostic {
+                code: info.code,
+                severity: info.default_severity,
+                message: "projection probe".to_owned(),
+                span: None,
+                related_spans: Vec::new(),
+                help: None,
+            };
+            let check = check_json(&Program::default(), &[source]);
+            assert!(check.contains(&format!(
+                "\"code\": {}",
+                super::json_string(info.code.as_str())
+            )));
+            assert!(check.contains(&format!(
+                "\"title\": {}",
+                super::json_string(info.code.title())
+            )));
+        }
+    }
+
+    #[test]
     fn check_json_lists_source_diagnostics() {
         let diagnostic = Diagnostic::error(
             DiagnosticCode::UNDECLARED_SAVE_TARGET,

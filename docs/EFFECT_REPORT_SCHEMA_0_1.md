@@ -8,6 +8,10 @@ The effect report is the first alpha artifact that proves Hum is more than a
 pretty source syntax. It shows declared authority beside what the checker or
 runner observed.
 
+Exact diagnostic allocations come only from
+[`src/diagnostic_catalog.rs`](../src/diagnostic_catalog.rs); the checked human
+projection is [DIAGNOSTICS.md](DIAGNOSTICS.md).
+
 ## Schema Name
 
 ```text
@@ -70,9 +74,12 @@ not allow:
 {
   "capability": "network.connect",
   "reason": "offline-tool@0.1 denies network access",
-  "diagnostic_code": "H1001"
+  "diagnostic_codes": []
 }
 ```
+
+The empty list is honest: no exact runtime-profile diagnostic is allocated.
+The reserved profile family does not authorize inventing a placeholder code.
 
 ## Summary
 

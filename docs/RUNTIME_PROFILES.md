@@ -2,6 +2,10 @@
 
 Date: 2026-07-06
 
+Exact diagnostic allocations come only from
+[`src/diagnostic_catalog.rs`](../src/diagnostic_catalog.rs); the checked human
+projection is [DIAGNOSTICS.md](DIAGNOSTICS.md).
+
 ## Purpose
 
 Runtime profiles are named language/toolchain policies for different kinds of
@@ -313,9 +317,12 @@ If profiles conflict, the compiler should explain the conflict.
 Example:
 
 ```text
-error[H1001]: profile `hard realtime` forbids background epoch reclamation
+error[<unallocated-profile-diagnostic>]: profile `hard realtime` forbids background epoch reclamation
 help: use bounded arena reclamation or move this task outside the realtime loop
 ```
+
+`H1100-H1199` is the reserved `runtime_profile_policy` family. No exact profile
+diagnostic, including an apparent first member of that interval, is allocated.
 
 ## Semantic Graph Requirements
 
@@ -378,7 +385,8 @@ If a feature cannot be profiled, it is not ready.
 ## Near-Term Work
 
 1. Link active profile declarations from the semantic graph once profile syntax is pinned.
-2. Add diagnostics code range for profile violations.
+2. Allocate exact profile diagnostics only through the canonical registry after
+   the profile rules are implemented and independently reviewed.
 3. Create `.hum` fixtures for `engine hot path`, `hard realtime`, `safety critical`, `containerized service`, `agent tool sandbox`, and `footprint constrained`.
 4. Define `panic`/`abort`/`safe stop` behavior in the core language spec.
 5. Define allocation policy sections for profiles.

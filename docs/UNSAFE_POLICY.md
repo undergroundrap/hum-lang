@@ -2,6 +2,10 @@
 
 Date: 2026-07-06
 
+Exact diagnostic allocations come only from
+[`src/diagnostic_catalog.rs`](../src/diagnostic_catalog.rs); the checked human
+projection is [DIAGNOSTICS.md](DIAGNOSTICS.md).
+
 ## Purpose
 
 Unsafe Hum is the narrow bridge between safe Hum and the machine.
@@ -378,20 +382,13 @@ base.
 
 ## Diagnostics
 
-Future unsafe diagnostics should reserve `H09xx`.
-
-Candidate codes:
-
-| Code | Severity | Title | Meaning |
-|---|---|---|---|
-| `H0901` | error | unsafe missing review packet | Unsafe code lacks a required section. |
-| `H0902` | error | unsafe kind missing | Unsafe code does not say what class of invariant is unchecked. |
-| `H0903` | error | unsafe profile violation | Active profile forbids this unsafe operation. |
-| `H0904` | error | provenance invariant missing | Pointer/handle use lacks origin and permission facts. |
-| `H0905` | error | foreign ABI contract missing | Foreign boundary lacks ABI/layout/ownership contract. |
-| `H0906` | warning | unsafe body too large | Unsafe scope includes safe code that should be outside. |
-| `H0907` | warning | unsafe lacks adversarial tests | Security or input-facing unsafe has no tests/fuzz evidence. |
-| `H0908` | error | secret crosses unsafe boundary without policy | Secret value enters unsafe/foreign code without reveal/zeroization policy. |
+`H1000-H1099` is the reserved `unsafe_ffi_provenance` family. It contains no
+exact allocation. Future diagnostics in that family should cover missing
+review packets, missing unsafe-kind declarations, profile violations,
+provenance invariants, foreign ABI contracts, oversized unsafe bodies,
+missing adversarial evidence, and secret-boundary policy. These are candidate
+meanings only; a later independently reviewed work order must allocate any
+exact code.
 
 ## Semantic Graph Requirements
 

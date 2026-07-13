@@ -6,6 +6,10 @@ Date: 2026-07-06
 
 This document pins the source surface allowed by `offline-tool@0.1`.
 
+Exact diagnostic allocations come only from
+[`src/diagnostic_catalog.rs`](../src/diagnostic_catalog.rs); the checked human
+projection is [DIAGNOSTICS.md](DIAGNOSTICS.md).
+
 The alpha subset should be small enough to audit and boring enough to explain.
 Anything outside this document is not part of the public alpha promise.
 
@@ -104,8 +108,10 @@ plugin.*
 dynamic_load.*
 ```
 
-A denied capability should produce a stable `H10xx` profile diagnostic or a more
-specific security/effects diagnostic when available.
+A denied capability should produce a stable registered diagnostic when one is
+implemented. The reserved profile family currently allocates no exact code, so
+the subset must not invent one; a more specific existing security/effects
+diagnostic remains preferable when applicable.
 
 ## Allowed Control Shape
 

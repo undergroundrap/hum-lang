@@ -250,6 +250,7 @@ Push-Location $RepoRoot
 try {
   Invoke-Native 'cargo fmt --check' $Cargo @('fmt', '--check')
   Invoke-Native 'cargo test' $Cargo @('test')
+  Invoke-Native 'canonical diagnostic registry/projection test' $Cargo @('test', 'diagnostic_catalog::tests::canonical_registry_and_checked_projections_are_valid', '--', '--exact')
   Invoke-Native 'Windows drive locality adapter tests' $Cargo @('test', '-p', 'windows-drive-locality')
   Invoke-Native 'effect bake-off corpus harness tests' $Cargo @('test', '--manifest-path', 'experiments/effect-bakeoff/Cargo.toml', '--target-dir', 'target/effect-bakeoff')
   Invoke-Native 'cargo clippy' $Cargo @('clippy', '--all-targets', '--', '-D', 'warnings')
@@ -288,37 +289,13 @@ try {
 
   $DiagnosticsJson = Read-NativeOutput 'diagnostic catalog JSON' $Hum @('diagnostics', '--format', 'json')
   Assert-Json 'diagnostic catalog JSON' $DiagnosticsJson
-  if (-not $DiagnosticsJson.Contains('"code": "H0009"')) { throw 'diagnostic catalog JSON is missing H0009' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0601"')) { throw 'diagnostic catalog JSON is missing H0601' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0602"')) { throw 'diagnostic catalog JSON is missing H0602' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0603"')) { throw 'diagnostic catalog JSON is missing H0603' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0604"')) { throw 'diagnostic catalog JSON is missing H0604' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0605"')) { throw 'diagnostic catalog JSON is missing H0605' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0606"')) { throw 'diagnostic catalog JSON is missing H0606' }
-  foreach ($Code in @('H0610', 'H0611', 'H0612', 'H0613', 'H0614', 'H0615', 'H0616')) {
-    if (-not $DiagnosticsJson.Contains("`"code`": `"$Code`"")) { throw "diagnostic catalog JSON is missing $Code" }
+  $DiagnosticsCatalog = $DiagnosticsJson | ConvertFrom-Json
+  $DiagnosticCodes = @($DiagnosticsCatalog.diagnostics | ForEach-Object { $_.code })
+  if ($DiagnosticsCatalog.count -ne 87 -or $DiagnosticCodes.Count -ne 87 -or @($DiagnosticCodes | Sort-Object -Unique).Count -ne 87) { throw 'canonical diagnostic catalog must expose exactly 87 unique active codes' }
+  $DiagnosticCatalogSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/diagnostic_catalog.rs'))
+  foreach ($RegistryEvidence in @('family_interval_failures_are_independent', 'exact_code_identity_and_ownership_failures_are_independent', 'retired_allocations_are_append_only_and_semantically_frozen', 'public_catalog_projection_rejects_every_semantic_field_mismatch', 'catalog_detail_coverage_rejects_missing_duplicate_and_unknown_rows', 'checked_documents_reject_unknown_contradictory_and_missing_projections')) {
+    if (-not $DiagnosticCatalogSource.Contains($RegistryEvidence)) { throw "canonical diagnostic registry evidence was removed: $RegistryEvidence" }
   }
-  foreach ($Code in @('H0617', 'H0618', 'H0619', 'H0620', 'H0621', 'H0622', 'H0623', 'H0624', 'H0625', 'H0626', 'H0627', 'H0628', 'H0629', 'H0630')) {
-    if (-not $DiagnosticsJson.Contains("`"code`": `"$Code`"")) { throw "diagnostic catalog JSON is missing authority diagnostic $Code" }
-  }
-  if (-not $DiagnosticsJson.Contains('"code": "H0701"')) { throw 'diagnostic catalog JSON is missing H0701' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0702"')) { throw 'diagnostic catalog JSON is missing H0702' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0703"')) { throw 'diagnostic catalog JSON is missing H0703' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0704"')) { throw 'diagnostic catalog JSON is missing H0704' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0801"')) { throw 'diagnostic catalog JSON is missing H0801' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0802"')) { throw 'diagnostic catalog JSON is missing H0802' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0803"')) { throw 'diagnostic catalog JSON is missing H0803' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0804"')) { throw 'diagnostic catalog JSON is missing H0804' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0805"')) { throw 'diagnostic catalog JSON is missing H0805' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0806"')) { throw 'diagnostic catalog JSON is missing H0806' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0807"')) { throw 'diagnostic catalog JSON is missing H0807' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0808"')) { throw 'diagnostic catalog JSON is missing H0808' }
-  if (-not $DiagnosticsJson.Contains('"code": "H0809"')) { throw 'diagnostic catalog JSON is missing H0809' }
-  if (-not $DiagnosticsJson.Contains('"code": "H1201"')) { throw 'diagnostic catalog JSON is missing H1201' }
-  if (-not $DiagnosticsJson.Contains('"code": "H1202"')) { throw 'diagnostic catalog JSON is missing H1202' }
-  if (-not $DiagnosticsJson.Contains('"code": "H1203"')) { throw 'diagnostic catalog JSON is missing H1203' }
-  if (-not $DiagnosticsJson.Contains('"code": "H1204"')) { throw 'diagnostic catalog JSON is missing H1204' }
-  if (-not $DiagnosticsJson.Contains('"code": "H1205"')) { throw 'diagnostic catalog JSON is missing H1205' }
 
   $CapabilitiesJson = Read-NativeOutput 'capabilities JSON' $Hum @('capabilities', '--format', 'json')
   Assert-Json 'capabilities JSON' $CapabilitiesJson

@@ -11,6 +11,10 @@ The current compiler emits stable codes in terminal output, `hum check --format
 json`, and graph output. The alpha schema narrows what evidence bundles must
 preserve.
 
+Exact allocations come only from
+[`src/diagnostic_catalog.rs`](../src/diagnostic_catalog.rs); the checked human
+projection is [DIAGNOSTICS.md](DIAGNOSTICS.md).
+
 ## Schema Name
 
 Working schema name:
@@ -26,16 +30,16 @@ hum.diagnostics.v0.1
   "schema": "hum.diagnostics.v0.1",
   "diagnostics": [
     {
-      "code": "H1001",
-      "title": "profile denies capability",
+      "code": "H0201",
+      "title": "save target not declared in changes",
       "severity": "error",
-      "message": "task requests denied capability `network.connect` under `offline-tool@0.1`",
+      "message": "task `save_item` saves into `tasks` without listing it in `changes:`",
       "span": {
         "file": "examples/humgate/gate.hum",
         "line": 12,
         "column": 3
       },
-      "help": "Remove the network access or move the task out of `offline-tool@0.1`.",
+      "help": "Add `tasks` under `changes:` or avoid mutating it.",
       "profile": "offline-tool@0.1",
       "claim_ids": ["HA02"],
       "evidence_paths": []
@@ -73,12 +77,15 @@ Allowed severities:
 
 ## Alpha Code Use
 
-The alpha should prefer existing ranges:
+The alpha should use only exact codes already allocated in the canonical
+registry. Relevant active families include:
 
-- `H020x`: effects and mutation
-- `H040x`: security and trust boundaries
-- `H050x`: tests and regressions
-- `H100x`: runtime profile and certification policy violations
+- `H0200-H0299` (`declared_state_effects`)
+- `H0400-H0499` (`security_trust`)
+- `H0500-H0599` (`test_evidence`)
+
+`H1100-H1199` is the reserved `runtime_profile_policy` family, but it allocates
+no exact profile diagnostic yet.
 
 Do not add an alpha-only diagnostic code without documenting it in
 [DIAGNOSTICS.md](DIAGNOSTICS.md).

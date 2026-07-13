@@ -2,6 +2,10 @@
 
 Date: 2026-07-06
 
+Exact diagnostic allocations come only from
+[`src/diagnostic_catalog.rs`](../src/diagnostic_catalog.rs); the checked human
+projection is [DIAGNOSTICS.md](DIAGNOSTICS.md).
+
 ## Purpose
 
 Hum should be designed as a fast secure systems language, not as a fast language
@@ -342,24 +346,20 @@ design failure.
 
 ## Diagnostics
 
-Future security diagnostics should include stable codes for:
+The active `security_trust` family is `H0400-H0499`; its currently allocated
+codes retain the meanings in [DIAGNOSTICS.md](DIAGNOSTICS.md). Package and
+supply-chain diagnostics have no assigned family. Existing and reserved family
+ownership stays exact:
 
-```text
-H04xx security and trust boundary violations
-H08xx package and supply-chain violations
-H09xx unsafe, FFI, ABI, and provenance violations
-H10xx profile and certification policy violations
-```
+- `H0800-H0899`: `ownership_borrowing`
+- `H0900-H0999`: `nominal_typed_failure`
+- `H1000-H1099`: reserved `unsafe_ffi_provenance`
+- `H1100-H1199`: reserved `runtime_profile_policy`
 
-Example future diagnostics:
-
-```text
-error[H0403]: untrusted text reaches shell command without typed command builder
-error[H0404]: secret value flows into log output
-error[H0405]: task checks resource id but declares no authorization obligation
-error[H0803]: dependency build script requests undeclared network access
-error[H0904]: unsafe block lacks provenance invariant
-```
+Future security diagnostics should still cover typed command construction,
+secret logging, authorization obligations, package build authority, and unsafe
+provenance. Those ideas are family-level design requirements, not exact code
+allocations.
 
 ## Semantic Graph Requirements
 
