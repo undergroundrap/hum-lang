@@ -16,8 +16,13 @@ the uncommitted implementation, which remains preserved under corrective
 review. The corrective amendment was independently accepted and BDFL-accepted,
 committed as `9aedcb0ba6893d51a2cd1b2e519d332d3cc5e6f4`, and published by successful
 workflow `29225093549` (Ubuntu job `86737472812`, 1m 40s; Windows job
-`86737472893`, 3m 04s). Session AP correction remains paused pending a separate
-BDFL corrective go signal. Session AQ and all later work remain unauthorized.
+`86737472893`, 3m 04s). The bounded typed-failure scope amendment was
+independently accepted and BDFL-accepted, committed as
+`407c8065e341319b6f260b33418cd9c6b8e80a83`, and published by successful
+workflow `29236756896`, attempt 1 (Ubuntu job `86773108930`, 1m 35s; Windows
+job `86773108925`, 4m 49s). Session AP correction remains paused pending a
+separate BDFL corrective go signal. Session AQ and all later work remain
+unauthorized.
 The permanent adversarial-evidence integrity amendment remains queued for the
 clean boundary after Session AP closes and before Session AQ authorization.
 Owner: BDFL (Ocean).
@@ -1262,7 +1267,11 @@ complete uncommitted implementation remains preserved under corrective review.
 The corrective amendment was independently accepted and BDFL-accepted,
 committed as `9aedcb0ba6893d51a2cd1b2e519d332d3cc5e6f4`, and published by successful
 workflow `29225093549`: Ubuntu job `86737472812` succeeded in 1m 40s and Windows
-job `86737472893` succeeded in 3m 04s. Session AP correction is next but remains
+job `86737472893` succeeded in 3m 04s. The bounded typed-failure scope amendment
+was independently accepted and BDFL-accepted, committed as
+`407c8065e341319b6f260b33418cd9c6b8e80a83`, and published by successful
+workflow `29236756896`, attempt 1: Ubuntu job `86773108930` succeeded in 1m 35s
+and Windows job `86773108925` succeeded in 4m 49s. Session AP correction remains
 paused pending a separate BDFL corrective go signal.
 
 Session AQ and all later work remain unauthorized. No emitter migration,
