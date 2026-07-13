@@ -58,6 +58,613 @@ pub struct DiagnosticCodeAllocation {
     pub status: AllocationStatus,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct DiagnosticCauseKey(u16);
+
+impl DiagnosticCauseKey {
+    pub(crate) const fn ordinal(self) -> u16 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DiagnosticCauseSpec {
+    pub(crate) key: DiagnosticCauseKey,
+    pub(crate) reason: &'static str,
+    pub(crate) code: DiagnosticCode,
+    pub(crate) semantic_owner: &'static str,
+    pub(crate) owning_stage: &'static str,
+    pub(crate) origin_kind: &'static str,
+    pub(crate) route_kind: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DiagnosticPrecedenceSpec {
+    pub(crate) dominant_causes: &'static [DiagnosticCauseKey],
+    pub(crate) suppressed_causes: &'static [DiagnosticCauseKey],
+    pub(crate) relationship: &'static str,
+    pub(crate) applying_owner: &'static str,
+}
+
+macro_rules! diagnostic_causes {
+    ($(($index:expr, $reason:literal, $code:ident, $owner:literal, $stage:literal, $origin:literal, $route:literal)),+ $(,)?) => {
+        pub(crate) const DIAGNOSTIC_CAUSES: &[DiagnosticCauseSpec] = &[
+            $(DiagnosticCauseSpec {
+                key: DiagnosticCauseKey($index),
+                reason: $reason,
+                code: DiagnosticCode::$code,
+                semantic_owner: $owner,
+                owning_stage: $stage,
+                origin_kind: $origin,
+                route_kind: $route,
+            }),+
+        ];
+    };
+}
+
+diagnostic_causes!(
+    (
+        0,
+        "fallible_call_requires_try_v0",
+        FALLIBLE_CALL_REQUIRES_TRY,
+        "typed_failure_analysis",
+        "full_type_check",
+        "typed_failure_statement",
+        "typed_failure_relationship"
+    ),
+    (
+        1,
+        "unwrapped_failure_roots_must_match_v0",
+        INCOMPATIBLE_FAILURE_PROPAGATION,
+        "typed_failure_analysis",
+        "full_type_check",
+        "typed_failure_statement",
+        "typed_failure_relationship"
+    ),
+    (
+        2,
+        "failure_wrapper_root_must_match_caller_v0",
+        FAILURE_WRAPPER_ROOT_MISMATCH,
+        "typed_failure_analysis",
+        "full_type_check",
+        "typed_failure_statement",
+        "typed_failure_relationship"
+    ),
+    (
+        3,
+        "try_requires_fallible_callee_v0",
+        TRY_ON_INFALLIBLE_CALL,
+        "typed_failure_analysis",
+        "full_type_check",
+        "typed_failure_statement",
+        "typed_failure_relationship"
+    ),
+    (
+        4,
+        "direct_failure_root_must_match_caller_v0",
+        DIRECT_FAILURE_ROOT_MISMATCH,
+        "typed_failure_analysis",
+        "full_type_check",
+        "typed_failure_statement",
+        "typed_failure_relationship"
+    ),
+    (
+        5,
+        "try_requires_unannotated_let_binding_v0",
+        UNSUPPORTED_TRY_EXPRESSION,
+        "typed_failure_analysis",
+        "full_type_check",
+        "typed_failure_statement",
+        "typed_failure_relationship"
+    ),
+    (
+        6,
+        "unsupported_try_expression_shape_v0",
+        UNSUPPORTED_TRY_EXPRESSION,
+        "typed_failure_analysis",
+        "full_type_check",
+        "typed_failure_statement",
+        "typed_failure_relationship"
+    ),
+    (
+        7,
+        "try_callee_not_known_v0",
+        UNSUPPORTED_TRY_EXPRESSION,
+        "typed_failure_analysis",
+        "full_type_check",
+        "typed_failure_statement",
+        "typed_failure_relationship"
+    ),
+    (
+        8,
+        "typed_failure_requires_fails_when_v0",
+        MISSING_FAILURE_DECLARATION,
+        "typed_failure_analysis",
+        "effect_check",
+        "typed_failure_statement",
+        "typed_failure_relationship"
+    ),
+    (
+        9,
+        "multiple_direct_callable_applications_unsupported_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        10,
+        "receiver_parameter_shape_outside_al_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        11,
+        "permission_bearing_callable_parameter_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        12,
+        "callable_parameter_horizontal_whitespace_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        13,
+        "callable_type_requires_task_open_paren_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        14,
+        "callable_type_missing_close_paren_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        15,
+        "callable_type_requires_space_before_arrow_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        16,
+        "callable_type_missing_arrow_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        17,
+        "callable_type_requires_result_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        18,
+        "unsupported_callable_expression_shape_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        19,
+        "callable_type_shape_outside_al_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        20,
+        "callable_storage_or_return_unsupported_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        21,
+        "required_exactly_one_callable_application_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        22,
+        "multiple_callable_applications_unsupported_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        23,
+        "indirect_application_shape_outside_al_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        24,
+        "indirect_argument_outside_al_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        25,
+        "recursive_callable_relationship_unsupported_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        26,
+        "cross_file_callable_value_unsupported_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        27,
+        "receiver_call_shape_outside_al_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        28,
+        "direct_application_horizontal_whitespace_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        29,
+        "task_value_shape_outside_al_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        30,
+        "task_value_resolved_to_non_task_v0",
+        INVALID_CALLABLE_FORM,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        31,
+        "receiver_ordinary_signature_mismatch_v0",
+        CALLABLE_SIGNATURE_MISMATCH,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        32,
+        "indirect_argument_count_mismatch_v0",
+        CALLABLE_SIGNATURE_MISMATCH,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        33,
+        "callable_failure_root_mismatch_v0",
+        CALLABLE_SIGNATURE_MISMATCH,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        34,
+        "callable_input_type_mismatch_v0",
+        CALLABLE_SIGNATURE_MISMATCH,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        35,
+        "callable_result_type_mismatch_v0",
+        CALLABLE_SIGNATURE_MISMATCH,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        36,
+        "callable_latent_row_outside_bounded_am_slice_v0",
+        CALLABLE_SIGNATURE_MISMATCH,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        37,
+        "receiver_argument_type_mismatch_v0",
+        CALLABLE_SIGNATURE_MISMATCH,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
+    ),
+    (
+        38,
+        "callable_precedence_item_header_missing_open_brace_v0",
+        ITEM_HEADER_MISSING_OPEN_BRACE,
+        "parser",
+        "parser",
+        "prior_diagnostic_node",
+        "callable_precedence_relationship"
+    ),
+    (
+        39,
+        "callable_precedence_unexpected_signature_text_v0",
+        UNEXPECTED_SIGNATURE_TEXT,
+        "parser",
+        "parser",
+        "prior_diagnostic_node",
+        "callable_precedence_relationship"
+    ),
+    (
+        40,
+        "callable_precedence_missing_close_paren_v0",
+        CALLABLE_SIGNATURE_MISSING_CLOSE_PAREN,
+        "parser",
+        "parser",
+        "prior_diagnostic_node",
+        "callable_precedence_relationship"
+    ),
+    (
+        41,
+        "callable_precedence_parameter_missing_type_v0",
+        PARAMETER_MISSING_TYPE,
+        "parser",
+        "parser",
+        "prior_diagnostic_node",
+        "callable_precedence_relationship"
+    ),
+    (
+        42,
+        "callable_precedence_invalid_identifier_v0",
+        INVALID_IDENTIFIER,
+        "parser",
+        "parser",
+        "prior_diagnostic_node",
+        "callable_precedence_relationship"
+    ),
+    (
+        43,
+        "callable_precedence_duplicate_name_v0",
+        DUPLICATE_NAME_IN_SCOPE,
+        "resolver",
+        "resolver",
+        "prior_diagnostic_node",
+        "callable_precedence_relationship"
+    ),
+    (
+        44,
+        "callable_precedence_unknown_type_relationship_v0",
+        UNKNOWN_TYPE_NAME,
+        "type_check",
+        "type_check",
+        "prior_diagnostic_node",
+        "callable_precedence_relationship"
+    ),
+    (
+        45,
+        "unknown_type_outside_callable_relationship_v0",
+        UNKNOWN_TYPE_NAME,
+        "type_check",
+        "type_check",
+        "prior_diagnostic_node",
+        "unrelated_diagnostic_relationship"
+    ),
+    (
+        46,
+        "callable_precedence_opaque_path_relationship_v0",
+        PATH_SOURCE_CONSTRUCTION,
+        "path_boundary",
+        "path_boundary",
+        "prior_diagnostic_node",
+        "callable_precedence_relationship"
+    ),
+    (
+        47,
+        "opaque_path_outside_callable_relationship_v0",
+        PATH_SOURCE_CONSTRUCTION,
+        "path_boundary",
+        "path_boundary",
+        "prior_diagnostic_node",
+        "unrelated_diagnostic_relationship"
+    )
+);
+
+pub(crate) fn diagnostic_cause(
+    code: DiagnosticCode,
+    reason: &str,
+) -> Option<&'static DiagnosticCauseSpec> {
+    DIAGNOSTIC_CAUSES
+        .iter()
+        .find(|cause| cause.code == code && cause.reason == reason)
+}
+
+const H090_CAUSES: &[DiagnosticCauseKey] = &[
+    DiagnosticCauseKey(0),
+    DiagnosticCauseKey(1),
+    DiagnosticCauseKey(2),
+    DiagnosticCauseKey(3),
+    DiagnosticCauseKey(4),
+    DiagnosticCauseKey(5),
+    DiagnosticCauseKey(6),
+    DiagnosticCauseKey(7),
+    DiagnosticCauseKey(8),
+];
+const H1401_CAUSES: &[DiagnosticCauseKey] = &[
+    DiagnosticCauseKey(9),
+    DiagnosticCauseKey(10),
+    DiagnosticCauseKey(11),
+    DiagnosticCauseKey(12),
+    DiagnosticCauseKey(13),
+    DiagnosticCauseKey(14),
+    DiagnosticCauseKey(15),
+    DiagnosticCauseKey(16),
+    DiagnosticCauseKey(17),
+    DiagnosticCauseKey(18),
+    DiagnosticCauseKey(19),
+    DiagnosticCauseKey(20),
+    DiagnosticCauseKey(21),
+    DiagnosticCauseKey(22),
+    DiagnosticCauseKey(23),
+    DiagnosticCauseKey(24),
+    DiagnosticCauseKey(25),
+    DiagnosticCauseKey(26),
+    DiagnosticCauseKey(27),
+    DiagnosticCauseKey(28),
+    DiagnosticCauseKey(29),
+    DiagnosticCauseKey(30),
+];
+const H1402_CAUSES: &[DiagnosticCauseKey] = &[
+    DiagnosticCauseKey(31),
+    DiagnosticCauseKey(32),
+    DiagnosticCauseKey(33),
+    DiagnosticCauseKey(34),
+    DiagnosticCauseKey(35),
+    DiagnosticCauseKey(36),
+    DiagnosticCauseKey(37),
+];
+const SOURCE_H1401_PRECEDENCE_CAUSES: &[DiagnosticCauseKey] = &[
+    DiagnosticCauseKey(38),
+    DiagnosticCauseKey(39),
+    DiagnosticCauseKey(40),
+    DiagnosticCauseKey(41),
+    DiagnosticCauseKey(42),
+    DiagnosticCauseKey(43),
+    DiagnosticCauseKey(46),
+];
+const UNKNOWN_TYPE_H1402_PRECEDENCE_CAUSES: &[DiagnosticCauseKey] = &[DiagnosticCauseKey(44)];
+
+pub(crate) const DIAGNOSTIC_PRECEDENCE: &[DiagnosticPrecedenceSpec] = &[
+    DiagnosticPrecedenceSpec {
+        dominant_causes: H090_CAUSES,
+        suppressed_causes: &[
+            DiagnosticCauseKey(9),
+            DiagnosticCauseKey(10),
+            DiagnosticCauseKey(11),
+            DiagnosticCauseKey(12),
+            DiagnosticCauseKey(13),
+            DiagnosticCauseKey(14),
+            DiagnosticCauseKey(15),
+            DiagnosticCauseKey(16),
+            DiagnosticCauseKey(17),
+            DiagnosticCauseKey(18),
+            DiagnosticCauseKey(19),
+            DiagnosticCauseKey(20),
+            DiagnosticCauseKey(21),
+            DiagnosticCauseKey(22),
+            DiagnosticCauseKey(23),
+            DiagnosticCauseKey(24),
+            DiagnosticCauseKey(25),
+            DiagnosticCauseKey(26),
+            DiagnosticCauseKey(27),
+            DiagnosticCauseKey(28),
+            DiagnosticCauseKey(29),
+            DiagnosticCauseKey(30),
+            DiagnosticCauseKey(31),
+            DiagnosticCauseKey(32),
+            DiagnosticCauseKey(33),
+            DiagnosticCauseKey(34),
+            DiagnosticCauseKey(35),
+            DiagnosticCauseKey(36),
+            DiagnosticCauseKey(37),
+        ],
+        relationship: "shared_callable_relationship_site_v0",
+        applying_owner: "callable_analysis",
+    },
+    DiagnosticPrecedenceSpec {
+        dominant_causes: SOURCE_H1401_PRECEDENCE_CAUSES,
+        suppressed_causes: H1401_CAUSES,
+        relationship: "shared_callable_relationship_site_v0",
+        applying_owner: "callable_analysis",
+    },
+    DiagnosticPrecedenceSpec {
+        dominant_causes: UNKNOWN_TYPE_H1402_PRECEDENCE_CAUSES,
+        suppressed_causes: H1402_CAUSES,
+        relationship: "shared_callable_relationship_site_v0",
+        applying_owner: "callable_analysis",
+    },
+];
+
+pub(crate) fn precedence_spec(
+    dominant_cause: DiagnosticCauseKey,
+    suppressed_cause: DiagnosticCauseKey,
+) -> Option<DiagnosticPrecedenceSpec> {
+    DIAGNOSTIC_PRECEDENCE
+        .iter()
+        .find(|rule| {
+            rule.dominant_causes.contains(&dominant_cause)
+                && rule.suppressed_causes.contains(&suppressed_cause)
+        })
+        .copied()
+}
+
 const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
     match key.0 {
         0..=63 => key.0,
@@ -1572,6 +2179,12 @@ enum RegistryValidationError {
     CatalogProjectionMismatch,
     CatalogProjectionOrderMismatch,
     RetiredCodeReuseOrMutation,
+    DuplicateCauseKey,
+    DuplicateCauseReason,
+    UnknownCauseCode,
+    MalformedCauseMetadata,
+    MissingCauseCoverage,
+    MalformedPrecedenceRule,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1826,7 +2439,85 @@ fn validate_static_registry() -> Result<RegistrySummary, RegistryValidationError
         DIAGNOSTICS,
         &catalog_projection(DIAGNOSTICS),
     )?;
+    validate_causes(DIAGNOSTIC_CAUSES, DIAGNOSTIC_PRECEDENCE)?;
     Ok(summary)
+}
+
+fn validate_causes(
+    causes: &[DiagnosticCauseSpec],
+    precedence: &[DiagnosticPrecedenceSpec],
+) -> Result<(), RegistryValidationError> {
+    for (index, cause) in causes.iter().enumerate() {
+        if causes[..index].iter().any(|other| other.key == cause.key) {
+            return Err(RegistryValidationError::DuplicateCauseKey);
+        }
+        if causes[..index]
+            .iter()
+            .any(|other| other.code == cause.code && other.reason == cause.reason)
+        {
+            return Err(RegistryValidationError::DuplicateCauseReason);
+        }
+        if !DIAGNOSTIC_CODE_ALLOCATIONS
+            .iter()
+            .any(|allocation| allocation.key == cause.code.key())
+        {
+            return Err(RegistryValidationError::UnknownCauseCode);
+        }
+        if cause.reason.is_empty()
+            || cause.semantic_owner.is_empty()
+            || cause.owning_stage.is_empty()
+            || cause.origin_kind.is_empty()
+            || cause.route_kind.is_empty()
+        {
+            return Err(RegistryValidationError::MalformedCauseMetadata);
+        }
+    }
+    for code in [
+        DiagnosticCode::FALLIBLE_CALL_REQUIRES_TRY,
+        DiagnosticCode::INCOMPATIBLE_FAILURE_PROPAGATION,
+        DiagnosticCode::FAILURE_WRAPPER_ROOT_MISMATCH,
+        DiagnosticCode::TRY_ON_INFALLIBLE_CALL,
+        DiagnosticCode::DIRECT_FAILURE_ROOT_MISMATCH,
+        DiagnosticCode::UNSUPPORTED_TRY_EXPRESSION,
+        DiagnosticCode::MISSING_FAILURE_DECLARATION,
+        DiagnosticCode::INVALID_CALLABLE_FORM,
+        DiagnosticCode::CALLABLE_SIGNATURE_MISMATCH,
+    ] {
+        if !causes.iter().any(|cause| cause.code == code) {
+            return Err(RegistryValidationError::MissingCauseCoverage);
+        }
+    }
+    if causes != DIAGNOSTIC_CAUSES {
+        return Err(RegistryValidationError::MalformedCauseMetadata);
+    }
+    for rule in precedence {
+        if rule.relationship.is_empty()
+            || rule.applying_owner.is_empty()
+            || rule.dominant_causes.is_empty()
+            || rule.suppressed_causes.is_empty()
+            || rule
+                .dominant_causes
+                .iter()
+                .chain(rule.suppressed_causes.iter())
+                .any(|key| !causes.iter().any(|cause| cause.key == *key))
+            || rule
+                .dominant_causes
+                .iter()
+                .enumerate()
+                .any(|(index, key)| rule.dominant_causes[..index].contains(key))
+            || rule
+                .suppressed_causes
+                .iter()
+                .enumerate()
+                .any(|(index, key)| rule.suppressed_causes[..index].contains(key))
+        {
+            return Err(RegistryValidationError::MalformedPrecedenceRule);
+        }
+    }
+    if precedence != DIAGNOSTIC_PRECEDENCE {
+        return Err(RegistryValidationError::MalformedPrecedenceRule);
+    }
+    Ok(())
 }
 
 pub fn all() -> &'static [DiagnosticInfo] {
@@ -1844,11 +2535,12 @@ pub fn find(code: &str) -> Option<&'static DiagnosticInfo> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AllocationStatus, CatalogProjection, DIAGNOSTIC_CODE_ALLOCATIONS, DIAGNOSTIC_FAMILIES,
-        DIAGNOSTICS, DiagnosticCodeAllocation, DiagnosticCodeKey, DiagnosticFamilyKey,
-        DiagnosticInfo, RegistryValidationError, RetiredCodeRecord, UNALLOCATED_PROFILE_DIAGNOSTIC,
-        all, catalog_projection, find, parse_code_spelling, validate_catalog_projection,
-        validate_registry, validate_retired_history, validate_static_registry,
+        AllocationStatus, CatalogProjection, DIAGNOSTIC_CAUSES, DIAGNOSTIC_CODE_ALLOCATIONS,
+        DIAGNOSTIC_FAMILIES, DIAGNOSTIC_PRECEDENCE, DIAGNOSTICS, DiagnosticCodeAllocation,
+        DiagnosticCodeKey, DiagnosticFamilyKey, DiagnosticInfo, RegistryValidationError,
+        RetiredCodeRecord, UNALLOCATED_PROFILE_DIAGNOSTIC, all, catalog_projection, find,
+        parse_code_spelling, validate_catalog_projection, validate_causes, validate_registry,
+        validate_retired_history, validate_static_registry,
     };
     use crate::diagnostic::DiagnosticCode;
 
@@ -2305,6 +2997,104 @@ mod tests {
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 48);
+        assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 3);
+        for dominant in super::H090_CAUSES {
+            for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {
+                assert!(super::precedence_spec(*dominant, *suppressed).is_some());
+            }
+        }
+        assert!(
+            super::precedence_spec(super::DiagnosticCauseKey(44), super::DiagnosticCauseKey(31))
+                .is_some()
+        );
+        assert!(
+            super::precedence_spec(super::DiagnosticCauseKey(45), super::DiagnosticCauseKey(31))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn cause_registry_rejects_every_identity_and_owner_mutation() {
+        assert_eq!(
+            validate_causes(DIAGNOSTIC_CAUSES, DIAGNOSTIC_PRECEDENCE),
+            Ok(())
+        );
+
+        let mut duplicate_key = DIAGNOSTIC_CAUSES.to_vec();
+        duplicate_key[1].key = duplicate_key[0].key;
+        assert_eq!(
+            validate_causes(&duplicate_key, DIAGNOSTIC_PRECEDENCE),
+            Err(RegistryValidationError::DuplicateCauseKey)
+        );
+
+        let mut duplicate_reason = DIAGNOSTIC_CAUSES.to_vec();
+        duplicate_reason[1].code = duplicate_reason[0].code;
+        duplicate_reason[1].reason = duplicate_reason[0].reason;
+        assert_eq!(
+            validate_causes(&duplicate_reason, DIAGNOSTIC_PRECEDENCE),
+            Err(RegistryValidationError::DuplicateCauseReason)
+        );
+
+        for field in 0..4 {
+            let mut malformed = DIAGNOSTIC_CAUSES.to_vec();
+            match field {
+                0 => malformed[0].semantic_owner = "",
+                1 => malformed[0].owning_stage = "",
+                2 => malformed[0].origin_kind = "",
+                _ => malformed[0].route_kind = "",
+            }
+            assert_eq!(
+                validate_causes(&malformed, DIAGNOSTIC_PRECEDENCE),
+                Err(RegistryValidationError::MalformedCauseMetadata),
+                "field {field}"
+            );
+        }
+
+        for field in 0..2 {
+            let mut malformed = DIAGNOSTIC_CAUSES.to_vec();
+            if field == 0 {
+                malformed[0].key = super::DiagnosticCauseKey(999);
+            } else {
+                malformed[0].reason = "replacement_reason_v0";
+            }
+            assert_eq!(
+                validate_causes(&malformed, DIAGNOSTIC_PRECEDENCE),
+                Err(RegistryValidationError::MalformedCauseMetadata),
+                "identity field {field}"
+            );
+        }
+
+        let without_h0907 = DIAGNOSTIC_CAUSES
+            .iter()
+            .copied()
+            .filter(|cause| cause.code != DiagnosticCode::MISSING_FAILURE_DECLARATION)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            validate_causes(&without_h0907, DIAGNOSTIC_PRECEDENCE),
+            Err(RegistryValidationError::MissingCauseCoverage)
+        );
+
+        let mut bad_precedence = DIAGNOSTIC_PRECEDENCE.to_vec();
+        bad_precedence[0].relationship = "";
+        assert_eq!(
+            validate_causes(DIAGNOSTIC_CAUSES, &bad_precedence),
+            Err(RegistryValidationError::MalformedPrecedenceRule)
+        );
+        for field in 0..4 {
+            let mut malformed = DIAGNOSTIC_PRECEDENCE.to_vec();
+            match field {
+                0 => malformed[0].dominant_causes = &[super::DiagnosticCauseKey(999)],
+                1 => malformed[0].suppressed_causes = &[super::DiagnosticCauseKey(999)],
+                2 => malformed[0].relationship = "replacement_relationship_v0",
+                _ => malformed[0].applying_owner = "replacement_owner",
+            }
+            assert_eq!(
+                validate_causes(DIAGNOSTIC_CAUSES, &malformed),
+                Err(RegistryValidationError::MalformedPrecedenceRule),
+                "precedence field {field}"
+            );
+        }
     }
 
     #[test]

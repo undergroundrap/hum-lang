@@ -1,0 +1,20 @@
+module fixtures.diagnostics.session_ao_typed_failure_prior_blocker_fail
+
+type SourceError {
+  code: Text
+}
+
+task source() -> Result UInt, SourceError {
+  fails when:
+    the source fails
+  does:
+    fail SourceError.origin
+}
+
+task caller() -> Result UInt, SourceError {
+  fails when:
+    the caller source fails
+  does:
+    let value = source()
+    return value
+}

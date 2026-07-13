@@ -8,7 +8,7 @@ use crate::core_contract;
 use crate::diagnostic::{Diagnostic, Severity, Span};
 use crate::full_type_check;
 use crate::graph::is_meaningful_line_text;
-use crate::typed_failure::{self, FailureCatalog, FailureFact};
+use crate::typed_failure::{self, FailureFact, ProgramFailureAnalysis};
 use crate::version;
 use crate::writable_field_alias;
 
@@ -80,6 +80,7 @@ struct EffectCheckReport {
     item_count: usize,
     source_errors: usize,
     callable_blockers: usize,
+    prior_blockers: Vec<crate::diagnostic::PriorBlockerRef>,
 }
 
 struct EffectItem {
@@ -130,6 +131,7 @@ struct EffectStatement {
     caller_span: Option<Span>,
     diagnostic_code: Option<&'static str>,
     help: Option<String>,
+    prior_blocker: Option<crate::diagnostic::PriorBlockerRef>,
 }
 
 struct EffectBoundaryCheck {
@@ -199,6 +201,28 @@ pub fn effect_check_summary(program: &Program, diagnostics: &[Diagnostic]) -> Ef
         execution_ready: 0,
         ir_ready: 0,
     }
+}
+
+pub(crate) fn validate_typed_failure_prior_blockers(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> Result<(), crate::diagnostic::DiagnosticInvariantError> {
+    let analysis = typed_failure::analyze_program(program);
+    let mut collector = crate::diagnostic::DiagnosticOccurrenceCollector::default();
+    for occurrence in analysis.occurrences() {
+        collector.insert(occurrence)?;
+    }
+    let report = build_report(program, diagnostics);
+    for prior in report.prior_blockers.iter().chain(
+        report
+            .items
+            .iter()
+            .flat_map(|item| item.statements.iter())
+            .filter_map(|statement| statement.prior_blocker.as_ref()),
+    ) {
+        collector.validate_prior(prior)?;
+    }
+    Ok(())
 }
 
 pub fn effect_check_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
@@ -382,10 +406,10 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckRep
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
         .count();
     let blocked = source_errors > 0 || full_type_check_summary.blocking_issues > 0;
-    let failure_catalog = FailureCatalog::from_program(program);
+    let failure_analysis = typed_failure::analyze_program(program);
     let mut items = Vec::new();
     for file in &program.files {
-        collect_items(&file.items, blocked, &failure_catalog, &mut items);
+        collect_items(&file.items, blocked, &failure_analysis, &mut items);
     }
     let capability_analysis = capability_root::analyze(program);
     for route in &capability_analysis.routes {
@@ -402,35 +426,39 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckRep
         item_count: count_items(program),
         source_errors,
         callable_blockers: callable::stage_blockers(program, "effect_check"),
+        prior_blockers: failure_analysis
+            .occurrences()
+            .iter()
+            .map(|occurrence| occurrence.prior_blocker())
+            .collect(),
     }
 }
 
 fn collect_items(
     items: &[Item],
     blocked: bool,
-    failure_catalog: &FailureCatalog,
+    failure_analysis: &ProgramFailureAnalysis,
     out: &mut Vec<EffectItem>,
 ) {
     for item in items {
-        if let Some(effect_item) = check_item(item, blocked, failure_catalog) {
+        if let Some(effect_item) = check_item(item, blocked, failure_analysis) {
             out.push(effect_item);
         }
         if let Item::App(app) = item {
-            let app_failure_catalog = FailureCatalog::from_items(&app.items);
-            collect_items(&app.items, blocked, &app_failure_catalog, out);
+            collect_items(&app.items, blocked, failure_analysis, out);
         }
     }
 }
 
-fn check_item(item: &Item, blocked: bool, failure_catalog: &FailureCatalog) -> Option<EffectItem> {
+fn check_item(
+    item: &Item,
+    blocked: bool,
+    failure_analysis: &ProgramFailureAnalysis,
+) -> Option<EffectItem> {
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
     let body = core_body::analyze_does_section(does);
-    let failure_analysis = match item {
-        Item::Task(task) => typed_failure::analyze_task(task, &body.statements, failure_catalog),
-        _ => Default::default(),
-    };
     let declarations = collect_declarations(item_sections(item));
     let local_mutables = local_mutables(&body.statements);
     let writable_aliases = body
@@ -458,7 +486,10 @@ fn check_item(item: &Item, blocked: bool, failure_catalog: &FailureCatalog) -> O
             &writable_aliases,
             &parameter_roots,
             blocked,
-            failure_analysis.facts.get(&index),
+            match item {
+                Item::Task(task) => failure_analysis.fact(task, index),
+                _ => None,
+            },
         ));
     }
     let boundary_checks = boundary_checks(item, &declarations, &body.statements, &statements);
@@ -830,6 +861,7 @@ fn effect_statement(
         caller_span: None,
         diagnostic_code: None,
         help: None,
+        prior_blocker: None,
     }
 }
 
@@ -844,6 +876,10 @@ fn apply_failure_fact(statement: &mut EffectStatement, fact: &FailureFact) {
     statement.caller_span = Some(fact.caller_span.clone());
     statement.diagnostic_code = fact.diagnostic_code.map(|code| code.as_str());
     statement.help = fact.help.clone();
+    statement.prior_blocker = fact
+        .occurrence
+        .as_ref()
+        .map(|occurrence| occurrence.prior_blocker());
 }
 
 fn boundary_checks(
@@ -1251,6 +1287,11 @@ impl EffectCheckReport {
     }
 
     fn full_type_check_errors(&self) -> usize {
+        debug_assert!(
+            self.prior_blockers
+                .iter()
+                .all(|prior| !prior.occurrence_id.as_str().is_empty())
+        );
         self.full_type_check_summary
             .blocking_issues
             .saturating_sub(self.source_errors)
@@ -2163,7 +2204,8 @@ mod tests {
     use crate::ast::Program;
     use crate::parser::parse_source;
 
-    use super::{effect_check_has_errors, effect_check_json, effect_check_text};
+    use super::{build_report, effect_check_has_errors, effect_check_json, effect_check_text};
+    use crate::diagnostic::DiagnosticCode;
 
     #[test]
     fn json_accepts_declared_local_mutation_and_failure_effects() {
@@ -2207,6 +2249,65 @@ mod tests {
         assert!(text.contains("Hum effect check (hum.effect_check.v0)"));
         assert!(text.contains("status: recognized_core_effects_checked_v0"));
         assert!(text.contains("no memory-safety proof"));
+    }
+
+    #[test]
+    fn ao_effect_owns_h0907_once_and_consumes_full_type_prior_exactly() {
+        let source = r#"module tests.ao.effect
+
+type SourceError {
+  code: Text
+}
+
+task source() -> Result UInt, SourceError {
+  fails when:
+    the source fails
+  does:
+    fail SourceError.origin
+}
+
+task caller() -> Result UInt, SourceError {
+  does:
+    let value = try source()
+    return value
+}
+"#;
+        let program = Program {
+            files: vec![parse_source("session_ao_effect.hum", source).file],
+        };
+        let report = build_report(&program, &[]);
+        let occurrence = crate::typed_failure::analyze_program(&program)
+            .occurrences()
+            .into_iter()
+            .find(|occurrence| occurrence.code == DiagnosticCode::MISSING_FAILURE_DECLARATION)
+            .expect("H0907 occurrence");
+        let statement = report
+            .items
+            .iter()
+            .flat_map(|item| item.statements.iter())
+            .find(|statement| statement.diagnostic_code == Some("H0907"))
+            .expect("effect-owned H0907 statement");
+        statement
+            .prior_blocker
+            .as_ref()
+            .expect("effect H0907 prior")
+            .validate_against(&occurrence)
+            .expect("exact effect H0907 prior");
+        assert_eq!(
+            report
+                .prior_blockers
+                .iter()
+                .filter(|prior| prior.code == DiagnosticCode::MISSING_FAILURE_DECLARATION)
+                .count(),
+            1
+        );
+        report
+            .prior_blockers
+            .iter()
+            .find(|prior| prior.code == DiagnosticCode::MISSING_FAILURE_DECLARATION)
+            .expect("report H0907 prior")
+            .validate_against(&occurrence)
+            .expect("exact report H0907 prior");
     }
 
     fn effect_demo_program(declare_failure: bool, protect_trust: bool) -> Program {

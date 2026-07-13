@@ -11,7 +11,7 @@ use crate::field_place::{self, FieldTypeMap};
 use crate::predicate::{self, PredicateFact};
 use crate::return_dependency;
 use crate::type_check;
-use crate::typed_failure::{self, FailureCatalog, FailureFact};
+use crate::typed_failure::{self, FailureFact, ProgramFailureAnalysis};
 use crate::version;
 use crate::writable_field_alias;
 
@@ -92,6 +92,7 @@ struct TypedStatement {
     caller_span: Option<Span>,
     diagnostic_code: Option<&'static str>,
     help: Option<String>,
+    prior_blocker: Option<crate::diagnostic::PriorBlockerRef>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +165,27 @@ pub fn full_type_check_summary(
         execution_ready: 0,
         ir_ready: 0,
     }
+}
+
+pub(crate) fn validate_typed_failure_prior_blockers(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> Result<(), crate::diagnostic::DiagnosticInvariantError> {
+    let analysis = typed_failure::analyze_program(program);
+    let mut collector = crate::diagnostic::DiagnosticOccurrenceCollector::default();
+    for occurrence in analysis.occurrences() {
+        collector.insert(occurrence)?;
+    }
+    let report = build_report(program, diagnostics);
+    for prior in report
+        .items
+        .iter()
+        .flat_map(|item| item.statements.iter())
+        .filter_map(|statement| statement.prior_blocker.as_ref())
+    {
+        collector.validate_prior(prior)?;
+    }
+    Ok(())
 }
 
 pub fn full_type_check_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
@@ -380,7 +402,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
         || type_check_summary.type_errors > 0
         || core_verify_summary.failed_checks > 0;
     let task_returns = task_return_types(program);
-    let failure_catalog = FailureCatalog::from_program(program);
+    let failure_analysis = typed_failure::analyze_program(program);
     let field_types = field_place::collect_field_types(program);
     let predicates = predicate::analyze_program(program);
     let mut items = Vec::new();
@@ -389,7 +411,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
             &file.items,
             blocked,
             &task_returns,
-            &failure_catalog,
+            &failure_analysis,
             &field_types,
             &callables,
             &mut items,
@@ -411,7 +433,7 @@ fn collect_items(
     items: &[Item],
     blocked: bool,
     task_returns: &BTreeMap<String, TypeFact>,
-    failure_catalog: &FailureCatalog,
+    failure_analysis: &ProgramFailureAnalysis,
     field_types: &FieldTypeMap,
     callables: &CallableAnalysis,
     out: &mut Vec<FullTypeItem>,
@@ -421,7 +443,7 @@ fn collect_items(
             item,
             blocked,
             task_returns,
-            failure_catalog,
+            failure_analysis,
             field_types,
             callables,
         ) {
@@ -429,12 +451,11 @@ fn collect_items(
         }
         if let Item::App(app) = item {
             let app_task_returns = task_return_types_from_items(&app.items);
-            let app_failure_catalog = FailureCatalog::from_items(&app.items);
             collect_items(
                 &app.items,
                 blocked,
                 &app_task_returns,
-                &app_failure_catalog,
+                failure_analysis,
                 field_types,
                 callables,
                 out,
@@ -447,7 +468,7 @@ fn type_item(
     item: &Item,
     blocked: bool,
     task_returns: &BTreeMap<String, TypeFact>,
-    failure_catalog: &FailureCatalog,
+    failure_analysis: &ProgramFailureAnalysis,
     field_types: &FieldTypeMap,
     callables: &CallableAnalysis,
 ) -> Option<FullTypeItem> {
@@ -455,10 +476,6 @@ fn type_item(
         .iter()
         .find(|section| section.name == "does")?;
     let body = core_body::analyze_does_section(does);
-    let failure_analysis = match item {
-        Item::Task(task) => typed_failure::analyze_task(task, &body.statements, failure_catalog),
-        _ => Default::default(),
-    };
     let mut environment = initial_environment(item_params(item));
     let mut statements = Vec::new();
     for (index, statement) in body.statements.iter().enumerate() {
@@ -470,7 +487,10 @@ fn type_item(
             task_returns,
             field_types,
             blocked,
-            failure_analysis.facts.get(&index),
+            match item {
+                Item::Task(task) => failure_analysis.fact(task, index),
+                _ => None,
+            },
             callables,
         );
         statements.push(typed);
@@ -949,6 +969,7 @@ fn typed_statement(
         caller_span: None,
         diagnostic_code: None,
         help: None,
+        prior_blocker: None,
     }
 }
 
@@ -963,6 +984,10 @@ fn apply_failure_fact(statement: &mut TypedStatement, fact: &FailureFact) {
     statement.caller_span = Some(fact.caller_span.clone());
     statement.diagnostic_code = fact.diagnostic_code.map(|code| code.as_str());
     statement.help = fact.help.clone();
+    statement.prior_blocker = fact
+        .occurrence
+        .as_ref()
+        .map(|occurrence| occurrence.prior_blocker());
 }
 
 fn task_return_types(program: &Program) -> BTreeMap<String, TypeFact> {
@@ -1530,6 +1555,13 @@ impl FullTypeCheckReport {
     }
 
     fn blocking_issues(&self) -> usize {
+        debug_assert!(
+            self.items
+                .iter()
+                .flat_map(|item| item.statements.iter())
+                .filter_map(|statement| statement.prior_blocker.as_ref())
+                .all(|prior| !prior.occurrence_id.as_str().is_empty())
+        );
         self.source_errors
             + self.type_check_summary.resolver_errors
             + self.type_check_summary.type_errors
@@ -2150,7 +2182,10 @@ mod tests {
     use crate::ast::Program;
     use crate::parser::parse_source;
 
-    use super::{full_type_check_has_errors, full_type_check_json, full_type_check_text};
+    use super::{
+        build_report, full_type_check_has_errors, full_type_check_json, full_type_check_text,
+    };
+    use crate::diagnostic::DiagnosticCode;
 
     #[test]
     fn json_accepts_recognized_task_body_types_without_execution_claims() {
@@ -2246,6 +2281,87 @@ task ordinary_unknown(change point: Point) -> Point {
         assert!(text.contains("Hum full type check (hum.full_type_check.v0)"));
         assert!(text.contains("status: recognized_core_body_types_checked_v0"));
         assert!(text.contains("no memory-safety proof"));
+    }
+
+    #[test]
+    fn ao_full_type_consumes_exact_typed_failure_occurrences_and_defers_h0907() {
+        let h0901 = typed_failure_program(false);
+        let report = build_report(&h0901, &[]);
+        let statement = report
+            .items
+            .iter()
+            .flat_map(|item| item.statements.iter())
+            .find(|statement| statement.diagnostic_code == Some("H0901"))
+            .expect("H0901 statement");
+        let occurrence = crate::typed_failure::analyze_program(&h0901)
+            .occurrences()
+            .into_iter()
+            .find(|occurrence| occurrence.code == DiagnosticCode::FALLIBLE_CALL_REQUIRES_TRY)
+            .expect("H0901 occurrence");
+        statement
+            .prior_blocker
+            .as_ref()
+            .expect("full type prior")
+            .validate_against(&occurrence)
+            .expect("exact H0901 prior");
+
+        let h0907 = typed_failure_program(true);
+        let report = build_report(&h0907, &[]);
+        let statement = report
+            .items
+            .iter()
+            .flat_map(|item| item.statements.iter())
+            .find(|statement| statement.status == "accepted_typed_failure_deferred_to_effect_v0")
+            .expect("deferred H0907 statement");
+        assert_eq!(statement.diagnostic_code, None);
+        let occurrence = crate::typed_failure::analyze_program(&h0907)
+            .occurrences()
+            .into_iter()
+            .find(|occurrence| occurrence.code == DiagnosticCode::MISSING_FAILURE_DECLARATION)
+            .expect("H0907 occurrence");
+        statement
+            .prior_blocker
+            .as_ref()
+            .expect("deferred H0907 prior")
+            .validate_against(&occurrence)
+            .expect("exact H0907 prior");
+    }
+
+    fn typed_failure_program(explicit_try_without_declaration: bool) -> Program {
+        let call = if explicit_try_without_declaration {
+            "try source()"
+        } else {
+            "source()"
+        };
+        let caller_failure = if explicit_try_without_declaration {
+            ""
+        } else {
+            "  fails when:\n    the caller source fails\n"
+        };
+        let source = format!(
+            r#"module tests.ao.full_type
+
+type SourceError {{
+  code: Text
+}}
+
+task source() -> Result UInt, SourceError {{
+  fails when:
+    the source fails
+  does:
+    fail SourceError.origin
+}}
+
+task caller() -> Result UInt, SourceError {{
+{caller_failure}  does:
+    let value = {call}
+    return value
+}}
+"#
+        );
+        Program {
+            files: vec![parse_source("session_ao_full_type.hum", &source).file],
+        }
     }
 
     fn typed_demo_program() -> crate::ast::Program {

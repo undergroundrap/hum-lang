@@ -1,0 +1,25 @@
+module fixtures.diagnostics.session_ao_callable_prior_blocker_fail
+
+type ReceiverError {
+  code: Text
+}
+
+task increment(value: UInt) -> UInt {
+  does:
+    return value + 1
+}
+
+task apply_once(transform: task(UInt) -> UInt, value: UInt) -> Result UInt, ReceiverError {
+  fails when:
+    the receiver fails
+  does:
+    return transform(value)
+}
+
+task caller() -> Result UInt, ReceiverError {
+  fails when:
+    the receiver call fails
+  does:
+    let value = apply_once(increment, 41)
+    return value
+}

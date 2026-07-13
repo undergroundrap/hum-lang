@@ -7,7 +7,9 @@ use crate::ast::{
     ParsedCallTrailingStatus, ParsedExpression, ParsedExpressionKind, Program, Task, TypeSyntax,
     TypeSyntaxKind,
 };
-use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
+use crate::diagnostic::{
+    Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceCollector, Severity, Span,
+};
 use crate::node_id;
 use crate::resolve::{
     self, ResolveDefinitionSummary, ResolveReferenceSummary, ResolveScopeSummary,
@@ -123,7 +125,22 @@ pub(crate) struct CallableDiagnosticFact {
     pub(crate) id: String,
     pub(crate) reason: &'static str,
     pub(crate) detail_reason: &'static str,
-    pub(crate) diagnostic: Diagnostic,
+    fallback_diagnostic: Option<Diagnostic>,
+    pub(crate) occurrence: Option<DiagnosticOccurrence>,
+    relationship_sites: Vec<Span>,
+}
+
+impl CallableDiagnosticFact {
+    fn diagnostic(&self) -> &Diagnostic {
+        self.occurrence.as_ref().map_or_else(
+            || {
+                self.fallback_diagnostic
+                    .as_ref()
+                    .expect("fallback diagnostic")
+            },
+            |occurrence| occurrence.diagnostic(),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,6 +185,7 @@ pub(crate) struct CallableAnalysis {
     canonical_values: Vec<CallableValueFact>,
     canonical_applications: Vec<CallableApplicationFact>,
     canonical_diagnostics: Vec<CallableDiagnosticFact>,
+    typed_failure_prior: Vec<DiagnosticOccurrence>,
 }
 
 #[derive(Clone)]
@@ -229,12 +247,45 @@ pub(crate) fn analyze_program(program: &Program) -> Arc<CallableAnalysis> {
 
 pub(crate) fn diagnostics(program: &Program, prior: &[Diagnostic]) -> Vec<Diagnostic> {
     let analysis = analyze_program(program);
+    let unknown_type_priors = crate::type_check::unknown_type_diagnostics(program, &[]);
+    let path_priors = crate::path_boundary::diagnostics(program);
     analysis
         .diagnostics
         .iter()
-        .filter(|fact| !prior_owns(&fact.diagnostic, prior))
-        .map(|fact| fact.diagnostic.clone())
+        .filter(|fact| !analysis.prior_owns(fact, prior, &unknown_type_priors, &path_priors))
+        .map(|fact| fact.diagnostic().clone())
         .collect()
+}
+
+pub(crate) fn diagnostic_occurrences(program: &Program) -> Vec<DiagnosticOccurrence> {
+    analyze_program(program)
+        .diagnostics
+        .iter()
+        .filter_map(|fact| fact.occurrence.clone())
+        .collect()
+}
+
+pub(crate) fn validate_diagnostic_occurrences(
+    program: &Program,
+) -> Result<(), crate::diagnostic::DiagnosticInvariantError> {
+    let analysis = analyze_program(program);
+    if analysis.diagnostics.iter().any(|fact| {
+        matches!(
+            fact.diagnostic().code,
+            DiagnosticCode::INVALID_CALLABLE_FORM | DiagnosticCode::CALLABLE_SIGNATURE_MISMATCH
+        ) && fact.occurrence.is_none()
+    }) {
+        return Err(crate::diagnostic::DiagnosticInvariantError::UnknownCause);
+    }
+    let mut collector = DiagnosticOccurrenceCollector::default();
+    for occurrence in analysis
+        .diagnostics
+        .iter()
+        .filter_map(|fact| fact.occurrence.clone())
+    {
+        collector.insert(occurrence)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn stage_blockers(program: &Program, stage: &str) -> usize {
@@ -261,6 +312,10 @@ impl CallableAnalysis {
             resolver_definitions: definitions.clone(),
             resolver_scopes: scopes.clone(),
             resolver_references: references.clone(),
+            typed_failure_prior: crate::typed_failure::analyze_program(program)
+                .occurrences()
+                .into_iter()
+                .collect(),
             ..Self::default()
         };
         for definition in &definitions {
@@ -1031,21 +1086,40 @@ impl CallableAnalysis {
             &format!("callable-diagnostic-{}-{detail_reason}", code.as_str()),
             span,
         );
-        if self
-            .diagnostics
-            .iter()
-            .any(|existing| existing.id == id && existing.diagnostic.code == code)
-        {
-            return;
-        }
         let mut diagnostic =
             Diagnostic::error(code, message, Some(portable_span(span))).with_help(help);
+        let mut relationship_sites = vec![portable_span(span)];
         for (index, related_span) in related.into_iter().enumerate() {
+            relationship_sites.push(portable_span(&related_span));
             diagnostic = diagnostic.with_related_span(
                 format!("callable relationship site {}", index + 1),
                 portable_span(&related_span),
             );
         }
+        let occurrence =
+            crate::diagnostic_catalog::diagnostic_cause(code, detail_reason).map(|cause| {
+                let mut semantic_links = Vec::new();
+                for site in &relationship_sites {
+                    for definition in &self.resolver_definitions {
+                        if same_span(&definition.source_span, site) {
+                            semantic_links.push(format!("definition={}", definition.id));
+                        }
+                    }
+                    for reference in &self.resolver_references {
+                        if same_span(&reference.source_span, site) {
+                            semantic_links.push(format!("reference={}", reference.id));
+                        }
+                    }
+                }
+                let identity = DiagnosticOccurrence::callable_identity(
+                    detail_reason,
+                    &portable_span(span),
+                    &relationship_sites,
+                    semantic_links,
+                );
+                DiagnosticOccurrence::registered(cause, identity, diagnostic.clone())
+                    .expect("callable occurrence must satisfy its registered cause")
+            });
         self.diagnostics.push(CallableDiagnosticFact {
             id,
             reason: match code.as_str() {
@@ -1054,7 +1128,9 @@ impl CallableAnalysis {
                 _ => detail_reason,
             },
             detail_reason,
-            diagnostic,
+            fallback_diagnostic: occurrence.is_none().then_some(diagnostic),
+            occurrence,
+            relationship_sites,
         });
     }
 
@@ -1063,11 +1139,60 @@ impl CallableAnalysis {
         self.diagnostics
             .iter()
             .filter(|fact| {
-                fact.diagnostic.code != DiagnosticCode::CALLABLE_SIGNATURE_MISMATCH
+                fact.diagnostic().code != DiagnosticCode::CALLABLE_SIGNATURE_MISMATCH
                     || signature_ready
             })
+            .filter(|fact| !self.prior_owns(fact, &[], &[], &[]))
             .cloned()
             .collect()
+    }
+
+    fn prior_owns(
+        &self,
+        fact: &CallableDiagnosticFact,
+        prior: &[Diagnostic],
+        canonical_unknown_types: &[Diagnostic],
+        canonical_paths: &[Diagnostic],
+    ) -> bool {
+        let Some(candidate) = fact.occurrence.as_ref() else {
+            return false;
+        };
+        let typed_failure_owns = self.typed_failure_prior.iter().any(|existing| {
+            existing.diagnostic().severity == Severity::Error
+                && crate::diagnostic_catalog::precedence_spec(
+                    existing.cause_key(),
+                    candidate.cause_key(),
+                )
+                .is_some_and(|rule| {
+                    rule.applying_owner == "callable_analysis"
+                        && rule.relationship == "shared_callable_relationship_site_v0"
+                        && existing.relationship_route().iter().any(|existing_site| {
+                            existing_site.starts_with("semantic_site=")
+                                && candidate
+                                    .relationship_route()
+                                    .iter()
+                                    .any(|candidate_site| candidate_site == existing_site)
+                        })
+                })
+        });
+        typed_failure_owns
+            || prior.iter().any(|existing| {
+                let Some((dominant_cause, semantic_site)) =
+                    canonical_prior_cause(existing, canonical_unknown_types, canonical_paths)
+                else {
+                    return false;
+                };
+                existing.severity == Severity::Error
+                    && crate::diagnostic_catalog::precedence_spec(
+                        dominant_cause.key,
+                        candidate.cause_key(),
+                    )
+                    .is_some_and(|rule| {
+                        rule.applying_owner == "callable_analysis"
+                            && rule.relationship == "shared_callable_relationship_site_v0"
+                            && candidate.relationship_route().contains(&semantic_site)
+                    })
+            })
     }
 
     pub(crate) fn direct_application(
@@ -1314,24 +1439,24 @@ impl CallableAnalysis {
         }
         for fact in &diagnostics {
             let span = fact
-                .diagnostic
+                .diagnostic()
                 .span
                 .as_ref()
                 .expect("callable diagnostic span");
             out.push_str(&format!(
                 "  diagnostic id={} code={} reason={} detail_reason={} message={} help={} primary_span={}:{}:{} related={}\n",
                 fact.id,
-                fact.diagnostic.code.as_str(),
+                fact.diagnostic().code.as_str(),
                 fact.reason,
                 fact.detail_reason,
-                fact.diagnostic.message,
-                fact.diagnostic.help.as_deref().unwrap_or(""),
+                fact.diagnostic().message,
+                fact.diagnostic().help.as_deref().unwrap_or(""),
                 span.file,
                 span.line,
                 span.column,
-                fact.diagnostic.related_spans.len()
+                fact.diagnostic().related_spans.len()
             ));
-            for related in &fact.diagnostic.related_spans {
+            for related in &fact.diagnostic().related_spans {
                 out.push_str(&format!(
                     "    related label={} span={}:{}:{}\n",
                     related.label, related.span.file, related.span.line, related.span.column
@@ -1882,20 +2007,40 @@ impl CallableAnalysis {
             }
         }
         for fact in &self.diagnostics {
-            let Some(span) = fact.diagnostic.span.as_ref() else {
+            let Some(span) = fact.diagnostic().span.as_ref() else {
                 failures.push("callable_diagnostic_identity_corrupt_v0");
                 continue;
             };
             let expected = semantic_id(
                 &format!(
                     "callable-diagnostic-{}-{}",
-                    fact.diagnostic.code.as_str(),
+                    fact.diagnostic().code.as_str(),
                     fact.detail_reason
                 ),
                 span,
             );
             if fact.id != expected {
                 failures.push("callable_diagnostic_identity_corrupt_v0");
+            }
+            if matches!(
+                fact.diagnostic().code,
+                DiagnosticCode::INVALID_CALLABLE_FORM | DiagnosticCode::CALLABLE_SIGNATURE_MISMATCH
+            ) && fact
+                .occurrence
+                .as_ref()
+                .is_none_or(|occurrence| occurrence.validate().is_err())
+            {
+                failures.push("callable_diagnostic_occurrence_corrupt_v0");
+            }
+        }
+        let mut occurrence_collector = DiagnosticOccurrenceCollector::default();
+        for occurrence in self
+            .diagnostics
+            .iter()
+            .filter_map(|fact| fact.occurrence.clone())
+        {
+            if occurrence_collector.insert(occurrence).is_err() {
+                failures.push("callable_diagnostic_occurrence_corrupt_v0");
             }
         }
         failures.sort_unstable();
@@ -1923,6 +2068,67 @@ pub(crate) fn inject_json(mut out: String, program: &Program, stage: &str) -> St
         out.insert_str(close, &format!("{comma}\n{field}"));
     }
     out
+}
+
+fn canonical_prior_cause(
+    diagnostic: &Diagnostic,
+    canonical_unknown_types: &[Diagnostic],
+    canonical_paths: &[Diagnostic],
+) -> Option<(
+    &'static crate::diagnostic_catalog::DiagnosticCauseSpec,
+    String,
+)> {
+    let span = diagnostic.span.as_ref()?;
+    let (reason, role) = match diagnostic.code {
+        DiagnosticCode::ITEM_HEADER_MISSING_OPEN_BRACE => (
+            "callable_precedence_item_header_missing_open_brace_v0",
+            "expression",
+        ),
+        DiagnosticCode::UNEXPECTED_SIGNATURE_TEXT => (
+            "callable_precedence_unexpected_signature_text_v0",
+            "expression",
+        ),
+        DiagnosticCode::CALLABLE_SIGNATURE_MISSING_CLOSE_PAREN => {
+            ("callable_precedence_missing_close_paren_v0", "expression")
+        }
+        DiagnosticCode::PARAMETER_MISSING_TYPE => (
+            "callable_precedence_parameter_missing_type_v0",
+            "expression",
+        ),
+        DiagnosticCode::INVALID_IDENTIFIER => {
+            ("callable_precedence_invalid_identifier_v0", "expression")
+        }
+        DiagnosticCode::DUPLICATE_NAME_IN_SCOPE => {
+            ("callable_precedence_duplicate_name_v0", "definition")
+        }
+        DiagnosticCode::UNKNOWN_TYPE_NAME
+            if canonical_unknown_types
+                .iter()
+                .any(|canonical| canonical == diagnostic) =>
+        {
+            (
+                "callable_precedence_unknown_type_relationship_v0",
+                "unknown_type",
+            )
+        }
+        DiagnosticCode::PATH_SOURCE_CONSTRUCTION
+            if canonical_paths
+                .iter()
+                .any(|canonical| canonical == diagnostic) =>
+        {
+            (
+                "callable_precedence_opaque_path_relationship_v0",
+                "opaque_path",
+            )
+        }
+        _ => return None,
+    };
+    let cause = crate::diagnostic_catalog::diagnostic_cause(diagnostic.code, reason)?;
+    let semantic_site = format!(
+        "semantic_site={}",
+        node_id::span("diagnostic-semantic-site", span, role)
+    );
+    Some((cause, semantic_site))
 }
 
 fn task_entries<'a>(
@@ -2382,37 +2588,6 @@ fn same_span(left: &Span, right: &Span) -> bool {
 fn same_line(left: &Span, right: &Span) -> bool {
     node_id::source_path_identity(&left.file) == node_id::source_path_identity(&right.file)
         && left.line == right.line
-}
-
-fn prior_owns(diagnostic: &Diagnostic, prior: &[Diagnostic]) -> bool {
-    let Some(span) = diagnostic.span.as_ref() else {
-        return false;
-    };
-    prior.iter().any(|existing| {
-        existing.severity == Severity::Error
-            && existing
-                .span
-                .as_ref()
-                .is_some_and(|existing_span| same_line(existing_span, span))
-            && matches!(
-                existing.code.as_str(),
-                "H0003"
-                    | "H0006"
-                    | "H0007"
-                    | "H0008"
-                    | "H0009"
-                    | "H0602"
-                    | "H0605"
-                    | "H0630"
-                    | "H0901"
-                    | "H0902"
-                    | "H0903"
-                    | "H0904"
-                    | "H0905"
-                    | "H0906"
-                    | "H0907"
-            )
-    })
 }
 
 fn analysis_key(
@@ -3074,22 +3249,22 @@ fn push_json_diagnostics(out: &mut String, facts: &[CallableDiagnosticFact], com
     out.push_str("\"diagnostic_facts\": [\n");
     for (index, fact) in facts.iter().enumerate() {
         let span = fact
-            .diagnostic
+            .diagnostic()
             .span
             .as_ref()
             .expect("callable diagnostic span");
         json_indent(out, 4);
         out.push_str("{\n");
         json_string_field(out, 6, "id", &fact.id, true);
-        json_string_field(out, 6, "code", fact.diagnostic.code.as_str(), true);
+        json_string_field(out, 6, "code", fact.diagnostic().code.as_str(), true);
         json_string_field(out, 6, "reason", fact.reason, true);
         json_string_field(out, 6, "detail_reason", fact.detail_reason, true);
-        json_string_field(out, 6, "message", &fact.diagnostic.message, true);
+        json_string_field(out, 6, "message", &fact.diagnostic().message, true);
         json_string_field(
             out,
             6,
             "help",
-            fact.diagnostic.help.as_deref().unwrap_or(""),
+            fact.diagnostic().help.as_deref().unwrap_or(""),
             true,
         );
         json_string_field(
@@ -3101,7 +3276,7 @@ fn push_json_diagnostics(out: &mut String, facts: &[CallableDiagnosticFact], com
         );
         json_indent(out, 6);
         out.push_str("\"related_spans\": [\n");
-        for (related_index, related) in fact.diagnostic.related_spans.iter().enumerate() {
+        for (related_index, related) in fact.diagnostic().related_spans.iter().enumerate() {
             json_indent(out, 8);
             out.push_str("{\n");
             json_string_field(out, 10, "label", &related.label, true);
@@ -3117,7 +3292,7 @@ fn push_json_diagnostics(out: &mut String, facts: &[CallableDiagnosticFact], com
             );
             json_indent(out, 8);
             out.push_str(
-                if related_index + 1 == fact.diagnostic.related_spans.len() {
+                if related_index + 1 == fact.diagnostic().related_spans.len() {
                     "}\n"
                 } else {
                     "},\n"
@@ -3141,9 +3316,11 @@ fn push_json_diagnostics(out: &mut String, facts: &[CallableDiagnosticFact], com
 mod tests {
     use super::{
         CALLABLE_FACT_MODEL, OrdinaryArgumentFact, analyze_program, core_node_facts,
-        graph_edge_facts, verify_core_node_facts, verify_graph_edge_facts,
+        diagnostic_occurrences, graph_edge_facts, validate_diagnostic_occurrences,
+        verify_core_node_facts, verify_graph_edge_facts,
     };
     use crate::ast::{Item, ParsedExpressionKind};
+    use crate::diagnostic::{Diagnostic, DiagnosticCode};
     use crate::parser::parse_source;
     use std::sync::Arc;
 
@@ -3185,6 +3362,141 @@ task run -> UInt {
     return apply_once(bump, 40)
 }
 "#;
+
+    #[test]
+    fn ao_callable_occurrences_keep_relationship_identity_and_precedence() {
+        for (file, source, code) in [
+            (
+                "stored.hum",
+                include_str!("../fixtures/callable/session_al_stored_callable_fail.hum"),
+                DiagnosticCode::INVALID_CALLABLE_FORM,
+            ),
+            (
+                "wrong_input.hum",
+                include_str!("../fixtures/callable/session_al_wrong_input_fail.hum"),
+                DiagnosticCode::CALLABLE_SIGNATURE_MISMATCH,
+            ),
+        ] {
+            let parsed = parse_source(file, source);
+            let program = crate::ast::Program {
+                files: vec![parsed.file],
+            };
+            assert_eq!(validate_diagnostic_occurrences(&program), Ok(()));
+            let first = diagnostic_occurrences(&program)
+                .into_iter()
+                .find(|occurrence| occurrence.code == code)
+                .expect("registered callable occurrence");
+            let second = diagnostic_occurrences(&program)
+                .into_iter()
+                .find(|occurrence| occurrence.code == code)
+                .expect("repeat registered callable occurrence");
+            assert_eq!(first.id(), second.id());
+            assert_eq!(first.semantic_owner(), "callable_analysis");
+            assert_eq!(first.owning_stage(), "shared_preflight");
+            assert!(
+                first
+                    .relationship_route()
+                    .iter()
+                    .any(|site| site.starts_with("callable_definition_application_route"))
+            );
+            assert!(
+                first
+                    .relationship_route()
+                    .iter()
+                    .any(|site| site.starts_with("definition=") || site.starts_with("reference="))
+            );
+
+            let analysis = analyze_program(&program);
+            let fact = analysis
+                .diagnostics
+                .iter()
+                .find(|fact| fact.diagnostic().code == code)
+                .expect("callable diagnostic fact");
+            assert!(fact.fallback_diagnostic.is_none());
+            for mutation in 0..5 {
+                let mut drift = fact.clone();
+                let occurrence = drift.occurrence.as_mut().expect("H140 occurrence carrier");
+                let diagnostic = occurrence.diagnostic_mut_for_test();
+                match mutation {
+                    0 => diagnostic.code = DiagnosticCode::UNRESOLVED_NAME,
+                    1 => diagnostic.message.push_str(" drift"),
+                    2 => diagnostic.help = Some("drift".to_string()),
+                    3 => diagnostic.span = Some(crate::diagnostic::Span::new("other.hum", 1, 1)),
+                    _ => diagnostic.related_spans.clear(),
+                }
+                assert!(
+                    occurrence.validate().is_err(),
+                    "rendered projection mutation {mutation}"
+                );
+            }
+            let dominant = if code == DiagnosticCode::INVALID_CALLABLE_FORM {
+                DiagnosticCode::PATH_SOURCE_CONSTRUCTION
+            } else {
+                DiagnosticCode::UNKNOWN_TYPE_NAME
+            };
+            let prior = Diagnostic::error(
+                dominant,
+                "prior owner",
+                Some(fact.relationship_sites[0].clone()),
+            );
+            let (unknown, paths) = if code == DiagnosticCode::INVALID_CALLABLE_FORM {
+                (Vec::new(), vec![prior.clone()])
+            } else {
+                (vec![prior.clone()], Vec::new())
+            };
+            assert!(analysis.prior_owns(fact, std::slice::from_ref(&prior), &unknown, &paths));
+            let generic = Diagnostic::error(
+                DiagnosticCode::UNRESOLVED_NAME,
+                "generic replacement",
+                Some(fact.relationship_sites[0].clone()),
+            );
+            assert!(!analysis.prior_owns(fact, &[generic], &unknown, &paths));
+
+            let impostor = Diagnostic::error(
+                dominant,
+                "different node with a compatible display span",
+                Some(fact.relationship_sites[0].clone()),
+            );
+            assert!(!analysis.prior_owns(fact, &[impostor], &unknown, &paths));
+
+            let mut other_node = prior.clone();
+            other_node.span.as_mut().expect("prior span").column += 1;
+            let (other_unknown, other_paths) = if code == DiagnosticCode::INVALID_CALLABLE_FORM {
+                (Vec::new(), vec![other_node.clone()])
+            } else {
+                (vec![other_node.clone()], Vec::new())
+            };
+            assert!(!analysis.prior_owns(fact, &[other_node], &other_unknown, &other_paths));
+        }
+    }
+
+    #[test]
+    fn ao_independent_same_line_causes_keep_distinct_occurrences() {
+        let source = r#"module tests.ao.adjacent
+
+task apply_once(change transform: task(UInt) -> UInt,value: Text) -> UInt {
+  does:
+    return transform(value)
+}
+"#;
+        let parsed = parse_source("session_ao_adjacent.hum", source);
+        let program = crate::ast::Program {
+            files: vec![parsed.file],
+        };
+        let occurrences = diagnostic_occurrences(&program);
+        assert!(occurrences.len() >= 2, "{occurrences:#?}");
+        for occurrence in &occurrences {
+            occurrence.validate().expect("closed occurrence");
+        }
+        let same_line = occurrences.iter().any(|left| {
+            occurrences.iter().any(|right| {
+                left.id() != right.id()
+                    && left.diagnostic().span.as_ref().map(|span| span.line)
+                        == right.diagnostic().span.as_ref().map(|span| span.line)
+            })
+        });
+        assert!(same_line, "{occurrences:#?}");
+    }
 
     #[test]
     fn am_rows_preserve_duplicate_occurrences_and_fail_closed_on_corruption() {
@@ -3934,7 +4246,7 @@ task run_right -> UInt {
         let analysis = analyze_program(&program);
         assert_eq!(analysis.diagnostics.len(), 1);
         assert_eq!(
-            analysis.diagnostics[0].diagnostic.code,
+            analysis.diagnostics[0].diagnostic().code,
             crate::diagnostic::DiagnosticCode::INVALID_CALLABLE_FORM
         );
         assert_eq!(

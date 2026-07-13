@@ -297,6 +297,65 @@ try {
     if (-not $DiagnosticCatalogSource.Contains($RegistryEvidence)) { throw "canonical diagnostic registry evidence was removed: $RegistryEvidence" }
   }
 
+  Write-Host '==> Session AO registered cause identity and prior-blocker matrix'
+  foreach ($EvidenceTest in @(
+    'diagnostic_catalog::tests::cause_registry_rejects_every_identity_and_owner_mutation',
+    'diagnostic::tests::occurrence_identity_rejects_every_registered_field_mutation',
+    'diagnostic::tests::canonical_identity_rejects_valid_prefix_and_route_substitutions',
+    'diagnostic::tests::collector_rejects_duplicate_emission_and_exact_prior_substitution',
+    'typed_failure::tests::program_analysis_preserves_distinct_same_cause_occurrences_repeatably',
+    'typed_failure::tests::missing_failure_declaration_has_one_effect_owned_occurrence',
+    'full_type_check::tests::ao_full_type_consumes_exact_typed_failure_occurrences_and_defers_h0907',
+    'effect_check::tests::ao_effect_owns_h0907_once_and_consumes_full_type_prior_exactly',
+    'callable::tests::ao_callable_occurrences_keep_relationship_identity_and_precedence',
+    'callable::tests::ao_independent_same_line_causes_keep_distinct_occurrences'
+  )) {
+    Invoke-Native "Session AO evidence $EvidenceTest" $Cargo @('test', $EvidenceTest, '--', '--exact')
+  }
+
+  $AoTypedPath = 'fixtures/diagnostics/session_ao_typed_failure_prior_blocker_fail.hum'
+  $AoTypedHuman = Read-NativeOutputWithExit 'Session AO H0901 full type human' $Hum @('full-type-check', $AoTypedPath)
+  $AoTypedJson = Read-NativeOutputWithExit 'Session AO H0901 full type JSON' $Hum @('full-type-check', '--format', 'json', $AoTypedPath)
+  Assert-Json 'Session AO H0901 full type JSON' $AoTypedJson.Output
+  if ($AoTypedHuman.ExitCode -ne 1 -or [regex]::Matches($AoTypedHuman.Output, 'diagnostic=H0901').Count -ne 1) { throw 'Session AO H0901 must have one full-type owner' }
+  $AoTypedReport = $AoTypedJson.Output | ConvertFrom-Json
+  $AoTypedRows = @($AoTypedReport.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0901' })
+  if ($AoTypedJson.ExitCode -ne 1 -or $AoTypedRows.Count -ne 1) { throw 'Session AO H0901 JSON must project one canonical occurrence' }
+  $AoTypedJsonRepeat = Read-NativeOutputWithExit 'Session AO H0901 repeat JSON' $Hum @('full-type-check', '--format', 'json', $AoTypedPath)
+  if ($AoTypedJson.Output -ne $AoTypedJsonRepeat.Output -or $AoTypedJson.ExitCode -ne $AoTypedJsonRepeat.ExitCode) { throw 'Session AO H0901 public bytes must be repeat-identical' }
+  $AoTypedRun = Read-NativeChannelsWithExit 'Session AO H0901 runtime preflight' $Hum @('run', $AoTypedPath, '--entry', 'caller')
+  if ($AoTypedRun.ExitCode -ne 2 -or $AoTypedRun.Stdout -ne '' -or [regex]::Matches($AoTypedRun.Stderr, 'error\[H0901\]').Count -ne 1 -or $AoTypedRun.Stderr.Contains('runtime trap')) { throw 'Session AO H0901 runtime must consume one canonical occurrence without executing' }
+
+  $AoH0907Path = 'fixtures/effect_check/session_w_missing_fails_when_fail.hum'
+  $AoH0907Full = Read-NativeOutputWithExit 'Session AO H0907 full-type deferral' $Hum @('full-type-check', '--format', 'json', $AoH0907Path)
+  if ($AoH0907Full.ExitCode -ne 0 -or $AoH0907Full.Output.Contains('"diagnostic_code": "H0907"') -or -not $AoH0907Full.Output.Contains('accepted_typed_failure_deferred_to_effect_v0')) { throw 'Session AO H0907 must defer exactly through full type' }
+  $AoH0907Effect = Read-NativeOutputWithExit 'Session AO H0907 effect owner' $Hum @('effect-check', '--format', 'json', $AoH0907Path)
+  Assert-Json 'Session AO H0907 effect owner JSON' $AoH0907Effect.Output
+  $AoH0907Report = $AoH0907Effect.Output | ConvertFrom-Json
+  $AoH0907Rows = @($AoH0907Report.effect_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0907' })
+  if ($AoH0907Effect.ExitCode -ne 1 -or $AoH0907Rows.Count -ne 1) { throw 'Session AO H0907 must be owned once by effect checking' }
+  $AoH0907Run = Read-NativeChannelsWithExit 'Session AO H0907 runtime preflight' $Hum @('run', $AoH0907Path, '--entry', 'caller')
+  if ($AoH0907Run.ExitCode -ne 2 -or $AoH0907Run.Stdout -ne '' -or [regex]::Matches($AoH0907Run.Stderr, 'error\[H0907\]').Count -ne 1 -or $AoH0907Run.Stderr.Contains('runtime trap')) { throw 'Session AO H0907 runtime must consume the effect-owned occurrence without executing' }
+
+  $AoCallablePrior = Read-NativeOutputWithExit 'Session AO typed-failure precedence over callable' $Hum @('full-type-check', '--format', 'json', 'fixtures/diagnostics/session_ao_callable_prior_blocker_fail.hum')
+  if ($AoCallablePrior.ExitCode -ne 1 -or [regex]::Matches($AoCallablePrior.Output, '"diagnostic_code": "H0901"').Count -ne 1 -or $AoCallablePrior.Output.Contains('H1401') -or $AoCallablePrior.Output.Contains('H1402')) { throw 'Session AO registered H090 precedence must suppress only the related callable cause' }
+
+  $AoAdjacent = Read-NativeOutputWithExit 'Session AO adjacent distinct callable causes' $Hum @('full-type-check', '--format', 'json', 'fixtures/diagnostics/session_ao_adjacent_distinct_causes_fail.hum')
+  Assert-Json 'Session AO adjacent distinct callable causes JSON' $AoAdjacent.Output
+  $AoAdjacentFacts = @(($AoAdjacent.Output | ConvertFrom-Json).callable_facts.diagnostic_facts)
+  if ($AoAdjacent.ExitCode -ne 1 -or $AoAdjacentFacts.Count -ne 3 -or @($AoAdjacentFacts | Where-Object { $_.code -eq 'H1401' }).Count -ne 2 -or @($AoAdjacentFacts | Where-Object { $_.code -eq 'H1402' }).Count -ne 1 -or @($AoAdjacentFacts.id | Sort-Object -Unique).Count -ne 3) { throw 'Session AO independent same-line causes must remain three distinct canonical occurrences' }
+
+  $AoSameCode = Read-NativeOutputWithExit 'Session AO same-code distinct H0901 occurrences' $Hum @('full-type-check', '--format', 'json', 'fixtures/diagnostics/session_ao_same_code_distinct_occurrences_fail.hum')
+  Assert-Json 'Session AO same-code distinct H0901 occurrences JSON' $AoSameCode.Output
+  $AoSameRows = @(($AoSameCode.Output | ConvertFrom-Json).typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0901' })
+  if ($AoSameCode.ExitCode -ne 1 -or $AoSameRows.Count -ne 2 -or $AoSameRows[0].call_span.line -eq $AoSameRows[1].call_span.line) { throw 'Session AO same code and cause must preserve two source occurrences' }
+
+  foreach ($PublicOutput in @($AoTypedHuman.Output, $AoTypedJson.Output, $AoH0907Full.Output, $AoH0907Effect.Output, $AoCallablePrior.Output, $AoAdjacent.Output, $AoSameCode.Output)) {
+    foreach ($PrivateField in @('occurrence_id', 'cause_key', 'semantic_owner', 'owning_stage', 'semantic_origin', 'relationship_route')) {
+      if ($PublicOutput.Contains($PrivateField)) { throw "Session AO internal field leaked publicly: $PrivateField" }
+    }
+  }
+
   $CapabilitiesJson = Read-NativeOutput 'capabilities JSON' $Hum @('capabilities', '--format', 'json')
   Assert-Json 'capabilities JSON' $CapabilitiesJson
   if (-not $CapabilitiesJson.Contains('"schema": "hum.capabilities.v0"')) { throw 'capabilities JSON is missing hum.capabilities.v0 schema' }

@@ -1,9 +1,12 @@
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::ast::{Item, Program, Task};
 use crate::core_body::BodyStatement;
-use crate::diagnostic::{DiagnosticCode, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::graph::{hollow_contract_reason, is_meaningful_line_text};
+use crate::node_id;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TaskFailureSignature {
@@ -60,11 +63,93 @@ pub(crate) struct FailureFact {
     pub help: Option<String>,
     pub success_type: Option<String>,
     pub try_expression: Option<TryExpression>,
+    pub occurrence: Option<DiagnosticOccurrence>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TaskFailureAnalysis {
     pub facts: BTreeMap<usize, FailureFact>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ProgramFailureAnalysis {
+    tasks: BTreeMap<String, TaskFailureAnalysis>,
+}
+
+thread_local! {
+    static PROGRAM_ANALYSIS_CACHE: RefCell<Option<(Program, Arc<ProgramFailureAnalysis>)>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn analyze_program(program: &Program) -> Arc<ProgramFailureAnalysis> {
+    PROGRAM_ANALYSIS_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((cached_program, analysis)) = cache.as_ref()
+            && cached_program == program
+        {
+            return Arc::clone(analysis);
+        }
+        let global_catalog = FailureCatalog::from_program(program);
+        let mut analysis = ProgramFailureAnalysis::default();
+        for file in &program.files {
+            collect_program_analysis(&file.items, &global_catalog, &mut analysis.tasks);
+        }
+        let analysis = Arc::new(analysis);
+        *cache = Some((program.clone(), Arc::clone(&analysis)));
+        analysis
+    })
+}
+
+impl ProgramFailureAnalysis {
+    pub(crate) fn task(&self, task: &Task) -> Option<&TaskFailureAnalysis> {
+        self.tasks.get(&task_identity(task))
+    }
+
+    pub(crate) fn fact(&self, task: &Task, index: usize) -> Option<&FailureFact> {
+        self.task(task)?.facts.get(&index)
+    }
+
+    pub(crate) fn occurrences(&self) -> Vec<DiagnosticOccurrence> {
+        self.tasks
+            .values()
+            .flat_map(|analysis| analysis.facts.values())
+            .filter_map(|fact| fact.occurrence.clone())
+            .collect()
+    }
+}
+
+fn collect_program_analysis(
+    items: &[Item],
+    catalog: &FailureCatalog,
+    out: &mut BTreeMap<String, TaskFailureAnalysis>,
+) {
+    for item in items {
+        match item {
+            Item::Task(task) => {
+                let statements = task
+                    .section("does")
+                    .map(crate::core_body::analyze_does_section)
+                    .map(|body| body.statements)
+                    .unwrap_or_default();
+                out.insert(
+                    task_identity(task),
+                    analyze_task(task, &statements, catalog),
+                );
+            }
+            Item::App(app) => {
+                let scoped_catalog = FailureCatalog::from_items(&app.items);
+                collect_program_analysis(&app.items, &scoped_catalog, out);
+            }
+            Item::Type(_) | Item::Store(_) | Item::Test(_) => {}
+        }
+    }
+}
+
+fn task_identity(task: &Task) -> String {
+    node_id::span(
+        "typed-failure-task",
+        &portable_span(&task.span),
+        "task-definition",
+    )
 }
 
 impl FailureCatalog {
@@ -463,6 +548,7 @@ fn analyze_try_expression(
         help: None,
         success_type: callee.success_type.clone(),
         try_expression: Some(parsed),
+        occurrence: None,
     }
 }
 
@@ -534,6 +620,7 @@ fn direct_fail_fact(
         help: None,
         success_type: None,
         try_expression: None,
+        occurrence: None,
     }
 }
 
@@ -579,7 +666,7 @@ fn issue_fact(
     wrapper: Option<&FailureVariant>,
     help: Option<String>,
 ) -> FailureFact {
-    FailureFact {
+    let mut fact = FailureFact {
         index,
         status: "rejected_typed_failure_relationship_v0",
         reason: Some(reason),
@@ -595,7 +682,27 @@ fn issue_fact(
         help,
         success_type: callee.and_then(|callee| callee.success_type.clone()),
         try_expression: None,
+        occurrence: None,
+    };
+    let cause = crate::diagnostic_catalog::diagnostic_cause(code, reason)
+        .expect("every typed-failure reason must be registered");
+    let identity = DiagnosticOccurrence::typed_failure_identity(
+        &task_identity(task),
+        index,
+        form,
+        &fact.call_span,
+        fact.callee_span.as_ref(),
+    );
+    let message = diagnostic_message(&fact);
+    let mut diagnostic = Diagnostic::error(code, message, Some(fact.call_span.clone()));
+    if let Some(help) = &fact.help {
+        diagnostic = diagnostic.with_help(help.clone());
     }
+    fact.occurrence = Some(
+        DiagnosticOccurrence::registered(cause, identity, diagnostic)
+            .expect("typed-failure occurrence must satisfy its registered cause"),
+    );
+    fact
 }
 
 fn collect_signatures(items: &[Item], out: &mut BTreeMap<String, TaskFailureSignature>) {
@@ -905,9 +1012,12 @@ fn portable_span(span: &Span) -> Span {
 #[cfg(test)]
 mod tests {
     use super::{
-        calls_in_expression, contains_keyword_token, is_meaningful_failure_declaration,
-        is_try_candidate, parse_failure_variant, parse_try_expression, result_error_root,
+        analyze_program, calls_in_expression, contains_keyword_token,
+        is_meaningful_failure_declaration, is_try_candidate, parse_failure_variant,
+        parse_try_expression, result_error_root,
     };
+    use crate::diagnostic::DiagnosticCode;
+    use crate::parser::parse_source;
 
     #[test]
     fn failure_declarations_reject_hollow_contract_text() {
@@ -965,5 +1075,98 @@ mod tests {
         assert!(contains_keyword_token("value + try source()", "try"));
         assert!(!contains_keyword_token("trying()", "try"));
         assert!(!contains_keyword_token("object.try", "try"));
+    }
+
+    #[test]
+    fn program_analysis_preserves_distinct_same_cause_occurrences_repeatably() {
+        let source = r#"module tests.ao.same_code
+
+type SourceError {
+  code: Text
+}
+
+task source() -> Result UInt, SourceError {
+  fails when:
+    the source fails
+  does:
+    fail SourceError.origin
+}
+
+task first() -> Result UInt, SourceError {
+  fails when:
+    the first call fails
+  does:
+    let value = source()
+    return value
+}
+
+task second() -> Result UInt, SourceError {
+  fails when:
+    the second call fails
+  does:
+    let value = source()
+    return value
+}
+"#;
+        let parsed = parse_source("session_ao_same_code.hum", source);
+        let program = crate::ast::Program {
+            files: vec![parsed.file],
+        };
+        let first = analyze_program(&program);
+        let second = analyze_program(&program);
+        assert!(std::sync::Arc::ptr_eq(&first, &second));
+        let occurrences = first
+            .occurrences()
+            .into_iter()
+            .filter(|occurrence| occurrence.code == DiagnosticCode::FALLIBLE_CALL_REQUIRES_TRY)
+            .collect::<Vec<_>>();
+        assert_eq!(occurrences.len(), 2);
+        assert_ne!(occurrences[0].id(), occurrences[1].id());
+        assert_eq!(occurrences[0].cause_key(), occurrences[1].cause_key());
+        assert_eq!(occurrences[0].semantic_owner(), "typed_failure_analysis");
+        assert_eq!(occurrences[0].owning_stage(), "full_type_check");
+        assert_ne!(
+            occurrences[0].semantic_origin(),
+            occurrences[1].semantic_origin()
+        );
+    }
+
+    #[test]
+    fn missing_failure_declaration_has_one_effect_owned_occurrence() {
+        let source = r#"module tests.ao.h0907
+
+type SourceError {
+  code: Text
+}
+
+task source() -> Result UInt, SourceError {
+  fails when:
+    the source fails
+  does:
+    fail SourceError.origin
+}
+
+task caller() -> Result UInt, SourceError {
+  does:
+    let value = try source()
+    return value
+}
+"#;
+        let parsed = parse_source("session_ao_h0907.hum", source);
+        let program = crate::ast::Program {
+            files: vec![parsed.file],
+        };
+        let occurrences = analyze_program(&program)
+            .occurrences()
+            .into_iter()
+            .filter(|occurrence| occurrence.code == DiagnosticCode::MISSING_FAILURE_DECLARATION)
+            .collect::<Vec<_>>();
+        assert_eq!(occurrences.len(), 1);
+        assert_eq!(occurrences[0].semantic_owner(), "typed_failure_analysis");
+        assert_eq!(occurrences[0].owning_stage(), "effect_check");
+        assert_eq!(
+            occurrences[0].diagnostic().code,
+            DiagnosticCode::MISSING_FAILURE_DECLARATION
+        );
     }
 }

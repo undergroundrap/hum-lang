@@ -62,7 +62,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use ast::Program;
-use diagnostic::{Diagnostic, Severity};
+use diagnostic::{Diagnostic, DiagnosticOccurrenceCollector, Severity};
 
 fn main() -> ExitCode {
     match run() {
@@ -188,6 +188,7 @@ fn run() -> Result<ExitCode, String> {
 
     let loaded = load_program(&options.inputs)?;
     let program = loaded.program;
+    validate_ao_diagnostic_occurrences(&program, &loaded.diagnostics)?;
     let mut diagnostics = loaded.diagnostics;
     if !diagnostics
         .iter()
@@ -920,6 +921,29 @@ fn run() -> Result<ExitCode, String> {
             "unknown command `{other}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         )),
     }
+}
+
+fn validate_ao_diagnostic_occurrences(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> Result<(), String> {
+    callable::validate_diagnostic_occurrences(program)
+        .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    let mut collector = DiagnosticOccurrenceCollector::default();
+    for occurrence in typed_failure::analyze_program(program)
+        .occurrences()
+        .into_iter()
+        .chain(callable::diagnostic_occurrences(program))
+    {
+        collector
+            .insert(occurrence)
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    }
+    full_type_check::validate_typed_failure_prior_blockers(program, diagnostics)
+        .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    effect_check::validate_typed_failure_prior_blockers(program, diagnostics)
+        .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

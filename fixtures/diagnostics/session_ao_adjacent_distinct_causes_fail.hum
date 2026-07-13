@@ -1,0 +1,6 @@
+module fixtures.diagnostics.session_ao_adjacent_distinct_causes_fail
+
+task apply_once(change transform: task(UInt) -> UInt,value: Text) -> UInt {
+  does:
+    return transform(value)
+}

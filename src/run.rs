@@ -22,7 +22,7 @@ use crate::operator_grant::{GrantDecision, OperatorGrantPolicy};
 use crate::predicate::{self, Arithmetic, Comparison, Expr, PredicateAst, RecognitionStatus};
 use crate::return_dependency;
 use crate::type_check;
-use crate::typed_failure::{self, FailureCatalog, FailureVariant};
+use crate::typed_failure::{self, FailureVariant};
 use crate::writable_field_alias::{self, AliasAnalysis, AliasBinding, AliasIssueKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +44,7 @@ pub struct RunReport {
 }
 
 pub(crate) const OUTPUT_LIMIT_BYTES: usize = 1024 * 1024;
+const DIAGNOSTIC_PREFLIGHT_REJECTED: &str = "diagnostic-preflight-rejected-v0";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthorityAuditEvent {
@@ -497,7 +498,6 @@ pub(crate) fn run_program_with_file_adapters(
         program,
         callable_analysis,
         predicate_analysis,
-        failure_catalog: FailureCatalog::from_program(program),
         diagnostics: RefCell::new(Vec::new()),
         active_iterations: RefCell::new(Vec::new()),
         active_app: RefCell::new(None),
@@ -538,9 +538,8 @@ pub(crate) fn run_program_with_file_adapters(
         Ok((TaskResult::Failed(value), true)) => RunOutcome::AppFailure(value.render()),
         Ok((TaskResult::ContractViolation, _)) => RunOutcome::ContractViolation,
         Err(message)
-            if message.starts_with("H0704:")
-                || message.starts_with("H1401:")
-                || message.starts_with("H1402:")
+            if message == DIAGNOSTIC_PREFLIGHT_REJECTED
+                || message.starts_with("H0704:")
                 || message.starts_with("H0605:")
                 || message.starts_with("H0601:") =>
         {
@@ -785,7 +784,6 @@ struct Interpreter<'program, 'output> {
     program: &'program Program,
     callable_analysis: Arc<CallableAnalysis>,
     predicate_analysis: Arc<predicate::PredicateAnalysis>,
-    failure_catalog: FailureCatalog,
     diagnostics: RefCell<Vec<Diagnostic>>,
     active_iterations: RefCell<Vec<ActiveIteration>>,
     active_app: RefCell<Option<&'program App>>,
@@ -838,10 +836,9 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             return Err(format!("{code}: type preflight rejected"));
         }
         let callable_diagnostics = callable::diagnostics(self.program, &[]);
-        if let Some(first) = callable_diagnostics.first() {
-            let code = first.code.as_str();
+        if !callable_diagnostics.is_empty() {
             self.diagnostics.borrow_mut().extend(callable_diagnostics);
-            return Err(format!("{code}: callable preflight rejected"));
+            return Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string());
         }
         self.preflight_reachable_predicates(task)?;
         let args = self.parse_args(task, raw_args, app_mode)?;
@@ -1170,29 +1167,23 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         task: &Task,
         statements: &[BodyStatement],
     ) -> Result<(), String> {
-        let scoped_catalog;
-        let catalog = if let Some(app) = *self.active_app.borrow() {
-            scoped_catalog = FailureCatalog::from_items(&app.items);
-            &scoped_catalog
-        } else {
-            &self.failure_catalog
-        };
-        let analysis = typed_failure::analyze_task(task, statements, catalog);
-        let Some(fact) = analysis
-            .facts
-            .values()
-            .find(|fact| fact.diagnostic_code.is_some())
+        let analysis = typed_failure::analyze_program(self.program);
+        let Some(fact) = statements
+            .iter()
+            .enumerate()
+            .find_map(|(index, _statement)| {
+                analysis
+                    .fact(task, index)
+                    .filter(|fact| fact.occurrence.is_some())
+            })
         else {
             return Ok(());
         };
-        let code = fact.diagnostic_code.expect("checked above");
-        let message = typed_failure::diagnostic_message(fact);
-        let mut diagnostic = Diagnostic::error(code, message.clone(), Some(fact.call_span.clone()));
-        if let Some(help) = &fact.help {
-            diagnostic = diagnostic.with_help(help.clone());
-        }
-        self.diagnostics.borrow_mut().push(diagnostic);
-        Err(format!("{}: {message}", code.as_str()))
+        let occurrence = fact.occurrence.as_ref().expect("checked above");
+        self.diagnostics
+            .borrow_mut()
+            .push(occurrence.diagnostic().clone());
+        Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string())
     }
 
     fn writable_alias_authority_trap(
@@ -5438,7 +5429,8 @@ task fail_now() -> Result Int, MathError {
             include_str!("../fixtures/full_type_check/session_w_implicit_fallible_call_fail.hum"),
         );
         let report = run_program(&program, Some("caller"), &[]);
-        assert!(matches!(report.outcome, RunOutcome::Trap(ref text) if text.contains("H0901")));
+        assert_eq!(report.outcome, RunOutcome::PreflightRejected);
+        assert_eq!(report.diagnostics.len(), 1);
         assert_eq!(
             report.diagnostics[0].code,
             DiagnosticCode::FALLIBLE_CALL_REQUIRES_TRY
