@@ -20,7 +20,11 @@ workflow `29225093549` (Ubuntu job `86737472812`, 1m 40s; Windows job
 independently accepted and BDFL-accepted, committed as
 `407c8065e341319b6f260b33418cd9c6b8e80a83`, and published by successful
 workflow `29236756896`, attempt 1 (Ubuntu job `86773108930`, 1m 35s; Windows
-job `86773108925`, 4m 49s). Session AP correction remains paused pending a
+job `86773108925`, 4m 49s). The bounded writable-alias scope amendment was
+independently accepted and BDFL-accepted, committed as
+`c56f5f06e908f0ff4e38707d3f8d4ede849b1d3d`, and published by successful
+workflow `29280356264`, attempt 1 (Ubuntu job `86919744432`, 1m 49s; Windows
+job `86919744403`, 2m 53s). Session AP correction remains paused pending a
 separate BDFL corrective go signal. Session AQ and all later work remain
 unauthorized.
 The permanent adversarial-evidence integrity amendment remains queued for the
@@ -1289,7 +1293,11 @@ job `86737472893` succeeded in 3m 04s. The bounded typed-failure scope amendment
 was independently accepted and BDFL-accepted, committed as
 `407c8065e341319b6f260b33418cd9c6b8e80a83`, and published by successful
 workflow `29236756896`, attempt 1: Ubuntu job `86773108930` succeeded in 1m 35s
-and Windows job `86773108925` succeeded in 4m 49s. Session AP correction remains
+and Windows job `86773108925` succeeded in 4m 49s. The bounded writable-alias
+scope amendment was independently accepted and BDFL-accepted, committed as
+`c56f5f06e908f0ff4e38707d3f8d4ede849b1d3d`, and published by successful
+workflow `29280356264`, attempt 1: Ubuntu job `86919744432` succeeded in 1m 49s
+and Windows job `86919744403` succeeded in 2m 53s. Session AP correction remains
 paused pending a separate BDFL corrective go signal.
 
 Session AQ and all later work remain unauthorized. No emitter migration,
