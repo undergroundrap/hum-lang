@@ -708,6 +708,20 @@ Authorized source files are:
 - `src/path_boundary.rs`;
 - `src/predicate.rs`;
 - `src/ownership_check.rs`;
+- `src/writable_field_alias.rs` only to replace string-carried alias diagnostic
+  identity with one closed producer-owned typed alias-cause representation.
+  `AliasIssue` or its equivalent producer artifact must carry that typed cause
+  from the exact structural alias-analysis branch that discovers the misuse.
+  The existing public reason string is derived from the typed cause only after
+  semantic cause selection, and `src/ownership_check.rs` consumes the typed
+  producer-owned cause directly. Neither ownership check nor another consumer
+  may reconstruct or select alias cause identity from `AliasIssue.reason`, a
+  diagnostic code, rendered message or help, display name, source text,
+  filename, span, catalog search, or default-emitter fallback. This authority
+  permits no writable-alias semantic change, new alias form, ownership
+  widening, new diagnostic, or refactor beyond the typed identity carrier;
+  existing alias reasons, messages, help, spans, precedence, human/JSON/runtime
+  bytes, schemas, ordering, and exits remain unchanged;
 - `src/resource_check.rs`;
 - `src/profile_check.rs`;
 - `src/core_preview.rs`, `src/core_lower.rs`, and `src/core_verify.rs` only to
@@ -728,9 +742,9 @@ Authorized source files are:
 - focused fixtures under `fixtures/diagnostics/session_ap_*`; and
 - proportional `tools/check_all.ps1` assertions.
 
-This amendment does not accept the current AP implementation and does not
-authorize implementation to resume. Session AQ and all later work remain
-unauthorized.
+This amendment, including the bounded `src/writable_field_alias.rs` scope
+addition, does not accept the current AP implementation and does not authorize
+implementation to resume. Session AQ and all later work remain unauthorized.
 
 `src/run.rs`, `src/json.rs`, and `src/diagnostics.rs` remain outside AP. The
 graph serializer already accepts the existing public diagnostics, so AP must
@@ -894,7 +908,11 @@ proving:
     public blockers, and the real graph command rejects an internally corrupted
     occurrence/projection relationship before serialization; and
 14. removing the legacy public-diagnostic reconstruction path or restoring it
-    changes a sabotage result, proving it is non-authoritative.
+    changes a sabotage result, proving it is non-authoritative;
+15. changing an alias issue's rendered reason after typed cause selection does
+    not change its producer-owned alias cause identity; and
+16. a missing, substituted, unknown, or contradictory typed alias cause fails
+    closed before ownership check or another consumer can use it.
 
 Required new evidence names are:
 
