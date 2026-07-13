@@ -11,7 +11,10 @@ passed (Ubuntu job `86710967945`, 1m 32s; Windows job `86710967915`, 2m
 42s). Session AO is accepted and committed as
 `d750a57ed5168d0d00375972aacc148a5d37e63a`; workflow `29219105868` passed
 (Ubuntu job `86720630963`, 1m 58s; Windows job `86720630971`, 3m 16s).
-Session AP is next but remains unauthorized pending a separate BDFL go signal.
+Session AP was authorized and implemented, but its independent review rejected
+the uncommitted implementation. It remains authorized only for corrective
+review under the proposed amendment below; implementation may not resume until
+that amendment completes its own independent review and BDFL gate.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -401,12 +404,14 @@ otherwise allocate and propagate causes through a contradictory namespace.
 
 Session sizing is semantic, not just a path count. AN changes allocation truth
 only. AO proves two vertical slices. AP has the widest file envelope, but every
-permitted change is the same carrier migration: consume, validate, or preserve
-one exact prior-cause set without changing stage logic or public output. If any
-AP stage needs a new diagnostic rule, precedence rule, schema field, or source
-behavior, AP is no longer review-sized and must stop for a separately reviewed
-Work Order amendment. AQ changes only composition/runtime ownership after the
-static migration is accepted.
+permitted change is the same carrier migration: produce, consume, validate, or
+preserve one exact prior-cause set without changing stage logic or public
+output. Registering an already-observed precedence relationship is part of that
+migration; inventing or changing which source cause wins is a new diagnostic
+rule. If any AP stage needs a new user-visible diagnostic or precedence rule,
+schema field, or source behavior, AP is no longer review-sized and must stop
+for a separately reviewed Work Order amendment. AQ changes only final
+composition/runtime ownership after the static migration is accepted.
 
 ## Session AN: canonical allocation registry and checked projections
 
@@ -645,6 +650,30 @@ reparse or line-string reconstruction may create cause identity.
 Purpose: migrate the rest of the static compiler to registered causes and exact
 prior-blocker references while preserving all current diagnostic behavior.
 
+### AP corrective-review status and architectural gap
+
+Session AP was authorized and implemented on committed base
+`22b5e1e23bb1d9c3e137bb4b5e4ed6e9eba521a7`. The complete implementation is
+preserved uncommitted after an independent `REJECT` verdict. The rejected bytes
+are evidence, not accepted implementation.
+
+The review established three architectural gaps:
+
+1. migrated static occurrence identity can be reconstructed from a public
+   diagnostic code and spans instead of being established by the parser,
+   resolver, or analyzer that owns the semantic fact;
+2. the five proposed AP precedence records name relationships and applying
+   owners, but lookup accepts only the cause pair and the production stages do
+   not consume the complete rule; and
+3. Core and graph checks can validate references regenerated from the same
+   downstream set instead of comparing that projection with one authoritative
+   upstream occurrence set. The real `hum graph` command does not yet perform
+   that comparison.
+
+This amendment narrows the correction. It changes no diagnostic allocation,
+cause meaning, precedence outcome, public projection, source behavior, or AQ
+runtime/top-level ownership mandate.
+
 ### AP exact integration map
 
 Authorized source files are:
@@ -670,15 +699,29 @@ Authorized source files are:
   output;
 - `src/ir_readiness.rs` only to validate the exact prior cause set behind its
   existing readiness status;
+- `src/main.rs` only to preserve producer-owned source occurrences through the
+  existing private `load_program` boundary and, in the existing `"graph"`
+  command branch, require canonical graph-projection validation before the
+  unchanged serializer runs. It may not change command selection, public
+  rendering, diagnostic filtering/composition, exits, app/runtime preflight,
+  adapters, or the AO collector insertion point;
 - `src/diagnostic_catalog.rs` only for registered cause/precedence entries;
 - `src/diagnostic.rs` only for shared carrier validation;
 - focused fixtures under `fixtures/diagnostics/session_ap_*`; and
 - proportional `tools/check_all.ps1` assertions.
 
-`src/main.rs`, `src/run.rs`, `src/json.rs`, and `src/diagnostics.rs` remain
-outside AP; AQ owns final composition, runtime, and public compatibility
-closure. No Core/graph schema, documentation, decision, Cargo, editor, example,
-or unrelated fixture change is authorized.
+`src/run.rs`, `src/json.rs`, and `src/diagnostics.rs` remain outside AP. The
+graph serializer already accepts the existing public diagnostics, so AP must
+validate the canonical occurrence/projection relationship before calling it;
+changing its signature or output is unnecessary. `src/ast.rs`, `src/node_id.rs`,
+and `src/callable.rs` are also unnecessary: current parser nodes, resolver IDs,
+analyzer facts, and AO callable carriers are sufficient. AQ retains final
+collector composition, diagnostic filtering, runtime consumption, public
+compatibility closure, and removal of superseded top-level/runtime classifiers.
+No Core/graph schema, documentation other than this amendment, decision, Cargo,
+editor, example, or unrelated fixture change is authorized. If the correction
+cannot satisfy the gates below without another file, preserve the worktree and
+request a fresh reviewed amendment rather than expanding locally.
 
 ### AP static ownership rules
 
@@ -703,6 +746,93 @@ The registry must contain every fundamental reason reachable from these
 emitters. A cause key may map to an existing reason projection, but no emitter
 may provide an unregistered arbitrary reason string as identity.
 
+### AP canonical production and transport rules
+
+- Every migrated producer constructs an opaque occurrence at the boundary
+  where its semantic fact is known. Parser causes use parser-owned source-node
+  identity; resolver/type causes use resolver definitions, references, scopes,
+  and relationships; app/authority/path/predicate/ownership causes use their
+  existing analyzer-owned fact identities.
+- The occurrence is bound to its exact cause key, semantic owner, owning stage,
+  semantic origin, route, source node, required relationship sites, and sealed
+  public diagnostic projection before it leaves the producer.
+- Public code, title, severity, message, help, display name, line, column, or
+  spans may be projection evidence, but no combination of those public fields
+  may reconstruct or select cause/occurrence identity.
+- Production occurrence construction has no `code -> default cause` fallback.
+  An emitter must select one exact registered cause from its semantic reason;
+  an absent, unknown, wrong-family, or ambiguous reason is an invariant failure.
+- The parser/check/app source boundary must transport those producer-owned
+  occurrences with its diagnostics. `src/main.rs` may carry that opaque set
+  through `load_program`, but may not regenerate it, apply precedence, silently
+  deduplicate it, or become its semantic owner.
+- Every downstream set is derived by preserving exact upstream occurrences and
+  adding only occurrences constructed by the current owning analyzer. No
+  migrated path may call a helper equivalent to `from_diagnostics` or
+  `validate_owned_diagnostics` when that helper selects cause or identity from
+  public diagnostic fields.
+- Two occurrences with byte-identical public diagnostics but different
+  semantic origins or routes are different facts. Substituting either origin
+  or route into the other must fail against the producer-owned authority even
+  if code, spans, message, help, and rendered bytes remain unchanged.
+
+### AP exact precedence application
+
+Every AP precedence application is a closed internal relationship containing:
+
+```text
+registered precedence rule identity
+exact dominant occurrence and cause
+exact suppressed occurrence and cause
+registered applying owner/stage
+registered semantic relationship identity
+canonical competing source/semantic sites and route
+```
+
+Lookup by cause pair alone is insufficient. Applying a rule must validate every
+field above against the registry and the two producer-owned occurrences. The
+stage named by the rule must call that validation on the exact competing
+relationship; merely retaining current output through stage order or an
+unregistered local filter does not consume the rule.
+
+The five AP relationships record existing behavior only:
+
+- parser over resolver on the same blocked parser-owned semantic node;
+- resolver over type on the same unresolved resolver relationship;
+- authority over ownership on the same authority/ownership call route;
+- Path over Predicate v2 on the same opaque-Path inspection relationship; and
+- H0907 effect ownership over H080 ownership on the same blocked task route.
+
+Independent causes remain independent when their nodes or routes differ, even
+when their codes and spans match. A cause with the same code but another
+registered reason, the correct code pair on another node, the correct cause
+pair with another applying owner/relationship/route, or a fabricated public
+diagnostic cannot suppress.
+
+### AP authoritative Core and graph transport
+
+- Each producing/static stage yields one authoritative occurrence set plus the
+  exact prior references it consumed. A downstream stage validates its incoming
+  references against that separately supplied upstream set before preserving or
+  extending it.
+- A set may generate references for transport, but it may not prove its own
+  projection by regenerating expected references from itself. Validation always
+  names distinct authoritative-upstream and projected-downstream inputs.
+- Core preview consumes the authoritative type/static set. Core lower preserves
+  that exact set. Core verify compares the lower projection with the separately
+  supplied authoritative preview/static set; it does not merely return the
+  lower copy.
+- Profile is the final authoritative static set for AP. IR readiness validates
+  its separately carried projection against that profile set.
+- `hum graph` must actually validate the graph diagnostic projection against
+  the authoritative profile/static set before emitting the unchanged graph
+  JSON. The narrowly authorized `src/main.rs` graph branch may invoke that
+  validation; `src/json.rs` remains unchanged and receives only the same public
+  arguments and produces the same bytes.
+- Core/graph projection validation checks exact occurrence IDs, cause keys,
+  owners, stages, semantic origins, routes, required sites, sealed diagnostics,
+  order, and membership. It exposes none of those internal fields publicly.
+
 ### AP permanent evidence
 
 The static migration must independently prove:
@@ -723,6 +853,26 @@ The static migration must independently prove:
    route, primary span evidence, or required related-site set fails
    independently; and
 8. every stage's existing blocker status and issue count remain unchanged.
+
+The corrective review additionally requires independent permanent mutations
+proving:
+
+9. a public-byte-identical occurrence with a substituted semantic origin or
+   route fails against the producer-owned occurrence;
+10. another registered cause under the same code, another semantic node at the
+    same span, and the correct cause pair with the wrong applying owner,
+    relationship, route, or canonical sites cannot suppress;
+11. every one of the five AP precedence records is exercised by its named
+    production stage, while a same-code/same-line independent occurrence
+    remains visible;
+12. every stage and Core/graph projection independently rejects missing,
+    duplicate, reordered, extra, substituted, and cross-occurrence prior
+    references relative to a separately supplied authoritative upstream set;
+13. Core verification rejects a lower set corrupted without changing its
+    public blockers, and the real graph command rejects an internally corrupted
+    occurrence/projection relationship before serialization; and
+14. removing the legacy public-diagnostic reconstruction path or restoring it
+    changes a sabotage result, proving it is non-authoritative.
 
 Required new evidence names are:
 
@@ -753,14 +903,37 @@ schema, command, pipeline gate, dependency, or unrelated refactor.
 No code-prefix, same-line, message, or display-name classifier may replace a
 registered cause/precedence rule in migrated static paths.
 
+No code-only default-emitter lookup, span-derived occurrence reconstruction,
+self-derived expected projection, cause-pair-only precedence application, or
+public-byte equality may satisfy the corrective gates. The narrow
+`src/main.rs` allowance is transport/graph validation only and may not perform
+AQ's final cross-command collection, filtering, runtime consumption, or
+classifier retirement.
+
 ### AP acceptance criteria and hard stop
 
 - Every static emitter in scope uses registered cause identity.
+- Every migrated occurrence is created from its producer-owned semantic fact;
+  no production static path reconstructs identity from public diagnostics.
 - Every downstream static blocker keeps the exact origin occurrence internally.
-- Existing precedence and public output are unchanged.
-- All field and combined-cause mutations fail closed.
+- Every registered AP precedence relationship is consumed and validated by its
+  named production owner using exact occurrences, relationship, route, and
+  sites.
+- Core, IR readiness, and the real graph command validate downstream
+  projections against a separately supplied authoritative upstream set.
+- Existing precedence and every public byte/output behavior are unchanged.
+- All field, combined-cause, semantic-substitution, and projection mutations
+  fail closed.
+- The previously reported totals of 177 registered causes, 74 default static
+  emitter causes, 27 H0704 Predicate v2 reasons, and 37 reachable H080 ownership
+  reasons are implementation claims to reproduce. They are not acceptance
+  evidence and do not excuse dead, duplicate, unreachable, or fallback causes.
 - Existing H010/H060/H070/H080/H120 and authority/path matrices remain green.
 - All session and standing checks pass.
+- Stop if satisfying this amendment requires `src/json.rs`, `src/run.rs`,
+  `src/diagnostics.rs`, a new public field, changed output, runtime/top-level
+  composition behavior, or another unauthorized file. Such pressure belongs
+  to a fresh reviewed amendment or Session AQ; it is not implicit AP scope.
 - Stop. Session AQ remains unauthorized pending the complete review/commit/
   publication/CI/status cycle and a separate BDFL go signal.
 
@@ -1066,8 +1239,14 @@ Session AO is accepted and committed as
 Ubuntu job `86720630963` succeeded in 1m 58s and Windows job `86720630971`
 succeeded in 3m 16s.
 
-Session AP is next but remains unauthorized pending a separate BDFL go signal.
+Session AP was authorized and implemented on base
+`22b5e1e23bb1d9c3e137bb4b5e4ed6e9eba521a7`, then independently rejected. Its
+complete uncommitted implementation remains preserved under corrective review.
+This proposed amendment does not authorize the implementer to resume. It must
+be independently reviewed, accepted by the BDFL, committed/published with green
+Ubuntu and Windows CI, and followed by a separate BDFL corrective go signal.
+
 Session AQ and all later work remain unauthorized. No emitter migration,
-precedence change, diagnostic allocation, implementation session, decision
-ruling, commit, push, GitHub Issue #1 mutation, or scope expansion is implicitly
-authorized by this status update.
+precedence change, diagnostic allocation, correction, decision ruling, commit,
+push, GitHub Issue #1 mutation, or scope expansion is implicitly authorized by
+this amendment.
