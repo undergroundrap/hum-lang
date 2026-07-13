@@ -5,8 +5,11 @@ Status: issued by the BDFL. The independently accepted and BDFL-accepted bytes
 are commit `45796dd688f9f28bb0c3290e8029e33ee2d20802`, published by successful
 workflow `29212987679` (Ubuntu job `86703742601`, 1m 28s; Windows job
 `86703742589`, 2m 30s). Historical proposal and pre-issuance language below is
-preserved as reviewed issuance history. Session AN is next but remains
-unauthorized pending a separate BDFL go signal.
+preserved as reviewed issuance history. Session AN is accepted and committed
+as `bea73fcf3dd82abcf25633d33d0b152667566612`; workflow `29215676504`
+passed (Ubuntu job `86710967945`, 1m 32s; Windows job `86710967915`, 2m
+42s). Session AO is next but remains unauthorized pending a separate BDFL go
+signal.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -1051,7 +1054,13 @@ Work Order 9 was independently accepted, accepted by the BDFL, committed as
 workflow `29212987679`: Ubuntu job `86703742601` succeeded in 1m 28s and
 Windows job `86703742589` succeeded in 2m 30s. Work Order 9 is issued.
 
-Session AN is next but remains unauthorized pending a separate BDFL go signal.
-No diagnostic-registry implementation, code allocation, decision ruling, issue
-mutation, stdlib work, Session AR, or later implementation is authorized by
-this status update.
+Session AN is accepted and committed as
+`bea73fcf3dd82abcf25633d33d0b152667566612`. Workflow `29215676504` passed:
+Ubuntu job `86710967945` succeeded in 1m 32s and Windows job `86710967915`
+succeeded in 2m 42s.
+
+Session AO is next but remains unauthorized pending a separate BDFL go signal.
+Sessions AP-AQ and all later work remain unauthorized. No cause-carrier
+migration, emitter migration, precedence change, diagnostic allocation,
+decision ruling, implementation session, commit, push, GitHub Issue #1
+mutation, or scope expansion is implicitly authorized by this status update.
