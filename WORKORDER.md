@@ -690,6 +690,14 @@ Authorized source files are:
 - `src/type_check.rs`;
 - `src/full_type_check.rs` and `src/effect_check.rs` only to generalize AO's
   exact blocker carrier to registered AP causes;
+- `src/typed_failure.rs` only to establish, bind, and transport producer-owned
+  opaque typed-failure cause and occurrence identities required by AP's
+  independently checked precedence and downstream projections. It may not
+  reconstruct or select causes from public diagnostic codes, reason strings,
+  rendered text, display names, filenames, spans, catalog lookups, or
+  default-cause fallbacks. Typed-failure behavior, diagnostic semantics, public
+  human/JSON/runtime bytes, schemas, ordering, exits, and accepted AO behavior
+  remain unchanged;
 - `src/app_entry.rs`;
 - `src/capability_root.rs`;
 - `src/path_boundary.rs`;
@@ -714,6 +722,10 @@ Authorized source files are:
 - `src/diagnostic.rs` only for shared carrier validation;
 - focused fixtures under `fixtures/diagnostics/session_ap_*`; and
 - proportional `tools/check_all.ps1` assertions.
+
+This amendment does not accept the current AP implementation and does not
+authorize implementation to resume. Session AQ and all later work remain
+unauthorized.
 
 `src/run.rs`, `src/json.rs`, and `src/diagnostics.rs` remain outside AP. The
 graph serializer already accepts the existing public diagnostics, so AP must
