@@ -12,9 +12,14 @@ passed (Ubuntu job `86710967945`, 1m 32s; Windows job `86710967915`, 2m
 `d750a57ed5168d0d00375972aacc148a5d37e63a`; workflow `29219105868` passed
 (Ubuntu job `86720630963`, 1m 58s; Windows job `86720630971`, 3m 16s).
 Session AP was authorized and implemented, but its independent review rejected
-the uncommitted implementation. It remains authorized only for corrective
-review under the proposed amendment below; implementation may not resume until
-that amendment completes its own independent review and BDFL gate.
+the uncommitted implementation, which remains preserved under corrective
+review. The corrective amendment was independently accepted and BDFL-accepted,
+committed as `9aedcb0ba6893d51a2cd1b2e519d332d3cc5e6f4`, and published by successful
+workflow `29225093549` (Ubuntu job `86737472812`, 1m 40s; Windows job
+`86737472893`, 3m 04s). Session AP correction remains paused pending a separate
+BDFL corrective go signal. Session AQ and all later work remain unauthorized.
+The permanent adversarial-evidence integrity amendment remains queued for the
+clean boundary after Session AP closes and before Session AQ authorization.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -1242,11 +1247,14 @@ succeeded in 3m 16s.
 Session AP was authorized and implemented on base
 `22b5e1e23bb1d9c3e137bb4b5e4ed6e9eba521a7`, then independently rejected. Its
 complete uncommitted implementation remains preserved under corrective review.
-This proposed amendment does not authorize the implementer to resume. It must
-be independently reviewed, accepted by the BDFL, committed/published with green
-Ubuntu and Windows CI, and followed by a separate BDFL corrective go signal.
+The corrective amendment was independently accepted and BDFL-accepted,
+committed as `9aedcb0ba6893d51a2cd1b2e519d332d3cc5e6f4`, and published by successful
+workflow `29225093549`: Ubuntu job `86737472812` succeeded in 1m 40s and Windows
+job `86737472893` succeeded in 3m 04s. Session AP correction is next but remains
+paused pending a separate BDFL corrective go signal.
 
 Session AQ and all later work remain unauthorized. No emitter migration,
 precedence change, diagnostic allocation, correction, decision ruling, commit,
-push, GitHub Issue #1 mutation, or scope expansion is implicitly authorized by
-this amendment.
+push, GitHub Issue #1 mutation, or scope expansion is implicitly authorized.
+The permanent adversarial-evidence integrity amendment remains queued for the
+clean boundary after Session AP closes and before Session AQ authorization.
