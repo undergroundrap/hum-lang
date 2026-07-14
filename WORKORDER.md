@@ -37,11 +37,19 @@ workflow `29305696822`, attempt 1 (Ubuntu job `86998454703`, 6m 14s, including
 5m 47s in `Run Hum preflight`; Windows job `86998454696`, 9m 34s, including
 8m 50s in `Run Hum preflight`). That publication run is evidence for the
 reviewed document only; it used the existing full workflow and is not the
-future operational fast-lane trust anchor. CI implementation remains
-unauthorized pending a separate BDFL go signal. The permanent
+future operational fast-lane trust anchor. The GitHub Actions workflow-path
+correction was independently accepted and BDFL-accepted, committed as
+`0f15354e5fa4028bcc37680505326321bf147352`, and published by successful
+workflow `29309391970` (Ubuntu job `87009717248`, 5m 42s, including 5m 11s in
+`Run Hum preflight`; Windows job `87009717246`, 10m 40s, including 9m 30s in
+`Run Hum preflight`). That correction publication run used the existing full
+workflow and is document/API-shape evidence only; it is not the future
+operational fast-lane trust anchor. CI implementation remains unauthorized
+pending a separate BDFL go signal. The permanent
 adversarial-evidence integrity amendment remains unchanged, separately queued,
 and unauthorized; it follows this CI increment and still precedes Session AQ.
-Session AQ and all later work remain unauthorized.
+Integrity hardening, Session AQ, GitHub Issue #1 mutation, and all later work
+remain unauthorized.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -1789,11 +1797,21 @@ evidence for the reviewed document only. It used the existing full workflow
 and is not the future operational fast-lane trust anchor. CI implementation
 remains unauthorized pending a separate BDFL go signal.
 
+The GitHub Actions workflow-path correction was independently accepted and
+BDFL-accepted, committed as `0f15354e5fa4028bcc37680505326321bf147352`, and
+published by successful workflow `29309391970`. Ubuntu job `87009717248`
+succeeded in 5m 42s, including 5m 11s in `Run Hum preflight`; Windows job
+`87009717246` succeeded in 10m 40s, including 9m 30s in `Run Hum preflight`.
+This correction publication run used the existing full workflow and is
+document/API-shape evidence only. It is not the future operational fast-lane
+trust anchor. CI implementation remains unauthorized pending a separate BDFL
+go signal.
+
 The permanent adversarial-evidence integrity amendment remains unchanged,
-separately queued, and unauthorized after the CI increment. Session AQ and all
-later work remain unauthorized. No CI implementation, integrity amendment,
-emitter migration, precedence change, diagnostic allocation, decision ruling,
-commit, push, GitHub Issue #1 mutation, or scope expansion is implicitly
-authorized.
+separately queued, and unauthorized after the CI increment. Integrity
+hardening, Session AQ, GitHub Issue #1 mutation, and all later work remain
+unauthorized. No CI implementation, integrity amendment, emitter migration,
+precedence change, diagnostic allocation, decision ruling, commit, push, or
+scope expansion is implicitly authorized.
 
 <!-- workorder-current-authorization-gate:end -->
