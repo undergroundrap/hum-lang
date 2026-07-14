@@ -51,12 +51,27 @@ workflow `29318848522`, attempt 1. Ubuntu job `87039029980` succeeded in 6m
 32s, including 6m 07s in `Run Hum preflight`; Windows job `87039030001`
 succeeded in 13m 29s, including 12m 40s in `Run Hum preflight`. Both platforms
 selected `mode=full` with `reason=no_status_transition`. This exact commit and
-run are the first operational full-CI trust anchor. The later status-only
-publication must independently prove the production fast lane. The permanent
-adversarial-evidence integrity amendment remains unchanged, separately queued,
-and unauthorized; it follows this CI increment and still precedes Session AQ.
-Integrity hardening, Session AQ, GitHub Issue #1 mutation, and all later work
-remain unauthorized.
+run are the first operational full-CI trust anchor. The first successful
+production fast-lane publication was committed and published as
+`5da709b7456a1b71fb6ebe8c859224da71e7ce05`. Workflow `29321095009`, attempt
+1, succeeded for that exact commit. Ubuntu job `87046343669` succeeded in 1m
+07s, including 54s in `Run status-only evidence`; Windows job `87046343749`
+succeeded in 3m 29s, including 3m 04s in `Run status-only evidence`. Both
+platforms selected `mode=fast` with `reason=eligible_status_chain`, used full-
+CI anchor `7630befb97055fb099b54e56c186fe3bc202f67d` and workflow
+`29318848522`, attempt 1, and traced the exact transition
+`7630befb97055fb099b54e56c186fe3bc202f67d` ->
+`5da709b7456a1b71fb6ebe8c859224da71e7ce05`. Both succeeded in
+`Run status-only evidence` and skipped Cargo caching, Rust toolchain
+preparation, and `Run Hum preflight`. This publication proved the first fast
+transition. Publication of this evidence record is the required consecutive-
+status proof and must independently select fast on both platforms against the
+same full-CI anchor. The BDFL-authorized permanent operating-policy amendment
+remains queued for later authoring and must not begin until that consecutive
+proof reaches terminal success. The permanent adversarial-evidence integrity
+amendment remains unchanged, separately queued, and unauthorized; it follows
+this CI increment and still precedes Session AQ. Integrity hardening, Session
+AQ, GitHub Issue #1 mutation, and all later work remain unauthorized.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -1820,8 +1835,26 @@ Required full CI passed in workflow `29318848522`, attempt 1. Ubuntu job
 Windows job `87039030001` succeeded in 13m 29s, including 12m 40s in `Run Hum
 preflight`. Both platforms selected `mode=full` with
 `reason=no_status_transition`. This exact commit and run are the first
-operational full-CI trust anchor. The later status-only publication must
-independently prove the production fast lane.
+operational full-CI trust anchor.
+
+The first successful production fast-lane publication was committed and
+published as `5da709b7456a1b71fb6ebe8c859224da71e7ce05`. Workflow
+`29321095009`, attempt 1, succeeded for that exact commit. Ubuntu job
+`87046343669` succeeded in 1m 07s, including 54s in
+`Run status-only evidence`; Windows job `87046343749` succeeded in 3m 29s,
+including 3m 04s in `Run status-only evidence`. Both platforms selected
+`mode=fast` with `reason=eligible_status_chain`, used full-CI anchor
+`7630befb97055fb099b54e56c186fe3bc202f67d` and workflow `29318848522`,
+attempt 1, and traced the exact transition
+`7630befb97055fb099b54e56c186fe3bc202f67d` ->
+`5da709b7456a1b71fb6ebe8c859224da71e7ce05`. Both succeeded in
+`Run status-only evidence` and skipped Cargo caching, Rust toolchain
+preparation, and `Run Hum preflight`. This publication proved the first fast
+transition. Publication of this evidence record is the required consecutive-
+status proof and must independently select fast on both platforms against the
+same full-CI anchor. The BDFL-authorized permanent operating-policy amendment
+remains queued for later authoring and must not begin until that consecutive
+proof reaches terminal success.
 
 The permanent adversarial-evidence integrity amendment remains unchanged,
 separately queued, and unauthorized after the CI increment. Integrity
