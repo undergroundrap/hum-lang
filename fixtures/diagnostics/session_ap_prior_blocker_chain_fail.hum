@@ -1,0 +1,6 @@
+module fixtures.diagnostics.session_ap_prior_blocker_chain_fail
+
+task blocked(value: MissingType) -> UInt {
+  does:
+    return 1
+}

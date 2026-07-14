@@ -2,28 +2,68 @@ use std::collections::BTreeSet;
 
 use crate::ast::{Item, Section, SourceFile, Task, Test};
 use crate::core_body;
-use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::graph::hollow_contract_reason;
 use crate::{syntax, target_facts, writable_field_alias};
 
+#[cfg(test)]
 pub fn check_file(file: &SourceFile) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
+    check_file_with_occurrences(file).diagnostics
+}
+
+pub(crate) struct CheckOutput {
+    pub(crate) diagnostics: Vec<Diagnostic>,
+    pub(crate) diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
+}
+
+struct CheckCollector {
+    semantic_file_index: usize,
+    diagnostics: Vec<Diagnostic>,
+    diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
+}
+
+#[cfg(test)]
+pub(crate) fn check_file_with_occurrences(file: &SourceFile) -> CheckOutput {
+    check_file_with_semantic_index(file, 0)
+}
+
+pub(crate) fn check_file_with_semantic_index(
+    file: &SourceFile,
+    semantic_file_index: usize,
+) -> CheckOutput {
+    let mut diagnostics = CheckCollector {
+        semantic_file_index,
+        diagnostics: Vec::new(),
+        diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet::default(),
+    };
     for item in &file.items {
         check_item(item, &mut diagnostics);
     }
     diagnostics
+        .diagnostic_occurrences
+        .validate()
+        .expect("intent and target checks must use registered causes");
+    CheckOutput {
+        diagnostics: diagnostics.diagnostics,
+        diagnostic_occurrences: diagnostics.diagnostic_occurrences,
+    }
 }
 
-fn check_item(item: &Item, diagnostics: &mut Vec<Diagnostic>) {
+fn check_item(item: &Item, diagnostics: &mut CheckCollector) {
     match item {
         Item::App(app) => {
             check_target_declarations("app", &app.name, &app.sections, diagnostics);
             if app.section("why").is_none() {
-                diagnostics.push(Diagnostic::warning(
-                    DiagnosticCode::APP_MISSING_WHY,
-                    format!("app `{}` has no `why:` section", app.name),
-                    Some(app.span.clone()),
-                ));
+                emit(
+                    diagnostics,
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(57),
+                    "app",
+                    Diagnostic::warning(
+                        DiagnosticCode::APP_MISSING_WHY,
+                        format!("app `{}` has no `why:` section", app.name),
+                        Some(app.span.clone()),
+                    ),
+                );
             }
             for item in &app.items {
                 check_item(item, diagnostics);
@@ -32,28 +72,43 @@ fn check_item(item: &Item, diagnostics: &mut Vec<Diagnostic>) {
         Item::Type(type_def) => {
             check_target_declarations("type", &type_def.name, &type_def.sections, diagnostics);
             if type_def.fields.is_empty() && type_def.section("keeps").is_none() {
-                diagnostics.push(Diagnostic::warning(
-                    DiagnosticCode::TYPE_MISSING_SHAPE,
-                    format!("type `{}` has no fields or invariant", type_def.name),
-                    Some(type_def.span.clone()),
-                ));
+                emit(
+                    diagnostics,
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(58),
+                    "type",
+                    Diagnostic::warning(
+                        DiagnosticCode::TYPE_MISSING_SHAPE,
+                        format!("type `{}` has no fields or invariant", type_def.name),
+                        Some(type_def.span.clone()),
+                    ),
+                );
             }
         }
         Item::Store(store) => {
             check_target_declarations("store", &store.name, &store.sections, diagnostics);
             if store.ty.is_empty() {
-                diagnostics.push(Diagnostic::warning(
-                    DiagnosticCode::STORE_MISSING_TYPE,
-                    format!("store `{}` does not declare a type", store.name),
-                    Some(store.span.clone()),
-                ));
+                emit(
+                    diagnostics,
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(59),
+                    "store_type",
+                    Diagnostic::warning(
+                        DiagnosticCode::STORE_MISSING_TYPE,
+                        format!("store `{}` does not declare a type", store.name),
+                        Some(store.span.clone()),
+                    ),
+                );
             }
             if store.section("why").is_none() && store.section("expects").is_none() {
-                diagnostics.push(Diagnostic::warning(
-                    DiagnosticCode::STORE_MISSING_PURPOSE,
-                    format!("store `{}` has no `why:` or `expects:` section", store.name),
-                    Some(store.span.clone()),
-                ));
+                emit(
+                    diagnostics,
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(60),
+                    "store_purpose",
+                    Diagnostic::warning(
+                        DiagnosticCode::STORE_MISSING_PURPOSE,
+                        format!("store `{}` has no `why:` or `expects:` section", store.name),
+                        Some(store.span.clone()),
+                    ),
+                );
             }
         }
         Item::Task(task) => check_task(task, diagnostics),
@@ -61,11 +116,11 @@ fn check_item(item: &Item, diagnostics: &mut Vec<Diagnostic>) {
     }
 }
 
-fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
+fn check_task(task: &Task, diagnostics: &mut CheckCollector) {
     check_target_declarations("task", &task.name, &task.sections, diagnostics);
 
     if task.name == "stdout_write" {
-        diagnostics.push(
+        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(103), "task_name",
             Diagnostic::error(
                 DiagnosticCode::RESERVED_BUILTIN_NAME,
                 "task `stdout_write` redeclares Hum's reserved bounded-output built-in",
@@ -78,7 +133,7 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     }
 
     if task.name == "clock_replay_tick" {
-        diagnostics.push(
+        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(104), "task_name",
             Diagnostic::error(
                 DiagnosticCode::RESERVED_REPLAY_BUILTIN_NAME,
                 "task `clock_replay_tick` redeclares Hum's reserved runner-replay built-in",
@@ -91,7 +146,7 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     }
 
     if task.name == "files_read_text" {
-        diagnostics.push(
+        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(105), "task_name",
             Diagnostic::error(
                 DiagnosticCode::RESERVED_FILE_READ_BUILTIN_NAME,
                 "task `files_read_text` redeclares Hum's reserved hardened file-read built-in",
@@ -104,7 +159,7 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     }
 
     if task.section("why").is_none() && task_missing_why_is_suspicious(task) {
-        diagnostics.push(
+        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(61), "task_why",
             Diagnostic::warning(
                 DiagnosticCode::MISSING_REQUIRED_SECTION,
                 format!("task `{}` is missing `why:` for nontrivial behavior", task.name),
@@ -133,7 +188,7 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     );
 
     if task.section("needs").is_none() && task_missing_needs_is_suspicious(task) {
-        diagnostics.push(
+        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(63), "task_needs",
             Diagnostic::warning(
                 DiagnosticCode::TASK_MISSING_NEEDS,
                 format!("task `{}` has no `needs:` section for a risky boundary", task.name),
@@ -146,7 +201,7 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
         && task.section("ensures").is_none()
         && task_missing_ensures_is_suspicious(task)
     {
-        diagnostics.push(
+        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(65), "task_ensures",
             Diagnostic::warning(
                 DiagnosticCode::TASK_MISSING_ENSURES,
                 format!(
@@ -165,11 +220,14 @@ fn check_task(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     check_security_contracts(task, diagnostics);
 }
 
-fn check_test(test: &Test, diagnostics: &mut Vec<Diagnostic>) {
+fn check_test(test: &Test, diagnostics: &mut CheckCollector) {
     check_target_declarations("test", &test.name, &test.sections, diagnostics);
 
     if test.section("why").is_none() && test_missing_why_is_suspicious(test) {
-        diagnostics.push(
+        emit(
+            diagnostics,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(61),
+            "test_why",
             Diagnostic::warning(
                 DiagnosticCode::MISSING_REQUIRED_SECTION,
                 format!(
@@ -203,11 +261,16 @@ fn check_test(test: &Test, diagnostics: &mut Vec<Diagnostic>) {
     );
 
     if test.section("covers").is_none() {
-        diagnostics.push(Diagnostic::warning(
-            DiagnosticCode::TEST_MISSING_COVERS,
-            format!("test `{}` has no `covers:` section", test.name),
-            Some(test.span.clone()),
-        ));
+        emit(
+            diagnostics,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(76),
+            "test_covers",
+            Diagnostic::warning(
+                DiagnosticCode::TEST_MISSING_COVERS,
+                format!("test `{}` has no `covers:` section", test.name),
+                Some(test.span.clone()),
+            ),
+        );
     }
 
     if test
@@ -216,7 +279,10 @@ fn check_test(test: &Test, diagnostics: &mut Vec<Diagnostic>) {
         .any(|modifier| modifier == "regression")
         && test.section("regression").is_none()
     {
-        diagnostics.push(
+        emit(
+            diagnostics,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(77),
+            "test_regression",
             Diagnostic::warning(
                 DiagnosticCode::REGRESSION_MISSING_NOTE,
                 format!("regression test `{}` has no `regression:` note", test.name),
@@ -304,7 +370,7 @@ fn check_target_declarations(
     kind: &str,
     item_name: &str,
     sections: &[Section],
-    diagnostics: &mut Vec<Diagnostic>,
+    diagnostics: &mut CheckCollector,
 ) {
     for section in sections.iter().filter(|section| section.name == "targets") {
         let mut target_records = Vec::new();
@@ -317,7 +383,7 @@ fn check_target_declarations(
                     if target_facts::is_known_target_fact_record(&value) {
                         target_records.push(value);
                     } else {
-                        diagnostics.push(
+                        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(118), "target_record",
                             Diagnostic::error(
                                 DiagnosticCode::UNKNOWN_TARGET_FACT_RECORD,
                                 format!(
@@ -335,7 +401,7 @@ fn check_target_declarations(
                     if target_facts::is_known_capability_family(&value) {
                         required_capability_families.push((value, line.span.clone()));
                     } else {
-                        diagnostics.push(
+                        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(119), "target_requires",
                             Diagnostic::error(
                                 DiagnosticCode::UNKNOWN_CAPABILITY_FAMILY,
                                 format!(
@@ -353,7 +419,7 @@ fn check_target_declarations(
                     if target_facts::is_known_capability_family(&value) {
                         denied_capability_families.push((value, line.span.clone()));
                     } else {
-                        diagnostics.push(
+                        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(119), "target_denies",
                             Diagnostic::error(
                                 DiagnosticCode::UNKNOWN_CAPABILITY_FAMILY,
                                 format!(
@@ -367,7 +433,7 @@ fn check_target_declarations(
                         );
                     }
                 }
-                None => diagnostics.push(
+                None => emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(120), "target_line",
                     Diagnostic::error(
                         DiagnosticCode::UNSUPPORTED_TARGET_DECLARATION,
                         format!(
@@ -391,7 +457,7 @@ fn check_target_declarations(
         for (family, span) in &denied_capability_families {
             if required_names.contains(family.as_str()) && emitted_conflicts.insert(family.clone())
             {
-                diagnostics.push(
+                emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(122), "target_conflict",
                     Diagnostic::error(
                         DiagnosticCode::CONFLICTING_TARGET_CAPABILITY,
                         format!(
@@ -423,7 +489,7 @@ fn check_target_declarations(
                         span.column,
                     ))
                 {
-                    diagnostics.push(
+                    emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(121), "target_requirement",
                         Diagnostic::error(
                             DiagnosticCode::REQUIRED_CAPABILITY_UNAVAILABLE,
                             format!(
@@ -449,26 +515,36 @@ fn require_section(
     span: &Span,
     section: Option<&Section>,
     section_name: &str,
-    diagnostics: &mut Vec<Diagnostic>,
+    diagnostics: &mut CheckCollector,
 ) {
     if section.is_none() {
-        diagnostics.push(Diagnostic::error(
-            code,
-            format!("{kind} `{name}` is missing `{section_name}:`"),
-            Some(span.clone()),
-        ));
+        emit(
+            diagnostics,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(61),
+            "required_section",
+            Diagnostic::error(
+                code,
+                format!("{kind} `{name}` is missing `{section_name}:`"),
+                Some(span.clone()),
+            ),
+        );
     }
 }
 
-fn warn_duplicate_sections(sections: &[Section], diagnostics: &mut Vec<Diagnostic>) {
+fn warn_duplicate_sections(sections: &[Section], diagnostics: &mut CheckCollector) {
     let mut seen = BTreeSet::new();
     for section in sections {
         if !seen.insert(section.name.clone()) {
-            diagnostics.push(Diagnostic::warning(
-                DiagnosticCode::DUPLICATE_SECTION,
-                format!("duplicate `{}` section", section.name),
-                Some(section.span.clone()),
-            ));
+            emit(
+                diagnostics,
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(62),
+                "duplicate_section",
+                Diagnostic::warning(
+                    DiagnosticCode::DUPLICATE_SECTION,
+                    format!("duplicate `{}` section", section.name),
+                    Some(section.span.clone()),
+                ),
+            );
         }
     }
 }
@@ -478,7 +554,7 @@ fn warn_section_order(
     item_name: &str,
     sections: &[Section],
     expected_order: &[&str],
-    diagnostics: &mut Vec<Diagnostic>,
+    diagnostics: &mut CheckCollector,
 ) {
     let mut last_position = None;
     let mut last_section = None;
@@ -495,7 +571,10 @@ fn warn_section_order(
             && position < previous_position
         {
             let previous = last_section.unwrap_or("an earlier section");
-            diagnostics.push(
+            emit(
+                diagnostics,
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(64),
+                "section_order",
                 Diagnostic::warning(
                     DiagnosticCode::SECTION_OUT_OF_ORDER,
                     format!(
@@ -518,7 +597,7 @@ fn warn_section_order(
     }
 }
 
-fn check_contract_quality(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
+fn check_contract_quality(task: &Task, diagnostics: &mut CheckCollector) {
     for section_name in [
         "needs",
         "ensures",
@@ -536,7 +615,10 @@ fn check_contract_quality(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
             let Some(reason) = hollow_contract_reason(&line.text) else {
                 continue;
             };
-            diagnostics.push(
+            emit(
+                diagnostics,
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(66),
+                "contract_line",
                 Diagnostic::warning(
                     DiagnosticCode::HOLLOW_CONTRACT_LINE,
                     format!(
@@ -553,7 +635,7 @@ fn check_contract_quality(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     }
 }
 
-fn check_declared_mutation(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
+fn check_declared_mutation(task: &Task, diagnostics: &mut CheckCollector) {
     let Some(does) = task.section("does") else {
         return;
     };
@@ -573,7 +655,10 @@ fn check_declared_mutation(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
         if let Some(target) = save_target(&line.text)
             && !declared_changes.contains(&target)
         {
-            diagnostics.push(
+            emit(
+                diagnostics,
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(67),
+                "save_target",
                 Diagnostic::error(
                     DiagnosticCode::UNDECLARED_SAVE_TARGET,
                     format!(
@@ -593,7 +678,7 @@ fn check_declared_mutation(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
             && !local_mutables.contains(&target)
             && !parameter_roots.contains(&target)
         {
-            diagnostics.push(
+            emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(68), "set_target",
                 Diagnostic::error(
                     DiagnosticCode::UNDECLARED_SET_TARGET,
                     format!(
@@ -610,10 +695,10 @@ fn check_declared_mutation(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     }
 }
 
-fn check_cost_contract(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
+fn check_cost_contract(task: &Task, diagnostics: &mut CheckCollector) {
     let Some(cost) = task.section("cost") else {
         if task_missing_cost_is_suspicious(task) {
-            diagnostics.push(
+            emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(69), "task_cost",
                 Diagnostic::warning(
                     DiagnosticCode::TASK_MISSING_COST,
                     format!("task `{}` has no `cost:` section for nontrivial work", task.name),
@@ -629,23 +714,33 @@ fn check_cost_contract(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     let time = cost_value(cost, "time");
 
     if check.is_none() {
-        diagnostics.push(Diagnostic::warning(
-            DiagnosticCode::COST_MISSING_CHECK,
-            format!("task `{}` has `cost:` but no `check:` level", task.name),
-            Some(cost.span.clone()),
-        ));
+        emit(
+            diagnostics,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(70),
+            "cost_check",
+            Diagnostic::warning(
+                DiagnosticCode::COST_MISSING_CHECK,
+                format!("task `{}` has `cost:` but no `check:` level", task.name),
+                Some(cost.span.clone()),
+            ),
+        );
         return;
     }
 
     if matches!(check.as_deref(), Some("compile")) && time.is_none() {
-        diagnostics.push(Diagnostic::error(
-            DiagnosticCode::COMPILE_COST_MISSING_TIME,
-            format!(
-                "task `{}` uses compile-time cost checking without `time:`",
-                task.name
+        emit(
+            diagnostics,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(71),
+            "cost_time",
+            Diagnostic::error(
+                DiagnosticCode::COMPILE_COST_MISSING_TIME,
+                format!(
+                    "task `{}` uses compile-time cost checking without `time:`",
+                    task.name
+                ),
+                Some(cost.span.clone()),
             ),
-            Some(cost.span.clone()),
-        ));
+        );
     }
 
     let Some(does) = task.section("does") else {
@@ -656,7 +751,7 @@ fn check_cost_contract(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
         if matches!(time.as_deref(), Some(value) if value == "O(1)") {
             for line in meaningful_lines(does) {
                 if line.text.starts_with("for each ") {
-                    diagnostics.push(
+                    emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(72), "cost_loop",
                         Diagnostic::error(
                             DiagnosticCode::CONSTANT_COST_HAS_FOR_EACH,
                             format!(
@@ -673,7 +768,7 @@ fn check_cost_contract(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
 
         for line in meaningful_lines(does) {
             if line.text.starts_with("while ") && !line.text.chars().any(|ch| ch.is_ascii_digit()) {
-                diagnostics.push(
+                emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(73), "cost_while",
                     Diagnostic::error(
                         DiagnosticCode::COMPILE_COST_UNBOUNDED_WHILE,
                         format!(
@@ -689,7 +784,7 @@ fn check_cost_contract(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     }
 }
 
-fn check_security_contracts(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
+fn check_security_contracts(task: &Task, diagnostics: &mut CheckCollector) {
     let uses_security_source = task
         .section("uses")
         .map(|section| {
@@ -703,7 +798,10 @@ fn check_security_contracts(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
         .unwrap_or(false);
 
     if uses_security_source && task.section("protects").is_none() {
-        diagnostics.push(
+        emit(
+            diagnostics,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(74),
+            "security_protects",
             Diagnostic::warning(
                 DiagnosticCode::SECURITY_MISSING_PROTECTS,
                 format!(
@@ -717,15 +815,46 @@ fn check_security_contracts(task: &Task, diagnostics: &mut Vec<Diagnostic>) {
     }
 
     if task.section("trusts").is_some() && task.section("protects").is_none() {
-        diagnostics.push(Diagnostic::warning(
-            DiagnosticCode::TRUSTS_MISSING_PROTECTS,
-            format!(
-                "task `{}` declares `trusts:` without `protects:`",
-                task.name
+        emit(
+            diagnostics,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(75),
+            "security_trusts",
+            Diagnostic::warning(
+                DiagnosticCode::TRUSTS_MISSING_PROTECTS,
+                format!(
+                    "task `{}` declares `trusts:` without `protects:`",
+                    task.name
+                ),
+                Some(task.span.clone()),
             ),
-            Some(task.span.clone()),
-        ));
+        );
     }
+}
+
+fn emit(
+    diagnostics: &mut CheckCollector,
+    cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
+    node_role: &'static str,
+    diagnostic: Diagnostic,
+) {
+    let event = diagnostics.diagnostics.len();
+    let semantic_origin = format!(
+        "check-node:file-{file_index}:event-{event}:role-{node_role}",
+        file_index = diagnostics.semantic_file_index,
+    );
+    let route = vec![
+        format!("check_file_index={}", diagnostics.semantic_file_index),
+        format!("check_event={event}"),
+        format!("check_node_role={node_role}"),
+    ];
+    let (diagnostic, occurrence) =
+        DiagnosticOccurrence::producer_diagnostic(cause_key, diagnostic, semantic_origin, route)
+            .expect("check diagnostic cause and producer identity must be registered");
+    diagnostics
+        .diagnostic_occurrences
+        .insert_owned(occurrence)
+        .expect("check diagnostic occurrences must be unique");
+    diagnostics.diagnostics.push(diagnostic);
 }
 
 fn section_resource_set(section: &Section) -> BTreeSet<String> {
@@ -804,6 +933,42 @@ mod tests {
     use super::check_file;
     use crate::diagnostic::{DiagnosticCode, Severity};
     use crate::parser::parse_source;
+
+    #[test]
+    fn producer_identity_is_unique_across_files_with_matching_check_events() {
+        let source = "type Empty {\n}\n";
+        let first = parse_source("first.hum", source);
+        let second = parse_source("second.hum", source);
+        let first_checked = super::check_file_with_semantic_index(&first.file, 0);
+        let second_checked = super::check_file_with_semantic_index(&second.file, 1);
+        let mut combined = first_checked.diagnostic_occurrences;
+        combined
+            .extend_owned(&second_checked.diagnostic_occurrences)
+            .expect("file-owned check occurrences must remain distinct");
+        assert_eq!(combined.occurrences().count(), 2);
+    }
+
+    #[test]
+    fn check_occurrence_identity_does_not_depend_on_display_path() {
+        let source = "type Empty {\n}\n";
+        let first = parse_source("first-display.hum", source);
+        let renamed = parse_source("renamed-display.hum", source);
+        let first = super::check_file_with_semantic_index(&first.file, 7);
+        let renamed = super::check_file_with_semantic_index(&renamed.file, 7);
+        let first = first
+            .diagnostic_occurrences
+            .occurrences()
+            .next()
+            .expect("check occurrence");
+        let renamed = renamed
+            .diagnostic_occurrences
+            .occurrences()
+            .next()
+            .expect("renamed check occurrence");
+        assert_eq!(first.semantic_origin(), renamed.semantic_origin());
+        assert_eq!(first.relationship_route(), renamed.relationship_route());
+        assert!(!first.semantic_origin().contains(".hum"));
+    }
 
     #[test]
     fn rejects_unknown_target_declarations() {

@@ -1,0 +1,15 @@
+app session_ap_path_predicate_precedence {
+  why:
+    preserve opaque Path ownership ahead of Predicate v2 inspection
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Unit {
+    ensures:
+      input == input
+
+    does:
+      return
+  }
+}

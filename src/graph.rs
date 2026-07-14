@@ -1,4 +1,5 @@
 use crate::ast::{Item, Program, Section, SectionLine, Task, Test};
+use crate::diagnostic::{DiagnosticInvariantError, DiagnosticOccurrenceSet, DiagnosticProjection};
 use crate::node_id;
 use crate::syntax;
 
@@ -163,6 +164,13 @@ pub fn is_meaningful_line_text(text: &str) -> bool {
     !text.is_empty() && !text.starts_with('#') && !text.starts_with("//")
 }
 
+pub(crate) fn validate_diagnostic_occurrence_projection(
+    authoritative: &DiagnosticOccurrenceSet,
+    projected: &DiagnosticProjection,
+) -> Result<(), DiagnosticInvariantError> {
+    projected.validate_against("graph", authoritative)
+}
+
 pub fn hollow_contract_reason(text: &str) -> Option<&'static str> {
     let lower = text.trim().to_ascii_lowercase();
     let compact = lower.split_whitespace().collect::<String>();
@@ -298,6 +306,78 @@ mod tests {
     };
     use crate::ast::SectionLine;
     use crate::diagnostic::Span;
+
+    #[test]
+    fn graph_rejects_corrupt_occurrence_projection_before_serialization() {
+        let source =
+            include_str!("../fixtures/diagnostics/session_ap_parser_resolver_precedence_fail.hum");
+        let parsed = crate::parser::parse_source(
+            "fixtures/diagnostics/session_ap_parser_resolver_precedence_fail.hum",
+            source,
+        );
+        let checked = crate::check::check_file_with_occurrences(&parsed.file);
+        let mut source_occurrences = parsed.diagnostic_occurrences.clone();
+        source_occurrences
+            .extend_owned(&checked.diagnostic_occurrences)
+            .expect("source authority");
+        let mut diagnostics = parsed.diagnostics;
+        diagnostics.extend(checked.diagnostics);
+        let program = crate::ast::Program {
+            files: vec![parsed.file],
+        };
+        let mut transport = crate::profile_check::diagnostic_transport_from_source(
+            &program,
+            &diagnostics,
+            &source_occurrences,
+        )
+        .expect("profile-owned graph transport");
+        super::validate_diagnostic_occurrence_projection(
+            transport.authoritative(),
+            transport.graph_projection(),
+        )
+        .expect("canonical graph projection");
+
+        let authoritative = transport.authoritative().clone();
+        let canonical = transport.graph_projection().clone();
+        transport
+            .graph_projection_mut_for_test()
+            .prior_blockers_mut_for_test()
+            .pop();
+        assert!(
+            super::validate_diagnostic_occurrence_projection(
+                &authoritative,
+                transport.graph_projection(),
+            )
+            .is_err()
+        );
+        let mut substituted = canonical.clone();
+        substituted.prior_blockers_mut_for_test()[0]
+            .relationship_route
+            .push("substituted".to_string());
+        assert!(
+            super::validate_diagnostic_occurrence_projection(&authoritative, &substituted).is_err()
+        );
+
+        let mut duplicate = canonical.clone();
+        let first = duplicate.prior_blockers_mut_for_test()[0].clone();
+        duplicate.prior_blockers_mut_for_test().push(first.clone());
+        assert!(
+            super::validate_diagnostic_occurrence_projection(&authoritative, &duplicate).is_err()
+        );
+
+        let mut reordered = canonical.clone();
+        if reordered.prior_blockers_mut_for_test().len() > 1 {
+            reordered.prior_blockers_mut_for_test().swap(0, 1);
+            assert!(
+                super::validate_diagnostic_occurrence_projection(&authoritative, &reordered)
+                    .is_err()
+            );
+        }
+
+        let mut extra = canonical;
+        extra.prior_blockers_mut_for_test().push(first);
+        assert!(super::validate_diagnostic_occurrence_projection(&authoritative, &extra).is_err());
+    }
 
     #[test]
     fn coverage_key_normalizes_case_and_punctuation_only() {

@@ -4,13 +4,15 @@ use crate::core_body::{self, BodyGrammarReport, BodyStatement};
 use crate::core_contract;
 use crate::core_expr::{self, CoreExpressionPreview};
 use crate::core_preview;
-use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::diagnostic::{
+    Diagnostic, DiagnosticOccurrenceSet, DiagnosticProjection, Severity, Span,
+};
 use crate::ir_contract;
 use crate::node_id;
 use crate::predicate::{self, PredicateFact, RecognitionStatus};
 use crate::resolve;
 use crate::type_check::{self, CheckedReturnSummary};
-use crate::typed_failure::{self, FailureCatalog, FailureFact};
+use crate::typed_failure::{self, FailureFact, ProgramFailureAnalysis};
 use crate::version;
 
 pub const CORE_LOWER_SCHEMA: &str = "hum.core_lower.v0";
@@ -62,6 +64,8 @@ pub(crate) struct CoreLowerReport {
     pub(crate) type_errors: usize,
     pub(crate) preview_blocked_statements: usize,
     pub(crate) core_items: Vec<CoreLowerItem>,
+    pub(crate) diagnostic_occurrences: DiagnosticOccurrenceSet,
+    pub(crate) diagnostic_projection: DiagnosticProjection,
 }
 
 pub(crate) struct CoreLowerItem {
@@ -287,11 +291,21 @@ pub(crate) fn build_core_lower_report(
     program: &Program,
     diagnostics: &[Diagnostic],
 ) -> CoreLowerReport {
+    let preview_authority = core_preview::diagnostic_occurrence_set(program, diagnostics);
+    build_core_lower_report_from_preview(program, diagnostics, &preview_authority)
+        .expect("Core lower must carry one producer-supplied preview projection")
+}
+
+pub(crate) fn build_core_lower_report_from_preview(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    preview_authority: &DiagnosticOccurrenceSet,
+) -> Result<CoreLowerReport, crate::diagnostic::DiagnosticInvariantError> {
     let resolve_summary = resolve::resolve_readiness_summary(program, diagnostics);
     let type_check_summary = type_check::type_check_summary(program, diagnostics);
     let core_preview_summary = core_preview::core_preview_readiness_summary(program, diagnostics);
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
-    let failure_catalog = FailureCatalog::from_program(program);
+    let failure_analysis = typed_failure::analyze_program(program);
     let predicate_facts = predicate::analyze_program(program);
     let errors = diagnostics
         .iter()
@@ -307,13 +321,13 @@ pub(crate) fn build_core_lower_report(
             errors,
             resolve_summary.resolver_errors,
             type_check_summary.type_errors,
-            &failure_catalog,
+            &failure_analysis,
             predicate_facts.facts(),
             &mut core_items,
         );
     }
 
-    CoreLowerReport {
+    Ok(CoreLowerReport {
         files: program.files.len(),
         items: count_items(program),
         tasks: count_kind(program, "task"),
@@ -326,11 +340,23 @@ pub(crate) fn build_core_lower_report(
         type_errors: type_check_summary.type_errors,
         preview_blocked_statements: core_preview_summary.blocked_statements,
         core_items,
-    }
+        diagnostic_occurrences: preview_authority.clone(),
+        diagnostic_projection: DiagnosticProjection::from_upstream(
+            "core_lower",
+            preview_authority,
+        )?,
+    })
 }
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreLowerReport {
     build_core_lower_report(program, diagnostics)
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_projection_from_preview(
+    preview_authority: &DiagnosticOccurrenceSet,
+) -> Result<DiagnosticProjection, crate::diagnostic::DiagnosticInvariantError> {
+    DiagnosticProjection::from_upstream("core_lower", preview_authority)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -340,7 +366,7 @@ fn collect_items(
     source_errors: usize,
     resolver_errors: usize,
     type_errors: usize,
-    failure_catalog: &FailureCatalog,
+    failure_analysis: &ProgramFailureAnalysis,
     predicate_facts: &[PredicateFact],
     core_items: &mut Vec<CoreLowerItem>,
 ) {
@@ -351,7 +377,7 @@ fn collect_items(
             source_errors,
             resolver_errors,
             type_errors,
-            failure_catalog,
+            failure_analysis,
             predicate_facts,
         ) {
             core_items.push(core_item);
@@ -363,7 +389,7 @@ fn collect_items(
                 source_errors,
                 resolver_errors,
                 type_errors,
-                failure_catalog,
+                failure_analysis,
                 predicate_facts,
                 core_items,
             );
@@ -377,7 +403,7 @@ fn core_item(
     source_errors: usize,
     resolver_errors: usize,
     type_errors: usize,
-    failure_catalog: &FailureCatalog,
+    failure_analysis: &ProgramFailureAnalysis,
     predicate_facts: &[PredicateFact],
 ) -> Option<CoreLowerItem> {
     let does = item_sections(item)
@@ -385,7 +411,7 @@ fn core_item(
         .find(|section| section.name == "does")?;
     let body = core_body::analyze_does_section(does);
     let failure_analysis = match item {
-        Item::Task(task) => typed_failure::analyze_task(task, &body.statements, failure_catalog),
+        Item::Task(task) => failure_analysis.task(task).cloned().unwrap_or_default(),
         _ => Default::default(),
     };
     let operations = lower_operations(

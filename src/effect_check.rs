@@ -5,7 +5,7 @@ use crate::callable;
 use crate::capability_root::{self, CapabilityRouteFact};
 use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
-use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticOccurrenceSet, Severity, Span};
 use crate::full_type_check;
 use crate::graph::is_meaningful_line_text;
 use crate::typed_failure::{self, FailureFact, ProgramFailureAnalysis};
@@ -81,6 +81,8 @@ struct EffectCheckReport {
     source_errors: usize,
     callable_blockers: usize,
     prior_blockers: Vec<crate::diagnostic::PriorBlockerRef>,
+    static_prior_blockers: Vec<crate::diagnostic::PriorBlockerRef>,
+    diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
 struct EffectItem {
@@ -419,6 +421,24 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckRep
         }
     }
 
+    let mut diagnostic_occurrences =
+        full_type_check::diagnostic_occurrence_set(program, diagnostics);
+    let projection = diagnostic_projection_from_full_type(&diagnostic_occurrences)
+        .expect("effect check must carry one sealed full-type projection");
+    projection
+        .validate_against("effect_check", &diagnostic_occurrences)
+        .expect("effect check must validate its full-type authority");
+    for occurrence in failure_analysis
+        .occurrences()
+        .into_iter()
+        .filter(|occurrence| occurrence.owning_stage() == "effect_check")
+    {
+        diagnostic_occurrences
+            .insert_owned(occurrence)
+            .expect("effect-owned typed-failure occurrences must remain unique");
+    }
+    let static_prior_blockers = diagnostic_occurrences.prior_blockers();
+
     EffectCheckReport {
         full_type_check_summary,
         items,
@@ -431,7 +451,49 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckRep
             .iter()
             .map(|occurrence| occurrence.prior_blocker())
             .collect(),
+        static_prior_blockers,
+        diagnostic_occurrences,
     }
+}
+
+pub(crate) fn diagnostic_occurrence_set(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> DiagnosticOccurrenceSet {
+    build_report(program, diagnostics).diagnostic_occurrences
+}
+
+pub(crate) fn diagnostic_occurrence_set_from_source(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
+) -> Result<DiagnosticOccurrenceSet, crate::diagnostic::DiagnosticInvariantError> {
+    let mut occurrences = full_type_check::diagnostic_occurrence_set_from_source(
+        program,
+        diagnostics,
+        source_occurrences,
+    )?;
+    let projection = diagnostic_projection_from_full_type(&occurrences)?;
+    projection.validate_against("effect_check", &occurrences)?;
+    let report = build_report(program, diagnostics);
+    occurrences.extend_owned_stage(&report.diagnostic_occurrences, "effect_check")?;
+    Ok(occurrences)
+}
+
+pub(crate) fn diagnostic_projection_from_full_type(
+    occurrences: &DiagnosticOccurrenceSet,
+) -> Result<crate::diagnostic::DiagnosticProjection, crate::diagnostic::DiagnosticInvariantError> {
+    crate::diagnostic::DiagnosticProjection::from_upstream("effect_check", occurrences)
+}
+
+pub(crate) fn validate_static_prior_blocker_projection(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> Result<(), crate::diagnostic::DiagnosticInvariantError> {
+    let report = build_report(program, diagnostics);
+    report
+        .diagnostic_occurrences
+        .validate_prior_blockers(&report.static_prior_blockers)
 }
 
 fn collect_items(

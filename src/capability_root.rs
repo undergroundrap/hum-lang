@@ -2,11 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::app_entry;
 use crate::ast::{App, Item, Program, Section, SectionLine, Task};
-use crate::core_body;
-use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::graph::is_meaningful_line_text;
 use crate::node_id;
-use crate::typed_failure;
 
 pub(crate) const CAPABILITY_IDS: &[&str] = &["stdout.write", "clock.replay", "files.read"];
 
@@ -59,6 +57,7 @@ pub(crate) struct CapabilitySpec {
 #[derive(Debug, Clone)]
 pub(crate) struct CapabilityRouteFact {
     pub id: String,
+    pub owner_task_identity: Option<String>,
     pub owner_task_span: Span,
     pub primary_span: Span,
     pub check: &'static str,
@@ -85,12 +84,14 @@ pub(crate) struct CapabilityRouteFact {
     pub route_tasks: Vec<String>,
     pub route_spans: Vec<Span>,
     pub help: Option<String>,
+    resolver_call: Option<crate::resolve::ResolveCallOccurrenceSummary>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CapabilityAnalysis {
     pub diagnostics: Vec<Diagnostic>,
     pub routes: Vec<CapabilityRouteFact>,
+    pub(crate) diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,6 +130,7 @@ struct Requirement {
     declaration_span: Span,
     route_tasks: Vec<String>,
     route_spans: Vec<Span>,
+    route_calls: Vec<crate::resolve::ResolveCallOccurrenceSummary>,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +146,7 @@ struct UnknownRequirement {
 struct CallEdge {
     callee: String,
     span: Span,
+    resolver_call: crate::resolve::ResolveCallOccurrenceSummary,
 }
 
 struct TaskNode<'a> {
@@ -151,9 +154,9 @@ struct TaskNode<'a> {
     capabilities: BTreeMap<SourceCapability, Span>,
     unknown_capabilities: Vec<(String, Span)>,
     calls: Vec<CallEdge>,
-    output_calls: Vec<Span>,
-    replay_calls: Vec<Span>,
-    file_calls: Vec<Span>,
+    output_calls: Vec<crate::resolve::ResolveCallOccurrenceSummary>,
+    replay_calls: Vec<crate::resolve::ResolveCallOccurrenceSummary>,
+    file_calls: Vec<crate::resolve::ResolveCallOccurrenceSummary>,
 }
 
 struct TaskGraph<'a> {
@@ -165,6 +168,7 @@ struct TaskGraph<'a> {
 struct ReachableOutputRoute {
     task: String,
     call_span: Span,
+    resolver_call: crate::resolve::ResolveCallOccurrenceSummary,
     task_route: Vec<String>,
     call_route: Vec<Span>,
 }
@@ -173,6 +177,7 @@ struct ReachableOutputRoute {
 struct ReachableReplayRoute {
     task: String,
     call_span: Span,
+    resolver_call: crate::resolve::ResolveCallOccurrenceSummary,
     task_route: Vec<String>,
     call_route: Vec<Span>,
 }
@@ -181,6 +186,7 @@ struct ReachableReplayRoute {
 struct ReachableFileRoute {
     task: String,
     call_span: Span,
+    resolver_call: crate::resolve::ResolveCallOccurrenceSummary,
     task_route: Vec<String>,
     call_route: Vec<Span>,
 }
@@ -244,14 +250,23 @@ impl SourceCapability {
 }
 
 pub(crate) fn analyze(program: &Program) -> CapabilityAnalysis {
-    match app_entry::analyze(program).entry {
-        Some(entry) => analyze_app(entry.app, entry.task),
+    let mut analysis = match app_entry::analyze(program).entry {
+        Some(entry) => analyze_app(program, entry.app, entry.task),
         None => analyze_unrooted_operations(program),
-    }
+    };
+    seal_analysis(program, &mut analysis);
+    analysis
 }
 
 pub(crate) fn diagnostics(program: &Program) -> Vec<Diagnostic> {
     analyze(program).diagnostics
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn diagnostic_occurrence_set(
+    program: &Program,
+) -> crate::diagnostic::DiagnosticOccurrenceSet {
+    analyze(program).diagnostic_occurrences
 }
 
 pub(crate) fn output_policy_facts(program: &Program) -> Vec<OutputPolicyFact> {
@@ -312,7 +327,7 @@ pub(crate) fn entry_diagnostics(program: &Program, entry_name: &str) -> Vec<Diag
     let Some((task, items)) = find_task_context(program, entry_name) else {
         return Vec::new();
     };
-    let graph = build_task_graph(items);
+    let graph = build_task_graph(program, items);
     let Some(node) = graph.tasks.get(&task.name) else {
         return Vec::new();
     };
@@ -335,7 +350,12 @@ pub(crate) fn entry_diagnostics(program: &Program, entry_name: &str) -> Vec<Diag
                 span.clone(),
             );
         }
-        return vec![diagnostic];
+        return one_entry_diagnostic(
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(91),
+            format!("entry={}:origin={}", task.name, requirement.origin_task),
+            requirement.route_tasks.clone(),
+            diagnostic,
+        );
     }
     if let Some((origin_task, call_span)) =
         reachable_output_call(&graph, &node.task.name, &mut BTreeSet::new())
@@ -344,9 +364,12 @@ pub(crate) fn entry_diagnostics(program: &Program, entry_name: &str) -> Vec<Diag
             .contains_key(&SourceCapability::StdoutWrite)
     {
         let origin = graph.tasks[&origin_task].task;
-        return vec![missing_output_source_diagnostic(
-            None, origin, &call_span, false, true,
-        )];
+        return one_entry_diagnostic(
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(95),
+            format!("entry={}:output_task={origin_task}", task.name),
+            vec![task.name.clone(), origin_task],
+            missing_output_source_diagnostic(None, origin, &call_span, false, true),
+        );
     }
     if let Some((origin_task, call_span)) =
         reachable_replay_call(&graph, &node.task.name, &mut BTreeSet::new())
@@ -355,9 +378,12 @@ pub(crate) fn entry_diagnostics(program: &Program, entry_name: &str) -> Vec<Diag
             .contains_key(&SourceCapability::ClockReplay)
     {
         let origin = graph.tasks[&origin_task].task;
-        return vec![missing_replay_source_diagnostic(
-            None, origin, &call_span, false, true,
-        )];
+        return one_entry_diagnostic(
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(97),
+            format!("entry={}:replay_task={origin_task}", task.name),
+            vec![task.name.clone(), origin_task],
+            missing_replay_source_diagnostic(None, origin, &call_span, false, true),
+        );
     }
     if let Some((origin_task, call_span)) =
         reachable_file_call(&graph, &node.task.name, &mut BTreeSet::new())
@@ -366,9 +392,12 @@ pub(crate) fn entry_diagnostics(program: &Program, entry_name: &str) -> Vec<Diag
             .contains_key(&SourceCapability::FilesRead)
     {
         let origin = graph.tasks[&origin_task].task;
-        return vec![missing_file_source_diagnostic(
-            None, origin, &call_span, false, true,
-        )];
+        return one_entry_diagnostic(
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(99),
+            format!("entry={}:file_task={origin_task}", task.name),
+            vec![task.name.clone(), origin_task],
+            missing_file_source_diagnostic(None, origin, &call_span, false, true),
+        );
     }
     let closures = compute_closures(&graph);
     let Some((capability, requirement)) = closures
@@ -403,12 +432,136 @@ pub(crate) fn entry_diagnostics(program: &Program, entry_name: &str) -> Vec<Diag
             span.clone(),
         );
     }
+    one_entry_diagnostic(
+        crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(94),
+        format!(
+            "entry={}:capability={}",
+            crate::resolve::semantic_task_identity(program, task),
+            spec.id
+        ),
+        vec![
+            format!(
+                "entry_task_identity={}",
+                crate::resolve::semantic_task_identity(program, task)
+            ),
+            format!("entry_capability={}", spec.id),
+        ],
+        diagnostic,
+    )
+}
+
+fn one_entry_diagnostic(
+    cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
+    semantic_origin: String,
+    relationship_route: Vec<String>,
+    diagnostic: Diagnostic,
+) -> Vec<Diagnostic> {
+    let (diagnostic, occurrence) = DiagnosticOccurrence::producer_diagnostic(
+        cause_key,
+        diagnostic,
+        semantic_origin,
+        relationship_route,
+    )
+    .expect("entry capability diagnostic must have producer-owned identity");
+    occurrence
+        .validate()
+        .expect("entry capability occurrence must validate");
     vec![diagnostic]
 }
 
+fn seal_analysis(_program: &Program, analysis: &mut CapabilityAnalysis) {
+    let diagnostic_routes = analysis
+        .routes
+        .iter()
+        .enumerate()
+        .filter(|(_, route)| route.diagnostic_code.is_some())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        analysis.diagnostics.len(),
+        diagnostic_routes.len(),
+        "every capability diagnostic must leave with one analyzer-owned route"
+    );
+    for (diagnostic, (route_index, route)) in analysis.diagnostics.iter_mut().zip(diagnostic_routes)
+    {
+        let cause_key = match route.check {
+            "source_capability_vocabulary" => {
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(91)
+            }
+            "source_capability_caller_closure" => {
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(92)
+            }
+            "source_capability_start_closure" => {
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(93)
+            }
+            "source_capability_output_operation" => {
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(95)
+            }
+            "source_capability_replay_operation" => {
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(97)
+            }
+            "source_capability_file_operation" => {
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(99)
+            }
+            "source_capability_output_recursion" => {
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(96)
+            }
+            "source_capability_replay_recursion" => {
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(98)
+            }
+            other => panic!("unregistered capability diagnostic route `{other}`"),
+        };
+        let owner_task_identity = route
+            .owner_task_identity
+            .as_deref()
+            .expect("every diagnostic capability route must have a resolver-owned task");
+        let semantic_origin = format!(
+            "capability-occurrence:{owner_task_identity}:{}:{}:{route_index}",
+            route.check, route.capability_id
+        );
+        let mut relationship_route = vec![
+            format!("capability_check={}", route.check),
+            format!("capability_status={}", route.status),
+            format!("capability_id={}", route.capability_id),
+            format!("capability_route_ordinal={route_index}"),
+            format!("owner_task_identity={owner_task_identity}"),
+        ];
+        relationship_route.extend(
+            route
+                .route_tasks
+                .iter()
+                .enumerate()
+                .map(|(index, _)| format!("capability_route_task_ordinal={index}")),
+        );
+        if let Some(resolver_call) = &route.resolver_call {
+            relationship_route.extend(resolver_call.relationship_route());
+        }
+        let (sealed, mut occurrence) = DiagnosticOccurrence::producer_diagnostic(
+            cause_key,
+            diagnostic.clone(),
+            semantic_origin,
+            relationship_route,
+        )
+        .expect("capability route must select one exact registered cause");
+        if let Some(resolver_call) = &route.resolver_call {
+            occurrence = occurrence
+                .with_resolver_call(resolver_call)
+                .expect("capability occurrence must carry its exact resolver call");
+        }
+        *diagnostic = sealed;
+        analysis
+            .diagnostic_occurrences
+            .insert_owned(occurrence)
+            .expect("capability diagnostic occurrences must be unique");
+    }
+}
+
 pub(crate) fn is_capability_diagnostic(diagnostic: &Diagnostic) -> bool {
+    is_capability_code(diagnostic.code)
+}
+
+pub(crate) fn is_capability_code(code: DiagnosticCode) -> bool {
     matches!(
-        diagnostic.code,
+        code,
         DiagnosticCode::UNKNOWN_SOURCE_CAPABILITY
             | DiagnosticCode::MISSING_CALLER_CAPABILITY
             | DiagnosticCode::APP_CAPABILITY_MISMATCH
@@ -421,8 +574,8 @@ pub(crate) fn is_capability_diagnostic(diagnostic: &Diagnostic) -> bool {
     )
 }
 
-fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
-    let graph = build_task_graph(&app.items);
+fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis {
+    let graph = build_task_graph(program, &app.items);
     let output_recursion = output_reachable_recursion(&graph, &start.name);
     let replay_recursion = replay_reachable_recursion(&graph, &start.name);
     let reachable_output_routes = reachable_output_routes(&graph, &start.name);
@@ -495,6 +648,7 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
         let mut route_tasks = vec![app.name.clone()];
         route_tasks.extend(issue.task_route.clone());
         routes.push(route_fact(
+            program,
             "source_capability_output_recursion",
             "rejected_output_reachable_recursion_v0",
             Some("finite_output_route_required_for_forensic_replay_v0"),
@@ -555,6 +709,7 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
         let mut route_tasks = vec![app.name.clone()];
         route_tasks.extend(issue.task_route.clone());
         routes.push(route_fact(
+            program,
             "source_capability_replay_recursion",
             "rejected_replay_reachable_recursion_v0",
             Some("finite_replay_route_required_for_forensic_replay_v0"),
@@ -585,6 +740,7 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
             &app.span,
         ));
         routes.push(unknown_route(
+            program,
             &capability,
             &span,
             &start.span,
@@ -604,6 +760,7 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                 &node.task.span,
             ));
             routes.push(unknown_route(
+                program,
                 capability,
                 span,
                 &node.task.span,
@@ -613,13 +770,14 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
         }
         for (capability, declaration_span) in &node.capabilities {
             routes.push(task_budget_route(
+                program,
                 app,
                 node.task,
                 *capability,
                 declaration_span,
             ));
         }
-        for call_span in &node.output_calls {
+        for resolver_call in &node.output_calls {
             let task_covers = node
                 .capabilities
                 .contains_key(&SourceCapability::StdoutWrite);
@@ -628,13 +786,13 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                 diagnostics.push(missing_output_source_diagnostic(
                     Some(app),
                     node.task,
-                    call_span,
+                    &resolver_call.exact_call_span,
                     task_covers,
                     app_covers,
                 ));
             }
         }
-        for call_span in &node.replay_calls {
+        for resolver_call in &node.replay_calls {
             let task_covers = node
                 .capabilities
                 .contains_key(&SourceCapability::ClockReplay);
@@ -643,20 +801,20 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                 diagnostics.push(missing_replay_source_diagnostic(
                     Some(app),
                     node.task,
-                    call_span,
+                    &resolver_call.exact_call_span,
                     task_covers,
                     app_covers,
                 ));
             }
         }
-        for call_span in &node.file_calls {
+        for resolver_call in &node.file_calls {
             let task_covers = node.capabilities.contains_key(&SourceCapability::FilesRead);
             let app_covers = app_capabilities.contains_key(&SourceCapability::FilesRead);
             if !task_covers || !app_covers {
                 diagnostics.push(missing_file_source_diagnostic(
                     Some(app),
                     node.task,
-                    call_span,
+                    &resolver_call.exact_call_span,
                     task_covers,
                     app_covers,
                 ));
@@ -673,10 +831,11 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
         let mut route_tasks = vec![app.name.clone()];
         route_tasks.extend(output_route.task_route.clone());
         routes.push(output_operation_route(
+            program,
             Some(app),
             node.task,
             Some(&entry_span),
-            &output_route.call_span,
+            &output_route.resolver_call,
             node.capabilities.get(&SourceCapability::StdoutWrite),
             task_covers,
             app_covers,
@@ -694,10 +853,11 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
         let mut route_tasks = vec![app.name.clone()];
         route_tasks.extend(replay_route.task_route.clone());
         routes.push(replay_operation_route(
+            program,
             Some(app),
             node.task,
             Some(&entry_span),
-            &replay_route.call_span,
+            &replay_route.resolver_call,
             node.capabilities.get(&SourceCapability::ClockReplay),
             task_covers,
             app_covers,
@@ -713,10 +873,11 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
         let mut route_tasks = vec![app.name.clone()];
         route_tasks.extend(file_route.task_route.clone());
         routes.push(file_operation_route(
+            program,
             Some(app),
             node.task,
             Some(&entry_span),
-            &file_route.call_span,
+            &file_route.resolver_call,
             node.capabilities.get(&SourceCapability::FilesRead),
             task_covers,
             app_covers,
@@ -727,7 +888,8 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
 
     for task_name in &graph.order {
         let node = &graph.tasks[task_name];
-        for call_span in &node.output_calls {
+        for resolver_call in &node.output_calls {
+            let call_span = &resolver_call.exact_call_span;
             let is_reachable = reachable_output_routes
                 .iter()
                 .any(|route| route.task == node.task.name && route.call_span == *call_span);
@@ -739,10 +901,11 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                 .contains_key(&SourceCapability::StdoutWrite);
             let app_covers = app_capabilities.contains_key(&SourceCapability::StdoutWrite);
             routes.push(output_operation_route(
+                program,
                 Some(app),
                 node.task,
                 Some(&entry_span),
-                call_span,
+                resolver_call,
                 node.capabilities.get(&SourceCapability::StdoutWrite),
                 task_covers,
                 app_covers,
@@ -750,7 +913,8 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                 vec![call_span.clone()],
             ));
         }
-        for call_span in &node.replay_calls {
+        for resolver_call in &node.replay_calls {
+            let call_span = &resolver_call.exact_call_span;
             let is_reachable = reachable_replay_routes
                 .iter()
                 .any(|route| route.task == node.task.name && route.call_span == *call_span);
@@ -762,10 +926,11 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                 .contains_key(&SourceCapability::ClockReplay);
             let app_covers = app_capabilities.contains_key(&SourceCapability::ClockReplay);
             routes.push(replay_operation_route(
+                program,
                 Some(app),
                 node.task,
                 Some(&entry_span),
-                call_span,
+                resolver_call,
                 node.capabilities.get(&SourceCapability::ClockReplay),
                 task_covers,
                 app_covers,
@@ -773,7 +938,8 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                 vec![call_span.clone()],
             ));
         }
-        for call_span in &node.file_calls {
+        for resolver_call in &node.file_calls {
+            let call_span = &resolver_call.exact_call_span;
             let is_reachable = reachable_file_routes
                 .iter()
                 .any(|route| route.task == node.task.name && route.call_span == *call_span);
@@ -783,10 +949,11 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
             let task_covers = node.capabilities.contains_key(&SourceCapability::FilesRead);
             let app_covers = app_capabilities.contains_key(&SourceCapability::FilesRead);
             routes.push(file_operation_route(
+                program,
                 Some(app),
                 node.task,
                 Some(&entry_span),
-                call_span,
+                resolver_call,
                 node.capabilities.get(&SourceCapability::FilesRead),
                 task_covers,
                 app_covers,
@@ -798,6 +965,7 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
 
     for (capability, declaration_span) in &app_capabilities {
         routes.push(app_budget_route(
+            program,
             app,
             start,
             &entry_span,
@@ -826,11 +994,11 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                     ));
                 }
                 routes.push(caller_route(
+                    program,
                     app,
                     caller.task,
                     callee.task,
                     *capability,
-                    &call.span,
                     &route,
                     covered,
                 ));
@@ -866,6 +1034,7 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
                 ));
             }
             routes.push(app_closure_route(
+                program,
                 app,
                 start,
                 &entry_span,
@@ -880,16 +1049,18 @@ fn analyze_app(app: &App, start: &Task) -> CapabilityAnalysis {
     CapabilityAnalysis {
         diagnostics,
         routes,
+        diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet::default(),
     }
 }
 
 fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
     let mut analysis = CapabilityAnalysis::default();
     for file in &program.files {
-        let graph = build_task_graph(&file.items);
+        let graph = build_task_graph(program, &file.items);
         for task_name in &graph.order {
             let node = &graph.tasks[task_name];
-            for call_span in &node.output_calls {
+            for resolver_call in &node.output_calls {
+                let call_span = &resolver_call.exact_call_span;
                 let task_covers = node
                     .capabilities
                     .contains_key(&SourceCapability::StdoutWrite);
@@ -901,10 +1072,11 @@ fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
                     false,
                 ));
                 analysis.routes.push(output_operation_route(
+                    program,
                     None,
                     node.task,
                     None,
-                    call_span,
+                    resolver_call,
                     node.capabilities.get(&SourceCapability::StdoutWrite),
                     task_covers,
                     false,
@@ -912,7 +1084,8 @@ fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
                     vec![call_span.clone()],
                 ));
             }
-            for call_span in &node.replay_calls {
+            for resolver_call in &node.replay_calls {
+                let call_span = &resolver_call.exact_call_span;
                 let task_covers = node
                     .capabilities
                     .contains_key(&SourceCapability::ClockReplay);
@@ -924,10 +1097,11 @@ fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
                     false,
                 ));
                 analysis.routes.push(replay_operation_route(
+                    program,
                     None,
                     node.task,
                     None,
-                    call_span,
+                    resolver_call,
                     node.capabilities.get(&SourceCapability::ClockReplay),
                     task_covers,
                     false,
@@ -935,7 +1109,8 @@ fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
                     vec![call_span.clone()],
                 ));
             }
-            for call_span in &node.file_calls {
+            for resolver_call in &node.file_calls {
+                let call_span = &resolver_call.exact_call_span;
                 let task_covers = node.capabilities.contains_key(&SourceCapability::FilesRead);
                 analysis.diagnostics.push(missing_file_source_diagnostic(
                     None,
@@ -945,10 +1120,11 @@ fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
                     false,
                 ));
                 analysis.routes.push(file_operation_route(
+                    program,
                     None,
                     node.task,
                     None,
-                    call_span,
+                    resolver_call,
                     node.capabilities.get(&SourceCapability::FilesRead),
                     task_covers,
                     false,
@@ -961,7 +1137,7 @@ fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
     analysis
 }
 
-fn build_task_graph(items: &[Item]) -> TaskGraph<'_> {
+fn build_task_graph<'a>(program: &Program, items: &'a [Item]) -> TaskGraph<'a> {
     let mut tasks = BTreeMap::new();
     let mut order = Vec::new();
     for item in items {
@@ -985,37 +1161,37 @@ fn build_task_graph(items: &[Item]) -> TaskGraph<'_> {
             );
         }
     }
-    let known_names = tasks.keys().cloned().collect::<BTreeSet<_>>();
+    let target_tasks = tasks
+        .values()
+        .map(|node| {
+            (
+                crate::resolve::semantic_task_definition_identity(program, node.task),
+                node.task.name.clone(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let resolver_calls = crate::resolve::resolve_call_occurrence_summaries(program, &[]);
     for task_name in &order {
         let task = tasks[task_name].task;
+        let owner_definition_id = crate::resolve::semantic_task_definition_identity(program, task);
         let mut calls = Vec::new();
         let mut output_calls = Vec::new();
         let mut replay_calls = Vec::new();
         let mut file_calls = Vec::new();
-        if let Some(body) = task.section("does").map(core_body::analyze_does_section) {
-            for statement in body.statements {
-                let Some(expression) = typed_failure::statement_expression(&statement) else {
-                    continue;
-                };
-                let expression_offset = statement.text.find(expression).unwrap_or(0);
-                for call in typed_failure::calls_in_expression(expression) {
-                    let byte_offset = expression_offset + call.source_offset;
-                    let column_offset = statement.text[..byte_offset].chars().count();
-                    let span = Span {
-                        file: statement.span.file.clone(),
-                        line: statement.span.line,
-                        column: statement.span.column + column_offset,
-                    };
-                    if call.callee == "stdout_write" {
-                        output_calls.push(span.clone());
-                    } else if call.callee == "clock_replay_tick" {
-                        replay_calls.push(span.clone());
-                    } else if call.callee == "files_read_text" {
-                        file_calls.push(span.clone());
-                    } else if known_names.contains(&call.callee) {
+        for resolver_call in resolver_calls
+            .iter()
+            .filter(|call| call.owner_definition_id == owner_definition_id)
+        {
+            match resolver_call.target_definition_id.as_str() {
+                "builtin_stdout_write" => output_calls.push(resolver_call.clone()),
+                "builtin_clock_replay_tick" => replay_calls.push(resolver_call.clone()),
+                "builtin_files_read_text" => file_calls.push(resolver_call.clone()),
+                target => {
+                    if let Some(callee) = target_tasks.get(target) {
                         calls.push(CallEdge {
-                            callee: call.callee,
-                            span,
+                            callee: callee.clone(),
+                            span: resolver_call.exact_call_span.clone(),
+                            resolver_call: resolver_call.clone(),
                         });
                     }
                 }
@@ -1150,12 +1326,14 @@ fn collect_reachable_output_routes(
         active.remove(task_name);
         return;
     };
-    for call_span in &node.output_calls {
+    for resolver_call in &node.output_calls {
+        let call_span = &resolver_call.exact_call_span;
         let mut route_spans = call_route.clone();
         route_spans.push(call_span.clone());
         routes.push(ReachableOutputRoute {
             task: task_name.to_string(),
             call_span: call_span.clone(),
+            resolver_call: resolver_call.clone(),
             task_route: task_route.clone(),
             call_route: route_spans,
         });
@@ -1208,12 +1386,14 @@ fn collect_reachable_replay_routes(
         active.remove(task_name);
         return;
     };
-    for call_span in &node.replay_calls {
+    for resolver_call in &node.replay_calls {
+        let call_span = &resolver_call.exact_call_span;
         let mut route_spans = call_route.clone();
         route_spans.push(call_span.clone());
         routes.push(ReachableReplayRoute {
             task: task_name.to_string(),
             call_span: call_span.clone(),
+            resolver_call: resolver_call.clone(),
             task_route: task_route.clone(),
             call_route: route_spans,
         });
@@ -1266,12 +1446,14 @@ fn collect_reachable_file_routes(
         active.remove(task_name);
         return;
     };
-    for call_span in &node.file_calls {
+    for resolver_call in &node.file_calls {
+        let call_span = &resolver_call.exact_call_span;
         let mut route_spans = call_route.clone();
         route_spans.push(call_span.clone());
         routes.push(ReachableFileRoute {
             task: task_name.to_string(),
             call_span: call_span.clone(),
+            resolver_call: resolver_call.clone(),
             task_route: task_route.clone(),
             call_route: route_spans,
         });
@@ -1329,8 +1511,8 @@ fn reachable_output_call(
     path: &mut BTreeSet<String>,
 ) -> Option<(String, Span)> {
     let node = graph.tasks.get(task_name)?;
-    if let Some(span) = node.output_calls.first() {
-        return Some((node.task.name.clone(), span.clone()));
+    if let Some(call) = node.output_calls.first() {
+        return Some((node.task.name.clone(), call.exact_call_span.clone()));
     }
     if !path.insert(task_name.to_string()) {
         return None;
@@ -1351,8 +1533,8 @@ fn reachable_replay_call(
     path: &mut BTreeSet<String>,
 ) -> Option<(String, Span)> {
     let node = graph.tasks.get(task_name)?;
-    if let Some(span) = node.replay_calls.first() {
-        return Some((node.task.name.clone(), span.clone()));
+    if let Some(call) = node.replay_calls.first() {
+        return Some((node.task.name.clone(), call.exact_call_span.clone()));
     }
     if !path.insert(task_name.to_string()) {
         return None;
@@ -1376,8 +1558,8 @@ fn reachable_file_call(
         return None;
     }
     let node = graph.tasks.get(task_name)?;
-    if let Some(span) = node.file_calls.first() {
-        return Some((task_name.to_string(), span.clone()));
+    if let Some(call) = node.file_calls.first() {
+        return Some((task_name.to_string(), call.exact_call_span.clone()));
     }
     for call in &node.calls {
         if let Some(found) = reachable_file_call(graph, &call.callee, visited) {
@@ -1404,6 +1586,7 @@ fn compute_closures(
                         declaration_span: span.clone(),
                         route_tasks: vec![node.task.name.clone()],
                         route_spans: Vec::new(),
+                        route_calls: Vec::new(),
                     },
                 )
             })
@@ -1444,11 +1627,14 @@ fn prepend_route(caller: &str, call: &CallEdge, requirement: &Requirement) -> Re
     route_tasks.extend(requirement.route_tasks.iter().cloned());
     let mut route_spans = vec![call.span.clone()];
     route_spans.extend(requirement.route_spans.iter().cloned());
+    let mut route_calls = vec![call.resolver_call.clone()];
+    route_calls.extend(requirement.route_calls.iter().cloned());
     Requirement {
         origin_task: requirement.origin_task.clone(),
         declaration_span: requirement.declaration_span.clone(),
         route_tasks,
         route_spans,
+        route_calls,
     }
 }
 
@@ -1627,12 +1813,14 @@ fn app_mismatch_diagnostic(
 }
 
 fn task_budget_route(
+    program: &Program,
     app: &App,
     task: &Task,
     capability: SourceCapability,
     declaration_span: &Span,
 ) -> CapabilityRouteFact {
     route_fact(
+        program,
         "source_capability_task_budget",
         "accepted_source_capability_budget_v0",
         None,
@@ -1652,6 +1840,7 @@ fn task_budget_route(
 }
 
 fn app_budget_route(
+    program: &Program,
     app: &App,
     start: &Task,
     entry_span: &Span,
@@ -1659,6 +1848,7 @@ fn app_budget_route(
     declaration_span: &Span,
 ) -> CapabilityRouteFact {
     route_fact(
+        program,
         "source_capability_app_maximum",
         "accepted_app_capability_maximum_v0",
         None,
@@ -1678,16 +1868,21 @@ fn app_budget_route(
 }
 
 fn caller_route(
+    program: &Program,
     app: &App,
     caller: &Task,
     callee: &Task,
     capability: SourceCapability,
-    call_span: &Span,
     requirement: &Requirement,
     covered: bool,
 ) -> CapabilityRouteFact {
     let spec = capability.spec();
-    route_fact(
+    let call_span = requirement
+        .route_spans
+        .first()
+        .expect("caller route begins with its canonical call occurrence");
+    let mut fact = route_fact(
+        program,
         "source_capability_caller_closure",
         if covered {
             "accepted_caller_capability_closure_v0"
@@ -1712,11 +1907,14 @@ fn caller_route(
                 spec.id, caller.name
             )
         }),
-    )
+    );
+    fact.resolver_call = requirement.route_calls.first().cloned();
+    fact
 }
 
 #[allow(clippy::too_many_arguments)]
 fn app_closure_route(
+    program: &Program,
     app: &App,
     start: &Task,
     entry_span: &Span,
@@ -1750,6 +1948,7 @@ fn app_closure_route(
         )
     };
     route_fact(
+        program,
         "source_capability_start_closure",
         status,
         reason,
@@ -1881,16 +2080,18 @@ fn missing_file_source_diagnostic(
 
 #[allow(clippy::too_many_arguments)]
 fn output_operation_route(
+    program: &Program,
     app: Option<&App>,
     task: &Task,
     entry_span: Option<&Span>,
-    call_span: &Span,
+    resolver_call: &crate::resolve::ResolveCallOccurrenceSummary,
     declaration_span: Option<&Span>,
     task_covers: bool,
     app_covers: bool,
     route_tasks: Vec<String>,
     route_spans: Vec<Span>,
 ) -> CapabilityRouteFact {
+    let call_span = &resolver_call.exact_call_span;
     let covered = task_covers && app_covers;
     let route_identity = format!(
         "{}-{}",
@@ -1902,6 +2103,7 @@ fn output_operation_route(
             .join("-")
     );
     let mut fact = route_fact(
+        program,
         "source_capability_output_operation",
         if covered {
             "accepted_declared_output_operation_v0"
@@ -1930,21 +2132,24 @@ fn output_operation_route(
         call_span,
         &format!("source-capability-output-operation-stdout-write-{route_identity}"),
     );
+    fact.resolver_call = Some(resolver_call.clone());
     fact
 }
 
 #[allow(clippy::too_many_arguments)]
 fn replay_operation_route(
+    program: &Program,
     app: Option<&App>,
     task: &Task,
     entry_span: Option<&Span>,
-    call_span: &Span,
+    resolver_call: &crate::resolve::ResolveCallOccurrenceSummary,
     declaration_span: Option<&Span>,
     task_covers: bool,
     app_covers: bool,
     route_tasks: Vec<String>,
     route_spans: Vec<Span>,
 ) -> CapabilityRouteFact {
+    let call_span = &resolver_call.exact_call_span;
     let covered = task_covers && app_covers;
     let route_identity = format!(
         "{}-{}",
@@ -1956,6 +2161,7 @@ fn replay_operation_route(
             .join("-")
     );
     let mut fact = route_fact(
+        program,
         "source_capability_replay_operation",
         if covered {
             "accepted_declared_runner_replay_operation_v0"
@@ -1984,21 +2190,24 @@ fn replay_operation_route(
         call_span,
         &format!("source-capability-replay-operation-clock-replay-{route_identity}"),
     );
+    fact.resolver_call = Some(resolver_call.clone());
     fact
 }
 
 #[allow(clippy::too_many_arguments)]
 fn file_operation_route(
+    program: &Program,
     app: Option<&App>,
     task: &Task,
     entry_span: Option<&Span>,
-    call_span: &Span,
+    resolver_call: &crate::resolve::ResolveCallOccurrenceSummary,
     declaration_span: Option<&Span>,
     task_covers: bool,
     app_covers: bool,
     route_tasks: Vec<String>,
     route_spans: Vec<Span>,
 ) -> CapabilityRouteFact {
+    let call_span = &resolver_call.exact_call_span;
     let covered = task_covers && app_covers;
     let route_identity = format!(
         "{}-{}",
@@ -2010,6 +2219,7 @@ fn file_operation_route(
             .join("-")
     );
     let mut fact = route_fact(
+        program,
         "source_capability_file_operation",
         if covered {
             "accepted_declared_exact_file_read_operation_v0"
@@ -2037,10 +2247,12 @@ fn file_operation_route(
         call_span,
         &format!("source-capability-file-operation-files-read-{route_identity}"),
     );
+    fact.resolver_call = Some(resolver_call.clone());
     fact
 }
 
 fn unknown_route(
+    program: &Program,
     capability: &str,
     span: &Span,
     owner_task_span: &Span,
@@ -2050,6 +2262,7 @@ fn unknown_route(
     let sandbox_bypass = is_sandbox_bypass(capability);
     CapabilityRouteFact {
         id: node_id::span("capability-policy", span, &format!("unknown-{capability}")),
+        owner_task_identity: task.map(|task| crate::resolve::semantic_task_identity(program, task)),
         owner_task_span: owner_task_span.clone(),
         primary_span: span.clone(),
         check: "source_capability_vocabulary",
@@ -2079,6 +2292,7 @@ fn unknown_route(
             "Use one of the exact pinned IDs: {}.",
             CAPABILITY_IDS.join(", ")
         )),
+        resolver_call: None,
     }
 }
 
@@ -2091,6 +2305,7 @@ fn is_sandbox_bypass(capability: &str) -> bool {
 
 #[allow(clippy::too_many_arguments)]
 fn route_fact(
+    program: &Program,
     check: &'static str,
     status: &'static str,
     reason: Option<&'static str>,
@@ -2113,6 +2328,8 @@ fn route_fact(
             &primary_span,
             &format!("{check}-{}", spec.id),
         ),
+        owner_task_identity: caller
+            .map(|task| crate::resolve::semantic_task_identity(program, task)),
         owner_task_span,
         primary_span,
         check,
@@ -2139,6 +2356,7 @@ fn route_fact(
         route_tasks,
         route_spans,
         help,
+        resolver_call: None,
     }
 }
 
@@ -2399,6 +2617,77 @@ mod tests {
                 .collect::<BTreeSet<_>>()
                 .len(),
             3
+        );
+        let resolver_keys = crate::resolve::resolve_call_occurrence_summaries(&program, &[])
+            .into_iter()
+            .map(|call| call.relationship_key())
+            .collect::<BTreeSet<_>>();
+        let capability_keys = analyze(&program)
+            .routes
+            .into_iter()
+            .filter(|route| {
+                route.status == "accepted_caller_capability_closure_v0"
+                    && route.caller.as_deref() == Some("run_tool")
+                    && route.capability_id == "stdout.write"
+            })
+            .map(|route| {
+                route
+                    .resolver_call
+                    .expect("caller capability fact must carry resolver call")
+                    .relationship_key()
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(capability_keys.len(), 3);
+        assert!(capability_keys.is_subset(&resolver_keys));
+    }
+
+    #[test]
+    fn capability_occurrence_identity_uses_structural_items_not_display_names() {
+        fn source(app: &str, start: &str, helper: &str) -> String {
+            format!(
+                r#"app {app} {{
+  starts with:
+    {start}
+  task {helper} -> Int {{
+    uses:
+      stdout.write
+    does:
+      return 7
+  }}
+  task {start} -> Unit {{
+    does:
+      let observed = {helper}()
+      return
+  }}
+}}"#
+            )
+        }
+
+        let first_program = program(&source("tool", "run_tool", "helper"));
+        let renamed_program = program(&source("renamed", "start", "worker"));
+        let first = analyze(&first_program)
+            .diagnostic_occurrences
+            .occurrences()
+            .find(|occurrence| {
+                occurrence.code == crate::diagnostic::DiagnosticCode::MISSING_CALLER_CAPABILITY
+            })
+            .expect("first authority occurrence")
+            .clone();
+        let renamed = analyze(&renamed_program)
+            .diagnostic_occurrences
+            .occurrences()
+            .find(|occurrence| {
+                occurrence.code == crate::diagnostic::DiagnosticCode::MISSING_CALLER_CAPABILITY
+            })
+            .expect("renamed authority occurrence")
+            .clone();
+        assert_eq!(first.semantic_origin(), renamed.semantic_origin());
+        assert_eq!(first.relationship_route(), renamed.relationship_route());
+        assert!(
+            first
+                .relationship_route()
+                .iter()
+                .all(|part| !part.contains("run_tool") && !part.contains("helper"))
         );
     }
 }

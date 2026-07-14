@@ -356,6 +356,180 @@ try {
     }
   }
 
+  Write-Host '==> Session AP static cause registry and prior-blocker propagation matrix'
+  foreach ($EvidenceTest in @(
+    'diagnostic_catalog::tests::session_ap_static_emitters_have_one_registered_default_owner',
+    'diagnostic::tests::exact_precedence_rejects_every_relationship_and_occurrence_substitution',
+    'diagnostic::tests::code_only_and_public_identical_alternative_causes_fail_closed',
+    'diagnostic::tests::registered_ap_rules_dispatch_only_to_their_named_consumers',
+    'diagnostic::tests::occurrence_set_rejects_every_prior_blocker_projection_corruption',
+    'diagnostic::tests::every_static_stage_projection_rejects_independent_corruption',
+    'diagnostic::tests::static_prior_blocker_chain_preserves_exact_type_occurrence',
+    'diagnostic::tests::same_line_type_causes_keep_distinct_semantic_origins',
+    'diagnostic::tests::parser_and_resolver_causes_remain_distinct_through_type_environment',
+    'diagnostic::tests::path_and_authority_precedence_preserve_only_fundamental_static_causes',
+    'diagnostic::tests::effect_and_ownership_blockers_keep_one_owner_through_later_gates',
+    'diagnostic::tests::ownership_precedence_requires_exact_resolver_call_occurrences',
+    'app_entry::tests::app_occurrence_identity_is_structural_and_display_name_independent',
+    'parser::tests::parser_occurrence_identity_uses_only_producer_owned_file_and_event_facts',
+    'check::tests::check_occurrence_identity_does_not_depend_on_display_path',
+    'predicate::tests::typed_predicate_owner_is_independent_of_rendered_reason',
+    'writable_field_alias::tests::typed_alias_cause_is_sealed_and_rendering_independent',
+    'typed_failure::tests::statement_analysis_cannot_mint_occurrence_before_resolver_binding',
+    'typed_failure::tests::typed_failure_cause_enum_is_closed_and_registry_exact',
+    'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed',
+    'typed_failure::tests::resolver_call_binding_rejects_missing_duplicate_ambiguous_and_wrong_identity',
+    'parser::tests::parser_body_syntax_owns_repeated_sibling_and_nested_calls',
+    'resolve::tests::parser_precedence_is_consumed_for_a_genuine_shared_item_node',
+    'resolve::tests::resolver_mints_distinct_repeated_sibling_and_nested_call_occurrences',
+    'resolve::tests::resolver_call_identity_ignores_retained_section_text_after_parsing',
+    'resolve::tests::later_resolver_call_identity_ignores_earlier_retained_statement_references',
+    'type_check::tests::resolver_precedence_is_consumed_for_a_genuine_blocked_type_relationship',
+    'capability_root::tests::capability_occurrence_identity_uses_structural_items_not_display_names',
+    'capability_root::tests::call_occurrence_policy_ids_are_unique_and_repeatable',
+    'ownership_check::tests::nested_use_after_move_binds_the_innermost_resolver_call',
+    'core_verify::tests::core_transport_rejects_projection_regenerated_or_corrupted_downstream',
+    'graph::tests::graph_rejects_corrupt_occurrence_projection_before_serialization'
+  )) {
+    Invoke-Native "Session AP evidence $EvidenceTest" $Cargo @('test', $EvidenceTest, '--', '--exact')
+  }
+
+  $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
+  if ($ApForbiddenFallbacks.Count -ne 0) { throw 'Session AP production source must not reconstruct occurrences from codes or public diagnostics' }
+  $ApCatalogSource = Get-Content -Raw 'src/diagnostic_catalog.rs'
+  if (-not [regex]::IsMatch($ApCatalogSource, '#\[cfg\(test\)\]\s+pub\(crate\) fn default_emitter_cause')) { throw 'Session AP emitter-default lookup must remain test-only registry-baseline evidence' }
+  $ApTypedFailureSource = Get-Content -Raw 'src/typed_failure.rs'
+  if ([regex]::IsMatch($ApTypedFailureSource, 'diagnostic_cause_for_reason|diagnostic_cause\s*\(|registered_reason|default_emitter_cause')) { throw 'Session AP typed-failure producer must carry an opaque cause key rather than select from codes, reasons, or defaults' }
+  if (-not $ApTypedFailureSource.Contains('fact.cause') -or -not $ApTypedFailureSource.Contains('cause.key()') -or -not $ApTypedFailureSource.Contains('diagnostic_cause_for_key(cause_key)')) { throw 'Session AP typed-failure producer-owned cause transport evidence is missing' }
+  $ApResolverProductionSource = [regex]::Replace((Get-Content -Raw 'src/resolve.rs'), '(?s)#\[cfg\(test\)\].*$', '')
+  $ApParserProductionSource = [regex]::Replace((Get-Content -Raw 'src/parser.rs'), '(?s)#\[cfg\(test\)\]\s*mod tests\s*\{.*$', '')
+  $ApCapabilityProductionSource = [regex]::Replace((Get-Content -Raw 'src/capability_root.rs'), '(?s)#\[cfg\(test\)\].*$', '')
+  $ApOwnershipProductionSource = [regex]::Replace((Get-Content -Raw 'src/ownership_check.rs'), '(?s)#\[cfg\(test\)\].*$', '')
+  $ApTypedProductionSource = [regex]::Replace($ApTypedFailureSource, '(?s)#\[cfg\(test\)\].*$', '')
+  if ($ApResolverProductionSource.Contains('calls_in_expression') -or $ApCapabilityProductionSource.Contains('calls_in_expression')) { throw 'Session AP resolver/capability producers must not rescan source text to mint executable call identity' }
+  if ($ApParserProductionSource.Contains('scan_raw_executable_calls') -or $ApParserProductionSource.Contains('scan_identifier_tokens') -or $ApParserProductionSource.Contains('executable_calls_in_statement')) { throw 'Session AP must remove the late retained-text executable-call scanner rather than rename its resolver entry point' }
+  if (-not $ApResolverProductionSource.Contains('executable_call_nodes(body_syntax)') -or $ApResolverProductionSource.Contains('executable_call_nodes(sections)')) { throw 'Session AP resolver call occurrences must come only from the parser-produced body syntax tree' }
+  if ($ApResolverProductionSource.Contains('semantic_internal_reference_identity') -or -not $ApResolverProductionSource.Contains('resolver_call_reference_identity(') -or -not $ApResolverProductionSource.Contains('unresolved_call_target_identity(')) { throw 'Session AP private resolver-call identity must derive from owner, target status, and parser-owned call position rather than the global public reference serial' }
+  $ApCallReferenceIdentity = [regex]::Match($ApResolverProductionSource, '(?s)fn resolver_call_reference_identity\(.*?\n\}')
+  if (-not $ApCallReferenceIdentity.Success -or $ApCallReferenceIdentity.Value.Contains('reference_serial') -or $ApCallReferenceIdentity.Value.Contains('ResolveReference')) { throw 'Session AP private call-reference identity helper must not consume ordinary resolver reference allocation state' }
+  $ApCallTraversal = [regex]::Match($ApParserProductionSource, '(?s)pub\(crate\) fn executable_call_nodes\(.*?\n\}\r?\n\r?\nfn collect_executable_calls')
+  if (-not $ApCallTraversal.Success -or $ApCallTraversal.Value.Contains('SectionLine') -or $ApCallTraversal.Value.Contains('.text')) { throw 'Session AP executable-call traversal must consume structured ParsedBodyStatement nodes without retained SectionLine text' }
+  if ([regex]::Matches($ApParserProductionSource, 'parser_owned_top_level_call_ranges\(').Count -ne 2) { throw 'Session AP parser-owned call recognition must run only during initial expression production' }
+  if ($ApOwnershipProductionSource.Contains('call_span_for_identifier_use') -or $ApOwnershipProductionSource.Contains('strip_prefix("resolver_call_occurrence=")')) { throw 'Session AP ownership precedence must carry and compare opaque resolver call identities directly' }
+  if ($ApTypedProductionSource.Contains('exact_call_span == fact.call_span') -or $ApCapabilityProductionSource.Contains('exact_call_span == route.primary_span')) { throw 'Session AP semantic producers must not select resolver calls by public display spans' }
+  if (-not $ApTypedProductionSource.Contains('fact.resolver_call.as_ref()') -or -not $ApOwnershipProductionSource.Contains('dominant.resolver_call_occurrence()')) { throw 'Session AP exact resolver-call transport evidence is missing' }
+  $ApPredicateProductionSource = [regex]::Replace((Get-Content -Raw 'src/predicate.rs'), '(?s)#\[cfg\(test\)\].*$', '')
+  if ($ApPredicateProductionSource.Contains('diagnostic_cause_for_reason') -or [regex]::IsMatch($ApPredicateProductionSource, '(?:self\.reason|issue\.reason|\breason)\s*==\s*"')) { throw 'Session AP predicate ownership must come from its closed typed cause, not rendered reason text' }
+  if (-not $ApPredicateProductionSource.Contains('PredicateDiagnosticOwner::Predicate(cause)') -or -not $ApPredicateProductionSource.Contains('PredicateDiagnosticOwner::PathBoundary')) { throw 'Session AP predicate typed-owner transport evidence is missing' }
+  $ApMainProductionSource = [regex]::Replace((Get-Content -Raw 'src/main.rs'), '(?s)#\[cfg\(test\)\].*$', '')
+  foreach ($ForbiddenMainCollector in @(
+    'diagnostic_occurrences.retain_codes',
+    'path_boundary::diagnostic_occurrence_set',
+    'app_entry::diagnostic_occurrence_set(&program)',
+    'capability_root::diagnostic_occurrence_set(&program)',
+    'core_preview::diagnostic_occurrence_set_from_source',
+    'core_lower::validate_diagnostic_projection_from_source',
+    'core_verify::validate_diagnostic_projection_from_source',
+    'ir_readiness::validate_diagnostic_projection_from_source'
+  )) {
+    if ($ApMainProductionSource.Contains($ForbiddenMainCollector)) { throw "Session AP top-level main boundary contains unauthorized occurrence collection/validation: $ForbiddenMainCollector" }
+  }
+  if (-not $ApMainProductionSource.Contains('profile_check::diagnostic_transport_from_source') -or -not $ApMainProductionSource.Contains('graph::validate_diagnostic_occurrence_projection')) { throw 'Session AP main must retain only the authorized graph projection validation over load_program transport' }
+  $ApCoreVerifyProductionSource = [regex]::Replace((Get-Content -Raw 'src/core_verify.rs'), '(?s)#\[cfg\(test\)\].*$', '')
+  $ApIrProductionSource = [regex]::Replace((Get-Content -Raw 'src/ir_readiness.rs'), '(?s)#\[cfg\(test\)\].*$', '')
+  if (-not $ApCoreVerifyProductionSource.Contains('.validate_against("core_lower", &preview_authority)') -or -not $ApIrProductionSource.Contains('.validate_against("ir_readiness", diagnostic_occurrences)')) { throw 'Session AP Core/IR occurrence validation must remain inside its authorized stage modules' }
+
+  $ApParser = 'fixtures/diagnostics/session_ap_parser_resolver_precedence_fail.hum'
+  $ApParserResolve = Read-NativeOutputWithExit 'Session AP parser/resolver owner' $Hum @('resolve', $ApParser)
+  if ($ApParserResolve.ExitCode -ne 1 -or [regex]::Matches($ApParserResolve.Output, 'H0001').Count -ne 1 -or [regex]::Matches($ApParserResolve.Output, 'H0601').Count -ne 1) { throw 'Session AP parser/resolver fixture must retain its two independently owned source facts at resolve' }
+  foreach ($Stage in @('type-check', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'profile-check')) {
+    foreach ($Format in @('human', 'json')) {
+      $Args = @($Stage, $ApParser)
+      if ($Format -eq 'json') { $Args = @($Stage, '--format', 'json', $ApParser) }
+      $Projection = Read-NativeOutputWithExit "Session AP parser blocker $Stage $Format" $Hum $Args
+      if ($Projection.ExitCode -ne 1 -or $Projection.Output.Contains('H0601')) { throw "Session AP parser cause must own the downstream public blocker at $Stage $Format" }
+      if ($Format -eq 'json') {
+        Assert-Json "Session AP parser blocker $Stage JSON" $Projection.Output
+        if (-not $Projection.Output.Contains('blocked_by_')) { throw "Session AP parser JSON must preserve downstream blocker status at $Stage" }
+      } elseif (-not $Projection.Output.Contains('H0001')) {
+        throw "Session AP parser human output must retain H0001 at $Stage"
+      }
+    }
+  }
+
+  $ApSameLine = 'fixtures/diagnostics/session_ap_same_line_independent_causes_fail.hum'
+  foreach ($Format in @('human', 'json')) {
+    $Args = @('type-check', $ApSameLine)
+    if ($Format -eq 'json') { $Args = @('type-check', '--format', 'json', $ApSameLine) }
+    $Projection = Read-NativeOutputWithExit "Session AP same-line H0605 $Format" $Hum $Args
+    if ($Projection.ExitCode -ne 1 -or [regex]::Matches($Projection.Output, 'H0605').Count -ne 2 -or -not $Projection.Output.Contains('MissingLeft') -or -not $Projection.Output.Contains('MissingRight')) { throw "Session AP same-line H0605 causes must remain distinct in $Format" }
+    if ($Format -eq 'json') {
+      Assert-Json 'Session AP same-line H0605 JSON' $Projection.Output
+      if (($Projection.Output | ConvertFrom-Json).summary.type_errors -ne 2) { throw 'Session AP same-line JSON must retain two type errors' }
+    }
+  }
+
+  foreach ($Boundary in @(
+    @{ Name = 'Path/predicate'; File = 'fixtures/diagnostics/session_ap_path_predicate_precedence_fail.hum'; Owner = 'H0630'; Suppressed = 'H0704' },
+    @{ Name = 'authority/ownership'; File = 'fixtures/diagnostics/session_ap_authority_ownership_precedence_fail.hum'; Owner = 'H0618'; Suppressed = 'H0801' }
+  )) {
+    foreach ($Stage in @('resolve', 'type-check', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'profile-check', 'ir-readiness')) {
+      foreach ($Format in @('human', 'json')) {
+        $Args = @($Stage, $Boundary.File)
+        if ($Format -eq 'json') { $Args = @($Stage, '--format', 'json', $Boundary.File) }
+        $Projection = Read-NativeOutputWithExit "Session AP $($Boundary.Name) $Stage $Format" $Hum $Args
+        if ($Projection.ExitCode -ne 1 -or $Projection.Output.Contains($Boundary.Suppressed)) { throw "Session AP $($Boundary.Name) precedence disagrees at $Stage $Format" }
+        if ($Format -eq 'json') {
+          Assert-Json "Session AP $($Boundary.Name) $Stage JSON" $Projection.Output
+        } elseif (-not $Projection.Output.Contains($Boundary.Owner)) {
+          throw "Session AP $($Boundary.Name) human output lost $($Boundary.Owner) at $Stage"
+        }
+      }
+    }
+  }
+
+  $ApTypeChain = 'fixtures/diagnostics/session_ap_prior_blocker_chain_fail.hum'
+  foreach ($Stage in @('type-check', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'profile-check')) {
+    foreach ($Format in @('human', 'json')) {
+      $Args = @($Stage, $ApTypeChain)
+      if ($Format -eq 'json') { $Args = @($Stage, '--format', 'json', $ApTypeChain) }
+      $Projection = Read-NativeOutputWithExit "Session AP H0605 blocker chain $Stage $Format" $Hum $Args
+      if ($Projection.ExitCode -ne 1) { throw "Session AP H0605 prior blocker must keep $Stage blocked in $Format" }
+      if ($Format -eq 'json') { Assert-Json "Session AP H0605 blocker chain $Stage JSON" $Projection.Output }
+      foreach ($PrivateField in @('occurrence_id', 'cause_key', 'semantic_owner', 'owning_stage', 'semantic_origin', 'relationship_route')) {
+        if ($Projection.Output.Contains($PrivateField)) { throw "Session AP internal field leaked publicly: $PrivateField" }
+      }
+    }
+  }
+
+  $ApEffectOwnershipFixture = 'fixtures/diagnostics/session_ap_effect_ownership_precedence_fail.hum'
+  $ApEffectOwnership = Read-NativeOutputWithExit 'Session AP effect/ownership owner' $Hum @('effect-check', $ApEffectOwnershipFixture)
+  if ($ApEffectOwnership.ExitCode -ne 1 -or [regex]::Matches($ApEffectOwnership.Output, 'H0907').Count -ne 1 -or $ApEffectOwnership.Output.Contains('H0801')) { throw 'Session AP H0907 must own the effect/ownership combined cause' }
+  $ApOwnership = 'fixtures/diagnostics/session_ap_ownership_resource_profile_chain_fail.hum'
+  $ApOwnershipOwner = Read-NativeOutputWithExit 'Session AP ownership owner' $Hum @('ownership-check', $ApOwnership)
+  if ($ApOwnershipOwner.ExitCode -ne 1 -or [regex]::Matches($ApOwnershipOwner.Output, 'H0801').Count -ne 1) { throw 'Session AP ownership cause must be owned once' }
+  foreach ($Stage in @('resource-check', 'profile-check')) {
+    $Projection = Read-NativeOutputWithExit "Session AP ownership prior blocker $Stage" $Hum @($Stage, $ApOwnership)
+    if ($Projection.ExitCode -ne 1 -or -not $Projection.Output.Contains('blocked_by_')) { throw "Session AP ownership blocker must propagate through $Stage" }
+  }
+
+  foreach ($GraphFixture in @($ApParser, $ApSameLine, $ApTypeChain, $ApEffectOwnershipFixture, $ApOwnership)) {
+    $Projection = Read-NativeOutputWithExit "Session AP authoritative graph projection $GraphFixture" $Hum @('graph', $GraphFixture)
+    Assert-Json "Session AP authoritative graph projection $GraphFixture" $Projection.Output
+    if ($Projection.Output.Contains('occurrence_id') -or $Projection.Output.Contains('cause_key')) { throw 'Session AP graph projection leaked private diagnostic identity' }
+  }
+
+  foreach ($Format in @('human', 'json')) {
+    $Args = @('ir-readiness', $ApEffectOwnershipFixture)
+    if ($Format -eq 'json') { $Args = @('ir-readiness', '--format', 'json', $ApEffectOwnershipFixture) }
+    $Projection = Read-NativeOutputWithExit "Session AP authoritative IR projection $Format" $Hum $Args
+    if ($Projection.ExitCode -ne 0 -or $Projection.Output.Contains('diagnostic invariant failure') -or -not $Projection.Output.Contains('effect_errors_v0') -or -not $Projection.Output.Contains('blocked_by_effect_check_errors')) { throw "Session AP authoritative IR projection disagrees for the effect/ownership fixture in $Format" }
+    if ($Format -eq 'json') { Assert-Json 'Session AP authoritative IR projection JSON' $Projection.Output }
+    foreach ($PrivateField in @('occurrence_id', 'cause_key', 'semantic_owner', 'owning_stage', 'semantic_origin', 'relationship_route')) {
+      if ($Projection.Output.Contains($PrivateField)) { throw "Session AP authoritative IR projection leaked private diagnostic identity: $PrivateField" }
+    }
+  }
+
   $CapabilitiesJson = Read-NativeOutput 'capabilities JSON' $Hum @('capabilities', '--format', 'json')
   Assert-Json 'capabilities JSON' $CapabilitiesJson
   if (-not $CapabilitiesJson.Contains('"schema": "hum.capabilities.v0"')) { throw 'capabilities JSON is missing hum.capabilities.v0 schema' }

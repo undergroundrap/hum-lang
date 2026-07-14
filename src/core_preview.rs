@@ -5,11 +5,11 @@ use crate::core_contract;
 use crate::core_expr::{
     self, CoreExpressionAstPreview, CoreExpressionNode, CoreExpressionPreview, ExpressionAtom,
 };
-use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticOccurrenceSet, Severity, Span};
 use crate::graph::is_meaningful_line_text;
 use crate::predicate::{self, Expr as PredicateExpr, PredicateFact, RecognitionStatus};
 use crate::type_check::{self, CheckedReturnSummary};
-use crate::typed_failure::{self, FailureCatalog, FailureFact};
+use crate::typed_failure::{self, FailureFact, ProgramFailureAnalysis};
 use crate::version;
 
 pub const CORE_PREVIEW_SCHEMA: &str = "hum.core_preview.v0";
@@ -23,6 +23,7 @@ struct CorePreviewReport {
     errors: usize,
     warnings: usize,
     candidates: Vec<CoreCandidate>,
+    diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -385,14 +386,23 @@ pub fn core_preview_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CorePreviewReport {
     let mut candidates = Vec::new();
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
-    let failure_catalog = FailureCatalog::from_program(program);
+    let failure_analysis = typed_failure::analyze_program(program);
     let predicate_facts = predicate::analyze_program(program);
+    let mut diagnostic_occurrences = type_check::diagnostic_occurrence_set(program, diagnostics);
+    for fact in predicate_facts.facts() {
+        let Some(occurrence) = fact.diagnostic_occurrence() else {
+            continue;
+        };
+        diagnostic_occurrences
+            .insert_owned(occurrence)
+            .expect("predicate diagnostic occurrences must be unique");
+    }
     for file in &program.files {
         collect_candidates_from_items(
             &file.items,
             diagnostics,
             &checked_returns,
-            &failure_catalog,
+            &failure_analysis,
             predicate_facts.facts(),
             &mut candidates,
         );
@@ -413,14 +423,104 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CorePreviewRep
         errors,
         warnings,
         candidates,
+        diagnostic_occurrences,
     }
+}
+
+pub(crate) fn diagnostic_occurrence_set(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> DiagnosticOccurrenceSet {
+    build_report(program, diagnostics).diagnostic_occurrences
+}
+
+pub(crate) fn diagnostic_occurrence_set_from_source(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
+) -> DiagnosticOccurrenceSet {
+    let mut occurrences =
+        type_check::diagnostic_occurrence_set_from_source(program, diagnostics, source_occurrences);
+    let predicate_analysis = predicate::analyze_program(program);
+    for fact in predicate_analysis.facts() {
+        if let Some(occurrence) = fact.diagnostic_occurrence() {
+            occurrences
+                .insert_owned(occurrence)
+                .expect("predicate diagnostic occurrences must be unique");
+        }
+    }
+    let relationships = path_precedence_relationships(&occurrences, &predicate_analysis);
+    let consumptions = consume_path_precedence(&occurrences, &relationships, relationships.len())
+        .expect("Path/predicate precedence must consume only producer-owned relationships");
+    assert_eq!(consumptions.len(), relationships.len());
+    occurrences
+}
+
+pub(crate) fn path_precedence_relationships(
+    occurrences: &DiagnosticOccurrenceSet,
+    predicate_analysis: &predicate::PredicateAnalysis,
+) -> Vec<crate::diagnostic::DiagnosticPrecedenceRelationship> {
+    let mut relationships = Vec::new();
+    for fact in predicate_analysis.facts() {
+        let Some(suppressed) = fact.path_precedence_occurrence() else {
+            continue;
+        };
+        let task_route = format!("path_task_identity={}", fact.semantic_task_identity());
+        let source_route = format!("path_source_identity={}", fact.semantic_line_identity());
+        let Some((dominant, rule)) = occurrences.occurrences().find_map(|occurrence| {
+            let rule = crate::diagnostic_catalog::exact_precedence_spec(
+                occurrence.cause_key(),
+                suppressed.cause_key(),
+                "path_boundary_owns_predicate_inspection_v0",
+                "predicate",
+                "core_preview",
+            )?;
+            (occurrence.relationship_route().contains(&task_route)
+                && occurrence.relationship_route().contains(&source_route))
+            .then_some((occurrence, rule))
+        }) else {
+            continue;
+        };
+        let relationship_id = format!(
+            "path-predicate-precedence:{}",
+            fact.semantic_line_identity()
+        );
+        relationships.push(
+            crate::diagnostic::DiagnosticPrecedenceRelationship::producer_owned(
+                rule.id,
+                "predicate",
+                "core_preview",
+                relationship_id.clone(),
+                dominant,
+                &suppressed,
+                [
+                    dominant.semantic_origin().to_string(),
+                    suppressed.semantic_origin().to_string(),
+                ],
+                vec![relationship_id, task_route, source_route],
+            )
+            .expect("Predicate analyzer must seal the exact Path inspection relationship"),
+        );
+    }
+    relationships
+}
+
+pub(crate) fn consume_path_precedence(
+    occurrences: &DiagnosticOccurrenceSet,
+    relationships: &[crate::diagnostic::DiagnosticPrecedenceRelationship],
+    expected_count: usize,
+) -> Result<
+    Vec<crate::diagnostic::DiagnosticPrecedenceConsumption>,
+    crate::diagnostic::DiagnosticInvariantError,
+> {
+    occurrences.consume_precedence_relationships("core_preview", relationships, expected_count)
 }
 
 fn collect_candidates_from_items(
     items: &[Item],
     diagnostics: &[Diagnostic],
     checked_returns: &[CheckedReturnSummary],
-    failure_catalog: &FailureCatalog,
+    failure_analysis: &ProgramFailureAnalysis,
     predicate_facts: &[PredicateFact],
     candidates: &mut Vec<CoreCandidate>,
 ) {
@@ -429,7 +529,7 @@ fn collect_candidates_from_items(
             item,
             diagnostics,
             checked_returns,
-            failure_catalog,
+            failure_analysis,
             predicate_facts,
         ) {
             candidates.push(candidate);
@@ -439,7 +539,7 @@ fn collect_candidates_from_items(
                 &app.items,
                 diagnostics,
                 checked_returns,
-                failure_catalog,
+                failure_analysis,
                 predicate_facts,
                 candidates,
             );
@@ -451,7 +551,7 @@ fn core_candidate(
     item: &Item,
     diagnostics: &[Diagnostic],
     checked_returns: &[CheckedReturnSummary],
-    failure_catalog: &FailureCatalog,
+    failure_analysis: &ProgramFailureAnalysis,
     predicate_facts: &[PredicateFact],
 ) -> Option<CoreCandidate> {
     let section = item_sections(item)
@@ -459,7 +559,7 @@ fn core_candidate(
         .find(|section| section.name == "does")?;
     let body = core_body::analyze_does_section(section);
     let failure_analysis = match item {
-        Item::Task(task) => typed_failure::analyze_task(task, &body.statements, failure_catalog),
+        Item::Task(task) => failure_analysis.task(task).cloned().unwrap_or_default(),
         _ => Default::default(),
     };
     let mut statements = core_statement_previews(

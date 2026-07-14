@@ -1,0 +1,16 @@
+module fixtures.diagnostics.session_ap_ownership_resource_profile_chain_fail
+
+task consume_text(consume value: Text) -> Text {
+  why:
+    consume one owned value
+
+  does:
+    return value
+}
+
+task caller -> Text {
+  does:
+    let value: Text = "owned"
+    let first: Text = consume_text(consume value)
+    return consume_text(consume value)
+}

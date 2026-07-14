@@ -3,7 +3,9 @@ use std::collections::BTreeMap;
 use crate::ast::{Item, Program, Task, TypeSyntaxKind};
 use crate::callable;
 use crate::core_body::{self, BodyStatement};
-use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
+use crate::diagnostic::{
+    Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceSet, Severity, Span,
+};
 use crate::predicate;
 use crate::return_dependency;
 use crate::type_env::{self, TypeDeclaration, TypeEnvReport};
@@ -31,6 +33,7 @@ struct TypeCheckReport {
     checked_declarations: Vec<CheckedDeclaration>,
     checked_returns: Vec<CheckedReturn>,
     diagnostics: Vec<TypeCheckDiagnostic>,
+    diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,6 +119,7 @@ struct TypeFact {
 
 #[derive(Debug, Clone)]
 struct TypeCheckDiagnostic {
+    cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
     code: DiagnosticCode,
     severity: Severity,
     title: &'static str,
@@ -123,6 +127,7 @@ struct TypeCheckDiagnostic {
     source_span: Span,
     help: &'static str,
     declaration_id: Option<String>,
+    resolver_definition_id: Option<String>,
     type_name: Option<String>,
     return_id: Option<String>,
     expression_text: Option<String>,
@@ -169,15 +174,111 @@ pub(crate) fn unknown_type_diagnostics(
             diagnostic.code == DiagnosticCode::UNKNOWN_TYPE_NAME
                 && !callable_parameter_owns_span(program, &diagnostic.source_span)
         })
-        .map(|diagnostic| {
-            Diagnostic::error(
-                diagnostic.code,
-                diagnostic.message,
-                Some(diagnostic.source_span),
-            )
-            .with_help(diagnostic.help)
-        })
+        .map(|diagnostic| public_type_diagnostic(&diagnostic))
         .collect()
+}
+
+pub(crate) fn diagnostic_occurrence_set(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> DiagnosticOccurrenceSet {
+    build_report(program, diagnostics).diagnostic_occurrences
+}
+
+pub(crate) fn diagnostic_occurrence_set_from_source(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
+) -> DiagnosticOccurrenceSet {
+    let report = build_report(program, diagnostics);
+    let mut occurrences =
+        type_env::type_env_report_from_source(program, diagnostics, source_occurrences)
+            .diagnostic_occurrences;
+    for diagnostic in &report.diagnostics {
+        occurrences
+            .insert_owned(type_diagnostic_occurrence(diagnostic))
+            .expect("type diagnostic occurrences must be unique");
+    }
+    let suppressed_type_occurrences = type_diagnostics(&report.type_env.declarations)
+        .iter()
+        .map(type_diagnostic_occurrence)
+        .collect::<Vec<_>>();
+    let relationships =
+        resolver_precedence_relationships(&occurrences, &suppressed_type_occurrences);
+    let consumptions =
+        consume_resolver_precedence(&occurrences, &relationships, relationships.len())
+            .expect("resolver/type precedence must consume exact producer relationships");
+    assert_eq!(consumptions.len(), relationships.len());
+    occurrences
+}
+
+pub(crate) fn resolver_precedence_relationships(
+    occurrences: &DiagnosticOccurrenceSet,
+    suppressed_type_occurrences: &[DiagnosticOccurrence],
+) -> Vec<crate::diagnostic::DiagnosticPrecedenceRelationship> {
+    let mut relationships = Vec::new();
+    for dominant in occurrences.occurrences() {
+        let Some(definition_id) =
+            route_value(dominant.relationship_route(), "resolver_definition=")
+        else {
+            continue;
+        };
+        for suppressed in suppressed_type_occurrences {
+            if route_value(suppressed.relationship_route(), "resolver_definition=")
+                != Some(definition_id)
+                || crate::diagnostic_catalog::exact_precedence_spec(
+                    dominant.cause_key(),
+                    suppressed.cause_key(),
+                    "resolver_blocks_type_relationship_v0",
+                    "type_check",
+                    "type_check",
+                )
+                .is_none()
+            {
+                continue;
+            }
+            let relationship_id = format!(
+                "resolver-type-precedence:{definition_id}:{}:{}",
+                dominant.cause_key().ordinal(),
+                suppressed.cause_key().ordinal()
+            );
+            relationships.push(
+                crate::diagnostic::DiagnosticPrecedenceRelationship::producer_owned(
+                    "resolver_over_type_v0",
+                    "type_check",
+                    "type_check",
+                    relationship_id.clone(),
+                    dominant,
+                    suppressed,
+                    [
+                        dominant.semantic_origin().to_string(),
+                        suppressed.semantic_origin().to_string(),
+                    ],
+                    vec![
+                        relationship_id,
+                        format!("resolver_definition={definition_id}"),
+                    ],
+                )
+                .expect("type checker must seal exact resolver precedence"),
+            );
+        }
+    }
+    relationships
+}
+
+fn route_value<'a>(route: &'a [String], prefix: &str) -> Option<&'a str> {
+    route.iter().find_map(|entry| entry.strip_prefix(prefix))
+}
+
+pub(crate) fn consume_resolver_precedence(
+    occurrences: &DiagnosticOccurrenceSet,
+    relationships: &[crate::diagnostic::DiagnosticPrecedenceRelationship],
+    expected_count: usize,
+) -> Result<
+    Vec<crate::diagnostic::DiagnosticPrecedenceConsumption>,
+    crate::diagnostic::DiagnosticInvariantError,
+> {
+    occurrences.consume_precedence_relationships("type_check", relationships, expected_count)
 }
 
 pub(crate) fn unknown_type_diagnostics_for_tasks(
@@ -398,13 +499,81 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeCheckRepor
         diagnostics.extend(return_diagnostics(&checked_returns));
     }
 
+    let mut diagnostic_occurrences = type_env_report.diagnostic_occurrences.inherited();
+    for diagnostic in &diagnostics {
+        let occurrence = type_diagnostic_occurrence(diagnostic);
+        diagnostic_occurrences
+            .insert_owned(occurrence)
+            .expect("type diagnostic occurrences must be unique");
+    }
+
     TypeCheckReport {
         type_env: type_env_report,
         callable_blockers,
         checked_declarations,
         checked_returns,
         diagnostics,
+        diagnostic_occurrences,
     }
+}
+
+fn public_type_diagnostic(diagnostic: &TypeCheckDiagnostic) -> Diagnostic {
+    let public_diagnostic = match diagnostic.severity {
+        Severity::Error => Diagnostic::error(
+            diagnostic.code,
+            diagnostic.message.clone(),
+            Some(diagnostic.source_span.clone()),
+        ),
+        Severity::Warning => Diagnostic::warning(
+            diagnostic.code,
+            diagnostic.message.clone(),
+            Some(diagnostic.source_span.clone()),
+        ),
+    };
+    public_diagnostic.with_help(diagnostic.help)
+}
+
+fn type_diagnostic_occurrence(diagnostic: &TypeCheckDiagnostic) -> DiagnosticOccurrence {
+    let mut route = Vec::new();
+    if let Some(declaration_id) = &diagnostic.declaration_id {
+        route.push(format!("type_declaration={declaration_id}"));
+    }
+    if let Some(resolver_definition_id) = &diagnostic.resolver_definition_id {
+        route.push(format!("resolver_definition={resolver_definition_id}"));
+    }
+    if let Some(type_name) = &diagnostic.type_name {
+        route.push(format!("type_name={type_name}"));
+    }
+    if let Some(return_id) = &diagnostic.return_id {
+        route.push(format!("return_relationship={return_id}"));
+    }
+    if let Some(expected) = &diagnostic.expected_type {
+        route.push(format!("expected_type={expected}"));
+    }
+    if let Some(actual) = &diagnostic.actual_type {
+        route.push(format!("actual_type={actual}"));
+    }
+    let mut semantic_origin = diagnostic
+        .declaration_id
+        .as_ref()
+        .or(diagnostic.return_id.as_ref())
+        .cloned()
+        .unwrap_or_else(|| panic!("type diagnostic lacks semantic declaration/return identity"));
+    if let Some(type_name) = &diagnostic.type_name {
+        semantic_origin.push_str(":type-name=");
+        semantic_origin.push_str(type_name);
+    }
+    route.insert(
+        0,
+        format!("type_cause_key={}", diagnostic.cause_key.ordinal()),
+    );
+    DiagnosticOccurrence::registered_cause(
+        diagnostic.cause_key,
+        public_type_diagnostic(diagnostic),
+        semantic_origin,
+        route,
+    )
+    .expect("type diagnostic cause must be registered")
 }
 
 fn checked_declaration(declaration: &TypeDeclaration, blocked: bool) -> CheckedDeclaration {
@@ -466,6 +635,7 @@ fn type_diagnostics(declarations: &[TypeDeclaration]) -> Vec<TypeCheckDiagnostic
                 continue;
             }
             diagnostics.push(TypeCheckDiagnostic {
+                cause_key: crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(82),
                 code: DiagnosticCode::UNKNOWN_TYPE_NAME,
                 severity: Severity::Error,
                 title: DiagnosticCode::UNKNOWN_TYPE_NAME.title(),
@@ -479,6 +649,7 @@ fn type_diagnostics(declarations: &[TypeDeclaration]) -> Vec<TypeCheckDiagnostic
                 source_span: declaration.source_span.clone(),
                 help: "Declare the type, use a reserved type root, or wait for imports/packages before relying on external type names.",
                 declaration_id: Some(declaration.id.clone()),
+                resolver_definition_id: declaration.resolver_definition_id.clone(),
                 type_name: Some(reference.text.clone()),
                 return_id: None,
                 expression_text: None,
@@ -788,6 +959,7 @@ fn return_diagnostics(checked_returns: &[CheckedReturn]) -> Vec<TypeCheckDiagnos
         .iter()
         .filter(|checked_return| checked_return.status == "rejected_return_type_mismatch_v0")
         .map(|checked_return| TypeCheckDiagnostic {
+            cause_key: crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(83),
             code: DiagnosticCode::RETURN_TYPE_MISMATCH,
             severity: Severity::Error,
             title: DiagnosticCode::RETURN_TYPE_MISMATCH.title(),
@@ -801,6 +973,7 @@ fn return_diagnostics(checked_returns: &[CheckedReturn]) -> Vec<TypeCheckDiagnos
             source_span: checked_return.source_span.clone(),
             help: "Return a value that matches the task result type, change the task result annotation, or leave complex cases unchecked until full expression typing exists.",
             declaration_id: None,
+            resolver_definition_id: None,
             type_name: None,
             return_id: Some(checked_return.id.clone()),
             expression_text: Some(checked_return.expression_text.clone()),
@@ -1493,7 +1666,51 @@ mod tests {
     use crate::ast::Program;
     use crate::parser::parse_source;
 
-    use super::{type_check_has_errors, type_check_json, type_check_text};
+    use super::{
+        build_report, diagnostic_occurrence_set_from_source, resolver_precedence_relationships,
+        type_check_has_errors, type_check_json, type_check_text, type_diagnostic_occurrence,
+        type_diagnostics,
+    };
+
+    #[test]
+    fn resolver_precedence_is_consumed_for_a_genuine_blocked_type_relationship() {
+        let parsed = parse_source(
+            "resolver-type-precedence.hum",
+            r#"task duplicate(value: MissingType, value: MissingType) -> UInt {
+  does:
+    return 1
+}
+"#,
+        );
+        let checked = crate::check::check_file_with_occurrences(&parsed.file);
+        let mut source_occurrences = parsed.diagnostic_occurrences.clone();
+        source_occurrences
+            .extend_owned(&checked.diagnostic_occurrences)
+            .expect("source occurrences");
+        let mut diagnostics = parsed.diagnostics;
+        diagnostics.extend(checked.diagnostics);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let occurrences =
+            diagnostic_occurrence_set_from_source(&program, &diagnostics, &source_occurrences);
+        let report = build_report(&program, &diagnostics);
+        let suppressed = type_diagnostics(&report.type_env.declarations)
+            .iter()
+            .map(type_diagnostic_occurrence)
+            .collect::<Vec<_>>();
+        let relationships = resolver_precedence_relationships(&occurrences, &suppressed);
+        assert_eq!(relationships.len(), 1);
+        let application = relationships[0].application();
+        assert_eq!(application.rule_id, "resolver_over_type_v0");
+        assert_eq!(application.applying_stage, "type_check");
+        assert!(
+            application
+                .relationship_route
+                .iter()
+                .any(|entry| entry.starts_with("resolver_definition=def_"))
+        );
+    }
 
     #[test]
     fn json_rejects_unknown_declared_annotation_names() {

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::ast::{App, Item, Program, SectionLine, Task};
 use crate::core_body;
-use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::field_place::{self, FieldTypeMap};
 use crate::graph::is_meaningful_line_text;
 use crate::node_id;
@@ -128,9 +128,118 @@ pub(crate) struct PredicateAst {
     pub(crate) right: Expr,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PredicateCause {
+    ArbitraryHelperCall,
+    ArithmeticRequiresNumericOperands,
+    CrossTypeComparison,
+    DelimiterDepthExceeded,
+    IntegerLiteralOutOfRange,
+    InvalidComparisonOperator,
+    InvalidOperandStarter,
+    KnownCallRequiresNoGap,
+    ListCountRequiresListText,
+    ListCountRequiresTextMatch,
+    ListCountWrongArity,
+    ListLenRequiresList,
+    ListTextComparisonRequiresLiteral,
+    ListTextLiteralRequiresTextElements,
+    ListTextLiteralSeparator,
+    ListTextLiteralTrailingComma,
+    MalformedSyntacticPlace,
+    MismatchedOrMissingDelimiter,
+    MissingOperand,
+    OldPlaceNotEntryReadable,
+    OperatorNotSupportedForOperandType,
+    PredicateFieldUnresolved,
+    PredicatePlaceIneligible,
+    PredicatePlaceUnresolved,
+    TrailingTokensAfterPredicate,
+    UnterminatedTextLiteral,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PredicateDiagnosticOwner {
+    None,
+    Predicate(PredicateCause),
+    PathBoundary,
+}
+
+impl PredicateCause {
+    const fn key(self) -> crate::diagnostic_catalog::DiagnosticCauseKey {
+        use PredicateCause as Cause;
+        crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(match self {
+            Cause::ArbitraryHelperCall => 123,
+            Cause::ArithmeticRequiresNumericOperands => 124,
+            Cause::CrossTypeComparison => 125,
+            Cause::DelimiterDepthExceeded => 126,
+            Cause::IntegerLiteralOutOfRange => 127,
+            Cause::InvalidComparisonOperator => 128,
+            Cause::InvalidOperandStarter => 129,
+            Cause::KnownCallRequiresNoGap => 130,
+            Cause::ListCountRequiresListText => 131,
+            Cause::ListCountRequiresTextMatch => 132,
+            Cause::ListCountWrongArity => 133,
+            Cause::ListLenRequiresList => 134,
+            Cause::ListTextComparisonRequiresLiteral => 135,
+            Cause::ListTextLiteralRequiresTextElements => 136,
+            Cause::ListTextLiteralSeparator => 137,
+            Cause::ListTextLiteralTrailingComma => 138,
+            Cause::MalformedSyntacticPlace => 139,
+            Cause::MismatchedOrMissingDelimiter => 140,
+            Cause::MissingOperand => 141,
+            Cause::OldPlaceNotEntryReadable => 142,
+            Cause::OperatorNotSupportedForOperandType => 143,
+            Cause::PredicateFieldUnresolved => 144,
+            Cause::PredicatePlaceIneligible => 145,
+            Cause::PredicatePlaceUnresolved => 146,
+            Cause::TrailingTokensAfterPredicate => 147,
+            Cause::UnterminatedTextLiteral => 148,
+        })
+    }
+
+    const fn reason(self) -> &'static str {
+        use PredicateCause as Cause;
+        match self {
+            Cause::ArbitraryHelperCall => "arbitrary_helper_call_not_allowed_v2",
+            Cause::ArithmeticRequiresNumericOperands => "arithmetic_requires_numeric_operands_v2",
+            Cause::CrossTypeComparison => "cross_type_comparison_v2",
+            Cause::DelimiterDepthExceeded => "delimiter_depth_exceeded_v2",
+            Cause::IntegerLiteralOutOfRange => "integer_literal_out_of_range_v2",
+            Cause::InvalidComparisonOperator => "invalid_comparison_operator_v2",
+            Cause::InvalidOperandStarter => "invalid_operand_starter_v2",
+            Cause::KnownCallRequiresNoGap => "known_call_requires_no_gap_v2",
+            Cause::ListCountRequiresListText => "list_count_requires_list_text_v2",
+            Cause::ListCountRequiresTextMatch => "list_count_requires_text_match_v2",
+            Cause::ListCountWrongArity => "list_count_wrong_arity_v2",
+            Cause::ListLenRequiresList => "list_len_requires_list_v2",
+            Cause::ListTextComparisonRequiresLiteral => "list_text_comparison_requires_literal_v2",
+            Cause::ListTextLiteralRequiresTextElements => {
+                "list_text_literal_requires_text_elements_v2"
+            }
+            Cause::ListTextLiteralSeparator => "list_text_literal_separator_v2",
+            Cause::ListTextLiteralTrailingComma => "list_text_literal_trailing_comma_v2",
+            Cause::MalformedSyntacticPlace => "malformed_syntactic_place_v2",
+            Cause::MismatchedOrMissingDelimiter => "mismatched_or_missing_delimiter_v2",
+            Cause::MissingOperand => "missing_operand_v2",
+            Cause::OldPlaceNotEntryReadable => "old_place_not_entry_readable_v2",
+            Cause::OperatorNotSupportedForOperandType => {
+                "operator_not_supported_for_operand_type_v2"
+            }
+            Cause::PredicateFieldUnresolved => "predicate_field_unresolved_v2",
+            Cause::PredicatePlaceIneligible => "predicate_place_ineligible_v2",
+            Cause::PredicatePlaceUnresolved => "predicate_place_unresolved_v2",
+            Cause::TrailingTokensAfterPredicate => "trailing_tokens_after_predicate_v2",
+            Cause::UnterminatedTextLiteral => "unterminated_text_literal_v2",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PredicateFact {
     pub(crate) task: String,
+    task_identity: String,
+    line_identity: String,
     pub(crate) task_span: Span,
     pub(crate) section: String,
     pub(crate) text: String,
@@ -139,6 +248,7 @@ pub(crate) struct PredicateFact {
     pub(crate) intent_span: Option<Span>,
     pub(crate) offending_span: Option<Span>,
     pub(crate) reason: &'static str,
+    diagnostic_owner: PredicateDiagnosticOwner,
     pub(crate) expected: Option<String>,
     pub(crate) actual: Option<String>,
     pub(crate) places: Vec<PredicatePlaceFact>,
@@ -173,7 +283,7 @@ impl PredicateAnalysis {
         let context = LexicalContext::build(program);
         let mut facts = Vec::new();
         for file in &program.files {
-            collect_facts(&file.items, &fields, &context, &mut facts);
+            collect_facts(program, &file.items, &fields, &context, &mut facts);
         }
         Self { facts }
     }
@@ -329,18 +439,51 @@ fn find_task<'a>(
 }
 
 impl PredicateFact {
+    pub(crate) fn semantic_line_identity(&self) -> &str {
+        &self.line_identity
+    }
+
+    pub(crate) fn semantic_task_identity(&self) -> &str {
+        &self.task_identity
+    }
+
     pub(crate) fn repair(&self) -> String {
-        repair_for(self.reason)
+        repair_for(self.diagnostic_owner)
     }
 
     pub(crate) fn diagnostic(&self) -> Option<Diagnostic> {
+        self.diagnostic_occurrence()
+            .map(|occurrence| occurrence.diagnostic().clone())
+    }
+
+    pub(crate) fn diagnostic_occurrence(&self) -> Option<DiagnosticOccurrence> {
         if !matches!(
             self.status,
             RecognitionStatus::MalformedExecutable | RecognitionStatus::RejectedSemantics
-        ) || self.reason == "opaque_path_inspection_owned_by_h0630"
-        {
+        ) {
             return None;
         }
+        let PredicateDiagnosticOwner::Predicate(cause) = self.diagnostic_owner else {
+            return None;
+        };
+        self.build_diagnostic_occurrence(cause)
+    }
+
+    pub(crate) fn path_precedence_occurrence(&self) -> Option<DiagnosticOccurrence> {
+        matches!(
+            self.diagnostic_owner,
+            PredicateDiagnosticOwner::PathBoundary
+        )
+        .then(|| {
+            self.build_diagnostic_occurrence(PredicateCause::OperatorNotSupportedForOperandType)
+        })
+        .flatten()
+    }
+
+    fn build_diagnostic_occurrence(
+        &self,
+        cause_identity: PredicateCause,
+    ) -> Option<DiagnosticOccurrence> {
         let expected = self
             .expected
             .as_deref()
@@ -363,7 +506,33 @@ impl PredicateFact {
         if let Some(span) = &self.intent_span {
             diagnostic = diagnostic.with_related_span("executable predicate intent", span.clone());
         }
-        Some(diagnostic)
+        let cause = crate::diagnostic_catalog::diagnostic_cause_for_key(cause_identity.key())
+            .expect("Predicate v2 typed cause must be registered");
+        let mut route = vec![
+            format!("predicate_task={}", self.task_identity),
+            format!("predicate_line={}", self.line_identity),
+            format!("predicate_section={}", self.section),
+            format!("predicate_status={}", self.status.as_str()),
+            format!("predicate_cause={}", cause_identity.key().ordinal()),
+        ];
+        route.extend(self.places.iter().enumerate().map(|(index, place)| {
+            format!(
+                "predicate_place_ordinal={index}:scope={}:root={}:definition={}",
+                place.scope_id,
+                place.root_definition_id.as_deref().unwrap_or("none"),
+                place.definition_id.as_deref().unwrap_or("none")
+            )
+        }));
+        let identity = DiagnosticOccurrence::semantic_relationship_identity(
+            cause.origin_kind,
+            cause.route_kind,
+            format!("predicate-relationship:{}", self.line_identity),
+            route,
+        );
+        Some(
+            DiagnosticOccurrence::registered(cause, identity, diagnostic)
+                .expect("Predicate v2 occurrence must validate"),
+        )
     }
 
     pub(crate) fn blocks(&self) -> bool {
@@ -372,20 +541,19 @@ impl PredicateFact {
 }
 
 thread_local! {
-    static ANALYSIS_CACHE: RefCell<Option<(String, Arc<PredicateAnalysis>)>> = const { RefCell::new(None) };
+    static ANALYSIS_CACHE: RefCell<Option<(Program, Arc<PredicateAnalysis>)>> = const { RefCell::new(None) };
 }
 
 pub(crate) fn analyze_program(program: &Program) -> Arc<PredicateAnalysis> {
-    let key = format!("{program:?}");
     ANALYSIS_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        if let Some((cached_key, analysis)) = cache.as_ref()
-            && cached_key == &key
+        if let Some((cached_program, analysis)) = cache.as_ref()
+            && cached_program == program
         {
             return Arc::clone(analysis);
         }
         let analysis = Arc::new(PredicateAnalysis::build(program));
-        *cache = Some((key, Arc::clone(&analysis)));
+        *cache = Some((program.clone(), Arc::clone(&analysis)));
         analysis
     })
 }
@@ -405,6 +573,7 @@ pub(crate) fn fact_for_line(
 }
 
 fn collect_facts(
+    program: &Program,
     items: &[Item],
     fields: &FieldTypeMap,
     context: &LexicalContext,
@@ -412,24 +581,36 @@ fn collect_facts(
 ) {
     for item in items {
         match item {
-            Item::Task(task) => out.extend(analyze_task_with_context(task, fields, context)),
-            Item::App(app) => collect_facts(&app.items, fields, context, out),
+            Item::Task(task) => {
+                out.extend(analyze_task_with_context(program, task, fields, context))
+            }
+            Item::App(app) => collect_facts(program, &app.items, fields, context, out),
             Item::Type(_) | Item::Store(_) | Item::Test(_) => {}
         }
     }
 }
 
 fn analyze_task_with_context(
+    program: &Program,
     task: &Task,
     fields: &FieldTypeMap,
     context: &LexicalContext,
 ) -> Vec<PredicateFact> {
     let mut facts = Vec::new();
+    let task_identity = crate::resolve::semantic_task_identity(program, task);
     for section_name in ["needs", "ensures"] {
         if let Some(section) = task.section(section_name) {
-            for line in &section.lines {
+            for (line_index, line) in section.lines.iter().enumerate() {
                 if is_meaningful_line_text(&line.text) {
-                    facts.push(analyze_line(task, section_name, line, fields, context));
+                    facts.push(analyze_line(
+                        task,
+                        &task_identity,
+                        section_name,
+                        line_index,
+                        line,
+                        fields,
+                        context,
+                    ));
                 }
             }
         }
@@ -439,7 +620,9 @@ fn analyze_task_with_context(
 
 fn analyze_line(
     task: &Task,
+    task_identity: &str,
     section: &str,
+    line_index: usize,
     line: &SectionLine,
     fields: &FieldTypeMap,
     context: &LexicalContext,
@@ -448,9 +631,7 @@ fn analyze_line(
     let intent = find_intent_signal(&text);
     let Some(intent_range) = intent else {
         return base_fact(
-            task,
-            section,
-            line,
+            (task, task_identity, section, line_index, line),
             text,
             RecognitionStatus::NonExecutableProse,
             None,
@@ -464,14 +645,13 @@ fn analyze_line(
         Ok(ast) => ast,
         Err(error) => {
             let mut fact = base_fact(
-                task,
-                section,
-                line,
+                (task, task_identity, section, line_index, line),
                 text,
                 RecognitionStatus::MalformedExecutable,
                 Some(intent_range),
-                error.reason,
+                error.cause.reason(),
             );
+            fact.diagnostic_owner = PredicateDiagnosticOwner::Predicate(error.cause);
             fact.offending_span = Some(range_span(line, error.range));
             fact.expected = Some(error.expected.to_string());
             fact.actual = Some(error.actual);
@@ -481,9 +661,7 @@ fn analyze_line(
     };
 
     let mut fact = base_fact(
-        task,
-        section,
-        line,
+        (task, task_identity, section, line_index, line),
         text,
         RecognitionStatus::RecognizedTyped,
         Some(intent_range),
@@ -500,6 +678,7 @@ fn analyze_line(
         Err(issue) => {
             fact.status = RecognitionStatus::RejectedSemantics;
             fact.reason = issue.reason;
+            fact.diagnostic_owner = issue.owner;
             fact.offending_span = Some(range_span(line, issue.range));
             fact.expected = Some(issue.expected);
             fact.actual = Some(issue.actual);
@@ -512,16 +691,17 @@ fn analyze_line(
 }
 
 fn base_fact(
-    task: &Task,
-    section: &str,
-    line: &SectionLine,
+    location: (&Task, &str, &str, usize, &SectionLine),
     text: String,
     status: RecognitionStatus,
     intent: Option<SourceRange>,
     reason: &'static str,
 ) -> PredicateFact {
+    let (task, task_identity, section, line_index, line) = location;
     PredicateFact {
         task: task.name.clone(),
+        task_identity: task_identity.to_string(),
+        line_identity: format!("{task_identity}:section-{section}:line-{line_index}"),
         task_span: task.span.clone(),
         section: section.to_string(),
         text,
@@ -530,6 +710,7 @@ fn base_fact(
         intent_span: intent.map(|range| range_span(line, range)),
         offending_span: None,
         reason,
+        diagnostic_owner: PredicateDiagnosticOwner::None,
         expected: None,
         actual: None,
         places: Vec::new(),
@@ -839,7 +1020,7 @@ fn is_ident_byte(byte: u8) -> bool {
 }
 
 struct ParseError {
-    reason: &'static str,
+    cause: PredicateCause,
     range: SourceRange,
     expected: &'static str,
     actual: String,
@@ -871,7 +1052,10 @@ impl<'a> Parser<'a> {
         let right = self.parse_additive()?;
         self.hws();
         if self.pos != self.text.len() {
-            return Err(self.error("trailing_tokens_after_predicate_v2", "end of contract line"));
+            return Err(self.error(
+                PredicateCause::TrailingTokensAfterPredicate,
+                "end of contract line",
+            ));
         }
         Ok(PredicateAst {
             left,
@@ -933,7 +1117,7 @@ impl<'a> Parser<'a> {
         self.hws();
         let start = self.pos;
         let Some(ch) = self.peek_char() else {
-            return Err(self.error("missing_operand_v2", "operand"));
+            return Err(self.error(PredicateCause::MissingOperand, "operand"));
         };
         if ch == '(' {
             self.open_delimiter()?;
@@ -982,7 +1166,7 @@ impl<'a> Parser<'a> {
                     "list_len" => self.parse_place_call(start, false),
                     "list_count" => self.parse_list_count(start),
                     _ => Err(ParseError {
-                        reason: "arbitrary_helper_call_not_allowed_v2",
+                        cause: PredicateCause::ArbitraryHelperCall,
                         range,
                         expected: "a Predicate v2 operand or exact old/list_len/list_count call",
                         actual: format!("call `{name}(...)`"),
@@ -999,7 +1183,7 @@ impl<'a> Parser<'a> {
                     && matches!(name.as_str(), "old" | "list_len" | "list_count")
                 {
                     return Err(ParseError {
-                        reason: "known_call_requires_no_gap_v2",
+                        cause: PredicateCause::KnownCallRequiresNoGap,
                         range: SourceRange {
                             start,
                             end: self.pos + 1,
@@ -1018,23 +1202,25 @@ impl<'a> Parser<'a> {
             if self.peek_char() == Some('.') {
                 self.bump_char();
                 if !self.peek_char().is_some_and(is_ident_start) {
-                    return Err(
-                        self.error("malformed_syntactic_place_v2", "one identifier after `.`")
-                    );
+                    return Err(self.error(
+                        PredicateCause::MalformedSyntacticPlace,
+                        "one identifier after `.`",
+                    ));
                 }
                 let field = self.parse_identifier();
                 place.field = Some(field);
                 place.range.end = self.pos;
                 if self.peek_char() == Some('.') {
-                    return Err(
-                        self.error("malformed_syntactic_place_v2", "at most one direct field")
-                    );
+                    return Err(self.error(
+                        PredicateCause::MalformedSyntacticPlace,
+                        "at most one direct field",
+                    ));
                 }
             }
             return Ok(Expr::Place(place));
         }
         Err(self.error(
-            "invalid_operand_starter_v2",
+            PredicateCause::InvalidOperandStarter,
             "boolean, integer, place, Text, List Text, known call, or parenthesized operand",
         ))
     }
@@ -1066,7 +1252,7 @@ impl<'a> Parser<'a> {
         };
         self.hws();
         if self.peek_char() != Some(',') {
-            return Err(self.error("list_count_wrong_arity_v2", "`,` and a Text source"));
+            return Err(self.error(PredicateCause::ListCountWrongArity, "`,` and a Text source"));
         }
         self.bump_char();
         self.hws();
@@ -1092,7 +1278,7 @@ impl<'a> Parser<'a> {
         let start = self.pos;
         if !self.peek_char().is_some_and(is_ident_start) {
             return Err(self.error(
-                "malformed_syntactic_place_v2",
+                PredicateCause::MalformedSyntacticPlace,
                 "identifier or direct-field place",
             ));
         }
@@ -1108,13 +1294,16 @@ impl<'a> Parser<'a> {
         if self.peek_char() == Some('.') {
             self.bump_char();
             if !self.peek_char().is_some_and(is_ident_start) {
-                return Err(self.error("malformed_syntactic_place_v2", "field identifier"));
+                return Err(self.error(PredicateCause::MalformedSyntacticPlace, "field identifier"));
             }
             place.field = Some(self.parse_identifier());
             place.range.end = self.pos;
         }
         if self.peek_char() == Some('.') {
-            return Err(self.error("malformed_syntactic_place_v2", "at most one direct field"));
+            return Err(self.error(
+                PredicateCause::MalformedSyntacticPlace,
+                "at most one direct field",
+            ));
         }
         Ok(place)
     }
@@ -1137,7 +1326,7 @@ impl<'a> Parser<'a> {
         loop {
             if self.peek_char() != Some('"') {
                 return Err(self.error(
-                    "list_text_literal_requires_text_elements_v2",
+                    PredicateCause::ListTextLiteralRequiresTextElements,
                     "Text literal list element",
                 ));
             }
@@ -1153,12 +1342,14 @@ impl<'a> Parser<'a> {
                     self.hws();
                     if self.peek_char() == Some(']') {
                         return Err(self.error(
-                            "list_text_literal_trailing_comma_v2",
+                            PredicateCause::ListTextLiteralTrailingComma,
                             "Text literal after `,`",
                         ));
                     }
                 }
-                _ => return Err(self.error("list_text_literal_separator_v2", "`,` or `]`")),
+                _ => {
+                    return Err(self.error(PredicateCause::ListTextLiteralSeparator, "`,` or `]`"));
+                }
             }
         }
         Ok(Expr::ListText(
@@ -1189,7 +1380,7 @@ impl<'a> Parser<'a> {
             self.bump_char();
         }
         Err(ParseError {
-            reason: "unterminated_text_literal_v2",
+            cause: PredicateCause::UnterminatedTextLiteral,
             range: SourceRange {
                 start,
                 end: self.text.len(),
@@ -1209,7 +1400,7 @@ impl<'a> Parser<'a> {
         }
         let raw = &self.text[start..self.pos];
         let value = raw.parse::<i64>().map_err(|_| ParseError {
-            reason: "integer_literal_out_of_range_v2",
+            cause: PredicateCause::IntegerLiteralOutOfRange,
             range: SourceRange {
                 start,
                 end: self.pos,
@@ -1248,7 +1439,7 @@ impl<'a> Parser<'a> {
             }
         }
         Err(self.error(
-            "invalid_comparison_operator_v2",
+            PredicateCause::InvalidComparisonOperator,
             "one atomic comparison operator",
         ))
     }
@@ -1259,7 +1450,7 @@ impl<'a> Parser<'a> {
         self.max_depth = self.max_depth.max(self.depth);
         if self.depth > MAX_DELIMITER_DEPTH {
             return Err(self.error(
-                "delimiter_depth_exceeded_v2",
+                PredicateCause::DelimiterDepthExceeded,
                 "at most 16 open delimiter frames",
             ));
         }
@@ -1269,7 +1460,7 @@ impl<'a> Parser<'a> {
     fn expect_close(&mut self, expected: char) -> Result<(), ParseError> {
         if self.peek_char() != Some(expected) {
             return Err(self.error(
-                "mismatched_or_missing_delimiter_v2",
+                PredicateCause::MismatchedOrMissingDelimiter,
                 "matching closing delimiter",
             ));
         }
@@ -1305,12 +1496,12 @@ impl<'a> Parser<'a> {
             self.pos += ch.len_utf8();
         }
     }
-    fn error(&self, reason: &'static str, expected: &'static str) -> ParseError {
+    fn error(&self, cause: PredicateCause, expected: &'static str) -> ParseError {
         let end = self
             .peek_char()
             .map_or(self.pos, |ch| self.pos + ch.len_utf8());
         ParseError {
-            reason,
+            cause,
             range: SourceRange {
                 start: self.pos,
                 end,
@@ -1362,6 +1553,7 @@ impl OperandType {
 
 struct TypeIssue {
     reason: &'static str,
+    owner: PredicateDiagnosticOwner,
     range: SourceRange,
     expected: String,
     actual: String,
@@ -1375,8 +1567,7 @@ fn type_predicate(
     let left = type_expr(&ast.left, section, places)?;
     let right = type_expr(&ast.right, section, places)?;
     if matches!(left, OperandType::Path) || matches!(right, OperandType::Path) {
-        return Err(type_issue(
-            "opaque_path_inspection_owned_by_h0630",
+        return Err(path_type_issue(
             if matches!(left, OperandType::Path) {
                 ast.left.range()
             } else {
@@ -1398,7 +1589,7 @@ fn type_predicate(
     };
     if !compatible {
         return Err(type_issue(
-            "cross_type_comparison_v2",
+            PredicateCause::CrossTypeComparison,
             ast.right.range(),
             left.display(),
             right.display(),
@@ -1409,7 +1600,7 @@ fn type_predicate(
         && !is_list_text_literal(&ast.right)
     {
         return Err(type_issue(
-            "list_text_comparison_requires_literal_v2",
+            PredicateCause::ListTextComparisonRequiresLiteral,
             ast.operator_range,
             "a List Text place compared with a List Text literal",
             "two non-literal List Text operands",
@@ -1422,7 +1613,7 @@ fn type_predicate(
         )
     {
         return Err(type_issue(
-            "operator_not_supported_for_operand_type_v2",
+            PredicateCause::OperatorNotSupportedForOperandType,
             ast.operator_range,
             format!("== or != for {}", left.display()),
             ast.comparison.as_str().to_string(),
@@ -1453,7 +1644,7 @@ fn type_expr(
         Expr::Old(place, range) => {
             if section != "ensures" || place.root == "result" {
                 return Err(type_issue(
-                    "old_place_not_entry_readable_v2",
+                    PredicateCause::OldPlaceNotEntryReadable,
                     *range,
                     "parameter or parameter field in ensures",
                     "section-ineligible old place",
@@ -1470,7 +1661,7 @@ fn type_expr(
                 || matches!(&ty, OperandType::Other(value) if value.starts_with("List "));
             if !is_list {
                 return Err(type_issue(
-                    "list_len_requires_list_v2",
+                    PredicateCause::ListLenRequiresList,
                     *range,
                     "List value",
                     ty.display(),
@@ -1482,7 +1673,7 @@ fn type_expr(
             let list_ty = type_expr(list, section, places)?;
             if list_ty != OperandType::ListText {
                 return Err(type_issue(
-                    "list_count_requires_list_text_v2",
+                    PredicateCause::ListCountRequiresListText,
                     list.range(),
                     "List Text",
                     list_ty.display(),
@@ -1491,7 +1682,7 @@ fn type_expr(
             let text_ty = type_expr(text, section, places)?;
             if text_ty != OperandType::Text {
                 return Err(type_issue(
-                    "list_count_requires_text_match_v2",
+                    PredicateCause::ListCountRequiresTextMatch,
                     text.range(),
                     "Text",
                     text_ty.display(),
@@ -1505,7 +1696,7 @@ fn type_expr(
             let right_ty = type_expr(right, section, places)?;
             if !left_ty.numeric() || !right_ty.numeric() {
                 return Err(type_issue(
-                    "arithmetic_requires_numeric_operands_v2",
+                    PredicateCause::ArithmeticRequiresNumericOperands,
                     *range,
                     "Int/UInt operands",
                     format!("{} and {}", left_ty.display(), right_ty.display()),
@@ -1527,7 +1718,7 @@ fn type_place(place: &Place, places: &[PredicatePlaceFact]) -> Result<OperandTyp
         .find(|fact| fact.source_range == place.range)
         .ok_or_else(|| {
             type_issue(
-                "predicate_place_unresolved_v2",
+                PredicateCause::PredicatePlaceUnresolved,
                 place.range,
                 "resolved task parameter or ensures result place",
                 "unresolved place",
@@ -1536,9 +1727,9 @@ fn type_place(place: &Place, places: &[PredicatePlaceFact]) -> Result<OperandTyp
     if fact.resolution != "resolved_v0" {
         return Err(type_issue(
             if place.field.is_some() {
-                "predicate_field_unresolved_v2"
+                PredicateCause::PredicateFieldUnresolved
             } else {
-                "predicate_place_unresolved_v2"
+                PredicateCause::PredicatePlaceUnresolved
             },
             place.range,
             if place.field.is_some() {
@@ -1551,7 +1742,7 @@ fn type_place(place: &Place, places: &[PredicatePlaceFact]) -> Result<OperandTyp
     }
     if fact.eligibility != "eligible_v0" {
         return Err(type_issue(
-            "predicate_place_ineligible_v2",
+            PredicateCause::PredicatePlaceIneligible,
             place.range,
             "task parameter or ensures result place",
             "resolved but ineligible place",
@@ -1582,28 +1773,43 @@ fn parse_type(text: &str) -> OperandType {
 }
 
 fn type_issue(
-    reason: &'static str,
+    cause: PredicateCause,
     range: SourceRange,
     expected: impl Into<String>,
     actual: impl Into<String>,
 ) -> Box<TypeIssue> {
     let actual = actual.into();
     Box::new(TypeIssue {
-        reason,
+        reason: cause.reason(),
+        owner: PredicateDiagnosticOwner::Predicate(cause),
         range,
         expected: expected.into(),
         actual,
     })
 }
 
-fn repair_for(reason: &str) -> String {
-    match reason {
-        "known_call_requires_no_gap_v2" => "Write `old(place)`, `list_len(place)`, or `list_count(list_text, text)` with no gap before `(`.".to_string(),
-        "predicate_place_unresolved_v2" | "predicate_field_unresolved_v2" => "Use a declared task parameter (or `result` in `ensures:`) and at most one declared direct field.".to_string(),
-        "predicate_place_ineligible_v2" => "Use a task parameter, or `result` in `ensures:`; task names and other source definitions are not contract places.".to_string(),
-        "cross_type_comparison_v2" | "operator_not_supported_for_operand_type_v2" => "Compare operands of the same supported type; Text and List Text support only `==` and `!=`.".to_string(),
-        "list_count_requires_list_text_v2" | "list_count_requires_text_match_v2" => "Write `list_count(<List Text place or literal>, <Text place or literal>)`.".to_string(),
-        "list_text_comparison_requires_literal_v2" => "Compare a `List Text` place with one exact flat `List Text` literal.".to_string(),
+fn path_type_issue(
+    range: SourceRange,
+    expected: impl Into<String>,
+    actual: impl Into<String>,
+) -> Box<TypeIssue> {
+    Box::new(TypeIssue {
+        reason: "opaque_path_inspection_owned_by_h0630",
+        owner: PredicateDiagnosticOwner::PathBoundary,
+        range,
+        expected: expected.into(),
+        actual: actual.into(),
+    })
+}
+
+fn repair_for(owner: PredicateDiagnosticOwner) -> String {
+    match owner {
+        PredicateDiagnosticOwner::Predicate(PredicateCause::KnownCallRequiresNoGap) => "Write `old(place)`, `list_len(place)`, or `list_count(list_text, text)` with no gap before `(`.".to_string(),
+        PredicateDiagnosticOwner::Predicate(PredicateCause::PredicatePlaceUnresolved | PredicateCause::PredicateFieldUnresolved) => "Use a declared task parameter (or `result` in `ensures:`) and at most one declared direct field.".to_string(),
+        PredicateDiagnosticOwner::Predicate(PredicateCause::PredicatePlaceIneligible) => "Use a task parameter, or `result` in `ensures:`; task names and other source definitions are not contract places.".to_string(),
+        PredicateDiagnosticOwner::Predicate(PredicateCause::CrossTypeComparison | PredicateCause::OperatorNotSupportedForOperandType) => "Compare operands of the same supported type; Text and List Text support only `==` and `!=`.".to_string(),
+        PredicateDiagnosticOwner::Predicate(PredicateCause::ListCountRequiresListText | PredicateCause::ListCountRequiresTextMatch) => "Write `list_count(<List Text place or literal>, <Text place or literal>)`.".to_string(),
+        PredicateDiagnosticOwner::Predicate(PredicateCause::ListTextComparisonRequiresLiteral) => "Compare a `List Text` place with one exact flat `List Text` literal.".to_string(),
         _ => "Use one complete Predicate v2 comparison, for example `result == \"parse\"`, `result == [\"parse\", \"check\", \"run\"]`, or `result == list_count(items, \"hum\")`.".to_string(),
     }
 }
@@ -1644,6 +1850,32 @@ mod tests {
         let second = analyze_program(&program);
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(first.facts(), second.facts());
+    }
+
+    #[test]
+    fn typed_predicate_owner_is_independent_of_rendered_reason() {
+        let mut malformed = fact("result = 2", "UInt");
+        let original = malformed
+            .diagnostic_occurrence()
+            .expect("malformed predicate occurrence");
+        malformed.reason = "adversarial_rendered_reason_only";
+        let rerendered = malformed
+            .diagnostic_occurrence()
+            .expect("typed cause remains selected by the analyzer fact");
+        assert_eq!(original.cause_key(), rerendered.cause_key());
+        assert_eq!(original.id(), rerendered.id());
+        assert_eq!(
+            original.relationship_route(),
+            rerendered.relationship_route()
+        );
+        assert_ne!(original.diagnostic(), rerendered.diagnostic());
+
+        let mut path = fact("result == result", "Path");
+        assert!(path.diagnostic_occurrence().is_none());
+        assert!(path.path_precedence_occurrence().is_some());
+        path.reason = "adversarial_path_rendering_only";
+        assert!(path.diagnostic_occurrence().is_none());
+        assert!(path.path_precedence_occurrence().is_some());
     }
 
     #[test]

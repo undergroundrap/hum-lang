@@ -62,7 +62,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use ast::Program;
-use diagnostic::{Diagnostic, DiagnosticOccurrenceCollector, Severity};
+use diagnostic::{Diagnostic, DiagnosticOccurrenceCollector, DiagnosticOccurrenceSet, Severity};
 
 fn main() -> ExitCode {
     match run() {
@@ -188,6 +188,7 @@ fn run() -> Result<ExitCode, String> {
 
     let loaded = load_program(&options.inputs)?;
     let program = loaded.program;
+    let diagnostic_occurrences = loaded.diagnostic_occurrences;
     validate_ao_diagnostic_occurrences(&program, &loaded.diagnostics)?;
     let mut diagnostics = loaded.diagnostics;
     if !diagnostics
@@ -359,6 +360,17 @@ fn run() -> Result<ExitCode, String> {
             Ok(code)
         }
         "graph" => {
+            let transport = profile_check::diagnostic_transport_from_source(
+                &program,
+                &diagnostics,
+                &diagnostic_occurrences,
+            )
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+            graph::validate_diagnostic_occurrence_projection(
+                transport.authoritative(),
+                transport.graph_projection(),
+            )
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
             println!(
                 "{}",
                 callable_json_report(
@@ -1130,6 +1142,7 @@ struct CliOptions {
 struct LoadedProgram {
     program: Program,
     diagnostics: Vec<Diagnostic>,
+    diagnostic_occurrences: DiagnosticOccurrenceSet,
     timings: Vec<FileTiming>,
     total: Duration,
 }
@@ -2530,27 +2543,44 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
     let total_start = Instant::now();
     let mut program = Program::default();
     let mut diagnostics = Vec::new();
+    let mut diagnostic_occurrences = DiagnosticOccurrenceSet::default();
     let mut timings = Vec::new();
 
-    for path in paths {
+    for (semantic_file_index, path) in paths.iter().enumerate() {
         let read_start = Instant::now();
         let source = fs::read_to_string(path)
             .map_err(|error| format!("failed to read `{}`: {error}", path.display()))?;
         let read = read_start.elapsed();
 
         let parse_start = Instant::now();
-        let parsed = parser::parse_source(path.display().to_string(), &source);
+        let parsed =
+            parser::parse_source_at_index(path.display().to_string(), &source, semantic_file_index);
         let parse = parse_start.elapsed();
 
         let check_start = Instant::now();
-        let mut file_diagnostics = check::check_file(&parsed.file);
+        let checked = check::check_file_with_semantic_index(&parsed.file, semantic_file_index);
+        let mut file_diagnostics = checked.diagnostics;
+        diagnostic_occurrences
+            .extend_owned(&parsed.diagnostic_occurrences)
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+        diagnostic_occurrences
+            .extend_owned(&checked.diagnostic_occurrences)
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
         if !parsed
             .diagnostics
             .iter()
             .chain(&file_diagnostics)
             .any(|diagnostic| diagnostic.severity == Severity::Error)
         {
-            file_diagnostics.extend(app_entry::diagnostics_for_file(&parsed.file));
+            let (app_diagnostics, app_occurrences) =
+                app_entry::diagnostics_for_file_with_semantic_index(
+                    &parsed.file,
+                    semantic_file_index,
+                );
+            file_diagnostics.extend(app_diagnostics);
+            diagnostic_occurrences
+                .extend_owned(&app_occurrences)
+                .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
         }
         let check = check_start.elapsed();
 
@@ -2568,6 +2598,7 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
     Ok(LoadedProgram {
         program,
         diagnostics,
+        diagnostic_occurrences,
         timings,
         total: total_start.elapsed(),
     })

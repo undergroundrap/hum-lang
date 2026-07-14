@@ -2,12 +2,29 @@ use std::collections::BTreeMap;
 
 use crate::ast::{App, Item, Program, Section, Task};
 use crate::core_body;
-use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::graph::is_meaningful_line_text;
 use crate::typed_failure;
 
 pub(crate) fn diagnostics(program: &Program) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
+    analyze(program).diagnostics
+}
+
+#[derive(Default)]
+struct PathAnalysis {
+    diagnostics: Vec<Diagnostic>,
+    diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn diagnostic_occurrence_set(
+    program: &Program,
+) -> crate::diagnostic::DiagnosticOccurrenceSet {
+    analyze(program).diagnostic_occurrences
+}
+
+fn analyze(program: &Program) -> PathAnalysis {
+    let mut diagnostics = PathAnalysis::default();
     for file in &program.files {
         check_scope(program, &file.items, None, &mut diagnostics);
     }
@@ -18,49 +35,78 @@ fn check_scope(
     program: &Program,
     items: &[Item],
     selected: Option<&Task>,
-    diagnostics: &mut Vec<Diagnostic>,
+    diagnostics: &mut PathAnalysis,
 ) {
     for item in items {
+        let item_identity = crate::resolve::semantic_item_identity_for(program, item);
         match item {
             Item::App(app) => check_scope(program, &app.items, local_start_task(app), diagnostics),
             Item::Type(type_def) => {
                 if type_def.name == "Path" {
-                    diagnostics.push(invalid_declaration(
-                        "type `Path` redeclares Hum's opaque runner-owned Path identity",
-                        &type_def.span,
-                        None,
-                    ));
-                } else if let Some(field) = type_def
+                    emit(
+                        diagnostics,
+                        crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(106),
+                        "path_type",
+                        item_identity.clone(),
+                        invalid_declaration(
+                            "type `Path` redeclares Hum's opaque runner-owned Path identity",
+                            &type_def.span,
+                            None,
+                        ),
+                    );
+                } else if let Some((field_index, field)) = type_def
                     .fields
                     .iter()
-                    .find(|field| contains_path_type(&field.ty))
+                    .enumerate()
+                    .find(|(_, field)| contains_path_type(&field.ty))
                 {
-                    diagnostics.push(invalid_declaration(
-                        "opaque Path cannot be stored in a type field",
-                        &field.span,
-                        Some(&type_def.span),
-                    ));
+                    emit(
+                        diagnostics,
+                        crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(106),
+                        "path_field",
+                        format!("{item_identity}:field-{field_index}"),
+                        invalid_declaration(
+                            "opaque Path cannot be stored in a type field",
+                            &field.span,
+                            Some(&type_def.span),
+                        ),
+                    );
                 }
             }
             Item::Store(store) if contains_path_type(&store.ty) => {
-                diagnostics.push(invalid_declaration(
-                    "opaque Path cannot be stored in a store",
-                    &store.span,
-                    None,
-                ));
+                emit(
+                    diagnostics,
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(106),
+                    "path_store",
+                    item_identity,
+                    invalid_declaration(
+                        "opaque Path cannot be stored in a store",
+                        &store.span,
+                        None,
+                    ),
+                );
             }
-            Item::Task(task) => check_task_signature(program, task, selected, diagnostics),
+            Item::Task(task) => {
+                check_task_signature(program, task, &item_identity, selected, diagnostics)
+            }
             Item::Test(test) => {
-                if let Some(parameter) = test
+                if let Some((parameter_index, parameter)) = test
                     .params
                     .iter()
-                    .find(|parameter| contains_path_type(&parameter.ty))
+                    .enumerate()
+                    .find(|(_, parameter)| contains_path_type(&parameter.ty))
                 {
-                    diagnostics.push(invalid_declaration(
-                        "opaque Path cannot be constructed as a test parameter",
-                        &parameter.span,
-                        Some(&test.span),
-                    ));
+                    emit(
+                        diagnostics,
+                        crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(106),
+                        "path_test_parameter",
+                        format!("{item_identity}:parameter-{parameter_index}"),
+                        invalid_declaration(
+                            "opaque Path cannot be constructed as a test parameter",
+                            &parameter.span,
+                            Some(&test.span),
+                        ),
+                    );
                 }
             }
             Item::Store(_) => {}
@@ -90,17 +136,25 @@ fn check_scope(
     for item in items {
         match item {
             Item::Task(task) => check_source_path_construction(
-                "task",
-                &task.name,
-                &task.span,
+                program,
+                SourceOwner {
+                    kind: "task",
+                    name: &task.name,
+                    span: &task.span,
+                    identity: crate::resolve::semantic_item_identity_for(program, item),
+                },
                 task.section("does"),
                 &callable_paths,
                 diagnostics,
             ),
             Item::Test(test) => check_source_path_construction(
-                "test",
-                &test.name,
-                &test.span,
+                program,
+                SourceOwner {
+                    kind: "test",
+                    name: &test.name,
+                    span: &test.span,
+                    identity: crate::resolve::semantic_item_identity_for(program, item),
+                },
                 test.section("does"),
                 &callable_paths,
                 diagnostics,
@@ -137,15 +191,22 @@ fn local_start_task(app: &App) -> Option<&Task> {
 fn check_task_signature(
     program: &Program,
     task: &Task,
+    task_identity: &str,
     selected: Option<&Task>,
-    diagnostics: &mut Vec<Diagnostic>,
+    diagnostics: &mut PathAnalysis,
 ) {
     if task.result.as_deref().is_some_and(contains_path_type) {
-        diagnostics.push(invalid_declaration(
-            "opaque Path cannot be returned from a task",
-            &task.span,
-            None,
-        ));
+        emit(
+            diagnostics,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(106),
+            "path_return",
+            format!("{task_identity}:result"),
+            invalid_declaration(
+                "opaque Path cannot be returned from a task",
+                &task.span,
+                None,
+            ),
+        );
         return;
     }
     let path_parameters = task
@@ -158,11 +219,17 @@ fn check_task_signature(
     }
     let is_selected = selected.is_some_and(|selected| std::ptr::eq(task, selected));
     if !is_selected {
-        diagnostics.push(invalid_declaration(
-            "opaque Path is allowed only as the runner-constructed parameter of the structural app start task",
-            &path_parameters[0].span,
-            Some(&task.span),
-        ));
+        emit(
+            diagnostics,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(106),
+            "path_non_start_parameter",
+            format!("{task_identity}:parameter-0"),
+            invalid_declaration(
+                "opaque Path is allowed only as the runner-constructed parameter of the structural app start task",
+                &path_parameters[0].span,
+                Some(&task.span),
+            ),
+        );
         return;
     }
     if path_parameters.len() > 1 {
@@ -176,37 +243,57 @@ fn check_task_signature(
             diagnostic =
                 diagnostic.with_related_span("additional Path parameter", parameter.span.clone());
         }
-        diagnostics.push(diagnostic);
+        emit(
+            diagnostics,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(106),
+            "path_parameter_count",
+            format!("{task_identity}:parameter-1"),
+            diagnostic,
+        );
         return;
     }
 
     let parameter = path_parameters[0];
     let contract_use = ["needs", "ensures"].into_iter().find_map(|name| {
         task.section(name).and_then(|section| {
-            section.lines.iter().find(|line| {
-                is_meaningful_line_text(&line.text)
-                    && crate::predicate::fact_for_line(program, task, name, line).is_some_and(
-                        |fact| {
-                            fact.ast.is_some()
-                                && fact.reason == "opaque_path_inspection_owned_by_h0630"
-                        },
-                    )
-                    && contains_identifier(&line.text, &parameter.name)
+            section.lines.iter().find_map(|line| {
+                let fact = crate::predicate::fact_for_line(program, task, name, line)?;
+                (is_meaningful_line_text(&line.text)
+                    && fact.ast.is_some()
+                    && fact.reason == "opaque_path_inspection_owned_by_h0630"
+                    && contains_identifier(&line.text, &parameter.name))
+                .then(|| (line, fact.semantic_line_identity().to_string()))
             })
         })
     });
     let body_use = task.section("does").and_then(|does| {
         let body = core_body::analyze_does_section(does);
-        body.statements.into_iter().find(|statement| {
-            contains_identifier(&statement.text, &parameter.name)
-                && !is_exact_file_read_consumption(statement, &parameter.name)
-        })
+        body.statements
+            .into_iter()
+            .enumerate()
+            .find(|(_, statement)| {
+                contains_identifier(&statement.text, &parameter.name)
+                    && !is_exact_file_read_consumption(statement, &parameter.name)
+            })
     });
+    let task_identity = crate::resolve::semantic_task_identity(program, task);
     let source_use = contract_use
-        .map(|line| line.span.clone())
-        .or_else(|| body_use.map(|statement| statement.span));
-    if let Some(span) = source_use {
-        diagnostics.push(
+        .map(|(line, line_identity)| (line.span.clone(), line_identity))
+        .or_else(|| {
+            body_use.map(|(index, statement)| {
+                (
+                    statement.span,
+                    format!("{task_identity}:does-statement-{index}"),
+                )
+            })
+        });
+    if let Some((span, source_identity)) = source_use {
+        emit_with_identity(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(107), "path_inspection",
+            format!("path-inspection:{source_identity}"),
+            vec![
+                format!("path_task_identity={task_identity}"),
+                format!("path_source_identity={source_identity}"),
+            ],
             Diagnostic::error(
                 DiagnosticCode::PATH_SOURCE_CONSTRUCTION,
                 format!(
@@ -272,19 +359,25 @@ fn identifier_occurrences(text: &str, expected: &str) -> usize {
     count
 }
 
+struct SourceOwner<'a> {
+    kind: &'static str,
+    name: &'a str,
+    span: &'a Span,
+    identity: String,
+}
+
 fn check_source_path_construction(
-    owner_kind: &str,
-    owner_name: &str,
-    owner_span: &Span,
+    program: &Program,
+    owner: SourceOwner<'_>,
     does: Option<&Section>,
     path_callees: &BTreeMap<&str, &Task>,
-    diagnostics: &mut Vec<Diagnostic>,
+    diagnostics: &mut PathAnalysis,
 ) {
     let Some(does) = does else {
         return;
     };
     let body = core_body::analyze_does_section(does);
-    for statement in body.statements {
+    for (statement_index, statement) in body.statements.into_iter().enumerate() {
         let Some(expression) = expression_text(&statement.text) else {
             continue;
         };
@@ -309,7 +402,9 @@ fn check_source_path_construction(
                     .chars()
                     .count(),
         };
-        diagnostics.push(
+        let callee_identity = crate::resolve::semantic_task_identity(program, callee);
+        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(107), "path_source_call",
+            format!("{}:does-statement-{statement_index}:callee-{callee_identity}", owner.identity),
             Diagnostic::error(
                 DiagnosticCode::PATH_SOURCE_CONSTRUCTION,
                 format!(
@@ -320,7 +415,7 @@ fn check_source_path_construction(
             )
             .with_related_span("runner-owned Path parameter", parameter.span.clone())
             .with_related_span("structural app start task", callee.span.clone())
-            .with_related_span(format!("calling {owner_kind} `{owner_name}`"), owner_span.clone())
+            .with_related_span(format!("calling {} `{}`", owner.kind, owner.name), owner.span.clone())
             .with_help(
                 "Remove the source call. Only structural `hum run` app entry may construct the opaque Path from one native OS argument.",
             ),
@@ -341,6 +436,47 @@ fn invalid_declaration(message: &str, span: &Span, owner: Option<&Span>) -> Diag
         diagnostic = diagnostic.with_related_span("owning declaration", owner.clone());
     }
     diagnostic
+}
+
+fn emit(
+    analysis: &mut PathAnalysis,
+    cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
+    node_role: &'static str,
+    semantic_node: String,
+    diagnostic: Diagnostic,
+) {
+    let semantic_origin = format!("path-boundary:{semantic_node}:role={node_role}");
+    let route = vec![
+        format!("path_semantic_node={semantic_node}"),
+        format!("path_node_role={node_role}"),
+    ];
+    emit_with_identity(
+        analysis,
+        cause_key,
+        node_role,
+        semantic_origin,
+        route,
+        diagnostic,
+    );
+}
+
+fn emit_with_identity(
+    analysis: &mut PathAnalysis,
+    cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
+    node_role: &'static str,
+    semantic_origin: String,
+    mut route: Vec<String>,
+    diagnostic: Diagnostic,
+) {
+    route.push(format!("path_node_role={node_role}"));
+    let (diagnostic, occurrence) =
+        DiagnosticOccurrence::producer_diagnostic(cause_key, diagnostic, semantic_origin, route)
+            .expect("Path diagnostic cause and producer identity must be registered");
+    analysis
+        .diagnostic_occurrences
+        .insert_owned(occurrence)
+        .expect("Path diagnostic occurrences must be unique");
+    analysis.diagnostics.push(diagnostic);
 }
 
 fn contains_path_type(type_text: &str) -> bool {

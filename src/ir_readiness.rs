@@ -513,6 +513,15 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
     let ownership_check_summary = ownership_check::ownership_check_summary(program, diagnostics);
     let resource_check_summary = resource_check::resource_check_summary(program, diagnostics);
     let profile_check_summary = profile_check::profile_check_summary(program, diagnostics);
+    let diagnostic_transport = profile_check::diagnostic_transport(program, diagnostics)
+        .expect("profile check must supply IR and graph occurrence projections");
+    let diagnostic_occurrences = diagnostic_transport.authoritative();
+    profile_check::validate_prior_blocker_projection(program, diagnostics)
+        .expect("static prior-blocker projection must preserve exact occurrence identity");
+    diagnostic_transport
+        .ir_projection()
+        .validate_against("ir_readiness", diagnostic_occurrences)
+        .expect("IR readiness must consume the separately carried profile projection");
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
     let context = CandidateContext {
         diagnostics,

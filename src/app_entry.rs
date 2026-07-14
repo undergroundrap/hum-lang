@@ -1,5 +1,5 @@
 use crate::ast::{App, Item, Program, Section, SectionLine, SourceFile, Task};
-use crate::diagnostic::{Diagnostic, DiagnosticCode};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence};
 use crate::graph::is_meaningful_line_text;
 use crate::typed_failure;
 
@@ -13,6 +13,7 @@ pub struct AppEntry<'a> {
 pub struct Analysis<'a> {
     pub entry: Option<AppEntry<'a>>,
     pub diagnostic: Option<Diagnostic>,
+    pub(crate) diagnostic_occurrence: Option<DiagnosticOccurrence>,
 }
 
 pub fn analyze(program: &Program) -> Analysis<'_> {
@@ -21,9 +22,12 @@ pub fn analyze(program: &Program) -> Analysis<'_> {
         [] => Analysis {
             entry: None,
             diagnostic: None,
+            diagnostic_occurrence: None,
         },
         [app] => analyze_app(program, app),
         [first, second, rest @ ..] => {
+            let first_id = crate::resolve::semantic_app_identity(program, first);
+            let second_id = crate::resolve::semantic_app_identity(program, second);
             let mut diagnostic = Diagnostic::error(
                 DiagnosticCode::MULTIPLE_EXECUTABLE_APPS,
                 format!(
@@ -40,10 +44,16 @@ pub fn analyze(program: &Program) -> Analysis<'_> {
                 diagnostic = diagnostic
                     .with_related_span(format!("additional app `{}`", app.name), app.span.clone());
             }
-            Analysis {
-                entry: None,
-                diagnostic: Some(diagnostic),
-            }
+            rejected(
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(89),
+                format!("app-set:first={first_id}:second={second_id}"),
+                vec![
+                    format!("first_app_identity={first_id}"),
+                    format!("second_app_identity={second_id}"),
+                    format!("top_level_app_count={}", apps.len()),
+                ],
+                diagnostic,
+            )
         }
     }
 }
@@ -52,15 +62,51 @@ pub fn diagnostics(program: &Program) -> Vec<Diagnostic> {
     analyze(program).diagnostic.into_iter().collect()
 }
 
-pub fn diagnostics_for_file(file: &SourceFile) -> Vec<Diagnostic> {
-    diagnostics(&Program {
-        files: vec![file.clone()],
-    })
+pub(crate) fn diagnostics_for_file_with_semantic_index(
+    file: &SourceFile,
+    semantic_file_index: usize,
+) -> (Vec<Diagnostic>, crate::diagnostic::DiagnosticOccurrenceSet) {
+    let mut files = (0..semantic_file_index)
+        .map(|index| SourceFile {
+            path: format!("<semantic-file-{index}>"),
+            module: None,
+            items: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+    files.push(file.clone());
+    let program = Program { files };
+    let analysis = analyze(&program);
+    let diagnostics = analysis.diagnostic.clone().into_iter().collect();
+    let mut occurrences = crate::diagnostic::DiagnosticOccurrenceSet::default();
+    if let Some(occurrence) = analysis.diagnostic_occurrence {
+        occurrences
+            .insert_owned(occurrence)
+            .expect("file app-entry diagnostic occurrence must be unique");
+    }
+    (diagnostics, occurrences)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn diagnostic_occurrence_set(
+    program: &Program,
+) -> crate::diagnostic::DiagnosticOccurrenceSet {
+    let analysis = analyze(program);
+    let mut occurrences = crate::diagnostic::DiagnosticOccurrenceSet::default();
+    if let Some(occurrence) = analysis.diagnostic_occurrence {
+        occurrences
+            .insert_owned(occurrence)
+            .expect("app-entry diagnostic occurrences must be unique");
+    }
+    occurrences
 }
 
 pub fn is_app_entry_diagnostic(diagnostic: &Diagnostic) -> bool {
+    is_app_entry_code(diagnostic.code)
+}
+
+pub(crate) fn is_app_entry_code(code: DiagnosticCode) -> bool {
     matches!(
-        diagnostic.code,
+        code,
         DiagnosticCode::APP_START_MISSING
             | DiagnosticCode::APP_START_EMPTY
             | DiagnosticCode::APP_START_DUPLICATE
@@ -72,6 +118,7 @@ pub fn is_app_entry_diagnostic(diagnostic: &Diagnostic) -> bool {
 }
 
 fn analyze_app<'a>(program: &'a Program, app: &'a App) -> Analysis<'a> {
+    let app_identity = crate::resolve::semantic_app_identity(program, app);
     let starts = app
         .sections
         .iter()
@@ -80,6 +127,9 @@ fn analyze_app<'a>(program: &'a Program, app: &'a App) -> Analysis<'a> {
     let section = match starts.as_slice() {
         [] => {
             return rejected(
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(84),
+                format!("app-start:{app_identity}"),
+                vec![format!("app_identity={app_identity}")],
                 Diagnostic::error(
                     DiagnosticCode::APP_START_MISSING,
                     format!("executable app `{}` has no `starts with:` section", app.name),
@@ -106,14 +156,38 @@ fn analyze_app<'a>(program: &'a Program, app: &'a App) -> Analysis<'a> {
                 diagnostic = diagnostic
                     .with_related_span("additional `starts with:` section", section.span.clone());
             }
-            return rejected(diagnostic);
+            return rejected(
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(86),
+                format!("app-start-sections:{app_identity}"),
+                vec![
+                    format!("app_identity={app_identity}"),
+                    format!("start_section_count={}", starts.len()),
+                    format!(
+                        "first_start_section={}",
+                        section_identity(&app_identity, app, first)
+                    ),
+                    format!(
+                        "second_start_section={}",
+                        section_identity(&app_identity, app, second)
+                    ),
+                ],
+                diagnostic,
+            );
         }
     };
 
     let lines = meaningful_lines(section);
+    let start_section_identity = section_identity(&app_identity, app, section);
     let start_line = match lines.as_slice() {
         [] => {
             return rejected(
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(85),
+                format!("app-start-reference:{start_section_identity}"),
+                vec![
+                    format!("app_identity={app_identity}"),
+                    format!("start_section_identity={start_section_identity}"),
+                    format!("start_line_count={}", lines.len()),
+                ],
                 Diagnostic::error(
                     DiagnosticCode::APP_START_EMPTY,
                     format!("app `{}` has an empty `starts with:` section", app.name),
@@ -141,13 +215,37 @@ fn analyze_app<'a>(program: &'a Program, app: &'a App) -> Analysis<'a> {
                 diagnostic =
                     diagnostic.with_related_span("additional start declaration", line.span.clone());
             }
-            return rejected(diagnostic);
+            return rejected(
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(86),
+                format!("app-start-lines:{start_section_identity}"),
+                vec![
+                    format!("app_identity={app_identity}"),
+                    format!("start_section_identity={start_section_identity}"),
+                    format!(
+                        "first_start_reference={}",
+                        line_identity(&start_section_identity, section, first)
+                    ),
+                    format!(
+                        "second_start_reference={}",
+                        line_identity(&start_section_identity, section, second)
+                    ),
+                    format!("start_line_count={}", lines.len()),
+                ],
+                diagnostic,
+            );
         }
     };
 
     let name = start_line.text.trim();
+    let start_reference_identity = line_identity(&start_section_identity, section, start_line);
     if !is_value_identifier(name) {
         return rejected(
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(87),
+            format!("app-start-reference:{start_reference_identity}"),
+            vec![
+                format!("app_identity={app_identity}"),
+                format!("start_reference_identity={start_reference_identity}"),
+            ],
             Diagnostic::error(
                 DiagnosticCode::APP_START_INVALID_NAME,
                 format!(
@@ -190,18 +288,44 @@ fn analyze_app<'a>(program: &'a Program, app: &'a App) -> Analysis<'a> {
             "Nest task `{name}` directly inside app `{}` or change `starts with:` to an existing direct child; app mode never falls back to a same-named external task.",
             app.name
         ));
+        let has_non_child = non_child.is_some();
         if let Some(non_child) = non_child {
             diagnostic = diagnostic.with_related_span(
                 format!("non-child task `{name}` is not selectable"),
                 non_child.span.clone(),
             );
         }
-        return rejected(diagnostic);
+        return rejected(
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(88),
+            format!("app-start-reference:{start_reference_identity}"),
+            vec![
+                format!("app_identity={app_identity}"),
+                format!("start_reference_identity={start_reference_identity}"),
+                format!("non_child_candidate={has_non_child}"),
+                non_child
+                    .map(|task| {
+                        format!(
+                            "non_child_task_identity={}",
+                            crate::resolve::semantic_task_identity(program, task)
+                        )
+                    })
+                    .unwrap_or_else(|| "non_child_task_identity=none".to_string()),
+            ],
+            diagnostic,
+        );
     };
 
     if !valid_start_result(task) {
         let declared = task.result.as_deref().unwrap_or("implicit Unit");
+        let task_identity = crate::resolve::semantic_task_identity(program, task);
         return rejected(
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(90),
+            format!("app-start-task:{task_identity}"),
+            vec![
+                format!("app_identity={app_identity}"),
+                format!("start_reference_identity={start_reference_identity}"),
+                format!("start_task_identity={task_identity}"),
+            ],
             Diagnostic::error(
                 DiagnosticCode::APP_START_INVALID_RESULT,
                 format!(
@@ -221,13 +345,45 @@ fn analyze_app<'a>(program: &'a Program, app: &'a App) -> Analysis<'a> {
     Analysis {
         entry: Some(AppEntry { app, task }),
         diagnostic: None,
+        diagnostic_occurrence: None,
     }
 }
 
-fn rejected(diagnostic: Diagnostic) -> Analysis<'static> {
+fn section_identity(app_identity: &str, app: &App, target: &Section) -> String {
+    let index = app
+        .sections
+        .iter()
+        .position(|section| std::ptr::eq(section, target))
+        .expect("start section belongs to app");
+    format!("{app_identity}:section-{index}")
+}
+
+fn line_identity(section_identity: &str, section: &Section, target: &SectionLine) -> String {
+    let index = section
+        .lines
+        .iter()
+        .position(|line| std::ptr::eq(line, target))
+        .expect("start line belongs to section");
+    format!("{section_identity}:line-{index}")
+}
+
+fn rejected(
+    cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
+    semantic_origin: String,
+    relationship_route: Vec<String>,
+    diagnostic: Diagnostic,
+) -> Analysis<'static> {
+    let (diagnostic, diagnostic_occurrence) = DiagnosticOccurrence::producer_diagnostic(
+        cause_key,
+        diagnostic,
+        semantic_origin,
+        relationship_route,
+    )
+    .expect("app-entry diagnostic cause must be producer-owned");
     Analysis {
         entry: None,
         diagnostic: Some(diagnostic),
+        diagnostic_occurrence: Some(diagnostic_occurrence),
     }
 }
 
@@ -361,6 +517,47 @@ app tool {
                 .related_spans
                 .iter()
                 .any(|related| related.label == "non-child task `run_tool` is not selectable")
+        );
+    }
+
+    #[test]
+    fn app_occurrence_identity_is_structural_and_display_name_independent() {
+        fn two_apps(first: &str, second: &str) -> crate::ast::Program {
+            program(&format!(
+                r#"app {first} {{
+  starts with:
+    run_tool
+  task run_tool -> Unit {{
+    does:
+      return
+  }}
+}}
+app {second} {{
+  starts with:
+    run_tool
+  task run_tool -> Unit {{
+    does:
+      return
+  }}
+}}"#
+            ))
+        }
+
+        let same_named = analyze(&two_apps("tool", "tool"))
+            .diagnostic_occurrence
+            .expect("multiple-app occurrence");
+        let renamed = analyze(&two_apps("first_tool", "second_tool"))
+            .diagnostic_occurrence
+            .expect("renamed multiple-app occurrence");
+        assert_eq!(same_named.semantic_origin(), renamed.semantic_origin());
+        assert_eq!(
+            same_named.relationship_route(),
+            renamed.relationship_route()
+        );
+        assert_ne!(
+            same_named.relationship_route()[0],
+            same_named.relationship_route()[1],
+            "same display names must retain distinct lexical app identities"
         );
     }
 }

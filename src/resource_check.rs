@@ -1,7 +1,7 @@
 use crate::ast::{Item, Program, Section, Task};
 use crate::callable::{self, CallableAnalysis};
 use crate::core_body;
-use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticOccurrenceSet, PriorBlockerRef, Severity, Span};
 use crate::graph::is_meaningful_line_text;
 use crate::node_id;
 use crate::ownership_check;
@@ -55,6 +55,8 @@ struct ResourceCheckReport {
     tasks: usize,
     source_errors: usize,
     items: Vec<ResourceItem>,
+    prior_blockers: Vec<PriorBlockerRef>,
+    diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
 struct ResourceItem {
@@ -240,6 +242,13 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ResourceCheckR
     for file in &program.files {
         collect_items(&file.items, blocked, &callables, &mut tasks, &mut items);
     }
+    let diagnostic_occurrences = ownership_check::diagnostic_occurrence_set(program, diagnostics);
+    let projection = diagnostic_projection_from_ownership(&diagnostic_occurrences)
+        .expect("resource check must carry one sealed ownership projection");
+    projection
+        .validate_against("resource_check", &diagnostic_occurrences)
+        .expect("resource check must validate its ownership authority");
+    let prior_blockers = diagnostic_occurrences.prior_blockers();
     ResourceCheckReport {
         ownership_check_summary,
         resource_report_summary,
@@ -247,7 +256,48 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ResourceCheckR
         tasks,
         source_errors,
         items,
+        prior_blockers,
+        diagnostic_occurrences,
     }
+}
+
+pub(crate) fn diagnostic_occurrence_set(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> DiagnosticOccurrenceSet {
+    build_report(program, diagnostics).diagnostic_occurrences
+}
+
+pub(crate) fn diagnostic_occurrence_set_from_source(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
+) -> Result<DiagnosticOccurrenceSet, crate::diagnostic::DiagnosticInvariantError> {
+    let occurrences = ownership_check::diagnostic_occurrence_set_from_source(
+        program,
+        diagnostics,
+        source_occurrences,
+    )?;
+    let projection = diagnostic_projection_from_ownership(&occurrences)?;
+    projection.validate_against("resource_check", &occurrences)?;
+    Ok(occurrences)
+}
+
+pub(crate) fn diagnostic_projection_from_ownership(
+    occurrences: &DiagnosticOccurrenceSet,
+) -> Result<crate::diagnostic::DiagnosticProjection, crate::diagnostic::DiagnosticInvariantError> {
+    crate::diagnostic::DiagnosticProjection::from_upstream("resource_check", occurrences)
+}
+
+pub(crate) fn validate_prior_blocker_projection(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> Result<(), crate::diagnostic::DiagnosticInvariantError> {
+    crate::effect_check::validate_static_prior_blocker_projection(program, diagnostics)?;
+    let report = build_report(program, diagnostics);
+    report
+        .diagnostic_occurrences
+        .validate_prior_blockers(&report.prior_blockers)
 }
 
 fn collect_items(

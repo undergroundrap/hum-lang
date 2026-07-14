@@ -4,7 +4,7 @@ use crate::core_contract;
 use crate::core_expr;
 use crate::core_lower::{self, CoreLowerItem, CoreLowerOperation, CoreLowerReport};
 use crate::core_preview;
-use crate::diagnostic::{Diagnostic, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticOccurrenceSet, Span};
 use crate::ir_contract;
 use crate::predicate;
 use crate::resolve;
@@ -276,7 +276,14 @@ pub fn core_verify_readiness_summary(
 }
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreVerifyReport {
-    let lower = core_lower::build_core_lower_report(program, diagnostics);
+    let preview_authority = core_preview::diagnostic_occurrence_set(program, diagnostics);
+    let lower =
+        core_lower::build_core_lower_report_from_preview(program, diagnostics, &preview_authority)
+            .expect("Core lower must preserve one sealed preview occurrence projection");
+    lower
+        .diagnostic_projection
+        .validate_against("core_lower", &preview_authority)
+        .expect("Core verify must compare lower projection with preview authority");
     let mut checks = verify_lower_report(&lower);
     let callable_failures = callable::analyze_program(program).verify();
     if callable_failures.is_empty() {
@@ -303,6 +310,37 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreVerifyRepo
         }
     }
     CoreVerifyReport { lower, checks }
+}
+
+pub(crate) fn diagnostic_occurrence_set(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> DiagnosticOccurrenceSet {
+    build_report(program, diagnostics)
+        .lower
+        .diagnostic_occurrences
+}
+
+pub(crate) fn validate_diagnostic_projection_from_source(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
+) -> Result<DiagnosticOccurrenceSet, crate::diagnostic::DiagnosticInvariantError> {
+    let authoritative = core_preview::diagnostic_occurrence_set_from_source(
+        program,
+        diagnostics,
+        source_occurrences,
+    );
+    let lower =
+        core_lower::build_core_lower_report_from_preview(program, diagnostics, &authoritative)?;
+    lower
+        .diagnostic_projection
+        .validate_against("core_lower", &authoritative)?;
+    DiagnosticOccurrenceSet::validate_projection_from(
+        &authoritative,
+        &lower.diagnostic_occurrences,
+    )?;
+    Ok(lower.diagnostic_occurrences)
 }
 
 fn verify_lower_report(lower: &CoreLowerReport) -> Vec<CoreVerifyCheck> {
@@ -1105,7 +1143,85 @@ mod tests {
     use crate::ast::Program;
     use crate::parser::parse_source;
 
-    use super::{core_verify_json, core_verify_text};
+    use super::{core_verify_json, core_verify_text, validate_diagnostic_projection_from_source};
+
+    #[test]
+    fn core_transport_rejects_projection_regenerated_or_corrupted_downstream() {
+        let source = include_str!(
+            "../fixtures/diagnostics/session_ap_same_line_independent_causes_fail.hum"
+        );
+        let parsed = parse_source(
+            "fixtures/diagnostics/session_ap_same_line_independent_causes_fail.hum",
+            source,
+        );
+        let checked = crate::check::check_file_with_occurrences(&parsed.file);
+        let mut source_occurrences = parsed.diagnostic_occurrences.clone();
+        source_occurrences
+            .extend_owned(&checked.diagnostic_occurrences)
+            .expect("source authority");
+        let mut diagnostics = parsed.diagnostics;
+        diagnostics.extend(checked.diagnostics);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let authoritative = crate::core_preview::diagnostic_occurrence_set_from_source(
+            &program,
+            &diagnostics,
+            &source_occurrences,
+        );
+        let projected =
+            validate_diagnostic_projection_from_source(&program, &diagnostics, &source_occurrences)
+                .expect("canonical Core projection");
+        assert_eq!(projected, authoritative);
+
+        let lower = crate::core_lower::build_core_lower_report_from_preview(
+            &program,
+            &diagnostics,
+            &authoritative,
+        )
+        .expect("lower projection transport");
+        let canonical_lower_projection = lower.diagnostic_projection;
+        canonical_lower_projection
+            .validate_against("core_lower", &authoritative)
+            .expect("lower validates against separate preview authority");
+
+        let mut missing_reference = canonical_lower_projection.clone();
+        missing_reference.prior_blockers_mut_for_test().pop();
+        assert!(
+            missing_reference
+                .validate_against("core_lower", &authoritative)
+                .is_err()
+        );
+
+        let mut substituted_reference = canonical_lower_projection;
+        substituted_reference.prior_blockers_mut_for_test()[0]
+            .semantic_origin
+            .push_str(":substituted");
+        assert!(
+            substituted_reference
+                .validate_against("core_lower", &authoritative)
+                .is_err()
+        );
+
+        let mut missing = projected.clone();
+        missing.remove_first_for_test();
+        assert!(
+            crate::diagnostic::DiagnosticOccurrenceSet::validate_projection_from(
+                &authoritative,
+                &missing,
+            )
+            .is_err()
+        );
+        let mut internal_corruption = projected;
+        internal_corruption.corrupt_first_diagnostic_for_test();
+        assert!(
+            crate::diagnostic::DiagnosticOccurrenceSet::validate_projection_from(
+                &authoritative,
+                &internal_corruption,
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn json_verifies_tiny_core_artifact_without_execution_claims() {

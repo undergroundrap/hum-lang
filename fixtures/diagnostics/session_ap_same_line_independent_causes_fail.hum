@@ -1,0 +1,6 @@
+module fixtures.diagnostics.session_ap_same_line_independent_causes_fail
+
+task same_line(left: MissingLeft, right: MissingRight) -> UInt {
+  does:
+    return 1
+}

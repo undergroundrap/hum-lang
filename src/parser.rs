@@ -5,13 +5,54 @@ use crate::ast::{
     ParsedIdentifier, Section, SectionLine, SourceFile, Store, Task, Test, TypeDef, TypeSyntax,
     TypeSyntaxKind,
 };
-use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::syntax;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct ParsedCallPosition {
+    statement_index: usize,
+    path: Vec<usize>,
+}
+
+impl ParsedCallPosition {
+    pub(crate) fn statement_index(&self) -> usize {
+        self.statement_index
+    }
+
+    pub(crate) fn stable_component(&self) -> String {
+        format!(
+            "statement-{}:path-{}",
+            self.statement_index,
+            self.path
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(".")
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ParsedCallIdentifierUse {
+    pub(crate) name: String,
+    pub(crate) ordinal: usize,
+    pub(crate) consumed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ParsedExecutableCallNode {
+    pub(crate) position: ParsedCallPosition,
+    pub(crate) callee: String,
+    pub(crate) source: String,
+    pub(crate) span: Span,
+    pub(crate) identifier_uses: Vec<ParsedCallIdentifierUse>,
+}
 
 #[derive(Debug, Clone)]
 pub struct ParseOutput {
     pub file: SourceFile,
     pub diagnostics: Vec<Diagnostic>,
+    pub(crate) diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
 }
 
 #[derive(Debug, Clone)]
@@ -28,11 +69,23 @@ enum IdentifierKind {
 
 struct Parser {
     path: String,
+    semantic_file_index: usize,
+    current_semantic_node: Option<String>,
     lines: Vec<SourceLine>,
     diagnostics: Vec<Diagnostic>,
+    diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
 }
 
+#[cfg(test)]
 pub fn parse_source(path: impl Into<String>, source: &str) -> ParseOutput {
+    parse_source_at_index(path, source, 0)
+}
+
+pub(crate) fn parse_source_at_index(
+    path: impl Into<String>,
+    source: &str,
+    semantic_file_index: usize,
+) -> ParseOutput {
     let path = path.into();
     let lines = source
         .lines()
@@ -45,10 +98,17 @@ pub fn parse_source(path: impl Into<String>, source: &str) -> ParseOutput {
 
     let mut parser = Parser {
         path: path.clone(),
+        semantic_file_index,
+        current_semantic_node: None,
         lines,
         diagnostics: Vec::new(),
+        diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet::default(),
     };
     let (module, items) = parser.parse_file_items();
+    parser
+        .diagnostic_occurrences
+        .validate()
+        .expect("parser diagnostics must use registered parser causes");
 
     ParseOutput {
         file: SourceFile {
@@ -57,6 +117,7 @@ pub fn parse_source(path: impl Into<String>, source: &str) -> ParseOutput {
             items,
         },
         diagnostics: parser.diagnostics,
+        diagnostic_occurrences: parser.diagnostic_occurrences,
     }
 }
 
@@ -85,7 +146,8 @@ impl Parser {
                 }
 
                 if syntax::is_item_start(trimmed) {
-                    match self.parse_item_at(index) {
+                    let item_path = vec![items.len()];
+                    match self.parse_item_at_semantic_node(index, &item_path) {
                         Some((item, next_index)) => {
                             items.push(item);
                             index = next_index;
@@ -96,7 +158,9 @@ impl Parser {
                 }
             }
 
-            self.diagnostics.push(
+            self.emit(
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(48),
+                "top_level_line",
                 Diagnostic::warning(
                     DiagnosticCode::UNEXPECTED_TOP_LEVEL_LINE,
                     "unexpected top-level line",
@@ -112,7 +176,13 @@ impl Parser {
         (module, items)
     }
 
-    fn parse_items_in_range(&mut self, start: usize, end: usize, item_indent: usize) -> Vec<Item> {
+    fn parse_items_in_range(
+        &mut self,
+        start: usize,
+        end: usize,
+        item_indent: usize,
+        parent_path: &[usize],
+    ) -> Vec<Item> {
         let mut items = Vec::new();
         let mut index = start;
         while index < end {
@@ -125,17 +195,23 @@ impl Parser {
             }
 
             if count_indent(&line_text) == item_indent && syntax::is_item_start(trimmed) {
-                match self.parse_item_at(index) {
+                let mut item_path = parent_path.to_vec();
+                item_path.push(items.len());
+                match self.parse_item_at_semantic_node(index, &item_path) {
                     Some((item, next_index)) if next_index <= end + 1 => {
                         items.push(item);
                         index = next_index;
                     }
                     Some((_item, next_index)) => {
-                        self.diagnostics.push(Diagnostic::error(
-                            DiagnosticCode::NESTED_ITEM_EXTENDS_PAST_BLOCK,
-                            "nested item extends past containing block",
-                            Some(self.span(line_number)),
-                        ));
+                        self.emit(
+                            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(49),
+                            "nested_item",
+                            Diagnostic::error(
+                                DiagnosticCode::NESTED_ITEM_EXTENDS_PAST_BLOCK,
+                                "nested item extends past containing block",
+                                Some(self.span(line_number)),
+                            ),
+                        );
                         index = next_index;
                     }
                     None => index += 1,
@@ -147,13 +223,35 @@ impl Parser {
         items
     }
 
-    fn parse_item_at(&mut self, index: usize) -> Option<(Item, usize)> {
+    fn parse_item_at_semantic_node(
+        &mut self,
+        index: usize,
+        item_path: &[usize],
+    ) -> Option<(Item, usize)> {
+        let semantic_node = format!(
+            "resolver-item:file-{}:path-{}",
+            self.semantic_file_index,
+            item_path
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(".")
+        );
+        let prior = self.current_semantic_node.replace(semantic_node);
+        let parsed = self.parse_item_at(index, item_path);
+        self.current_semantic_node = prior;
+        parsed
+    }
+
+    fn parse_item_at(&mut self, index: usize, item_path: &[usize]) -> Option<(Item, usize)> {
         let line = self.lines.get(index)?.clone();
         let trimmed = line.text.trim();
         let header = match trimmed.strip_suffix('{') {
             Some(header) => header.trim(),
             None => {
-                self.diagnostics.push(
+                self.emit(
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(50),
+                    "item_header",
                     Diagnostic::error(
                         DiagnosticCode::ITEM_HEADER_MISSING_OPEN_BRACE,
                         "item header must end with `{`",
@@ -170,11 +268,15 @@ impl Parser {
         let close_index = match self.find_matching_close(index) {
             Some(close_index) => close_index,
             None => {
-                self.diagnostics.push(Diagnostic::error(
-                    DiagnosticCode::ITEM_BLOCK_MISSING_CLOSE_BRACE,
-                    "item block is missing a closing `}`",
-                    Some(self.span(line.number)),
-                ));
+                self.emit(
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(51),
+                    "item_block",
+                    Diagnostic::error(
+                        DiagnosticCode::ITEM_BLOCK_MISSING_CLOSE_BRACE,
+                        "item block is missing a closing `}`",
+                        Some(self.span(line.number)),
+                    ),
+                );
                 return None;
             }
         };
@@ -188,7 +290,8 @@ impl Parser {
         let item = if header.starts_with("app ") {
             let name = header.trim_start_matches("app ").trim().to_string();
             self.validate_identifier("app name", &name, IdentifierKind::Value, line.number);
-            let nested_items = self.parse_items_in_range(body_start, body_end, item_indent + 2);
+            let nested_items =
+                self.parse_items_in_range(body_start, body_end, item_indent + 2, item_path);
             Item::App(App {
                 name,
                 sections,
@@ -238,11 +341,15 @@ impl Parser {
                 span,
             })
         } else {
-            self.diagnostics.push(Diagnostic::warning(
-                DiagnosticCode::UNKNOWN_ITEM_KIND,
-                "unknown item kind",
-                Some(self.span(line.number)),
-            ));
+            self.emit(
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(52),
+                "item_kind",
+                Diagnostic::warning(
+                    DiagnosticCode::UNKNOWN_ITEM_KIND,
+                    "unknown item kind",
+                    Some(self.span(line.number)),
+                ),
+            );
             return None;
         };
 
@@ -356,11 +463,15 @@ impl Parser {
             self.parse_callable_signature(signature, line_number, signature_column);
         self.validate_identifier("task name", &name, IdentifierKind::Value, line_number);
         if !trailing.trim().is_empty() {
-            self.diagnostics.push(Diagnostic::warning(
-                DiagnosticCode::UNEXPECTED_SIGNATURE_TEXT,
-                "unexpected text after task parameter list",
-                Some(self.span(line_number)),
-            ));
+            self.emit(
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(53),
+                "task_signature",
+                Diagnostic::warning(
+                    DiagnosticCode::UNEXPECTED_SIGNATURE_TEXT,
+                    "unexpected text after task parameter list",
+                    Some(self.span(line_number)),
+                ),
+            );
         }
         let result_syntax = result.as_ref().map(|result| {
             let column =
@@ -410,11 +521,15 @@ impl Parser {
             return (signature.trim().to_string(), Vec::new(), String::new());
         };
         let Some(close) = matching_delimiter(signature, open, '(', ')') else {
-            self.diagnostics.push(Diagnostic::error(
-                DiagnosticCode::CALLABLE_SIGNATURE_MISSING_CLOSE_PAREN,
-                "callable signature is missing `)`",
-                Some(self.span(line_number)),
-            ));
+            self.emit(
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(54),
+                "callable_signature",
+                Diagnostic::error(
+                    DiagnosticCode::CALLABLE_SIGNATURE_MISSING_CLOSE_PAREN,
+                    "callable signature is missing `)`",
+                    Some(self.span(line_number)),
+                ),
+            );
             return (
                 signature[..open].trim().to_string(),
                 Vec::new(),
@@ -488,11 +603,15 @@ impl Parser {
                     span: param_span,
                 });
             } else {
-                self.diagnostics.push(Diagnostic::error(
-                    DiagnosticCode::PARAMETER_MISSING_TYPE,
-                    format!("parameter `{param}` is missing a type"),
-                    Some(param_span),
-                ));
+                self.emit(
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(55),
+                    "parameter",
+                    Diagnostic::error(
+                        DiagnosticCode::PARAMETER_MISSING_TYPE,
+                        format!("parameter `{param}` is missing a type"),
+                        Some(param_span),
+                    ),
+                );
             }
             byte_offset += raw_param.len() + 1;
         }
@@ -542,7 +661,9 @@ impl Parser {
         line_number: usize,
     ) {
         let suggestion = identifier_suggestion(name, kind);
-        self.diagnostics.push(
+        self.emit(
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(56),
+            "identifier",
             Diagnostic::error(
                 DiagnosticCode::INVALID_IDENTIFIER,
                 format!("{label} `{name}` is not a valid Hum identifier"),
@@ -552,6 +673,40 @@ impl Parser {
                 "Use `{suggestion}`. Value names use snake_case, type names use PascalCase, and sentences belong in `why:`."
             )),
         );
+    }
+
+    fn emit(
+        &mut self,
+        cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
+        node_role: &'static str,
+        diagnostic: Diagnostic,
+    ) {
+        let event = self.diagnostics.len();
+        let semantic_node = self.current_semantic_node.clone().unwrap_or_else(|| {
+            format!(
+                "parser-source:file-{}:event-{event}",
+                self.semantic_file_index
+            )
+        });
+        let semantic_origin =
+            format!("parser-node:{semantic_node}:event-{event}:role-{node_role}",);
+        let route = vec![
+            format!("parser_file_index={}", self.semantic_file_index),
+            format!("parser_event={event}"),
+            format!("parser_node_role={node_role}"),
+            format!("parser_semantic_node={semantic_node}"),
+        ];
+        let (diagnostic, occurrence) = DiagnosticOccurrence::producer_diagnostic(
+            cause_key,
+            diagnostic,
+            semantic_origin,
+            route,
+        )
+        .expect("parser diagnostic cause and producer identity must be registered");
+        self.diagnostic_occurrences
+            .insert_owned(occurrence)
+            .expect("parser diagnostic occurrences must be unique");
+        self.diagnostics.push(diagnostic);
     }
 
     fn span(&self, line_number: usize) -> Span {
@@ -573,6 +728,163 @@ fn parse_task_body_syntax(sections: &[Section]) -> Vec<ParsedBodyStatement> {
         .iter()
         .filter_map(parse_body_statement_syntax)
         .collect()
+}
+
+pub(crate) fn executable_call_nodes(
+    statements: &[ParsedBodyStatement],
+) -> Vec<ParsedExecutableCallNode> {
+    let mut calls = Vec::new();
+    for (statement_index, statement) in statements.iter().enumerate() {
+        match &statement.kind {
+            ParsedBodyStatementKind::Return(expression) => {
+                collect_executable_calls(expression, statement_index, vec![0], &mut calls)
+            }
+            ParsedBodyStatementKind::Binding { value, .. } => {
+                if let Some(expression) = value {
+                    collect_executable_calls(expression, statement_index, vec![0], &mut calls);
+                }
+            }
+            ParsedBodyStatementKind::Other { expressions } => {
+                for (expression_index, expression) in expressions.iter().enumerate() {
+                    collect_executable_calls(
+                        expression,
+                        statement_index,
+                        vec![expression_index],
+                        &mut calls,
+                    );
+                }
+            }
+        }
+    }
+    calls
+}
+
+fn collect_executable_calls(
+    expression: &ParsedExpression,
+    statement_index: usize,
+    path: Vec<usize>,
+    calls: &mut Vec<ParsedExecutableCallNode>,
+) {
+    match &expression.kind {
+        ParsedExpressionKind::Call(call) => {
+            if let ParsedExpressionKind::Identifier(identifier) = &call.callee.kind
+                && is_executable_callee(&identifier.name)
+            {
+                let mut identifier_uses = Vec::new();
+                for argument in &call.arguments {
+                    collect_call_identifier_uses(argument, false, &mut identifier_uses);
+                }
+                for (ordinal, identifier_use) in identifier_uses.iter_mut().enumerate() {
+                    identifier_use.ordinal = ordinal;
+                }
+                calls.push(ParsedExecutableCallNode {
+                    position: ParsedCallPosition {
+                        statement_index,
+                        path: path.clone(),
+                    },
+                    callee: identifier.name.clone(),
+                    source: render_parsed_expression(expression),
+                    span: expression.span.clone(),
+                    identifier_uses,
+                });
+            }
+            for (argument_index, argument) in call.arguments.iter().enumerate() {
+                let mut argument_path = path.clone();
+                argument_path.push(argument_index);
+                collect_executable_calls(argument, statement_index, argument_path, calls);
+            }
+        }
+        ParsedExpressionKind::Permission { value, .. } => {
+            collect_executable_calls(value, statement_index, path, calls);
+        }
+        ParsedExpressionKind::Compound { operands } => {
+            for (operand_index, operand) in operands.iter().enumerate() {
+                let mut operand_path = path.clone();
+                operand_path.push(operand_index);
+                collect_executable_calls(operand, statement_index, operand_path, calls);
+            }
+        }
+        ParsedExpressionKind::Identifier(_)
+        | ParsedExpressionKind::UIntLiteral(_)
+        | ParsedExpressionKind::Unsupported { .. }
+        | ParsedExpressionKind::Other => {}
+    }
+}
+
+fn collect_call_identifier_uses(
+    expression: &ParsedExpression,
+    consumed: bool,
+    identifier_uses: &mut Vec<ParsedCallIdentifierUse>,
+) {
+    match &expression.kind {
+        ParsedExpressionKind::Identifier(identifier) => {
+            identifier_uses.push(ParsedCallIdentifierUse {
+                name: identifier.name.clone(),
+                ordinal: 0,
+                consumed,
+            });
+        }
+        ParsedExpressionKind::Permission { permission, value } => collect_call_identifier_uses(
+            value,
+            consumed || *permission == ParamPermission::Consume,
+            identifier_uses,
+        ),
+        ParsedExpressionKind::Compound { operands } => {
+            for operand in operands {
+                collect_call_identifier_uses(operand, consumed, identifier_uses);
+            }
+        }
+        ParsedExpressionKind::Call(_)
+        | ParsedExpressionKind::UIntLiteral(_)
+        | ParsedExpressionKind::Unsupported { .. }
+        | ParsedExpressionKind::Other => {}
+    }
+}
+
+fn is_executable_callee(name: &str) -> bool {
+    is_value_identifier(name)
+        && !matches!(
+            name,
+            "borrow" | "change" | "consume" | "expect" | "fail" | "if" | "return" | "try" | "while"
+        )
+}
+
+fn render_parsed_expression(expression: &ParsedExpression) -> String {
+    match &expression.kind {
+        ParsedExpressionKind::Identifier(identifier) => identifier.name.clone(),
+        ParsedExpressionKind::UIntLiteral(value) => value.to_string(),
+        ParsedExpressionKind::Call(call) => {
+            let mut rendered = render_parsed_expression(&call.callee);
+            rendered.push('(');
+            rendered.push_str(
+                &call
+                    .arguments
+                    .iter()
+                    .map(render_parsed_expression)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+            if call.close_status == ParsedCallCloseStatus::Closed {
+                rendered.push(')');
+            }
+            rendered
+        }
+        ParsedExpressionKind::Permission { permission, value } => format!(
+            "{} {}",
+            match permission {
+                ParamPermission::Borrow => "borrow",
+                ParamPermission::Change => "change",
+                ParamPermission::Consume => "consume",
+            },
+            render_parsed_expression(value)
+        ),
+        ParsedExpressionKind::Compound { operands } => operands
+            .iter()
+            .map(render_parsed_expression)
+            .collect::<Vec<_>>()
+            .join(" "),
+        ParsedExpressionKind::Unsupported { .. } | ParsedExpressionKind::Other => String::new(),
+    }
 }
 
 fn parse_task_effect_syntax(sections: &[Section]) -> Vec<ParsedEffectDeclaration> {
@@ -741,6 +1053,24 @@ fn parse_expression_syntax(text: &str, span: Span) -> ParsedExpression {
         };
     }
 
+    let parser_owned_calls = parser_owned_top_level_call_ranges(text);
+    if parser_owned_calls.len() > 1
+        || parser_owned_calls
+            .first()
+            .is_some_and(|range| range.start > 0)
+    {
+        let operands = parser_owned_calls
+            .into_iter()
+            .map(|range| {
+                parse_expression_syntax(&text[range.clone()], offset_span(&span, range.start))
+            })
+            .collect();
+        return ParsedExpression {
+            kind: ParsedExpressionKind::Compound { operands },
+            span,
+        };
+    }
+
     if let Some(open) = text.find('(') {
         let callee_text = text[..open].trim();
         let callee_offset = text[..open].find(callee_text).unwrap_or_default();
@@ -823,6 +1153,68 @@ fn parse_expression_syntax(text: &str, span: Span) -> ParsedExpression {
         },
         span,
     }
+}
+
+fn parser_owned_top_level_call_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+    let bytes = text.as_bytes();
+    let mut calls = Vec::new();
+    let mut index = 0;
+    let mut quoted = false;
+    let mut escaped = false;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                quoted = false;
+            }
+            index += 1;
+            continue;
+        }
+        if byte == b'"' {
+            quoted = true;
+            index += 1;
+            continue;
+        }
+        if !(byte.is_ascii_lowercase() || byte == b'_')
+            || index.checked_sub(1).is_some_and(|previous| {
+                bytes[previous].is_ascii_alphanumeric() || matches!(bytes[previous], b'_' | b'.')
+            })
+        {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        index += 1;
+        while index < bytes.len() && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+        {
+            index += 1;
+        }
+        let callee = &text[start..index];
+        let mut open = index;
+        while open < bytes.len() && bytes[open].is_ascii_whitespace() {
+            open += 1;
+        }
+        if !is_executable_callee(callee) || open >= bytes.len() || bytes[open] != b'(' {
+            continue;
+        }
+        let end = matching_delimiter(text, open, '(', ')')
+            .map_or(text.len(), |close| close + ')'.len_utf8());
+        calls.push(start..end);
+    }
+
+    calls
+        .iter()
+        .filter(|call| {
+            !calls
+                .iter()
+                .any(|candidate| candidate.start < call.start && call.end <= candidate.end)
+        })
+        .cloned()
+        .collect()
 }
 
 fn compound_identifier_operands(text: &str, span: &Span) -> Vec<ParsedExpression> {
@@ -1170,11 +1562,91 @@ fn is_section_header(trimmed: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_source;
+    use super::{executable_call_nodes, parse_source, parse_source_at_index};
     use crate::ast::{
         Item, ParsedBodyStatementKind, ParsedCallCloseStatus, ParsedExpressionKind, TypeSyntaxKind,
     };
     use crate::diagnostic::{DiagnosticCode, Severity};
+
+    #[test]
+    fn parser_body_syntax_owns_repeated_sibling_and_nested_calls() {
+        let parsed = parse_source(
+            "parser-owned-calls.hum",
+            r#"task caller(value: UInt) -> UInt {
+  does:
+    return leaf(value) + leaf(value) + leaf(leaf(consume value))
+}
+"#,
+        );
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("task")
+        };
+        let calls = executable_call_nodes(&task.body_syntax);
+        assert_eq!(calls.len(), 4);
+        assert_eq!(
+            calls
+                .iter()
+                .map(|call| call.position.stable_component())
+                .collect::<Vec<_>>(),
+            [
+                "statement-0:path-0.0",
+                "statement-0:path-0.1",
+                "statement-0:path-0.2",
+                "statement-0:path-0.2.0",
+            ]
+        );
+        assert_eq!(
+            calls
+                .iter()
+                .map(|call| call.source.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "leaf(value)",
+                "leaf(value)",
+                "leaf(leaf(consume value))",
+                "leaf(consume value)",
+            ]
+        );
+        assert!(
+            calls[3]
+                .identifier_uses
+                .iter()
+                .any(|identifier| identifier.name == "value" && identifier.consumed)
+        );
+    }
+
+    #[test]
+    fn parser_occurrence_identity_uses_only_producer_owned_file_and_event_facts() {
+        let first = parse_source_at_index("display-one.hum", "unexpected prose\n", 3);
+        let renamed = parse_source_at_index("renamed-display.hum", "unexpected prose\n", 3);
+        let other_file = parse_source_at_index("display-one.hum", "unexpected prose\n", 4);
+        let first = first
+            .diagnostic_occurrences
+            .occurrences()
+            .next()
+            .expect("parser occurrence");
+        let renamed = renamed
+            .diagnostic_occurrences
+            .occurrences()
+            .next()
+            .expect("renamed parser occurrence");
+        let other_file = other_file
+            .diagnostic_occurrences
+            .occurrences()
+            .next()
+            .expect("other-file parser occurrence");
+
+        assert_eq!(first.semantic_origin(), renamed.semantic_origin());
+        assert_eq!(first.relationship_route(), renamed.relationship_route());
+        assert_ne!(first.semantic_origin(), other_file.semantic_origin());
+        assert!(!first.semantic_origin().contains(".hum"));
+        assert!(
+            first
+                .relationship_route()
+                .iter()
+                .all(|entry| !entry.contains(".hum"))
+        );
+    }
 
     #[test]
     fn parses_task_with_sections() {

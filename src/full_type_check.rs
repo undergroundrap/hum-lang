@@ -5,7 +5,9 @@ use crate::callable::{self, CallableAnalysis};
 use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
 use crate::core_verify;
-use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
+use crate::diagnostic::{
+    Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceSet, Severity, Span,
+};
 use crate::element_place;
 use crate::field_place::{self, FieldTypeMap};
 use crate::predicate::{self, PredicateFact};
@@ -61,6 +63,7 @@ struct FullTypeCheckReport {
     item_count: usize,
     source_errors: usize,
     predicates: Vec<PredicateFact>,
+    diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
 struct FullTypeItem {
@@ -93,6 +96,7 @@ struct TypedStatement {
     diagnostic_code: Option<&'static str>,
     help: Option<String>,
     prior_blocker: Option<crate::diagnostic::PriorBlockerRef>,
+    diagnostic_occurrence: Option<DiagnosticOccurrence>,
 }
 
 #[derive(Debug, Clone)]
@@ -406,17 +410,19 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
     let field_types = field_place::collect_field_types(program);
     let predicates = predicate::analyze_program(program);
     let mut items = Vec::new();
+    let context = FullTypeCollectionContext {
+        program,
+        blocked,
+        failure_analysis: &failure_analysis,
+        field_types: &field_types,
+        callables: &callables,
+    };
     for file in &program.files {
-        collect_items(
-            &file.items,
-            blocked,
-            &task_returns,
-            &failure_analysis,
-            &field_types,
-            &callables,
-            &mut items,
-        );
+        collect_items(&context, &file.items, &task_returns, &mut items);
     }
+
+    let mut diagnostic_occurrences = core_verify::diagnostic_occurrence_set(program, diagnostics);
+    extend_full_type_occurrences(&failure_analysis, &items, &mut diagnostic_occurrences);
 
     FullTypeCheckReport {
         type_check_summary,
@@ -426,45 +432,93 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
         item_count: count_items(program),
         source_errors,
         predicates: predicates.facts().to_vec(),
+        diagnostic_occurrences,
     }
 }
 
-fn collect_items(
-    items: &[Item],
+fn extend_full_type_occurrences(
+    failure_analysis: &typed_failure::ProgramFailureAnalysis,
+    items: &[FullTypeItem],
+    diagnostic_occurrences: &mut DiagnosticOccurrenceSet,
+) {
+    for occurrence in failure_analysis
+        .occurrences()
+        .into_iter()
+        .filter(|occurrence| occurrence.owning_stage() == "full_type_check")
+    {
+        diagnostic_occurrences
+            .insert_owned(occurrence)
+            .expect("typed-failure occurrences must remain unique at full type");
+    }
+    for occurrence in items
+        .iter()
+        .flat_map(|item| &item.statements)
+        .filter_map(|statement| statement.diagnostic_occurrence.clone())
+    {
+        diagnostic_occurrences
+            .insert_owned(occurrence)
+            .expect("built-in call occurrences must be unique");
+    }
+}
+
+pub(crate) fn diagnostic_occurrence_set(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> DiagnosticOccurrenceSet {
+    build_report(program, diagnostics).diagnostic_occurrences
+}
+
+pub(crate) fn diagnostic_occurrence_set_from_source(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
+) -> Result<DiagnosticOccurrenceSet, crate::diagnostic::DiagnosticInvariantError> {
+    let report = build_report(program, diagnostics);
+    let mut occurrences = core_verify::validate_diagnostic_projection_from_source(
+        program,
+        diagnostics,
+        source_occurrences,
+    )?;
+    let failure_analysis = typed_failure::analyze_program(program);
+    extend_full_type_occurrences(&failure_analysis, &report.items, &mut occurrences);
+    Ok(occurrences)
+}
+
+struct FullTypeCollectionContext<'a> {
+    program: &'a Program,
     blocked: bool,
+    failure_analysis: &'a ProgramFailureAnalysis,
+    field_types: &'a FieldTypeMap,
+    callables: &'a CallableAnalysis,
+}
+
+fn collect_items(
+    context: &FullTypeCollectionContext<'_>,
+    items: &[Item],
     task_returns: &BTreeMap<String, TypeFact>,
-    failure_analysis: &ProgramFailureAnalysis,
-    field_types: &FieldTypeMap,
-    callables: &CallableAnalysis,
     out: &mut Vec<FullTypeItem>,
 ) {
     for item in items {
         if let Some(typed_item) = type_item(
+            context.program,
             item,
-            blocked,
+            context.blocked,
             task_returns,
-            failure_analysis,
-            field_types,
-            callables,
+            context.failure_analysis,
+            context.field_types,
+            context.callables,
         ) {
             out.push(typed_item);
         }
         if let Item::App(app) = item {
             let app_task_returns = task_return_types_from_items(&app.items);
-            collect_items(
-                &app.items,
-                blocked,
-                &app_task_returns,
-                failure_analysis,
-                field_types,
-                callables,
-                out,
-            );
+            collect_items(context, &app.items, &app_task_returns, out);
         }
     }
 }
 
 fn type_item(
+    program: &Program,
     item: &Item,
     blocked: bool,
     task_returns: &BTreeMap<String, TypeFact>,
@@ -472,6 +526,7 @@ fn type_item(
     field_types: &FieldTypeMap,
     callables: &CallableAnalysis,
 ) -> Option<FullTypeItem> {
+    let item_identity = crate::resolve::semantic_item_identity_for(program, item);
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
@@ -480,6 +535,7 @@ fn type_item(
     let mut statements = Vec::new();
     for (index, statement) in body.statements.iter().enumerate() {
         let typed = type_statement(
+            &item_identity,
             item,
             index,
             statement,
@@ -511,6 +567,7 @@ fn type_item(
 
 #[allow(clippy::too_many_arguments)]
 fn type_statement(
+    item_identity: &str,
     item: &Item,
     index: usize,
     statement: &BodyStatement,
@@ -566,6 +623,14 @@ fn type_statement(
             "Pass exactly one checked `Text` argument to `stdout_write`, then handle its `OutputError` explicitly."
                 .to_string(),
         );
+        attach_builtin_occurrence(
+            &mut typed,
+            item_identity,
+            index,
+            DiagnosticCode::INVALID_STDOUT_WRITE_CALL,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(100),
+            "stdout_write_call_shape",
+        );
         return typed;
     }
 
@@ -587,6 +652,14 @@ fn type_statement(
             "Call `clock_replay_tick()` with no arguments, then handle its `ReplayClockError` explicitly."
                 .to_string(),
         );
+        attach_builtin_occurrence(
+            &mut typed,
+            item_identity,
+            index,
+            DiagnosticCode::INVALID_CLOCK_REPLAY_CALL,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(101),
+            "clock_replay_call_shape",
+        );
         return typed;
     }
 
@@ -607,6 +680,14 @@ fn type_statement(
         typed.help = Some(
             "Pass exactly the runner-owned opaque `Path` to `files_read_text`, then handle its `FileReadError` explicitly."
                 .to_string(),
+        );
+        attach_builtin_occurrence(
+            &mut typed,
+            item_identity,
+            index,
+            DiagnosticCode::INVALID_FILE_READ_CALL,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(102),
+            "files_read_call_shape",
         );
         return typed;
     }
@@ -970,7 +1051,52 @@ fn typed_statement(
         diagnostic_code: None,
         help: None,
         prior_blocker: None,
+        diagnostic_occurrence: None,
     }
+}
+
+fn attach_builtin_occurrence(
+    statement: &mut TypedStatement,
+    item_identity: &str,
+    statement_index: usize,
+    code: DiagnosticCode,
+    cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
+    semantic_kind: &'static str,
+) {
+    let cause = crate::diagnostic_catalog::diagnostic_cause_for_key(cause_key)
+        .expect("built-in semantic producer must name one registered cause");
+    let semantic_origin =
+        format!("full-type:{item_identity}:statement-{statement_index}:builtin-call-0");
+    let identity = DiagnosticOccurrence::semantic_relationship_identity(
+        cause.origin_kind,
+        cause.route_kind,
+        semantic_origin,
+        vec![
+            format!("item_identity={item_identity}"),
+            format!("statement_index={statement_index}"),
+            format!("semantic_call_kind={semantic_kind}"),
+        ],
+    );
+    let diagnostic = Diagnostic::error(
+        code,
+        statement
+            .reason
+            .expect("built-in semantic producer has a detail reason"),
+        statement
+            .call_span
+            .clone()
+            .or_else(|| Some(statement.span.clone())),
+    )
+    .with_help(
+        statement
+            .help
+            .clone()
+            .expect("built-in semantic producer has repair text"),
+    );
+    statement.diagnostic_occurrence = Some(
+        DiagnosticOccurrence::registered(cause, identity, diagnostic)
+            .expect("built-in semantic occurrence must validate at production"),
+    );
 }
 
 fn apply_failure_fact(statement: &mut TypedStatement, fact: &FailureFact) {

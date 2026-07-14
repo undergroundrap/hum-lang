@@ -65,6 +65,14 @@ impl DiagnosticCauseKey {
     pub(crate) const fn ordinal(self) -> u16 {
         self.0
     }
+
+    /// Constructs a producer-owned opaque cause identity from the registry's
+    /// frozen ordinal. Production producers must carry this key directly;
+    /// public diagnostic fields and rendered reason text are never lookup
+    /// inputs.
+    pub(crate) const fn producer_owned(ordinal: u16) -> Self {
+        Self(ordinal)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,14 +84,17 @@ pub(crate) struct DiagnosticCauseSpec {
     pub(crate) owning_stage: &'static str,
     pub(crate) origin_kind: &'static str,
     pub(crate) route_kind: &'static str,
+    pub(crate) emitter_default: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DiagnosticPrecedenceSpec {
+    pub(crate) id: &'static str,
     pub(crate) dominant_causes: &'static [DiagnosticCauseKey],
     pub(crate) suppressed_causes: &'static [DiagnosticCauseKey],
     pub(crate) relationship: &'static str,
     pub(crate) applying_owner: &'static str,
+    pub(crate) applying_stage: &'static str,
 }
 
 macro_rules! diagnostic_causes {
@@ -97,6 +108,7 @@ macro_rules! diagnostic_causes {
                 owning_stage: $stage,
                 origin_kind: $origin,
                 route_kind: $route,
+                emitter_default: $index >= 48 && $index <= 122 && $index != 108,
             }),+
         ];
     };
@@ -534,6 +546,1167 @@ diagnostic_causes!(
         "path_boundary",
         "prior_diagnostic_node",
         "unrelated_diagnostic_relationship"
+    ),
+    (
+        48,
+        "unexpected_top_level_line_v0",
+        UNEXPECTED_TOP_LEVEL_LINE,
+        "source_shape",
+        "parser",
+        "parser_source_node",
+        "parser_diagnostic_route"
+    ),
+    (
+        49,
+        "nested_item_extends_past_block_v0",
+        NESTED_ITEM_EXTENDS_PAST_BLOCK,
+        "source_shape",
+        "parser",
+        "parser_source_node",
+        "parser_diagnostic_route"
+    ),
+    (
+        50,
+        "item_header_missing_open_brace_v0",
+        ITEM_HEADER_MISSING_OPEN_BRACE,
+        "source_shape",
+        "parser",
+        "parser_source_node",
+        "parser_diagnostic_route"
+    ),
+    (
+        51,
+        "item_block_missing_close_brace_v0",
+        ITEM_BLOCK_MISSING_CLOSE_BRACE,
+        "source_shape",
+        "parser",
+        "parser_source_node",
+        "parser_diagnostic_route"
+    ),
+    (
+        52,
+        "unknown_item_kind_v0",
+        UNKNOWN_ITEM_KIND,
+        "source_shape",
+        "parser",
+        "parser_source_node",
+        "parser_diagnostic_route"
+    ),
+    (
+        53,
+        "unexpected_signature_text_v0",
+        UNEXPECTED_SIGNATURE_TEXT,
+        "source_shape",
+        "parser",
+        "parser_source_node",
+        "parser_diagnostic_route"
+    ),
+    (
+        54,
+        "callable_signature_missing_close_paren_v0",
+        CALLABLE_SIGNATURE_MISSING_CLOSE_PAREN,
+        "source_shape",
+        "parser",
+        "parser_source_node",
+        "parser_diagnostic_route"
+    ),
+    (
+        55,
+        "parameter_missing_type_v0",
+        PARAMETER_MISSING_TYPE,
+        "source_shape",
+        "parser",
+        "parser_source_node",
+        "parser_diagnostic_route"
+    ),
+    (
+        56,
+        "invalid_identifier_v0",
+        INVALID_IDENTIFIER,
+        "source_shape",
+        "parser",
+        "parser_source_node",
+        "parser_diagnostic_route"
+    ),
+    (
+        57,
+        "app_missing_why_v0",
+        APP_MISSING_WHY,
+        "intent_shape",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        58,
+        "type_missing_shape_v0",
+        TYPE_MISSING_SHAPE,
+        "intent_shape",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        59,
+        "store_missing_type_v0",
+        STORE_MISSING_TYPE,
+        "intent_shape",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        60,
+        "store_missing_purpose_v0",
+        STORE_MISSING_PURPOSE,
+        "intent_shape",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        61,
+        "missing_required_section_v0",
+        MISSING_REQUIRED_SECTION,
+        "intent_shape",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        62,
+        "duplicate_section_v0",
+        DUPLICATE_SECTION,
+        "intent_shape",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        63,
+        "task_missing_needs_v0",
+        TASK_MISSING_NEEDS,
+        "intent_shape",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        64,
+        "section_out_of_order_v0",
+        SECTION_OUT_OF_ORDER,
+        "intent_shape",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        65,
+        "task_missing_ensures_v0",
+        TASK_MISSING_ENSURES,
+        "intent_shape",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        66,
+        "hollow_contract_line_v0",
+        HOLLOW_CONTRACT_LINE,
+        "intent_shape",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        67,
+        "undeclared_save_target_v0",
+        UNDECLARED_SAVE_TARGET,
+        "declared_state_effects",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        68,
+        "undeclared_set_target_v0",
+        UNDECLARED_SET_TARGET,
+        "declared_state_effects",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        69,
+        "task_missing_cost_v0",
+        TASK_MISSING_COST,
+        "cost_contracts",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        70,
+        "cost_missing_check_v0",
+        COST_MISSING_CHECK,
+        "cost_contracts",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        71,
+        "compile_cost_missing_time_v0",
+        COMPILE_COST_MISSING_TIME,
+        "cost_contracts",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        72,
+        "constant_cost_has_for_each_v0",
+        CONSTANT_COST_HAS_FOR_EACH,
+        "cost_contracts",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        73,
+        "compile_cost_unbounded_while_v0",
+        COMPILE_COST_UNBOUNDED_WHILE,
+        "cost_contracts",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        74,
+        "security_missing_protects_v0",
+        SECURITY_MISSING_PROTECTS,
+        "security_trust",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        75,
+        "trusts_missing_protects_v0",
+        TRUSTS_MISSING_PROTECTS,
+        "security_trust",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        76,
+        "test_missing_covers_v0",
+        TEST_MISSING_COVERS,
+        "test_evidence",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        77,
+        "regression_missing_note_v0",
+        REGRESSION_MISSING_NOTE,
+        "test_evidence",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        78,
+        "unresolved_name_v0",
+        UNRESOLVED_NAME,
+        "front_end_semantics",
+        "resolve",
+        "resolver_semantic_node",
+        "resolver_diagnostic_route"
+    ),
+    (
+        79,
+        "duplicate_name_in_scope_v0",
+        DUPLICATE_NAME_IN_SCOPE,
+        "front_end_semantics",
+        "resolve",
+        "resolver_semantic_node",
+        "resolver_diagnostic_route"
+    ),
+    (
+        80,
+        "set_target_immutable_v0",
+        SET_TARGET_IMMUTABLE,
+        "front_end_semantics",
+        "resolve",
+        "resolver_semantic_node",
+        "resolver_diagnostic_route"
+    ),
+    (
+        81,
+        "read_before_declare_v0",
+        READ_BEFORE_DECLARE,
+        "front_end_semantics",
+        "resolve",
+        "resolver_semantic_node",
+        "resolver_diagnostic_route"
+    ),
+    (
+        82,
+        "unknown_type_name_v0",
+        UNKNOWN_TYPE_NAME,
+        "front_end_semantics",
+        "type_check",
+        "type_relationship",
+        "type_diagnostic_route"
+    ),
+    (
+        83,
+        "return_type_mismatch_v0",
+        RETURN_TYPE_MISMATCH,
+        "front_end_semantics",
+        "type_check",
+        "type_relationship",
+        "type_diagnostic_route"
+    ),
+    (
+        84,
+        "app_start_missing_v0",
+        APP_START_MISSING,
+        "front_end_semantics",
+        "app_entry",
+        "app_entry_relationship",
+        "app_entry_route"
+    ),
+    (
+        85,
+        "app_start_empty_v0",
+        APP_START_EMPTY,
+        "front_end_semantics",
+        "app_entry",
+        "app_entry_relationship",
+        "app_entry_route"
+    ),
+    (
+        86,
+        "app_start_duplicate_v0",
+        APP_START_DUPLICATE,
+        "front_end_semantics",
+        "app_entry",
+        "app_entry_relationship",
+        "app_entry_route"
+    ),
+    (
+        87,
+        "app_start_invalid_name_v0",
+        APP_START_INVALID_NAME,
+        "front_end_semantics",
+        "app_entry",
+        "app_entry_relationship",
+        "app_entry_route"
+    ),
+    (
+        88,
+        "app_start_not_child_v0",
+        APP_START_NOT_CHILD,
+        "front_end_semantics",
+        "app_entry",
+        "app_entry_relationship",
+        "app_entry_route"
+    ),
+    (
+        89,
+        "multiple_executable_apps_v0",
+        MULTIPLE_EXECUTABLE_APPS,
+        "front_end_semantics",
+        "app_entry",
+        "app_entry_relationship",
+        "app_entry_route"
+    ),
+    (
+        90,
+        "app_start_invalid_result_v0",
+        APP_START_INVALID_RESULT,
+        "front_end_semantics",
+        "app_entry",
+        "app_entry_relationship",
+        "app_entry_route"
+    ),
+    (
+        91,
+        "unknown_source_capability_v0",
+        UNKNOWN_SOURCE_CAPABILITY,
+        "front_end_semantics",
+        "capability_root",
+        "capability_relationship",
+        "capability_route"
+    ),
+    (
+        92,
+        "missing_caller_capability_v0",
+        MISSING_CALLER_CAPABILITY,
+        "front_end_semantics",
+        "capability_root",
+        "capability_relationship",
+        "capability_route"
+    ),
+    (
+        93,
+        "app_capability_mismatch_v0",
+        APP_CAPABILITY_MISMATCH,
+        "front_end_semantics",
+        "capability_root",
+        "capability_relationship",
+        "capability_route"
+    ),
+    (
+        94,
+        "entry_capability_bypass_v0",
+        ENTRY_CAPABILITY_BYPASS,
+        "front_end_semantics",
+        "capability_root",
+        "capability_relationship",
+        "capability_route"
+    ),
+    (
+        95,
+        "output_capability_undeclared_v0",
+        OUTPUT_CAPABILITY_UNDECLARED,
+        "front_end_semantics",
+        "capability_root",
+        "capability_relationship",
+        "capability_route"
+    ),
+    (
+        96,
+        "output_recursion_unsupported_v0",
+        OUTPUT_RECURSION_UNSUPPORTED,
+        "front_end_semantics",
+        "capability_root",
+        "capability_relationship",
+        "capability_route"
+    ),
+    (
+        97,
+        "replay_capability_undeclared_v0",
+        REPLAY_CAPABILITY_UNDECLARED,
+        "front_end_semantics",
+        "capability_root",
+        "capability_relationship",
+        "capability_route"
+    ),
+    (
+        98,
+        "replay_recursion_unsupported_v0",
+        REPLAY_RECURSION_UNSUPPORTED,
+        "front_end_semantics",
+        "capability_root",
+        "capability_relationship",
+        "capability_route"
+    ),
+    (
+        99,
+        "file_capability_undeclared_v0",
+        FILE_CAPABILITY_UNDECLARED,
+        "front_end_semantics",
+        "capability_root",
+        "capability_relationship",
+        "capability_route"
+    ),
+    (
+        100,
+        "invalid_stdout_write_call_v0",
+        INVALID_STDOUT_WRITE_CALL,
+        "front_end_semantics",
+        "full_type_check",
+        "builtin_call_relationship",
+        "builtin_call_route"
+    ),
+    (
+        101,
+        "invalid_clock_replay_call_v0",
+        INVALID_CLOCK_REPLAY_CALL,
+        "front_end_semantics",
+        "full_type_check",
+        "builtin_call_relationship",
+        "builtin_call_route"
+    ),
+    (
+        102,
+        "invalid_file_read_call_v0",
+        INVALID_FILE_READ_CALL,
+        "front_end_semantics",
+        "full_type_check",
+        "builtin_call_relationship",
+        "builtin_call_route"
+    ),
+    (
+        103,
+        "reserved_builtin_name_v0",
+        RESERVED_BUILTIN_NAME,
+        "front_end_semantics",
+        "capability_root",
+        "capability_relationship",
+        "capability_route"
+    ),
+    (
+        104,
+        "reserved_replay_builtin_name_v0",
+        RESERVED_REPLAY_BUILTIN_NAME,
+        "front_end_semantics",
+        "capability_root",
+        "capability_relationship",
+        "capability_route"
+    ),
+    (
+        105,
+        "reserved_file_read_builtin_name_v0",
+        RESERVED_FILE_READ_BUILTIN_NAME,
+        "front_end_semantics",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
+    ),
+    (
+        106,
+        "invalid_path_boundary_v0",
+        INVALID_PATH_BOUNDARY,
+        "front_end_semantics",
+        "path_boundary",
+        "path_relationship",
+        "path_boundary_route"
+    ),
+    (
+        107,
+        "path_source_construction_v0",
+        PATH_SOURCE_CONSTRUCTION,
+        "front_end_semantics",
+        "path_boundary",
+        "path_relationship",
+        "path_boundary_route"
+    ),
+    (
+        109,
+        "malformed_executable_predicate_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        110,
+        "value_used_after_move_v0",
+        USE_AFTER_MOVE,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        111,
+        "borrow_parameter_requires_change_permission_for_set_v0",
+        BORROW_PARAMETER_MUTATION,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        112,
+        "linear_resource_must_be_consumed_exactly_once_on_every_path_v0",
+        LINEAR_RESOURCE_NOT_CONSUMED,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        113,
+        "linear_resource_consumed_more_than_once_v0",
+        LINEAR_RESOURCE_CONSUMED_TWICE,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        114,
+        "return_dependency_source_must_name_parameter_v0",
+        RETURN_DEPENDENCY_NOT_PARAMETER,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        115,
+        "field_view_invalidated_by_exact_field_write_v0",
+        STALE_FIELD_VIEW,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        116,
+        "direct_write_overlaps_live_writable_alias_v0",
+        WRITABLE_ALIAS_OVERLAP,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        117,
+        "writable_alias_escape_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        118,
+        "unknown_target_fact_record_v0",
+        UNKNOWN_TARGET_FACT_RECORD,
+        "target_backend_metadata",
+        "check",
+        "target_fact_relationship",
+        "target_fact_route"
+    ),
+    (
+        119,
+        "unknown_capability_family_v0",
+        UNKNOWN_CAPABILITY_FAMILY,
+        "target_backend_metadata",
+        "check",
+        "target_fact_relationship",
+        "target_fact_route"
+    ),
+    (
+        120,
+        "unsupported_target_declaration_v0",
+        UNSUPPORTED_TARGET_DECLARATION,
+        "target_backend_metadata",
+        "check",
+        "target_fact_relationship",
+        "target_fact_route"
+    ),
+    (
+        121,
+        "required_capability_unavailable_v0",
+        REQUIRED_CAPABILITY_UNAVAILABLE,
+        "target_backend_metadata",
+        "check",
+        "target_fact_relationship",
+        "target_fact_route"
+    ),
+    (
+        122,
+        "conflicting_target_capability_v0",
+        CONFLICTING_TARGET_CAPABILITY,
+        "target_backend_metadata",
+        "check",
+        "target_fact_relationship",
+        "target_fact_route"
+    ),
+    (
+        123,
+        "arbitrary_helper_call_not_allowed_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        124,
+        "arithmetic_requires_numeric_operands_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        125,
+        "cross_type_comparison_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        126,
+        "delimiter_depth_exceeded_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        127,
+        "integer_literal_out_of_range_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        128,
+        "invalid_comparison_operator_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        129,
+        "invalid_operand_starter_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        130,
+        "known_call_requires_no_gap_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        131,
+        "list_count_requires_list_text_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        132,
+        "list_count_requires_text_match_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        133,
+        "list_count_wrong_arity_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        134,
+        "list_len_requires_list_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        135,
+        "list_text_comparison_requires_literal_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        136,
+        "list_text_literal_requires_text_elements_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        137,
+        "list_text_literal_separator_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        138,
+        "list_text_literal_trailing_comma_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        139,
+        "malformed_syntactic_place_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        140,
+        "mismatched_or_missing_delimiter_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        141,
+        "missing_operand_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        142,
+        "old_place_not_entry_readable_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        143,
+        "operator_not_supported_for_operand_type_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        144,
+        "predicate_field_unresolved_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        145,
+        "predicate_place_ineligible_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        146,
+        "predicate_place_unresolved_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        147,
+        "trailing_tokens_after_predicate_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        148,
+        "unterminated_text_literal_v2",
+        INVALID_EXECUTABLE_PREDICATE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
+    ),
+    (
+        149,
+        "borrow_owner_cannot_supply_writable_field_alias_v0",
+        BORROW_PARAMETER_MUTATION,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        150,
+        "internal_reference_return_dependency_not_implemented_v0",
+        RETURN_DEPENDENCY_NOT_PARAMETER,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        151,
+        "returned_view_cannot_depend_on_local_place_v0",
+        RETURN_DEPENDENCY_NOT_PARAMETER,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        152,
+        "returned_view_expression_uses_local_place_v0",
+        RETURN_DEPENDENCY_NOT_PARAMETER,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        153,
+        "returned_view_expression_does_not_match_from_source_v0",
+        RETURN_DEPENDENCY_NOT_PARAMETER,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        154,
+        "returned_view_expression_has_no_visible_source_root_v0",
+        RETURN_DEPENDENCY_NOT_PARAMETER,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        155,
+        "returned_view_expression_not_bare_place_v0",
+        RETURN_DEPENDENCY_NOT_PARAMETER,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        156,
+        "returned_view_expression_not_closed_view_derivation_v0",
+        RETURN_DEPENDENCY_NOT_PARAMETER,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        157,
+        "element_view_invalidated_by_list_growth_v0",
+        STALE_FIELD_VIEW,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        158,
+        "direct_read_overlaps_live_writable_alias_v0",
+        WRITABLE_ALIAS_OVERLAP,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        159,
+        "owner_wide_write_overlaps_live_writable_alias_v0",
+        WRITABLE_ALIAS_OVERLAP,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        160,
+        "second_writable_alias_overlaps_live_alias_v0",
+        WRITABLE_ALIAS_OVERLAP,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        161,
+        "immutable_owner_cannot_supply_writable_field_alias_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        162,
+        "writable_alias_owner_authority_unknown_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        163,
+        "writable_alias_shape_outside_direct_field_slice_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        164,
+        "writable_alias_rebinds_its_owner_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        165,
+        "writable_alias_binding_rebinding_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        166,
+        "writable_alias_binding_inside_control_flow_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        167,
+        "writable_alias_owner_rebinding_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        168,
+        "writable_alias_lifetime_crosses_control_flow_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        169,
+        "writable_alias_use_inside_control_flow_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        170,
+        "writable_alias_rebinding_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        171,
+        "writable_alias_storage_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        172,
+        "unsupported_writable_alias_use_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        173,
+        "writable_alias_permission_wrapper_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        174,
+        "writable_alias_to_alias_binding_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        175,
+        "writable_alias_nested_or_element_use_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        176,
+        "writable_alias_passed_to_call_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
+    ),
+    (
+        177,
+        "writable_alias_outside_task_body_v0",
+        UNSUPPORTED_WRITABLE_ALIAS,
+        "ownership_borrowing",
+        "ownership_check",
+        "ownership_relationship",
+        "ownership_place_route"
     )
 );
 
@@ -544,6 +1717,28 @@ pub(crate) fn diagnostic_cause(
     DIAGNOSTIC_CAUSES
         .iter()
         .find(|cause| cause.code == code && cause.reason == reason)
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_cause_for_reason(reason: &str) -> Option<&'static DiagnosticCauseSpec> {
+    let mut matches = DIAGNOSTIC_CAUSES
+        .iter()
+        .filter(|cause| cause.reason == reason);
+    let cause = matches.next()?;
+    matches.next().is_none().then_some(cause)
+}
+
+pub(crate) fn diagnostic_cause_for_key(
+    key: DiagnosticCauseKey,
+) -> Option<&'static DiagnosticCauseSpec> {
+    DIAGNOSTIC_CAUSES.iter().find(|cause| cause.key == key)
+}
+
+#[cfg(test)]
+pub(crate) fn default_emitter_cause(code: DiagnosticCode) -> Option<&'static DiagnosticCauseSpec> {
+    DIAGNOSTIC_CAUSES
+        .iter()
+        .find(|cause| cause.code == code && cause.emitter_default)
 }
 
 const H090_CAUSES: &[DiagnosticCauseKey] = &[
@@ -600,9 +1795,108 @@ const SOURCE_H1401_PRECEDENCE_CAUSES: &[DiagnosticCauseKey] = &[
     DiagnosticCauseKey(46),
 ];
 const UNKNOWN_TYPE_H1402_PRECEDENCE_CAUSES: &[DiagnosticCauseKey] = &[DiagnosticCauseKey(44)];
+const PARSER_CAUSES: &[DiagnosticCauseKey] = &[
+    DiagnosticCauseKey(48),
+    DiagnosticCauseKey(49),
+    DiagnosticCauseKey(50),
+    DiagnosticCauseKey(51),
+    DiagnosticCauseKey(52),
+    DiagnosticCauseKey(53),
+    DiagnosticCauseKey(54),
+    DiagnosticCauseKey(55),
+    DiagnosticCauseKey(56),
+];
+const RESOLVER_CAUSES: &[DiagnosticCauseKey] = &[
+    DiagnosticCauseKey(78),
+    DiagnosticCauseKey(79),
+    DiagnosticCauseKey(80),
+    DiagnosticCauseKey(81),
+];
+const TYPE_CAUSES: &[DiagnosticCauseKey] = &[DiagnosticCauseKey(82), DiagnosticCauseKey(83)];
+const AUTHORITY_CAUSES: &[DiagnosticCauseKey] = &[
+    DiagnosticCauseKey(91),
+    DiagnosticCauseKey(92),
+    DiagnosticCauseKey(93),
+    DiagnosticCauseKey(94),
+    DiagnosticCauseKey(95),
+    DiagnosticCauseKey(96),
+    DiagnosticCauseKey(97),
+    DiagnosticCauseKey(98),
+    DiagnosticCauseKey(99),
+];
+const PATH_CAUSES: &[DiagnosticCauseKey] = &[DiagnosticCauseKey(106), DiagnosticCauseKey(107)];
+const PREDICATE_CAUSES: &[DiagnosticCauseKey] = &[
+    DiagnosticCauseKey(109),
+    DiagnosticCauseKey(123),
+    DiagnosticCauseKey(124),
+    DiagnosticCauseKey(125),
+    DiagnosticCauseKey(126),
+    DiagnosticCauseKey(127),
+    DiagnosticCauseKey(128),
+    DiagnosticCauseKey(129),
+    DiagnosticCauseKey(130),
+    DiagnosticCauseKey(131),
+    DiagnosticCauseKey(132),
+    DiagnosticCauseKey(133),
+    DiagnosticCauseKey(134),
+    DiagnosticCauseKey(135),
+    DiagnosticCauseKey(136),
+    DiagnosticCauseKey(137),
+    DiagnosticCauseKey(138),
+    DiagnosticCauseKey(139),
+    DiagnosticCauseKey(140),
+    DiagnosticCauseKey(141),
+    DiagnosticCauseKey(142),
+    DiagnosticCauseKey(143),
+    DiagnosticCauseKey(144),
+    DiagnosticCauseKey(145),
+    DiagnosticCauseKey(146),
+    DiagnosticCauseKey(147),
+    DiagnosticCauseKey(148),
+];
+const OWNERSHIP_CAUSES: &[DiagnosticCauseKey] = &[
+    DiagnosticCauseKey(110),
+    DiagnosticCauseKey(111),
+    DiagnosticCauseKey(112),
+    DiagnosticCauseKey(113),
+    DiagnosticCauseKey(114),
+    DiagnosticCauseKey(115),
+    DiagnosticCauseKey(116),
+    DiagnosticCauseKey(117),
+    DiagnosticCauseKey(149),
+    DiagnosticCauseKey(150),
+    DiagnosticCauseKey(151),
+    DiagnosticCauseKey(152),
+    DiagnosticCauseKey(153),
+    DiagnosticCauseKey(154),
+    DiagnosticCauseKey(155),
+    DiagnosticCauseKey(156),
+    DiagnosticCauseKey(157),
+    DiagnosticCauseKey(158),
+    DiagnosticCauseKey(159),
+    DiagnosticCauseKey(160),
+    DiagnosticCauseKey(161),
+    DiagnosticCauseKey(162),
+    DiagnosticCauseKey(163),
+    DiagnosticCauseKey(164),
+    DiagnosticCauseKey(165),
+    DiagnosticCauseKey(166),
+    DiagnosticCauseKey(167),
+    DiagnosticCauseKey(168),
+    DiagnosticCauseKey(169),
+    DiagnosticCauseKey(170),
+    DiagnosticCauseKey(171),
+    DiagnosticCauseKey(172),
+    DiagnosticCauseKey(173),
+    DiagnosticCauseKey(174),
+    DiagnosticCauseKey(175),
+    DiagnosticCauseKey(176),
+    DiagnosticCauseKey(177),
+];
 
 pub(crate) const DIAGNOSTIC_PRECEDENCE: &[DiagnosticPrecedenceSpec] = &[
     DiagnosticPrecedenceSpec {
+        id: "typed_failure_over_callable_v0",
         dominant_causes: H090_CAUSES,
         suppressed_causes: &[
             DiagnosticCauseKey(9),
@@ -637,18 +1931,63 @@ pub(crate) const DIAGNOSTIC_PRECEDENCE: &[DiagnosticPrecedenceSpec] = &[
         ],
         relationship: "shared_callable_relationship_site_v0",
         applying_owner: "callable_analysis",
+        applying_stage: "callable_analysis",
     },
     DiagnosticPrecedenceSpec {
+        id: "source_over_callable_v0",
         dominant_causes: SOURCE_H1401_PRECEDENCE_CAUSES,
         suppressed_causes: H1401_CAUSES,
         relationship: "shared_callable_relationship_site_v0",
         applying_owner: "callable_analysis",
+        applying_stage: "callable_analysis",
     },
     DiagnosticPrecedenceSpec {
+        id: "unknown_type_over_callable_row_v0",
         dominant_causes: UNKNOWN_TYPE_H1402_PRECEDENCE_CAUSES,
         suppressed_causes: H1402_CAUSES,
         relationship: "shared_callable_relationship_site_v0",
         applying_owner: "callable_analysis",
+        applying_stage: "callable_analysis",
+    },
+    DiagnosticPrecedenceSpec {
+        id: "parser_over_resolver_v0",
+        dominant_causes: PARSER_CAUSES,
+        suppressed_causes: RESOLVER_CAUSES,
+        relationship: "parser_blocks_resolver_semantic_node_v0",
+        applying_owner: "resolve",
+        applying_stage: "resolve",
+    },
+    DiagnosticPrecedenceSpec {
+        id: "resolver_over_type_v0",
+        dominant_causes: RESOLVER_CAUSES,
+        suppressed_causes: TYPE_CAUSES,
+        relationship: "resolver_blocks_type_relationship_v0",
+        applying_owner: "type_check",
+        applying_stage: "type_check",
+    },
+    DiagnosticPrecedenceSpec {
+        id: "authority_over_ownership_v0",
+        dominant_causes: AUTHORITY_CAUSES,
+        suppressed_causes: OWNERSHIP_CAUSES,
+        relationship: "authority_blocks_ownership_route_v0",
+        applying_owner: "ownership_check",
+        applying_stage: "ownership_check",
+    },
+    DiagnosticPrecedenceSpec {
+        id: "path_over_predicate_v0",
+        dominant_causes: PATH_CAUSES,
+        suppressed_causes: PREDICATE_CAUSES,
+        relationship: "path_boundary_owns_predicate_inspection_v0",
+        applying_owner: "predicate",
+        applying_stage: "core_preview",
+    },
+    DiagnosticPrecedenceSpec {
+        id: "effect_failure_over_ownership_v0",
+        dominant_causes: &[DiagnosticCauseKey(8)],
+        suppressed_causes: OWNERSHIP_CAUSES,
+        relationship: "effect_failure_blocks_ownership_route_v0",
+        applying_owner: "ownership_check",
+        applying_stage: "ownership_check",
     },
 ];
 
@@ -663,6 +2002,20 @@ pub(crate) fn precedence_spec(
                 && rule.suppressed_causes.contains(&suppressed_cause)
         })
         .copied()
+}
+
+pub(crate) fn exact_precedence_spec(
+    dominant_cause: DiagnosticCauseKey,
+    suppressed_cause: DiagnosticCauseKey,
+    relationship: &str,
+    applying_owner: &str,
+    applying_stage: &str,
+) -> Option<DiagnosticPrecedenceSpec> {
+    precedence_spec(dominant_cause, suppressed_cause).filter(|rule| {
+        rule.relationship == relationship
+            && rule.applying_owner == applying_owner
+            && rule.applying_stage == applying_stage
+    })
 }
 
 const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
@@ -2453,7 +3806,7 @@ fn validate_causes(
         }
         if causes[..index]
             .iter()
-            .any(|other| other.code == cause.code && other.reason == cause.reason)
+            .any(|other| other.reason == cause.reason)
         {
             return Err(RegistryValidationError::DuplicateCauseReason);
         }
@@ -2490,9 +3843,12 @@ fn validate_causes(
     if causes != DIAGNOSTIC_CAUSES {
         return Err(RegistryValidationError::MalformedCauseMetadata);
     }
-    for rule in precedence {
-        if rule.relationship.is_empty()
+    for (index, rule) in precedence.iter().enumerate() {
+        if rule.id.is_empty()
+            || precedence[..index].iter().any(|other| other.id == rule.id)
+            || rule.relationship.is_empty()
             || rule.applying_owner.is_empty()
+            || rule.applying_stage.is_empty()
             || rule.dominant_causes.is_empty()
             || rule.suppressed_causes.is_empty()
             || rule
@@ -2997,8 +4353,8 @@ mod tests {
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 48);
-        assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 3);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 177);
+        assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 8);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {
                 assert!(super::precedence_spec(*dominant, *suppressed).is_some());
@@ -3012,6 +4368,174 @@ mod tests {
             super::precedence_spec(super::DiagnosticCauseKey(45), super::DiagnosticCauseKey(31))
                 .is_none()
         );
+        for (dominant, suppressed, relationship) in [
+            (48, 78, "parser_blocks_resolver_semantic_node_v0"),
+            (78, 82, "resolver_blocks_type_relationship_v0"),
+            (91, 110, "authority_blocks_ownership_route_v0"),
+            (107, 109, "path_boundary_owns_predicate_inspection_v0"),
+            (8, 110, "effect_failure_blocks_ownership_route_v0"),
+        ] {
+            assert_eq!(
+                super::precedence_spec(
+                    super::DiagnosticCauseKey(dominant),
+                    super::DiagnosticCauseKey(suppressed),
+                )
+                .map(|rule| rule.relationship),
+                Some(relationship)
+            );
+        }
+    }
+
+    #[test]
+    fn session_ap_static_emitters_have_one_registered_default_owner() {
+        let causes = DIAGNOSTIC_CAUSES
+            .iter()
+            .filter(|cause| cause.emitter_default)
+            .collect::<Vec<_>>();
+        assert_eq!(causes.len(), 74);
+        assert_eq!(
+            DIAGNOSTIC_CAUSES
+                .iter()
+                .filter(|cause| cause.code.as_str().starts_with("H08"))
+                .count(),
+            37
+        );
+        for (index, cause) in causes.iter().enumerate() {
+            assert!(!causes[..index].iter().any(|other| other.code == cause.code));
+        }
+        for cause in causes {
+            assert_eq!(
+                super::default_emitter_cause(cause.code).map(|registered| registered.key),
+                Some(cause.key)
+            );
+            assert!(!cause.semantic_owner.is_empty());
+            assert!(!cause.owning_stage.is_empty());
+        }
+        assert!(super::default_emitter_cause(DiagnosticCode::UNCHECKED_PROSE_CONTRACT).is_none());
+        assert!(super::default_emitter_cause(DiagnosticCode::INVALID_CALLABLE_FORM).is_none());
+
+        let predicate_reasons = [
+            "arbitrary_helper_call_not_allowed_v2",
+            "arithmetic_requires_numeric_operands_v2",
+            "cross_type_comparison_v2",
+            "delimiter_depth_exceeded_v2",
+            "integer_literal_out_of_range_v2",
+            "invalid_comparison_operator_v2",
+            "invalid_operand_starter_v2",
+            "known_call_requires_no_gap_v2",
+            "list_count_requires_list_text_v2",
+            "list_count_requires_text_match_v2",
+            "list_count_wrong_arity_v2",
+            "list_len_requires_list_v2",
+            "list_text_comparison_requires_literal_v2",
+            "list_text_literal_requires_text_elements_v2",
+            "list_text_literal_separator_v2",
+            "list_text_literal_trailing_comma_v2",
+            "malformed_executable_predicate_v2",
+            "malformed_syntactic_place_v2",
+            "mismatched_or_missing_delimiter_v2",
+            "missing_operand_v2",
+            "old_place_not_entry_readable_v2",
+            "operator_not_supported_for_operand_type_v2",
+            "predicate_field_unresolved_v2",
+            "predicate_place_ineligible_v2",
+            "predicate_place_unresolved_v2",
+            "trailing_tokens_after_predicate_v2",
+            "unterminated_text_literal_v2",
+        ];
+        assert_eq!(
+            DIAGNOSTIC_CAUSES
+                .iter()
+                .filter(|cause| cause.code == DiagnosticCode::INVALID_EXECUTABLE_PREDICATE)
+                .map(|cause| cause.reason)
+                .collect::<std::collections::BTreeSet<_>>(),
+            predicate_reasons.into_iter().collect()
+        );
+
+        for (code, expected) in [
+            (
+                DiagnosticCode::USE_AFTER_MOVE,
+                &["value_used_after_move_v0"][..],
+            ),
+            (
+                DiagnosticCode::BORROW_PARAMETER_MUTATION,
+                &[
+                    "borrow_owner_cannot_supply_writable_field_alias_v0",
+                    "borrow_parameter_requires_change_permission_for_set_v0",
+                ][..],
+            ),
+            (
+                DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED,
+                &["linear_resource_must_be_consumed_exactly_once_on_every_path_v0"][..],
+            ),
+            (
+                DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE,
+                &["linear_resource_consumed_more_than_once_v0"][..],
+            ),
+            (
+                DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER,
+                &[
+                    "internal_reference_return_dependency_not_implemented_v0",
+                    "return_dependency_source_must_name_parameter_v0",
+                    "returned_view_cannot_depend_on_local_place_v0",
+                    "returned_view_expression_does_not_match_from_source_v0",
+                    "returned_view_expression_has_no_visible_source_root_v0",
+                    "returned_view_expression_not_bare_place_v0",
+                    "returned_view_expression_not_closed_view_derivation_v0",
+                    "returned_view_expression_uses_local_place_v0",
+                ][..],
+            ),
+            (
+                DiagnosticCode::STALE_FIELD_VIEW,
+                &[
+                    "element_view_invalidated_by_list_growth_v0",
+                    "field_view_invalidated_by_exact_field_write_v0",
+                ][..],
+            ),
+            (
+                DiagnosticCode::WRITABLE_ALIAS_OVERLAP,
+                &[
+                    "direct_read_overlaps_live_writable_alias_v0",
+                    "direct_write_overlaps_live_writable_alias_v0",
+                    "owner_wide_write_overlaps_live_writable_alias_v0",
+                    "second_writable_alias_overlaps_live_alias_v0",
+                ][..],
+            ),
+            (
+                DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS,
+                &[
+                    "immutable_owner_cannot_supply_writable_field_alias_v0",
+                    "unsupported_writable_alias_use_v0",
+                    "writable_alias_binding_inside_control_flow_v0",
+                    "writable_alias_binding_rebinding_v0",
+                    "writable_alias_escape_v0",
+                    "writable_alias_lifetime_crosses_control_flow_v0",
+                    "writable_alias_nested_or_element_use_v0",
+                    "writable_alias_outside_task_body_v0",
+                    "writable_alias_owner_authority_unknown_v0",
+                    "writable_alias_owner_rebinding_v0",
+                    "writable_alias_passed_to_call_v0",
+                    "writable_alias_permission_wrapper_v0",
+                    "writable_alias_rebinding_v0",
+                    "writable_alias_rebinds_its_owner_v0",
+                    "writable_alias_shape_outside_direct_field_slice_v0",
+                    "writable_alias_storage_v0",
+                    "writable_alias_to_alias_binding_v0",
+                    "writable_alias_use_inside_control_flow_v0",
+                ][..],
+            ),
+        ] {
+            assert_eq!(
+                DIAGNOSTIC_CAUSES
+                    .iter()
+                    .filter(|cause| cause.code == code)
+                    .map(|cause| cause.reason)
+                    .collect::<std::collections::BTreeSet<_>>(),
+                expected.iter().copied().collect(),
+                "{} cause coverage",
+                code.as_str()
+            );
+        }
     }
 
     #[test]
@@ -3029,7 +4553,6 @@ mod tests {
         );
 
         let mut duplicate_reason = DIAGNOSTIC_CAUSES.to_vec();
-        duplicate_reason[1].code = duplicate_reason[0].code;
         duplicate_reason[1].reason = duplicate_reason[0].reason;
         assert_eq!(
             validate_causes(&duplicate_reason, DIAGNOSTIC_PRECEDENCE),
@@ -3081,13 +4604,15 @@ mod tests {
             validate_causes(DIAGNOSTIC_CAUSES, &bad_precedence),
             Err(RegistryValidationError::MalformedPrecedenceRule)
         );
-        for field in 0..4 {
+        for field in 0..6 {
             let mut malformed = DIAGNOSTIC_PRECEDENCE.to_vec();
             match field {
                 0 => malformed[0].dominant_causes = &[super::DiagnosticCauseKey(999)],
                 1 => malformed[0].suppressed_causes = &[super::DiagnosticCauseKey(999)],
                 2 => malformed[0].relationship = "replacement_relationship_v0",
-                _ => malformed[0].applying_owner = "replacement_owner",
+                3 => malformed[0].applying_owner = "replacement_owner",
+                4 => malformed[0].applying_stage = "replacement_stage",
+                _ => malformed[0].id = "replacement_rule_id",
             }
             assert_eq!(
                 validate_causes(DIAGNOSTIC_CAUSES, &malformed),
@@ -3095,6 +4620,13 @@ mod tests {
                 "precedence field {field}"
             );
         }
+
+        let mut duplicate_rule_id = DIAGNOSTIC_PRECEDENCE.to_vec();
+        duplicate_rule_id[1].id = duplicate_rule_id[0].id;
+        assert_eq!(
+            validate_causes(DIAGNOSTIC_CAUSES, &duplicate_rule_id),
+            Err(RegistryValidationError::MalformedPrecedenceRule)
+        );
     }
 
     #[test]

@@ -2,11 +2,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast::{
     Item, Param, ParamPermission, ParsedBodyStatement, ParsedBodyStatementKind, ParsedExpression,
-    ParsedExpressionKind, Program, Section, TypeSyntaxKind,
+    ParsedExpressionKind, Program, Section, Task, TypeSyntaxKind,
 };
 use crate::core_body::{self, BodyStatement};
 use crate::core_expr::{self, CoreExpressionPreview};
-use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity, Span};
+use crate::diagnostic::{
+    Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceSet, Severity, Span,
+};
 use crate::graph::is_meaningful_line_text;
 use crate::predicate;
 use crate::version;
@@ -23,7 +25,10 @@ struct ResolveReport {
     scopes: Vec<ResolveScope>,
     definitions: Vec<ResolveDefinition>,
     references: Vec<ResolveReference>,
+    call_occurrences: Vec<ResolveCallOccurrenceSummary>,
+    item_node_by_definition_id: BTreeMap<String, String>,
     diagnostics: Vec<ResolverDiagnostic>,
+    diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +88,90 @@ pub struct ResolveReferenceSummary {
     pub reason: Option<&'static str>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct ResolverCallOccurrenceId {
+    reference_id: String,
+    owner_definition_id: String,
+    target_definition_id: String,
+    position: crate::parser::ParsedCallPosition,
+}
+
+impl ResolverCallOccurrenceId {
+    pub(crate) fn stable_key(&self) -> String {
+        format!(
+            "{}|owner={}|target={}|{}",
+            self.reference_id,
+            self.owner_definition_id,
+            self.target_definition_id,
+            self.position.stable_component(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolveCallIdentifierUse {
+    name: String,
+    resolved_definition_id: Option<String>,
+    ordinal: usize,
+    consumed: bool,
+}
+
+impl ResolveCallIdentifierUse {
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn consumed(&self) -> bool {
+        self.consumed
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolveCallOccurrenceSummary {
+    pub reference_id: String,
+    pub owner_definition_id: String,
+    pub target_definition_id: String,
+    pub exact_call_span: Span,
+    resolver_occurrence_id: ResolverCallOccurrenceId,
+    source: String,
+    identifier_uses: Vec<ResolveCallIdentifierUse>,
+}
+
+impl ResolveCallOccurrenceSummary {
+    pub(crate) fn resolver_occurrence_id(&self) -> &ResolverCallOccurrenceId {
+        &self.resolver_occurrence_id
+    }
+
+    pub(crate) fn statement_index(&self) -> usize {
+        self.resolver_occurrence_id.position.statement_index()
+    }
+
+    pub(crate) fn source(&self) -> &str {
+        &self.source
+    }
+
+    pub(crate) fn identifier_uses(&self) -> impl Iterator<Item = &ResolveCallIdentifierUse> {
+        self.identifier_uses.iter()
+    }
+
+    pub(crate) fn relationship_key(&self) -> String {
+        self.resolver_occurrence_id.stable_key()
+    }
+
+    pub(crate) fn relationship_route(&self) -> Vec<String> {
+        vec![
+            format!("resolver_call_occurrence={}", self.relationship_key()),
+            format!("resolver_call_reference={}", self.reference_id),
+            format!("resolver_call_owner={}", self.owner_definition_id),
+            format!("resolver_call_target={}", self.target_definition_id),
+            format!(
+                "resolver_call_position={}",
+                self.resolver_occurrence_id.position.stable_component()
+            ),
+        ]
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ResolveScope {
     id: String,
@@ -124,6 +213,7 @@ struct ResolveReference {
 struct CallableResolveInput<'a> {
     owner_kind: &'static str,
     owner_name: &'a str,
+    owner_definition_id: String,
     params: &'a [Param],
     sections: &'a [Section],
     span: &'a Span,
@@ -132,6 +222,7 @@ struct CallableResolveInput<'a> {
 
 #[derive(Debug, Clone)]
 struct ResolverDiagnostic {
+    cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
     code: DiagnosticCode,
     severity: Severity,
     title: &'static str,
@@ -140,6 +231,7 @@ struct ResolverDiagnostic {
     help: &'static str,
     reference_id: Option<String>,
     definition_id: Option<String>,
+    reason: &'static str,
 }
 
 #[derive(Clone)]
@@ -168,6 +260,7 @@ struct ResolverContext {
     scopes: Vec<ResolveScope>,
     definitions: Vec<ResolveDefinition>,
     references: Vec<ResolveReference>,
+    call_occurrences: Vec<ResolveCallOccurrenceSummary>,
     diagnostics: Vec<ResolverDiagnostic>,
     scope_parents: BTreeMap<String, Option<String>>,
     definitions_by_scope_name: BTreeMap<(String, String), DefinitionRef>,
@@ -177,6 +270,7 @@ struct ResolverContext {
     callable_receiver_definition_ids: BTreeSet<String>,
     callable_parameter_definition_ids: BTreeSet<String>,
     task_definition_ids_by_name: BTreeMap<String, Vec<String>>,
+    item_node_by_definition_id: BTreeMap<String, String>,
 }
 
 pub fn resolve_has_errors(program: &Program, source_diagnostics: &[Diagnostic]) -> bool {
@@ -271,6 +365,233 @@ pub fn resolve_reference_summaries(
         .collect()
 }
 
+pub(crate) fn resolve_call_occurrence_summaries(
+    program: &Program,
+    source_diagnostics: &[Diagnostic],
+) -> Vec<ResolveCallOccurrenceSummary> {
+    build_report(program, source_diagnostics).call_occurrences
+}
+
+fn resolver_call_reference_identity(
+    owner_definition_id: &str,
+    target_definition_id: &str,
+    position: &crate::parser::ParsedCallPosition,
+) -> String {
+    format!(
+        "resolver-call-reference|owner={owner_definition_id}|target={target_definition_id}|{}",
+        position.stable_component()
+    )
+}
+
+fn unresolved_call_target_identity(
+    owner_definition_id: &str,
+    resolution_status: &str,
+    position: &crate::parser::ParsedCallPosition,
+) -> String {
+    format!(
+        "resolver-call-target|owner={owner_definition_id}|status={resolution_status}|{}",
+        position.stable_component()
+    )
+}
+
+fn semantic_definition_identity(definition: &ResolveDefinition) -> String {
+    definition
+        .id
+        .strip_suffix(&format!("_{}", definition.normalized_name))
+        .unwrap_or(&definition.id)
+        .to_string()
+}
+
+pub(crate) fn diagnostic_occurrence_set(
+    program: &Program,
+    source_diagnostics: &[Diagnostic],
+) -> DiagnosticOccurrenceSet {
+    build_report(program, source_diagnostics).diagnostic_occurrences
+}
+
+pub(crate) fn semantic_app_identity(program: &Program, target: &crate::ast::App) -> String {
+    semantic_item_identity(
+        program,
+        |item| matches!(item, Item::App(app) if std::ptr::eq(app, target)),
+    )
+    .unwrap_or_else(|| panic!("app is not part of the resolver-owned program tree"))
+}
+
+pub(crate) fn semantic_task_identity(program: &Program, target: &Task) -> String {
+    semantic_item_identity(
+        program,
+        |item| matches!(item, Item::Task(task) if std::ptr::eq(task, target)),
+    )
+    .unwrap_or_else(|| panic!("task is not part of the resolver-owned program tree"))
+}
+
+pub(crate) fn semantic_task_definition_identity(program: &Program, target: &Task) -> String {
+    let task_node = semantic_task_identity(program, target);
+    semantic_definition_identities_by_item(program)
+        .remove(&task_node)
+        .unwrap_or_else(|| panic!("task semantic node lacks a resolver definition"))
+}
+
+pub(crate) fn resolver_task_definition_id(program: &Program, target: &Task) -> String {
+    let task_node = semantic_task_identity(program, target);
+    let report = build_report(program, &[]);
+    report
+        .item_node_by_definition_id
+        .iter()
+        .find_map(|(definition_id, semantic_node)| {
+            (semantic_node == &task_node).then(|| definition_id.clone())
+        })
+        .unwrap_or_else(|| panic!("task semantic node lacks a resolver definition"))
+}
+
+fn semantic_definition_identities_by_item(program: &Program) -> BTreeMap<String, String> {
+    let report = build_report(program, &[]);
+    report
+        .item_node_by_definition_id
+        .iter()
+        .filter_map(|(definition_id, semantic_node)| {
+            report
+                .definitions
+                .iter()
+                .find(|definition| &definition.id == definition_id)
+                .map(|definition| {
+                    (
+                        semantic_node.clone(),
+                        semantic_definition_identity(definition),
+                    )
+                })
+        })
+        .collect()
+}
+
+pub(crate) fn semantic_item_identity_for(program: &Program, target: &Item) -> String {
+    semantic_item_identity(program, |item| std::ptr::eq(item, target))
+        .unwrap_or_else(|| panic!("item is not part of the resolver-owned program tree"))
+}
+
+pub(crate) fn semantic_item_definition_identity_for(program: &Program, target: &Item) -> String {
+    let item_node = semantic_item_identity_for(program, target);
+    semantic_definition_identities_by_item(program)
+        .remove(&item_node)
+        .unwrap_or_else(|| panic!("item semantic node lacks a resolver definition"))
+}
+
+fn semantic_item_identity(
+    program: &Program,
+    mut matches_target: impl FnMut(&Item) -> bool,
+) -> Option<String> {
+    fn visit(
+        items: &[Item],
+        path: &mut Vec<usize>,
+        matches_target: &mut impl FnMut(&Item) -> bool,
+    ) -> Option<Vec<usize>> {
+        for (index, item) in items.iter().enumerate() {
+            path.push(index);
+            if matches_target(item) {
+                return Some(path.clone());
+            }
+            if let Item::App(app) = item
+                && let Some(found) = visit(&app.items, path, matches_target)
+            {
+                return Some(found);
+            }
+            path.pop();
+        }
+        None
+    }
+
+    for (file_index, file) in program.files.iter().enumerate() {
+        let mut path = Vec::new();
+        if let Some(path) = visit(&file.items, &mut path, &mut matches_target) {
+            return Some(format!(
+                "resolver-item:file-{file_index}:path-{}",
+                path.iter()
+                    .map(usize::to_string)
+                    .collect::<Vec<_>>()
+                    .join(".")
+            ));
+        }
+    }
+    None
+}
+
+pub(crate) fn diagnostic_occurrence_set_from_source(
+    program: &Program,
+    source_diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
+) -> DiagnosticOccurrenceSet {
+    let occurrences = build_report_with_source(program, source_diagnostics, source_occurrences)
+        .diagnostic_occurrences;
+    let relationships = parser_precedence_relationships(&occurrences);
+    let consumptions = consume_parser_precedence(&occurrences, &relationships, relationships.len())
+        .expect("parser/resolver precedence must consume exact producer relationships");
+    assert_eq!(consumptions.len(), relationships.len());
+    occurrences
+}
+
+pub(crate) fn parser_precedence_relationships(
+    occurrences: &DiagnosticOccurrenceSet,
+) -> Vec<crate::diagnostic::DiagnosticPrecedenceRelationship> {
+    let facts = occurrences.occurrences().collect::<Vec<_>>();
+    let mut relationships = Vec::new();
+    for dominant in &facts {
+        let Some(node) = route_value(dominant.relationship_route(), "parser_semantic_node=") else {
+            continue;
+        };
+        for suppressed in &facts {
+            if route_value(suppressed.relationship_route(), "resolver_semantic_node=") != Some(node)
+                || crate::diagnostic_catalog::exact_precedence_spec(
+                    dominant.cause_key(),
+                    suppressed.cause_key(),
+                    "parser_blocks_resolver_semantic_node_v0",
+                    "resolve",
+                    "resolve",
+                )
+                .is_none()
+            {
+                continue;
+            }
+            let relationship_id = format!(
+                "parser-resolver-precedence:{node}:{}:{}",
+                dominant.cause_key().ordinal(),
+                suppressed.cause_key().ordinal()
+            );
+            relationships.push(
+                crate::diagnostic::DiagnosticPrecedenceRelationship::producer_owned(
+                    "parser_over_resolver_v0",
+                    "resolve",
+                    "resolve",
+                    relationship_id.clone(),
+                    dominant,
+                    suppressed,
+                    [
+                        dominant.semantic_origin().to_string(),
+                        suppressed.semantic_origin().to_string(),
+                    ],
+                    vec![relationship_id, format!("semantic_node={node}")],
+                )
+                .expect("resolver must seal exact parser precedence"),
+            );
+        }
+    }
+    relationships
+}
+
+fn route_value<'a>(route: &'a [String], prefix: &str) -> Option<&'a str> {
+    route.iter().find_map(|entry| entry.strip_prefix(prefix))
+}
+
+pub(crate) fn consume_parser_precedence(
+    occurrences: &DiagnosticOccurrenceSet,
+    relationships: &[crate::diagnostic::DiagnosticPrecedenceRelationship],
+    expected_count: usize,
+) -> Result<
+    Vec<crate::diagnostic::DiagnosticPrecedenceConsumption>,
+    crate::diagnostic::DiagnosticInvariantError,
+> {
+    occurrences.consume_precedence_relationships("resolve", relationships, expected_count)
+}
+
 pub fn resolve_text(program: &Program, source_diagnostics: &[Diagnostic]) -> String {
     let report = build_report(program, source_diagnostics);
     let mut out = String::new();
@@ -351,6 +672,18 @@ pub fn resolve_json(program: &Program, source_diagnostics: &[Diagnostic]) -> Str
 }
 
 fn build_report(program: &Program, source_diagnostics: &[Diagnostic]) -> ResolveReport {
+    build_report_with_source(
+        program,
+        source_diagnostics,
+        &DiagnosticOccurrenceSet::default(),
+    )
+}
+
+fn build_report_with_source(
+    program: &Program,
+    source_diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
+) -> ResolveReport {
     let mut context = ResolverContext::new(program);
     let mut file_scopes = Vec::new();
     for (file_index, file) in program.files.iter().enumerate() {
@@ -362,12 +695,11 @@ fn build_report(program: &Program, source_diagnostics: &[Diagnostic]) -> Resolve
             file.items.first().map(|item| item.span()),
             format!("file_{file_index}_{}", id_fragment(&file.path)),
         );
-        context.collect_item_definitions(&file.items, &file_scope);
+        context.collect_item_definitions(&file.items, &file_scope, file_index, &[]);
         file_scopes.push(file_scope);
     }
-    context.register_top_level_callable_definitions(program);
-    for (file, file_scope) in program.files.iter().zip(&file_scopes) {
-        context.resolve_items(&file.items, file_scope);
+    for (file_index, (file, file_scope)) in program.files.iter().zip(&file_scopes).enumerate() {
+        context.resolve_items(&file.items, file_scope, file_index, &[]);
     }
 
     let source_errors = source_diagnostics
@@ -375,6 +707,50 @@ fn build_report(program: &Program, source_diagnostics: &[Diagnostic]) -> Resolve
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
         .count();
     let source_warnings = source_diagnostics.len().saturating_sub(source_errors);
+
+    let mut diagnostic_occurrences = source_occurrences.inherited();
+    for diagnostic in &context.diagnostics {
+        let mut route = vec![format!("resolver_reason={}", diagnostic.reason)];
+        if let Some(reference_id) = &diagnostic.reference_id {
+            route.push(format!("resolver_reference={reference_id}"));
+        }
+        if let Some(definition_id) = &diagnostic.definition_id {
+            route.push(format!("resolver_definition={definition_id}"));
+        }
+        let semantic_origin = diagnostic
+            .definition_id
+            .as_ref()
+            .and_then(|definition_id| {
+                context
+                    .item_node_by_definition_id
+                    .get(definition_id)
+                    .cloned()
+            })
+            .or_else(|| {
+                diagnostic
+                    .reference_id
+                    .as_ref()
+                    .map(|reference_id| format!("resolver-reference:{reference_id}"))
+            })
+            .or_else(|| diagnostic.definition_id.clone())
+            .unwrap_or_else(|| panic!("resolver diagnostic lacks semantic definition/reference"));
+        route.push(format!("resolver_semantic_node={semantic_origin}"));
+        let registered = DiagnosticOccurrence::registered_cause(
+            diagnostic.cause_key,
+            Diagnostic::error(
+                diagnostic.code,
+                diagnostic.message.clone(),
+                Some(diagnostic.source_span.clone()),
+            )
+            .with_help(diagnostic.help),
+            semantic_origin,
+            route,
+        )
+        .expect("resolver diagnostic cause must be registered");
+        diagnostic_occurrences
+            .insert_owned(registered)
+            .expect("resolver diagnostic occurrences must be unique");
+    }
 
     ResolveReport {
         files: program.files.len(),
@@ -384,7 +760,10 @@ fn build_report(program: &Program, source_diagnostics: &[Diagnostic]) -> Resolve
         scopes: context.scopes,
         definitions: context.definitions,
         references: context.references,
+        call_occurrences: context.call_occurrences,
+        item_node_by_definition_id: context.item_node_by_definition_id,
         diagnostics: context.diagnostics,
+        diagnostic_occurrences,
     }
 }
 
@@ -395,6 +774,7 @@ impl ResolverContext {
             scopes: Vec::new(),
             definitions: Vec::new(),
             references: Vec::new(),
+            call_occurrences: Vec::new(),
             diagnostics: Vec::new(),
             scope_parents: BTreeMap::new(),
             definitions_by_scope_name: BTreeMap::new(),
@@ -404,39 +784,7 @@ impl ResolverContext {
             callable_receiver_definition_ids: BTreeSet::new(),
             callable_parameter_definition_ids: BTreeSet::new(),
             task_definition_ids_by_name: BTreeMap::new(),
-        }
-    }
-
-    fn register_top_level_callable_definitions(&mut self, program: &Program) {
-        for file in &program.files {
-            self.register_callable_definitions_in_items(&file.items);
-        }
-    }
-
-    fn register_callable_definitions_in_items(&mut self, items: &[Item]) {
-        for item in items {
-            let Item::Task(task) = item else {
-                continue;
-            };
-            let Some(definition) = self.definitions.iter().find(|definition| {
-                definition.definition_kind == "task"
-                    && same_span(&definition.source_span, &task.span)
-            }) else {
-                continue;
-            };
-            self.task_definition_ids_by_name
-                .entry(definition.normalized_name.clone())
-                .or_default()
-                .push(definition.id.clone());
-            if task.params.iter().any(|param| {
-                matches!(
-                    param.type_syntax.kind,
-                    TypeSyntaxKind::Callable(_) | TypeSyntaxKind::CallableCandidate { .. }
-                )
-            }) {
-                self.callable_receiver_definition_ids
-                    .insert(definition.id.clone());
-            }
+            item_node_by_definition_id: BTreeMap::new(),
         }
     }
 
@@ -481,8 +829,14 @@ impl ResolverContext {
         id
     }
 
-    fn collect_item_definitions(&mut self, items: &[Item], scope_id: &str) {
-        for item in items {
+    fn collect_item_definitions(
+        &mut self,
+        items: &[Item],
+        scope_id: &str,
+        file_index: usize,
+        parent_path: &[usize],
+    ) {
+        for (item_index, item) in items.iter().enumerate() {
             let (definition_kind, mutable, state_kind) = match item {
                 Item::App(_) => ("app", false, "item"),
                 Item::Type(_) => ("type", false, "type"),
@@ -490,7 +844,7 @@ impl ResolverContext {
                 Item::Task(_) => ("task", false, "callable"),
                 Item::Test(_) => ("test", false, "callable"),
             };
-            self.add_definition(
+            let definition_id = self.add_definition(
                 scope_id,
                 DefinitionInput {
                     name: item.name(),
@@ -501,11 +855,69 @@ impl ResolverContext {
                     defer_duplicate_diagnostic: false,
                 },
             );
+            if let Some(definition_id) = definition_id {
+                let mut path = parent_path.to_vec();
+                path.push(item_index);
+                self.item_node_by_definition_id.insert(
+                    definition_id.clone(),
+                    format!(
+                        "resolver-item:file-{file_index}:path-{}",
+                        path.iter()
+                            .map(usize::to_string)
+                            .collect::<Vec<_>>()
+                            .join(".")
+                    ),
+                );
+                if let Item::Task(task) = item {
+                    self.task_definition_ids_by_name
+                        .entry(name_key(&task.name))
+                        .or_default()
+                        .push(definition_id.clone());
+                    if task.params.iter().any(|param| {
+                        matches!(
+                            param.type_syntax.kind,
+                            TypeSyntaxKind::Callable(_) | TypeSyntaxKind::CallableCandidate { .. }
+                        )
+                    }) {
+                        self.callable_receiver_definition_ids.insert(definition_id);
+                    }
+                }
+            }
         }
     }
 
-    fn resolve_items(&mut self, items: &[Item], scope_id: &str) {
-        for item in items {
+    fn semantic_item_definition_identity(&self, file_index: usize, item_path: &[usize]) -> String {
+        let item_node = format!(
+            "resolver-item:file-{file_index}:path-{}",
+            item_path
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(".")
+        );
+        let definition_id = self
+            .item_node_by_definition_id
+            .iter()
+            .find_map(|(definition_id, node)| (node == &item_node).then_some(definition_id))
+            .unwrap_or_else(|| panic!("missing resolver definition for semantic node {item_node}"));
+        let definition = self
+            .definitions
+            .iter()
+            .find(|definition| &definition.id == definition_id)
+            .expect("semantic item definition must be registered");
+        semantic_definition_identity(definition)
+    }
+
+    fn resolve_items(
+        &mut self,
+        items: &[Item],
+        scope_id: &str,
+        file_index: usize,
+        parent_path: &[usize],
+    ) {
+        for (item_index, item) in items.iter().enumerate() {
+            let mut item_path = parent_path.to_vec();
+            item_path.push(item_index);
             match item {
                 Item::App(app) => {
                     let app_scope = self.add_scope(
@@ -516,9 +928,8 @@ impl ResolverContext {
                         Some(&app.span),
                         format!("app_{}_scope", id_fragment(&app.name)),
                     );
-                    self.collect_item_definitions(&app.items, &app_scope);
-                    self.register_callable_definitions_in_items(&app.items);
-                    self.resolve_items(&app.items, &app_scope);
+                    self.collect_item_definitions(&app.items, &app_scope, file_index, &item_path);
+                    self.resolve_items(&app.items, &app_scope, file_index, &item_path);
                 }
                 Item::Type(type_def) => {
                     let type_scope = self.add_scope(
@@ -545,11 +956,14 @@ impl ResolverContext {
                 }
                 Item::Store(_) => {}
                 Item::Task(task) => {
+                    let owner_definition_id =
+                        self.semantic_item_definition_identity(file_index, &item_path);
                     self.resolve_callable(
                         scope_id,
                         CallableResolveInput {
                             owner_kind: "task",
                             owner_name: &task.name,
+                            owner_definition_id,
                             params: &task.params,
                             sections: &task.sections,
                             span: &task.span,
@@ -558,11 +972,14 @@ impl ResolverContext {
                     );
                 }
                 Item::Test(test) => {
+                    let owner_definition_id =
+                        self.semantic_item_definition_identity(file_index, &item_path);
                     self.resolve_callable(
                         scope_id,
                         CallableResolveInput {
                             owner_kind: "test",
                             owner_name: &test.name,
+                            owner_definition_id,
                             params: &test.params,
                             sections: &test.sections,
                             span: &test.span,
@@ -578,6 +995,7 @@ impl ResolverContext {
         let CallableResolveInput {
             owner_kind,
             owner_name,
+            owner_definition_id,
             params,
             sections,
             span,
@@ -614,6 +1032,14 @@ impl ResolverContext {
 
         self.resolve_declared_sections(&callable_scope, sections);
 
+        if let Some(body_syntax) = body_syntax {
+            let parsed_calls = crate::parser::executable_call_nodes(body_syntax);
+            self.resolve_structured_call_occurrences(
+                &callable_scope,
+                &owner_definition_id,
+                &parsed_calls,
+            );
+        }
         if let Some(section) = find_section(sections, "does") {
             self.resolve_does_section(&callable_scope, section);
         }
@@ -816,6 +1242,17 @@ impl ResolverContext {
         }
     }
 
+    fn resolve_structured_call_occurrences(
+        &mut self,
+        scope_id: &str,
+        owner_definition_id: &str,
+        parsed_calls: &[crate::parser::ParsedExecutableCallNode],
+    ) {
+        for call in parsed_calls {
+            self.add_executable_call(scope_id, owner_definition_id, call);
+        }
+    }
+
     fn resolve_does_section(&mut self, root_scope_id: &str, section: &Section) {
         let body = core_body::analyze_does_section(section);
         let existing_names = self
@@ -852,11 +1289,11 @@ impl ResolverContext {
                         let alias_rebinding = alias_analysis.issues.iter().any(|issue| {
                             issue.index == statement_index
                                 && matches!(
-                                    issue.reason,
-                                    "writable_alias_rebinding_v0"
-                                        | "writable_alias_binding_rebinding_v0"
-                                        | "writable_alias_owner_rebinding_v0"
-                                        | "writable_alias_rebinds_its_owner_v0"
+                                    issue.cause,
+                                    writable_field_alias::AliasCause::Rebinding
+                                        | writable_field_alias::AliasCause::BindingRebinding
+                                        | writable_field_alias::AliasCause::OwnerRebinding
+                                        | writable_field_alias::AliasCause::RebindsItsOwner
                                 )
                         });
                         self.add_definition(
@@ -986,20 +1423,100 @@ impl ResolverContext {
         )
     }
 
+    fn add_executable_call(
+        &mut self,
+        scope_id: &str,
+        owner_definition_id: &str,
+        call: &crate::parser::ParsedExecutableCallNode,
+    ) {
+        let public_reference_id = self
+            .add_reference(
+                scope_id,
+                PendingReferenceInput {
+                    name: &call.callee,
+                    reference_kind: "callee_ref",
+                    mutable_required: false,
+                    external_if_unresolved: true,
+                    span: &call.span,
+                },
+            )
+            .expect("parsed executable call must produce a resolver reference");
+        let reference = self
+            .references
+            .iter()
+            .find(|reference| reference.id == public_reference_id)
+            .cloned()
+            .expect("new resolver call reference must be registered");
+        let target_definition_id = reference
+            .resolved_definition_id
+            .as_ref()
+            .and_then(|definition_id| {
+                self.definitions
+                    .iter()
+                    .find(|definition| &definition.id == definition_id)
+                    .map(semantic_definition_identity)
+            })
+            .unwrap_or_else(|| {
+                if reference.resolution_status == "builtin_reference_v0" {
+                    format!("builtin_{}", reference.normalized_name)
+                } else {
+                    unresolved_call_target_identity(
+                        owner_definition_id,
+                        reference.resolution_status,
+                        &call.position,
+                    )
+                }
+            });
+        let identifier_uses = call
+            .identifier_uses
+            .iter()
+            .map(|identifier| ResolveCallIdentifierUse {
+                name: identifier.name.clone(),
+                resolved_definition_id: self
+                    .resolve_definition(scope_id, &name_key(&identifier.name), "value_ref")
+                    .map(semantic_definition_identity),
+                ordinal: identifier.ordinal,
+                consumed: identifier.consumed,
+            })
+            .collect();
+        let call_reference_id = resolver_call_reference_identity(
+            owner_definition_id,
+            &target_definition_id,
+            &call.position,
+        );
+        let resolver_occurrence_id = ResolverCallOccurrenceId {
+            reference_id: call_reference_id.clone(),
+            owner_definition_id: owner_definition_id.to_string(),
+            target_definition_id: target_definition_id.clone(),
+            position: call.position.clone(),
+        };
+        self.call_occurrences.push(ResolveCallOccurrenceSummary {
+            reference_id: call_reference_id,
+            owner_definition_id: owner_definition_id.to_string(),
+            target_definition_id,
+            exact_call_span: portable_span(&call.span),
+            resolver_occurrence_id,
+            source: call.source.clone(),
+            identifier_uses,
+        });
+    }
+
     fn resolve_statement_references(&mut self, scope_id: &str, statement: &BodyStatement) {
-        if let Some(expression) = expression_text_for_statement(statement) {
-            let expression = core_expr::analyze_expression(expression);
+        if let Some(expression_text) = expression_text_for_statement(statement) {
+            let expression = core_expr::analyze_expression(expression_text);
             for reference in expression_name_references(&expression) {
-                self.add_reference(
-                    scope_id,
-                    PendingReferenceInput {
-                        name: &reference.name,
-                        reference_kind: reference.reference_kind,
-                        mutable_required: false,
-                        external_if_unresolved: reference.external_if_unresolved,
-                        span: &statement.span,
-                    },
-                );
+                if reference.reference_kind != "callee_ref" {
+                    self.add_reference(
+                        scope_id,
+                        PendingReferenceInput {
+                            name: &reference.name,
+                            reference_kind: reference.reference_kind,
+                            mutable_required: false,
+                            external_if_unresolved: reference.external_if_unresolved,
+                            span: &statement.span,
+                        },
+                    );
+                }
             }
         }
 
@@ -1308,6 +1825,7 @@ impl ResolverContext {
         app_local_callee: bool,
     ) {
         self.diagnostics.push(ResolverDiagnostic {
+            cause_key: crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(78),
             code: DiagnosticCode::UNRESOLVED_NAME,
             severity: Severity::Error,
             title: DiagnosticCode::UNRESOLVED_NAME.title(),
@@ -1320,6 +1838,7 @@ impl ResolverContext {
             },
             reference_id: Some(reference_id.to_string()),
             definition_id: None,
+            reason: "unresolved_name_v0",
         });
     }
 
@@ -1331,6 +1850,7 @@ impl ResolverContext {
         duplicate_of: Option<&str>,
     ) {
         self.diagnostics.push(ResolverDiagnostic {
+            cause_key: crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(79),
             code: DiagnosticCode::DUPLICATE_NAME_IN_SCOPE,
             severity: Severity::Error,
             title: DiagnosticCode::DUPLICATE_NAME_IN_SCOPE.title(),
@@ -1339,6 +1859,7 @@ impl ResolverContext {
             help: "Rename one binding or move it into a narrower block so each scope has one definition for the name.",
             reference_id: duplicate_of.map(str::to_string),
             definition_id: Some(definition_id.to_string()),
+            reason: "duplicate_name_in_scope_v0",
         });
     }
 
@@ -1350,6 +1871,7 @@ impl ResolverContext {
         definition_id: Option<&str>,
     ) {
         self.diagnostics.push(ResolverDiagnostic {
+            cause_key: crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(80),
             code: DiagnosticCode::SET_TARGET_IMMUTABLE,
             severity: Severity::Error,
             title: DiagnosticCode::SET_TARGET_IMMUTABLE.title(),
@@ -1358,6 +1880,7 @@ impl ResolverContext {
             help: "Declare the local with `change`, target a declared `changes:` permission, or keep the value immutable.",
             reference_id: Some(reference_id.to_string()),
             definition_id: definition_id.map(str::to_string),
+            reason: "set_target_immutable_v0",
         });
     }
 
@@ -1378,6 +1901,7 @@ impl ResolverContext {
                 continue;
             }
             self.diagnostics.push(ResolverDiagnostic {
+                cause_key: crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(81),
                 code: DiagnosticCode::READ_BEFORE_DECLARE,
                 severity: Severity::Error,
                 title: DiagnosticCode::READ_BEFORE_DECLARE.title(),
@@ -1389,6 +1913,7 @@ impl ResolverContext {
                 help: "Move the declaration above the read or pass the value in through an explicit parameter.",
                 reference_id: Some(reference.id.clone()),
                 definition_id: Some(definition_id.to_string()),
+                reason: "read_before_declare_v0",
             });
         }
     }
@@ -1724,12 +2249,6 @@ fn portable_span(span: &Span) -> Span {
         line: span.line,
         column: span.column,
     }
-}
-
-fn same_span(left: &Span, right: &Span) -> bool {
-    portable_path(&left.file) == portable_path(&right.file)
-        && left.line == right.line
-        && left.column == right.column
 }
 
 fn portable_path(path: &str) -> String {
@@ -2184,10 +2703,245 @@ fn push_comma_newline(out: &mut String, comma: bool) {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::Program;
+    use crate::ast::{Item, Program};
     use crate::parser::parse_source;
 
-    use super::{resolve_json, resolve_text};
+    use super::{
+        diagnostic_occurrence_set_from_source, parser_precedence_relationships,
+        resolve_call_occurrence_summaries, resolve_json, resolve_reference_summaries, resolve_text,
+    };
+
+    #[test]
+    fn resolver_mints_distinct_repeated_sibling_and_nested_call_occurrences() {
+        let parsed = parse_source(
+            "resolver-call-occurrences.hum",
+            r#"task leaf(value: UInt) -> UInt {
+  does:
+    return value
+}
+
+task caller(value: UInt) -> UInt {
+  does:
+    return leaf(value) + leaf(value) + leaf(leaf(value))
+}
+"#,
+        );
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let calls = resolve_call_occurrence_summaries(&program, &[])
+            .into_iter()
+            .filter(|call| call.exact_call_span.line == 8)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 4);
+        assert_eq!(
+            calls
+                .iter()
+                .map(|call| call.relationship_key())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            4
+        );
+        assert!(
+            calls
+                .iter()
+                .all(|call| call.owner_definition_id == calls[0].owner_definition_id)
+        );
+        assert!(
+            calls
+                .iter()
+                .all(|call| call.target_definition_id == calls[0].target_definition_id)
+        );
+        assert_eq!(
+            calls
+                .iter()
+                .map(|call| call.exact_call_span.column)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            4
+        );
+    }
+
+    #[test]
+    fn resolver_call_identity_ignores_retained_section_text_after_parsing() {
+        let parsed = parse_source(
+            "resolver-call-text-sabotage.hum",
+            r#"task leaf(value: UInt) -> UInt {
+  does:
+    return value
+}
+
+task caller(value: UInt) -> UInt {
+  does:
+    return leaf(value) + leaf(value) + leaf(leaf(consume value))
+}
+"#,
+        );
+        let baseline = resolve_call_occurrence_summaries(
+            &Program {
+                files: vec![parsed.file.clone()],
+            },
+            &[],
+        );
+        assert_eq!(baseline.len(), 4);
+        assert!(baseline.iter().any(|call| {
+            call.identifier_uses()
+                .any(|identifier| identifier.name() == "value" && identifier.consumed())
+        }));
+
+        for replacement in [
+            "",
+            "return unrelated_value",
+            "return fabricated(value) + source_text_only(value)",
+        ] {
+            let mut file = parsed.file.clone();
+            let Item::Task(caller) = &mut file.items[1] else {
+                panic!("caller task")
+            };
+            caller
+                .sections
+                .iter_mut()
+                .find(|section| section.name == "does")
+                .expect("does section")
+                .lines[0]
+                .text = replacement.to_string();
+            let sabotaged = resolve_call_occurrence_summaries(&Program { files: vec![file] }, &[]);
+            assert_eq!(
+                sabotaged, baseline,
+                "retained display text must not add, remove, retarget, or renumber parser-owned calls"
+            );
+        }
+    }
+
+    #[test]
+    fn later_resolver_call_identity_ignores_earlier_retained_statement_references() {
+        let parsed = parse_source(
+            "resolver-earlier-text-sabotage.hum",
+            r#"task first(value: UInt) -> UInt {
+  does:
+    return value
+}
+
+task later(value: UInt) -> UInt {
+  does:
+    return first(value)
+}
+"#,
+        );
+        let baseline_program = Program {
+            files: vec![parsed.file.clone()],
+        };
+        let baseline_calls = resolve_call_occurrence_summaries(&baseline_program, &[]);
+        let [baseline] = baseline_calls.as_slice() else {
+            panic!("one later call, got {baseline_calls:#?}")
+        };
+        let baseline_public_reference = resolve_reference_summaries(&baseline_program, &[])
+            .into_iter()
+            .find(|reference| {
+                reference.reference_kind == "callee_ref"
+                    && reference.name == "first"
+                    && reference.source_span.line == 8
+            })
+            .expect("later public callee reference");
+
+        for replacement in ["return 0", "return value + extra_one + extra_two"] {
+            let mut file = parsed.file.clone();
+            let Item::Task(first) = &mut file.items[0] else {
+                panic!("first task")
+            };
+            first
+                .sections
+                .iter_mut()
+                .find(|section| section.name == "does")
+                .expect("does section")
+                .lines[0]
+                .text = replacement.to_string();
+
+            let sabotaged_program = Program { files: vec![file] };
+            let sabotaged_calls = resolve_call_occurrence_summaries(&sabotaged_program, &[]);
+            let [sabotaged] = sabotaged_calls.as_slice() else {
+                panic!("one later call, got {sabotaged_calls:#?}")
+            };
+            let sabotaged_public_reference = resolve_reference_summaries(&sabotaged_program, &[])
+                .into_iter()
+                .find(|reference| {
+                    reference.reference_kind == "callee_ref"
+                        && reference.name == "first"
+                        && reference.source_span.line == 8
+                })
+                .expect("later public callee reference");
+            assert_ne!(
+                sabotaged_public_reference.id, baseline_public_reference.id,
+                "sabotage must actually perturb the legacy global ordinary-reference serial"
+            );
+            assert_eq!(
+                sabotaged.resolver_occurrence_id(),
+                baseline.resolver_occurrence_id(),
+                "earlier retained references must not renumber a later call occurrence"
+            );
+            assert_eq!(
+                sabotaged.relationship_route(),
+                baseline.relationship_route()
+            );
+            assert_eq!(sabotaged.owner_definition_id, baseline.owner_definition_id);
+            assert_eq!(
+                sabotaged.target_definition_id,
+                baseline.target_definition_id
+            );
+            assert_eq!(sabotaged.identifier_uses, baseline.identifier_uses);
+        }
+    }
+
+    #[test]
+    fn resolver_does_not_mint_a_call_for_the_return_unit_syntax() {
+        let parsed = parse_source(
+            "resolver-return-unit.hum",
+            r#"task caller -> Unit {
+  does:
+    return ()
+}
+"#,
+        );
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        assert!(resolve_call_occurrence_summaries(&program, &[]).is_empty());
+    }
+
+    #[test]
+    fn parser_precedence_is_consumed_for_a_genuine_shared_item_node() {
+        let parsed = parse_source(
+            "parser-resolver-precedence.hum",
+            r#"task Bad Name(value: UInt) -> UInt {
+  does:
+    return value
+}
+
+task Bad Name(value: UInt) -> UInt {
+  does:
+    return value
+}
+"#,
+        );
+        let source_occurrences = parsed.diagnostic_occurrences.clone();
+        let diagnostics = parsed.diagnostics.clone();
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let occurrences =
+            diagnostic_occurrence_set_from_source(&program, &diagnostics, &source_occurrences);
+        let relationships = parser_precedence_relationships(&occurrences);
+        assert_eq!(relationships.len(), 1);
+        let application = relationships[0].application();
+        assert_eq!(application.rule_id, "parser_over_resolver_v0");
+        assert_eq!(application.applying_stage, "resolve");
+        assert!(
+            application
+                .relationship_route
+                .iter()
+                .any(|entry| entry == "semantic_node=resolver-item:file-0:path-1")
+        );
+    }
 
     #[test]
     fn json_resolves_items_permissions_and_local_places() {

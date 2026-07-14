@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::ast::{App, Field, Item, Param, Program, Store, Task, Test, TypeDef};
 use crate::callable;
-use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticOccurrenceSet, Severity, Span};
 use crate::predicate;
 use crate::resolve;
 use crate::return_dependency;
@@ -57,6 +57,7 @@ pub struct TypeEnvReport {
     pub callable_blockers: usize,
     pub type_names: Vec<TypeNameFact>,
     pub declarations: Vec<TypeDeclaration>,
+    pub(crate) diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +109,17 @@ pub fn type_env_has_errors(program: &Program, diagnostics: &[Diagnostic]) -> boo
 
 pub fn type_env_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeEnvReport {
     build_report(program, diagnostics)
+}
+
+pub(crate) fn type_env_report_from_source(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
+) -> TypeEnvReport {
+    let mut report = build_report(program, diagnostics);
+    report.diagnostic_occurrences =
+        resolve::diagnostic_occurrence_set_from_source(program, diagnostics, source_occurrences);
+    report
 }
 
 pub fn type_env_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
@@ -267,6 +279,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeEnvReport 
         callable_blockers,
         type_names,
         declarations,
+        diagnostic_occurrences: resolve::diagnostic_occurrence_set(program, diagnostics),
     }
 }
 

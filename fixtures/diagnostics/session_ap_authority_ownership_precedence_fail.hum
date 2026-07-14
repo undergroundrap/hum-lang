@@ -1,0 +1,40 @@
+app session_ap_authority_ownership_precedence {
+  why:
+    preserve source-authority ownership ahead of downstream ownership checks
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task finish(consume value: Text) -> Text {
+    why:
+      consume one owned value for the hidden ownership conflict
+
+    does:
+      return value
+  }
+
+  task authority_helper(consume value: Text) -> Text {
+    uses:
+      stdout.write
+
+    allocates:
+      nothing
+
+    does:
+      return value
+  }
+
+  task run_tool -> Unit {
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let value: Text = "owned"
+      let finished: Text = finish(consume value)
+      let observed: Text = authority_helper(consume value)
+      return
+  }
+}

@@ -1,5 +1,8 @@
 use crate::ast::{Item, Program, Section};
-use crate::diagnostic::{Diagnostic, Severity, Span};
+use crate::diagnostic::{
+    Diagnostic, DiagnosticInvariantError, DiagnosticOccurrenceSet, DiagnosticProjection,
+    PriorBlockerRef, Severity, Span,
+};
 use crate::graph::is_meaningful_line_text;
 use crate::node_id;
 use crate::resource_check;
@@ -24,6 +27,62 @@ const NON_CLAIMS: &[&str] = &[
     "no backend lowering",
     "no proof artifact",
 ];
+
+pub(crate) struct ProfileDiagnosticTransport {
+    authoritative: DiagnosticOccurrenceSet,
+    ir_projection: DiagnosticProjection,
+    graph_projection: DiagnosticProjection,
+}
+
+impl ProfileDiagnosticTransport {
+    pub(crate) fn authoritative(&self) -> &DiagnosticOccurrenceSet {
+        &self.authoritative
+    }
+
+    pub(crate) fn ir_projection(&self) -> &DiagnosticProjection {
+        &self.ir_projection
+    }
+
+    pub(crate) fn graph_projection(&self) -> &DiagnosticProjection {
+        &self.graph_projection
+    }
+
+    #[cfg(test)]
+    pub(crate) fn graph_projection_mut_for_test(&mut self) -> &mut DiagnosticProjection {
+        &mut self.graph_projection
+    }
+}
+
+fn outgoing_diagnostic_transport(
+    authoritative: DiagnosticOccurrenceSet,
+) -> Result<ProfileDiagnosticTransport, DiagnosticInvariantError> {
+    let ir_projection = DiagnosticProjection::from_upstream("ir_readiness", &authoritative)?;
+    let graph_projection = DiagnosticProjection::from_upstream("graph", &authoritative)?;
+    Ok(ProfileDiagnosticTransport {
+        authoritative,
+        ir_projection,
+        graph_projection,
+    })
+}
+
+pub(crate) fn diagnostic_transport(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> Result<ProfileDiagnosticTransport, DiagnosticInvariantError> {
+    outgoing_diagnostic_transport(diagnostic_occurrence_set(program, diagnostics))
+}
+
+pub(crate) fn diagnostic_transport_from_source(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
+) -> Result<ProfileDiagnosticTransport, DiagnosticInvariantError> {
+    outgoing_diagnostic_transport(diagnostic_occurrence_set_from_source(
+        program,
+        diagnostics,
+        source_occurrences,
+    )?)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProfileCheckSummary {
@@ -55,6 +114,8 @@ struct ProfileCheckReport {
     tasks: usize,
     source_errors: usize,
     items: Vec<ProfileItem>,
+    prior_blockers: Vec<PriorBlockerRef>,
+    diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
 struct ProfileItem {
@@ -253,13 +314,61 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ProfileCheckRe
     for file in &program.files {
         collect_items(&file.items, blocked, &mut tasks, &mut items);
     }
+    let diagnostic_occurrences = resource_check::diagnostic_occurrence_set(program, diagnostics);
+    let projection = diagnostic_projection_from_resource(&diagnostic_occurrences)
+        .expect("profile check must carry one sealed resource projection");
+    projection
+        .validate_against("profile_check", &diagnostic_occurrences)
+        .expect("profile check must validate its resource authority");
+    let prior_blockers = diagnostic_occurrences.prior_blockers();
     ProfileCheckReport {
         resource_check_summary,
         files: program.files.len(),
         tasks,
         source_errors,
         items,
+        prior_blockers,
+        diagnostic_occurrences,
     }
+}
+
+pub(crate) fn diagnostic_occurrence_set(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> DiagnosticOccurrenceSet {
+    build_report(program, diagnostics).diagnostic_occurrences
+}
+
+pub(crate) fn diagnostic_occurrence_set_from_source(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
+) -> Result<DiagnosticOccurrenceSet, crate::diagnostic::DiagnosticInvariantError> {
+    let occurrences = resource_check::diagnostic_occurrence_set_from_source(
+        program,
+        diagnostics,
+        source_occurrences,
+    )?;
+    let projection = diagnostic_projection_from_resource(&occurrences)?;
+    projection.validate_against("profile_check", &occurrences)?;
+    Ok(occurrences)
+}
+
+pub(crate) fn diagnostic_projection_from_resource(
+    occurrences: &DiagnosticOccurrenceSet,
+) -> Result<crate::diagnostic::DiagnosticProjection, crate::diagnostic::DiagnosticInvariantError> {
+    crate::diagnostic::DiagnosticProjection::from_upstream("profile_check", occurrences)
+}
+
+pub(crate) fn validate_prior_blocker_projection(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> Result<(), crate::diagnostic::DiagnosticInvariantError> {
+    let report = build_report(program, diagnostics);
+    resource_check::validate_prior_blocker_projection(program, diagnostics)?;
+    report
+        .diagnostic_occurrences
+        .validate_prior_blockers(&report.prior_blockers)
 }
 
 fn collect_items(items: &[Item], blocked: bool, tasks: &mut usize, out: &mut Vec<ProfileItem>) {

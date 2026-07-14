@@ -1,0 +1,29 @@
+module fixtures.diagnostics.session_ap_effect_ownership_precedence_fail
+
+type SourceError {
+  code: Text
+}
+
+task source(consume value: Text) -> Result UInt, SourceError {
+  fails when:
+    the source fails
+
+  does:
+    fail SourceError.origin
+}
+
+task consume_text(consume value: Text) -> Text {
+  why:
+    consume one owned value
+
+  does:
+    return value
+}
+
+task caller -> Result UInt, SourceError {
+  does:
+    let value: Text = "owned"
+    let first: Text = consume_text(consume value)
+    let observed = try source(value)
+    return observed
+}

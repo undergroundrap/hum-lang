@@ -1,0 +1,8 @@
+module fixtures.diagnostics.session_ap_parser_resolver_precedence_fail
+
+this top level line is not a Hum item
+
+task unresolved_after_parser_error -> UInt {
+  does:
+    return missing_name
+}
