@@ -100,15 +100,21 @@ skipped. Windows job `87213050031` on `windows-latest` succeeded in 13m 28s:
 Cargo caching and Rust toolchain preparation succeeded, `Run Hum preflight`
 succeeded in 12m 34s, and `Run status-only evidence` was skipped. Both
 platforms reported `mode=full` with `reason=no_status_transition`. The planning
-amendment is durably published. On 2026-07-14, the BDFL revoked and indefinitely
-deferred `PRE-AQ-INTEGRITY` implementation after its CI and assurance timebox was
-exhausted and platform safety controls blocked parts of the proposed temporary
-compiler-sabotage workflow. No implementation was committed or published.
-Session AQ is now the next compiler-development milestone, but remains
-unauthorized pending independent acceptance and durable publication of the
-substantive deferral amendment below, its required CI/status evidence, and a
-separate explicit BDFL go signal. GitHub Issue #1 mutation, repair work, and all
-later work remain unauthorized.
+amendment is durably published. The substantive `PRE-AQ-INTEGRITY` deferral
+amendment was independently accepted, committed, and published as
+`46cbe394e82492c641959e6b2c2788eb9c9d7599`. Required full CI passed in
+workflow `29376050686`, attempt 1. Ubuntu job `87229631100` on
+`ubuntu-latest` succeeded in 7m 17s: Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 6m 50s, and
+`Run status-only evidence` was skipped. Windows job `87229631108` on
+`windows-latest` succeeded in 13m 01s: Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 12m 10s, and
+`Run status-only evidence` was skipped. Both platforms reported `mode=full`
+with `reason=no_status_transition`. `PRE-AQ-INTEGRITY` remains revoked and
+indefinitely deferred. Session AQ is the next compiler-development milestone,
+but remains unauthorized pending durable publication of this exact status
+record and a separate explicit BDFL go signal. GitHub Issue #1 mutation,
+repair work, integrity implementation, and all later work remain unauthorized.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -2535,13 +2541,23 @@ workflow, and no implementation was committed or published. The published
 planning section remains unchanged historical evidence. No actor may bypass,
 evade, rephrase around, seek alternate access for, or resume that work.
 
-This substantive deferral amendment is uncommitted and awaits fresh independent
-review. Session AQ is the next compiler-development milestone but remains
-unauthorized until this exact amendment is independently accepted, committed,
-separately published, green in required Ubuntu and Windows CI, durably recorded,
-and followed by a separate explicit BDFL go signal. After AQ, Hum IR plus the
-minimal compiler-ready standard library needed for a first native vertical
-slice is the preferred direction only under a later Work Order.
+The substantive deferral amendment was independently accepted, committed, and
+published as `46cbe394e82492c641959e6b2c2788eb9c9d7599`. Required full CI passed
+in workflow `29376050686`, attempt 1. Ubuntu job `87229631100` on
+`ubuntu-latest` succeeded in 7m 17s: Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 6m 50s, and
+`Run status-only evidence` was skipped. Windows job `87229631108` on
+`windows-latest` succeeded in 13m 01s: Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 12m 10s, and
+`Run status-only evidence` was skipped. Both platforms reported `mode=full`
+with `reason=no_status_transition`.
+
+`PRE-AQ-INTEGRITY` remains revoked and indefinitely deferred. Session AQ is the
+next compiler-development milestone but remains unauthorized pending durable
+publication of this exact status record and a separate explicit BDFL go signal.
+After AQ, Hum IR plus the minimal compiler-ready standard library needed for a
+first native vertical slice is the preferred direction only under a later Work
+Order.
 
 No additional speculative CI or evidence-integrity hardening is authorized.
 The accepted status-only classifier and existing workflow remain unchanged.
