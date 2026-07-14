@@ -30,17 +30,18 @@ independently accepted and committed as
 (Ubuntu job `86984248993`, 6m 26s; Windows job `86984249019`, 9m 21s). Session
 AP closure was recorded as `aa69cf4ee3813883e3b01ef195ac81a40080898d`;
 workflow `29301747997` passed (Ubuntu job `86986758575`, 6m 25s; Windows job
-`86986758577`, 11m 21s). The BDFL has authorized only this planning pass for a
-bounded pre-AQ CI evidence-efficiency increment. The proposed increment below
-was independently rejected because status-only Git history did not prove that
-the inherited executable tree had passed full CI. The bounded correction below
-adds that missing trust anchor and remains unissued and unauthorized for
-implementation pending fresh independent pre-issuance review, BDFL acceptance,
-durable publication with green CI, and a separate BDFL implementation go
-signal. The permanent adversarial-evidence integrity amendment remains
-unchanged, separately queued, and unauthorized; it follows this CI increment
-and still precedes Session AQ. Session AQ and all later work remain
-unauthorized.
+`86986758577`, 11m 21s). The bounded pre-AQ CI evidence-efficiency increment
+was independently accepted and BDFL-accepted, committed as
+`04ea7435f5e12d0bbc82befe4384227a79d1ccd3`, and published by successful
+workflow `29305696822`, attempt 1 (Ubuntu job `86998454703`, 6m 14s, including
+5m 47s in `Run Hum preflight`; Windows job `86998454696`, 9m 34s, including
+8m 50s in `Run Hum preflight`). That publication run is evidence for the
+reviewed document only; it used the existing full workflow and is not the
+future operational fast-lane trust anchor. CI implementation remains
+unauthorized pending a separate BDFL go signal. The permanent
+adversarial-evidence integrity amendment remains unchanged, separately queued,
+and unauthorized; it follows this CI increment and still precedes Session AQ.
+Session AQ and all later work remain unauthorized.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -1770,14 +1771,15 @@ succeeded in 9m 21s. Session AP closure was recorded as
 passed for that exact commit: Ubuntu job `86986758575` succeeded in 6m 25s and
 Windows job `86986758577` succeeded in 11m 21s.
 
-The BDFL has authorized only the planning pass recorded in "Pre-AQ CI
-evidence-efficiency increment: exact status-only fast lane." The first
-independent pre-issuance review rejected the proposal because it lacked a
-successful-full-CI trust anchor. The bounded correction remains proposed,
-unissued, and unauthorized for implementation pending fresh independent
-pre-issuance review, BDFL acceptance of the exact reviewed bytes, durable
-publication with successful Ubuntu and Windows CI, and a separate BDFL
-implementation go signal.
+The planning pass recorded in "Pre-AQ CI evidence-efficiency increment: exact
+status-only fast lane" was independently accepted and BDFL-accepted, committed
+as `04ea7435f5e12d0bbc82befe4384227a79d1ccd3`, and published by successful
+workflow `29305696822`, attempt 1. Ubuntu job `86998454703` succeeded in 6m 14s,
+including 5m 47s in `Run Hum preflight`; Windows job `86998454696` succeeded in
+9m 34s, including 8m 50s in `Run Hum preflight`. This publication run is
+evidence for the reviewed document only. It used the existing full workflow
+and is not the future operational fast-lane trust anchor. CI implementation
+remains unauthorized pending a separate BDFL go signal.
 
 The permanent adversarial-evidence integrity amendment remains unchanged,
 separately queued, and unauthorized after the CI increment. Session AQ and all
