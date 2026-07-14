@@ -90,10 +90,16 @@ preparation succeeded, `Run Hum preflight` succeeded in 11m 52s, and
 `Run status-only evidence` was skipped. Both platforms reported `mode=full`
 with `reason=no_status_transition`. The amendment is durably complete. Future
 eligible routine status-only closures use the permanent `AGENTS.md` exception
-and its proportional local evidence set. The separately queued permanent
-adversarial-evidence integrity amendment remains next but unauthorized pending
-a separate BDFL go signal. Session AQ, GitHub Issue #1 mutation, repair work,
-and all later work remain unauthorized.
+and its proportional local evidence set. The BDFL has authorized planning only
+for the proposed `PRE-AQ-INTEGRITY` permanent adversarial-evidence amendment.
+The initial planning draft was independently rejected because its nine-build
+implementation plan could not honestly fit the unchanged 15-minute CI limit.
+The BDFL authorized only the bounded planning correction below: the later
+implementation may change that job timeout from 15 to 30 minutes as its sole
+workflow-byte change. The corrected planning bytes are uncommitted and await
+fresh independent pre-issuance re-review. Integrity implementation, Session
+AQ, GitHub Issue #1 mutation, repair work, and all later work remain
+unauthorized.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -469,7 +475,7 @@ AN  canonical family/code/status registry and checked documentation projections
 AO  cause/occurrence identity for typed failure and callable vertical slices
 AP  remaining static compiler emitters and exact prior-blocker propagation
 PRE-AQ-CI  exact status-only CI fast lane; separately reviewed and authorized
-PRE-AQ-INTEGRITY  permanent adversarial-evidence amendment; queued separately
+PRE-AQ-INTEGRITY  permanent adversarial-evidence amendment; separately gated
 AQ  runtime/top-level composition closure and repository-wide audit
 STOP  close Issue #1 only after separate authorization; author the next work order separately
 ```
@@ -480,8 +486,8 @@ independently accepted, committed, published, green on Ubuntu and Windows, and
 recorded in this file. Each following session requires the same cycle plus a
 separate BDFL go signal. The two pre-AQ entries do not authorize one another:
 the CI increment must complete its own review/publication/evidence cycle first,
-the integrity amendment remains separately queued and unchanged, and AQ still
-requires its own later BDFL go signal.
+the proposed integrity amendment must complete the separate gates defined in
+its section below, and AQ still requires its own later BDFL go signal.
 
 The compiler-ready stdlib remains the next adoption direction supported by the
 2026-07-12 research triage. It is intentionally not part of Work Order 9.
@@ -1517,6 +1523,500 @@ and runtime compatibility. That harness rewrite, sharding, and any broader CI
 optimization are outside this increment and receive no implementation credit
 or authorization here.
 
+## PRE-AQ-INTEGRITY: permanent adversarial-evidence integrity
+
+Planning state: proposed under the BDFL's bounded planning authorization. These
+planning bytes were independently rejected once because the unchanged
+15-minute CI limit contradicted the nine-build implementation envelope. The
+BDFL authorized only the exact timeout correction below. The corrected bytes
+are uncommitted and do not authorize implementation. The author of this section
+is disqualified from its verdict. Implementation requires a fresh independent
+pre-issuance re-review, BDFL acceptance of the exact reviewed bytes, a scoped
+documentation commit, durable publication, terminal Ubuntu and Windows CI, a
+status record, and a separate BDFL implementation go signal.
+
+Purpose: close the evidence-authenticity defect class exposed during Session AP
+before any Session AQ work. A green test, source marker, snapshot, or public
+output is evidence only for what it actually exercises. A load-bearing claim
+earns acceptance only when a real production entry point traverses the claimed
+producer, identity, transport, precedence relationship, and consumer, and a
+controlled break at that real boundary changes the observed outcome in the
+required fail-closed way.
+
+This amendment does not declare all existing tests sound, prove the absence of
+all shortcuts, or retroactively certify every prior Hum feature. Its initial
+closed claim inventory covers the accepted Session AP diagnostic-identity and
+prior-blocker spine named below and installs a reusable private evidence rule.
+Future work that wants to claim another load-bearing gate is causally exercised
+must separately authorize and add a production probe and nondegenerate sabotage
+for that gate; a passing supporting unit test alone never inherits that claim.
+
+### Planning baseline and authority boundary
+
+The preceding exact routine status closure is
+`80a0b93e81233f6a836449a04aea2f88707c9440`. Workflow `29363822737`, attempt 1,
+completed successfully for that exact commit:
+
+- Ubuntu job `87190299329` on `ubuntu-latest` succeeded in 1m 15s;
+- Windows job `87190299278` on `windows-latest` succeeded in 3m 38s;
+- both selected `mode=fast` with `reason=eligible_status_chain`;
+- both used full-CI anchor
+  `65ad0d5f5db2bcd90fdbb8a8afc1208f3d46b659`, workflow `29357247935`,
+  attempt 1, Ubuntu anchor job `87167872491`, and Windows anchor job
+  `87167872510`;
+- both proved the exact transition
+  `65ad0d5f5db2bcd90fdbb8a8afc1208f3d46b659` ->
+  `80a0b93e81233f6a836449a04aea2f88707c9440`; and
+- both succeeded in `Run status-only evidence` while Cargo caching, Rust
+  toolchain preparation, and `Run Hum preflight` were skipped.
+
+Those facts close only the preceding status record. They neither prove this
+integrity design nor authorize its implementation. GitHub Issue #1 remains
+open and non-authoritative. Session AP remains accepted exactly as published;
+the amendment adds evidence gates without changing its semantics or public
+outputs.
+
+### Concrete threat model
+
+The integrity harness assumes an implementation or test can be accidentally or
+opportunistically shaped to satisfy its own grader. It must detect at least:
+
+- a fabricated or hand-asserted occurrence, cause, route, relationship,
+  expected result, or authoritative set that never came from the real
+  producer;
+- circular validation in which actual and expected projections are produced by
+  the same call, object, collection, or reconstruction path;
+- self-proving transport in which a downstream stage validates facts derived
+  from its own output instead of separately retained upstream authority;
+- identity reconstructed or selected from public code, reason, message, help,
+  rendering, display name, filename, line, column, span, or source-text scan;
+- a Cartesian-product, same-region, same-code, or compatible-span precedence
+  relationship that was not produced for the exact shared semantic occurrence;
+- stale evidence from another source revision, fixture revision, binary,
+  command, platform, run, or expected-output inventory;
+- synthetic-only success through a mock, test constructor, injected provider,
+  `cfg(test)` path, fake carrier, or copied answer object that production cannot
+  traverse;
+- substitution of a valid fact from another owner, target, call, stage, node,
+  route, relationship, occurrence, or platform;
+- missing, ambiguous, conflicting, reordered, duplicated, or injected evidence
+  that a permissive collector silently accepts;
+- a source audit, symbol-name check, snapshot, output hash, or public rendering
+  that stays green after the real semantic path is broken;
+- a mutation that fails to compile, crashes for an unrelated reason, skips the
+  probe, edits its expected answer, or edits the test instead of breaking the
+  claimed production boundary; and
+- nondeterministic, shared-state, cache-derived, platform-specific, or
+  order-dependent evidence presented as repeatable production behavior.
+
+The threat model is bounded. It is not a proof against a malicious operating
+system, compiler toolchain, Git implementation, or reviewer. It does require
+the repository harness to reject every known evaluator-visible shortcut in its
+declared evidence unit and requires a fresh human-directed independent review
+before that unit can authorize later work.
+
+### Production evidence versus supporting evidence
+
+Evidence is classified internally as exactly one of:
+
+1. **Production-path evidence.** A fresh process invokes the checked-in Hum
+   executable through an existing public CLI command and checked-in fixture.
+   It traverses the ordinary parser, resolver/analyzer, diagnostic transport,
+   precedence, Core/graph/IR or runtime consumer used outside tests. No mock,
+   direct Rust function call, test constructor, injected provider, hidden flag,
+   synthetic occurrence, or alternate expected-answer carrier participates.
+2. **Supporting evidence.** Unit tests, property tests, pure validator tests,
+   synthetic objects, source audits, symbol inventories, snapshots, public
+   output comparisons, hashes, and fixture-text assertions. These may explain,
+   localize, or protect a production claim, but none can create or replace one.
+
+Every load-bearing claim in the private inventory requires both a production
+probe and at least one compiling production-source sabotage whose detection is
+observable through that probe. A source audit may prove that a forbidden name
+is absent; it cannot prove what code executed. A snapshot or hash may prove byte
+stability; it cannot prove semantic causality. Expected output is frozen before
+the sabotaged run and is never reconstructed from that run. Public human/JSON
+rendering remains compatibility evidence, not internal occurrence authority.
+
+Supporting tests may use synthetic inputs only to test the private manifest,
+raw-byte runner, patch validation, and failure handling. The production runner
+has no provider parameter, environment override, alternate manifest path,
+caller-supplied binary, caller-supplied source root, expected-answer input, or
+success switch. Production Rust gains no feature, `cfg`, environment variable,
+hidden command, or test hook for this amendment. A synthetic seam that becomes
+reachable by the production entry point is a hard failure, not a convenience.
+
+### Exact later implementation envelope
+
+The later implementation may change exactly five checked-in paths:
+
+- `.github/workflows/ci.yml`: change only the existing `preflight` job scalar
+  `timeout-minutes: 15` to `timeout-minutes: 30`; every other workflow byte
+  remains unchanged;
+
+- new `tools/adversarial_evidence_integrity.psd1`: one private, code-free,
+  closed data inventory for exact claim IDs, command vectors, input
+  fingerprints, accepted raw-channel fingerprints, semantic assertions, and
+  compiling sabotage specifications;
+- new `tools/check_adversarial_evidence_integrity.ps1`: the dependency-free,
+  parameterless production runner that resolves the repository, Git, Cargo,
+  accepted source commit, manifest, executable, and fixtures itself; captures
+  raw channels; creates isolated local clones; applies exact sabotages; builds
+  them offline; runs the real probes; and removes all temporary artifacts;
+- new `tools/test_adversarial_evidence_integrity.ps1`: supporting synthetic
+  corruption tests for the closed manifest, fingerprinting, raw process
+  capture, exact patch application, fail-closed result handling, and the
+  production/synthetic seam boundary; and
+- `tools/check_all.ps1`: one invocation of the supporting validator followed,
+  after the ordinary Hum build and Session AP matrix, by one invocation of the
+  production runner.
+
+The timeout scalar is the sole authorized workflow change. Workflow and
+required job names, the Ubuntu/Windows matrix, permissions, concurrency and
+`cancel-in-progress: true`, checkout and cache behavior, classifier invocation
+and default-full handling, full/fast lane conditions, every existing step and
+its order, status-only trust-anchor lookup, complete full-preflight contents,
+and required-check continuity remain byte-unchanged. No command, environment
+override, or runtime parameter may extend the timeout.
+
+The independently verified Windows full job `87167872510` in workflow
+`29357247935`, attempt 1, used 12m 43s of the existing 15-minute limit, including
+11m 52s in `Run Hum preflight`. Its log recorded one cached `cargo build` taking
+27.45s. Nine such builds alone require approximately 4m 07s before local clone,
+production-probe, supporting-suite, evidence-processing, and cleanup overhead,
+while the old ceiling leaves only 2m 17s of total job headroom. The observed
+evidence therefore contradicts the former implementation envelope. Thirty
+minutes is a bounded execution ceiling, not a performance or capacity claim and
+not permission to add work.
+
+The implementation changes workflow and tool paths and therefore must select
+the existing full lane on both platforms. If either job cannot complete within
+30 minutes, or these five paths cannot provide the required evidence, stop and
+request a fresh reviewed amendment; do not weaken, shard, skip, parallelize
+across jobs, or move the proof implicitly.
+
+The implementation may create only temporary, ignored local clones and build
+directories beneath the operating system's temporary directory while running.
+They are not checked-in scope. Each clone is made locally from the exact
+accepted commit with `git clone --no-hardlinks --no-checkout`, is detached at
+that exact commit, has no alternates/promisor dependency, receives one exact
+manifest-owned source mutation, builds with `cargo build --locked --offline`,
+and is deleted in success and failure paths. It may mutate only temporary
+copies of these accepted AP production paths:
+
+- `src/resolve.rs` for producer-owned call occurrence construction;
+- `src/ownership_check.rs` for exact resolver-call identity binding;
+- `src/profile_check.rs` for prior-blocker transport;
+- `src/effect_check.rs` for exact H0907-over-H0801 precedence consumption;
+- `src/core_verify.rs` for independent upstream Core projection validation;
+  and
+- `src/graph.rs` for the final graph consumer's independent projection check.
+
+No checked-in Rust source is changed by the implementation. A needed mutation
+outside that temporary allowlist, a noncompiling mutation, or a mutation that
+can pass only by changing tests, fixtures, snapshots, expected evidence, or
+production code is scope pressure and stops the session.
+
+### Closed private inventory and identity rules
+
+`adversarial_evidence_integrity.psd1` is internal tool data, not a Hum schema,
+report, command, or extension point. `Import-PowerShellDataFile` loads it as
+data; no script block, expression, command, provider, environment lookup, or
+executable path is permitted in it. The root and every nested record have an
+exact key set. IDs use a closed ASCII grammar, are unique, and are sorted by
+their declared stable ordinal. Duplicate complete records are still errors.
+
+Each production claim freezes:
+
+- one stable claim ID and one of the closed boundary kinds `producer`,
+  `identity`, `transport`, `precedence`, or `consumer`;
+- the exact logical executable `hum`, ordered argument vector, repository
+  working directory, and empty environment-delta set;
+- every checked-in input path and SHA-256 of its raw bytes;
+- expected exit code, stdout SHA-256, stderr SHA-256, exact required and
+  forbidden public facts, and whether JSON parsing is required;
+- the exact accepted producer/owner/stage/relationship route the claim means;
+- at least one sabotage ID that breaks that boundary; and
+- the exact fail-closed detection class expected from the compiling mutated
+  production binary.
+
+Each sabotage freezes a unique ID, boundary kind, one allowlisted source path,
+the full accepted source-file SHA-256, one exact old raw UTF-8 byte sequence and
+its SHA-256, one exact replacement raw UTF-8 byte sequence and its SHA-256, the
+requirement that the old sequence occur exactly once, the resulting full-file
+SHA-256, affected claim IDs, and the one expected detection class. Patch text is
+stored as base64 data so newline and escaping behavior cannot reinterpret it.
+The replacement must differ, remain strict UTF-8 without BOM, compile
+successfully, and break the real boundary rather than a test or assertion.
+
+An unknown key, enum, path, command, argument, environment delta, algorithm,
+hash form, claim, mutation, detection class, or relationship fails before any
+probe. Missing, duplicate, extra, reordered, cross-linked, or orphaned records
+fail. Absolute paths, `..`, symlinks/reparse points, submodules, paths outside
+the repository, and mutation targets outside the six-path temporary allowlist
+fail. The inventory cannot bless its own changed hash or compute expected
+channels from the candidate run.
+
+### Exact production probe set
+
+The logical executable is resolved only as
+`<repo>/target/debug/hum.exe` on Windows and
+`<repo>/target/debug/hum` elsewhere after the ordinary root `cargo build`.
+The production runner invokes it directly with `UseShellExecute = false`, no
+shell command string, the repository as working directory, and exactly these
+ordered argument vectors:
+
+1. `resolve --format json fixtures/diagnostics/session_ap_parser_resolver_precedence_fail.hum`;
+2. `type-check --format json fixtures/diagnostics/session_ap_same_line_independent_causes_fail.hum`;
+3. `profile-check --format json fixtures/diagnostics/session_ap_authority_ownership_precedence_fail.hum`;
+4. `effect-check --format json fixtures/diagnostics/session_ap_effect_ownership_precedence_fail.hum`;
+5. `profile-check --format json fixtures/diagnostics/session_ap_ownership_resource_profile_chain_fail.hum`;
+6. `core-verify --format json fixtures/diagnostics/session_ap_effect_ownership_precedence_fail.hum`;
+7. `graph fixtures/diagnostics/session_ap_effect_ownership_precedence_fail.hum`;
+8. `ir-readiness --format json fixtures/diagnostics/session_ap_effect_ownership_precedence_fail.hum`;
+9. `run fixtures/diagnostics/session_ap_effect_ownership_precedence_fail.hum --entry caller`; and
+10. `run fixtures/diagnostics/session_ap_ownership_resource_profile_chain_fail.hum --entry caller`.
+
+The manifest pins the already accepted exact raw channels and exit for each
+command before sabotage. It also pins the semantic observations already owned
+by Session AP: parser/resolver coexistence; two distinct same-line H0605 facts;
+H0618 over only its exact H0801 competitor; H0907 over only its exact H0801
+competitor; unchanged H0801 transport through profile; successful Core, graph,
+and IR projection validation without private-field leakage; runtime exit 2,
+zero stdout, the exact owning diagnostic on stderr, and no generic trap. The
+runner does not infer those expectations from current output, test names,
+source text, or the mutated binary.
+
+Every baseline command runs twice in two fresh processes. Every sabotage runs
+in a separately created clone and fresh process after a successful offline
+build. Process reuse, output reuse, inherited test-only environment, a prior
+result cache, or accepting one run for two claims is forbidden. A build failure
+or unrelated crash earns no sabotage credit. The mutated probe must reach the
+named production boundary and produce its exact registered fail-closed
+detection; merely producing different bytes is insufficient.
+
+### Fingerprints and reproducible byte evidence
+
+Every fingerprint uses NIST SHA-256 over the stated byte sequence and is
+rendered as exactly 64 lowercase hexadecimal characters. Git object IDs are
+identities, not substitutes for these fingerprints. No newline normalization,
+JSON reserialization, path normalization, text decoding, or shell capture may
+occur before hashing.
+
+The exact byte producers are:
+
+- checked-in input, manifest, script, source preimage, source postimage, and
+  temporary patched-file fingerprints: the bytes returned by
+  `[System.IO.File]::ReadAllBytes(<resolved exact path>)`;
+- stdout and stderr fingerprints: the separate bytes copied directly from
+  `System.Diagnostics.Process.StandardOutput.BaseStream` and
+  `StandardError.BaseStream` for the exact executable and ordered arguments
+  above, with `UseShellExecute = false`; exit status is recorded separately as
+  a signed decimal integer;
+- command-identity fingerprints: UTF-8 without BOM for the logical executable
+  name followed by one `0x00`, then each ordered argument followed by one
+  `0x00`; and
+- the tracked implementation-diff fingerprint reported at handoff: raw stdout
+  bytes, captured through the same process base-stream runner, from the exact
+  argument vector
+  `git -c safe.directory=<resolved-repo> diff --binary --no-ext-diff -- .github/workflows/ci.yml tools/check_all.ps1`.
+
+The three new untracked implementation files are fingerprinted individually by
+raw file bytes; concatenating filenames, text output, or PowerShell pipeline
+strings is forbidden. The handoff reports every fingerprint with its algorithm
+and exact producer. The production runner emits one canonical LF-terminated,
+UTF-8-without-BOM private log line per baseline run and sabotage containing the
+claim/mutation ID, command-identity hash, input/source hashes, stdout/stderr
+hashes, exit, and detection class in manifest ordinal order. This log is CI
+evidence only, not a public report or stable Hum schema.
+
+Two fresh complete runner invocations on one platform must produce byte-
+identical canonical evidence after excluding only the absolute temporary-root
+display field, which is never part of an identity or hash. The implementation
+reviewer independently reproduces the hashes from raw bytes rather than copying
+the implementer's report. Ubuntu and Windows must execute the identical claim
+and mutation inventory. The same platform-neutral command, fixture, channel,
+semantic, and detection fingerprints are required on both; a difference may
+not be normalized or explained away inside the implementation. If the accepted
+base genuinely differs, stop for a reviewed amendment.
+
+### Permanent sabotage and adversarial matrix
+
+The permanent matrix must prove every row independently; one mutation may not
+stand in for another category:
+
+| Boundary | Required compiling production sabotage | Required observation |
+| --- | --- | --- |
+| producer | break resolver construction from the parser-owned call node while leaving display data and source-audit markers intact | the exact resolve/downstream production probe fails closed; a hand-built occurrence cannot rescue it |
+| identity | bind an H080 use to a valid sibling call or target while preserving code, line, span, and public-looking bytes | zero precedence for the substituted occurrence and the registered invariant/detection result, never heuristic selection |
+| transport | drop, duplicate, reorder, and valid-cross-occurrence-substitute the carried blocker before profile consumption | each independent mutation is rejected; current output or a rebuilt expected set cannot become authority |
+| precedence | weaken H0907-over-H0801 consumption to matching codes/region or the wrong shared call | the unrelated competitor survives or the relationship is rejected exactly; no Cartesian product is accepted |
+| Core consumer | validate a Core projection against itself or omit one upstream occurrence | `core-verify` rejects the independent-authority corruption before public projection |
+| graph consumer | validate graph facts against graph-derived authority or substitute a valid foreign occurrence | `graph` rejects before serialization even when public JSON would otherwise look unchanged |
+
+The minimum is nine separately built sabotages: one producer, one identity,
+four independent transport mutations (missing, duplicate, reordered, and valid
+cross-occurrence substitution), one precedence, one Core consumer, and one
+graph consumer. A combined patch, one compiled binary reused for multiple
+rows, or one observed failure credited to several mutations does not count.
+
+In addition, the supporting corruption suite must independently reject:
+
+- missing, duplicate, extra, reordered, renamed, invalid-kind, and orphaned
+  claim or sabotage records;
+- every missing, extra, duplicated, malformed, or substituted field and every
+  unknown nested key in the private inventory;
+- wrong command order, executable, fixture, input hash, source hash, old/new
+  patch hash, detection class, expected exit, stdout hash, or stderr hash;
+- an old patch sequence occurring zero times or more than once, a postimage
+  hash mismatch, no-op patch, BOM, invalid UTF-8, path escape, symlink/reparse
+  target, submodule, or non-allowlisted source path;
+- a fabricated expected object, actual-as-expected alias, same collection on
+  both sides, copied public diagnostic, caller-supplied success, and synthetic
+  provider offered to the production entry point;
+- source audit and snapshot remaining green while each real production
+  sabotage is active;
+- editing a unit test, fixture expectation, snapshot, manifest copy, or
+  temporary expected output instead of the named production boundary;
+- stale evidence from another HEAD, source file, fixture, command, binary,
+  platform, run ordinal, or earlier temporary clone;
+- missing, conflicting, nondeterministic, reordered, duplicated, injected, or
+  platform-disagreeing evidence lines;
+- a noncompiling mutation, skipped probe, generic unrelated crash, zero-command
+  run, reused process, reused temp directory, leaked temp artifact, or networked
+  Cargo build; and
+- removal of any one of the nine required production sabotages, ten baseline
+  commands, two fresh runs, raw-channel hashes, or Windows/Ubuntu requirements.
+
+The test script owns its synthetic objects and may call pure closed validators,
+but it cannot satisfy a production row. The production runner must explicitly
+reject a synthetic-provider parameter or environment variable if one is
+introduced by mutation. A source audit ensures the seam stays absent, but the
+production-entry sabotage is the causal evidence.
+
+### Checks, configuration, and reviewer reproduction
+
+The focused implementation commands are exactly:
+
+```powershell
+pwsh -NoLogo -NoProfile -File .\tools\test_adversarial_evidence_integrity.ps1
+pwsh -NoLogo -NoProfile -File .\tools\check_adversarial_evidence_integrity.ps1
+```
+
+Then the implementer and independent reviewer run:
+
+```powershell
+cargo fmt --check
+cargo test
+cargo clippy --all-targets -- -D warnings
+git diff --check
+.\tools\check_all.ps1
+```
+
+`check_all.ps1` must invoke the focused supporting suite and production runner
+exactly once each; recursively invoking full preflight, silently skipping a
+mutation, or treating a source audit as the production result is forbidden.
+The existing Windows-locality and effect-bakeoff checks, text/public/release
+readiness, and status-boundary tests remain green and unchanged.
+
+The implementer reports the exact five-path envelope; the workflow diff proving
+that only the timeout scalar changed; the two-tracked-path diff fingerprint and
+three new-file raw hashes; manifest, source, fixture, command, channel, and
+evidence-log hashes; ten baseline outcomes; nine compiling sabotages; cleanup;
+and all locally exercised configurations. It reports total job duration,
+complete-preflight duration, supporting-suite duration, production-runner
+duration, timeout headroom, and baseline, build, probe, and cleanup timing where
+the runner emits them for each platform. These are observations for the exact
+run, not generalized speed or capacity claims. Only the installed host is
+required before review; an unavailable non-host configuration is disclosed,
+not invented or downloaded.
+
+The fresh independent reviewer must not have authored or edited the planning
+or implementation bytes. It cold-starts from the accepted implementation base,
+recomputes every fingerprint, executes both focused scripts twice, inspects the
+temporary clone/build isolation, and creates at least two additional temporary
+nondegenerate sabotages: one at a producer/identity boundary and one at a
+transport/precedence/consumer boundary. They must exercise real production
+commands and are removed afterward. Repeating a manifest mutation or trusting
+the implementer's canonical log is insufficient.
+
+After a separately authorized implementation push, the implementation commit
+must select `mode=full` on both unchanged required jobs. `Run Hum preflight`
+must succeed, `Run status-only evidence` must be skipped, and the two platform
+logs must contain the same complete claim/mutation inventory and matching
+platform-neutral evidence hashes. The implementation review must prove that the
+workflow diff is exactly `timeout-minutes: 15` to `timeout-minutes: 30`, with no
+other workflow byte changed, and both jobs must finish terminally without
+cancellation or timeout. Missing evidence, timeout, fast selection, platform
+disagreement, or one green platform is failure. No command may extend the job
+timeout, and no other workflow behavior may change under this scope.
+
+### Required gated sequence
+
+The only valid sequence is:
+
+1. this planning author leaves only `WORKORDER.md` modified and uncommitted;
+2. one fresh independent architect-reviewer reviews the complete planning diff;
+3. the BDFL accepts the exact reviewed bytes and separately authorizes a
+   `WORKORDER.md`-only commit;
+4. the BDFL separately authorizes its push; Ubuntu and Windows terminate green;
+5. an exact routine status-only record may use the permanent `AGENTS.md`
+   exception only if it satisfies every eligibility condition and its fast
+   evidence terminates green on both platforms;
+6. the BDFL issues a separate implementation go signal for the exact five-path
+   envelope;
+7. the implementer leaves the complete implementation uncommitted for one
+   fresh independent full review;
+8. after ACCEPT, the BDFL separately authorizes the exact scoped commit and
+   later the push; the implementation commit runs full CI on both platforms;
+9. a final exact status record captures commit, workflow, jobs, full-lane
+   selection, complete evidence hashes, platform agreement, and durations; and
+10. only after that status record is durably published and terminally green may
+    the BDFL consider a separate Session AQ go signal.
+
+An ACCEPT WITH REQUIRED FIX or REJECT returns only to the appropriate author or
+implementer. The reviewer never edits the deliverable. Commit authority does
+not imply push authority; publication does not imply later-session authority.
+Any substantive change after a verdict requires a fresh complete review.
+
+### Compatibility, exclusions, and hard stop
+
+This amendment adds no public Hum command, schema identifier, JSON field,
+report, diagnostic, compiler stage, language behavior, runtime behavior,
+decision ruling, dependency, generated-document system, GitHub setting, branch
+protection change, Actions permission, or unrelated CI optimization. Existing
+human/JSON/runtime bytes, codes, messages, help, spans, counts, ordering, exit
+behavior, adapter behavior, Session AP semantics, decisions 0014-0018, and the
+three error channels remain unchanged.
+
+The private manifest and canonical CI log are internal test inputs/evidence,
+not public product surfaces. The runner may not call the network. `cargo
+--offline` and local Git clones are mandatory. It may not alter the main
+worktree, index, Git config, `.git` metadata, Cargo lockfiles, fixtures,
+snapshots, tests, any workflow byte beyond the exact timeout scalar, cache
+policy, or expected production outputs.
+
+The accepted status-boundary classifier and fast-lane contract remain the sole
+CI evidence-selection authority. Exact routine status-only commits may inherit
+the last proven full-CI anchor because every executable and integrity-tool byte
+is unchanged; they do not rerun the sabotage matrix. Any integrity-tool,
+manifest, source, fixture, workflow, or requirement change selects full CI.
+
+Stop if the five-path implementation cannot produce compiling causal sabotage,
+cannot finish within 30 minutes on either platform, requires a production seam,
+requires platform-specific expected answers, or discovers a genuine semantic
+or public-output defect. Also stop if success would require sharding, parallel-
+job expansion, skipped evidence, changed lane logic, changed job contents, or
+any workflow byte beyond the exact timeout scalar. Record the pressure and
+request a separately reviewed scope or decision gate without repair or scope
+expansion. Do not repair Session AP semantics under an evidence amendment.
+
+Stop after the final accepted status record. Session AQ remains unauthorized
+until this complete plan/review/commit/publication/implementation/review/full-
+CI/status sequence is durably complete and the BDFL gives a separate go signal.
+GitHub Issue #1 remains untouched. No dashboard, broader retrospective test
+audit, later private batching, or other optimization is included.
+
 ## Session AQ: runtime and top-level composition closure
 
 Purpose: remove the final independent reconstruction paths, make the collector
@@ -1914,11 +2414,27 @@ with `reason=no_status_transition`. The amendment is durably complete. Future
 eligible routine status-only closures use the permanent `AGENTS.md` exception
 and its proportional local evidence set.
 
-The separately queued permanent adversarial-evidence integrity amendment
-remains next but unauthorized pending a separate BDFL go signal. Session AQ,
-GitHub Issue #1 mutation, repair work, and all later work remain unauthorized.
-No CI implementation, integrity amendment, emitter migration, precedence
-change, diagnostic allocation, decision ruling, commit, push, or scope
-expansion is implicitly authorized.
+The BDFL authorized only the planning pass for the proposed
+`PRE-AQ-INTEGRITY` permanent adversarial-evidence amendment. The proposed bytes
+were independently rejected once because the nine-build plan could not fit the
+unchanged 15-minute job limit. The BDFL authorized only the bounded correction
+that permits the later implementation to change `timeout-minutes: 15` to
+`timeout-minutes: 30` as the sole workflow-byte change. The corrected planning
+bytes are uncommitted and await fresh independent pre-issuance re-review. The
+preceding routine status closure remains
+`80a0b93e81233f6a836449a04aea2f88707c9440`;
+workflow `29363822737`, attempt 1, passed with Ubuntu job `87190299329` in
+1m 15s and Windows job `87190299278` in 3m 38s. Both used `mode=fast`,
+`reason=eligible_status_chain`, and full-CI anchor
+`65ad0d5f5db2bcd90fdbb8a8afc1208f3d46b659`, and both skipped Cargo,
+toolchain, and full-preflight work while succeeding in status-only evidence.
+
+Integrity implementation remains unauthorized pending independent acceptance,
+BDFL acceptance, scoped commit and publication, a durable status record, and a
+separate BDFL implementation go signal. Session AQ, GitHub Issue #1 mutation,
+repair work, dashboard work, and all later work remain unauthorized. No
+integrity mechanism, emitter migration, precedence change, diagnostic
+allocation, decision ruling, commit, push, or scope expansion is implicitly
+authorized.
 
 <!-- workorder-current-authorization-gate:end -->
