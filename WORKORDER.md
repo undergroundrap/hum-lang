@@ -100,9 +100,15 @@ skipped. Windows job `87213050031` on `windows-latest` succeeded in 13m 28s:
 Cargo caching and Rust toolchain preparation succeeded, `Run Hum preflight`
 succeeded in 12m 34s, and `Run status-only evidence` was skipped. Both
 platforms reported `mode=full` with `reason=no_status_transition`. The planning
-amendment is durably published. `PRE-AQ-INTEGRITY` implementation is next but
-remains unauthorized pending a separate BDFL go signal. Session AQ, GitHub
-Issue #1 mutation, repair work, and all later work remain unauthorized.
+amendment is durably published. On 2026-07-14, the BDFL revoked and indefinitely
+deferred `PRE-AQ-INTEGRITY` implementation after its CI and assurance timebox was
+exhausted and platform safety controls blocked parts of the proposed temporary
+compiler-sabotage workflow. No implementation was committed or published.
+Session AQ is now the next compiler-development milestone, but remains
+unauthorized pending independent acceptance and durable publication of the
+substantive deferral amendment below, its required CI/status evidence, and a
+separate explicit BDFL go signal. GitHub Issue #1 mutation, repair work, and all
+later work remain unauthorized.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -478,7 +484,7 @@ AN  canonical family/code/status registry and checked documentation projections
 AO  cause/occurrence identity for typed failure and callable vertical slices
 AP  remaining static compiler emitters and exact prior-blocker propagation
 PRE-AQ-CI  exact status-only CI fast lane; separately reviewed and authorized
-PRE-AQ-INTEGRITY  permanent adversarial-evidence amendment; separately gated
+PRE-AQ-INTEGRITY  historical plan; implementation revoked and deferred indefinitely
 AQ  runtime/top-level composition closure and repository-wide audit
 STOP  close Issue #1 only after separate authorization; author the next work order separately
 ```
@@ -488,9 +494,10 @@ stdlib, IO, ownership, effect, or adoption work may begin before AN is
 independently accepted, committed, published, green on Ubuntu and Windows, and
 recorded in this file. Each following session requires the same cycle plus a
 separate BDFL go signal. The two pre-AQ entries do not authorize one another:
-the CI increment must complete its own review/publication/evidence cycle first,
-the proposed integrity amendment must complete the separate gates defined in
-its section below, and AQ still requires its own later BDFL go signal.
+the CI increment is complete and unchanged, the integrity plan is preserved as
+history but is no longer on the critical path, and AQ requires the substantive
+deferral amendment's review/publication/CI/status cycle plus its own later BDFL
+go signal.
 
 The compiler-ready stdlib remains the next adoption direction supported by the
 2026-07-12 research triage. It is intentionally not part of Work Order 9.
@@ -1442,10 +1449,11 @@ itself a governance/process change, is not status-only eligible, and requires
 one fresh independent review plus full CI. Faster CI does not merge the
 remaining governance gates.
 
-The separately queued permanent adversarial-evidence integrity amendment is
-neither rewritten nor partially implemented here. It remains the next distinct
-planning/review boundary after this increment closes and before Session AQ can
-be authorized.
+The permanent adversarial-evidence integrity amendment was neither rewritten
+nor partially implemented by this increment. That sentence records the
+increment's original boundary. The dated BDFL revocation/deferral amendment
+below supersedes only its later prerequisite status: the accepted classifier,
+fast lane, workflow, and completed CI evidence remain unchanged.
 
 ### Independent pre-issuance review gate
 
@@ -1510,10 +1518,11 @@ After independent acceptance and a separately authorized commit/push:
   unproven/canceled/failed anchor, or inability to prove the complete trust
   envelope stops the increment for correction.
 
-Stop after recording the accepted fast-lane evidence. Do not begin the queued
-integrity amendment, authorize Session AQ, mutate Issue #1, or combine another
-CI optimization. Session AQ remains unauthorized pending the separate
-integrity-amendment boundary and its own BDFL go signal.
+The CI increment stopped after recording the accepted fast-lane evidence, as
+required at the time. The dated BDFL amendment below supersedes only the later
+integrity prerequisite. It does not reopen or change the classifier, workflow,
+trust anchor, evidence, or CI optimization. Session AQ remains unauthorized
+pending the deferral amendment's complete gates and its own BDFL go signal.
 
 ### Later private batching advisory (not authorized)
 
@@ -1525,6 +1534,96 @@ small end-to-end executable matrix for stdout, stderr, exit status, human/JSON,
 and runtime compatibility. That harness rewrite, sharding, and any broader CI
 optimization are outside this increment and receive no implementation credit
 or authorization here.
+
+## BDFL revocation and indefinite deferral of PRE-AQ-INTEGRITY (2026-07-14)
+
+This is a substantive BDFL authorization ruling, not a routine status-only
+closure. The BDFL revokes the `PRE-AQ-INTEGRITY` implementation path and defers
+it indefinitely. Its CI and assurance timebox is exhausted. Platform safety
+controls blocked parts of the proposed temporary compiler-sabotage workflow.
+No `PRE-AQ-INTEGRITY` implementation was committed or published.
+
+The stop is absolute for the revoked plan. No actor may bypass, evade, rephrase
+around, seek alternate access for, or resume the blocked work. In particular,
+no integrity probe, production-source mutation build, disposable sabotage
+clone, download, permission expansion, workflow-timeout change, alternate
+runner, or equivalent substitute is authorized by this amendment.
+
+The complete published `PRE-AQ-INTEGRITY` planning section below remains an
+unaltered historical record of what was proposed, reviewed, and published. Its
+technical procedures are not validated, expanded, executed, or converted into
+current instructions here. Publication of that plan remains historical
+evidence only; it creates no implementation authority.
+
+### Exact prerequisite clauses superseded
+
+For authorization sequencing only, this dated amendment supersedes every
+earlier clause that placed `PRE-AQ-INTEGRITY` between the completed CI increment
+and Session AQ:
+
+- the header status statement that made `PRE-AQ-INTEGRITY` implementation next;
+- the mandatory-sequence row that described it as a separately gated step and
+  the following paragraph requiring its gates before AQ;
+- the pre-AQ CI compatibility/boundary statement that made the integrity
+  amendment the next boundary before AQ;
+- the pre-AQ CI acceptance hard stop that left AQ pending the integrity
+  boundary;
+- the historical integrity section's planning-state and purpose language that
+  placed its implementation before any AQ work;
+- the historical integrity section's ten-step gated sequence, especially its
+  implementation, full-CI, status-record, and AQ-prerequisite steps;
+- the historical integrity section's compatibility/hard-stop language that
+  required its complete lifecycle before an AQ go signal; and
+- the previous Current authorization gate that named integrity implementation
+  as next and left AQ behind it.
+
+Those clauses remain visible in their original historical context below. They
+no longer impose an operative prerequisite, grant authority, or invite a
+replacement implementation. No other Work Order 9 mandate, Session AQ
+implementation contract, acceptance criterion, diagnostic rule, decision, or
+historical evidence is superseded.
+
+### Durable sequence after deferral
+
+The active sequence is now exactly:
+
+1. the pre-AQ CI evidence-efficiency work remains complete and unchanged;
+2. `PRE-AQ-INTEGRITY` remains indefinitely deferred and off the critical path;
+3. this substantive amendment receives one fresh independent review, an exact
+   scoped commit, separately authorized publication, terminal required Ubuntu
+   and Windows CI, and a durable status record;
+4. only after that record is published may the BDFL issue a separate explicit
+   go signal for Session AQ;
+5. Session AQ remains the next compiler-development milestone and retains its
+   exact issued scope, evidence, bans, acceptance criteria, and hard stop; and
+6. after AQ, the preferred direction is Hum IR plus the minimal compiler-ready
+   standard library needed for a first native vertical slice, subject to a
+   later independently reviewed Work Order and separate BDFL authority.
+
+This sequence does not authorize Session AQ during the amendment and does not
+authorize Hum IR, standard-library, native-backend, adoption, dashboard,
+repair, or later-session implementation.
+
+### Future integrity boundary and exclusions
+
+No additional speculative CI or evidence-integrity hardening is authorized.
+Future integrity work requires both a concrete production defect that blocks
+compiler development and a separate bounded BDFL authorization that is
+independently reviewed before implementation. A generalized concern, research
+recommendation, green-test anxiety, or desire for stronger assurance is not by
+itself sufficient authority to reopen this work.
+
+The accepted status-only classifier, existing workflow, job names, permissions,
+timeouts, trust-anchor algorithm, and full/fast evidence contract remain
+unchanged. This amendment changes no workflow, classifier, timeout, tool,
+script, source, fixture, test, decision, `AGENTS.md`, governance rule, or GitHub
+Issue #1 content. It authorizes no downloads, disposable clones, alternate-
+access attempts, mutation builds, compiler sabotage, or GitHub mutation.
+
+Stop after this amendment is left uncommitted for fresh independent review.
+Acceptance authorizes only the later scoped documentation commit. Commit,
+push, status recording, Session AQ, and every later implementation remain
+separately gated.
 
 ## PRE-AQ-INTEGRITY: permanent adversarial-evidence integrity
 
@@ -2429,10 +2528,28 @@ preparation succeeded, `Run Hum preflight` succeeded in 12m 34s, and
 with `reason=no_status_transition`. The planning amendment is durably
 published.
 
-`PRE-AQ-INTEGRITY` implementation is next but remains unauthorized pending a
-separate BDFL go signal. Session AQ, GitHub Issue #1 mutation, repair work,
-dashboard work, and all later work remain unauthorized. No integrity mechanism,
-emitter migration, precedence change, diagnostic allocation, decision ruling,
-commit, push, or scope expansion is implicitly authorized.
+On 2026-07-14, the BDFL revoked the `PRE-AQ-INTEGRITY` implementation path and
+deferred it indefinitely. Its CI and assurance timebox is exhausted, platform
+safety controls blocked parts of the proposed temporary compiler-sabotage
+workflow, and no implementation was committed or published. The published
+planning section remains unchanged historical evidence. No actor may bypass,
+evade, rephrase around, seek alternate access for, or resume that work.
+
+This substantive deferral amendment is uncommitted and awaits fresh independent
+review. Session AQ is the next compiler-development milestone but remains
+unauthorized until this exact amendment is independently accepted, committed,
+separately published, green in required Ubuntu and Windows CI, durably recorded,
+and followed by a separate explicit BDFL go signal. After AQ, Hum IR plus the
+minimal compiler-ready standard library needed for a first native vertical
+slice is the preferred direction only under a later Work Order.
+
+No additional speculative CI or evidence-integrity hardening is authorized.
+The accepted status-only classifier and existing workflow remain unchanged.
+Session AQ implementation, workflow/classifier/timeout/tool/script/source/
+fixture/test changes, decisions, `AGENTS.md`, governance, GitHub Issue #1,
+integrity probes, mutation builds, disposable clones, downloads, alternate-
+access attempts, Hum IR, standard-library, native-backend, adoption, dashboard,
+repair, and all later work remain unauthorized. No commit, push, or scope
+expansion is implicitly authorized.
 
 <!-- workorder-current-authorization-gate:end -->
