@@ -28,11 +28,19 @@ job `86919744403`, 2m 53s). The completed Session AP correction was
 independently accepted and committed as
 `58ad265bd3d9e974f1d53c2accceb50175edc2d7`; workflow `29300894802` passed
 (Ubuntu job `86984248993`, 6m 26s; Windows job `86984249019`, 9m 21s). Session
-AQ is next but remains unauthorized pending a separate BDFL go signal. All
-later work remains unauthorized.
-The permanent adversarial-evidence integrity amendment remains queued at the
-clean boundary after Session AP closure and before Session AQ authorization; it
-is not authorized by this status update.
+AP closure was recorded as `aa69cf4ee3813883e3b01ef195ac81a40080898d`;
+workflow `29301747997` passed (Ubuntu job `86986758575`, 6m 25s; Windows job
+`86986758577`, 11m 21s). The BDFL has authorized only this planning pass for a
+bounded pre-AQ CI evidence-efficiency increment. The proposed increment below
+was independently rejected because status-only Git history did not prove that
+the inherited executable tree had passed full CI. The bounded correction below
+adds that missing trust anchor and remains unissued and unauthorized for
+implementation pending fresh independent pre-issuance review, BDFL acceptance,
+durable publication with green CI, and a separate BDFL implementation go
+signal. The permanent adversarial-evidence integrity amendment remains
+unchanged, separately queued, and unauthorized; it follows this CI increment
+and still precedes Session AQ. Session AQ and all later work remain
+unauthorized.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -399,12 +407,16 @@ Work Order 9 adds internal truth only.
 
 ## Mandatory sequence and stopping point
 
-Work Order 9 contains exactly four implementation sessions:
+Work Order 9 contains exactly four compiler/runtime implementation sessions.
+The separately gated pre-AQ CI increment below changes evidence execution only
+and does not consume or rename a compiler session:
 
 ```text
 AN  canonical family/code/status registry and checked documentation projections
 AO  cause/occurrence identity for typed failure and callable vertical slices
 AP  remaining static compiler emitters and exact prior-blocker propagation
+PRE-AQ-CI  exact status-only CI fast lane; separately reviewed and authorized
+PRE-AQ-INTEGRITY  permanent adversarial-evidence amendment; queued separately
 AQ  runtime/top-level composition closure and repository-wide audit
 STOP  close Issue #1 only after separate authorization; author the next work order separately
 ```
@@ -413,7 +425,10 @@ AN is mandatory first. No later Work Order 9 session and no unrelated language,
 stdlib, IO, ownership, effect, or adoption work may begin before AN is
 independently accepted, committed, published, green on Ubuntu and Windows, and
 recorded in this file. Each following session requires the same cycle plus a
-separate BDFL go signal.
+separate BDFL go signal. The two pre-AQ entries do not authorize one another:
+the CI increment must complete its own review/publication/evidence cycle first,
+the integrity amendment remains separately queued and unchanged, and AQ still
+requires its own later BDFL go signal.
 
 The compiler-ready stdlib remains the next adoption direction supported by the
 2026-07-12 research triage. It is intentionally not part of Work Order 9.
@@ -985,6 +1000,451 @@ classifier retirement.
 - Stop. Session AQ remains unauthorized pending the complete review/commit/
   publication/CI/status cycle and a separate BDFL go signal.
 
+## Pre-AQ CI evidence-efficiency increment: exact status-only fast lane
+
+Planning state: proposed under the BDFL's bounded planning authorization. The
+first independent pre-issuance review returned `REJECT` because the proposed
+status-only range proof had no independently verifiable successful-full-CI
+anchor. This bounded correction does not authorize implementation. It requires
+fresh independent pre-issuance review, BDFL acceptance of the exact reviewed
+bytes, a scoped documentation commit, durable publication with green Ubuntu
+and Windows CI, and a separate BDFL implementation go signal.
+
+Purpose: retain the existing required CI workflow and platform conclusions
+while avoiding the complete Rust/fixture preflight only when repository history
+proves that every transition after one successfully completed full-CI trust
+anchor changes nothing except the two bounded Work Order status regions.
+
+### Evidence baseline and authority boundary
+
+The accepted Session AP status-only closure commit is
+`aa69cf4ee3813883e3b01ef195ac81a40080898d`. Workflow `29301747997`, attempt 1,
+passed for that exact commit:
+
+- Ubuntu job `86986758575` succeeded in 6m 25s; its `Run Hum preflight` step
+  consumed 5m 53s; and
+- Windows job `86986758577` succeeded in 11m 21s; its `Run Hum preflight` step
+  consumed 10m 40s.
+
+Checkout, toolchain preparation, and caching together consumed less than 40
+seconds on each host. This increment therefore targets evidence selection, not
+Cargo cache tuning. These observations justify the experiment but do not
+authorize broad documentation skipping, a weaker required check, or a claim
+that full preflight is redundant.
+
+The accepted `aa69cf4` workflow is timing and planning evidence only. The
+implementation may not hard-code that commit, workflow, or job set as its
+operational trust anchor. The workflow/tool implementation commit must run the
+new workflow's full lane successfully on both platforms and thereby establish
+the first anchor that the production fast lane may consume.
+
+The fast lane is allowed only for exact `WORKORDER.md` status maintenance. A
+documentation label, commit-message prefix, final-tree equality, or path-only
+filter is not evidence. The complete evidence unit is one exact successful
+full-CI anchor plus every first-parent transition from that anchor through the
+proposed head. Any uncertainty in either half selects full CI.
+
+### Exact implementation map
+
+The later implementation is limited to exactly:
+
+- `.github/workflows/ci.yml`: preserve the `ci` workflow and the existing
+  `preflight (windows-latest)` and `preflight (ubuntu-latest)` matrix job names,
+  add only `actions: read` beside existing `contents: read`, add complete-
+  history checkout, pass the exact repository/workflow/event/base/head facts
+  and the process-local `GITHUB_TOKEN` to the classifier before Cargo setup,
+  and condition the existing full or new status-only evidence steps;
+- new `tools/check_workorder_status_boundary.ps1`: dependency-free,
+  cross-platform PowerShell classifier/validator over explicit repository,
+  workflow path, event kind, base commit, head commit, and read-only Actions
+  evidence. Its production entry point fetches anchor evidence itself; it has
+  no parameter that can assert or inject a trusted anchor;
+- new `tools/test_workorder_status_boundary.ps1`: isolated temporary-repository
+  adversarial tests for the complete closed classifier contract; and
+- `tools/check_all.ps1`: one proportional invocation of the classifier test
+  script so full local and CI preflight permanently guard the fast-lane logic.
+
+No other workflow, tool, Cargo file, Rust source, fixture, example, generated
+output, documentation file, decision, governance file, or GitHub setting is
+authorized. Existing text, public-readiness, and release-readiness scripts are
+invoked unchanged. If this four-path envelope is insufficient, preserve the
+worktree and request a fresh reviewed amendment.
+
+### Successful-full-CI trust anchor
+
+Fast eligibility requires one closed internal trust envelope:
+
+```text
+FullCiTrustEnvelope
+  anchor commit SHA
+  ci workflow identity and exact workflow-run ID/attempt
+  exact Ubuntu and Windows job IDs/conclusions
+  exact full-preflight and skipped-fast-step conclusions
+  ordered first-parent status-only transitions from anchor to head
+```
+
+The anchor lookup checks two independent authorities: immutable Git commit/blob
+objects for repository history and current read-only GitHub Actions control-
+plane evidence for completed workflow execution. The workflow grants
+`GITHUB_TOKEN` only
+`contents: read` and `actions: read`. The classifier uses the documented
+`application/vnd.github+json` media type and API version `2026-03-10`; it may
+not mutate a run, rerun, artifact, check, repository, setting, branch, or
+permission, and it may not print or persist the token or response headers.
+
+The exact lookup algorithm is:
+
+1. Validate the push event, explicit event base, and proposed head using the
+   Git-object rules below. Starting at head, walk first parents backward while
+   each parent-to-child transition independently satisfies the complete exact
+   status-only contract. Require at least one accepted transition. The commit
+   at the beginning of that accepted suffix is the sole anchor candidate. The
+   event base must lie on that same first-parent suffix or equal the candidate.
+2. Query every page of
+   `GET /repos/{owner}/{repo}/actions/workflows/ci.yml/runs` filtered by exact
+   candidate `head_sha`, `branch=main`, and `event=push`. After locally
+   rechecking every returned field, require exactly one distinct run ID for
+   the file-scoped endpoint, with workflow name `ci`, returned path
+   `.github/workflows/ci.yml@main`, exact candidate `head_sha`,
+   `head_branch=main`, `event=push`, `status=completed`,
+   `conclusion=success`, and one positive exact `run_attempt`. Zero runs,
+   multiple run IDs, incomplete pagination, or a mismatched field selects
+   `full`.
+3. Query that exact attempt through
+   `GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{run_attempt}/jobs`
+   and consume every page. Require exactly one job named
+   `preflight (ubuntu-latest)` and exactly one job named
+   `preflight (windows-latest)`, with distinct stable job IDs, the same run ID
+   and exact candidate `head_sha`, `status=completed`, and
+   `conclusion=success`. Attempt identity is supplied by and bound to the
+   attempt-specific endpoint; no job from a generic/latest or different-
+   attempt response may be substituted. A missing, duplicate, extra, skipped,
+   canceled, pending, neutral, stale, or mismatched platform job selects
+   `full`.
+4. In each exact platform job, require exactly one step named
+   `Run Hum preflight` with `status=completed` and `conclusion=success`, and
+   exactly one step named `Run status-only evidence` with
+   `conclusion=skipped`. Missing, duplicate, renamed, wrong-attempt, or
+   contradictory step evidence selects `full`. A successful fast-lane run is
+   never a full-CI anchor.
+5. Repeat the complete file-scoped run lookup and the exact-attempt jobs
+   lookup after step validation, without trusting a cached response. Require
+   the second snapshot to select the same sole run ID/attempt, the same two
+   job IDs, and the same workflow, commit, branch, event, status, conclusion,
+   job, and step facts. A run that starts rerunning, an attempt/status change,
+   a job or step change, pagination disagreement, or any other control-plane
+   mutation between snapshots selects `full`.
+6. Bind the validated anchor SHA, run ID, run attempt, both job IDs, and the
+   ordered anchor-to-head transition identities into the classifier result.
+   Each Ubuntu/Windows job independently repeats the same lookup before lane
+   selection and may emit `fast` only when its complete envelope agrees with
+   its local immutable Git objects. The non-secret IDs and stable reason may be
+   logged. Any platform disagreement stops closure of the increment even if
+   both required jobs terminate successfully.
+
+One distinct workflow run whose current exact attempt passed is not ambiguous
+merely because an earlier attempt failed; only attempt-specific jobs from the
+reported successful attempt count. Multiple run IDs for one anchor SHA, an
+absent or changing attempt number, jobs from another attempt, or inability to
+consume the complete response is ambiguous and selects `full`.
+
+`concurrency.cancel-in-progress` remains `true`. It is safe only because a
+pending, failed, or canceled executable commit cannot satisfy the completed-
+success anchor. A status push that cancels such a run therefore selects `full`:
+the last earlier successful anchor is separated from the new head by the
+executable transition. A rapid status push may remain `fast` after canceling a
+prior fast status run only when the same earlier full-CI anchor already proves
+both platforms and every intervening transition is status-only. The permanent
+matrix must prove both paths.
+
+The production entry point obtains and validates the API evidence itself. It
+has no command-line, environment, file, cache, commit-message, or workflow-
+output escape that lets a caller assert that an anchor passed. The offline
+test script may invoke internal pure validators with harness-owned synthetic
+REST objects, but those test seams are not production classifier inputs.
+
+### Closed classifier contract
+
+The classifier begins in `full` mode. It may return `fast` only when the exact
+Actions trust envelope above and all of the following are proven from Git
+objects, not the mutable checkout:
+
+1. one successful full-CI anchor is validated exactly as above and is a strict
+   ancestor of head;
+2. the event is a push to `main`, not a tag, workflow dispatch, pull request,
+   schedule, first/zero-base push, or another event;
+3. event base and head are present, valid commit objects, distinct, and available
+   locally after complete-history checkout;
+4. event base is an ancestor of head and the pushed range is one nonempty linear
+   chain with no merge commit, missing parent, replaced ancestry, or ambiguous
+   comparison edge;
+5. event base lies on the accepted first-parent suffix from anchor through
+   head, and every transition from anchor through head, not merely the
+   aggregate event-base-to-head diff, modifies exactly `WORKORDER.md` as an
+   ordinary file;
+6. every transition rejects additions, deletions, copies, renames, type or mode
+   changes, symlinks, submodules, multiple paths, and changes to source,
+   fixtures, Cargo, tools, workflows, generated outputs, or any other path;
+7. every `WORKORDER.md` blob from anchor through head is strict UTF-8 without
+   BOM and contains exactly one header status interval and one current-gate
+   interval;
+8. the header interval begins immediately after the unique column-one
+   `Status:` prefix and ends immediately before the unique exact unchanged
+   `Owner: BDFL (Ocean).` line; the current-gate interval begins immediately
+   after the unique exact heading `## Current authorization gate` and ends
+   immediately before the unique exact final marker
+   `<!-- workorder-current-authorization-gate:end -->`;
+9. the `Status:` prefix, `Owner:` line, current-gate heading, final marker,
+   their order, and every byte outside the two interval bodies are identical
+   for each transition; moving, duplicating, deleting, or widening an anchor,
+   or adding content after the final marker, therefore selects full CI;
+10. at least one byte changes inside an allowed interval in the event's pushed
+    range; and
+11. anchor-to-head and event-base-to-head diff hygiene pass without conflict
+    markers or whitespace errors.
+
+The validator must read exact blobs by commit identity and compare the
+immutable remainder after replacing only the two recognized interval bodies
+with fixed internal sentinels. It may not infer permission from current line
+numbers, hunk headers, commit messages, author identity, a `docs` prefix,
+`git diff` path output alone, or the final checked-out file.
+
+Every commit transition from the successful full-CI anchor is checked
+independently. A range containing an earlier source/tool/workflow/fixture
+change remains `full` even if a later commit reverts it and the aggregate final
+tree looks status-only. A range with two or more individually valid status
+commits may be `fast` only when all transitions trace to the same exact
+successful full-CI anchor and independently satisfy the complete contract.
+
+The result domain is exactly `fast` or `full`. Internal reason keys may explain
+why `full` was selected, but they are not a public Hum schema or report. An
+exception, unset output, unexpected value, missing comparison fact, Git error,
+or validator disagreement remains `full`. Workflow glue must initialize the
+job output to `full` and replace it with `fast` only after one successful exact
+validation. A missing token, permission denial, transport error, rate limit,
+API schema mismatch, incomplete pagination, lookup exception, unset output,
+or classifier failure must select `full`; it must not skip both lanes or leave
+a required job pending.
+
+### CI execution contract
+
+The `ci` workflow remains triggered and both current matrix jobs remain present
+for every existing event. Do not use `paths-ignore`, skip the workflow, rename
+the jobs, or create a replacement check whose absence can leave branch
+protection pending.
+
+After complete-history checkout, each platform job independently classifies
+the same explicit repository/workflow/event/base/head tuple, queries the exact
+same read-only Actions evidence, and runs exactly one lane:
+
+- `full`: preserve the existing Cargo cache, stable Rust/rustfmt/Clippy setup,
+  and complete `./tools/check_all.ps1` invocation; or
+- `fast`: run the classifier's permanent adversarial test script, revalidate
+  the actual anchor/base/head trust envelope, run `git diff --check` for both
+  anchor-to-head and event-base-to-head ranges, and invoke unchanged
+  `tools/check_text_hygiene.ps1`,
+  `tools/check_public_readiness.ps1`, and
+  `tools/check_release_readiness.ps1`.
+
+The fast lane must not install Rust, restore/build Cargo artifacts, build Hum,
+or run fixture/runtime probes. Its permission rests on proof that executable,
+test, tool, workflow, contract, and requirement bytes are identical throughout
+the pushed range. Cache hits are performance only and never classification
+authority.
+
+The implementation commit necessarily changes workflow/tool bytes and must
+therefore select full CI. That exact run must complete successfully in both
+unchanged platform jobs, with `Run Hum preflight` successful and
+`Run status-only evidence` skipped, before it can become the first production
+anchor. A status push while that run is pending, failed, or canceled must run
+full CI instead.
+
+The first later independently reviewed `WORKORDER.md`-only status update is the
+production fast-lane proof. It must bind the implementation commit's exact
+run/attempt/jobs as its anchor, produce successful jobs with the unchanged
+names on Ubuntu and Windows, log that the fast lane ran and full preflight did
+not, and record total and status-lane step durations. The later status update
+that records those workflow/job IDs is a required consecutive-status proof: it
+must trace to the same implementation anchor and also run fast on both
+platforms before this increment is considered durably closed.
+
+### Permanent adversarial evidence
+
+`tools/test_workorder_status_boundary.ps1` must create isolated temporary Git
+repositories, construct the required histories itself, own all synthetic
+workflow-run/job/step API responses, run without network or repository
+mutation, and remove every temporary artifact. The production entry point may
+not consume the test injection seam. Each case must assert the exact lane,
+anchor identity when applicable, and a stable internal reason. At minimum it
+proves:
+
+- one exact successful full-CI anchor followed by a valid header/current-gate
+  status update selects `fast`;
+- valid updates to either permitted interval, and two or more valid linear
+  status commits, retain the same full-CI anchor and remain eligible;
+- one exact successful rerun attempt is eligible only when the run record and
+  attempt-specific jobs agree completely;
+- an edit to an AP/AQ mandate, acceptance criterion, fixture list, decision
+  lock, or other Work Order requirement selects `full` even though the only
+  path is `WORKORDER.md`;
+- Rust/source, fixture, Cargo, tool, workflow, generated-output, and multiple-
+  path changes each select `full`;
+- an earlier executable change followed by a status update, and an earlier
+  executable change followed by a revert, both select `full`;
+- Work Order addition, deletion, rename, copy, mode/type change, and symlink
+  replacement select `full`;
+- missing, zero, invalid, non-commit, unavailable, non-ancestor, and reversed
+  comparison bases or anchor candidates select `full`;
+- a merge commit, missing parent, empty range, tag, and workflow dispatch
+  select `full`;
+- a status push immediately after a pending, failed, canceled, skipped, or
+  platform-incomplete executable run selects `full`;
+- a rapid status push that cancels an unproven executable run selects `full`,
+  while rapid consecutive status pushes after one proven full anchor remain
+  `fast` even when an intermediate fast run is canceled;
+- a prior successful fast-lane run offered as the anchor selects `full`;
+- zero or multiple matching workflow run IDs, incomplete pagination,
+  unavailable/rate-limited/unauthorized Actions evidence, wrong workflow,
+  branch, event, head SHA, status, conclusion, or attempt selects `full`;
+- any run, attempt, job, step, pagination, status, or conclusion change between
+  the two required control-plane snapshots selects `full`;
+- missing, duplicate, extra, pending, skipped, canceled, failed, wrong-SHA, or
+  wrong-attempt Ubuntu/Windows jobs select `full`;
+- missing, duplicate, renamed, wrong-attempt, unsuccessful, or contradictory
+  `Run Hum preflight`/`Run status-only evidence` steps select `full`;
+- a failed earlier attempt followed by one exact successful current attempt is
+  accepted, while a missing/changing attempt or jobs from another attempt
+  selects `full`;
+- missing, duplicated, reordered, moved, or altered interval anchors and
+  content after the final current-gate marker select `full`;
+- malformed UTF-8, BOM insertion, conflict markers, and whitespace errors do
+  not receive fast-lane acceptance; and
+- two fresh runs over each history return byte-identical mode/reason evidence.
+
+The test matrix must include a case where the final aggregate diff is
+status-only but an intermediate commit touched executable bytes, plus a case
+where a status push would otherwise inherit a canceled or failed executable
+run. Removing either case, weakening per-transition inspection, treating fast
+CI as a full anchor, or dropping one platform/step check must fail full
+preflight.
+
+### Compatibility, bans, and honesty locks
+
+This increment changes CI evidence execution only. It adds no Hum command,
+schema identifier, JSON field, diagnostic, pipeline stage, language behavior,
+runtime behavior, dependency, generated document system, branch-protection
+mutation, GitHub API mutation, or public report. It does not change what
+`tools/check_all.ps1` checks on the full path.
+
+The exact read-only GitHub Actions queries above are the sole external evidence
+lookup authorized by this increment. No Actions mutation, rerun, cancellation,
+artifact write, check update, repository write, broader token permission, or
+other GitHub API use is authorized.
+
+The one internal status-boundary classifier is the sole narrow planning
+exception to Work Order 9's historical no-new-pipeline-gate language. It is not
+a Hum compiler stage, public report gate, or precedent for another CI bypass;
+no other exception is implied.
+
+No broad `docs/**`, Markdown-only, commit-message, author, extension, or
+path-prefix exemption is allowed. No final-tree-only classifier, unbounded
+line-range allowlist, mutable-checkout comparison, permissive fallback,
+`continue-on-error` skip, or cache-derived trust may select `fast`.
+
+No checked-in commit allowlist, hard-coded workflow/run/job ID, mutable cache,
+workflow output from a prior fast run, or caller-supplied success claim may act
+as a full-CI anchor. The implementation commit's IDs are discovered and bound
+through the same generic read-only algorithm used by every later status chain.
+
+The status-boundary validator proves location only. It does not prove that a
+recorded commit hash, workflow ID, duration, acceptance claim, BDFL ruling, or
+authorization statement is true. Every status update still requires the
+normal independent review, scoped commit, separate BDFL push authorization,
+and terminal CI inspection. Faster CI does not merge governance gates.
+
+The separately queued permanent adversarial-evidence integrity amendment is
+neither rewritten nor partially implemented here. It remains the next distinct
+planning/review boundary after this increment closes and before Session AQ can
+be authorized.
+
+### Independent pre-issuance review gate
+
+The author of this amendment is disqualified from its verdict. A fresh
+architect-reviewer must cold-start from repository ground truth and verify the
+complete `WORKORDER.md` diff, including:
+
+- the exact `aa69cf4` baseline and workflow/job timing evidence;
+- the four-path implementation envelope and unchanged required CI job names;
+- the exact read-only Actions permission, REST endpoints, run/attempt/job/step
+  validation, and ban on caller-supplied anchor evidence;
+- one successful full-CI anchor and complete anchor-to-head, per-transition,
+  Git-object-based classification;
+- pending/failed/canceled predecessor behavior, retained
+  `cancel-in-progress: true`, and consecutive-status tracing to one full
+  anchor;
+- exact status-region anchors and byte identity outside their bodies;
+- default-full behavior for every ambiguity and classifier failure;
+- the complete adversarial matrix, unchanged full preflight, and both-platform
+  timing/closure plan;
+- the sole narrow CI-gate exception and absence of a Hum/public pipeline gate;
+  and
+- continued separation of the queued integrity amendment and unauthorized AQ.
+
+The reviewer runs `git diff --check` and `./tools/check_all.ps1`, reports
+P0/P1/P2 findings with exact lines, and gives exactly one verdict: ACCEPT,
+ACCEPT WITH REQUIRED FIX, or REJECT. It must not edit, commit, push, implement
+the CI change, authorize the integrity amendment, mutate Issue #1, or begin AQ.
+Any authoritative mutation after that verdict requires a fresh complete
+review.
+
+### Acceptance criteria and hard stop
+
+Before implementation handoff:
+
+- focused classifier tests pass on the host;
+- the anchor matrix proves complete successful-run/attempt/job/step evidence,
+  canceled/failed/pending predecessor fallback, consecutive status chains,
+  and production/test evidence-input separation;
+- `cargo fmt --check`, `cargo test`, warnings-denied Clippy,
+  `git diff --check`, and full `tools/check_all.ps1` remain green;
+- the worktree contains only the exact four implementation paths;
+- the implementer enumerates Windows and Ubuntu behavior and any unexercised
+  configuration; and
+- the complete worktree remains uncommitted for fresh independent review.
+
+After independent acceptance and a separately authorized commit/push:
+
+- the workflow/tool implementation commit selects and passes full CI on both
+  Ubuntu and Windows, with both exact full-preflight steps successful and both
+  exact status-only steps skipped;
+- the first eligible status-only push discovers that implementation run as its
+  exact full-CI anchor and selects only the fast lane in both unchanged
+  required jobs;
+- the next status-only evidence-recording push traces across the prior fast
+  commit to that same full-CI anchor and again selects only the fast lane in
+  both required jobs;
+- the report records baseline, full-path, and fast-path job/step timings without
+  claiming a general CI speedup beyond those observations; and
+- any false fast classification, missing required job, platform disagreement,
+  unproven/canceled/failed anchor, or inability to prove the complete trust
+  envelope stops the increment for correction.
+
+Stop after recording the accepted fast-lane evidence. Do not begin the queued
+integrity amendment, authorize Session AQ, mutate Issue #1, or combine another
+CI optimization. Session AQ remains unauthorized pending the separate
+integrity-amendment boundary and its own BDFL go signal.
+
+### Later private batching advisory (not authorized)
+
+The full preflight launches the built executable repeatedly across many
+fixture/stage probes, and the accepted baseline shows a large Windows process-
+startup cost. A later separately reviewed optimization may batch most probes
+through one private in-process or manifest-driven harness while retaining a
+small end-to-end executable matrix for stdout, stderr, exit status, human/JSON,
+and runtime compatibility. That harness rewrite, sharding, and any broader CI
+optimization are outside this increment and receive no implementation credit
+or authorization here.
+
 ## Session AQ: runtime and top-level composition closure
 
 Purpose: remove the final independent reconstruction paths, make the collector
@@ -1288,9 +1748,9 @@ Ubuntu job `86720630963` succeeded in 1m 58s and Windows job `86720630971`
 succeeded in 3m 16s.
 
 Session AP was authorized and implemented on base
-`22b5e1e23bb1d9c3e137bb4b5e4ed6e9eba521a7`, then independently rejected. Its
-complete uncommitted implementation remains preserved under corrective review.
-The corrective amendment was independently accepted and BDFL-accepted,
+`22b5e1e23bb1d9c3e137bb4b5e4ed6e9eba521a7`, independently rejected, and
+corrected under the reviewed amendments below. The corrective amendment was
+independently accepted and BDFL-accepted,
 committed as `9aedcb0ba6893d51a2cd1b2e519d332d3cc5e6f4`, and published by successful
 workflow `29225093549`: Ubuntu job `86737472812` succeeded in 1m 40s and Windows
 job `86737472893` succeeded in 3m 04s. The bounded typed-failure scope amendment
@@ -1305,12 +1765,25 @@ and Windows job `86919744403` succeeded in 2m 53s. The completed Session AP
 correction was independently accepted and committed as
 `58ad265bd3d9e974f1d53c2accceb50175edc2d7`. Workflow `29300894802` passed:
 Ubuntu job `86984248993` succeeded in 6m 26s and Windows job `86984249019`
-succeeded in 9m 21s.
+succeeded in 9m 21s. Session AP closure was recorded as
+`aa69cf4ee3813883e3b01ef195ac81a40080898d`. Workflow `29301747997`, attempt 1,
+passed for that exact commit: Ubuntu job `86986758575` succeeded in 6m 25s and
+Windows job `86986758577` succeeded in 11m 21s.
 
-Session AQ is next but remains unauthorized pending a separate BDFL go signal.
-All later work remains unauthorized. No emitter migration, precedence change,
-diagnostic allocation, correction, decision ruling, commit, push, GitHub Issue
-#1 mutation, or scope expansion is implicitly authorized.
-The permanent adversarial-evidence integrity amendment remains queued for the
-clean boundary after Session AP closure and before Session AQ authorization; it
-is not authorized by this status update.
+The BDFL has authorized only the planning pass recorded in "Pre-AQ CI
+evidence-efficiency increment: exact status-only fast lane." The first
+independent pre-issuance review rejected the proposal because it lacked a
+successful-full-CI trust anchor. The bounded correction remains proposed,
+unissued, and unauthorized for implementation pending fresh independent
+pre-issuance review, BDFL acceptance of the exact reviewed bytes, durable
+publication with successful Ubuntu and Windows CI, and a separate BDFL
+implementation go signal.
+
+The permanent adversarial-evidence integrity amendment remains unchanged,
+separately queued, and unauthorized after the CI increment. Session AQ and all
+later work remain unauthorized. No CI implementation, integrity amendment,
+emitter migration, precedence change, diagnostic allocation, decision ruling,
+commit, push, GitHub Issue #1 mutation, or scope expansion is implicitly
+authorized.
+
+<!-- workorder-current-authorization-gate:end -->
