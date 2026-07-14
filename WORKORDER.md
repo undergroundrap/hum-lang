@@ -1105,12 +1105,15 @@ The exact lookup algorithm is:
    `GET /repos/{owner}/{repo}/actions/workflows/ci.yml/runs` filtered by exact
    candidate `head_sha`, `branch=main`, and `event=push`. After locally
    rechecking every returned field, require exactly one distinct run ID for
-   the file-scoped endpoint, with workflow name `ci`, returned path
-   `.github/workflows/ci.yml@main`, exact candidate `head_sha`,
-   `head_branch=main`, `event=push`, `status=completed`,
+   the file-scoped endpoint, with workflow name `ci`, returned `path` exactly
+   `.github/workflows/ci.yml`, returned `head_branch` independently exactly
+   `main`, exact candidate `head_sha`, `event=push`, `status=completed`,
    `conclusion=success`, and one positive exact `run_attempt`. Zero runs,
    multiple run IDs, incomplete pagination, or a mismatched field selects
-   `full`.
+   `full`. If `.github/workflows/ci.yml@main` is used internally, it is only a
+   locally derived composite identity constructed after those two returned
+   fields pass their independent checks. It is not a returned API field and
+   may not be caller-supplied or substituted for either field check.
 3. Query that exact attempt through
    `GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{run_attempt}/jobs`
    and consume every page. Require exactly one job named
@@ -1305,8 +1308,12 @@ proves:
   `fast` even when an intermediate fast run is canceled;
 - a prior successful fast-lane run offered as the anchor selects `full`;
 - zero or multiple matching workflow run IDs, incomplete pagination,
-  unavailable/rate-limited/unauthorized Actions evidence, wrong workflow,
-  branch, event, head SHA, status, conclusion, or attempt selects `full`;
+  unavailable/rate-limited/unauthorized Actions evidence, wrong workflow name,
+  returned `path`, returned `head_branch`, event, head SHA, status, conclusion,
+  or attempt selects `full`; wrong `path` with the right `head_branch`, the
+  right `path` with the wrong `head_branch`, and a caller-derived
+  `.github/workflows/ci.yml@main` composite substituted for either returned
+  field each select `full`;
 - any run, attempt, job, step, pagination, status, or conclusion change between
   the two required control-plane snapshots selects `full`;
 - missing, duplicate, extra, pending, skipped, canceled, failed, wrong-SHA, or
@@ -1377,7 +1384,8 @@ complete `WORKORDER.md` diff, including:
 - the exact `aa69cf4` baseline and workflow/job timing evidence;
 - the four-path implementation envelope and unchanged required CI job names;
 - the exact read-only Actions permission, REST endpoints, run/attempt/job/step
-  validation, and ban on caller-supplied anchor evidence;
+  validation, independent returned `path` and `head_branch` validation, and ban
+  on caller-supplied anchor evidence or composite-field substitution;
 - one successful full-CI anchor and complete anchor-to-head, per-transition,
   Git-object-based classification;
 - pending/failed/canceled predecessor behavior, retained
