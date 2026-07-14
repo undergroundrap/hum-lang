@@ -78,13 +78,21 @@ traced the ordered transitions
 `Run status-only evidence` and skipped Cargo caching, Rust toolchain
 preparation, and `Run Hum preflight`. The two production fast-lane
 publications durably close the pre-AQ CI evidence-efficiency increment. The
-BDFL has authorized the permanent operating-policy amendment recorded below.
-Because it changes `AGENTS.md` and Work Order requirements, this amendment is
-not status-only eligible and requires one fresh independent review plus full
-CI. At this handoff it remains uncommitted with an empty index for that review.
-The permanent adversarial-evidence integrity amendment remains unchanged,
-separately queued, and unauthorized; it follows this CI increment and still
-precedes Session AQ. Integrity hardening, Session AQ, GitHub Issue #1 mutation,
+permanent operating-policy amendment for exact routine Work Order status-only
+closures was independently accepted, committed, and published as
+`65ad0d5f5db2bcd90fdbb8a8afc1208f3d46b659`. Required full CI passed in
+workflow `29357247935`, attempt 1. Ubuntu job `87167872491` on
+`ubuntu-latest` succeeded in 6m 38s: Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 6m 09s, and
+`Run status-only evidence` was skipped. Windows job `87167872510` on
+`windows-latest` succeeded in 12m 43s: Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 11m 52s, and
+`Run status-only evidence` was skipped. Both platforms reported `mode=full`
+with `reason=no_status_transition`. The amendment is durably complete. Future
+eligible routine status-only closures use the permanent `AGENTS.md` exception
+and its proportional local evidence set. The separately queued permanent
+adversarial-evidence integrity amendment remains next but unauthorized pending
+a separate BDFL go signal. Session AQ, GitHub Issue #1 mutation, repair work,
 and all later work remain unauthorized.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
@@ -1892,17 +1900,25 @@ and workflow, and proved the ordered transitions
 preparation, and `Run Hum preflight`. The two successful production fast-lane
 publications durably close the pre-AQ CI evidence-efficiency increment.
 
-The BDFL has authorized the permanent operating-policy amendment for exact
-routine Work Order status-only closures. Because this amendment changes
-`AGENTS.md` and Work Order governance/process requirements, it is not
-status-only eligible and requires one fresh independent review plus full CI.
-At this handoff it remains uncommitted with an empty index for that review.
+The permanent operating-policy amendment for exact routine Work Order status-
+only closures was independently accepted, committed, and published as
+`65ad0d5f5db2bcd90fdbb8a8afc1208f3d46b659`. Required full CI passed in
+workflow `29357247935`, attempt 1. Ubuntu job `87167872491` on
+`ubuntu-latest` succeeded in 6m 38s: Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 6m 09s, and
+`Run status-only evidence` was skipped. Windows job `87167872510` on
+`windows-latest` succeeded in 12m 43s: Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 11m 52s, and
+`Run status-only evidence` was skipped. Both platforms reported `mode=full`
+with `reason=no_status_transition`. The amendment is durably complete. Future
+eligible routine status-only closures use the permanent `AGENTS.md` exception
+and its proportional local evidence set.
 
-The permanent adversarial-evidence integrity amendment remains unchanged,
-separately queued, and unauthorized after the CI increment. Integrity
-hardening, Session AQ, GitHub Issue #1 mutation, and all later work remain
-unauthorized. No CI implementation, integrity amendment, emitter migration,
-precedence change, diagnostic allocation, decision ruling, commit, push, or
-scope expansion is implicitly authorized.
+The separately queued permanent adversarial-evidence integrity amendment
+remains next but unauthorized pending a separate BDFL go signal. Session AQ,
+GitHub Issue #1 mutation, repair work, and all later work remain unauthorized.
+No CI implementation, integrity amendment, emitter migration, precedence
+change, diagnostic allocation, decision ruling, commit, push, or scope
+expansion is implicitly authorized.
 
 <!-- workorder-current-authorization-gate:end -->
