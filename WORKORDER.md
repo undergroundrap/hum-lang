@@ -44,8 +44,15 @@ workflow `29309391970` (Ubuntu job `87009717248`, 5m 42s, including 5m 11s in
 `Run Hum preflight`; Windows job `87009717246`, 10m 40s, including 9m 30s in
 `Run Hum preflight`). That correction publication run used the existing full
 workflow and is document/API-shape evidence only; it is not the future
-operational fast-lane trust anchor. CI implementation remains unauthorized
-pending a separate BDFL go signal. The permanent
+operational fast-lane trust anchor. The pre-AQ CI evidence-efficiency increment
+was independently accepted and committed/published as
+`7630befb97055fb099b54e56c186fe3bc202f67d`. Required full CI passed in
+workflow `29318848522`, attempt 1. Ubuntu job `87039029980` succeeded in 6m
+32s, including 6m 07s in `Run Hum preflight`; Windows job `87039030001`
+succeeded in 13m 29s, including 12m 40s in `Run Hum preflight`. Both platforms
+selected `mode=full` with `reason=no_status_transition`. This exact commit and
+run are the first operational full-CI trust anchor. The later status-only
+publication must independently prove the production fast lane. The permanent
 adversarial-evidence integrity amendment remains unchanged, separately queued,
 and unauthorized; it follows this CI increment and still precedes Session AQ.
 Integrity hardening, Session AQ, GitHub Issue #1 mutation, and all later work
@@ -1804,8 +1811,17 @@ succeeded in 5m 42s, including 5m 11s in `Run Hum preflight`; Windows job
 `87009717246` succeeded in 10m 40s, including 9m 30s in `Run Hum preflight`.
 This correction publication run used the existing full workflow and is
 document/API-shape evidence only. It is not the future operational fast-lane
-trust anchor. CI implementation remains unauthorized pending a separate BDFL
-go signal.
+trust anchor.
+
+The pre-AQ CI evidence-efficiency increment was independently accepted and
+committed/published as `7630befb97055fb099b54e56c186fe3bc202f67d`.
+Required full CI passed in workflow `29318848522`, attempt 1. Ubuntu job
+`87039029980` succeeded in 6m 32s, including 6m 07s in `Run Hum preflight`;
+Windows job `87039030001` succeeded in 13m 29s, including 12m 40s in `Run Hum
+preflight`. Both platforms selected `mode=full` with
+`reason=no_status_transition`. This exact commit and run are the first
+operational full-CI trust anchor. The later status-only publication must
+independently prove the production fast lane.
 
 The permanent adversarial-evidence integrity amendment remains unchanged,
 separately queued, and unauthorized after the CI increment. Integrity
