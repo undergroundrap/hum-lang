@@ -11,9 +11,9 @@ passed (Ubuntu job `86710967945`, 1m 32s; Windows job `86710967915`, 2m
 42s). Session AO is accepted and committed as
 `d750a57ed5168d0d00375972aacc148a5d37e63a`; workflow `29219105868` passed
 (Ubuntu job `86720630963`, 1m 58s; Windows job `86720630971`, 3m 16s).
-Session AP was authorized and implemented, but its independent review rejected
-the uncommitted implementation, which remains preserved under corrective
-review. The corrective amendment was independently accepted and BDFL-accepted,
+Session AP was authorized and implemented, then independently rejected and
+corrected under the reviewed amendments recorded below. The corrective
+amendment was independently accepted and BDFL-accepted,
 committed as `9aedcb0ba6893d51a2cd1b2e519d332d3cc5e6f4`, and published by successful
 workflow `29225093549` (Ubuntu job `86737472812`, 1m 40s; Windows job
 `86737472893`, 3m 04s). The bounded typed-failure scope amendment was
@@ -24,11 +24,15 @@ job `86773108925`, 4m 49s). The bounded writable-alias scope amendment was
 independently accepted and BDFL-accepted, committed as
 `c56f5f06e908f0ff4e38707d3f8d4ede849b1d3d`, and published by successful
 workflow `29280356264`, attempt 1 (Ubuntu job `86919744432`, 1m 49s; Windows
-job `86919744403`, 2m 53s). Session AP correction remains paused pending a
-separate BDFL corrective go signal. Session AQ and all later work remain
-unauthorized.
-The permanent adversarial-evidence integrity amendment remains queued for the
-clean boundary after Session AP closes and before Session AQ authorization.
+job `86919744403`, 2m 53s). The completed Session AP correction was
+independently accepted and committed as
+`58ad265bd3d9e974f1d53c2accceb50175edc2d7`; workflow `29300894802` passed
+(Ubuntu job `86984248993`, 6m 26s; Windows job `86984249019`, 9m 21s). Session
+AQ is next but remains unauthorized pending a separate BDFL go signal. All
+later work remains unauthorized.
+The permanent adversarial-evidence integrity amendment remains queued at the
+clean boundary after Session AP closure and before Session AQ authorization; it
+is not authorized by this status update.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -1297,11 +1301,16 @@ and Windows job `86773108925` succeeded in 4m 49s. The bounded writable-alias
 scope amendment was independently accepted and BDFL-accepted, committed as
 `c56f5f06e908f0ff4e38707d3f8d4ede849b1d3d`, and published by successful
 workflow `29280356264`, attempt 1: Ubuntu job `86919744432` succeeded in 1m 49s
-and Windows job `86919744403` succeeded in 2m 53s. Session AP correction remains
-paused pending a separate BDFL corrective go signal.
+and Windows job `86919744403` succeeded in 2m 53s. The completed Session AP
+correction was independently accepted and committed as
+`58ad265bd3d9e974f1d53c2accceb50175edc2d7`. Workflow `29300894802` passed:
+Ubuntu job `86984248993` succeeded in 6m 26s and Windows job `86984249019`
+succeeded in 9m 21s.
 
-Session AQ and all later work remain unauthorized. No emitter migration,
-precedence change, diagnostic allocation, correction, decision ruling, commit,
-push, GitHub Issue #1 mutation, or scope expansion is implicitly authorized.
+Session AQ is next but remains unauthorized pending a separate BDFL go signal.
+All later work remains unauthorized. No emitter migration, precedence change,
+diagnostic allocation, correction, decision ruling, commit, push, GitHub Issue
+#1 mutation, or scope expansion is implicitly authorized.
 The permanent adversarial-evidence integrity amendment remains queued for the
-clean boundary after Session AP closes and before Session AQ authorization.
+clean boundary after Session AP closure and before Session AQ authorization; it
+is not authorized by this status update.
