@@ -152,6 +152,47 @@ still require BDFL instruction except for the red-main emergency rule below.
 Accepted commit and CI evidence are recorded in the Work Order before the next
 session is authorized.
 
+#### Exact routine Work Order status-only closure
+
+BDFL-directed amendment, 2026-07-14: an exact routine Work Order status-only
+closure may omit separate independent architect review only when every one of
+these conditions is proven:
+
+- `main` is clean and synchronized with `origin/main` before editing;
+- exactly the active root `WORKORDER.md` is modified, the index is empty, and
+  there is no unrelated or untracked work;
+- every changed byte is inside the status-boundary classifier's recognized
+  `Status:` body or `## Current authorization gate` body;
+- no path is added, deleted, copied, renamed, mode- or type-changed, symlinked,
+  or replaced by a submodule;
+- no mandate, requirement, governance rule, authorization meaning,
+  architecture, algorithm, decision, fingerprint, acceptance criterion,
+  scope, or implementation contract changes;
+- every recorded commit, workflow, attempt, job, platform, step, status,
+  conclusion, and duration is verified exactly through read-only evidence,
+  with no ambiguous, inferred, disputed, or unverified factual assertion; and
+- the BDFL explicitly authorizes the exact commit and separately authorizes
+  any push.
+
+After publication, every required CI job is inspected through terminal
+completion. Ubuntu and Windows must independently select `mode=fast` with
+`reason=eligible_status_chain`, revalidate the complete trust envelope,
+succeed in `Run status-only evidence`, skip Cargo caching, Rust toolchain
+preparation, and `Run Hum preflight`, and conclude success. Missing or
+ambiguous evidence, an unexpected `full` selection, platform disagreement, or
+failure stops the closure without repair or implied authority.
+
+The exception never applies to an edit outside the two status regions; a
+mandate, governance, authorization, architecture, decision, algorithm,
+acceptance-criterion, fingerprint, scope, or implementation-contract change;
+source, fixture, workflow, tool, schema, decision, governance, generated-
+output, or implementation work; ambiguous or disputed evidence; history,
+merge, replacement, graft, mode, rename, symlink, submodule, or trust-envelope
+anomalies; or an amendment to this exception. Those cases retain independent
+review and full local preflight. The production classifier remains fail-closed
+and authoritative for CI lane selection. This exception grants no publication,
+repair, later-session, GitHub-mutation, decision, or other authority.
+
 Review independence attaches to the deliverable. An agent that authored,
 edited, generated, or directly directed any part of a deliverable cannot issue
 its independent architect-reviewer verdict. Direct direction means producing
@@ -281,7 +322,8 @@ For implementation details, see `docs/TEXT_HYGIENE_WORKFLOW.md`.
 .\tools\check_public_readiness.ps1
 ```
 - Before a local commit, public snapshot, release-style handoff, or tag
-  decision, prefer the full preflight:
+  decision, prefer the full preflight, except for an eligible exact routine
+  Work Order status-only closure defined above:
 
 ```powershell
 .\tools\check_all.ps1
@@ -289,5 +331,17 @@ For implementation details, see `docs/TEXT_HYGIENE_WORKFLOW.md`.
 
 It wraps Rust checks, fixture coverage, JSON parsing, generated grammar drift
 detection, text hygiene, public readiness, and release readiness.
+
+For an eligible exact routine Work Order status-only closure, do not run Cargo,
+Clippy, formatting, or `tools/check_all.ps1`. Run exactly the local status-
+evidence set:
+
+```powershell
+git diff --check
+.\tools\test_workorder_status_boundary.ps1
+.\tools\check_text_hygiene.ps1
+.\tools\check_public_readiness.ps1
+.\tools\check_release_readiness.ps1
+```
 
 - Never create or push remote tags without explicit user approval.

@@ -64,14 +64,28 @@ CI anchor `7630befb97055fb099b54e56c186fe3bc202f67d` and workflow
 `5da709b7456a1b71fb6ebe8c859224da71e7ce05`. Both succeeded in
 `Run status-only evidence` and skipped Cargo caching, Rust toolchain
 preparation, and `Run Hum preflight`. This publication proved the first fast
-transition. Publication of this evidence record is the required consecutive-
-status proof and must independently select fast on both platforms against the
-same full-CI anchor. The BDFL-authorized permanent operating-policy amendment
-remains queued for later authoring and must not begin until that consecutive
-proof reaches terminal success. The permanent adversarial-evidence integrity
-amendment remains unchanged, separately queued, and unauthorized; it follows
-this CI increment and still precedes Session AQ. Integrity hardening, Session
-AQ, GitHub Issue #1 mutation, and all later work remain unauthorized.
+transition. The required consecutive-status proof was committed and published
+as `b9658e26bbc0021a4ca8701bcaa317e0e2b3ee19`. Workflow `29352133751`,
+attempt 1, succeeded for that exact commit. Ubuntu job `87150713653` succeeded
+in 1m 11s, including 57s in `Run status-only evidence`; Windows job
+`87150713741` succeeded in 3m 21s, including 2m 57s in
+`Run status-only evidence`. Both platforms selected `mode=fast` with
+`reason=eligible_status_chain`, used the same full-CI anchor and workflow, and
+traced the ordered transitions
+`7630befb97055fb099b54e56c186fe3bc202f67d` ->
+`5da709b7456a1b71fb6ebe8c859224da71e7ce05` ->
+`b9658e26bbc0021a4ca8701bcaa317e0e2b3ee19`. Both succeeded in
+`Run status-only evidence` and skipped Cargo caching, Rust toolchain
+preparation, and `Run Hum preflight`. The two production fast-lane
+publications durably close the pre-AQ CI evidence-efficiency increment. The
+BDFL has authorized the permanent operating-policy amendment recorded below.
+Because it changes `AGENTS.md` and Work Order requirements, this amendment is
+not status-only eligible and requires one fresh independent review plus full
+CI. At this handoff it remains uncommitted with an empty index for that review.
+The permanent adversarial-evidence integrity amendment remains unchanged,
+separately queued, and unauthorized; it follows this CI increment and still
+precedes Session AQ. Integrity hardening, Session AQ, GitHub Issue #1 mutation,
+and all later work remain unauthorized.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -1396,9 +1410,20 @@ through the same generic read-only algorithm used by every later status chain.
 
 The status-boundary validator proves location only. It does not prove that a
 recorded commit hash, workflow ID, duration, acceptance claim, BDFL ruling, or
-authorization statement is true. Every status update still requires the
-normal independent review, scoped commit, separate BDFL push authorization,
-and terminal CI inspection. Faster CI does not merge governance gates.
+authorization statement is true. At implementation issuance, every status
+update still required the normal independent review, scoped commit, separate
+BDFL push authorization, and terminal CI inspection. That sentence is
+preserved as historical implementation-time policy. After the independently
+verified full/fast/fast production chain, the BDFL-directed 2026-07-14
+`AGENTS.md` amendment supersedes it only for future exact routine status-only
+closures satisfying every permanent eligibility condition: independent
+review and full local preflight are omitted, while exact read-only fact
+verification, explicit commit and push authority, fail-closed classifier
+selection, and terminal both-platform CI remain. Every other change keeps the
+normal review and full-preflight gates. This operating-policy amendment is
+itself a governance/process change, is not status-only eligible, and requires
+one fresh independent review plus full CI. Faster CI does not merge the
+remaining governance gates.
 
 The separately queued permanent adversarial-evidence integrity amendment is
 neither rewritten nor partially implemented here. It remains the next distinct
@@ -1850,11 +1875,28 @@ attempt 1, and traced the exact transition
 `5da709b7456a1b71fb6ebe8c859224da71e7ce05`. Both succeeded in
 `Run status-only evidence` and skipped Cargo caching, Rust toolchain
 preparation, and `Run Hum preflight`. This publication proved the first fast
-transition. Publication of this evidence record is the required consecutive-
-status proof and must independently select fast on both platforms against the
-same full-CI anchor. The BDFL-authorized permanent operating-policy amendment
-remains queued for later authoring and must not begin until that consecutive
-proof reaches terminal success.
+transition.
+
+The required consecutive fast-lane evidence record was committed and
+published as `b9658e26bbc0021a4ca8701bcaa317e0e2b3ee19`. Workflow
+`29352133751`, attempt 1, succeeded for that exact commit. Ubuntu job
+`87150713653` succeeded in 1m 11s, including 57s in
+`Run status-only evidence`; Windows job `87150713741` succeeded in 3m 21s,
+including 2m 57s in `Run status-only evidence`. Both platforms selected
+`mode=fast` with `reason=eligible_status_chain`, used the same full-CI anchor
+and workflow, and proved the ordered transitions
+`7630befb97055fb099b54e56c186fe3bc202f67d` ->
+`5da709b7456a1b71fb6ebe8c859224da71e7ce05` ->
+`b9658e26bbc0021a4ca8701bcaa317e0e2b3ee19`. Both succeeded in
+`Run status-only evidence` and skipped Cargo caching, Rust toolchain
+preparation, and `Run Hum preflight`. The two successful production fast-lane
+publications durably close the pre-AQ CI evidence-efficiency increment.
+
+The BDFL has authorized the permanent operating-policy amendment for exact
+routine Work Order status-only closures. Because this amendment changes
+`AGENTS.md` and Work Order governance/process requirements, it is not
+status-only eligible and requires one fresh independent review plus full CI.
+At this handoff it remains uncommitted with an empty index for that review.
 
 The permanent adversarial-evidence integrity amendment remains unchanged,
 separately queued, and unauthorized after the CI increment. Integrity
