@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   CARGO_HOME: ${{ github.workspace }}/.cargo-home
@@ -32,8 +33,42 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Classify CI evidence lane
+        id: classify
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HUM_CI_REPOSITORY: ${{ github.repository }}
+          HUM_CI_WORKFLOW_PATH: .github/workflows/ci.yml
+          HUM_CI_EVENT_NAME: ${{ github.event_name }}
+          HUM_CI_EVENT_REF: ${{ github.ref }}
+          HUM_CI_BASE_SHA: ${{ github.event.before }}
+          HUM_CI_HEAD_SHA: ${{ github.sha }}
+        run: |
+          $Mode = 'full'
+          try {
+            $Observed = @(
+              ./tools/check_workorder_status_boundary.ps1 `
+                -Repository $env:HUM_CI_REPOSITORY `
+                -WorkflowPath $env:HUM_CI_WORKFLOW_PATH `
+                -EventName $env:HUM_CI_EVENT_NAME `
+                -EventRef $env:HUM_CI_EVENT_REF `
+                -BaseCommit $env:HUM_CI_BASE_SHA `
+                -HeadCommit $env:HUM_CI_HEAD_SHA
+            )
+            if ($Observed.Count -eq 1 -and $Observed[0] -ceq 'fast') {
+              $Mode = 'fast'
+            }
+          } catch {
+            Write-Warning "CI evidence classifier failed closed: $($_.Exception.Message)"
+          }
+          "mode=$Mode" >> $env:GITHUB_OUTPUT
 
       - name: Cache Cargo artifacts
+        if: steps.classify.outputs.mode != 'fast'
         uses: actions/cache@v6
         with:
           path: |
@@ -45,6 +80,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Prepare Rust toolchain
+        if: steps.classify.outputs.mode != 'fast'
         shell: pwsh
         run: |
           rustup toolchain install stable --profile minimal
@@ -52,5 +88,35 @@ jobs:
           rustup component add rustfmt clippy
 
       - name: Run Hum preflight
+        if: steps.classify.outputs.mode != 'fast'
         shell: pwsh
         run: ./tools/check_all.ps1
+
+      - name: Run status-only evidence
+        if: steps.classify.outputs.mode == 'fast'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HUM_CI_REPOSITORY: ${{ github.repository }}
+          HUM_CI_WORKFLOW_PATH: .github/workflows/ci.yml
+          HUM_CI_EVENT_NAME: ${{ github.event_name }}
+          HUM_CI_EVENT_REF: ${{ github.ref }}
+          HUM_CI_BASE_SHA: ${{ github.event.before }}
+          HUM_CI_HEAD_SHA: ${{ github.sha }}
+        run: |
+          $Observed = @(
+            ./tools/check_workorder_status_boundary.ps1 `
+              -Repository $env:HUM_CI_REPOSITORY `
+              -WorkflowPath $env:HUM_CI_WORKFLOW_PATH `
+              -EventName $env:HUM_CI_EVENT_NAME `
+              -EventRef $env:HUM_CI_EVENT_REF `
+              -BaseCommit $env:HUM_CI_BASE_SHA `
+              -HeadCommit $env:HUM_CI_HEAD_SHA
+          )
+          if ($Observed.Count -ne 1 -or $Observed[0] -cne 'fast') {
+            throw 'status-only trust envelope did not revalidate as fast'
+          }
+          ./tools/test_workorder_status_boundary.ps1
+          ./tools/check_text_hygiene.ps1
+          ./tools/check_public_readiness.ps1
+          ./tools/check_release_readiness.ps1

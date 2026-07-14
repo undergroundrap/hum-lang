@@ -248,6 +248,7 @@ function Assert-SessionASurfaceRules {
 
 Push-Location $RepoRoot
 try {
+  Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
   Invoke-Native 'cargo fmt --check' $Cargo @('fmt', '--check')
   Invoke-Native 'cargo test' $Cargo @('test')
   Invoke-Native 'canonical diagnostic registry/projection test' $Cargo @('test', 'diagnostic_catalog::tests::canonical_registry_and_checked_projections_are_valid', '--', '--exact')
