@@ -90,16 +90,19 @@ preparation succeeded, `Run Hum preflight` succeeded in 11m 52s, and
 `Run status-only evidence` was skipped. Both platforms reported `mode=full`
 with `reason=no_status_transition`. The amendment is durably complete. Future
 eligible routine status-only closures use the permanent `AGENTS.md` exception
-and its proportional local evidence set. The BDFL has authorized planning only
-for the proposed `PRE-AQ-INTEGRITY` permanent adversarial-evidence amendment.
-The initial planning draft was independently rejected because its nine-build
-implementation plan could not honestly fit the unchanged 15-minute CI limit.
-The BDFL authorized only the bounded planning correction below: the later
-implementation may change that job timeout from 15 to 30 minutes as its sole
-workflow-byte change. The corrected planning bytes are uncommitted and await
-fresh independent pre-issuance re-review. Integrity implementation, Session
-AQ, GitHub Issue #1 mutation, repair work, and all later work remain
-unauthorized.
+and its proportional local evidence set. The corrected `PRE-AQ-INTEGRITY`
+planning amendment was independently accepted, committed, and published as
+`f757532acadf34dd3d241334f453e4fd0ad35697`. Required full CI passed in
+workflow `29370695552`, attempt 1. Ubuntu job `87213049954` on `ubuntu-latest`
+succeeded in 6m 38s: Cargo caching and Rust toolchain preparation succeeded,
+`Run Hum preflight` succeeded in 6m 13s, and `Run status-only evidence` was
+skipped. Windows job `87213050031` on `windows-latest` succeeded in 13m 28s:
+Cargo caching and Rust toolchain preparation succeeded, `Run Hum preflight`
+succeeded in 12m 34s, and `Run status-only evidence` was skipped. Both
+platforms reported `mode=full` with `reason=no_status_transition`. The planning
+amendment is durably published. `PRE-AQ-INTEGRITY` implementation is next but
+remains unauthorized pending a separate BDFL go signal. Session AQ, GitHub
+Issue #1 mutation, repair work, and all later work remain unauthorized.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -2414,27 +2417,22 @@ with `reason=no_status_transition`. The amendment is durably complete. Future
 eligible routine status-only closures use the permanent `AGENTS.md` exception
 and its proportional local evidence set.
 
-The BDFL authorized only the planning pass for the proposed
-`PRE-AQ-INTEGRITY` permanent adversarial-evidence amendment. The proposed bytes
-were independently rejected once because the nine-build plan could not fit the
-unchanged 15-minute job limit. The BDFL authorized only the bounded correction
-that permits the later implementation to change `timeout-minutes: 15` to
-`timeout-minutes: 30` as the sole workflow-byte change. The corrected planning
-bytes are uncommitted and await fresh independent pre-issuance re-review. The
-preceding routine status closure remains
-`80a0b93e81233f6a836449a04aea2f88707c9440`;
-workflow `29363822737`, attempt 1, passed with Ubuntu job `87190299329` in
-1m 15s and Windows job `87190299278` in 3m 38s. Both used `mode=fast`,
-`reason=eligible_status_chain`, and full-CI anchor
-`65ad0d5f5db2bcd90fdbb8a8afc1208f3d46b659`, and both skipped Cargo,
-toolchain, and full-preflight work while succeeding in status-only evidence.
+The corrected `PRE-AQ-INTEGRITY` planning amendment was independently accepted,
+committed, and published as `f757532acadf34dd3d241334f453e4fd0ad35697`.
+Required full CI passed in workflow `29370695552`, attempt 1. Ubuntu job
+`87213049954` on `ubuntu-latest` succeeded in 6m 38s: Cargo caching and Rust
+toolchain preparation succeeded, `Run Hum preflight` succeeded in 6m 13s, and
+`Run status-only evidence` was skipped. Windows job `87213050031` on
+`windows-latest` succeeded in 13m 28s: Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 12m 34s, and
+`Run status-only evidence` was skipped. Both platforms reported `mode=full`
+with `reason=no_status_transition`. The planning amendment is durably
+published.
 
-Integrity implementation remains unauthorized pending independent acceptance,
-BDFL acceptance, scoped commit and publication, a durable status record, and a
-separate BDFL implementation go signal. Session AQ, GitHub Issue #1 mutation,
-repair work, dashboard work, and all later work remain unauthorized. No
-integrity mechanism, emitter migration, precedence change, diagnostic
-allocation, decision ruling, commit, push, or scope expansion is implicitly
-authorized.
+`PRE-AQ-INTEGRITY` implementation is next but remains unauthorized pending a
+separate BDFL go signal. Session AQ, GitHub Issue #1 mutation, repair work,
+dashboard work, and all later work remain unauthorized. No integrity mechanism,
+emitter migration, precedence change, diagnostic allocation, decision ruling,
+commit, push, or scope expansion is implicitly authorized.
 
 <!-- workorder-current-authorization-gate:end -->
