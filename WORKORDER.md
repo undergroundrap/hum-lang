@@ -2142,6 +2142,9 @@ Authorized files are limited to:
   hard-coded diagnostic classifiers;
 - `src/diagnostic.rs` and `src/diagnostic_catalog.rs` only for final collector
   enforcement and audit closure;
+- `src/ownership_check.rs` only to make the producer-owned H0801 occurrence
+  seal the already established runtime public projection under the bounded
+  amendment below;
 - focused fixtures under `fixtures/diagnostics/session_aq_*`; and
 - proportional `tools/check_all.ps1` assertions.
 
@@ -2167,6 +2170,95 @@ example, adapter, grant, target, experiment, or research file is authorized.
   semantic/source order.
 - Collection order changes may not alter cause identity, precedence, or public
   output ordering.
+
+### AQ bounded H0801 producer-projection amendment (proposed 2026-07-14)
+
+This is the smallest scope correction for the H0801 public-compatibility hard
+stop found during Session AQ corrective review. Cause
+`value_used_after_move_v0` remains producer-owned by `ownership_check`.
+`src/ownership_check.rs` is authorized only to carry and seal the canonical
+H0801 public projection from its structured ownership analysis; no other
+ownership behavior or production path is authorized by this amendment.
+
+The sealed occurrence must preserve the pre-AQ runtime diagnostic exactly:
+
+- code and title: H0801, `use after move`;
+- severity: error;
+- primary span: the exact offending use;
+- message:
+
+  ```text
+  value `{root}` was used after it was moved
+  ```
+
+- help:
+
+  ```text
+  Fix task `{task}`: `{root}` moved at {file}:{line}:{column}; use it before that move or create a fresh owned value.
+  ```
+
+- related spans and their ordering exactly as previously exposed; and
+- diagnostic count and ordering unchanged.
+
+Runtime preflight must consume that exact sealed producer-owned occurrence.
+The existing runtime channel and exit behavior remain exactly
+`runtime trap: H0801 use after move`, exit 2.
+
+`ownership_check` must carry the task identity and task name, moved root, move
+site, offending use site, path facts, resolver occurrence where applicable,
+and public projection directly from structured ownership analysis. Every
+canonical producer, including `ownership_check`, must start from the exact
+opaque producer-owned cause identity attached to that structured semantic
+fact. The existing closed ownership-cause representation may map directly to
+that opaque cause key. No canonical producer may select, infer, reconstruct,
+search for, dispatch, or substitute a cause or occurrence from a public
+diagnostic code, H-code, code equality or family; a catalog or registry search
+keyed by public code or projection data; message, help, severity, primary or
+related spans, source or rendered text, display data, semantic-origin strings,
+or relationship-route strings; any default or fallback cause, emitter,
+projection, diagnostic, or occurrence; or first-match, only-match,
+source-order, or equivalent selection behavior. Registry lookup may project
+and validate public diagnostic metadata only after the opaque producer-owned
+cause key has already been selected; scanning the registry or catalog to
+discover or choose a cause from public code or projection fields is forbidden.
+It may not parse or reverse-engineer formatted help, messages, source text,
+rendered spans, semantic-origin strings, or relationship-route strings. Runtime
+and the collector may not rewrite, reseal, reconstruct, search for, or
+substitute the projection. `DiagnosticOccurrenceCollector::consume_exact`
+must require both complete authoritative occurrence equality and sealed
+public-projection equality.
+
+Compatibility remains closed:
+
+- existing `hum ownership-check` human and JSON bytes are unchanged;
+- diagnostic catalogs, schemas, registry allocation, ownership decisions,
+  precedence, accepted semantics, and non-H0801 diagnostics are unchanged;
+- no message cleanup or ownership redesign may ride along; and
+- H0702/H0703 and genuine runtime-only invariant/trap behavior remain
+  unchanged.
+
+Permanent evidence must prove:
+
+1. the established Session J H0801 runtime bytes remain unchanged;
+2. `fixtures/diagnostics/session_aq_static_runtime_shared_ownership_fail.hum`
+   preserves those exact bytes;
+3. the two-task
+   `fixtures/diagnostics/session_aq_reachable_second_ownership_occurrence_fail.hum`
+   consumes only the later reachable H0801 occurrence, and the earlier
+   unreachable occurrence cannot replace it;
+4. forward and reverse collector insertion produce identical results;
+5. substituting any public projection field fails closed;
+6. no output adapter is called before H0801 preflight;
+7. `hum ownership-check` human and JSON output remains byte-compatible; and
+8. two fresh executions are byte-identical.
+
+This proposed amendment does not accept the preserved Session AQ worktree or
+authorize correction to resume. Implementation remains paused until these
+exact bytes are independently accepted, committed, durably published with
+successful required full CI, recorded, and followed by a separate explicit
+BDFL corrective go signal. No other production path, Session AQ requirement,
+later session, `PRE-AQ-INTEGRITY` work, or GitHub Issue #1 mutation is
+authorized.
 
 ### AQ permanent evidence and repository audit
 
