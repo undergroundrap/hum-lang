@@ -4277,9 +4277,9 @@ mod tests {
         DiagnosticCode, DiagnosticInvariantError, DiagnosticOccurrenceCollector,
         DiagnosticOccurrenceSet, Severity,
     };
-    use crate::file_read::{
-        FileLocalityAdapter, FileLocalityError, FileReadAdapter, FileReadAdapterError,
-    };
+    use crate::file_read::FileReadAdapterError;
+    #[cfg(windows)]
+    use crate::file_read::{FileLocalityAdapter, FileLocalityError, FileReadAdapter};
     #[cfg(windows)]
     use crate::native_path::ValidatedNativePath;
     use crate::operator_grant::OperatorGrantPolicy;
@@ -4343,7 +4343,7 @@ mod tests {
     impl super::FileReadAdapter for CountingFileRead {
         fn read_text(&mut self, _path: &OsStr) -> Result<String, FileReadAdapterError> {
             self.calls += 1;
-            Err(FileReadAdapterError::NotFound)
+            Err(FileReadAdapterError::IoFailed)
         }
     }
 
