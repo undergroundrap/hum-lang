@@ -155,6 +155,14 @@ a first native vertical slice is the recommended next compiler milestone only
 under a separately issued Work Order. That next Work Order, Session AR, GitHub
 Issue #1 mutation, repair work, and all later implementation remain
 unauthorized pending separate BDFL signals.
+
+A bounded read-only ghost-test audit on 2026-07-15 found two class-(a)
+evidence gaps in accepted Session AQ tests. It did not establish a production
+defect and does not reopen or reinterpret Session AQ or Work Order 9. The
+separately gated post-closure evidence correction defined below is proposed and
+unauthorized pending fresh independent pre-issuance review, BDFL acceptance, a
+`WORKORDER.md`-only commit and publication with required CI, and a separate
+explicit BDFL corrective implementation go signal.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -2370,6 +2378,217 @@ explicitly authorized session.
 - Stop. Work Order 9 ends. No issue closure, stdlib work, Session AR, or later
   implementation is authorized by AQ completion.
 
+## Post-closure Session AQ ghost-evidence correction (proposed 2026-07-15)
+
+### Authority, historical status, and exact findings
+
+This increment is a separately gated evidence correction after the accepted
+close of Session AQ and Work Order 9. It does not reopen either deliverable,
+change their accepted semantics, or revive `PRE-AQ-INTEGRITY`. The bounded
+ghost-test audit found evidence gaps, not confirmed production defects, in
+exactly these accepted tests:
+
+1. `tests::session_aq_real_load_app_old_to_new_and_old_to_absence` in
+   `src/main.rs` uses real `load_program` data but directly invokes
+   `remove_loaded_app_projections` and `insert_reanalyzed_projection`. It does
+   not traverse the run command's actual reanalysis and composition ordering.
+2. `run::tests::session_aq_static_runtime_causes_are_consumed_once_before_adapters`
+   in `src/run.rs` uses the `#[cfg(test)]` reconstruction
+   `runtime_occurrence_authority`. It does not prove the occurrence authority
+   that `main` composes through production `runtime_diagnostic_occurrences` and
+   supplies to the runner.
+
+The existing helper-level and corruption tests remain permanent. The
+correction adds exactly two orchestration-level test functions, one for each
+finding. Either function may contain multiple bounded cases needed to prove
+its one assigned orchestration boundary. No third correction, general test
+audit, or accepted-behavior re-review enters this increment.
+
+### Exact eventual implementation envelope
+
+The only authorized implementation paths are:
+
+- `src/main.rs`;
+- `src/run.rs`, only for the test-only four-adapter delegation seam defined
+  below;
+- `tools/check_all.ps1`; and
+- the minimum new checked-in fixture files required by the two tests.
+
+The only authorized `src/run.rs` change is one `#[cfg(test)] pub(crate)`
+function that accepts an already-composed `DiagnosticOccurrenceSet` reference,
+the existing entry/argument/grant inputs, and injected output, replay,
+file-locality, and file-read adapter trait objects. It must construct the
+existing private `RunAdapters` value and delegate immediately and exactly once
+to the existing production `run_program_with_occurrences_and_file_adapters`.
+It may not call `runtime_occurrence_authority`, analyze or reconstruct
+occurrences, select or alter authority, inspect expected diagnostics, add a
+branch, copy runner logic, or change production visibility or behavior. The
+existing production runner, `RunAdapters` representation, adapter traits, and
+all other `src/run.rs` code remain unchanged. If this one delegation seam is
+insufficient, stop for a fresh independently reviewed amendment.
+
+No other production source, test module, documentation, schema, workflow,
+Cargo file, decision, governance file, or fixture is authorized. The
+implementation must stop before touching any path outside this exhaustive
+envelope.
+
+The two new test functions must be defined in the `src/main.rs` test module
+with stable names owned by this increment:
+
+- `post_aq_real_command_app_reanalysis_composes_exactly`; and
+- `post_aq_runtime_uses_main_composed_occurrence_authority`.
+
+`tools/check_all.ps1` may add only proportional invocations and source audits
+that keep these two tests permanent. It must not reproduce their expected
+ledger, occurrence authority, or composition logic.
+
+### Real-path entry and observability contract
+
+Both tests must start from valid checked-in Hum input and `load_program`. The
+app test must then enter the actual run command's app reanalysis and
+composition orchestration. Calling `remove_loaded_app_projections`,
+`insert_reanalyzed_projection`, or another lower helper directly as the test
+entry point is forbidden.
+
+The runtime test must traverse the same actual run reanalysis and composition
+path, consume the `DiagnosticOccurrenceSet` returned by production
+`runtime_diagnostic_occurrences`, and pass that exact set to the existing
+runner through the authorized test-only four-adapter delegation seam. It must
+not call `runtime_occurrence_authority`, reconstruct its input authority, or
+fabricate an already-correct occurrence, route, ledger, authority set, or
+expected answer and then grade that fabricated state.
+
+`DiagnosticOccurrenceSet` is an intentionally value-semantic carrier and has
+no provenance identity. An independently reconstructed set with exactly equal
+contents is therefore indistinguishable to the production runner, and this
+increment does not add a provenance token or claim otherwise. The new test
+proves the production data flow by receiving the set directly from
+`runtime_diagnostic_occurrences`, passing that same value to the delegation
+seam without reconstruction, and detecting observable missing, substituted,
+and extra occurrence contents. Source inspection may confirm that the shared
+path contains no reconstruction, but alternate provenance by itself is not a
+runtime-observable sabotage result.
+
+A CLI or subprocess may provide supplemental behavioral evidence only when it
+exposes every fact asserted by that case. It cannot satisfy finding 2 or any
+acceptance claim about literal adapter invocation counts: the runtime-authority
+test must execute in-process with injected counting adapters so it can observe
+the output, replay, locality, and file-adapter calls directly. The app test may
+use a subprocess only for facts the subprocess genuinely exposes; it may not
+substitute public output for the required internal ledger, occurrence, and
+ordering evidence.
+
+Because the inline `main` command path does not expose both the composed
+occurrence authority and injected adapter counters, this increment permits
+exactly one behavior-preserving extraction inside `src/main.rs`. The real
+command path and both new tests must call that same function. The extraction
+must own the existing production ordering and data flow from loaded program
+through reanalysis, occurrence composition, blocking, and runner invocation;
+it may not be a test-only copy or a second implementation. Its inputs may
+expose only the existing command inputs and adapter injection already needed
+for testing, and its outputs may expose only existing result and evidence
+values. It creates no public API or production behavior.
+
+The production code between the real CLI entry and this shared extraction must
+be trivial and non-orchestrating. It may parse the existing CLI options, call
+the same `load_program` path used by the tests, construct the concrete
+production adapters, invoke the shared extraction once, and render the returned
+result. It may not select, remove, insert, reorder, filter, reconstruct, or
+replace projections or occurrence authority; decide diagnostic precedence or
+execution blocking; or dispatch an adapter outside the extraction. The tests
+must cover every load-bearing composition decision. If any such decision would
+remain above or below an untested boundary, the extraction is insufficient and
+implementation must stop for a fresh amendment.
+
+No diagnostic identity, projection, count, severity, message, help, blame,
+ordering, exit status, stdout, stderr, runtime behavior, authority behavior,
+adapter behavior, schema, command, or Hum language surface may change. If the
+shared extraction or honest real-path test requires another file or a behavior
+change, stop and request a fresh independently reviewed amendment.
+
+### Permanent positive-evidence and masking matrix
+
+The implementer must first run both unmodified real-path tests. If either is
+red, the implementation has exposed a real composition defect: report the
+exact defect and stop for BDFL triage. Do not weaken an expectation,
+manufacture authority, bypass the failing layer, or change production behavior
+merely to restore green. Exposing such a defect is successful audit evidence,
+not implementation failure.
+
+After the unmodified tests are green, temporarily mutate the actual shared
+production orchestration and prove the appropriate new test turns red for each
+of exactly these seven sabotage categories:
+
+| # | Boundary | Required temporary production sabotage | Required discriminating observation |
+|---:|---|---|---|
+| 1 | app composition | skip removal of the authoritative old app projection | stale and replacement composition cannot satisfy the pinned exact ledger, occurrence, diagnostic, and ordering facts |
+| 2 | app composition | insert the replacement before removing the old projection | the ordering-sensitive evidence turns red even if the final public-looking projection could be made similar |
+| 3 | app composition | insert the replacement projection twice | duplicate occurrence, projection, or diagnostic evidence turns red rather than being silently normalized |
+| 4 | runtime authority | drop the required production-composed occurrence | exact diagnostic identity/count and blocked execution evidence turns red |
+| 5 | runtime authority | substitute a distinct valid occurrence, including a same-code occurrence | exact occurrence identity turns red despite compatible public code or projection bytes |
+| 6 | runtime authority | add one distinct valid extra occurrence to the production-composed set, including a public-compatible or same-code occurrence | exact authority count, identity, ordering, and consumption evidence turns red rather than ignoring or normalizing the extra occurrence |
+| 7 | blocked adapter boundary | bypass the shared block-before-adapters decision | bounded cases prove that any resulting output, replay, locality, or file-adapter call makes the test red; the restored path pins exact zero calls for all four adapters |
+
+Every sabotage must change the exact production function used by the real
+command and the tests. Mutating a test-only mirror, fabricated carrier,
+expected value, or assertion is not evidence. Category 7 is one orchestration
+mutation and may use bounded fixture cases for the four adapter kinds without
+adding test functions. The implementer handoff must record the exact mutation,
+the previously green test that failed, and the distinguishing failure for all
+seven categories. All temporary mutations, generated output, and reviewer
+artifacts must be removed before handoff. A fresh independent reviewer must
+reproduce non-degenerate samples from both the app and runtime groups and
+inspect every recorded mutation.
+
+### Compatibility, bans, and acceptance gate
+
+The new evidence must pin only the facts needed to distinguish skipped,
+reordered, duplicated, dropped, substituted, or bypassed composition:
+
+- exact diagnostic count, registered occurrence identity, and ordering;
+- exact process or runner exit outcome;
+- exact stdout and stderr bytes; and
+- exact output, replay, locality, and file-adapter call counts.
+
+Existing helper-level and corruption tests must remain unchanged and green.
+The two new tests must traverse the shared production orchestration and all
+seven sabotage categories must independently make the assigned test red before
+restored source returns green. The final implementation handoff and independent
+review must run:
+
+```powershell
+cargo fmt --check
+cargo test
+cargo clippy --all-targets -- -D warnings
+git diff --check
+.\tools\check_all.ps1
+```
+
+Both actors must enumerate affected production, test, and platform
+configurations and disclose every unavailable target. Passing on the local
+host does not imply unexercised target coverage.
+
+No production refactor beyond the one permitted shared extraction, broader
+test sweep, compiler feature, Session AR work, dashboard, integrity experiment,
+CI change, GitHub Issue #1 mutation, `PRE-AQ-INTEGRITY` work, or unrelated
+repair is authorized. This concrete correction does not weaken or supersede
+the indefinite deferral of speculative evidence-integrity hardening.
+
+The correction remains proposed and unauthorized until all four gates pass in
+order:
+
+1. fresh deliverable-independent pre-issuance review of these exact
+   `WORKORDER.md` bytes;
+2. explicit BDFL acceptance;
+3. a `WORKORDER.md`-only commit and durable publication with successful
+   required Ubuntu and Windows CI; and
+4. a separate explicit BDFL corrective implementation go signal.
+
+Acceptance of this document authorizes none of those later actions. The
+implementer must stop after the two evidence corrections and leave the complete
+worktree uncommitted with an empty index for fresh independent implementation
+review. No Session AR or later work follows implicitly.
+
 ## Cross-session evidence matrix
 
 Every session must independently run its affected positive and misuse evidence
@@ -2731,6 +2950,15 @@ a first native vertical slice is the recommended next compiler milestone only
 under a separately issued Work Order. That next Work Order, Session AR, GitHub
 Issue #1 mutation, repair work, and all later implementation remain
 unauthorized pending separate BDFL signals.
+
+The 2026-07-15 bounded ghost-test audit found two class-(a) evidence gaps, not
+confirmed production defects. The post-closure Session AQ ghost-evidence
+correction is proposed under the separate section above. Its implementation is
+unauthorized pending fresh independent pre-issuance review, BDFL acceptance, a
+`WORKORDER.md`-only commit and publication with successful required CI, and a
+separate explicit BDFL corrective implementation go signal. It does not reopen
+Session AQ or Work Order 9, revive `PRE-AQ-INTEGRITY`, authorize Session AR, or
+change the recommended next compiler milestone.
 
 No additional speculative CI or evidence-integrity hardening is authorized.
 The accepted status-only classifier and existing workflow remain unchanged.
