@@ -500,6 +500,37 @@ Weak contribution:
 - adds magic agents must infer
 - grows the language without reducing confusion
 
+## BDFL Conduct Under Criticism And Forks
+
+How the BDFL responds in public when Hum is criticized, forked, rewritten, or
+abandoned is itself a governance surface. The community reads the founder's
+composure as a signal about the project's health, and reacts to it more than
+to the original criticism.
+
+The trap: public resentment or defensiveness from the founder alarms Hum's own
+users. A founder venting in public steers undecided people away faster than any
+competitor's post does.
+
+The discipline:
+
+- Separate technical fact-checking from grievance. Correct factual errors
+  calmly and with evidence; keep the emotional part private.
+- Never punch down at a departing contributor, a competitor, or a fork. Grace
+  over score-settling, always.
+- Public statements about competitors, forks, or departures are a reserved BDFL
+  matter and must pass one gate: does this help the project, or only vent?
+- Emotion is allowed. Feel it honestly, process it privately, gate it before it
+  reaches an audience.
+
+Observed case (2026): a respected language creator was publicly left by a
+flagship project that rewrote off their language. The public response arced
+from initial resentment to self-aware recovery, and by the author's own
+admission the early public criticism risked alarming their remaining users.
+Both halves instruct us -- the trap (founder bitterness carries downstream
+cost) and the recovery (name the emotion, correct facts calmly, redirect to
+positive work). Recorded to apply to ourselves, not as a verdict on anyone. See
+the Bun entry in `CROSS_LANGUAGE_REGRET_LEDGER.md`.
+
 ## Brutal Warning
 
 A language can die from bad governance before it dies from bad code.
