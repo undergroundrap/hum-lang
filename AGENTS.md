@@ -181,6 +181,30 @@ still require BDFL instruction except for the red-main emergency rule below.
 Accepted commit and CI evidence are recorded in the Work Order before the next
 session is authorized.
 
+#### Work Order lifecycle and file freshness (distilled 2026-07-15 from Work Order 9)
+
+A Work Order is a bounded unit with a lifecycle: issued, executed session by
+session, then closed. When its authorized session sequence completes, close it
+— freeze the file, record the closure, and make no further amendments. Git
+preserves the full history; the working file does not need to.
+
+Start new work as a fresh Work Order file, never as more amendments to a
+completed one. Over a long Work Order, `WORKORDER.md` accumulates the full
+spec, every session record, CI job logs, and layered amendments; left
+unbounded, that mass becomes a cold-start tax — every agent must read it to
+act, and the signal-to-noise degrades. That degradation is context rot, and it
+is a defect, not a badge of thoroughness.
+
+A fresh Work Order carries forward only live, load-bearing context — accepted
+decisions, active strategy, and the specific evidence its own sessions need —
+not the closed order's session-by-session history, CI logs, or amendment
+trail. Those live in git.
+
+Observed live in Work Order 9: its AN-AQ sequence completed, but a post-AQ
+hardening addendum kept extending the same file through repeated amendments
+until the cold-start cost was itself a concern. The lesson: close on
+completion, and give the next order a clean file.
+
 #### Exact routine Work Order status-only closure
 
 BDFL-directed amendment, 2026-07-14: an exact routine Work Order status-only
