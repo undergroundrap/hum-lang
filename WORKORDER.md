@@ -110,11 +110,23 @@ preparation succeeded, `Run Hum preflight` succeeded in 6m 50s, and
 `windows-latest` succeeded in 13m 01s: Cargo caching and Rust toolchain
 preparation succeeded, `Run Hum preflight` succeeded in 12m 10s, and
 `Run status-only evidence` was skipped. Both platforms reported `mode=full`
-with `reason=no_status_transition`. `PRE-AQ-INTEGRITY` remains revoked and
-indefinitely deferred. Session AQ is the next compiler-development milestone,
-but remains unauthorized pending durable publication of this exact status
-record and a separate explicit BDFL go signal. GitHub Issue #1 mutation,
-repair work, integrity implementation, and all later work remain unauthorized.
+with `reason=no_status_transition`. The bounded Session AQ H0801 producer-
+projection amendment was independently accepted, committed, and published as
+`61c07ac210341536921138287ca727b04b97cf14`. Required full CI passed in
+workflow `29386718639`, attempt 1. Ubuntu job `87261440948` on
+`ubuntu-latest` succeeded in 6m 18s: the classifier reported `mode=full` with
+`reason=no_status_transition`, Cargo caching and Rust toolchain preparation
+succeeded, `Run Hum preflight` succeeded in 5m 46s, and
+`Run status-only evidence` was skipped. Windows job `87261440968` on
+`windows-latest` succeeded in 13m 14s: the classifier reported `mode=full`
+with `reason=no_status_transition`, Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 12m 25s, and
+`Run status-only evidence` was skipped. The amendment is durably published.
+The preserved Session AQ implementation remains paused and unchanged. Session
+AQ corrective implementation remains unauthorized pending publication of this
+exact status record and a separate explicit BDFL corrective go signal.
+`PRE-AQ-INTEGRITY` remains revoked and indefinitely deferred. GitHub Issue #1
+mutation, repair work, later sessions, and all other work remain unauthorized.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -2644,12 +2656,25 @@ preparation succeeded, `Run Hum preflight` succeeded in 12m 10s, and
 `Run status-only evidence` was skipped. Both platforms reported `mode=full`
 with `reason=no_status_transition`.
 
-`PRE-AQ-INTEGRITY` remains revoked and indefinitely deferred. Session AQ is the
-next compiler-development milestone but remains unauthorized pending durable
-publication of this exact status record and a separate explicit BDFL go signal.
-After AQ, Hum IR plus the minimal compiler-ready standard library needed for a
-first native vertical slice is the preferred direction only under a later Work
-Order.
+The bounded Session AQ H0801 producer-projection amendment was independently
+accepted, committed, and published as
+`61c07ac210341536921138287ca727b04b97cf14`. Required full CI passed in
+workflow `29386718639`, attempt 1. Ubuntu job `87261440948` on
+`ubuntu-latest` succeeded in 6m 18s: the classifier reported `mode=full` with
+`reason=no_status_transition`, Cargo caching and Rust toolchain preparation
+succeeded, `Run Hum preflight` succeeded in 5m 46s, and
+`Run status-only evidence` was skipped. Windows job `87261440968` on
+`windows-latest` succeeded in 13m 14s: the classifier reported `mode=full`
+with `reason=no_status_transition`, Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 12m 25s, and
+`Run status-only evidence` was skipped. The amendment is durably published.
+
+The preserved Session AQ implementation remains paused and unchanged. Session
+AQ corrective implementation remains unauthorized pending publication of this
+exact status record and a separate explicit BDFL corrective go signal.
+`PRE-AQ-INTEGRITY` remains revoked and indefinitely deferred. After AQ, Hum IR
+plus the minimal compiler-ready standard library needed for a first native
+vertical slice is the preferred direction only under a later Work Order.
 
 No additional speculative CI or evidence-integrity hardening is authorized.
 The accepted status-only classifier and existing workflow remain unchanged.
