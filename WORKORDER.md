@@ -122,11 +122,39 @@ succeeded, `Run Hum preflight` succeeded in 5m 46s, and
 with `reason=no_status_transition`, Cargo caching and Rust toolchain
 preparation succeeded, `Run Hum preflight` succeeded in 12m 25s, and
 `Run status-only evidence` was skipped. The amendment is durably published.
-The preserved Session AQ implementation remains paused and unchanged. Session
-AQ corrective implementation remains unauthorized pending publication of this
-exact status record and a separate explicit BDFL corrective go signal.
-`PRE-AQ-INTEGRITY` remains revoked and indefinitely deferred. GitHub Issue #1
-mutation, repair work, later sessions, and all other work remain unauthorized.
+Session AQ was independently accepted and published as
+`ac53488a486e868572fea5b60bbfd65a220e53ca`. Its bounded portability
+corrections were published as `6ef0e0cb04fad8d126717928f250cc4c2d341e36`
+(`fix(runtime): keep moved-state probe portable`) and
+`2fab831ab66a69ccbbdc33a75dab947750c511ee`
+(`fix(runtime): gate file adapter test helper`). Its bounded CI corrections
+were published as `9202087902773bffe8d05e6f3c8d524f216e0500`
+(`ci(actions): extend full preflight timeout`) and
+`f72b6978438ec1d28417a414ab6766e6cb7e07a6`
+(`fix(ci): align release timeout guard`). Required full CI passed for the final
+correction in workflow `29405286341`, attempt 1: Ubuntu job `87319166240`
+succeeded in 11m 06s and Windows job `87319166232` succeeded in 13m 31s. Both
+platforms selected `mode=full` with `reason=no_status_transition`; Cargo
+caching, Rust toolchain preparation, and `Run Hum preflight` succeeded, while
+`Run status-only evidence` was skipped.
+
+The later unrelated documentation commit
+`c65f2e2f1ad1c185cc7db6e2c37587da3937e78f` changed only `AGENTS.md` and
+`docs/OCB_METHOD.md` and did not alter the accepted Session AQ implementation.
+Current-baseline full CI passed in workflow `29434846469`, attempt 1. Ubuntu
+job `87418772570` on `ubuntu-latest` succeeded in 10m 05s, including 9m 46s in
+`Run Hum preflight`; Windows job `87418772610` on `windows-latest` succeeded in
+18m 30s, including 18m 05s in `Run Hum preflight`. Both platforms selected
+`mode=full` with `reason=no_status_transition`; Cargo caching and Rust toolchain
+preparation succeeded, and `Run status-only evidence` was skipped.
+
+Session AQ is durably complete, and Work Order 9's AN-AQ implementation
+sequence is complete. `PRE-AQ-INTEGRITY` remains revoked and indefinitely
+deferred. Hum IR plus the minimal compiler-ready standard library required for
+a first native vertical slice is the recommended next compiler milestone only
+under a separately issued Work Order. That next Work Order, Session AR, GitHub
+Issue #1 mutation, repair work, and all later implementation remain
+unauthorized pending separate BDFL signals.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -2669,20 +2697,43 @@ with `reason=no_status_transition`, Cargo caching and Rust toolchain
 preparation succeeded, `Run Hum preflight` succeeded in 12m 25s, and
 `Run status-only evidence` was skipped. The amendment is durably published.
 
-The preserved Session AQ implementation remains paused and unchanged. Session
-AQ corrective implementation remains unauthorized pending publication of this
-exact status record and a separate explicit BDFL corrective go signal.
-`PRE-AQ-INTEGRITY` remains revoked and indefinitely deferred. After AQ, Hum IR
-plus the minimal compiler-ready standard library needed for a first native
-vertical slice is the preferred direction only under a later Work Order.
+Session AQ was independently accepted and published as
+`ac53488a486e868572fea5b60bbfd65a220e53ca`. Its bounded portability
+corrections were published as `6ef0e0cb04fad8d126717928f250cc4c2d341e36`
+(`fix(runtime): keep moved-state probe portable`) and
+`2fab831ab66a69ccbbdc33a75dab947750c511ee`
+(`fix(runtime): gate file adapter test helper`). Its bounded CI corrections
+were published as `9202087902773bffe8d05e6f3c8d524f216e0500`
+(`ci(actions): extend full preflight timeout`) and
+`f72b6978438ec1d28417a414ab6766e6cb7e07a6`
+(`fix(ci): align release timeout guard`). Required full CI passed for the final
+correction in workflow `29405286341`, attempt 1. Ubuntu job `87319166240` on
+`ubuntu-latest` succeeded in 11m 06s; Windows job `87319166232` on
+`windows-latest` succeeded in 13m 31s. Both platforms selected `mode=full`
+with `reason=no_status_transition`; Cargo caching, Rust toolchain preparation,
+and `Run Hum preflight` succeeded, while `Run status-only evidence` was
+skipped.
+
+The later unrelated documentation commit
+`c65f2e2f1ad1c185cc7db6e2c37587da3937e78f` changed only `AGENTS.md` and
+`docs/OCB_METHOD.md` and did not alter the accepted Session AQ implementation.
+Current-baseline full CI passed in workflow `29434846469`, attempt 1. Ubuntu
+job `87418772570` on `ubuntu-latest` succeeded in 10m 05s, including 9m 46s in
+`Run Hum preflight`; Windows job `87418772610` on `windows-latest` succeeded in
+18m 30s, including 18m 05s in `Run Hum preflight`. Both platforms selected
+`mode=full` with `reason=no_status_transition`; Cargo caching and Rust toolchain
+preparation succeeded, and `Run status-only evidence` was skipped.
+
+Session AQ is durably complete, and Work Order 9's AN-AQ implementation
+sequence is complete. `PRE-AQ-INTEGRITY` remains revoked and indefinitely
+deferred. Hum IR plus the minimal compiler-ready standard library required for
+a first native vertical slice is the recommended next compiler milestone only
+under a separately issued Work Order. That next Work Order, Session AR, GitHub
+Issue #1 mutation, repair work, and all later implementation remain
+unauthorized pending separate BDFL signals.
 
 No additional speculative CI or evidence-integrity hardening is authorized.
 The accepted status-only classifier and existing workflow remain unchanged.
-Session AQ implementation, workflow/classifier/timeout/tool/script/source/
-fixture/test changes, decisions, `AGENTS.md`, governance, GitHub Issue #1,
-integrity probes, mutation builds, disposable clones, downloads, alternate-
-access attempts, Hum IR, standard-library, native-backend, adoption, dashboard,
-repair, and all later work remain unauthorized. No commit, push, or scope
-expansion is implicitly authorized.
+No commit, push, scope expansion, or later authority is implicitly authorized.
 
 <!-- workorder-current-authorization-gate:end -->
