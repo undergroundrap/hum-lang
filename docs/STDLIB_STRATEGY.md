@@ -408,6 +408,78 @@ The first self-hosted targets should be small and proof-friendly:
 - `InlineVec`
 - simple `Map` interface over a host implementation
 
+## Dogfooding And Promotion Discipline
+
+Activation note: this discipline turns on once real Hum programs are
+writable -- that is, once enough stdlib primitives and an execution path
+exist to build the programs below. Until then it is recorded doctrine, not
+an active loop. Design work reveals logical inconsistencies; building real
+programs reveals everything else -- awkward APIs, missing operations,
+accidental allocations, unclear ownership, weak diagnostics, performance
+cliffs, path/text confusion, and features that composed badly outside
+isolation. The stdlib grows from that evidence, not from taste.
+
+### Promotion ladder
+
+An abstraction earns a wider home by how many independent programs need it,
+not by how elegant it looks. This complements, and does not replace, the
+compiler-ready rule that a library line needs two independent consumers.
+
+- one program needs it: keep it local to that program;
+- two unrelated programs need it: make an experimental package;
+- several independent programs need the same abstraction and its semantics
+  are settled: consider stable `std`, subject to
+  [STDLIB_CONSTITUTION.md](STDLIB_CONSTITUTION.md) and the benchmark rules
+  below;
+- only the compiler needs it: keep it in `compiler.support`.
+
+Do not promote a helper into `std` on first sight. Premature promotion is
+how a tiny language grows a huge stdlib by accident (see Brutal Critiques 5).
+
+### The dogfood loop
+
+Build a small real program, then: record the friction; classify it as a
+language, stdlib, tooling, or merely application-specific need; fix the
+smallest correct layer; and rerun the earlier programs to catch regressions.
+Friction is triaged through the existing friction ledger and three-strike
+rule, not fixed ad hoc. Distinguish a genuine architectural flaw from
+ordinary friction: one awkward call site is not a verdict; repeated
+workarounds, hidden effects, unsafe escape hatches, or several programs
+fighting the same abstraction are. Revising an earlier decision under that
+evidence is healthy, not failure.
+
+### Dogfood program ladder
+
+Build deliberately different kinds of programs, because each stresses a
+different part of the language. In rough order of increasing demand:
+
+1. a command-line file processor;
+2. a formatter or linter;
+3. a package/build tool;
+4. a structured-data parser and serializer;
+5. a long-running service (later);
+6. a constrained, embedded-style state machine;
+7. eventually, the Hum compiler itself.
+
+### What "good enough" means
+
+A good stdlib is not one with no future changes; additions must be possible
+without breaking existing users. It is one whose foundational promises are
+trustworthy: ownership and invalidation are predictable; effects and
+allocation are visible; paths and text are not confused; failures preserve
+their causes; common operations are ergonomic; performance is measurable;
+and APIs work across supported platforms. Those promises are the north star
+of promotion; the benchmark rules below are how a candidate proves it earns
+its place.
+
+Source: this section is the triaged, non-duplicative remainder of external
+dogfooding advice reviewed 2026-07-15. Its interop-first, port-the-problem,
+and vetted-bindings guidance is deliberately omitted here because it already
+lives in [EXTERNAL_ADVICE_REVIEW.md](EXTERNAL_ADVICE_REVIEW.md),
+[INTEROP_AND_PORTABILITY.md](INTEROP_AND_PORTABILITY.md), and
+[ADOPTION_STRATEGY_2026.md](ADOPTION_STRATEGY_2026.md). Advice is input, not
+authority.
+
 ## Benchmark Rules
 
 No stdlib structure should enter `std` because it is elegant.
