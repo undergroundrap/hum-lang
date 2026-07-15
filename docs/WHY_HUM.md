@@ -58,6 +58,14 @@ Everything below is that sentence, expanded and sourced.
   intended win is on the *diagnostics*, and that win is unproven until real
   users hit real ownership errors and report whether the messages actually
   teach. This is a claim to earn, not to bank.
+- **External evidence (2026):** Bun's Zig-to-Rust rewrite was justified almost
+  entirely on this axis -- mixing garbage-collected values with
+  manually-managed structs produced pervasive lifetime bugs that
+  style-guide-and-code-review discipline could not stop, so they moved to a
+  language that enforces ownership at compile time. A production runtime
+  paying that migration cost is real-world evidence that the *problem* Hum
+  targets is severe. It does not raise Hum's own maturity, which stays at the
+  checker level. See `CROSS_LANGUAGE_REGRET_LEDGER.md`.
 
 ## Axis 2 -- Checked intent (contracts with blame)
 

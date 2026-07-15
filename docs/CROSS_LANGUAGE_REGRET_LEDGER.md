@@ -180,6 +180,40 @@ libraries and conventions.
 Expose low-level power without making every programmer be the allocator and
 lifetime expert all day.
 
+## Bun Zig-to-Rust Migration (2026)
+
+A concrete external case, not our own reasoning. Bun rewrote its runtime from
+Zig to Rust in 2026; the published rationale tests several entries above.
+
+### Confirmed
+
+- Discipline does not scale to safety. Bun's use-after-free, double-free, and
+  leak bugs survived ASAN, fuzzing, and style guides; only compile-time
+  ownership enforcement retired them. Confirms the Zig regret above and
+  validates Hum's compiler-enforced ownership bet.
+- Fail-loud beats fail-silent. Post-migration regressions were latent bugs Zig
+  silently swallowed (odd-length UTF-16 slices, dropped bounds checks under
+  ReleaseFast) that Rust surfaced. Confirms Hum's fail-closed default.
+
+### Warning For Hum
+
+The release/comptime "checked versus erased" boundary is a bug farm. Bun's
+worst regressions came from checks that vanish at a build boundary -- Rust's
+`debug_assert!` erased in release, breaking logic that relied on its side
+effects, and Zig comptime erasing format markers Rust could not. Hum ships
+runtime-checked contracts; a release mode that strips them would inherit this
+exact bug class. Rule: which checks survive to release must be explicit,
+visible, and checked -- the discipline Hum already applies to effects and
+allocation, extended to assertions and contracts.
+
+### Method Note
+
+Bun's rewrite used parallel implementer-plus-adversarial-reviewer AI loops with
+split context -- the zero-trust shape codified in `AGENTS.md` and
+`OCB_METHOD.md`. It worked on a *port* with a fixed test oracle; Hum applies the
+same method to greenfield design, which has no oracle and is slower for it.
+Convergent method, harder problem.
+
 ## Python Lessons
 
 ### Regrets To Avoid
