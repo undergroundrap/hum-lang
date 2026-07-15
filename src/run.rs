@@ -518,7 +518,7 @@ pub(crate) fn run_program_with_occurrences_and_adapters(
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(crate) fn run_program_with_file_adapters(
     program: &Program,
     entry: Option<&str>,
