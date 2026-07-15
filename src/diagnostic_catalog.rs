@@ -1707,6 +1707,15 @@ diagnostic_causes!(
         "ownership_check",
         "ownership_relationship",
         "ownership_place_route"
+    ),
+    (
+        178,
+        "callable_task_value_unresolved_v0",
+        UNRESOLVED_NAME,
+        "callable_analysis",
+        "shared_preflight",
+        "callable_relationship",
+        "callable_definition_application_route"
     )
 );
 
@@ -3898,7 +3907,10 @@ mod tests {
         parse_code_spelling, validate_catalog_projection, validate_causes, validate_registry,
         validate_retired_history, validate_static_registry,
     };
-    use crate::diagnostic::DiagnosticCode;
+    use crate::diagnostic::{
+        Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceSet,
+        DiagnosticPrecedenceRelationship, Span,
+    };
 
     #[test]
     fn catalog_contains_known_codes() {
@@ -3991,6 +4003,93 @@ mod tests {
             Some(DiagnosticCode::CALLABLE_SIGNATURE_MISMATCH)
         );
         assert!(find("H9999").is_none());
+    }
+
+    #[test]
+    fn session_aq_every_code_cause_owner_stage_and_precedence_has_validation() {
+        validate_static_registry().expect("complete active registry validation");
+        for allocation in DIAGNOSTIC_CODE_ALLOCATIONS {
+            assert!(!allocation.spelling.is_empty());
+            assert!(!allocation.title.is_empty());
+            let code = DiagnosticCode::from_key(allocation.key);
+            assert_eq!(code.as_str(), allocation.spelling);
+            assert_eq!(code.title(), allocation.title);
+        }
+
+        let occurrence_for = |cause: &super::DiagnosticCauseSpec| {
+            let semantic_origin = format!("session-aq-audit-cause-{}", cause.key.ordinal());
+            DiagnosticOccurrence::registered(
+                cause,
+                DiagnosticOccurrence::semantic_relationship_identity(
+                    cause.origin_kind,
+                    cause.route_kind,
+                    semantic_origin,
+                    vec![format!("audit_route={}", cause.key.ordinal())],
+                ),
+                Diagnostic::error(
+                    cause.code,
+                    format!("audit cause {}", cause.reason),
+                    Some(Span::new(
+                        "fixtures/diagnostics/session_aq_registry_audit.hum",
+                        usize::from(cause.key.ordinal()) + 1,
+                        1,
+                    )),
+                ),
+            )
+            .expect("registered cause validates")
+        };
+
+        let mut owners = std::collections::BTreeSet::new();
+        let mut stages = std::collections::BTreeSet::new();
+        for cause in DIAGNOSTIC_CAUSES {
+            owners.insert(cause.semantic_owner);
+            stages.insert(cause.owning_stage);
+            occurrence_for(cause)
+                .validate()
+                .expect("cause owner and stage validate");
+        }
+        assert!(owners.iter().all(|owner| !owner.is_empty()));
+        assert!(stages.iter().all(|stage| !stage.is_empty()));
+
+        for rule in DIAGNOSTIC_PRECEDENCE {
+            let dominant = occurrence_for(
+                DIAGNOSTIC_CAUSES
+                    .iter()
+                    .find(|cause| cause.key == rule.dominant_causes[0])
+                    .expect("dominant cause"),
+            );
+            let suppressed = occurrence_for(
+                DIAGNOSTIC_CAUSES
+                    .iter()
+                    .find(|cause| cause.key == rule.suppressed_causes[0])
+                    .expect("suppressed cause"),
+            );
+            let relationship_id = format!("session-aq-precedence={}", rule.id);
+            let relationship = DiagnosticPrecedenceRelationship::producer_owned(
+                rule.id,
+                rule.applying_owner,
+                rule.applying_stage,
+                relationship_id.clone(),
+                &dominant,
+                &suppressed,
+                [
+                    dominant.semantic_origin().to_string(),
+                    suppressed.semantic_origin().to_string(),
+                ],
+                vec![relationship_id],
+            )
+            .expect("precedence producer validation");
+            let mut authority = DiagnosticOccurrenceSet::default();
+            authority
+                .insert_owned(dominant)
+                .expect("dominant authority");
+            authority
+                .insert_owned(suppressed)
+                .expect("suppressed authority");
+            authority
+                .consume_precedence_relationship(&relationship)
+                .expect("precedence consumer validation");
+        }
     }
 
     #[test]
@@ -4353,7 +4452,7 @@ mod tests {
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 177);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 178);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 8);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {

@@ -1,0 +1,31 @@
+module fixtures.diagnostics.session_aq_same_code_distinct_occurrences_fail
+
+type SourceError {
+  code: Text
+}
+
+task source() -> Result UInt, SourceError {
+  fails when:
+    the source fails
+
+  does:
+    fail SourceError.origin
+}
+
+task first() -> Result UInt, SourceError {
+  fails when:
+    the first call fails
+
+  does:
+    let value = source()
+    return value
+}
+
+task second() -> Result UInt, SourceError {
+  fails when:
+    the second call fails
+
+  does:
+    let value = source()
+    return value
+}

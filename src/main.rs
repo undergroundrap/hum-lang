@@ -54,6 +54,7 @@ mod typed_failure;
 mod version;
 mod writable_field_alias;
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -62,7 +63,10 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use ast::Program;
-use diagnostic::{Diagnostic, DiagnosticOccurrenceCollector, DiagnosticOccurrenceSet, Severity};
+use diagnostic::{
+    Diagnostic, DiagnosticOccurrence, DiagnosticOccurrenceCollector, DiagnosticOccurrenceId,
+    DiagnosticOccurrenceSet, PriorBlockerRef, Severity,
+};
 
 fn main() -> ExitCode {
     match run() {
@@ -188,27 +192,35 @@ fn run() -> Result<ExitCode, String> {
 
     let loaded = load_program(&options.inputs)?;
     let program = loaded.program;
-    let diagnostic_occurrences = loaded.diagnostic_occurrences;
-    validate_ao_diagnostic_occurrences(&program, &loaded.diagnostics)?;
+    let mut diagnostic_occurrences = loaded.diagnostic_occurrences;
+    let mut reanalyzable_projections = loaded.reanalyzable_projections;
     let mut diagnostics = loaded.diagnostics;
     if !diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
         diagnostics.extend(path_boundary::diagnostics(&program));
+        diagnostic_occurrences
+            .extend_owned(&path_boundary::diagnostic_occurrence_set(&program))
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
     }
     if options.command == "check"
         && !diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
-        diagnostics.extend(callable::diagnostics(&program, &diagnostics));
+        let callable_diagnostics = callable::diagnostics(&program, &diagnostics);
+        diagnostics.extend(callable_diagnostics);
     }
     if options.command == "run" {
-        diagnostics.retain(|diagnostic| {
-            !app_entry::is_app_entry_diagnostic(diagnostic)
-                && !capability_root::is_capability_diagnostic(diagnostic)
-        });
+        let app_analysis = app_entry::analyze(&program);
+        let capability_analysis = capability_root::analyze(&program);
+        remove_loaded_app_projections(
+            &mut diagnostics,
+            &mut diagnostic_occurrences,
+            &mut reanalyzable_projections,
+            &app_analysis,
+        )?;
         if !diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
@@ -216,12 +228,31 @@ fn run() -> Result<ExitCode, String> {
             if let Some(entry) = options.run_entry.as_deref() {
                 diagnostics.extend(capability_root::entry_diagnostics(&program, entry));
             } else {
-                diagnostics.extend(app_entry::diagnostics(&program));
+                match (app_analysis.diagnostic, app_analysis.diagnostic_occurrence) {
+                    (Some(diagnostic), Some(occurrence)) => insert_reanalyzed_projection(
+                        &mut diagnostics,
+                        &mut diagnostic_occurrences,
+                        ReanalysisProducer::AppEntry,
+                        diagnostic,
+                        occurrence,
+                    )?,
+                    (None, None) => {}
+                    _ => {
+                        return Err(
+                            "diagnostic invariant failure: app reanalysis projection/occurrence cardinality mismatch"
+                                .to_string(),
+                        );
+                    }
+                }
                 if !diagnostics
                     .iter()
                     .any(|diagnostic| diagnostic.severity == Severity::Error)
                 {
-                    diagnostics.extend(capability_root::diagnostics(&program));
+                    insert_capability_projections(
+                        &mut diagnostics,
+                        &mut diagnostic_occurrences,
+                        capability_analysis,
+                    )?;
                 }
             }
         }
@@ -229,8 +260,13 @@ fn run() -> Result<ExitCode, String> {
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
-        diagnostics.extend(capability_root::diagnostics(&program));
+        let capability_analysis = capability_root::analyze(&program);
+        diagnostics.extend(capability_analysis.diagnostics);
+        diagnostic_occurrences
+            .extend_owned(&capability_analysis.diagnostic_occurrences)
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
     }
+    validate_aq_diagnostic_occurrences(&program, &diagnostics, &diagnostic_occurrences)?;
     let has_errors = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
@@ -324,8 +360,11 @@ fn run() -> Result<ExitCode, String> {
             let mut output_adapter = run::StdoutOutputAdapter;
             let mut replay_adapter =
                 run::RunnerReplayAdapter::new(options.run_replay_ticks.clone());
-            let report = run::run_program_with_adapters(
+            let runtime_occurrences =
+                runtime_diagnostic_occurrences(&program, &diagnostics, &diagnostic_occurrences)?;
+            let report = run::run_program_with_occurrences_and_adapters(
                 &program,
+                &runtime_occurrences,
                 options.run_entry.as_deref(),
                 &options.run_args,
                 &options.run_authority,
@@ -935,26 +974,285 @@ fn run() -> Result<ExitCode, String> {
     }
 }
 
-fn validate_ao_diagnostic_occurrences(
+fn validate_aq_diagnostic_occurrences(
     program: &Program,
     diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
 ) -> Result<(), String> {
     callable::validate_diagnostic_occurrences(program)
         .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
-    let mut collector = DiagnosticOccurrenceCollector::default();
-    for occurrence in typed_failure::analyze_program(program)
-        .occurrences()
-        .into_iter()
-        .chain(callable::diagnostic_occurrences(program))
-    {
-        collector
-            .insert(occurrence)
-            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
-    }
+    DiagnosticOccurrenceCollector::from_authority(source_occurrences)
+        .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
     full_type_check::validate_typed_failure_prior_blockers(program, diagnostics)
         .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
     effect_check::validate_typed_failure_prior_blockers(program, diagnostics)
         .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    Ok(())
+}
+
+fn runtime_diagnostic_occurrences(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    source_occurrences: &DiagnosticOccurrenceSet,
+) -> Result<DiagnosticOccurrenceSet, String> {
+    let mut occurrences = profile_check::diagnostic_occurrence_set_from_source(
+        program,
+        diagnostics,
+        source_occurrences,
+    )
+    .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    for occurrence in callable::diagnostic_occurrences(program) {
+        occurrences
+            .insert_owned(occurrence)
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    }
+    DiagnosticOccurrenceCollector::from_authority(&occurrences)
+        .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    Ok(occurrences)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReanalyzableProjection {
+    producer: ReanalysisProducer,
+    authoritative_old: DiagnosticOccurrence,
+    authoritative_prior: PriorBlockerRef,
+    position: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReanalysisProducer {
+    AppEntry,
+    CapabilityRoot,
+}
+
+impl ReanalysisProducer {
+    fn owning_stage(self) -> &'static str {
+        match self {
+            Self::AppEntry => "app_entry",
+            Self::CapabilityRoot => "capability_root",
+        }
+    }
+
+    fn permits_authoritative_old(self) -> bool {
+        matches!(self, Self::AppEntry)
+    }
+
+    fn validate_occurrence(self, occurrence: &DiagnosticOccurrence) -> Result<(), String> {
+        if occurrence.owning_stage() != self.owning_stage() {
+            return Err(format!(
+                "diagnostic invariant failure: reanalysis producer {:?} does not own occurrence {}",
+                self,
+                occurrence.id().as_str()
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ReanalyzedProjection<'a> {
+    Present(&'a DiagnosticOccurrence),
+    Absent,
+}
+
+fn validate_reanalyzable_projection_ledger(
+    diagnostics: &[Diagnostic],
+    occurrences: &DiagnosticOccurrenceSet,
+    projections: &BTreeMap<DiagnosticOccurrenceId, ReanalyzableProjection>,
+) -> Result<(), String> {
+    let mut positions = BTreeSet::new();
+    for (id, projection) in projections {
+        if !projection.producer.permits_authoritative_old() {
+            return Err(
+                "diagnostic invariant failure: capability projections are insert-only and cannot become authoritative old projections"
+                    .to_string(),
+            );
+        }
+        projection
+            .producer
+            .validate_occurrence(&projection.authoritative_old)?;
+        if id != projection.authoritative_old.id() {
+            return Err(
+                "diagnostic invariant failure: reanalyzable projection key is stale".to_string(),
+            );
+        }
+        projection
+            .authoritative_old
+            .validate()
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+        projection
+            .authoritative_prior
+            .validate_against(&projection.authoritative_old)
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+        occurrences
+            .validate_exact(&projection.authoritative_old)
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+        if !positions.insert(projection.position) {
+            return Err(
+                "diagnostic invariant failure: duplicate reanalyzable projection position"
+                    .to_string(),
+            );
+        }
+        if diagnostics.get(projection.position) != Some(projection.authoritative_old.diagnostic()) {
+            return Err(format!(
+                "diagnostic invariant failure: sealed projection position mismatch for authoritative occurrence {}",
+                id.as_str()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn remove_loaded_app_projections(
+    diagnostics: &mut Vec<Diagnostic>,
+    occurrences: &mut DiagnosticOccurrenceSet,
+    projections: &mut BTreeMap<DiagnosticOccurrenceId, ReanalyzableProjection>,
+    app_analysis: &app_entry::Analysis<'_>,
+) -> Result<(), String> {
+    let authoritative_old = projections
+        .values()
+        .map(|projection| projection.authoritative_old.clone())
+        .collect::<Vec<_>>();
+    for expected_old in &authoritative_old {
+        let recomputed = app_analysis
+            .diagnostic_occurrence
+            .as_ref()
+            .filter(|occurrence| occurrence.id() == expected_old.id())
+            .map_or(ReanalyzedProjection::Absent, ReanalyzedProjection::Present);
+        remove_reanalyzed_projection(
+            diagnostics,
+            occurrences,
+            projections,
+            expected_old,
+            recomputed,
+        )?;
+    }
+    if !projections.is_empty() {
+        return Err(
+            "diagnostic invariant failure: reanalysis left an authoritative old projection"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn remove_reanalyzed_projection(
+    diagnostics: &mut Vec<Diagnostic>,
+    occurrences: &mut DiagnosticOccurrenceSet,
+    projections: &mut BTreeMap<DiagnosticOccurrenceId, ReanalyzableProjection>,
+    expected_old: &DiagnosticOccurrence,
+    recomputed: ReanalyzedProjection<'_>,
+) -> Result<(), String> {
+    validate_reanalyzable_projection_ledger(diagnostics, occurrences, projections)?;
+    let Some(authoritative) = projections.get(expected_old.id()) else {
+        return Err(format!(
+            "diagnostic invariant failure: missing authoritative old projection {}",
+            expected_old.id().as_str()
+        ));
+    };
+    if expected_old != &authoritative.authoritative_old
+        || expected_old.prior_blocker() != authoritative.authoritative_prior
+    {
+        return Err(format!(
+            "diagnostic invariant failure: expected old projection does not equal authority {}",
+            expected_old.id().as_str()
+        ));
+    }
+    if let ReanalyzedProjection::Present(recomputed_new) = recomputed {
+        recomputed_new
+            .validate()
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+        if recomputed_new != expected_old {
+            return Err(format!(
+                "diagnostic invariant failure: reanalyzed new projection does not equal its authoritative old occurrence {}",
+                expected_old.id().as_str()
+            ));
+        }
+    }
+    let index = authoritative.position;
+    let removed = occurrences
+        .remove_exact(expected_old)
+        .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    if diagnostics.get(index) != Some(&removed) {
+        return Err(format!(
+            "diagnostic invariant failure: sealed projection position mismatch for reanalyzed occurrence {}",
+            expected_old.id().as_str()
+        ));
+    }
+    projections.remove(expected_old.id()).ok_or_else(|| {
+        format!(
+            "diagnostic invariant failure: stale reanalyzable projection {}",
+            expected_old.id().as_str()
+        )
+    })?;
+    diagnostics.remove(index);
+    for projection in projections.values_mut() {
+        if projection.position > index {
+            projection.position -= 1;
+        }
+    }
+    Ok(())
+}
+
+fn insert_reanalyzed_projection(
+    diagnostics: &mut Vec<Diagnostic>,
+    occurrences: &mut DiagnosticOccurrenceSet,
+    producer: ReanalysisProducer,
+    diagnostic: Diagnostic,
+    occurrence: DiagnosticOccurrence,
+) -> Result<(), String> {
+    occurrence
+        .validate()
+        .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    producer.validate_occurrence(&occurrence)?;
+    if occurrence.diagnostic() != &diagnostic {
+        return Err(format!(
+            "diagnostic invariant failure: reanalyzed public projection does not equal its sealed occurrence {}",
+            occurrence.id().as_str()
+        ));
+    }
+    occurrences
+        .insert_owned(occurrence)
+        .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    diagnostics.push(diagnostic);
+    Ok(())
+}
+
+fn insert_capability_projections(
+    diagnostics: &mut Vec<Diagnostic>,
+    occurrences: &mut DiagnosticOccurrenceSet,
+    analysis: capability_root::CapabilityAnalysis,
+) -> Result<(), String> {
+    if analysis.diagnostics.len() != analysis.diagnostic_projections.len()
+        || analysis
+            .diagnostics
+            .iter()
+            .zip(&analysis.diagnostic_projections)
+            .any(|(diagnostic, projection)| diagnostic != &projection.diagnostic)
+        || analysis.diagnostic_occurrences.occurrences().count()
+            != analysis.diagnostic_projections.len()
+    {
+        return Err(
+            "diagnostic invariant failure: capability insertion projection ordering or cardinality mismatch"
+                .to_string(),
+        );
+    }
+    for projection in &analysis.diagnostic_projections {
+        analysis
+            .diagnostic_occurrences
+            .validate_exact(&projection.occurrence)
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+        ReanalysisProducer::CapabilityRoot.validate_occurrence(&projection.occurrence)?;
+    }
+    for projection in analysis.diagnostic_projections {
+        insert_reanalyzed_projection(
+            diagnostics,
+            occurrences,
+            ReanalysisProducer::CapabilityRoot,
+            projection.diagnostic,
+            projection.occurrence,
+        )?;
+    }
     Ok(())
 }
 
@@ -1143,6 +1441,7 @@ struct LoadedProgram {
     program: Program,
     diagnostics: Vec<Diagnostic>,
     diagnostic_occurrences: DiagnosticOccurrenceSet,
+    reanalyzable_projections: BTreeMap<DiagnosticOccurrenceId, ReanalyzableProjection>,
     timings: Vec<FileTiming>,
     total: Duration,
 }
@@ -2544,6 +2843,7 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
     let mut program = Program::default();
     let mut diagnostics = Vec::new();
     let mut diagnostic_occurrences = DiagnosticOccurrenceSet::default();
+    let mut reanalyzable_projections = BTreeMap::new();
     let mut timings = Vec::new();
 
     for (semantic_file_index, path) in paths.iter().enumerate() {
@@ -2577,6 +2877,37 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
                     &parsed.file,
                     semantic_file_index,
                 );
+            let app_occurrence_refs = app_occurrences.occurrences().collect::<Vec<_>>();
+            match (app_diagnostics.as_slice(), app_occurrence_refs.as_slice()) {
+                ([], []) => {}
+                ([_], [occurrence]) => {
+                    let position =
+                        diagnostics.len() + parsed.diagnostics.len() + file_diagnostics.len();
+                    if reanalyzable_projections
+                        .insert(
+                            occurrence.id().clone(),
+                            ReanalyzableProjection {
+                                producer: ReanalysisProducer::AppEntry,
+                                authoritative_old: (*occurrence).clone(),
+                                authoritative_prior: occurrence.prior_blocker(),
+                                position,
+                            },
+                        )
+                        .is_some()
+                    {
+                        return Err(
+                            "diagnostic invariant failure: duplicate reanalyzable projection"
+                                .to_string(),
+                        );
+                    }
+                }
+                _ => {
+                    return Err(
+                        "diagnostic invariant failure: app-entry projection/occurrence cardinality mismatch"
+                            .to_string(),
+                    );
+                }
+            }
             file_diagnostics.extend(app_diagnostics);
             diagnostic_occurrences
                 .extend_owned(&app_occurrences)
@@ -2599,6 +2930,7 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
         program,
         diagnostics,
         diagnostic_occurrences,
+        reanalyzable_projections,
         timings,
         total: total_start.elapsed(),
     })
@@ -2829,6 +3161,7 @@ fn print_help() {
 mod tests {
     use std::ffi::OsString;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     #[cfg(windows)]
     use crate::operator_grant::GrantDecision;
@@ -2839,9 +3172,11 @@ mod tests {
         BackendContractFormat, CapabilitiesFormat, CheckFormat, CoreContractFormat,
         CoreLowerFormat, CorePreviewFormat, CoreVerifyFormat, DiagnosticsFormat, DoctorFormat,
         EvidenceFormat, ExplainFormat, IrContractFormat, IrReadinessFormat, LspFormat,
-        MathObligationsFormat, ResolveFormat, ResourceReportFormat, RuntimeProfilesFormat,
-        StateModelFormat, SyntaxFormat, TargetFactsFormat, TypeCheckFormat, TypeEnvFormat,
-        VersionFormat, load_program, parse_cli,
+        MathObligationsFormat, ReanalysisProducer, ReanalyzableProjection, ReanalyzedProjection,
+        ResolveFormat, ResourceReportFormat, RuntimeProfilesFormat, StateModelFormat, SyntaxFormat,
+        TargetFactsFormat, TypeCheckFormat, TypeEnvFormat, VersionFormat,
+        insert_capability_projections, insert_reanalyzed_projection, load_program, parse_cli,
+        remove_loaded_app_projections, remove_reanalyzed_projection,
     };
 
     #[cfg(windows)]
@@ -2866,6 +3201,441 @@ mod tests {
         .expect("check json command");
         assert_eq!(options.command, "check");
         assert_eq!(options.check_format, CheckFormat::Json);
+    }
+
+    struct TempHumInput {
+        path: PathBuf,
+    }
+
+    impl TempHumInput {
+        fn new(label: &str, source: &str) -> Self {
+            static SERIAL: AtomicU64 = AtomicU64::new(0);
+            let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "hum-session-aq-{}-{serial}-{label}.hum",
+                std::process::id()
+            ));
+            std::fs::write(&path, source).expect("write Session AQ temporary Hum input");
+            Self { path }
+        }
+    }
+
+    impl Drop for TempHumInput {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    const INVALID_APP: &str = r#"app invalid_app {
+  why:
+    prove real load-path app reanalysis
+
+  task run_invalid -> Unit {
+    does:
+      return
+  }
+}
+"#;
+
+    const SECOND_INVALID_APP: &str = r#"app second_invalid_app {
+  why:
+    prove insertion-order independence
+
+  task run_second_invalid -> Unit {
+    does:
+      return
+  }
+}
+"#;
+
+    const VALID_APP: &str = r#"app valid_app {
+  why:
+    prove real load-path app replacement
+
+  starts with:
+    run_valid
+
+  task run_valid -> Unit {
+    does:
+      return
+  }
+}
+"#;
+
+    fn capability_reanalysis_analysis() -> crate::capability_root::CapabilityAnalysis {
+        let parsed = crate::parser::parse_source(
+            "fixtures/diagnostics/session_aq_app_scope_reanalysis_fail.hum",
+            include_str!("../fixtures/diagnostics/session_aq_app_scope_reanalysis_fail.hum"),
+        );
+        assert!(parsed.diagnostics.is_empty());
+        let program = crate::ast::Program {
+            files: vec![parsed.file],
+        };
+        let analysis = crate::capability_root::analyze(&program);
+        assert_eq!(analysis.diagnostic_projections.len(), 1);
+        analysis
+    }
+
+    fn load_invalid_app() -> (super::LoadedProgram, TempHumInput) {
+        let input = TempHumInput::new("invalid-app", INVALID_APP);
+        let loaded = load_program(std::slice::from_ref(&input.path))
+            .expect("load real per-file app authority");
+        assert_eq!(loaded.reanalyzable_projections.len(), 1);
+        assert!(
+            loaded
+                .reanalyzable_projections
+                .values()
+                .all(|projection| projection.producer == ReanalysisProducer::AppEntry)
+        );
+        (loaded, input)
+    }
+
+    #[test]
+    fn session_aq_real_load_app_old_to_new_and_old_to_absence() {
+        let (mut loaded, _input) = load_invalid_app();
+        let app_analysis = crate::app_entry::analyze(&loaded.program);
+        let recomputed = app_analysis
+            .diagnostic_occurrence
+            .clone()
+            .expect("same real app occurrence after full analysis");
+        let old = loaded
+            .reanalyzable_projections
+            .values()
+            .next()
+            .expect("real old app authority")
+            .authoritative_old
+            .clone();
+        assert_eq!(old, recomputed);
+        remove_loaded_app_projections(
+            &mut loaded.diagnostics,
+            &mut loaded.diagnostic_occurrences,
+            &mut loaded.reanalyzable_projections,
+            &app_analysis,
+        )
+        .expect("real app old-to-new removal");
+        assert!(loaded.reanalyzable_projections.is_empty());
+        insert_reanalyzed_projection(
+            &mut loaded.diagnostics,
+            &mut loaded.diagnostic_occurrences,
+            ReanalysisProducer::AppEntry,
+            recomputed.diagnostic().clone(),
+            recomputed.clone(),
+        )
+        .expect("real app exact new insertion");
+        assert_eq!(loaded.diagnostics, vec![recomputed.diagnostic().clone()]);
+
+        let invalid = TempHumInput::new("old-to-absence-invalid", INVALID_APP);
+        let valid = TempHumInput::new("old-to-absence-valid", VALID_APP);
+        let mut loaded = load_program(&[invalid.path.clone(), valid.path.clone()])
+            .expect("load real app old-to-absence inputs");
+        let old = loaded
+            .reanalyzable_projections
+            .values()
+            .next()
+            .expect("per-file invalid app authority")
+            .authoritative_old
+            .clone();
+        let app_analysis = crate::app_entry::analyze(&loaded.program);
+        let replacement = app_analysis
+            .diagnostic_occurrence
+            .clone()
+            .expect("full-program multiple-app occurrence");
+        assert_ne!(old.id(), replacement.id());
+        remove_loaded_app_projections(
+            &mut loaded.diagnostics,
+            &mut loaded.diagnostic_occurrences,
+            &mut loaded.reanalyzable_projections,
+            &app_analysis,
+        )
+        .expect("real app old-to-absence removal");
+        assert!(loaded.diagnostics.is_empty());
+        assert!(loaded.reanalyzable_projections.is_empty());
+        insert_reanalyzed_projection(
+            &mut loaded.diagnostics,
+            &mut loaded.diagnostic_occurrences,
+            ReanalysisProducer::AppEntry,
+            replacement.diagnostic().clone(),
+            replacement.clone(),
+        )
+        .expect("real app replacement insertion");
+        assert_eq!(loaded.diagnostics, vec![replacement.diagnostic().clone()]);
+    }
+
+    #[test]
+    fn session_aq_real_load_app_removal_mutation_matrix() {
+        use crate::diagnostic::DiagnosticOccurrenceMutation as Mutation;
+
+        let (loaded, _input) = load_invalid_app();
+        let app = loaded
+            .reanalyzable_projections
+            .values()
+            .next()
+            .expect("real app ledger")
+            .authoritative_old
+            .clone();
+        let mutations = [
+            Mutation::OccurrenceId,
+            Mutation::CauseKey,
+            Mutation::SemanticOwner,
+            Mutation::OwningStage,
+            Mutation::OriginKind,
+            Mutation::RouteKind,
+            Mutation::SemanticOrigin,
+            Mutation::RelationshipRoute,
+            Mutation::Code,
+            Mutation::Severity,
+            Mutation::Message,
+            Mutation::Help,
+            Mutation::PrimarySpan,
+            Mutation::RelatedSpan,
+            Mutation::RelatedSpanOrder,
+            Mutation::DiagnosticSeal,
+            Mutation::ResealedProjection,
+        ];
+        for mutation in mutations {
+            let substituted = app.mutated_for_test(mutation);
+            let mut public = loaded.diagnostics.clone();
+            let mut authority = loaded.diagnostic_occurrences.clone();
+            let mut ledger = loaded.reanalyzable_projections.clone();
+            let original_public = public.clone();
+            let original_authority = authority.clone();
+            let original_ledger = ledger.clone();
+            assert!(
+                remove_reanalyzed_projection(
+                    &mut public,
+                    &mut authority,
+                    &mut ledger,
+                    &substituted,
+                    ReanalyzedProjection::Absent,
+                )
+                .is_err(),
+                "real app mutation {mutation:?} must fail closed"
+            );
+            assert_eq!(public, original_public, "app {mutation:?}");
+            assert_eq!(authority, original_authority, "app {mutation:?}");
+            assert_eq!(ledger, original_ledger, "app {mutation:?}");
+        }
+
+        let resealed = app.mutated_for_test(Mutation::ResealedProjection);
+        resealed
+            .validate()
+            .expect("self-consistently resealed app replacement");
+        let mut public = loaded.diagnostics.clone();
+        let mut authority = loaded.diagnostic_occurrences.clone();
+        let mut ledger = loaded.reanalyzable_projections.clone();
+        assert!(
+            remove_reanalyzed_projection(
+                &mut public,
+                &mut authority,
+                &mut ledger,
+                &app,
+                ReanalyzedProjection::Present(&resealed),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn session_aq_real_app_positions_prior_and_insertion_order_fail_closed() {
+        let first_input = TempHumInput::new("ordered-first", INVALID_APP);
+        let second_input = TempHumInput::new("ordered-second", SECOND_INVALID_APP);
+        let loaded = load_program(&[first_input.path.clone(), second_input.path.clone()])
+            .expect("load two real app old authorities");
+        assert_eq!(loaded.reanalyzable_projections.len(), 2);
+        let app_analysis = crate::app_entry::analyze(&loaded.program);
+        let old = loaded
+            .reanalyzable_projections
+            .values()
+            .map(|projection| projection.authoritative_old.clone())
+            .collect::<Vec<_>>();
+
+        let mut public = loaded.diagnostics.clone();
+        let mut authority = loaded.diagnostic_occurrences.clone();
+        let mut missing = loaded.reanalyzable_projections.clone();
+        missing.clear();
+        assert!(
+            remove_reanalyzed_projection(
+                &mut public,
+                &mut authority,
+                &mut missing,
+                &old[0],
+                ReanalyzedProjection::Absent,
+            )
+            .is_err()
+        );
+
+        let mut public = loaded.diagnostics.clone();
+        let mut authority = loaded.diagnostic_occurrences.clone();
+        let mut stale = loaded.reanalyzable_projections.clone();
+        stale.get_mut(old[0].id()).expect("app ledger").position = usize::MAX;
+        assert!(
+            remove_reanalyzed_projection(
+                &mut public,
+                &mut authority,
+                &mut stale,
+                &old[0],
+                ReanalyzedProjection::Absent,
+            )
+            .is_err()
+        );
+
+        let mut public = loaded.diagnostics.clone();
+        let mut authority = loaded.diagnostic_occurrences.clone();
+        let mut wrong_prior = loaded.reanalyzable_projections.clone();
+        wrong_prior
+            .get_mut(old[0].id())
+            .expect("app ledger")
+            .authoritative_prior = old[1].prior_blocker();
+        assert!(
+            remove_reanalyzed_projection(
+                &mut public,
+                &mut authority,
+                &mut wrong_prior,
+                &old[0],
+                ReanalyzedProjection::Absent,
+            )
+            .is_err()
+        );
+
+        let mut wrong_producer = loaded.reanalyzable_projections.clone();
+        wrong_producer
+            .get_mut(old[0].id())
+            .expect("app ledger")
+            .producer = ReanalysisProducer::CapabilityRoot;
+        assert!(!ReanalysisProducer::CapabilityRoot.permits_authoritative_old());
+        assert!(
+            super::validate_reanalyzable_projection_ledger(
+                &loaded.diagnostics,
+                &loaded.diagnostic_occurrences,
+                &wrong_producer,
+            )
+            .is_err()
+        );
+
+        let mut duplicate_position = loaded.reanalyzable_projections.clone();
+        let first_position = duplicate_position
+            .get(old[0].id())
+            .expect("first app ledger")
+            .position;
+        duplicate_position
+            .get_mut(old[1].id())
+            .expect("second app ledger")
+            .position = first_position;
+        assert!(
+            super::validate_reanalyzable_projection_ledger(
+                &loaded.diagnostics,
+                &loaded.diagnostic_occurrences,
+                &duplicate_position,
+            )
+            .is_err()
+        );
+
+        let mut results = Vec::new();
+        for reverse in [false, true] {
+            let mut public = loaded.diagnostics.clone();
+            let mut authority = loaded.diagnostic_occurrences.clone();
+            let mut ledger = std::collections::BTreeMap::new();
+            let mut entries = loaded
+                .reanalyzable_projections
+                .iter()
+                .map(|(id, projection)| (id.clone(), projection.clone()))
+                .collect::<Vec<_>>();
+            if reverse {
+                entries.reverse();
+            }
+            for (id, projection) in entries {
+                ledger.insert(id, projection);
+            }
+            remove_loaded_app_projections(&mut public, &mut authority, &mut ledger, &app_analysis)
+                .expect("real app removal is insertion-order independent");
+            results.push((public, authority, ledger));
+        }
+        assert_eq!(results[0], results[1]);
+    }
+
+    #[test]
+    fn session_aq_capability_is_insert_only_and_exact() {
+        use crate::diagnostic::DiagnosticOccurrenceMutation as Mutation;
+
+        let analysis = capability_reanalysis_analysis();
+        let expected_diagnostics = analysis.diagnostics.clone();
+        let expected_authority = analysis.diagnostic_occurrences.clone();
+        let capability = analysis.diagnostic_projections[0].occurrence.clone();
+        assert_eq!(capability.owning_stage(), "capability_root");
+        assert!(!ReanalysisProducer::CapabilityRoot.permits_authoritative_old());
+
+        let mut public = Vec::new();
+        let mut authority = crate::diagnostic::DiagnosticOccurrenceSet::default();
+        insert_capability_projections(&mut public, &mut authority, analysis.clone())
+            .expect("exact capability insert-only transition");
+        assert_eq!(public, expected_diagnostics);
+        assert_eq!(authority, expected_authority);
+
+        let mutations = [
+            Mutation::OccurrenceId,
+            Mutation::CauseKey,
+            Mutation::SemanticOwner,
+            Mutation::OwningStage,
+            Mutation::OriginKind,
+            Mutation::RouteKind,
+            Mutation::SemanticOrigin,
+            Mutation::RelationshipRoute,
+            Mutation::ResolverOccurrence,
+            Mutation::Code,
+            Mutation::Severity,
+            Mutation::Message,
+            Mutation::Help,
+            Mutation::PrimarySpan,
+            Mutation::RelatedSpan,
+            Mutation::RelatedSpanOrder,
+            Mutation::DiagnosticSeal,
+            Mutation::ResealedProjection,
+        ];
+        for mutation in mutations {
+            let mut corrupted = analysis.clone();
+            corrupted.diagnostic_projections[0].occurrence = capability.mutated_for_test(mutation);
+            let mut public = Vec::new();
+            let mut authority = crate::diagnostic::DiagnosticOccurrenceSet::default();
+            assert!(
+                insert_capability_projections(&mut public, &mut authority, corrupted).is_err(),
+                "capability insertion mutation {mutation:?} must fail closed"
+            );
+            assert!(public.is_empty());
+            assert_eq!(authority.occurrences().count(), 0);
+        }
+
+        let mut wrong_public = analysis.clone();
+        wrong_public.diagnostic_projections[0]
+            .diagnostic
+            .message
+            .push_str(" substituted public projection");
+        let mut public = Vec::new();
+        let mut authority = crate::diagnostic::DiagnosticOccurrenceSet::default();
+        assert!(insert_capability_projections(&mut public, &mut authority, wrong_public).is_err());
+        assert!(public.is_empty());
+        assert_eq!(authority.occurrences().count(), 0);
+
+        let mut fabricated_old = std::collections::BTreeMap::from([(
+            capability.id().clone(),
+            ReanalyzableProjection {
+                producer: ReanalysisProducer::CapabilityRoot,
+                authoritative_old: capability.clone(),
+                authoritative_prior: capability.prior_blocker(),
+                position: 0,
+            },
+        )]);
+        let mut public = vec![capability.diagnostic().clone()];
+        let mut authority = expected_authority;
+        assert!(
+            remove_reanalyzed_projection(
+                &mut public,
+                &mut authority,
+                &mut fabricated_old,
+                &capability,
+                ReanalyzedProjection::Absent,
+            )
+            .is_err()
+        );
     }
 
     #[test]

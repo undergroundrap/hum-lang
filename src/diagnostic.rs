@@ -145,11 +145,35 @@ pub(crate) enum DiagnosticInvariantError {
 #[derive(Default)]
 pub(crate) struct DiagnosticOccurrenceCollector {
     occurrences: BTreeMap<DiagnosticOccurrenceId, DiagnosticOccurrence>,
+    consumed: BTreeMap<DiagnosticOccurrenceId, ()>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct DiagnosticOccurrenceSet {
     occurrences: BTreeMap<DiagnosticOccurrenceId, DiagnosticOccurrence>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum DiagnosticOccurrenceMutation {
+    OccurrenceId,
+    CauseKey,
+    SemanticOwner,
+    OwningStage,
+    OriginKind,
+    RouteKind,
+    SemanticOrigin,
+    RelationshipRoute,
+    ResolverOccurrence,
+    Code,
+    Severity,
+    Message,
+    Help,
+    PrimarySpan,
+    RelatedSpan,
+    RelatedSpanOrder,
+    DiagnosticSeal,
+    ResealedProjection,
 }
 
 impl DiagnosticCode {
@@ -466,14 +490,12 @@ impl DiagnosticOccurrence {
             .map(|cause| cause.reason)
     }
 
-    #[cfg(test)]
     pub(crate) fn id(&self) -> &DiagnosticOccurrenceId {
         &self.id
     }
     pub(crate) fn cause_key(&self) -> crate::diagnostic_catalog::DiagnosticCauseKey {
         self.cause_key
     }
-    #[cfg(test)]
     pub(crate) fn semantic_owner(&self) -> &'static str {
         self.semantic_owner
     }
@@ -482,6 +504,12 @@ impl DiagnosticOccurrence {
     }
     pub(crate) fn semantic_origin(&self) -> &str {
         &self.identity.semantic_origin
+    }
+    pub(crate) fn origin_kind(&self) -> &'static str {
+        self.identity.origin_kind
+    }
+    pub(crate) fn route_kind(&self) -> &'static str {
+        self.identity.route_kind
     }
     pub(crate) fn relationship_route(&self) -> &[String] {
         &self.identity.relationship_route
@@ -531,6 +559,97 @@ impl DiagnosticOccurrence {
     #[cfg(test)]
     pub(crate) fn diagnostic_mut_for_test(&mut self) -> &mut Diagnostic {
         &mut self.diagnostic
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mutated_for_test(&self, mutation: DiagnosticOccurrenceMutation) -> Self {
+        let mut mutated = self.clone();
+        match mutation {
+            DiagnosticOccurrenceMutation::OccurrenceId => mutated.id.0.push_str(":substituted"),
+            DiagnosticOccurrenceMutation::CauseKey => {
+                mutated.cause_key = crate::diagnostic_catalog::DIAGNOSTIC_CAUSES
+                    .iter()
+                    .find(|cause| cause.key != mutated.cause_key)
+                    .expect("registry contains another cause")
+                    .key;
+            }
+            DiagnosticOccurrenceMutation::SemanticOwner => {
+                mutated.semantic_owner = "substituted_owner"
+            }
+            DiagnosticOccurrenceMutation::OwningStage => mutated.owning_stage = "substituted_stage",
+            DiagnosticOccurrenceMutation::OriginKind => {
+                mutated.identity.origin_kind = "substituted_origin_kind"
+            }
+            DiagnosticOccurrenceMutation::RouteKind => {
+                mutated.identity.route_kind = "substituted_route_kind"
+            }
+            DiagnosticOccurrenceMutation::SemanticOrigin => {
+                mutated.identity.semantic_origin.push_str(":substituted")
+            }
+            DiagnosticOccurrenceMutation::RelationshipRoute => mutated
+                .identity
+                .relationship_route
+                .push("substituted_relationship_route".to_string()),
+            DiagnosticOccurrenceMutation::ResolverOccurrence => {
+                mutated.resolver_call_occurrence = None
+            }
+            DiagnosticOccurrenceMutation::Code => {
+                mutated.diagnostic.code = DiagnosticCode::INCOMPATIBLE_FAILURE_PROPAGATION
+            }
+            DiagnosticOccurrenceMutation::Severity => {
+                mutated.diagnostic.severity = Severity::Warning
+            }
+            DiagnosticOccurrenceMutation::Message => {
+                mutated.diagnostic.message.push_str(" substituted")
+            }
+            DiagnosticOccurrenceMutation::Help => {
+                mutated.diagnostic.help = Some("substituted help".to_string())
+            }
+            DiagnosticOccurrenceMutation::PrimarySpan => {
+                if let Some(span) = mutated.diagnostic.span.as_mut() {
+                    span.line += 1;
+                } else {
+                    mutated.diagnostic.span = Some(Span::new("substituted.hum", 1, 1));
+                }
+            }
+            DiagnosticOccurrenceMutation::RelatedSpan => {
+                if let Some(related) = mutated.diagnostic.related_spans.first_mut() {
+                    related.label.push_str(" substituted");
+                } else {
+                    mutated.diagnostic.related_spans.push(RelatedSpan {
+                        label: "substituted related span".to_string(),
+                        span: Span::new("substituted.hum", 2, 1),
+                    });
+                }
+            }
+            DiagnosticOccurrenceMutation::RelatedSpanOrder => {
+                if mutated.diagnostic.related_spans.len() < 2 {
+                    mutated.diagnostic.related_spans.extend([
+                        RelatedSpan {
+                            label: "first substituted related span".to_string(),
+                            span: Span::new("substituted.hum", 2, 1),
+                        },
+                        RelatedSpan {
+                            label: "second substituted related span".to_string(),
+                            span: Span::new("substituted.hum", 3, 1),
+                        },
+                    ]);
+                }
+                mutated.diagnostic.related_spans.reverse();
+            }
+            DiagnosticOccurrenceMutation::DiagnosticSeal => mutated
+                .diagnostic_seal
+                .message
+                .push_str(" substituted seal"),
+            DiagnosticOccurrenceMutation::ResealedProjection => {
+                mutated
+                    .diagnostic
+                    .message
+                    .push_str(" resealed substitution");
+                mutated.diagnostic_seal = mutated.diagnostic.clone();
+            }
+        }
+        mutated
     }
 }
 
@@ -724,6 +843,46 @@ impl DiagnosticOccurrenceCollector {
         Ok(())
     }
 
+    pub(crate) fn from_authority(
+        authority: &DiagnosticOccurrenceSet,
+    ) -> Result<Self, DiagnosticInvariantError> {
+        let mut collector = Self::default();
+        for occurrence in authority.occurrences.values() {
+            collector.insert(occurrence.clone())?;
+        }
+        Ok(collector)
+    }
+
+    pub(crate) fn consume_exact(
+        &mut self,
+        occurrence: &DiagnosticOccurrence,
+        public_projection: Diagnostic,
+    ) -> Result<Diagnostic, DiagnosticInvariantError> {
+        occurrence.validate()?;
+        let authoritative = self
+            .occurrences
+            .get(&occurrence.id)
+            .ok_or(DiagnosticInvariantError::MissingPriorOccurrence)?;
+        occurrence.prior_blocker().validate_against(authoritative)?;
+        if occurrence != authoritative {
+            return Err(DiagnosticInvariantError::PriorBlockerMismatch);
+        }
+        if public_projection.code != authoritative.diagnostic.code
+            || public_projection.severity != authoritative.diagnostic.severity
+            || public_projection.message != authoritative.diagnostic.message
+            || public_projection.help != authoritative.diagnostic.help
+            || public_projection.span != authoritative.diagnostic.span
+            || public_projection.related_spans != authoritative.diagnostic.related_spans
+            || public_projection != authoritative.diagnostic_seal
+        {
+            return Err(DiagnosticInvariantError::DiagnosticProjectionMismatch);
+        }
+        if self.consumed.insert(occurrence.id.clone(), ()).is_some() {
+            return Err(DiagnosticInvariantError::DuplicateOccurrence);
+        }
+        Ok(public_projection)
+    }
+
     pub(crate) fn validate_prior(
         &self,
         prior: &PriorBlockerRef,
@@ -773,6 +932,47 @@ impl DiagnosticOccurrenceSet {
             self.insert_owned(occurrence.clone())?;
         }
         Ok(())
+    }
+
+    pub(crate) fn validate_exact(
+        &self,
+        expected: &DiagnosticOccurrence,
+    ) -> Result<(), DiagnosticInvariantError> {
+        expected.validate()?;
+        let authoritative = self
+            .occurrences
+            .get(expected.id())
+            .ok_or(DiagnosticInvariantError::MissingPriorOccurrence)?;
+        authoritative.validate()?;
+        expected.prior_blocker().validate_against(authoritative)?;
+        if expected.diagnostic != authoritative.diagnostic
+            || expected.diagnostic_seal != authoritative.diagnostic_seal
+        {
+            return Err(DiagnosticInvariantError::DiagnosticProjectionMismatch);
+        }
+        if expected != authoritative {
+            return Err(DiagnosticInvariantError::PriorBlockerMismatch);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn remove_exact(
+        &mut self,
+        expected: &DiagnosticOccurrence,
+    ) -> Result<Diagnostic, DiagnosticInvariantError> {
+        self.validate_exact(expected)?;
+        Ok(self
+            .occurrences
+            .remove(expected.id())
+            .expect("validated exact occurrence must remain authoritative")
+            .diagnostic)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn normalized_occurrences(&self) -> Vec<&DiagnosticOccurrence> {
+        let mut occurrences = self.occurrences.values().collect::<Vec<_>>();
+        occurrences.sort_by(|left, right| occurrence_source_order(left, right));
+        occurrences
     }
 
     pub(crate) fn validate_projection_from(
@@ -932,6 +1132,26 @@ impl DiagnosticOccurrenceSet {
     }
 }
 
+#[cfg(test)]
+fn occurrence_source_order(
+    left: &DiagnosticOccurrence,
+    right: &DiagnosticOccurrence,
+) -> std::cmp::Ordering {
+    fn display_site(occurrence: &DiagnosticOccurrence) -> (&str, usize, usize) {
+        occurrence
+            .diagnostic
+            .span
+            .as_ref()
+            .map_or(("", usize::MAX, usize::MAX), |span| {
+                (span.file.as_str(), span.line, span.column)
+            })
+    }
+    display_site(left)
+        .cmp(&display_site(right))
+        .then_with(|| left.semantic_origin().cmp(right.semantic_origin()))
+        .then_with(|| left.id.cmp(&right.id))
+}
+
 fn occurrence_id(
     cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
     identity: &DiagnosticOccurrenceIdentity,
@@ -990,7 +1210,7 @@ mod tests {
     use super::{
         Diagnostic, DiagnosticCode, DiagnosticInvariantError, DiagnosticOccurrence,
         DiagnosticOccurrenceCollector, DiagnosticOccurrenceSet, DiagnosticPrecedenceRelationship,
-        Span,
+        RelatedSpan, Severity, Span,
     };
 
     #[test]
@@ -1197,6 +1417,168 @@ mod tests {
         collector
             .insert(other)
             .expect("same code and cause with a distinct semantic origin");
+    }
+
+    #[test]
+    fn session_aq_collector_order_duplicate_owner_and_replacement_matrix() {
+        let first = occurrence(0);
+        let second = occurrence(1);
+
+        let mut forward = DiagnosticOccurrenceSet::default();
+        forward.insert_owned(first.clone()).expect("first");
+        forward.insert_owned(second.clone()).expect("second");
+        let mut reverse = DiagnosticOccurrenceSet::default();
+        reverse.insert_owned(second.clone()).expect("second");
+        reverse.insert_owned(first.clone()).expect("first");
+        let normalized = |set: &DiagnosticOccurrenceSet| {
+            set.normalized_occurrences()
+                .into_iter()
+                .map(|occurrence| occurrence.diagnostic().render())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(normalized(&forward), normalized(&reverse));
+        assert_eq!(normalized(&forward).len(), 2);
+
+        let mut reanalysis_source = forward.clone();
+        assert_eq!(
+            reanalysis_source
+                .remove_exact(&first)
+                .expect("exact reanalysis replacement"),
+            first.diagnostic().clone()
+        );
+        assert_eq!(
+            reanalysis_source.remove_exact(&first),
+            Err(DiagnosticInvariantError::MissingPriorOccurrence)
+        );
+        let mut wrong_reanalysis = second.clone();
+        wrong_reanalysis.semantic_owner = "runtime_reconstruction";
+        assert_eq!(
+            reanalysis_source.remove_exact(&wrong_reanalysis),
+            Err(DiagnosticInvariantError::OwnerMismatch)
+        );
+
+        let mut collector =
+            DiagnosticOccurrenceCollector::from_authority(&forward).expect("valid authority");
+        assert_eq!(
+            collector
+                .consume_exact(&first, first.diagnostic().clone())
+                .expect("first exact consumption"),
+            first.diagnostic().clone()
+        );
+        assert_eq!(
+            collector.consume_exact(&first, first.diagnostic().clone()),
+            Err(DiagnosticInvariantError::DuplicateOccurrence)
+        );
+
+        let mut independently_resealed = second.clone();
+        independently_resealed
+            .diagnostic
+            .message
+            .push_str(" independently resealed");
+        independently_resealed.diagnostic_seal = independently_resealed.diagnostic.clone();
+        independently_resealed
+            .validate()
+            .expect("self-consistent resealed occurrence");
+        assert_eq!(
+            forward.validate_exact(&independently_resealed),
+            Err(DiagnosticInvariantError::DiagnosticProjectionMismatch)
+        );
+        let mut removal_authority = forward.clone();
+        assert_eq!(
+            removal_authority.remove_exact(&independently_resealed),
+            Err(DiagnosticInvariantError::DiagnosticProjectionMismatch)
+        );
+        assert_eq!(removal_authority, forward);
+
+        let mut wrong_owner = second.clone();
+        wrong_owner.semantic_owner = "runtime_reconstruction";
+        assert_eq!(
+            collector.consume_exact(&wrong_owner, second.diagnostic().clone()),
+            Err(DiagnosticInvariantError::OwnerMismatch)
+        );
+
+        let mut replacement = second.clone();
+        replacement.id = first.id.clone();
+        assert_eq!(
+            collector.consume_exact(&replacement, second.diagnostic().clone()),
+            Err(DiagnosticInvariantError::OccurrenceIdMismatch)
+        );
+
+        let mut resealed_replacement = second.clone();
+        resealed_replacement
+            .diagnostic
+            .message
+            .push_str(" resealed replacement");
+        resealed_replacement.diagnostic_seal = resealed_replacement.diagnostic.clone();
+        resealed_replacement
+            .validate()
+            .expect("independently valid same-identity occurrence");
+        assert_eq!(
+            collector.consume_exact(
+                &resealed_replacement,
+                resealed_replacement.diagnostic().clone()
+            ),
+            Err(DiagnosticInvariantError::PriorBlockerMismatch)
+        );
+
+        for field in 0..7 {
+            let mut wrong_projection = second.diagnostic().clone();
+            match field {
+                0 => wrong_projection.code = DiagnosticCode::INCOMPATIBLE_FAILURE_PROPAGATION,
+                1 => wrong_projection.severity = Severity::Warning,
+                2 => wrong_projection.message.push_str(" changed"),
+                3 => wrong_projection.help = Some("different help".to_string()),
+                4 => wrong_projection.span.as_mut().expect("primary span").line += 1,
+                5 => wrong_projection.related_spans.push(RelatedSpan {
+                    label: "different related site".to_string(),
+                    span: Span::new("fixture.hum", 99, 2),
+                }),
+                _ => {
+                    wrong_projection.related_spans = vec![
+                        RelatedSpan {
+                            label: "second".to_string(),
+                            span: Span::new("fixture.hum", 100, 2),
+                        },
+                        RelatedSpan {
+                            label: "first".to_string(),
+                            span: Span::new("fixture.hum", 99, 2),
+                        },
+                    ];
+                }
+            }
+            assert_eq!(
+                collector.consume_exact(&second, wrong_projection),
+                Err(DiagnosticInvariantError::DiagnosticProjectionMismatch),
+                "field mutation {field} must fail closed"
+            );
+        }
+
+        let mut ordered_related = second.clone();
+        ordered_related.diagnostic.related_spans = vec![
+            RelatedSpan {
+                label: "move site".to_string(),
+                span: Span::new("fixture.hum", 20, 3),
+            },
+            RelatedSpan {
+                label: "owner site".to_string(),
+                span: Span::new("fixture.hum", 4, 1),
+            },
+        ];
+        ordered_related.diagnostic_seal = ordered_related.diagnostic.clone();
+        ordered_related.validate().expect("ordered related spans");
+        let mut related_authority = DiagnosticOccurrenceSet::default();
+        related_authority
+            .insert_owned(ordered_related.clone())
+            .expect("related-span authority");
+        let mut reversed_projection = ordered_related.diagnostic().clone();
+        reversed_projection.related_spans.reverse();
+        assert_eq!(
+            DiagnosticOccurrenceCollector::from_authority(&related_authority)
+                .expect("related-span collector")
+                .consume_exact(&ordered_related, reversed_projection),
+            Err(DiagnosticInvariantError::DiagnosticProjectionMismatch),
+            "related-span ordering is part of the sealed public projection"
+        );
     }
 
     #[test]

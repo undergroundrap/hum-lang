@@ -1,0 +1,34 @@
+module fixtures.diagnostics.session_aq_static_runtime_shared_cause_fail
+
+type SourceError {
+  code: Text
+}
+
+task source() -> Result UInt, SourceError {
+  fails when:
+    the source fails
+
+  does:
+    fail SourceError.origin
+}
+
+task typed_failure_probe() -> Result UInt, SourceError {
+  fails when:
+    the caller source fails
+
+  does:
+    let value = source()
+    return value
+}
+
+task take(consume value: Int) -> Int {
+  does:
+    return value
+}
+
+task ownership_probe() -> Int {
+  does:
+    let value: Int = 7
+    let taken: Int = take(consume value)
+    return value
+}

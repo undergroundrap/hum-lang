@@ -40,6 +40,9 @@ const AMBIENT_READ_ROOTS: &[&str] = &[
 const SECURITY_SENSITIVE_ROOTS: &[&str] =
     &["random", "crypto", "password", "token", "network", "socket"];
 
+const USE_AFTER_MOVE_CAUSE: crate::diagnostic_catalog::DiagnosticCauseKey =
+    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(110);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OwnershipCheckSummary {
     pub schema: &'static str,
@@ -87,6 +90,7 @@ struct OwnershipCheckReport {
 
 struct OwnershipItem {
     id: String,
+    semantic_identity: String,
     kind: &'static str,
     name: String,
     span: Span,
@@ -182,10 +186,127 @@ struct PathDiagnostic {
     target: Option<String>,
     status: &'static str,
     reason: &'static str,
-    diagnostic_code: &'static str,
-    diagnostic_cause: &'static crate::diagnostic_catalog::DiagnosticCauseSpec,
+    diagnostic_cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
     help: String,
     resolver_call: Option<crate::resolve::ResolveCallOccurrenceSummary>,
+    use_after_move: Option<UseAfterMoveFact>,
+}
+
+#[derive(Clone)]
+struct UseAfterMoveFact {
+    task_name: String,
+    moved_root: String,
+    move_site: Span,
+    use_site: Span,
+    path: Vec<String>,
+    resolver_call: Option<crate::resolve::ResolveCallOccurrenceSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OwnershipRuntimeBlocker {
+    task_identity: String,
+    task_name: String,
+    moved_root: String,
+    move_site: Span,
+    use_site: Span,
+    path: Vec<String>,
+    resolver_call_occurrence: Option<crate::resolve::ResolverCallOccurrenceId>,
+    cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
+    semantic_owner: &'static str,
+    owning_stage: &'static str,
+    origin_kind: &'static str,
+    route_kind: &'static str,
+    semantic_origin: String,
+    relationship_route: Vec<String>,
+    public_projection: Diagnostic,
+    occurrence: DiagnosticOccurrence,
+}
+
+impl OwnershipRuntimeBlocker {
+    fn from_statement(
+        item: &OwnershipItem,
+        statement: &OwnershipStatement,
+    ) -> Result<Self, crate::diagnostic::DiagnosticInvariantError> {
+        let fact = statement
+            .use_after_move
+            .as_ref()
+            .ok_or(crate::diagnostic::DiagnosticInvariantError::ProjectionProvenanceMismatch)?;
+        let occurrence = statement
+            .diagnostic_occurrence
+            .as_ref()
+            .ok_or(crate::diagnostic::DiagnosticInvariantError::MissingPriorOccurrence)?;
+        occurrence.validate()?;
+        let cause_key = statement
+            .diagnostic_cause_key
+            .ok_or(crate::diagnostic::DiagnosticInvariantError::UnknownCause)?;
+        if cause_key != USE_AFTER_MOVE_CAUSE {
+            return Err(crate::diagnostic::DiagnosticInvariantError::CauseCodeMismatch);
+        }
+        let cause = ownership_cause_projection(cause_key);
+        let resolver_call_occurrence = fact
+            .resolver_call
+            .as_ref()
+            .map(|call| call.resolver_occurrence_id().clone());
+        let blocker = Self {
+            task_identity: item.semantic_identity.clone(),
+            task_name: fact.task_name.clone(),
+            moved_root: fact.moved_root.clone(),
+            move_site: fact.move_site.clone(),
+            use_site: fact.use_site.clone(),
+            path: fact.path.clone(),
+            resolver_call_occurrence,
+            cause_key,
+            semantic_owner: cause.semantic_owner,
+            owning_stage: cause.owning_stage,
+            origin_kind: cause.origin_kind,
+            route_kind: cause.route_kind,
+            semantic_origin: occurrence.semantic_origin().to_string(),
+            relationship_route: occurrence.relationship_route().to_vec(),
+            public_projection: occurrence.diagnostic().clone(),
+            occurrence: occurrence.clone(),
+        };
+        blocker.validate()?;
+        Ok(blocker)
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), crate::diagnostic::DiagnosticInvariantError> {
+        self.occurrence.validate()?;
+        if self.cause_key != USE_AFTER_MOVE_CAUSE
+            || self.occurrence.cause_key() != self.cause_key
+            || self.occurrence.semantic_owner() != self.semantic_owner
+            || self.occurrence.owning_stage() != self.owning_stage
+            || self.occurrence.origin_kind() != self.origin_kind
+            || self.occurrence.route_kind() != self.route_kind
+            || self.occurrence.semantic_origin() != self.semantic_origin
+            || self.occurrence.relationship_route() != self.relationship_route
+            || self.occurrence.resolver_call_occurrence() != self.resolver_call_occurrence.as_ref()
+            || self.occurrence.diagnostic() != &self.public_projection
+            || self.task_name.is_empty()
+            || self.moved_root.is_empty()
+            || self.task_identity.is_empty()
+            || self.use_site.line == 0
+            || self.move_site.line == 0
+        {
+            return Err(crate::diagnostic::DiagnosticInvariantError::ProjectionProvenanceMismatch);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn occurrence(&self) -> &DiagnosticOccurrence {
+        &self.occurrence
+    }
+
+    #[cfg(test)]
+    fn structured_fact(&self) -> (&str, &str, &str, &Span, &Span, &[String]) {
+        (
+            &self.task_identity,
+            &self.task_name,
+            &self.moved_root,
+            &self.move_site,
+            &self.use_site,
+            &self.path,
+        )
+    }
 }
 
 struct OwnershipStatement {
@@ -199,8 +320,9 @@ struct OwnershipStatement {
     status: &'static str,
     reason: Option<&'static str>,
     diagnostic_code: Option<&'static str>,
-    diagnostic_cause: Option<&'static crate::diagnostic_catalog::DiagnosticCauseSpec>,
+    diagnostic_cause_key: Option<crate::diagnostic_catalog::DiagnosticCauseKey>,
     diagnostic_occurrence: Option<DiagnosticOccurrence>,
+    use_after_move: Option<UseAfterMoveFact>,
     resolver_call: Option<crate::resolve::ResolveCallOccurrenceSummary>,
     help: Option<String>,
     alias: Option<String>,
@@ -221,7 +343,7 @@ struct OwnershipReturnDependency {
     status: &'static str,
     reason: Option<&'static str>,
     diagnostic_code: Option<&'static str>,
-    diagnostic_cause: Option<&'static crate::diagnostic_catalog::DiagnosticCauseSpec>,
+    diagnostic_cause_key: Option<crate::diagnostic_catalog::DiagnosticCauseKey>,
     diagnostic_occurrence: Option<DiagnosticOccurrence>,
     help: Option<String>,
 }
@@ -524,6 +646,26 @@ pub(crate) fn diagnostic_occurrence_set(
     build_report(program, diagnostics).diagnostic_occurrences
 }
 
+pub(crate) fn runtime_use_after_move_blockers(
+    program: &Program,
+    reachable_task_identities: &BTreeSet<String>,
+) -> Result<Vec<OwnershipRuntimeBlocker>, crate::diagnostic::DiagnosticInvariantError> {
+    let report = build_report(program, &[]);
+    let mut blockers = Vec::new();
+    for item in &report.items {
+        if !reachable_task_identities.contains(&item.semantic_identity) {
+            continue;
+        }
+        for statement in &item.statements {
+            if statement.diagnostic_cause_key != Some(USE_AFTER_MOVE_CAUSE) {
+                continue;
+            }
+            blockers.push(OwnershipRuntimeBlocker::from_statement(item, statement)?);
+        }
+    }
+    Ok(blockers)
+}
+
 pub(crate) fn diagnostic_occurrence_set_from_source(
     program: &Program,
     diagnostics: &[Diagnostic],
@@ -645,32 +787,11 @@ pub(crate) fn ownership_precedence_relationships(
     relationships
 }
 
-fn ownership_code(code: &str) -> Option<DiagnosticCode> {
-    [
-        DiagnosticCode::USE_AFTER_MOVE,
-        DiagnosticCode::BORROW_PARAMETER_MUTATION,
-        DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED,
-        DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE,
-        DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER,
-        DiagnosticCode::STALE_FIELD_VIEW,
-        DiagnosticCode::WRITABLE_ALIAS_OVERLAP,
-        DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS,
-    ]
-    .into_iter()
-    .find(|candidate| candidate.as_str() == code)
-}
-
-fn ownership_cause(
+fn ownership_cause_projection(
     cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
-    code: DiagnosticCode,
 ) -> &'static crate::diagnostic_catalog::DiagnosticCauseSpec {
-    let cause = crate::diagnostic_catalog::diagnostic_cause_for_key(cause_key)
-        .expect("ownership semantic producer must carry one registered cause key");
-    assert_eq!(
-        cause.code, code,
-        "ownership public projection must match cause"
-    );
-    cause
+    crate::diagnostic_catalog::diagnostic_cause_for_key(cause_key)
+        .expect("ownership semantic producer must carry one registered cause key")
 }
 
 fn collect_items(program: &Program, items: &[Item], blocked: bool, out: &mut Vec<OwnershipItem>) {
@@ -765,6 +886,7 @@ fn check_item(program: &Program, item: &Item, blocked: bool) -> Option<Ownership
             "hum_ownership_item",
             &format!("{}_{}_{}", item.kind(), item.name(), item.span().line),
         ),
+        semantic_identity: item_identity,
         kind: item.kind(),
         name: item.name().to_string(),
         span: portable_span(item.span()),
@@ -812,7 +934,7 @@ fn check_statement_ownership(
     }
 
     if let Some((target, move_site)) = moved_value_use(statement, move_tracker) {
-        return ownership_statement_with_diagnostic(
+        let mut rejected = ownership_statement_with_diagnostic(
             ownership_statement(
                 statement,
                 index,
@@ -822,10 +944,18 @@ fn check_statement_ownership(
                 "rejected_use_after_move_v0",
                 Some("value_used_after_move_v0"),
             ),
-            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(110),
-            DiagnosticCode::USE_AFTER_MOVE,
+            USE_AFTER_MOVE_CAUSE,
             Some(move_help(item_name, &target, move_site)),
         );
+        rejected.use_after_move = Some(UseAfterMoveFact {
+            task_name: item_name.to_string(),
+            moved_root: target,
+            move_site: move_site.span.clone(),
+            use_site: portable_span(&statement.span),
+            path: Vec::new(),
+            resolver_call: None,
+        });
+        return rejected;
     }
 
     let ownership = match statement.kind {
@@ -951,7 +1081,6 @@ fn check_binding_statement(
                     Some("borrow_owner_cannot_supply_writable_field_alias_v0"),
                 ),
                 crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(149),
-                DiagnosticCode::BORROW_PARAMETER_MUTATION,
                 Some(writable_field_alias::authority_help(
                     item_name, binding, "borrow",
                 )),
@@ -967,7 +1096,6 @@ fn check_binding_statement(
                     Some("immutable_owner_cannot_supply_writable_field_alias_v0"),
                 ),
                 crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(161),
-                DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS,
                 Some(writable_field_alias::authority_help(
                     item_name,
                     binding,
@@ -985,7 +1113,6 @@ fn check_binding_statement(
                     Some("writable_alias_owner_authority_unknown_v0"),
                 ),
                 crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(162),
-                DiagnosticCode::UNSUPPORTED_WRITABLE_ALIAS,
                 Some(writable_field_alias::authority_help(
                     item_name, binding, "unknown",
                 )),
@@ -1106,7 +1233,6 @@ fn check_set_statement(
                     Some("borrow_parameter_requires_change_permission_for_set_v0"),
                 ),
                 crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(111),
-                DiagnosticCode::BORROW_PARAMETER_MUTATION,
                 Some(borrow_mutation_help(
                     item_name, &target, &resource, statement,
                 )),
@@ -1306,8 +1432,9 @@ fn ownership_statement(
         status,
         reason,
         diagnostic_code: None,
-        diagnostic_cause: None,
+        diagnostic_cause_key: None,
         diagnostic_occurrence: None,
+        use_after_move: None,
         resolver_call: None,
         help: None,
         alias: None,
@@ -1333,11 +1460,11 @@ fn ownership_statement_with_alias_facts(
 fn ownership_statement_with_diagnostic(
     mut statement: OwnershipStatement,
     cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
-    diagnostic_code: DiagnosticCode,
     help: Option<String>,
 ) -> OwnershipStatement {
-    statement.diagnostic_code = Some(diagnostic_code.as_str());
-    statement.diagnostic_cause = Some(ownership_cause(cause_key, diagnostic_code));
+    let cause = ownership_cause_projection(cause_key);
+    statement.diagnostic_code = Some(cause.code.as_str());
+    statement.diagnostic_cause_key = Some(cause_key);
     statement.help = help;
     statement
 }
@@ -1353,10 +1480,15 @@ fn apply_path_diagnostics(
             statement.declaration = None;
             statement.status = diagnostic.status;
             statement.reason = Some(diagnostic.reason);
-            statement.diagnostic_code = Some(diagnostic.diagnostic_code);
-            statement.diagnostic_cause = Some(diagnostic.diagnostic_cause);
+            statement.diagnostic_cause_key = Some(diagnostic.diagnostic_cause_key);
+            statement.diagnostic_code = Some(
+                ownership_cause_projection(diagnostic.diagnostic_cause_key)
+                    .code
+                    .as_str(),
+            );
             statement.help = Some(diagnostic.help);
             statement.resolver_call = diagnostic.resolver_call;
+            statement.use_after_move = diagnostic.use_after_move;
         }
     }
 }
@@ -1408,7 +1540,13 @@ fn apply_alias_diagnostics(
         statement.status = status;
         statement.reason = Some(issue.reason());
         statement.diagnostic_code = Some(code.as_str());
-        statement.diagnostic_cause = Some(ownership_cause(issue.cause.key(), code));
+        let cause_key = issue.cause.key();
+        assert_eq!(
+            ownership_cause_projection(cause_key).code,
+            code,
+            "alias public projection must match its already selected cause"
+        );
+        statement.diagnostic_cause_key = Some(cause_key);
         statement.help = Some(format!(
             "{}. {}",
             message,
@@ -1578,6 +1716,7 @@ fn analyze_single_statement(
                                 index,
                                 &root,
                                 move_site,
+                                &statement.span,
                                 &state,
                                 Some(resolver_call),
                             )
@@ -1610,7 +1749,15 @@ fn analyze_single_statement(
                             item_name, statements, index, root, move_site, &state, None,
                         )
                     } else {
-                        use_after_move_diagnostic(item_name, index, root, move_site, &state, None)
+                        use_after_move_diagnostic(
+                            item_name,
+                            index,
+                            root,
+                            move_site,
+                            &statement.span,
+                            &state,
+                            None,
+                        )
                     },
                 );
                 rejected = true;
@@ -1628,7 +1775,15 @@ fn analyze_single_statement(
             if let Some(move_site) = state.moved.get(&root) {
                 record_path_diagnostic(
                     diagnostics,
-                    use_after_move_diagnostic(item_name, index, &root, move_site, &state, None),
+                    use_after_move_diagnostic(
+                        item_name,
+                        index,
+                        &root,
+                        move_site,
+                        &statement.span,
+                        &state,
+                        None,
+                    ),
                 );
                 rejected = true;
                 break;
@@ -1757,10 +1912,8 @@ fn record_missing_linear_diagnostics(
                 target: Some(root.clone()),
                 status: "rejected_linear_resource_not_consumed_v0",
                 reason: "linear_resource_must_be_consumed_exactly_once_on_every_path_v0",
-                diagnostic_code: DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED.as_str(),
-                diagnostic_cause: ownership_cause(
-                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(112),
-                    DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED,
+                diagnostic_cause_key: crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(
+                    112,
                 ),
                 help: linear_missing_help(
                     item_name,
@@ -1771,6 +1924,7 @@ fn record_missing_linear_diagnostics(
                     state,
                 ),
                 resolver_call: None,
+                use_after_move: None,
             },
         );
     }
@@ -1781,6 +1935,7 @@ fn use_after_move_diagnostic(
     index: usize,
     target: &str,
     move_site: &MoveSite,
+    use_site: &Span,
     state: &PathState,
     resolver_call: Option<&crate::resolve::ResolveCallOccurrenceSummary>,
 ) -> PathDiagnostic {
@@ -1790,13 +1945,17 @@ fn use_after_move_diagnostic(
         target: Some(target.to_string()),
         status: "rejected_use_after_move_v0",
         reason: "value_used_after_move_v0",
-        diagnostic_code: DiagnosticCode::USE_AFTER_MOVE.as_str(),
-        diagnostic_cause: ownership_cause(
-            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(110),
-            DiagnosticCode::USE_AFTER_MOVE,
-        ),
+        diagnostic_cause_key: USE_AFTER_MOVE_CAUSE,
         help: path_move_help(item_name, target, move_site, state),
         resolver_call: resolver_call.cloned(),
+        use_after_move: Some(UseAfterMoveFact {
+            task_name: item_name.to_string(),
+            moved_root: target.to_string(),
+            move_site: move_site.span.clone(),
+            use_site: portable_span(use_site),
+            path: state.path.clone(),
+            resolver_call: resolver_call.cloned(),
+        }),
     }
 }
 
@@ -1828,10 +1987,10 @@ fn stale_field_view_diagnostic(
         target: Some(view_name.to_string()),
         status,
         reason,
-        diagnostic_code: DiagnosticCode::STALE_FIELD_VIEW.as_str(),
-        diagnostic_cause: ownership_cause(cause_key, DiagnosticCode::STALE_FIELD_VIEW),
+        diagnostic_cause_key: cause_key,
         help: stale_field_view_help(item_name, view_name, site, &statements[index], state),
         resolver_call: None,
+        use_after_move: None,
     }
 }
 
@@ -1850,13 +2009,10 @@ fn linear_double_consume_diagnostic(
         target: Some(target.to_string()),
         status: "rejected_linear_resource_consumed_twice_v0",
         reason: "linear_resource_consumed_more_than_once_v0",
-        diagnostic_code: DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE.as_str(),
-        diagnostic_cause: ownership_cause(
-            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(113),
-            DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE,
-        ),
+        diagnostic_cause_key: crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(113),
         help: linear_double_consume_help(item_name, target, move_site, &statements[index], state),
         resolver_call: resolver_call.cloned(),
+        use_after_move: None,
     }
 }
 
@@ -2269,24 +2425,32 @@ fn return_dependency_fact(
         status,
         reason,
         diagnostic_code: diagnostic_code.map(DiagnosticCode::as_str),
-        diagnostic_cause: diagnostic_code
+        diagnostic_cause_key: diagnostic_code
             .zip(diagnostic_cause)
-            .map(|(code, cause)| ownership_cause(cause, code)),
+            .map(|(code, cause_key)| {
+                assert_eq!(
+                    ownership_cause_projection(cause_key).code,
+                    code,
+                    "return-dependency public projection must match its already selected cause"
+                );
+                cause_key
+            }),
         diagnostic_occurrence: None,
         help,
     }
 }
 
 fn seal_statement_occurrence(statement: &mut OwnershipStatement) {
-    let Some(cause) = statement.diagnostic_cause else {
+    let Some(cause_key) = statement.diagnostic_cause_key else {
         return;
     };
-    let code = ownership_code(
-        statement
-            .diagnostic_code
-            .expect("ownership producer cause requires a diagnostic code"),
-    )
-    .expect("ownership producer code must remain allocated");
+    let cause = ownership_cause_projection(cause_key);
+    let code = cause.code;
+    assert_eq!(
+        statement.diagnostic_code,
+        Some(code.as_str()),
+        "ownership public code must validate after opaque cause selection"
+    );
     let reason = statement
         .reason
         .expect("ownership producer cause requires a detail reason");
@@ -2303,17 +2467,34 @@ fn seal_statement_occurrence(statement: &mut OwnershipStatement) {
         statement.semantic_id.clone(),
         relationship_route,
     );
-    let mut occurrence = DiagnosticOccurrence::registered(
-        cause,
-        identity,
+    let public_projection = if cause_key == USE_AFTER_MOVE_CAUSE {
+        let fact = statement
+            .use_after_move
+            .as_ref()
+            .expect("H0801 producer must carry its structured move/use fact");
+        Diagnostic::error(
+            code,
+            format!("value `{}` was used after it was moved", fact.moved_root),
+            Some(fact.use_site.clone()),
+        )
+        .with_help(format!(
+            "Fix task `{}`: `{}` moved at {}:{}:{}; use it before that move or create a fresh owned value.",
+            fact.task_name,
+            fact.moved_root,
+            fact.move_site.file,
+            fact.move_site.line,
+            fact.move_site.column
+        ))
+    } else {
         Diagnostic::error(code, reason, Some(statement.span.clone())).with_help(
             statement
                 .help
                 .clone()
                 .unwrap_or_else(|| "Repair the rejected ownership relationship.".to_string()),
-        ),
-    )
-    .expect("ownership occurrence must seal at its semantic producer");
+        )
+    };
+    let mut occurrence = DiagnosticOccurrence::registered(cause, identity, public_projection)
+        .expect("ownership occurrence must seal at its semantic producer");
     if let Some(resolver_call) = &statement.resolver_call {
         occurrence = occurrence
             .with_resolver_call(resolver_call)
@@ -2323,15 +2504,16 @@ fn seal_statement_occurrence(statement: &mut OwnershipStatement) {
 }
 
 fn seal_return_dependency_occurrence(dependency: &mut OwnershipReturnDependency) {
-    let Some(cause) = dependency.diagnostic_cause else {
+    let Some(cause_key) = dependency.diagnostic_cause_key else {
         return;
     };
-    let code = ownership_code(
-        dependency
-            .diagnostic_code
-            .expect("return-dependency cause requires a diagnostic code"),
-    )
-    .expect("return-dependency code must remain allocated");
+    let cause = ownership_cause_projection(cause_key);
+    let code = cause.code;
+    assert_eq!(
+        dependency.diagnostic_code,
+        Some(code.as_str()),
+        "return-dependency public code must validate after opaque cause selection"
+    );
     let reason = dependency
         .reason
         .expect("return-dependency cause requires a detail reason");
@@ -3939,14 +4121,55 @@ fn push_comma_newline(out: &mut String, comma: bool) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use crate::ast::{Item, Program};
     use crate::diagnostic::DiagnosticCode;
     use crate::parser::parse_source;
 
     use super::{
         check_item, ownership_check_has_errors, ownership_check_json, ownership_check_summary,
-        ownership_check_text,
+        ownership_check_text, runtime_use_after_move_blockers,
     };
+
+    #[test]
+    fn runtime_h0801_blocker_carries_structured_producer_facts() {
+        let program = parse_program(
+            "fixtures/diagnostics/session_aq_reachable_second_ownership_occurrence_fail.hum",
+            include_str!(
+                "../fixtures/diagnostics/session_aq_reachable_second_ownership_occurrence_fail.hum"
+            ),
+        );
+        fn find_task<'a>(items: &'a [Item], name: &str) -> Option<&'a crate::ast::Task> {
+            items.iter().find_map(|item| match item {
+                Item::App(app) => find_task(&app.items, name),
+                Item::Task(task) if task.name == name => Some(task),
+                _ => None,
+            })
+        }
+        let task = program
+            .files
+            .iter()
+            .find_map(|file| find_task(&file.items, "reachable_second"))
+            .expect("reachable task");
+        let task_identity = crate::resolve::semantic_task_identity(&program, task);
+        let blockers =
+            runtime_use_after_move_blockers(&program, &BTreeSet::from([task_identity.clone()]))
+                .expect("producer-owned H0801 blocker");
+        assert_eq!(blockers.len(), 1);
+        let blocker = &blockers[0];
+        let (identity, name, root, move_site, use_site, path) = blocker.structured_fact();
+        assert_eq!(identity, task_identity);
+        assert_eq!(name, "reachable_second");
+        assert_eq!(root, "second");
+        assert_eq!((move_site.line, use_site.line), (38, 40));
+        assert!(path.is_empty());
+        assert_eq!(
+            blocker.occurrence().cause_key(),
+            super::USE_AFTER_MOVE_CAUSE
+        );
+        assert_eq!(blocker.occurrence().owning_stage(), "ownership_check");
+    }
 
     #[test]
     fn json_accepts_local_ownership_and_mutation_facts() {

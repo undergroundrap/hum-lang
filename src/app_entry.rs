@@ -58,6 +58,7 @@ pub fn analyze(program: &Program) -> Analysis<'_> {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn diagnostics(program: &Program) -> Vec<Diagnostic> {
     analyze(program).diagnostic.into_iter().collect()
 }
@@ -98,23 +99,6 @@ pub(crate) fn diagnostic_occurrence_set(
             .expect("app-entry diagnostic occurrences must be unique");
     }
     occurrences
-}
-
-pub fn is_app_entry_diagnostic(diagnostic: &Diagnostic) -> bool {
-    is_app_entry_code(diagnostic.code)
-}
-
-pub(crate) fn is_app_entry_code(code: DiagnosticCode) -> bool {
-    matches!(
-        code,
-        DiagnosticCode::APP_START_MISSING
-            | DiagnosticCode::APP_START_EMPTY
-            | DiagnosticCode::APP_START_DUPLICATE
-            | DiagnosticCode::APP_START_INVALID_NAME
-            | DiagnosticCode::APP_START_NOT_CHILD
-            | DiagnosticCode::MULTIPLE_EXECUTABLE_APPS
-            | DiagnosticCode::APP_START_INVALID_RESULT
-    )
 }
 
 fn analyze_app<'a>(program: &'a Program, app: &'a App) -> Analysis<'a> {

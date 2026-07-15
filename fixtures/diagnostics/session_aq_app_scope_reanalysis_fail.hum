@@ -1,0 +1,13 @@
+app session_aq_app_scope_reanalysis {
+  why:
+    prove canonical app capability scope reanalysis
+
+  starts with:
+    run_tool
+
+  task run_tool -> Unit {
+    does:
+      stdout_write("blocked")
+      return
+  }
+}

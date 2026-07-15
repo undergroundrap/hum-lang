@@ -357,6 +357,173 @@ try {
     }
   }
 
+  Write-Host '==> Session AQ runtime and top-level occurrence composition matrix'
+  foreach ($EvidenceTest in @(
+    'diagnostic::tests::session_aq_collector_order_duplicate_owner_and_replacement_matrix',
+    'diagnostic_catalog::tests::session_aq_every_code_cause_owner_stage_and_precedence_has_validation',
+    'tests::session_aq_real_load_app_old_to_new_and_old_to_absence',
+    'tests::session_aq_real_load_app_removal_mutation_matrix',
+    'tests::session_aq_real_app_positions_prior_and_insertion_order_fail_closed',
+    'tests::session_aq_capability_is_insert_only_and_exact',
+    'run::tests::session_aq_static_runtime_causes_are_consumed_once_before_adapters',
+    'run::tests::session_aq_execution_time_use_after_move_survivor_is_internal_invariant',
+    'run::tests::session_aq_reachable_second_ownership_occurrence_is_consumed_exactly',
+    'run::tests::session_aq_behavioral_legacy_classifier_witness_fails_wrong_occurrence',
+    'run::tests::session_aq_runtime_producer_substitutions_fail_closed',
+    'ownership_check::tests::runtime_h0801_blocker_carries_structured_producer_facts',
+    'run::tests::session_aq_same_code_and_app_scope_occurrences_remain_exact',
+    'run::tests::callable_preflight_rejects_before_output_adapter',
+    'run::tests::reachable_predicate_preflight_precedes_output_adapter',
+    'run::tests::divide_zero_fails_needs_with_caller_blame',
+    'run::tests::wrong_add_fixture_fails_ensures_with_task_blame'
+  )) {
+    Invoke-Native "Session AQ evidence $EvidenceTest" $Cargo @('test', $EvidenceTest, '--', '--exact')
+  }
+
+  $AqTypedPath = 'fixtures/diagnostics/session_aq_static_runtime_shared_cause_fail.hum'
+  $AqTypedRun = Read-NativeChannelsWithExit 'Session AQ shared typed-failure runtime' $Hum @('run', '--entry', 'typed_failure_probe', $AqTypedPath)
+  if ($AqTypedRun.ExitCode -ne 2 -or $AqTypedRun.Stdout -ne '' -or [regex]::Matches($AqTypedRun.Stderr, 'error\[H0901\]').Count -ne 1 -or $AqTypedRun.Stderr.Contains('runtime trap')) { throw 'Session AQ typed-failure runtime must consume one static occurrence before adapters' }
+  $AqTypedRepeat = Read-NativeChannelsWithExit 'Session AQ shared typed-failure runtime repeat' $Hum @('run', '--entry', 'typed_failure_probe', $AqTypedPath)
+  if ($AqTypedRun.ExitCode -ne $AqTypedRepeat.ExitCode -or $AqTypedRun.Stdout -ne $AqTypedRepeat.Stdout -or $AqTypedRun.Stderr -ne $AqTypedRepeat.Stderr) { throw 'Session AQ typed-failure runtime bytes must be identical across fresh executions' }
+
+  $AqOwnershipPath = 'fixtures/diagnostics/session_aq_static_runtime_shared_ownership_fail.hum'
+  $AqOwnershipRun = Read-NativeChannelsWithExit 'Session AQ shared ownership runtime' $Hum @('run', '--entry', 'ownership_probe', $AqOwnershipPath)
+  if ($AqOwnershipRun.ExitCode -ne 2 -or $AqOwnershipRun.Stdout -ne '' -or [regex]::Matches($AqOwnershipRun.Stderr, 'error\[H0801\]').Count -ne 1 -or [regex]::Matches($AqOwnershipRun.Stderr, 'runtime trap: H0801').Count -ne 1) { throw 'Session AQ ownership runtime must preserve one shared occurrence and its existing runtime channel' }
+  $AqOwnershipExpected = @(
+    "$AqOwnershipPath`:12:5: error[H0801]: value ``value`` was used after it was moved",
+    "  help: Fix task ``ownership_probe``: ``value`` moved at $AqOwnershipPath`:11:5; use it before that move or create a fresh owned value.",
+    'runtime trap: H0801 use after move'
+  ) -join "`n"
+  if ($AqOwnershipRun.Stderr.Replace(([string][char]13 + [string][char]10), [string][char]10).TrimEnd() -ne $AqOwnershipExpected) { throw 'Session AQ H0801 sealed runtime projection changed' }
+  $AqOwnershipRepeat = Read-NativeChannelsWithExit 'Session AQ shared ownership runtime repeat' $Hum @('run', '--entry', 'ownership_probe', $AqOwnershipPath)
+  if ($AqOwnershipRun.ExitCode -ne $AqOwnershipRepeat.ExitCode -or $AqOwnershipRun.Stdout -ne $AqOwnershipRepeat.Stdout -or $AqOwnershipRun.Stderr -ne $AqOwnershipRepeat.Stderr) { throw 'Session AQ ownership runtime bytes must be identical across fresh executions' }
+
+  $AqSecondOwnershipPath = 'fixtures/diagnostics/session_aq_reachable_second_ownership_occurrence_fail.hum'
+  $AqSecondOwnershipRun = Read-NativeChannelsWithExit 'Session AQ exact reachable second ownership occurrence' $Hum @('run', '--allow', 'stdout.write', $AqSecondOwnershipPath)
+  if ($AqSecondOwnershipRun.ExitCode -ne 2 -or $AqSecondOwnershipRun.Stdout -ne '' -or [regex]::Matches($AqSecondOwnershipRun.Stderr, 'error\[H0801\]').Count -ne 1 -or [regex]::Matches($AqSecondOwnershipRun.Stderr, 'runtime trap: H0801').Count -ne 1 -or -not $AqSecondOwnershipRun.Stderr.Contains("$AqSecondOwnershipPath`:40:7")) { throw 'Session AQ runtime must consume only the exact reachable second ownership occurrence before output' }
+  $AqSecondOwnershipExpected = @(
+    "$AqSecondOwnershipPath`:40:7: error[H0801]: value ``second`` was used after it was moved",
+    "  help: Fix task ``reachable_second``: ``second`` moved at $AqSecondOwnershipPath`:38:7; use it before that move or create a fresh owned value.",
+    'runtime trap: H0801 use after move'
+  ) -join "`n"
+  if ($AqSecondOwnershipRun.Stderr.Replace(([string][char]13 + [string][char]10), [string][char]10).TrimEnd() -ne $AqSecondOwnershipExpected) { throw 'Session AQ reachable H0801 projection or runtime channel changed' }
+  $AqSecondOwnershipRepeat = Read-NativeChannelsWithExit 'Session AQ exact reachable second ownership occurrence repeat' $Hum @('run', '--allow', 'stdout.write', $AqSecondOwnershipPath)
+  if ($AqSecondOwnershipRun.ExitCode -ne $AqSecondOwnershipRepeat.ExitCode -or $AqSecondOwnershipRun.Stdout -ne $AqSecondOwnershipRepeat.Stdout -or $AqSecondOwnershipRun.Stderr -ne $AqSecondOwnershipRepeat.Stderr) { throw 'Session AQ reachable second ownership bytes must be identical across fresh executions' }
+
+  $AqSameCodePath = 'fixtures/diagnostics/session_aq_same_code_distinct_occurrences_fail.hum'
+  $AqSameCode = Read-NativeOutputWithExit 'Session AQ same-code occurrence JSON' $Hum @('full-type-check', '--format', 'json', $AqSameCodePath)
+  Assert-Json 'Session AQ same-code occurrence JSON' $AqSameCode.Output
+  $AqSameRows = @(($AqSameCode.Output | ConvertFrom-Json).typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0901' })
+  if ($AqSameCode.ExitCode -ne 1 -or $AqSameRows.Count -ne 2 -or $AqSameRows[0].call_span.line -ge $AqSameRows[1].call_span.line) { throw 'Session AQ same-code occurrences must remain distinct in semantic source order' }
+  $AqSameCodeRepeat = Read-NativeOutputWithExit 'Session AQ same-code occurrence JSON repeat' $Hum @('full-type-check', '--format', 'json', $AqSameCodePath)
+  if ($AqSameCode.ExitCode -ne $AqSameCodeRepeat.ExitCode -or $AqSameCode.Output -ne $AqSameCodeRepeat.Output) { throw 'Session AQ same-code JSON must be byte-identical across fresh executions' }
+
+  $AqAppPath = 'fixtures/diagnostics/session_aq_app_scope_reanalysis_fail.hum'
+  $AqApp = Read-NativeChannelsWithExit 'Session AQ app capability scope' $Hum @('run', $AqAppPath)
+  if ($AqApp.ExitCode -ne 1 -or $AqApp.Stdout -ne '' -or [regex]::Matches($AqApp.Stderr, 'error\[H0621\]').Count -ne 1) { throw 'Session AQ app scope must preserve one canonical capability diagnostic' }
+  $AqAppRepeat = Read-NativeChannelsWithExit 'Session AQ app capability scope repeat' $Hum @('run', $AqAppPath)
+  if ($AqApp.ExitCode -ne $AqAppRepeat.ExitCode -or $AqApp.Stdout -ne $AqAppRepeat.Stdout -or $AqApp.Stderr -ne $AqAppRepeat.Stderr) { throw 'Session AQ app scope output must be byte-identical across fresh executions' }
+
+  $AqFixturePaths = @(
+    'fixtures/diagnostics/session_aq_app_scope_reanalysis_fail.hum',
+    'fixtures/diagnostics/session_aq_reachable_second_ownership_occurrence_fail.hum',
+    'fixtures/diagnostics/session_aq_same_code_distinct_occurrences_fail.hum',
+    'fixtures/diagnostics/session_aq_static_runtime_shared_cause_fail.hum',
+    'fixtures/diagnostics/session_aq_static_runtime_shared_ownership_fail.hum'
+  )
+  $AqSurfaceMatrix = @(
+    @{ Name = 'check human'; Args = @('check'); Json = $false },
+    @{ Name = 'check JSON'; Args = @('check', '--format=json'); Json = $true },
+    @{ Name = 'resolve human'; Args = @('resolve'); Json = $false },
+    @{ Name = 'resolve JSON'; Args = @('resolve', '--format=json'); Json = $true },
+    @{ Name = 'type-env human'; Args = @('type-env'); Json = $false },
+    @{ Name = 'type-env JSON'; Args = @('type-env', '--format=json'); Json = $true },
+    @{ Name = 'type-check human'; Args = @('type-check'); Json = $false },
+    @{ Name = 'type-check JSON'; Args = @('type-check', '--format=json'); Json = $true },
+    @{ Name = 'full-type-check human'; Args = @('full-type-check'); Json = $false },
+    @{ Name = 'full-type-check JSON'; Args = @('full-type-check', '--format=json'); Json = $true },
+    @{ Name = 'effect-check human'; Args = @('effect-check'); Json = $false },
+    @{ Name = 'effect-check JSON'; Args = @('effect-check', '--format=json'); Json = $true },
+    @{ Name = 'ownership-check human'; Args = @('ownership-check'); Json = $false },
+    @{ Name = 'ownership-check JSON'; Args = @('ownership-check', '--format=json'); Json = $true },
+    @{ Name = 'resource-check human'; Args = @('resource-check'); Json = $false },
+    @{ Name = 'resource-check JSON'; Args = @('resource-check', '--format=json'); Json = $true },
+    @{ Name = 'profile-check human'; Args = @('profile-check'); Json = $false },
+    @{ Name = 'profile-check JSON'; Args = @('profile-check', '--format=json'); Json = $true },
+    @{ Name = 'core-preview human'; Args = @('core-preview'); Json = $false },
+    @{ Name = 'core-preview JSON'; Args = @('core-preview', '--format=json'); Json = $true },
+    @{ Name = 'core-lower human'; Args = @('core-lower'); Json = $false },
+    @{ Name = 'core-lower JSON'; Args = @('core-lower', '--format=json'); Json = $true },
+    @{ Name = 'core-verify human'; Args = @('core-verify'); Json = $false },
+    @{ Name = 'core-verify JSON'; Args = @('core-verify', '--format=json'); Json = $true },
+    @{ Name = 'graph'; Args = @('graph'); Json = $true },
+    @{ Name = 'ir-readiness human'; Args = @('ir-readiness'); Json = $false },
+    @{ Name = 'ir-readiness JSON'; Args = @('ir-readiness', '--format=json'); Json = $true }
+  )
+  foreach ($AqFixture in $AqFixturePaths) {
+    foreach ($AqSurface in $AqSurfaceMatrix) {
+      $AqArgs = @($AqSurface.Args) + @($AqFixture)
+      $AqFirst = Read-NativeChannelsWithExit "Session AQ $($AqSurface.Name) $AqFixture" $Hum $AqArgs
+      $AqSecond = Read-NativeChannelsWithExit "Session AQ repeat $($AqSurface.Name) $AqFixture" $Hum $AqArgs
+      if ($AqFirst.ExitCode -notin @(0, 1) -or $AqFirst.ExitCode -ne $AqSecond.ExitCode -or $AqFirst.Stdout -cne $AqSecond.Stdout -or $AqFirst.Stderr -cne $AqSecond.Stderr) { throw "Session AQ cross-surface output changed or failed: $($AqSurface.Name) $AqFixture" }
+      if ($AqSurface.Json) { Assert-Json "Session AQ $($AqSurface.Name) $AqFixture" $AqFirst.Stdout }
+      $AqCombinedOutput = $AqFirst.Stdout + $AqFirst.Stderr
+      foreach ($PrivateField in @('occurrence_id', 'cause_key', 'owning_stage', 'relationship_route')) {
+        if ($AqCombinedOutput.Contains($PrivateField)) { throw "Session AQ cross-surface internal field leaked: $PrivateField in $($AqSurface.Name) $AqFixture" }
+      }
+    }
+  }
+
+  foreach ($PublicOutput in @($AqTypedRun.Stderr, $AqOwnershipRun.Stderr, $AqSameCode.Output, $AqApp.Stderr)) {
+    foreach ($PrivateField in @('occurrence_id', 'cause_key', 'semantic_owner', 'owning_stage', 'semantic_origin', 'relationship_route')) {
+      if ($PublicOutput.Contains($PrivateField)) { throw "Session AQ internal field leaked publicly: $PrivateField" }
+    }
+  }
+
+  function Get-AqRustProductionSource([string]$Path) {
+    $Source = [System.IO.File]::ReadAllText((Resolve-Path $Path))
+    $TerminalTestModules = [regex]::Matches($Source, '(?m)^#\[cfg\(test\)\]\r?\nmod tests\s*\{')
+    if ($TerminalTestModules.Count -gt 1) { throw "Session AQ source extraction found ambiguous terminal test modules in $Path" }
+    if ($TerminalTestModules.Count -eq 0) { return $Source }
+    return $Source.Substring(0, $TerminalTestModules[0].Index)
+  }
+  $AqMainProduction = Get-AqRustProductionSource 'src/main.rs'
+  $AqRunProduction = Get-AqRustProductionSource 'src/run.rs'
+  $AqAppProduction = Get-AqRustProductionSource 'src/app_entry.rs'
+  $AqCapabilityProduction = Get-AqRustProductionSource 'src/capability_root.rs'
+  $AqDiagnosticProduction = Get-AqRustProductionSource 'src/diagnostic.rs'
+  $AqOwnershipProduction = Get-AqRustProductionSource 'src/ownership_check.rs'
+  if (-not $AqRunProduction.Contains('run_program_with_occurrences_and_file_adapters') -or -not $AqRunProduction.Contains('fn location(span: &Span)') -or $AqRunProduction.Contains('session_aq_execution_time_use_after_move_survivor_is_internal_invariant')) { throw 'Session AQ production-source extraction truncated at a field- or method-level cfg(test) attribute or retained the terminal test module' }
+  foreach ($ForbiddenRuntimeH0801 in @(
+    '\bDiagnosticCode\s*::\s*USE_AFTER_MOVE\b',
+    '\bUSE_AFTER_MOVE\b',
+    'DiagnosticCauseKey\s*::\s*producer_owned\s*\(\s*110\s*\)',
+    'value_used_after_move_v0',
+    '"H0801"'
+  )) {
+    if ([regex]::IsMatch($AqRunProduction, $ForbiddenRuntimeH0801)) { throw "Session AQ runtime production directly reconstructs or selects H0801: $ForbiddenRuntimeH0801" }
+  }
+  foreach ($ForbiddenClassifier in @('is_app_entry_diagnostic', 'is_app_entry_code', 'is_capability_diagnostic', 'is_capability_code', 'diagnostics.retain(|diagnostic|', 'message.starts_with("H', 'consume_first_owned_origin', 'consume_first_owned_origin_prefix', 'consume_matching_projection', 'consume_matching_projection_any_owner', 'consume_first_owned_stage')) {
+    if ($AqMainProduction.Contains($ForbiddenClassifier) -or $AqRunProduction.Contains($ForbiddenClassifier) -or $AqAppProduction.Contains($ForbiddenClassifier) -or $AqCapabilityProduction.Contains($ForbiddenClassifier) -or $AqDiagnosticProduction.Contains($ForbiddenClassifier) -or $AqOwnershipProduction.Contains($ForbiddenClassifier)) { throw "Session AQ superseded production classifier remains: $ForbiddenClassifier" }
+  }
+  foreach ($RequiredTransport in @('remove_reanalyzed_projection', 'remove_loaded_app_projections', 'insert_capability_projections', 'ReanalysisProducer', 'runtime_diagnostic_occurrences', 'run_program_with_occurrences_and_adapters', 'consume_exact', 'emit_exact_occurrences', 'runtime_use_after_move_blockers', 'OwnershipRuntimeBlocker')) {
+    if (-not ($AqMainProduction + $AqRunProduction + $AqDiagnosticProduction + $AqOwnershipProduction).Contains($RequiredTransport)) { throw "Session AQ canonical transport evidence is missing: $RequiredTransport" }
+  }
+  $AqCapabilityInsertionSignature = [regex]::Match($AqMainProduction, '(?s)fn insert_capability_projections\((.*?)\)\s*->')
+  if (-not $AqCapabilityInsertionSignature.Success -or $AqCapabilityInsertionSignature.Groups[1].Value.Contains('ReanalyzableProjection') -or $AqCapabilityInsertionSignature.Groups[1].Value.Contains('BTreeMap')) { throw 'Session AQ capability insertion must remain structurally unable to create an authoritative-old ledger entry' }
+  if ([regex]::Matches($AqMainProduction, 'producer:\s*ReanalysisProducer::AppEntry').Count -ne 1 -or [regex]::Matches($AqMainProduction, 'producer:\s*ReanalysisProducer::CapabilityRoot').Count -ne 0) { throw 'Session AQ production ledger must classify only real per-file app authorities as removable old projections' }
+  $AqRawProduction = @()
+  foreach ($SourceFile in Get-ChildItem -Path 'src' -Filter '*.rs') {
+    if ($SourceFile.Name -eq 'diagnostic_catalog.rs') { continue }
+    $Production = Get-AqRustProductionSource $SourceFile.FullName
+    if ([regex]::IsMatch($Production, '"H\d{4}"')) { $AqRawProduction += $SourceFile.Name }
+  }
+  $AqAllowedPresentation = @('callable.rs', 'explain.rs', 'full_type_check.rs')
+  foreach ($RawFile in $AqRawProduction) {
+    if ($AqAllowedPresentation -notcontains $RawFile) { throw "Session AQ found a raw production H-code outside the registry/presentation allowlist: $RawFile" }
+  }
+  if (-not $AqRunProduction.Contains('DiagnosticOccurrenceCollector::from_authority') -or $AqRunProduction.Contains('DiagnosticOccurrence::registered') -or $AqRunProduction.Contains('DiagnosticOccurrence::producer_diagnostic')) { throw 'Session AQ runtime must consume authority and must not mint static/shared occurrences' }
+
   Write-Host '==> Session AP static cause registry and prior-blocker propagation matrix'
   foreach ($EvidenceTest in @(
     'diagnostic_catalog::tests::session_ap_static_emitters_have_one_registered_default_owner',
@@ -405,7 +572,7 @@ try {
   $ApResolverProductionSource = [regex]::Replace((Get-Content -Raw 'src/resolve.rs'), '(?s)#\[cfg\(test\)\].*$', '')
   $ApParserProductionSource = [regex]::Replace((Get-Content -Raw 'src/parser.rs'), '(?s)#\[cfg\(test\)\]\s*mod tests\s*\{.*$', '')
   $ApCapabilityProductionSource = [regex]::Replace((Get-Content -Raw 'src/capability_root.rs'), '(?s)#\[cfg\(test\)\].*$', '')
-  $ApOwnershipProductionSource = [regex]::Replace((Get-Content -Raw 'src/ownership_check.rs'), '(?s)#\[cfg\(test\)\].*$', '')
+  $ApOwnershipProductionSource = [regex]::Replace((Get-Content -Raw 'src/ownership_check.rs'), '(?s)#\[cfg\(test\)\]\s*mod tests\s*\{.*$', '')
   $ApTypedProductionSource = [regex]::Replace($ApTypedFailureSource, '(?s)#\[cfg\(test\)\].*$', '')
   if ($ApResolverProductionSource.Contains('calls_in_expression') -or $ApCapabilityProductionSource.Contains('calls_in_expression')) { throw 'Session AP resolver/capability producers must not rescan source text to mint executable call identity' }
   if ($ApParserProductionSource.Contains('scan_raw_executable_calls') -or $ApParserProductionSource.Contains('scan_identifier_tokens') -or $ApParserProductionSource.Contains('executable_calls_in_statement')) { throw 'Session AP must remove the late retained-text executable-call scanner rather than rename its resolver entry point' }
@@ -425,7 +592,6 @@ try {
   $ApMainProductionSource = [regex]::Replace((Get-Content -Raw 'src/main.rs'), '(?s)#\[cfg\(test\)\].*$', '')
   foreach ($ForbiddenMainCollector in @(
     'diagnostic_occurrences.retain_codes',
-    'path_boundary::diagnostic_occurrence_set',
     'app_entry::diagnostic_occurrence_set(&program)',
     'capability_root::diagnostic_occurrence_set(&program)',
     'core_preview::diagnostic_occurrence_set_from_source',
@@ -435,7 +601,7 @@ try {
   )) {
     if ($ApMainProductionSource.Contains($ForbiddenMainCollector)) { throw "Session AP top-level main boundary contains unauthorized occurrence collection/validation: $ForbiddenMainCollector" }
   }
-  if (-not $ApMainProductionSource.Contains('profile_check::diagnostic_transport_from_source') -or -not $ApMainProductionSource.Contains('graph::validate_diagnostic_occurrence_projection')) { throw 'Session AP main must retain only the authorized graph projection validation over load_program transport' }
+  if (-not $ApMainProductionSource.Contains('profile_check::diagnostic_transport_from_source') -or -not $ApMainProductionSource.Contains('graph::validate_diagnostic_occurrence_projection') -or -not $ApMainProductionSource.Contains('runtime_diagnostic_occurrences')) { throw 'Session AQ main must retain graph validation and add only the canonical runtime occurrence transport over load_program authority' }
   $ApCoreVerifyProductionSource = [regex]::Replace((Get-Content -Raw 'src/core_verify.rs'), '(?s)#\[cfg\(test\)\].*$', '')
   $ApIrProductionSource = [regex]::Replace((Get-Content -Raw 'src/ir_readiness.rs'), '(?s)#\[cfg\(test\)\].*$', '')
   if (-not $ApCoreVerifyProductionSource.Contains('.validate_against("core_lower", &preview_authority)') -or -not $ApIrProductionSource.Contains('.validate_against("ir_readiness", diagnostic_occurrences)')) { throw 'Session AP Core/IR occurrence validation must remain inside its authorized stage modules' }
@@ -748,6 +914,12 @@ try {
   $RunSessionJUseAfterMove = Read-NativeOutputWithExit 'run Session J use-after-move misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_j_use_after_move_fail.hum', '--entry', 'use_after_move')
   if ($RunSessionJUseAfterMove.ExitCode -ne 2) { throw "Session J use-after-move run expected exit 2, got $($RunSessionJUseAfterMove.ExitCode)" }
   if (-not $RunSessionJUseAfterMove.Output.Contains('H0801')) { throw "Session J use-after-move run expected H0801, got $($RunSessionJUseAfterMove.Output)" }
+  $RunSessionJUseAfterMoveExpected = @(
+    'fixtures/ownership_check/session_j_use_after_move_fail.hum:18:5: error[H0801]: value `value` was used after it was moved',
+    '  help: Fix task `use_after_move`: `value` moved at fixtures/ownership_check/session_j_use_after_move_fail.hum:17:5; use it before that move or create a fresh owned value.',
+    'runtime trap: H0801 use after move'
+  ) -join "`n"
+  if ($RunSessionJUseAfterMove.Output.Replace(([string][char]13 + [string][char]10), [string][char]10).TrimEnd() -ne $RunSessionJUseAfterMoveExpected) { throw 'Session J H0801 runtime bytes changed' }
   if (-not $RunSessionJUseAfterMove.Output.Contains('help:')) { throw "Session J use-after-move run expected blame help, got $($RunSessionJUseAfterMove.Output)" }
 
   $RunSessionJBorrowWrite = Read-NativeOutputWithExit 'run Session J borrowed-write misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_j_borrow_write_fail.hum', '--entry', 'write_borrow', '--args', '7')

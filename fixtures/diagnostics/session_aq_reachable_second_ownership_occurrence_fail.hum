@@ -1,0 +1,43 @@
+module fixtures.diagnostics.session_aq_reachable_second_ownership_occurrence_fail
+
+type ProbeError {
+  code: Text
+}
+
+app exact_reachable_ownership {
+  why:
+    prove ownership preflight selects the exact reachable occurrence
+
+  uses:
+    stdout.write
+
+  starts with:
+    reachable_second
+
+  task take(consume value: Int) -> Int {
+    does:
+      return value
+  }
+
+  task unreachable_first() -> Int {
+    does:
+      let first: Int = 7
+      let taken: Int = take(consume first)
+      return first
+  }
+
+  task reachable_second() -> Result Unit, ProbeError {
+    uses:
+      stdout.write
+
+    fails when:
+      bounded output fails
+
+    does:
+      let second: Int = 9
+      let taken: Int = take(consume second)
+      let written = try stdout_write("must not print") or fail ProbeError.output
+      let reused: Int = second
+      return
+  }
+}

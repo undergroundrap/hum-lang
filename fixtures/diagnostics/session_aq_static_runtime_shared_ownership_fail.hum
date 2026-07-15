@@ -1,0 +1,13 @@
+module fixtures.diagnostics.session_aq_static_runtime_shared_ownership_fail
+
+task take(consume value: Int) -> Int {
+  does:
+    return value
+}
+
+task ownership_probe() -> Int {
+  does:
+    let value: Int = 7
+    let taken: Int = take(consume value)
+    return value
+}

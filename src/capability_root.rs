@@ -92,6 +92,13 @@ pub(crate) struct CapabilityAnalysis {
     pub diagnostics: Vec<Diagnostic>,
     pub routes: Vec<CapabilityRouteFact>,
     pub(crate) diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
+    pub(crate) diagnostic_projections: Vec<CapabilityDiagnosticProjection>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CapabilityDiagnosticProjection {
+    pub(crate) diagnostic: Diagnostic,
+    pub(crate) occurrence: DiagnosticOccurrence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,6 +265,7 @@ pub(crate) fn analyze(program: &Program) -> CapabilityAnalysis {
     analysis
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn diagnostics(program: &Program) -> Vec<Diagnostic> {
     analyze(program).diagnostics
 }
@@ -547,31 +555,18 @@ fn seal_analysis(_program: &Program, analysis: &mut CapabilityAnalysis) {
                 .with_resolver_call(resolver_call)
                 .expect("capability occurrence must carry its exact resolver call");
         }
-        *diagnostic = sealed;
+        *diagnostic = sealed.clone();
+        analysis
+            .diagnostic_projections
+            .push(CapabilityDiagnosticProjection {
+                diagnostic: sealed,
+                occurrence: occurrence.clone(),
+            });
         analysis
             .diagnostic_occurrences
             .insert_owned(occurrence)
             .expect("capability diagnostic occurrences must be unique");
     }
-}
-
-pub(crate) fn is_capability_diagnostic(diagnostic: &Diagnostic) -> bool {
-    is_capability_code(diagnostic.code)
-}
-
-pub(crate) fn is_capability_code(code: DiagnosticCode) -> bool {
-    matches!(
-        code,
-        DiagnosticCode::UNKNOWN_SOURCE_CAPABILITY
-            | DiagnosticCode::MISSING_CALLER_CAPABILITY
-            | DiagnosticCode::APP_CAPABILITY_MISMATCH
-            | DiagnosticCode::ENTRY_CAPABILITY_BYPASS
-            | DiagnosticCode::OUTPUT_CAPABILITY_UNDECLARED
-            | DiagnosticCode::OUTPUT_RECURSION_UNSUPPORTED
-            | DiagnosticCode::REPLAY_CAPABILITY_UNDECLARED
-            | DiagnosticCode::REPLAY_RECURSION_UNSUPPORTED
-            | DiagnosticCode::FILE_CAPABILITY_UNDECLARED
-    )
 }
 
 fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis {
@@ -1050,6 +1045,7 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
         diagnostics,
         routes,
         diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet::default(),
+        diagnostic_projections: Vec::new(),
     }
 }
 

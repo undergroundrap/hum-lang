@@ -9,7 +9,10 @@ use crate::ast::{App, Item, ParamPermission, Program, SectionLine, Task};
 use crate::callable::{self, CallableAnalysis};
 use crate::capability_root::{self, FilePolicyFact, OutputPolicyFact, ReplayPolicyFact};
 use crate::core_body::{self, BodyStatement};
-use crate::diagnostic::{Diagnostic, DiagnosticCode, Span};
+use crate::diagnostic::{
+    Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceCollector,
+    DiagnosticOccurrenceSet, Span,
+};
 use crate::element_place;
 use crate::field_place;
 use crate::file_read::{
@@ -19,6 +22,7 @@ use crate::file_read::{
 use crate::graph::is_meaningful_line_text;
 use crate::native_path::{ValidatedNativePath, validate_native_path};
 use crate::operator_grant::{GrantDecision, OperatorGrantPolicy};
+use crate::ownership_check;
 use crate::predicate::{self, Arithmetic, Comparison, Expr, PredicateAst, RecognitionStatus};
 use crate::return_dependency;
 use crate::type_check;
@@ -458,6 +462,7 @@ pub(crate) fn run_program_with_output(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn run_program_with_adapters(
     program: &Program,
     entry: Option<&str>,
@@ -466,10 +471,41 @@ pub(crate) fn run_program_with_adapters(
     output_adapter: &mut dyn OutputAdapter,
     replay_adapter: &mut dyn ReplayAdapter,
 ) -> RunReport {
+    let occurrences = match runtime_occurrence_authority(program) {
+        Ok(occurrences) => occurrences,
+        Err(message) => {
+            return RunReport {
+                outcome: RunOutcome::Trap(message),
+                diagnostics: Vec::new(),
+                authority_events: Vec::new(),
+            };
+        }
+    };
+    run_program_with_occurrences_and_adapters(
+        program,
+        &occurrences,
+        entry,
+        raw_args,
+        grant_policy,
+        output_adapter,
+        replay_adapter,
+    )
+}
+
+pub(crate) fn run_program_with_occurrences_and_adapters(
+    program: &Program,
+    diagnostic_occurrences: &DiagnosticOccurrenceSet,
+    entry: Option<&str>,
+    raw_args: &[OsString],
+    grant_policy: &OperatorGrantPolicy,
+    output_adapter: &mut dyn OutputAdapter,
+    replay_adapter: &mut dyn ReplayAdapter,
+) -> RunReport {
     let mut file_adapter = HostFileReadAdapter;
     let mut locality_adapter = HostFileLocalityAdapter;
-    run_program_with_file_adapters(
+    run_program_with_occurrences_and_file_adapters(
         program,
+        diagnostic_occurrences,
         entry,
         raw_args,
         grant_policy,
@@ -482,8 +518,37 @@ pub(crate) fn run_program_with_adapters(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn run_program_with_file_adapters(
     program: &Program,
+    entry: Option<&str>,
+    raw_args: &[OsString],
+    grant_policy: &OperatorGrantPolicy,
+    adapters: RunAdapters<'_>,
+) -> RunReport {
+    let occurrences = match runtime_occurrence_authority(program) {
+        Ok(occurrences) => occurrences,
+        Err(message) => {
+            return RunReport {
+                outcome: RunOutcome::Trap(message),
+                diagnostics: Vec::new(),
+                authority_events: Vec::new(),
+            };
+        }
+    };
+    run_program_with_occurrences_and_file_adapters(
+        program,
+        &occurrences,
+        entry,
+        raw_args,
+        grant_policy,
+        adapters,
+    )
+}
+
+fn run_program_with_occurrences_and_file_adapters(
+    program: &Program,
+    diagnostic_occurrences: &DiagnosticOccurrenceSet,
     entry: Option<&str>,
     raw_args: &[OsString],
     grant_policy: &OperatorGrantPolicy,
@@ -494,11 +559,23 @@ pub(crate) fn run_program_with_file_adapters(
     let file_policies = file_policy_map(capability_root::file_policy_facts(program));
     let predicate_analysis = predicate::analyze_program(program);
     let callable_analysis = callable::analyze_program(program);
+    let diagnostic_occurrence_collector =
+        match DiagnosticOccurrenceCollector::from_authority(diagnostic_occurrences) {
+            Ok(collector) => collector,
+            Err(error) => {
+                return RunReport {
+                    outcome: RunOutcome::Trap(format!("diagnostic invariant failure: {error:?}")),
+                    diagnostics: Vec::new(),
+                    authority_events: Vec::new(),
+                };
+            }
+        };
     let interpreter = Interpreter {
         program,
         callable_analysis,
         predicate_analysis,
         diagnostics: RefCell::new(Vec::new()),
+        diagnostic_occurrences: RefCell::new(diagnostic_occurrence_collector),
         active_iterations: RefCell::new(Vec::new()),
         active_app: RefCell::new(None),
         grant_policy,
@@ -537,14 +614,7 @@ pub(crate) fn run_program_with_file_adapters(
         Ok((TaskResult::Failed(value), false)) => RunOutcome::Failure(value.render()),
         Ok((TaskResult::Failed(value), true)) => RunOutcome::AppFailure(value.render()),
         Ok((TaskResult::ContractViolation, _)) => RunOutcome::ContractViolation,
-        Err(message)
-            if message == DIAGNOSTIC_PREFLIGHT_REJECTED
-                || message.starts_with("H0704:")
-                || message.starts_with("H0605:")
-                || message.starts_with("H0601:") =>
-        {
-            RunOutcome::PreflightRejected
-        }
+        Err(message) if message == DIAGNOSTIC_PREFLIGHT_REJECTED => RunOutcome::PreflightRejected,
         Err(message) => RunOutcome::Trap(message),
     };
     let diagnostics = interpreter.diagnostics.into_inner();
@@ -554,6 +624,144 @@ pub(crate) fn run_program_with_file_adapters(
         diagnostics,
         authority_events,
     }
+}
+
+#[cfg(test)]
+fn runtime_occurrence_authority(program: &Program) -> Result<DiagnosticOccurrenceSet, String> {
+    let mut source_occurrences = app_entry::diagnostic_occurrence_set(program);
+    source_occurrences
+        .extend_owned(&crate::path_boundary::diagnostic_occurrence_set(program))
+        .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    source_occurrences
+        .extend_owned(&capability_root::diagnostic_occurrence_set(program))
+        .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    let diagnostics = source_occurrences
+        .normalized_occurrences()
+        .into_iter()
+        .map(|occurrence| occurrence.diagnostic().clone())
+        .collect::<Vec<_>>();
+    let mut occurrences = crate::profile_check::diagnostic_occurrence_set_from_source(
+        program,
+        &diagnostics,
+        &source_occurrences,
+    )
+    .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    for occurrence in callable::diagnostic_occurrences(program) {
+        occurrences
+            .insert_owned(occurrence)
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    }
+    Ok(occurrences)
+}
+
+fn occurrence_public_order(
+    left: &DiagnosticOccurrence,
+    right: &DiagnosticOccurrence,
+) -> std::cmp::Ordering {
+    fn display_site(occurrence: &DiagnosticOccurrence) -> (&str, usize, usize) {
+        occurrence
+            .diagnostic()
+            .span
+            .as_ref()
+            .map_or(("", usize::MAX, usize::MAX), |span| {
+                (span.file.as_str(), span.line, span.column)
+            })
+    }
+    display_site(left)
+        .cmp(&display_site(right))
+        .then_with(|| left.semantic_origin().cmp(right.semantic_origin()))
+        .then_with(|| left.id().cmp(right.id()))
+}
+
+fn task_reachability_mask(program: &Program, reachable_tasks: &[&Task]) -> Vec<bool> {
+    let reachable = reachable_tasks
+        .iter()
+        .map(|task| crate::resolve::semantic_task_identity(program, task))
+        .collect::<BTreeSet<_>>();
+    fn collect(
+        program: &Program,
+        items: &[Item],
+        reachable: &BTreeSet<String>,
+        out: &mut Vec<bool>,
+    ) {
+        for item in items {
+            match item {
+                Item::App(app) => collect(program, &app.items, reachable, out),
+                Item::Task(task) => out.push(
+                    reachable.contains(&crate::resolve::semantic_task_identity(program, task)),
+                ),
+                Item::Type(_) | Item::Store(_) | Item::Test(_) => {}
+            }
+        }
+    }
+    let mut mask = Vec::new();
+    for file in &program.files {
+        collect(program, &file.items, &reachable, &mut mask);
+    }
+    mask
+}
+
+fn runtime_type_scope(program: &Program, reachable_tasks: &[&Task]) -> Program {
+    fn replace_param_type(param: &mut crate::ast::Param) {
+        param.ty = "Int".to_string();
+        param.type_syntax.kind = crate::ast::TypeSyntaxKind::Named {
+            name: "Int".to_string(),
+        };
+    }
+
+    fn retain_reachable_signatures(
+        items: &mut [Item],
+        reachability: &mut impl Iterator<Item = bool>,
+    ) {
+        for item in items {
+            match item {
+                Item::App(app) => retain_reachable_signatures(&mut app.items, reachability),
+                Item::Task(task) => {
+                    let reachable = reachability.next().expect("task reachability mask");
+                    for param in &mut task.params {
+                        if !reachable
+                            || matches!(
+                                param.type_syntax.kind,
+                                crate::ast::TypeSyntaxKind::Callable(_)
+                                    | crate::ast::TypeSyntaxKind::CallableCandidate { .. }
+                            )
+                        {
+                            replace_param_type(param);
+                        }
+                    }
+                    if !reachable {
+                        if task.result.is_some() {
+                            task.result = Some("Int".to_string());
+                        }
+                        if let Some(result) = &mut task.result_syntax {
+                            result.kind = crate::ast::TypeSyntaxKind::Named {
+                                name: "Int".to_string(),
+                            };
+                        }
+                    }
+                }
+                Item::Test(test) => {
+                    for param in &mut test.params {
+                        replace_param_type(param);
+                    }
+                }
+                Item::Type(type_def) => {
+                    for field in &mut type_def.fields {
+                        field.ty = "Int".to_string();
+                    }
+                }
+                Item::Store(store) => store.ty = "Int".to_string(),
+            }
+        }
+    }
+
+    let mut scoped = program.clone();
+    let mut reachability = task_reachability_mask(program, reachable_tasks).into_iter();
+    for file in &mut scoped.files {
+        retain_reachable_signatures(&mut file.items, &mut reachability);
+    }
+    assert!(reachability.next().is_none());
+    scoped
 }
 
 fn output_policy_map(
@@ -785,6 +993,7 @@ struct Interpreter<'program, 'output> {
     callable_analysis: Arc<CallableAnalysis>,
     predicate_analysis: Arc<predicate::PredicateAnalysis>,
     diagnostics: RefCell<Vec<Diagnostic>>,
+    diagnostic_occurrences: RefCell<DiagnosticOccurrenceCollector>,
     active_iterations: RefCell<Vec<ActiveIteration>>,
     active_app: RefCell<Option<&'program App>>,
     grant_policy: &'output OperatorGrantPolicy,
@@ -825,25 +1034,103 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         raw_args: &[OsString],
     ) -> Result<(TaskResult, bool), String> {
         let (task, app_mode) = self.entry_task(entry)?;
-        let reachable_tasks = self.reachable_type_tasks(task);
-        let unknown_type_diagnostics =
-            type_check::unknown_type_diagnostics_for_tasks(self.program, &[], &reachable_tasks);
-        if let Some(first) = unknown_type_diagnostics.first() {
-            let code = first.code.as_str();
-            self.diagnostics
-                .borrow_mut()
-                .extend(unknown_type_diagnostics);
-            return Err(format!("{code}: type preflight rejected"));
-        }
-        let callable_diagnostics = callable::diagnostics(self.program, &[]);
-        if !callable_diagnostics.is_empty() {
-            self.diagnostics.borrow_mut().extend(callable_diagnostics);
+        if self.emit_exact_occurrences(
+            crate::path_boundary::diagnostic_occurrence_set(self.program)
+                .occurrences()
+                .cloned()
+                .collect(),
+        )? {
             return Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string());
         }
-        self.preflight_reachable_predicates(task)?;
+        if self.emit_exact_occurrences(
+            capability_root::diagnostic_occurrence_set(self.program)
+                .occurrences()
+                .cloned()
+                .collect(),
+        )? {
+            return Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string());
+        }
+        let reachable_tasks = self.reachable_type_tasks(task);
+        if self.emit_exact_occurrences(self.reachable_type_occurrences(&reachable_tasks))? {
+            return Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string());
+        }
+        self.preflight_reachable_typed_failures(&reachable_tasks)?;
+        let callable_occurrences = callable::diagnostic_occurrences(self.program);
+        if self.emit_exact_occurrences(callable_occurrences)? {
+            return Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string());
+        }
+        self.preflight_reachable_predicates(&reachable_tasks)?;
+        let ownership_blockers = self.reachable_ownership_blockers(&reachable_tasks)?;
+        if let Some(first) = ownership_blockers.first() {
+            let first_projection = first.occurrence().diagnostic().clone();
+            for blocker in &ownership_blockers {
+                blocker
+                    .validate()
+                    .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+                let occurrence = blocker.occurrence();
+                self.emit_occurrence(occurrence, occurrence.diagnostic().clone())?;
+            }
+            return Err(format!(
+                "{} {}",
+                first_projection.code.as_str(),
+                first_projection.code.title()
+            ));
+        }
         let args = self.parse_args(task, raw_args, app_mode)?;
         self.execute_task(task, args)
             .map(|result| (result, app_mode))
+    }
+
+    fn emit_occurrence(
+        &self,
+        occurrence: &DiagnosticOccurrence,
+        public_projection: Diagnostic,
+    ) -> Result<(), String> {
+        let diagnostic = self
+            .diagnostic_occurrences
+            .borrow_mut()
+            .consume_exact(occurrence, public_projection)
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+        self.diagnostics.borrow_mut().push(diagnostic);
+        Ok(())
+    }
+
+    fn emit_exact_occurrences(
+        &self,
+        mut occurrences: Vec<DiagnosticOccurrence>,
+    ) -> Result<bool, String> {
+        occurrences.sort_by(occurrence_public_order);
+        for occurrence in &occurrences {
+            self.emit_occurrence(occurrence, occurrence.diagnostic().clone())?;
+        }
+        Ok(!occurrences.is_empty())
+    }
+
+    fn reachable_type_occurrences(&self, reachable_tasks: &[&Task]) -> Vec<DiagnosticOccurrence> {
+        // Keep the existing public-diagnostic helper available to its static
+        // consumers without using it to choose private runtime identity.
+        let _public_projection_compatibility = type_check::unknown_type_diagnostics_for_tasks;
+        let scoped = runtime_type_scope(self.program, reachable_tasks);
+        type_check::diagnostic_occurrence_set(&scoped, &[])
+            .occurrences()
+            .filter(|occurrence| {
+                occurrence.cause_key()
+                    == crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(82)
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn reachable_ownership_blockers(
+        &self,
+        reachable_tasks: &[&Task],
+    ) -> Result<Vec<ownership_check::OwnershipRuntimeBlocker>, String> {
+        let reachable = reachable_tasks
+            .iter()
+            .map(|task| crate::resolve::semantic_task_identity(self.program, task))
+            .collect::<BTreeSet<_>>();
+        ownership_check::runtime_use_after_move_blockers(self.program, &reachable)
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))
     }
 
     fn reachable_type_tasks(&self, entry: &'program Task) -> Vec<&'program Task> {
@@ -923,7 +1210,10 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         if let Some(diagnostic) = analysis.diagnostic {
             let code = diagnostic.code.as_str();
             let title = diagnostic.code.title();
-            self.diagnostics.borrow_mut().push(diagnostic);
+            let occurrence = analysis.diagnostic_occurrence.ok_or_else(|| {
+                "diagnostic invariant failure: app-entry diagnostic has no occurrence".to_string()
+            })?;
+            self.emit_occurrence(&occurrence, diagnostic)?;
             return Err(format!("{code} {title}"));
         }
         if let Some(entry) = analysis.entry {
@@ -1042,7 +1332,6 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         }
         let alias_analysis =
             writable_field_alias::analyze_with_existing_names(&body.statements, &existing_names);
-        self.preflight_typed_failures(task, &body.statements)?;
         self.preflight_writable_aliases(task, &body.statements, &alias_analysis)?;
 
         let mut env = Env::new();
@@ -1109,10 +1398,9 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                     writable_field_alias::unsupported_message(issue),
                 ),
             };
-            self.diagnostics.borrow_mut().push(
-                Diagnostic::error(code, message, Some(issue.conflict_span.clone()))
-                    .with_help(writable_field_alias::issue_help(&task.name, issue)),
-            );
+            let diagnostic = Diagnostic::error(code, message, Some(issue.conflict_span.clone()))
+                .with_help(writable_field_alias::issue_help(&task.name, issue));
+            self.diagnostics.borrow_mut().push(diagnostic);
             return Err(format!("{} {}", code.as_str(), code.title()));
         }
 
@@ -1162,28 +1450,30 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         Ok(())
     }
 
-    fn preflight_typed_failures(
-        &self,
-        task: &Task,
-        statements: &[BodyStatement],
-    ) -> Result<(), String> {
+    fn preflight_reachable_typed_failures(&self, reachable_tasks: &[&Task]) -> Result<(), String> {
         let analysis = typed_failure::analyze_program(self.program);
-        let Some(fact) = statements
+        let occurrences = reachable_tasks
             .iter()
-            .enumerate()
-            .find_map(|(index, _statement)| {
-                analysis
-                    .fact(task, index)
-                    .filter(|fact| fact.occurrence.is_some())
+            .flat_map(|task| {
+                task.section("does")
+                    .map(core_body::analyze_does_section)
+                    .into_iter()
+                    .flat_map(|body| {
+                        body.statements
+                            .into_iter()
+                            .enumerate()
+                            .filter_map(|(index, _statement)| {
+                                analysis
+                                    .fact(task, index)
+                                    .and_then(|fact| fact.occurrence.clone())
+                            })
+                    })
             })
-        else {
-            return Ok(());
-        };
-        let occurrence = fact.occurrence.as_ref().expect("checked above");
-        self.diagnostics
-            .borrow_mut()
-            .push(occurrence.diagnostic().clone());
-        Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string())
+            .collect::<Vec<_>>();
+        if self.emit_exact_occurrences(occurrences)? {
+            return Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string());
+        }
+        Ok(())
     }
 
     fn writable_alias_authority_trap(
@@ -1193,16 +1483,15 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         code: DiagnosticCode,
         authority: &str,
     ) -> String {
-        self.diagnostics.borrow_mut().push(
-            Diagnostic::error(
-                code,
-                writable_field_alias::authority_message(binding),
-                Some(binding.binding_span.clone()),
-            )
-            .with_help(writable_field_alias::authority_help(
-                &task.name, binding, authority,
-            )),
-        );
+        let diagnostic = Diagnostic::error(
+            code,
+            writable_field_alias::authority_message(binding),
+            Some(binding.binding_span.clone()),
+        )
+        .with_help(writable_field_alias::authority_help(
+            &task.name, binding, authority,
+        ));
+        self.diagnostics.borrow_mut().push(diagnostic);
         format!("{} {}", code.as_str(), code.title())
     }
 
@@ -1271,18 +1560,17 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         Ok(())
     }
 
-    fn preflight_reachable_predicates(&self, entry: &Task) -> Result<(), String> {
-        let diagnostics = self.predicate_analysis.reachable_diagnostics(
-            self.program,
-            entry,
-            *self.active_app.borrow(),
-        );
-        if !diagnostics.is_empty() {
-            self.diagnostics.borrow_mut().extend(diagnostics);
-            return Err(format!(
-                "{}: invalid executable predicate",
-                DiagnosticCode::INVALID_EXECUTABLE_PREDICATE.as_str()
-            ));
+    fn preflight_reachable_predicates(&self, reachable_tasks: &[&Task]) -> Result<(), String> {
+        let occurrences = reachable_tasks
+            .iter()
+            .flat_map(|task| self.predicate_analysis.facts_for_task(task))
+            .filter_map(|fact| fact.diagnostic_occurrence())
+            .collect::<Vec<_>>();
+        if !occurrences.is_empty() {
+            for occurrence in occurrences {
+                self.emit_occurrence(&occurrence, occurrence.diagnostic().clone())?;
+            }
+            return Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string());
         }
         Ok(())
     }
@@ -2974,7 +3262,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             return Err(format!("unknown expression `{name}`"));
         };
         if let Some(move_span) = &binding.moved_at {
-            return Err(self.use_after_move_trap(task_name, &root, span, move_span));
+            return Err(use_after_move_invariant(task_name, &root, span, move_span));
         }
         if let Some(view) = &binding.view
             && let Some(invalidation) = &view.invalidated_by
@@ -3067,7 +3355,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                     binding.moved_by.as_deref().unwrap_or("consume"),
                 ));
             }
-            return Err(self.use_after_move_trap(task_name, &root, span, move_span));
+            return Err(use_after_move_invariant(task_name, &root, span, move_span));
         }
         Ok(binding.value.clone())
     }
@@ -3084,7 +3372,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             return Err(format!("cannot set unknown place `{root}`"));
         };
         if let Some(move_span) = &binding.moved_at {
-            return Err(self.use_after_move_trap(task_name, root, span, move_span));
+            return Err(use_after_move_invariant(task_name, root, span, move_span));
         }
         if binding.permission == RuntimePermission::Borrow {
             return Err(self.borrow_mutation_trap(task_name, place, root, span));
@@ -3148,31 +3436,6 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         Ok(())
     }
 
-    fn use_after_move_trap(
-        &self,
-        task_name: &str,
-        root: &str,
-        span: &Span,
-        move_span: &Span,
-    ) -> String {
-        self.diagnostics.borrow_mut().push(
-            Diagnostic::error(
-                DiagnosticCode::USE_AFTER_MOVE,
-                format!("value `{root}` was used after it was moved"),
-                Some(span.clone()),
-            )
-            .with_help(format!(
-                "Fix task `{task_name}`: `{root}` moved at {}:{}:{}; use it before that move or create a fresh owned value.",
-                move_span.file, move_span.line, move_span.column
-            )),
-        );
-        format!(
-            "{} {}",
-            DiagnosticCode::USE_AFTER_MOVE.as_str(),
-            DiagnosticCode::USE_AFTER_MOVE.title()
-        )
-    }
-
     fn borrow_mutation_trap(
         &self,
         task_name: &str,
@@ -3185,16 +3448,15 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         } else {
             format!("borrowed parameter `{root}` cannot write `{place}`")
         };
-        self.diagnostics.borrow_mut().push(
-            Diagnostic::error(
+        let diagnostic = Diagnostic::error(
                 DiagnosticCode::BORROW_PARAMETER_MUTATION,
                 message,
                 Some(span.clone()),
             )
             .with_help(format!(
                 "Fix task `{task_name}`: mark `{root}` as `change`, copy it into a `change` local, or remove the `set`."
-            )),
-        );
+            ));
+        self.diagnostics.borrow_mut().push(diagnostic);
         format!(
             "{} {}",
             DiagnosticCode::BORROW_PARAMETER_MUTATION.as_str(),
@@ -3289,14 +3551,13 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 ),
             ),
         };
-        self.diagnostics.borrow_mut().push(
-            Diagnostic::error(
-                DiagnosticCode::STALE_FIELD_VIEW,
-                message,
-                Some(use_span.clone()),
-            )
-            .with_help(help),
-        );
+        let diagnostic = Diagnostic::error(
+            DiagnosticCode::STALE_FIELD_VIEW,
+            message,
+            Some(use_span.clone()),
+        )
+        .with_help(help);
+        self.diagnostics.borrow_mut().push(diagnostic);
         format!(
             "{} {}",
             DiagnosticCode::STALE_FIELD_VIEW.as_str(),
@@ -3304,16 +3565,15 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         )
     }
     fn return_dependency_trap(&self, task_name: &str, source: &str, span: &Span) -> String {
-        self.diagnostics.borrow_mut().push(
-            Diagnostic::error(
+        let diagnostic = Diagnostic::error(
                 DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER,
                 format!("returned view does not visibly depend on parameter `{source}`"),
                 Some(span.clone()),
             )
             .with_help(format!(
                 "Fix task `{task_name}`: returned-view `from` source `{source}` must name a task parameter, and returns must visibly return that parameter or a closed-set view derivation such as `slice_until(source, separator)`; locals, internal references, and non-closed derivation chains remain rejected."
-            )),
-        );
+            ));
+        self.diagnostics.borrow_mut().push(diagnostic);
         format!(
             "{} {}",
             DiagnosticCode::RETURN_DEPENDENCY_NOT_PARAMETER.as_str(),
@@ -3328,16 +3588,15 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         exit_kind: &str,
         span: &Span,
     ) -> String {
-        self.diagnostics.borrow_mut().push(
-            Diagnostic::error(
+        let diagnostic = Diagnostic::error(
                 DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED,
                 format!("linear resource `{root}` reached {exit_kind} without being consumed"),
                 Some(span.clone()),
             )
             .with_help(format!(
                 "Fix task `{task_name}`: consume `{root}` exactly once with commit, rollback, close, or transfer before leaving this path."
-            )),
-        );
+            ));
+        self.diagnostics.borrow_mut().push(diagnostic);
         format!(
             "{} {}",
             DiagnosticCode::LINEAR_RESOURCE_NOT_CONSUMED.as_str(),
@@ -3353,8 +3612,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         move_span: &Span,
         moved_by: &str,
     ) -> String {
-        self.diagnostics.borrow_mut().push(
-            Diagnostic::error(
+        let diagnostic = Diagnostic::error(
                 DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE,
                 format!("linear resource `{root}` was consumed twice"),
                 Some(span.clone()),
@@ -3362,8 +3620,8 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             .with_help(format!(
                 "Fix task `{task_name}`: `{root}` was already consumed by {moved_by} at {}:{}:{}; keep exactly one commit, rollback, close, or transfer on each path.",
                 move_span.file, move_span.line, move_span.column
-            )),
-        );
+            ));
+        self.diagnostics.borrow_mut().push(diagnostic);
         format!(
             "{} {}",
             DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE.as_str(),
@@ -3656,6 +3914,19 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Path(_) => "opaque Path",
         Value::Callable { .. } => "runtime callable handle",
     }
+}
+
+fn use_after_move_invariant(
+    task_name: &str,
+    root: &str,
+    use_span: &Span,
+    move_span: &Span,
+) -> String {
+    format!(
+        "diagnostic invariant failure: ownership preflight allowed post-move access to `{root}` in task `{task_name}` at {}; move was recorded at {}",
+        location(use_span),
+        location(move_span),
+    )
 }
 
 fn location(span: &Span) -> String {
@@ -3998,13 +4269,14 @@ fn outer_parens_wrap(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(windows)]
     use std::ffi::{OsStr, OsString};
 
     use crate::ast::Program;
     use crate::check;
-    use crate::diagnostic::{DiagnosticCode, Severity};
-    #[cfg(windows)]
+    use crate::diagnostic::{
+        DiagnosticCode, DiagnosticInvariantError, DiagnosticOccurrenceCollector,
+        DiagnosticOccurrenceSet, Severity,
+    };
     use crate::file_read::{
         FileLocalityAdapter, FileLocalityError, FileReadAdapter, FileReadAdapterError,
     };
@@ -4014,11 +4286,13 @@ mod tests {
     use crate::parser;
 
     use super::{
-        OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, ReplayAdapter, RunOutcome,
-        run_program, run_program_with_adapters, run_program_with_output,
+        OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, ReplayAdapter, RunAdapters,
+        RunOutcome, run_program, run_program_with_adapters,
+        run_program_with_occurrences_and_adapters, run_program_with_occurrences_and_file_adapters,
+        run_program_with_output, runtime_occurrence_authority,
     };
     #[cfg(windows)]
-    use super::{RunAdapters, RunReport, Value, parse_arg, run_program_with_file_adapters};
+    use super::{RunReport, Value, parse_arg, run_program_with_file_adapters};
 
     #[derive(Default)]
     struct RecordingOutput {
@@ -4059,6 +4333,114 @@ mod tests {
             self.calls += 1;
             self.ticks.pop_front()
         }
+    }
+
+    #[derive(Default)]
+    struct CountingFileRead {
+        calls: usize,
+    }
+
+    impl super::FileReadAdapter for CountingFileRead {
+        fn read_text(&mut self, _path: &OsStr) -> Result<String, FileReadAdapterError> {
+            self.calls += 1;
+            Err(FileReadAdapterError::NotFound)
+        }
+    }
+
+    #[derive(Default)]
+    struct CountingLocality {
+        calls: usize,
+    }
+
+    impl super::FileLocalityAdapter for CountingLocality {
+        fn revalidate(
+            &mut self,
+            _path: &crate::native_path::ValidatedNativePath,
+        ) -> Result<crate::native_path::ValidatedNativePath, super::FileLocalityError> {
+            self.calls += 1;
+            Err(super::FileLocalityError::Unavailable)
+        }
+    }
+
+    type CorruptedMovedStateProbe = Result<
+        (
+            Vec<(&'static str, String)>,
+            Vec<crate::diagnostic::Diagnostic>,
+        ),
+        String,
+    >;
+
+    fn probe_corrupted_moved_state_branches<'output>(
+        program: &crate::ast::Program,
+        diagnostic_occurrences: &crate::diagnostic::DiagnosticOccurrenceSet,
+        grant_policy: &'output OperatorGrantPolicy,
+        adapters: RunAdapters<'output>,
+    ) -> CorruptedMovedStateProbe {
+        let collector = crate::diagnostic::DiagnosticOccurrenceCollector::from_authority(
+            diagnostic_occurrences,
+        )
+        .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+        let interpreter = super::Interpreter {
+            program,
+            callable_analysis: crate::callable::analyze_program(program),
+            predicate_analysis: crate::predicate::analyze_program(program),
+            diagnostics: std::cell::RefCell::new(Vec::new()),
+            diagnostic_occurrences: std::cell::RefCell::new(collector),
+            active_iterations: std::cell::RefCell::new(Vec::new()),
+            active_app: std::cell::RefCell::new(None),
+            grant_policy,
+            output: std::cell::RefCell::new(super::OutputRuntime {
+                adapter: adapters.output,
+                successful_bytes: 0,
+            }),
+            replay: std::cell::RefCell::new(super::ReplayRuntime {
+                adapter: adapters.replay,
+                consumed: 0,
+            }),
+            file_adapter: std::cell::RefCell::new(adapters.file),
+            file_locality: std::cell::RefCell::new(adapters.file_locality),
+            output_policies: std::collections::BTreeMap::new(),
+            replay_policies: std::collections::BTreeMap::new(),
+            file_policies: std::collections::BTreeMap::new(),
+            output_call_cursors: std::cell::RefCell::new(std::collections::BTreeMap::new()),
+            replay_call_cursors: std::cell::RefCell::new(std::collections::BTreeMap::new()),
+            file_call_cursors: std::cell::RefCell::new(std::collections::BTreeMap::new()),
+            output_task_call_cursors: std::cell::RefCell::new(std::collections::BTreeMap::new()),
+            active_task_route: std::cell::RefCell::new(Vec::new()),
+            active_task_definition_ids: std::cell::RefCell::new(Vec::new()),
+            active_call_route: std::cell::RefCell::new(Vec::new()),
+            active_callable_applications: std::cell::RefCell::new(Vec::new()),
+            authority_events: std::cell::RefCell::new(Vec::new()),
+        };
+        let move_span = crate::diagnostic::Span::new("corrupted-after-preflight.hum", 11, 5);
+        let use_span = crate::diagnostic::Span::new("corrupted-after-preflight.hum", 12, 5);
+        let mut binding = super::RuntimeBinding::mutable_local(super::Value::Int(7), false);
+        binding.moved_at = Some(move_span);
+        binding.moved_by = Some("test-only post-preflight corruption".to_string());
+        let mut env = super::Env::new();
+        env.insert("value".to_string(), binding);
+        let results = vec![
+            (
+                "read_value",
+                interpreter
+                    .read_value(&env, "value", &use_span, "corrupted_probe")
+                    .expect_err("corrupted read must hit the defensive moved-state branch"),
+            ),
+            (
+                "read_consume_value",
+                interpreter
+                    .read_consume_value(&env, "value", &use_span, "corrupted_probe")
+                    .expect_err("corrupted consume must hit the defensive moved-state branch"),
+            ),
+            (
+                "ensure_can_set",
+                interpreter
+                    .ensure_can_set(&env, "value", "value", &use_span, "corrupted_probe")
+                    .expect_err("corrupted set must hit the defensive moved-state branch"),
+            ),
+        ];
+        let diagnostics = interpreter.diagnostics.borrow().clone();
+        Ok((results, diagnostics))
     }
 
     #[cfg(windows)]
@@ -6062,6 +6444,563 @@ task run -> UInt {{
             report.diagnostics[0].code,
             DiagnosticCode::INVALID_CALLABLE_FORM
         );
+    }
+
+    #[test]
+    fn session_aq_static_runtime_causes_are_consumed_once_before_adapters() {
+        let program = fixture_program(
+            "fixtures/diagnostics/session_aq_static_runtime_shared_cause_fail.hum",
+            include_str!("../fixtures/diagnostics/session_aq_static_runtime_shared_cause_fail.hum"),
+        );
+        let authority = runtime_occurrence_authority(&program).expect("runtime authority");
+
+        let typed_occurrence = crate::typed_failure::analyze_program(&program)
+            .occurrences()
+            .into_iter()
+            .find(|occurrence| occurrence.code == DiagnosticCode::FALLIBLE_CALL_REQUIRES_TRY)
+            .expect("typed-failure occurrence");
+        let mut collector =
+            DiagnosticOccurrenceCollector::from_authority(&authority).expect("typed authority");
+        collector
+            .consume_exact(&typed_occurrence, typed_occurrence.diagnostic().clone())
+            .expect("one typed consumption");
+        assert_eq!(
+            collector.consume_exact(&typed_occurrence, typed_occurrence.diagnostic().clone()),
+            Err(DiagnosticInvariantError::DuplicateOccurrence)
+        );
+
+        let mut output = RecordingOutput::default();
+        let typed = run_program_with_output(
+            &program,
+            Some("typed_failure_probe"),
+            &[],
+            &OperatorGrantPolicy::default(),
+            &mut output,
+        );
+        assert_eq!(typed.outcome, RunOutcome::PreflightRejected);
+        assert_eq!(
+            typed.diagnostics,
+            vec![typed_occurrence.diagnostic().clone()]
+        );
+        assert_eq!(output.calls, 0);
+
+        let ownership_program = fixture_program(
+            "fixtures/diagnostics/session_aq_static_runtime_shared_ownership_fail.hum",
+            include_str!(
+                "../fixtures/diagnostics/session_aq_static_runtime_shared_ownership_fail.hum"
+            ),
+        );
+        let ownership_authority =
+            runtime_occurrence_authority(&ownership_program).expect("ownership authority");
+        let ownership = ownership_authority
+            .normalized_occurrences()
+            .into_iter()
+            .find(|occurrence| {
+                occurrence.owning_stage() == "ownership_check"
+                    && occurrence.code == DiagnosticCode::USE_AFTER_MOVE
+            })
+            .expect("ownership occurrence");
+        let mut collector = DiagnosticOccurrenceCollector::from_authority(&ownership_authority)
+            .expect("ownership authority");
+        let projection = ownership.diagnostic().clone();
+        collector
+            .consume_exact(ownership, projection.clone())
+            .expect("one ownership consumption");
+        assert_eq!(
+            collector.consume_exact(ownership, projection),
+            Err(DiagnosticInvariantError::DuplicateOccurrence)
+        );
+
+        let mut output = RecordingOutput::default();
+        let ownership_report = run_program_with_output(
+            &ownership_program,
+            Some("ownership_probe"),
+            &[],
+            &OperatorGrantPolicy::default(),
+            &mut output,
+        );
+        assert_eq!(
+            ownership_report.outcome,
+            RunOutcome::Trap("H0801 use after move".to_string())
+        );
+        assert_eq!(ownership_report.diagnostics.len(), 1);
+        assert_eq!(
+            ownership_report.diagnostics[0].code,
+            DiagnosticCode::USE_AFTER_MOVE
+        );
+        assert_eq!(output.calls, 0);
+    }
+
+    #[test]
+    fn session_aq_execution_time_use_after_move_survivor_is_internal_invariant() {
+        let misuse_program = fixture_program(
+            "session_aq_unreachable_moved_state_branches.hum",
+            r#"task take(consume value: Int) -> Int {
+  does:
+    return value
+}
+
+task read_after_move() -> Int {
+  does:
+    let value: Int = 7
+    let taken: Int = take(consume value)
+    return value
+}
+
+task consume_after_move() -> Int {
+  does:
+    let value: Int = 7
+    let taken: Int = take(consume value)
+    return take(consume value)
+}
+
+task set_after_move() -> Int {
+  does:
+    change value: Int = 7
+    let taken: Int = take(consume value)
+    set value = 8
+    return value
+}
+"#,
+        );
+        let misuse_authority =
+            runtime_occurrence_authority(&misuse_program).expect("misuse authority");
+        for entry in ["read_after_move", "consume_after_move", "set_after_move"] {
+            let mut output = RecordingOutput::default();
+            let mut replay = RecordingReplay::default();
+            let mut locality = CountingLocality::default();
+            let mut files = CountingFileRead::default();
+            let report = run_program_with_occurrences_and_file_adapters(
+                &misuse_program,
+                &misuse_authority,
+                Some(entry),
+                &[],
+                &OperatorGrantPolicy::default(),
+                RunAdapters {
+                    output: &mut output,
+                    replay: &mut replay,
+                    file_locality: &mut locality,
+                    file: &mut files,
+                },
+            );
+            assert_eq!(
+                report.outcome,
+                RunOutcome::Trap("H0801 use after move".to_string()),
+                "ownership preflight must intercept {entry} before execution"
+            );
+            assert_eq!(report.diagnostics.len(), 1, "{entry}");
+            assert_eq!(report.diagnostics[0].code, DiagnosticCode::USE_AFTER_MOVE);
+            assert_eq!(output.calls, 0, "{entry}");
+            assert_eq!(replay.calls, 0, "{entry}");
+            assert_eq!(files.calls, 0, "{entry}");
+            assert_eq!(locality.calls, 0, "{entry}");
+        }
+
+        let clean_program = fixture_program(
+            "session_aq_successful_ownership_preflight.hum",
+            r#"task clean(consume value: Int) -> Int {
+  does:
+    return value
+}
+"#,
+        );
+        let clean_authority =
+            runtime_occurrence_authority(&clean_program).expect("clean runtime authority");
+        let policy = OperatorGrantPolicy::default();
+        let mut output = RecordingOutput::default();
+        let mut replay = RecordingReplay::default();
+        let mut locality = CountingLocality::default();
+        let mut files = CountingFileRead::default();
+        let report = run_program_with_occurrences_and_file_adapters(
+            &clean_program,
+            &clean_authority,
+            Some("clean"),
+            &[OsString::from("7")],
+            &policy,
+            RunAdapters {
+                output: &mut output,
+                replay: &mut replay,
+                file_locality: &mut locality,
+                file: &mut files,
+            },
+        );
+        assert_eq!(report.outcome, RunOutcome::Success("7".to_string()));
+        assert!(report.diagnostics.is_empty());
+
+        let (branches, diagnostics) = probe_corrupted_moved_state_branches(
+            &clean_program,
+            &clean_authority,
+            &policy,
+            RunAdapters {
+                output: &mut output,
+                replay: &mut replay,
+                file_locality: &mut locality,
+                file: &mut files,
+            },
+        )
+        .expect("test-only post-preflight moved-state corruption probe");
+        assert_eq!(
+            branches
+                .iter()
+                .map(|(branch, _)| *branch)
+                .collect::<Vec<_>>(),
+            ["read_value", "read_consume_value", "ensure_can_set"]
+        );
+        for (branch, message) in branches {
+            assert!(
+                message.starts_with("diagnostic invariant failure:"),
+                "{branch}"
+            );
+            assert!(
+                message.contains("ownership preflight allowed post-move access"),
+                "{branch}"
+            );
+            assert!(!message.contains("H0801"), "{branch}");
+        }
+        assert!(diagnostics.is_empty());
+        assert_eq!(output.calls, 0);
+        assert!(output.writes.is_empty());
+        assert_eq!(replay.calls, 0);
+        assert_eq!(files.calls, 0);
+        assert_eq!(locality.calls, 0);
+    }
+
+    #[test]
+    fn session_aq_reachable_second_ownership_occurrence_is_consumed_exactly() {
+        let program = fixture_program(
+            "fixtures/diagnostics/session_aq_reachable_second_ownership_occurrence_fail.hum",
+            include_str!(
+                "../fixtures/diagnostics/session_aq_reachable_second_ownership_occurrence_fail.hum"
+            ),
+        );
+        let authority = runtime_occurrence_authority(&program).expect("runtime authority");
+        let mut ownership = authority
+            .normalized_occurrences()
+            .into_iter()
+            .filter(|occurrence| {
+                occurrence.owning_stage() == "ownership_check"
+                    && occurrence.code == DiagnosticCode::USE_AFTER_MOVE
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        ownership.sort_by_key(|occurrence| {
+            occurrence
+                .diagnostic()
+                .span
+                .as_ref()
+                .expect("ownership primary span")
+                .line
+        });
+        assert_eq!(ownership.len(), 2);
+        let first = &ownership[0];
+        let second = &ownership[1];
+        assert_ne!(first.id(), second.id());
+        assert_eq!(
+            second.diagnostic().message,
+            "value `second` was used after it was moved"
+        );
+        assert_eq!(
+            second.diagnostic().help.as_deref(),
+            Some(
+                "Fix task `reachable_second`: `second` moved at fixtures/diagnostics/session_aq_reachable_second_ownership_occurrence_fail.hum:38:7; use it before that move or create a fresh owned value."
+            )
+        );
+        assert_eq!(
+            second.diagnostic().span.as_ref().map(|span| span.line),
+            Some(40)
+        );
+        assert!(second.diagnostic().related_spans.is_empty());
+
+        let mut substitution =
+            DiagnosticOccurrenceCollector::from_authority(&authority).expect("authority");
+        assert_eq!(
+            substitution.consume_exact(first, second.diagnostic().clone()),
+            Err(DiagnosticInvariantError::DiagnosticProjectionMismatch)
+        );
+        for field in 0..7 {
+            let mut projection = second.diagnostic().clone();
+            match field {
+                0 => projection.code = DiagnosticCode::LINEAR_RESOURCE_CONSUMED_TWICE,
+                1 => projection.severity = Severity::Warning,
+                2 => projection.message.push_str(" changed"),
+                3 => projection.help = Some("wrong ownership repair".to_string()),
+                4 => projection.span.as_mut().expect("H0801 span").column += 1,
+                5 => projection
+                    .related_spans
+                    .push(crate::diagnostic::RelatedSpan {
+                        label: "wrong move site".to_string(),
+                        span: crate::diagnostic::Span::new("wrong.hum", 1, 1),
+                    }),
+                _ => {
+                    projection.related_spans = vec![
+                        crate::diagnostic::RelatedSpan {
+                            label: "second".to_string(),
+                            span: crate::diagnostic::Span::new("wrong.hum", 2, 1),
+                        },
+                        crate::diagnostic::RelatedSpan {
+                            label: "first".to_string(),
+                            span: crate::diagnostic::Span::new("wrong.hum", 1, 1),
+                        },
+                    ];
+                }
+            }
+            assert_eq!(
+                DiagnosticOccurrenceCollector::from_authority(&authority)
+                    .expect("ownership authority")
+                    .consume_exact(second, projection),
+                Err(DiagnosticInvariantError::DiagnosticProjectionMismatch),
+                "H0801 public field mutation {field} must fail closed"
+            );
+        }
+
+        let authoritative = authority.occurrences().cloned().collect::<Vec<_>>();
+        let mut reports = Vec::new();
+        for reverse in [false, true] {
+            let mut reordered = DiagnosticOccurrenceSet::default();
+            let ordered = if reverse {
+                authoritative.iter().rev().cloned().collect::<Vec<_>>()
+            } else {
+                authoritative.clone()
+            };
+            for occurrence in ordered {
+                reordered
+                    .insert_owned(occurrence)
+                    .expect("unique occurrence");
+            }
+            let mut output = RecordingOutput::default();
+            let mut replay = RecordingReplay::new(&[]);
+            let report = run_program_with_occurrences_and_adapters(
+                &program,
+                &reordered,
+                None,
+                &[],
+                &allowed_stdout(),
+                &mut output,
+                &mut replay,
+            );
+            assert_eq!(output.calls, 0, "ownership preflight must precede output");
+            assert_eq!(
+                report.outcome,
+                RunOutcome::Trap("H0801 use after move".to_string())
+            );
+            assert_eq!(report.diagnostics, vec![second.diagnostic().clone()]);
+            reports.push(report);
+        }
+        assert_eq!(reports[0], reports[1]);
+    }
+
+    #[test]
+    fn session_aq_behavioral_legacy_classifier_witness_fails_wrong_occurrence() {
+        let program = fixture_program(
+            "fixtures/diagnostics/session_aq_reachable_second_ownership_occurrence_fail.hum",
+            include_str!(
+                "../fixtures/diagnostics/session_aq_reachable_second_ownership_occurrence_fail.hum"
+            ),
+        );
+        let authority = runtime_occurrence_authority(&program).expect("runtime authority");
+        let mut ownership = authority
+            .normalized_occurrences()
+            .into_iter()
+            .filter(|occurrence| {
+                occurrence.owning_stage() == "ownership_check"
+                    && occurrence.code == DiagnosticCode::USE_AFTER_MOVE
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        ownership.sort_by_key(|occurrence| {
+            occurrence
+                .diagnostic()
+                .span
+                .as_ref()
+                .expect("ownership span")
+                .line
+        });
+        let [earlier, later] = ownership.as_slice() else {
+            panic!("two H0801 witness occurrences");
+        };
+        let reachable_task = program
+            .files
+            .iter()
+            .find_map(|file| super::find_task_in_items(&file.items, "reachable_second"))
+            .expect("reachable task");
+        let reachable_identity = crate::resolve::semantic_task_identity(&program, reachable_task);
+        let canonical = crate::ownership_check::runtime_use_after_move_blockers(
+            &program,
+            &std::collections::BTreeSet::from([reachable_identity]),
+        )
+        .expect("canonical producer blockers");
+        assert_eq!(canonical.len(), 1);
+        assert_eq!(canonical[0].occurrence().id(), later.id());
+        assert_ne!(earlier.id(), later.id());
+        assert_ne!(earlier.semantic_origin(), later.semantic_origin());
+        assert_ne!(earlier.relationship_route(), later.relationship_route());
+        assert_eq!(earlier.semantic_owner(), later.semantic_owner());
+
+        let legacy_code_first = ownership
+            .iter()
+            .find(|occurrence| occurrence.code == later.code)
+            .expect("legacy code match");
+        let legacy_prefix_first = ownership
+            .iter()
+            .find(|occurrence| {
+                occurrence.origin_kind() == later.origin_kind()
+                    && occurrence.owning_stage() == later.owning_stage()
+            })
+            .expect("legacy prefix match");
+        let legacy_projection_first = ownership
+            .iter()
+            .find(|occurrence| {
+                occurrence.diagnostic().code == later.diagnostic().code
+                    && occurrence.diagnostic().severity == later.diagnostic().severity
+            })
+            .expect("legacy projection match");
+        for legacy in [
+            ownership.first().expect("legacy first match"),
+            legacy_code_first,
+            legacy_prefix_first,
+            legacy_projection_first,
+        ] {
+            assert_eq!(legacy.id(), earlier.id());
+            assert_ne!(legacy.id(), canonical[0].occurrence().id());
+            assert!(
+                DiagnosticOccurrenceCollector::from_authority(&authority)
+                    .expect("legacy witness authority")
+                    .consume_exact(legacy, later.diagnostic().clone())
+                    .is_err(),
+                "any legacy selector must fail the canonical consumption assertion"
+            );
+        }
+    }
+
+    #[test]
+    fn session_aq_runtime_producer_substitutions_fail_closed() {
+        let typed_program = fixture_program(
+            "fixtures/diagnostics/session_aq_static_runtime_shared_cause_fail.hum",
+            include_str!("../fixtures/diagnostics/session_aq_static_runtime_shared_cause_fail.hum"),
+        );
+        let typed_authority =
+            runtime_occurrence_authority(&typed_program).expect("typed authority");
+        let typed = crate::typed_failure::analyze_program(&typed_program)
+            .occurrences()
+            .into_iter()
+            .next()
+            .expect("typed occurrence");
+        let mut typed_projection = typed.diagnostic().clone();
+        typed_projection.severity = Severity::Warning;
+        assert_eq!(
+            DiagnosticOccurrenceCollector::from_authority(&typed_authority)
+                .expect("typed collector")
+                .consume_exact(&typed, typed_projection),
+            Err(DiagnosticInvariantError::DiagnosticProjectionMismatch)
+        );
+
+        let callable_program = fixture_program(
+            "fixtures/callable/session_al_wrong_input_fail.hum",
+            include_str!("../fixtures/callable/session_al_wrong_input_fail.hum"),
+        );
+        let callable_authority =
+            runtime_occurrence_authority(&callable_program).expect("callable authority");
+        let callable = crate::callable::diagnostic_occurrences(&callable_program)
+            .into_iter()
+            .next()
+            .expect("callable occurrence");
+        let mut callable_projection = callable.diagnostic().clone();
+        callable_projection.related_spans.reverse();
+        if callable_projection.related_spans.len() < 2 {
+            callable_projection.message.push_str(" changed");
+        }
+        assert_eq!(
+            DiagnosticOccurrenceCollector::from_authority(&callable_authority)
+                .expect("callable collector")
+                .consume_exact(&callable, callable_projection),
+            Err(DiagnosticInvariantError::DiagnosticProjectionMismatch)
+        );
+
+        let type_program = fixture_program(
+            "session_aq_reachable_unknown_type_fail.hum",
+            "task bad(value: MissingType) -> Int {\n  does:\n    return 0\n}\n",
+        );
+        let type_authority = runtime_occurrence_authority(&type_program).expect("type authority");
+        let type_occurrence = crate::type_check::diagnostic_occurrence_set(&type_program, &[])
+            .occurrences()
+            .find(|occurrence| {
+                occurrence.cause_key()
+                    == crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(82)
+            })
+            .cloned()
+            .expect("type occurrence");
+        let mut type_projection = type_occurrence.diagnostic().clone();
+        type_projection.help = Some("wrong type repair".to_string());
+        assert_eq!(
+            DiagnosticOccurrenceCollector::from_authority(&type_authority)
+                .expect("type collector")
+                .consume_exact(&type_occurrence, type_projection),
+            Err(DiagnosticInvariantError::DiagnosticProjectionMismatch)
+        );
+        let type_report = run_program(&type_program, Some("bad"), &[]);
+        assert_eq!(type_report.outcome, RunOutcome::PreflightRejected);
+        assert_eq!(
+            type_report.diagnostics,
+            vec![type_occurrence.diagnostic().clone()]
+        );
+
+        let predicate_program = fixture_program(
+            "fixtures/run/session_af_predicate_v2_reachable_callee_fail.hum",
+            include_str!("../fixtures/run/session_af_predicate_v2_reachable_callee_fail.hum"),
+        );
+        let predicate_authority =
+            runtime_occurrence_authority(&predicate_program).expect("predicate authority");
+        let predicate_occurrence = crate::predicate::analyze_program(&predicate_program)
+            .facts()
+            .iter()
+            .find_map(crate::predicate::PredicateFact::diagnostic_occurrence)
+            .expect("predicate occurrence");
+        let mut predicate_projection = predicate_occurrence.diagnostic().clone();
+        predicate_projection
+            .span
+            .as_mut()
+            .expect("predicate span")
+            .column += 1;
+        assert_eq!(
+            DiagnosticOccurrenceCollector::from_authority(&predicate_authority)
+                .expect("predicate collector")
+                .consume_exact(&predicate_occurrence, predicate_projection),
+            Err(DiagnosticInvariantError::DiagnosticProjectionMismatch)
+        );
+    }
+
+    #[test]
+    fn session_aq_same_code_and_app_scope_occurrences_remain_exact() {
+        let same_code = fixture_program(
+            "fixtures/diagnostics/session_aq_same_code_distinct_occurrences_fail.hum",
+            include_str!(
+                "../fixtures/diagnostics/session_aq_same_code_distinct_occurrences_fail.hum"
+            ),
+        );
+        let authority = runtime_occurrence_authority(&same_code).expect("same-code authority");
+        let matching = authority
+            .normalized_occurrences()
+            .into_iter()
+            .filter(|occurrence| occurrence.code == DiagnosticCode::FALLIBLE_CALL_REQUIRES_TRY)
+            .collect::<Vec<_>>();
+        assert_eq!(matching.len(), 2);
+        assert_ne!(matching[0].id(), matching[1].id());
+        assert!(
+            matching[0].diagnostic().span.as_ref().unwrap().line
+                < matching[1].diagnostic().span.as_ref().unwrap().line
+        );
+
+        let app_scope = fixture_program(
+            "fixtures/diagnostics/session_aq_app_scope_reanalysis_fail.hum",
+            include_str!("../fixtures/diagnostics/session_aq_app_scope_reanalysis_fail.hum"),
+        );
+        let first = crate::capability_root::diagnostic_occurrence_set(&app_scope);
+        let second = crate::capability_root::diagnostic_occurrence_set(&app_scope);
+        assert_eq!(first, second);
+        assert_eq!(first.occurrences().count(), 1);
+        let occurrence = first.occurrences().next().expect("capability occurrence");
+        assert!(!occurrence.relationship_route().is_empty());
+        assert!(occurrence.resolver_call_occurrence().is_some());
     }
 
     fn fixture_program(path: &str, source: &str) -> Program {
