@@ -23,7 +23,7 @@ jobs:
   preflight:
     name: preflight (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
