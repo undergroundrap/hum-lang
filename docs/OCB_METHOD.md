@@ -195,6 +195,20 @@ The method is not free, and this section is part of the method.
   lesson: cross-cutting semantic work needs envelopes scoped by intent
   ("the producer files needed to establish X"), not by a pre-guessed exact
   list.
+- Rigor plus an unsatisfiable spec loops forever, and the envelope case
+  above is only one of three ways it happens. A work order can reject the
+  same finding repeatedly with no fault in the implementer: (1) the envelope
+  omits a file the work needs (above); (2) the spec demands behavioral proof
+  of a transition production cannot reach -- a ghost requirement, as when
+  Session AQ demanded capability-reanalysis removal that production never
+  performs; (3) the honest test path exists but is hard, so the implementer
+  ships a synthetic fake, as with Session AQ's execution-time invariant,
+  closed only by an explicitly required test-only corruption seam. Past two
+  same-shaped rejections the cycle count measures spec quality, not
+  implementer quality, and the reviewer's rigor is not the defect -- it is
+  correctly rejecting evidence an impossible spec forced. The fix is a
+  satisfiability audit and a corrected spec, never relaxed review. Codified
+  as a review discipline in `AGENTS.md`.
 - It is validated at n=1. One project, one BDFL, agent implementers. It has
   not been shown to scale to human teams or to beat conventional methods in
   a controlled comparison. The scaling notes in `GOVERNANCE.md` pre-decide
@@ -207,5 +221,6 @@ The method is not free, and this section is part of the method.
 Synthesized 2026-07-12 from `GOVERNANCE.md`, `AGENTS.md`,
 `docs/decisions/` (0001-0019), the Work Order history in git, the friction
 ledger in `docs/CORE_LANGUAGE_SHAPE.md`, and the research triage snapshots
-in `docs/research/`. Where this document and those sources disagree, the
-sources win and this document is the bug.
+in `docs/research/`. Extended 2026-07-15 with the repeated-rejection loop
+taxonomy distilled from Work Order 9 Sessions AP-AQ. Where this document and
+those sources disagree, the sources win and this document is the bug.

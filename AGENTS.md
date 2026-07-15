@@ -108,6 +108,35 @@ audit; these run at any model tier — the philosophy is the asset):
 - Verdicts tag findings P0 (breaks soundness or crashes), P1 (rule gap or
   cross-stage disagreement), P2 (polish, docs, over-broad matching).
 
+### Repeated-rejection loop diagnosis (distilled 2026-07-15 from Work Order 9 Sessions AP-AQ)
+
+When the same finding is rejected twice — the same-shaped rejection, not a
+fresh finding each cycle — stop. Do not authorize a third blind implementer
+cycle. Past two same-shaped rejections the cycle count measures spec
+quality, not implementer quality, and the reviewer's rigor is not the fault:
+it is correctly rejecting evidence that an unsatisfiable requirement forced
+the implementer to fabricate.
+
+Run a satisfiability audit: read the actual production code — trusting
+neither the implementer's report nor the reviewer's finding — and determine
+whether the requirement is reachable through the real production path as
+written. Loops have three diagnosable causes, each with its own fix:
+
+- Envelope bug (Session AP): the work genuinely needs a file the authorized
+  map omitted. Fix: amend the envelope by intent, not by guessed file list.
+- Ghost requirement (Session AQ, capability half): the spec demands
+  behavioral proof of a transition or state production cannot reach; the
+  implementer fakes it because honest evidence does not exist. Fix: re-spec
+  to prove structural unreachability or insert-only, not behavior.
+- Dodged hard technique (Session AQ, execution-time invariant): the honest
+  path exists but is hard, so the implementer ships the easy synthetic fake.
+  Fix: name and require the exact technique — there, a test-only corruption
+  seam that traverses the real branches.
+
+Fix the spec or the envelope, never the rigor. Re-issue the corrected
+criteria to both the implementer and the reviewer, so the reviewer measures
+against the corrected bar rather than re-rejecting the old ghost.
+
 ### Assuming the implementer role
 
 Cold-start read order: same as above. Then: execute exactly the next
