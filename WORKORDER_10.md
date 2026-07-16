@@ -1,45 +1,33 @@
 # Hum Work Order 10: Pre-AR Semantic Foundation Repair
 
 Date: 2026-07-15
-Status: issued and active only through the closed 2026-07-16 local train. The
-initial document was independently accepted, BDFL-accepted, committed, and
-published as `49e6534a6cd3e4d567f924b69336c72563b1c95f`; workflow
-`29472827923`, attempt 1, succeeded for that exact commit on Ubuntu and
-Windows. The local-train amendment was independently accepted, BDFL-accepted,
-committed, and published as
-`334a7416e1014232d1e47e7be49ceb730fca33b3`; workflow `29475816732`, attempt
-1, succeeded for that exact commit. Ubuntu job `87548425248` succeeded in 11m
-22s, including 10m 56s in `Run Hum preflight`; Windows job `87548425235`
-succeeded in 16m 12s, including 15m 43s in `Run Hum preflight`. Both platforms
-selected `mode=full` with `reason=no_status_transition`, and
-`Run status-only evidence` was skipped.
+Status: issued. The initial Work Order and local-train amendment remain
+published as `49e6534a6cd3e4d567f924b69336c72563b1c95f` and
+`334a7416e1014232d1e47e7be49ceb730fca33b3`. Increment 10A's accepted
+implementation and local status commits,
+`935550a4f40bcf425ddbc22f235b0011893219ae` and
+`89c18ed363b78e725aa1a2736a24f21b08d29636`, are now published in the ordered
+first-parent chain.
 
-Increment 10A received final independent `ACCEPT` after one bounded correction
-cycle. Its exact accepted six-path implementation was committed locally as
-`935550a4f40bcf425ddbc22f235b0011893219ae`, with first parent
-`334a7416e1014232d1e47e7be49ceb730fca33b3`. Formatting, 427 Rust tests,
-warnings-denied all-target Clippy, diff hygiene, the complete Hum preflight,
-105 classifier cases twice, 16 Windows-locality tests, 60 effect-bakeoff tests,
-and 489-file text/public/release readiness passed. Local compilation covered
-`x86_64-pc-windows-msvc`; no non-host Rust target was installed. The worktree,
-index, and untracked set were clean immediately after the implementation
-commit and before this status edit. The published train anchor remains
-`334a7416e1014232d1e47e7be49ceb730fca33b3`; no train implementation commit has
-been pushed.
+The bounded 10B rejection amendment was independently `ACCEPT`ed and
+BDFL-accepted, including the exact H0010 allocation, meaning, sites, and
+precedence. It was committed and published as
+`098d5d3f2fa616c8faa3b6f4e4d8312f95f23ce7`. Workflow `29530510693`, attempt
+1, succeeded for that exact commit. Ubuntu job `87729422199` succeeded in
+10m 02s, including 9m 36s in `Run Hum preflight`; Windows job `87729422210`
+succeeded in 17m 10s, including 16m 02s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`; Cargo caching and Rust
+toolchain preparation succeeded, and `Run status-only evidence` was skipped.
 
-Increment 10B was activated from local status commit
-`89c18ed363b78e725aa1a2736a24f21b08d29636`, implemented within its original
-envelope, and independently `REJECT`ed with three P1 findings: Predicate v2
-still carried a second semantic AST, chained comparisons could reach a generic
-runtime trap, and completing the remaining production-rescan migration
-required files outside the reviewed envelope. The complete 18-file plus two-
-fixture implementation remains uncommitted with an empty index. The local
-train is paused before its one correction cycle. The bounded 2026-07-16 10B
-rejection amendment below is proposed and inactive pending fresh independent
-review, explicit BDFL acceptance of both its scope and diagnostic proposal,
-durable publication under separately authorized gates, and a separate
-corrective go signal. Nothing here authorizes a push, 10B correction, 10C,
-Session AR, Hum IR, a standard library, a backend, or later work.
+The rejected 10B implementation remains preserved and uncommitted as exactly
+18 modified tracked files plus two untracked fixtures, with an empty index and
+the authoritative PowerShell fingerprint
+`52f1ab82fe987678d6e2ef5d87c675fe99fde3cf`. The BDFL has issued the separate
+corrective go signal, but the ordered gate activates it only after this exact
+status record is independently accepted, committed, published, and its
+required CI reaches terminal success. While this record is uncommitted,
+Increment 10B remains paused. Increment 10C, Session AR, Hum IR, the standard
+library, backend work, and every later item remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -1698,8 +1686,7 @@ BDFL-accepted, committed, and published as
 22s, including 10m 56s in `Run Hum preflight`; Windows job `87548425235`
 succeeded in 16m 12s, including 15m 43s in `Run Hum preflight`. Both selected
 `mode=full` with `reason=no_status_transition`; `Run status-only evidence` was
-skipped. The published train anchor and live `origin/main` remain
-`334a7416e1014232d1e47e7be49ceb730fca33b3`.
+skipped.
 
 Increment 10A's complete six-path implementation received final independent
 `ACCEPT` after one bounded correction cycle. It is committed locally as
@@ -1720,8 +1707,8 @@ effect-bakeoff tests, and 489-file text/public/release readiness. Only
 `x86_64-pc-windows-msvc` was locally installed; the change introduced no
 dependency, feature, `cfg`, or platform-specific branch. The worktree, index,
 and untracked set were clean immediately after the implementation commit and
-before this status edit. Nothing has been pushed above the published train
-anchor.
+before its local status edit. The implementation and status commits are now
+published in the ordered chain above `334a741`.
 
 Increment 10B was activated after the exact 10A status record, implemented,
 and independently `REJECT`ed. Its 18 modified tracked files and two untracked
@@ -1729,20 +1716,37 @@ fixtures remain preserved with an empty index. The independently reproduced
 arithmetic/contract results and 431-test/full-preflight success are
 implementation evidence, not acceptance. The rejected tree is not committed.
 
-The proposed 2026-07-16 10B rejection amendment above records the complete
-rescan inventory, resolves Predicate v2's representational blocker, proposes
-H0010 at the diagnostic decision gate, and freezes the one-pass correction
-envelope. It is unreviewed, uncommitted, inactive, and authored by an agent
-disqualified from its verdict. Increment 10B's one correction cycle remains
-paused. No local-train automatic advancement applies while this mandatory stop
-is open.
+The 2026-07-16 10B rejection amendment above records the complete rescan
+inventory, resolves Predicate v2's representational blocker, allocates H0010
+under the exact BDFL ruling, and freezes the one-pass correction envelope. It
+was independently `ACCEPT`ed after one document-only fingerprint correction,
+BDFL-accepted including H0010, committed, and published as
+`098d5d3f2fa616c8faa3b6f4e4d8312f95f23ce7`, with first parent
+`89c18ed363b78e725aa1a2736a24f21b08d29636`.
 
-The next actor is one fresh independent architect-reviewer for only the
-complete `WORKORDER_10.md` amendment and preserved-state claims. Even an
-`ACCEPT` verdict authorizes no implementation or push. Exact BDFL acceptance,
-a `WORKORDER_10.md`-only commit, separate push authority, successful required
-full Ubuntu/Windows CI and durable status evidence, and a separate BDFL
-corrective go signal remain required before 10B correction can resume.
+Workflow `29530510693`, attempt 1, succeeded for that exact amendment head.
+Ubuntu job `87729422199` succeeded in 10m 02s, including 9m 36s in
+`Run Hum preflight`; Windows job `87729422210` succeeded in 17m 10s,
+including 16m 02s in `Run Hum preflight`. Both jobs selected `mode=full` with
+`reason=no_status_transition`, succeeded in Cargo caching and Rust toolchain
+preparation, completed the full Hum preflight, skipped
+`Run status-only evidence`, and concluded success. Live and local
+`origin/main` now name `098d5d3f2fa616c8faa3b6f4e4d8312f95f23ce7`.
+
+This status update is not eligible for the repository's routine no-review
+exception because the preserved rejected implementation and two untracked
+fixtures remain in the worktree. It therefore requires a fresh independent
+review and complete local preflight despite changing only the two recognized
+status regions.
+
+The BDFL has issued the separate corrective go signal for 10B's one bounded
+correction cycle, conditioned on durable publication and terminal CI success
+for this exact status record. While this record is uncommitted, 10B remains
+paused. After independent `ACCEPT`, an exact `WORKORDER_10.md`-only commit,
+publication, and terminal required CI success, the same preserved 10B tree may
+resume under the amended envelope without another BDFL relay. Any material
+scope expansion, genuine new defect, further amendment need, or non-`ACCEPT`
+implementation verdict stops and returns to the BDFL.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
@@ -1750,8 +1754,7 @@ not been authored, reviewed, issued, or authorized here. 10F completion must
 stop and return to the BDFL for the broad independent foundation audit before
 any AR planning.
 
-No amendment commit or push, 10B correction, diagnostic implementation,
-decision ruling beyond the proposed gate, GitHub mutation, `PRE-AQ-INTEGRITY`,
-dashboard, 10C, Session AR, or later work is authorized. The rejected 10B tree
-must remain preserved. Cumulative publication, closure, foundation audit, and
-every later work item remain separately gated.
+No 10B correction may begin before this status-publication gate closes. No
+10C, GitHub Issue mutation, `PRE-AQ-INTEGRITY`, dashboard, Session AR, Hum IR,
+standard-library, backend, cumulative closure, foundation-audit, or later work
+is authorized.
