@@ -1166,6 +1166,139 @@ corrected 10B tree. Any further non-`ACCEPT`, another same-class file request,
 or another diagnostic/public/schema requirement stops the train for a BDFL
 backlog-versus-redesign decision.
 
+## Increment 10B H0010 allocation-ripple amendment (2026-07-16; proposed)
+
+### Authority and current hard stop
+
+This amendment responds only to the new test-only envelope blocker discovered
+after the accepted H0010 allocation entered the preserved 10B correction tree.
+The implementer confirmed the three known `src/diagnostics.rs` literal changes,
+reverted them, and stopped. This document does not accept the incomplete 10B
+implementation or resume its correction cycle. Increment 10C and every later
+item remain unauthorized.
+
+The verified planning baseline is `main` with `HEAD == origin/main ==
+812a3766e041f4275f6d770e753a37c17c7cc250`, an empty index, clean
+`WORKORDER_10.md` and `src/diagnostics.rs`, and the preserved incomplete 10B
+tree named in the handoff. The current tree contains 25 modified tracked 10B
+paths plus the six authorized foundation fixtures; no 10C or unrelated work is
+present.
+
+### Complete H0010 allocation-ripple inventory
+
+The complete repository sweep separates numeric identities from catalog-size
+expectations and finds exactly these four allocation-ripple surfaces:
+
+1. `src/diagnostic_catalog.rs`, already authorized for H0010, contains the
+   independent registry assertions. `summary.active_codes` already expects
+   88, while `DIAGNOSTIC_CAUSES.len()` still expects 178 and must expect 179
+   after `chained_comparison_not_supported_v0` is registered. The allocation,
+   family, public ordinal, cause identity, and dynamic registry machinery are
+   not otherwise changed by this amendment.
+
+   The 179 count is semantic, not inferred from fixture cardinality. Condition,
+   Predicate, and return chains each express the same fundamental parser-owned
+   cause: a later comparison operator applies to the result of an earlier
+   comparison. All three enter the same producer with cause key 179,
+   `parser_expression_node` relationship, and `parser_expression_route` route
+   class. Their exact parser semantic node, producer event, ordered route, and
+   source sites create three distinct occurrences of that one registered
+   cause. Section context changes neither the cause meaning nor its owner. If
+   production evidence instead requires a second cause, the count may not be
+   guessed upward locally; implementation stops for a fresh diagnostic
+   amendment.
+2. `docs/DIAGNOSTICS.md`, already authorized as H0010's checked public
+   projection, contains the catalog JSON example whose literal `count` must
+   change from 87 to 88. Its H0010 row remains the only new diagnostic row.
+3. `tools/check_all.ps1`, already authorized for 10B evidence, contains one
+   three-part catalog assertion: reported count, row count, and unique row
+   count must each change from 87 to 88, including the corresponding failure
+   text.
+4. `src/diagnostics.rs` is the sole additional file. Its
+   `registry_catalog_and_check_projections_are_semantically_equivalent` test
+   independently pins `catalog.len()`, the human heading, and the JSON count;
+   those three literals must change from 87 to 88.
+
+No schema document, generated artifact, readiness script, enumeration test,
+or other production/test surface contains another live catalog-size
+expectation. The 87 references in frozen `WORKORDER.md` are historical Work
+Order 9 baseline evidence and remain unchanged. Numeric 87 values used as
+opaque diagnostic-code keys, cause keys, or historical public ordinals are
+identities rather than catalog counts and remain unchanged unless the already
+accepted H0010 registry design expressly owns them.
+
+### Exact current-red accounting
+
+An independent `cargo test` run at the planning baseline executed 430 tests:
+419 passed, 11 failed, zero were ignored. Every failure is accounted for:
+
+- H0010 allocation-count ripple:
+  - `diagnostic_catalog::tests::canonical_registry_and_checked_projections_are_valid`
+    observes 179 registered causes while its independent literal still says
+    178; and
+  - `diagnostics::tests::registry_catalog_and_check_projections_are_semantically_equivalent`
+    observes 88 codes while its three independent literals still say 87.
+- Intentionally incomplete canonical-expression/path/Predicate convergence:
+  - `path_boundary::tests::accepts_only_exact_hardened_file_read_consumption_of_path`;
+  - `predicate::tests::retained_contract_text_cannot_override_parser_owned_predicate_syntax`;
+  - `run::tests::exact_file_read_writes_checked_utf8_and_joins_forensic_events`;
+  - `run::tests::file_authority_precedence_rejects_before_locality_or_candidate_adapter`;
+  - `run::tests::locality_and_every_file_adapter_failure_are_typed_and_causal`;
+  - `run::tests::integrated_local_app_exact_denies_precede_their_adapters`;
+  - `run::tests::integrated_local_app_missing_file_keeps_outer_to_root_cause`;
+  - `run::tests::integrated_local_app_is_repeatable_for_complete_inputs`; and
+  - `run::tests::predicate_preflight_aggregates_all_independent_h0704_rows`.
+
+The path/runtime failures stop at the unfinished canonical Path/call migration,
+the Predicate retained-text test exposes unfinished canonical range transport,
+and the aggregate test still expects the superseded H0704 ownership for the
+one chain now correctly surfaced as H0010. None is absorbed as a generic
+"expected red," and none identifies a defect outside the already accepted 10B
+correction. Any later failure that cannot be traced to these exact unfinished
+relationships or the four allocation-ripple surfaces is a newly exposed
+defect and stops the cycle for BDFL triage.
+
+### Bounded authorization and anti-ghost lock
+
+After independent review, BDFL acceptance, a `WORKORDER_10.md`-only commit,
+publication, terminal required CI, a durable status record, and a separate
+corrective go signal, `src/diagnostics.rs` joins 10B's envelope only for the
+three literal 87-to-88 assertions in
+`registry_catalog_and_check_projections_are_semantically_equivalent`.
+
+The test literals are independently supplied expectations. They may not be
+derived from the canonical registry or the public projection being validated.
+Production `diagnostics_text()` and `diagnostics_json()` must continue deriving
+their count from the canonical registry; no production rendering path may gain
+a hard-coded count. This preserves the anti-ghost rule that the validator does
+not reconstruct its expected answer from the artifact under validation.
+
+The already authorized edits above are limited to the one cause-count literal
+in `src/diagnostic_catalog.rs`, the one JSON example count in
+`docs/DIAGNOSTICS.md`, and the exact catalog-count assertion and failure text in
+`tools/check_all.ps1`. No production rendering, schema, ordering, message,
+help, severity, diagnostic meaning, registry behavior, family, public ordinal,
+or other test may change under this amendment. A further H0010 allocation-
+ripple file request is a repeated envelope failure and stops for a BDFL
+backlog-versus-redesign decision; it is not another local amendment.
+
+### Review and resume gates
+
+This amendment is proposed and unauthorized. Its author is disqualified from
+its verdict. A fresh independent architect-reviewer must verify the complete
+ripple inventory, exact 11-failure accounting, literal-expectation anti-ghost
+lock, one-cause/three-occurrence H0010 identity, one-file envelope addition,
+preserved dirty tree, empty index, bans, and unchanged 10C-10F mandates. The
+reviewer runs `git diff --check`; complete local preflight is transparently
+expected to remain red while the authorized 10B correction is intentionally
+incomplete and must not be weakened or repaired during document review.
+
+Final `ACCEPT` authorizes no implementation. Resumption still requires BDFL
+acceptance of these exact bytes, a `WORKORDER_10.md`-only commit, separately
+authorized publication with terminal Ubuntu and Windows CI, a durable status
+record, and a separate BDFL corrective go signal. No commit, push, 10B source
+edit, 10C work, Session AR work, or later action is authorized by this text.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
