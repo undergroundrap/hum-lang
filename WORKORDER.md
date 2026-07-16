@@ -148,21 +148,29 @@ job `87418772570` on `ubuntu-latest` succeeded in 10m 05s, including 9m 46s in
 `mode=full` with `reason=no_status_transition`; Cargo caching and Rust toolchain
 preparation succeeded, and `Run status-only evidence` was skipped.
 
-Session AQ is durably complete, and Work Order 9's AN-AQ implementation
-sequence is complete. `PRE-AQ-INTEGRITY` remains revoked and indefinitely
-deferred. Hum IR plus the minimal compiler-ready standard library required for
-a first native vertical slice is the recommended next compiler milestone only
-under a separately issued Work Order. That next Work Order, Session AR, GitHub
-Issue #1 mutation, repair work, and all later implementation remain
-unauthorized pending separate BDFL signals.
+The post-Session-AQ ghost-evidence correction was independently accepted,
+committed, and published as
+`3eae2705d7f6098842bb904e911586372b573eb5`. Required full CI passed in
+workflow `29464665012`, attempt 1. Ubuntu job `87515184727` on
+`ubuntu-latest` succeeded in 11m 41s: the classifier reported `mode=full` with
+`reason=no_status_transition`, Cargo caching and Rust toolchain preparation
+succeeded, `Run Hum preflight` succeeded in 11m 23s, both permanent post-AQ
+orchestration tests passed, and `Run status-only evidence` was skipped.
+Windows job `87515184723` on `windows-latest` succeeded in 18m 53s: the
+classifier reported `mode=full` with `reason=no_status_transition`, Cargo
+caching and Rust toolchain preparation succeeded, `Run Hum preflight`
+succeeded in 18m 21s, both permanent post-AQ orchestration tests passed, and
+`Run status-only evidence` was skipped.
 
-A bounded read-only ghost-test audit on 2026-07-15 found two class-(a)
-evidence gaps in accepted Session AQ tests. It did not establish a production
-defect and does not reopen or reinterpret Session AQ or Work Order 9. The
-separately gated post-closure evidence correction defined below is proposed and
-unauthorized pending fresh independent pre-issuance review, BDFL acceptance, a
-`WORKORDER.md`-only commit and publication with required CI, and a separate
-explicit BDFL corrective implementation go signal.
+The correction is durably complete. Session AQ remains durably complete, and
+Work Order 9, including its AN-AQ sequence and final post-AQ evidence
+correction, is durably closed. No further implementation or planning is to be
+appended to Work Order 9. `PRE-AQ-INTEGRITY` remains revoked and indefinitely
+deferred. Hum IR plus the minimal compiler-ready standard library required for
+a first native vertical slice remains the recommended next compiler milestone
+only under a separately issued Work Order 10. Drafting Work Order 10, Session
+AR implementation, GitHub Issue #1 mutation, repair work, and all later work
+remain unauthorized pending separate BDFL signals.
 Owner: BDFL (Ocean).
 Work-order author: architect-reviewer acting only under the bounded Work Order
 9 planning authorization.
@@ -2943,22 +2951,29 @@ job `87418772570` on `ubuntu-latest` succeeded in 10m 05s, including 9m 46s in
 `mode=full` with `reason=no_status_transition`; Cargo caching and Rust toolchain
 preparation succeeded, and `Run status-only evidence` was skipped.
 
-Session AQ is durably complete, and Work Order 9's AN-AQ implementation
-sequence is complete. `PRE-AQ-INTEGRITY` remains revoked and indefinitely
-deferred. Hum IR plus the minimal compiler-ready standard library required for
-a first native vertical slice is the recommended next compiler milestone only
-under a separately issued Work Order. That next Work Order, Session AR, GitHub
-Issue #1 mutation, repair work, and all later implementation remain
-unauthorized pending separate BDFL signals.
+The post-Session-AQ ghost-evidence correction was independently accepted,
+committed, and published as
+`3eae2705d7f6098842bb904e911586372b573eb5`. Required full CI passed in
+workflow `29464665012`, attempt 1. Ubuntu job `87515184727` on
+`ubuntu-latest` succeeded in 11m 41s: the classifier reported `mode=full` with
+`reason=no_status_transition`, Cargo caching and Rust toolchain preparation
+succeeded, `Run Hum preflight` succeeded in 11m 23s, both permanent post-AQ
+orchestration tests passed, and `Run status-only evidence` was skipped.
+Windows job `87515184723` on `windows-latest` succeeded in 18m 53s: the
+classifier reported `mode=full` with `reason=no_status_transition`, Cargo
+caching and Rust toolchain preparation succeeded, `Run Hum preflight`
+succeeded in 18m 21s, both permanent post-AQ orchestration tests passed, and
+`Run status-only evidence` was skipped.
 
-The 2026-07-15 bounded ghost-test audit found two class-(a) evidence gaps, not
-confirmed production defects. The post-closure Session AQ ghost-evidence
-correction is proposed under the separate section above. Its implementation is
-unauthorized pending fresh independent pre-issuance review, BDFL acceptance, a
-`WORKORDER.md`-only commit and publication with successful required CI, and a
-separate explicit BDFL corrective implementation go signal. It does not reopen
-Session AQ or Work Order 9, revive `PRE-AQ-INTEGRITY`, authorize Session AR, or
-change the recommended next compiler milestone.
+The correction is durably complete. Session AQ remains durably complete, and
+Work Order 9, including its AN-AQ sequence and final post-AQ evidence
+correction, is durably closed. No further implementation or planning is to be
+appended to Work Order 9. `PRE-AQ-INTEGRITY` remains revoked and indefinitely
+deferred. Hum IR plus the minimal compiler-ready standard library required for
+a first native vertical slice remains the recommended next compiler milestone
+only under a separately issued Work Order 10. Drafting Work Order 10, Session
+AR implementation, GitHub Issue #1 mutation, repair work, and all later work
+remain unauthorized pending separate BDFL signals.
 
 No additional speculative CI or evidence-integrity hardening is authorized.
 The accepted status-only classifier and existing workflow remain unchanged.
