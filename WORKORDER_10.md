@@ -1,12 +1,19 @@
 # Hum Work Order 10: Pre-AR Semantic Foundation Repair
 
 Date: 2026-07-15
-Status: proposed and unauthorized. These exact bytes require one fresh
-independent pre-issuance architect-reviewer verdict, BDFL acceptance, a scoped
-documentation commit, durable publication with successful required Ubuntu and
-Windows CI, and a separate BDFL go signal for each prerequisite increment.
-Nothing in this document authorizes implementation, a commit, a push, Session
-AR, Hum IR, a standard library, a backend, or later work.
+Status: issued. The initial document was independently accepted, BDFL-accepted,
+committed, and published as
+`49e6534a6cd3e4d567f924b69336c72563b1c95f`. Workflow `29472827923`, attempt
+1, succeeded for that exact commit. Ubuntu job `87539307880` succeeded in 11m
+09s, including 10m 40s in `Run Hum preflight`; Windows job `87539307917`
+succeeded in 14m 10s, including 13m 22s in `Run Hum preflight`. Both platforms
+selected `mode=full` with `reason=no_status_transition`, and
+`Run status-only evidence` was skipped. The 2026-07-16 local-train amendment
+below is proposed and inactive until its own independent review, BDFL
+acceptance, scoped commit, separately authorized publication, and successful
+required Ubuntu and Windows CI. Increment 10A remains unauthorized until that
+complete amendment gate passes. Nothing here authorizes Session AR, Hum IR, a
+standard library, a backend, or later work.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -433,6 +440,240 @@ No increment may begin before the previous one is independently accepted,
 committed, published, green on Ubuntu and Windows, and recorded in this fresh
 Work Order, followed by its own separate BDFL go signal.
 
+## BDFL local-train amendment (2026-07-16)
+
+### Purpose, activation, and exact authority
+
+The initial Work Order 10 lifecycle above was independently accepted and fully
+satisfied through publication of
+`49e6534a6cd3e4d567f924b69336c72563b1c95f` and successful workflow
+`29472827923`, attempt 1. The exact job and lane evidence is recorded in the
+header and was independently reproduced through read-only GitHub inspection.
+
+The BDFL now issues one Work-Order-local standing authorization to remove
+repeated human prompt relay and six intervening remote-CI waits while retaining
+the semantic and review gates of every increment. This amendment is a
+substantive authorization change, not an exact routine status-only closure. It
+is inactive until all of these activation facts exist:
+
+1. a fresh independent architect-reviewer that did not author, edit, generate,
+   or directly direct these amendment bytes returns `ACCEPT`;
+2. the BDFL accepts those exact bytes and authorizes one scoped
+   `WORKORDER_10.md` commit;
+3. the BDFL separately authorizes that exact commit to be pushed;
+4. the commit is the published `origin/main` head and the required Ubuntu and
+   Windows jobs both select `mode=full`, complete `Run Hum preflight`
+   successfully, skip `Run status-only evidence`, and terminate successfully
+   for that exact commit; and
+5. the local worktree and index are clean, with no untracked files, before 10A
+   begins.
+
+Pending, failed, canceled, skipped, missing, ambiguous, platform-incomplete,
+or wrong-commit publication evidence leaves the amendment inactive. No agent
+may infer activation from this proposal, from local tests, from the initial
+`49e6534` publication, or from one green platform.
+
+Once those five facts are proven, the BDFL's standing authorization activates
+10A and, conditionally, 10B through 10F in the mandatory order. It replaces
+only the repeated per-increment BDFL go signal, per-increment push, per-
+increment remote CI, and human relay requirements. It does not let an agent
+originate authority: each later activation is the direct consequence of this
+exact BDFL instruction plus the closed conditions below. No stage silently
+authorizes another.
+
+### Closed local-train state machine
+
+For each increment `10X`, in order, the complete cycle is exactly:
+
+1. **Precondition.** The preceding train record is a committed first-parent
+   ancestor, `HEAD` descends only from the published amendment commit, the
+   index and worktree are clean, no untracked path exists, and both the local
+   `origin/main` reference and a read-only live lookup of remote `main` still
+   name the published amendment commit. 10A uses the activated amendment
+   itself as its preceding record.
+2. **One implementer pen.** One implementer cold-starts from repository ground
+   truth, reports the exact integration map before editing, changes only the
+   current increment's intent envelope, runs its focused real-path and
+   sabotage evidence plus every standing local check, and leaves the complete
+   deliverable uncommitted with an empty index for review.
+3. **Fresh independent review.** One architect-reviewer that did not author,
+   edit, generate, or directly direct that increment cold-starts independently,
+   reviews only that complete deliverable against this Work Order, reproduces
+   nondegenerate positive, misuse, masking, and sabotage evidence, runs every
+   mandated local check, and returns exactly `ACCEPT`,
+   `ACCEPT WITH REQUIRED FIX`, or `REJECT`. Green tests alone are never
+   acceptance or continuation authority.
+4. **At most one bounded correction.** On the first non-accept verdict, only
+   the original implementer may apply the reviewer's bounded corrections. The
+   independent reviewer then reviews the complete corrected deliverable once.
+   A second verdict other than `ACCEPT` stops the train and returns the
+   preserved worktree to the BDFL; no third cycle or local workaround is
+   authorized.
+5. **Exact implementation commit.** Only after final `ACCEPT`, the implementer
+   makes the reviewer's exact scoped Conventional Commit. The commit contains
+   the accepted increment paths only, has the expected first parent, and is
+   not pushed. Commit authority here grants no remote, repair, decision,
+   governance, or later-session authority.
+6. **Exact local status record.** After that implementation commit, a bounded
+   status-author may modify only the `Status:` body and
+   `## Current authorization gate` body of `WORKORDER_10.md`. The first body
+   starts after the unique column-one `Status:` prefix and ends immediately
+   before the unique unchanged `Owner: BDFL (Ocean).` line. The second starts
+   after the unique exact current-gate heading and runs to end of file. Every
+   byte outside those bodies must match the implementation commit. The record
+   may state only facts already proven: increment label, final verdict,
+   correction-cycle count, implementation commit and parent, exact committed
+   path envelope, standing check results and affected configurations,
+   disclosed local coverage gaps, the clean worktree/index/untracked state
+   observed after the implementation commit and before the status edit,
+   unchanged published train anchor, and the next conditionally active
+   increment or final stop. It may make no mandate, acceptance, scope,
+   evidence, architecture, diagnostic, decision, governance, or
+   implementation-contract change.
+7. **Exact status commit.** The status author runs `git diff --check`,
+   `./tools/check_text_hygiene.ps1`, `./tools/check_public_readiness.ps1`, and
+   `./tools/check_release_readiness.ps1`, verifies that only
+   `WORKORDER_10.md` changed, then commits only that file as
+   `docs(workorder): record increment 10X local acceptance`. This temporary
+   Work-Order-local authority is not the repository's general exact routine
+   `WORKORDER.md` status exception and creates no precedent outside this
+   train. The immediately preceding accepted implementation already ran the
+   complete preflight; the factual record does not claim to rerun it.
+8. **Automatic bounded advancement.** Only after both exact local commits are
+   present in order and the worktree, index, and untracked set are clean does
+   this standing BDFL authorization activate the next named increment. No
+   acceptance, commit, or continuation is inferred merely from passing tests,
+   an implementer report, an uncommitted status edit, or a reviewer finding
+   without final `ACCEPT`. The next implementer and reviewer each verify that
+   the status commit changed only the two exact bodies and that its recorded
+   implementation parent, paths, verdict, and checks match repository facts.
+
+The implementer and reviewer remain different pens for each increment. The
+status author writes only after the verdict and cannot change or advocate that
+verdict. An agent that authored an implementation remains forever disqualified
+from its independent verdict even if another agent commits or records it.
+
+### Ordered local history and remote prohibition
+
+The published amendment commit is the train anchor. Every implementation and
+local status commit must form one ordered, merge-free first-parent chain on
+local `main` above that anchor. During 10A through accepted 10F:
+
+- no push, pull, merge, rebase, reset, cherry-pick, force update, remote branch
+  mutation, tag, release, pull request, or GitHub Issue mutation is authorized;
+- no local increment may claim Ubuntu, Windows, remote CI, publication, or
+  `origin/main` coverage;
+- no fast-lane or full-lane result from an unpushed local commit exists or may
+  be invented;
+- `origin/main` must remain at the published amendment anchor; an unexpected
+  local or remote history movement stops the train for the BDFL; and
+- a commit with unexpected parents, paths, artifacts, staged content, merge
+  ancestry, or untracked files stops before review, commit, or advancement.
+
+This prohibition intentionally batches cross-platform evidence. It does not
+turn local Windows evidence into Ubuntu evidence and does not weaken any
+increment's complete host checks or manual inspection of platform-neutral and
+non-host surfaces.
+
+### Mandatory stops
+
+The train stops immediately with all evidence preserved and returns to the
+BDFL upon any of:
+
+- a P0 finding;
+- a genuine newly exposed production defect outside the current increment;
+- material intent-envelope or file-scope expansion;
+- a new diagnostic allocation/meaning/precedence requirement;
+- a new decision, governance, authority, schema, public surface, dependency,
+  feature, `cfg`, generated-source, or target-specific requirement;
+- unexpected worktree, index, untracked, parent, branch, or remote history;
+- inability to satisfy the current increment honestly within its reviewed
+  scope or complete local evidence;
+- a requested permanent rejection of either default-correct P0 repair;
+- an unavailable or ambiguous required fact; or
+- the second failed independent review after the one bounded correction.
+
+The stop grants no repair, amendment, diagnostic, decision, push, rollback, or
+later-increment authority. The BDFL chooses whether to amend, backlog, or
+continue.
+
+### Final cumulative publication and closure
+
+After accepted 10F, its exact implementation commit, and its exact local status
+commit, the train stops. Local `main` must be clean, have an empty index and no
+untracked files, and be ahead of the unchanged `origin/main` amendment anchor
+by the complete ordered train. No cumulative push is authorized by this
+amendment.
+
+The BDFL must separately authorize the exact cumulative push. The resulting
+required Ubuntu and Windows CI jobs must both run the full lane for the exact
+published head, exercise the cumulative 10A-10F implementation and standing
+evidence, and terminate successfully. Any red, canceled, skipped, missing,
+ambiguous, wrong-mode, wrong-commit, or platform-incomplete result stops for a
+separately authorized bounded response. It is not routine cleanup.
+
+After successful cumulative CI, one durable final status/closure record must
+capture the train anchor, ordered implementation/status commits, pushed head,
+workflow attempt, Ubuntu and Windows jobs, full-lane evidence, exact outcomes,
+and disclosed configuration coverage. Work Order 10 closes only after that
+record is independently or otherwise validly reviewed under then-applicable
+repository rules, committed, published, and terminally green as required.
+
+Session AR remains unauthorized throughout the train and cumulative CI.
+Closing Work Order 10 still returns to the BDFL for the already mandated broad
+independent foundation audit. Only after that audit may a fresh Work Order
+author Session AR planning; no AR implementation follows implicitly.
+
+### Exact supersession and preserved requirements
+
+This dated amendment supersedes, for 10A-10F sequencing only:
+
+- the header's original `proposed and unauthorized` issuance gate, which was
+  satisfied by the independently accepted `49e6534` publication;
+- the paragraph above requiring a separate BDFL go signal, push, Ubuntu/
+  Windows CI, and status publication between every increment;
+- each increment's implied per-increment remote publication/CI prerequisite;
+- the 10F sentence that publication of 10F itself closes Work Order 10;
+- the checks section's per-increment reading of required post-push CI;
+- the acceptance criterion requiring each individual increment to be remotely
+  published and green before the next begins; and
+- the initial independent pre-issuance section's proposal/untracked-file
+  assumptions, which are satisfied issuance history and are replaced for this
+  amendment by its dedicated independent review gate; and
+- the former Current authorization gate that required a new human go signal
+  for 10A and every later increment.
+
+Those statements remain historical issuance text where retained. Their
+semantic replacement is the closed local-train state machine plus one final
+cumulative publication and closure cycle above. Every increment's order,
+intent, file envelope, bans, positive/misuse/mutation evidence, independent
+review, complete local checks, configuration disclosure, exact local commit,
+anti-ghost rules, diagnostic/decision stops, and uncommitted-review hard stop
+remain fully binding. No accepted decision, `WORKORDER.md` closure, global
+session odometer, Session AR reservation, or standing ban is changed.
+
+This exception applies only to Work Order 10 increments 10A-10F after this
+amendment activates. It does not amend `AGENTS.md` or governance, authorize a
+second work order, generalize local trains, permit speculative CI/integrity
+work, or grant future agents the power to create similar standing authority.
+
+### Independent review gate for this amendment
+
+The author of these amendment bytes is disqualified from their verdict. A
+fresh independent architect-reviewer must verify the exact published
+`49e6534` baseline and workflow evidence, authority validity, the activation
+gate, every state transition, one-pen/reviewer separation, one-correction
+limit, factual-status boundary, ordered first-parent history, mandatory stops,
+final cumulative CI/closure, explicit supersession, unchanged increment
+semantics, and absence of a global governance exception.
+
+The reviewer confirms only `WORKORDER_10.md` changed, runs
+`git diff --check` and `./tools/check_all.ps1`, reports P0/P1/P2 findings with
+exact lines, and issues exactly one verdict: `ACCEPT`,
+`ACCEPT WITH REQUIRED FIX`, or `REJECT`. It does not edit, commit, push,
+activate 10A, implement an increment, accept a decision, or authorize Session
+AR. Any semantic amendment after its verdict requires fresh complete review.
+
 ## Prerequisite Increment 10A: canonical syntax and string-aware scope
 
 ### Scope and likely files
@@ -811,8 +1052,12 @@ Likely files:
   backlog below.
 
 Full standing checks pass. Hard stop after an uncommitted 10F worktree for
-independent review. Acceptance and publication of 10F close Work Order 10; they
-do not authorize Session AR.
+independent review. Under the original issuance sequence, acceptance and
+publication of 10F would have closed Work Order 10. The 2026-07-16 amendment
+supersedes that remote-per-increment reading: accepted 10F is committed and
+recorded locally, then the train stops before one separately authorized
+cumulative push, required Ubuntu/Windows full CI, and the durable final closure
+record. None of those gates authorizes Session AR.
 
 ## Anti-ghost and discriminating evidence rules
 
@@ -968,13 +1213,18 @@ The report enumerates:
 - any locally unavailable configuration.
 
 Only installed, already proven targets may run locally. Do not download a
-target or mutate global configuration. Required post-push Ubuntu and Windows
-CI remain the cross-platform authority.
+target or mutate global configuration. Under the 2026-07-16 local train,
+required post-push Ubuntu and Windows CI remain the cross-platform authority
+for the final cumulative implementation head rather than being claimed for an
+unpublished individual increment.
 
 ## Work Order 10 acceptance criteria
 
 Work Order 10 closes only when all six increments are independently accepted,
-committed, published, green on required CI, and recorded, and evidence proves:
+committed and factually recorded in the ordered local train, the complete
+cumulative implementation chain is separately authorized for publication and
+green in required Ubuntu and Windows full CI, the durable final closure record
+is published under its applicable gates, and evidence proves:
 
 1. one parser-owned expression tree and one string-aware block-scoping fact;
 2. body, Predicate v2, private Core/graph/static/runtime facts agree on the
@@ -1006,7 +1256,12 @@ committed, published, green on required CI, and recorded, and evidence proves:
 If any item is not proved, Work Order 10 remains open. Nearness, green narrow
 tests, or absence of an observed failure is not completion evidence.
 
-## Independent pre-issuance review
+## Initial independent pre-issuance review (historical)
+
+This section records the review gate that the initial `49e6534` issuance
+satisfied. The 2026-07-16 amendment has its own independent review gate above;
+the historical proposal and untracked-file assumptions below are not current
+amendment-state assertions.
 
 The fresh reviewer did not author, edit, generate, or directly direct this
 file. The reviewer cold-starts from repository ground truth and checks:
@@ -1052,13 +1307,32 @@ gated.
 ## Current authorization gate
 
 Work Order 9 is closed and `WORKORDER.md` is frozen at baseline `38704ac`.
-This Work Order 10 file is proposed and unissued. Its author is disqualified
-from its verdict.
+Work Order 10 was independently accepted, BDFL-accepted, committed, and
+published as `49e6534a6cd3e4d567f924b69336c72563b1c95f`. Workflow
+`29472827923`, attempt 1, succeeded for that exact commit. Ubuntu job
+`87539307880` succeeded in 11m 09s, including 10m 40s in
+`Run Hum preflight`; Windows job `87539307917` succeeded in 14m 10s,
+including 13m 22s in `Run Hum preflight`. Both selected `mode=full` with
+`reason=no_status_transition`; `Run status-only evidence` was skipped.
+Work Order 10 is issued.
 
-No prerequisite increment is authorized. The required next actor is one fresh
-independent pre-issuance architect-reviewer. After ACCEPT, BDFL acceptance, a
-scoped commit, separately authorized push, successful Ubuntu/Windows CI, and a
-status record, Increment 10A still requires its own separate BDFL go signal.
+The 2026-07-16 BDFL local-train amendment is proposed, uncommitted, and
+inactive. Its author is disqualified from its verdict. No prerequisite
+increment is currently authorized. The required next actor is one fresh
+independent architect-reviewer for these amendment bytes. Increment 10A
+activates only after final `ACCEPT`, BDFL acceptance of the exact reviewed
+bytes, a scoped local commit, separately authorized publication, terminal
+successful Ubuntu and Windows CI for that exact amendment commit, and a clean
+local state.
+
+Once that activation gate passes, the BDFL's exact conditional standing
+authorization advances 10A through 10F only through the closed local-train
+state machine above. No intervening push is authorized. Every increment still
+requires one implementer pen, fresh independent review, complete local checks,
+at most one correction cycle, final `ACCEPT`, its exact implementation commit,
+and its exact local status commit before the next increment activates.
+Accepted 10F stops before the cumulative implementation push and returns to
+the BDFL.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
@@ -1066,5 +1340,8 @@ not been authored, reviewed, issued, or authorized here. 10F completion must
 stop and return to the BDFL for the broad independent foundation audit before
 any AR planning.
 
-No commit, push, implementation, decision ruling, GitHub mutation,
-`PRE-AQ-INTEGRITY`, dashboard, Session AR, or later work is authorized.
+No amendment commit, amendment push, Increment 10A implementation, decision
+ruling, GitHub mutation, `PRE-AQ-INTEGRITY`, dashboard, Session AR, or later
+work is authorized by the unreviewed amendment. After activation, only the
+closed local-train authority stated above applies; cumulative publication,
+closure, foundation audit, and every later work item remain separately gated.
