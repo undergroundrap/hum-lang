@@ -1,19 +1,34 @@
 # Hum Work Order 10: Pre-AR Semantic Foundation Repair
 
 Date: 2026-07-15
-Status: issued. The initial document was independently accepted, BDFL-accepted,
+Status: issued and active only through the closed 2026-07-16 local train. The
+initial document was independently accepted, BDFL-accepted, committed, and
+published as `49e6534a6cd3e4d567f924b69336c72563b1c95f`; workflow
+`29472827923`, attempt 1, succeeded for that exact commit on Ubuntu and
+Windows. The local-train amendment was independently accepted, BDFL-accepted,
 committed, and published as
-`49e6534a6cd3e4d567f924b69336c72563b1c95f`. Workflow `29472827923`, attempt
-1, succeeded for that exact commit. Ubuntu job `87539307880` succeeded in 11m
-09s, including 10m 40s in `Run Hum preflight`; Windows job `87539307917`
-succeeded in 14m 10s, including 13m 22s in `Run Hum preflight`. Both platforms
+`334a7416e1014232d1e47e7be49ceb730fca33b3`; workflow `29475816732`, attempt
+1, succeeded for that exact commit. Ubuntu job `87548425248` succeeded in 11m
+22s, including 10m 56s in `Run Hum preflight`; Windows job `87548425235`
+succeeded in 16m 12s, including 15m 43s in `Run Hum preflight`. Both platforms
 selected `mode=full` with `reason=no_status_transition`, and
-`Run status-only evidence` was skipped. The 2026-07-16 local-train amendment
-below is proposed and inactive until its own independent review, BDFL
-acceptance, scoped commit, separately authorized publication, and successful
-required Ubuntu and Windows CI. Increment 10A remains unauthorized until that
-complete amendment gate passes. Nothing here authorizes Session AR, Hum IR, a
-standard library, a backend, or later work.
+`Run status-only evidence` was skipped.
+
+Increment 10A received final independent `ACCEPT` after one bounded correction
+cycle. Its exact accepted six-path implementation was committed locally as
+`935550a4f40bcf425ddbc22f235b0011893219ae`, with first parent
+`334a7416e1014232d1e47e7be49ceb730fca33b3`. Formatting, 427 Rust tests,
+warnings-denied all-target Clippy, diff hygiene, the complete Hum preflight,
+105 classifier cases twice, 16 Windows-locality tests, 60 effect-bakeoff tests,
+and 489-file text/public/release readiness passed. Local compilation covered
+`x86_64-pc-windows-msvc`; no non-host Rust target was installed. The worktree,
+index, and untracked set were clean immediately after the implementation
+commit and before this status edit. The published train anchor remains
+`334a7416e1014232d1e47e7be49ceb730fca33b3`; no train implementation commit has
+been pushed. Increment 10B becomes conditionally active only after this exact
+status record is committed and the repository is again clean. Nothing here
+authorizes a push, Session AR, Hum IR, a standard library, a backend, or later
+work.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -1316,23 +1331,46 @@ including 13m 22s in `Run Hum preflight`. Both selected `mode=full` with
 `reason=no_status_transition`; `Run status-only evidence` was skipped.
 Work Order 10 is issued.
 
-The 2026-07-16 BDFL local-train amendment is proposed, uncommitted, and
-inactive. Its author is disqualified from its verdict. No prerequisite
-increment is currently authorized. The required next actor is one fresh
-independent architect-reviewer for these amendment bytes. Increment 10A
-activates only after final `ACCEPT`, BDFL acceptance of the exact reviewed
-bytes, a scoped local commit, separately authorized publication, terminal
-successful Ubuntu and Windows CI for that exact amendment commit, and a clean
-local state.
+The 2026-07-16 BDFL local-train amendment was independently accepted,
+BDFL-accepted, committed, and published as
+`334a7416e1014232d1e47e7be49ceb730fca33b3`. Workflow `29475816732`, attempt
+1, succeeded for that exact commit. Ubuntu job `87548425248` succeeded in 11m
+22s, including 10m 56s in `Run Hum preflight`; Windows job `87548425235`
+succeeded in 16m 12s, including 15m 43s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`; `Run status-only evidence` was
+skipped. The published train anchor and live `origin/main` remain
+`334a7416e1014232d1e47e7be49ceb730fca33b3`.
 
-Once that activation gate passes, the BDFL's exact conditional standing
-authorization advances 10A through 10F only through the closed local-train
-state machine above. No intervening push is authorized. Every increment still
-requires one implementer pen, fresh independent review, complete local checks,
-at most one correction cycle, final `ACCEPT`, its exact implementation commit,
-and its exact local status commit before the next increment activates.
-Accepted 10F stops before the cumulative implementation push and returns to
-the BDFL.
+Increment 10A's complete six-path implementation received final independent
+`ACCEPT` after one bounded correction cycle. It is committed locally as
+`935550a4f40bcf425ddbc22f235b0011893219ae`, with first parent
+`334a7416e1014232d1e47e7be49ceb730fca33b3`, and contains exactly:
+
+- `src/ast.rs`;
+- `src/parser.rs`;
+- `src/core_body.rs`;
+- `tools/check_all.ps1`;
+- `fixtures/foundation/pre_ar_text_braces_pass.hum`; and
+- `fixtures/foundation/pre_ar_real_unclosed_block_fail.hum`.
+
+The accepted implementation passed formatting, 427 Rust tests,
+warnings-denied all-target Clippy, diff hygiene, the complete Hum preflight,
+105 classifier cases twice deterministically, 16 Windows-locality tests, 60
+effect-bakeoff tests, and 489-file text/public/release readiness. Only
+`x86_64-pc-windows-msvc` was locally installed; the change introduced no
+dependency, feature, `cfg`, or platform-specific branch. The worktree, index,
+and untracked set were clean immediately after the implementation commit and
+before this status edit. Nothing has been pushed above the published train
+anchor.
+
+This is the exact separate local status record required by the train. Increment
+10B becomes conditionally active only after this record is committed alone as
+`docs(workorder): record increment 10A local acceptance` and the worktree,
+index, and untracked set are again clean. No intervening push is authorized.
+Every later increment still requires its own implementer pen, fresh independent
+review, complete local checks, at most one correction cycle, final `ACCEPT`,
+exact implementation commit, and exact local status commit. Accepted 10F stops
+before the cumulative implementation push and returns to the BDFL.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
@@ -1340,8 +1378,7 @@ not been authored, reviewed, issued, or authorized here. 10F completion must
 stop and return to the BDFL for the broad independent foundation audit before
 any AR planning.
 
-No amendment commit, amendment push, Increment 10A implementation, decision
-ruling, GitHub mutation, `PRE-AQ-INTEGRITY`, dashboard, Session AR, or later
-work is authorized by the unreviewed amendment. After activation, only the
-closed local-train authority stated above applies; cumulative publication,
+No train implementation push, decision ruling, GitHub mutation,
+`PRE-AQ-INTEGRITY`, dashboard, Session AR, or later work is authorized. Only
+the closed local-train authority stated above applies; cumulative publication,
 closure, foundation audit, and every later work item remain separately gated.
