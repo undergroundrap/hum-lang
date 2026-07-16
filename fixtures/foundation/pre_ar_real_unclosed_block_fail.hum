@@ -1,0 +1,3 @@
+module fixtures.foundation.pre_ar_real_unclosed_block_fail
+
+task real_unclosed -> Text {

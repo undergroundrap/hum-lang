@@ -1,7 +1,5 @@
 use crate::ast::Section;
 use crate::diagnostic::Span;
-use crate::graph::is_meaningful_line_text;
-use crate::typed_failure;
 
 pub const CORE_BODY_GRAMMAR_STATUS: &str = "partial_v0";
 
@@ -32,14 +30,24 @@ pub fn analyze_does_section(section: &Section) -> BodyGrammarReport {
     let mut recognized_lines = 0usize;
     let mut unsupported_lines = 0usize;
 
-    for line in &section.lines {
-        let text = line.text.trim();
-        if !is_meaningful_line_text(text) {
+    for (line, retained) in section.lines.iter().zip(&section.body_syntax) {
+        let Some(parsed) = retained.as_ref() else {
             continue;
-        }
+        };
 
         meaningful_lines += 1;
-        let statement = classify_line(text, &line.span);
+        let statement = BodyStatement {
+            span: Span {
+                file: line.span.file.replace('\\', "/"),
+                line: line.span.line,
+                column: line.span.column,
+            },
+            text: line.text.trim().to_string(),
+            kind: parsed.core_kind,
+            status: parsed.core_status,
+            expression_kind: parsed.core_expression_kind,
+            reason: parsed.core_reason,
+        };
         if statement.status == "unsupported_v0" {
             unsupported_lines += 1;
         } else {
@@ -67,275 +75,6 @@ pub fn analyze_does_section(section: &Section) -> BodyGrammarReport {
         unsupported_lines,
         statements,
     }
-}
-
-fn classify_line(text: &str, span: &Span) -> BodyStatement {
-    if text == "}" {
-        return statement(span, text, "block_close", "recognized_v0", None, None);
-    }
-
-    if is_nested_intent_header(text) {
-        return statement(
-            span,
-            text,
-            "nested_intent_header",
-            "recognized_v0",
-            None,
-            Some("nested_intent_lowering_not_implemented"),
-        );
-    }
-
-    if let Some(condition) = header_body(text, "if") {
-        return statement(
-            span,
-            text,
-            "if_header",
-            "recognized_v0",
-            Some(expression_kind_for_condition(condition)),
-            None,
-        );
-    }
-
-    if let Some(condition) = header_body(text, "while") {
-        return statement(
-            span,
-            text,
-            "while_header",
-            "recognized_v0",
-            Some(expression_kind_for_condition(condition)),
-            None,
-        );
-    }
-
-    if text == "loop {" {
-        return statement(span, text, "loop_header", "recognized_v0", None, None);
-    }
-
-    if let Some(rest) = header_body(text, "for each") {
-        return statement(
-            span,
-            text,
-            "for_each_header",
-            "recognized_v0",
-            Some(expression_kind(rest)),
-            None,
-        );
-    }
-
-    if let Some(rest) = header_body(text, "for index") {
-        return statement(
-            span,
-            text,
-            "for_index_header",
-            "recognized_v0",
-            Some(expression_kind(rest)),
-            None,
-        );
-    }
-
-    if let Some(rest) = strip_keyword(text, "return") {
-        return statement(
-            span,
-            text,
-            "return",
-            "recognized_v0",
-            Some(expression_kind(rest)),
-            None,
-        );
-    }
-
-    if let Some(rest) = strip_keyword(text, "fail") {
-        return statement(
-            span,
-            text,
-            "fail",
-            "recognized_v0",
-            Some(expression_kind(rest)),
-            None,
-        );
-    }
-
-    if let Some(rest) = strip_keyword(text, "change") {
-        return classify_binding(span, text, rest, "mutable_binding");
-    }
-
-    if let Some(rest) = strip_keyword(text, "let") {
-        return classify_binding(span, text, rest, "let_binding");
-    }
-
-    if let Some(rest) = strip_keyword(text, "set") {
-        let expression = rest.split_once('=').map(|(_place, value)| value.trim());
-        return statement(
-            span,
-            text,
-            "set_place",
-            "recognized_v0",
-            expression.map(expression_kind),
-            None,
-        );
-    }
-
-    if let Some(rest) = strip_keyword(text, "expect") {
-        return statement(
-            span,
-            text,
-            "test_expectation",
-            "recognized_v0",
-            Some(expression_kind(rest)),
-            Some("test_body_not_core_runtime"),
-        );
-    }
-
-    if text.starts_with("save ") && text.contains(" in ") {
-        return statement(
-            span,
-            text,
-            "save_in_store",
-            "unsupported_v0",
-            None,
-            Some("surface_save_requires_store_lowering"),
-        );
-    }
-
-    if is_record_field_initializer(text) {
-        return statement(
-            span,
-            text,
-            "record_field_initializer",
-            "recognized_v0",
-            text.split_once(':')
-                .map(|(_field, value)| expression_kind(value.trim())),
-            Some("record_literal_lowering_not_implemented"),
-        );
-    }
-
-    statement(
-        span,
-        text,
-        "unknown_body_line",
-        "unsupported_v0",
-        None,
-        Some("not_in_core_body_grammar_v0"),
-    )
-}
-
-fn classify_binding(span: &Span, text: &str, rest: &str, kind: &'static str) -> BodyStatement {
-    let expression = rest.split_once('=').map(|(_left, value)| value.trim());
-    let status = if expression.is_some() {
-        "recognized_v0"
-    } else {
-        "unsupported_v0"
-    };
-    let reason = if expression.is_some() {
-        None
-    } else {
-        Some("binding_missing_initializer")
-    };
-    statement(
-        span,
-        text,
-        kind,
-        status,
-        expression.map(expression_kind),
-        reason,
-    )
-}
-
-fn statement(
-    span: &Span,
-    text: &str,
-    kind: &'static str,
-    status: &'static str,
-    expression_kind: Option<&'static str>,
-    reason: Option<&'static str>,
-) -> BodyStatement {
-    BodyStatement {
-        span: Span {
-            file: span.file.replace('\\', "/"),
-            line: span.line,
-            column: span.column,
-        },
-        text: text.to_string(),
-        kind,
-        status,
-        expression_kind,
-        reason,
-    }
-}
-
-fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = strip_keyword(text, keyword)?;
-    rest.strip_suffix('{').map(str::trim)
-}
-
-fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    if text == keyword {
-        return Some("");
-    }
-    text.strip_prefix(keyword)
-        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
-        .map(str::trim)
-}
-
-fn is_nested_intent_header(text: &str) -> bool {
-    matches!(
-        text.strip_suffix(':').map(str::trim),
-        Some("keeps" | "changes" | "needs" | "ensures" | "watch for" | "cost" | "does")
-    )
-}
-
-fn is_record_field_initializer(text: &str) -> bool {
-    let Some((field, value)) = text.split_once(':') else {
-        return false;
-    };
-    !text.ends_with(':')
-        && !field.trim().is_empty()
-        && field
-            .trim()
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == ' ')
-        && !value.trim().is_empty()
-}
-
-fn expression_kind_for_condition(text: &str) -> &'static str {
-    if has_binary_operator(text) || text.contains(" is ") || text.contains(" does ") {
-        "condition_text"
-    } else {
-        expression_kind(text)
-    }
-}
-
-fn expression_kind(text: &str) -> &'static str {
-    let text = text.trim();
-    if typed_failure::is_try_candidate(text) {
-        "try_call_like"
-    } else if text.is_empty() {
-        "unit"
-    } else if text == "true" || text == "false" {
-        "bool_literal"
-    } else if text.chars().all(|ch| ch.is_ascii_digit()) {
-        "int_literal"
-    } else if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
-        "text_literal"
-    } else if text.ends_with('{') {
-        "record_literal_start"
-    } else if text.contains('(') && text.contains(')') {
-        "call_like"
-    } else if has_binary_operator(text) {
-        "binary_expression"
-    } else if text.contains('.') {
-        "path_or_name"
-    } else {
-        "name_or_text"
-    }
-}
-
-fn has_binary_operator(text: &str) -> bool {
-    [
-        " == ", " != ", " <= ", " >= ", " < ", " > ", " + ", " - ", " * ", " / ", " and ", " or ",
-    ]
-    .iter()
-    .any(|operator| text.contains(operator))
 }
 
 #[cfg(test)]
@@ -451,6 +190,132 @@ test count unit {
                 .statements
                 .iter()
                 .any(|statement| statement.kind == "test_expectation")
+        );
+    }
+
+    #[test]
+    fn retained_parser_facts_survive_section_text_sabotage() {
+        let mut parsed = parse_source(
+            "retained-body.hum",
+            "task retained() -> UInt {\n  does:\n    return 7\n}\n",
+        );
+        let crate::ast::Item::Task(task) = &mut parsed.file.items[0] else {
+            panic!("task")
+        };
+        let section = task
+            .sections
+            .iter_mut()
+            .find(|section| section.name == "does")
+            .expect("does");
+        section.lines[0].text = "save fabricated in nowhere".to_string();
+        let report = analyze_does_section(section);
+        assert_eq!(report.meaningful_lines, 1);
+        assert_eq!(report.statements[0].kind, "return");
+        assert_eq!(report.statements[0].expression_kind, Some("int_literal"));
+        assert_eq!(report.statements[0].status, "recognized_v0");
+    }
+
+    #[test]
+    fn retained_parser_fact_mutation_is_observable() {
+        let mut parsed = parse_source(
+            "retained-body-mutation.hum",
+            "task retained() -> UInt {\n  does:\n    return 7\n}\n",
+        );
+        let crate::ast::Item::Task(task) = &mut parsed.file.items[0] else {
+            panic!("task")
+        };
+        let section = task
+            .sections
+            .iter_mut()
+            .find(|section| section.name == "does")
+            .expect("does");
+        let retained = section.body_syntax[0].as_mut().expect("retained fact");
+        retained.core_kind = "unknown_body_line";
+        retained.core_status = "unsupported_v0";
+        retained.core_reason = Some("mutated_parser_fact_v0");
+        let report = analyze_does_section(section);
+        assert_eq!(report.unsupported_lines, 1);
+        assert_eq!(report.statements[0].kind, "unknown_body_line");
+        assert_eq!(report.statements[0].reason, Some("mutated_parser_fact_v0"));
+    }
+
+    #[test]
+    fn parser_owned_core_kinds_preserve_established_preview_pairs() {
+        let parsed = parse_source(
+            "core-kind-compatibility.hum",
+            r#"type WorkItem {
+  done: Bool
+}
+
+type SourceError {
+  code: Text
+}
+
+task source(flag: Bool) -> Result UInt, SourceError {
+  does:
+    return 1
+}
+
+task compatibility(title: Text, flag: Bool) -> Int {
+  does:
+    if title is empty {
+      let tried = try source(flag)
+      let wrapped = borrow source(flag)
+      let grouped = (flag)
+      let item = WorkItem {
+        done: false
+      }
+      return -1
+    }
+}
+"#,
+        );
+        let crate::ast::Item::Task(task) = &parsed.file.items[3] else {
+            panic!("compatibility task")
+        };
+        let report = analyze_does_section(task.section("does").expect("does"));
+        let kind_for = |text: &str| {
+            report
+                .statements
+                .iter()
+                .find(|statement| statement.text == text)
+                .and_then(|statement| statement.expression_kind)
+        };
+        assert_eq!(kind_for("if title is empty {"), Some("condition_text"));
+        assert_eq!(
+            crate::core_expr::analyze_expression("title is empty").kind,
+            "condition_or_surface_binary"
+        );
+        assert_eq!(
+            kind_for("let tried = try source(flag)"),
+            Some("try_call_like")
+        );
+        assert_eq!(
+            crate::core_expr::analyze_expression("try source(flag)").kind,
+            "try_call_like"
+        );
+        assert_eq!(
+            kind_for("let wrapped = borrow source(flag)"),
+            Some("call_like")
+        );
+        assert_eq!(
+            crate::core_expr::analyze_expression("borrow source(flag)").kind,
+            "call_like"
+        );
+        assert_eq!(kind_for("let grouped = (flag)"), Some("call_like"));
+        assert_eq!(
+            crate::core_expr::analyze_expression("(flag)").kind,
+            "call_like"
+        );
+        assert_eq!(kind_for("done: false"), Some("bool_literal"));
+        assert_eq!(
+            crate::core_expr::analyze_expression("false").kind,
+            "bool_literal"
+        );
+        assert_eq!(kind_for("return -1"), Some("name_or_text"));
+        assert_eq!(
+            crate::core_expr::analyze_expression("-1").kind,
+            "surface_text"
         );
     }
 }

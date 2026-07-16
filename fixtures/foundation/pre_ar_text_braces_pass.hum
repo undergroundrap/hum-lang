@@ -1,0 +1,17 @@
+module fixtures.foundation.pre_ar_text_braces_pass
+
+task text_braces -> Text {
+  why:
+    prove braces inside Text do not close the task
+
+  ensures:
+    result == "}{"
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return "}{"
+}

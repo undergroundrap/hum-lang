@@ -275,6 +275,119 @@ try {
   $HumName = if ($env:OS -eq 'Windows_NT') { 'hum.exe' } else { 'hum' }
   $Hum = Join-Path (Join-Path (Join-Path $RepoRoot 'target') 'debug') $HumName
 
+  Write-Host '==> Increment 10A canonical syntax and string-aware scope matrix'
+  foreach ($EvidenceTest in @(
+    'parser::tests::string_braces_and_escaped_quotes_do_not_close_items',
+    'parser::tests::quote_escape_and_brace_direction_sabotage_changes_scope_facts',
+    'parser::tests::retained_block_relationship_corruption_fails_closed',
+    'parser::tests::genuine_unclosed_item_still_owns_h0004',
+    'parser::tests::canonical_expression_tree_is_left_associative_and_precedence_aware',
+    'parser::tests::canonical_expression_corruption_fails_closed',
+    'parser::tests::non_ascii_unsupported_expression_is_utf8_safe',
+    'parser::tests::signed_int_is_one_structural_literal_node',
+    'core_body::tests::retained_parser_facts_survive_section_text_sabotage',
+    'core_body::tests::retained_parser_fact_mutation_is_observable',
+    'core_body::tests::parser_owned_core_kinds_preserve_established_preview_pairs'
+  )) {
+    Invoke-Native "Increment 10A evidence $EvidenceTest" $Cargo @('test', $EvidenceTest, '--', '--exact')
+  }
+  $FoundationNonAscii = Join-Path ([System.IO.Path]::GetTempPath()) "hum-10a-nonascii-$([guid]::NewGuid().ToString('N')).hum"
+  try {
+    $FoundationNonAsciiSource = "module temp.nonascii`n`ntask non_ascii() -> Text {`n  does:`n    return caf$([char]0x00E9)`n}`n"
+    [System.IO.File]::WriteAllText($FoundationNonAscii, $FoundationNonAsciiSource, (New-Object System.Text.UTF8Encoding($false)))
+    foreach ($Format in @('human', 'json')) {
+      $Args = @('check')
+      if ($Format -eq 'json') { $Args += '--format=json' }
+      $Args += $FoundationNonAscii
+      $Result = Read-NativeChannelsWithExit "Increment 10A UTF-8 unsupported expression $Format" $Hum $Args
+      $Combined = $Result.Stdout + $Result.Stderr
+      if ($Result.ExitCode -ne 1) { throw "Increment 10A non-ASCII unsupported expression $Format exited $($Result.ExitCode), expected 1" }
+      if ([regex]::Matches($Combined, 'H0009').Count -ne 1) { throw "Increment 10A non-ASCII unsupported expression $Format did not produce exactly one H0009: $Combined" }
+      if ($Combined.Contains('panicked') -or $Combined.Contains('runtime trap')) { throw "Increment 10A non-ASCII unsupported expression reached a panic or runtime trap in $Format" }
+      if ($Format -eq 'json') { Assert-Json 'Increment 10A UTF-8 unsupported expression JSON' $Result.Stdout }
+    }
+    $NonAsciiRun = Read-NativeChannelsWithExit 'Increment 10A UTF-8 unsupported expression runtime preflight' $Hum @('run', $FoundationNonAscii, '--entry', 'non_ascii')
+    $NonAsciiCombined = $NonAsciiRun.Stdout + $NonAsciiRun.Stderr
+    if ($NonAsciiRun.ExitCode -ne 1 -or [regex]::Matches($NonAsciiCombined, 'H0009').Count -ne 1 -or $NonAsciiRun.Stdout -ne '' -or $NonAsciiCombined.Contains('panicked') -or $NonAsciiCombined.Contains('runtime trap')) { throw 'Increment 10A non-ASCII unsupported expression reached runtime instead of source preflight' }
+  } finally {
+    Remove-Item -LiteralPath $FoundationNonAscii -ErrorAction SilentlyContinue
+  }
+  $FoundationTextBraces = 'fixtures/foundation/pre_ar_text_braces_pass.hum'
+  $FoundationStages = @(
+    @{ Name = 'check'; Args = @('check') },
+    @{ Name = 'resolve'; Args = @('resolve') },
+    @{ Name = 'type-env'; Args = @('type-env') },
+    @{ Name = 'type-check'; Args = @('type-check') },
+    @{ Name = 'full-type-check'; Args = @('full-type-check') },
+    @{ Name = 'effect-check'; Args = @('effect-check') },
+    @{ Name = 'ownership-check'; Args = @('ownership-check') },
+    @{ Name = 'resource-check'; Args = @('resource-check') },
+    @{ Name = 'profile-check'; Args = @('profile-check') },
+    @{ Name = 'core-preview'; Args = @('core-preview') },
+    @{ Name = 'core-lower'; Args = @('core-lower') },
+    @{ Name = 'core-verify'; Args = @('core-verify') },
+    @{ Name = 'ir-readiness'; Args = @('ir-readiness') }
+  )
+  foreach ($Stage in $FoundationStages) {
+    foreach ($Format in @('human', 'json')) {
+      $Args = @($Stage.Args)
+      if ($Format -eq 'json') { $Args += '--format=json' }
+      $Args += $FoundationTextBraces
+      $Result = Read-NativeChannelsWithExit "Increment 10A $($Stage.Name) $Format" $Hum $Args
+      if ($Result.ExitCode -notin @(0, 1)) { throw "Increment 10A $($Stage.Name) $Format exited unexpectedly" }
+      $Combined = $Result.Stdout + $Result.Stderr
+      if ($Combined.Contains('H0001') -or $Combined.Contains('H0003') -or $Combined.Contains('H0004')) { throw "Increment 10A Text braces changed parser diagnostic ownership in $($Stage.Name) $Format" }
+      if ($Format -eq 'json') { Assert-Json "Increment 10A $($Stage.Name) JSON" $Result.Stdout }
+    }
+  }
+  $FoundationGraph = Read-NativeChannelsWithExit 'Increment 10A graph JSON first fresh run' $Hum @('graph', $FoundationTextBraces)
+  $FoundationGraphRepeat = Read-NativeChannelsWithExit 'Increment 10A graph JSON second fresh run' $Hum @('graph', $FoundationTextBraces)
+  foreach ($Observed in @($FoundationGraph, $FoundationGraphRepeat)) {
+    if ($Observed.ExitCode -ne 0 -or $Observed.Stderr -ne '' -or ($Observed.Stdout + $Observed.Stderr).Contains('H0001') -or ($Observed.Stdout + $Observed.Stderr).Contains('H0003') -or ($Observed.Stdout + $Observed.Stderr).Contains('H0004')) { throw 'Increment 10A Text braces changed parser diagnostic ownership in graph JSON' }
+    Assert-Json 'Increment 10A graph JSON' $Observed.Stdout
+  }
+  if ($FoundationGraph.Stdout -cne $FoundationGraphRepeat.Stdout -or $FoundationGraph.Stderr -cne $FoundationGraphRepeat.Stderr -or $FoundationGraph.ExitCode -ne $FoundationGraphRepeat.ExitCode) { throw 'Increment 10A graph observations are not byte-identical across fresh runs' }
+  $FoundationGraphReport = $FoundationGraph.Stdout | ConvertFrom-Json
+  $ExpectedFileId = 'file:fixtures/foundation/pre_ar_text_braces_pass.hum'
+  $ExpectedTaskId = 'item:fixtures/foundation/pre_ar_text_braces_pass.hum:3:1:task-text_braces'
+  $ExpectedDoesId = 'section:fixtures/foundation/pre_ar_text_braces_pass.hum:15:3:does'
+  $ExpectedExpressionId = 'line:fixtures/foundation/pre_ar_text_braces_pass.hum:16:5'
+  $GraphFile = @($FoundationGraphReport.files)
+  if ($GraphFile.Count -ne 1 -or $GraphFile[0].id -ne $ExpectedFileId -or $GraphFile[0].path -ne $FoundationTextBraces) { throw 'Increment 10A graph file identity is not the exact stable source identity' }
+  $GraphTask = @($GraphFile[0].items | Where-Object { $_.kind -eq 'task' -and $_.name -eq 'text_braces' })
+  if ($GraphTask.Count -ne 1 -or $GraphTask[0].id -ne $ExpectedTaskId -or $GraphTask[0].span.line -ne 3 -or $GraphTask[0].span.column -ne 1) { throw 'Increment 10A graph task identity or source endpoint drifted' }
+  $GraphSymbol = @($GraphFile[0].symbols | Where-Object { $_.id -eq $ExpectedTaskId })
+  if ($GraphSymbol.Count -ne 1 -or $GraphSymbol[0].kind -ne 'task' -or $GraphSymbol[0].name -ne 'text_braces') { throw 'Increment 10A graph symbol does not join the exact task identity' }
+  $DoesFold = @($GraphFile[0].folding_ranges | Where-Object { $_.id -eq $ExpectedDoesId })
+  if ($DoesFold.Count -ne 1 -or $DoesFold[0].kind -ne 'section' -or $DoesFold[0].name -ne 'does' -or $DoesFold[0].owner.id -ne $ExpectedTaskId -or $DoesFold[0].owner.kind -ne 'task' -or $DoesFold[0].start_line -ne 15 -or $DoesFold[0].end_line -ne 16) { throw 'Increment 10A graph block relationship does not join the exact does section to its task' }
+  $DoesSection = @($GraphTask[0].sections | Where-Object { $_.id -eq $ExpectedDoesId })
+  if ($DoesSection.Count -ne 1 -or $DoesSection[0].name -ne 'does' -or $DoesSection[0].lines -ne 1) { throw 'Increment 10A graph does block projection is incomplete' }
+  $ReturnExpression = @($DoesSection[0].line_items)
+  if ($ReturnExpression.Count -ne 1 -or $ReturnExpression[0].id -ne $ExpectedExpressionId -or $ReturnExpression[0].text -ne 'return "}{"' -or $ReturnExpression[0].span.file -ne $FoundationTextBraces -or $ReturnExpression[0].span.line -ne 16 -or $ReturnExpression[0].span.column -ne 5 -or -not $ReturnExpression[0].meaningful) { throw 'Increment 10A graph expression identity, range, or block endpoint drifted' }
+  $GraphObligation = @($GraphTask[0].test_obligations | Where-Object { $_.source_section -eq 'ensures' })
+  $GraphPlace = @($FoundationGraphReport.predicate_place_facts | Where-Object { $_.task -eq 'text_braces' -and $_.section -eq 'ensures' })
+  if ($GraphObligation.Count -ne 1 -or $GraphObligation[0].predicate_recognition_status -ne 'recognized_typed_executable_predicate_v2' -or $GraphPlace.Count -ne 1 -or $GraphPlace[0].text -ne 'result' -or $GraphPlace[0].definition_id -ne 'predicate-result:fixtures/foundation/pre_ar_text_braces_pass.hum:3:1:text_braces') { throw 'Increment 10A graph expression relationship does not retain the exact task, predicate, and result endpoints' }
+  $FoundationRuntime = Read-NativeChannelsWithExit 'Increment 10A exact Text runtime first fresh run' $Hum @('run', $FoundationTextBraces)
+  $FoundationRuntimeRepeat = Read-NativeChannelsWithExit 'Increment 10A exact Text runtime second fresh run' $Hum @('run', $FoundationTextBraces)
+  if ($FoundationRuntime.Stdout -cne $FoundationRuntimeRepeat.Stdout -or $FoundationRuntime.Stderr -cne $FoundationRuntimeRepeat.Stderr -or $FoundationRuntime.ExitCode -ne $FoundationRuntimeRepeat.ExitCode) { throw 'Increment 10A runtime observations are not byte-identical across fresh runs' }
+  $FoundationRuntimeStdout = $FoundationRuntime.Stdout.Replace([Environment]::NewLine, [string][char]10)
+  $FoundationRuntimeExpected = '}{' + [char]10
+  if ($FoundationRuntime.ExitCode -ne 0 -or $FoundationRuntime.Stderr -ne '' -or $FoundationRuntimeStdout -cne $FoundationRuntimeExpected -or $FoundationRuntimeRepeat.ExitCode -ne 0 -or $FoundationRuntimeRepeat.Stderr -ne '') { throw 'Increment 10A runtime did not observe exact Text brace bytes' }
+  $FoundationUnclosed = 'fixtures/foundation/pre_ar_real_unclosed_block_fail.hum'
+  foreach ($Format in @('human', 'json')) {
+    $Args = @('check')
+    if ($Format -eq 'json') { $Args += '--format=json' }
+    $Args += $FoundationUnclosed
+    $Result = Read-NativeChannelsWithExit "Increment 10A genuine H0004 $Format" $Hum $Args
+    $Combined = $Result.Stdout + $Result.Stderr
+    if ($Result.ExitCode -ne 1 -or [regex]::Matches($Combined, 'H0004').Count -ne 1 -or $Combined.Contains('H0001') -or $Combined.Contains('H0003')) { throw "Increment 10A genuine unclosed item must produce exactly H0004 in $Format" }
+    if ($Format -eq 'json') { Assert-Json 'Increment 10A genuine H0004 JSON' $Result.Stdout }
+  }
+  $CoreBodySource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/core_body.rs'))
+  foreach ($ForbiddenRecognizer in @('trim_end_matches(''{'')', 'strip_suffix(''{'')', 'has_binary_operator', 'fn classify_line')) {
+    if ($CoreBodySource.Contains($ForbiddenRecognizer)) { throw "Increment 10A core_body retained a competing source recognizer: $ForbiddenRecognizer" }
+  }
+
   $VersionJson = Read-NativeOutput 'version JSON' $Hum @('version', '--format', 'json')
   Assert-Json 'version JSON' $VersionJson
   if (-not $VersionJson.Contains('"core_lower": "hum.core_lower.v0"')) { throw 'version JSON is missing hum.core_lower.v0 schema' }

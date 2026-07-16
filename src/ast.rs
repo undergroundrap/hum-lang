@@ -1,5 +1,96 @@
 use crate::diagnostic::Span;
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ParserSyntaxNodeId(String);
+
+impl ParserSyntaxNodeId {
+    pub(crate) fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    pub(crate) fn child(&self, role: &str) -> Self {
+        Self(format!("{}:{role}", self.0))
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedSourceRange {
+    pub start: Span,
+    pub byte_len: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedBinaryOperator {
+    Multiply,
+    Divide,
+    Add,
+    Subtract,
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    Is,
+    Does,
+    Returns,
+    FailsWith,
+    And,
+    Or,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CanonicalExpression {
+    pub node_id: ParserSyntaxNodeId,
+    pub range: ParsedSourceRange,
+    pub kind: CanonicalExpressionKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CanonicalExpressionKind {
+    Unit,
+    Identifier(String),
+    Field {
+        base: Box<CanonicalExpression>,
+        field: String,
+    },
+    UIntLiteral(u64),
+    IntLiteral(i64),
+    BoolLiteral(bool),
+    TextLiteral(String),
+    ListLiteral(Vec<CanonicalExpression>),
+    RecordLiteral {
+        name: String,
+        fields: Vec<(String, CanonicalExpression)>,
+    },
+    Call {
+        callee: Box<CanonicalExpression>,
+        arguments: Vec<CanonicalExpression>,
+    },
+    Permission {
+        permission: ParamPermission,
+        value: Box<CanonicalExpression>,
+    },
+    Binary {
+        operator: ParsedBinaryOperator,
+        left: Box<CanonicalExpression>,
+        right: Box<CanonicalExpression>,
+    },
+    Group(Box<CanonicalExpression>),
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedBlockRelationship {
+    None,
+    Opens,
+    Closes,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Program {
     pub files: Vec<SourceFile>,
@@ -134,6 +225,14 @@ pub struct CallableTypeSyntax {
 pub struct ParsedBodyStatement {
     pub kind: ParsedBodyStatementKind,
     pub span: Span,
+    pub source_node_id: ParserSyntaxNodeId,
+    pub block_relationship: ParsedBlockRelationship,
+    pub block_depth_before: usize,
+    pub block_depth_after: usize,
+    pub core_kind: &'static str,
+    pub core_status: &'static str,
+    pub core_expression_kind: Option<&'static str>,
+    pub core_reason: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,6 +265,7 @@ pub enum ParsedEffectDeclarationKind {
 pub struct ParsedExpression {
     pub kind: ParsedExpressionKind,
     pub span: Span,
+    pub canonical: CanonicalExpression,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -220,6 +320,7 @@ pub struct ParsedIdentifier {
 pub struct Section {
     pub name: String,
     pub lines: Vec<SectionLine>,
+    pub body_syntax: Vec<Option<ParsedBodyStatement>>,
     pub span: Span,
 }
 
