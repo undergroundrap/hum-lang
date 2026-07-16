@@ -25,10 +25,21 @@ and 489-file text/public/release readiness passed. Local compilation covered
 index, and untracked set were clean immediately after the implementation
 commit and before this status edit. The published train anchor remains
 `334a7416e1014232d1e47e7be49ceb730fca33b3`; no train implementation commit has
-been pushed. Increment 10B becomes conditionally active only after this exact
-status record is committed and the repository is again clean. Nothing here
-authorizes a push, Session AR, Hum IR, a standard library, a backend, or later
-work.
+been pushed.
+
+Increment 10B was activated from local status commit
+`89c18ed363b78e725aa1a2736a24f21b08d29636`, implemented within its original
+envelope, and independently `REJECT`ed with three P1 findings: Predicate v2
+still carried a second semantic AST, chained comparisons could reach a generic
+runtime trap, and completing the remaining production-rescan migration
+required files outside the reviewed envelope. The complete 18-file plus two-
+fixture implementation remains uncommitted with an empty index. The local
+train is paused before its one correction cycle. The bounded 2026-07-16 10B
+rejection amendment below is proposed and inactive pending fresh independent
+review, explicit BDFL acceptance of both its scope and diagnostic proposal,
+durable publication under separately authorized gates, and a separate
+corrective go signal. Nothing here authorizes a push, 10B correction, 10C,
+Session AR, Hum IR, a standard library, a backend, or later work.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -818,6 +829,355 @@ uncommitted 10B worktree for independent review. A required new public field,
 general expression form, or semantic diagnostic triggers a reviewed amendment,
 not local invention.
 
+## Increment 10B rejection amendment (2026-07-16; proposed)
+
+### Authority, rejection, and preserved implementation
+
+This amendment is the bounded response to the final independent 10B verdict:
+`REJECT`, with P0 none, three P1 findings, and P2 none. It neither accepts nor
+modifies that implementation. Increment 10B's one correction cycle has not
+begun. Increment 10C and every later increment remain unauthorized.
+
+The preserved local history is:
+
+```text
+334a7416e1014232d1e47e7be49ceb730fca33b3  published local-train anchor
+-> 935550a4f40bcf425ddbc22f235b0011893219ae  accepted 10A implementation
+-> 89c18ed363b78e725aa1a2736a24f21b08d29636  accepted 10A local status record
+-> uncommitted rejected 10B implementation
+```
+
+The rejected implementation remains exactly 18 modified tracked files, with
+1,896 insertions and 932 deletions, plus these two untracked fixtures:
+
+- `fixtures/foundation/pre_ar_left_associative_arithmetic_pass.hum`, SHA-256
+  `22b2e9c09c9a5ed8f3984ccc08c318ff56922c5ebd89369092bf375f398ff3e9`; and
+- `fixtures/foundation/pre_ar_body_contract_expression_agreement_pass.hum`,
+  SHA-256
+  `c40056a83eff8580e757ea6955892b98ce57d4325707a978f0df0603f4329381`.
+
+The BDFL-pinned preservation fingerprint is the PowerShell pipeline:
+
+```powershell
+git diff --binary --no-ext-diff -- . ':(exclude)WORKORDER_10.md' |
+  git hash-object --stdin
+```
+
+It returns `52f1ab82fe987678d6e2ef5d87c675fe99fde3cf` and remains the authoritative
+preservation gate for this amendment and its review. A Git Bash raw-byte pipe
+over the same diff returns the supplemental value
+`01dc70da1d5e6573914a25686b12f56bb0914309`; that distinct shell transport must
+not be substituted for or used to invalidate the pinned PowerShell value. The
+exact path inventory, numstat, fixture hashes, and empty index also match the
+rejected handoff.
+
+### Complete pre-authoring production-rescan inventory
+
+The repeated-rejection discipline requires one complete envelope audit before
+authoring. The audit found the following authoritative rescans that must be
+retired or made parser-owned for 10B to close.
+
+Existing 10B-authorized files still requiring correction:
+
+- `src/parser.rs`: `parser_expression_kind*`, `parse_expression_syntax`, and
+  `parse_canonical_expression` independently rediscover expression shape;
+  `top_level_binary_operator` currently admits a comparison chain.
+- `src/predicate.rs`: `reachable_diagnostics`, `parse_syntax_for_parser`,
+  `PredicateSyntaxBuilder`, and its arithmetic/place/call/literal helpers build
+  and consume a second semantic grammar and call graph.
+- `src/core_preview.rs`: Predicate lowering consumes `PredicateAst`; statement
+  name/call/block helpers reconstruct private facts from display text.
+- `src/core_lower.rs`: checked-return joins and brace blockers use text rather
+  than exact parser node/block identity.
+- `src/resolve.rs`: binding/loop/set/save/reference helpers reconstruct
+  definitions, calls, and places from statement or atom text.
+- `src/type_check.rs`: binding facts are text-derived, and comparison typing
+  accepts a nested comparison as Bool without validating non-chainability.
+- `src/full_type_check.rs`: builtin-call discovery, argument splitting,
+  binding/place parsing, `infer_expression_type_text`, and comparison typing
+  remain competing semantic recognizers.
+- `src/effect_check.rs`: binding/set/save/place/resource helpers reparse
+  statement text for effect ownership.
+- `src/ownership_check.rs`: block depth, returned views, moves, calls, places,
+  bindings, and set/save targets remain text-derived.
+- `src/resource_check.rs`: allocation risk is inferred from raw `[`/`{`
+  characters rather than canonical List/Record nodes.
+- `src/run.rs`: reachable calls, Predicate evaluation, loop/binding/set/place
+  structure, returned-view sources, and typed-failure wrapper facts still
+  depend on text or the duplicate Predicate AST.
+
+The complete additional production envelope, beyond the original 10B map, is
+exactly:
+
+- `src/typed_failure.rs`: replace `parse_try_expression`,
+  `parse_direct_call`, `calls_in_expression`, call-span reconstruction,
+  statement-expression extraction, argument splitting, and related production
+  scans with parser canonical nodes, structured Try/wrapper facts, resolver
+  call occurrences, and parser node ranges.
+- `src/path_boundary.rs`: replace exact-file-read, Path-use, identifier-count,
+  call-argument, and call-span text scans with canonical calls and resolver
+  definition identities while preserving H0630.
+- `src/return_dependency.rs`: retain result-annotation grammar, but replace
+  returned-view call/group/argument/place parsing with canonical
+  Call/Group/Permission/place traversal.
+- `src/writable_field_alias.rs`: replace binding, permission, field-place,
+  call, reference, set-target, and reconstructed block-depth scans with
+  parser-owned binding/block facts, canonical nodes, and resolver place IDs,
+  preserving H0808/H0809.
+- `src/check.rs`: replace mutation/save/set target and loop-body structure
+  rediscovery used by source diagnostics with parser-owned statement, target,
+  binding, condition, and block facts. This grants no 10D/10E mutation
+  behavior.
+- `src/field_place.rs`: retain field-type declaration lookup, but confine or
+  retire `split_field_place` as downstream expression authority; semantic
+  consumers use structured place identity.
+
+The audit explicitly excludes additional authority for:
+
+- `src/element_place.rs`: direct-element raw parsing may remain parser-only;
+  downstream semantic call sites must disappear, while type-annotation helpers
+  remain non-expression grammar. 10E behavior remains unauthorized.
+- `src/callable.rs`: it already consumes parser nodes and resolver IDs.
+- `src/capability_root.rs`: it consumes resolver call facts and declaration
+  grammar.
+- `src/type_env.rs`: its remaining parsing is declaration/type syntax.
+- `src/profile_check.rs`, `src/ir_readiness.rs`, `src/graph.rs`, and
+  `src/json.rs`: the audit found projection/composition only, not an
+  authoritative expression/place/call/block rescan.
+- declaration/type helpers such as typed-failure result-root parsing,
+  return-dependency result-annotation parsing, field-type lookup,
+  `list_element_type`, Path type detection, public rendering, and native CLI
+  argument parsing.
+
+Any second request to add another production file for the same rescan class is
+a repeated envelope failure and stops the correction for a new BDFL
+backlog-versus-redesign decision. It is not another local amendment cycle.
+
+### Predicate v2 root cause and required design resolution
+
+Predicate v2 is structurally blocked by the current private representation,
+not merely by an unfinished consumer swap.
+
+Every accepted Predicate v2 value form is representable by the canonical tree:
+places and fields, literals, lists, grouping, arithmetic, comparisons, and the
+current `old`, `list_len`, and `list_count` calls. A permanent Predicate
+`Expr`/`PredicateAst` is therefore unjustified duplicate semantic authority.
+However, the current canonical tree alone cannot preserve these required
+lexical and diagnostic facts:
+
+- executable intent-signal presence and exact span, including quoted
+  shielding;
+- exact comparison-operator token span;
+- call opening/closing delimiter, adjacency, separator, trailing-token, and
+  empty-argument facts;
+- precise malformed cause, offending range, expected token/text, and actual
+  token/text;
+- maximum delimiter depth for malformed input;
+- missing or mismatched delimiters, unterminated Text, missing operands,
+  invalid operator spelling or operand starter, malformed field place, list
+  separator/trailing-comma/non-Text element, and out-of-range Int distinctions;
+  and
+- UTF-8-correct source-relative range conversion.
+
+The correction must create one private parser-owned expression-occurrence
+fact. It contains:
+
+1. the canonical expression tree and stable parser node IDs;
+2. exact node, token, operator, call-delimiter, argument-separator, and
+   trailing-status ranges;
+3. intent-signal and maximum-delimiter-depth facts; and
+4. one structured lexical status carrying the exact malformed cause,
+   offending range, expected evidence, and actual evidence.
+
+Predicate v2 becomes a semantic restriction and overlay over that fact. It may
+retain recognition status, task/section/line identity, Path/H0630 owner,
+place-resolution and eligibility facts, resolver scope/root/field definition
+IDs, operand types, and accepted comparison status, all keyed by canonical
+node IDs. It may not retain a second successful value tree.
+
+The correction deletes production semantic authority from
+`PredicateSyntaxBuilder`, `PredicateAst`, Predicate `Expr` and `Place`, and
+their duplicate arithmetic/comparison/call parsers. Runtime evaluates the
+canonical tree under an explicit contract context; ordinary body context
+cannot execute `old` or `list_count`. Core preview/lower keep their established
+public Predicate projection, but derive it from canonical nodes plus the
+Predicate overlay. Core verify independently joins and validates every
+lowered Predicate operation against its exact parser-owned occurrence; it may
+not verify only zipped `does:` expressions.
+
+H0701 prose ownership, every non-chain H0704 cause and boundary fixture,
+H0630 precedence, place rows, human/JSON bytes, and existing public Core/graph
+schemas remain unchanged.
+
+### Chained-comparison diagnostic decision gate
+
+The body expression `1 < 2 < 3` currently passes check/type/full-type/Core/IR
+and then reaches the generic runtime trap `expected Int value, got Bool`.
+This violates the already issued non-chainable grammar and fail-closed rule.
+The earliest owner is the shared expression parser.
+
+The registry audit found no existing exact owner:
+
+- H0704 and its comparison causes are Predicate-only;
+- H0606 is a task return-type mismatch and does not own a Bool-return or
+  condition chain; and
+- no active H000x or H060x cause means a shared body/contract comparison chain.
+
+Therefore this amendment reaches the diagnostic decision gate. It proposes,
+but does not allocate before BDFL acceptance:
+
+- proposed code: `H0010`, the next free code in the active
+  `H0000-H0099` `source_shape` family;
+- title/message: `comparison chaining is not supported`;
+- proposed stable cause: `chained_comparison_not_supported_v0`;
+- severity, semantic owner, and owning stage: error, shared expression syntax,
+  parser;
+- cardinality: one occurrence per chained expression;
+- primary site: the later comparison operator that would turn an existing
+  comparison into a chain;
+- related site: the first comparison operator, labeled as the comparison
+  already being chained;
+- help: repeat the middle operand and join the independent comparisons, for
+  example `1 < 2 and 2 < 3`;
+- human/JSON: identical code, severity, message, help, primary span, and
+  structured related span;
+- runtime: source rejection before selection, argument conversion, bodies, or
+  adapters; zero stdout, no generic trap, normal source-error exit; and
+- precedence: item/block failures that prevent a trustworthy expression remain
+  earlier; once the occurrence exists, H0010 dominates resolver/type,
+  Predicate H0704, Path H0630, ownership, authority, and runtime consequences
+  for that same occurrence, while unrelated occurrences remain independent.
+
+`a < b and b < c` and comparison-looking Text remain accepted controls. This
+is the only authorized Predicate diagnostic compatibility change: a chained
+Predicate candidate moves from H0704 to the shared proposed H0010 owner. Every
+other H0704 meaning and byte remains frozen.
+
+If the BDFL does not explicitly accept this exact proposed allocation,
+meaning, sites, and precedence, 10B correction remains stopped. The
+implementer may not reuse H0704, H0606, H0009, or another nearby code.
+
+Upon explicit BDFL acceptance, the diagnostic portion adds exactly:
+
+- `src/diagnostic_catalog.rs` for one allocation/cause and checked registry
+  evidence; and
+- `docs/DIAGNOSTICS.md` as the checked public projection.
+
+No new diagnostic family, JSON field, schema identifier, global precedence
+rank, or independent document ledger is authorized.
+
+### Single correction-cycle scope and evidence
+
+The original 10B envelope remains authorized only for its stated intent. This
+amendment adds only the six production files above and, conditionally upon the
+exact diagnostic ruling, the two diagnostic projection files. It adds these
+exact real fixtures:
+
+- `fixtures/foundation/pre_ar_return_chained_comparison_fail.hum`;
+- `fixtures/foundation/pre_ar_condition_chained_comparison_fail.hum`;
+- `fixtures/foundation/pre_ar_predicate_chained_comparison_fail.hum`; and
+- `fixtures/foundation/pre_ar_comparison_conjunction_pass.hum`.
+
+The correction must preserve the current 10B arithmetic/body-contract
+positives and both existing fixture hashes. It must additionally prove:
+
+- body execution, Predicate typing/evaluation, runtime, private Core, and every
+  static consumer use one exact canonical occurrence;
+- body and contract chain fixtures produce exactly one proposed H0010 at the
+  later operator with the first operator as related evidence, in human and
+  JSON, and never reach runtime or any adapter;
+- the conjunction control runs successfully, and comparison-looking Text does
+  not create a chain;
+- all existing Predicate v2 positive/misuse fixtures remain exact except the
+  expressly changed chained-comparison owner;
+- unsupported `try` remains exactly nine H0906 rows, and typed-failure causal
+  sites remain exact;
+- H0630, H0701, H0702, H0703, all non-chain H0704 causes, H0808/H0809, callable
+  facts, authority facts, returned-view facts, and public Core type/status
+  projections remain unchanged;
+- every lowered Predicate operation is joined to and verified against its
+  parser-owned canonical occurrence before serialization/runtime; and
+- two fresh complete human/JSON/Core/graph/runtime runs are byte-identical.
+
+Permanent source audits strip `#[cfg(test)]` bodies and fail on behavior, not
+renamable symbol spellings. They require:
+
+- no production Predicate successful AST/parser/evaluator besides the
+  canonical occurrence;
+- no production use of `typed_failure::calls_in_expression`,
+  `statement_expression`, `parse_try_expression`, `call_span_in_statement`, or
+  `call_span_for_identifier_use`;
+- no `infer_expression_type_text`, builtin expression argument splitter, or
+  semantic call graph derived from expression text;
+- no semantic `canonical_text(...)` fed into typed-failure,
+  return-dependency, alias, place, call, or block parsing;
+- no semantic `field_place::split_field_place` consumer;
+- `element_place::split_element_place` is parser-only;
+- no `statement.text.ends_with('{')` block authority;
+- no allocation decision from raw `[` or `{`;
+- no raw set/save/binding/loop target helper in check, resolver, effect,
+  ownership, Core, or runtime; and
+- an explicit allowlist limited to parser lexical helpers, declaration/type
+  grammar, public display projection, and native CLI argument parsing.
+
+Named sabotage must independently turn the relevant permanent test red:
+
+- poison retained body or contract text while holding canonical nodes fixed;
+- mutate canonical Predicate child/operator/group/node ID while holding text
+  and public root summary fixed;
+- substitute a same-text foreign Predicate occurrence;
+- corrupt operator/token span, call-gap, delimiter, separator, trailing-comma,
+  lexical-issue, or place-definition join;
+- re-enable a second Predicate AST or raw call scanner;
+- poison quoted `source()` text, same-text duplicate calls, nested calls,
+  grouped `slice_until`, field spelling, and braces/brackets in Text while
+  keeping canonical/resolver facts fixed;
+- route alias/place/block/allocation checks back through display text;
+- disable chain detection, blame the first operator, omit the related site, or
+  treat `and`-separated comparisons/quoted operators as a chain; and
+- corrupt an accepted private tree into a chain while keeping the public root
+  projection unchanged.
+
+Tests may not reconstruct expected identities from the artifact being
+validated. Existing anti-ghost, positive-evidence, masking, cross-stage,
+configuration, compatibility, and hard-stop rules remain unchanged.
+
+### Amendment and correction gates
+
+This amendment is proposed and unauthorized. Its author is disqualified from
+its verdict. One fresh independent architect-reviewer must verify the complete
+inventory, Predicate satisfiability resolution, proposed H0010 allocation and
+precedence, exact envelope, preservation fingerprint correction, evidence,
+bans, and unchanged 10C-10F mandates. The reviewer runs:
+
+```powershell
+git diff --check
+.\tools\check_all.ps1
+```
+
+and returns exactly `ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT` without
+editing.
+
+Final `ACCEPT` authorizes no implementation. Before correction may resume:
+
+1. the BDFL explicitly accepts these exact amendment bytes and the proposed
+   H0010 allocation/meaning/sites/precedence;
+2. `WORKORDER_10.md` alone is committed with the rejected 10B worktree
+   preserved;
+3. the BDFL separately authorizes publication; that push necessarily publishes
+   the already accepted 10A implementation/status commits plus this amendment,
+   but no uncommitted 10B implementation;
+4. required Ubuntu and Windows full CI succeeds for that exact amendment head,
+   and the publication evidence is durably recorded; and
+5. the BDFL gives one separate explicit corrective go signal.
+
+That go signal resumes only 10B's single correction cycle. It does not reset
+the cycle count, authorize a second envelope amendment, or authorize 10C.
+After correction, one fresh independent reviewer examines the complete
+corrected 10B tree. Any further non-`ACCEPT`, another same-class file request,
+or another diagnostic/public/schema requirement stops the train for a BDFL
+backlog-versus-redesign decision.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
@@ -1363,14 +1723,26 @@ and untracked set were clean immediately after the implementation commit and
 before this status edit. Nothing has been pushed above the published train
 anchor.
 
-This is the exact separate local status record required by the train. Increment
-10B becomes conditionally active only after this record is committed alone as
-`docs(workorder): record increment 10A local acceptance` and the worktree,
-index, and untracked set are again clean. No intervening push is authorized.
-Every later increment still requires its own implementer pen, fresh independent
-review, complete local checks, at most one correction cycle, final `ACCEPT`,
-exact implementation commit, and exact local status commit. Accepted 10F stops
-before the cumulative implementation push and returns to the BDFL.
+Increment 10B was activated after the exact 10A status record, implemented,
+and independently `REJECT`ed. Its 18 modified tracked files and two untracked
+fixtures remain preserved with an empty index. The independently reproduced
+arithmetic/contract results and 431-test/full-preflight success are
+implementation evidence, not acceptance. The rejected tree is not committed.
+
+The proposed 2026-07-16 10B rejection amendment above records the complete
+rescan inventory, resolves Predicate v2's representational blocker, proposes
+H0010 at the diagnostic decision gate, and freezes the one-pass correction
+envelope. It is unreviewed, uncommitted, inactive, and authored by an agent
+disqualified from its verdict. Increment 10B's one correction cycle remains
+paused. No local-train automatic advancement applies while this mandatory stop
+is open.
+
+The next actor is one fresh independent architect-reviewer for only the
+complete `WORKORDER_10.md` amendment and preserved-state claims. Even an
+`ACCEPT` verdict authorizes no implementation or push. Exact BDFL acceptance,
+a `WORKORDER_10.md`-only commit, separate push authority, successful required
+full Ubuntu/Windows CI and durable status evidence, and a separate BDFL
+corrective go signal remain required before 10B correction can resume.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
@@ -1378,7 +1750,8 @@ not been authored, reviewed, issued, or authorized here. 10F completion must
 stop and return to the BDFL for the broad independent foundation audit before
 any AR planning.
 
-No train implementation push, decision ruling, GitHub mutation,
-`PRE-AQ-INTEGRITY`, dashboard, Session AR, or later work is authorized. Only
-the closed local-train authority stated above applies; cumulative publication,
-closure, foundation audit, and every later work item remain separately gated.
+No amendment commit or push, 10B correction, diagnostic implementation,
+decision ruling beyond the proposed gate, GitHub mutation, `PRE-AQ-INTEGRITY`,
+dashboard, 10C, Session AR, or later work is authorized. The rejected 10B tree
+must remain preserved. Cumulative publication, closure, foundation audit, and
+every later work item remain separately gated.
