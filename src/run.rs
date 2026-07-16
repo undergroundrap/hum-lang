@@ -518,6 +518,34 @@ pub(crate) fn run_program_with_occurrences_and_adapters(
     )
 }
 
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_program_with_occurrences_and_test_adapters(
+    program: &Program,
+    diagnostic_occurrences: &DiagnosticOccurrenceSet,
+    entry: Option<&str>,
+    raw_args: &[OsString],
+    grant_policy: &OperatorGrantPolicy,
+    output_adapter: &mut dyn OutputAdapter,
+    replay_adapter: &mut dyn ReplayAdapter,
+    file_locality_adapter: &mut dyn FileLocalityAdapter,
+    file_adapter: &mut dyn FileReadAdapter,
+) -> RunReport {
+    run_program_with_occurrences_and_file_adapters(
+        program,
+        diagnostic_occurrences,
+        entry,
+        raw_args,
+        grant_policy,
+        RunAdapters {
+            output: output_adapter,
+            replay: replay_adapter,
+            file_locality: file_locality_adapter,
+            file: file_adapter,
+        },
+    )
+}
+
 #[cfg(all(test, windows))]
 pub(crate) fn run_program_with_file_adapters(
     program: &Program,

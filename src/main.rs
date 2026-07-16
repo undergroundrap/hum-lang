@@ -191,9 +191,33 @@ fn run() -> Result<ExitCode, String> {
     }
 
     let loaded = load_program(&options.inputs)?;
+    if options.command == "run" {
+        let mut output_adapter = run::StdoutOutputAdapter;
+        let mut replay_adapter = run::RunnerReplayAdapter::new(options.run_replay_ticks.clone());
+        let execution = execute_run_command(
+            loaded,
+            options.run_entry.as_deref(),
+            &options.run_args,
+            &options.run_authority,
+            |program, occurrences, entry, raw_args, grant_policy| {
+                run::run_program_with_occurrences_and_adapters(
+                    program,
+                    occurrences,
+                    entry,
+                    raw_args,
+                    grant_policy,
+                    &mut output_adapter,
+                    &mut replay_adapter,
+                )
+            },
+        )?;
+        return Ok(render_run_command_execution(
+            execution,
+            options.show_timings,
+        ));
+    }
     let program = loaded.program;
     let mut diagnostic_occurrences = loaded.diagnostic_occurrences;
-    let mut reanalyzable_projections = loaded.reanalyzable_projections;
     let mut diagnostics = loaded.diagnostics;
     if !diagnostics
         .iter()
@@ -212,51 +236,7 @@ fn run() -> Result<ExitCode, String> {
         let callable_diagnostics = callable::diagnostics(&program, &diagnostics);
         diagnostics.extend(callable_diagnostics);
     }
-    if options.command == "run" {
-        let app_analysis = app_entry::analyze(&program);
-        let capability_analysis = capability_root::analyze(&program);
-        remove_loaded_app_projections(
-            &mut diagnostics,
-            &mut diagnostic_occurrences,
-            &mut reanalyzable_projections,
-            &app_analysis,
-        )?;
-        if !diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.severity == Severity::Error)
-        {
-            if let Some(entry) = options.run_entry.as_deref() {
-                diagnostics.extend(capability_root::entry_diagnostics(&program, entry));
-            } else {
-                match (app_analysis.diagnostic, app_analysis.diagnostic_occurrence) {
-                    (Some(diagnostic), Some(occurrence)) => insert_reanalyzed_projection(
-                        &mut diagnostics,
-                        &mut diagnostic_occurrences,
-                        ReanalysisProducer::AppEntry,
-                        diagnostic,
-                        occurrence,
-                    )?,
-                    (None, None) => {}
-                    _ => {
-                        return Err(
-                            "diagnostic invariant failure: app reanalysis projection/occurrence cardinality mismatch"
-                                .to_string(),
-                        );
-                    }
-                }
-                if !diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.severity == Severity::Error)
-                {
-                    insert_capability_projections(
-                        &mut diagnostics,
-                        &mut diagnostic_occurrences,
-                        capability_analysis,
-                    )?;
-                }
-            }
-        }
-    } else if !diagnostics
+    if !diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
@@ -274,51 +254,6 @@ fn run() -> Result<ExitCode, String> {
     let has_callable_errors =
         options.command != "run" && callable::stage_blockers(&program, &callable_stage) > 0;
     let has_stage_type_errors = !stage_type_diagnostics(&program, &callable_stage).is_empty();
-    let app_mode = options.command == "run"
-        && options.run_entry.is_none()
-        && !has_errors
-        && app_entry::analyze(&program).entry.is_some();
-
-    if app_mode {
-        if resolve::resolve_has_errors(&program, &diagnostics) {
-            eprint!("{}", resolve::resolve_text(&program, &diagnostics));
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            return Ok(ExitCode::from(1));
-        }
-        if type_check::type_check_has_errors(&program, &diagnostics) {
-            eprint!("{}", type_check::type_check_text(&program, &diagnostics));
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            return Ok(ExitCode::from(1));
-        }
-        if full_type_check::full_type_check_has_errors(&program, &diagnostics) {
-            if full_type_check::full_type_check_has_only_predicate_errors(&program, &diagnostics)
-                && let Some(entry) = app_entry::analyze(&program).entry
-            {
-                let predicate_diagnostics = predicate::analyze_program(&program)
-                    .reachable_diagnostics(&program, entry.task, Some(entry.app));
-                if !predicate_diagnostics.is_empty() {
-                    print_diagnostics(&predicate_diagnostics);
-                    if options.show_timings {
-                        print_timings(&loaded.timings, loaded.total);
-                    }
-                    return Ok(ExitCode::from(2));
-                }
-            }
-            eprint!(
-                "{}",
-                full_type_check::full_type_check_text(&program, &diagnostics)
-            );
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            return Ok(ExitCode::from(1));
-        }
-    }
-
     match options.command.as_str() {
         "check" => {
             match options.check_format {
@@ -348,56 +283,7 @@ fn run() -> Result<ExitCode, String> {
                 ExitCode::SUCCESS
             })
         }
-        "run" => {
-            if has_errors {
-                print_diagnostics(&diagnostics);
-                if options.show_timings {
-                    print_timings(&loaded.timings, loaded.total);
-                }
-                return Ok(ExitCode::from(1));
-            }
-
-            let mut output_adapter = run::StdoutOutputAdapter;
-            let mut replay_adapter =
-                run::RunnerReplayAdapter::new(options.run_replay_ticks.clone());
-            let runtime_occurrences =
-                runtime_diagnostic_occurrences(&program, &diagnostics, &diagnostic_occurrences)?;
-            let report = run::run_program_with_occurrences_and_adapters(
-                &program,
-                &runtime_occurrences,
-                options.run_entry.as_deref(),
-                &options.run_args,
-                &options.run_authority,
-                &mut output_adapter,
-                &mut replay_adapter,
-            );
-            print_diagnostics(&report.diagnostics);
-            let code = match report.outcome {
-                run::RunOutcome::Success(output) => {
-                    println!("{output}");
-                    ExitCode::SUCCESS
-                }
-                run::RunOutcome::AppSuccess => ExitCode::SUCCESS,
-                run::RunOutcome::Failure(output) => {
-                    println!("{output}");
-                    ExitCode::from(1)
-                }
-                run::RunOutcome::AppFailure(output) => {
-                    eprintln!("{output}");
-                    ExitCode::from(1)
-                }
-                run::RunOutcome::ContractViolation => ExitCode::from(1),
-                run::RunOutcome::PreflightRejected => ExitCode::from(2),
-                run::RunOutcome::Trap(message) => {
-                    eprintln!("runtime trap: {message}");
-                    ExitCode::from(2)
-                }
-            };
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(code)
-        }
+        "run" => unreachable!("run command must use the shared command orchestration"),
         "graph" => {
             let transport = profile_check::diagnostic_transport_from_source(
                 &program,
@@ -988,6 +874,276 @@ fn validate_aq_diagnostic_occurrences(
     effect_check::validate_typed_failure_prior_blockers(program, diagnostics)
         .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
     Ok(())
+}
+
+enum RunCommandDisposition {
+    ComposedDiagnostics {
+        exit_code: u8,
+    },
+    SelectedDiagnostics {
+        diagnostics: Vec<Diagnostic>,
+        exit_code: u8,
+    },
+    Text {
+        text: String,
+        exit_code: u8,
+    },
+    Executed(run::RunReport),
+}
+
+struct RunCommandExecution {
+    disposition: RunCommandDisposition,
+    diagnostics: Vec<Diagnostic>,
+    diagnostic_occurrences: DiagnosticOccurrenceSet,
+    reanalyzable_projections: BTreeMap<DiagnosticOccurrenceId, ReanalyzableProjection>,
+    runtime_diagnostic_occurrences: Option<DiagnosticOccurrenceSet>,
+    timings: Vec<FileTiming>,
+    total: Duration,
+}
+
+fn execute_run_command<InvokeRunner>(
+    loaded: LoadedProgram,
+    entry: Option<&str>,
+    raw_args: &[OsString],
+    grant_policy: &operator_grant::OperatorGrantPolicy,
+    invoke_runner: InvokeRunner,
+) -> Result<RunCommandExecution, String>
+where
+    InvokeRunner: FnOnce(
+        &Program,
+        &DiagnosticOccurrenceSet,
+        Option<&str>,
+        &[OsString],
+        &operator_grant::OperatorGrantPolicy,
+    ) -> run::RunReport,
+{
+    let LoadedProgram {
+        program,
+        mut diagnostics,
+        mut diagnostic_occurrences,
+        mut reanalyzable_projections,
+        timings,
+        total,
+    } = loaded;
+
+    if !diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        diagnostics.extend(path_boundary::diagnostics(&program));
+        diagnostic_occurrences
+            .extend_owned(&path_boundary::diagnostic_occurrence_set(&program))
+            .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+    }
+
+    let app_analysis = app_entry::analyze(&program);
+    let capability_analysis = capability_root::analyze(&program);
+    remove_loaded_app_projections(
+        &mut diagnostics,
+        &mut diagnostic_occurrences,
+        &mut reanalyzable_projections,
+        &app_analysis,
+    )?;
+    if !diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        if let Some(entry) = entry {
+            diagnostics.extend(capability_root::entry_diagnostics(&program, entry));
+        } else {
+            match (
+                app_analysis.diagnostic.clone(),
+                app_analysis.diagnostic_occurrence.clone(),
+            ) {
+                (Some(diagnostic), Some(occurrence)) => insert_reanalyzed_projection(
+                    &mut diagnostics,
+                    &mut diagnostic_occurrences,
+                    ReanalysisProducer::AppEntry,
+                    diagnostic,
+                    occurrence,
+                )?,
+                (None, None) => {}
+                _ => {
+                    return Err(
+                        "diagnostic invariant failure: app reanalysis projection/occurrence cardinality mismatch"
+                            .to_string(),
+                    );
+                }
+            }
+            if !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.severity == Severity::Error)
+            {
+                insert_capability_projections(
+                    &mut diagnostics,
+                    &mut diagnostic_occurrences,
+                    capability_analysis,
+                )?;
+            }
+        }
+    }
+
+    validate_aq_diagnostic_occurrences(&program, &diagnostics, &diagnostic_occurrences)?;
+    let has_errors = diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error);
+    if has_errors {
+        return Ok(RunCommandExecution {
+            disposition: RunCommandDisposition::ComposedDiagnostics { exit_code: 1 },
+            diagnostics,
+            diagnostic_occurrences,
+            reanalyzable_projections,
+            runtime_diagnostic_occurrences: None,
+            timings,
+            total,
+        });
+    }
+
+    if entry.is_none() && app_analysis.entry.is_some() {
+        if resolve::resolve_has_errors(&program, &diagnostics) {
+            return Ok(RunCommandExecution {
+                disposition: RunCommandDisposition::Text {
+                    text: resolve::resolve_text(&program, &diagnostics),
+                    exit_code: 1,
+                },
+                diagnostics,
+                diagnostic_occurrences,
+                reanalyzable_projections,
+                runtime_diagnostic_occurrences: None,
+                timings,
+                total,
+            });
+        }
+        if type_check::type_check_has_errors(&program, &diagnostics) {
+            return Ok(RunCommandExecution {
+                disposition: RunCommandDisposition::Text {
+                    text: type_check::type_check_text(&program, &diagnostics),
+                    exit_code: 1,
+                },
+                diagnostics,
+                diagnostic_occurrences,
+                reanalyzable_projections,
+                runtime_diagnostic_occurrences: None,
+                timings,
+                total,
+            });
+        }
+        if full_type_check::full_type_check_has_errors(&program, &diagnostics) {
+            if full_type_check::full_type_check_has_only_predicate_errors(&program, &diagnostics)
+                && let Some(app_entry) = app_analysis.entry.as_ref()
+            {
+                let predicate_diagnostics = predicate::analyze_program(&program)
+                    .reachable_diagnostics(&program, app_entry.task, Some(app_entry.app));
+                if !predicate_diagnostics.is_empty() {
+                    return Ok(RunCommandExecution {
+                        disposition: RunCommandDisposition::SelectedDiagnostics {
+                            diagnostics: predicate_diagnostics,
+                            exit_code: 2,
+                        },
+                        diagnostics,
+                        diagnostic_occurrences,
+                        reanalyzable_projections,
+                        runtime_diagnostic_occurrences: None,
+                        timings,
+                        total,
+                    });
+                }
+            }
+            return Ok(RunCommandExecution {
+                disposition: RunCommandDisposition::Text {
+                    text: full_type_check::full_type_check_text(&program, &diagnostics),
+                    exit_code: 1,
+                },
+                diagnostics,
+                diagnostic_occurrences,
+                reanalyzable_projections,
+                runtime_diagnostic_occurrences: None,
+                timings,
+                total,
+            });
+        }
+    }
+
+    let runtime_occurrences =
+        runtime_diagnostic_occurrences(&program, &diagnostics, &diagnostic_occurrences)?;
+    let report = invoke_runner(
+        &program,
+        &runtime_occurrences,
+        entry,
+        raw_args,
+        grant_policy,
+    );
+    Ok(RunCommandExecution {
+        disposition: RunCommandDisposition::Executed(report),
+        diagnostics,
+        diagnostic_occurrences,
+        reanalyzable_projections,
+        runtime_diagnostic_occurrences: Some(runtime_occurrences),
+        timings,
+        total,
+    })
+}
+
+fn render_run_command_execution(execution: RunCommandExecution, show_timings: bool) -> ExitCode {
+    let RunCommandExecution {
+        disposition,
+        diagnostics,
+        diagnostic_occurrences,
+        reanalyzable_projections,
+        runtime_diagnostic_occurrences,
+        timings,
+        total,
+    } = execution;
+    drop((
+        diagnostic_occurrences,
+        reanalyzable_projections,
+        runtime_diagnostic_occurrences,
+    ));
+    let code = match disposition {
+        RunCommandDisposition::ComposedDiagnostics { exit_code } => {
+            print_diagnostics(&diagnostics);
+            ExitCode::from(exit_code)
+        }
+        RunCommandDisposition::SelectedDiagnostics {
+            diagnostics,
+            exit_code,
+        } => {
+            print_diagnostics(&diagnostics);
+            ExitCode::from(exit_code)
+        }
+        RunCommandDisposition::Text { text, exit_code } => {
+            eprint!("{text}");
+            ExitCode::from(exit_code)
+        }
+        RunCommandDisposition::Executed(report) => {
+            print_diagnostics(&report.diagnostics);
+            match report.outcome {
+                run::RunOutcome::Success(output) => {
+                    println!("{output}");
+                    ExitCode::SUCCESS
+                }
+                run::RunOutcome::AppSuccess => ExitCode::SUCCESS,
+                run::RunOutcome::Failure(output) => {
+                    println!("{output}");
+                    ExitCode::from(1)
+                }
+                run::RunOutcome::AppFailure(output) => {
+                    eprintln!("{output}");
+                    ExitCode::from(1)
+                }
+                run::RunOutcome::ContractViolation => ExitCode::from(1),
+                run::RunOutcome::PreflightRejected => ExitCode::from(2),
+                run::RunOutcome::Trap(message) => {
+                    eprintln!("runtime trap: {message}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+    };
+    if show_timings {
+        print_timings(&timings, total);
+    }
+    code
 }
 
 fn runtime_diagnostic_occurrences(
@@ -3159,9 +3315,14 @@ fn print_help() {
 }
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
+    use std::ffi::{OsStr, OsString};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    use crate::file_read::{
+        FileLocalityAdapter, FileLocalityError, FileReadAdapter, FileReadAdapterError,
+    };
+    use crate::native_path::ValidatedNativePath;
 
     #[cfg(windows)]
     use crate::operator_grant::GrantDecision;
@@ -3173,10 +3334,11 @@ mod tests {
         CoreLowerFormat, CorePreviewFormat, CoreVerifyFormat, DiagnosticsFormat, DoctorFormat,
         EvidenceFormat, ExplainFormat, IrContractFormat, IrReadinessFormat, LspFormat,
         MathObligationsFormat, ReanalysisProducer, ReanalyzableProjection, ReanalyzedProjection,
-        ResolveFormat, ResourceReportFormat, RuntimeProfilesFormat, StateModelFormat, SyntaxFormat,
-        TargetFactsFormat, TypeCheckFormat, TypeEnvFormat, VersionFormat,
-        insert_capability_projections, insert_reanalyzed_projection, load_program, parse_cli,
-        remove_loaded_app_projections, remove_reanalyzed_projection,
+        ResolveFormat, ResourceReportFormat, RunCommandDisposition, RuntimeProfilesFormat,
+        StateModelFormat, SyntaxFormat, TargetFactsFormat, TypeCheckFormat, TypeEnvFormat,
+        VersionFormat, execute_run_command, insert_capability_projections,
+        insert_reanalyzed_projection, load_program, parse_cli, remove_loaded_app_projections,
+        remove_reanalyzed_projection,
     };
 
     #[cfg(windows)]
@@ -3223,6 +3385,59 @@ mod tests {
     impl Drop for TempHumInput {
         fn drop(&mut self) {
             let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    #[derive(Default)]
+    struct PostAqCountingOutput {
+        calls: usize,
+        writes: Vec<Vec<u8>>,
+    }
+
+    impl crate::run::OutputAdapter for PostAqCountingOutput {
+        fn write(&mut self, bytes: &[u8]) -> Result<(), crate::run::OutputAdapterError> {
+            self.calls += 1;
+            self.writes.push(bytes.to_vec());
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct PostAqCountingReplay {
+        calls: usize,
+    }
+
+    impl crate::run::ReplayAdapter for PostAqCountingReplay {
+        fn next_tick(&mut self) -> Option<i64> {
+            self.calls += 1;
+            None
+        }
+    }
+
+    #[derive(Default)]
+    struct PostAqCountingFileRead {
+        calls: usize,
+    }
+
+    impl FileReadAdapter for PostAqCountingFileRead {
+        fn read_text(&mut self, _path: &OsStr) -> Result<String, FileReadAdapterError> {
+            self.calls += 1;
+            Err(FileReadAdapterError::IoFailed)
+        }
+    }
+
+    #[derive(Default)]
+    struct PostAqCountingLocality {
+        calls: usize,
+    }
+
+    impl FileLocalityAdapter for PostAqCountingLocality {
+        fn revalidate(
+            &mut self,
+            _path: &ValidatedNativePath,
+        ) -> Result<ValidatedNativePath, FileLocalityError> {
+            self.calls += 1;
+            Err(FileLocalityError::Unavailable)
         }
     }
 
@@ -3359,6 +3574,235 @@ mod tests {
         )
         .expect("real app replacement insertion");
         assert_eq!(loaded.diagnostics, vec![replacement.diagnostic().clone()]);
+    }
+
+    #[test]
+    fn post_aq_real_command_app_reanalysis_composes_exactly() {
+        let invalid_path = PathBuf::from("fixtures/app_entry/session_x_missing_start_fail.hum");
+        let loaded = load_program(std::slice::from_ref(&invalid_path))
+            .expect("load checked-in missing-start app");
+        let old = loaded
+            .reanalyzable_projections
+            .values()
+            .next()
+            .expect("real per-file app authority")
+            .authoritative_old
+            .clone();
+        let recomputed = crate::app_entry::analyze(&loaded.program)
+            .diagnostic_occurrence
+            .expect("full-program app replacement");
+        assert_eq!(old, recomputed);
+        let mut runner_calls = 0;
+        let execution = execute_run_command(
+            loaded,
+            None,
+            &[],
+            &crate::operator_grant::OperatorGrantPolicy::default(),
+            |_, _, _, _, _| {
+                runner_calls += 1;
+                panic!("invalid app must block before the runner")
+            },
+        )
+        .expect("real command old-to-new composition");
+        assert_eq!(runner_calls, 0);
+        assert!(matches!(
+            &execution.disposition,
+            RunCommandDisposition::ComposedDiagnostics { exit_code: 1 }
+        ));
+        assert_eq!(execution.diagnostics, vec![old.diagnostic().clone()]);
+        assert!(execution.reanalyzable_projections.is_empty());
+        assert!(execution.runtime_diagnostic_occurrences.is_none());
+        execution
+            .diagnostic_occurrences
+            .validate_exact(&old)
+            .expect("recomputed app occurrence remains exact");
+        let app_occurrences = execution
+            .diagnostic_occurrences
+            .normalized_occurrences()
+            .into_iter()
+            .filter(|occurrence| occurrence.owning_stage() == "app_entry")
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(app_occurrences, vec![old]);
+
+        let valid_path = PathBuf::from("examples/probes/pure_app_entry.hum");
+        let loaded = load_program(&[invalid_path, valid_path])
+            .expect("load checked-in old-to-absence app pair");
+        let old = loaded
+            .reanalyzable_projections
+            .values()
+            .next()
+            .expect("real stale per-file app authority")
+            .authoritative_old
+            .clone();
+        let replacement = crate::app_entry::analyze(&loaded.program)
+            .diagnostic_occurrence
+            .expect("real full-program multiple-app replacement");
+        assert_ne!(old.id(), replacement.id());
+        let mut runner_calls = 0;
+        let execution = execute_run_command(
+            loaded,
+            None,
+            &[],
+            &crate::operator_grant::OperatorGrantPolicy::default(),
+            |_, _, _, _, _| {
+                runner_calls += 1;
+                panic!("multiple apps must block before the runner")
+            },
+        )
+        .expect("real command old-to-absence composition");
+        assert_eq!(runner_calls, 0);
+        assert!(matches!(
+            &execution.disposition,
+            RunCommandDisposition::ComposedDiagnostics { exit_code: 1 }
+        ));
+        assert_eq!(
+            execution.diagnostics,
+            vec![replacement.diagnostic().clone()]
+        );
+        assert!(execution.reanalyzable_projections.is_empty());
+        assert!(execution.runtime_diagnostic_occurrences.is_none());
+        assert!(
+            execution
+                .diagnostic_occurrences
+                .validate_exact(&old)
+                .is_err(),
+            "the old per-file authority must be absent"
+        );
+        execution
+            .diagnostic_occurrences
+            .validate_exact(&replacement)
+            .expect("the full-program replacement must be authoritative");
+        let app_occurrences = execution
+            .diagnostic_occurrences
+            .normalized_occurrences()
+            .into_iter()
+            .filter(|occurrence| occurrence.owning_stage() == "app_entry")
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(app_occurrences, vec![replacement]);
+    }
+
+    #[test]
+    fn post_aq_runtime_uses_main_composed_occurrence_authority() {
+        let fixture = PathBuf::from(
+            "fixtures/diagnostics/session_aq_reachable_second_ownership_occurrence_fail.hum",
+        );
+        let loaded = load_program(std::slice::from_ref(&fixture))
+            .expect("load checked-in exact ownership runtime fixture");
+        assert!(
+            loaded
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity != crate::diagnostic::Severity::Error)
+        );
+        assert_eq!(
+            loaded
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code.as_str())
+                .collect::<Vec<_>>(),
+            ["H0105", "H0107", "H0109", "H0301"]
+        );
+        let expected_ownership =
+            crate::ownership_check::diagnostic_occurrence_set(&loaded.program, &loaded.diagnostics)
+                .normalized_occurrences()
+                .into_iter()
+                .filter(|occurrence| {
+                    occurrence.owning_stage() == "ownership_check"
+                        && occurrence.code == crate::diagnostic::DiagnosticCode::USE_AFTER_MOVE
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+        assert_eq!(expected_ownership.len(), 2);
+        assert_ne!(expected_ownership[0].id(), expected_ownership[1].id());
+        assert_eq!(
+            expected_ownership
+                .iter()
+                .map(|occurrence| occurrence.diagnostic().span.as_ref().map(|span| span.line))
+                .collect::<Vec<_>>(),
+            [Some(26), Some(40)]
+        );
+
+        let mut grant_policy = crate::operator_grant::OperatorGrantPolicy::default();
+        grant_policy
+            .allow("stdout.write")
+            .expect("allow fixture output authority");
+        let mut output = PostAqCountingOutput::default();
+        let mut replay = PostAqCountingReplay::default();
+        let mut file_locality = PostAqCountingLocality::default();
+        let mut file = PostAqCountingFileRead::default();
+        let mut passed_authority = None;
+        let execution = execute_run_command(
+            loaded,
+            None,
+            &[],
+            &grant_policy,
+            |program, occurrences, entry, raw_args, grant_policy| {
+                passed_authority = Some(occurrences.clone());
+                crate::run::run_program_with_occurrences_and_test_adapters(
+                    program,
+                    occurrences,
+                    entry,
+                    raw_args,
+                    grant_policy,
+                    &mut output,
+                    &mut replay,
+                    &mut file_locality,
+                    &mut file,
+                )
+            },
+        )
+        .expect("real command runtime authority composition");
+
+        let runtime_authority = execution
+            .runtime_diagnostic_occurrences
+            .as_ref()
+            .expect("production-composed runtime authority");
+        assert_eq!(passed_authority.as_ref(), Some(runtime_authority));
+        assert_eq!(
+            runtime_authority.occurrences().count(),
+            execution.diagnostic_occurrences.occurrences().count() + expected_ownership.len()
+        );
+        for occurrence in execution.diagnostic_occurrences.occurrences() {
+            runtime_authority
+                .validate_exact(occurrence)
+                .expect("every load/composition occurrence reaches runtime authority exactly");
+        }
+        for occurrence in &expected_ownership {
+            runtime_authority
+                .validate_exact(occurrence)
+                .expect("every canonical ownership occurrence reaches runtime authority exactly");
+        }
+        assert_eq!(
+            runtime_authority
+                .normalized_occurrences()
+                .into_iter()
+                .filter(|occurrence| occurrence.owning_stage() == "ownership_check")
+                .cloned()
+                .collect::<Vec<_>>(),
+            expected_ownership
+        );
+        assert_eq!(execution.diagnostics.len(), 4);
+        assert!(execution.reanalyzable_projections.is_empty());
+        assert_eq!(output.calls, 0);
+        assert!(output.writes.is_empty());
+        assert_eq!(replay.calls, 0);
+        assert_eq!(file.calls, 0);
+        assert_eq!(file_locality.calls, 0);
+        let report = match &execution.disposition {
+            RunCommandDisposition::Executed(report) => report,
+            _ => panic!("runtime fixture must reach the production runner"),
+        };
+        assert_eq!(
+            report.outcome,
+            crate::run::RunOutcome::Trap("H0801 use after move".to_string())
+        );
+        assert_eq!(
+            report.diagnostics,
+            vec![expected_ownership[1].diagnostic().clone()]
+        );
+        assert!(report.authority_events.is_empty());
     }
 
     #[test]

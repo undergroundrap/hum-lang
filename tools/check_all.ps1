@@ -361,6 +361,8 @@ try {
   foreach ($EvidenceTest in @(
     'diagnostic::tests::session_aq_collector_order_duplicate_owner_and_replacement_matrix',
     'diagnostic_catalog::tests::session_aq_every_code_cause_owner_stage_and_precedence_has_validation',
+    'tests::post_aq_real_command_app_reanalysis_composes_exactly',
+    'tests::post_aq_runtime_uses_main_composed_occurrence_authority',
     'tests::session_aq_real_load_app_old_to_new_and_old_to_absence',
     'tests::session_aq_real_load_app_removal_mutation_matrix',
     'tests::session_aq_real_app_positions_prior_and_insertion_order_fail_closed',
