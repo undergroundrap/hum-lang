@@ -137,6 +137,47 @@ Fix the spec or the envelope, never the rigor. Re-issue the corrected
 criteria to both the implementer and the reviewer, so the reviewer measures
 against the corrected bar rather than re-rejecting the old ghost.
 
+### Amendment and evidence discipline (distilled 2026-07-17 from Work Order 10 Increment 10B)
+
+Four rules that sharpen the loop diagnosis above, each proven in 10B:
+
+- Demand the complete inventory before amending, never just the file the
+  rejection named. When an envelope bug or an allocation ripple surfaces,
+  require the implementer to enumerate the *complete* set of affected files
+  or surfaces and authorize all of them in one amendment. Twice in 10B a
+  reject named one file (`typed_failure.rs`; three catalog literals) and the
+  full inventory found five more, then three more. A second amendment for
+  the next surprise file is the same-shaped loop — get the whole set once.
+- Prove consumption by corruption. To prove a consumer actually reads an
+  authoritative fact rather than re-deriving it, require that corrupting the
+  fact changes the consumer's output. A stage that renders-and-reparses, or
+  otherwise reconstructs from a projection, is unaffected by corrupting the
+  source of truth — so this gate mechanically distinguishes real consumption
+  from a shim, where a behavioral or public-projection check cannot. This is
+  general: it applies anywhere you must prove "X consumes Y," not just to
+  expression trees.
+- Over-scoping manufactures fake work. An increment too large to implement
+  honestly in one review-sized pass does not merely risk a bad review — it
+  pressures the implementer to shim the hard parts to reach green (the dodged
+  hard technique, at scale). A twice-rejected increment whose diff dwarfs the
+  "review-sized in one sitting" bar is a re-scoping problem, not an
+  implementer problem: split it per consumer, each with the corruption gate,
+  before authorizing another cycle.
+- Verify that selectors actually select. A test selector, filter, or
+  classifier can silently match zero cases while every check stays green — a
+  hole in the safety net that reports safety. Periodically prove the harness
+  is exercising what it claims. When a dead selector is found, establish
+  whether any *published* commit passed with it dead, and what it was meant
+  to cover.
+
+Identity and reproducibility corollary: an identity that gates an
+irreversible action (an archive, a disposal, a promotion) must be
+content-addressed and demonstrated reproducible across shells and platforms,
+never a shell-piped text hash. Piping `git diff` through a shell varies by
+encoding and line-ending conversion; Git-computed object identities
+(`git write-tree`, per-file blob hashes, the archive commit SHA) do not.
+Demand the identity be reproduced in both shells, not asserted.
+
 ### Assuming the implementer role
 
 Cold-start read order: same as above. Then: execute exactly the next
