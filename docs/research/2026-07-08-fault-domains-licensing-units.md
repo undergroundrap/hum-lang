@@ -88,6 +88,11 @@ stewarded toolchain, CLA-vs-DCO decided before the first external
 contributor. The current AGPL-3.0-plus-attribution license is a known
 adoption blocker for the stated target domains.
 
+[Editorial note, added 2026-07-17: this dated snapshot predates the relicense.
+The project relicensed to Apache-2.0 on 2026-07-12 per decision 0019; the
+AGPL-3.0 reference above is retained as the historical state at import time,
+not the current license.]
+
 ## 3. Units Of Measure
 
 Findings accepted:

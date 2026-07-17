@@ -43,16 +43,18 @@ create a concrete safety, integrity, availability, privacy, or supply-chain risk
 Do not post exploit details, secrets, token values, or weaponized proofs in a
 public issue.
 
-Preferred reporting path once the repository is hosted:
+Preferred reporting path:
 
-1. Use the host platform private vulnerability reporting flow when available.
-2. If private reporting is not available, open a minimal public issue asking for
+1. Use GitHub's private vulnerability reporting: open the repository's Security
+   tab and choose "Report a vulnerability." This opens a private advisory
+   visible only to the maintainer.
+2. If private reporting is unavailable, open a minimal public issue asking for
    private security coordination. Do not include technical exploit details.
 3. Include the affected commit, platform, command, expected behavior, observed
-   behavior, and a minimal reproduction once a private channel exists.
+   behavior, and a minimal reproduction inside the private channel.
 
-Until an explicit public security contact exists, do not add personal emails,
-private chat handles, secrets, or machine-specific details to this repo.
+Do not add personal emails, private chat handles, secrets, or machine-specific
+details to this repository.
 
 ## Response Expectations
 
