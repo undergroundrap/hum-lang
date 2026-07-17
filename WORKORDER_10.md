@@ -41,11 +41,25 @@ deletions confirm that the former one-pass 10B unit is not review-sized.
 
 The repeated-rejection rule terminates that correction cycle; no third attempt
 against the monolithic scope is authorized. The bounded re-scope amendment
-below is proposed, uncommitted, and requires fresh independent pre-issuance
-review. It preserves the canonical parser-owned tree architecture, splits 10B
-by real consumer dependencies, and separates the dead exact-test-selector
-repair. No dirty-tree disposition, 10B subincrement, 10C, Session AR, Hum IR,
-standard-library, backend, or later work is authorized.
+below received final independent `ACCEPT` with no P0, P1, or P2 findings and
+was BDFL-accepted, committed, and published as
+`1dcccf6e1285ceee6d78ac7166bb166bed3126a1`. Workflow `29556009214`, attempt
+1, succeeded for that exact commit. Ubuntu job `87808081590` on
+`ubuntu-latest` succeeded in 10m 58s, including 10m 25s in
+`Run Hum preflight`; Windows job `87808081602` on `windows-latest` succeeded
+in 18m 08s, including 17m 24s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`, succeeded in Cargo caching and
+Rust toolchain preparation, completed the full Hum preflight, skipped
+`Run status-only evidence`, and concluded success. The re-scope amendment is
+durably published.
+
+The preserved rejected 10B tree remains unchanged, uncommitted, and
+unaccepted. Its ordinary green checks are implementation evidence only. 10B.0
+is the next planning target but remains unauthorized. Disposition or deletion
+of the preserved tree requires separate explicit BDFL authority, and 10B.0
+requires a separate BDFL go signal after this status record is accepted and
+durably published. No 10B.1, 10C, Session AR, Hum IR, standard-library,
+backend, or later work is authorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -2384,20 +2398,39 @@ untracked foundation fixtures, with an empty index and tracked-diff fingerprint
 deletions, green ordinary checks, and reproduced positive output are evidence
 about the rejected design attempt, not acceptance.
 
-The 2026-07-16 repeated-rejection re-scope amendment above is the only current
-planning surface. It preserves the canonical parser-owned tree, records the
+The 2026-07-16 repeated-rejection re-scope amendment above received final
+independent `ACCEPT` with no P0, P1, or P2 findings and was BDFL-accepted,
+committed, and published as
+`1dcccf6e1285ceee6d78ac7166bb166bed3126a1`, with first parent
+`5691e17b1a7d01b036007cdce39108471df94641`. That commit changes only
+`WORKORDER_10.md`, with 517 insertions and 41 deletions.
+
+Workflow `29556009214`, attempt 1, succeeded for that exact amendment head.
+Ubuntu job `87808081590` on `ubuntu-latest` succeeded in 10m 58s, including
+10m 25s in `Run Hum preflight`; Windows job `87808081602` on
+`windows-latest` succeeded in 18m 08s, including 17m 24s in
+`Run Hum preflight`. Both jobs selected `mode=full` with
+`reason=no_status_transition`, succeeded in Cargo caching and Rust toolchain
+preparation, completed the full Hum preflight, skipped
+`Run status-only evidence`, and concluded success. `HEAD`, local
+`origin/main`, and live remote `main` name that exact commit. The re-scope
+amendment is durably published.
+
+The amendment preserves the canonical parser-owned tree, records the
 representation gaps and per-consumer migration graph, chooses clean-baseline
 reimplementation with selective design salvage, requires the un-shimmable
 source/behavior/tree-corruption gate, makes H0010 recursive, schedules final
 duplicate-authority retirement, and separates the dead exact-selector repair
 as urgent 10B.0 harness work.
 
-That amendment is proposed, uncommitted, and ineligible for routine status-only
-closure. One fresh independent pre-issuance review is required. Even an
-`ACCEPT` authorizes no commit, publication, dirty-tree disposition, or
-subincrement. Those actions require separate BDFL authority in the order stated
-by the amendment. Every 10B.0-10B.12 unit receives its own go signal and stop;
-none may begin implicitly.
+The rejected monolithic 10B worktree remains preserved, unchanged,
+uncommitted, and unaccepted. Its ordinary green checks remain implementation
+evidence only. 10B.0 is the next planning target but remains unauthorized.
+Disposition or deletion of the preserved tree requires separate explicit BDFL
+authority. 10B.0 requires a separate BDFL go signal after this status record is
+accepted and durably published. Every 10B.0-10B.12 unit retains its own go
+signal and stop; none may begin implicitly. 10B.1, 10C, Session AR, and every
+later item remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
