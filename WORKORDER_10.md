@@ -73,8 +73,32 @@ in 18m 42s, including 17m 52s in `Run Hum preflight`. Both selected
 `mode=full` with `reason=no_status_transition`, succeeded in Cargo caching and
 Rust toolchain preparation, completed the full Hum preflight, skipped
 `Run status-only evidence`, and concluded success. The amendment is durably
-published. Archive execution remains unauthorized pending publication of this
-status record and a separate explicit BDFL execution signal. 10B.0 and every
+published. Its publication status record was independently accepted,
+BDFL-accepted, committed, and published as
+`74828ae5f26b0d2eea069452b0a0c9080cd5581a`.
+
+Under the subsequent explicit BDFL execution signal, the rejected tree was
+archived from `$ArchiveBase`
+`74828ae5f26b0d2eea069452b0a0c9080cd5581a` as the single commit
+`3fdf236b0076534766ef89b592b3358f67a6315d` on the write-once local and live
+remote branch
+`archive/workorder-10b-rejected-monolith-2026-07-17`. The archive commit's
+parent is exactly `$ArchiveBase`; its exact 37-path inventory is recorded in
+the Current authorization gate below. Its 31 non-fixture paths reproduce Git
+snapshot tree OID `0fac92602f632dbc145d641d73e74bd9ac15c545`, and all six
+fixture blobs reproduce their frozen SHA-256 hashes. The recorded retrieval
+command recovered
+`fixtures/foundation/pre_ar_condition_chained_comparison_fail.hum` with exact
+SHA-256 `c49bc27b53c2fbbfa8012525c25e756eb8da4871fe83ea2b6caec94466bc9d41`
+before and after clearing. `git switch main` alone restored clean `main` at
+`$ArchiveBase`; the index and untracked set were empty, the live archive ref
+remained exact, and no workflow ran for the archive commit. No rejected byte
+was merged into `main`.
+
+Archive execution is complete but this archival status record remains
+unpublished. 10B.0 remains unauthorized until this record is independently
+accepted, committed, published, terminal-green in required Ubuntu and Windows
+CI, and followed by a separate explicit BDFL go signal. 10B.1, 10C, and every
 later item remain unauthorized.
 
 Owner: BDFL (Ocean).
@@ -2761,11 +2785,95 @@ in 18m 42s, including 17m 52s in `Run Hum preflight`. Both jobs selected
 `mode=full` with `reason=no_status_transition`, succeeded in Cargo caching and
 Rust toolchain preparation, completed the full Hum preflight, skipped
 `Run status-only evidence`, and concluded success. The amendment is durably
-published. The preserved rejected tree remains unchanged, uncommitted, and
-unaccepted. Archive execution remains unauthorized pending publication of
-this status record and a separate explicit BDFL execution signal. No archive
-ref, archive commit, push, branch switch, cleanup, fixture removal, retrieval,
-10B.0 implementation, 10B.1, 10C, Session AR, or later work is authorized.
+published. Its publication status record was independently accepted,
+BDFL-accepted, committed, and published as
+`74828ae5f26b0d2eea069452b0a0c9080cd5581a`.
+
+The separately authorized rejected-tree archival is complete. Its exact
+identities are:
+
+- `$ArchiveBase`:
+  `74828ae5f26b0d2eea069452b0a0c9080cd5581a`;
+- `$ArchiveCommit`:
+  `3fdf236b0076534766ef89b592b3358f67a6315d`;
+- local and live remote write-once branch:
+  `archive/workorder-10b-rejected-monolith-2026-07-17`;
+- `$ArchiveCommit^ == $ArchiveBase`; and
+- exact 31-path non-fixture Git snapshot tree OID:
+  `0fac92602f632dbc145d641d73e74bd9ac15c545`.
+
+The archive commit contains exactly these 37 paths and no other path:
+
+- `docs/DIAGNOSTICS.md`;
+- `docs/FORMAL_CORE.md`;
+- `docs/HUM_CORE_LOWER_SCHEMA.md`;
+- `docs/HUM_CORE_PREVIEW_SCHEMA.md`;
+- `docs/HUM_CORE_VERIFY_SCHEMA.md`;
+- `docs/LANGUAGE_REFERENCE.md`;
+- `src/ast.rs`;
+- `src/check.rs`;
+- `src/core_body.rs`;
+- `src/core_expr.rs`;
+- `src/core_lower.rs`;
+- `src/core_preview.rs`;
+- `src/core_verify.rs`;
+- `src/diagnostic_catalog.rs`;
+- `src/diagnostics.rs`;
+- `src/effect_check.rs`;
+- `src/field_place.rs`;
+- `src/full_type_check.rs`;
+- `src/main.rs`;
+- `src/ownership_check.rs`;
+- `src/parser.rs`;
+- `src/path_boundary.rs`;
+- `src/predicate.rs`;
+- `src/resolve.rs`;
+- `src/resource_check.rs`;
+- `src/return_dependency.rs`;
+- `src/run.rs`;
+- `src/type_check.rs`;
+- `src/typed_failure.rs`;
+- `src/writable_field_alias.rs`;
+- `tools/check_all.ps1`;
+- `fixtures/foundation/pre_ar_body_contract_expression_agreement_pass.hum`;
+- `fixtures/foundation/pre_ar_comparison_conjunction_pass.hum`;
+- `fixtures/foundation/pre_ar_condition_chained_comparison_fail.hum`;
+- `fixtures/foundation/pre_ar_left_associative_arithmetic_pass.hum`;
+- `fixtures/foundation/pre_ar_predicate_chained_comparison_fail.hum`; and
+- `fixtures/foundation/pre_ar_return_chained_comparison_fail.hum`.
+
+The six fixture blobs in that inventory reproduce these exact SHA-256 hashes:
+
+- `pre_ar_body_contract_expression_agreement_pass.hum`:
+  `c40056a83eff8580e757ea6955892b98ce57d4325707a978f0df0603f4329381`;
+- `pre_ar_comparison_conjunction_pass.hum`:
+  `3081b3ba84045cb64bb8c049fde683cbfc64c91dae956e9a71d012b193951433`;
+- `pre_ar_condition_chained_comparison_fail.hum`:
+  `c49bc27b53c2fbbfa8012525c25e756eb8da4871fe83ea2b6caec94466bc9d41`;
+- `pre_ar_left_associative_arithmetic_pass.hum`:
+  `22b2e9c09c9a5ed8f3984ccc08c318ff56922c5ebd89369092bf375f398ff3e9`;
+- `pre_ar_predicate_chained_comparison_fail.hum`:
+  `7376de1f01f018943174876886ea37da02e5a4458b032d24214f5ff4116e8d30`;
+  and
+- `pre_ar_return_chained_comparison_fail.hum`:
+  `6096390130a62ddc5a2128b936b188d05a0a63aa9036cad4ffd84c7b16207fb8`.
+
+Before clearing, and again from clean `main`, the recorded
+`git show "${ArchiveCommit}:<path>"` retrieval path recovered
+`fixtures/foundation/pre_ar_condition_chained_comparison_fail.hum` with the
+exact frozen hash above. The non-force archive-ref push succeeded, the live
+remote ref equals `$ArchiveCommit`, and no workflow ran for the archive commit.
+`git switch main` was the sole clearing operation; at execution completion,
+`HEAD`, local `origin/main`, and live remote `main` all equaled `$ArchiveBase`,
+and the worktree, index, and untracked set were empty. No rejected archive byte
+was merged into `main`.
+
+The BDFL's later local process-document commit is outside the archive and does
+not change any archive identity or retrieval fact. This archival status record
+is not yet published. 10B.0 remains unauthorized until this record is
+independently accepted, committed, published, terminal-green in required
+Ubuntu and Windows CI, and followed by a separate explicit BDFL go signal.
+10B.1, 10C, Session AR, and every later item remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
