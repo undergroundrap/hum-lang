@@ -35,9 +35,11 @@ Increment 10B's monolithic implementation and bounded correction were each
 independently `REJECT`ed with the same architectural finding shape. The current
 correction tree remains preserved, uncommitted, and unaccepted as exactly 31
 modified tracked implementation, documentation, and tool files plus six
-untracked foundation fixtures, with an empty index and tracked-diff fingerprint
-`539d384ad5b0220095e1845f45a5d6ea6e050394`. Its 5,465 insertions and 4,143
-deletions confirm that the former one-pass 10B unit is not review-sized.
+untracked foundation fixtures, with an empty index. Its reproducible 31-path
+Git snapshot tree OID is `0fac92602f632dbc145d641d73e74bd9ac15c545`.
+The former shell-piped diff value remains historical only. The tree's 5,465
+insertions and 4,143 deletions confirm that the former one-pass 10B unit is not
+review-sized.
 
 The repeated-rejection rule terminates that correction cycle; no third attempt
 against the monolithic scope is authorized. The bounded re-scope amendment
@@ -60,6 +62,12 @@ of the preserved tree requires separate explicit BDFL authority, and 10B.0
 requires a separate BDFL go signal after this status record is accepted and
 durably published. No 10B.1, 10C, Session AR, Hum IR, standard-library,
 backend, or later work is authorized.
+
+The BDFL has authorized only the bounded rejected-tree archival/disposal
+planning amendment below. It is proposed and uncommitted. It authorizes no
+archive ref, staging, commit, push, branch switch, cleanup, fixture removal, or
+10B.0 work. Its frozen bytes require one fresh independent review before the
+BDFL may authorize execution.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -1801,6 +1809,308 @@ subincrement, or later work. BDFL acceptance of the exact bytes, a
 required CI, a durable status record, and an explicit disposition/go signal for
 10B.0 remain required. Increment 10C and every later item remain unauthorized.
 
+## Increment 10B rejected-tree archival and clean-baseline amendment (2026-07-17; proposed)
+
+### Authority, evidence, and non-execution boundary
+
+The BDFL authorized only this architecture/documentation planning pass. The
+rejected monolithic 10B tree remains the selective-salvage source required by
+the accepted re-scope, while every 10B.0-10B.12 unit must start from a clean
+accepted baseline. Clearing the tree without durable recovery would destroy
+evidence on which the re-scope depends; continuing from it would violate the
+clean-baseline rule. The resolution is archive first, verify the archive, then
+return to clean `main` without merging any rejected byte.
+
+The planning baseline is exact:
+
+- `HEAD == origin/main ==
+  ce3a6b640f4623b42185afaf7ddf183a926842ff`;
+- the index is empty and `WORKORDER_10.md` is clean before this amendment;
+- 31 tracked implementation, documentation, and tool paths are modified;
+- their exact Git snapshot tree OID is
+  `0fac92602f632dbc145d641d73e74bd9ac15c545`; and
+- the six untracked fixture paths and SHA-256 hashes remain exactly those
+  frozen at lines 1387-1404 above.
+
+The earlier
+`539d384ad5b0220095e1845f45a5d6ea6e050394` value remains historical evidence
+of the shell-piped binary-diff command used during the re-scope. Independent
+review proved that byte stream changes across PowerShell, Git Bash, encoding,
+and line-ending configuration, so it is superseded as an active preservation
+or archive precondition. It must not accept or reject disposal execution.
+
+The replacement identity is a Git-computed tree containing only the exact 31
+rejected tracked paths. It is independent of the rest of `HEAD`, including
+later `WORKORDER_10.md` planning/status commits, and excludes all six untracked
+fixtures, whose separately frozen SHA-256 hashes remain authoritative. The
+identity is constructed by creating an empty temporary index through
+`GIT_INDEX_FILE`, adding the exact 31 paths, and asking `git write-tree` for the
+content-addressed tree OID. The real index, working files, branch, and refs are
+not used or changed; the temporary index is removed after computation.
+
+The author demonstrated the primitive independently in Windows PowerShell and
+Git Bash. In both shells the path count was exactly 31 and `git write-tree`
+returned exactly:
+
+`0fac92602f632dbc145d641d73e74bd9ac15c545`.
+
+The PowerShell proof used:
+
+```powershell
+$SnapshotPaths = @(
+  git diff --name-only -- . ':(exclude)WORKORDER_10.md'
+)
+if ($SnapshotPaths.Count -ne 31) { throw 'snapshot path count changed' }
+$SnapshotIndex = Join-Path $env:TEMP `
+  ("hum-10b-subtree-" + [guid]::NewGuid().ToString('N') + ".index")
+$PriorIndex = $env:GIT_INDEX_FILE
+try {
+  $env:GIT_INDEX_FILE = $SnapshotIndex
+  git read-tree --empty
+  git add -- $SnapshotPaths
+  if (@(git ls-files).Count -ne 31) { throw 'snapshot index changed' }
+  $SnapshotTree = (git write-tree).Trim()
+} finally {
+  if ($null -eq $PriorIndex) {
+    Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue
+  } else {
+    $env:GIT_INDEX_FILE = $PriorIndex
+  }
+  if (Test-Path -LiteralPath $SnapshotIndex) {
+    Remove-Item -LiteralPath $SnapshotIndex -Force
+  }
+}
+if ($SnapshotTree -cne '0fac92602f632dbc145d641d73e74bd9ac15c545') {
+  throw 'snapshot tree identity changed'
+}
+```
+
+The Git Bash proof used the same Git operations:
+
+```bash
+set -euo pipefail
+snapshot_index="/tmp/hum-10b-subtree-${BASHPID}.index"
+cleanup() { /usr/bin/rm.exe -f -- "$snapshot_index"; }
+trap cleanup EXIT
+mapfile -t snapshot_paths < <(
+  git diff --name-only -- . ':(exclude)WORKORDER_10.md'
+)
+[ "${#snapshot_paths[@]}" = 31 ]
+export GIT_INDEX_FILE="$snapshot_index"
+git read-tree --empty
+git add -- "${snapshot_paths[@]}"
+mapfile -t captured_paths < <(git ls-files)
+[ "${#captured_paths[@]}" = 31 ]
+snapshot_tree="$(git write-tree)"
+[ "$snapshot_tree" = 0fac92602f632dbc145d641d73e74bd9ac15c545 ]
+```
+
+Both proofs removed their temporary index and a final real-index check remained
+empty. A shell-piped patch hash is no longer part of this plan.
+
+This amendment does not execute or authorize archive creation, staging,
+committing, pushing, switching branches, restoring files, deleting files, or
+starting 10B.0. Its acceptance authorizes only a scoped documentation commit.
+Archive execution requires separate BDFL authority after these exact bytes are
+independently accepted, committed, published, terminal-green in required CI,
+and durably recorded.
+
+### One durable archive, not two drifting artifacts
+
+The sole authoritative recovery artifact will be the write-once remote branch
+
+`origin/archive/workorder-10b-rejected-monolith-2026-07-17`.
+
+Its first and only commit will have summary
+
+`chore(archive): preserve rejected increment 10B monolith`
+
+and will contain exactly the 31 frozen tracked changes plus the six frozen
+fixture blobs. A separate patch file, bundle, stash, tag, or duplicate archive
+is forbidden: the archive commit is already content-addressed, can reproduce a
+patch with `git diff`, and avoids two purported authorities drifting apart.
+The branch is write-once. It may not be force-updated, appended to, merged,
+rebased, deleted, or repurposed during Work Order 10. Later deletion requires a
+separate BDFL ruling after Work Order 10 closes.
+
+The archive commit's parent is the then-current published `main` head after
+this disposal amendment and its publication status are durably recorded. That
+parent must descend from the planning baseline above and may differ from it
+only through independently accepted and published `WORKORDER_10.md` planning
+or status commits. If any implementation, fixture, tool, workflow, schema, or
+other path changed on `main`, archive execution stops for fresh review.
+
+Before creating the branch, the executor must re-prove all of the following:
+
+- clean synchronized `main` as the archive parent;
+- `WORKORDER_10.md` clean and the index empty;
+- exactly the same 31 tracked paths, six untracked fixtures, tracked-diff
+  snapshot tree OID, and fixture hashes;
+- no additional modified, staged, untracked, ignored-in-scope, replacement,
+  mode, symlink, submodule, or unrelated path; and
+- absence of both the local and remote archive branch.
+
+Any mismatch stops without archive, cleanup, or repair.
+
+### Exact archive and clearing sequence
+
+After separate BDFL archive-and-push authority, the executor records the exact
+published `main` head as `$ArchiveBase`, creates the archive branch from that
+head without changing the dirty files, stages only the frozen 37 paths, and
+commits once:
+
+```powershell
+$ArchiveBranch = 'archive/workorder-10b-rejected-monolith-2026-07-17'
+$ArchiveBase = (git rev-parse main).Trim()
+git switch -c $ArchiveBranch
+git add -u --
+git add -- `
+  fixtures/foundation/pre_ar_body_contract_expression_agreement_pass.hum `
+  fixtures/foundation/pre_ar_comparison_conjunction_pass.hum `
+  fixtures/foundation/pre_ar_condition_chained_comparison_fail.hum `
+  fixtures/foundation/pre_ar_left_associative_arithmetic_pass.hum `
+  fixtures/foundation/pre_ar_predicate_chained_comparison_fail.hum `
+  fixtures/foundation/pre_ar_return_chained_comparison_fail.hum
+git commit -m "chore(archive): preserve rejected increment 10B monolith"
+$ArchiveCommit = (git rev-parse HEAD).Trim()
+```
+
+`git add -u --` is permitted only after the exact 31-path precheck; it is not a
+general authorization to stage whatever happens to be dirty. Before commit,
+the staged set must be exactly those 31 paths plus the six named fixtures, with
+no unstaged or untracked remainder. After commit, the executor must prove:
+
+- `$ArchiveCommit^` equals `$ArchiveBase`;
+- the commit changes exactly 37 paths and no path outside the frozen set;
+- the exact 31 non-fixture paths from `$ArchiveBase..$ArchiveCommit`, loaded
+  from the clean archive-branch worktree into the same empty temporary-index
+  procedure, reproduce Git snapshot tree OID
+  `0fac92602f632dbc145d641d73e74bd9ac15c545`;
+- every archived fixture blob reproduces its frozen SHA-256 hash; and
+- the archive branch worktree and index are clean.
+
+Only after those checks may the separately authorized non-force push publish
+the exact commit to
+`refs/heads/archive/workorder-10b-rejected-monolith-2026-07-17`. The executor
+must verify the live remote ref equals `$ArchiveCommit`. Any push failure,
+different remote SHA, unexpected workflow, or preservation mismatch stops
+before clearing `main`.
+
+The exact clearing operation is then:
+
+```powershell
+git switch main
+```
+
+No `reset`, `clean`, stash, checkout-path overwrite, wildcard deletion, or
+manual file removal is authorized. Because the archive commit and `main` share
+`$ArchiveBase`, switching back to `main` reverts exactly the 31 rejected tracked
+paths and removes exactly the six fixture paths that exist only on the archive
+branch. `WORKORDER_10.md` is shared at `$ArchiveBase` and is not part of the
+archive commit or clearing diff. The executor must then prove:
+
+- `HEAD == origin/main ==` live remote `main == $ArchiveBase`;
+- the worktree, index, and untracked set are empty;
+- the live archive ref still equals `$ArchiveCommit`; and
+- no implementation, fixture, status, or unrelated path remains.
+
+If `git switch main` cannot perform exactly that transition, the executor stops
+without substituting another cleanup command.
+
+### Fixture-by-fixture reuse ruling
+
+The six fixture files are source-program inputs, not accepted test wiring. None
+contains a test-only helper, expected-answer carrier, rendered-tree projection,
+private Rust identity, raw scanner, or shim-specific representation. Their
+source bytes are directly reusable as follows:
+
+| Fixture | Ruling and owning increment | Why the source is representation-neutral |
+| --- | --- | --- |
+| `pre_ar_comparison_conjunction_pass.hum` | reuse exact blob in 10B.1 | It expresses two independent comparisons joined by `and` plus comparison-looking Text; it distinguishes legal syntax without naming a parser implementation. |
+| `pre_ar_condition_chained_comparison_fail.hum` | reuse exact blob in 10B.1 | It places one forbidden chain in a real `if` condition; H0010 must own it before resolver/runtime regardless of downstream representation. |
+| `pre_ar_predicate_chained_comparison_fail.hum` | reuse exact blob in 10B.1 | It places the same parser-owned misuse in `ensures`; the program does not depend on Predicate v2's rejected parallel AST because parser rejection precedes that consumer. |
+| `pre_ar_return_chained_comparison_fail.hum` | reuse exact blob in 10B.1 | It places the same misuse in a return expression and contains no implementation-specific evidence. |
+| `pre_ar_left_associative_arithmetic_pass.hum` | reuse exact blob in 10B.10 | Its four tasks state observable values 12, 10, 32, and 16 while their `ensures` compare against literals; it tests body evaluation without claiming contract-expression convergence. |
+| `pre_ar_body_contract_expression_agreement_pass.hum` | reuse exact blob in 10B.11 | It deliberately repeats `8 * 6 / 4` in body and contract, which is the accepted agreement pressure; the source alone does not claim or encode how the shared tree is implemented. |
+
+"Reuse exact blob" does not allow any fixture to remain in the worktree across
+the clean-baseline boundary. After archival, each fixture disappears from
+`main` and may be restored from the exact archive commit only inside its named,
+separately authorized envelope. The missing nested-chain fixture remains new
+10B.1 work. The rejected tree's test wiring, assertions, selector entries,
+expected projections, and ordinary green results remain unaccepted claims that
+must be rebuilt and sabotaged under the owning subincrement's real-path gates.
+Thus fixture-source reuse does not weaken the rule that rejected tests are not
+evidence to copy.
+
+### Cold-start retrieval and selective-salvage route
+
+After archive execution, a status-only Work Order record must name
+`$ArchiveBase`, the exact `$ArchiveCommit`, the live remote branch, the 37-path
+inventory, the tracked snapshot tree OID, and all six fixture hashes. 10B.0 remains
+unauthorized until that record is independently accepted, committed, published,
+and terminal-green, followed by a separate BDFL go signal.
+
+A cold-start 10B.x implementer retrieves evidence through the immutable commit,
+never through this conversation:
+
+```powershell
+git fetch origin `
+refs/heads/archive/workorder-10b-rejected-monolith-2026-07-17:`
+refs/remotes/origin/archive/workorder-10b-rejected-monolith-2026-07-17
+git show "${ArchiveCommit}:<path>"
+git diff $ArchiveBase $ArchiveCommit -- <path>
+```
+
+For Rust, documentation, schema, and tool paths, `git show` and `git diff` are
+read-only design inspection only. No cherry-pick, patch application, bulk copy,
+branch merge, path restore, or mechanical hunk transfer is permitted. An
+implementer must re-derive each behavior and structure against the clean
+accepted boundary, its owning envelope, the source audit, the real-path proof,
+and the canonical-tree corruption sabotage.
+
+Only the six fixture blobs ruled directly reusable above may be materialized
+from `$ArchiveCommit`, one owning increment at a time and only after its BDFL go
+signal. Their archive hash must match before use, and their new test wiring must
+be authored independently. Any other desired reuse is selective salvage and
+requires fresh justification inside the existing 10B.x envelope; if that
+envelope is insufficient, the increment stops for review rather than copying
+around it.
+
+### Review, execution, and hard stop
+
+This disposal plan requires one fresh independent architect-reviewer to verify:
+
+- exact preservation of the current snapshot tree OID, path inventory, fixture
+  inventory, hashes, and empty index;
+- that one immutable remote branch is sufficient durable recovery without a
+  second drifting artifact;
+- that the archive parent, staged set, commit, non-force publication, remote-ref
+  verification, and `git switch main` clearing sequence fail closed;
+- that clearing touches exactly the 31 rejected paths and six fixture paths;
+- every fixture ruling against its source and owning 10B.x mandate;
+- that source-fixture reuse cannot launder rejected test wiring or evidence;
+- the cold-start retrieval path and write-once archive lock; and
+- unchanged 10B.0-10B.12 mandates, envelopes, evidence gates, order, H0010
+  meaning, clean-baseline/selective-salvage rule, 10C, and later bans.
+
+The reviewer runs only:
+
+```powershell
+git diff --check
+```
+
+Complete local preflight remains invalid acceptance evidence while the rejected
+tree contains the dead exact-test selector that 10B.0 exists to repair. The
+reviewer must not edit any file, execute archive or cleanup commands, stage,
+commit, push, or begin 10B.0, and returns exactly `ACCEPT`, `ACCEPT WITH
+REQUIRED FIX`, or `REJECT`.
+
+Even `ACCEPT` authorizes only a BDFL-scoped `WORKORDER_10.md` documentation
+commit. Archive creation, archive commit, archive push, rejected-tree clearing,
+the archival status record, and 10B.0 each remain separately gated. No 10B.0,
+10B.1, 10C, Session AR, or later work may begin implicitly.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
@@ -2393,10 +2703,11 @@ a third attempt.
 
 The current correction tree remains preserved, uncommitted, and unaccepted as
 31 modified tracked implementation, documentation, and tool files plus six
-untracked foundation fixtures, with an empty index and tracked-diff fingerprint
-`539d384ad5b0220095e1845f45a5d6ea6e050394`. Its 5,465 insertions and 4,143
-deletions, green ordinary checks, and reproduced positive output are evidence
-about the rejected design attempt, not acceptance.
+untracked foundation fixtures, with an empty index. Its reproducible 31-path
+Git snapshot tree OID is `0fac92602f632dbc145d641d73e74bd9ac15c545`;
+the former shell-piped diff value is historical only. Its 5,465 insertions and
+4,143 deletions, green ordinary checks, and reproduced positive output are
+evidence about the rejected design attempt, not acceptance.
 
 The 2026-07-16 repeated-rejection re-scope amendment above received final
 independent `ACCEPT` with no P0, P1, or P2 findings and was BDFL-accepted,
@@ -2431,6 +2742,14 @@ authority. 10B.0 requires a separate BDFL go signal after this status record is
 accepted and durably published. Every 10B.0-10B.12 unit retains its own go
 signal and stop; none may begin implicitly. 10B.1, 10C, Session AR, and every
 later item remain unauthorized.
+
+The rejected-tree archival and clean-baseline amendment above is the only
+current planning surface. It proposes one immutable remote archive branch,
+classifies all six fixture blobs for exact source reuse in their owning
+subincrements, and specifies a fail-closed `git switch main` clearing boundary.
+It is uncommitted and has not been reviewed or accepted. No archive ref,
+archive commit, push, branch switch, cleanup, fixture removal, retrieval,
+status record, or 10B.0 implementation is authorized by its presence.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
