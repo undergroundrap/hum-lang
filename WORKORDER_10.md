@@ -63,11 +63,19 @@ requires a separate BDFL go signal after this status record is accepted and
 durably published. No 10B.1, 10C, Session AR, Hum IR, standard-library,
 backend, or later work is authorized.
 
-The BDFL has authorized only the bounded rejected-tree archival/disposal
-planning amendment below. It is proposed and uncommitted. It authorizes no
-archive ref, staging, commit, push, branch switch, cleanup, fixture removal, or
-10B.0 work. Its frozen bytes require one fresh independent review before the
-BDFL may authorize execution.
+The bounded rejected-tree archival/disposal amendment below was independently
+`ACCEPT`ed and BDFL-accepted. It was committed and published as
+`58ed878312338f5d056f30e1d00846f91a7cc953`. Workflow `29563872980`, attempt
+1, succeeded for that exact commit. Ubuntu job `87832013964` on
+`ubuntu-latest` succeeded in 10m 00s, including 9m 32s in
+`Run Hum preflight`; Windows job `87832013993` on `windows-latest` succeeded
+in 18m 42s, including 17m 52s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`, succeeded in Cargo caching and
+Rust toolchain preparation, completed the full Hum preflight, skipped
+`Run status-only evidence`, and concluded success. The amendment is durably
+published. Archive execution remains unauthorized pending publication of this
+status record and a separate explicit BDFL execution signal. 10B.0 and every
+later item remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -2743,13 +2751,21 @@ accepted and durably published. Every 10B.0-10B.12 unit retains its own go
 signal and stop; none may begin implicitly. 10B.1, 10C, Session AR, and every
 later item remain unauthorized.
 
-The rejected-tree archival and clean-baseline amendment above is the only
-current planning surface. It proposes one immutable remote archive branch,
-classifies all six fixture blobs for exact source reuse in their owning
-subincrements, and specifies a fail-closed `git switch main` clearing boundary.
-It is uncommitted and has not been reviewed or accepted. No archive ref,
-archive commit, push, branch switch, cleanup, fixture removal, retrieval,
-status record, or 10B.0 implementation is authorized by its presence.
+The rejected-tree archival and clean-baseline amendment above was independently
+`ACCEPT`ed and BDFL-accepted, committed, and published as
+`58ed878312338f5d056f30e1d00846f91a7cc953`. Workflow `29563872980`, attempt
+1, succeeded for that exact commit. Ubuntu job `87832013964` on
+`ubuntu-latest` succeeded in 10m 00s, including 9m 32s in
+`Run Hum preflight`; Windows job `87832013993` on `windows-latest` succeeded
+in 18m 42s, including 17m 52s in `Run Hum preflight`. Both jobs selected
+`mode=full` with `reason=no_status_transition`, succeeded in Cargo caching and
+Rust toolchain preparation, completed the full Hum preflight, skipped
+`Run status-only evidence`, and concluded success. The amendment is durably
+published. The preserved rejected tree remains unchanged, uncommitted, and
+unaccepted. Archive execution remains unauthorized pending publication of
+this status record and a separate explicit BDFL execution signal. No archive
+ref, archive commit, push, branch switch, cleanup, fixture removal, retrieval,
+10B.0 implementation, 10B.1, 10C, Session AR, or later work is authorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
