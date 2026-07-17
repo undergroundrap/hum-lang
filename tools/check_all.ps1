@@ -28,6 +28,7 @@ function Resolve-Tool {
 
 $Cargo = Resolve-Tool 'cargo' '.cargo\bin\cargo.exe' 'cargo was not found on PATH or in the standard user Cargo install directory'
 $Git = Resolve-Tool 'git' '' 'git was not found on PATH'
+. (Join-Path $PSScriptRoot 'test_exact_rust_selector.ps1')
 
 function Invoke-Native {
   param(
@@ -249,9 +250,14 @@ function Assert-SessionASurfaceRules {
 Push-Location $RepoRoot
 try {
   Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
+  $CheckAllSource = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'))
+  $ExactFlag = '--' + 'exact'
+  if ($CheckAllSource.Contains($ExactFlag)) { throw 'exact Rust tests must use the guarded selector helper' }
+  Invoke-ExactRustSelectorSelfTests $Cargo
+  Reset-ExactRustSelectorCredits
   Invoke-Native 'cargo fmt --check' $Cargo @('fmt', '--check')
   Invoke-Native 'cargo test' $Cargo @('test')
-  Invoke-Native 'canonical diagnostic registry/projection test' $Cargo @('test', 'diagnostic_catalog::tests::canonical_registry_and_checked_projections_are_valid', '--', '--exact')
+  Invoke-ExactRustTest 'canonical diagnostic registry/projection test' $Cargo 'diagnostic_catalog::tests::canonical_registry_and_checked_projections_are_valid'
   Invoke-Native 'Windows drive locality adapter tests' $Cargo @('test', '-p', 'windows-drive-locality')
   Invoke-Native 'effect bake-off corpus harness tests' $Cargo @('test', '--manifest-path', 'experiments/effect-bakeoff/Cargo.toml', '--target-dir', 'target/effect-bakeoff')
   Invoke-Native 'cargo clippy' $Cargo @('clippy', '--all-targets', '--', '-D', 'warnings')
@@ -289,7 +295,7 @@ try {
     'core_body::tests::retained_parser_fact_mutation_is_observable',
     'core_body::tests::parser_owned_core_kinds_preserve_established_preview_pairs'
   )) {
-    Invoke-Native "Increment 10A evidence $EvidenceTest" $Cargo @('test', $EvidenceTest, '--', '--exact')
+    Invoke-ExactRustTest "Increment 10A evidence $EvidenceTest" $Cargo $EvidenceTest
   }
   $FoundationNonAscii = Join-Path ([System.IO.Path]::GetTempPath()) "hum-10a-nonascii-$([guid]::NewGuid().ToString('N')).hum"
   try {
@@ -424,7 +430,7 @@ try {
     'callable::tests::ao_callable_occurrences_keep_relationship_identity_and_precedence',
     'callable::tests::ao_independent_same_line_causes_keep_distinct_occurrences'
   )) {
-    Invoke-Native "Session AO evidence $EvidenceTest" $Cargo @('test', $EvidenceTest, '--', '--exact')
+    Invoke-ExactRustTest "Session AO evidence $EvidenceTest" $Cargo $EvidenceTest
   }
 
   $AoTypedPath = 'fixtures/diagnostics/session_ao_typed_failure_prior_blocker_fail.hum'
@@ -492,7 +498,7 @@ try {
     'run::tests::divide_zero_fails_needs_with_caller_blame',
     'run::tests::wrong_add_fixture_fails_ensures_with_task_blame'
   )) {
-    Invoke-Native "Session AQ evidence $EvidenceTest" $Cargo @('test', $EvidenceTest, '--', '--exact')
+    Invoke-ExactRustTest "Session AQ evidence $EvidenceTest" $Cargo $EvidenceTest
   }
 
   $AqTypedPath = 'fixtures/diagnostics/session_aq_static_runtime_shared_cause_fail.hum'
@@ -674,8 +680,12 @@ try {
     'core_verify::tests::core_transport_rejects_projection_regenerated_or_corrupted_downstream',
     'graph::tests::graph_rejects_corrupt_occurrence_projection_before_serialization'
   )) {
-    Invoke-Native "Session AP evidence $EvidenceTest" $Cargo @('test', $EvidenceTest, '--', '--exact')
+    Invoke-ExactRustTest "Session AP evidence $EvidenceTest" $Cargo $EvidenceTest
   }
+  $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
+  $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
+  if ($ExactRustSelectorCredits.Count -ne 73 -or $UniqueExactRustSelectorCredits.Count -ne 73) { throw "exact Rust selector inventory must credit 73 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
   if ($ApForbiddenFallbacks.Count -ne 0) { throw 'Session AP production source must not reconstruct occurrences from codes or public diagnostics' }
