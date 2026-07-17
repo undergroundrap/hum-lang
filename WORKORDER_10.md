@@ -95,11 +95,24 @@ before and after clearing. `git switch main` alone restored clean `main` at
 remained exact, and no workflow ran for the archive commit. No rejected byte
 was merged into `main`.
 
-Archive execution is complete but this archival status record remains
-unpublished. 10B.0 remains unauthorized until this record is independently
-accepted, committed, published, terminal-green in required Ubuntu and Windows
-CI, and followed by a separate explicit BDFL go signal. 10B.1, 10C, and every
-later item remain unauthorized.
+The archive-execution status record was independently accepted, committed, and
+durably published as `2e492e9e830a50dfd5e16bd9c7e22bd02043da3c`.
+Required workflow `29604936061`, attempt 1, completed successfully for that
+exact commit. Ubuntu job `87965789896` on `ubuntu-latest` succeeded in 11m11s;
+its Cargo cache, Rust-toolchain preparation, and `Run Hum preflight` steps
+succeeded, with preflight completing in 10m41s, while `Run status-only
+evidence` was skipped. Windows job `87965789902` on `windows-latest` succeeded
+in 20m22s; its Cargo cache, Rust-toolchain preparation, and `Run Hum preflight`
+steps succeeded, with preflight completing in 19m32s, while `Run status-only
+evidence` was skipped. Both jobs selected `mode=full` with
+`reason=no_status_transition`.
+
+The rejected monolith remains archived and recoverable at
+`archive/workorder-10b-rejected-monolith-2026-07-17`, exact commit
+`3fdf236b0076534766ef89b592b3358f67a6315d`; `main` remains cleared. The
+rejected-tree archival lifecycle is complete. Increment 10B.0 is the next
+target but remains unauthorized pending a separate explicit BDFL go signal.
+10B.1, 10C, Session AR, and every later item remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -2868,11 +2881,26 @@ remote ref equals `$ArchiveCommit`, and no workflow ran for the archive commit.
 and the worktree, index, and untracked set were empty. No rejected archive byte
 was merged into `main`.
 
-The BDFL's later local process-document commit is outside the archive and does
-not change any archive identity or retrieval fact. This archival status record
-is not yet published. 10B.0 remains unauthorized until this record is
-independently accepted, committed, published, terminal-green in required
-Ubuntu and Windows CI, and followed by a separate explicit BDFL go signal.
+The archive-execution status record was independently accepted, committed, and
+durably published as `2e492e9e830a50dfd5e16bd9c7e22bd02043da3c`.
+Required workflow `29604936061`, attempt 1, completed successfully for that
+exact commit. Ubuntu job `87965789896` on `ubuntu-latest` succeeded in 11m11s;
+its Cargo cache, Rust-toolchain preparation, and `Run Hum preflight` steps
+succeeded, with preflight completing in 10m41s, while `Run status-only
+evidence` was skipped. Windows job `87965789902` on `windows-latest` succeeded
+in 20m22s; its Cargo cache, Rust-toolchain preparation, and `Run Hum preflight`
+steps succeeded, with preflight completing in 19m32s, while `Run status-only
+evidence` was skipped. Both jobs selected `mode=full` with
+`reason=no_status_transition`.
+
+The BDFL's later disjoint process-documentation and public-readiness commits
+through `89fbff66a846471135530a2bb40272245ee3a32e` do not change any archive
+identity, retrieval fact, or cleared-tree state. The rejected monolith remains
+archived and recoverable at
+`archive/workorder-10b-rejected-monolith-2026-07-17`, exact commit
+`3fdf236b0076534766ef89b592b3358f67a6315d`; `main` remains cleared. The
+rejected-tree archival lifecycle is complete. Increment 10B.0 is the next
+target but remains unauthorized pending a separate explicit BDFL go signal.
 10B.1, 10C, Session AR, and every later item remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
