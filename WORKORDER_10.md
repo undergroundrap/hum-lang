@@ -19,15 +19,30 @@ succeeded in 17m 10s, including 16m 02s in `Run Hum preflight`. Both selected
 `mode=full` with `reason=no_status_transition`; Cargo caching and Rust
 toolchain preparation succeeded, and `Run status-only evidence` was skipped.
 
-The rejected 10B implementation remains preserved and uncommitted as exactly
-18 modified tracked files plus two untracked fixtures, with an empty index and
-the authoritative PowerShell fingerprint
-`52f1ab82fe987678d6e2ef5d87c675fe99fde3cf`. The BDFL has issued the separate
-corrective go signal, but the ordered gate activates it only after this exact
-status record is independently accepted, committed, published, and its
-required CI reaches terminal success. While this record is uncommitted,
-Increment 10B remains paused. Increment 10C, Session AR, Hum IR, the standard
-library, backend work, and every later item remain unauthorized.
+The bounded H0010 allocation-ripple amendment was independently `ACCEPT`ed and
+BDFL-accepted. It was committed and published as
+`ebc59fba003fb16540f2f8e37f8a5c4a5810d544`. Workflow `29539840435`, attempt
+1, succeeded for that exact commit. Ubuntu job `87759532113` on
+`ubuntu-latest` succeeded in 11m 09s, including 10m 34s in
+`Run Hum preflight`; Windows job `87759532117` on `windows-latest` succeeded
+in 13m 27s, including 12m 28s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`, succeeded in Cargo caching and
+Rust toolchain preparation, completed the full Hum preflight, skipped
+`Run status-only evidence`, and concluded success. `HEAD`, local
+`origin/main`, and live remote `main` now name that exact commit.
+
+The incomplete 10B implementation remains preserved, uncommitted, and
+unaccepted as exactly 25 modified tracked implementation, documentation, and
+tool files plus six untracked foundation fixtures, with an empty index and the
+authoritative PowerShell fingerprint
+`f27b4c581992faaee3665798e0662a6752b8c50d`. Its previously accounted
+419-pass/11-failure expected-red state is implementation evidence, not
+acceptance. This status record is uncommitted and requires fresh independent
+review. Increment 10B remains paused pending independent acceptance, an exact
+`WORKORDER_10.md`-only commit, publication and terminal required CI for this
+record, and a separate explicit BDFL corrective go signal. Increment 10C,
+Session AR, Hum IR, the standard library, backend work, and every later item
+remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -1864,22 +1879,48 @@ including 16m 02s in `Run Hum preflight`. Both jobs selected `mode=full` with
 `reason=no_status_transition`, succeeded in Cargo caching and Rust toolchain
 preparation, completed the full Hum preflight, skipped
 `Run status-only evidence`, and concluded success. Live and local
-`origin/main` now name `098d5d3f2fa616c8faa3b6f4e4d8312f95f23ce7`.
+`origin/main` named `098d5d3f2fa616c8faa3b6f4e4d8312f95f23ce7` at that gate.
+
+The bounded H0010 allocation-ripple amendment above was independently
+`ACCEPT`ed and BDFL-accepted. It was committed and published as
+`ebc59fba003fb16540f2f8e37f8a5c4a5810d544`, with first parent
+`812a3766e041f4275f6d770e753a37c17c7cc250`.
+
+Workflow `29539840435`, attempt 1, succeeded for that exact amendment head.
+Ubuntu job `87759532113` on `ubuntu-latest` succeeded in 11m 09s, including
+10m 34s in `Run Hum preflight`; Windows job `87759532117` on
+`windows-latest` succeeded in 13m 27s, including 12m 28s in
+`Run Hum preflight`. Both jobs selected `mode=full` with
+`reason=no_status_transition`, succeeded in Cargo caching and Rust toolchain
+preparation, completed the full Hum preflight, skipped
+`Run status-only evidence`, and concluded success. `HEAD`, local
+`origin/main`, and live remote `main` now name
+`ebc59fba003fb16540f2f8e37f8a5c4a5810d544`.
+
+The incomplete 10B correction tree remains preserved, uncommitted, and
+unaccepted as exactly 25 modified tracked implementation, documentation, and
+tool files plus six untracked foundation fixtures, with an empty index and the
+authoritative PowerShell fingerprint
+`f27b4c581992faaee3665798e0662a6752b8c50d`. Its independently accounted
+419-pass/11-failure expected-red state remains implementation evidence rather
+than acceptance. No failure may be weakened or absorbed as generic expected
+red beyond the exact accounting in the amendment.
 
 This status update is not eligible for the repository's routine no-review
-exception because the preserved rejected implementation and two untracked
-fixtures remain in the worktree. It therefore requires a fresh independent
-review and complete local preflight despite changing only the two recognized
-status regions.
+exception because the incomplete 10B implementation and six untracked
+fixtures remain in the worktree. It requires a fresh independent review even
+though it changes only the two recognized status regions. The amendment's
+review gate already records that complete local preflight remains expected-red
+while the bounded 10B correction is intentionally incomplete; this status
+pass therefore runs diff hygiene and must not modify or repair implementation
+evidence.
 
-The BDFL has issued the separate corrective go signal for 10B's one bounded
-correction cycle, conditioned on durable publication and terminal CI success
-for this exact status record. While this record is uncommitted, 10B remains
-paused. After independent `ACCEPT`, an exact `WORKORDER_10.md`-only commit,
-publication, and terminal required CI success, the same preserved 10B tree may
-resume under the amended envelope without another BDFL relay. Any material
-scope expansion, genuine new defect, further amendment need, or non-`ACCEPT`
-implementation verdict stops and returns to the BDFL.
+While this record is uncommitted, 10B remains paused. Resumption requires
+independent `ACCEPT`, an exact `WORKORDER_10.md`-only commit, separately
+authorized publication with terminal required CI success, and a separate
+explicit BDFL corrective go signal. Any material scope expansion, genuine new
+defect, further amendment need, or non-`ACCEPT` implementation verdict stops
+and returns to the BDFL.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
