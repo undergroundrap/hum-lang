@@ -31,18 +31,21 @@ Rust toolchain preparation, completed the full Hum preflight, skipped
 `Run status-only evidence`, and concluded success. `HEAD`, local
 `origin/main`, and live remote `main` now name that exact commit.
 
-The incomplete 10B implementation remains preserved, uncommitted, and
-unaccepted as exactly 25 modified tracked implementation, documentation, and
-tool files plus six untracked foundation fixtures, with an empty index and the
-authoritative PowerShell fingerprint
-`f27b4c581992faaee3665798e0662a6752b8c50d`. Its previously accounted
-419-pass/11-failure expected-red state is implementation evidence, not
-acceptance. This status record is uncommitted and requires fresh independent
-review. Increment 10B remains paused pending independent acceptance, an exact
-`WORKORDER_10.md`-only commit, publication and terminal required CI for this
-record, and a separate explicit BDFL corrective go signal. Increment 10C,
-Session AR, Hum IR, the standard library, backend work, and every later item
-remain unauthorized.
+Increment 10B's monolithic implementation and bounded correction were each
+independently `REJECT`ed with the same architectural finding shape. The current
+correction tree remains preserved, uncommitted, and unaccepted as exactly 31
+modified tracked implementation, documentation, and tool files plus six
+untracked foundation fixtures, with an empty index and tracked-diff fingerprint
+`539d384ad5b0220095e1845f45a5d6ea6e050394`. Its 5,465 insertions and 4,143
+deletions confirm that the former one-pass 10B unit is not review-sized.
+
+The repeated-rejection rule terminates that correction cycle; no third attempt
+against the monolithic scope is authorized. The bounded re-scope amendment
+below is proposed, uncommitted, and requires fresh independent pre-issuance
+review. It preserves the canonical parser-owned tree architecture, splits 10B
+by real consumer dependencies, and separates the dead exact-test-selector
+repair. No dirty-tree disposition, 10B subincrement, 10C, Session AR, Hum IR,
+standard-library, backend, or later work is authorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -457,7 +460,19 @@ Mandatory order:
 
 ```text
 10A canonical expression and string-aware scope facts
--> 10B body / Predicate v2 / Core semantic convergence
+-> 10B.0 exact-test-selector integrity
+-> 10B.1 canonical expression-occurrence and recursive H0010 closure
+-> 10B.2 resolver and callable convergence
+-> 10B.3 typed-failure / Path / return-dependency convergence
+-> 10B.4 mutation / place / writable-alias convergence
+-> 10B.5 Predicate v2 semantic-overlay convergence
+-> 10B.6 type and full-type convergence
+-> 10B.7 effect / ownership / resource convergence
+-> 10B.8 Core construction and lowering convergence
+-> 10B.9 Core verification and projection-transport convergence
+-> 10B.10 runtime body-expression convergence
+-> 10B.11 runtime contract-expression convergence and body/contract agreement
+-> 10B.12 legacy expression/call authority retirement and 10B closure
 -> 10C universal checked execution
 -> 10D change-parameter write-through
 -> 10E direct list-element assignment
@@ -1314,6 +1329,464 @@ authorized publication with terminal Ubuntu and Windows CI, a durable status
 record, and a separate BDFL corrective go signal. No commit, push, 10B source
 edit, 10C work, Session AR work, or later action is authorized by this text.
 
+## Increment 10B repeated-rejection re-scope amendment (2026-07-16; proposed)
+
+### Authority, repeated-rejection diagnosis, and hard stop
+
+The BDFL authorized this architecture/documentation pass only after the
+monolithic 10B implementation and its bounded correction received two
+independent `REJECT` verdicts with the same architectural shape:
+
+| First verdict | Second verdict | Same underlying failure |
+| --- | --- | --- |
+| Predicate v2 retained an independent semantic AST | a duplicate raw-text expression/call graph remained authoritative | canonical parser authority was claimed while a parallel recognizer still supplied semantics |
+| top-level chained comparisons reached a generic runtime trap | nested chained comparisons still reached the generic trap | H0010 recognition was not recursive over the admitted expression tree |
+| typed-failure analysis rescanned statement text | runtime, effect, and ownership rendered canonical expressions and reparsed them | downstream consumers reconstructed meaning instead of consuming producer-owned structure |
+
+This is the repository's repeated-rejection loop condition. The canonical
+parser-owned expression tree remains the accepted architecture; 10A already
+proved its operator order, identity, string-aware scope, and corruption
+boundary. The failed unit was the attempted all-consumer migration, not that
+architecture. The former single correction cycle is terminated. No third
+implementation attempt against the original `Prerequisite Increment 10B`,
+`Increment 10B rejection amendment`, or `Increment 10B H0010
+allocation-ripple amendment` scope is authorized; those sections remain only
+historical evidence of the rejected approach.
+
+This section prospectively supersedes the original single-unit 10B scope, the
+first rejection amendment's one-correction-cycle/resume language, the H0010
+ripple amendment's resumption gate, and the local-train correction rules only
+as they apply to monolithic 10B. Their accepted history remains intact. The
+H0010 allocation and public meaning survive unchanged. The 10C-10F mandates,
+all accepted decisions, and every standing ban remain unchanged.
+
+The current uncommitted tree is preserved exactly for this planning pass:
+
+- `HEAD == origin/main ==
+  5691e17b1a7d01b036007cdce39108471df94641`;
+- the index is empty;
+- 31 tracked files are modified, with 5,465 insertions and 4,143 deletions;
+- the exact tracked implementation diff excluding this amendment, produced by
+  `git diff --binary --no-ext-diff -- . ':(exclude)WORKORDER_10.md' |
+  git hash-object --stdin`, is
+  `539d384ad5b0220095e1845f45a5d6ea6e050394`; and
+- the six untracked fixtures are:
+  - `fixtures/foundation/pre_ar_body_contract_expression_agreement_pass.hum`,
+    SHA-256
+    `c40056a83eff8580e757ea6955892b98ce57d4325707a978f0df0603f4329381`;
+  - `fixtures/foundation/pre_ar_comparison_conjunction_pass.hum`, SHA-256
+    `3081b3ba84045cb64bb8c049fde683cbfc64c91dae956e9a71d012b193951433`;
+  - `fixtures/foundation/pre_ar_condition_chained_comparison_fail.hum`,
+    SHA-256
+    `c49bc27b53c2fbbfa8012525c25e756eb8da4871fe83ea2b6caec94466bc9d41`;
+  - `fixtures/foundation/pre_ar_left_associative_arithmetic_pass.hum`,
+    SHA-256
+    `22b2e9c09c9a5ed8f3984ccc08c318ff56922c5ebd89369092bf375f398ff3e9`;
+  - `fixtures/foundation/pre_ar_predicate_chained_comparison_fail.hum`,
+    SHA-256
+    `7376de1f01f018943174876886ea37da02e5a4458b032d24214f5ff4116e8d30`;
+    and
+  - `fixtures/foundation/pre_ar_return_chained_comparison_fail.hum`, SHA-256
+    `6096390130a62ddc5a2128b936b188d05a0a63aa9036cad4ffd84c7b16207fb8`.
+
+This amendment neither edits nor accepts that tree. Before any re-scoped
+subincrement begins, the BDFL must separately authorize its exact preservation
+or disposal and restoration to a clean descendant of the published 10A
+baseline. No implementation go signal implicitly authorizes a reset, checkout,
+stash, deletion, or other destructive cleanup.
+
+### Consumer diagnosis: representation gaps versus migration work
+
+The code audit distinguishes facts the 10A representation does not yet carry
+from consumers that merely have not been migrated:
+
+| Consumer boundary | Why text or parallel structure remains authoritative | Classification and required resolution |
+| --- | --- | --- |
+| parser expression occurrence | `ParsedCallSyntax` synthesizes delimiters and separators from child endpoints, carries no exact call-gap/adjacency fact, `Try` retains a wrapper string, and chain detection checks only the root | representation gap; 10B.1 must record actual tokens/ranges, structured failure wrapper identity, complete statement facts, and recursive chain ownership |
+| resolver and callable analysis | both still traverse `ParsedExpressionKind`; callable analysis therefore uses the parallel call graph even though resolver IDs exist | migration effort after 10B.1; consume canonical call nodes plus exact parser positions and resolver definitions |
+| typed failure | canonical traversal exists, but `Try` wrapper identity is reparsed from its string and older statement/call scans remain reachable | one parser representation gap plus migration effort; structured wrapper fact lands in 10B.1, consumer migration in 10B.3 |
+| Path and return dependency | accepted call, place, group, permission, and return facts are representable by canonical nodes; result and Path type text are declaration grammar | migration effort only; keep declaration parsing, remove expression rescans in 10B.3 |
+| check, field place, writable alias | set/save/loop/binding/block ownership needs parser-owned statement facts that clean 10A does not yet expose completely | representation gap closed in 10B.1, then migration effort in 10B.4 |
+| Predicate v2 | accepted values fit the canonical tree, but exact malformed cause, intent signal, token ranges, delimiter depth, call adjacency, and resolver place joins require an overlay | representation gap closed by the parser occurrence fact in 10B.1; Predicate becomes a restriction/overlay, never a second value tree, in 10B.5 |
+| type and full type | the canonical tree already represents every admitted expression fact these stages own | migration effort only in 10B.6; display text may remain output but cannot feed inference |
+| effect, ownership, resource | set/place/resource roots are currently obtained by `canonical_text` followed by `first_resource` or equivalent splitting | migration effort only in 10B.7; use structured place roots, resolver uses, and List/Record nodes |
+| Core construction/lowering/verification | current work contains useful private-tree and corruption logic, but some joins still use rendered text or regenerated projections | migration and independent-verification work in 10B.8-10B.9; public text remains projection only |
+| runtime body evaluator | the operator evaluator is substantively salvageable, but fail/wrapper/place joins still render and reparse | migration effort in 10B.10 after static consumers converge |
+| runtime contract evaluator | it still depends on Predicate's parallel representation and must share the body evaluator without reconstructing source | migration effort in 10B.11 after 10B.5 and 10B.10 |
+| graph, JSON, profile, IR readiness | the audit found projection, composition, and blocker transport rather than an independent expression grammar | no semantic parser migration; 10B.9 must prove they validate or project separately supplied upstream facts without becoming another authority |
+| legacy expression/call graph | `ParsedExpressionKind`, `ParsedCall`, and `parser_owned_top_level_call_ranges` remain usable by production consumers | intentional temporary compatibility only; they are deleted or made test-inaccessible in 10B.12 after the last consumer migrates |
+
+Public rendering, declaration/type grammar, native CLI argument parsing, and
+diagnostic message construction are not expression authority. They may remain
+only where a dataflow audit proves that their output cannot return to semantic
+recognition, selection, inference, evaluation, identity, precedence, or
+validation.
+
+### Selective salvage and clean-baseline rule
+
+The preserved 9,608-line patch is not salvageable as one implementation unit.
+Its shims, genuine migrations, documentation, and tests are interleaved across
+the same files, so continuing it would make every later review depend on
+unaccepted earlier bytes. Every 10B subincrement therefore starts from a clean
+committed descendant of the accepted 10A implementation, not from the dirty
+tree and not from a bulk-applied patch.
+
+This is selective rather than blanket rejection:
+
+- the H0010 public allocation, one-cause/multiple-occurrence model, exact sites,
+  fixtures, and catalog-ripple expectations are retained as requirements;
+- the parser lexical-cause model, parser-owned statement-fact idea, Predicate
+  semantic-overlay design, canonical traversal helpers, private Core mutation
+  catalog, and shared arithmetic evaluator are acceptable design evidence and
+  may be reimplemented after re-derivation against the clean boundary;
+- direct canonical traversals that already avoid text reconstruction may be
+  reintroduced in their owning subincrement after independent source audit;
+- no hunk containing a raw scanner, rendered-value semantic parse, synthesized
+  delimiter/call fact, parallel successful AST, public-summary self-validation,
+  spelling-only audit, or zero-test selector is salvageable; and
+- tests from the rejected tree are claims to reproduce, not evidence to copy.
+  Each must be rebuilt around the real production entry point and must fail
+  under the named sabotage before it can be credited.
+
+No actor may mechanically cherry-pick, apply, or copy the rejected patch as an
+increment. Reuse is by independently justified behavior and structure, with
+the subincrement's exact envelope and review gate.
+
+### Re-scoped dependency sequence and exact envelopes
+
+The real dependency graph creates the following bounded units. Each is a
+Work-Order-local subincrement, not a global session. Each receives a separate
+BDFL go signal only after every predecessor is independently accepted,
+committed, published, terminal-green on Ubuntu and Windows, and durably
+recorded.
+
+#### 10B.0: exact-test-selector integrity
+
+Exact envelope:
+
+- `tools/check_all.ps1`; and
+- new `tools/test_exact_rust_selector.ps1`.
+
+This is harness integrity, not semantic 10B implementation. It must make every
+exact Rust selector in `check_all.ps1` prove that its requested fully qualified
+test exists and that exactly one test ran. Zero, duplicate, ambiguous, renamed,
+filtered, malformed, or unavailable selection fails before the selected test is
+credited. The helper and its tests remain dependency-free and platform-neutral.
+
+The specific dead selector
+`typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed`
+was introduced with a real test in commit `58ad265` on 2026-07-13 and remains
+live on published `HEAD`. It became dead only inside the current uncommitted
+10B rewrite when that test was removed while its selector remained. Therefore
+no accepted commit or remote CI passed while this selector was dead, but local
+10B preflights incorrectly reported success for `running 0 tests`.
+
+The deleted test was intended to prove all of the following old-boundary
+properties: two same-line calls have different exact positions; an identifier
+used by only the second call binds to that call; an identifier used by two
+sibling calls fails closed as ambiguous; repeated same-text calls remain
+distinct; and an identifier with no call owner fails closed. 10B.0 preserves
+that intended coverage as a named inventory. Later canonical resolver tests may
+replace the obsolete scanner-specific form, but the selector may not silently
+disappear. Permanent sabotage must rename or delete a selected test, add an
+ambiguous matching test, and select a nonexistent test; each makes the harness
+red. No compiler source, diagnostic, fixture, or semantic behavior may change.
+
+#### 10B.1: canonical expression occurrence and recursive H0010
+
+Exact envelope:
+
+- `src/ast.rs`;
+- `src/parser.rs`;
+- `src/core_body.rs`;
+- `src/diagnostic_catalog.rs`;
+- `src/diagnostics.rs`;
+- `docs/DIAGNOSTICS.md`;
+- `docs/LANGUAGE_REFERENCE.md`;
+- `tools/check_all.ps1`; and
+- the five exact fixtures
+  `pre_ar_comparison_conjunction_pass.hum`,
+  `pre_ar_condition_chained_comparison_fail.hum`,
+  `pre_ar_nested_chained_comparison_fail.hum`,
+  `pre_ar_predicate_chained_comparison_fail.hum`, and
+  `pre_ar_return_chained_comparison_fail.hum` under `fixtures/foundation/`.
+
+The parser must produce one expression-occurrence fact containing the canonical
+tree, stable parser node/child positions, actual operator and delimiter token
+ranges, actual call-open/call-close/separator/trailing/gap facts, intent signal,
+delimiter depth, structured lexical status, exact statement binding/set/save/
+loop/condition facts, and a structured typed-failure wrapper root/variant. No
+call syntax may be inferred from child endpoints, and no wrapper may be stored
+only as a string that a consumer must parse.
+
+H0010 remains exactly one registered parser cause and one public code. The
+parser recursively visits every admitted canonical child, including groups,
+Boolean operands, calls, lists, records, permissions, and Try nodes. It rejects
+`(1 < 2 < 3) and true`, chains nested on either side of another operator, and
+the three context fixtures before resolver or runtime. It does not reject
+`1 < 2 and 2 < 3`, comparison-looking Text, or independent grouped
+comparisons. The later comparison token is primary, the first comparison token
+is related, and the existing model-neutral repair is preserved. Nested cases
+exit through H0010 with zero stdout and no generic trap. Catalog totals become
+exactly 88 active codes and 179 causes; one fixture never creates another
+registered cause. The dedicated nested fixture must run through the real parser
+and permanent human, JSON, and runtime matrices. An independent recursive
+tree-corruption sabotage must move or remove the nested comparison child while
+holding source and retained text fixed and must change the owned H0010
+occurrence or fail closed before resolver/runtime; a root-only scan cannot pass.
+
+#### 10B.2: resolver and callable convergence
+
+Exact envelope: `src/resolve.rs`, `src/callable.rs`, and
+`tools/check_all.ps1`.
+
+Resolver definitions, references, call occurrences, targets, arguments, and
+callable-value uses must traverse canonical nodes and exact parser child
+positions. `ParsedExpressionKind`, `ParsedCall`, line text, display names,
+spans, and a separately scanned call graph cannot select or mint semantic
+identity. Callable behavior and H1401/H1402 public bytes remain unchanged.
+Repeated same-text, same-line, nested, shadowed, and sibling calls remain
+distinct through resolver-owned identity.
+
+#### 10B.3: typed-failure, Path, and return-dependency convergence
+
+Exact envelope: `src/typed_failure.rs`, `src/path_boundary.rs`,
+`src/return_dependency.rs`, and `tools/check_all.ps1`.
+
+Typed-failure call/wrapper ownership must use structured canonical nodes and
+resolver call occurrences. Path consumption and return-view dependencies must
+use exact call, permission, group, and place identities. Result annotations,
+Path type detection, and nominal failure declarations may retain declaration
+grammar, but expression text cannot be scanned or rendered and reparsed. H0630
+and H0901-H0907 meanings, ownership, precedence, and public behavior remain
+unchanged.
+
+#### 10B.4: mutation, place, and writable-alias convergence
+
+Exact envelope: `src/check.rs`, `src/field_place.rs`,
+`src/writable_field_alias.rs`, and `tools/check_all.ps1`.
+
+Source diagnostics, set/save/loop structure, binding identity, field place,
+permission, alias origin, and block ownership must consume parser statement
+facts, canonical place nodes, and resolver definitions. Field type declaration
+lookup may remain textual. No 10D write-through or 10E element-assignment
+behavior enters scope; H0808/H0809 and existing source diagnostics remain
+byte-compatible.
+
+#### 10B.5: Predicate v2 semantic-overlay convergence
+
+Exact envelope: `src/predicate.rs` and `tools/check_all.ps1`.
+
+Predicate v2 becomes only a closed restriction and semantic overlay keyed by
+10B.1 canonical node IDs and resolver place definitions. It may retain
+recognition, eligibility, operand types, exact place joins, Path/H0630 owner,
+and diagnostic evidence. It may not retain or reconstruct another successful
+value AST, call graph, operator tree, literal parser, or place parser. This
+subincrement changes static Predicate analysis only; runtime contract
+evaluation remains unchanged until 10B.11.
+
+#### 10B.6: type and full-type convergence
+
+Exact envelope: `src/type_check.rs`, `src/full_type_check.rs`, and
+`tools/check_all.ps1`.
+
+Expression type inference, builtin call shape, binding type, comparison
+typing, place typing, and prior-blocker joins consume canonical and resolver
+facts. Type/declaration grammar and public display text may remain. H060x,
+H070x, H090x, H140x, ordering, and public human/JSON bytes remain unchanged.
+
+#### 10B.7: effect, ownership, and resource convergence
+
+Exact envelope: `src/effect_check.rs`, `src/ownership_check.rs`,
+`src/resource_check.rs`, and `tools/check_all.ps1`.
+
+Effect, ownership, and resource roots must come from structured place nodes,
+resolver identifier uses, parser statement facts, and List/Record nodes. A
+rendered canonical expression may not flow to `first_resource`, `split`, or an
+equivalent recognizer. Existing H0801 ownership, exact AP/AQ precedence,
+allocation visibility, view invalidation, source authority, and resource
+behavior remain unchanged.
+
+#### 10B.8: Core construction and lowering convergence
+
+Exact envelope:
+
+- `src/core_expr.rs`;
+- `src/core_preview.rs`;
+- `src/core_lower.rs`;
+- `docs/FORMAL_CORE.md`;
+- `docs/HUM_CORE_PREVIEW_SCHEMA.md`;
+- `docs/HUM_CORE_LOWER_SCHEMA.md`; and
+- `tools/check_all.ps1`.
+
+Private Core construction, preview, and lowering consume exact canonical
+children, operator order, grouping, call/place IDs, and occurrence routes.
+Rendered text is public projection only and cannot feed lowering. Public schema
+fields stay unchanged.
+
+#### 10B.9: Core verification and projection transport
+
+Exact envelope: `src/core_verify.rs`, `src/main.rs`,
+`docs/HUM_CORE_VERIFY_SCHEMA.md`, and `tools/check_all.ps1`.
+
+Core verification receives separately supplied upstream canonical authority;
+it may not regenerate the expected tree or projection from the observed tree.
+Top-level composition validates the exact verified result before graph, JSON,
+profile, and IR-readiness projection. `src/graph.rs`, `src/json.rs`,
+`src/profile_check.rs`, and `src/ir_readiness.rs` remain unchanged unless this
+increment stops for a new reviewed envelope; their real commands are required
+as read-only consumers in the evidence matrix.
+
+#### 10B.10: runtime body-expression convergence
+
+Exact envelope: `src/run.rs`,
+`fixtures/foundation/pre_ar_left_associative_arithmetic_pass.hum`, and
+`tools/check_all.ps1`.
+
+Body evaluation uses the canonical tree and one operator implementation for
+arithmetic, calls, places, permissions, lists, records, typed failure, short
+circuiting, overflow, and division by zero. It produces the required 12, 10,
+32, and 16 results through the real CLI. Contract evaluation is still frozen;
+this subincrement must not claim body/contract agreement.
+
+#### 10B.11: runtime contract convergence and agreement
+
+Exact envelope: `src/run.rs`,
+`fixtures/foundation/pre_ar_body_contract_expression_agreement_pass.hum`, and
+`tools/check_all.ps1`.
+
+Needs/ensures evaluation consumes the 10B.5 Predicate overlay and invokes the
+same canonical evaluator/operator implementation as body execution with an
+explicit contract context. Contract-only `old`, `list_len`, and `list_count`
+remain unavailable to ordinary bodies. Only after this increment passes may
+the Work Order claim that byte-identical body and contract arithmetic produce
+structurally equal trees with distinct occurrence IDs and the same value 12.
+False needs/ensures retain exact H0702/H0703 ownership and adapter blocking.
+
+#### 10B.12: legacy authority retirement and 10B closure
+
+Exact envelope:
+
+- `src/ast.rs`;
+- `src/parser.rs`;
+- `src/resolve.rs`;
+- `src/callable.rs`;
+- `docs/ARCHITECTURE.md`;
+- `docs/FORMAL_CORE.md`;
+- `docs/LANGUAGE_REFERENCE.md`; and
+- `tools/check_all.ps1`.
+
+After all consumers have migrated, production `ParsedExpressionKind`,
+`ParsedCall`, `parser_owned_top_level_call_ranges`, the duplicate expression
+constructor, raw expression/call scanners, and any adapter that makes them
+authoritative are deleted. If a legacy structure must remain solely for a
+non-semantic public projection, it must be unreachable from production
+semantic selection and justified by a named source audit; a second successful
+tree is forbidden. This increment runs the complete cross-stage matrix and is
+the only point at which 10B may close. Survival of a competing expression or
+call authority keeps 10B open and blocks 10C.
+
+### Un-shimmable evidence gate for every consumer
+
+Every semantic consumer subincrement 10B.1-10B.12 must satisfy all three
+independent proofs below. Passing ordinary tests without all three is a
+`REJECT`.
+
+1. **Mechanical source/dataflow audit.** The converged production path contains
+   no canonical-render-to-semantic-parse flow, raw-text expression scanner,
+   expression text splitter, parallel call graph, or fallback recognizer.
+   Declaration/type grammar and public rendering are allowed only when a named
+   audit proves their values cannot flow back into expression semantics. The
+   audit itself is sabotaged by inserting a forbidden flow and must turn red.
+2. **Real-path behavior.** A parser-loaded Hum program reaches the actual
+   resolver/analyzer/checker/Core/CLI consumer, not a direct helper or fabricated
+   answer carrier, and produces its exact owned facts, diagnostics, output,
+   ordering, spans, exit, or fail-closed blocker. Existing positive and misuse
+   behavior remains no worse than the published baseline.
+3. **Canonical-tree corruption sensitivity.** Starting from the same parsed
+   source, hold source text, retained line text, public root summaries, and any
+   still-present legacy projection fixed; then independently mutate the exact
+   canonical node, child order, operator, grouping, call target/argument,
+   place, wrapper, range, or node identity owned by that consumer. The real
+   consumer's structured output must change or its verifier must reject before
+   public serialization/runtime. If it stays green, the consumer has not proved
+   dependence on the canonical authority. The expected result may not be
+   reconstructed from the mutated tree, and a test-only helper that bypasses
+   the production entry point earns no credit.
+
+Each subincrement names at least one positive control where two fresh parses
+produce byte-identical consumer evidence and at least one wrong-tree control
+where retained text is unchanged. Projection-only stages in 10B.9 satisfy the
+same physical property by rejecting or changing their projection when their
+separately supplied upstream canonical authority is corrupted; they do not
+gain permission to parse expressions themselves.
+
+Tests selected by `tools/check_all.ps1` receive no credit unless the 10B.0
+selector guard proves exactly one test ran. Source audits, behavior tests, and
+tree-corruption tests are three separate test identities; one self-validating
+test cannot stand in for all three.
+
+### Compatibility, correction, and hard-stop rules
+
+Every subincrement preserves all accepted public human/JSON/runtime schemas,
+messages, help, severity, blame, ordering, exit behavior, Core/graph fields,
+diagnostic causes, ownership, authority, effects, resources, and runtime
+semantics except the already accepted H0010 rejection and the explicitly
+scheduled arithmetic/body-contract fixes. No new command, schema identifier,
+dependency, feature, `cfg`, handler, capture model, callable environment,
+backend, standard-library surface, 10C behavior, or Session AR work enters
+scope.
+
+Each subincrement receives one implementation pass and one fresh independent
+implementation review. A bounded correction may occur only after an explicit
+BDFL signal and only inside that subincrement's exact envelope. A second
+same-shaped finding, a new file requirement, a missing parser fact, a public or
+diagnostic semantic change, a fake/zero-test selector, or an unexercised
+load-bearing path stops for a new BDFL backlog-versus-rescope decision. No
+subincrement automatically authorizes its successor.
+
+The original anti-ghost, positive-evidence, masking-analysis, configuration,
+repeatability, non-host inspection, and standing-check requirements remain in
+force. Each accepted subincrement must be committed and published separately,
+reach terminal required Ubuntu and Windows success, receive a truthful status
+record, and stop for the next BDFL go signal.
+
+### Amendment review and issuance gate
+
+This re-scope amendment is proposed and unauthorized. Its author is
+disqualified from its verdict. One fresh independent architect-reviewer must
+verify:
+
+- the two verdicts are the same repeated-rejection shape;
+- the per-consumer representation-gap/migration diagnosis against code;
+- the selective-salvage decision and clean-baseline rule;
+- the exact dependency order and each review-sized envelope;
+- the three-part un-shimmable evidence gate;
+- recursive H0010 ownership and the one-cause model;
+- the final duplicate-authority retirement boundary;
+- the dead selector's history, intended coverage, and separate urgency;
+- preservation of the current dirty tree, fingerprint, fixtures, and empty
+  index; and
+- unchanged 10C-10F, Session AR, decisions, and standing bans.
+
+The reviewer runs:
+
+```powershell
+git diff --check
+```
+
+Complete local preflight is not an issuance prerequisite for this document
+pass because the preserved rejected 10B tree is not an accepted executable
+baseline; if run, its results are diagnostic only and may not be used to accept
+the amendment. The reviewer must not edit the document or implementation and
+returns exactly `ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT`.
+
+Final document `ACCEPT` authorizes no commit, push, dirty-tree cleanup,
+subincrement, or later work. BDFL acceptance of the exact bytes, a
+`WORKORDER_10.md`-only commit, separately authorized publication with terminal
+required CI, a durable status record, and an explicit disposition/go signal for
+10B.0 remain required. Increment 10C and every later item remain unauthorized.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
@@ -1897,30 +2370,34 @@ preparation, completed the full Hum preflight, skipped
 `origin/main`, and live remote `main` now name
 `ebc59fba003fb16540f2f8e37f8a5c4a5810d544`.
 
-The incomplete 10B correction tree remains preserved, uncommitted, and
-unaccepted as exactly 25 modified tracked implementation, documentation, and
-tool files plus six untracked foundation fixtures, with an empty index and the
-authoritative PowerShell fingerprint
-`f27b4c581992faaee3665798e0662a6752b8c50d`. Its independently accounted
-419-pass/11-failure expected-red state remains implementation evidence rather
-than acceptance. No failure may be weakened or absorbed as generic expected
-red beyond the exact accounting in the amendment.
+The monolithic 10B implementation and its bounded correction were each
+independently `REJECT`ed. The second verdict repeated the first verdict's
+architecture shape: parallel expression/call authority, nonrecursive H0010,
+and rendered-expression reparsing by semantic consumers. Under the repository
+loop-diagnosis rule, the old correction cycle is terminated and cannot receive
+a third attempt.
 
-This status update is not eligible for the repository's routine no-review
-exception because the incomplete 10B implementation and six untracked
-fixtures remain in the worktree. It requires a fresh independent review even
-though it changes only the two recognized status regions. The amendment's
-review gate already records that complete local preflight remains expected-red
-while the bounded 10B correction is intentionally incomplete; this status
-pass therefore runs diff hygiene and must not modify or repair implementation
-evidence.
+The current correction tree remains preserved, uncommitted, and unaccepted as
+31 modified tracked implementation, documentation, and tool files plus six
+untracked foundation fixtures, with an empty index and tracked-diff fingerprint
+`539d384ad5b0220095e1845f45a5d6ea6e050394`. Its 5,465 insertions and 4,143
+deletions, green ordinary checks, and reproduced positive output are evidence
+about the rejected design attempt, not acceptance.
 
-While this record is uncommitted, 10B remains paused. Resumption requires
-independent `ACCEPT`, an exact `WORKORDER_10.md`-only commit, separately
-authorized publication with terminal required CI success, and a separate
-explicit BDFL corrective go signal. Any material scope expansion, genuine new
-defect, further amendment need, or non-`ACCEPT` implementation verdict stops
-and returns to the BDFL.
+The 2026-07-16 repeated-rejection re-scope amendment above is the only current
+planning surface. It preserves the canonical parser-owned tree, records the
+representation gaps and per-consumer migration graph, chooses clean-baseline
+reimplementation with selective design salvage, requires the un-shimmable
+source/behavior/tree-corruption gate, makes H0010 recursive, schedules final
+duplicate-authority retirement, and separates the dead exact-selector repair
+as urgent 10B.0 harness work.
+
+That amendment is proposed, uncommitted, and ineligible for routine status-only
+closure. One fresh independent pre-issuance review is required. Even an
+`ACCEPT` authorizes no commit, publication, dirty-tree disposition, or
+subincrement. Those actions require separate BDFL authority in the order stated
+by the amendment. Every 10B.0-10B.12 unit receives its own go signal and stop;
+none may begin implicitly.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
@@ -1928,7 +2405,6 @@ not been authored, reviewed, issued, or authorized here. 10F completion must
 stop and return to the BDFL for the broad independent foundation audit before
 any AR planning.
 
-No 10B correction may begin before this status-publication gate closes. No
-10C, GitHub Issue mutation, `PRE-AQ-INTEGRITY`, dashboard, Session AR, Hum IR,
-standard-library, backend, cumulative closure, foundation-audit, or later work
-is authorized.
+No dirty-tree cleanup, 10B subincrement, 10C, GitHub Issue mutation,
+`PRE-AQ-INTEGRITY`, dashboard, Session AR, Hum IR, standard-library, backend,
+cumulative closure, foundation-audit, or later work is authorized.
