@@ -1,4 +1,6 @@
-use crate::ast::{Item, Param, Program, Section, SectionLine};
+use crate::ast::{
+    CanonicalExpression, CanonicalExpressionKind, Item, Param, Program, Section, SectionLine,
+};
 use crate::callable;
 use crate::core_body::{self, BodyGrammarReport, BodyStatement};
 use crate::core_contract;
@@ -7,7 +9,7 @@ use crate::core_expr::{
 };
 use crate::diagnostic::{Diagnostic, DiagnosticOccurrenceSet, Severity, Span};
 use crate::graph::is_meaningful_line_text;
-use crate::predicate::{self, Expr as PredicateExpr, PredicateFact, RecognitionStatus};
+use crate::predicate::{self, PredicateFact, RecognitionStatus};
 use crate::type_check::{self, CheckedReturnSummary};
 use crate::typed_failure::{self, FailureFact, ProgramFailureAnalysis};
 use crate::version;
@@ -562,12 +564,8 @@ fn core_candidate(
         Item::Task(task) => failure_analysis.task(task).cloned().unwrap_or_default(),
         _ => Default::default(),
     };
-    let mut statements = core_statement_previews(
-        item,
-        &body.statements,
-        checked_returns,
-        &failure_analysis.facts,
-    );
+    let mut statements =
+        core_statement_previews(item, &body, checked_returns, &failure_analysis.facts);
     if let Item::Task(task) = item {
         statements.extend(
             predicate_facts
@@ -616,13 +614,13 @@ fn core_candidate(
         .filter(|expression| expression.ast.type_status != core_expr::CORE_EXPRESSION_TYPE_STATUS)
         .count();
     let id = preview_id(item);
-    let block_preview = core_block_preview(&id, &statements);
+    let block_preview = core_block_preview(&id, &statements, &body.statements);
     let block_status = block_preview.status;
     let block_count = block_preview.block_count;
     let max_block_depth = block_preview.max_depth;
     let unmatched_block_closes = block_preview.unmatched_closes;
     let unclosed_blocks = block_preview.unclosed_blocks;
-    let name_preview = core_name_preview(item, &id, &statements, &block_preview);
+    let name_preview = core_name_preview(item, &id, &statements, &body.statements, &block_preview);
     let name_status = name_preview.status;
 
     Some(CoreCandidate {
@@ -695,38 +693,85 @@ fn predicate_statement_preview(fact: &PredicateFact) -> CoreStatementPreview {
 pub(crate) fn predicate_expression_preview_for_lowering(
     fact: &PredicateFact,
 ) -> CoreExpressionPreview {
-    fn node(expr: &PredicateExpr, source: &str, next_id: &mut usize) -> CoreExpressionNode {
+    fn source_text(expression: &CanonicalExpression, fact: &PredicateFact) -> String {
+        let start_chars = expression
+            .range
+            .start
+            .column
+            .saturating_sub(fact.line_span.column);
+        let start = fact
+            .text
+            .char_indices()
+            .nth(start_chars)
+            .map_or(fact.text.len(), |(index, _)| index);
+        fact.text
+            .get(
+                start
+                    ..start
+                        .saturating_add(expression.range.byte_len)
+                        .min(fact.text.len()),
+            )
+            .unwrap_or(&fact.text)
+            .to_string()
+    }
+
+    fn node(
+        expression: &CanonicalExpression,
+        fact: &PredicateFact,
+        next_id: &mut usize,
+    ) -> CoreExpressionNode {
         let id = format!("predicate_expr_{}", *next_id);
         *next_id += 1;
-        let range = expr.range();
-        let text = source
-            .get(range.start..range.end)
-            .unwrap_or(source)
-            .to_string();
-        let (form, operator, children) = match expr {
-            PredicateExpr::Bool(_, _) => ("bool_literal", None, Vec::new()),
-            PredicateExpr::Integer(_, _) => ("integer_literal", None, Vec::new()),
-            PredicateExpr::Text(_, _) => ("text_literal", None, Vec::new()),
-            PredicateExpr::ListText(_, _) => ("list_text_literal", None, Vec::new()),
-            PredicateExpr::Place(_) => ("predicate_place", None, Vec::new()),
-            PredicateExpr::Old(_, _) => ("old_place", None, Vec::new()),
-            PredicateExpr::ListLen(_, _) => ("list_len", None, Vec::new()),
-            PredicateExpr::ListCount(left, right, _) => (
-                "list_count",
-                None,
-                vec![node(left, source, next_id), node(right, source, next_id)],
+        let text = source_text(expression, fact);
+        let (form, operator, children) = match &expression.kind {
+            CanonicalExpressionKind::BoolLiteral(_) => ("bool_literal", None, Vec::new()),
+            CanonicalExpressionKind::UIntLiteral(_) | CanonicalExpressionKind::IntLiteral(_) => {
+                ("integer_literal", None, Vec::new())
+            }
+            CanonicalExpressionKind::TextLiteral(_) => ("text_literal", None, Vec::new()),
+            CanonicalExpressionKind::ListLiteral(_) => ("list_text_literal", None, Vec::new()),
+            CanonicalExpressionKind::Identifier(_) | CanonicalExpressionKind::Field { .. } => {
+                ("predicate_place", None, Vec::new())
+            }
+            CanonicalExpressionKind::Call { callee, arguments } => {
+                match callee.direct_identifier() {
+                    Some("old") => ("old_place", None, Vec::new()),
+                    Some("list_len") => ("list_len", None, Vec::new()),
+                    Some("list_count") => (
+                        "list_count",
+                        None,
+                        arguments
+                            .iter()
+                            .map(|argument| node(argument, fact, next_id))
+                            .collect(),
+                    ),
+                    _ => ("unsupported", None, Vec::new()),
+                }
+            }
+            CanonicalExpressionKind::Binary {
+                operator,
+                left,
+                right,
+                ..
+            } => (
+                if matches!(
+                    operator,
+                    crate::ast::ParsedBinaryOperator::Add
+                        | crate::ast::ParsedBinaryOperator::Subtract
+                        | crate::ast::ParsedBinaryOperator::Multiply
+                        | crate::ast::ParsedBinaryOperator::Divide
+                ) {
+                    "arithmetic"
+                } else {
+                    "predicate_comparison"
+                },
+                Some(predicate::operator_spelling(*operator)),
+                vec![node(left, fact, next_id), node(right, fact, next_id)],
             ),
-            PredicateExpr::Binary(left, arithmetic, right, _) => (
-                "arithmetic",
-                Some(match arithmetic {
-                    predicate::Arithmetic::Add => "+",
-                    predicate::Arithmetic::Subtract => "-",
-                    predicate::Arithmetic::Multiply => "*",
-                    predicate::Arithmetic::Divide => "/",
-                }),
-                vec![node(left, source, next_id), node(right, source, next_id)],
-            ),
-            PredicateExpr::Group(inner, _) => ("group", None, vec![node(inner, source, next_id)]),
+            CanonicalExpressionKind::Group(inner) => {
+                ("group", None, vec![node(inner, fact, next_id)])
+            }
+            _ => ("unsupported", None, Vec::new()),
         };
         CoreExpressionNode {
             id,
@@ -742,15 +787,23 @@ pub(crate) fn predicate_expression_preview_for_lowering(
         }
     }
 
-    let ast = fact.ast.as_ref().expect("accepted predicate has AST");
     let mut next_id = 0;
-    let left = node(&ast.left, &fact.text, &mut next_id);
-    let right = node(&ast.right, &fact.text, &mut next_id);
+    let CanonicalExpressionKind::Binary {
+        operator,
+        left,
+        right,
+        ..
+    } = &fact.canonical.kind
+    else {
+        unreachable!("accepted Predicate v2 fact must have a binary root")
+    };
+    let left = node(left, fact, &mut next_id);
+    let right = node(right, fact, &mut next_id);
     let root = CoreExpressionNode {
         id: format!("predicate_expr_{next_id}"),
         form: "predicate_comparison",
         text: fact.text.clone(),
-        operator: fact.comparison,
+        operator: Some(predicate::operator_spelling(*operator)),
         type_status: core_expr::CORE_PREDICATE_TYPE_STATUS,
         type_text: Some("Bool".to_string()),
         type_source: Some("shared_predicate_analysis_v2"),
@@ -772,7 +825,25 @@ pub(crate) fn predicate_expression_preview_for_lowering(
                 status: place.resolution,
             })
             .collect(),
-        operators: vec![fact.comparison.expect("accepted predicate operator")],
+        operators: fact
+            .canonical
+            .operators_in_source_order()
+            .into_iter()
+            .filter(|operator| {
+                matches!(
+                    operator,
+                    crate::ast::ParsedBinaryOperator::Equal
+                        | crate::ast::ParsedBinaryOperator::NotEqual
+                        | crate::ast::ParsedBinaryOperator::Less
+                        | crate::ast::ParsedBinaryOperator::LessEqual
+                        | crate::ast::ParsedBinaryOperator::Greater
+                        | crate::ast::ParsedBinaryOperator::GreaterEqual
+                        | crate::ast::ParsedBinaryOperator::And
+                        | crate::ast::ParsedBinaryOperator::Or
+                )
+            })
+            .map(predicate::operator_spelling)
+            .collect(),
         ast: CoreExpressionAstPreview {
             status: core_expr::CORE_PREDICATE_AST_STATUS,
             type_status: core_expr::CORE_PREDICATE_TYPE_STATUS,
@@ -783,20 +854,25 @@ pub(crate) fn predicate_expression_preview_for_lowering(
             root,
         },
         reason: None,
+        canonical: fact.canonical.clone(),
     }
 }
 
 fn core_statement_previews(
     item: &Item,
-    statements: &[BodyStatement],
+    body: &BodyGrammarReport,
     checked_returns: &[CheckedReturnSummary],
     failure_facts: &std::collections::BTreeMap<usize, FailureFact>,
 ) -> Vec<CoreStatementPreview> {
     let mut previews = Vec::new();
     let mut in_record_literal = false;
 
-    for (index, statement) in statements.iter().enumerate() {
-        let mut preview = core_statement_preview(statement, failure_facts.get(&index));
+    for (index, statement) in body.statements.iter().enumerate() {
+        let mut preview = core_statement_preview(
+            statement,
+            body.canonical_expressions[index].as_ref(),
+            failure_facts.get(&index),
+        );
         if let Some(checked_return) = checked_return_for_statement(item, statement, checked_returns)
         {
             annotate_return_expression_type(&mut preview, checked_return);
@@ -817,6 +893,7 @@ fn core_statement_previews(
 }
 fn core_statement_preview(
     statement: &BodyStatement,
+    canonical: Option<&crate::ast::CanonicalExpression>,
     failure_fact: Option<&FailureFact>,
 ) -> CoreStatementPreview {
     let (core_operation, status, fallback_reason) = match statement.kind {
@@ -865,8 +942,10 @@ fn core_statement_preview(
     } else {
         status
     };
-    let expression_preview =
-        expression_text_for_statement(statement).map(core_expr::analyze_expression);
+    let expression_preview = canonical.map(|canonical| {
+        let text = core_expr::canonical_text(canonical);
+        core_expr::analyze_canonical_expression(canonical, &text, statement.expression_kind)
+    });
 
     CoreStatementPreview {
         span: portable_span(&statement.span),
@@ -895,15 +974,10 @@ fn checked_return_for_statement<'a>(
     if item.kind() != "task" || statement.kind != "return" {
         return None;
     }
-    let expression_text = strip_keyword(&statement.text, "return")?.trim();
-    let span = portable_span(&statement.span);
     checked_returns.iter().find(|checked_return| {
         checked_return.owner_kind == "task"
             && checked_return.owner_name == item.name()
-            && checked_return.source_span.file == span.file
-            && checked_return.source_span.line == span.line
-            && checked_return.source_span.column == span.column
-            && checked_return.expression_text == expression_text
+            && checked_return.source_node_id == statement.parsed.source_node_id.as_str()
     })
 }
 
@@ -939,59 +1013,19 @@ fn checked_return_type_status(status: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-fn expression_text_for_statement(statement: &BodyStatement) -> Option<&str> {
-    match statement.kind {
-        "return" => strip_keyword(&statement.text, "return"),
-        "fail" => strip_keyword(&statement.text, "fail"),
-        "if_header" => header_body(&statement.text, "if"),
-        "while_header" => header_body(&statement.text, "while"),
-        "for_each_header" => for_each_collection(&statement.text),
-        "for_index_header" => header_body(&statement.text, "for index"),
-        "let_binding" | "mutable_binding" | "set_place" => statement
-            .text
-            .split_once('=')
-            .map(|(_left, expression)| expression.trim()),
-        "record_field_initializer" => statement
-            .text
-            .split_once(':')
-            .map(|(_field, expression)| expression.trim()),
-        "test_expectation" => strip_keyword(&statement.text, "expect"),
-        _ => None,
-    }
-}
-
-fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = strip_keyword(text, keyword)?;
-    rest.strip_suffix('{').map(str::trim)
-}
-
-fn for_each_collection(text: &str) -> Option<&str> {
-    let body = header_body(text, "for each")?;
-    body.split_once(" in ")
-        .map(|(_binding, collection)| collection.trim())
-}
-
-fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    if text == keyword {
-        return Some("");
-    }
-    text.strip_prefix(keyword)
-        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
-        .map(str::trim)
-}
-
-fn core_block_preview(candidate_id: &str, statements: &[CoreStatementPreview]) -> CoreBlockPreview {
+fn core_block_preview(
+    candidate_id: &str,
+    statements: &[CoreStatementPreview],
+    body_statements: &[BodyStatement],
+) -> CoreBlockPreview {
     let mut cursor = 0usize;
-    let mut serial = 0usize;
-    let mut root = parse_block_node(
+    let mut parser = CoreBlockParser {
         candidate_id,
-        "root",
-        None,
-        None,
         statements,
-        &mut cursor,
-        &mut serial,
-    );
+        body_statements,
+        serial: 0,
+    };
+    let mut root = parser.parse_block_node("root", None, None, &mut cursor);
     let block_count = count_block_nodes(&root);
     let max_depth = max_block_depth(&root, 0);
     let unmatched_closes = count_unmatched_closes(&root);
@@ -1013,76 +1047,88 @@ fn core_block_preview(candidate_id: &str, statements: &[CoreStatementPreview]) -
     }
 }
 
-fn parse_block_node(
-    candidate_id: &str,
-    block_kind: &'static str,
-    header_statement_index: Option<usize>,
-    reason: Option<&'static str>,
-    statements: &[CoreStatementPreview],
-    cursor: &mut usize,
-    serial: &mut usize,
-) -> CoreBlockNode {
-    let id = next_block_id(candidate_id, block_kind, header_statement_index, serial);
-    let mut node = CoreBlockNode {
-        id,
-        block_kind,
-        status: block_status(block_kind, true),
-        header_statement_index,
-        closing_statement_index: None,
-        children: Vec::new(),
-        reason,
-    };
+struct CoreBlockParser<'a> {
+    candidate_id: &'a str,
+    statements: &'a [CoreStatementPreview],
+    body_statements: &'a [BodyStatement],
+    serial: usize,
+}
 
-    while *cursor < statements.len() {
-        let statement_index = *cursor;
-        let statement = &statements[statement_index];
-        if statement.source_kind == "block_close" {
-            if block_kind == "root" {
+impl CoreBlockParser<'_> {
+    fn parse_block_node(
+        &mut self,
+        block_kind: &'static str,
+        header_statement_index: Option<usize>,
+        reason: Option<&'static str>,
+        cursor: &mut usize,
+    ) -> CoreBlockNode {
+        let id = next_block_id(
+            self.candidate_id,
+            block_kind,
+            header_statement_index,
+            &mut self.serial,
+        );
+        let mut node = CoreBlockNode {
+            id,
+            block_kind,
+            status: block_status(block_kind, true),
+            header_statement_index,
+            closing_statement_index: None,
+            children: Vec::new(),
+            reason,
+        };
+
+        while *cursor < self.statements.len() {
+            let statement_index = *cursor;
+            let statement = &self.statements[statement_index];
+            let relationship = self
+                .body_statements
+                .get(statement_index)
+                .map(|statement| statement.parsed.block_relationship)
+                .unwrap_or(crate::ast::ParsedBlockRelationship::None);
+            if relationship == crate::ast::ParsedBlockRelationship::Closes {
+                if block_kind == "root" {
+                    node.children
+                        .push(CoreBlockChild::Statement(CoreBlockStatementRef {
+                            statement_index,
+                            core_operation: statement.core_operation,
+                            status: "unmatched_block_close_v0",
+                            reason: Some("unmatched_block_close"),
+                        }));
+                    *cursor += 1;
+                    continue;
+                }
+
+                node.closing_statement_index = Some(statement_index);
+                *cursor += 1;
+                return node;
+            }
+
+            if relationship == crate::ast::ParsedBlockRelationship::Opens
+                && let Some((child_kind, child_reason)) = opened_block_kind(statement)
+            {
+                *cursor += 1;
+                let child =
+                    self.parse_block_node(child_kind, Some(statement_index), child_reason, cursor);
+                node.children.push(CoreBlockChild::Block(child));
+            } else {
                 node.children
                     .push(CoreBlockChild::Statement(CoreBlockStatementRef {
                         statement_index,
                         core_operation: statement.core_operation,
-                        status: "unmatched_block_close_v0",
-                        reason: Some("unmatched_block_close"),
+                        status: statement.status,
+                        reason: statement.reason,
                     }));
                 *cursor += 1;
-                continue;
             }
-
-            node.closing_statement_index = Some(statement_index);
-            *cursor += 1;
-            return node;
         }
 
-        if let Some((child_kind, child_reason)) = opened_block_kind(statement) {
-            *cursor += 1;
-            let child = parse_block_node(
-                candidate_id,
-                child_kind,
-                Some(statement_index),
-                child_reason,
-                statements,
-                cursor,
-                serial,
-            );
-            node.children.push(CoreBlockChild::Block(child));
-        } else {
-            node.children
-                .push(CoreBlockChild::Statement(CoreBlockStatementRef {
-                    statement_index,
-                    core_operation: statement.core_operation,
-                    status: statement.status,
-                    reason: statement.reason,
-                }));
-            *cursor += 1;
+        if block_kind != "root" {
+            node.status = "unclosed_block_preview_v0";
+            node.reason = Some("block_close_missing");
         }
+        node
     }
-
-    if block_kind != "root" {
-        node.status = "unclosed_block_preview_v0";
-        node.reason = Some("block_close_missing");
-    }
-    node
 }
 
 fn opened_block_kind(
@@ -1188,6 +1234,7 @@ fn count_unclosed_blocks(node: &CoreBlockNode) -> usize {
 struct NamePreviewContext<'a> {
     candidate_id: &'a str,
     statements: &'a [CoreStatementPreview],
+    body_statements: &'a [BodyStatement],
     definitions: Vec<CoreNameDefinition>,
     references: Vec<CoreNameReference>,
     scopes: Vec<CoreNameScope>,
@@ -1198,10 +1245,15 @@ struct NamePreviewContext<'a> {
 }
 
 impl<'a> NamePreviewContext<'a> {
-    fn new(candidate_id: &'a str, statements: &'a [CoreStatementPreview]) -> Self {
+    fn new(
+        candidate_id: &'a str,
+        statements: &'a [CoreStatementPreview],
+        body_statements: &'a [BodyStatement],
+    ) -> Self {
         Self {
             candidate_id,
             statements,
+            body_statements,
             definitions: Vec::new(),
             references: Vec::new(),
             scopes: Vec::new(),
@@ -1359,9 +1411,15 @@ impl<'a> NamePreviewContext<'a> {
     }
 
     fn process_statement_references(&mut self, scope_id: &str, statement_index: usize) {
+        let Some(body_statement) = self.body_statements.get(statement_index) else {
+            return;
+        };
         let (references, span) = {
             let statement = &self.statements[statement_index];
-            (statement_name_references(statement), statement.span.clone())
+            (
+                statement_name_references(body_statement),
+                statement.span.clone(),
+            )
         };
 
         for reference in references {
@@ -1379,9 +1437,12 @@ impl<'a> NamePreviewContext<'a> {
     }
 
     fn process_statement_definition(&mut self, scope_id: &str, statement_index: usize) {
+        let Some(body_statement) = self.body_statements.get(statement_index) else {
+            return;
+        };
         let (definition, span) = {
-            let statement = &self.statements[statement_index];
-            (statement_definition(statement), statement.span.clone())
+            let preview = &self.statements[statement_index];
+            (statement_definition(body_statement), preview.span.clone())
         };
 
         if let Some((name, definition_kind)) = definition {
@@ -1525,9 +1586,10 @@ fn core_name_preview(
     item: &Item,
     candidate_id: &str,
     statements: &[CoreStatementPreview],
+    body_statements: &[BodyStatement],
     block_preview: &CoreBlockPreview,
 ) -> CoreNamePreview {
-    NamePreviewContext::new(candidate_id, statements).build(item, block_preview)
+    NamePreviewContext::new(candidate_id, statements, body_statements).build(item, block_preview)
 }
 
 fn lexical_block_scope_kind(block_kind: &str) -> bool {
@@ -1582,131 +1644,102 @@ fn declared_name_from_line(text: &str) -> Option<String> {
     Some(text.to_string())
 }
 
-fn statement_definition(statement: &CoreStatementPreview) -> Option<(String, &'static str)> {
-    match statement.source_kind {
-        "let_binding" => binding_name(&statement.text, "let").map(|name| (name, "let_binding")),
-        "mutable_binding" => {
-            binding_name(&statement.text, "change").map(|name| (name, "mutable_binding"))
-        }
-        "for_each_header" => {
-            for_each_binding(&statement.text).map(|name| (name, "for_each_binding"))
-        }
-        "for_index_header" => {
-            for_index_binding(&statement.text).map(|name| (name, "for_index_binding"))
-        }
+fn statement_definition(statement: &BodyStatement) -> Option<(String, &'static str)> {
+    match statement.kind {
+        "let_binding" => statement
+            .binding_name()
+            .map(|name| (name.to_string(), "let_binding")),
+        "mutable_binding" => statement
+            .binding_name()
+            .map(|name| (name.to_string(), "mutable_binding")),
+        "for_each_header" => statement
+            .loop_binding()
+            .map(|name| (name.to_string(), "for_each_binding")),
+        "for_index_header" => statement
+            .loop_binding()
+            .map(|name| (name.to_string(), "for_index_binding")),
         _ => None,
     }
 }
 
-fn statement_name_references(statement: &CoreStatementPreview) -> Vec<PendingNameReference> {
+fn statement_name_references(statement: &BodyStatement) -> Vec<PendingNameReference> {
     let mut references = Vec::new();
-    if statement.source_kind == "set_place"
-        && let Some(target) = set_target(&statement.text)
+    if statement.kind == "set_place"
+        && let Some((target, _, _)) = statement
+            .set_target()
+            .and_then(|target| target.direct_place())
     {
         references.push(PendingNameReference {
-            name: target,
+            name: target.to_string(),
             reference_kind: "mutation_target",
             external_if_unresolved: false,
         });
     }
 
-    if let Some(expression) = &statement.expression_preview {
-        references.extend(expression_name_references(expression));
+    if let Some(expression) = statement.primary_expression() {
+        collect_canonical_name_references(expression, false, &mut references);
     }
     references
 }
 
-fn expression_name_references(expression: &CoreExpressionPreview) -> Vec<PendingNameReference> {
-    let mut references = Vec::new();
-    for (index, atom) in expression.atoms.iter().enumerate() {
-        if skips_predicate_atom(expression, index) {
-            continue;
+fn collect_canonical_name_references(
+    expression: &crate::ast::CanonicalExpression,
+    callee_position: bool,
+    out: &mut Vec<PendingNameReference>,
+) {
+    use crate::ast::{CanonicalExpressionKind as Kind, ParsedBinaryOperator};
+
+    match &expression.kind {
+        Kind::Identifier(name) => out.push(PendingNameReference {
+            name: name.clone(),
+            reference_kind: if callee_position {
+                "callee_ref"
+            } else {
+                "name_ref"
+            },
+            external_if_unresolved: callee_position,
+        }),
+        Kind::Field { base, .. } | Kind::Element { base, .. } => {
+            collect_canonical_name_references(base, false, out);
         }
-        match atom.kind {
-            "name" => references.push(PendingNameReference {
-                name: atom.text.clone(),
-                reference_kind: "name_ref",
-                external_if_unresolved: false,
-            }),
-            "path_or_field_read" => {
-                if let Some(root) = path_root(&atom.text) {
-                    references.push(PendingNameReference {
-                        external_if_unresolved: is_external_root(&root),
-                        name: root,
-                        reference_kind: "path_root_ref",
-                    });
-                }
-            }
-            "callee_name" => references.push(PendingNameReference {
-                name: atom.text.clone(),
-                reference_kind: "callee_ref",
-                external_if_unresolved: true,
-            }),
-            "call_like" => {
-                if let Some(callee) = call_callee(&atom.text) {
-                    references.push(PendingNameReference {
-                        name: callee,
-                        reference_kind: "callee_ref",
-                        external_if_unresolved: true,
-                    });
-                }
-            }
-            _ => {}
+        Kind::Permission { value, .. } | Kind::Group(value) => {
+            collect_canonical_name_references(value, false, out);
         }
+        Kind::Try { call, .. } => collect_canonical_name_references(call, false, out),
+        Kind::Call { callee, arguments } => {
+            collect_canonical_name_references(callee, true, out);
+            for argument in arguments {
+                collect_canonical_name_references(argument, false, out);
+            }
+        }
+        Kind::Binary {
+            operator,
+            left,
+            right,
+            ..
+        } => {
+            collect_canonical_name_references(left, false, out);
+            if *operator != ParsedBinaryOperator::Is {
+                collect_canonical_name_references(right, false, out);
+            }
+        }
+        Kind::ListLiteral(values) => {
+            for value in values {
+                collect_canonical_name_references(value, false, out);
+            }
+        }
+        Kind::RecordLiteral { fields, .. } => {
+            for (_, value) in fields {
+                collect_canonical_name_references(value, false, out);
+            }
+        }
+        Kind::Unit
+        | Kind::UIntLiteral(_)
+        | Kind::IntLiteral(_)
+        | Kind::BoolLiteral(_)
+        | Kind::TextLiteral(_)
+        | Kind::Unsupported => {}
     }
-    references
-}
-
-fn skips_predicate_atom(expression: &CoreExpressionPreview, index: usize) -> bool {
-    expression.operators.len() == 1 && expression.operators[0] == "is" && index > 0
-}
-
-fn binding_name(text: &str, keyword: &str) -> Option<String> {
-    let rest = strip_keyword(text, keyword)?;
-    let (left, _right) = rest.split_once('=')?;
-    let name = left.split_once(':').map_or(left, |(name, _ty)| name).trim();
-    (!name.is_empty()).then(|| name.to_string())
-}
-
-fn for_each_binding(text: &str) -> Option<String> {
-    let body = header_body(text, "for each")?;
-    body.split_once(" in ")
-        .map(|(binding, _collection)| binding.trim().to_string())
-        .filter(|binding| !binding.is_empty())
-}
-
-fn for_index_binding(text: &str) -> Option<String> {
-    let body = header_body(text, "for index")?;
-    body.split_whitespace().next().map(str::to_string)
-}
-
-fn set_target(text: &str) -> Option<String> {
-    let rest = strip_keyword(text, "set")?;
-    rest.split_once('=')
-        .map(|(target, _value)| target.trim().to_string())
-        .filter(|target| !target.is_empty())
-}
-
-fn path_root(text: &str) -> Option<String> {
-    let text = strip_permission_expression(text);
-    text.split(['.', '['])
-        .next()
-        .map(str::trim)
-        .filter(|root| !root.is_empty() && *root != text)
-        .map(str::to_string)
-}
-
-fn strip_permission_expression(text: &str) -> &str {
-    ["borrow", "change", "consume"]
-        .iter()
-        .find_map(|keyword| strip_keyword(text.trim(), keyword))
-        .unwrap_or(text)
-}
-
-fn call_callee(text: &str) -> Option<String> {
-    text.split_once('(')
-        .map(|(callee, _args)| callee.trim().to_string())
-        .filter(|callee| !callee.is_empty())
 }
 
 fn is_external_root(name: &str) -> bool {

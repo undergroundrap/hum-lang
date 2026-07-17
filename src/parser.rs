@@ -1,14 +1,15 @@
 use crate::ast::{
-    App, CallableTypeSyntax, CanonicalExpression, CanonicalExpressionKind, Field, Item, Param,
-    ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship, ParsedBodyStatement,
-    ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus, ParsedCallTrailingStatus,
-    ParsedEffectDeclaration, ParsedEffectDeclarationKind, ParsedExpression, ParsedExpressionKind,
-    ParsedIdentifier, ParsedSourceRange, ParserSyntaxNodeId, Section, SectionLine, SourceFile,
-    Store, Task, Test, TypeDef, TypeSyntax, TypeSyntaxKind,
+    App, CallableTypeSyntax, CanonicalExpression, CanonicalExpressionKind, ExpressionLexicalCause,
+    Field, Item, Param, ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship,
+    ParsedBodyStatement, ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus,
+    ParsedCallSyntax, ParsedCallTrailingStatus, ParsedEffectDeclaration,
+    ParsedEffectDeclarationKind, ParsedExpression, ParsedExpressionKind,
+    ParsedExpressionLexicalIssue, ParsedIdentifier, ParsedOperatorOccurrence, ParsedSourceRange,
+    ParsedStatementFacts, ParserSyntaxNodeId, Section, SectionLine, SourceFile, Store, Task, Test,
+    TypeDef, TypeSyntax, TypeSyntaxKind,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::syntax;
-use crate::typed_failure;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct ParsedCallPosition {
@@ -427,7 +428,7 @@ impl Parser {
                     cursor += 1;
                 }
 
-                let body_syntax = if name == "does" {
+                let mut body_syntax = if name == "does" {
                     let semantic_node = self
                         .current_semantic_node
                         .as_deref()
@@ -449,10 +450,45 @@ impl Parser {
                 } else {
                     vec![None; lines.len()]
                 };
+                for statement in body_syntax.iter_mut().flatten() {
+                    for expression in statement_expressions_mut(statement) {
+                        self.record_chained_comparison(expression);
+                    }
+                }
+                let mut predicate_syntax = if matches!(name.as_str(), "needs" | "ensures") {
+                    let semantic_node = self
+                        .current_semantic_node
+                        .as_deref()
+                        .unwrap_or("resolver-item:unknown");
+                    lines
+                        .iter()
+                        .enumerate()
+                        .map(|(line_index, line)| {
+                            let text = line.text.trim();
+                            if text.is_empty() || text.starts_with('#') || text.starts_with("//") {
+                                return None;
+                            }
+                            let node_id = ParserSyntaxNodeId::new(format!(
+                                "{semantic_node}:section-{name}:line-{line_index}:predicate"
+                            ));
+                            Some(parse_predicate_expression_syntax(
+                                text,
+                                line.span.clone(),
+                                node_id,
+                            ))
+                        })
+                        .collect()
+                } else {
+                    vec![None; lines.len()]
+                };
+                for expression in predicate_syntax.iter_mut().flatten() {
+                    self.record_chained_comparison(expression);
+                }
                 sections.push(Section {
                     name,
                     lines,
                     body_syntax,
+                    predicate_syntax,
                     span: self.span(line.number),
                 });
                 index = cursor;
@@ -720,6 +756,46 @@ impl Parser {
         );
     }
 
+    fn record_chained_comparison(&mut self, expression: &mut ParsedExpression) {
+        let Some(chain) = chained_comparison(&expression.canonical) else {
+            return;
+        };
+        expression.lexical_issue = Some(ParsedExpressionLexicalIssue {
+            cause: ExpressionLexicalCause::ChainedComparison,
+            range: chain.later_range.clone(),
+            expected: "one comparison or independent comparisons joined with `and`",
+            actual: format!(
+                "`{}` after an existing `{}` comparison",
+                operator_spelling(chain.later_operator),
+                operator_spelling(chain.first_operator)
+            ),
+            related_range: Some(chain.first_range.clone()),
+        });
+        let repair = format!(
+            "Repeat the middle operand and join independent comparisons: `{} {} {} and {} {} {}`.",
+            canonical_help_text(chain.first_left),
+            operator_spelling(chain.first_operator),
+            canonical_help_text(chain.middle),
+            canonical_help_text(chain.middle),
+            operator_spelling(chain.later_operator),
+            canonical_help_text(chain.later_right),
+        );
+        self.emit(
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(179),
+            "chained_comparison",
+            Diagnostic::error(
+                DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED,
+                "comparison chaining is not supported.",
+                Some(chain.later_range.start.clone()),
+            )
+            .with_related_span(
+                "comparison already being chained",
+                chain.first_range.start.clone(),
+            )
+            .with_help(repair),
+        );
+    }
+
     fn emit(
         &mut self,
         cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
@@ -764,6 +840,123 @@ impl Parser {
     }
 }
 
+fn statement_expressions_mut(statement: &mut ParsedBodyStatement) -> Vec<&mut ParsedExpression> {
+    match &mut statement.kind {
+        ParsedBodyStatementKind::Return(expression) => vec![expression],
+        ParsedBodyStatementKind::Binding { value, .. } => value.iter_mut().collect(),
+        ParsedBodyStatementKind::Other { expressions } => expressions.iter_mut().collect(),
+    }
+}
+
+struct ChainedComparison<'a> {
+    first_left: &'a CanonicalExpression,
+    middle: &'a CanonicalExpression,
+    later_right: &'a CanonicalExpression,
+    first_operator: ParsedBinaryOperator,
+    later_operator: ParsedBinaryOperator,
+    first_range: &'a ParsedSourceRange,
+    later_range: &'a ParsedSourceRange,
+}
+
+fn chained_comparison(expression: &CanonicalExpression) -> Option<ChainedComparison<'_>> {
+    let CanonicalExpressionKind::Binary {
+        operator: later_operator,
+        operator_range: later_range,
+        left,
+        right: later_right,
+    } = &expression.kind
+    else {
+        return None;
+    };
+    if !is_comparison_operator(*later_operator) {
+        return None;
+    }
+    let mut first = left.as_ref();
+    while let CanonicalExpressionKind::Group(inner) = &first.kind {
+        first = inner;
+    }
+    let CanonicalExpressionKind::Binary {
+        operator: first_operator,
+        operator_range: first_range,
+        left: first_left,
+        right: middle,
+    } = &first.kind
+    else {
+        return None;
+    };
+    is_comparison_operator(*first_operator).then_some(ChainedComparison {
+        first_left,
+        middle,
+        later_right,
+        first_operator: *first_operator,
+        later_operator: *later_operator,
+        first_range,
+        later_range,
+    })
+}
+
+fn is_comparison_operator(operator: ParsedBinaryOperator) -> bool {
+    matches!(
+        operator,
+        ParsedBinaryOperator::Equal
+            | ParsedBinaryOperator::NotEqual
+            | ParsedBinaryOperator::Less
+            | ParsedBinaryOperator::LessEqual
+            | ParsedBinaryOperator::Greater
+            | ParsedBinaryOperator::GreaterEqual
+    )
+}
+
+fn operator_spelling(operator: ParsedBinaryOperator) -> &'static str {
+    match operator {
+        ParsedBinaryOperator::Multiply => "*",
+        ParsedBinaryOperator::Divide => "/",
+        ParsedBinaryOperator::Add => "+",
+        ParsedBinaryOperator::Subtract => "-",
+        ParsedBinaryOperator::Equal => "==",
+        ParsedBinaryOperator::NotEqual => "!=",
+        ParsedBinaryOperator::Less => "<",
+        ParsedBinaryOperator::LessEqual => "<=",
+        ParsedBinaryOperator::Greater => ">",
+        ParsedBinaryOperator::GreaterEqual => ">=",
+        ParsedBinaryOperator::Is => "is",
+        ParsedBinaryOperator::Does => "does",
+        ParsedBinaryOperator::Returns => "returns",
+        ParsedBinaryOperator::FailsWith => "fails with",
+        ParsedBinaryOperator::And => "and",
+        ParsedBinaryOperator::Or => "or",
+    }
+}
+
+fn canonical_help_text(expression: &CanonicalExpression) -> String {
+    match &expression.kind {
+        CanonicalExpressionKind::Identifier(name) => name.clone(),
+        CanonicalExpressionKind::UIntLiteral(value) => value.to_string(),
+        CanonicalExpressionKind::IntLiteral(value) => value.to_string(),
+        CanonicalExpressionKind::BoolLiteral(value) => value.to_string(),
+        CanonicalExpressionKind::TextLiteral(value) => format!("\"{value}\""),
+        CanonicalExpressionKind::Field { base, field } => {
+            format!("{}.{field}", canonical_help_text(base))
+        }
+        CanonicalExpressionKind::Element { base, index } => {
+            format!("{}[{index}]", canonical_help_text(base))
+        }
+        CanonicalExpressionKind::Group(inner) => format!("({})", canonical_help_text(inner)),
+        CanonicalExpressionKind::Binary {
+            operator,
+            left,
+            right,
+            ..
+        } => format!(
+            "{} {} {}",
+            canonical_help_text(left),
+            operator_spelling(*operator),
+            canonical_help_text(right)
+        ),
+        _ => "<operand>".to_string(),
+    }
+}
+
 fn parse_task_body_syntax(sections: &[Section]) -> Vec<ParsedBodyStatement> {
     let Some(section) = sections.iter().find(|section| section.name == "does") else {
         return Vec::new();
@@ -804,19 +997,39 @@ fn validate_retained_body_syntax(statements: &[ParsedBodyStatement]) -> Result<(
         }
         match &statement.kind {
             ParsedBodyStatementKind::Return(expression) => {
-                validate_canonical_expression(&expression.canonical)?;
+                validate_parsed_expression(expression)?;
             }
             ParsedBodyStatementKind::Binding { value, .. } => {
                 if let Some(expression) = value {
-                    validate_canonical_expression(&expression.canonical)?;
+                    validate_parsed_expression(expression)?;
                 }
             }
             ParsedBodyStatementKind::Other { expressions } => {
                 for expression in expressions {
-                    validate_canonical_expression(&expression.canonical)?;
+                    validate_parsed_expression(expression)?;
                 }
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_parsed_expression(expression: &ParsedExpression) -> Result<(), &'static str> {
+    validate_canonical_expression(&expression.canonical)?;
+    let mut operators = Vec::new();
+    collect_operator_occurrences(&expression.canonical, &mut operators);
+    if operators != expression.operator_occurrences {
+        return Err("parser_operator_occurrence_projection_corrupt_v0");
+    }
+    let mut calls = Vec::new();
+    collect_call_syntax(&expression.canonical, &mut calls);
+    if calls != expression.call_syntax {
+        return Err("parser_call_syntax_projection_corrupt_v0");
+    }
+    if expression.intent_range.is_none()
+        && (expression.lexical_issue.is_some() || expression.max_delimiter_depth != 0)
+    {
+        return Err("parser_predicate_lexical_projection_without_intent_v0");
     }
     Ok(())
 }
@@ -1161,8 +1374,10 @@ fn parsed_body_statement(
 ) -> ParsedBodyStatement {
     let (core_kind, core_status, core_expression_kind, core_reason) =
         parser_core_shape(line.text.trim(), &kind);
+    let facts = parser_statement_facts(line.text.trim(), &kind, &line.span, &source_node_id);
     ParsedBodyStatement {
         kind,
+        facts,
         span: line.span.clone(),
         source_node_id,
         block_relationship,
@@ -1173,6 +1388,99 @@ fn parsed_body_statement(
         core_expression_kind,
         core_reason,
     }
+}
+
+fn parser_statement_facts(
+    text: &str,
+    kind: &ParsedBodyStatementKind,
+    span: &Span,
+    source_node_id: &ParserSyntaxNodeId,
+) -> ParsedStatementFacts {
+    let mut facts = ParsedStatementFacts::default();
+    if let ParsedBodyStatementKind::Binding { .. } = kind {
+        let keyword = if keyword_rest(text, "let").is_some() {
+            "let"
+        } else {
+            "change"
+        };
+        if let Some(rest) = keyword_rest(text, keyword) {
+            let left = find_top_level_char(rest, '=').map_or(rest, |index| &rest[..index]);
+            facts.binding_annotation = left
+                .split_once(':')
+                .map(|(_, annotation)| annotation.trim().to_string())
+                .filter(|annotation| !annotation.is_empty());
+        }
+    }
+    if let Some(rest) = keyword_rest(text, "set")
+        && let Some(equals) = find_top_level_char(rest, '=')
+    {
+        let raw = &rest[..equals];
+        let leading = raw.len() - raw.trim_start().len();
+        let target = raw.trim();
+        if !target.is_empty() {
+            facts.set_target = Some(parse_expression_syntax(
+                target,
+                offset_span(span, text.len() - rest.len() + leading),
+                source_node_id.child("set-target"),
+            ));
+        }
+    }
+    if let Some(rest) = keyword_rest(text, "save")
+        && let Some((_value, target)) = rest.split_once(" in ")
+    {
+        let target = target.trim();
+        if is_value_identifier(target) {
+            facts.save_target = Some(ParsedIdentifier {
+                name: target.to_string(),
+                span: offset_span(span, text.find(target).unwrap_or_default()),
+            });
+        }
+    }
+    let first_expression = match kind {
+        ParsedBodyStatementKind::Other { expressions } => expressions.first().cloned(),
+        _ => None,
+    };
+    if keyword_rest(text, "if").is_some() || keyword_rest(text, "while").is_some() {
+        facts.condition = first_expression.clone();
+    }
+    if let Some(rest) = keyword_rest(text, "for each")
+        && let Some((binding, _collection)) = rest.split_once(" in ")
+    {
+        let binding = binding.trim();
+        if is_value_identifier(binding) {
+            facts.loop_binding = Some(ParsedIdentifier {
+                name: binding.to_string(),
+                span: offset_span(span, text.find(binding).unwrap_or_default()),
+            });
+        }
+        facts.loop_collection = first_expression.clone();
+    }
+    if let Some(rest) = keyword_rest(text, "for index") {
+        let binding = rest
+            .split_ascii_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim();
+        if is_value_identifier(binding) {
+            facts.loop_binding = Some(ParsedIdentifier {
+                name: binding.to_string(),
+                span: offset_span(span, text.find(binding).unwrap_or_default()),
+            });
+        }
+        facts.loop_collection = first_expression;
+    }
+    if is_record_field_initializer_text(text)
+        && let Some((field, _)) = text.split_once(':')
+    {
+        let field = field.trim();
+        if is_value_identifier(field) {
+            facts.record_field = Some(ParsedIdentifier {
+                name: field.to_string(),
+                span: offset_span(span, text.find(field).unwrap_or_default()),
+            });
+        }
+    }
+    facts
 }
 
 fn parser_core_shape(
@@ -1372,7 +1680,7 @@ fn parser_expression_kind_for_condition(text: &str) -> &'static str {
 
 fn parser_expression_kind(text: &str) -> &'static str {
     let text = text.trim();
-    if typed_failure::is_try_candidate(text) {
+    if keyword_rest(text, "try").is_some() {
         "try_call_like"
     } else if text.is_empty() {
         "unit"
@@ -1408,6 +1716,12 @@ fn validate_canonical_expression(expression: &CanonicalExpression) -> Result<(),
     validate_canonical_node(expression, None, &mut identities)
 }
 
+pub(crate) fn validate_canonical_expression_for_consumer(
+    expression: &CanonicalExpression,
+) -> Result<(), &'static str> {
+    validate_canonical_expression(expression)
+}
+
 fn validate_canonical_node(
     expression: &CanonicalExpression,
     expected_id: Option<&ParserSyntaxNodeId>,
@@ -1439,6 +1753,9 @@ fn validate_canonical_node(
         CanonicalExpressionKind::Field { base, .. } => {
             validate_child(base, "field-base", identities)?;
         }
+        CanonicalExpressionKind::Element { base, .. } => {
+            validate_child(base, "element-base", identities)?;
+        }
         CanonicalExpressionKind::ListLiteral(values) => {
             for (index, value) in values.iter().enumerate() {
                 validate_child(value, &format!("list-item-{index}"), identities)?;
@@ -1457,6 +1774,9 @@ fn validate_canonical_node(
         }
         CanonicalExpressionKind::Permission { value, .. } => {
             validate_child(value, "permission-value", identities)?;
+        }
+        CanonicalExpressionKind::Try { call, .. } => {
+            validate_child(call, "try-call", identities)?;
         }
         CanonicalExpressionKind::Binary { left, right, .. } => {
             validate_child(left, "binary-left", identities)?;
@@ -1511,6 +1831,9 @@ fn parse_other_statement_expressions(
                 text.len() - collection.len(),
             )
         })
+    } else if is_record_field_initializer_text(text) {
+        text.split_once(':')
+            .map(|(_field, value)| (value, text.len() - value.len()))
     } else if text != "}" && !text.ends_with(':') {
         Some((text, 0))
     } else {
@@ -1543,41 +1866,45 @@ fn parse_expression_syntax(
     ] {
         if let Some(rest) = keyword_rest(text, keyword) {
             let offset = text.len() - rest.len();
-            return ParsedExpression {
-                kind: ParsedExpressionKind::Permission {
+            let value = parse_expression_syntax(
+                rest,
+                offset_span(&span, offset),
+                source_node_id.child("permission-value"),
+            );
+            let canonical = parse_canonical_expression(text, &span, source_node_id);
+            return parsed_expression(
+                ParsedExpressionKind::Permission {
                     permission,
-                    value: Box::new(parse_expression_syntax(
-                        rest,
-                        offset_span(&span, offset),
-                        source_node_id.child("permission-value"),
-                    )),
+                    value: Box::new(value),
                 },
-                canonical: parse_canonical_expression(text, &span, source_node_id),
+                canonical,
                 span,
-            };
+            );
         }
     }
     if is_value_identifier(text) {
-        return ParsedExpression {
-            kind: ParsedExpressionKind::Identifier(ParsedIdentifier {
+        let canonical = parse_canonical_expression(text, &span, source_node_id);
+        return parsed_expression(
+            ParsedExpressionKind::Identifier(ParsedIdentifier {
                 name: text.to_string(),
                 span: span.clone(),
             }),
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            canonical,
             span,
-        };
+        );
     }
     if !text.is_empty() && text.chars().all(|ch| ch.is_ascii_digit()) {
-        return ParsedExpression {
-            kind: text.parse::<u64>().map_or(
+        let canonical = parse_canonical_expression(text, &span, source_node_id);
+        return parsed_expression(
+            text.parse::<u64>().map_or(
                 ParsedExpressionKind::Unsupported {
                     reason: "uint_literal_out_of_range_v0",
                 },
                 ParsedExpressionKind::UIntLiteral,
             ),
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            canonical,
             span,
-        };
+        );
     }
 
     let parser_owned_calls = parser_owned_top_level_call_ranges(text);
@@ -1597,11 +1924,8 @@ fn parse_expression_syntax(
                 )
             })
             .collect();
-        return ParsedExpression {
-            kind: ParsedExpressionKind::Compound { operands },
-            canonical: parse_canonical_expression(text, &span, source_node_id),
-            span,
-        };
+        let canonical = parse_canonical_expression(text, &span, source_node_id);
+        return parsed_expression(ParsedExpressionKind::Compound { operands }, canonical, span);
     }
 
     if let Some(open) = text.find('(') {
@@ -1645,17 +1969,18 @@ fn parse_expression_syntax(
             })
             .collect();
         let trailing = classify_call_trailing(trailing);
-        return ParsedExpression {
-            kind: ParsedExpressionKind::Call(ParsedCall {
+        let canonical = parse_canonical_expression(text, &span, source_node_id);
+        return parsed_expression(
+            ParsedExpressionKind::Call(ParsedCall {
                 callee: Box::new(callee),
                 arguments,
                 argument_separators_hws_valid,
                 close_status: close,
                 trailing_status: trailing,
             }),
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            canonical,
             span,
-        };
+        );
     }
 
     if let Some(open) = text.find('[')
@@ -1667,38 +1992,779 @@ fn parse_expression_syntax(
             span.clone(),
             source_node_id.child("call-callee"),
         );
-        return ParsedExpression {
-            kind: ParsedExpressionKind::Call(ParsedCall {
+        let canonical = parse_canonical_expression(text, &span, source_node_id);
+        return parsed_expression(
+            ParsedExpressionKind::Call(ParsedCall {
                 callee: Box::new(callee),
                 arguments: Vec::new(),
                 argument_separators_hws_valid: true,
                 close_status: ParsedCallCloseStatus::Mismatched,
                 trailing_status: ParsedCallTrailingStatus::Complete,
             }),
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            canonical,
             span,
-        };
+        );
     }
 
     let operands = compound_identifier_operands(text, &span, &source_node_id);
     if !operands.is_empty() {
-        return ParsedExpression {
-            kind: ParsedExpressionKind::Compound { operands },
-            canonical: parse_canonical_expression(text, &span, source_node_id),
-            span,
-        };
+        let canonical = parse_canonical_expression(text, &span, source_node_id);
+        return parsed_expression(ParsedExpressionKind::Compound { operands }, canonical, span);
     }
 
-    ParsedExpression {
-        kind: if text.contains("task") || text.contains(')') || text.contains('(') {
+    let canonical = parse_canonical_expression(text, &span, source_node_id);
+    parsed_expression(
+        if text.contains("task") || text.contains(')') || text.contains('(') {
             ParsedExpressionKind::Unsupported {
                 reason: "unsupported_callable_expression_shape_v0",
             }
         } else {
             ParsedExpressionKind::Other
         },
-        canonical: parse_canonical_expression(text, &span, source_node_id),
+        canonical,
         span,
+    )
+}
+
+fn parse_predicate_expression_syntax(
+    text: &str,
+    span: Span,
+    source_node_id: ParserSyntaxNodeId,
+) -> ParsedExpression {
+    let mut expression = parse_expression_syntax(text, span.clone(), source_node_id);
+    expression.intent_range = predicate_intent_signal(text).map(|range| ParsedSourceRange {
+        start: offset_span(&span, range.start),
+        byte_len: range.end.saturating_sub(range.start),
+    });
+    if expression.intent_range.is_some() {
+        let mut validator = PredicateLexicalValidator::new(text);
+        expression.lexical_issue =
+            validator
+                .validate()
+                .err()
+                .map(|issue| ParsedExpressionLexicalIssue {
+                    cause: issue.cause,
+                    range: ParsedSourceRange {
+                        start: offset_span(&span, issue.range.start),
+                        byte_len: issue.range.end.saturating_sub(issue.range.start),
+                    },
+                    expected: issue.expected,
+                    actual: issue.actual,
+                    related_range: None,
+                });
+        expression.max_delimiter_depth = validator.max_depth;
+    }
+    expression
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ByteRange {
+    start: usize,
+    end: usize,
+}
+
+struct PredicateLexicalError {
+    cause: ExpressionLexicalCause,
+    range: ByteRange,
+    expected: &'static str,
+    actual: String,
+}
+
+struct PredicateLexicalValidator<'a> {
+    text: &'a str,
+    pos: usize,
+    depth: usize,
+    max_depth: usize,
+}
+
+impl<'a> PredicateLexicalValidator<'a> {
+    fn new(text: &'a str) -> Self {
+        Self {
+            text,
+            pos: 0,
+            depth: 0,
+            max_depth: 0,
+        }
+    }
+
+    fn validate(&mut self) -> Result<(), PredicateLexicalError> {
+        if let Some((operator, start, end)) = top_level_binary_operator(self.text)
+            && matches!(
+                operator,
+                ParsedBinaryOperator::And | ParsedBinaryOperator::Or
+            )
+        {
+            let mut left = Self::new(&self.text[..start]);
+            left.validate().map_err(|error| error.offset(0))?;
+            let mut right = Self::new(&self.text[end..]);
+            right.validate().map_err(|error| error.offset(end))?;
+            self.max_depth = left.max_depth.max(right.max_depth);
+            return Ok(());
+        }
+        self.hws();
+        self.parse_additive()?;
+        self.hws();
+        self.parse_comparison()?;
+        self.hws();
+        self.parse_additive()?;
+        self.hws();
+        if self.pos != self.text.len() {
+            return Err(self.error(
+                ExpressionLexicalCause::TrailingTokens,
+                "end of contract line",
+            ));
+        }
+        Ok(())
+    }
+
+    fn parse_additive(&mut self) -> Result<ByteRange, PredicateLexicalError> {
+        let mut range = self.parse_multiplicative()?;
+        loop {
+            self.hws();
+            if !matches!(self.peek_char(), Some('+' | '-')) {
+                break;
+            }
+            self.bump_char();
+            self.hws();
+            let right = self.parse_multiplicative()?;
+            range.end = right.end;
+        }
+        Ok(range)
+    }
+
+    fn parse_multiplicative(&mut self) -> Result<ByteRange, PredicateLexicalError> {
+        let mut range = self.parse_primary()?;
+        loop {
+            self.hws();
+            if !matches!(self.peek_char(), Some('*' | '/')) {
+                break;
+            }
+            self.bump_char();
+            self.hws();
+            let right = self.parse_primary()?;
+            range.end = right.end;
+        }
+        Ok(range)
+    }
+
+    fn parse_primary(&mut self) -> Result<ByteRange, PredicateLexicalError> {
+        self.hws();
+        let start = self.pos;
+        let Some(ch) = self.peek_char() else {
+            return Err(self.error(ExpressionLexicalCause::MissingOperand, "operand"));
+        };
+        if ch == '(' {
+            self.open_delimiter()?;
+            self.hws();
+            self.parse_additive()?;
+            self.hws();
+            self.expect_close(')')?;
+            return Ok(ByteRange {
+                start,
+                end: self.pos,
+            });
+        }
+        if ch == '[' {
+            return self.parse_list();
+        }
+        if ch == '"' {
+            return self.parse_text();
+        }
+        if ch.is_ascii_digit()
+            || (ch == '-'
+                && self
+                    .peek_after_char()
+                    .is_some_and(|next| next.is_ascii_digit()))
+        {
+            return self.parse_integer();
+        }
+        if is_value_ident_start(ch) {
+            let name = self.parse_identifier();
+            let range = ByteRange {
+                start,
+                end: self.pos,
+            };
+            if matches!(name.as_str(), "true" | "false") {
+                return Ok(range);
+            }
+            if self.peek_char() == Some('(') {
+                return match name.as_str() {
+                    "old" | "list_len" => self.parse_place_call(start),
+                    "list_count" => self.parse_list_count(start),
+                    _ => Err(PredicateLexicalError {
+                        cause: ExpressionLexicalCause::ArbitraryHelperCall,
+                        range,
+                        expected: "a Predicate v2 operand or exact old/list_len/list_count call",
+                        actual: format!("call `{name}(...)`"),
+                    }),
+                };
+            }
+            if self
+                .peek_char()
+                .is_some_and(|next| matches!(next, ' ' | '\t'))
+            {
+                let saved = self.pos;
+                self.hws();
+                if self.peek_char() == Some('(')
+                    && matches!(name.as_str(), "old" | "list_len" | "list_count")
+                {
+                    return Err(PredicateLexicalError {
+                        cause: ExpressionLexicalCause::KnownCallRequiresNoGap,
+                        range: ByteRange {
+                            start,
+                            end: self.pos + 1,
+                        },
+                        expected: "call name immediately followed by `(`",
+                        actual: format!("`{name}` followed by horizontal whitespace"),
+                    });
+                }
+                self.pos = saved;
+            }
+            if self.peek_char() == Some('.') {
+                self.bump_char();
+                if !self.peek_char().is_some_and(is_value_ident_start) {
+                    return Err(self.error(
+                        ExpressionLexicalCause::MalformedSyntacticPlace,
+                        "one identifier after `.`",
+                    ));
+                }
+                self.parse_identifier();
+                if self.peek_char() == Some('.') {
+                    return Err(self.error(
+                        ExpressionLexicalCause::MalformedSyntacticPlace,
+                        "at most one direct field",
+                    ));
+                }
+            }
+            return Ok(ByteRange {
+                start,
+                end: self.pos,
+            });
+        }
+        Err(self.error(
+            ExpressionLexicalCause::InvalidOperandStarter,
+            "boolean, integer, place, Text, List Text, known call, or parenthesized operand",
+        ))
+    }
+
+    fn parse_place_call(&mut self, start: usize) -> Result<ByteRange, PredicateLexicalError> {
+        self.open_delimiter()?;
+        self.hws();
+        self.parse_place_only()?;
+        self.hws();
+        self.expect_close(')')?;
+        Ok(ByteRange {
+            start,
+            end: self.pos,
+        })
+    }
+
+    fn parse_list_count(&mut self, start: usize) -> Result<ByteRange, PredicateLexicalError> {
+        self.open_delimiter()?;
+        self.hws();
+        if self.peek_char() == Some('[') {
+            self.parse_list()?;
+        } else {
+            self.parse_place_only()?;
+        }
+        self.hws();
+        if self.peek_char() != Some(',') {
+            return Err(self.error(
+                ExpressionLexicalCause::ListCountWrongArity,
+                "`,` and a Text source",
+            ));
+        }
+        self.bump_char();
+        self.hws();
+        if self.peek_char() == Some('"') {
+            self.parse_text()?;
+        } else {
+            self.parse_place_only()?;
+        }
+        self.hws();
+        self.expect_close(')')?;
+        Ok(ByteRange {
+            start,
+            end: self.pos,
+        })
+    }
+
+    fn parse_place_only(&mut self) -> Result<ByteRange, PredicateLexicalError> {
+        let start = self.pos;
+        if !self.peek_char().is_some_and(is_value_ident_start) {
+            return Err(self.error(
+                ExpressionLexicalCause::MalformedSyntacticPlace,
+                "identifier or direct-field place",
+            ));
+        }
+        self.parse_identifier();
+        if self.peek_char() == Some('.') {
+            self.bump_char();
+            if !self.peek_char().is_some_and(is_value_ident_start) {
+                return Err(self.error(
+                    ExpressionLexicalCause::MalformedSyntacticPlace,
+                    "field identifier",
+                ));
+            }
+            self.parse_identifier();
+        }
+        if self.peek_char() == Some('.') {
+            return Err(self.error(
+                ExpressionLexicalCause::MalformedSyntacticPlace,
+                "at most one direct field",
+            ));
+        }
+        Ok(ByteRange {
+            start,
+            end: self.pos,
+        })
+    }
+
+    fn parse_list(&mut self) -> Result<ByteRange, PredicateLexicalError> {
+        let start = self.pos;
+        self.open_delimiter()?;
+        self.hws();
+        if self.peek_char() == Some(']') {
+            self.expect_close(']')?;
+            return Ok(ByteRange {
+                start,
+                end: self.pos,
+            });
+        }
+        loop {
+            if self.peek_char() != Some('"') {
+                return Err(self.error(
+                    ExpressionLexicalCause::ListTextLiteralRequiresTextElements,
+                    "Text literal list element",
+                ));
+            }
+            self.parse_text()?;
+            self.hws();
+            match self.peek_char() {
+                Some(']') => {
+                    self.expect_close(']')?;
+                    break;
+                }
+                Some(',') => {
+                    self.bump_char();
+                    self.hws();
+                    if self.peek_char() == Some(']') {
+                        return Err(self.error(
+                            ExpressionLexicalCause::ListTextLiteralTrailingComma,
+                            "Text literal after `,`",
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(self.error(
+                        ExpressionLexicalCause::ListTextLiteralSeparator,
+                        "`,` or `]`",
+                    ));
+                }
+            }
+        }
+        Ok(ByteRange {
+            start,
+            end: self.pos,
+        })
+    }
+
+    fn parse_text(&mut self) -> Result<ByteRange, PredicateLexicalError> {
+        let start = self.pos;
+        self.bump_char();
+        while let Some(ch) = self.peek_char() {
+            self.bump_char();
+            if ch == '"' {
+                return Ok(ByteRange {
+                    start,
+                    end: self.pos,
+                });
+            }
+        }
+        Err(PredicateLexicalError {
+            cause: ExpressionLexicalCause::UnterminatedTextLiteral,
+            range: ByteRange {
+                start,
+                end: self.text.len(),
+            },
+            expected: "closing `\"`",
+            actual: "end of line".to_string(),
+        })
+    }
+
+    fn parse_integer(&mut self) -> Result<ByteRange, PredicateLexicalError> {
+        let start = self.pos;
+        if self.peek_char() == Some('-') {
+            self.bump_char();
+        }
+        while self.peek_char().is_some_and(|ch| ch.is_ascii_digit()) {
+            self.bump_char();
+        }
+        let raw = &self.text[start..self.pos];
+        raw.parse::<i64>().map_err(|_| PredicateLexicalError {
+            cause: ExpressionLexicalCause::IntegerLiteralOutOfRange,
+            range: ByteRange {
+                start,
+                end: self.pos,
+            },
+            expected: "existing Int literal",
+            actual: raw.to_string(),
+        })?;
+        Ok(ByteRange {
+            start,
+            end: self.pos,
+        })
+    }
+
+    fn parse_comparison(&mut self) -> Result<ByteRange, PredicateLexicalError> {
+        let start = self.pos;
+        for token in ["==", "!=", "<=", ">=", "<", ">"] {
+            if self.text[self.pos..].starts_with(token) {
+                self.pos += token.len();
+                return Ok(ByteRange {
+                    start,
+                    end: self.pos,
+                });
+            }
+        }
+        Err(self.error(
+            ExpressionLexicalCause::InvalidComparisonOperator,
+            "one atomic comparison operator",
+        ))
+    }
+
+    fn open_delimiter(&mut self) -> Result<(), PredicateLexicalError> {
+        self.bump_char();
+        self.depth += 1;
+        self.max_depth = self.max_depth.max(self.depth);
+        if self.depth > crate::predicate::MAX_DELIMITER_DEPTH {
+            return Err(self.error(
+                ExpressionLexicalCause::DelimiterDepthExceeded,
+                "at most 16 open delimiter frames",
+            ));
+        }
+        Ok(())
+    }
+
+    fn expect_close(&mut self, expected: char) -> Result<(), PredicateLexicalError> {
+        if self.peek_char() != Some(expected) {
+            return Err(self.error(
+                ExpressionLexicalCause::MismatchedOrMissingDelimiter,
+                "matching closing delimiter",
+            ));
+        }
+        self.bump_char();
+        self.depth = self.depth.saturating_sub(1);
+        Ok(())
+    }
+
+    fn parse_identifier(&mut self) -> String {
+        let start = self.pos;
+        self.bump_char();
+        while self.peek_char().is_some_and(is_value_ident_continue) {
+            self.bump_char();
+        }
+        self.text[start..self.pos].to_string()
+    }
+
+    fn hws(&mut self) {
+        while self.peek_char().is_some_and(|ch| matches!(ch, ' ' | '\t')) {
+            self.bump_char();
+        }
+    }
+
+    fn peek_char(&self) -> Option<char> {
+        self.text[self.pos..].chars().next()
+    }
+
+    fn peek_after_char(&self) -> Option<char> {
+        let mut chars = self.text[self.pos..].chars();
+        chars.next()?;
+        chars.next()
+    }
+
+    fn bump_char(&mut self) {
+        if let Some(ch) = self.peek_char() {
+            self.pos += ch.len_utf8();
+        }
+    }
+
+    fn error(
+        &self,
+        cause: ExpressionLexicalCause,
+        expected: &'static str,
+    ) -> PredicateLexicalError {
+        let end = self
+            .peek_char()
+            .map_or(self.pos, |ch| self.pos + ch.len_utf8());
+        PredicateLexicalError {
+            cause,
+            range: ByteRange {
+                start: self.pos,
+                end,
+            },
+            expected,
+            actual: self
+                .peek_char()
+                .map_or_else(|| "end of line".to_string(), |ch| format!("`{ch}`")),
+        }
+    }
+}
+
+impl PredicateLexicalError {
+    fn offset(mut self, offset: usize) -> Self {
+        self.range.start += offset;
+        self.range.end += offset;
+        self
+    }
+}
+
+fn predicate_intent_signal(text: &str) -> Option<ByteRange> {
+    let quoted = predicate_quoted_ranges(text);
+    let shielded = |index: usize| {
+        quoted
+            .iter()
+            .any(|range| range.start <= index && index < range.end)
+    };
+    let bytes = text.as_bytes();
+    for (index, byte) in bytes.iter().copied().enumerate() {
+        if shielded(index) {
+            continue;
+        }
+        if matches!(byte, b'=' | b'<' | b'>') {
+            return Some(ByteRange {
+                start: index,
+                end: index + 1,
+            });
+        }
+        if byte == b'!' {
+            let mut next = index + 1;
+            while next < bytes.len() && matches!(bytes[next], b' ' | b'\t') {
+                next += 1;
+            }
+            if bytes.get(next) == Some(&b'=')
+                || (predicate_operand_ends_before(text, index)
+                    && predicate_operand_starts_at(text, next))
+            {
+                return Some(ByteRange {
+                    start: index,
+                    end: index + 1,
+                });
+            }
+        }
+    }
+    for name in ["old", "list_len", "list_count"] {
+        let mut start = 0;
+        while let Some(offset) = text[start..].find(name) {
+            let index = start + offset;
+            let before = index == 0 || !predicate_ident_byte(bytes[index - 1]);
+            let after_name = index + name.len();
+            let after = after_name == bytes.len() || !predicate_ident_byte(bytes[after_name]);
+            if before && after && !shielded(index) {
+                let mut open = after_name;
+                while open < bytes.len() && matches!(bytes[open], b' ' | b'\t') {
+                    open += 1;
+                }
+                if bytes.get(open) == Some(&b'(') {
+                    return Some(ByteRange {
+                        start: index,
+                        end: open + 1,
+                    });
+                }
+            }
+            start = after_name;
+        }
+    }
+    None
+}
+
+fn predicate_quoted_ranges(text: &str) -> Vec<ByteRange> {
+    let mut ranges = Vec::new();
+    let mut open = None;
+    for (index, ch) in text.char_indices() {
+        if ch == '"' {
+            if let Some(start) = open.take() {
+                ranges.push(ByteRange {
+                    start,
+                    end: index + 1,
+                });
+            } else {
+                open = Some(index);
+            }
+        }
+    }
+    ranges
+}
+
+fn predicate_operand_ends_before(text: &str, index: usize) -> bool {
+    text[..index].trim_end().chars().last().is_some_and(|ch| {
+        ch == ')' || ch == ']' || ch == '"' || ch.is_ascii_alphanumeric() || ch == '_'
+    })
+}
+
+fn predicate_operand_starts_at(text: &str, index: usize) -> bool {
+    let rest = &text[index..];
+    rest.starts_with('"')
+        || rest.starts_with('[')
+        || rest.starts_with('(')
+        || rest.starts_with("true")
+        || rest.starts_with("false")
+        || rest.chars().next().is_some_and(|ch| {
+            ch.is_ascii_digit() || ch == '-' || ch.is_ascii_lowercase() || ch == '_'
+        })
+}
+
+fn predicate_ident_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+fn is_value_ident_start(ch: char) -> bool {
+    ch.is_ascii_lowercase() || ch == '_'
+}
+
+fn is_value_ident_continue(ch: char) -> bool {
+    ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_'
+}
+
+fn parsed_expression(
+    kind: ParsedExpressionKind,
+    canonical: CanonicalExpression,
+    span: Span,
+) -> ParsedExpression {
+    let mut operator_occurrences = Vec::new();
+    collect_operator_occurrences(&canonical, &mut operator_occurrences);
+    let mut call_syntax = Vec::new();
+    collect_call_syntax(&canonical, &mut call_syntax);
+    ParsedExpression {
+        kind,
+        span,
+        canonical,
+        intent_range: None,
+        lexical_issue: None,
+        max_delimiter_depth: 0,
+        operator_occurrences,
+        call_syntax,
+    }
+}
+
+fn collect_call_syntax(expression: &CanonicalExpression, out: &mut Vec<ParsedCallSyntax>) {
+    match &expression.kind {
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            collect_call_syntax(callee, out);
+            for argument in arguments {
+                collect_call_syntax(argument, out);
+            }
+            let open_range = ParsedSourceRange {
+                start: offset_span(&callee.range.start, callee.range.byte_len),
+                byte_len: 1,
+            };
+            let close_range =
+                expression
+                    .range
+                    .byte_len
+                    .checked_sub(1)
+                    .map(|offset| ParsedSourceRange {
+                        start: offset_span(&expression.range.start, offset),
+                        byte_len: 1,
+                    });
+            let separator_ranges = arguments
+                .iter()
+                .take(arguments.len().saturating_sub(1))
+                .map(|argument| ParsedSourceRange {
+                    start: offset_span(&argument.range.start, argument.range.byte_len),
+                    byte_len: 1,
+                })
+                .collect();
+            out.push(ParsedCallSyntax {
+                node_id: expression.node_id.clone(),
+                open_range,
+                close_range,
+                separator_ranges,
+                trailing_range: None,
+                close_status: ParsedCallCloseStatus::Closed,
+                trailing_status: ParsedCallTrailingStatus::Complete,
+            });
+        }
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::Element { base, .. }
+        | CanonicalExpressionKind::Group(base)
+        | CanonicalExpressionKind::Permission { value: base, .. } => {
+            collect_call_syntax(base, out);
+        }
+        CanonicalExpressionKind::Try { call, .. } => collect_call_syntax(call, out),
+        CanonicalExpressionKind::ListLiteral(values) => {
+            values
+                .iter()
+                .for_each(|value| collect_call_syntax(value, out));
+        }
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            fields
+                .iter()
+                .for_each(|(_, value)| collect_call_syntax(value, out));
+        }
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            collect_call_syntax(left, out);
+            collect_call_syntax(right, out);
+        }
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => {}
+    }
+}
+
+fn collect_operator_occurrences(
+    expression: &CanonicalExpression,
+    out: &mut Vec<ParsedOperatorOccurrence>,
+) {
+    match &expression.kind {
+        CanonicalExpressionKind::Binary {
+            operator,
+            operator_range,
+            left,
+            right,
+        } => {
+            collect_operator_occurrences(left, out);
+            out.push(ParsedOperatorOccurrence {
+                node_id: expression.node_id.clone(),
+                operator: *operator,
+                range: operator_range.clone(),
+            });
+            collect_operator_occurrences(right, out);
+        }
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::Element { base, .. } => {
+            collect_operator_occurrences(base, out);
+        }
+        CanonicalExpressionKind::ListLiteral(values) => {
+            for value in values {
+                collect_operator_occurrences(value, out);
+            }
+        }
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            for (_, value) in fields {
+                collect_operator_occurrences(value, out);
+            }
+        }
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            collect_operator_occurrences(callee, out);
+            for argument in arguments {
+                collect_operator_occurrences(argument, out);
+            }
+        }
+        CanonicalExpressionKind::Permission { value, .. }
+        | CanonicalExpressionKind::Group(value) => collect_operator_occurrences(value, out),
+        CanonicalExpressionKind::Try { call, .. } => collect_operator_occurrences(call, out),
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => {}
     }
 }
 
@@ -1720,6 +2786,27 @@ fn parse_canonical_expression(
             node_id,
             range,
             kind: CanonicalExpressionKind::Unit,
+        };
+    }
+
+    if let Some(rest) = keyword_rest(text, "try") {
+        let (call_text, wrapper) = rest
+            .split_once(" or fail ")
+            .map_or((rest, None), |(call, wrapper)| {
+                (call.trim(), Some(wrapper.trim().to_string()))
+            });
+        let call_offset = text.find(call_text).unwrap_or_default();
+        return CanonicalExpression {
+            node_id: node_id.clone(),
+            range,
+            kind: CanonicalExpressionKind::Try {
+                call: Box::new(parse_canonical_expression(
+                    call_text,
+                    &offset_span(&span, call_offset),
+                    node_id.child("try-call"),
+                )),
+                wrapper,
+            },
         };
     }
 
@@ -1761,6 +2848,10 @@ fn parse_canonical_expression(
             range,
             kind: CanonicalExpressionKind::Binary {
                 operator,
+                operator_range: ParsedSourceRange {
+                    start: offset_span(&span, start),
+                    byte_len: end - start,
+                },
                 left: Box::new(parse_canonical_expression(
                     &text[..start],
                     &span,
@@ -1913,6 +3004,22 @@ fn parse_canonical_expression(
         };
     }
 
+    if let Some((base, index)) = crate::element_place::split_element_place(text) {
+        let base_offset = text.find(base).unwrap_or_default();
+        return CanonicalExpression {
+            node_id: node_id.clone(),
+            range,
+            kind: CanonicalExpressionKind::Element {
+                base: Box::new(parse_canonical_expression(
+                    base,
+                    &offset_span(&span, base_offset),
+                    node_id.child("element-base"),
+                )),
+                index,
+            },
+        };
+    }
+
     if let Some(dot) = find_top_level_dot(text) {
         let field = text[dot + 1..].trim();
         if is_value_identifier(field) {
@@ -1933,7 +3040,7 @@ fn parse_canonical_expression(
     CanonicalExpression {
         node_id,
         range,
-        kind: if is_value_identifier(text) {
+        kind: if is_value_identifier(text) || is_type_identifier(text) {
             CanonicalExpressionKind::Identifier(text.to_string())
         } else {
             CanonicalExpressionKind::Unsupported
@@ -2176,18 +3283,19 @@ fn compound_identifier_operands(
             let name = &text[start..index];
             if is_value_identifier(name) {
                 let identifier_span = offset_span(span, start);
-                operands.push(ParsedExpression {
-                    kind: ParsedExpressionKind::Identifier(ParsedIdentifier {
+                let canonical = parse_canonical_expression(
+                    name,
+                    &identifier_span,
+                    source_node_id.child(&format!("compound-{}", operands.len())),
+                );
+                operands.push(parsed_expression(
+                    ParsedExpressionKind::Identifier(ParsedIdentifier {
                         name: name.to_string(),
                         span: identifier_span.clone(),
                     }),
-                    canonical: parse_canonical_expression(
-                        name,
-                        &identifier_span,
-                        source_node_id.child(&format!("compound-{}", operands.len())),
-                    ),
-                    span: identifier_span,
-                });
+                    canonical,
+                    identifier_span,
+                ));
             }
             continue;
         }
@@ -2566,12 +3674,12 @@ fn is_section_header(trimmed: &str) -> bool {
 mod tests {
     use super::{
         executable_call_nodes, parse_source, parse_source_at_index, validate_canonical_expression,
-        validate_retained_body_syntax,
+        validate_parsed_expression, validate_retained_body_syntax,
     };
     use crate::ast::{
         CanonicalExpressionKind, Item, ParsedBinaryOperator, ParsedBlockRelationship,
-        ParsedBodyStatementKind, ParsedCallCloseStatus, ParsedExpressionKind, ParserSyntaxNodeId,
-        TypeSyntaxKind,
+        ParsedBodyStatementKind, ParsedCallCloseStatus, ParsedCallTrailingStatus,
+        ParsedExpressionKind, ParserSyntaxNodeId, TypeSyntaxKind,
     };
     use crate::diagnostic::{DiagnosticCode, Severity};
 
@@ -3092,6 +4200,36 @@ task after() -> UInt {
     }
 
     #[test]
+    fn record_field_initializer_retains_only_its_value_expression() {
+        let parsed = parse_source(
+            "record-field-expression.hum",
+            "task build() -> WorkItem {\n  does:\n    let item = WorkItem {\n      id: clock.now_text\n    }\n    return item\n}\n",
+        );
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("task")
+        };
+        let field = task
+            .body_syntax
+            .iter()
+            .find(|statement| statement.core_kind == "record_field_initializer")
+            .expect("record field initializer");
+        let ParsedBodyStatementKind::Other { expressions } = &field.kind else {
+            panic!("other statement")
+        };
+        assert_eq!(expressions.len(), 1);
+        assert!(matches!(
+            &expressions[0].canonical.kind,
+            CanonicalExpressionKind::Field { base, field }
+                if field == "now_text"
+                    && matches!(
+                        &base.kind,
+                        CanonicalExpressionKind::Identifier(name) if name == "clock"
+                    )
+        ));
+        assert!(validate_canonical_expression(&expressions[0].canonical).is_ok());
+    }
+
+    #[test]
     fn canonical_expression_corruption_fails_closed() {
         let parsed = parse_source(
             "expression-corruption.hum",
@@ -3119,6 +4257,48 @@ task after() -> UInt {
             std::mem::swap(left, right);
         }
         assert!(validate_canonical_expression(&reordered).is_err());
+    }
+
+    #[test]
+    fn parser_owned_operator_and_call_syntax_corruption_fails_closed() {
+        let parsed = parse_source(
+            "expression-syntax-projection.hum",
+            "task expression() -> UInt {\n  does:\n    return combine(1, pair(2, 3)) + 4\n}\n",
+        );
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("task")
+        };
+        let ParsedBodyStatementKind::Return(value) = &task.body_syntax[0].kind else {
+            panic!("return")
+        };
+        assert_eq!(value.operator_occurrences.len(), 1);
+        assert_eq!(value.call_syntax.len(), 2);
+        assert!(validate_parsed_expression(value).is_ok());
+
+        let mut wrong_operator = value.clone();
+        wrong_operator.operator_occurrences[0].range.start.column += 1;
+        assert!(validate_parsed_expression(&wrong_operator).is_err());
+
+        let mut wrong_open = value.clone();
+        wrong_open.call_syntax[0].open_range.start.column += 1;
+        assert!(validate_parsed_expression(&wrong_open).is_err());
+
+        let mut missing_close = value.clone();
+        missing_close.call_syntax[0].close_range = None;
+        missing_close.call_syntax[0].close_status = ParsedCallCloseStatus::Missing;
+        assert!(validate_parsed_expression(&missing_close).is_err());
+
+        let mut missing_separator = value.clone();
+        missing_separator.call_syntax[0].separator_ranges.clear();
+        assert!(validate_parsed_expression(&missing_separator).is_err());
+
+        let mut wrong_trailing = value.clone();
+        wrong_trailing.call_syntax[0].trailing_status = ParsedCallTrailingStatus::Prose;
+        assert!(validate_parsed_expression(&wrong_trailing).is_err());
+
+        let mut substituted = value.clone();
+        substituted.call_syntax[1].node_id = substituted.call_syntax[0].node_id.clone();
+        assert!(validate_parsed_expression(&substituted).is_err());
     }
 
     #[test]

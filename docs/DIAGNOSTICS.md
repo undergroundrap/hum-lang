@@ -133,7 +133,7 @@ JSON shape in `hum diagnostics --format json`:
 ```json
 {
   "schema": "hum.diagnostic_catalog.v0",
-  "count": 87,
+  "count": 88,
   "diagnostics": [
     {
       "code": "H0201",
@@ -199,6 +199,7 @@ unallocated rather than implicitly free.
 | `H0007` | error | callable signature missing close parenthesis | A callable parameter list starts but does not close. |
 | `H0008` | error | parameter missing type | A parameter lacks an explicit type. |
 | `H0009` | error | invalid identifier | A value name is not snake_case or a type name is not PascalCase. |
+| `H0010` | error | comparison chaining is not supported | A later comparison operator tries to compare the result of an earlier comparison; repeat the middle operand and join independent comparisons instead. |
 
 ### Intent Block Discipline
 

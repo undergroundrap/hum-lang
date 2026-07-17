@@ -1,4 +1,4 @@
-use crate::ast::Section;
+use crate::ast::{CanonicalExpression, ParsedBodyStatementKind, Section};
 use crate::diagnostic::Span;
 
 pub const CORE_BODY_GRAMMAR_STATUS: &str = "partial_v0";
@@ -12,20 +12,97 @@ pub struct BodyGrammarReport {
     pub recognized_lines: usize,
     pub unsupported_lines: usize,
     pub statements: Vec<BodyStatement>,
+    pub canonical_expressions: Vec<Option<CanonicalExpression>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct BodyStatement {
     pub span: Span,
     pub text: String,
+    pub parsed: crate::ast::ParsedBodyStatement,
     pub kind: &'static str,
     pub status: &'static str,
     pub expression_kind: Option<&'static str>,
     pub reason: Option<&'static str>,
 }
 
+impl BodyStatement {
+    pub(crate) fn primary_expression(&self) -> Option<&CanonicalExpression> {
+        match &self.parsed.kind {
+            ParsedBodyStatementKind::Return(expression) => Some(&expression.canonical),
+            ParsedBodyStatementKind::Binding { value, .. } => {
+                value.as_ref().map(|expression| &expression.canonical)
+            }
+            ParsedBodyStatementKind::Other { expressions } => {
+                expressions.first().map(|expression| &expression.canonical)
+            }
+        }
+    }
+
+    pub(crate) fn binding_name(&self) -> Option<&str> {
+        match &self.parsed.kind {
+            ParsedBodyStatementKind::Binding {
+                name: Some(name), ..
+            } => Some(&name.name),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn binding_is_mutable(&self) -> bool {
+        matches!(
+            self.parsed.kind,
+            ParsedBodyStatementKind::Binding { mutable: true, .. }
+        )
+    }
+
+    pub(crate) fn binding_annotation(&self) -> Option<&str> {
+        self.parsed.facts.binding_annotation.as_deref()
+    }
+
+    pub(crate) fn set_target(&self) -> Option<&CanonicalExpression> {
+        self.parsed
+            .facts
+            .set_target
+            .as_ref()
+            .map(|target| &target.canonical)
+    }
+
+    pub(crate) fn save_target(&self) -> Option<&str> {
+        self.parsed
+            .facts
+            .save_target
+            .as_ref()
+            .map(|target| target.name.as_str())
+    }
+
+    pub(crate) fn loop_binding(&self) -> Option<&str> {
+        self.parsed
+            .facts
+            .loop_binding
+            .as_ref()
+            .map(|binding| binding.name.as_str())
+    }
+
+    pub(crate) fn loop_collection(&self) -> Option<&CanonicalExpression> {
+        self.parsed
+            .facts
+            .loop_collection
+            .as_ref()
+            .map(|collection| &collection.canonical)
+    }
+
+    pub(crate) fn condition(&self) -> Option<&CanonicalExpression> {
+        self.parsed
+            .facts
+            .condition
+            .as_ref()
+            .map(|condition| &condition.canonical)
+    }
+}
+
 pub fn analyze_does_section(section: &Section) -> BodyGrammarReport {
     let mut statements = Vec::new();
+    let mut canonical_expressions = Vec::new();
     let mut meaningful_lines = 0usize;
     let mut recognized_lines = 0usize;
     let mut unsupported_lines = 0usize;
@@ -36,6 +113,15 @@ pub fn analyze_does_section(section: &Section) -> BodyGrammarReport {
         };
 
         meaningful_lines += 1;
+        let canonical_expression = match &parsed.kind {
+            ParsedBodyStatementKind::Return(expression) => Some(expression.canonical.clone()),
+            ParsedBodyStatementKind::Binding { value, .. } => value
+                .as_ref()
+                .map(|expression| expression.canonical.clone()),
+            ParsedBodyStatementKind::Other { expressions } => expressions
+                .first()
+                .map(|expression| expression.canonical.clone()),
+        };
         let statement = BodyStatement {
             span: Span {
                 file: line.span.file.replace('\\', "/"),
@@ -43,6 +129,7 @@ pub fn analyze_does_section(section: &Section) -> BodyGrammarReport {
                 column: line.span.column,
             },
             text: line.text.trim().to_string(),
+            parsed: parsed.clone(),
             kind: parsed.core_kind,
             status: parsed.core_status,
             expression_kind: parsed.core_expression_kind,
@@ -54,6 +141,7 @@ pub fn analyze_does_section(section: &Section) -> BodyGrammarReport {
             recognized_lines += 1;
         }
         statements.push(statement);
+        canonical_expressions.push(canonical_expression);
     }
 
     let status = if meaningful_lines == 0 {
@@ -74,6 +162,7 @@ pub fn analyze_does_section(section: &Section) -> BodyGrammarReport {
         recognized_lines,
         unsupported_lines,
         statements,
+        canonical_expressions,
     }
 }
 
@@ -281,9 +370,25 @@ task compatibility(title: Text, flag: Bool) -> Int {
                 .find(|statement| statement.text == text)
                 .and_then(|statement| statement.expression_kind)
         };
+        let preview_for = |text: &str| {
+            let index = report
+                .statements
+                .iter()
+                .position(|statement| statement.text == text)
+                .expect("statement");
+            let statement = &report.statements[index];
+            let canonical = report.canonical_expressions[index]
+                .as_ref()
+                .expect("canonical expression");
+            crate::core_expr::analyze_canonical_expression(
+                canonical,
+                &crate::core_expr::canonical_text(canonical),
+                statement.expression_kind,
+            )
+        };
         assert_eq!(kind_for("if title is empty {"), Some("condition_text"));
         assert_eq!(
-            crate::core_expr::analyze_expression("title is empty").kind,
+            preview_for("if title is empty {").kind,
             "condition_or_surface_binary"
         );
         assert_eq!(
@@ -291,7 +396,7 @@ task compatibility(title: Text, flag: Bool) -> Int {
             Some("try_call_like")
         );
         assert_eq!(
-            crate::core_expr::analyze_expression("try source(flag)").kind,
+            preview_for("let tried = try source(flag)").kind,
             "try_call_like"
         );
         assert_eq!(
@@ -299,23 +404,14 @@ task compatibility(title: Text, flag: Bool) -> Int {
             Some("call_like")
         );
         assert_eq!(
-            crate::core_expr::analyze_expression("borrow source(flag)").kind,
+            preview_for("let wrapped = borrow source(flag)").kind,
             "call_like"
         );
         assert_eq!(kind_for("let grouped = (flag)"), Some("call_like"));
-        assert_eq!(
-            crate::core_expr::analyze_expression("(flag)").kind,
-            "call_like"
-        );
+        assert_eq!(preview_for("let grouped = (flag)").kind, "call_like");
         assert_eq!(kind_for("done: false"), Some("bool_literal"));
-        assert_eq!(
-            crate::core_expr::analyze_expression("false").kind,
-            "bool_literal"
-        );
+        assert_eq!(preview_for("done: false").kind, "bool_literal");
         assert_eq!(kind_for("return -1"), Some("name_or_text"));
-        assert_eq!(
-            crate::core_expr::analyze_expression("-1").kind,
-            "surface_text"
-        );
+        assert_eq!(preview_for("return -1").kind, "surface_text");
     }
 }

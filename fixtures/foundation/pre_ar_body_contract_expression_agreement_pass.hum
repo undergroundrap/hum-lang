@@ -1,0 +1,17 @@
+module fixtures.foundation.pre_ar_body_contract_expression_agreement_pass
+
+task body_contract_agreement -> UInt {
+  why:
+    prove body and contract arithmetic share one parser-owned tree shape
+
+  ensures:
+    result == 8 * 6 / 4
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return 8 * 6 / 4
+}

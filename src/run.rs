@@ -5,7 +5,10 @@ use std::io::{self, Write};
 use std::sync::Arc;
 
 use crate::app_entry;
-use crate::ast::{App, Item, ParamPermission, Program, SectionLine, Task};
+use crate::ast::{
+    App, CanonicalExpression, CanonicalExpressionKind, Item, ParamPermission, ParsedBinaryOperator,
+    ParsedBlockRelationship, ParsedBodyStatement, ParsedBodyStatementKind, Program, Section, Task,
+};
 use crate::callable::{self, CallableAnalysis};
 use crate::capability_root::{self, FilePolicyFact, OutputPolicyFact, ReplayPolicyFact};
 use crate::core_body::{self, BodyStatement};
@@ -13,8 +16,6 @@ use crate::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceCollector,
     DiagnosticOccurrenceSet, Span,
 };
-use crate::element_place;
-use crate::field_place;
 use crate::file_read::{
     FileLocalityAdapter, FileLocalityError, FileReadAdapter, HostFileLocalityAdapter,
     HostFileReadAdapter,
@@ -23,7 +24,7 @@ use crate::graph::is_meaningful_line_text;
 use crate::native_path::{ValidatedNativePath, validate_native_path};
 use crate::operator_grant::{GrantDecision, OperatorGrantPolicy};
 use crate::ownership_check;
-use crate::predicate::{self, Arithmetic, Comparison, Expr, PredicateAst, RecognitionStatus};
+use crate::predicate::{self, RecognitionStatus};
 use crate::return_dependency;
 use crate::type_check;
 use crate::typed_failure::{self, FailureVariant};
@@ -188,6 +189,7 @@ struct ExecLine {
     text: String,
     location: String,
     span: Span,
+    parsed: ParsedBodyStatement,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -196,6 +198,45 @@ enum RuntimePermission {
     Change,
     Consume,
     Local,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimePlace {
+    Root(String),
+    Field { root: String, field: String },
+    Element { root: String, index: usize },
+}
+
+impl RuntimePlace {
+    fn from_canonical(expression: &CanonicalExpression) -> Option<Self> {
+        let (root, field, index) = expression.direct_place()?;
+        Some(match (field, index) {
+            (Some(field), None) => Self::Field {
+                root: root.to_string(),
+                field: field.to_string(),
+            },
+            (None, Some(index)) => Self::Element {
+                root: root.to_string(),
+                index,
+            },
+            (None, None) => Self::Root(root.to_string()),
+            (Some(_), Some(_)) => return None,
+        })
+    }
+
+    fn root(&self) -> &str {
+        match self {
+            Self::Root(root) | Self::Field { root, .. } | Self::Element { root, .. } => root,
+        }
+    }
+
+    fn display(&self) -> String {
+        match self {
+            Self::Root(root) => root.clone(),
+            Self::Field { root, field } => format!("{root}.{field}"),
+            Self::Element { root, index } => format!("{root}[{index}]"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -208,7 +249,7 @@ struct RuntimeBinding {
     moved_by: Option<String>,
     linear: bool,
     view: Option<RuntimeView>,
-    writable_alias_source: Option<String>,
+    writable_alias_source: Option<RuntimePlace>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,7 +273,7 @@ struct RuntimeViewInvalidation {
 #[derive(Debug, Clone)]
 struct RuntimeView {
     kind: RuntimeViewKind,
-    source_place: String,
+    source_place: RuntimePlace,
     bound_at: Span,
     invalidated_by: Option<RuntimeViewInvalidation>,
 }
@@ -280,7 +321,7 @@ impl RuntimeBinding {
         }
     }
 
-    fn writable_alias(source_place: String) -> Self {
+    fn writable_alias(source_place: RuntimePlace) -> Self {
         Self {
             value: Value::Unit,
             definition_id: None,
@@ -294,7 +335,12 @@ impl RuntimeBinding {
         }
     }
 
-    fn view(value: Value, kind: RuntimeViewKind, source_place: String, bound_at: Span) -> Self {
+    fn view(
+        value: Value,
+        kind: RuntimeViewKind,
+        source_place: RuntimePlace,
+        bound_at: Span,
+    ) -> Self {
         Self {
             value,
             definition_id: None,
@@ -1055,6 +1101,12 @@ enum ContractKind {
     Ensures,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExpressionContext {
+    Body,
+    Contract,
+}
+
 impl<'program, 'output> Interpreter<'program, 'output> {
     fn run(
         &self,
@@ -1213,10 +1265,10 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 if resolver_owned_callable_occurrence {
                     continue;
                 }
-                let Some(expression) = typed_failure::statement_expression(statement) else {
+                let Some(expression) = typed_failure::statement_expression_node(statement) else {
                     continue;
                 };
-                for call in typed_failure::calls_in_expression(expression) {
+                for call in typed_failure::calls_in_canonical(expression) {
                     if let Some(callee) = self.find_task(&call.callee) {
                         pending.push(callee);
                     }
@@ -1355,7 +1407,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                     .lines
                     .iter()
                     .filter(|line| is_meaningful_line_text(&line.text))
-                    .map(|line| place_root(line.text.trim())),
+                    .map(|line| declaration_root(line.text.trim())),
             );
         }
         let alias_analysis =
@@ -1380,7 +1432,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
 
         self.capture_old_contract_values(task, &mut env)?;
 
-        let lines = executable_lines(&does.lines);
+        let lines = executable_lines(does);
         match self.eval_block(&lines, 0, lines.len(), &mut env, &task.name)? {
             Flow::Return { value, root, span } => {
                 self.ensure_return_dependency(task, root.as_deref(), &span)?;
@@ -1457,7 +1509,8 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 .take(binding.binding_index)
                 .rev()
                 .find_map(|(_index, statement)| {
-                    body_binding_name(statement)
+                    statement
+                        .binding_name()
                         .and_then(|name| (name == binding.owner_root).then_some(statement.kind))
                 });
             if owner == Some("mutable_binding") {
@@ -1561,27 +1614,27 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         for fact in self.predicate_analysis.facts_for_task(task).filter(|fact| {
             fact.section == "ensures" && fact.status == RecognitionStatus::RecognizedTyped
         }) {
-            let Some(ast) = fact.ast.as_ref() else {
-                continue;
-            };
-            for place in old_places(ast) {
-                let inner = place.text();
+            for place in old_places(&fact.canonical) {
+                let inner = crate::core_expr::canonical_text(&place);
                 let key = format!("old({inner})");
                 if env.contains_key(&key) {
                     continue;
                 }
-                let value = match self.eval_expr(&inner, env, &fact.line_span, &task.name)? {
-                    Evaluated::Value(value) => value,
-                    Evaluated::Failure(value) => {
-                        return Err(format!(
-                            "old capture of `{inner}` produced failure {}",
-                            value.identity()
-                        ));
-                    }
-                    Evaluated::ContractViolation => {
-                        return Err(format!("old capture of `{inner}` hit a contract violation"));
-                    }
-                };
+                let value =
+                    match self.eval_canonical_at(&place, env, &task.name, &fact.line_span)? {
+                        Evaluated::Value(value) => value,
+                        Evaluated::Failure(value) => {
+                            return Err(format!(
+                                "old capture of `{inner}` produced failure {}",
+                                value.identity()
+                            ));
+                        }
+                        Evaluated::ContractViolation => {
+                            return Err(format!(
+                                "old capture of `{inner}` hit a contract violation"
+                            ));
+                        }
+                    };
                 env.insert(key, RuntimeBinding::local(value, false));
             }
         }
@@ -1639,10 +1692,24 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 );
                 continue;
             }
-            let ast = fact.ast.as_ref().ok_or_else(|| {
-                format!("typed predicate fact for `{text}` is missing its accepted AST")
-            })?;
-            let value = self.eval_predicate(ast, env, &line.span, &task.name)?;
+            let value = match self.eval_canonical_with_context(
+                &fact.canonical,
+                env,
+                &task.name,
+                &line.span,
+                ExpressionContext::Contract,
+            )? {
+                Evaluated::Value(value) => value,
+                Evaluated::Failure(failure) => {
+                    return Err(format!(
+                        "typed predicate produced failure {}",
+                        failure.identity()
+                    ));
+                }
+                Evaluated::ContractViolation => {
+                    return Err("typed predicate evaluation hit a contract violation".to_string());
+                }
+            };
             if as_bool(&value)? {
                 continue;
             }
@@ -1672,96 +1739,6 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         Ok(true)
     }
 
-    fn eval_predicate(
-        &self,
-        ast: &PredicateAst,
-        env: &mut Env,
-        span: &Span,
-        task_name: &str,
-    ) -> Result<Value, String> {
-        let left = self.eval_predicate_expr(&ast.left, env, span, task_name)?;
-        let right = self.eval_predicate_expr(&ast.right, env, span, task_name)?;
-        let value = match ast.comparison {
-            Comparison::Eq => left == right,
-            Comparison::NotEq => left != right,
-            Comparison::Less => as_int(&left)? < as_int(&right)?,
-            Comparison::LessEq => as_int(&left)? <= as_int(&right)?,
-            Comparison::Greater => as_int(&left)? > as_int(&right)?,
-            Comparison::GreaterEq => as_int(&left)? >= as_int(&right)?,
-        };
-        Ok(Value::Bool(value))
-    }
-
-    fn eval_predicate_expr(
-        &self,
-        expr: &Expr,
-        env: &mut Env,
-        span: &Span,
-        task_name: &str,
-    ) -> Result<Value, String> {
-        match expr {
-            Expr::Bool(value, _) => Ok(Value::Bool(*value)),
-            Expr::Integer(value, _) => Ok(Value::Int(*value)),
-            Expr::Text(value, _) => Ok(Value::Text(value.clone())),
-            Expr::ListText(values, _) => Ok(Value::List(
-                values.iter().cloned().map(Value::Text).collect(),
-            )),
-            Expr::Place(place) => match self.eval_expr(&place.text(), env, span, task_name)? {
-                Evaluated::Value(value) => Ok(value),
-                Evaluated::Failure(value) => Err(format!(
-                    "predicate place `{}` produced failure {}",
-                    place.text(),
-                    value.identity()
-                )),
-                Evaluated::ContractViolation => {
-                    Err("predicate place evaluation hit a contract violation".to_string())
-                }
-            },
-            Expr::Old(place, _) => env
-                .get(&format!("old({})", place.text()))
-                .map(|binding| binding.value.clone())
-                .ok_or_else(|| format!("old({}) was not captured at task entry", place.text())),
-            Expr::ListLen(place, _) => {
-                let value =
-                    self.eval_predicate_expr(&Expr::Place(place.clone()), env, span, task_name)?;
-                let Value::List(values) = value else {
-                    return Err("typed list_len predicate fact evaluated a non-list".to_string());
-                };
-                Ok(Value::Int(values.len() as i64))
-            }
-            Expr::ListCount(list, text, _) => {
-                let list = self.eval_predicate_expr(list, env, span, task_name)?;
-                let text = self.eval_predicate_expr(text, env, span, task_name)?;
-                let Value::List(values) = list else {
-                    return Err("typed list_count fact evaluated a non-list".to_string());
-                };
-                let Value::Text(needle) = text else {
-                    return Err("typed list_count fact evaluated a non-Text match".to_string());
-                };
-                Ok(Value::Int(
-                    values
-                        .iter()
-                        .filter(|value| matches!(value, Value::Text(item) if item == &needle))
-                        .count() as i64,
-                ))
-            }
-            Expr::Binary(left, operator, right, _) => {
-                let left = as_int(&self.eval_predicate_expr(left, env, span, task_name)?)?;
-                let right = as_int(&self.eval_predicate_expr(right, env, span, task_name)?)?;
-                let value = match operator {
-                    Arithmetic::Add => left.checked_add(right),
-                    Arithmetic::Subtract => left.checked_sub(right),
-                    Arithmetic::Multiply => left.checked_mul(right),
-                    Arithmetic::Divide if right == 0 => None,
-                    Arithmetic::Divide => left.checked_div(right),
-                }
-                .ok_or_else(|| "integer failure in typed predicate evaluation".to_string())?;
-                Ok(Value::Int(value))
-            }
-            Expr::Group(inner, _) => self.eval_predicate_expr(inner, env, span, task_name),
-        }
-    }
-
     fn eval_block(
         &self,
         lines: &[ExecLine],
@@ -1775,13 +1752,16 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             let line = &lines[index];
             let text = line.text.as_str();
 
-            if text == "}" {
+            if line.parsed.block_relationship == ParsedBlockRelationship::Closes {
                 return Ok(Flow::Continue);
             }
 
-            if let Some(condition) = header_body(text, "if") {
+            if line.parsed.core_kind == "if_header" {
                 let close = matching_close(lines, index)?;
-                match self.eval_expr(condition, env, &line.span, task_name)? {
+                let condition = statement_expression(&line.parsed).ok_or_else(|| {
+                    format!("{}: if header has no expression fact", line.location)
+                })?;
+                match self.eval_canonical_at(condition, env, task_name, &line.span)? {
                     Evaluated::Value(value) if as_bool(&value)? => {
                         let flow = self.eval_block(lines, index + 1, close, env, task_name)?;
                         if flow != Flow::Continue {
@@ -1796,13 +1776,16 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 continue;
             }
 
-            if let Some(rest) = header_body(text, "for each") {
+            if line.parsed.core_kind == "for_each_header" {
                 let close = matching_close(lines, index)?;
-                let (name, collection_expr) = rest
-                    .split_once(" in ")
-                    .ok_or_else(|| format!("{}: malformed `for each` header", line.location))?;
+                let name = line.parsed.facts.loop_binding.as_ref().ok_or_else(|| {
+                    format!("{}: malformed `for each` binding fact", line.location)
+                })?;
+                let collection_node = statement_expression(&line.parsed).ok_or_else(|| {
+                    format!("{}: for-each header has no expression fact", line.location)
+                })?;
                 let collection =
-                    match self.eval_expr(collection_expr.trim(), env, &line.span, task_name)? {
+                    match self.eval_canonical_at(collection_node, env, task_name, &line.span)? {
                         Evaluated::Value(value) => value,
                         Evaluated::Failure(value) => return Ok(Flow::Fail(value)),
                         Evaluated::ContractViolation => return Ok(Flow::ContractViolation),
@@ -1814,9 +1797,11 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                     ));
                 };
 
-                let active_iteration = iteration_root(collection_expr.trim())
-                    .map(|root| self.push_active_iteration(root, line.span.clone()));
-                let name = name.trim();
+                let active_iteration = collection_node
+                    .direct_place()
+                    .map(|(root, _, _)| root)
+                    .map(|root| self.push_active_iteration(root.to_string(), line.span.clone()));
+                let name = name.name.as_str();
                 let previous = env.get(name).cloned();
                 for value in values {
                     env.insert(name.to_string(), RuntimeBinding::local(value, false));
@@ -1846,10 +1831,16 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 continue;
             }
 
-            if let Some(expr) = strip_keyword(text, "return") {
-                return match self.eval_expr(expr, env, &line.span, task_name)? {
+            if let ParsedBodyStatementKind::Return(expression) = &line.parsed.kind {
+                return match self.eval_canonical_at(
+                    &expression.canonical,
+                    env,
+                    task_name,
+                    &line.span,
+                )? {
                     Evaluated::Value(value) => {
-                        let root = return_dependency::visible_view_source_root(expr);
+                        let root =
+                            return_dependency::visible_view_source_root(&expression.canonical);
                         if let Some(root) = root.as_deref()
                             && !is_linear_binding(env, root)
                         {
@@ -1870,8 +1861,12 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 };
             }
 
-            if let Some(expr) = strip_keyword(text, "fail") {
-                let Some(variant) = typed_failure::parse_failure_variant(expr) else {
+            if line.parsed.core_kind == "fail" {
+                let expression = statement_expression(&line.parsed).ok_or_else(|| {
+                    format!("{}: typed fail has no expression fact", line.location)
+                })?;
+                let rendered = crate::core_expr::canonical_text(expression);
+                let Some(variant) = typed_failure::parse_failure_variant(&rendered) else {
                     return Err(format!(
                         "{}: typed `fail` requires `ErrorRoot.variant`",
                         line.location
@@ -1881,24 +1876,26 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 return Ok(Flow::Fail(FailureValue::root(variant, line.span.clone())));
             }
 
-            if let Some(rest) = strip_keyword(text, "change") {
-                if let Some(flow) = self.eval_binding(rest, env, &line.span, task_name, true)? {
+            if matches!(&line.parsed.kind, ParsedBodyStatementKind::Binding { .. }) {
+                if let Some(flow) = self.eval_binding(&line.parsed, env, &line.span, task_name)? {
                     return Ok(flow);
                 }
                 index += 1;
                 continue;
             }
 
-            if let Some(rest) = strip_keyword(text, "let") {
-                if let Some(flow) = self.eval_binding(rest, env, &line.span, task_name, false)? {
-                    return Ok(flow);
-                }
-                index += 1;
-                continue;
-            }
-
-            if let Some(rest) = strip_keyword(text, "set") {
-                if let Some(flow) = self.eval_set(rest, env, &line.span, task_name)? {
+            if line.parsed.core_kind == "set_place" {
+                let target = line
+                    .parsed
+                    .facts
+                    .set_target
+                    .as_ref()
+                    .ok_or_else(|| format!("{}: set has no target fact", line.location))?;
+                let value = statement_expression(&line.parsed)
+                    .ok_or_else(|| format!("{}: set has no expression fact", line.location))?;
+                if let Some(flow) =
+                    self.eval_set(&target.canonical, value, env, &line.span, task_name)?
+                {
                     return Ok(flow);
                 }
                 index += 1;
@@ -1915,48 +1912,66 @@ impl<'program, 'output> Interpreter<'program, 'output> {
 
     fn eval_binding(
         &self,
-        rest: &str,
+        binding: &ParsedBodyStatement,
         env: &mut Env,
         span: &Span,
         task_name: &str,
-        mutable: bool,
     ) -> Result<Option<Flow>, String> {
-        let (left, expr) = rest
-            .split_once('=')
-            .ok_or_else(|| format!("binding `{rest}` is missing an initializer"))?;
-        let annotation = left.split_once(':').map(|(_name, ty)| ty.trim());
-        let name = left.split_once(':').map_or(left, |(name, _ty)| name).trim();
-        if name.is_empty() {
-            return Err(format!("binding `{rest}` is missing a name"));
-        }
-        let expr = expr.trim();
-        if !mutable
-            && let Some(alias) = writable_field_alias::exact_binding_text(&format!("let {rest}"))
-        {
-            let source_root = place_root(&alias.source_place);
-            self.ensure_can_set(env, &alias.source_place, &source_root, span, task_name)?;
+        let ParsedBodyStatementKind::Binding {
+            mutable,
+            name: parsed_name,
+            value: parsed_value,
+        } = &binding.kind
+        else {
+            return Err("internal binding evaluator received a non-binding fact".to_string());
+        };
+        let parsed_value = parsed_value
+            .as_ref()
+            .ok_or_else(|| "binding fact is missing an initializer".to_string())?;
+        let name = parsed_name
+            .as_ref()
+            .map(|name| name.name.as_str())
+            .ok_or_else(|| "binding fact is missing a name".to_string())?;
+        let annotation = binding.facts.binding_annotation.as_deref();
+        if !*mutable && let Some(alias) = writable_field_alias::exact_binding_from_parser(binding) {
+            let source_place = RuntimePlace::Field {
+                root: alias.owner_root,
+                field: alias.source_field,
+            };
+            self.ensure_can_set(env, &source_place, span, task_name)?;
             env.insert(
                 name.to_string(),
-                RuntimeBinding::writable_alias(alias.source_place),
+                RuntimeBinding::writable_alias(source_place),
             );
             return Ok(None);
         }
-        if !mutable && let Some((kind, source_place)) = borrowed_view_source(expr) {
-            let value = match self.eval_expr(source_place, env, span, task_name)? {
+        if !*mutable
+            && let CanonicalExpressionKind::Permission { permission, value } =
+                &parsed_value.canonical.kind
+            && matches!(permission, ParamPermission::Borrow)
+        {
+            let source_place = RuntimePlace::from_canonical(value)
+                .ok_or_else(|| "borrowed view source is not a canonical place".to_string())?;
+            let kind = if matches!(value.kind, CanonicalExpressionKind::Element { .. }) {
+                RuntimeViewKind::Element
+            } else {
+                RuntimeViewKind::Field
+            };
+            let value = match self.eval_canonical(value, env, task_name)? {
                 Evaluated::Value(value) => value,
                 Evaluated::Failure(value) => return Ok(Some(Flow::Fail(value))),
                 Evaluated::ContractViolation => return Ok(Some(Flow::ContractViolation)),
             };
             env.insert(
                 name.to_string(),
-                RuntimeBinding::view(value, kind, source_place.to_string(), span.clone()),
+                RuntimeBinding::view(value, kind, source_place, span.clone()),
             );
             return Ok(None);
         }
         let linear = annotation.is_some_and(is_linear_resource_type);
-        match self.eval_expr(expr, env, span, task_name)? {
+        match self.eval_canonical_at(&parsed_value.canonical, env, task_name, span)? {
             Evaluated::Value(value) => {
-                let binding = if mutable {
+                let binding = if *mutable {
                     RuntimeBinding::mutable_local(value, linear)
                 } else {
                     RuntimeBinding::local(value, linear)
@@ -1971,19 +1986,17 @@ impl<'program, 'output> Interpreter<'program, 'output> {
 
     fn eval_set(
         &self,
-        rest: &str,
+        target: &CanonicalExpression,
+        parsed_value: &CanonicalExpression,
         env: &mut Env,
         span: &Span,
         task_name: &str,
     ) -> Result<Option<Flow>, String> {
-        let (place, expr) = rest
-            .split_once('=')
-            .ok_or_else(|| format!("set `{rest}` is missing `=`"))?;
-        let place = place.trim();
-        let effective_place = self.resolve_writable_alias_place(env, place)?;
-        let root = place_root(&effective_place);
-        self.ensure_can_set(env, &effective_place, &root, span, task_name)?;
-        match self.eval_expr(expr.trim(), env, span, task_name)? {
+        let place = RuntimePlace::from_canonical(target)
+            .ok_or_else(|| "set target is not a canonical place".to_string())?;
+        let effective_place = self.resolve_writable_alias_place(env, &place)?;
+        self.ensure_can_set(env, &effective_place, span, task_name)?;
+        match self.eval_canonical_at(parsed_value, env, task_name, span)? {
             Evaluated::Value(value) => {
                 self.write_place(env, &effective_place, value)?;
                 invalidate_field_views(env, &effective_place, span);
@@ -1994,218 +2007,270 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         }
     }
 
-    fn eval_expr(
+    fn eval_canonical(
         &self,
-        text: &str,
+        expression: &CanonicalExpression,
         env: &mut Env,
-        span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        let text = trim_outer_parens(text.trim());
-        if text.is_empty() {
-            return Ok(Evaluated::Value(Value::Unit));
-        }
+        self.eval_canonical_with_context(
+            expression,
+            env,
+            task_name,
+            &expression.range.start,
+            ExpressionContext::Body,
+        )
+    }
 
-        if typed_failure::is_try_candidate(text) {
-            let parsed = typed_failure::parse_try_expression(text).ok_or_else(|| {
-                format!(
-                    "{}: unsupported typed-failure propagation shape",
-                    location(span)
-                )
-            })?;
-            return match self.eval_expr(&parsed.call.source, env, span, task_name)? {
-                Evaluated::Value(value) => Ok(Evaluated::Value(value)),
-                Evaluated::Failure(failure) => {
-                    let failure = if let Some(wrapper) = parsed.wrapper {
-                        failure.wrap(wrapper, span.clone(), parsed.call.callee)
-                    } else {
-                        failure.propagate(span.clone(), parsed.call.callee)
+    fn eval_canonical_at(
+        &self,
+        expression: &CanonicalExpression,
+        env: &mut Env,
+        task_name: &str,
+        span: &Span,
+    ) -> Result<Evaluated, String> {
+        self.eval_canonical_with_context(expression, env, task_name, span, ExpressionContext::Body)
+    }
+
+    fn eval_canonical_with_context(
+        &self,
+        expression: &CanonicalExpression,
+        env: &mut Env,
+        task_name: &str,
+        span: &Span,
+        context: ExpressionContext,
+    ) -> Result<Evaluated, String> {
+        match &expression.kind {
+            CanonicalExpressionKind::Unit => Ok(Evaluated::Value(Value::Unit)),
+            CanonicalExpressionKind::UIntLiteral(value) => i64::try_from(*value)
+                .map(Value::Int)
+                .map(Evaluated::Value)
+                .map_err(|_| format!("integer overflow while evaluating `{value}`")),
+            CanonicalExpressionKind::IntLiteral(value) => Ok(Evaluated::Value(Value::Int(*value))),
+            CanonicalExpressionKind::BoolLiteral(value) => {
+                Ok(Evaluated::Value(Value::Bool(*value)))
+            }
+            CanonicalExpressionKind::TextLiteral(value) => {
+                Ok(Evaluated::Value(Value::Text(value.clone())))
+            }
+            CanonicalExpressionKind::Identifier(name) => {
+                if env.contains_key(name) {
+                    self.read_value(env, name, span, task_name)
+                        .map(Evaluated::Value)
+                } else {
+                    Err(format!("unknown expression `{name}`"))
+                }
+            }
+            CanonicalExpressionKind::Field { base, field } => {
+                if let CanonicalExpressionKind::Identifier(root) = &base.kind
+                    && root
+                        .chars()
+                        .next()
+                        .is_some_and(|ch| ch.is_ascii_uppercase())
+                {
+                    return Ok(Evaluated::Value(Value::Variant(format!("{root}.{field}"))));
+                }
+                let base_text = crate::core_expr::canonical_text(base);
+                let value =
+                    match self.eval_canonical_with_context(base, env, task_name, span, context)? {
+                        Evaluated::Value(value) => value,
+                        other => return Ok(other),
                     };
-                    Ok(Evaluated::Failure(failure))
+                let Value::Record(fields) = value else {
+                    return Err(format!("`{base_text}` is not a record"));
+                };
+                fields
+                    .get(field)
+                    .cloned()
+                    .map(Evaluated::Value)
+                    .ok_or_else(|| format!("record `{base_text}` has no field `{field}`"))
+            }
+            CanonicalExpressionKind::Element { base, index } => {
+                let base_text = crate::core_expr::canonical_text(base);
+                let value =
+                    match self.eval_canonical_with_context(base, env, task_name, span, context)? {
+                        Evaluated::Value(value) => value,
+                        other => return Ok(other),
+                    };
+                let Value::List(values) = value else {
+                    return Err(format!("{base_text} is not a list"));
+                };
+                values
+                    .get(*index)
+                    .cloned()
+                    .map(Evaluated::Value)
+                    .ok_or_else(|| format!("list {base_text} has no element at index {index}"))
+            }
+            CanonicalExpressionKind::ListLiteral(values) => {
+                let mut result = Vec::new();
+                for value in values {
+                    match self.eval_canonical_with_context(value, env, task_name, span, context)? {
+                        Evaluated::Value(value) => result.push(value),
+                        other => return Ok(other),
+                    }
                 }
-                Evaluated::ContractViolation => Ok(Evaluated::ContractViolation),
-            };
-        }
-
-        if let Some((left, right)) = split_word_operator(text, "or") {
-            let left = match self.eval_expr(left, env, span, task_name)? {
-                Evaluated::Value(value) => value,
-                Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
-                Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
-            };
-            if as_bool(&left)? {
-                return Ok(Evaluated::Value(Value::Bool(true)));
+                Ok(Evaluated::Value(Value::List(result)))
             }
-            let right = match self.eval_expr(right, env, span, task_name)? {
-                Evaluated::Value(value) => value,
-                Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
-                Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
-            };
-            return Ok(Evaluated::Value(Value::Bool(as_bool(&right)?)));
-        }
-
-        if let Some((left, right)) = split_word_operator(text, "and") {
-            let left = match self.eval_expr(left, env, span, task_name)? {
-                Evaluated::Value(value) => value,
-                Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
-                Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
-            };
-            if !as_bool(&left)? {
-                return Ok(Evaluated::Value(Value::Bool(false)));
-            }
-            let right = match self.eval_expr(right, env, span, task_name)? {
-                Evaluated::Value(value) => value,
-                Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
-                Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
-            };
-            return Ok(Evaluated::Value(Value::Bool(as_bool(&right)?)));
-        }
-
-        if let Some((left, op, right)) =
-            split_top_level_operator(text, &["==", "!=", "<=", ">=", "<", ">"])
-        {
-            return self.eval_comparison(text, (left, op, right), env, span, task_name);
-        }
-
-        if let Some((left, op, right)) = split_top_level_operator(text, &["+", "-"]) {
-            return self.eval_integer_binary(text, (left, op, right), env, span, task_name);
-        }
-
-        if let Some((left, op, right)) = split_top_level_operator(text, &["*", "/"]) {
-            return self.eval_integer_binary(text, (left, op, right), env, span, task_name);
-        }
-
-        self.eval_primary(text, env, span, task_name)
-    }
-
-    fn eval_comparison(
-        &self,
-        source: &str,
-        parts: (&str, &str, &str),
-        env: &mut Env,
-        span: &Span,
-        task_name: &str,
-    ) -> Result<Evaluated, String> {
-        let (left, op, right) = parts;
-        let left = match self.eval_expr(left, env, span, task_name)? {
-            Evaluated::Value(value) => value,
-            Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
-            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
-        };
-        let right = match self.eval_expr(right, env, span, task_name)? {
-            Evaluated::Value(value) => value,
-            Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
-            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
-        };
-        let value = match op {
-            "==" => left == right,
-            "!=" => left != right,
-            "<" => as_int(&left)? < as_int(&right)?,
-            ">" => as_int(&left)? > as_int(&right)?,
-            "<=" => as_int(&left)? <= as_int(&right)?,
-            ">=" => as_int(&left)? >= as_int(&right)?,
-            _ => return Err(format!("unsupported comparison `{source}`")),
-        };
-        Ok(Evaluated::Value(Value::Bool(value)))
-    }
-
-    fn eval_integer_binary(
-        &self,
-        source: &str,
-        parts: (&str, &str, &str),
-        env: &mut Env,
-        span: &Span,
-        task_name: &str,
-    ) -> Result<Evaluated, String> {
-        let (left, op, right) = parts;
-        let left = match self.eval_expr(left, env, span, task_name)? {
-            Evaluated::Value(value) => as_int(&value)?,
-            Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
-            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
-        };
-        let right = match self.eval_expr(right, env, span, task_name)? {
-            Evaluated::Value(value) => as_int(&value)?,
-            Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
-            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
-        };
-        let value = match op {
-            "+" => left
-                .checked_add(right)
-                .ok_or_else(|| format!("integer overflow while evaluating `{source}`"))?,
-            "-" => left
-                .checked_sub(right)
-                .ok_or_else(|| format!("integer overflow while evaluating `{source}`"))?,
-            "*" => left
-                .checked_mul(right)
-                .ok_or_else(|| format!("integer overflow while evaluating `{source}`"))?,
-            "/" => {
-                if right == 0 {
-                    return Err(format!("division by zero while evaluating `{source}`"));
+            CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+                let mut result = BTreeMap::new();
+                for (field, value) in fields {
+                    match self.eval_canonical_with_context(value, env, task_name, span, context)? {
+                        Evaluated::Value(value) => {
+                            result.insert(field.clone(), value);
+                        }
+                        other => return Ok(other),
+                    }
                 }
-                left.checked_div(right)
-                    .ok_or_else(|| format!("integer overflow while evaluating `{source}`"))?
+                Ok(Evaluated::Value(Value::Record(result)))
             }
-            _ => return Err(format!("unsupported integer operator `{op}`")),
-        };
-        Ok(Evaluated::Value(Value::Int(value)))
+            CanonicalExpressionKind::Permission { value, .. }
+            | CanonicalExpressionKind::Group(value) => {
+                self.eval_canonical_with_context(value, env, task_name, span, context)
+            }
+            CanonicalExpressionKind::Try { call, wrapper } => {
+                match self.eval_canonical_with_context(call, env, task_name, span, context)? {
+                    Evaluated::Value(value) => Ok(Evaluated::Value(value)),
+                    Evaluated::Failure(failure) => {
+                        let callee = canonical_callee_name(call).unwrap_or("<unknown>");
+                        let failure = if let Some(wrapper) = wrapper {
+                            let wrapper = typed_failure::parse_failure_variant(wrapper)
+                                .ok_or_else(|| {
+                                    "checked typed-failure wrapper is invalid".to_string()
+                                })?;
+                            failure.wrap(wrapper, span.clone(), callee.to_string())
+                        } else {
+                            failure.propagate(span.clone(), callee.to_string())
+                        };
+                        Ok(Evaluated::Failure(failure))
+                    }
+                    Evaluated::ContractViolation => Ok(Evaluated::ContractViolation),
+                }
+            }
+            CanonicalExpressionKind::Binary {
+                operator,
+                left,
+                right,
+                ..
+            } => {
+                let left_value =
+                    match self.eval_canonical_with_context(left, env, task_name, span, context)? {
+                        Evaluated::Value(value) => value,
+                        other => return Ok(other),
+                    };
+                if *operator == ParsedBinaryOperator::Or && as_bool(&left_value)? {
+                    return Ok(Evaluated::Value(Value::Bool(true)));
+                }
+                if *operator == ParsedBinaryOperator::And && !as_bool(&left_value)? {
+                    return Ok(Evaluated::Value(Value::Bool(false)));
+                }
+                let right_value =
+                    match self.eval_canonical_with_context(right, env, task_name, span, context)? {
+                        Evaluated::Value(value) => value,
+                        other => return Ok(other),
+                    };
+                apply_binary_operator(*operator, left_value, right_value, expression)
+                    .map(Evaluated::Value)
+            }
+            CanonicalExpressionKind::Call { callee, arguments } => {
+                self.eval_canonical_call(callee, arguments, env, span, task_name, context)
+            }
+            CanonicalExpressionKind::Unsupported => Err(format!(
+                "unknown expression `{}`",
+                crate::core_expr::canonical_text(expression)
+            )),
+        }
     }
 
-    fn eval_primary(
+    fn eval_canonical_call(
         &self,
-        text: &str,
+        callee: &CanonicalExpression,
+        arguments: &[CanonicalExpression],
         env: &mut Env,
         span: &Span,
         task_name: &str,
+        context: ExpressionContext,
     ) -> Result<Evaluated, String> {
-        if text == "true" {
-            return Ok(Evaluated::Value(Value::Bool(true)));
+        let callee_name = canonical_identifier(callee)
+            .ok_or_else(|| "checked call callee is not a direct identifier".to_string())?;
+        if callee_name == "stdout_write" {
+            return self.eval_stdout_write(arguments, env, span, task_name);
         }
-        if text == "false" {
-            return Ok(Evaluated::Value(Value::Bool(false)));
+        if callee_name == "clock_replay_tick" {
+            return self.eval_clock_replay_tick(arguments, span, task_name);
         }
-        if let Ok(value) = parse_int_literal(text) {
-            return Ok(Evaluated::Value(Value::Int(value)));
+        if callee_name == "files_read_text" {
+            return self.eval_files_read_text(arguments, env, span, task_name);
         }
-        if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
-            return Ok(Evaluated::Value(Value::Text(
-                text[1..text.len() - 1].to_string(),
+        if return_dependency::is_closed_view_deriving_operation(callee_name) {
+            return self.eval_slice_until(arguments, env, span, task_name);
+        }
+        if callee_name == "list_append" {
+            return self.eval_list_append(arguments, env, span, task_name);
+        }
+        if callee_name == "old" {
+            if context != ExpressionContext::Contract {
+                return Err(
+                    "old(...) is available only in `ensures:` over parameters or parameter fields readable when the task starts"
+                        .to_string(),
+                );
+            }
+            if arguments.len() != 1 {
+                return Err("old expects one place".to_string());
+            }
+            let key = format!("old({})", crate::core_expr::canonical_text(&arguments[0]));
+            return env
+                .get(&key)
+                .map(|binding| Evaluated::Value(binding.value.clone()))
+                .ok_or_else(|| {
+                    format!(
+                        "`{key}` was not captured at task entry; old(...) is available only in `ensures:` over parameters or parameter fields readable when the task starts"
+                    )
+                });
+        }
+        if callee_name == "list_len" {
+            return self.eval_list_len(arguments, env, span, task_name);
+        }
+        if callee_name == "list_count" {
+            if context != ExpressionContext::Contract {
+                return Err("list_count is contract-only Predicate v2 vocabulary".to_string());
+            }
+            let [list, text] = arguments else {
+                return Err("list_count expects two arguments".to_string());
+            };
+            let list = match self.eval_canonical_with_context(
+                list,
+                env,
+                task_name,
+                span,
+                ExpressionContext::Contract,
+            )? {
+                Evaluated::Value(value) => value,
+                other => return Ok(other),
+            };
+            let text = match self.eval_canonical_with_context(
+                text,
+                env,
+                task_name,
+                span,
+                ExpressionContext::Contract,
+            )? {
+                Evaluated::Value(value) => value,
+                other => return Ok(other),
+            };
+            let Value::List(values) = list else {
+                return Err("typed list_count fact evaluated a non-list".to_string());
+            };
+            let Value::Text(needle) = text else {
+                return Err("typed list_count fact evaluated a non-Text match".to_string());
+            };
+            return Ok(Evaluated::Value(Value::Int(
+                values
+                    .iter()
+                    .filter(|value| matches!(value, Value::Text(item) if item == &needle))
+                    .count() as i64,
             )));
         }
-        if text.starts_with('[') && text.ends_with(']') {
-            let inside = &text[1..text.len() - 1];
-            let mut values = Vec::new();
-            for item in split_arguments(inside) {
-                match self.eval_expr(item, env, span, task_name)? {
-                    Evaluated::Value(value) => values.push(value),
-                    Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
-                    Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
-                }
-            }
-            return Ok(Evaluated::Value(Value::List(values)));
-        }
-        if text.starts_with('{') && text.ends_with('}') {
-            let inside = &text[1..text.len() - 1];
-            let mut fields = BTreeMap::new();
-            for field in split_arguments(inside) {
-                let (name, value_text) = field
-                    .split_once(':')
-                    .ok_or_else(|| format!("record field `{field}` is missing `:`"))?;
-                let name = name.trim();
-                if !is_record_field_name(name) {
-                    return Err(format!(
-                        "record field name `{name}` is not a valid Hum field name"
-                    ));
-                }
-                match self.eval_expr(value_text.trim(), env, span, task_name)? {
-                    Evaluated::Value(value) => {
-                        fields.insert(name.to_string(), value);
-                    }
-                    Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
-                    Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
-                }
-            }
-            return Ok(Evaluated::Value(Value::Record(fields)));
-        }
+
         let active_callable_application =
             self.active_callable_applications.borrow().last().cloned();
         if let Some(current_task) = self.current_task()
@@ -2241,11 +2306,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             let target = self
                 .task_by_definition_id(&target_definition_id)
                 .ok_or_else(|| "checked callable target definition is unavailable".to_string())?;
-            return match self.execute_task(target, vec![value])? {
-                TaskResult::Returned(value) => Ok(Evaluated::Value(value)),
-                TaskResult::Failed(value) => Ok(Evaluated::Failure(value)),
-                TaskResult::ContractViolation => Ok(Evaluated::ContractViolation),
-            };
+            return task_result_to_evaluated(self.execute_task(target, vec![value])?);
         }
         if let Some(current_task) = self.current_task()
             && let Some(application) = self
@@ -2273,142 +2334,63 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 .push(application.id.clone());
             let result = self.execute_task(receiver, vec![callable, value]);
             self.active_callable_applications.borrow_mut().pop();
-            return match result? {
-                TaskResult::Returned(value) => Ok(Evaluated::Value(value)),
-                TaskResult::Failed(value) => Ok(Evaluated::Failure(value)),
-                TaskResult::ContractViolation => Ok(Evaluated::ContractViolation),
-            };
+            return task_result_to_evaluated(result?);
         }
-        if let Some((callee, args)) = split_call(text) {
-            let callee = callee.trim();
-            if callee == "stdout_write" {
-                return self.eval_stdout_write(args, env, span, task_name);
-            }
-            if callee == "clock_replay_tick" {
-                return self.eval_clock_replay_tick(args, span, task_name);
-            }
-            if callee == "files_read_text" {
-                return self.eval_files_read_text(args, env, span, task_name);
-            }
-            if return_dependency::is_closed_view_deriving_operation(callee) {
-                return self.eval_slice_until(args, env, span, task_name);
-            }
-            if callee == "list_append" {
-                return self.eval_list_append(args, env, span, task_name);
-            }
-            if callee == "old" {
-                let key = format!("old({})", args.trim());
-                if let Some(binding) = env.get(&key) {
-                    return Ok(Evaluated::Value(binding.value.clone()));
-                }
-                return Err(format!(
-                    "`{key}` was not captured at task entry; old(...) is available only in `ensures:` over parameters or parameter fields readable when the task starts"
-                ));
-            }
-            if callee == "list_len" {
-                return self.eval_list_len(args, env, span, task_name);
-            }
-            if callee == "list_count" {
-                return Err("list_count is contract-only Predicate v2 vocabulary".to_string());
-            }
-            let Some(task) = self.find_task(callee) else {
-                return Err(format!("task `{callee}` was not found"));
-            };
-            let raw_args = split_arguments(args);
-            if raw_args.len() != task.params.len() {
-                return Err(format!(
-                    "task `{}` expects {} argument(s), got {}",
-                    task.name,
-                    task.params.len(),
-                    raw_args.len()
-                ));
-            }
-            let mut values = Vec::new();
-            for arg in raw_args {
-                if let Some(root) = consume_argument_root(arg) {
-                    let value = self.read_consume_value(env, &root, span, task_name)?;
-                    self.mark_moved(env, &root, span, &task.name);
-                    values.push(value);
-                    continue;
-                }
-                let arg = strip_borrow_or_change_argument(arg).unwrap_or(arg);
-                match self.eval_expr(arg, env, span, task_name)? {
-                    Evaluated::Value(value) => values.push(value),
-                    Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
-                    Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
-                }
-            }
-            let route_call_span = self.next_output_route_call_span(task_name, &task.name, span);
-            if let Some(call_span) = &route_call_span {
-                self.active_call_route.borrow_mut().push(call_span.clone());
-            }
-            let result = self.execute_task(task, values);
-            if route_call_span.is_some() {
-                self.active_call_route.borrow_mut().pop();
-            }
-            return match result? {
-                TaskResult::Returned(value) => Ok(Evaluated::Value(value)),
-                TaskResult::Failed(value) => Ok(Evaluated::Failure(value)),
-                TaskResult::ContractViolation => Ok(Evaluated::ContractViolation),
-            };
+
+        let Some(task) = self.find_task(callee_name) else {
+            return Err(format!("task `{callee_name}` was not found"));
+        };
+        if arguments.len() != task.params.len() {
+            return Err(format!(
+                "task `{}` expects {} argument(s), got {}",
+                task.name,
+                task.params.len(),
+                arguments.len()
+            ));
         }
-        if let Some((base, index)) = element_place::split_element_place(text)
-            && env.contains_key(base)
-        {
-            let value = self.read_value(env, base, span, task_name)?;
-            let Value::List(values) = value else {
-                return Err(format!("{base} is not a list"));
-            };
-            return values
-                .get(index)
-                .cloned()
-                .map(Evaluated::Value)
-                .ok_or_else(|| format!("list {base} has no element at index {index}"));
+        let mut values = Vec::new();
+        for argument in arguments {
+            if let CanonicalExpressionKind::Permission {
+                permission: ParamPermission::Consume,
+                value,
+            } = &argument.kind
+            {
+                let root = crate::core_expr::canonical_text(value);
+                let value = self.read_consume_value(env, &root, span, task_name)?;
+                self.mark_moved(env, &root, span, &task.name);
+                values.push(value);
+                continue;
+            }
+            match self.eval_canonical(argument, env, task_name)? {
+                Evaluated::Value(value) => values.push(value),
+                other => return Ok(other),
+            }
         }
-        if env.contains_key(text) {
-            return self
-                .read_value(env, text, span, task_name)
-                .map(Evaluated::Value);
+        let route_call_span = self.next_output_route_call_span(task_name, &task.name, span);
+        if let Some(call_span) = &route_call_span {
+            self.active_call_route.borrow_mut().push(call_span.clone());
         }
-        if let Some((base, field)) = field_place::split_field_place(text)
-            && env.contains_key(base)
-        {
-            let value = self.read_value(env, base, span, task_name)?;
-            let Value::Record(fields) = value else {
-                return Err(format!("`{base}` is not a record"));
-            };
-            return fields
-                .get(field)
-                .cloned()
-                .map(Evaluated::Value)
-                .ok_or_else(|| format!("record `{base}` has no field `{field}`"));
+        let result = self.execute_task(task, values);
+        if route_call_span.is_some() {
+            self.active_call_route.borrow_mut().pop();
         }
-        if let Some((base, _field)) = text.split_once('.')
-            && base
-                .chars()
-                .next()
-                .is_some_and(|ch| ch.is_ascii_uppercase())
-        {
-            return Ok(Evaluated::Value(Value::Variant(text.to_string())));
-        }
-        Err(format!("unknown expression `{text}`"))
+        task_result_to_evaluated(result?)
     }
 
     fn eval_stdout_write(
         &self,
-        args: &str,
+        args: &[CanonicalExpression],
         env: &mut Env,
         statement_span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        let raw_args = split_arguments(args);
-        if raw_args.len() != 1 {
+        if args.len() != 1 {
             return Err(format!(
                 "stdout_write expects exactly 1 Text argument, got {}",
-                raw_args.len()
+                args.len()
             ));
         }
-        let value = match self.eval_expr(raw_args[0], env, statement_span, task_name)? {
+        let value = match self.eval_canonical(&args[0], env, task_name)? {
             Evaluated::Value(value) => value,
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
             Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
@@ -2502,11 +2484,11 @@ impl<'program, 'output> Interpreter<'program, 'output> {
 
     fn eval_clock_replay_tick(
         &self,
-        args: &str,
+        args: &[CanonicalExpression],
         statement_span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        if !args.trim().is_empty() {
+        if !args.is_empty() {
             return Err("clock_replay_tick expects no arguments".to_string());
         }
         let policy = self.next_replay_policy(task_name, statement_span)?;
@@ -2565,19 +2547,18 @@ impl<'program, 'output> Interpreter<'program, 'output> {
 
     fn eval_files_read_text(
         &self,
-        args: &str,
+        args: &[CanonicalExpression],
         env: &mut Env,
         statement_span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        let raw_args = split_arguments(args);
-        if raw_args.len() != 1 {
+        if args.len() != 1 {
             return Err(format!(
                 "files_read_text expects exactly 1 Path argument, got {}",
-                raw_args.len()
+                args.len()
             ));
         }
-        let value = match self.eval_expr(raw_args[0], env, statement_span, task_name)? {
+        let value = match self.eval_canonical(&args[0], env, task_name)? {
             Evaluated::Value(value) => value,
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
             Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
@@ -3160,26 +3141,32 @@ impl<'program, 'output> Interpreter<'program, 'output> {
 
     fn eval_list_append(
         &self,
-        args: &str,
+        args: &[CanonicalExpression],
         env: &mut Env,
         span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        let raw_args = split_arguments(args);
-        if raw_args.len() != 2 {
+        if args.len() != 2 {
             return Err(format!(
                 "list_append expects 2 argument(s), got {}",
-                raw_args.len()
+                args.len()
             ));
         }
-        let list_place = strip_keyword(raw_args[0].trim(), "change")
-            .ok_or_else(|| "list_append first argument must be `change list`".to_string())?;
-        let root = place_root(list_place);
+        let CanonicalExpressionKind::Permission {
+            permission: ParamPermission::Change,
+            value: list_value,
+        } = &args[0].kind
+        else {
+            return Err("list_append first argument must be `change list`".to_string());
+        };
+        let list_place = RuntimePlace::from_canonical(list_value)
+            .ok_or_else(|| "list_append first argument must be a canonical place".to_string())?;
+        let root = list_place.root().to_string();
         if let Some(loop_span) = self.active_iteration_for(&root) {
             return Err(self.iteration_mutation_trap(task_name, &root, span, &loop_span));
         }
-        self.ensure_can_set(env, list_place, &root, span, task_name)?;
-        let item = match self.eval_expr(raw_args[1], env, span, task_name)? {
+        self.ensure_can_set(env, &list_place, span, task_name)?;
+        let item = match self.eval_canonical(&args[1], env, task_name)? {
             Evaluated::Value(value) => value,
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
             Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
@@ -3199,26 +3186,25 @@ impl<'program, 'output> Interpreter<'program, 'output> {
 
     fn eval_slice_until(
         &self,
-        args: &str,
+        args: &[CanonicalExpression],
         env: &mut Env,
-        span: &Span,
+        _span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        let raw_args = split_arguments(args);
-        if raw_args.len() != 2 {
+        if args.len() != 2 {
             return Err(format!(
                 "slice_until expects 2 argument(s), got {}",
-                raw_args.len()
+                args.len()
             ));
         }
-        let source_expr = strip_borrow_or_change_argument(raw_args[0]).unwrap_or(raw_args[0]);
-        let separator_expr = strip_borrow_or_change_argument(raw_args[1]).unwrap_or(raw_args[1]);
-        let source = match self.eval_expr(source_expr, env, span, task_name)? {
+        let source_expr = permission_value(&args[0]);
+        let separator_expr = permission_value(&args[1]);
+        let source = match self.eval_canonical(source_expr, env, task_name)? {
             Evaluated::Value(value) => as_text(&value)?.to_string(),
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
             Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
         };
-        let separator = match self.eval_expr(separator_expr, env, span, task_name)? {
+        let separator = match self.eval_canonical(separator_expr, env, task_name)? {
             Evaluated::Value(value) => as_text(&value)?.to_string(),
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
             Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
@@ -3235,26 +3221,28 @@ impl<'program, 'output> Interpreter<'program, 'output> {
 
     fn eval_list_len(
         &self,
-        args: &str,
+        args: &[CanonicalExpression],
         env: &mut Env,
-        span: &Span,
+        _span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        let raw_args = split_arguments(args);
-        if raw_args.len() != 1 {
+        if args.len() != 1 {
             return Err(format!(
                 "list_len expects 1 argument(s), got {}",
-                raw_args.len()
+                args.len()
             ));
         }
-        let list_expr = strip_borrow_or_change_argument(raw_args[0]).unwrap_or(raw_args[0]);
-        let value = match self.eval_expr(list_expr, env, span, task_name)? {
+        let list_expr = permission_value(&args[0]);
+        let value = match self.eval_canonical(list_expr, env, task_name)? {
             Evaluated::Value(value) => value,
             Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
             Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
         };
         let Value::List(values) = value else {
-            return Err(format!("list_len expects a list, got {list_expr}"));
+            return Err(format!(
+                "list_len expects a list, got {}",
+                crate::core_expr::canonical_text(list_expr)
+            ));
         };
         Ok(Evaluated::Value(Value::Int(values.len() as i64)))
     }
@@ -3285,17 +3273,17 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         span: &Span,
         task_name: &str,
     ) -> Result<Value, String> {
-        let root = place_root(name);
-        let Some(binding) = env.get(&root) else {
+        let root = name;
+        let Some(binding) = env.get(root) else {
             return Err(format!("unknown expression `{name}`"));
         };
         if let Some(move_span) = &binding.moved_at {
-            return Err(use_after_move_invariant(task_name, &root, span, move_span));
+            return Err(use_after_move_invariant(task_name, root, span, move_span));
         }
         if let Some(view) = &binding.view
             && let Some(invalidation) = &view.invalidated_by
         {
-            return Err(self.stale_view_trap(task_name, &root, view, span, invalidation));
+            return Err(self.stale_view_trap(task_name, root, view, span, invalidation));
         }
         if let Some(source_place) = binding.writable_alias_source.clone() {
             return self.read_direct_field_value(env, &source_place, span, task_name);
@@ -3329,12 +3317,15 @@ impl<'program, 'output> Interpreter<'program, 'output> {
     fn read_direct_field_value(
         &self,
         env: &Env,
-        place: &str,
+        place: &RuntimePlace,
         span: &Span,
         task_name: &str,
     ) -> Result<Value, String> {
-        let Some((root, field)) = field_place::split_field_place(place) else {
-            return Err(format!("unsupported writable alias source `{place}`"));
+        let RuntimePlace::Field { root, field } = place else {
+            return Err(format!(
+                "unsupported writable alias source `{}`",
+                place.display()
+            ));
         };
         let value = self.read_value(env, root, span, task_name)?;
         let Value::Record(fields) = value else {
@@ -3346,15 +3337,19 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             .ok_or_else(|| format!("record `{root}` has no field `{field}`"))
     }
 
-    fn resolve_writable_alias_place(&self, env: &Env, place: &str) -> Result<String, String> {
-        let root = place_root(place);
-        let Some(binding) = env.get(&root) else {
-            return Ok(place.to_string());
+    fn resolve_writable_alias_place(
+        &self,
+        env: &Env,
+        place: &RuntimePlace,
+    ) -> Result<RuntimePlace, String> {
+        let root = place.root();
+        let Some(binding) = env.get(root) else {
+            return Ok(place.clone());
         };
         let Some(source_place) = &binding.writable_alias_source else {
-            return Ok(place.to_string());
+            return Ok(place.clone());
         };
-        if place != root {
+        if !matches!(place, RuntimePlace::Root(_)) {
             return Err(format!(
                 "writable alias `{root}` supports only direct local reads and writes"
             ));
@@ -3369,21 +3364,21 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         span: &Span,
         task_name: &str,
     ) -> Result<Value, String> {
-        let root = place_root(name);
-        let Some(binding) = env.get(&root) else {
+        let root = name;
+        let Some(binding) = env.get(root) else {
             return Err(format!("unknown expression `{name}`"));
         };
         if let Some(move_span) = &binding.moved_at {
             if binding.linear {
                 return Err(self.linear_double_consume_trap(
                     task_name,
-                    &root,
+                    root,
                     span,
                     move_span,
                     binding.moved_by.as_deref().unwrap_or("consume"),
                 ));
             }
-            return Err(use_after_move_invariant(task_name, &root, span, move_span));
+            return Err(use_after_move_invariant(task_name, root, span, move_span));
         }
         Ok(binding.value.clone())
     }
@@ -3391,11 +3386,11 @@ impl<'program, 'output> Interpreter<'program, 'output> {
     fn ensure_can_set(
         &self,
         env: &Env,
-        place: &str,
-        root: &str,
+        place: &RuntimePlace,
         span: &Span,
         task_name: &str,
     ) -> Result<(), String> {
+        let root = place.root();
         let Some(binding) = env.get(root) else {
             return Err(format!("cannot set unknown place `{root}`"));
         };
@@ -3403,7 +3398,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             return Err(use_after_move_invariant(task_name, root, span, move_span));
         }
         if binding.permission == RuntimePermission::Borrow {
-            return Err(self.borrow_mutation_trap(task_name, place, root, span));
+            return Err(self.borrow_mutation_trap(task_name, &place.display(), root, span));
         }
         if !binding.writable {
             return Err(format!("cannot set immutable place `{root}`"));
@@ -3411,12 +3406,12 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         Ok(())
     }
 
-    fn write_place(&self, env: &mut Env, place: &str, value: Value) -> Result<(), String> {
-        let root = place_root(place);
-        let Some(binding) = env.get_mut(&root) else {
-            return Err(format!("cannot set unknown place `{place}`"));
+    fn write_place(&self, env: &mut Env, place: &RuntimePlace, value: Value) -> Result<(), String> {
+        let root = place.root();
+        let Some(binding) = env.get_mut(root) else {
+            return Err(format!("cannot set unknown place `{}`", place.display()));
         };
-        if let Some((_root, field)) = field_place::split_field_place(place) {
+        if let RuntimePlace::Field { field, .. } = place {
             let Value::Record(fields) = &mut binding.value else {
                 return Err(format!("`{root}` is not a record"));
             };
@@ -3424,10 +3419,10 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 return Err(format!("record `{root}` has no field `{field}`"));
             }
             fields.insert(field.to_string(), value);
-        } else if place.contains('.') {
-            return Err(format!("unsupported set place `{place}`"));
-        } else {
+        } else if matches!(place, RuntimePlace::Root(_)) {
             binding.value = value;
+        } else {
+            return Err(format!("unsupported set place `{}`", place.display()));
         }
         binding.moved_at = None;
         binding.moved_by = None;
@@ -3534,27 +3529,27 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             (RuntimeViewKind::Field, RuntimeViewInvalidationKind::FieldWrite) => (
                 format!(
                     "field view {view_name} was used after {} changed",
-                    view.source_place
+                    view.source_place.display()
                 ),
                 format!(
                     "Fix task {task_name}: {view_name} borrowed {} at {}:{}:{}, but {} was written at {}:{}:{} before this use; re-borrow after the write or bind a value copy before the write.",
-                    view.source_place,
+                    view.source_place.display(),
                     view.bound_at.file,
                     view.bound_at.line,
                     view.bound_at.column,
-                    view.source_place,
+                    view.source_place.display(),
                     invalidation.span.file,
                     invalidation.span.line,
                     invalidation.span.column
                 ),
             ),
             (RuntimeViewKind::Element, RuntimeViewInvalidationKind::ListAppend) => {
-                let root = place_root(&view.source_place);
+                let root = view.source_place.root();
                 (
                     format!("element view {view_name} was used after {root} grew"),
                     format!(
                         "Fix task {task_name}: {view_name} borrowed {} at {}:{}:{}, but list_append grew {root} at {}:{}:{} before this use; re-borrow after the append or copy the element value before the append.",
-                        view.source_place,
+                        view.source_place.display(),
                         view.bound_at.file,
                         view.bound_at.line,
                         view.bound_at.column,
@@ -3569,7 +3564,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 format!("view {view_name} was used after its source changed"),
                 format!(
                     "Fix task {task_name}: {view_name} borrowed {} at {}:{}:{}, but the source changed at {}:{}:{} before this use; re-borrow after the change or copy the value first.",
-                    view.source_place,
+                    view.source_place.display(),
                     view.bound_at.file,
                     view.bound_at.line,
                     view.bound_at.column,
@@ -3667,42 +3662,50 @@ impl ContractKind {
     }
 }
 
-fn old_places(ast: &PredicateAst) -> Vec<crate::predicate::Place> {
-    fn collect(expr: &Expr, out: &mut Vec<crate::predicate::Place>) {
-        match expr {
-            Expr::Old(place, _) => {
-                if !out.iter().any(|found| found.text() == place.text()) {
+fn old_places(expression: &CanonicalExpression) -> Vec<CanonicalExpression> {
+    fn collect(expression: &CanonicalExpression, out: &mut Vec<CanonicalExpression>) {
+        match &expression.kind {
+            CanonicalExpressionKind::Call { callee, arguments }
+                if callee.direct_identifier() == Some("old") =>
+            {
+                if let [place] = arguments.as_slice()
+                    && !out.iter().any(|found| found.node_id == place.node_id)
+                {
                     out.push(place.clone());
                 }
             }
-            Expr::ListCount(left, right, _) | Expr::Binary(left, _, right, _) => {
+            CanonicalExpressionKind::Call { arguments, .. } => {
+                for argument in arguments {
+                    collect(argument, out);
+                }
+            }
+            CanonicalExpressionKind::Binary { left, right, .. } => {
                 collect(left, out);
                 collect(right, out);
             }
-            Expr::Group(inner, _) => collect(inner, out),
-            Expr::Bool(_, _)
-            | Expr::Integer(_, _)
-            | Expr::Text(_, _)
-            | Expr::ListText(_, _)
-            | Expr::Place(_)
-            | Expr::ListLen(_, _) => {}
+            CanonicalExpressionKind::Group(inner) => collect(inner, out),
+            _ => {}
         }
     }
     let mut places = Vec::new();
-    collect(&ast.left, &mut places);
-    collect(&ast.right, &mut places);
+    collect(expression, &mut places);
     places
 }
 
-fn executable_lines(lines: &[SectionLine]) -> Vec<ExecLine> {
-    lines
+fn executable_lines(section: &Section) -> Vec<ExecLine> {
+    section
+        .lines
         .iter()
-        .filter_map(|line| {
+        .zip(&section.body_syntax)
+        .filter_map(|(line, parsed)| {
             let text = line.text.trim();
             is_meaningful_line_text(text).then(|| ExecLine {
                 text: text.to_string(),
                 location: format!("{}:{}:{}", line.span.file, line.span.line, line.span.column),
                 span: line.span.clone(),
+                parsed: parsed
+                    .clone()
+                    .expect("meaningful does line must retain parser-owned statement syntax"),
             })
         })
         .collect()
@@ -3893,6 +3896,107 @@ fn as_bool(value: &Value) -> Result<bool, String> {
     }
 }
 
+fn apply_binary_operator(
+    operator: ParsedBinaryOperator,
+    left: Value,
+    right: Value,
+    expression: &CanonicalExpression,
+) -> Result<Value, String> {
+    let source = crate::core_expr::canonical_text(expression);
+    let value = match operator {
+        ParsedBinaryOperator::Equal => Value::Bool(left == right),
+        ParsedBinaryOperator::NotEqual => Value::Bool(left != right),
+        ParsedBinaryOperator::Less => Value::Bool(as_int(&left)? < as_int(&right)?),
+        ParsedBinaryOperator::LessEqual => Value::Bool(as_int(&left)? <= as_int(&right)?),
+        ParsedBinaryOperator::Greater => Value::Bool(as_int(&left)? > as_int(&right)?),
+        ParsedBinaryOperator::GreaterEqual => Value::Bool(as_int(&left)? >= as_int(&right)?),
+        ParsedBinaryOperator::And => Value::Bool(as_bool(&left)? && as_bool(&right)?),
+        ParsedBinaryOperator::Or => Value::Bool(as_bool(&left)? || as_bool(&right)?),
+        ParsedBinaryOperator::Add
+        | ParsedBinaryOperator::Subtract
+        | ParsedBinaryOperator::Multiply
+        | ParsedBinaryOperator::Divide => {
+            let left = as_int(&left)?;
+            let right = as_int(&right)?;
+            let result = checked_integer_operator(operator, left, right).map_err(|reason| {
+                if reason == "division_by_zero_v0" {
+                    format!("division by zero while evaluating `{source}`")
+                } else {
+                    format!("integer overflow while evaluating `{source}`")
+                }
+            })?;
+            Value::Int(result)
+        }
+        ParsedBinaryOperator::Is
+        | ParsedBinaryOperator::Does
+        | ParsedBinaryOperator::Returns
+        | ParsedBinaryOperator::FailsWith => {
+            return Err(format!(
+                "unsupported executable operator `{}`",
+                crate::core_expr::operator_spelling(operator)
+            ));
+        }
+    };
+    Ok(value)
+}
+
+fn checked_integer_operator(
+    operator: ParsedBinaryOperator,
+    left: i64,
+    right: i64,
+) -> Result<i64, &'static str> {
+    match operator {
+        ParsedBinaryOperator::Add => left.checked_add(right),
+        ParsedBinaryOperator::Subtract => left.checked_sub(right),
+        ParsedBinaryOperator::Multiply => left.checked_mul(right),
+        ParsedBinaryOperator::Divide if right == 0 => return Err("division_by_zero_v0"),
+        ParsedBinaryOperator::Divide => left.checked_div(right),
+        _ => return Err("not_integer_operator_v0"),
+    }
+    .ok_or("integer_overflow_v0")
+}
+
+fn canonical_identifier(expression: &CanonicalExpression) -> Option<&str> {
+    match &expression.kind {
+        CanonicalExpressionKind::Identifier(name) => Some(name),
+        _ => None,
+    }
+}
+
+fn canonical_callee_name(expression: &CanonicalExpression) -> Option<&str> {
+    match &expression.kind {
+        CanonicalExpressionKind::Call { callee, .. } => canonical_identifier(callee),
+        _ => None,
+    }
+}
+
+fn permission_value(expression: &CanonicalExpression) -> &CanonicalExpression {
+    match &expression.kind {
+        CanonicalExpressionKind::Permission { value, .. } => value,
+        _ => expression,
+    }
+}
+
+fn statement_expression(statement: &ParsedBodyStatement) -> Option<&CanonicalExpression> {
+    match &statement.kind {
+        ParsedBodyStatementKind::Return(expression) => Some(&expression.canonical),
+        ParsedBodyStatementKind::Binding { value, .. } => {
+            value.as_ref().map(|expression| &expression.canonical)
+        }
+        ParsedBodyStatementKind::Other { expressions } => {
+            expressions.first().map(|expression| &expression.canonical)
+        }
+    }
+}
+
+fn task_result_to_evaluated(result: TaskResult) -> Result<Evaluated, String> {
+    Ok(match result {
+        TaskResult::Returned(value) => Evaluated::Value(value),
+        TaskResult::Failed(value) => Evaluated::Failure(value),
+        TaskResult::ContractViolation => Evaluated::ContractViolation,
+    })
+}
+
 fn as_text(value: &Value) -> Result<&str, String> {
     match value {
         Value::Text(value) => Ok(value),
@@ -3993,69 +4097,14 @@ fn span_identity_key(span: &Span) -> String {
     )
 }
 
-fn iteration_root(text: &str) -> Option<String> {
-    let text = strip_borrow_or_change_argument(text).unwrap_or(text).trim();
-    if text.is_empty()
-        || text.contains('(')
-        || text.contains(' ')
-        || text.starts_with('"')
-        || text.starts_with('[')
-        || text.starts_with('{')
-    {
-        return None;
-    }
-    Some(place_root(text))
-}
-
-fn consume_argument_root(text: &str) -> Option<String> {
-    let rest = strip_keyword(text.trim(), "consume")?;
-    let root = place_root(rest);
-    if root.is_empty() { None } else { Some(root) }
-}
-
-fn strip_borrow_or_change_argument(text: &str) -> Option<&str> {
-    ["borrow", "change"]
-        .iter()
-        .find_map(|keyword| strip_keyword(text.trim(), keyword))
-}
-
-fn borrowed_view_source(text: &str) -> Option<(RuntimeViewKind, &str)> {
-    let source = strip_keyword(text.trim(), "borrow")?;
-    if field_place::split_field_place(source).is_some() {
-        return Some((RuntimeViewKind::Field, source));
-    }
-    if element_place::split_element_place(source).is_some() {
-        return Some((RuntimeViewKind::Element, source));
-    }
-    None
-}
-
-fn body_binding_name(statement: &BodyStatement) -> Option<&str> {
-    if !matches!(statement.kind, "let_binding" | "mutable_binding") {
-        return None;
-    }
-    let keyword = if statement.kind == "let_binding" {
-        "let"
-    } else {
-        "change"
-    };
-    let rest = strip_keyword(&statement.text, keyword)?;
-    let (left, _initializer) = rest.split_once('=')?;
-    let name = left
-        .split_once(':')
-        .map_or(left, |(name, _annotation)| name)
-        .trim();
-    (!name.is_empty()).then_some(name)
-}
-
-fn invalidate_field_views(env: &mut Env, place: &str, span: &Span) {
-    if field_place::split_field_place(place).is_none() {
+fn invalidate_field_views(env: &mut Env, place: &RuntimePlace, span: &Span) {
+    if !matches!(place, RuntimePlace::Field { .. }) {
         return;
     }
     for binding in env.values_mut() {
         if let Some(view) = &mut binding.view
             && view.kind == RuntimeViewKind::Field
-            && view.source_place == place
+            && &view.source_place == place
             && view.invalidated_by.is_none()
         {
             view.invalidated_by = Some(RuntimeViewInvalidation {
@@ -4070,7 +4119,7 @@ fn invalidate_element_views_for_growth(env: &mut Env, root: &str, span: &Span) {
     for binding in env.values_mut() {
         if let Some(view) = &mut binding.view
             && view.kind == RuntimeViewKind::Element
-            && place_root(&view.source_place) == root
+            && view.source_place.root() == root
             && view.invalidated_by.is_none()
         {
             view.invalidated_by = Some(RuntimeViewInvalidation {
@@ -4108,7 +4157,7 @@ fn type_tokens(type_text: &str) -> Vec<String> {
     tokens
 }
 
-fn place_root(text: &str) -> String {
+fn declaration_root(text: &str) -> String {
     text.split(|ch: char| ch == '.' || ch == '[' || ch.is_whitespace() || ch == ',')
         .find(|part| !part.is_empty())
         .unwrap_or(text)
@@ -4124,45 +4173,25 @@ fn restore_binding(env: &mut Env, name: &str, previous: Option<RuntimeBinding>) 
     }
 }
 
-fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = strip_keyword(text, keyword)?;
-    rest.strip_suffix('{').map(str::trim)
-}
-
-fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    if text == keyword {
-        return Some("");
-    }
-    text.strip_prefix(keyword)
-        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
-        .map(str::trim)
-}
-
 fn matching_close(lines: &[ExecLine], open: usize) -> Result<usize, String> {
-    let mut depth = 0usize;
-    for (index, line) in lines.iter().enumerate().skip(open) {
-        if line.text.ends_with('{') {
-            depth = depth.saturating_add(1);
-        }
-        if line.text == "}" {
-            depth = depth.saturating_sub(1);
-            if depth == 0 {
-                return Ok(index);
-            }
+    let opening = &lines[open].parsed;
+    if opening.block_relationship != ParsedBlockRelationship::Opens {
+        return Err(format!(
+            "{}: statement is not a parser-owned block opener",
+            lines[open].location
+        ));
+    }
+    for (index, line) in lines.iter().enumerate().skip(open + 1) {
+        if line.parsed.block_relationship == ParsedBlockRelationship::Closes
+            && line.parsed.block_depth_after == opening.block_depth_before
+        {
+            return Ok(index);
         }
     }
     Err(format!(
         "{}: block is missing closing `}}`",
         lines[open].location
     ))
-}
-
-fn split_call(text: &str) -> Option<(&str, &str)> {
-    if !text.ends_with(')') {
-        return None;
-    }
-    let open = find_top_level_char(text, '(')?;
-    Some((&text[..open], &text[open + 1..text.len() - 1]))
 }
 
 fn split_arguments(text: &str) -> Vec<&str> {
@@ -4192,109 +4221,6 @@ fn split_arguments(text: &str) -> Vec<&str> {
     parts
 }
 
-fn split_word_operator<'a>(text: &'a str, operator: &str) -> Option<(&'a str, &'a str)> {
-    let pattern = format!(" {operator} ");
-    let index = find_top_level_pattern(text, &pattern, Search::Leftmost)?;
-    Some((&text[..index], &text[index + pattern.len()..]))
-}
-
-fn split_top_level_operator<'a>(
-    text: &'a str,
-    operators: &[&'a str],
-) -> Option<(&'a str, &'a str, &'a str)> {
-    for operator in operators {
-        let pattern = format!(" {operator} ");
-        if let Some(index) = find_top_level_pattern(text, &pattern, Search::Rightmost) {
-            return Some((
-                text[..index].trim(),
-                *operator,
-                text[index + pattern.len()..].trim(),
-            ));
-        }
-    }
-    None
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Search {
-    Leftmost,
-    Rightmost,
-}
-
-fn find_top_level_pattern(text: &str, pattern: &str, search: Search) -> Option<usize> {
-    let mut found = None;
-    let mut depth = 0isize;
-    let mut in_string = false;
-    for (index, ch) in text.char_indices() {
-        match ch {
-            '"' => in_string = !in_string,
-            '(' | '[' | '{' if !in_string => depth += 1,
-            ')' | ']' | '}' if !in_string => depth -= 1,
-            _ => {}
-        }
-        if !in_string && depth == 0 && text[index..].starts_with(pattern) {
-            match search {
-                Search::Leftmost => return Some(index),
-                Search::Rightmost => found = Some(index),
-            }
-        }
-    }
-    found
-}
-
-fn find_top_level_char(text: &str, needle: char) -> Option<usize> {
-    let mut depth = 0isize;
-    let mut in_string = false;
-    for (index, ch) in text.char_indices() {
-        if ch == '"' {
-            in_string = !in_string;
-            continue;
-        }
-        if in_string {
-            continue;
-        }
-        if ch == needle && depth == 0 {
-            return Some(index);
-        }
-        match ch {
-            '(' | '[' | '{' => depth += 1,
-            ')' | ']' | '}' => depth -= 1,
-            _ => {}
-        }
-    }
-    None
-}
-
-fn trim_outer_parens(mut text: &str) -> &str {
-    loop {
-        let trimmed = text.trim();
-        if trimmed.starts_with('(') && trimmed.ends_with(')') && outer_parens_wrap(trimmed) {
-            text = &trimmed[1..trimmed.len() - 1];
-        } else {
-            return trimmed;
-        }
-    }
-}
-
-fn outer_parens_wrap(text: &str) -> bool {
-    let mut depth = 0isize;
-    let mut in_string = false;
-    for (index, ch) in text.char_indices() {
-        match ch {
-            '"' => in_string = !in_string,
-            '(' if !in_string => depth += 1,
-            ')' if !in_string => {
-                depth -= 1;
-                if depth == 0 && index != text.len() - 1 {
-                    return false;
-                }
-            }
-            _ => {}
-        }
-    }
-    depth == 0
-}
-
 #[cfg(test)]
 mod tests {
     use std::ffi::{OsStr, OsString};
@@ -4315,7 +4241,7 @@ mod tests {
 
     use super::{
         OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, ReplayAdapter, RunAdapters,
-        RunOutcome, run_program, run_program_with_adapters,
+        RunOutcome, RuntimePlace, run_program, run_program_with_adapters,
         run_program_with_occurrences_and_adapters, run_program_with_occurrences_and_file_adapters,
         run_program_with_output, runtime_occurrence_authority,
     };
@@ -4463,7 +4389,12 @@ mod tests {
             (
                 "ensure_can_set",
                 interpreter
-                    .ensure_can_set(&env, "value", "value", &use_span, "corrupted_probe")
+                    .ensure_can_set(
+                        &env,
+                        &RuntimePlace::Root("value".to_string()),
+                        &use_span,
+                        "corrupted_probe",
+                    )
                     .expect_err("corrupted set must hit the defensive moved-state branch"),
             ),
         ];
@@ -6360,14 +6291,37 @@ task unchecked_divide(a: Int, b: Int) -> Int {
     }
 
     #[test]
-    fn predicate_preflight_aggregates_all_independent_h0704_rows() {
-        let program = fixture_program(
+    fn predicate_preflight_aggregates_independent_predicate_and_chain_rows() {
+        let parsed = parser::parse_source(
             "fixtures/full_type_check/session_af_predicate_v2_boundary_fail.hum",
             include_str!("../fixtures/full_type_check/session_af_predicate_v2_boundary_fail.hum"),
         );
+        assert_eq!(
+            parsed
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    diagnostic.code == DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED
+                })
+                .count(),
+            1
+        );
+        let program = Program {
+            files: vec![parsed.file],
+        };
         let report = run_program(&program, Some("malformed_boundaries"), &[]);
         assert_eq!(report.outcome, RunOutcome::PreflightRejected);
-        assert_eq!(report.diagnostics.len(), 19);
+        assert_eq!(report.diagnostics.len(), 18);
+        assert_eq!(
+            report
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    diagnostic.code == DiagnosticCode::INVALID_EXECUTABLE_PREDICATE
+                })
+                .count(),
+            18
+        );
         assert!(
             report.diagnostics.iter().all(|diagnostic| {
                 diagnostic.code == DiagnosticCode::INVALID_EXECUTABLE_PREDICATE

@@ -1716,6 +1716,15 @@ diagnostic_causes!(
         "shared_preflight",
         "callable_relationship",
         "callable_definition_application_route"
+    ),
+    (
+        179,
+        "chained_comparison_not_supported_v0",
+        CHAINED_COMPARISON_NOT_SUPPORTED,
+        "source_shape",
+        "parser",
+        "parser_expression_node",
+        "parser_expression_route"
     )
 );
 
@@ -2033,6 +2042,7 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         64..=84 => key.0 + 2,
         85 => 64,
         86 => 65,
+        87 => 87,
         _ => u16::MAX,
     }
 }
@@ -2264,6 +2274,15 @@ diagnostic_code_allocations!(
         INVALID_IDENTIFIER,
         "H0009",
         "invalid identifier",
+        SOURCE_SHAPE,
+        "source_shape",
+        "parser"
+    ),
+    (
+        87,
+        CHAINED_COMPARISON_NOT_SUPPORTED,
+        "H0010",
+        "comparison chaining is not supported",
         SOURCE_SHAPE,
         "source_shape",
         "parser"
@@ -3510,6 +3529,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         explanation: "A `targets:` section both requires and denies the same capability family, making the portability intent contradictory.",
         repair: "Remove one declaration, or split the target policy into separate tasks/profiles with different capability intent.",
     },
+    DiagnosticInfo {
+        code: DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED,
+        default_severity: Severity::Error,
+        explanation: "One expression applies a later comparison operator to the result of an earlier comparison, but Hum comparisons are deliberately non-chainable.",
+        repair: "Repeat the middle operand and join independent comparisons, for example `1 < 2 and 2 < 3`.",
+    },
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4447,12 +4472,12 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 87);
+        assert_eq!(summary.active_codes, 88);
         assert_eq!(summary.retired_codes, 0);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 178);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 179);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 8);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {

@@ -2,7 +2,9 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::ast::{Item, Program, Task};
+use crate::ast::{
+    CanonicalExpression, CanonicalExpressionKind, Item, ParamPermission, Program, Task,
+};
 use crate::core_body::BodyStatement;
 use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::graph::{hollow_contract_reason, is_meaningful_line_text};
@@ -28,7 +30,7 @@ pub(crate) struct FailureCatalog {
 pub(crate) struct DirectCall {
     pub callee: String,
     pub source: String,
-    pub source_offset: usize,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -434,9 +436,9 @@ fn analyze_task_core(
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let expression = statement_expression(statement);
+        let expression = statement_expression_node(statement);
         if statement.kind == "fail"
-            && let Some(variant) = expression.and_then(parse_failure_variant)
+            && let Some(variant) = expression.and_then(failure_variant_from_canonical)
         {
             let fact = direct_fail_fact(
                 task,
@@ -453,7 +455,7 @@ fn analyze_task_core(
         let Some(expression) = expression else {
             continue;
         };
-        if contains_keyword_token(expression, "try") {
+        if canonical_contains_try(expression) {
             let resolver_call =
                 (statement_resolver_calls.len() == 1).then(|| statement_resolver_calls[0]);
             let mut fact = analyze_try_expression(
@@ -480,26 +482,35 @@ fn analyze_task_core(
                 let callee =
                     catalog.task_for_resolver_target(&resolver_call.target_definition_id)?;
                 let callee_root = callee.error_root.as_deref()?;
-                let call = DirectCall {
-                    callee: callee.name.clone(),
-                    source: resolver_call.source().to_string(),
-                    source_offset: 0,
-                };
+                let call =
+                    direct_call_for_resolver(expression, resolver_call).unwrap_or_else(|| {
+                        DirectCall {
+                            callee: callee.name.clone(),
+                            source: resolver_call.source().to_string(),
+                            span: resolver_call.exact_call_span.clone(),
+                        }
+                    });
                 Some((call, callee, callee_root, *resolver_call))
             })
         });
+        #[cfg(test)]
         let legacy_fallible = resolver_calls
             .is_none()
             .then(|| {
-                calls_in_expression(expression)
-                    .into_iter()
-                    .find_map(|call| {
-                        let callee = catalog.task(&call.callee)?;
-                        let callee_root = callee.error_root.as_deref()?;
-                        Some((call, callee, callee_root, None))
-                    })
+                calls_in_canonical(expression).into_iter().find_map(|call| {
+                    let callee = catalog.task(&call.callee)?;
+                    let callee_root = callee.error_root.as_deref()?;
+                    Some((call, callee, callee_root, None))
+                })
             })
             .flatten();
+        #[cfg(not(test))]
+        let legacy_fallible: Option<(
+            DirectCall,
+            &TaskFailureSignature,
+            &str,
+            Option<&crate::resolve::ResolveCallOccurrenceSummary>,
+        )> = None;
         if let Some((call, callee, callee_root, resolver_call)) = resolved_fallible
             .map(|(call, callee, root, resolver_call)| (call, callee, root, Some(resolver_call)))
             .or(legacy_fallible)
@@ -548,18 +559,224 @@ fn bind_failure_fact_to_resolver_call(
     Ok(())
 }
 
-pub(crate) fn parse_try_expression(text: &str) -> Option<TryExpression> {
-    let rest = strip_keyword(text.trim(), "try")?;
-    let (call_text, wrapper) = if let Some((call, wrapper)) = rest.split_once(" or fail ") {
-        if wrapper.contains(" or fail ") {
-            return None;
-        }
-        (call.trim(), Some(parse_failure_variant(wrapper.trim())?))
-    } else {
-        (rest.trim(), None)
+fn try_expression_from_canonical(expression: &CanonicalExpression) -> Option<TryExpression> {
+    let CanonicalExpressionKind::Try { call, wrapper } = &expression.kind else {
+        return None;
     };
-    let call = parse_direct_call(call_text)?;
-    Some(TryExpression { call, wrapper })
+    let wrapper = match wrapper.as_deref() {
+        Some(wrapper) => Some(parse_failure_variant(wrapper)?),
+        None => None,
+    };
+    Some(TryExpression {
+        call: direct_call_from_canonical(call)?,
+        wrapper,
+    })
+}
+
+fn failure_variant_from_canonical(expression: &CanonicalExpression) -> Option<FailureVariant> {
+    let CanonicalExpressionKind::Field { base, field } = &expression.kind else {
+        return None;
+    };
+    let CanonicalExpressionKind::Identifier(root) = &base.kind else {
+        return None;
+    };
+    (is_type_ident(root) && is_value_ident(field)).then(|| FailureVariant {
+        root: root.clone(),
+        variant: field.clone(),
+    })
+}
+
+fn direct_call_from_canonical(expression: &CanonicalExpression) -> Option<DirectCall> {
+    let CanonicalExpressionKind::Call { callee, arguments } = &expression.kind else {
+        return None;
+    };
+    let CanonicalExpressionKind::Identifier(callee) = &callee.kind else {
+        return None;
+    };
+    if !arguments.iter().all(is_ordinary_value_argument_node) {
+        return None;
+    }
+    Some(DirectCall {
+        callee: callee.clone(),
+        source: canonical_display(expression),
+        span: expression.range.start.clone(),
+    })
+}
+
+fn is_ordinary_value_argument_node(expression: &CanonicalExpression) -> bool {
+    match &expression.kind {
+        CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_) => true,
+        CanonicalExpressionKind::Field { base, .. } => {
+            matches!(base.kind, CanonicalExpressionKind::Identifier(_))
+        }
+        CanonicalExpressionKind::Group(inner) => is_ordinary_value_argument_node(inner),
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Element { .. }
+        | CanonicalExpressionKind::ListLiteral(_)
+        | CanonicalExpressionKind::RecordLiteral { .. }
+        | CanonicalExpressionKind::Call { .. }
+        | CanonicalExpressionKind::Permission { .. }
+        | CanonicalExpressionKind::Try { .. }
+        | CanonicalExpressionKind::Binary { .. }
+        | CanonicalExpressionKind::Unsupported => false,
+    }
+}
+
+pub(crate) fn calls_in_canonical(expression: &CanonicalExpression) -> Vec<DirectCall> {
+    fn collect(expression: &CanonicalExpression, out: &mut Vec<DirectCall>) {
+        match &expression.kind {
+            CanonicalExpressionKind::Call { callee, arguments } => {
+                if let Some(call) = direct_call_from_canonical(expression) {
+                    out.push(call);
+                }
+                collect(callee, out);
+                for argument in arguments {
+                    collect(argument, out);
+                }
+            }
+            CanonicalExpressionKind::Try { call, .. } => collect(call, out),
+            CanonicalExpressionKind::Field { base, .. }
+            | CanonicalExpressionKind::Element { base, .. } => collect(base, out),
+            CanonicalExpressionKind::ListLiteral(values) => {
+                for value in values {
+                    collect(value, out);
+                }
+            }
+            CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+                for (_, value) in fields {
+                    collect(value, out);
+                }
+            }
+            CanonicalExpressionKind::Permission { value, .. }
+            | CanonicalExpressionKind::Group(value) => collect(value, out),
+            CanonicalExpressionKind::Binary { left, right, .. } => {
+                collect(left, out);
+                collect(right, out);
+            }
+            CanonicalExpressionKind::Unit
+            | CanonicalExpressionKind::Identifier(_)
+            | CanonicalExpressionKind::UIntLiteral(_)
+            | CanonicalExpressionKind::IntLiteral(_)
+            | CanonicalExpressionKind::BoolLiteral(_)
+            | CanonicalExpressionKind::TextLiteral(_)
+            | CanonicalExpressionKind::Unsupported => {}
+        }
+    }
+    let mut calls = Vec::new();
+    collect(expression, &mut calls);
+    calls
+}
+
+fn direct_call_for_resolver(
+    expression: &CanonicalExpression,
+    resolver_call: &crate::resolve::ResolveCallOccurrenceSummary,
+) -> Option<DirectCall> {
+    let matches = calls_in_canonical(expression)
+        .into_iter()
+        .filter(|call| {
+            call.span.file.replace('\\', "/")
+                == resolver_call.exact_call_span.file.replace('\\', "/")
+                && call.span.line == resolver_call.exact_call_span.line
+                && call.span.column == resolver_call.exact_call_span.column
+        })
+        .collect::<Vec<_>>();
+    (matches.len() == 1).then(|| matches[0].clone())
+}
+
+fn canonical_contains_try(expression: &CanonicalExpression) -> bool {
+    match &expression.kind {
+        CanonicalExpressionKind::Try { .. } => true,
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::Element { base, .. } => canonical_contains_try(base),
+        CanonicalExpressionKind::ListLiteral(values) => values.iter().any(canonical_contains_try),
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => fields
+            .iter()
+            .any(|(_, value)| canonical_contains_try(value)),
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            canonical_contains_try(callee) || arguments.iter().any(canonical_contains_try)
+        }
+        CanonicalExpressionKind::Permission { value, .. }
+        | CanonicalExpressionKind::Group(value) => canonical_contains_try(value),
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            canonical_contains_try(left) || canonical_contains_try(right)
+        }
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => false,
+    }
+}
+
+fn direct_call_hint_from_canonical(expression: &CanonicalExpression) -> Option<DirectCall> {
+    match &expression.kind {
+        CanonicalExpressionKind::Try { call, .. } => direct_call_from_canonical(call),
+        _ => direct_call_from_canonical(expression),
+    }
+}
+
+pub(crate) fn statement_expression_node(statement: &BodyStatement) -> Option<&CanonicalExpression> {
+    statement.primary_expression()
+}
+
+fn canonical_display(expression: &CanonicalExpression) -> String {
+    match &expression.kind {
+        CanonicalExpressionKind::Unit => String::new(),
+        CanonicalExpressionKind::Identifier(name) => name.clone(),
+        CanonicalExpressionKind::Field { base, field } => {
+            format!("{}.{field}", canonical_display(base))
+        }
+        CanonicalExpressionKind::Element { base, index } => {
+            format!("{}[{index}]", canonical_display(base))
+        }
+        CanonicalExpressionKind::UIntLiteral(value) => value.to_string(),
+        CanonicalExpressionKind::IntLiteral(value) => value.to_string(),
+        CanonicalExpressionKind::BoolLiteral(value) => value.to_string(),
+        CanonicalExpressionKind::TextLiteral(value) => format!("\"{value}\""),
+        CanonicalExpressionKind::Call { callee, arguments } => format!(
+            "{}({})",
+            canonical_display(callee),
+            arguments
+                .iter()
+                .map(canonical_display)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        CanonicalExpressionKind::Permission { permission, value } => format!(
+            "{} {}",
+            match permission {
+                ParamPermission::Borrow => "borrow",
+                ParamPermission::Change => "change",
+                ParamPermission::Consume => "consume",
+            },
+            canonical_display(value)
+        ),
+        CanonicalExpressionKind::Try { call, wrapper } => wrapper.as_ref().map_or_else(
+            || format!("try {}", canonical_display(call)),
+            |wrapper| format!("try {} or fail {wrapper}", canonical_display(call)),
+        ),
+        CanonicalExpressionKind::Group(value) => format!("({})", canonical_display(value)),
+        CanonicalExpressionKind::Binary {
+            operator,
+            left,
+            right,
+            ..
+        } => format!(
+            "{} {} {}",
+            canonical_display(left),
+            crate::core_expr::operator_spelling(*operator),
+            canonical_display(right)
+        ),
+        CanonicalExpressionKind::ListLiteral(_)
+        | CanonicalExpressionKind::RecordLiteral { .. }
+        | CanonicalExpressionKind::Unsupported => "<expression>".to_string(),
+    }
 }
 
 pub(crate) fn parse_failure_variant(text: &str) -> Option<FailureVariant> {
@@ -579,10 +796,6 @@ pub(crate) fn result_error_root(result: &str) -> Option<String> {
 
 pub(crate) fn result_success_type(result: &str) -> Option<String> {
     result_parts(result).map(|(success, _error)| success)
-}
-
-pub(crate) fn is_try_candidate(text: &str) -> bool {
-    strip_keyword(text.trim(), "try").is_some()
 }
 
 pub(crate) fn is_meaningful_failure_declaration(text: &str) -> bool {
@@ -633,7 +846,7 @@ fn analyze_try_expression(
     task: &Task,
     statement: &BodyStatement,
     index: usize,
-    expression: &str,
+    expression: &CanonicalExpression,
     caller_root: Option<&str>,
     catalog: &FailureCatalog,
     has_failure_declaration: bool,
@@ -650,13 +863,13 @@ fn analyze_try_expression(
             caller_root,
         );
     }
-    let Some(parsed) = parse_try_expression(expression) else {
+    let Some(parsed) = try_expression_from_canonical(expression) else {
         return unsupported_try_fact(
             task,
             statement,
             index,
             TypedFailureCause::UnsupportedTryExpressionShape,
-            try_call_hint(expression).as_ref(),
+            direct_call_hint_from_canonical(expression).as_ref(),
             caller_root,
         );
     };
@@ -792,8 +1005,7 @@ fn analyze_try_expression(
         callee_result_root: Some(callee_root.to_string()),
         caller_result_root: caller_root.map(str::to_string),
         wrapper_root: parsed.wrapper.as_ref().map(|wrapper| wrapper.root.clone()),
-        call_span: call_span_in_statement(statement, &parsed.call)
-            .unwrap_or_else(|| portable_span(&statement.span)),
+        call_span: portable_span(&parsed.call.span),
         callee_span: Some(portable_span(&callee.span)),
         callee_semantic_identity: callee.semantic_identity.clone(),
         callee_resolver_definition_id: callee.resolver_definition_id.clone(),
@@ -936,7 +1148,7 @@ fn issue_fact(
         caller_result_root: caller_root.map(str::to_string),
         wrapper_root: wrapper.map(|wrapper| wrapper.root.clone()),
         call_span: call
-            .and_then(|call| call_span_in_statement(statement, call))
+            .map(|call| portable_span(&call.span))
             .unwrap_or_else(|| portable_span(&statement.span)),
         callee_span: callee.map(|callee| portable_span(&callee.span)),
         callee_semantic_identity: callee.and_then(|callee| callee.semantic_identity.clone()),
@@ -993,367 +1205,11 @@ fn result_parts(result: &str) -> Option<(String, String)> {
     Some((success.to_string(), error.to_string()))
 }
 
-fn parse_direct_call(text: &str) -> Option<DirectCall> {
-    let text = text.trim();
-    let inside = text.strip_suffix(')')?;
-    let (callee, args) = inside.split_once('(')?;
-    let callee = callee.trim();
-    if !is_value_ident(callee) || args.contains('(') || args.contains(')') {
-        return None;
-    }
-    for argument in split_arguments(args) {
-        let argument = argument.trim();
-        if argument.is_empty()
-            || ["borrow", "change", "consume", "try", "fail"]
-                .iter()
-                .any(|keyword| strip_keyword(argument, keyword).is_some())
-            || !is_ordinary_value_argument(argument)
-        {
-            return None;
-        }
-    }
-    Some(DirectCall {
-        callee: callee.to_string(),
-        source: text.to_string(),
-        source_offset: 0,
-    })
-}
-
-pub(crate) fn calls_in_expression(text: &str) -> Vec<DirectCall> {
-    let bytes = text.as_bytes();
-    let mut calls = Vec::new();
-    let mut index = 0;
-    let mut in_string = false;
-    let mut escaped = false;
-
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                in_string = false;
-            }
-            index += 1;
-            continue;
-        }
-        if byte == b'"' {
-            in_string = true;
-            index += 1;
-            continue;
-        }
-        if !is_ident_start_byte(byte)
-            || index.checked_sub(1).is_some_and(|previous| {
-                is_ident_continue_byte(bytes[previous]) || bytes[previous] == b'.'
-            })
-        {
-            index += 1;
-            continue;
-        }
-
-        let start = index;
-        index += 1;
-        while index < bytes.len() && is_ident_continue_byte(bytes[index]) {
-            index += 1;
-        }
-        let callee = &text[start..index];
-        let mut open = index;
-        while open < bytes.len() && bytes[open].is_ascii_whitespace() {
-            open += 1;
-        }
-        if open >= bytes.len() || bytes[open] != b'(' || !is_value_ident(callee) {
-            continue;
-        }
-        let end = matching_call_end(text, open).unwrap_or(bytes.len().saturating_sub(1));
-        calls.push(DirectCall {
-            callee: callee.to_string(),
-            source: text[start..=end].trim().to_string(),
-            source_offset: start,
-        });
-    }
-
-    calls
-}
-
-pub(crate) fn call_span_in_statement(
-    statement: &BodyStatement,
-    expected: &DirectCall,
-) -> Option<Span> {
-    let expression = statement_expression(statement)?;
-    let calls = calls_in_expression(expression);
-    let call = if let Some(at_expected_offset) = calls.iter().find(|call| {
-        call.source_offset == expected.source_offset
-            && call.callee == expected.callee
-            && call.source == expected.source
-    }) {
-        at_expected_offset.clone()
-    } else {
-        let exact = calls
-            .iter()
-            .filter(|call| call.callee == expected.callee && call.source == expected.source)
-            .cloned()
-            .collect::<Vec<_>>();
-        if exact.len() == 1 {
-            exact.into_iter().next()?
-        } else {
-            let by_callee = calls
-                .into_iter()
-                .filter(|call| call.callee == expected.callee)
-                .collect::<Vec<_>>();
-            if by_callee.len() != 1 {
-                return None;
-            }
-            by_callee.into_iter().next()?
-        }
-    };
-    let expression_offset = statement.text.find(expression)?;
-    let byte_offset = expression_offset.checked_add(call.source_offset)?;
-    let prefix = statement.text.get(..byte_offset)?;
-    Some(Span::new(
-        statement.span.file.clone(),
-        statement.span.line,
-        statement.span.column + prefix.chars().count(),
-    ))
-}
-
-#[cfg(test)]
-pub(crate) fn call_span_for_identifier_use(
-    statement: &BodyStatement,
-    identifier: &str,
-) -> Option<Span> {
-    let expression = statement_expression(statement)?;
-    let identifier_offsets = identifier_offsets(expression, identifier);
-    if identifier_offsets.is_empty() {
-        return None;
-    }
-    let calls = calls_in_expression(expression);
-    let mut owning_calls = Vec::new();
-    for identifier_offset in identifier_offsets {
-        let mut containing = calls
-            .iter()
-            .filter(|call| {
-                let end = call.source_offset.saturating_add(call.source.len());
-                call.source_offset <= identifier_offset && identifier_offset < end
-            })
-            .collect::<Vec<_>>();
-        containing.sort_by_key(|call| call.source.len());
-        let Some(innermost) = containing.first() else {
-            continue;
-        };
-        if containing
-            .get(1)
-            .is_some_and(|next| next.source.len() == innermost.source.len())
-        {
-            return None;
-        }
-        if !owning_calls.iter().any(|call: &&DirectCall| {
-            call.source_offset == innermost.source_offset && call.source == innermost.source
-        }) {
-            owning_calls.push(*innermost);
-        }
-    }
-    if owning_calls.len() != 1 {
-        return None;
-    }
-    call_span_in_statement(statement, owning_calls[0])
-}
-
-#[cfg(test)]
-fn identifier_offsets(text: &str, identifier: &str) -> Vec<usize> {
-    if !is_value_ident(identifier) {
-        return Vec::new();
-    }
-    let bytes = text.as_bytes();
-    let mut offsets = Vec::new();
-    let mut index = 0;
-    let mut in_string = false;
-    let mut escaped = false;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                in_string = false;
-            }
-            index += 1;
-            continue;
-        }
-        if byte == b'"' {
-            in_string = true;
-            index += 1;
-            continue;
-        }
-        if !is_ident_start_byte(byte) {
-            index += 1;
-            continue;
-        }
-        let start = index;
-        index += 1;
-        while index < bytes.len() && is_ident_continue_byte(bytes[index]) {
-            index += 1;
-        }
-        if &text[start..index] == identifier {
-            offsets.push(start);
-        }
-    }
-    offsets
-}
-
-fn matching_call_end(text: &str, open: usize) -> Option<usize> {
-    let bytes = text.as_bytes();
-    let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    for (index, byte) in bytes.iter().copied().enumerate().skip(open) {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                in_string = false;
-            }
-            continue;
-        }
-        if byte == b'"' {
-            in_string = true;
-            continue;
-        }
-        match byte {
-            b'(' => depth += 1,
-            b')' => {
-                depth = depth.checked_sub(1)?;
-                if depth == 0 {
-                    return Some(index);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-fn contains_keyword_token(text: &str, keyword: &str) -> bool {
-    let bytes = text.as_bytes();
-    let mut index = 0;
-    let mut in_string = false;
-    let mut escaped = false;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                in_string = false;
-            }
-            index += 1;
-            continue;
-        }
-        if byte == b'"' {
-            in_string = true;
-            index += 1;
-            continue;
-        }
-        if !is_ident_start_byte(byte)
-            || index
-                .checked_sub(1)
-                .is_some_and(|previous| bytes[previous] == b'.')
-        {
-            index += 1;
-            continue;
-        }
-        let start = index;
-        index += 1;
-        while index < bytes.len() && is_ident_continue_byte(bytes[index]) {
-            index += 1;
-        }
-        if &text[start..index] == keyword {
-            return true;
-        }
-    }
-    false
-}
-
-fn is_ident_start_byte(byte: u8) -> bool {
-    byte.is_ascii_lowercase() || byte == b'_'
-}
-
-fn is_ident_continue_byte(byte: u8) -> bool {
-    byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
-}
-
-fn is_ordinary_value_argument(text: &str) -> bool {
-    let text = text.trim();
-    if matches!(text, "true" | "false")
-        || text.parse::<i64>().is_ok()
-        || (text.starts_with('"') && text.ends_with('"') && text.len() >= 2)
-    {
-        return true;
-    }
-    text.split('.').all(is_value_ident)
-}
-
-fn try_call_hint(text: &str) -> Option<DirectCall> {
-    let rest = strip_keyword(text.trim(), "try")?;
-    let call = rest.split_once(" or fail ").map_or(rest, |(call, _)| call);
-    let callee = call.split_once('(')?.0.trim();
-    is_value_ident(callee).then(|| DirectCall {
-        callee: callee.to_string(),
-        source: call.trim().to_string(),
-        source_offset: 0,
-    })
-}
-
-pub(crate) fn statement_expression(statement: &BodyStatement) -> Option<&str> {
-    match statement.kind {
-        "return" => strip_keyword(&statement.text, "return"),
-        "fail" => strip_keyword(&statement.text, "fail"),
-        "let_binding" | "mutable_binding" | "set_place" => statement
-            .text
-            .split_once('=')
-            .map(|(_left, value)| value.trim()),
-        "if_header" => header_body(&statement.text, "if"),
-        "while_header" => header_body(&statement.text, "while"),
-        "for_each_header" => header_body(&statement.text, "for each"),
-        "for_index_header" => header_body(&statement.text, "for index"),
-        "record_field_initializer" => statement
-            .text
-            .split_once(':')
-            .map(|(_field, value)| value.trim()),
-        "test_expectation" => strip_keyword(&statement.text, "expect"),
-        _ => None,
-    }
-}
-
 fn is_exact_unannotated_binding(statement: &BodyStatement) -> bool {
-    let Some(rest) = strip_keyword(&statement.text, "let") else {
-        return false;
-    };
-    let Some((left, _initializer)) = rest.split_once('=') else {
-        return false;
-    };
-    is_value_ident(left.trim())
-}
-
-fn split_arguments(text: &str) -> Vec<&str> {
-    if text.trim().is_empty() {
-        Vec::new()
-    } else {
-        text.split(',').collect()
-    }
-}
-
-fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    strip_keyword(text, keyword)?
-        .strip_suffix('{')
-        .map(str::trim)
+    statement.kind == "let_binding"
+        && statement.binding_name().is_some()
+        && statement.binding_annotation().is_none()
+        && statement.primary_expression().is_some()
 }
 
 fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
@@ -1399,16 +1255,28 @@ fn portable_span(span: &Span) -> Span {
 mod tests {
     use super::{
         FailureCatalog, TypedFailureBindingError, TypedFailureCause, analyze_program, analyze_task,
-        analyze_task_with_resolver_calls, bind_failure_fact_to_resolver_call,
-        call_span_for_identifier_use, call_span_in_statement, calls_in_expression,
-        contains_keyword_token, is_meaningful_failure_declaration, is_try_candidate,
-        parse_failure_variant, parse_try_expression, result_error_root,
+        analyze_task_with_resolver_calls, bind_failure_fact_to_resolver_call, calls_in_canonical,
+        is_meaningful_failure_declaration, parse_failure_variant, result_error_root,
+        try_expression_from_canonical,
     };
-    use crate::ast::{Item, Program};
-    use crate::core_body::BodyStatement;
+    use crate::ast::{CanonicalExpression, Item, ParsedBodyStatementKind, Program};
     use crate::diagnostic::DiagnosticCode;
-    use crate::diagnostic::Span;
     use crate::parser::parse_source;
+
+    fn expression(source: &str) -> CanonicalExpression {
+        let parsed = parse_source(
+            "typed-failure-expression.hum",
+            &format!("task inspect(value: UInt) -> UInt {{\n  does:\n    return {source}\n}}\n"),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("expected task");
+        };
+        let ParsedBodyStatementKind::Return(expression) = &task.body_syntax[0].kind else {
+            panic!("expected return");
+        };
+        expression.canonical.clone()
+    }
 
     #[test]
     fn typed_failure_cause_enum_is_closed_and_registry_exact() {
@@ -1446,21 +1314,23 @@ mod tests {
     }
 
     #[test]
-    fn parses_only_the_session_w_try_shapes() {
-        let propagate = parse_try_expression("try load(7)").expect("propagation");
+    fn parser_owned_try_shapes_feed_typed_failure_analysis() {
+        let propagate =
+            try_expression_from_canonical(&expression("try load(7)")).expect("propagation");
         assert_eq!(propagate.call.callee, "load");
         assert!(propagate.wrapper.is_none());
 
         let wrap =
-            parse_try_expression("try load(7) or fail OuterError.context").expect("wrapping");
+            try_expression_from_canonical(&expression("try load(7) or fail OuterError.context"))
+                .expect("wrapping");
         assert_eq!(
             wrap.wrapper.expect("wrapper").identity(),
             "OuterError.context"
         );
 
-        assert!(parse_try_expression("try borrow load(7)").is_none());
-        assert!(parse_try_expression("try load(inner())").is_none());
-        assert!(parse_try_expression("try value + 1").is_none());
+        assert!(try_expression_from_canonical(&expression("try borrow load(7)")).is_none());
+        assert!(try_expression_from_canonical(&expression("try load(inner())")).is_none());
+        assert!(try_expression_from_canonical(&expression("try value + 1")).is_none());
         assert!(parse_failure_variant("Error.case.more").is_none());
         assert_eq!(
             result_error_root("Result UInt, WorkError").as_deref(),
@@ -1469,69 +1339,28 @@ mod tests {
     }
 
     #[test]
-    fn exact_call_spans_and_identifier_ownership_fail_closed() {
-        let exact = BodyStatement {
-            span: Span::new("same-line.hum", 7, 5),
-            text: "return first(\"safe\") + second(value)".to_string(),
-            kind: "return",
-            status: "accepted_v0",
-            expression_kind: Some("compound"),
-            reason: None,
-        };
-        let calls = calls_in_expression("first(\"safe\") + second(value)");
+    fn parser_owned_call_nodes_preserve_nested_and_sibling_identity() {
+        let canonical = expression("first(\"safe\") + second(value)");
+        let calls = calls_in_canonical(&canonical);
         assert_eq!(calls.len(), 2);
-        let first = call_span_in_statement(&exact, &calls[0]).expect("first exact call");
-        let second = call_span_in_statement(&exact, &calls[1]).expect("second exact call");
-        assert_ne!(first.column, second.column);
-        assert_eq!(call_span_for_identifier_use(&exact, "value"), Some(second));
+        assert_eq!(calls[0].callee, "first");
+        assert_eq!(calls[1].callee, "second");
+        assert_ne!(calls[0].span, calls[1].span);
 
-        let ambiguous = BodyStatement {
-            text: "return first(value) + second(value)".to_string(),
-            ..exact.clone()
-        };
-        assert_eq!(call_span_for_identifier_use(&ambiguous, "value"), None);
-
-        let duplicate_calls = BodyStatement {
-            text: "return first(value) + first(value)".to_string(),
-            ..exact.clone()
-        };
-        let duplicate_scan = calls_in_expression("first(value) + first(value)");
-        assert_eq!(duplicate_scan.len(), 2);
-        assert_ne!(
-            call_span_in_statement(&duplicate_calls, &duplicate_scan[0]),
-            call_span_in_statement(&duplicate_calls, &duplicate_scan[1])
-        );
-
-        let absent = BodyStatement {
-            text: "return value".to_string(),
-            ..exact
-        };
-        assert_eq!(call_span_for_identifier_use(&absent, "value"), None);
-    }
-
-    #[test]
-    fn scans_nested_calls_and_bounds_the_try_keyword() {
-        let calls = calls_in_expression("identity(source()) + source_list()");
+        let calls = calls_in_canonical(&expression("identity(source()) + source_list()"));
         assert_eq!(
             calls
                 .iter()
                 .map(|call| call.callee.as_str())
                 .collect::<Vec<_>>(),
-            vec!["identity", "source", "source_list"]
+            vec!["source", "source_list"]
         );
-        assert_eq!(calls[1].source, "source()");
+        assert_eq!(calls[0].source, "source()");
         assert!(
-            !calls_in_expression("\"source()\"")
+            !calls_in_canonical(&expression("\"source()\""))
                 .iter()
                 .any(|call| call.callee == "source")
         );
-
-        assert!(is_try_candidate("try source()"));
-        assert!(!is_try_candidate("trying()"));
-        assert!(!is_try_candidate("try_value()"));
-        assert!(contains_keyword_token("value + try source()", "try"));
-        assert!(!contains_keyword_token("trying()", "try"));
-        assert!(!contains_keyword_token("object.try", "try"));
     }
 
     #[test]

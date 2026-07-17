@@ -169,6 +169,11 @@ needed by future type/effect/lowering work:
 - `effect_status`
 - `reason`
 
+The compiler transports the complete parser-owned expression tree privately
+alongside this compact projection and validates node identity, child order,
+operator, grouping, associativity, and spans before serialization. No private
+child-tree field is added to `hum.core_lower.v0`.
+
 Type slots may be populated only from checked trivial return facts already
 reported by `hum.type_check.v0`. They are not broad expression inference.
 

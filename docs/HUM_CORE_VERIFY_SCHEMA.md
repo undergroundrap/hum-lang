@@ -154,6 +154,9 @@ Current rule families include:
 - `expression_status_known` and `expression_ast_status_known`: expression preview
   status values are known to the verifier
 - `expression_ast_present`: expression previews include an AST root count
+- `private_expression_projection_consistent`: the privately transported Core
+  tree exactly matches the independently retained parser tree, including node
+  identities, child order, operators, grouping, associativity, and spans
 - `type_claim_honesty`: type slots are absent or limited to checked trivial
   return provenance
 - `effect_claim_honesty`: expression effects remain `not_effect_checked_v0`
@@ -171,6 +174,9 @@ Current rule families include:
 - It may verify source span sanity, known operation families, status/blocker
   consistency, expression-preview provenance, and non-claim fields on the
   current `hum.core_lower.v0` artifact.
+- It validates the complete private expression tree before public
+  serialization; identical compact public root summaries cannot make a
+  corrupted private child tree valid.
 - It may verify blocked lowering rows as honest blockers.
 - For Session W H0906 rows, verification requires the
   `blocked_unsupported_try_expression` operation, absent expression semantics,

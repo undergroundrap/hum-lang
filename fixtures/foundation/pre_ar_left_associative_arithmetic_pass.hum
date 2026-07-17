@@ -1,0 +1,65 @@
+module fixtures.foundation.pre_ar_left_associative_arithmetic_pass
+
+task multiply_then_divide -> UInt {
+  why:
+    prove multiplicative operators associate to the left
+
+  ensures:
+    result == 12
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return 8 * 6 / 4
+}
+
+task subtract_twice -> UInt {
+  why:
+    prove additive operators associate to the left
+
+  ensures:
+    result == 10
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return 20 - 6 - 4
+}
+
+task mixed_precedence -> UInt {
+  why:
+    prove multiplication binds before addition
+
+  ensures:
+    result == 32
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return 8 + 6 * 4
+}
+
+task grouped_division -> UInt {
+  why:
+    prove grouping changes the divisor before outer division
+
+  ensures:
+    result == 16
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return 48 / (6 / 2)
+}

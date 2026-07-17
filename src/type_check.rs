@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use crate::ast::{Item, Program, Task, TypeSyntaxKind};
+use crate::ast::{
+    CanonicalExpression, CanonicalExpressionKind, Item, ParsedBinaryOperator, Program, Task,
+    TypeSyntaxKind,
+};
 use crate::callable;
 use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{
@@ -60,6 +63,7 @@ pub struct TypeCheckSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckedReturnSummary {
     pub id: String,
+    pub source_node_id: String,
     pub owner_kind: &'static str,
     pub owner_name: String,
     pub source_span: Span,
@@ -99,6 +103,7 @@ struct CheckedTypeReference {
 #[derive(Debug, Clone)]
 struct CheckedReturn {
     id: String,
+    source_node_id: String,
     owner_kind: &'static str,
     owner_name: String,
     source_span: Span,
@@ -693,11 +698,21 @@ fn checked_returns_for_task(task: &Task, blocked: bool) -> Vec<CheckedReturn> {
     let mut environment = initial_task_type_environment(task);
     let mut checked_returns = Vec::new();
 
-    for statement in &body.statements {
+    for (index, statement) in body.statements.iter().enumerate() {
+        let canonical = body
+            .canonical_expressions
+            .get(index)
+            .and_then(Option::as_ref);
         if statement.kind == "return" {
-            checked_returns.push(checked_return(task, statement, &environment, blocked));
+            checked_returns.push(checked_return(
+                task,
+                statement,
+                canonical,
+                &environment,
+                blocked,
+            ));
         }
-        if let Some((name, fact)) = binding_type_fact(statement, &environment) {
+        if let Some((name, fact)) = binding_type_fact(statement, canonical, &environment) {
             environment.insert(name_key(&name), fact);
         }
     }
@@ -725,6 +740,7 @@ fn initial_task_type_environment(task: &Task) -> BTreeMap<String, TypeFact> {
 fn checked_return(
     task: &Task,
     statement: &BodyStatement,
+    canonical: Option<&CanonicalExpression>,
     environment: &BTreeMap<String, TypeFact>,
     blocked: bool,
 ) -> CheckedReturn {
@@ -734,7 +750,7 @@ fn checked_return(
         .to_string();
     let expected_type = task.result.as_ref().map(|result| result.trim().to_string());
     let expected_value_type = expected_type.as_deref().map(expected_return_value_type);
-    let actual = infer_expression_type(&expression_text, environment);
+    let actual = canonical.and_then(|expression| infer_expression_type(expression, environment));
     let (status, reason) = if blocked {
         (
             "not_checked_blocked_by_prior_errors_v0",
@@ -771,6 +787,7 @@ fn checked_return(
             "hum_type_check_return",
             &format!("{}_{}", task.name, statement.span.line),
         ),
+        source_node_id: statement.parsed.source_node_id.as_str().to_string(),
         owner_kind: "task",
         owner_name: task.name.clone(),
         source_span: statement.span.clone(),
@@ -788,6 +805,7 @@ impl From<&CheckedReturn> for CheckedReturnSummary {
     fn from(checked_return: &CheckedReturn) -> Self {
         Self {
             id: checked_return.id.clone(),
+            source_node_id: checked_return.source_node_id.clone(),
             owner_kind: checked_return.owner_kind,
             owner_name: checked_return.owner_name.clone(),
             source_span: checked_return.source_span.clone(),
@@ -804,110 +822,151 @@ impl From<&CheckedReturn> for CheckedReturnSummary {
 
 fn binding_type_fact(
     statement: &BodyStatement,
+    canonical: Option<&CanonicalExpression>,
     environment: &BTreeMap<String, TypeFact>,
 ) -> Option<(String, TypeFact)> {
-    let keyword = match statement.kind {
-        "let_binding" => "let",
-        "mutable_binding" => "change",
-        _ => return None,
-    };
-    let rest = strip_keyword(&statement.text, keyword)?;
-    let (left, value) = rest.split_once('=')?;
-    let (name, explicit_type) = binding_left_parts(left)?;
-    let fact = if let Some(type_text) = explicit_type {
+    let name = statement.binding_name()?.to_string();
+    let fact = if let Some(type_text) = statement.binding_annotation() {
         TypeFact {
-            type_text,
+            type_text: type_text.to_string(),
             source: "binding_annotation_v0",
         }
     } else {
-        infer_expression_type(value.trim(), environment)?
+        infer_expression_type(canonical?, environment)?
     };
     Some((name, fact))
 }
 
-fn binding_left_parts(left: &str) -> Option<(String, Option<String>)> {
-    let left = left.trim();
-    if left.is_empty() {
-        return None;
-    }
-    if let Some((name, type_text)) = left.split_once(':') {
-        let name = name.trim();
-        let type_text = type_text.trim();
-        if name.is_empty() || type_text.is_empty() {
-            return None;
-        }
-        Some((name.to_string(), Some(type_text.to_string())))
-    } else {
-        Some((left.to_string(), None))
-    }
-}
-
 fn infer_expression_type(
-    expression_text: &str,
+    expression: &CanonicalExpression,
     environment: &BTreeMap<String, TypeFact>,
 ) -> Option<TypeFact> {
-    let text = expression_text.trim();
-    if text.is_empty() {
-        return Some(TypeFact {
+    if canonical_contains_try(expression) {
+        return None;
+    }
+    match &expression.kind {
+        CanonicalExpressionKind::Unit => Some(TypeFact {
             type_text: "Unit".to_string(),
             source: "unit_expression_v0",
-        });
-    }
-    if text == "true" || text == "false" {
-        return Some(TypeFact {
+        }),
+        CanonicalExpressionKind::BoolLiteral(_) => Some(TypeFact {
             type_text: "Bool".to_string(),
             source: "bool_literal_v0",
-        });
-    }
-    if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
-        return Some(TypeFact {
+        }),
+        CanonicalExpressionKind::TextLiteral(_) => Some(TypeFact {
             type_text: "Text".to_string(),
             source: "text_literal_v0",
-        });
-    }
-    if return_dependency::is_closed_view_derivation_expression(text) {
-        return Some(TypeFact {
-            type_text: "Text".to_string(),
-            source: "closed_view_derivation_slice_until_v0",
-        });
-    }
-    if text.chars().all(|ch| ch.is_ascii_digit()) {
-        return Some(TypeFact {
-            type_text: "integer_literal".to_string(),
-            source: "integer_literal_v0",
-        });
-    }
-    if let Some(type_name) = record_literal_type_name(text) {
-        return Some(TypeFact {
-            type_text: type_name,
+        }),
+        CanonicalExpressionKind::UIntLiteral(_) | CanonicalExpressionKind::IntLiteral(_) => {
+            Some(TypeFact {
+                type_text: "integer_literal".to_string(),
+                source: "integer_literal_v0",
+            })
+        }
+        CanonicalExpressionKind::RecordLiteral { name, .. } if !name.is_empty() => Some(TypeFact {
+            type_text: name.clone(),
             source: "record_literal_constructor_v0",
-        });
-    }
-    if let Some(root) = path_root_type_name(text) {
-        return Some(TypeFact {
-            type_text: root,
+        }),
+        CanonicalExpressionKind::Identifier(name) if is_type_like_name(name) => Some(TypeFact {
+            type_text: name.clone(),
             source: "path_root_type_v0",
-        });
+        }),
+        CanonicalExpressionKind::Identifier(name) => environment.get(&name_key(name)).cloned(),
+        CanonicalExpressionKind::Field { base, .. } => match &base.kind {
+            CanonicalExpressionKind::Identifier(root) if is_type_like_name(root) => {
+                Some(TypeFact {
+                    type_text: root.clone(),
+                    source: "path_root_type_v0",
+                })
+            }
+            _ => None,
+        },
+        CanonicalExpressionKind::Call { callee, arguments }
+            if canonical_identifier(callee) == Some(return_dependency::SLICE_UNTIL_OPERATION)
+                && arguments.len() == 2 =>
+        {
+            Some(TypeFact {
+                type_text: "Text".to_string(),
+                source: "closed_view_derivation_slice_until_v0",
+            })
+        }
+        CanonicalExpressionKind::Permission { value, .. }
+        | CanonicalExpressionKind::Group(value) => infer_expression_type(value, environment),
+        CanonicalExpressionKind::Binary {
+            operator,
+            left,
+            right,
+            ..
+        } => match operator {
+            ParsedBinaryOperator::Equal
+            | ParsedBinaryOperator::NotEqual
+            | ParsedBinaryOperator::Less
+            | ParsedBinaryOperator::LessEqual
+            | ParsedBinaryOperator::Greater
+            | ParsedBinaryOperator::GreaterEqual
+            | ParsedBinaryOperator::Is
+            | ParsedBinaryOperator::Does
+            | ParsedBinaryOperator::Returns
+            | ParsedBinaryOperator::FailsWith
+            | ParsedBinaryOperator::And
+            | ParsedBinaryOperator::Or => Some(TypeFact {
+                type_text: "Bool".to_string(),
+                source: "canonical_binary_expression_v0",
+            }),
+            ParsedBinaryOperator::Multiply
+            | ParsedBinaryOperator::Divide
+            | ParsedBinaryOperator::Add
+            | ParsedBinaryOperator::Subtract => {
+                let left = infer_expression_type(left, environment)?;
+                let right = infer_expression_type(right, environment)?;
+                (return_types_compatible(&left.type_text, &left.type_text, &right.type_text)
+                    || return_types_compatible(&right.type_text, &right.type_text, &left.type_text))
+                .then_some(TypeFact {
+                    type_text: left.type_text,
+                    source: "canonical_binary_expression_v0",
+                })
+            }
+        },
+        CanonicalExpressionKind::ListLiteral(_)
+        | CanonicalExpressionKind::RecordLiteral { .. }
+        | CanonicalExpressionKind::Call { .. }
+        | CanonicalExpressionKind::Element { .. }
+        | CanonicalExpressionKind::Try { .. }
+        | CanonicalExpressionKind::Unsupported => None,
     }
-    environment.get(&name_key(text)).cloned()
 }
 
-fn record_literal_type_name(text: &str) -> Option<String> {
-    let constructor = text.trim().strip_suffix('{')?.trim();
-    if is_type_like_name(constructor) {
-        Some(constructor.to_string())
-    } else {
-        None
+fn canonical_contains_try(expression: &CanonicalExpression) -> bool {
+    match &expression.kind {
+        CanonicalExpressionKind::Try { .. } => true,
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::Element { base, .. } => canonical_contains_try(base),
+        CanonicalExpressionKind::ListLiteral(values) => values.iter().any(canonical_contains_try),
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => fields
+            .iter()
+            .any(|(_field, value)| canonical_contains_try(value)),
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            canonical_contains_try(callee) || arguments.iter().any(canonical_contains_try)
+        }
+        CanonicalExpressionKind::Permission { value, .. }
+        | CanonicalExpressionKind::Group(value) => canonical_contains_try(value),
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            canonical_contains_try(left) || canonical_contains_try(right)
+        }
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => false,
     }
 }
 
-fn path_root_type_name(text: &str) -> Option<String> {
-    let (root, _field) = text.split_once('.')?;
-    let root = root.trim();
-    if is_type_like_name(root) {
-        Some(root.to_string())
-    } else {
-        None
+fn canonical_identifier(expression: &CanonicalExpression) -> Option<&str> {
+    match &expression.kind {
+        CanonicalExpressionKind::Identifier(name) => Some(name),
+        _ => None,
     }
 }
 

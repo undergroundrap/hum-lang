@@ -110,6 +110,7 @@ pub(crate) struct CoreLowerExpression {
     pub(crate) type_source: Option<&'static str>,
     pub(crate) effect_status: &'static str,
     pub(crate) reason: Option<&'static str>,
+    pub(crate) canonical: crate::ast::CanonicalExpression,
 }
 
 pub(crate) struct CoreLowerBlocker {
@@ -477,6 +478,7 @@ fn lower_operations(
                 item,
                 index,
                 statement,
+                body.canonical_expressions[index].as_ref(),
                 checked_returns,
                 failure_facts.get(&index),
             )
@@ -534,6 +536,7 @@ fn lower_operation(
     item: &Item,
     index: usize,
     statement: &BodyStatement,
+    canonical: Option<&crate::ast::CanonicalExpression>,
     checked_returns: &[CheckedReturnSummary],
     failure_fact: Option<&FailureFact>,
 ) -> CoreLowerOperation {
@@ -559,9 +562,12 @@ fn lower_operation(
         };
     }
     let (core_operation, status, fallback_reason) = core_operation_for(statement);
-    let mut expression = expression_text_for_statement(statement).map(|text| {
+    let mut expression = canonical.map(|canonical| {
+        let text = core_expr::canonical_text(canonical);
         lower_expression(
-            text,
+            canonical,
+            &text,
+            statement.expression_kind,
             checked_return_for_statement(item, statement, checked_returns),
         )
     });
@@ -633,10 +639,12 @@ fn core_operation_for(
 }
 
 fn lower_expression(
+    canonical: &crate::ast::CanonicalExpression,
     text: &str,
+    legacy_kind: Option<&'static str>,
     checked_return: Option<&CheckedReturnSummary>,
 ) -> CoreLowerExpression {
-    let mut preview = core_expr::analyze_expression(text);
+    let mut preview = core_expr::analyze_canonical_expression(canonical, text, legacy_kind);
     if let Some(checked_return) = checked_return {
         let type_status = if checked_return.status == "accepted_return_expression_v0" {
             core_expr::CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_TYPE_STATUS
@@ -667,6 +675,7 @@ fn expression_from_preview(preview: &CoreExpressionPreview) -> CoreLowerExpressi
         type_source: preview.ast.type_source,
         effect_status: preview.ast.effect_status,
         reason: preview.reason.or(preview.ast.root.reason),
+        canonical: preview.canonical.clone(),
     }
 }
 
@@ -678,13 +687,10 @@ fn checked_return_for_statement<'a>(
     if item.kind() != "task" || statement.kind != "return" {
         return None;
     }
-    let expression_text = strip_keyword(&statement.text, "return")?.trim();
-    let span = portable_span(&statement.span);
     checked_returns.iter().find(|checked_return| {
         checked_return.owner_kind == "task"
             && checked_return.owner_name == item.name()
-            && checked_return.source_span == span
-            && checked_return.expression_text == expression_text
+            && checked_return.source_node_id == statement.parsed.source_node_id.as_str()
             && checked_return.actual_type.is_some()
     })
 }
@@ -795,41 +801,6 @@ fn item_status(
     } else {
         "blocked_before_core_execution"
     }
-}
-
-fn expression_text_for_statement(statement: &BodyStatement) -> Option<&str> {
-    match statement.kind {
-        "return" => strip_keyword(&statement.text, "return"),
-        "fail" => strip_keyword(&statement.text, "fail"),
-        "let_binding" | "mutable_binding" | "set_place" => statement
-            .text
-            .split_once('=')
-            .map(|(_left, value)| value.trim()),
-        "if_header" => header_body(&statement.text, "if"),
-        "while_header" => header_body(&statement.text, "while"),
-        "for_each_header" => header_body(&statement.text, "for each"),
-        "for_index_header" => header_body(&statement.text, "for index"),
-        "record_field_initializer" => statement
-            .text
-            .split_once(':')
-            .map(|(_field, value)| value.trim()),
-        "test_expectation" => strip_keyword(&statement.text, "expect"),
-        _ => None,
-    }
-}
-
-fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = strip_keyword(text, keyword)?;
-    rest.strip_suffix('{').map(str::trim)
-}
-
-fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    if text == keyword {
-        return Some("");
-    }
-    text.strip_prefix(keyword)
-        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
-        .map(str::trim)
 }
 
 fn blocker(span: &Span, status: &'static str, reason: &'static str) -> CoreLowerBlocker {

@@ -5,7 +5,6 @@ use crate::ast::{
     ParsedExpressionKind, Program, Section, Task, TypeSyntaxKind,
 };
 use crate::core_body::{self, BodyStatement};
-use crate::core_expr::{self, CoreExpressionPreview};
 use crate::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceSet, Severity, Span,
 };
@@ -1279,11 +1278,15 @@ impl ResolverContext {
                 .last()
                 .cloned()
                 .unwrap_or_else(|| root_scope_id.to_string());
-            self.resolve_statement_references(&current_scope, statement);
+            self.resolve_statement_references(
+                &current_scope,
+                statement,
+                body.canonical_expressions[statement_index].as_ref(),
+            );
 
             match statement.kind {
                 "let_binding" => {
-                    if let Some(name) = binding_name(&statement.text, "let") {
+                    if let Some(name) = statement.binding_name() {
                         let writable_alias =
                             writable_field_alias::candidate_name(statement).is_some();
                         let alias_rebinding = alias_analysis.issues.iter().any(|issue| {
@@ -1299,7 +1302,7 @@ impl ResolverContext {
                         self.add_definition(
                             &current_scope,
                             DefinitionInput {
-                                name: &name,
+                                name,
                                 definition_kind: if writable_alias {
                                     "writable_field_alias"
                                 } else {
@@ -1318,11 +1321,11 @@ impl ResolverContext {
                     }
                 }
                 "mutable_binding" => {
-                    if let Some(name) = binding_name(&statement.text, "change") {
+                    if let Some(name) = statement.binding_name() {
                         self.add_definition(
                             &current_scope,
                             DefinitionInput {
-                                name: &name,
+                                name,
                                 definition_kind: "mutable_binding",
                                 mutable: true,
                                 state_kind: "mutable_local",
@@ -1340,11 +1343,11 @@ impl ResolverContext {
                         statement_index,
                         &statement.span,
                     );
-                    if let Some(name) = for_each_binding(&statement.text) {
+                    if let Some(name) = statement.loop_binding() {
                         self.add_definition(
                             &block_scope,
                             DefinitionInput {
-                                name: &name,
+                                name,
                                 definition_kind: "for_each_binding",
                                 mutable: false,
                                 state_kind: "immutable_value",
@@ -1363,11 +1366,11 @@ impl ResolverContext {
                         statement_index,
                         &statement.span,
                     );
-                    if let Some(name) = for_index_binding(&statement.text) {
+                    if let Some(name) = statement.loop_binding() {
                         self.add_definition(
                             &block_scope,
                             DefinitionInput {
-                                name: &name,
+                                name,
                                 definition_kind: "for_index_binding",
                                 mutable: false,
                                 state_kind: "immutable_value",
@@ -1501,11 +1504,32 @@ impl ResolverContext {
         });
     }
 
-    fn resolve_statement_references(&mut self, scope_id: &str, statement: &BodyStatement) {
-        if let Some(expression_text) = expression_text_for_statement(statement) {
-            let expression = core_expr::analyze_expression(expression_text);
-            for reference in expression_name_references(&expression) {
-                if reference.reference_kind != "callee_ref" {
+    fn resolve_statement_references(
+        &mut self,
+        scope_id: &str,
+        statement: &BodyStatement,
+        canonical: Option<&crate::ast::CanonicalExpression>,
+    ) {
+        if statement.kind == "save_in_store"
+            && let Some(value) =
+                canonical.and_then(crate::ast::CanonicalExpression::direct_identifier)
+        {
+            self.add_reference(
+                scope_id,
+                PendingReferenceInput {
+                    name: value,
+                    reference_kind: "store_write_value",
+                    mutable_required: false,
+                    external_if_unresolved: false,
+                    span: &statement.span,
+                },
+            );
+        } else if let Some(canonical) = canonical {
+            for reference in canonical_name_references(canonical) {
+                let is_typed_failure_or_fail_marker = reference.reference_kind == "name_ref"
+                    && reference.name == "fail"
+                    && canonical_contains_try(canonical);
+                if reference.reference_kind != "callee_ref" && !is_typed_failure_or_fail_marker {
                     self.add_reference(
                         scope_id,
                         PendingReferenceInput {
@@ -1520,11 +1544,14 @@ impl ResolverContext {
             }
         }
 
-        if let Some(target) = set_target(&statement.text) {
+        if let Some((target, _, _)) = statement
+            .set_target()
+            .and_then(crate::ast::CanonicalExpression::direct_place)
+        {
             self.add_reference(
                 scope_id,
                 PendingReferenceInput {
-                    name: &target,
+                    name: target,
                     reference_kind: "mutation_target",
                     mutable_required: true,
                     external_if_unresolved: false,
@@ -1533,21 +1560,11 @@ impl ResolverContext {
             );
         }
 
-        if let Some((value, target)) = save_parts(&statement.text) {
+        if let Some(target) = statement.save_target() {
             self.add_reference(
                 scope_id,
                 PendingReferenceInput {
-                    name: &value,
-                    reference_kind: "store_write_value",
-                    mutable_required: false,
-                    external_if_unresolved: false,
-                    span: &statement.span,
-                },
-            );
-            self.add_reference(
-                scope_id,
-                PendingReferenceInput {
-                    name: &target,
+                    name: target,
                     reference_kind: "store_write_target",
                     mutable_required: true,
                     external_if_unresolved: false,
@@ -1977,123 +1994,112 @@ impl ResolveReport {
     }
 }
 
+fn canonical_contains_try(expression: &crate::ast::CanonicalExpression) -> bool {
+    use crate::ast::CanonicalExpressionKind as Kind;
+    match &expression.kind {
+        Kind::Try { .. } => true,
+        Kind::Field { base, .. } | Kind::Element { base, .. } => canonical_contains_try(base),
+        Kind::ListLiteral(values) => values.iter().any(canonical_contains_try),
+        Kind::RecordLiteral { fields, .. } => fields
+            .iter()
+            .any(|(_field, value)| canonical_contains_try(value)),
+        Kind::Call { callee, arguments } => {
+            canonical_contains_try(callee) || arguments.iter().any(canonical_contains_try)
+        }
+        Kind::Permission { value, .. } | Kind::Group(value) => canonical_contains_try(value),
+        Kind::Binary { left, right, .. } => {
+            canonical_contains_try(left) || canonical_contains_try(right)
+        }
+        Kind::Unit
+        | Kind::Identifier(_)
+        | Kind::UIntLiteral(_)
+        | Kind::IntLiteral(_)
+        | Kind::BoolLiteral(_)
+        | Kind::TextLiteral(_)
+        | Kind::Unsupported => false,
+    }
+}
+
 struct PendingNameReference {
     name: String,
     reference_kind: &'static str,
     external_if_unresolved: bool,
 }
 
-fn expression_name_references(expression: &CoreExpressionPreview) -> Vec<PendingNameReference> {
+fn canonical_name_references(
+    expression: &crate::ast::CanonicalExpression,
+) -> Vec<PendingNameReference> {
+    fn collect(
+        expression: &crate::ast::CanonicalExpression,
+        callee_position: bool,
+        out: &mut Vec<PendingNameReference>,
+    ) {
+        use crate::ast::CanonicalExpressionKind as Kind;
+        match &expression.kind {
+            Kind::Identifier(name) => out.push(PendingNameReference {
+                name: name.clone(),
+                reference_kind: if callee_position {
+                    "callee_ref"
+                } else {
+                    "name_ref"
+                },
+                external_if_unresolved: callee_position,
+            }),
+            Kind::Field { base, .. } | Kind::Element { base, .. } => {
+                if let Some(root) = base.direct_identifier() {
+                    out.push(PendingNameReference {
+                        name: root.to_string(),
+                        reference_kind: if callee_position {
+                            "callee_ref"
+                        } else {
+                            "path_root_ref"
+                        },
+                        external_if_unresolved: callee_position || is_external_root(root),
+                    });
+                } else {
+                    collect(base, callee_position, out);
+                }
+            }
+            Kind::Call { callee, arguments } => {
+                collect(callee, true, out);
+                for argument in arguments {
+                    collect(argument, false, out);
+                }
+            }
+            Kind::Permission { value, .. } | Kind::Group(value) => collect(value, false, out),
+            Kind::Try { call, .. } => collect(call, false, out),
+            Kind::ListLiteral(values) => {
+                for value in values {
+                    collect(value, false, out);
+                }
+            }
+            Kind::RecordLiteral { fields, .. } => {
+                for (_, value) in fields {
+                    collect(value, false, out);
+                }
+            }
+            Kind::Binary {
+                operator,
+                left,
+                right,
+                ..
+            } => {
+                collect(left, false, out);
+                if *operator != crate::ast::ParsedBinaryOperator::Is {
+                    collect(right, false, out);
+                }
+            }
+            Kind::Unit
+            | Kind::UIntLiteral(_)
+            | Kind::IntLiteral(_)
+            | Kind::BoolLiteral(_)
+            | Kind::TextLiteral(_)
+            | Kind::Unsupported => {}
+        }
+    }
     let mut references = Vec::new();
-    for (index, atom) in expression.atoms.iter().enumerate() {
-        if skips_predicate_atom(expression, index) {
-            continue;
-        }
-        match atom.kind {
-            "name" => references.push(PendingNameReference {
-                name: atom.text.clone(),
-                reference_kind: "name_ref",
-                external_if_unresolved: false,
-            }),
-            "path_or_field_read" => {
-                if let Some(root) = path_root(&atom.text) {
-                    references.push(PendingNameReference {
-                        external_if_unresolved: is_external_root(&root),
-                        name: root,
-                        reference_kind: "path_root_ref",
-                    });
-                }
-            }
-            "callee_name" => references.push(PendingNameReference {
-                name: atom.text.clone(),
-                reference_kind: "callee_ref",
-                external_if_unresolved: true,
-            }),
-            "call_like" => {
-                if let Some(callee) = call_callee(&atom.text) {
-                    references.push(PendingNameReference {
-                        name: callee,
-                        reference_kind: "callee_ref",
-                        external_if_unresolved: true,
-                    });
-                }
-            }
-            "surface_text" => {
-                if let Some(name) = permission_argument_name(&atom.text) {
-                    references.push(PendingNameReference {
-                        name,
-                        reference_kind: "name_ref",
-                        external_if_unresolved: false,
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
+    collect(expression, false, &mut references);
     references
-}
-
-fn skips_predicate_atom(expression: &CoreExpressionPreview, index: usize) -> bool {
-    expression.operators.len() == 1 && expression.operators[0] == "is" && index > 0
-}
-
-fn expression_text_for_statement(statement: &BodyStatement) -> Option<&str> {
-    match statement.kind {
-        "return" => strip_keyword(&statement.text, "return"),
-        "fail" => strip_keyword(&statement.text, "fail"),
-        "if_header" => header_body(&statement.text, "if"),
-        "while_header" => header_body(&statement.text, "while"),
-        "for_each_header" => for_each_collection(&statement.text),
-        "for_index_header" => header_body(&statement.text, "for index"),
-        "let_binding" | "mutable_binding" | "set_place" => statement
-            .text
-            .split_once('=')
-            .map(|(_left, expression)| expression.trim()),
-        "record_field_initializer" => statement
-            .text
-            .split_once(':')
-            .map(|(_field, expression)| expression.trim()),
-        "test_expectation" => strip_keyword(&statement.text, "expect"),
-        _ => None,
-    }
-}
-
-fn binding_name(text: &str, keyword: &str) -> Option<String> {
-    let rest = strip_keyword(text, keyword)?;
-    let (left, _right) = rest.split_once('=')?;
-    let name = left.split_once(':').map_or(left, |(name, _ty)| name).trim();
-    (!name.is_empty()).then(|| name.to_string())
-}
-
-fn for_each_binding(text: &str) -> Option<String> {
-    let body = header_body(text, "for each")?;
-    body.split_once(" in ")
-        .map(|(binding, _collection)| binding.trim().to_string())
-        .filter(|binding| !binding.is_empty())
-}
-
-fn for_each_collection(text: &str) -> Option<&str> {
-    let body = header_body(text, "for each")?;
-    body.split_once(" in ")
-        .map(|(_binding, collection)| collection.trim())
-}
-
-fn for_index_binding(text: &str) -> Option<String> {
-    let body = header_body(text, "for index")?;
-    body.split_whitespace().next().map(str::to_string)
-}
-
-fn set_target(text: &str) -> Option<String> {
-    let rest = strip_keyword(text, "set")?;
-    rest.split_once('=')
-        .map(|(target, _value)| place_root(target.trim()))
-        .filter(|target| !target.is_empty())
-}
-
-fn save_parts(text: &str) -> Option<(String, String)> {
-    let rest = strip_keyword(text, "save")?;
-    let (value, target) = rest.rsplit_once(" in ")?;
-    Some((value.trim().to_string(), target.trim().to_string()))
 }
 
 fn declared_name_from_line(text: &str) -> Option<String> {
@@ -2115,20 +2121,6 @@ fn declared_name_from_line(text: &str) -> Option<String> {
     Some(text.to_string())
 }
 
-fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = strip_keyword(text, keyword)?;
-    rest.strip_suffix('{').map(str::trim)
-}
-
-fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    if text == keyword {
-        return Some("");
-    }
-    text.strip_prefix(keyword)
-        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
-        .map(str::trim)
-}
-
 fn parameter_is_mutable(param: &Param) -> bool {
     matches!(
         param.permission,
@@ -2142,44 +2134,6 @@ fn parameter_state_kind(param: &Param) -> &'static str {
         ParamPermission::Change => "change_parameter",
         ParamPermission::Consume => "consume_parameter",
     }
-}
-
-fn permission_argument_name(text: &str) -> Option<String> {
-    let rest = ["borrow", "change", "consume"]
-        .iter()
-        .find_map(|keyword| strip_keyword(text.trim(), keyword))?;
-    let name = place_root(rest);
-    if name.is_empty() { None } else { Some(name) }
-}
-
-fn place_root(text: &str) -> String {
-    text.split(|ch: char| ch == '.' || ch == '[' || ch.is_whitespace() || ch == ',')
-        .find(|part| !part.is_empty())
-        .unwrap_or(text)
-        .trim()
-        .to_string()
-}
-
-fn path_root(text: &str) -> Option<String> {
-    let text = strip_permission_expression(text);
-    text.split(['.', '['])
-        .next()
-        .map(str::trim)
-        .filter(|root| !root.is_empty() && *root != text)
-        .map(str::to_string)
-}
-
-fn strip_permission_expression(text: &str) -> &str {
-    ["borrow", "change", "consume"]
-        .iter()
-        .find_map(|keyword| strip_keyword(text.trim(), keyword))
-        .unwrap_or(text)
-}
-
-fn call_callee(text: &str) -> Option<String> {
-    text.split_once('(')
-        .map(|(callee, _args)| callee.trim().to_string())
-        .filter(|callee| !callee.is_empty())
 }
 
 fn is_external_root(name: &str) -> bool {
@@ -2870,9 +2824,9 @@ task later(value: UInt) -> UInt {
                         && reference.source_span.line == 8
                 })
                 .expect("later public callee reference");
-            assert_ne!(
+            assert_eq!(
                 sabotaged_public_reference.id, baseline_public_reference.id,
-                "sabotage must actually perturb the legacy global ordinary-reference serial"
+                "retained display text cannot perturb parser-owned public references"
             );
             assert_eq!(
                 sabotaged.resolver_occurrence_id(),

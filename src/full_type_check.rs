@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use crate::ast::{Item, Param, Program, Section};
+use crate::ast::{
+    CanonicalExpression, CanonicalExpressionKind, Item, Param, ParsedBinaryOperator, Program,
+    Section,
+};
 use crate::callable::{self, CallableAnalysis};
 use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
@@ -534,11 +537,16 @@ fn type_item(
     let mut environment = initial_environment(item_params(item));
     let mut statements = Vec::new();
     for (index, statement) in body.statements.iter().enumerate() {
+        let canonical = body
+            .canonical_expressions
+            .get(index)
+            .and_then(Option::as_ref);
         let typed = type_statement(
             &item_identity,
             item,
             index,
             statement,
+            canonical,
             &mut environment,
             task_returns,
             field_types,
@@ -571,6 +579,7 @@ fn type_statement(
     item: &Item,
     index: usize,
     statement: &BodyStatement,
+    canonical: Option<&CanonicalExpression>,
     environment: &mut BTreeMap<String, TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
@@ -707,7 +716,7 @@ fn type_statement(
         let mut typed = typed_statement(
             statement,
             index,
-            expression_text_for_statement(statement).map(str::to_string),
+            expression_text_for_statement(statement),
             expected_type,
             actual.clone(),
             if effect_owned_missing_declaration {
@@ -735,7 +744,7 @@ fn type_statement(
         return typed;
     }
 
-    let expression_text = expression_text_for_statement(statement).map(str::to_string);
+    let expression_text = expression_text_for_statement(statement);
     let expected_type = expected_type_for_statement(item, statement, environment, field_types);
     let callable_actual = match item {
         Item::Task(task) => callables
@@ -749,7 +758,7 @@ fn type_statement(
         _ => None,
     };
     let actual = callable_actual.or_else(|| {
-        expression_text.as_deref().and_then(|expression| {
+        canonical.and_then(|expression| {
             infer_expression_type(expression, environment, task_returns, field_types)
         })
     });
@@ -778,33 +787,18 @@ fn stdout_write_type_issue(
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<StdoutWriteTypeIssue> {
-    let expression = expression_text_for_statement(statement)?;
-    let expression_offset = statement.text.find(expression).unwrap_or(0);
-    let call = typed_failure::calls_in_expression(expression)
-        .into_iter()
-        .find(|call| call.callee == "stdout_write")?;
-    let call_span = Span {
-        file: statement.span.file.clone(),
-        line: statement.span.line,
-        column: statement.span.column
-            + statement.text[..expression_offset + call.source_offset]
-                .chars()
-                .count(),
-    };
-    let args = call
-        .source
-        .strip_prefix("stdout_write(")?
-        .strip_suffix(')')?;
-    let arguments = split_call_arguments(args);
+    let (call, arguments) = canonical_call_named(statement, "stdout_write")?;
+    let call_span = call.range.start.clone();
+    let call_source = crate::core_expr::canonical_text(call);
     if arguments.len() != 1 {
         return Some(StdoutWriteTypeIssue {
-            call_source: call.source,
+            call_source,
             call_span,
             actual_type: None,
             reason: "stdout_write_requires_exactly_one_argument_v0",
         });
     }
-    let actual_type = infer_expression_type(arguments[0], environment, task_returns, field_types);
+    let actual_type = infer_expression_type(&arguments[0], environment, task_returns, field_types);
     if actual_type
         .as_ref()
         .is_some_and(|actual| actual.type_text == "Text")
@@ -812,7 +806,7 @@ fn stdout_write_type_issue(
         return None;
     }
     Some(StdoutWriteTypeIssue {
-        call_source: call.source,
+        call_source,
         call_span,
         actual_type,
         reason: "stdout_write_argument_must_be_text_v0",
@@ -820,26 +814,10 @@ fn stdout_write_type_issue(
 }
 
 fn replay_tick_type_issue(statement: &BodyStatement) -> Option<ReplayTickTypeIssue> {
-    let expression = expression_text_for_statement(statement)?;
-    let expression_offset = statement.text.find(expression).unwrap_or(0);
-    let call = typed_failure::calls_in_expression(expression)
-        .into_iter()
-        .find(|call| call.callee == "clock_replay_tick")?;
-    let call_span = Span {
-        file: statement.span.file.clone(),
-        line: statement.span.line,
-        column: statement.span.column
-            + statement.text[..expression_offset + call.source_offset]
-                .chars()
-                .count(),
-    };
-    let args = call
-        .source
-        .strip_prefix("clock_replay_tick(")?
-        .strip_suffix(')')?;
-    (!args.trim().is_empty()).then_some(ReplayTickTypeIssue {
-        call_source: call.source,
-        call_span,
+    let (call, arguments) = canonical_call_named(statement, "clock_replay_tick")?;
+    (!arguments.is_empty()).then_some(ReplayTickTypeIssue {
+        call_source: crate::core_expr::canonical_text(call),
+        call_span: call.range.start.clone(),
         reason: "clock_replay_tick_requires_zero_arguments_v0",
     })
 }
@@ -850,33 +828,18 @@ fn file_read_type_issue(
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<FileReadTypeIssue> {
-    let expression = expression_text_for_statement(statement)?;
-    let expression_offset = statement.text.find(expression).unwrap_or(0);
-    let call = typed_failure::calls_in_expression(expression)
-        .into_iter()
-        .find(|call| call.callee == "files_read_text")?;
-    let call_span = Span {
-        file: statement.span.file.clone(),
-        line: statement.span.line,
-        column: statement.span.column
-            + statement.text[..expression_offset + call.source_offset]
-                .chars()
-                .count(),
-    };
-    let args = call
-        .source
-        .strip_prefix("files_read_text(")?
-        .strip_suffix(')')?;
-    let arguments = split_call_arguments(args);
+    let (call, arguments) = canonical_call_named(statement, "files_read_text")?;
+    let call_span = call.range.start.clone();
+    let call_source = crate::core_expr::canonical_text(call);
     if arguments.len() != 1 {
         return Some(FileReadTypeIssue {
-            call_source: call.source,
+            call_source,
             call_span,
             actual_type: None,
             reason: "files_read_text_requires_exactly_one_argument_v0",
         });
     }
-    let actual_type = infer_expression_type(arguments[0], environment, task_returns, field_types);
+    let actual_type = infer_expression_type(&arguments[0], environment, task_returns, field_types);
     if actual_type
         .as_ref()
         .is_some_and(|actual| actual.type_text == "Path")
@@ -884,38 +847,50 @@ fn file_read_type_issue(
         return None;
     }
     Some(FileReadTypeIssue {
-        call_source: call.source,
+        call_source,
         call_span,
         actual_type,
         reason: "files_read_text_argument_must_be_opaque_path_v0",
     })
 }
 
-fn split_call_arguments(text: &str) -> Vec<&str> {
-    let mut arguments = Vec::new();
-    let mut start = 0usize;
-    let mut depth = 0isize;
-    let mut in_string = false;
-    for (index, ch) in text.char_indices() {
-        match ch {
-            '"' => in_string = !in_string,
-            '(' | '[' | '{' if !in_string => depth += 1,
-            ')' | ']' | '}' if !in_string => depth -= 1,
-            ',' if !in_string && depth == 0 => {
-                let argument = text[start..index].trim();
-                if !argument.is_empty() {
-                    arguments.push(argument);
+fn canonical_call_named<'a>(
+    statement: &'a BodyStatement,
+    expected: &str,
+) -> Option<(&'a CanonicalExpression, &'a [CanonicalExpression])> {
+    fn find<'a>(
+        expression: &'a CanonicalExpression,
+        expected: &str,
+    ) -> Option<(&'a CanonicalExpression, &'a [CanonicalExpression])> {
+        match &expression.kind {
+            CanonicalExpressionKind::Call { callee, arguments } => {
+                if callee.direct_identifier() == Some(expected) {
+                    return Some((expression, arguments));
                 }
-                start = index + ch.len_utf8();
+                find(callee, expected).or_else(|| {
+                    arguments
+                        .iter()
+                        .find_map(|argument| find(argument, expected))
+                })
             }
-            _ => {}
+            CanonicalExpressionKind::Field { base, .. }
+            | CanonicalExpressionKind::Element { base, .. } => find(base, expected),
+            CanonicalExpressionKind::ListLiteral(values) => {
+                values.iter().find_map(|value| find(value, expected))
+            }
+            CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+                fields.iter().find_map(|(_, value)| find(value, expected))
+            }
+            CanonicalExpressionKind::Permission { value, .. }
+            | CanonicalExpressionKind::Try { call: value, .. }
+            | CanonicalExpressionKind::Group(value) => find(value, expected),
+            CanonicalExpressionKind::Binary { left, right, .. } => {
+                find(left, expected).or_else(|| find(right, expected))
+            }
+            _ => None,
         }
     }
-    let argument = text[start..].trim();
-    if !argument.is_empty() {
-        arguments.push(argument);
-    }
-    arguments
+    find(statement.primary_expression()?, expected)
 }
 
 fn expected_type_for_statement(
@@ -929,8 +904,9 @@ fn expected_type_for_statement(
         "fail" => item_result(item).and_then(expected_error_value_type),
         "if_header" | "while_header" => Some("Bool".to_string()),
         "let_binding" | "mutable_binding" => binding_annotation(statement),
-        "set_place" => set_place_name(statement)
-            .and_then(|name| place_type_fact(name, environment, field_types))
+        "set_place" => statement
+            .set_target()
+            .and_then(|place| place_type_fact(place, environment, field_types))
             .map(|fact| fact.type_text),
         _ => None,
     }
@@ -1201,208 +1177,142 @@ fn binding_type_fact(
 }
 
 fn binding_annotation(statement: &BodyStatement) -> Option<String> {
-    let left = binding_left(statement)?;
-    let (_name, type_text) = left.split_once(':')?;
-    let type_text = type_text.trim();
-    if type_text.is_empty() {
-        None
-    } else {
-        Some(type_text.to_string())
-    }
+    statement.binding_annotation().map(str::to_string)
 }
 
 fn binding_name(statement: &BodyStatement) -> Option<String> {
-    let left = binding_left(statement)?;
-    let name = left.split_once(':').map_or(left, |(name, _type_text)| name);
-    let name = name.trim();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name.to_string())
-    }
-}
-
-fn binding_left(statement: &BodyStatement) -> Option<&str> {
-    if !matches!(statement.kind, "let_binding" | "mutable_binding") {
-        return None;
-    }
-    let keyword = if statement.kind == "let_binding" {
-        "let"
-    } else {
-        "change"
-    };
-    let rest = strip_keyword(&statement.text, keyword)?;
-    rest.split_once('=').map(|(left, _value)| left.trim())
-}
-
-fn set_place_name(statement: &BodyStatement) -> Option<&str> {
-    let rest = strip_keyword(&statement.text, "set")?;
-    let (place, _value) = rest.split_once('=')?;
-    let place = place.trim();
-    if place.is_empty() { None } else { Some(place) }
+    statement.binding_name().map(str::to_string)
 }
 
 fn place_type_fact(
-    name: &str,
+    place: &CanonicalExpression,
     environment: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<TypeFact> {
-    if let Some((root, _index)) = element_place::split_element_place(name) {
+    let (root, field, index) = place.direct_place()?;
+    if index.is_some() {
         let root_fact = environment.get(&name_key(root))?;
         let type_text = element_place::list_element_type(&root_fact.type_text)?;
         return Some(type_fact(type_text, "list_element_place_v0"));
     }
-    if let Some((root, field)) = field_place::split_field_place(name) {
+    if let Some(field) = field {
         let root_fact = environment.get(&name_key(root))?;
         let type_text = field_place::field_type(field_types, &root_fact.type_text, field)?;
         return Some(type_fact(type_text, "record_field_place_v0"));
     }
-    environment.get(&name_key(name)).cloned()
+    environment.get(&name_key(root)).cloned()
 }
 
 fn infer_expression_type(
-    expression_text: &str,
+    expression: &CanonicalExpression,
     environment: &BTreeMap<String, TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<TypeFact> {
-    let text = expression_text.trim();
-    if text.is_empty() {
-        return Some(type_fact("Unit", "unit_expression_v0"));
-    }
-    if let Some(argument) = strip_permission_expression(text) {
-        return infer_expression_type(argument, environment, task_returns, field_types);
-    }
-    if text == "true" || text == "false" {
-        return Some(type_fact("Bool", "bool_literal_v0"));
-    }
-    if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
-        return Some(type_fact("Text", "text_literal_v0"));
-    }
-    if return_dependency::is_closed_view_derivation_expression(text) {
-        return Some(type_fact("Text", "closed_view_derivation_slice_until_v0"));
-    }
-    if is_list_literal(text) {
-        return Some(type_fact("list_literal", "list_literal_v0"));
-    }
-    if text.chars().all(|ch| ch.is_ascii_digit()) {
-        return Some(type_fact("integer_literal", "integer_literal_v0"));
-    }
-    if let Some(fact) = place_type_fact(text, environment, field_types) {
-        return Some(fact);
-    }
-    if is_condition_expression(text) {
-        return Some(type_fact("Bool", "condition_expression_v0"));
-    }
-    if let Some(type_name) = record_literal_type_name(text) {
-        return Some(type_fact(type_name, "record_literal_constructor_v0"));
-    }
-    if let Some(root) = path_root_type_name(text) {
-        return Some(type_fact(root, "path_root_type_v0"));
-    }
-    if let Some(fact) = infer_additive_expression_type(text, environment, task_returns, field_types)
-    {
-        return Some(fact);
-    }
-    if let Some(fact) =
-        infer_multiplicative_expression_type(text, environment, task_returns, field_types)
-    {
-        return Some(fact);
-    }
-    if let Some((callee, _args)) = split_call(text) {
-        if callee == "list_append" {
-            return Some(type_fact("Unit", "list_append_builtin_v0"));
+    match &expression.kind {
+        CanonicalExpressionKind::Unit => Some(type_fact("Unit", "unit_expression_v0")),
+        CanonicalExpressionKind::BoolLiteral(_) => Some(type_fact("Bool", "bool_literal_v0")),
+        CanonicalExpressionKind::TextLiteral(_) => Some(type_fact("Text", "text_literal_v0")),
+        CanonicalExpressionKind::UIntLiteral(_) | CanonicalExpressionKind::IntLiteral(_) => {
+            Some(type_fact("integer_literal", "integer_literal_v0"))
         }
-        return task_returns.get(&name_key(callee)).cloned();
+        CanonicalExpressionKind::ListLiteral(_) => {
+            Some(type_fact("list_literal", "list_literal_v0"))
+        }
+        CanonicalExpressionKind::RecordLiteral { name, .. } if !name.is_empty() => {
+            Some(type_fact(name, "record_literal_constructor_v0"))
+        }
+        CanonicalExpressionKind::Identifier(name) => {
+            place_type_fact(expression, environment, field_types)
+                .or_else(|| is_type_like_name(name).then(|| type_fact(name, "path_root_type_v0")))
+        }
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::Element { base, .. } => canonical_place_name(expression)
+            .and_then(|_| place_type_fact(expression, environment, field_types))
+            .or_else(|| match &base.kind {
+                CanonicalExpressionKind::Identifier(root) if is_type_like_name(root) => {
+                    Some(type_fact(root, "path_root_type_v0"))
+                }
+                _ => None,
+            }),
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            let callee = canonical_callee_name(callee)?;
+            if callee == return_dependency::SLICE_UNTIL_OPERATION && arguments.len() == 2 {
+                return Some(type_fact("Text", "closed_view_derivation_slice_until_v0"));
+            }
+            if callee == "list_append" {
+                return Some(type_fact("Unit", "list_append_builtin_v0"));
+            }
+            task_returns.get(&name_key(&callee)).cloned()
+        }
+        CanonicalExpressionKind::Permission { value, .. }
+        | CanonicalExpressionKind::Try { call: value, .. }
+        | CanonicalExpressionKind::Group(value) => {
+            infer_expression_type(value, environment, task_returns, field_types)
+        }
+        CanonicalExpressionKind::Binary {
+            operator,
+            left,
+            right,
+            ..
+        } => match operator {
+            ParsedBinaryOperator::Equal
+            | ParsedBinaryOperator::NotEqual
+            | ParsedBinaryOperator::Less
+            | ParsedBinaryOperator::LessEqual
+            | ParsedBinaryOperator::Greater
+            | ParsedBinaryOperator::GreaterEqual
+            | ParsedBinaryOperator::Is
+            | ParsedBinaryOperator::Does
+            | ParsedBinaryOperator::Returns
+            | ParsedBinaryOperator::FailsWith
+            | ParsedBinaryOperator::And
+            | ParsedBinaryOperator::Or => Some(type_fact("Bool", "condition_expression_v0")),
+            ParsedBinaryOperator::Add
+            | ParsedBinaryOperator::Subtract
+            | ParsedBinaryOperator::Multiply
+            | ParsedBinaryOperator::Divide => {
+                let left = infer_expression_type(left, environment, task_returns, field_types)?;
+                let right = infer_expression_type(right, environment, task_returns, field_types)?;
+                let compatible = right.type_text == "integer_literal"
+                    || left.type_text == "integer_literal"
+                    || left.type_text == right.type_text;
+                compatible.then(|| TypeFact {
+                    type_text: if left.type_text == "integer_literal" {
+                        right.type_text
+                    } else {
+                        left.type_text
+                    },
+                    source: match operator {
+                        ParsedBinaryOperator::Add | ParsedBinaryOperator::Subtract => {
+                            "additive_expression_v0"
+                        }
+                        _ => "multiplicative_expression_v0",
+                    },
+                })
+            }
+        },
+        CanonicalExpressionKind::RecordLiteral { .. } | CanonicalExpressionKind::Unsupported => {
+            None
+        }
     }
-    place_type_fact(text, environment, field_types)
 }
 
-fn infer_additive_expression_type(
-    text: &str,
-    environment: &BTreeMap<String, TypeFact>,
-    task_returns: &BTreeMap<String, TypeFact>,
-    field_types: &FieldTypeMap,
-) -> Option<TypeFact> {
-    let (left, right) = text.split_once(" + ")?;
-    let left = infer_expression_type(left, environment, task_returns, field_types)?;
-    let right = infer_expression_type(right, environment, task_returns, field_types)?;
-    if right.type_text == "integer_literal" || left.type_text == right.type_text {
-        Some(TypeFact {
-            type_text: left.type_text,
-            source: "additive_expression_v0",
-        })
-    } else {
-        None
+fn canonical_place_name(expression: &CanonicalExpression) -> Option<String> {
+    match &expression.kind {
+        CanonicalExpressionKind::Identifier(name) => Some(name.clone()),
+        CanonicalExpressionKind::Field { base, field } => {
+            Some(format!("{}.{}", canonical_place_name(base)?, field))
+        }
+        CanonicalExpressionKind::Element { base, index } => {
+            Some(format!("{}[{index}]", canonical_place_name(base)?))
+        }
+        _ => None,
     }
 }
 
-fn infer_multiplicative_expression_type(
-    text: &str,
-    environment: &BTreeMap<String, TypeFact>,
-    task_returns: &BTreeMap<String, TypeFact>,
-    field_types: &FieldTypeMap,
-) -> Option<TypeFact> {
-    let (left, right) = text.split_once(" * ")?;
-    let left = infer_expression_type(left, environment, task_returns, field_types)?;
-    let right = infer_expression_type(right, environment, task_returns, field_types)?;
-    if right.type_text == "integer_literal" || left.type_text == right.type_text {
-        Some(TypeFact {
-            type_text: left.type_text,
-            source: "multiplicative_expression_v0",
-        })
-    } else {
-        None
-    }
-}
-
-fn is_list_literal(text: &str) -> bool {
-    text.starts_with('[') && text.ends_with(']')
-}
-
-fn strip_permission_expression(text: &str) -> Option<&str> {
-    ["borrow", "change", "consume"]
-        .iter()
-        .find_map(|keyword| strip_keyword(text.trim(), keyword))
-}
-
-fn split_call(text: &str) -> Option<(&str, &str)> {
-    let text = text.trim();
-    let inside = text.strip_suffix(')')?;
-    let (callee, args) = inside.split_once('(')?;
-    let callee = callee.trim();
-    if callee.is_empty() {
-        None
-    } else {
-        Some((callee, args))
-    }
-}
-
-fn is_condition_expression(text: &str) -> bool {
-    [
-        " == ", " != ", " <= ", " >= ", " < ", " > ", " is ", " does ", " and ", " or ",
-    ]
-    .iter()
-    .any(|operator| text.contains(operator))
-}
-
-fn record_literal_type_name(text: &str) -> Option<String> {
-    let constructor = text.trim().strip_suffix('{')?.trim();
-    if is_type_like_name(constructor) {
-        Some(constructor.to_string())
-    } else {
-        None
-    }
-}
-
-fn path_root_type_name(text: &str) -> Option<String> {
-    let (root, _field) = text.split_once('.')?;
-    let root = root.trim();
-    if is_type_like_name(root) {
-        Some(root.to_string())
-    } else {
-        None
-    }
+fn canonical_callee_name(expression: &CanonicalExpression) -> Option<String> {
+    canonical_place_name(expression)
 }
 
 fn is_type_like_name(text: &str) -> bool {
@@ -1477,39 +1387,10 @@ fn type_fact(type_text: impl Into<String>, source: &'static str) -> TypeFact {
     }
 }
 
-fn expression_text_for_statement(statement: &BodyStatement) -> Option<&str> {
-    match statement.kind {
-        "return" => strip_keyword(&statement.text, "return"),
-        "fail" => strip_keyword(&statement.text, "fail"),
-        "let_binding" | "mutable_binding" | "set_place" => statement
-            .text
-            .split_once('=')
-            .map(|(_left, value)| value.trim()),
-        "if_header" => header_body(&statement.text, "if"),
-        "while_header" => header_body(&statement.text, "while"),
-        "for_each_header" => header_body(&statement.text, "for each"),
-        "for_index_header" => header_body(&statement.text, "for index"),
-        "record_field_initializer" => statement
-            .text
-            .split_once(':')
-            .map(|(_field, value)| value.trim()),
-        "test_expectation" => strip_keyword(&statement.text, "expect"),
-        _ => None,
-    }
-}
-
-fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = strip_keyword(text, keyword)?;
-    rest.strip_suffix('{').map(str::trim)
-}
-
-fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    if text == keyword {
-        return Some("");
-    }
-    text.strip_prefix(keyword)
-        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
-        .map(str::trim)
+fn expression_text_for_statement(statement: &BodyStatement) -> Option<String> {
+    statement
+        .primary_expression()
+        .map(crate::core_expr::canonical_text)
 }
 
 fn item_sections(item: &Item) -> &[Section] {

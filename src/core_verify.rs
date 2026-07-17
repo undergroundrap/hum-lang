@@ -285,6 +285,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreVerifyRepo
         .validate_against("core_lower", &preview_authority)
         .expect("Core verify must compare lower projection with preview authority");
     let mut checks = verify_lower_report(&lower);
+    verify_private_expression_projection(program, &lower, &mut checks);
     let callable_failures = callable::analyze_program(program).verify();
     if callable_failures.is_empty() {
         push_check(
@@ -310,6 +311,125 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreVerifyRepo
         }
     }
     CoreVerifyReport { lower, checks }
+}
+
+fn verify_private_expression_projection(
+    program: &Program,
+    lower: &CoreLowerReport,
+    checks: &mut Vec<CoreVerifyCheck>,
+) {
+    fn visit(
+        items: &[crate::ast::Item],
+        lower: &CoreLowerReport,
+        predicate_facts: &[crate::predicate::PredicateFact],
+        checks: &mut Vec<CoreVerifyCheck>,
+    ) {
+        for item in items {
+            let section = match item {
+                crate::ast::Item::Task(item) => item.section("does"),
+                crate::ast::Item::Test(item) => item.section("does"),
+                crate::ast::Item::App(item) => item.section("does"),
+                crate::ast::Item::Type(item) => item.section("does"),
+                crate::ast::Item::Store(item) => item.section("does"),
+            };
+            if let Some(section) = section {
+                let body = crate::core_body::analyze_does_section(section);
+                let lowered = lower.core_items.iter().find(|candidate| {
+                    candidate.kind == item.kind()
+                        && candidate.name == item.name()
+                        && candidate.span.file == item.span().file.replace('\\', "/")
+                        && candidate.span.line == item.span().line
+                        && candidate.span.column == item.span().column
+                });
+                if let Some(lowered) = lowered {
+                    for ((_statement, expected), operation) in body
+                        .statements
+                        .iter()
+                        .zip(&body.canonical_expressions)
+                        .zip(&lowered.operations)
+                    {
+                        if let (Some(expected), Some(expression)) =
+                            (expected.as_ref(), operation.expression.as_ref())
+                        {
+                            let valid = core_expr::validate_private_canonical_projection(
+                                &expression.canonical,
+                                expected,
+                            )
+                            .is_ok();
+                            push_check(
+                                checks,
+                                "operation_expression",
+                                &operation.id,
+                                Some(&operation.span),
+                                valid,
+                                "private_expression_projection_consistent",
+                                "private Core expression matches the independently retained parser tree",
+                            );
+                        }
+                    }
+                    if let crate::ast::Item::Task(task) = item {
+                        let expected_predicates = predicate_facts
+                            .iter()
+                            .filter(|fact| fact.task_span == task.span)
+                            .filter(|fact| {
+                                fact.status
+                                    != crate::predicate::RecognitionStatus::NonExecutableProse
+                            })
+                            .collect::<Vec<_>>();
+                        let predicate_operations = &lowered.operations[body.statements.len()..];
+                        push_check(
+                            checks,
+                            "predicate_operation_count",
+                            &lowered.id,
+                            Some(&lowered.span),
+                            predicate_operations.len() == expected_predicates.len(),
+                            "predicate_operation_count_consistent",
+                            "every retained Predicate v2 fact has exactly one Core operation",
+                        );
+                        for (expected, operation) in
+                            expected_predicates.into_iter().zip(predicate_operations)
+                        {
+                            let valid = if expected.status
+                                == crate::predicate::RecognitionStatus::RecognizedTyped
+                            {
+                                operation.expression.as_ref().is_some_and(|expression| {
+                                    core_expr::validate_private_canonical_projection(
+                                        &expression.canonical,
+                                        &expected.canonical,
+                                    )
+                                    .is_ok()
+                                })
+                            } else {
+                                operation.expression.is_none()
+                                    && operation.status == "blocked_operation_v0"
+                                    && operation.source_status == expected.status.as_str()
+                                    && operation.span.file
+                                        == expected.line_span.file.replace('\\', "/")
+                                    && operation.span.line == expected.line_span.line
+                                    && operation.span.column == expected.line_span.column
+                            };
+                            push_check(
+                                checks,
+                                "predicate_operation_expression",
+                                &operation.id,
+                                Some(&operation.span),
+                                valid,
+                                "predicate_private_expression_projection_consistent",
+                                "Predicate v2 Core expression matches its independent parser-owned tree",
+                            );
+                        }
+                    }
+                }
+            }
+            if let crate::ast::Item::App(app) = item {
+                visit(&app.items, lower, predicate_facts, checks);
+            }
+        }
+    }
+    let predicate_analysis = predicate::analyze_program(program);
+    for file in &program.files {
+        visit(&file.items, lower, predicate_analysis.facts(), checks);
+    }
 }
 
 pub(crate) fn diagnostic_occurrence_set(
@@ -1140,10 +1260,136 @@ fn push_comma_newline(out: &mut String, comma: bool) {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::Program;
+    use crate::ast::{
+        CanonicalExpressionKind, Item, ParsedBinaryOperator, ParsedBodyStatementKind,
+        ParserSyntaxNodeId, Program,
+    };
     use crate::parser::parse_source;
 
     use super::{core_verify_json, core_verify_text, validate_diagnostic_projection_from_source};
+
+    #[test]
+    fn private_expression_tree_rejects_every_independent_corruption() {
+        let parsed = parse_source(
+            "private-expression-corruption.hum",
+            "task proof() -> UInt {\n  does:\n    let first = 8 * 6 / 4\n    let second = 8 * 6 / 4\n    return 48 / (6 / 2)\n}\n",
+        );
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("task")
+        };
+        let expression = |index: usize| match &task.body_syntax[index].kind {
+            ParsedBodyStatementKind::Binding {
+                value: Some(value), ..
+            }
+            | ParsedBodyStatementKind::Return(value) => value.canonical.clone(),
+            other => panic!("expression statement: {other:?}"),
+        };
+        let expected = expression(0);
+        let foreign_same_text = expression(1);
+        assert_ne!(expected.node_id, foreign_same_text.node_id);
+
+        let rejects = |observed: &crate::ast::CanonicalExpression| {
+            assert!(
+                crate::core_expr::validate_private_canonical_projection(observed, &expected)
+                    .is_err()
+            );
+        };
+
+        let mut wrong_operator = expected.clone();
+        let CanonicalExpressionKind::Binary { operator, .. } = &mut wrong_operator.kind else {
+            panic!("binary")
+        };
+        *operator = ParsedBinaryOperator::Multiply;
+        rejects(&wrong_operator);
+
+        let mut rotated = expected.clone();
+        let CanonicalExpressionKind::Binary { left, right, .. } = &mut rotated.kind else {
+            panic!("binary")
+        };
+        std::mem::swap(left, right);
+        rejects(&rotated);
+
+        let mut removed = expected.clone();
+        let CanonicalExpressionKind::Binary { left, .. } = &removed.kind else {
+            panic!("binary")
+        };
+        removed.kind = left.kind.clone();
+        rejects(&removed);
+
+        let mut reassociated = expected.clone();
+        let CanonicalExpressionKind::Binary { left, right, .. } = &mut reassociated.kind else {
+            panic!("binary")
+        };
+        let CanonicalExpressionKind::Binary {
+            left: nested_left,
+            right: nested_right,
+            ..
+        } = &mut left.kind
+        else {
+            panic!("nested binary")
+        };
+        std::mem::swap(nested_right, right);
+        std::mem::swap(nested_left, nested_right);
+        rejects(&reassociated);
+
+        let grouped = expression(2);
+        let mut ungrouped = grouped.clone();
+        let CanonicalExpressionKind::Binary { right, .. } = &mut ungrouped.kind else {
+            panic!("outer division")
+        };
+        let CanonicalExpressionKind::Group(inner) = &right.kind else {
+            panic!("group")
+        };
+        right.kind = inner.kind.clone();
+        assert!(
+            crate::core_expr::validate_private_canonical_projection(&ungrouped, &grouped).is_err()
+        );
+
+        let mut duplicate = expected.clone();
+        let CanonicalExpressionKind::Binary { left, right, .. } = &mut duplicate.kind else {
+            panic!("binary")
+        };
+        *right = left.clone();
+        rejects(&duplicate);
+        rejects(&foreign_same_text);
+
+        let mut wrong_span = expected.clone();
+        wrong_span.range.start.column += 1;
+        rejects(&wrong_span);
+
+        let mut wrong_id = expected.clone();
+        wrong_id.node_id = ParserSyntaxNodeId::new("foreign-expression-id".to_string());
+        rejects(&wrong_id);
+
+        let mut preview = crate::core_expr::analyze_canonical_expression(
+            &expected,
+            "8 * 6 / 4",
+            Some("binary_expression"),
+        );
+        let public_summary = (
+            preview.kind,
+            preview.status,
+            preview.ast.root.form,
+            preview.ast.root.operator,
+            preview.ast.node_count,
+        );
+        preview.canonical = wrong_operator;
+        assert_eq!(
+            public_summary,
+            (
+                preview.kind,
+                preview.status,
+                preview.ast.root.form,
+                preview.ast.root.operator,
+                preview.ast.node_count,
+            )
+        );
+        assert!(
+            crate::core_expr::validate_private_canonical_projection(&preview.canonical, &expected,)
+                .is_err(),
+            "an unchanged public summary cannot validate corrupted private children"
+        );
+    }
 
     #[test]
     fn core_transport_rejects_projection_regenerated_or_corrupted_downstream() {

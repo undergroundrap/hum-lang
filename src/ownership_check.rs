@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::ast::{Item, ParamPermission, Program, Section};
+use crate::ast::{
+    CanonicalExpression, CanonicalExpressionKind, Item, ParamPermission, ParsedBlockRelationship,
+    Program, Section,
+};
 use crate::callable;
 use crate::core_body::{self, BodyStatement};
 use crate::core_contract;
@@ -8,8 +11,6 @@ use crate::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceSet, Severity, Span,
 };
 use crate::effect_check;
-use crate::element_place;
-use crate::field_place;
 use crate::graph::is_meaningful_line_text;
 use crate::return_dependency::{self, ReturnDependency};
 use crate::version;
@@ -965,7 +966,7 @@ fn check_statement_ownership(
                     statement,
                     index,
                     "no_ownership_transfer",
-                    expression_text_for_statement(statement).map(str::to_string),
+                    statement_expression_display(statement),
                     None,
                     "rejected_missing_fails_when_declaration_v0",
                     Some("fail_statement_requires_fails_when_section"),
@@ -975,7 +976,7 @@ fn check_statement_ownership(
                     statement,
                     index,
                     "no_ownership_transfer",
-                    expression_text_for_statement(statement).map(str::to_string),
+                    statement_expression_display(statement),
                     Some("fails when".to_string()),
                     "accepted_no_ownership_transfer_v0",
                     None,
@@ -1005,7 +1006,7 @@ fn check_statement_ownership(
             statement,
             index,
             "iteration",
-            expression_text_for_statement(statement).map(str::to_string),
+            statement_expression_display(statement),
             None,
             "unchecked_statement_ownership_v0",
             Some("iterator_ownerships_not_checked_v0"),
@@ -1036,7 +1037,7 @@ fn check_binding_statement(
     ownership_facts: &LocalOwnershipFacts,
     mutable: bool,
 ) -> OwnershipStatement {
-    let Some(target) = binding_name(statement).map(|name| first_resource(&name)) else {
+    let Some(target) = statement.binding_name().map(first_resource) else {
         return ownership_statement(
             statement,
             index,
@@ -1170,7 +1171,7 @@ fn check_set_statement(
     declarations: &OwnershipDeclarations,
     ownership_facts: &LocalOwnershipFacts,
 ) -> OwnershipStatement {
-    let Some(target) = set_place_name(statement) else {
+    let Some(target_expression) = statement.set_target() else {
         return ownership_statement(
             statement,
             index,
@@ -1181,6 +1182,11 @@ fn check_set_statement(
             Some("set_target_unknown_v0"),
         );
     };
+    let target = crate::core_expr::canonical_text(target_expression);
+    let target_is_field = matches!(
+        target_expression.kind,
+        CanonicalExpressionKind::Field { .. }
+    );
     let resource = first_resource(&target);
     if let Some(binding) = ownership_facts.writable_aliases.get(&resource) {
         ownership_statement_with_alias_facts(
@@ -1201,16 +1207,12 @@ fn check_set_statement(
             index,
             target,
             resource,
+            target_is_field,
             "change".to_string(),
-            "local_mutation",
-            "accepted_exclusive_local_mutation_v0",
+            ("local_mutation", "accepted_exclusive_local_mutation_v0"),
         )
     } else if ownership_facts.immutable_locals.contains(&resource) {
-        let display_target = if field_place::split_field_place(&target).is_some() {
-            target
-        } else {
-            resource
-        };
+        let display_target = if target_is_field { target } else { resource };
         ownership_statement(
             statement,
             index,
@@ -1242,9 +1244,9 @@ fn check_set_statement(
                 index,
                 target,
                 resource,
+                target_is_field,
                 permission.as_str().to_string(),
-                "parameter_mutation",
-                "accepted_parameter_mutation_v0",
+                ("parameter_mutation", "accepted_parameter_mutation_v0"),
             ),
         }
     } else if declares_resource(&declarations.changes, &resource) {
@@ -1275,11 +1277,11 @@ fn accepted_set_statement(
     index: usize,
     target: String,
     resource: String,
+    target_is_field: bool,
     declaration: String,
-    root_kind: &'static str,
-    root_status: &'static str,
+    root_acceptance: (&'static str, &'static str),
 ) -> OwnershipStatement {
-    if field_place::split_field_place(&target).is_some() {
+    if target_is_field {
         ownership_statement(
             statement,
             index,
@@ -1290,6 +1292,7 @@ fn accepted_set_statement(
             None,
         )
     } else {
+        let (root_kind, root_status) = root_acceptance;
         ownership_statement(
             statement,
             index,
@@ -1307,7 +1310,7 @@ fn check_save_statement(
     index: usize,
     declarations: &OwnershipDeclarations,
 ) -> OwnershipStatement {
-    let Some(target) = save_target(&statement.text) else {
+    let Some(target) = statement.save_target() else {
         return ownership_statement(
             statement,
             index,
@@ -1348,7 +1351,7 @@ fn expression_or_pure_ownership(
     declarations: &OwnershipDeclarations,
     ownership_facts: &LocalOwnershipFacts,
 ) -> OwnershipStatement {
-    let expression = expression_text_for_statement(statement);
+    let expression = statement_semantic_expression(statement);
     if let Some(resource) = expression
         .and_then(first_consume_move_root)
         .filter(|resource| ownership_facts.is_movable_root(resource))
@@ -1374,7 +1377,7 @@ fn expression_or_pure_ownership(
             None,
         );
     }
-    if let Some(resource) = expression.and_then(first_ambient_resource) {
+    if let Some(resource) = expression.and_then(canonical_ambient_resource) {
         if declares_resource(&declarations.uses, &resource) {
             ownership_statement(
                 statement,
@@ -1401,7 +1404,7 @@ fn expression_or_pure_ownership(
             statement,
             index,
             "pure_or_local",
-            expression.map(str::to_string),
+            statement_expression_display(statement),
             None,
             "accepted_no_ownership_transfer_v0",
             None,
@@ -1847,13 +1850,18 @@ fn analyze_single_statement(
             );
         }
 
-        if let Some(target) = set_place_name(statement) {
+        if let Some(target_expression) = statement.set_target() {
+            let target = crate::core_expr::canonical_text(target_expression);
             let target_root = first_resource(&target);
+            let target_is_field = matches!(
+                target_expression.kind,
+                CanonicalExpressionKind::Field { .. }
+            );
             let effective_target = ownership_facts
                 .writable_aliases
                 .get(&target_root)
                 .map_or(target.as_str(), |binding| binding.source_place.as_str());
-            if field_place::split_field_place(effective_target).is_some() {
+            if target_is_field || ownership_facts.writable_aliases.contains_key(&target_root) {
                 invalidate_path_field_views(&mut state, effective_target, &statement.span);
             }
         }
@@ -2020,11 +2028,11 @@ fn linear_binding(statement: &BodyStatement) -> Option<(String, String)> {
     if !matches!(statement.kind, "let_binding" | "mutable_binding") {
         return None;
     }
-    let type_text = binding_annotation(statement)?;
+    let type_text = statement.binding_annotation()?.to_string();
     if !is_linear_resource_type(&type_text) {
         return None;
     }
-    let root = binding_name(statement).map(|name| first_resource(&name))?;
+    let root = statement.binding_name().map(first_resource)?;
     Some((root, type_text))
 }
 
@@ -2032,52 +2040,38 @@ fn field_view_binding(statement: &BodyStatement) -> Option<(String, String)> {
     if statement.kind != "let_binding" {
         return None;
     }
-    let view_name = binding_name(statement).map(|name| first_resource(&name))?;
-    let source_place = field_view_source(binding_initializer(statement)?)?;
-    Some((view_name, source_place.to_string()))
-}
-
-fn field_view_source(text: &str) -> Option<&str> {
-    let source = strip_keyword(text.trim(), "borrow")?;
-    field_place::split_field_place(source)
-        .is_some()
-        .then_some(source)
+    let view_name = statement.binding_name().map(first_resource)?;
+    let expression = statement.primary_expression()?;
+    let CanonicalExpressionKind::Permission {
+        permission: ParamPermission::Borrow,
+        value,
+    } = &expression.kind
+    else {
+        return None;
+    };
+    let (_, Some(_), None) = value.direct_place()? else {
+        return None;
+    };
+    Some((view_name, crate::core_expr::canonical_text(value)))
 }
 
 fn element_view_binding(statement: &BodyStatement) -> Option<(String, String)> {
     if statement.kind != "let_binding" {
         return None;
     }
-    let view_name = binding_name(statement).map(|name| first_resource(&name))?;
-    let source_place = element_view_source(binding_initializer(statement)?)?;
-    Some((view_name, source_place.to_string()))
-}
-
-fn element_view_source(text: &str) -> Option<&str> {
-    let source = strip_keyword(text.trim(), "borrow")?;
-    element_place::split_element_place(source)
-        .is_some()
-        .then_some(source)
-}
-
-fn binding_annotation(statement: &BodyStatement) -> Option<String> {
-    if !matches!(statement.kind, "let_binding" | "mutable_binding") {
+    let view_name = statement.binding_name().map(first_resource)?;
+    let expression = statement.primary_expression()?;
+    let CanonicalExpressionKind::Permission {
+        permission: ParamPermission::Borrow,
+        value,
+    } = &expression.kind
+    else {
         return None;
-    }
-    let keyword = if statement.kind == "let_binding" {
-        "let"
-    } else {
-        "change"
     };
-    let rest = strip_keyword(&statement.text, keyword)?;
-    let left = rest.split_once('=').map(|(left, _value)| left.trim())?;
-    let (_name, type_text) = left.split_once(':')?;
-    let type_text = type_text.trim();
-    if type_text.is_empty() {
-        None
-    } else {
-        Some(type_text.to_string())
-    }
+    let (_, _, Some(_)) = value.direct_place()? else {
+        return None;
+    };
+    Some((view_name, crate::core_expr::canonical_text(value)))
 }
 
 fn is_linear_resource_type(type_text: &str) -> bool {
@@ -2104,29 +2098,16 @@ fn type_tokens(type_text: &str) -> Vec<String> {
 }
 
 fn consume_action(statement: &BodyStatement) -> String {
-    expression_text_for_statement(statement)
-        .and_then(call_callee_name)
+    statement_semantic_expression(statement)
+        .and_then(canonical_callee_name)
+        .map(str::to_string)
         .unwrap_or_else(|| "consume_argument".to_string())
-}
-
-fn call_callee_name(text: &str) -> Option<String> {
-    let (callee, _args) = text.trim().split_once('(')?;
-    let callee = callee.trim();
-    if callee.is_empty()
-        || !callee
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.')
-    {
-        None
-    } else {
-        Some(first_resource(callee))
-    }
 }
 
 fn matching_statement_close(statements: &[BodyStatement], open: usize) -> Option<usize> {
     let mut depth = 0usize;
     for (index, statement) in statements.iter().enumerate().skip(open) {
-        if statement.text.ends_with('{') {
+        if statement.parsed.block_relationship == ParsedBlockRelationship::Opens {
             depth = depth.saturating_add(1);
         }
         if statement.kind == "block_close" {
@@ -2625,8 +2606,11 @@ fn returned_roots(body_statements: &[BodyStatement]) -> Vec<ReturnedRoot> {
         .iter()
         .filter(|statement| statement.kind == "return")
         .map(|statement| {
-            let expression = expression_text_for_statement(statement).unwrap_or("");
-            if let Some(root) = bare_place_root(expression) {
+            let expression = statement.primary_expression();
+            if let Some(root) = expression
+                .and_then(crate::ast::CanonicalExpression::direct_place)
+                .map(|(root, _, _)| root.to_string())
+            {
                 return ReturnedRoot {
                     root: Some(root),
                     span: statement.span.clone(),
@@ -2635,7 +2619,9 @@ fn returned_roots(body_statements: &[BodyStatement]) -> Vec<ReturnedRoot> {
                     cause_key: crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(155),
                 };
             }
-            if let Some(root) = return_dependency::closed_view_derivation_source(expression) {
+            if let Some(root) =
+                expression.and_then(return_dependency::closed_view_derivation_source)
+            {
                 return ReturnedRoot {
                     root: Some(root),
                     span: statement.span.clone(),
@@ -2648,12 +2634,16 @@ fn returned_roots(body_statements: &[BodyStatement]) -> Vec<ReturnedRoot> {
                 root: None,
                 span: statement.span.clone(),
                 derivation: "unknown",
-                reason: if return_dependency::is_closed_view_derivation_expression(expression) {
+                reason: if expression
+                    .is_some_and(return_dependency::is_closed_view_derivation_expression)
+                {
                     "returned_view_expression_has_no_visible_source_root_v0"
                 } else {
                     "returned_view_expression_not_closed_view_derivation_v0"
                 },
-                cause_key: if return_dependency::is_closed_view_derivation_expression(expression) {
+                cause_key: if expression
+                    .is_some_and(return_dependency::is_closed_view_derivation_expression)
+                {
                     crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(154)
                 } else {
                     crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(156)
@@ -2792,7 +2782,7 @@ fn local_ownership_facts(
         if !matches!(statement.kind, "let_binding" | "mutable_binding") {
             continue;
         }
-        let Some(name) = binding_name(statement) else {
+        let Some(name) = statement.binding_name().map(str::to_string) else {
             continue;
         };
         let name = first_resource(&name);
@@ -2839,9 +2829,8 @@ fn stale_field_view_use<'a>(
     statement: &BodyStatement,
     state: &'a PathState,
 ) -> Option<(String, &'a FieldViewSite)> {
-    let expression = expression_text_for_statement(statement)?;
-    for token in identifier_tokens(expression) {
-        let root = first_resource(&token);
+    let expression = statement_semantic_expression(statement)?;
+    for root in canonical_identifier_roots(expression) {
         if let Some(site) = state.field_views.get(&root)
             && site.invalidated_by.is_some()
         {
@@ -2880,11 +2869,24 @@ fn invalidate_path_element_views(state: &mut PathState, root: &str, span: &Span)
 }
 
 fn list_append_change_root(statement: &BodyStatement) -> Option<String> {
-    let expression = expression_text_for_statement(statement)?.trim();
-    let args = expression.strip_prefix("list_append(")?.strip_suffix(')')?;
-    let (first, _second) = args.split_once(',')?;
-    let list_place = strip_keyword(first.trim(), "change")?;
-    Some(first_resource(list_place))
+    let expression = statement_semantic_expression(statement)?;
+    let CanonicalExpressionKind::Call { callee, arguments } = &expression.kind else {
+        return None;
+    };
+    if callee.direct_identifier() != Some("list_append") {
+        return None;
+    }
+    let [first, _] = arguments.as_slice() else {
+        return None;
+    };
+    let CanonicalExpressionKind::Permission {
+        permission: ParamPermission::Change,
+        value,
+    } = &first.kind
+    else {
+        return None;
+    };
+    value.direct_place().map(|(root, _, _)| root.to_string())
 }
 fn record_statement_moves(
     statement: &BodyStatement,
@@ -2910,38 +2912,27 @@ fn record_statement_moves(
 
 fn statement_roots(statement: &BodyStatement) -> Vec<String> {
     let mut roots = Vec::new();
-    if let Some(expression) = expression_text_for_statement(statement) {
-        roots.extend(identifier_roots(expression));
+    if let Some(expression) = statement_semantic_expression(statement) {
+        roots.extend(canonical_identifier_roots(expression));
     }
     if statement.kind == "set_place"
-        && let Some(target) = set_place_name(statement)
+        && let Some((root, _, _)) = statement
+            .set_target()
+            .and_then(CanonicalExpression::direct_place)
     {
-        roots.push(first_resource(&target));
+        roots.push(root.to_string());
     }
     roots
 }
 
 fn consume_move_roots(statement: &BodyStatement) -> Vec<String> {
-    expression_text_for_statement(statement)
-        .map(consume_roots)
+    statement_semantic_expression(statement)
+        .map(canonical_consume_roots)
         .unwrap_or_default()
 }
 
-fn first_consume_move_root(expression: &str) -> Option<String> {
-    consume_roots(expression).into_iter().next()
-}
-
-fn consume_roots(expression: &str) -> Vec<String> {
-    let tokens = identifier_tokens(expression);
-    let mut roots = Vec::new();
-    for index in 0..tokens.len() {
-        if tokens[index] == "consume"
-            && let Some(next) = tokens.get(index + 1)
-        {
-            roots.push(first_resource(next));
-        }
-    }
-    roots
+fn first_consume_move_root(expression: &CanonicalExpression) -> Option<String> {
+    canonical_consume_roots(expression).into_iter().next()
 }
 
 fn returned_move_root(
@@ -2951,78 +2942,10 @@ fn returned_move_root(
     if statement.kind != "return" {
         return None;
     }
-    let expression = expression_text_for_statement(statement)?;
-    let root = bare_place_root(expression)?;
+    let expression = statement.primary_expression()?;
+    let (root, _, _) = expression.direct_place()?;
+    let root = root.to_string();
     ownership_facts.is_movable_root(&root).then_some(root)
-}
-
-fn bare_place_root(expression: &str) -> Option<String> {
-    let expression = expression.trim();
-    if expression.is_empty()
-        || expression.contains('(')
-        || expression.contains(' ')
-        || expression.starts_with('"')
-    {
-        return None;
-    }
-    let root = first_resource(expression);
-    if root
-        .chars()
-        .next()
-        .is_some_and(|ch| ch.is_ascii_lowercase() || ch == '_')
-    {
-        Some(root)
-    } else {
-        None
-    }
-}
-
-fn identifier_roots(expression: &str) -> Vec<String> {
-    identifier_tokens(expression)
-        .into_iter()
-        .filter(|token| {
-            !matches!(
-                token.as_str(),
-                "borrow" | "change" | "consume" | "true" | "false"
-            )
-        })
-        .filter(|token| {
-            token
-                .chars()
-                .next()
-                .is_some_and(|ch| ch.is_ascii_lowercase() || ch == '_')
-        })
-        .map(|token| first_resource(&token))
-        .collect()
-}
-
-fn identifier_tokens(expression: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut in_string = false;
-    for ch in expression.chars() {
-        if ch == '"' {
-            in_string = !in_string;
-            if !current.is_empty() {
-                tokens.push(current.clone());
-                current.clear();
-            }
-            continue;
-        }
-        if in_string {
-            continue;
-        }
-        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
-            current.push(ch);
-        } else if !current.is_empty() {
-            tokens.push(current.clone());
-            current.clear();
-        }
-    }
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-    tokens
 }
 
 fn move_help(item_name: &str, target: &str, move_site: &MoveSite) -> String {
@@ -3044,87 +2967,128 @@ fn borrow_mutation_help(
     )
 }
 
-fn expression_text_for_statement(statement: &BodyStatement) -> Option<&str> {
-    match statement.kind {
-        "return" => strip_keyword(&statement.text, "return"),
-        "fail" => strip_keyword(&statement.text, "fail"),
-        "let_binding" => binding_initializer(statement),
-        "mutable_binding" => binding_initializer(statement),
-        "set_place" => statement
-            .text
-            .split_once('=')
-            .map(|(_place, value)| value.trim()),
-        "if_header" => header_body(&statement.text, "if"),
-        "while_header" => header_body(&statement.text, "while"),
-        "for_each_header" => header_body(&statement.text, "for each"),
-        "for_index_header" => header_body(&statement.text, "for index"),
-        "record_field_initializer" => statement
-            .text
-            .split_once(':')
-            .map(|(_field, value)| value.trim()),
-        "test_expectation" => strip_keyword(&statement.text, "expect"),
+fn statement_semantic_expression(statement: &BodyStatement) -> Option<&CanonicalExpression> {
+    statement
+        .condition()
+        .or_else(|| statement.loop_collection())
+        .or_else(|| statement.primary_expression())
+}
+
+fn statement_expression_display(statement: &BodyStatement) -> Option<String> {
+    statement_semantic_expression(statement).map(crate::core_expr::canonical_text)
+}
+
+fn canonical_callee_name(expression: &CanonicalExpression) -> Option<&str> {
+    match &expression.kind {
+        CanonicalExpressionKind::Call { callee, .. } => callee.direct_identifier(),
+        CanonicalExpressionKind::Try { call, .. }
+        | CanonicalExpressionKind::Permission { value: call, .. }
+        | CanonicalExpressionKind::Group(call) => canonical_callee_name(call),
         _ => None,
     }
 }
 
-fn binding_initializer(statement: &BodyStatement) -> Option<&str> {
-    if !matches!(statement.kind, "let_binding" | "mutable_binding") {
-        return None;
+fn canonical_identifier_roots(expression: &CanonicalExpression) -> Vec<String> {
+    fn collect(expression: &CanonicalExpression, roots: &mut Vec<String>) {
+        match &expression.kind {
+            CanonicalExpressionKind::Identifier(name) => {
+                if !roots.contains(name) {
+                    roots.push(name.clone());
+                }
+            }
+            CanonicalExpressionKind::Field { base, .. }
+            | CanonicalExpressionKind::Element { base, .. }
+            | CanonicalExpressionKind::Group(base)
+            | CanonicalExpressionKind::Permission { value: base, .. } => collect(base, roots),
+            CanonicalExpressionKind::Try { call, .. } => collect(call, roots),
+            CanonicalExpressionKind::ListLiteral(values) => {
+                for value in values {
+                    collect(value, roots);
+                }
+            }
+            CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+                for (_, value) in fields {
+                    collect(value, roots);
+                }
+            }
+            CanonicalExpressionKind::Call { callee, arguments } => {
+                collect(callee, roots);
+                for argument in arguments {
+                    collect(argument, roots);
+                }
+            }
+            CanonicalExpressionKind::Binary { left, right, .. } => {
+                collect(left, roots);
+                collect(right, roots);
+            }
+            CanonicalExpressionKind::Unit
+            | CanonicalExpressionKind::UIntLiteral(_)
+            | CanonicalExpressionKind::IntLiteral(_)
+            | CanonicalExpressionKind::BoolLiteral(_)
+            | CanonicalExpressionKind::TextLiteral(_)
+            | CanonicalExpressionKind::Unsupported => {}
+        }
     }
-    statement
-        .text
-        .split_once('=')
-        .map(|(_left, value)| value.trim())
+    let mut roots = Vec::new();
+    collect(expression, &mut roots);
+    roots
 }
 
-fn binding_name(statement: &BodyStatement) -> Option<String> {
-    if !matches!(statement.kind, "let_binding" | "mutable_binding") {
-        return None;
+fn canonical_consume_roots(expression: &CanonicalExpression) -> Vec<String> {
+    fn collect(expression: &CanonicalExpression, roots: &mut Vec<String>) {
+        match &expression.kind {
+            CanonicalExpressionKind::Permission {
+                permission: ParamPermission::Consume,
+                value,
+            } => {
+                if let Some((root, _, _)) = value.direct_place() {
+                    roots.push(root.to_string());
+                }
+                collect(value, roots);
+            }
+            CanonicalExpressionKind::Permission { value, .. }
+            | CanonicalExpressionKind::Field { base: value, .. }
+            | CanonicalExpressionKind::Element { base: value, .. }
+            | CanonicalExpressionKind::Group(value) => collect(value, roots),
+            CanonicalExpressionKind::Try { call, .. } => collect(call, roots),
+            CanonicalExpressionKind::ListLiteral(values) => {
+                for value in values {
+                    collect(value, roots);
+                }
+            }
+            CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+                for (_, value) in fields {
+                    collect(value, roots);
+                }
+            }
+            CanonicalExpressionKind::Call { callee, arguments } => {
+                collect(callee, roots);
+                for argument in arguments {
+                    collect(argument, roots);
+                }
+            }
+            CanonicalExpressionKind::Binary { left, right, .. } => {
+                collect(left, roots);
+                collect(right, roots);
+            }
+            CanonicalExpressionKind::Unit
+            | CanonicalExpressionKind::Identifier(_)
+            | CanonicalExpressionKind::UIntLiteral(_)
+            | CanonicalExpressionKind::IntLiteral(_)
+            | CanonicalExpressionKind::BoolLiteral(_)
+            | CanonicalExpressionKind::TextLiteral(_)
+            | CanonicalExpressionKind::Unsupported => {}
+        }
     }
-    let keyword = if statement.kind == "let_binding" {
-        "let"
-    } else {
-        "change"
-    };
-    let rest = strip_keyword(&statement.text, keyword)?;
-    let left = rest.split_once('=').map(|(left, _value)| left.trim())?;
-    let name = left.split_once(':').map_or(left, |(name, _type_text)| name);
-    let name = name.trim();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name.to_string())
-    }
+    let mut roots = Vec::new();
+    collect(expression, &mut roots);
+    roots
 }
 
-fn set_place_name(statement: &BodyStatement) -> Option<String> {
-    let rest = strip_keyword(&statement.text, "set")?;
-    let (place, _value) = rest.split_once('=')?;
-    let place = place.trim();
-    if place.is_empty() {
-        None
-    } else {
-        Some(place.to_string())
-    }
-}
-
-fn save_target(text: &str) -> Option<&str> {
-    let rest = strip_keyword(text, "save")?;
-    let (_value, target) = rest.split_once(" in ")?;
-    let target = target.trim();
-    if target.is_empty() {
-        None
-    } else {
-        Some(target)
-    }
-}
-
-fn first_ambient_resource(text: &str) -> Option<String> {
-    let lowered = text.to_ascii_lowercase();
-    AMBIENT_READ_ROOTS
-        .iter()
-        .find(|root| contains_word_or_path(&lowered, root))
-        .map(|root| root.to_string())
+fn canonical_ambient_resource(expression: &CanonicalExpression) -> Option<String> {
+    canonical_identifier_roots(expression)
+        .into_iter()
+        .find(|name| AMBIENT_READ_ROOTS.contains(&name.as_str()))
 }
 
 fn has_security_sensitive_ownership(
@@ -3136,10 +3100,11 @@ fn has_security_sensitive_ownership(
             .iter()
             .any(|root| fact.resource == *root || fact.text.to_ascii_lowercase().contains(root))
     }) || body_statements.iter().any(|statement| {
-        let lowered = statement.text.to_ascii_lowercase();
-        SECURITY_SENSITIVE_ROOTS
-            .iter()
-            .any(|root| contains_word_or_path(&lowered, root))
+        statement_semantic_expression(statement).is_some_and(|expression| {
+            canonical_identifier_roots(expression)
+                .iter()
+                .any(|name| SECURITY_SENSITIVE_ROOTS.contains(&name.as_str()))
+        })
     })
 }
 
@@ -3169,16 +3134,6 @@ fn declares_resource(facts: &[DeclaredFact], target: &str) -> bool {
     })
 }
 
-fn contains_word_or_path(text: &str, needle: &str) -> bool {
-    text.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '.'))
-        .any(|part| {
-            part == needle
-                || part
-                    .split_once('.')
-                    .is_some_and(|(root, _rest)| root == needle)
-        })
-}
-
 fn first_resource(text: &str) -> String {
     let token = text
         .split_whitespace()
@@ -3190,20 +3145,6 @@ fn first_resource(text: &str) -> String {
         .next()
         .unwrap_or(token)
         .to_ascii_lowercase()
-}
-
-fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = strip_keyword(text, keyword)?;
-    rest.strip_suffix('{').map(str::trim)
-}
-
-fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    if text == keyword {
-        return Some("");
-    }
-    text.strip_prefix(keyword)
-        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
-        .map(str::trim)
 }
 
 fn item_status(

@@ -208,6 +208,13 @@ match expression
 try expression
 ```
 
+For the currently executable arithmetic subset, the parser-owned expression
+tree fixes grouping and order before any checker or runtime consumer runs:
+multiplication/division bind before addition/subtraction, both levels associate
+left, comparisons bind outside arithmetic, and `and` binds before `or`.
+Parentheses create an explicit group node. Predicate v2 is a closed semantic
+restriction over the same tree rather than a second expression parser.
+
 Session AL adds three bounded Core facts: `callable_type`, `callable_value`, and
 `callable_application`. They preserve resolver definition/reference IDs, the
 exact input/result types, `failure_root = none`, and one closed-empty latent-row

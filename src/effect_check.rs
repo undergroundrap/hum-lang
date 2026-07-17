@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::ast::{Item, Program, Section};
+use crate::ast::{CanonicalExpression, CanonicalExpressionKind as Kind, Item, Program, Section};
 use crate::callable;
 use crate::capability_root::{self, CapabilityRouteFact};
 use crate::core_body::{self, BodyStatement};
@@ -653,7 +653,7 @@ fn check_statement_effect(
                     statement,
                     index,
                     "typed_failure",
-                    expression_text_for_statement(statement).map(str::to_string),
+                    statement_expression_display(statement),
                     None,
                     "rejected_missing_fails_when_declaration_v0",
                     Some("fail_statement_requires_fails_when_section"),
@@ -663,7 +663,7 @@ fn check_statement_effect(
                     statement,
                     index,
                     "typed_failure",
-                    expression_text_for_statement(statement).map(str::to_string),
+                    statement_expression_display(statement),
                     Some("fails when".to_string()),
                     "accepted_declared_failure_v0",
                     None,
@@ -688,7 +688,7 @@ fn check_statement_effect(
             statement,
             index,
             "local_mutation_permission",
-            binding_name(statement),
+            statement.binding_name().map(str::to_string),
             Some("change".to_string()),
             "accepted_local_mutation_permission_v0",
             None,
@@ -715,7 +715,7 @@ fn check_statement_effect(
             statement,
             index,
             "iteration",
-            expression_text_for_statement(statement).map(str::to_string),
+            statement_expression_display(statement),
             None,
             "unchecked_statement_effect_v0",
             Some("iterator_effects_not_checked_v0"),
@@ -741,7 +741,7 @@ fn check_set_statement(
     writable_aliases: &BTreeMap<String, Option<String>>,
     parameter_roots: &BTreeSet<String>,
 ) -> EffectStatement {
-    let Some(target) = set_place_name(statement) else {
+    let Some(target_expression) = statement.set_target() else {
         return effect_statement(
             statement,
             index,
@@ -752,6 +752,7 @@ fn check_set_statement(
             Some("set_target_unknown_v0"),
         );
     };
+    let target = crate::core_expr::canonical_text(target_expression);
     let resource = first_resource(&target);
     if writable_aliases.contains_key(&resource) {
         let place = writable_aliases
@@ -816,7 +817,7 @@ fn check_save_statement(
     index: usize,
     declarations: &EffectDeclarations,
 ) -> EffectStatement {
-    let Some(target) = save_target(&statement.text) else {
+    let Some(target) = statement.save_target() else {
         return effect_statement(
             statement,
             index,
@@ -856,8 +857,8 @@ fn expression_or_pure_effect(
     index: usize,
     declarations: &EffectDeclarations,
 ) -> EffectStatement {
-    let expression = expression_text_for_statement(statement);
-    if let Some(resource) = expression.and_then(first_ambient_resource) {
+    let expression = statement_semantic_expression(statement);
+    if let Some(resource) = expression.and_then(canonical_ambient_resource) {
         if declares_resource(&declarations.uses, &resource) {
             effect_statement(
                 statement,
@@ -884,7 +885,7 @@ fn expression_or_pure_effect(
             statement,
             index,
             "pure_or_local",
-            expression.map(str::to_string),
+            statement_expression_display(statement),
             None,
             "accepted_no_external_effect_v0",
             None,
@@ -1113,7 +1114,7 @@ fn local_mutables(statements: &[BodyStatement]) -> BTreeSet<String> {
         .iter()
         .filter_map(|statement| {
             if statement.kind == "mutable_binding" {
-                binding_name(statement).map(|name| first_resource(&name))
+                statement.binding_name().map(first_resource)
             } else {
                 writable_field_alias::candidate_name(statement)
             }
@@ -1121,87 +1122,47 @@ fn local_mutables(statements: &[BodyStatement]) -> BTreeSet<String> {
         .collect()
 }
 
-fn expression_text_for_statement(statement: &BodyStatement) -> Option<&str> {
-    match statement.kind {
-        "return" => strip_keyword(&statement.text, "return"),
-        "fail" => strip_keyword(&statement.text, "fail"),
-        "let_binding" => binding_initializer(statement),
-        "mutable_binding" => binding_initializer(statement),
-        "set_place" => statement
-            .text
-            .split_once('=')
-            .map(|(_place, value)| value.trim()),
-        "if_header" => header_body(&statement.text, "if"),
-        "while_header" => header_body(&statement.text, "while"),
-        "for_each_header" => header_body(&statement.text, "for each"),
-        "for_index_header" => header_body(&statement.text, "for index"),
-        "record_field_initializer" => statement
-            .text
-            .split_once(':')
-            .map(|(_field, value)| value.trim()),
-        "test_expectation" => strip_keyword(&statement.text, "expect"),
-        _ => None,
-    }
-}
-
-fn binding_initializer(statement: &BodyStatement) -> Option<&str> {
-    if !matches!(statement.kind, "let_binding" | "mutable_binding") {
-        return None;
-    }
+fn statement_semantic_expression(
+    statement: &BodyStatement,
+) -> Option<&crate::ast::CanonicalExpression> {
     statement
-        .text
-        .split_once('=')
-        .map(|(_left, value)| value.trim())
+        .condition()
+        .or_else(|| statement.loop_collection())
+        .or_else(|| statement.primary_expression())
 }
 
-fn binding_name(statement: &BodyStatement) -> Option<String> {
-    if !matches!(statement.kind, "let_binding" | "mutable_binding") {
-        return None;
-    }
-    let keyword = if statement.kind == "let_binding" {
-        "let"
-    } else {
-        "change"
-    };
-    let rest = strip_keyword(&statement.text, keyword)?;
-    let left = rest.split_once('=').map(|(left, _value)| left.trim())?;
-    let name = left.split_once(':').map_or(left, |(name, _type_text)| name);
-    let name = name.trim();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name.to_string())
-    }
+fn statement_expression_display(statement: &BodyStatement) -> Option<String> {
+    statement_semantic_expression(statement).map(crate::core_expr::canonical_text)
 }
 
-fn set_place_name(statement: &BodyStatement) -> Option<String> {
-    let rest = strip_keyword(&statement.text, "set")?;
-    let (place, _value) = rest.split_once('=')?;
-    let place = place.trim();
-    if place.is_empty() {
-        None
-    } else {
-        Some(place.to_string())
+fn canonical_ambient_resource(expression: &crate::ast::CanonicalExpression) -> Option<String> {
+    use crate::ast::CanonicalExpressionKind as Kind;
+    match &expression.kind {
+        Kind::Identifier(name) => AMBIENT_READ_ROOTS
+            .iter()
+            .find(|root| name == **root)
+            .map(|root| root.to_string()),
+        Kind::Field { base, .. }
+        | Kind::Element { base, .. }
+        | Kind::Group(base)
+        | Kind::Permission { value: base, .. } => canonical_ambient_resource(base),
+        Kind::Try { call, .. } => canonical_ambient_resource(call),
+        Kind::ListLiteral(values) => values.iter().find_map(canonical_ambient_resource),
+        Kind::RecordLiteral { fields, .. } => fields
+            .iter()
+            .find_map(|(_, value)| canonical_ambient_resource(value)),
+        Kind::Call { callee, arguments } => canonical_ambient_resource(callee)
+            .or_else(|| arguments.iter().find_map(canonical_ambient_resource)),
+        Kind::Binary { left, right, .. } => {
+            canonical_ambient_resource(left).or_else(|| canonical_ambient_resource(right))
+        }
+        Kind::Unit
+        | Kind::UIntLiteral(_)
+        | Kind::IntLiteral(_)
+        | Kind::BoolLiteral(_)
+        | Kind::TextLiteral(_)
+        | Kind::Unsupported => None,
     }
-}
-
-fn save_target(text: &str) -> Option<&str> {
-    let rest = strip_keyword(text, "save")?;
-    let (_value, target) = rest.split_once(" in ")?;
-    let target = target.trim();
-    if target.is_empty() {
-        None
-    } else {
-        Some(target)
-    }
-}
-
-fn first_ambient_resource(text: &str) -> Option<String> {
-    let lowered = text.to_ascii_lowercase();
-    AMBIENT_READ_ROOTS
-        .iter()
-        .find(|root| contains_word_or_path(&lowered, root))
-        .map(|root| root.to_string())
 }
 
 fn has_security_sensitive_effect(
@@ -1213,11 +1174,48 @@ fn has_security_sensitive_effect(
             .iter()
             .any(|root| fact.resource == *root || fact.text.to_ascii_lowercase().contains(root))
     }) || body_statements.iter().any(|statement| {
-        let lowered = statement.text.to_ascii_lowercase();
-        SECURITY_SENSITIVE_ROOTS
-            .iter()
-            .any(|root| contains_word_or_path(&lowered, root))
+        statement.primary_expression().is_some_and(|expression| {
+            canonical_identifiers(expression).iter().any(|name| {
+                SECURITY_SENSITIVE_ROOTS
+                    .iter()
+                    .any(|root| name.eq_ignore_ascii_case(root))
+            })
+        })
     })
+}
+
+fn canonical_identifiers(expression: &CanonicalExpression) -> Vec<&str> {
+    fn collect<'a>(expression: &'a CanonicalExpression, out: &mut Vec<&'a str>) {
+        match &expression.kind {
+            Kind::Identifier(name) => out.push(name),
+            Kind::Field { base, .. }
+            | Kind::Element { base, .. }
+            | Kind::Group(base)
+            | Kind::Permission { value: base, .. } => collect(base, out),
+            Kind::Try { call, .. } => collect(call, out),
+            Kind::ListLiteral(values) => values.iter().for_each(|value| collect(value, out)),
+            Kind::RecordLiteral { fields, .. } => {
+                fields.iter().for_each(|(_, value)| collect(value, out));
+            }
+            Kind::Call { callee, arguments } => {
+                collect(callee, out);
+                arguments.iter().for_each(|argument| collect(argument, out));
+            }
+            Kind::Binary { left, right, .. } => {
+                collect(left, out);
+                collect(right, out);
+            }
+            Kind::Unit
+            | Kind::UIntLiteral(_)
+            | Kind::IntLiteral(_)
+            | Kind::BoolLiteral(_)
+            | Kind::TextLiteral(_)
+            | Kind::Unsupported => {}
+        }
+    }
+    let mut identifiers = Vec::new();
+    collect(expression, &mut identifiers);
+    identifiers
 }
 
 fn avoid_contradiction(
@@ -1250,16 +1248,6 @@ fn declares_resource(facts: &[DeclaredFact], target: &str) -> bool {
     })
 }
 
-fn contains_word_or_path(text: &str, needle: &str) -> bool {
-    text.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '.'))
-        .any(|part| {
-            part == needle
-                || part
-                    .split_once('.')
-                    .is_some_and(|(root, _rest)| root == needle)
-        })
-}
-
 fn first_resource(text: &str) -> String {
     let token = text
         .split_whitespace()
@@ -1271,20 +1259,6 @@ fn first_resource(text: &str) -> String {
         .next()
         .unwrap_or(token)
         .to_ascii_lowercase()
-}
-
-fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = strip_keyword(text, keyword)?;
-    rest.strip_suffix('{').map(str::trim)
-}
-
-fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    if text == keyword {
-        return Some("");
-    }
-    text.strip_prefix(keyword)
-        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
-        .map(str::trim)
 }
 
 fn item_status(

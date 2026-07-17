@@ -1,7 +1,6 @@
-use crate::element_place;
-use crate::typed_failure;
+use crate::ast::{CanonicalExpression, CanonicalExpressionKind, ParsedBinaryOperator};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoreExpressionPreview {
     pub text: String,
     pub kind: &'static str,
@@ -10,16 +9,17 @@ pub struct CoreExpressionPreview {
     pub operators: Vec<&'static str>,
     pub ast: CoreExpressionAstPreview,
     pub reason: Option<&'static str>,
+    pub(crate) canonical: CanonicalExpression,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpressionAtom {
     pub text: String,
     pub kind: &'static str,
     pub status: &'static str,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoreExpressionAstPreview {
     pub status: &'static str,
     pub type_status: &'static str,
@@ -30,7 +30,7 @@ pub struct CoreExpressionAstPreview {
     pub root: CoreExpressionNode,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoreExpressionNode {
     pub id: String,
     pub form: &'static str,
@@ -58,110 +58,27 @@ pub const CORE_PREDICATE_AST_STATUS: &str = "predicate_ast_v2";
 pub const CORE_PREDICATE_TYPE_STATUS: &str = "predicate_v2_typed_v0";
 pub const CORE_PREDICATE_EFFECT_STATUS: &str = "contract_only_pure_v0";
 
-const OPERATOR_PATTERNS: &[(&str, &str)] = &[
-    (" fails with ", "fails_with"),
-    (" returns ", "returns"),
-    (" == ", "eq"),
-    (" != ", "ne"),
-    (" <= ", "le"),
-    (" >= ", "ge"),
-    (" < ", "lt"),
-    (" > ", "gt"),
-    (" + ", "add"),
-    (" - ", "sub"),
-    (" * ", "mul"),
-    (" / ", "div"),
-    (" and ", "and"),
-    (" or ", "or"),
-    (" is ", "is"),
-    (" does ", "does"),
-];
-
-pub fn analyze_expression(text: &str) -> CoreExpressionPreview {
-    let text = text.trim();
-    if typed_failure::is_try_candidate(text) {
-        if let Some(parsed) = typed_failure::parse_try_expression(text) {
-            return expression(
-                "try_call_like",
-                "atom_preview_v0",
-                text,
-                call_atoms(&parsed.call.source),
-                vec![],
-                None,
-            );
-        }
-        return expression(
-            "unsupported_try_expression",
-            "surface_phrase_preview_v0",
-            text,
-            Vec::new(),
-            vec![],
-            Some("unsupported_try_expression_shape_v0"),
-        );
-    }
-    if text.is_empty() {
-        return expression("unit", "atom_preview_v0", text, vec![], vec![], None);
-    }
-
-    if text.ends_with('{') {
-        let constructor = text.trim_end_matches('{').trim();
-        let atoms = if constructor.is_empty() {
-            Vec::new()
-        } else {
-            vec![classify_atom(constructor)]
-        };
-        return expression(
-            "record_literal_start",
-            "contextual_preview_v0",
-            text,
-            atoms,
-            vec![],
-            Some("record_literal_context_required"),
-        );
-    }
-
-    let operators = operators_in_expression(text);
-    if !operators.is_empty() {
-        let atoms = atoms_from_compound(text);
-        let kind = if operators.iter().any(|operator| {
-            matches!(
-                *operator,
-                "is" | "does" | "returns" | "fails_with" | "and" | "or"
-            )
-        }) {
-            "condition_or_surface_binary"
-        } else {
-            "binary_expression"
-        };
-        return expression(kind, "compound_preview_v0", text, atoms, operators, None);
-    }
-
-    if has_call_shape(text) {
-        let status = if text.ends_with(')') {
-            "atom_preview_v0"
-        } else {
-            "surface_phrase_preview_v0"
-        };
-        let reason = if text.ends_with(')') {
-            None
-        } else {
-            Some("trailing_surface_phrase_after_call")
-        };
-        return expression("call_like", status, text, call_atoms(text), vec![], reason);
-    }
-
-    let atom = classify_atom(text);
-    expression(atom.kind, atom.status, text, vec![atom], vec![], None)
-}
-
-fn expression(
-    kind: &'static str,
-    status: &'static str,
+pub fn analyze_canonical_expression(
+    canonical: &CanonicalExpression,
     text: &str,
-    atoms: Vec<ExpressionAtom>,
-    operators: Vec<&'static str>,
-    reason: Option<&'static str>,
+    legacy_kind: Option<&'static str>,
 ) -> CoreExpressionPreview {
+    let kind = public_kind(canonical, legacy_kind);
+    let status = match kind {
+        "record_literal_start" => "contextual_preview_v0",
+        "unsupported_try_expression" | "surface_text" => "surface_phrase_preview_v0",
+        "binary_expression" | "condition_or_surface_binary" => "compound_preview_v0",
+        _ => "atom_preview_v0",
+    };
+    let mut atoms = Vec::new();
+    collect_canonical_atoms(canonical, false, &mut atoms);
+    let mut operators = Vec::new();
+    collect_canonical_operators(canonical, &mut operators);
+    let reason = match kind {
+        "record_literal_start" => Some("record_literal_context_required"),
+        "unsupported_try_expression" => Some("unsupported_try_expression_shape_v0"),
+        _ => None,
+    };
     let ast = build_ast_preview(kind, status, text, &atoms, &operators, reason);
     CoreExpressionPreview {
         text: text.to_string(),
@@ -171,6 +88,374 @@ fn expression(
         operators,
         ast,
         reason,
+        canonical: canonical.clone(),
+    }
+}
+
+pub(crate) fn validate_private_canonical_projection(
+    observed: &CanonicalExpression,
+    expected: &CanonicalExpression,
+) -> Result<(), &'static str> {
+    if observed != expected {
+        return Err("core_private_expression_tree_corrupt_v0");
+    }
+    crate::parser::validate_canonical_expression_for_consumer(observed)
+}
+
+fn canonical_kind(expression: &CanonicalExpression) -> &'static str {
+    match &expression.kind {
+        CanonicalExpressionKind::Unit => "unit",
+        CanonicalExpressionKind::UIntLiteral(_) | CanonicalExpressionKind::IntLiteral(_) => {
+            "int_literal"
+        }
+        CanonicalExpressionKind::BoolLiteral(_) => "bool_literal",
+        CanonicalExpressionKind::TextLiteral(_) => "text_literal",
+        CanonicalExpressionKind::ListLiteral(_) => "list_literal",
+        CanonicalExpressionKind::RecordLiteral { fields, .. } if fields.is_empty() => {
+            "record_literal_start"
+        }
+        CanonicalExpressionKind::RecordLiteral { .. } => "record_literal",
+        CanonicalExpressionKind::Call { .. } | CanonicalExpressionKind::Try { .. } => "call_like",
+        CanonicalExpressionKind::Field { .. } | CanonicalExpressionKind::Element { .. } => {
+            "path_or_field_read"
+        }
+        CanonicalExpressionKind::Identifier(_) => "name",
+        CanonicalExpressionKind::Permission { value, .. }
+        | CanonicalExpressionKind::Group(value) => canonical_kind(value),
+        CanonicalExpressionKind::Binary { operator, .. } => {
+            if matches!(
+                operator,
+                ParsedBinaryOperator::Is
+                    | ParsedBinaryOperator::Does
+                    | ParsedBinaryOperator::Returns
+                    | ParsedBinaryOperator::FailsWith
+                    | ParsedBinaryOperator::And
+                    | ParsedBinaryOperator::Or
+            ) {
+                "condition_or_surface_binary"
+            } else {
+                "binary_expression"
+            }
+        }
+        CanonicalExpressionKind::Unsupported => "surface_text",
+    }
+}
+
+fn public_kind(
+    expression: &CanonicalExpression,
+    legacy_kind: Option<&'static str>,
+) -> &'static str {
+    match legacy_kind {
+        Some("condition_text") => "condition_or_surface_binary",
+        Some("path_or_name") => "path_or_field_read",
+        Some("name_or_text") => "surface_text",
+        Some("try_call_like") => "try_call_like",
+        Some(kind) => kind,
+        None => match expression.kind {
+            CanonicalExpressionKind::Try { .. } => "try_call_like",
+            _ => canonical_kind(expression),
+        },
+    }
+}
+
+fn collect_canonical_atoms(
+    expression: &CanonicalExpression,
+    compound_context: bool,
+    atoms: &mut Vec<ExpressionAtom>,
+) {
+    match &expression.kind {
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            collect_canonical_atoms(left, true, atoms);
+            collect_canonical_atoms(right, true, atoms);
+        }
+        CanonicalExpressionKind::Group(value)
+        | CanonicalExpressionKind::Permission { value, .. } => {
+            collect_canonical_atoms(value, compound_context, atoms);
+        }
+        CanonicalExpressionKind::Try { call, .. } => collect_canonical_atoms(call, false, atoms),
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            if compound_context {
+                atoms.push(classify_canonical_atom(expression));
+                return;
+            }
+            atoms.push(ExpressionAtom {
+                text: canonical_text(callee),
+                kind: "callee_name",
+                status: "atom_preview_v0",
+            });
+            for argument in arguments {
+                collect_canonical_atoms(argument, false, atoms);
+            }
+        }
+        _ => atoms.push(classify_canonical_atom(expression)),
+    }
+}
+
+fn collect_canonical_operators(
+    expression: &CanonicalExpression,
+    operators: &mut Vec<&'static str>,
+) {
+    match &expression.kind {
+        CanonicalExpressionKind::Binary {
+            operator,
+            left,
+            right,
+            ..
+        } => {
+            collect_canonical_operators(left, operators);
+            operators.push(operator_name(*operator));
+            collect_canonical_operators(right, operators);
+        }
+        CanonicalExpressionKind::Group(value)
+        | CanonicalExpressionKind::Permission { value, .. } => {
+            collect_canonical_operators(value, operators);
+        }
+        CanonicalExpressionKind::Try { call, .. } => {
+            collect_canonical_operators(call, operators);
+        }
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            collect_canonical_operators(callee, operators);
+            for argument in arguments {
+                collect_canonical_operators(argument, operators);
+            }
+        }
+        CanonicalExpressionKind::ListLiteral(values) => {
+            for value in values {
+                collect_canonical_operators(value, operators);
+            }
+        }
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            for (_, value) in fields {
+                collect_canonical_operators(value, operators);
+            }
+        }
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::Element { base, .. } => {
+            collect_canonical_operators(base, operators);
+        }
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => {}
+    }
+}
+
+fn classify_canonical_atom(expression: &CanonicalExpression) -> ExpressionAtom {
+    let kind = match &expression.kind {
+        CanonicalExpressionKind::Unit => "unit",
+        CanonicalExpressionKind::BoolLiteral(_) => "bool_literal",
+        CanonicalExpressionKind::UIntLiteral(_) | CanonicalExpressionKind::IntLiteral(_) => {
+            "int_literal"
+        }
+        CanonicalExpressionKind::TextLiteral(_) => "text_literal",
+        CanonicalExpressionKind::Call { .. } | CanonicalExpressionKind::Try { .. } => "call_like",
+        CanonicalExpressionKind::Field { .. } | CanonicalExpressionKind::Element { .. } => {
+            "path_or_field_read"
+        }
+        CanonicalExpressionKind::Identifier(_) => "name",
+        CanonicalExpressionKind::ListLiteral(_)
+        | CanonicalExpressionKind::RecordLiteral { .. }
+        | CanonicalExpressionKind::Permission { .. }
+        | CanonicalExpressionKind::Binary { .. }
+        | CanonicalExpressionKind::Group(_) => "surface_text",
+        CanonicalExpressionKind::Unsupported => "surface_text",
+    };
+    ExpressionAtom {
+        text: canonical_text(expression),
+        kind,
+        status: if kind == "surface_text" {
+            "surface_phrase_preview_v0"
+        } else {
+            "atom_preview_v0"
+        },
+    }
+}
+
+pub(crate) fn canonical_text(expression: &CanonicalExpression) -> String {
+    match &expression.kind {
+        CanonicalExpressionKind::Unit => String::new(),
+        CanonicalExpressionKind::Identifier(name) => name.clone(),
+        CanonicalExpressionKind::Field { base, field } => {
+            format!("{}.{}", canonical_text(base), field)
+        }
+        CanonicalExpressionKind::Element { base, index } => {
+            format!("{}[{index}]", canonical_text(base))
+        }
+        CanonicalExpressionKind::UIntLiteral(value) => value.to_string(),
+        CanonicalExpressionKind::IntLiteral(value) => value.to_string(),
+        CanonicalExpressionKind::BoolLiteral(value) => value.to_string(),
+        CanonicalExpressionKind::TextLiteral(value) => format!("\"{value}\""),
+        CanonicalExpressionKind::ListLiteral(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(canonical_text)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        CanonicalExpressionKind::RecordLiteral { name, fields } => {
+            if fields.is_empty() {
+                format!("{name} {{")
+            } else {
+                format!(
+                    "{name} {{{}}}",
+                    fields
+                        .iter()
+                        .map(|(field, value)| format!("{field}: {}", canonical_text(value)))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+        }
+        CanonicalExpressionKind::Call { callee, arguments } => format!(
+            "{}({})",
+            canonical_text(callee),
+            arguments
+                .iter()
+                .map(canonical_text)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        CanonicalExpressionKind::Permission { permission, value } => {
+            let permission = match permission {
+                crate::ast::ParamPermission::Borrow => "borrow",
+                crate::ast::ParamPermission::Change => "change",
+                crate::ast::ParamPermission::Consume => "consume",
+            };
+            format!("{permission} {}", canonical_text(value))
+        }
+        CanonicalExpressionKind::Try { call, wrapper } => wrapper.as_ref().map_or_else(
+            || format!("try {}", canonical_text(call)),
+            |wrapper| format!("try {} or fail {wrapper}", canonical_text(call)),
+        ),
+        CanonicalExpressionKind::Binary {
+            operator,
+            left,
+            right,
+            ..
+        } => format!(
+            "{} {} {}",
+            canonical_text(left),
+            operator_spelling(*operator),
+            canonical_text(right)
+        ),
+        CanonicalExpressionKind::Group(value) => format!("({})", canonical_text(value)),
+        CanonicalExpressionKind::Unsupported => "<unsupported>".to_string(),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn canonical_semantic_shape(expression: &CanonicalExpression) -> String {
+    match &expression.kind {
+        CanonicalExpressionKind::Unit => "unit".to_string(),
+        CanonicalExpressionKind::Identifier(name) => format!("id({name})"),
+        CanonicalExpressionKind::Field { base, field } => {
+            format!("field({},{field})", canonical_semantic_shape(base))
+        }
+        CanonicalExpressionKind::Element { base, index } => {
+            format!("element({},{index})", canonical_semantic_shape(base))
+        }
+        CanonicalExpressionKind::UIntLiteral(value) => format!("uint({value})"),
+        CanonicalExpressionKind::IntLiteral(value) => format!("int({value})"),
+        CanonicalExpressionKind::BoolLiteral(value) => format!("bool({value})"),
+        CanonicalExpressionKind::TextLiteral(value) => format!("text({value:?})"),
+        CanonicalExpressionKind::ListLiteral(values) => format!(
+            "list({})",
+            values
+                .iter()
+                .map(canonical_semantic_shape)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        CanonicalExpressionKind::RecordLiteral { name, fields } => format!(
+            "record({name};{})",
+            fields
+                .iter()
+                .map(|(field, value)| { format!("{field}={}", canonical_semantic_shape(value)) })
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        CanonicalExpressionKind::Call { callee, arguments } => format!(
+            "call({};{})",
+            canonical_semantic_shape(callee),
+            arguments
+                .iter()
+                .map(canonical_semantic_shape)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        CanonicalExpressionKind::Permission { permission, value } => {
+            format!(
+                "permission({};{})",
+                permission.as_str(),
+                canonical_semantic_shape(value)
+            )
+        }
+        CanonicalExpressionKind::Try { call, wrapper } => format!(
+            "try({};{})",
+            canonical_semantic_shape(call),
+            wrapper.as_deref().unwrap_or("none")
+        ),
+        CanonicalExpressionKind::Binary {
+            operator,
+            left,
+            right,
+            ..
+        } => format!(
+            "binary({};{};{})",
+            operator_name(*operator),
+            canonical_semantic_shape(left),
+            canonical_semantic_shape(right)
+        ),
+        CanonicalExpressionKind::Group(value) => {
+            format!("group({})", canonical_semantic_shape(value))
+        }
+        CanonicalExpressionKind::Unsupported => "unsupported".to_string(),
+    }
+}
+
+pub(crate) const fn operator_name(operator: ParsedBinaryOperator) -> &'static str {
+    match operator {
+        ParsedBinaryOperator::Multiply => "mul",
+        ParsedBinaryOperator::Divide => "div",
+        ParsedBinaryOperator::Add => "add",
+        ParsedBinaryOperator::Subtract => "sub",
+        ParsedBinaryOperator::Equal => "eq",
+        ParsedBinaryOperator::NotEqual => "ne",
+        ParsedBinaryOperator::Less => "lt",
+        ParsedBinaryOperator::LessEqual => "le",
+        ParsedBinaryOperator::Greater => "gt",
+        ParsedBinaryOperator::GreaterEqual => "ge",
+        ParsedBinaryOperator::Is => "is",
+        ParsedBinaryOperator::Does => "does",
+        ParsedBinaryOperator::Returns => "returns",
+        ParsedBinaryOperator::FailsWith => "fails_with",
+        ParsedBinaryOperator::And => "and",
+        ParsedBinaryOperator::Or => "or",
+    }
+}
+
+pub(crate) const fn operator_spelling(operator: ParsedBinaryOperator) -> &'static str {
+    match operator {
+        ParsedBinaryOperator::Multiply => "*",
+        ParsedBinaryOperator::Divide => "/",
+        ParsedBinaryOperator::Add => "+",
+        ParsedBinaryOperator::Subtract => "-",
+        ParsedBinaryOperator::Equal => "==",
+        ParsedBinaryOperator::NotEqual => "!=",
+        ParsedBinaryOperator::Less => "<",
+        ParsedBinaryOperator::LessEqual => "<=",
+        ParsedBinaryOperator::Greater => ">",
+        ParsedBinaryOperator::GreaterEqual => ">=",
+        ParsedBinaryOperator::Is => "is",
+        ParsedBinaryOperator::Does => "does",
+        ParsedBinaryOperator::Returns => "returns",
+        ParsedBinaryOperator::FailsWith => "fails with",
+        ParsedBinaryOperator::And => "and",
+        ParsedBinaryOperator::Or => "or",
     }
 }
 
@@ -350,110 +635,6 @@ fn ast_node_id(prefix: &str, text: &str) -> String {
     format!("expr_{prefix}_{body}")
 }
 
-fn operators_in_expression(text: &str) -> Vec<&'static str> {
-    OPERATOR_PATTERNS
-        .iter()
-        .filter_map(|(pattern, operator)| text.contains(pattern).then_some(*operator))
-        .collect()
-}
-
-fn atoms_from_compound(text: &str) -> Vec<ExpressionAtom> {
-    let mut parts = vec![text.trim()];
-    for (pattern, _operator) in OPERATOR_PATTERNS {
-        let mut next = Vec::new();
-        for part in parts {
-            next.extend(
-                part.split(pattern)
-                    .map(str::trim)
-                    .filter(|part| !part.is_empty()),
-            );
-        }
-        parts = next;
-    }
-
-    parts.into_iter().map(classify_atom).collect()
-}
-
-fn call_atoms(text: &str) -> Vec<ExpressionAtom> {
-    let Some((callee, rest)) = text.split_once('(') else {
-        return vec![classify_atom(text)];
-    };
-    let mut atoms = vec![ExpressionAtom {
-        text: callee.trim().to_string(),
-        kind: "callee_name",
-        status: "atom_preview_v0",
-    }];
-
-    let args = rest
-        .split_once(')')
-        .map_or(rest, |(inside, _after)| inside)
-        .split(',')
-        .map(str::trim)
-        .filter(|arg| !arg.is_empty());
-    atoms.extend(args.map(classify_atom));
-    atoms
-}
-
-fn classify_atom(text: &str) -> ExpressionAtom {
-    let text = text.trim();
-    let (kind, status) = if text.is_empty() {
-        ("unit", "atom_preview_v0")
-    } else if text == "true" || text == "false" {
-        ("bool_literal", "atom_preview_v0")
-    } else if text.chars().all(|ch| ch.is_ascii_digit()) {
-        ("int_literal", "atom_preview_v0")
-    } else if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
-        ("text_literal", "atom_preview_v0")
-    } else if has_call_shape(text) {
-        ("call_like", "atom_preview_v0")
-    } else if text.contains('.') || is_direct_element_place_atom(text) {
-        ("path_or_field_read", "atom_preview_v0")
-    } else if is_identifier_like(text) {
-        ("name", "atom_preview_v0")
-    } else {
-        ("surface_text", "surface_phrase_preview_v0")
-    };
-
-    ExpressionAtom {
-        text: text.to_string(),
-        kind,
-        status,
-    }
-}
-
-fn has_call_shape(text: &str) -> bool {
-    text.contains('(') && text.contains(')')
-}
-
-fn is_direct_element_place_atom(text: &str) -> bool {
-    element_place::split_element_place(strip_permission_expression(text)).is_some()
-}
-
-fn strip_permission_expression(text: &str) -> &str {
-    ["borrow", "change", "consume"]
-        .iter()
-        .find_map(|keyword| strip_keyword(text.trim(), keyword))
-        .unwrap_or(text.trim())
-}
-
-fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    if text == keyword {
-        return Some("");
-    }
-    text.strip_prefix(keyword)
-        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
-        .map(str::trim)
-}
-
-fn is_identifier_like(text: &str) -> bool {
-    let mut chars = text.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    (first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-}
-
 fn snake_identifier(text: &str) -> String {
     let mut out = String::new();
     let mut previous_was_separator = false;
@@ -471,30 +652,35 @@ fn snake_identifier(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::analyze_expression;
+    use crate::ast::{Item, ParsedBodyStatementKind};
+    use crate::parser::parse_source;
+
+    use super::analyze_canonical_expression;
+
+    fn analyze(text: &str) -> super::CoreExpressionPreview {
+        let source = format!("task demo() -> UInt {{\n  does:\n    return {text}\n}}\n");
+        let parsed = parse_source("core-expression.hum", &source);
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("task")
+        };
+        let ParsedBodyStatementKind::Return(expression) = &task.body_syntax[0].kind else {
+            panic!("return")
+        };
+        analyze_canonical_expression(&expression.canonical, text, None)
+    }
 
     #[test]
     fn recognizes_literal_name_path_and_record_start_atoms() {
-        assert_eq!(analyze_expression("42").kind, "int_literal");
-        assert_eq!(analyze_expression("false").kind, "bool_literal");
-        assert_eq!(analyze_expression("\"hello\"").kind, "text_literal");
-        assert_eq!(analyze_expression("title").kind, "name");
-        assert_eq!(
-            analyze_expression("clock.now_text").kind,
-            "path_or_field_read"
-        );
-
-        let record = analyze_expression("WorkItem {");
-        assert_eq!(record.kind, "record_literal_start");
-        assert_eq!(record.status, "contextual_preview_v0");
-        assert_eq!(record.ast.status, "contextual_ast_preview_v0");
-        assert_eq!(record.ast.root.form, "record_construction_candidate");
-        assert_eq!(record.reason, Some("record_literal_context_required"));
+        assert_eq!(analyze("42").kind, "int_literal");
+        assert_eq!(analyze("false").kind, "bool_literal");
+        assert_eq!(analyze("\"hello\"").kind, "text_literal");
+        assert_eq!(analyze("title").kind, "name");
+        assert_eq!(analyze("clock.now_text").kind, "path_or_field_read");
     }
 
     #[test]
     fn recognizes_compound_expression_atoms_operators_and_ast() {
-        let expression = analyze_expression("attempts + 1");
+        let expression = analyze("attempts + 1");
         assert_eq!(expression.kind, "binary_expression");
         assert_eq!(expression.status, "compound_preview_v0");
         assert_eq!(expression.operators, vec!["add"]);
@@ -510,7 +696,7 @@ mod tests {
         assert_eq!(expression.ast.root.type_source, None);
         assert_eq!(expression.ast.root.effect_status, "not_effect_checked_v0");
 
-        let condition = analyze_expression("title is empty");
+        let condition = analyze("title is empty");
         assert_eq!(condition.kind, "condition_or_surface_binary");
         assert_eq!(condition.operators, vec!["is"]);
         assert_eq!(condition.ast.root.form, "binary_operation_candidate");
@@ -518,7 +704,7 @@ mod tests {
 
     #[test]
     fn recognizes_call_like_expression_atoms_and_ast() {
-        let expression = analyze_expression("remember(\"demo\")");
+        let expression = analyze("remember(\"demo\")");
         assert_eq!(expression.kind, "call_like");
         assert_eq!(expression.status, "atom_preview_v0");
         assert_eq!(expression.atoms.len(), 2);
@@ -527,7 +713,7 @@ mod tests {
         assert_eq!(expression.ast.root.form, "call_candidate");
         assert_eq!(expression.ast.node_count, 3);
 
-        let surface = analyze_expression("remember(\"demo\") returns WorkItem");
+        let surface = analyze("remember(\"demo\") returns WorkItem");
         assert_eq!(surface.kind, "condition_or_surface_binary");
         assert_eq!(surface.operators, vec!["returns"]);
         assert_eq!(surface.ast.root.form, "binary_operation_candidate");
@@ -535,7 +721,7 @@ mod tests {
 
     #[test]
     fn recognizes_try_call_without_inventing_a_try_callee() {
-        let expression = analyze_expression("try load(7) or fail OuterError.context");
+        let expression = analyze("try load(7) or fail OuterError.context");
         assert_eq!(expression.kind, "try_call_like");
         assert_eq!(expression.atoms[0].text, "load");
         assert_eq!(expression.ast.root.form, "try_call_candidate");

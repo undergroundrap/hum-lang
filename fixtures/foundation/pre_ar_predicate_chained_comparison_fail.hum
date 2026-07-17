@@ -1,0 +1,17 @@
+module fixtures.foundation.pre_ar_predicate_chained_comparison_fail
+
+task chained_predicate -> UInt {
+  why:
+    reject one executable predicate that compares an earlier comparison
+
+  ensures:
+    1 < 2 < 3
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return 3
+}

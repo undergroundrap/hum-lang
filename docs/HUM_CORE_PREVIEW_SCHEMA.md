@@ -432,8 +432,9 @@ Expression fields:
 Expression statuses:
 
 - `atom_preview_v0`: single syntax atom, with no type or name resolution claim
-- `compound_preview_v0`: split into preview atoms and operator families, with no
-  precedence, type, or executable semantics claim
+- `compound_preview_v0`: projects preview atoms and operator families from the
+  parser-owned canonical tree; the public flat projection does not expose its
+  private child identities or spans
 - `contextual_preview_v0`: needs surrounding statement or block context, such as a
   record literal start
 - `surface_phrase_preview_v0`: human-oriented surface phrase preserved as text
@@ -449,9 +450,11 @@ Atom fields:
 
 ## Expression AST Preview Shape
 
-The expression AST preview is a syntax tree boundary, not a checked Core Hum
-expression. It exists so later passes can fill in type, effect, checked
-name-resolution, and lowering facts without changing the JSON shape again.
+The expression AST preview is a compatibility projection of the parser-owned
+canonical syntax tree, not a checked Core Hum expression. The private compiler
+fact owns complete child order, grouping, associativity, identities, and spans;
+this V0 JSON shape deliberately continues to expose only its existing compact
+root/atom projection.
 
 AST fields:
 
@@ -484,8 +487,9 @@ Node fields:
 
 AST honesty rules:
 
-- The AST preview does not define precedence beyond the recognized V0 binary
-  candidate shape.
+- The private parser-owned tree defines the admitted precedence and
+  associativity. The public V0 preview remains a compact compatibility
+  projection and cannot be used to validate private children.
 - It does not resolve names or fields; candidate `name_preview` reports separate
   candidate-local preview facts.
 - It does not independently type-check calls, literals, paths, records, or

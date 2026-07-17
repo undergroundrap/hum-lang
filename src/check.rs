@@ -651,9 +651,10 @@ fn check_declared_mutation(task: &Task, diagnostics: &mut CheckCollector) {
         .map(|param| param.name.clone())
         .collect::<BTreeSet<_>>();
 
-    for line in meaningful_lines(does) {
-        if let Some(target) = save_target(&line.text)
-            && !declared_changes.contains(&target)
+    let body = core_body::analyze_does_section(does);
+    for statement in &body.statements {
+        if let Some(target) = statement.save_target()
+            && !declared_changes.contains(target)
         {
             emit(
                 diagnostics,
@@ -665,7 +666,7 @@ fn check_declared_mutation(task: &Task, diagnostics: &mut CheckCollector) {
                         "task `{}` saves into `{target}` without listing it in `changes:`",
                         task.name
                     ),
-                    Some(line.span.clone()),
+                    Some(statement.span.clone()),
                 )
                 .with_help(format!(
                     "Add `{target}` under `changes:` or avoid mutating it."
@@ -673,10 +674,12 @@ fn check_declared_mutation(task: &Task, diagnostics: &mut CheckCollector) {
             );
         }
 
-        if let Some(target) = set_target(&line.text)
-            && !declared_changes.contains(&target)
-            && !local_mutables.contains(&target)
-            && !parameter_roots.contains(&target)
+        if let Some(target) = statement
+            .set_target()
+            .and_then(|target| target.direct_place().map(|(root, _, _)| root))
+            && !declared_changes.contains(target)
+            && !local_mutables.contains(target)
+            && !parameter_roots.contains(target)
         {
             emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(68), "set_target",
                 Diagnostic::error(
@@ -685,7 +688,7 @@ fn check_declared_mutation(task: &Task, diagnostics: &mut CheckCollector) {
                         "task `{}` sets `{target}` without declaring it mutable",
                         task.name
                     ),
-                    Some(line.span.clone()),
+                    Some(statement.span.clone()),
                 )
                 .with_help(format!(
                     "Use `change {target}: Type = ...` for local mutation or list `{target}` under `changes:`."
@@ -749,8 +752,9 @@ fn check_cost_contract(task: &Task, diagnostics: &mut CheckCollector) {
 
     if matches!(check.as_deref(), Some("compile")) {
         if matches!(time.as_deref(), Some(value) if value == "O(1)") {
-            for line in meaningful_lines(does) {
-                if line.text.starts_with("for each ") {
+            let body = core_body::analyze_does_section(does);
+            for statement in &body.statements {
+                if statement.kind == "for_each_header" {
                     emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(72), "cost_loop",
                         Diagnostic::error(
                             DiagnosticCode::CONSTANT_COST_HAS_FOR_EACH,
@@ -758,7 +762,7 @@ fn check_cost_contract(task: &Task, diagnostics: &mut CheckCollector) {
                                 "task `{}` claims `time: O(1)` but contains `for each`",
                                 task.name
                             ),
-                            Some(line.span.clone()),
+                            Some(statement.span.clone()),
                         )
                         .with_help("Use a bounded loop, weaken the cost claim, or make the bound explicit enough for Hum to check."),
                     );
@@ -766,8 +770,13 @@ fn check_cost_contract(task: &Task, diagnostics: &mut CheckCollector) {
             }
         }
 
-        for line in meaningful_lines(does) {
-            if line.text.starts_with("while ") && !line.text.chars().any(|ch| ch.is_ascii_digit()) {
+        let body = core_body::analyze_does_section(does);
+        for statement in &body.statements {
+            if statement.kind == "while_header"
+                && !statement
+                    .condition()
+                    .is_some_and(canonical_contains_integer)
+            {
                 emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(73), "cost_while",
                     Diagnostic::error(
                         DiagnosticCode::COMPILE_COST_UNBOUNDED_WHILE,
@@ -775,7 +784,7 @@ fn check_cost_contract(task: &Task, diagnostics: &mut CheckCollector) {
                             "task `{}` has an unbounded-looking `while` under `check: compile`",
                             task.name
                         ),
-                        Some(line.span.clone()),
+                        Some(statement.span.clone()),
                     )
                     .with_help("Make the bound visible, such as `while attempts < 16`, and keep an invariant in `keeps:`."),
                 );
@@ -888,16 +897,13 @@ fn first_resource(text: &str) -> Option<String> {
 }
 
 fn local_mutables(section: &Section) -> BTreeSet<String> {
-    let mut mutables = meaningful_lines(section)
-        .filter_map(|line| line.text.strip_prefix("change "))
-        .filter_map(|rest| {
-            let target = rest
-                .split(|ch: char| ch == ':' || ch == '=' || ch.is_whitespace())
-                .find(|part| !part.is_empty())?;
-            Some(target.to_string())
-        })
-        .collect::<BTreeSet<_>>();
     let body = core_body::analyze_does_section(section);
+    let mut mutables = body
+        .statements
+        .iter()
+        .filter(|statement| statement.binding_is_mutable())
+        .filter_map(|statement| statement.binding_name().map(str::to_string))
+        .collect::<BTreeSet<_>>();
     mutables.extend(
         body.statements
             .iter()
@@ -906,17 +912,31 @@ fn local_mutables(section: &Section) -> BTreeSet<String> {
     mutables
 }
 
-fn save_target(text: &str) -> Option<String> {
-    let rest = text.strip_prefix("save ")?;
-    let (_value, target) = rest.rsplit_once(" in ")?;
-    first_resource(target)
-}
-
-fn set_target(text: &str) -> Option<String> {
-    let rest = text.strip_prefix("set ")?.trim();
-    rest.split(|ch: char| ch == '=' || ch.is_whitespace())
-        .find(|part| !part.is_empty())
-        .and_then(first_resource)
+fn canonical_contains_integer(expression: &crate::ast::CanonicalExpression) -> bool {
+    use crate::ast::CanonicalExpressionKind as Kind;
+    match &expression.kind {
+        Kind::UIntLiteral(_) | Kind::IntLiteral(_) => true,
+        Kind::Field { base, .. }
+        | Kind::Element { base, .. }
+        | Kind::Group(base)
+        | Kind::Permission { value: base, .. } => canonical_contains_integer(base),
+        Kind::Try { call, .. } => canonical_contains_integer(call),
+        Kind::ListLiteral(values) => values.iter().any(canonical_contains_integer),
+        Kind::RecordLiteral { fields, .. } => fields
+            .iter()
+            .any(|(_, value)| canonical_contains_integer(value)),
+        Kind::Call { callee, arguments } => {
+            canonical_contains_integer(callee) || arguments.iter().any(canonical_contains_integer)
+        }
+        Kind::Binary { left, right, .. } => {
+            canonical_contains_integer(left) || canonical_contains_integer(right)
+        }
+        Kind::Unit
+        | Kind::Identifier(_)
+        | Kind::BoolLiteral(_)
+        | Kind::TextLiteral(_)
+        | Kind::Unsupported => false,
+    }
 }
 
 fn cost_value(section: &Section, key: &str) -> Option<String> {

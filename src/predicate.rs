@@ -2,7 +2,10 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use crate::ast::{App, Item, Program, SectionLine, Task};
+use crate::ast::{
+    App, CanonicalExpression, CanonicalExpressionKind, ExpressionLexicalCause, Item,
+    ParsedBinaryOperator, ParsedSourceRange, Program, SectionLine, Task,
+};
 use crate::core_body;
 use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::field_place::{self, FieldTypeMap};
@@ -33,103 +36,13 @@ impl RecognitionStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Comparison {
-    Eq,
-    NotEq,
-    Less,
-    LessEq,
-    Greater,
-    GreaterEq,
-}
-
-impl Comparison {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Eq => "==",
-            Self::NotEq => "!=",
-            Self::Less => "<",
-            Self::LessEq => "<=",
-            Self::Greater => ">",
-            Self::GreaterEq => ">=",
-        }
-    }
-
-    fn is_equality(self) -> bool {
-        matches!(self, Self::Eq | Self::NotEq)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Place {
-    pub(crate) root: String,
-    pub(crate) field: Option<String>,
-    pub(crate) range: SourceRange,
-}
-
-impl Place {
-    pub(crate) fn text(&self) -> String {
-        self.field.as_ref().map_or_else(
-            || self.root.clone(),
-            |field| format!("{}.{}", self.root, field),
-        )
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SourceRange {
+pub struct SourceRange {
     pub(crate) start: usize,
     pub(crate) end: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Expr {
-    Bool(bool, SourceRange),
-    Integer(i64, SourceRange),
-    Text(String, SourceRange),
-    ListText(Vec<String>, SourceRange),
-    Place(Place),
-    Old(Place, SourceRange),
-    ListLen(Place, SourceRange),
-    ListCount(Box<Expr>, Box<Expr>, SourceRange),
-    Binary(Box<Expr>, Arithmetic, Box<Expr>, SourceRange),
-    Group(Box<Expr>, SourceRange),
-}
-
-impl Expr {
-    pub(crate) fn range(&self) -> SourceRange {
-        match self {
-            Self::Bool(_, range)
-            | Self::Integer(_, range)
-            | Self::Text(_, range)
-            | Self::ListText(_, range)
-            | Self::Old(_, range)
-            | Self::ListLen(_, range)
-            | Self::ListCount(_, _, range)
-            | Self::Binary(_, _, _, range)
-            | Self::Group(_, range) => *range,
-            Self::Place(place) => place.range,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Arithmetic {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PredicateAst {
-    pub(crate) left: Expr,
-    pub(crate) comparison: Comparison,
-    pub(crate) operator_range: SourceRange,
-    pub(crate) right: Expr,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PredicateCause {
+pub(crate) enum PredicateCause {
     ArbitraryHelperCall,
     ArithmeticRequiresNumericOperands,
     CrossTypeComparison,
@@ -198,7 +111,7 @@ impl PredicateCause {
         })
     }
 
-    const fn reason(self) -> &'static str {
+    pub(crate) const fn reason(self) -> &'static str {
         use PredicateCause as Cause;
         match self {
             Cause::ArbitraryHelperCall => "arbitrary_helper_call_not_allowed_v2",
@@ -256,7 +169,7 @@ pub(crate) struct PredicateFact {
     pub(crate) left_type: Option<String>,
     pub(crate) right_type: Option<String>,
     pub(crate) delimiter_depth: usize,
-    pub(crate) ast: Option<PredicateAst>,
+    pub(crate) canonical: crate::ast::CanonicalExpression,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -401,10 +314,10 @@ impl PredicateAnalysis {
             };
             let body = core_body::analyze_does_section(does);
             for statement in &body.statements {
-                let Some(expression) = typed_failure::statement_expression(statement) else {
+                let Some(expression) = typed_failure::statement_expression_node(statement) else {
                     continue;
                 };
-                for call in typed_failure::calls_in_expression(expression) {
+                for call in typed_failure::calls_in_canonical(expression) {
                     if let Some(callee) = find_task(program, active_app, &call.callee) {
                         pending.push(callee);
                     }
@@ -412,6 +325,15 @@ impl PredicateAnalysis {
             }
         }
         diagnostics
+    }
+
+    pub(crate) fn reachable_diagnostics_for_named_entry(
+        &self,
+        program: &Program,
+        entry_name: &str,
+    ) -> Option<Vec<Diagnostic>> {
+        find_task(program, None, entry_name)
+            .map(|entry| self.reachable_diagnostics(program, entry, None))
     }
 }
 
@@ -628,8 +550,16 @@ fn analyze_line(
     context: &LexicalContext,
 ) -> PredicateFact {
     let text = line.text.trim().to_string();
-    let intent = find_intent_signal(&text);
-    let Some(intent_range) = intent else {
+    let parsed_syntax = task
+        .section(section)
+        .and_then(|section| section.predicate_syntax.get(line_index))
+        .and_then(Option::as_ref)
+        .expect("meaningful contract line must retain parser-owned predicate syntax");
+    let Some(intent_range) = parsed_syntax
+        .intent_range
+        .as_ref()
+        .map(|range| parsed_range_for_line(line, range))
+    else {
         return base_fact(
             (task, task_identity, section, line_index, line),
             text,
@@ -638,28 +568,38 @@ fn analyze_line(
             "no_executable_predicate_intent_v0",
         );
     };
-    let mut parser = Parser::new(&text);
-    let parsed = parser.parse_predicate();
-    let delimiter_depth = parser.max_depth;
-    let ast = match parsed {
-        Ok(ast) => ast,
-        Err(error) => {
+    let delimiter_depth = parsed_syntax.max_delimiter_depth;
+    if let Some(issue) = &parsed_syntax.lexical_issue {
+        if issue.cause == ExpressionLexicalCause::ChainedComparison {
             let mut fact = base_fact(
                 (task, task_identity, section, line_index, line),
                 text,
                 RecognitionStatus::MalformedExecutable,
                 Some(intent_range),
-                error.cause.reason(),
+                issue.cause.reason(),
             );
-            fact.diagnostic_owner = PredicateDiagnosticOwner::Predicate(error.cause);
-            fact.offending_span = Some(range_span(line, error.range));
-            fact.expected = Some(error.expected.to_string());
-            fact.actual = Some(error.actual);
+            fact.offending_span = Some(range_span(line, parsed_range_for_line(line, &issue.range)));
+            fact.expected = Some(issue.expected.to_string());
+            fact.actual = Some(issue.actual.clone());
             fact.delimiter_depth = delimiter_depth;
             return fact;
         }
-    };
-
+        let cause = predicate_cause_for_lexical(issue.cause);
+        let range = parsed_range_for_line(line, &issue.range);
+        let mut fact = base_fact(
+            (task, task_identity, section, line_index, line),
+            text,
+            RecognitionStatus::MalformedExecutable,
+            Some(intent_range),
+            cause.reason(),
+        );
+        fact.diagnostic_owner = PredicateDiagnosticOwner::Predicate(cause);
+        fact.offending_span = Some(range_span(line, range));
+        fact.expected = Some(issue.expected.to_string());
+        fact.actual = Some(issue.actual.clone());
+        fact.delimiter_depth = delimiter_depth;
+        return fact;
+    }
     let mut fact = base_fact(
         (task, task_identity, section, line_index, line),
         text,
@@ -668,9 +608,16 @@ fn analyze_line(
         "typed_predicate_v2",
     );
     fact.delimiter_depth = delimiter_depth;
-    fact.comparison = Some(ast.comparison.as_str());
-    fact.places = collect_place_facts(&ast, task, section, line, fields, context);
-    match type_predicate(&ast, section, &fact.places) {
+    fact.comparison = root_operator(&parsed_syntax.canonical).map(operator_spelling);
+    fact.places = collect_place_facts(
+        &parsed_syntax.canonical,
+        task,
+        section,
+        line,
+        fields,
+        context,
+    );
+    match type_predicate(&parsed_syntax.canonical, section, line, &fact.places) {
         Ok((left, right)) => {
             fact.left_type = Some(left.display());
             fact.right_type = Some(right.display());
@@ -682,12 +629,85 @@ fn analyze_line(
             fact.offending_span = Some(range_span(line, issue.range));
             fact.expected = Some(issue.expected);
             fact.actual = Some(issue.actual);
-            fact.ast = Some(ast);
             return fact;
         }
     }
-    fact.ast = Some(ast);
     fact
+}
+
+fn predicate_cause_for_lexical(cause: ExpressionLexicalCause) -> PredicateCause {
+    match cause {
+        ExpressionLexicalCause::ArbitraryHelperCall => PredicateCause::ArbitraryHelperCall,
+        ExpressionLexicalCause::DelimiterDepthExceeded => PredicateCause::DelimiterDepthExceeded,
+        ExpressionLexicalCause::IntegerLiteralOutOfRange => {
+            PredicateCause::IntegerLiteralOutOfRange
+        }
+        ExpressionLexicalCause::InvalidComparisonOperator => {
+            PredicateCause::InvalidComparisonOperator
+        }
+        ExpressionLexicalCause::InvalidOperandStarter => PredicateCause::InvalidOperandStarter,
+        ExpressionLexicalCause::KnownCallRequiresNoGap => PredicateCause::KnownCallRequiresNoGap,
+        ExpressionLexicalCause::ListCountWrongArity => PredicateCause::ListCountWrongArity,
+        ExpressionLexicalCause::ListTextLiteralRequiresTextElements => {
+            PredicateCause::ListTextLiteralRequiresTextElements
+        }
+        ExpressionLexicalCause::ListTextLiteralSeparator => {
+            PredicateCause::ListTextLiteralSeparator
+        }
+        ExpressionLexicalCause::ListTextLiteralTrailingComma => {
+            PredicateCause::ListTextLiteralTrailingComma
+        }
+        ExpressionLexicalCause::MalformedSyntacticPlace => PredicateCause::MalformedSyntacticPlace,
+        ExpressionLexicalCause::MismatchedOrMissingDelimiter => {
+            PredicateCause::MismatchedOrMissingDelimiter
+        }
+        ExpressionLexicalCause::MissingOperand => PredicateCause::MissingOperand,
+        ExpressionLexicalCause::TrailingTokens => PredicateCause::TrailingTokensAfterPredicate,
+        ExpressionLexicalCause::UnterminatedTextLiteral => PredicateCause::UnterminatedTextLiteral,
+        ExpressionLexicalCause::ChainedComparison => PredicateCause::InvalidComparisonOperator,
+    }
+}
+
+fn parsed_range_for_line(line: &SectionLine, range: &ParsedSourceRange) -> SourceRange {
+    let start_chars = range.start.column.saturating_sub(line.span.column);
+    let start = line
+        .text
+        .char_indices()
+        .nth(start_chars)
+        .map_or(line.text.len(), |(index, _)| index);
+    SourceRange {
+        start,
+        end: start.saturating_add(range.byte_len).min(line.text.len()),
+    }
+}
+
+fn root_operator(expression: &CanonicalExpression) -> Option<ParsedBinaryOperator> {
+    match &expression.kind {
+        CanonicalExpressionKind::Binary { operator, .. } => Some(*operator),
+        CanonicalExpressionKind::Group(inner) => root_operator(inner),
+        _ => None,
+    }
+}
+
+pub(crate) const fn operator_spelling(operator: ParsedBinaryOperator) -> &'static str {
+    match operator {
+        ParsedBinaryOperator::Add => "+",
+        ParsedBinaryOperator::Subtract => "-",
+        ParsedBinaryOperator::Multiply => "*",
+        ParsedBinaryOperator::Divide => "/",
+        ParsedBinaryOperator::Equal => "==",
+        ParsedBinaryOperator::NotEqual => "!=",
+        ParsedBinaryOperator::Less => "<",
+        ParsedBinaryOperator::LessEqual => "<=",
+        ParsedBinaryOperator::Greater => ">",
+        ParsedBinaryOperator::GreaterEqual => ">=",
+        ParsedBinaryOperator::And => "and",
+        ParsedBinaryOperator::Or => "or",
+        ParsedBinaryOperator::Is => "is",
+        ParsedBinaryOperator::Does => "does",
+        ParsedBinaryOperator::Returns => "returns",
+        ParsedBinaryOperator::FailsWith => "fails with",
+    }
 }
 
 fn base_fact(
@@ -698,6 +718,12 @@ fn base_fact(
     reason: &'static str,
 ) -> PredicateFact {
     let (task, task_identity, section, line_index, line) = location;
+    let canonical = task
+        .section(section)
+        .and_then(|section| section.predicate_syntax.get(line_index))
+        .and_then(Option::as_ref)
+        .map(|syntax| syntax.canonical.clone())
+        .expect("predicate fact must retain parser-owned canonical syntax");
     PredicateFact {
         task: task.name.clone(),
         task_identity: task_identity.to_string(),
@@ -718,7 +744,7 @@ fn base_fact(
         left_type: None,
         right_type: None,
         delimiter_depth: 0,
-        ast: None,
+        canonical,
     }
 }
 
@@ -776,8 +802,16 @@ fn same_span(left: &Span, right: &Span) -> bool {
         && left.column == right.column
 }
 
+struct PlaceResolutionContext<'a> {
+    task: &'a Task,
+    section: &'a str,
+    line: &'a SectionLine,
+    fields: &'a FieldTypeMap,
+    lexical: &'a LexicalContext,
+}
+
 fn collect_place_facts(
-    ast: &PredicateAst,
+    expression: &CanonicalExpression,
     task: &Task,
     section: &str,
     line: &SectionLine,
@@ -785,60 +819,98 @@ fn collect_place_facts(
     context: &LexicalContext,
 ) -> Vec<PredicatePlaceFact> {
     fn collect(
-        expr: &Expr,
-        task: &Task,
-        section: &str,
-        line: &SectionLine,
-        fields: &FieldTypeMap,
-        context: &LexicalContext,
+        expression: &CanonicalExpression,
+        context: &PlaceResolutionContext<'_>,
         out: &mut Vec<PredicatePlaceFact>,
     ) {
-        match expr {
-            Expr::Place(place) | Expr::ListLen(place, _) => {
-                out.push(resolve_place(
-                    place, task, section, line, fields, context, false,
-                ));
+        if let Some((root, field, None)) = expression.direct_place() {
+            out.push(resolve_place(
+                root,
+                field,
+                parsed_range_for_line(context.line, &expression.range),
+                context,
+                false,
+            ));
+            return;
+        }
+        match &expression.kind {
+            CanonicalExpressionKind::Call { callee, arguments } => {
+                let name = callee.direct_identifier();
+                if matches!(name, Some("old" | "list_len"))
+                    && let [place] = arguments.as_slice()
+                    && let Some((root, field, None)) = place.direct_place()
+                {
+                    out.push(resolve_place(
+                        root,
+                        field,
+                        parsed_range_for_line(context.line, &place.range),
+                        context,
+                        name == Some("old"),
+                    ));
+                    return;
+                }
+                for argument in arguments {
+                    collect(argument, context, out);
+                }
             }
-            Expr::Old(place, _) => {
-                out.push(resolve_place(
-                    place, task, section, line, fields, context, true,
-                ));
+            CanonicalExpressionKind::Binary { left, right, .. } => {
+                collect(left, context, out);
+                collect(right, context, out);
             }
-            Expr::ListCount(left, right, _) | Expr::Binary(left, _, right, _) => {
-                collect(left, task, section, line, fields, context, out);
-                collect(right, task, section, line, fields, context, out);
+            CanonicalExpressionKind::Group(inner) => collect(inner, context, out),
+            CanonicalExpressionKind::ListLiteral(values) => {
+                for value in values {
+                    collect(value, context, out);
+                }
             }
-            Expr::Group(inner, _) => collect(inner, task, section, line, fields, context, out),
-            Expr::Bool(_, _) | Expr::Integer(_, _) | Expr::Text(_, _) | Expr::ListText(_, _) => {}
+            CanonicalExpressionKind::BoolLiteral(_)
+            | CanonicalExpressionKind::UIntLiteral(_)
+            | CanonicalExpressionKind::IntLiteral(_)
+            | CanonicalExpressionKind::TextLiteral(_)
+            | CanonicalExpressionKind::Identifier(_)
+            | CanonicalExpressionKind::Field { .. }
+            | CanonicalExpressionKind::Element { .. }
+            | CanonicalExpressionKind::RecordLiteral { .. }
+            | CanonicalExpressionKind::Permission { .. }
+            | CanonicalExpressionKind::Try { .. }
+            | CanonicalExpressionKind::Unit
+            | CanonicalExpressionKind::Unsupported => {}
         }
     }
+    let context = PlaceResolutionContext {
+        task,
+        section,
+        line,
+        fields,
+        lexical: context,
+    };
     let mut facts = Vec::new();
-    collect(&ast.left, task, section, line, fields, context, &mut facts);
-    collect(&ast.right, task, section, line, fields, context, &mut facts);
+    collect(expression, &context, &mut facts);
     facts
 }
 
 fn resolve_place(
-    place: &Place,
-    task: &Task,
-    section: &str,
-    line: &SectionLine,
-    fields: &FieldTypeMap,
-    context: &LexicalContext,
+    root: &str,
+    field: Option<&str>,
+    range: SourceRange,
+    context: &PlaceResolutionContext<'_>,
     old_context: bool,
 ) -> PredicatePlaceFact {
-    let scope_id = context.task_scope(task).map_or_else(
+    let task = context.task;
+    let section = context.section;
+    let line = context.line;
+    let scope_id = context.lexical.task_scope(task).map_or_else(
         || "missing_callable_scope_v0".to_string(),
         |scope| scope.id.clone(),
     );
-    let span = range_span(line, place.range);
+    let span = range_span(line, range);
     let mut resolution = "unresolved_v0";
     let mut eligibility = "ineligible_v0";
     let mut root_definition_id = None;
     let mut definition_id = None;
     let mut type_text = None;
 
-    if place.root == "result" && section == "ensures" && !old_context {
+    if root == "result" && section == "ensures" && !old_context {
         resolution = "resolved_v0";
         eligibility = "eligible_v0";
         let id = node_id::span("predicate-result", &task.span, &task.name);
@@ -851,7 +923,7 @@ fn resolve_place(
                 .unwrap_or("Unit")
                 .to_string(),
         );
-    } else if let Some(definition) = context.lexical_definition(&scope_id, &place.root) {
+    } else if let Some(definition) = context.lexical.lexical_definition(&scope_id, root) {
         resolution = "resolved_v0";
         root_definition_id = Some(definition.id.clone());
         definition_id = Some(definition.id.clone());
@@ -864,22 +936,23 @@ fn resolve_place(
             type_text = task
                 .params
                 .iter()
-                .find(|param| param.name == place.root)
+                .find(|param| param.name == root)
                 .map(|param| param.ty.clone());
         }
     }
 
-    if let Some(field) = &place.field
+    if let Some(field) = field
         && resolution == "resolved_v0"
         && eligibility == "eligible_v0"
     {
         let root_type = type_text.clone();
         let field_definition = root_type.as_deref().and_then(|root_type| {
             let type_scope = context
+                .lexical
                 .scopes
                 .iter()
                 .find(|scope| scope.scope_kind == "type" && scope.owner_name == root_type)?;
-            context.definitions.iter().find(|definition| {
+            context.lexical.definitions.iter().find(|definition| {
                 definition.scope_id == type_scope.id
                     && definition.definition_kind == "field"
                     && definition.normalized_name == field.to_ascii_lowercase()
@@ -889,7 +962,7 @@ fn resolve_place(
             definition_id = Some(field_definition.id.clone());
             type_text = root_type
                 .as_deref()
-                .and_then(|root_type| field_place::field_type(fields, root_type, field))
+                .and_then(|root_type| field_place::field_type(context.fields, root_type, field))
                 .map(str::to_string);
         } else {
             resolution = "unresolved_v0";
@@ -899,9 +972,9 @@ fn resolve_place(
     }
 
     PredicatePlaceFact {
-        text: place.text(),
+        text: field.map_or_else(|| root.to_string(), |field| format!("{root}.{field}")),
         span,
-        source_range: place.range,
+        source_range: range,
         scope_id,
         root_definition_id,
         definition_id,
@@ -918,607 +991,6 @@ fn range_span(line: &SectionLine, range: SourceRange) -> Span {
         line.span.line,
         line.span.column + prefix.chars().count(),
     )
-}
-
-fn find_intent_signal(text: &str) -> Option<SourceRange> {
-    let shielded = quoted_ranges(text);
-    let is_shielded = |index: usize| {
-        shielded
-            .iter()
-            .any(|range| range.start <= index && index < range.end)
-    };
-    let bytes = text.as_bytes();
-    for (index, byte) in bytes.iter().copied().enumerate() {
-        if is_shielded(index) {
-            continue;
-        }
-        if matches!(byte, b'=' | b'<' | b'>') {
-            return Some(SourceRange {
-                start: index,
-                end: index + 1,
-            });
-        }
-        if byte == b'!' {
-            let mut next = index + 1;
-            while next < bytes.len() && matches!(bytes[next], b' ' | b'\t') {
-                next += 1;
-            }
-            if bytes.get(next) == Some(&b'=')
-                || (operand_ends_before(text, index) && operand_starts_at(text, next))
-            {
-                return Some(SourceRange {
-                    start: index,
-                    end: index + 1,
-                });
-            }
-        }
-    }
-    for name in ["old", "list_len", "list_count"] {
-        let mut start = 0;
-        while let Some(offset) = text[start..].find(name) {
-            let index = start + offset;
-            let boundary_before = index == 0 || !is_ident_byte(bytes[index - 1]);
-            let after_name = index + name.len();
-            let boundary_after = after_name == bytes.len() || !is_ident_byte(bytes[after_name]);
-            if boundary_before && boundary_after && !is_shielded(index) {
-                let mut open = after_name;
-                while open < bytes.len() && matches!(bytes[open], b' ' | b'\t') {
-                    open += 1;
-                }
-                if bytes.get(open) == Some(&b'(') {
-                    return Some(SourceRange {
-                        start: index,
-                        end: open + 1,
-                    });
-                }
-            }
-            start = after_name;
-        }
-    }
-    None
-}
-
-fn quoted_ranges(text: &str) -> Vec<SourceRange> {
-    let mut ranges = Vec::new();
-    let mut open = None;
-    for (index, ch) in text.char_indices() {
-        if ch == '"' {
-            if let Some(start) = open.take() {
-                ranges.push(SourceRange {
-                    start,
-                    end: index + 1,
-                });
-            } else {
-                open = Some(index);
-            }
-        }
-    }
-    ranges
-}
-
-fn operand_ends_before(text: &str, index: usize) -> bool {
-    let left = text[..index].trim_end();
-    left.chars().last().is_some_and(|ch| {
-        ch == ')' || ch == ']' || ch == '"' || ch.is_ascii_alphanumeric() || ch == '_'
-    })
-}
-
-fn operand_starts_at(text: &str, index: usize) -> bool {
-    let rest = &text[index..];
-    rest.starts_with('"')
-        || rest.starts_with('[')
-        || rest.starts_with('(')
-        || rest.starts_with("true")
-        || rest.starts_with("false")
-        || rest.chars().next().is_some_and(|ch| {
-            ch.is_ascii_digit() || ch == '-' || ch.is_ascii_lowercase() || ch == '_'
-        })
-}
-
-fn is_ident_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
-}
-
-struct ParseError {
-    cause: PredicateCause,
-    range: SourceRange,
-    expected: &'static str,
-    actual: String,
-}
-
-struct Parser<'a> {
-    text: &'a str,
-    pos: usize,
-    depth: usize,
-    max_depth: usize,
-}
-
-impl<'a> Parser<'a> {
-    fn new(text: &'a str) -> Self {
-        Self {
-            text,
-            pos: 0,
-            depth: 0,
-            max_depth: 0,
-        }
-    }
-
-    fn parse_predicate(&mut self) -> Result<PredicateAst, ParseError> {
-        self.hws();
-        let left = self.parse_additive()?;
-        self.hws();
-        let (comparison, operator_range) = self.parse_comparison()?;
-        self.hws();
-        let right = self.parse_additive()?;
-        self.hws();
-        if self.pos != self.text.len() {
-            return Err(self.error(
-                PredicateCause::TrailingTokensAfterPredicate,
-                "end of contract line",
-            ));
-        }
-        Ok(PredicateAst {
-            left,
-            comparison,
-            operator_range,
-            right,
-        })
-    }
-
-    fn parse_additive(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.parse_multiplicative()?;
-        loop {
-            self.hws();
-            let Some(op) = self.peek_char() else {
-                break;
-            };
-            let arithmetic = match op {
-                '+' => Arithmetic::Add,
-                '-' => Arithmetic::Subtract,
-                _ => break,
-            };
-            self.bump_char();
-            self.hws();
-            let right = self.parse_multiplicative()?;
-            let range = SourceRange {
-                start: left.range().start,
-                end: right.range().end,
-            };
-            left = Expr::Binary(Box::new(left), arithmetic, Box::new(right), range);
-        }
-        Ok(left)
-    }
-
-    fn parse_multiplicative(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.parse_primary()?;
-        loop {
-            self.hws();
-            let Some(op) = self.peek_char() else {
-                break;
-            };
-            let arithmetic = match op {
-                '*' => Arithmetic::Multiply,
-                '/' => Arithmetic::Divide,
-                _ => break,
-            };
-            self.bump_char();
-            self.hws();
-            let right = self.parse_primary()?;
-            let range = SourceRange {
-                start: left.range().start,
-                end: right.range().end,
-            };
-            left = Expr::Binary(Box::new(left), arithmetic, Box::new(right), range);
-        }
-        Ok(left)
-    }
-
-    fn parse_primary(&mut self) -> Result<Expr, ParseError> {
-        self.hws();
-        let start = self.pos;
-        let Some(ch) = self.peek_char() else {
-            return Err(self.error(PredicateCause::MissingOperand, "operand"));
-        };
-        if ch == '(' {
-            self.open_delimiter()?;
-            self.hws();
-            let inner = self.parse_additive()?;
-            self.hws();
-            self.expect_close(')')?;
-            return Ok(Expr::Group(
-                Box::new(inner),
-                SourceRange {
-                    start,
-                    end: self.pos,
-                },
-            ));
-        }
-        if ch == '[' {
-            return self.parse_list();
-        }
-        if ch == '"' {
-            let (value, range) = self.parse_text()?;
-            return Ok(Expr::Text(value, range));
-        }
-        if ch.is_ascii_digit()
-            || (ch == '-'
-                && self
-                    .peek_after_char()
-                    .is_some_and(|next| next.is_ascii_digit()))
-        {
-            return self.parse_integer();
-        }
-        if is_ident_start(ch) {
-            let name = self.parse_identifier();
-            let range = SourceRange {
-                start,
-                end: self.pos,
-            };
-            if name == "true" {
-                return Ok(Expr::Bool(true, range));
-            }
-            if name == "false" {
-                return Ok(Expr::Bool(false, range));
-            }
-            if self.peek_char() == Some('(') {
-                return match name.as_str() {
-                    "old" => self.parse_place_call(start, true),
-                    "list_len" => self.parse_place_call(start, false),
-                    "list_count" => self.parse_list_count(start),
-                    _ => Err(ParseError {
-                        cause: PredicateCause::ArbitraryHelperCall,
-                        range,
-                        expected: "a Predicate v2 operand or exact old/list_len/list_count call",
-                        actual: format!("call `{name}(...)`"),
-                    }),
-                };
-            }
-            if self
-                .peek_char()
-                .is_some_and(|next| next == ' ' || next == '\t')
-            {
-                let saved = self.pos;
-                self.hws();
-                if self.peek_char() == Some('(')
-                    && matches!(name.as_str(), "old" | "list_len" | "list_count")
-                {
-                    return Err(ParseError {
-                        cause: PredicateCause::KnownCallRequiresNoGap,
-                        range: SourceRange {
-                            start,
-                            end: self.pos + 1,
-                        },
-                        expected: "call name immediately followed by `(`",
-                        actual: format!("`{}` followed by horizontal whitespace", name),
-                    });
-                }
-                self.pos = saved;
-            }
-            let mut place = Place {
-                root: name,
-                field: None,
-                range,
-            };
-            if self.peek_char() == Some('.') {
-                self.bump_char();
-                if !self.peek_char().is_some_and(is_ident_start) {
-                    return Err(self.error(
-                        PredicateCause::MalformedSyntacticPlace,
-                        "one identifier after `.`",
-                    ));
-                }
-                let field = self.parse_identifier();
-                place.field = Some(field);
-                place.range.end = self.pos;
-                if self.peek_char() == Some('.') {
-                    return Err(self.error(
-                        PredicateCause::MalformedSyntacticPlace,
-                        "at most one direct field",
-                    ));
-                }
-            }
-            return Ok(Expr::Place(place));
-        }
-        Err(self.error(
-            PredicateCause::InvalidOperandStarter,
-            "boolean, integer, place, Text, List Text, known call, or parenthesized operand",
-        ))
-    }
-
-    fn parse_place_call(&mut self, start: usize, old: bool) -> Result<Expr, ParseError> {
-        self.open_delimiter()?;
-        self.hws();
-        let place = self.parse_place_only()?;
-        self.hws();
-        self.expect_close(')')?;
-        let range = SourceRange {
-            start,
-            end: self.pos,
-        };
-        Ok(if old {
-            Expr::Old(place, range)
-        } else {
-            Expr::ListLen(place, range)
-        })
-    }
-
-    fn parse_list_count(&mut self, start: usize) -> Result<Expr, ParseError> {
-        self.open_delimiter()?;
-        self.hws();
-        let list = if self.peek_char() == Some('[') {
-            self.parse_list()?
-        } else {
-            Expr::Place(self.parse_place_only()?)
-        };
-        self.hws();
-        if self.peek_char() != Some(',') {
-            return Err(self.error(PredicateCause::ListCountWrongArity, "`,` and a Text source"));
-        }
-        self.bump_char();
-        self.hws();
-        let text = if self.peek_char() == Some('"') {
-            let (value, range) = self.parse_text()?;
-            Expr::Text(value, range)
-        } else {
-            Expr::Place(self.parse_place_only()?)
-        };
-        self.hws();
-        self.expect_close(')')?;
-        Ok(Expr::ListCount(
-            Box::new(list),
-            Box::new(text),
-            SourceRange {
-                start,
-                end: self.pos,
-            },
-        ))
-    }
-
-    fn parse_place_only(&mut self) -> Result<Place, ParseError> {
-        let start = self.pos;
-        if !self.peek_char().is_some_and(is_ident_start) {
-            return Err(self.error(
-                PredicateCause::MalformedSyntacticPlace,
-                "identifier or direct-field place",
-            ));
-        }
-        let root = self.parse_identifier();
-        let mut place = Place {
-            root,
-            field: None,
-            range: SourceRange {
-                start,
-                end: self.pos,
-            },
-        };
-        if self.peek_char() == Some('.') {
-            self.bump_char();
-            if !self.peek_char().is_some_and(is_ident_start) {
-                return Err(self.error(PredicateCause::MalformedSyntacticPlace, "field identifier"));
-            }
-            place.field = Some(self.parse_identifier());
-            place.range.end = self.pos;
-        }
-        if self.peek_char() == Some('.') {
-            return Err(self.error(
-                PredicateCause::MalformedSyntacticPlace,
-                "at most one direct field",
-            ));
-        }
-        Ok(place)
-    }
-
-    fn parse_list(&mut self) -> Result<Expr, ParseError> {
-        let start = self.pos;
-        self.open_delimiter()?;
-        self.hws();
-        let mut values = Vec::new();
-        if self.peek_char() == Some(']') {
-            self.expect_close(']')?;
-            return Ok(Expr::ListText(
-                values,
-                SourceRange {
-                    start,
-                    end: self.pos,
-                },
-            ));
-        }
-        loop {
-            if self.peek_char() != Some('"') {
-                return Err(self.error(
-                    PredicateCause::ListTextLiteralRequiresTextElements,
-                    "Text literal list element",
-                ));
-            }
-            values.push(self.parse_text()?.0);
-            self.hws();
-            match self.peek_char() {
-                Some(']') => {
-                    self.expect_close(']')?;
-                    break;
-                }
-                Some(',') => {
-                    self.bump_char();
-                    self.hws();
-                    if self.peek_char() == Some(']') {
-                        return Err(self.error(
-                            PredicateCause::ListTextLiteralTrailingComma,
-                            "Text literal after `,`",
-                        ));
-                    }
-                }
-                _ => {
-                    return Err(self.error(PredicateCause::ListTextLiteralSeparator, "`,` or `]`"));
-                }
-            }
-        }
-        Ok(Expr::ListText(
-            values,
-            SourceRange {
-                start,
-                end: self.pos,
-            },
-        ))
-    }
-
-    fn parse_text(&mut self) -> Result<(String, SourceRange), ParseError> {
-        let start = self.pos;
-        self.bump_char();
-        let content_start = self.pos;
-        while let Some(ch) = self.peek_char() {
-            if ch == '"' {
-                let value = self.text[content_start..self.pos].to_string();
-                self.bump_char();
-                return Ok((
-                    value,
-                    SourceRange {
-                        start,
-                        end: self.pos,
-                    },
-                ));
-            }
-            self.bump_char();
-        }
-        Err(ParseError {
-            cause: PredicateCause::UnterminatedTextLiteral,
-            range: SourceRange {
-                start,
-                end: self.text.len(),
-            },
-            expected: "closing `\"`",
-            actual: "end of line".to_string(),
-        })
-    }
-
-    fn parse_integer(&mut self) -> Result<Expr, ParseError> {
-        let start = self.pos;
-        if self.peek_char() == Some('-') {
-            self.bump_char();
-        }
-        while self.peek_char().is_some_and(|ch| ch.is_ascii_digit()) {
-            self.bump_char();
-        }
-        let raw = &self.text[start..self.pos];
-        let value = raw.parse::<i64>().map_err(|_| ParseError {
-            cause: PredicateCause::IntegerLiteralOutOfRange,
-            range: SourceRange {
-                start,
-                end: self.pos,
-            },
-            expected: "existing Int literal",
-            actual: raw.to_string(),
-        })?;
-        Ok(Expr::Integer(
-            value,
-            SourceRange {
-                start,
-                end: self.pos,
-            },
-        ))
-    }
-
-    fn parse_comparison(&mut self) -> Result<(Comparison, SourceRange), ParseError> {
-        let start = self.pos;
-        for (token, comparison) in [
-            ("==", Comparison::Eq),
-            ("!=", Comparison::NotEq),
-            ("<=", Comparison::LessEq),
-            (">=", Comparison::GreaterEq),
-            ("<", Comparison::Less),
-            (">", Comparison::Greater),
-        ] {
-            if self.text[self.pos..].starts_with(token) {
-                self.pos += token.len();
-                return Ok((
-                    comparison,
-                    SourceRange {
-                        start,
-                        end: self.pos,
-                    },
-                ));
-            }
-        }
-        Err(self.error(
-            PredicateCause::InvalidComparisonOperator,
-            "one atomic comparison operator",
-        ))
-    }
-
-    fn open_delimiter(&mut self) -> Result<(), ParseError> {
-        self.bump_char();
-        self.depth += 1;
-        self.max_depth = self.max_depth.max(self.depth);
-        if self.depth > MAX_DELIMITER_DEPTH {
-            return Err(self.error(
-                PredicateCause::DelimiterDepthExceeded,
-                "at most 16 open delimiter frames",
-            ));
-        }
-        Ok(())
-    }
-
-    fn expect_close(&mut self, expected: char) -> Result<(), ParseError> {
-        if self.peek_char() != Some(expected) {
-            return Err(self.error(
-                PredicateCause::MismatchedOrMissingDelimiter,
-                "matching closing delimiter",
-            ));
-        }
-        self.bump_char();
-        self.depth = self.depth.saturating_sub(1);
-        Ok(())
-    }
-
-    fn parse_identifier(&mut self) -> String {
-        let start = self.pos;
-        self.bump_char();
-        while self.peek_char().is_some_and(is_ident_continue) {
-            self.bump_char();
-        }
-        self.text[start..self.pos].to_string()
-    }
-
-    fn hws(&mut self) {
-        while self.peek_char().is_some_and(|ch| ch == ' ' || ch == '\t') {
-            self.bump_char();
-        }
-    }
-    fn peek_char(&self) -> Option<char> {
-        self.text[self.pos..].chars().next()
-    }
-    fn peek_after_char(&self) -> Option<char> {
-        let mut chars = self.text[self.pos..].chars();
-        chars.next()?;
-        chars.next()
-    }
-    fn bump_char(&mut self) {
-        if let Some(ch) = self.peek_char() {
-            self.pos += ch.len_utf8();
-        }
-    }
-    fn error(&self, cause: PredicateCause, expected: &'static str) -> ParseError {
-        let end = self
-            .peek_char()
-            .map_or(self.pos, |ch| self.pos + ch.len_utf8());
-        ParseError {
-            cause,
-            range: SourceRange {
-                start: self.pos,
-                end,
-            },
-            expected,
-            actual: self
-                .peek_char()
-                .map_or_else(|| "end of line".to_string(), |ch| format!("`{ch}`")),
-        }
-    }
-}
-
-fn is_ident_start(ch: char) -> bool {
-    ch.is_ascii_lowercase() || ch == '_'
-}
-fn is_ident_continue(ch: char) -> bool {
-    ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_'
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1560,24 +1032,55 @@ struct TypeIssue {
 }
 
 fn type_predicate(
-    ast: &PredicateAst,
+    expression: &CanonicalExpression,
     section: &str,
+    line: &SectionLine,
     places: &[PredicatePlaceFact],
 ) -> Result<(OperandType, OperandType), Box<TypeIssue>> {
-    let left = type_expr(&ast.left, section, places)?;
-    let right = type_expr(&ast.right, section, places)?;
+    let CanonicalExpressionKind::Binary {
+        operator,
+        operator_range,
+        left: left_expression,
+        right: right_expression,
+    } = &expression.kind
+    else {
+        return Err(type_issue(
+            PredicateCause::InvalidComparisonOperator,
+            parsed_range_for_line(line, &expression.range),
+            "one complete comparison or Boolean conjunction",
+            "non-comparison expression",
+        ));
+    };
+    if matches!(
+        operator,
+        ParsedBinaryOperator::And | ParsedBinaryOperator::Or
+    ) {
+        let left = type_boolean_predicate(left_expression, section, line, places)?;
+        let right = type_boolean_predicate(right_expression, section, line, places)?;
+        return Ok((left, right));
+    }
+    if !is_comparison(*operator) {
+        return Err(type_issue(
+            PredicateCause::InvalidComparisonOperator,
+            parsed_range_for_line(line, operator_range),
+            "one comparison operator",
+            operator_spelling(*operator),
+        ));
+    }
+    let left = type_expr(left_expression, section, line, places)?;
+    let right = type_expr(right_expression, section, line, places)?;
     if matches!(left, OperandType::Path) || matches!(right, OperandType::Path) {
         return Err(path_type_issue(
             if matches!(left, OperandType::Path) {
-                ast.left.range()
+                parsed_range_for_line(line, &left_expression.range)
             } else {
-                ast.right.range()
+                parsed_range_for_line(line, &right_expression.range)
             },
             "opaque Path is not predicate-readable",
             format!(
                 "{} {} {}",
                 left.display(),
-                ast.comparison.as_str(),
+                operator_spelling(*operator),
                 right.display()
             ),
         ));
@@ -1590,23 +1093,23 @@ fn type_predicate(
     if !compatible {
         return Err(type_issue(
             PredicateCause::CrossTypeComparison,
-            ast.right.range(),
+            parsed_range_for_line(line, &right_expression.range),
             left.display(),
             right.display(),
         ));
     }
     if left == OperandType::ListText
-        && !is_list_text_literal(&ast.left)
-        && !is_list_text_literal(&ast.right)
+        && !is_list_text_literal(left_expression)
+        && !is_list_text_literal(right_expression)
     {
         return Err(type_issue(
             PredicateCause::ListTextComparisonRequiresLiteral,
-            ast.operator_range,
+            parsed_range_for_line(line, operator_range),
             "a List Text place compared with a List Text literal",
             "two non-literal List Text operands",
         ));
     }
-    if !ast.comparison.is_equality()
+    if !is_equality(*operator)
         && matches!(
             left,
             OperandType::Text | OperandType::ListText | OperandType::Bool
@@ -1614,90 +1117,179 @@ fn type_predicate(
     {
         return Err(type_issue(
             PredicateCause::OperatorNotSupportedForOperandType,
-            ast.operator_range,
+            parsed_range_for_line(line, operator_range),
             format!("== or != for {}", left.display()),
-            ast.comparison.as_str().to_string(),
+            operator_spelling(*operator).to_string(),
         ));
     }
     Ok((left, right))
 }
 
-fn is_list_text_literal(expr: &Expr) -> bool {
-    match expr {
-        Expr::ListText(_, _) => true,
-        Expr::Group(inner, _) => is_list_text_literal(inner),
+fn type_boolean_predicate(
+    expression: &CanonicalExpression,
+    section: &str,
+    line: &SectionLine,
+    places: &[PredicatePlaceFact],
+) -> Result<OperandType, Box<TypeIssue>> {
+    type_predicate(expression, section, line, places)?;
+    Ok(OperandType::Bool)
+}
+
+const fn is_comparison(operator: ParsedBinaryOperator) -> bool {
+    matches!(
+        operator,
+        ParsedBinaryOperator::Equal
+            | ParsedBinaryOperator::NotEqual
+            | ParsedBinaryOperator::Less
+            | ParsedBinaryOperator::LessEqual
+            | ParsedBinaryOperator::Greater
+            | ParsedBinaryOperator::GreaterEqual
+    )
+}
+
+const fn is_equality(operator: ParsedBinaryOperator) -> bool {
+    matches!(
+        operator,
+        ParsedBinaryOperator::Equal | ParsedBinaryOperator::NotEqual
+    )
+}
+
+fn is_list_text_literal(expression: &CanonicalExpression) -> bool {
+    match &expression.kind {
+        CanonicalExpressionKind::ListLiteral(values) => values
+            .iter()
+            .all(|value| matches!(value.kind, CanonicalExpressionKind::TextLiteral(_))),
+        CanonicalExpressionKind::Group(inner) => is_list_text_literal(inner),
         _ => false,
     }
 }
 
 fn type_expr(
-    expr: &Expr,
+    expression: &CanonicalExpression,
     section: &str,
+    line: &SectionLine,
     places: &[PredicatePlaceFact],
 ) -> Result<OperandType, Box<TypeIssue>> {
-    match expr {
-        Expr::Bool(_, _) => Ok(OperandType::Bool),
-        Expr::Integer(_, _) => Ok(OperandType::IntegerLiteral),
-        Expr::Text(_, _) => Ok(OperandType::Text),
-        Expr::ListText(_, _) => Ok(OperandType::ListText),
-        Expr::Place(place) => type_place(place, places),
-        Expr::Old(place, range) => {
-            if section != "ensures" || place.root == "result" {
+    let range = parsed_range_for_line(line, &expression.range);
+    match &expression.kind {
+        CanonicalExpressionKind::BoolLiteral(_) => Ok(OperandType::Bool),
+        CanonicalExpressionKind::UIntLiteral(_) | CanonicalExpressionKind::IntLiteral(_) => {
+            Ok(OperandType::IntegerLiteral)
+        }
+        CanonicalExpressionKind::TextLiteral(_) => Ok(OperandType::Text),
+        CanonicalExpressionKind::ListLiteral(values)
+            if values
+                .iter()
+                .all(|value| matches!(value.kind, CanonicalExpressionKind::TextLiteral(_))) =>
+        {
+            Ok(OperandType::ListText)
+        }
+        CanonicalExpressionKind::Identifier(_) | CanonicalExpressionKind::Field { .. } => {
+            type_place(expression, line, places)
+        }
+        CanonicalExpressionKind::Call { callee, arguments }
+            if callee.direct_identifier() == Some("old") =>
+        {
+            let [place] = arguments.as_slice() else {
+                return Err(type_issue(
+                    PredicateCause::MissingOperand,
+                    range,
+                    "one old place",
+                    format!("{} arguments", arguments.len()),
+                ));
+            };
+            let Some((root, _, None)) = place.direct_place() else {
+                return Err(type_issue(
+                    PredicateCause::MalformedSyntacticPlace,
+                    parsed_range_for_line(line, &place.range),
+                    "parameter or parameter field",
+                    "non-place expression",
+                ));
+            };
+            if section != "ensures" || root == "result" {
                 return Err(type_issue(
                     PredicateCause::OldPlaceNotEntryReadable,
-                    *range,
+                    range,
                     "parameter or parameter field in ensures",
                     "section-ineligible old place",
                 ));
             }
-            type_place(place, places).map_err(|mut issue| {
-                issue.range = *range;
+            type_place(place, line, places).map_err(|mut issue| {
+                issue.range = range;
                 issue
             })
         }
-        Expr::ListLen(place, range) => {
-            let ty = type_place(place, places)?;
+        CanonicalExpressionKind::Call { callee, arguments }
+            if callee.direct_identifier() == Some("list_len") =>
+        {
+            let [place] = arguments.as_slice() else {
+                return Err(type_issue(
+                    PredicateCause::MissingOperand,
+                    range,
+                    "one list place",
+                    format!("{} arguments", arguments.len()),
+                ));
+            };
+            let ty = type_place(place, line, places)?;
             let is_list = matches!(ty, OperandType::ListText)
                 || matches!(&ty, OperandType::Other(value) if value.starts_with("List "));
             if !is_list {
                 return Err(type_issue(
                     PredicateCause::ListLenRequiresList,
-                    *range,
+                    range,
                     "List value",
                     ty.display(),
                 ));
             }
             Ok(OperandType::UInt)
         }
-        Expr::ListCount(list, text, range) => {
-            let list_ty = type_expr(list, section, places)?;
+        CanonicalExpressionKind::Call { callee, arguments }
+            if callee.direct_identifier() == Some("list_count") =>
+        {
+            let [list, text] = arguments.as_slice() else {
+                return Err(type_issue(
+                    PredicateCause::ListCountWrongArity,
+                    range,
+                    "two list_count arguments",
+                    format!("{} arguments", arguments.len()),
+                ));
+            };
+            let list_ty = type_expr(list, section, line, places)?;
             if list_ty != OperandType::ListText {
                 return Err(type_issue(
                     PredicateCause::ListCountRequiresListText,
-                    list.range(),
+                    parsed_range_for_line(line, &list.range),
                     "List Text",
                     list_ty.display(),
                 ));
             }
-            let text_ty = type_expr(text, section, places)?;
+            let text_ty = type_expr(text, section, line, places)?;
             if text_ty != OperandType::Text {
                 return Err(type_issue(
                     PredicateCause::ListCountRequiresTextMatch,
-                    text.range(),
+                    parsed_range_for_line(line, &text.range),
                     "Text",
                     text_ty.display(),
                 ));
             }
-            let _ = range;
             Ok(OperandType::UInt)
         }
-        Expr::Binary(left, _, right, range) => {
-            let left_ty = type_expr(left, section, places)?;
-            let right_ty = type_expr(right, section, places)?;
+        CanonicalExpressionKind::Binary {
+            operator:
+                ParsedBinaryOperator::Add
+                | ParsedBinaryOperator::Subtract
+                | ParsedBinaryOperator::Multiply
+                | ParsedBinaryOperator::Divide,
+            left,
+            right,
+            ..
+        } => {
+            let left_ty = type_expr(left, section, line, places)?;
+            let right_ty = type_expr(right, section, line, places)?;
             if !left_ty.numeric() || !right_ty.numeric() {
                 return Err(type_issue(
                     PredicateCause::ArithmeticRequiresNumericOperands,
-                    *range,
+                    range,
                     "Int/UInt operands",
                     format!("{} and {}", left_ty.display(), right_ty.display()),
                 ));
@@ -1708,31 +1300,53 @@ fn type_expr(
                 Ok(OperandType::Int)
             }
         }
-        Expr::Group(inner, _) => type_expr(inner, section, places),
+        CanonicalExpressionKind::Group(inner) => type_expr(inner, section, line, places),
+        CanonicalExpressionKind::Binary { .. } => {
+            type_boolean_predicate(expression, section, line, places)
+        }
+        _ => Err(type_issue(
+            PredicateCause::InvalidOperandStarter,
+            range,
+            "Predicate v2 operand",
+            "unsupported expression form",
+        )),
     }
 }
 
-fn type_place(place: &Place, places: &[PredicatePlaceFact]) -> Result<OperandType, Box<TypeIssue>> {
+fn type_place(
+    place: &CanonicalExpression,
+    line: &SectionLine,
+    places: &[PredicatePlaceFact],
+) -> Result<OperandType, Box<TypeIssue>> {
+    let range = parsed_range_for_line(line, &place.range);
+    let Some((_, field, None)) = place.direct_place() else {
+        return Err(type_issue(
+            PredicateCause::MalformedSyntacticPlace,
+            range,
+            "identifier or direct-field place",
+            "non-place expression",
+        ));
+    };
     let fact = places
         .iter()
-        .find(|fact| fact.source_range == place.range)
+        .find(|fact| fact.source_range == range)
         .ok_or_else(|| {
             type_issue(
                 PredicateCause::PredicatePlaceUnresolved,
-                place.range,
+                range,
                 "resolved task parameter or ensures result place",
                 "unresolved place",
             )
         })?;
     if fact.resolution != "resolved_v0" {
         return Err(type_issue(
-            if place.field.is_some() {
+            if field.is_some() {
                 PredicateCause::PredicateFieldUnresolved
             } else {
                 PredicateCause::PredicatePlaceUnresolved
             },
-            place.range,
-            if place.field.is_some() {
+            range,
+            if field.is_some() {
                 "declared direct field"
             } else {
                 "resolved task parameter or ensures result place"
@@ -1743,7 +1357,7 @@ fn type_place(place: &Place, places: &[PredicatePlaceFact]) -> Result<OperandTyp
     if fact.eligibility != "eligible_v0" {
         return Err(type_issue(
             PredicateCause::PredicatePlaceIneligible,
-            place.range,
+            range,
             "task parameter or ensures result place",
             "resolved but ineligible place",
         ));
@@ -1967,5 +1581,83 @@ mod tests {
         let invalid = fact(&invalid, "UInt");
         assert_eq!(invalid.status, RecognitionStatus::MalformedExecutable);
         assert_eq!(invalid.reason, "delimiter_depth_exceeded_v2");
+    }
+
+    #[test]
+    fn body_and_contract_share_shape_but_not_occurrence_identity() {
+        let parsed = parser::parse_source(
+            "body-contract-agreement.hum",
+            "task agreement() -> UInt {\n  ensures:\n    result == 8 * 6 / 4\n  does:\n    return 8 * 6 / 4\n}\n",
+        );
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let Item::Task(task) = &program.files[0].items[0] else {
+            panic!("task")
+        };
+        let analysis = analyze_program(&program);
+        let fact = analysis
+            .facts_for_task(task)
+            .next()
+            .expect("predicate fact");
+        let crate::ast::CanonicalExpressionKind::Binary {
+            operator: crate::ast::ParsedBinaryOperator::Equal,
+            right,
+            ..
+        } = &fact.canonical.kind
+        else {
+            panic!("comparison root")
+        };
+        let crate::ast::ParsedBodyStatementKind::Return(body) = &task.body_syntax[0].kind else {
+            panic!("body return")
+        };
+        assert_eq!(
+            crate::core_expr::canonical_semantic_shape(right),
+            crate::core_expr::canonical_semantic_shape(&body.canonical)
+        );
+        assert_ne!(right.node_id, body.canonical.node_id);
+        assert_ne!(right.range.start, body.canonical.range.start);
+    }
+
+    #[test]
+    fn retained_contract_text_cannot_override_parser_owned_predicate_syntax() {
+        let parsed = parser::parse_source(
+            "predicate-retained-sabotage.hum",
+            "task agreement() -> UInt {\n  ensures:\n    result == 8 * 6 / 4\n  does:\n    return 12\n}\n",
+        );
+        let baseline_program = Program {
+            files: vec![parsed.file.clone()],
+        };
+        let Item::Task(baseline_task) = &baseline_program.files[0].items[0] else {
+            panic!("task")
+        };
+        let baseline = analyze_program(&baseline_program)
+            .facts_for_task(baseline_task)
+            .next()
+            .expect("baseline")
+            .clone();
+
+        let mut file = parsed.file;
+        let Item::Task(task) = &mut file.items[0] else {
+            panic!("task")
+        };
+        task.sections
+            .iter_mut()
+            .find(|section| section.name == "ensures")
+            .expect("ensures")
+            .lines[0]
+            .text = "result == 999".to_string();
+        let sabotaged_program = Program { files: vec![file] };
+        let Item::Task(sabotaged_task) = &sabotaged_program.files[0].items[0] else {
+            panic!("task")
+        };
+        let sabotaged_analysis = analyze_program(&sabotaged_program);
+        let sabotaged = sabotaged_analysis
+            .facts_for_task(sabotaged_task)
+            .next()
+            .expect("sabotaged");
+        assert_eq!(sabotaged.status, baseline.status);
+        assert_eq!(sabotaged.canonical, baseline.canonical);
+        assert_ne!(sabotaged.text, baseline.text);
     }
 }

@@ -2,13 +2,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core_body::BodyStatement;
 use crate::diagnostic::Span;
-use crate::field_place;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AliasBinding {
     pub name: String,
     pub source_place: String,
     pub owner_root: String,
+    pub source_field: String,
     pub binding_index: usize,
     pub binding_span: Span,
     pub last_use_index: usize,
@@ -226,6 +226,7 @@ pub(crate) struct AliasSyntax {
     pub name: String,
     pub source_place: String,
     pub owner_root: String,
+    pub source_field: String,
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +248,8 @@ enum BlockKind {
 #[derive(Debug, Clone)]
 struct PlaceAccess {
     place: String,
+    root: String,
+    field: Option<String>,
     cause: AliasCause,
 }
 
@@ -339,6 +342,7 @@ pub(crate) fn analyze_with_existing_names(
             name: syntax.name,
             source_place: syntax.source_place,
             owner_root: syntax.owner_root,
+            source_field: syntax.source_field,
             binding_index: index,
             binding_span: statement.span.clone(),
             last_use_index: index,
@@ -419,7 +423,7 @@ pub(crate) fn analyze_with_existing_names(
 
             if let Some(access) = statement_place_accesses(statement, &binding.name)
                 .into_iter()
-                .find(|access| places_overlap(&binding.source_place, &access.place))
+                .find(|access| places_overlap(binding, access))
             {
                 issues
                     .entry((index, binding.name.clone()))
@@ -497,23 +501,50 @@ pub(crate) fn analyze_item(
 }
 
 pub(crate) fn exact_binding(statement: &BodyStatement) -> Option<AliasSyntax> {
-    exact_binding_text(&statement.text)
+    exact_binding_from_parser(&statement.parsed)
 }
 
-pub(crate) fn exact_binding_text(text: &str) -> Option<AliasSyntax> {
-    let rest = strip_keyword(text.trim(), "let")?;
-    let (left, initializer) = rest.split_once('=')?;
-    let left = left.trim();
-    if left.contains(':') || !is_value_ident(left) {
+pub(crate) fn exact_binding_from_parser(
+    statement: &crate::ast::ParsedBodyStatement,
+) -> Option<AliasSyntax> {
+    let crate::ast::ParsedBodyStatementKind::Binding {
+        mutable: false,
+        name: Some(name),
+        value: Some(expression),
+    } = &statement.kind
+    else {
+        return None;
+    };
+    if statement.facts.binding_annotation.is_some() {
         return None;
     }
-    let source_place = strip_keyword(initializer.trim(), "change")?;
-    let (owner_root, _field) = field_place::split_field_place(source_place)?;
+    let crate::ast::CanonicalExpressionKind::Permission {
+        permission: crate::ast::ParamPermission::Change,
+        value,
+    } = &expression.canonical.kind
+    else {
+        return None;
+    };
+    let (owner_root, Some(field), None) = value.direct_place()? else {
+        return None;
+    };
     Some(AliasSyntax {
-        name: left.to_string(),
-        source_place: source_place.to_string(),
+        name: name.name.clone(),
+        source_place: format!("{owner_root}.{field}"),
         owner_root: owner_root.to_string(),
+        source_field: field.to_string(),
     })
+}
+
+#[cfg(test)]
+pub(crate) fn exact_binding_text(text: &str) -> Option<AliasSyntax> {
+    let source = format!("task alias() {{\n  does:\n    {text}\n}}\n");
+    let parsed = crate::parser::parse_source("alias-text-test.hum", &source);
+    let crate::ast::Item::Task(task) = &parsed.file.items[0] else {
+        return None;
+    };
+    let body = crate::core_body::analyze_does_section(task.section("does")?);
+    exact_binding(body.statements.first()?)
 }
 
 pub(crate) fn overlap_message(issue: &AliasIssue) -> String {
@@ -611,24 +642,17 @@ fn alias_candidate(statement: &BodyStatement) -> Option<AliasCandidate> {
     if !matches!(statement.kind, "let_binding" | "mutable_binding") {
         return None;
     }
-    let (left, initializer) = statement.text.split_once('=')?;
-    let source_text = strip_keyword(initializer.trim(), "change")?.to_string();
-    let keyword = if statement.kind == "let_binding" {
-        "let"
-    } else {
-        "change"
+    let crate::ast::CanonicalExpressionKind::Permission {
+        permission: crate::ast::ParamPermission::Change,
+        value,
+    } = &statement.primary_expression()?.kind
+    else {
+        return None;
     };
-    let left = strip_keyword(left.trim(), keyword)?;
-    let name = left
-        .split_once(':')
-        .map_or(left, |(name, _annotation)| name)
-        .trim();
+    let source_text = crate::core_expr::canonical_text(value);
+    let name = statement.binding_name().unwrap_or("unknown_alias");
     Some(AliasCandidate {
-        name: if name.is_empty() {
-            "unknown_alias".to_string()
-        } else {
-            name.to_string()
-        },
+        name: name.to_string(),
         source_text,
     })
 }
@@ -699,37 +723,62 @@ fn unsupported_alias_use(
     ) {
         return Some(AliasCause::UnsupportedUse);
     }
-    let expression = expression_text(statement).unwrap_or_default();
-    let expression_mentions_alias = contains_root_reference(expression, alias_name);
+    let expression = statement.primary_expression();
+    let expression_mentions_alias =
+        expression.is_some_and(|expression| expression_mentions_root(expression, alias_name));
     if expression_mentions_alias
-        && ["borrow", "consume"].iter().any(|permission| {
-            strip_keyword(expression, permission)
-                .is_some_and(|source| first_resource(source) == alias_name)
+        && expression.is_some_and(|expression| {
+            expression_has_permission_on_root(
+                expression,
+                alias_name,
+                &[
+                    crate::ast::ParamPermission::Borrow,
+                    crate::ast::ParamPermission::Consume,
+                ],
+            )
         })
     {
         return Some(AliasCause::PermissionWrapper);
     }
     if expression_mentions_alias
-        && strip_keyword(expression, "change")
-            .is_some_and(|source| first_resource(source) == alias_name)
+        && expression.is_some_and(|expression| {
+            expression_has_permission_on_root(
+                expression,
+                alias_name,
+                &[crate::ast::ParamPermission::Change],
+            )
+        })
     {
         return Some(AliasCause::AliasToAliasBinding);
     }
     if expression_mentions_alias
-        && (nested_alias_reference(expression, alias_name)
-            || set_target(statement)
-                .is_some_and(|target| target != alias_name && first_resource(target) == alias_name))
+        && (expression.is_some_and(|expression| {
+            expression
+                .direct_place()
+                .is_some_and(|(root, field, index)| {
+                    root == alias_name && (field.is_some() || index.is_some())
+                })
+        }) || set_target(statement)
+            .and_then(crate::ast::CanonicalExpression::direct_place)
+            .is_some_and(|(root, field, index)| {
+                root == alias_name && (field.is_some() || index.is_some())
+            }))
     {
         return Some(AliasCause::NestedOrElementUse);
     }
     if expression_mentions_alias
         && (statement.kind == "record_field_initializer"
-            || expression.trim().starts_with('[')
-            || expression.trim().starts_with('{'))
+            || expression.is_some_and(|expression| {
+                matches!(
+                    expression.kind,
+                    crate::ast::CanonicalExpressionKind::ListLiteral(_)
+                        | crate::ast::CanonicalExpressionKind::RecordLiteral { .. }
+                )
+            }))
     {
         return Some(AliasCause::Storage);
     }
-    if expression_mentions_alias && expression.contains('(') && expression.contains(')') {
+    if expression_mentions_alias && expression.is_some_and(expression_contains_call) {
         return Some(AliasCause::PassedToCall);
     }
     None
@@ -739,23 +788,33 @@ fn statement_references_alias(statement: &BodyStatement, alias_name: &str) -> bo
     if binding_name(statement).is_some_and(|name| name == alias_name) {
         return true;
     }
-    if set_target(statement).is_some_and(|target| first_resource(target) == alias_name) {
+    if set_target(statement)
+        .and_then(crate::ast::CanonicalExpression::direct_place)
+        .is_some_and(|(root, _, _)| root == alias_name)
+    {
         return true;
     }
-    expression_text(statement).map_or_else(
-        || contains_root_reference(&statement.text, alias_name),
-        |expression| contains_root_reference(expression, alias_name),
-    )
+    statement
+        .primary_expression()
+        .is_some_and(|expression| expression_mentions_root(expression, alias_name))
 }
 
 fn statement_place_accesses(statement: &BodyStatement, alias_name: &str) -> Vec<PlaceAccess> {
     let mut accesses = Vec::new();
     if let Some(target) = set_target(statement)
-        && first_resource(target) != alias_name
+        && let Some((root, field, index)) = target.direct_place()
+        && root != alias_name
     {
+        let place = match (field, index) {
+            (Some(field), None) => format!("{root}.{field}"),
+            (None, Some(index)) => format!("{root}[{index}]"),
+            _ => root.to_string(),
+        };
         accesses.push(PlaceAccess {
-            place: target.to_string(),
-            cause: if target.contains('.') {
+            place,
+            root: root.to_string(),
+            field: field.map(str::to_string),
+            cause: if field.is_some() {
                 AliasCause::DirectWriteOverlap
             } else {
                 AliasCause::OwnerWideWriteOverlap
@@ -763,18 +822,20 @@ fn statement_place_accesses(statement: &BodyStatement, alias_name: &str) -> Vec<
         });
     }
 
-    if let Some(expression) = expression_text(statement) {
+    if let Some(expression) = statement.primary_expression() {
         let second_alias = alias_candidate(statement).is_some();
         let direct_callee = direct_call_callee(expression);
-        for place in place_references(expression) {
-            if direct_callee == Some(place.as_str()) {
+        for (place, root, field) in canonical_place_references(expression) {
+            if direct_callee == Some(root.as_str()) && field.is_none() {
                 continue;
             }
-            if first_resource(&place) == alias_name {
+            if root == alias_name {
                 continue;
             }
             accesses.push(PlaceAccess {
                 place,
+                root,
+                field,
                 cause: if second_alias {
                     AliasCause::SecondWritableAliasOverlap
                 } else {
@@ -786,168 +847,131 @@ fn statement_place_accesses(statement: &BodyStatement, alias_name: &str) -> Vec<
     accesses
 }
 
-fn direct_call_callee(text: &str) -> Option<&str> {
-    let (callee, _arguments) = text.trim().split_once('(')?;
-    let callee = callee.trim();
-    (!callee.is_empty()
-        && callee
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.')))
-    .then_some(callee)
+fn direct_call_callee(expression: &crate::ast::CanonicalExpression) -> Option<&str> {
+    let crate::ast::CanonicalExpressionKind::Call { callee, .. } = &expression.kind else {
+        return None;
+    };
+    callee.direct_identifier()
 }
 
-fn places_overlap(source_place: &str, access_place: &str) -> bool {
-    let Some((source_root, source_field)) = field_place::split_field_place(source_place) else {
-        return true;
-    };
-    let access_root = first_resource(access_place);
-    if access_root != source_root {
+fn places_overlap(binding: &AliasBinding, access: &PlaceAccess) -> bool {
+    if access.root != binding.owner_root {
         return false;
     }
-    if access_place == source_root {
-        return true;
-    }
-    if let Some((_root, access_field)) = field_place::split_field_place(access_place) {
-        return access_field == source_field;
-    }
-    true
+    access
+        .field
+        .as_deref()
+        .is_none_or(|field| field == binding.source_field)
 }
 
-fn expression_text(statement: &BodyStatement) -> Option<&str> {
-    match statement.kind {
-        "return" => strip_keyword(&statement.text, "return"),
-        "fail" => strip_keyword(&statement.text, "fail"),
-        "let_binding" | "mutable_binding" | "set_place" => statement
-            .text
-            .split_once('=')
-            .map(|(_left, value)| value.trim()),
-        "if_header" => header_body(&statement.text, "if"),
-        "while_header" => header_body(&statement.text, "while"),
-        "for_each_header" => header_body(&statement.text, "for each"),
-        "for_index_header" => header_body(&statement.text, "for index"),
-        "record_field_initializer" => statement
-            .text
-            .split_once(':')
-            .map(|(_field, value)| value.trim()),
-        "test_expectation" => strip_keyword(&statement.text, "expect"),
-        _ => None,
-    }
-}
-
-fn set_target(statement: &BodyStatement) -> Option<&str> {
-    if statement.kind != "set_place" {
-        return None;
-    }
-    let rest = strip_keyword(&statement.text, "set")?;
-    let (target, _value) = rest.split_once('=')?;
-    let target = target.trim();
-    (!target.is_empty()).then_some(target)
+fn set_target(statement: &BodyStatement) -> Option<&crate::ast::CanonicalExpression> {
+    statement.set_target()
 }
 
 fn binding_name(statement: &BodyStatement) -> Option<&str> {
-    if !matches!(statement.kind, "let_binding" | "mutable_binding") {
-        return None;
+    statement.binding_name()
+}
+
+fn expression_mentions_root(expression: &crate::ast::CanonicalExpression, expected: &str) -> bool {
+    canonical_place_references(expression)
+        .iter()
+        .any(|(_, root, _)| root == expected)
+}
+
+fn expression_has_permission_on_root(
+    expression: &crate::ast::CanonicalExpression,
+    expected: &str,
+    permissions: &[crate::ast::ParamPermission],
+) -> bool {
+    use crate::ast::CanonicalExpressionKind as Kind;
+    match &expression.kind {
+        Kind::Permission { permission, value } => {
+            permissions.contains(permission)
+                && value
+                    .direct_place()
+                    .is_some_and(|(root, _, _)| root == expected)
+        }
+        Kind::Group(value) => expression_has_permission_on_root(value, expected, permissions),
+        _ => false,
     }
-    let keyword = if statement.kind == "let_binding" {
-        "let"
-    } else {
-        "change"
-    };
-    let rest = strip_keyword(&statement.text, keyword)?;
-    let (left, _value) = rest.split_once('=')?;
-    let name = left
-        .split_once(':')
-        .map_or(left, |(name, _annotation)| name)
-        .trim();
-    (!name.is_empty()).then_some(name)
 }
 
-fn contains_root_reference(text: &str, root: &str) -> bool {
-    place_references(text)
-        .into_iter()
-        .any(|place| first_resource(&place) == root)
+fn expression_contains_call(expression: &crate::ast::CanonicalExpression) -> bool {
+    use crate::ast::CanonicalExpressionKind as Kind;
+    match &expression.kind {
+        Kind::Call { .. } => true,
+        Kind::Field { base, .. } | Kind::Element { base, .. } => expression_contains_call(base),
+        Kind::ListLiteral(values) => values.iter().any(expression_contains_call),
+        Kind::RecordLiteral { fields, .. } => fields
+            .iter()
+            .any(|(_, value)| expression_contains_call(value)),
+        Kind::Permission { value, .. } | Kind::Group(value) => expression_contains_call(value),
+        Kind::Try { call, .. } => expression_contains_call(call),
+        Kind::Binary { left, right, .. } => {
+            expression_contains_call(left) || expression_contains_call(right)
+        }
+        _ => false,
+    }
 }
 
-fn nested_alias_reference(text: &str, alias_name: &str) -> bool {
-    place_references(text)
-        .into_iter()
-        .any(|place| first_resource(&place) == alias_name && place.trim() != alias_name)
-}
-
-fn place_references(text: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut in_string = false;
-    for ch in text.chars() {
-        if ch == '"' {
-            in_string = !in_string;
-            if !current.is_empty() {
-                push_reference_token(&mut tokens, &mut current);
+fn canonical_place_references(
+    expression: &crate::ast::CanonicalExpression,
+) -> Vec<(String, String, Option<String>)> {
+    use crate::ast::CanonicalExpressionKind as Kind;
+    fn collect(
+        expression: &crate::ast::CanonicalExpression,
+        out: &mut Vec<(String, String, Option<String>)>,
+    ) {
+        match &expression.kind {
+            Kind::Identifier(root) => {
+                out.push((root.clone(), root.clone(), None));
             }
-            continue;
+            Kind::Field { base, field } => {
+                if let Some(root) = base.direct_identifier() {
+                    out.push((
+                        format!("{root}.{field}"),
+                        root.to_string(),
+                        Some(field.clone()),
+                    ));
+                } else {
+                    collect(base, out);
+                }
+            }
+            Kind::Element { base, index } => {
+                if let Some(root) = base.direct_identifier() {
+                    out.push((format!("{root}[{index}]"), root.to_string(), None));
+                } else {
+                    collect(base, out);
+                }
+            }
+            Kind::ListLiteral(values) => {
+                for value in values {
+                    collect(value, out);
+                }
+            }
+            Kind::RecordLiteral { fields, .. } => {
+                for (_, value) in fields {
+                    collect(value, out);
+                }
+            }
+            Kind::Call { callee, arguments } => {
+                collect(callee, out);
+                for argument in arguments {
+                    collect(argument, out);
+                }
+            }
+            Kind::Permission { value, .. } | Kind::Group(value) => collect(value, out),
+            Kind::Try { call, .. } => collect(call, out),
+            Kind::Binary { left, right, .. } => {
+                collect(left, out);
+                collect(right, out);
+            }
+            _ => {}
         }
-        if in_string {
-            continue;
-        }
-        if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '[' | ']') {
-            current.push(ch);
-        } else if !current.is_empty() {
-            push_reference_token(&mut tokens, &mut current);
-        }
     }
-    if !current.is_empty() {
-        push_reference_token(&mut tokens, &mut current);
-    }
-    tokens
-}
-
-fn push_reference_token(tokens: &mut Vec<String>, current: &mut String) {
-    let token = std::mem::take(current);
-    if matches!(
-        token.as_str(),
-        "let" | "change" | "borrow" | "consume" | "set" | "return" | "fail" | "true" | "false"
-    ) || token.chars().all(|ch| ch.is_ascii_digit())
-        || token
-            .chars()
-            .next()
-            .is_some_and(|ch| ch.is_ascii_uppercase())
-    {
-        return;
-    }
-    if token
-        .chars()
-        .next()
-        .is_some_and(|ch| ch.is_ascii_lowercase() || ch == '_')
-    {
-        tokens.push(token);
-    }
-}
-
-fn first_resource(text: &str) -> &str {
-    text.split(['.', '[']).next().unwrap_or(text).trim()
-}
-
-fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = strip_keyword(text, keyword)?;
-    rest.strip_suffix('{').map(str::trim)
-}
-
-fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    if text == keyword {
-        return Some("");
-    }
-    text.strip_prefix(keyword)
-        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
-        .map(str::trim)
-}
-
-fn is_value_ident(text: &str) -> bool {
-    let mut chars = text.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    (first.is_ascii_lowercase() || first == '_')
-        && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+    let mut out = Vec::new();
+    collect(expression, &mut out);
+    out
 }
 
 #[cfg(test)]
@@ -956,8 +980,8 @@ mod tests {
         AliasCause, AliasCauseInvariantError, AliasIssueKind, analyze, analyze_item,
         analyze_with_existing_names, exact_binding_text, validate_typed_cause,
     };
-    use crate::core_body::BodyStatement;
-    use crate::diagnostic::Span;
+    use crate::ast::Item;
+    use crate::core_body::{BodyStatement, analyze_does_section};
 
     #[test]
     fn typed_alias_cause_is_sealed_and_rendering_independent() {
@@ -1010,14 +1034,29 @@ mod tests {
     use std::collections::BTreeSet;
 
     fn statement(line: usize, text: &str, kind: &'static str) -> BodyStatement {
-        BodyStatement {
-            span: Span::new("alias-test.hum", line, 5),
-            text: text.to_string(),
-            kind,
-            status: "recognized_v0",
-            expression_kind: None,
-            reason: None,
-        }
+        let source = if matches!(kind, "if_header" | "block_close") {
+            "task inspect() {\n  does:\n    if ready {\n      return unit\n    }\n}\n".to_string()
+        } else {
+            format!("task inspect() {{\n  does:\n    {text}\n}}\n")
+        };
+        let parsed = crate::parser::parse_source("alias-test.hum", &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("expected task");
+        };
+        let does = task
+            .sections
+            .iter()
+            .find(|section| section.name == "does")
+            .expect("does section");
+        let mut statement = analyze_does_section(does)
+            .statements
+            .into_iter()
+            .find(|statement| statement.kind == kind)
+            .expect("statement");
+        statement.span.line = line;
+        assert_eq!(statement.kind, kind);
+        statement
     }
 
     #[test]

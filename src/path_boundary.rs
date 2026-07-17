@@ -259,9 +259,8 @@ fn check_task_signature(
             section.lines.iter().find_map(|line| {
                 let fact = crate::predicate::fact_for_line(program, task, name, line)?;
                 (is_meaningful_line_text(&line.text)
-                    && fact.ast.is_some()
                     && fact.reason == "opaque_path_inspection_owned_by_h0630"
-                    && contains_identifier(&line.text, &parameter.name))
+                    && fact.places.iter().any(|place| place.text == parameter.name))
                 .then(|| (line, fact.semantic_line_identity().to_string()))
             })
         })
@@ -272,8 +271,9 @@ fn check_task_signature(
             .into_iter()
             .enumerate()
             .find(|(_, statement)| {
-                contains_identifier(&statement.text, &parameter.name)
-                    && !is_exact_file_read_consumption(statement, &parameter.name)
+                statement.primary_expression().is_some_and(|expression| {
+                    canonical_contains_identifier(expression, &parameter.name)
+                }) && !is_exact_file_read_consumption(statement, &parameter.name)
             })
     });
     let task_identity = crate::resolve::semantic_task_identity(program, task);
@@ -312,51 +312,22 @@ fn check_task_signature(
 }
 
 fn is_exact_file_read_consumption(statement: &core_body::BodyStatement, parameter: &str) -> bool {
-    let Some(expression) = expression_text(&statement.text) else {
+    let Some(expression) = statement.primary_expression() else {
         return false;
     };
-    let Some(call) = typed_failure::calls_in_expression(expression)
-        .into_iter()
-        .find(|call| call.callee == "files_read_text")
-    else {
+    let call = match &expression.kind {
+        crate::ast::CanonicalExpressionKind::Try { call, .. } => call.as_ref(),
+        _ => expression,
+    };
+    let crate::ast::CanonicalExpressionKind::Call { callee, arguments } = &call.kind else {
         return false;
     };
-    let Some(arguments) = call
-        .source
-        .strip_prefix("files_read_text(")
-        .and_then(|source| source.strip_suffix(')'))
-    else {
-        return false;
-    };
-    arguments.trim() == parameter && identifier_occurrences(&statement.text, parameter) == 1
-}
-
-fn identifier_occurrences(text: &str, expected: &str) -> usize {
-    let mut count = 0usize;
-    let mut token = String::new();
-    let mut in_string = false;
-    for character in text.chars().chain(std::iter::once(' ')) {
-        if character == '"' {
-            if !in_string && token == expected {
-                count += 1;
-            }
-            token.clear();
-            in_string = !in_string;
-            continue;
-        }
-        if in_string {
-            continue;
-        }
-        if character.is_ascii_alphanumeric() || character == '_' {
-            token.push(character);
-        } else {
-            if token == expected {
-                count += 1;
-            }
-            token.clear();
-        }
-    }
-    count
+    callee.direct_identifier() == Some("files_read_text")
+        && matches!(
+            arguments.as_slice(),
+            [argument] if argument.direct_identifier() == Some(parameter)
+        )
+        && canonical_identifier_occurrences(call, parameter) == 1
 }
 
 struct SourceOwner<'a> {
@@ -378,10 +349,10 @@ fn check_source_path_construction(
     };
     let body = core_body::analyze_does_section(does);
     for (statement_index, statement) in body.statements.into_iter().enumerate() {
-        let Some(expression) = expression_text(&statement.text) else {
+        let Some(expression) = statement.primary_expression() else {
             continue;
         };
-        let Some(call) = typed_failure::calls_in_expression(expression)
+        let Some(call) = typed_failure::calls_in_canonical(expression)
             .into_iter()
             .find(|call| path_callees.contains_key(call.callee.as_str()))
         else {
@@ -393,15 +364,7 @@ fn check_source_path_construction(
             .iter()
             .find(|parameter| contains_path_type(&parameter.ty))
             .expect("Path callee parameter");
-        let expression_offset = statement.text.find(expression).unwrap_or(0);
-        let call_span = Span {
-            file: statement.span.file.clone(),
-            line: statement.span.line,
-            column: statement.span.column
-                + statement.text[..expression_offset + call.source_offset]
-                    .chars()
-                    .count(),
-        };
+        let call_span = call.span;
         let callee_identity = crate::resolve::semantic_task_identity(program, callee);
         emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(107), "path_source_call",
             format!("{}:does-statement-{statement_index}:callee-{callee_identity}", owner.identity),
@@ -420,6 +383,55 @@ fn check_source_path_construction(
                 "Remove the source call. Only structural `hum run` app entry may construct the opaque Path from one native OS argument.",
             ),
         );
+    }
+}
+
+fn canonical_contains_identifier(
+    expression: &crate::ast::CanonicalExpression,
+    expected: &str,
+) -> bool {
+    canonical_identifier_occurrences(expression, expected) > 0
+}
+
+fn canonical_identifier_occurrences(
+    expression: &crate::ast::CanonicalExpression,
+    expected: &str,
+) -> usize {
+    use crate::ast::CanonicalExpressionKind as Kind;
+    match &expression.kind {
+        Kind::Identifier(name) => usize::from(name == expected),
+        Kind::Field { base, .. } | Kind::Element { base, .. } => {
+            canonical_identifier_occurrences(base, expected)
+        }
+        Kind::ListLiteral(values) => values
+            .iter()
+            .map(|value| canonical_identifier_occurrences(value, expected))
+            .sum(),
+        Kind::RecordLiteral { fields, .. } => fields
+            .iter()
+            .map(|(_, value)| canonical_identifier_occurrences(value, expected))
+            .sum(),
+        Kind::Call { callee, arguments } => {
+            canonical_identifier_occurrences(callee, expected)
+                + arguments
+                    .iter()
+                    .map(|argument| canonical_identifier_occurrences(argument, expected))
+                    .sum::<usize>()
+        }
+        Kind::Permission { value, .. } | Kind::Group(value) => {
+            canonical_identifier_occurrences(value, expected)
+        }
+        Kind::Try { call, .. } => canonical_identifier_occurrences(call, expected),
+        Kind::Binary { left, right, .. } => {
+            canonical_identifier_occurrences(left, expected)
+                + canonical_identifier_occurrences(right, expected)
+        }
+        Kind::Unit
+        | Kind::UIntLiteral(_)
+        | Kind::IntLiteral(_)
+        | Kind::BoolLiteral(_)
+        | Kind::TextLiteral(_)
+        | Kind::Unsupported => 0,
     }
 }
 
@@ -483,51 +495,6 @@ fn contains_path_type(type_text: &str) -> bool {
     type_text
         .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
         .any(|token| token == "Path")
-}
-
-fn contains_identifier(text: &str, expected: &str) -> bool {
-    let mut token = String::new();
-    let mut in_string = false;
-    for character in text.chars().chain(std::iter::once(' ')) {
-        if character == '"' {
-            if !in_string && token == expected {
-                return true;
-            }
-            token.clear();
-            in_string = !in_string;
-            continue;
-        }
-        if in_string {
-            continue;
-        }
-        if character.is_ascii_alphanumeric() || character == '_' {
-            token.push(character);
-        } else {
-            if token == expected {
-                return true;
-            }
-            token.clear();
-        }
-    }
-    false
-}
-
-fn expression_text(statement: &str) -> Option<&str> {
-    let text = statement.trim();
-    for keyword in ["return", "let", "change", "set"] {
-        if let Some(rest) = text.strip_prefix(keyword)
-            && rest.starts_with(char::is_whitespace)
-        {
-            let rest = rest.trim();
-            return if matches!(keyword, "let" | "change" | "set") {
-                rest.split_once('=')
-                    .map(|(_, expression)| expression.trim())
-            } else {
-                Some(rest)
-            };
-        }
-    }
-    Some(text)
 }
 
 #[cfg(test)]

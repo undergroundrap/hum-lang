@@ -64,8 +64,8 @@ use std::time::{Duration, Instant};
 
 use ast::Program;
 use diagnostic::{
-    Diagnostic, DiagnosticOccurrence, DiagnosticOccurrenceCollector, DiagnosticOccurrenceId,
-    DiagnosticOccurrenceSet, PriorBlockerRef, Severity,
+    Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceCollector,
+    DiagnosticOccurrenceId, DiagnosticOccurrenceSet, PriorBlockerRef, Severity,
 };
 
 fn main() -> ExitCode {
@@ -988,6 +988,46 @@ where
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
     if has_errors {
+        let only_chained_comparison_errors = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Error)
+            .all(|diagnostic| diagnostic.code == DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED);
+        if only_chained_comparison_errors {
+            let predicate_analysis = predicate::analyze_program(&program);
+            let mut selected = diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    diagnostic.code == DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let predicate_diagnostics = if let Some(entry_name) = entry {
+                predicate_analysis
+                    .reachable_diagnostics_for_named_entry(&program, entry_name)
+                    .unwrap_or_default()
+            } else if let Some(app_entry) = app_analysis.entry.as_ref() {
+                predicate_analysis.reachable_diagnostics(
+                    &program,
+                    app_entry.task,
+                    Some(app_entry.app),
+                )
+            } else {
+                Vec::new()
+            };
+            selected.extend(predicate_diagnostics);
+            return Ok(RunCommandExecution {
+                disposition: RunCommandDisposition::SelectedDiagnostics {
+                    diagnostics: selected,
+                    exit_code: 2,
+                },
+                diagnostics,
+                diagnostic_occurrences,
+                reanalyzable_projections,
+                runtime_diagnostic_occurrences: None,
+                timings,
+                total,
+            });
+        }
         return Ok(RunCommandExecution {
             disposition: RunCommandDisposition::ComposedDiagnostics { exit_code: 1 },
             diagnostics,

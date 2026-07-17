@@ -388,6 +388,112 @@ try {
     if ($CoreBodySource.Contains($ForbiddenRecognizer)) { throw "Increment 10A core_body retained a competing source recognizer: $ForbiddenRecognizer" }
   }
 
+  Write-Host '==> Increment 10B canonical expression convergence matrix'
+  foreach ($EvidenceTest in @(
+    'predicate::tests::body_and_contract_share_shape_but_not_occurrence_identity',
+    'predicate::tests::retained_contract_text_cannot_override_parser_owned_predicate_syntax',
+    'parser::tests::parser_owned_operator_and_call_syntax_corruption_fails_closed',
+    'parser::tests::record_field_initializer_retains_only_its_value_expression',
+    'core_verify::tests::private_expression_tree_rejects_every_independent_corruption',
+    'resolve::tests::later_resolver_call_identity_ignores_earlier_retained_statement_references',
+    'run::tests::division_by_zero_traps',
+    'run::tests::integer_overflow_traps',
+    'run::tests::divide_zero_fails_needs_with_caller_blame',
+    'run::tests::wrong_add_fixture_fails_ensures_with_task_blame',
+    'run::tests::unchecked_task_can_return_typed_failure',
+    'run::tests::passed_callable_runtime_depends_on_callable_identity_and_ordinary_value'
+  )) {
+    Invoke-Native "Increment 10B evidence $EvidenceTest" $Cargo @('test', $EvidenceTest, '--', '--exact')
+  }
+
+  $FoundationArithmetic = 'fixtures/foundation/pre_ar_left_associative_arithmetic_pass.hum'
+  $FoundationAgreement = 'fixtures/foundation/pre_ar_body_contract_expression_agreement_pass.hum'
+  $Foundation10BStages = @(
+    @{ Name = 'check'; Args = @('check') },
+    @{ Name = 'resolve'; Args = @('resolve') },
+    @{ Name = 'type-env'; Args = @('type-env') },
+    @{ Name = 'type-check'; Args = @('type-check') },
+    @{ Name = 'full-type-check'; Args = @('full-type-check') },
+    @{ Name = 'effect-check'; Args = @('effect-check') },
+    @{ Name = 'ownership-check'; Args = @('ownership-check') },
+    @{ Name = 'resource-check'; Args = @('resource-check') },
+    @{ Name = 'profile-check'; Args = @('profile-check') },
+    @{ Name = 'core-preview'; Args = @('core-preview') },
+    @{ Name = 'core-lower'; Args = @('core-lower') },
+    @{ Name = 'core-verify'; Args = @('core-verify') },
+    @{ Name = 'ir-readiness'; Args = @('ir-readiness') },
+    @{ Name = 'graph'; Args = @('graph') }
+  )
+  foreach ($Fixture in @($FoundationArithmetic, $FoundationAgreement)) {
+    foreach ($Stage in $Foundation10BStages) {
+      foreach ($Format in @('human', 'json')) {
+        $Args = @($Stage.Args)
+        if ($Format -eq 'json' -and $Stage.Name -ne 'graph') { $Args += '--format=json' }
+        $Args += $Fixture
+        $First = Read-NativeChannelsWithExit "Increment 10B $($Stage.Name) $Format first fresh run $Fixture" $Hum $Args
+        $Second = Read-NativeChannelsWithExit "Increment 10B $($Stage.Name) $Format second fresh run $Fixture" $Hum $Args
+        if ($First.ExitCode -ne $Second.ExitCode -or $First.Stdout -cne $Second.Stdout -or $First.Stderr -cne $Second.Stderr) {
+          throw "Increment 10B $($Stage.Name) $Format is not byte-identical across fresh runs for $Fixture"
+        }
+        if ($First.ExitCode -notin @(0, 1)) {
+          throw "Increment 10B $($Stage.Name) $Format exited unexpectedly for $Fixture"
+        }
+        $Combined = $First.Stdout + $First.Stderr
+        if ($Combined.Contains('H0702') -or $Combined.Contains('H0703') -or $Combined.Contains('runtime trap') -or $Combined.Contains('panicked')) {
+          throw "Increment 10B $($Stage.Name) $Format disagrees with the accepted expression facts for $Fixture"
+        }
+        if ($Format -eq 'json') { Assert-Json "Increment 10B $($Stage.Name) JSON $Fixture" $First.Stdout }
+      }
+    }
+  }
+
+  foreach ($RuntimeCase in @(
+    @{ Entry = 'multiply_then_divide'; Expected = '12' },
+    @{ Entry = 'subtract_twice'; Expected = '10' },
+    @{ Entry = 'mixed_precedence'; Expected = '32' },
+    @{ Entry = 'grouped_division'; Expected = '16' }
+  )) {
+    $First = Read-NativeChannelsWithExit "Increment 10B runtime $($RuntimeCase.Entry) first fresh run" $Hum @('run', $FoundationArithmetic, '--entry', $RuntimeCase.Entry)
+    $Second = Read-NativeChannelsWithExit "Increment 10B runtime $($RuntimeCase.Entry) second fresh run" $Hum @('run', $FoundationArithmetic, '--entry', $RuntimeCase.Entry)
+    if ($First.ExitCode -ne 0 -or $First.Stderr -ne '' -or $First.Stdout.Trim() -cne $RuntimeCase.Expected) {
+      throw "Increment 10B runtime $($RuntimeCase.Entry) expected exact value $($RuntimeCase.Expected)"
+    }
+    if ($First.ExitCode -ne $Second.ExitCode -or $First.Stdout -cne $Second.Stdout -or $First.Stderr -cne $Second.Stderr) {
+      throw "Increment 10B runtime $($RuntimeCase.Entry) is not byte-identical across fresh runs"
+    }
+  }
+  $AgreementFirst = Read-NativeChannelsWithExit 'Increment 10B body/contract agreement first fresh run' $Hum @('run', $FoundationAgreement, '--entry', 'body_contract_agreement')
+  $AgreementSecond = Read-NativeChannelsWithExit 'Increment 10B body/contract agreement second fresh run' $Hum @('run', $FoundationAgreement, '--entry', 'body_contract_agreement')
+  if ($AgreementFirst.ExitCode -ne 0 -or $AgreementFirst.Stderr -ne '' -or $AgreementFirst.Stdout.Trim() -cne '12' -or $AgreementFirst.Stdout -cne $AgreementSecond.Stdout -or $AgreementFirst.Stderr -cne $AgreementSecond.Stderr -or $AgreementFirst.ExitCode -ne $AgreementSecond.ExitCode) {
+    throw 'Increment 10B body and ensures expression did not agree repeatably on value 12'
+  }
+
+  $NeedsControl = Read-NativeChannelsWithExit 'Increment 10B false needs retains H0702' $Hum @('run', 'examples/core/divide.hum', '--entry', 'divide', '--args', '10', '0')
+  if ($NeedsControl.ExitCode -ne 1 -or [regex]::Matches($NeedsControl.Stdout + $NeedsControl.Stderr, 'H0702').Count -ne 1) {
+    throw 'Increment 10B false needs did not retain exactly one H0702'
+  }
+  $EnsuresControl = Read-NativeChannelsWithExit 'Increment 10B false ensures retains H0703' $Hum @('run', 'fixtures/run/wrong_add_contract.hum', '--entry', 'add', '--args', '2', '3')
+  if ($EnsuresControl.ExitCode -ne 1 -or [regex]::Matches($EnsuresControl.Stdout + $EnsuresControl.Stderr, 'H0703').Count -ne 1) {
+    throw 'Increment 10B false ensures did not retain exactly one H0703'
+  }
+
+  $RunProductionSource = [regex]::Replace((Get-Content -Raw 'src/run.rs'), '(?s)#\[cfg\(test\)\].*$', '')
+  foreach ($ForbiddenRecognizer in @('fn eval_expr(', 'split_word_operator', 'split_top_level_operator')) {
+    if ($RunProductionSource.Contains($ForbiddenRecognizer)) {
+      throw "Increment 10B run.rs retained a competing production expression recognizer: $ForbiddenRecognizer"
+    }
+  }
+  $CoreExpressionProductionSource = [regex]::Replace((Get-Content -Raw 'src/core_expr.rs'), '(?s)#\[cfg\(test\)\].*$', '')
+  foreach ($ForbiddenRecognizer in @('OPERATOR_PATTERNS', 'operators_in_expression', 'atoms_from_compound', 'pub fn analyze_expression(')) {
+    if ($CoreExpressionProductionSource.Contains($ForbiddenRecognizer)) {
+      throw "Increment 10B core_expr.rs retained a competing production expression recognizer: $ForbiddenRecognizer"
+    }
+  }
+  $PredicateProductionSource = [regex]::Replace((Get-Content -Raw 'src/predicate.rs'), '(?s)#\[cfg\(test\)\].*$', '')
+  if ($PredicateProductionSource.Contains('Parser::new') -or $PredicateProductionSource.Contains('parse_predicate(')) {
+    throw 'Increment 10B predicate.rs retained the superseded analysis-time Predicate parser entry'
+  }
+
   $VersionJson = Read-NativeOutput 'version JSON' $Hum @('version', '--format', 'json')
   Assert-Json 'version JSON' $VersionJson
   if (-not $VersionJson.Contains('"core_lower": "hum.core_lower.v0"')) { throw 'version JSON is missing hum.core_lower.v0 schema' }
@@ -405,7 +511,7 @@ try {
   Assert-Json 'diagnostic catalog JSON' $DiagnosticsJson
   $DiagnosticsCatalog = $DiagnosticsJson | ConvertFrom-Json
   $DiagnosticCodes = @($DiagnosticsCatalog.diagnostics | ForEach-Object { $_.code })
-  if ($DiagnosticsCatalog.count -ne 87 -or $DiagnosticCodes.Count -ne 87 -or @($DiagnosticCodes | Sort-Object -Unique).Count -ne 87) { throw 'canonical diagnostic catalog must expose exactly 87 unique active codes' }
+  if ($DiagnosticsCatalog.count -ne 88 -or $DiagnosticCodes.Count -ne 88 -or @($DiagnosticCodes | Sort-Object -Unique).Count -ne 88) { throw 'canonical diagnostic catalog must expose exactly 88 unique active codes' }
   $DiagnosticCatalogSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/diagnostic_catalog.rs'))
   foreach ($RegistryEvidence in @('family_interval_failures_are_independent', 'exact_code_identity_and_ownership_failures_are_independent', 'retired_allocations_are_append_only_and_semantically_frozen', 'public_catalog_projection_rejects_every_semantic_field_mismatch', 'catalog_detail_coverage_rejects_missing_duplicate_and_unknown_rows', 'checked_documents_reject_unknown_contradictory_and_missing_projections')) {
     if (-not $DiagnosticCatalogSource.Contains($RegistryEvidence)) { throw "canonical diagnostic registry evidence was removed: $RegistryEvidence" }
@@ -1248,7 +1354,7 @@ try {
   }
 
   $Aggregate = Read-NativeOutputWithExit 'run Session AF aggregate malformed candidates' $Hum @('run', 'fixtures/full_type_check/session_af_predicate_v2_boundary_fail.hum', '--entry', 'malformed_boundaries')
-  if ($Aggregate.ExitCode -ne 2 -or [regex]::Matches($Aggregate.Output, 'error\[H0704\]').Count -ne 19 -or $Aggregate.Output.Contains('runtime trap')) { throw "Session AF runtime must aggregate all 19 independent H0704 rows exactly once: $($Aggregate.Output)" }
+  if ($Aggregate.ExitCode -ne 2 -or [regex]::Matches($Aggregate.Output, 'error\[H0704\]').Count -ne 18 -or [regex]::Matches($Aggregate.Output, 'error\[H0010\]').Count -ne 1 -or $Aggregate.Output.Contains('runtime trap')) { throw "Session AF runtime must aggregate 18 independent H0704 rows and the one shared H0010 chain row exactly once: $($Aggregate.Output)" }
 
   $Reachable = Read-NativeChannelsWithExit 'run Session AF reachable malformed callee before output' $Hum @('run', 'fixtures/run/session_af_predicate_v2_reachable_callee_fail.hum', '--allow', 'stdout.write')
   if ($Reachable.ExitCode -ne 2 -or $Reachable.Stdout -ne '' -or [regex]::Matches($Reachable.Stderr, 'error\[H0704\]').Count -ne 1 -or $Reachable.Stderr.Contains('runtime trap')) { throw 'Session AF reachable malformed callee must reject with exactly one H0704 and exit 2 before output or any generic trap' }

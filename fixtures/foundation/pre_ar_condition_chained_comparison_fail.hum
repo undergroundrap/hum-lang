@@ -1,0 +1,17 @@
+module fixtures.foundation.pre_ar_condition_chained_comparison_fail
+
+task chained_condition -> UInt {
+  why:
+    reject one condition that compares an earlier comparison
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    if 1 < 2 < 3 {
+      return 1
+    }
+    return 0
+}

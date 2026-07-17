@@ -448,8 +448,40 @@ fn task_resource_checks(
 fn has_visible_allocation_risk(statement: &core_body::BodyStatement) -> bool {
     statement.expression_kind == Some("record_literal_start")
         || statement.kind == "record_field_initializer"
-        || statement.text.contains("[")
-        || statement.text.contains("{") && statement.kind != "if_header"
+        || statement
+            .primary_expression()
+            .is_some_and(canonical_has_visible_allocation)
+}
+
+fn canonical_has_visible_allocation(expression: &crate::ast::CanonicalExpression) -> bool {
+    use crate::ast::CanonicalExpressionKind;
+
+    match &expression.kind {
+        CanonicalExpressionKind::ListLiteral(_) | CanonicalExpressionKind::RecordLiteral { .. } => {
+            true
+        }
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::Element { base, .. }
+        | CanonicalExpressionKind::Group(base)
+        | CanonicalExpressionKind::Permission { value: base, .. } => {
+            canonical_has_visible_allocation(base)
+        }
+        CanonicalExpressionKind::Try { call, .. } => canonical_has_visible_allocation(call),
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            canonical_has_visible_allocation(callee)
+                || arguments.iter().any(canonical_has_visible_allocation)
+        }
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            canonical_has_visible_allocation(left) || canonical_has_visible_allocation(right)
+        }
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => false,
+    }
 }
 
 fn collect_resource_declarations(sections: &[Section]) -> ResourceDeclarations {
