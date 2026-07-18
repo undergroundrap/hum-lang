@@ -110,9 +110,26 @@ evidence` was skipped. Both jobs selected `mode=full` with
 The rejected monolith remains archived and recoverable at
 `archive/workorder-10b-rejected-monolith-2026-07-17`, exact commit
 `3fdf236b0076534766ef89b592b3358f67a6315d`; `main` remains cleared. The
-rejected-tree archival lifecycle is complete. Increment 10B.0 is the next
-target but remains unauthorized pending a separate explicit BDFL go signal.
-10B.1, 10C, Session AR, and every later item remain unauthorized.
+rejected-tree archival lifecycle is complete.
+
+Increment 10B.0's exact two-path dead-selector repair received final
+independent `ACCEPT` after zero correction cycles and was committed and
+published as `bc8140e668483ef2cb4042a5b8eb9a66caa820b9`, with first parent
+`4b1030b79c9cbeab1afccc9e75d953062ad48f3b`. Its exact committed envelope is
+`tools/check_all.ps1` and `tools/test_exact_rust_selector.ps1`. Required
+workflow `29615977602`, attempt 1, succeeded for that exact commit. Ubuntu job
+`88001070186` on `ubuntu-latest` succeeded in 10m 16s; Cargo caching and Rust
+toolchain preparation succeeded, `Run Hum preflight` succeeded in 9m 48s, and
+`Run status-only evidence` was skipped. Windows job `88001070180` on
+`windows-latest` succeeded in 16m 10s; Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 15m 21s, and
+`Run status-only evidence` was skipped. Both jobs selected `mode=full` with
+`reason=no_status_transition`. The repair is complete and durably published;
+the independently audited first-parent history confirms that no published
+commit passed while the selector was dead. Increment 10B.1 is the next target
+but remains unauthorized pending independent acceptance and durable
+publication of this status record plus a separate explicit BDFL go signal.
+10B.2, 10C, Session AR, and every later item remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -2899,9 +2916,26 @@ identity, retrieval fact, or cleared-tree state. The rejected monolith remains
 archived and recoverable at
 `archive/workorder-10b-rejected-monolith-2026-07-17`, exact commit
 `3fdf236b0076534766ef89b592b3358f67a6315d`; `main` remains cleared. The
-rejected-tree archival lifecycle is complete. Increment 10B.0 is the next
-target but remains unauthorized pending a separate explicit BDFL go signal.
-10B.1, 10C, Session AR, and every later item remain unauthorized.
+rejected-tree archival lifecycle is complete.
+
+Increment 10B.0's exact two-path dead-selector repair received final
+independent `ACCEPT` after zero correction cycles and was committed and
+published as `bc8140e668483ef2cb4042a5b8eb9a66caa820b9`, with first parent
+`4b1030b79c9cbeab1afccc9e75d953062ad48f3b`. Its exact committed envelope is
+`tools/check_all.ps1` and `tools/test_exact_rust_selector.ps1`. Required
+workflow `29615977602`, attempt 1, succeeded for that exact commit. Ubuntu job
+`88001070186` on `ubuntu-latest` succeeded in 10m 16s; Cargo caching and Rust
+toolchain preparation succeeded, `Run Hum preflight` succeeded in 9m 48s, and
+`Run status-only evidence` was skipped. Windows job `88001070180` on
+`windows-latest` succeeded in 16m 10s; Cargo caching and Rust toolchain
+preparation succeeded, `Run Hum preflight` succeeded in 15m 21s, and
+`Run status-only evidence` was skipped. Both jobs selected `mode=full` with
+`reason=no_status_transition`. The repair is complete and durably published;
+the independently audited first-parent history confirms that no published
+commit passed while the selector was dead. Increment 10B.1 is the next target
+but remains unauthorized pending independent acceptance and durable
+publication of this status record plus a separate explicit BDFL go signal.
+10B.2, 10C, Session AR, and every later item remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
