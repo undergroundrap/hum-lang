@@ -131,6 +131,19 @@ but remains unauthorized pending independent acceptance and durable
 publication of this status record plus a separate explicit BDFL go signal.
 10B.2, 10C, Session AR, and every later item remain unauthorized.
 
+Increment 10B.1 was subsequently activated, implemented, independently
+`REJECT`ed, corrected once, and independently `REJECT`ed again. Its single
+correction cycle is exhausted. The second verdict confirmed one foundational
+seal gap shared by operator/delimiter/call/depth and loop-binder facts, one
+small discriminating-entry evidence gap, and one overbroad static source-audit
+requirement that no text scanner can satisfy. The rejected work remains
+uncommitted and unaccepted as exactly eight modified tracked paths plus five
+untracked fixtures, with an empty index. Its exact 13-path Git subtree OID is
+`af756a7fea21353794de585869a7d2df487fe663`, reproduced independently through
+fresh empty temporary indexes in PowerShell and Git Bash. The proposed
+10B.1 re-scope amendment below authorizes no archive, clearing, implementation,
+commit, push, 10B.1a subincrement, 10B.1b, 10B.2, or later work.
+
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
 authoring authorization and therefore disqualified from this document's
@@ -2173,6 +2186,704 @@ commit. Archive creation, archive commit, archive push, rejected-tree clearing,
 the archival status record, and 10B.0 each remain separately gated. No 10B.0,
 10B.1, 10C, Session AR, or later work may begin implicitly.
 
+## Increment 10B.1 repeated-rejection re-scope amendment (2026-07-19; proposed)
+
+### Authority, diagnosis, and supersession
+
+The BDFL authorized only this architecture/documentation pass after Increment
+10B.1 exhausted its one correction cycle with two independent `REJECT`
+verdicts. The four final P1 findings have two different architectural weights:
+
+- the incomplete seal in `validate_expression_occurrence` and the
+  independently mutable loop binder/token projection are one foundational
+  defect class: the accepted parser occurrence projects facts that its
+  validator does not bind to independently retained parser events;
+- the explicit-entry matrix is a small discriminating-evidence defect: a
+  nonexistent entry was tested on a parser-invalid file, so parser precedence
+  correctly produced the same H0010 before entry selection; and
+- the demand that one source-text audit detect every alias, macro, closure,
+  method, upstream scanner, or arbitrary indirection is a ghost requirement.
+  A finite spelling scan cannot prove that negative. Typed production
+  boundaries plus real-path behavior and authority-held corruption are the
+  load-bearing proof; a bounded direct-construction audit is only a redundant
+  backstop.
+
+The architecture remains unchanged: one parser-owned canonical expression
+tree and one parser-owned occurrence/relationship authority are the sole
+source of expression meaning. The failure was ordering. H0010 was implemented
+before the occurrence authority was fully sealed, allowing a consumer test to
+discover foundation work mid-increment. This amendment therefore
+prospectively supersedes only the existing `10B.1: canonical expression
+occurrence and recursive H0010` unit with the ordered 10B.1a.1-10B.1a.11
+foundation train and 10B.1b below. It does not alter the published H0010
+meaning, 10B.2-10B.12, 10C-10F, any accepted decision, or any public behavior.
+
+No third correction against the rejected 10B.1 patch is authorized. Both new
+subincrements start from the clean accepted `8a245ede1649519d5d07a5454f65e93d0aa13049`
+line, advanced only by independently accepted and published documentation,
+preservation, status, and predecessor implementation commits. Rejected source
+may be inspected as design evidence after separately authorized archival, but
+no hunk may be cherry-picked, restored, copied mechanically, or treated as
+accepted test evidence.
+
+### Complete canonical-seal inventory
+
+This inventory is derived from the accepted 10A canonical kinds, the current
+parser grammar, the rejected occurrence representation, and the exact
+statement forms parsed by `parse_task_body_syntax`. It is complete only for
+expression occurrences and their owning statement relationships. Type
+declarations, callable signatures, item headers, effect declarations, and
+other declaration grammar remain outside 10B.1a unless a listed expression or
+statement edge references their already-produced identity.
+
+#### Independent authority domains
+
+The seal must not validate one mutable projection against another projection
+constructed from the same mutable object. The parser must retain three closed,
+private, typed domains produced from the original lexing and reduction events:
+
+1. an expression-structure authority for nodes, payloads, child roles, and
+   reduction order;
+2. a lexical-event authority for exact tokens, delimiters, separators,
+   operator phrases, semantic whitespace/gaps, malformed events, and depth;
+   and
+3. a statement-relationship authority for the owning item/section/statement,
+   intent, binders, targets, destinations, expression roles, and block edges.
+
+Every exported parser fact refers to opaque source, occurrence, node, token,
+reduction, and relationship identities from those domains. They are minted
+from parser traversal and lexer events, not from diagnostic codes, rendered
+text, display names, filenames, line/column pairs, spans alone, or a hash of a
+public projection. Repeated byte-identical expressions and tokens in one
+statement or file remain distinct. Validation receives the retained authority
+separately and compares the complete projection against it before Core
+serialization or any later semantic consumer.
+
+#### Occurrence-wide facts
+
+Every expression occurrence independently seals:
+
+- semantic source/file identity and the exact source-blob revision being
+  parsed;
+- owning item path, section identity, statement identity, and closed
+  expression role;
+- one opaque occurrence identity, exact root node identity, exact root byte
+  range including the zero-width Unit position, and root reduction identity;
+- the complete preorder node count and order;
+- expression intent and the exact statement/section event that assigned it;
+- an independently typed predicate-recognition signal, including its required
+  presence or absence, rather than an optional span that may disappear;
+- root lexical status, maximum delimiter depth, and the complete ordered token
+  interval; and
+- any typed-failure wrapper identity and its exact relation to the root.
+
+`Return`, `Binding`, `SetValue`, `SaveValue`, `Condition`, `LoopCollection`,
+`LoopRangeStart`, `LoopRangeEnd`, `Failure`, `TestExpectation`,
+`NeedsPredicate`, `EnsuresPredicate`, and `Other` are the exhaustive current
+intent set. A new intent variant must fail compilation until its producer,
+validator, projection, and corruption row are added.
+
+#### Facts common to every canonical node
+
+Every node independently seals:
+
+- opaque node and occurrence identities, optional parent identity, exact
+  closed child-role plus ordinal, and preorder ordinal;
+- exact UTF-8 byte range, source identity, token interval, and grammar
+  reduction identity;
+- exact canonical kind discriminant and kind-specific payload;
+- ordered child identities and exact child cardinality;
+- delimiter depth before and after the reduction plus node lexical status; and
+- the absence of fields that are illegal for that kind.
+
+A free-form `Vec<usize>` child path is not sufficient by itself. Child roles
+must be closed and typed (`binary.left`, `binary.right`, `call.callee`,
+`call.argument[n]`, `record.field[n].value`, and so on), so reparenting,
+reordering, or exchanging two same-shaped children cannot remain coherent.
+No validator match may use a wildcard arm for a canonical kind.
+
+#### Kind-specific facts
+
+The following table is the exhaustive expression-kind seal. It is a review
+failure if the implementation AST contains a kind with no row, or a row is
+implemented without an exhaustive constructor and validator arm.
+
+| Canonical kind | Independently sealed facts beyond the common facts |
+| --- | --- |
+| Unit | zero-width position, empty token interval, and zero children |
+| Identifier | identifier token identity, exact token range and spelling, and semantic identifier value |
+| Field | base child, dot token identity/range, field-token identity/range/spelling, and field value |
+| Direct numeric element place | base child, open/close bracket identities and ranges, unsigned index-token identity/range/spelling/value, and element-place role |
+| UInt literal | digit-token identity/range/spelling and parsed `u64` value |
+| Int literal | sign and digit token identities/ranges/spelling, parsed `i64` value, and the distinction between a signed literal and binary subtraction |
+| Bool literal | exact keyword-token identity/range/spelling and Boolean value |
+| Text literal | opening/closing quote identities and ranges, raw content interval, escape events, decoded value, and termination state |
+| List literal | bracket pair, ordered element children, comma tokens, empty-list fact, semantic gaps, and trailing-comma state |
+| Record literal | optional record-name token, brace pair, ordered field-name tokens, colon and comma tokens, ordered value children, empty-record fact, and trailing state |
+| Call | callee child, parenthesis pair, ordered argument children, separator tokens, every grammar-significant gap/adjacency fact, missing/mismatched close state, and trailing state |
+| Permission | exact `borrow`/`change`/`consume` keyword token, permission discriminant, semantic gap, and value child |
+| Typed failure (`Try`) | exact `try` token, value child, optional `or`/wrapper relation, exact failure-root and variant token identities/ranges, dot token, and wrapper kind |
+| Binary | exact operator discriminant, complete one- or multi-token operator phrase and range, precedence class, associativity, left/right child identities, and reduction boundary |
+| Group | parenthesis pair, one child, and depth transition |
+| Unsupported | one closed unsupported/malformed cause, exact offending and consumed ranges, partial reduction event, and no invented successful payload |
+
+Direct numeric element-place syntax is an accepted Work Order 10 grammar fact
+(`items[0]`) but is absent from both the clean 10A canonical enum and the
+rejected 10B.1 enum. 10B.1a must add and seal its internal canonical form now
+without changing evaluation, mutation, ownership, or public Core behavior.
+Deferring it while claiming a complete seal is forbidden. Its consumers remain
+owned by 10B.4 and 10B.10; 10D/10E behavior does not enter 10B.1a.
+
+#### Lexical and malformed-event facts
+
+The lexical authority must distinguish, rather than collapse into `Other`, all
+grammar-significant tokens used by the rows above: identifiers; unsigned and
+signed integer components; Boolean and Text components; quotes and escapes;
+parentheses, brackets, braces, commas, dots, colons, and assignment tokens;
+all sixteen current binary operators (`*`, `/`, `+`, `-`, `==`, `!=`, `<`,
+`<=`, `>`, `>=`, `is`, `does`, `returns`, `fails with`, `and`, `or`);
+permission and typed-failure wrapper keywords; and statement/relationship
+keywords and phrases listed below. Multi-token operators and phrases retain
+each token plus their phrase/reduction identity. Whitespace is recorded only
+where the grammar assigns it meaning, including call and multi-word phrase
+gaps; arbitrary display whitespace is not semantic authority.
+
+Delimiter evidence includes each open/close token identity, delimiter kind,
+pair identity, nesting parent, depth before/after, maximum depth, missing or
+mismatched close, separators, trailing token, and adjacency/gap facts. A call
+open/close or separator may never be synthesized from child endpoints.
+
+The exact current malformed-cause set is also closed:
+`UnterminatedTextLiteral`, `MissingDelimiter`, `MismatchedDelimiter`,
+`DelimiterDepthExceeded`, `MissingOperand`, `InvalidComparisonOperator`,
+`InvalidOperandStarter`, `MalformedFieldPlace`, `ListElementSeparator`,
+`ListTrailingComma`, `ListNonTextElement`, and
+`IntegerLiteralOutOfRange`. Each occurrence seals cause, offending range,
+expected evidence, actual token/depth/end-of-input evidence, and producing
+lexical event. `Complete` means the retained authority contains no malformed
+event for that occurrence; it is not a mutable enum that can be co-changed with
+the projection. Every malformed cause must validate its `actual` evidence.
+
+#### Statement and relationship facts
+
+The statement authority independently seals exact keyword/phrase token
+identities, owning statement identity, block relationship and depth, ordered
+expression occurrence identities, and these form-specific facts:
+
+- `needs:` and `ensures:` predicate owner, section/line identity, predicate
+  root, and recognition event;
+- `return`: keyword and returned occurrence;
+- immutable `let` and mutable `change` bindings: keyword, binder token,
+  optional type-annotation boundary, assignment token, and value occurrence;
+- `set`: keyword, target occurrence, assignment token, and value occurrence;
+- `save`: keyword, saved occurrence, `in` relationship token, and destination
+  token;
+- `if` and `while`: keyword, condition occurrence, and block-open token;
+- `for each`: complete phrase, binder token, `in` token, collection
+  occurrence, and block-open token;
+- `for index`: complete phrase, binder token, `from` token and start
+  occurrence, exact `until` or `through` token and end occurrence, and
+  block-open token;
+- unconditional `loop`: keyword, block-open token, and absence of an
+  expression;
+- `fail`: keyword and failure occurrence;
+- `expect`: keyword and expectation occurrence;
+- block close: close token, owning block identity, and absence of an
+  expression; and
+- other/free expression statements: exact ordered occurrence roots without a
+  fabricated statement kind.
+
+A binder is one producer-owned token/event identity shared by the statement
+and relationship facts. Copying its name and span into two structures is not
+identity. Swapping a same-spelled binder, relationship token, loop bound,
+expression root, or block edge from another statement must fail even if line,
+column, display text, and all copied values remain compatible.
+
+#### Completeness and co-mutation construction rule
+
+10B.1a must define one closed test-only `CanonicalSealField` catalogue that
+names every occurrence-wide, common-node, kind-specific, lexical, malformed,
+wrapper, and statement/relationship fact above. The catalogue is an
+independently supplied expectation, not generated from the production
+validator or authority ledger. Exhaustive Rust matches over the production
+kind, intent, malformed-cause, statement, loop, operator, permission,
+delimiter, and wrapper enums must fail compilation when a variant lacks a
+producer or validator arm.
+
+For every catalogue field, a production parser fixture or data-driven real
+`parse_source` corpus must produce at least one reachable instance. A
+test-only corruption seam may alter the exported projection but may not alter
+the retained authority. The permanent matrix must prove:
+
+1. mutating, removing, duplicating, substituting, reordering, or adding that
+   field fails validation;
+2. every unordered pair of catalogue fields, including fields in different
+   domains, fails when coherently co-mutated while the authority is fixed; and
+3. substituting a valid field, node, token, binder, relationship, or complete
+   occurrence from another same-shaped occurrence fails.
+
+The test reports and independently pins the expected field and pair counts. It
+may not derive its expected count, identities, or answer from the validator,
+the authority being checked, or a public Core/root summary. A sabotage that
+deletes a producer arm, validator arm, catalogue row, single mutation, pair
+mutation, or cross-occurrence substitution must turn the exact selected test
+red. This is the complete-by-construction gate that prevents later consumers
+from discovering another unsealed parser fact.
+
+### Increment 10B.1a foundation train: ordered canonical seal completion
+
+The complete inventory above is retained unchanged, but it is not one
+review-sized implementation. The accepted 10B.0 repair changed about 280 lines
+and received `ACCEPT` with zero correction cycles; that is the empirical
+review-size target. Each foundation subincrement below therefore targets
+roughly 200-350 total changed lines across production, tests, tools, and
+fixtures. Five hundred total changed lines is a hard pre-review ceiling, not a
+goal. If honest implementation crosses that ceiling, approaches four figures,
+needs an unlisted file, or cannot be reviewed in one sitting, it stops for a
+fresh decomposition amendment before review. Deletions, generated code, or a
+large fixture do not exempt a change from the total.
+
+The subincrements are independent publication units. They may not be combined
+in one dirty worktree, review, commit, push, CI run, or status record. No later
+subincrement may begin until its predecessor is independently accepted,
+committed, published, terminal-green on Ubuntu and Windows, durably recorded,
+and given a separate explicit BDFL go signal. No parser diagnostic or semantic
+consumer may use the new authority until the final 10B.1a.11 complete-seal gate
+has passed. Partial convergence is representation-only and may not be claimed
+as canonical-consumer evidence.
+
+#### Common evidence gate for every 10B.1a subincrement
+
+Each subincrement inherits the complete anti-ghost rules and must carry the
+same cumulative corruption gate for every fact sealed through that point:
+
+- a real `parse_source` input produces every newly sealed fact through the
+  ordinary parser path; no hand-built successful authority is credited;
+- mutating, removing, duplicating, reordering, adding, or substituting only
+  that fact while retaining the independent authority makes validation fail;
+- every unordered pair of sealed facts, including a pair crossing two earlier
+  subincrements, fails under coherent co-mutation while the authority stays
+  fixed;
+- a valid same-shaped fact from another occurrence, source, node, token,
+  reduction, statement, or relationship cannot substitute successfully;
+- the independently authored `CanonicalSealField` expectation and exact
+  single/pair counts remain outside the validator and authority under test;
+- deleting any producer arm, validator arm, catalogue row, mutation operator,
+  cross-occurrence case, or exact nonzero selector turns the selected test red;
+  and
+- two fresh runs produce identical private inventories and results while all
+  existing public human, JSON, Core, runtime, diagnostic, ordering, span, and
+  exit bytes remain unchanged.
+
+10B.1a.1 introduces the independently supplied test-only
+`CanonicalSealField` catalogue. Each later subincrement extends it only with
+the exact facts that unit owns, preserves every earlier row and mutation, and
+reruns all cumulative unordered pairs. 10B.1a.11 pins the final complete
+catalogue. No subincrement may regenerate an expected row, count, pair, or
+identity from the production validator or retained authority.
+
+Each subincrement runs its focused exact-selector matrix followed by
+`cargo fmt --check`, `cargo test`,
+`cargo clippy --all-targets -- -D warnings`, `git diff --check`, and
+`.\tools\check_all.ps1`. Its report enumerates host production/test/all-target
+coverage, inspects non-host `cfg` branches, discloses unavailable local
+configurations, and leaves Ubuntu/Windows confirmation to the separately
+authorized publication CI. A green aggregate suite without the exact
+single/pair/cross-occurrence counts is not acceptance evidence.
+
+An earlier accepted fact may not be reopened or weakened in a later
+subincrement. If a later dependency proves an earlier seal incomplete, that is
+a stopped-gate finding against the earlier unit, not authority to repair both
+inside the later increment.
+
+The rejected incomplete foundation already changed the same four
+implementation/harness paths by 3,134 total lines (`src/ast.rs` 204/0,
+`src/parser.rs` 2,659/80, `src/core_body.rs` 73/0, and
+`tools/check_all.ps1` 116/2) while still lacking the independent authority and
+complete seal. At the proven 280-line target, that observed lower bound is
+approximately eleven review units. The eleven-unit dependency split below is
+therefore evidence-derived, not ceremonial subdivision.
+
+#### 10B.1a.1: source, owner, and occurrence identity kernel
+
+Dependency role: establish the private occurrence boundary before node or
+token payloads enter it.
+
+Exact envelope: `src/ast.rs`, `src/parser.rs`, and `tools/check_all.ps1`.
+
+This unit introduces closed opaque source-blob, semantic-file, occurrence,
+item, section, statement, and expression-role identities; exact source
+revision, root identity/range including Unit position, expression intent and
+assigning event, predicate-recognition presence/absence, and the separately
+retained authority handle. Repeated byte-identical expressions, same-line
+expressions, and compatible public spans remain distinct. It also introduces
+the independent test-only field catalogue and corruption mechanism, but no
+node payload, H0010, Core use, or consumer.
+
+#### 10B.1a.2: common node topology and event identity
+
+Dependency role: establish the exhaustive node skeleton used by every later
+kind.
+
+Exact envelope: `src/ast.rs`, `src/parser.rs`, and `tools/check_all.ps1`.
+
+This unit seals opaque node/token/reduction identities; exact parent and closed
+child-role/ordinal; preorder identity/count/order; exact UTF-8 range, source,
+and token interval; kind discriminant; grammar reduction; ordered children and
+cardinality; and absence of fields illegal for the kind. No free-form child
+path, display string, range alone, or public-projection hash may mint or select
+identity. Exhaustive kind matches have no wildcard. Kind payload values remain
+owned by later units and may not be projected as sealed early.
+
+#### 10B.1a.3: scalar literal and identifier seal
+
+Dependency role: add leaf payloads after occurrence and common-node identity
+are authoritative.
+
+Exact envelope: `src/ast.rs`, `src/parser.rs`, and `tools/check_all.ps1`.
+
+This unit exhaustively seals `Unit`, `Identifier`, `UIntLiteral`, `IntLiteral`,
+`BoolLiteral`, and `TextLiteral`, including token identity/range/spelling,
+semantic value, signed-literal versus subtraction, quotes, raw content,
+escapes, decoded Text, and successful termination. Same-spelled identifiers,
+same-valued literals, signs, escapes, and compatible ranges must remain
+independently corruptible under the cumulative gate.
+
+#### 10B.1a.4: field and direct numeric element-place seal
+
+Dependency role: establish exact place topology before aggregate/call or
+statement consumers can reference it.
+
+Exact envelope: `src/ast.rs`, `src/parser.rs`, and `tools/check_all.ps1`.
+
+This unit seals `Field` base/edge, dot token, field token/range/spelling/value,
+and the accepted direct numeric element-place base, bracket pair, unsigned
+index token/range/spelling/value, and place role. The element node is private
+representation only: no read, write, mutation, ownership, evaluation, public
+Core, 10D, or 10E behavior enters this unit.
+
+#### 10B.1a.5: delimiter kernel, grouping, and list seal
+
+Dependency role: establish delimiter topology and the first recursive
+aggregate over accepted leaf/place nodes.
+
+Exact envelope: `src/ast.rs`, `src/parser.rs`, and `tools/check_all.ps1`.
+
+This unit seals delimiter token/pair identity, kind, nesting parent, depth
+before/after, maximum depth, missing/mismatched close, and semantic gap facts;
+then exhaustively seals `Group` and `ListLiteral`, including ordered children,
+brackets, commas, empty/trailing state, and grammar-significant whitespace.
+No delimiter fact may be synthesized from child endpoints.
+
+#### 10B.1a.6: record and call seal
+
+Dependency role: close the two larger ordered recursive structures after the
+delimiter kernel exists.
+
+Exact envelope: `src/ast.rs`, `src/parser.rs`, and `tools/check_all.ps1`.
+
+This unit exhaustively seals `RecordLiteral` name, braces, ordered field-name
+tokens, colons, commas, value edges, empty/trailing state; and `Call` callee,
+parentheses, ordered arguments, separators, every grammar-significant gap and
+adjacency, close state, and trailing state. Same-shaped records/calls, foreign
+separators, argument/field reorder, and valid delimiter substitutions must fail
+under the cumulative matrix.
+
+#### 10B.1a.7: binary, permission, and typed-failure wrapper seal
+
+Dependency role: close the successful operator and wrapper kinds after their
+child and delimiter facts are sealed.
+
+Exact envelope: `src/ast.rs`, `src/parser.rs`, and `tools/check_all.ps1`.
+
+This unit exhaustively seals `Binary`, `Permission`, and typed-failure `Try`:
+all sixteen operator discriminants and one-/multi-token phrases, exact ranges,
+precedence, associativity, word boundaries, reduction order, and left/right
+roles; permission keyword/discriminant/gap/value; and typed-failure keyword,
+value, optional wrapper relation, root/dot/variant tokens, and wrapper kind.
+H0010 remains absent; this unit seals comparison facts but does not diagnose
+them.
+
+#### 10B.1a.8: lexical status, unsupported, and malformed seal
+
+Dependency role: bind parser-error evidence only after every successful kind
+and its token topology are authoritative.
+
+Exact envelope: `src/ast.rs`, `src/parser.rs`, and `tools/check_all.ps1`.
+
+This unit exhaustively seals `Unsupported`, `Complete`, and all twelve accepted
+malformed causes with producing event, offending/consumed ranges, expected
+evidence, and actual token/depth/EOF evidence. `Complete` is independently
+proven absence of a malformed event. Wrong but plausible actual evidence,
+cause-plus-expected/actual co-mutation, maximum-depth co-mutation, partial
+reduction substitution, and valid foreign malformed facts must fail.
+
+#### 10B.1a.9: section and linear statement relationships
+
+Dependency role: bind sealed roots to non-control-flow owners before adding
+block and loop topology.
+
+Exact envelope: `src/ast.rs`, `src/parser.rs`, and `tools/check_all.ps1`.
+
+This unit seals `needs:`/`ensures:` predicate ownership; return; immutable and
+mutable binding; set; save; fail; expect; and other/free expression roots. It
+includes exact section/line/statement identity, keywords, binder tokens, type
+boundary, assignment token, target/value/destination, relationship token, and
+ordered expression occurrences. Same-name binders and valid foreign roots or
+tokens cannot substitute.
+
+#### 10B.1a.10: control-flow, loop, binder, and block relationships
+
+Dependency role: complete statement authority with shared binder/token and
+block topology.
+
+Exact envelope: `src/ast.rs`, `src/parser.rs`, and `tools/check_all.ps1`.
+
+This unit seals if, while, `for each`, `for index` with `until` and `through`,
+unconditional loop, and block close: exact phrase tokens, condition/collection/
+start/end roots, block-open/close identity, block owner/depth, relation kind,
+and absence of expressions where required. Each binder is one shared
+producer-owned token/event identity, never two equal name/span copies.
+Co-mutating relation kind with token length, binder copies, loop bounds, or
+block edges must fail against retained authority.
+
+#### 10B.1a.11: complete-seal integration and Core boundary
+
+Dependency role: prove the complete frozen inventory as one authority and make
+validation mandatory at the first private Core boundary.
+
+Exact envelope:
+
+- `src/parser.rs` for final exhaustive composition and the cumulative matrix;
+- `src/core_body.rs` only to require the complete validated seal before
+  private Core-body construction while preserving public bytes;
+- `tools/check_all.ps1` for exact selectors, real parser/Core paths,
+  independent complete counts, repeatability, and sabotage; and
+- one new real source fixture,
+  `fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum`, containing
+  every successful kind and every relationship form that can coexist in one
+  valid program.
+
+`src/ast.rs` is read-only in this final unit. Any needed AST change means an
+earlier unit failed to close its facts and stops 10B.1a.11. The ordinary
+`parse_source` then Core-body path must reject every missing, extra,
+substituted, reordered, reparented, wrong-kind, wrong-payload, wrong-token,
+wrong-range, wrong-depth, wrong-intent, wrong-status, wrong-wrapper,
+wrong-binder, wrong-loop, wrong-block, and cross-occurrence projection before
+private Core construction or serialization. The test independently pins the
+complete field count and every unordered-pair count across
+10B.1a.1-10B.1a.11. No public Core schema or byte changes.
+
+Passing 10B.1a.11 is the only event that closes the seal foundation. It does
+not allocate or emit H0010 and authorizes no semantic consumer. If any unit
+cannot stay under the 500-line ceiling, it stops for a finer reviewed split;
+facts may not be moved into 10B.1b.
+
+### Increment 10B.1b: recursive H0010 consumer and discriminating entry
+
+#### Exact envelope and dependency
+
+10B.1b may begin only after each of 10B.1a.1 through 10B.1a.11 has separately
+completed its independent acceptance, commit, publication, terminal Ubuntu
+and Windows CI, durable status record, and BDFL go-signal sequence. It may
+modify only:
+
+- `src/parser.rs` for the recursive canonical-tree H0010 visitor and its
+  parser-owned occurrence construction;
+- `src/diagnostic_catalog.rs` and `src/diagnostics.rs` for the already accepted
+  one-code/one-cause allocation and independently pinned 88-code/179-cause
+  projections;
+- `docs/DIAGNOSTICS.md` and `docs/LANGUAGE_REFERENCE.md` for checked H0010
+  projection and the accepted non-chainable comparison rule;
+- `tools/check_all.ps1` for real human/JSON/runtime, entry-discrimination,
+  bounded audit, and corruption matrices; and
+- the five exact fixtures
+  `pre_ar_comparison_conjunction_pass.hum`,
+  `pre_ar_condition_chained_comparison_fail.hum`,
+  `pre_ar_nested_chained_comparison_fail.hum`,
+  `pre_ar_predicate_chained_comparison_fail.hum`, and
+  `pre_ar_return_chained_comparison_fail.hum` under
+  `fixtures/foundation/`.
+
+`src/ast.rs` and `src/core_body.rs` are read-only accepted complete-seal
+authority in 10B.1b. Changing them means 10B.1a.1-10B.1a.11 did not close the
+foundation and stops the increment; it is not a local correction. No resolver
+or later consumer convergence enters scope.
+
+#### H0010 and recursive consumption
+
+H0010 remains exactly one active parser code and exactly one registered cause,
+`chained_comparison_not_supported_v0`. Condition, Predicate, return, nested,
+grouped, call-argument, list, record, permission, Try, Boolean-left, and
+Boolean-right sites are distinct occurrences of that one fundamental cause,
+not new causes. The parser visitor accepts only the validated sealed canonical
+occurrence plus its separately retained parser authority. It has no raw source,
+rendered canonical text, public code lookup, default cause, fallback scanner,
+parallel successful tree, or child-endpoint inference input.
+
+The visitor exhaustively recurses through every admitted child role and rejects
+a comparison whose operand contains another comparison. It rejects top-level
+and nested chains, including `(1 < 2 < 3) and true` and chains nested on either
+side of another operator, before resolver/runtime. It preserves independent
+comparisons such as `1 < 2 and 2 < 3`, independent grouped comparisons, and
+comparison-looking Text. The later comparison token is primary, the first is
+related, the accepted message/help/severity/order remain exact, runtime exits
+1 with zero stdout, and no generic trap appears. H0010 remains an ordinary
+source diagnostic; this amendment does not change its exit semantics.
+
+Catalog evidence pins exactly 88 active codes, three reserved families, zero
+retired codes, and 179 registered causes. The test literals are independently
+supplied expectations and may not be derived from the registry projection they
+validate. H0010 retains one historical public ordinal and all existing public
+diagnostic ordering remains unchanged.
+
+#### Discriminating entry evidence
+
+Parser diagnostics own malformed source before runtime entry selection. A
+nonexistent entry against an H0010-invalid file therefore correctly produces
+H0010 and cannot distinguish entry handling; that rejected test shape is
+retired.
+
+The permanent control instead uses the parser-clean
+`pre_ar_comparison_conjunction_pass.hum` fixture with an exact nonexistent
+entry. It must exit 1 with the existing exact `entry task <name> was not found`
+entry-resolution error bytes, contain no H0010, and produce no source
+diagnostic projection. A run command naming the exact existing task in each
+chained-comparison fixture must also exit 1, but parser-first preflight must
+instead produce exactly one H0010 with its sealed code identity, message, help,
+primary and related sites, exact stderr bytes, and zero stdout, and must not
+contain the entry-resolution error.
+
+The evidence discriminates by diagnostic identity and exact stderr content,
+never by exit status. Substituting either command's complete stderr, diagnostic
+identity, message, projection, or count for the other must fail. Sabotages that
+replace the clean control with an invalid file, ignore `--entry`, reuse either
+result, erase the exact message distinction, or assert only the shared nonzero
+exit must turn the test red. This changes no parser-first precedence,
+entry-selection behavior, diagnostic semantics, or public exit behavior.
+
+#### Honest source-audit boundary and load-bearing proof
+
+`audit_h0010_production_dataflow` is explicitly bounded to mechanically
+detecting direct production construction of public `H0010` or its registered
+cause outside the one parser visitor, direct raw-text/render-to-parse helper
+calls inside that typed visitor slice, and loss of the visitor's sealed typed
+signature. It is not evidence for, and is not required to discover, arbitrary
+aliases, macros, closures, methods, generated code, upstream scanners,
+dynamic dispatch, or future indirection. Claiming otherwise is prohibited.
+
+The load-bearing proof is:
+
+1. the compile-time typed boundary accepts only the sealed canonical
+   occurrence and separate parser authority;
+2. real parser, human, JSON, and runtime paths produce the exact H0010
+   occurrences; and
+3. while source and retained text remain fixed, removing, moving,
+   substituting, reparenting, or changing the nested comparison node, operator
+   token, child role, delimiter/depth, occurrence identity, or authority route
+   changes the owned H0010 occurrence or fails closed before resolver/runtime.
+
+A text renderer/reparser or root-only scan cannot pass that corruption matrix.
+The source audit is defense in depth only. Review may reject a real typed or
+behavioral bypass, but may not revive the impossible claim that spelling scans
+prove absence of every possible program indirection.
+
+### Rejected 10B.1 preservation and clean-baseline gate
+
+The rejected work is preserved, not accepted:
+
+- baseline `HEAD == origin/main ==
+  8a245ede1649519d5d07a5454f65e93d0aa13049`;
+- empty real index;
+- eight modified tracked paths:
+  `docs/DIAGNOSTICS.md`, `docs/LANGUAGE_REFERENCE.md`, `src/ast.rs`,
+  `src/core_body.rs`, `src/diagnostic_catalog.rs`, `src/diagnostics.rs`,
+  `src/parser.rs`, and `tools/check_all.ps1`;
+- 3,091 tracked insertions and 88 tracked deletions; and
+- five untracked fixtures with exact SHA-256:
+  - `pre_ar_comparison_conjunction_pass.hum`:
+    `3081b3ba84045cb64bb8c049fde683cbfc64c91dae956e9a71d012b193951433`;
+  - `pre_ar_condition_chained_comparison_fail.hum`:
+    `c49bc27b53c2fbbfa8012525c25e756eb8da4871fe83ea2b6caec94466bc9d41`;
+  - `pre_ar_nested_chained_comparison_fail.hum`:
+    `15e0caed7466978b95c1867d9492b83844197b3dc59754cd7805949f8b5a5b50`;
+  - `pre_ar_predicate_chained_comparison_fail.hum`:
+    `7376de1f01f018943174876886ea37da02e5a4458b032d24214f5ff4116e8d30`;
+  - `pre_ar_return_chained_comparison_fail.hum`:
+    `6096390130a62ddc5a2128b936b188d05a0a63aa9036cad4ffd84c7b16207fb8`.
+
+The condition fixture hash above is intentionally checked as a complete
+64-hex SHA-256 value during review; any transcription or byte mismatch is a
+document rejection.
+
+In each shell a fresh empty temporary Git index received exactly the listed 13
+paths, and `git write-tree` produced
+`af756a7fea21353794de585869a7d2df487fe663`. The procedure was run once from
+PowerShell and once from Git Bash with distinct temporary index files; both
+returned that exact OID, both reported exactly 13 indexed paths, both removed
+their temporary files, and the real index remained empty. This 13-path subtree
+OID, not shell-piped diff bytes or a full repository tree that would drift
+with later documentation commits, is the cross-shell content identity.
+
+After this amendment is independently accepted, BDFL-accepted, committed,
+published, terminal-green, and durably recorded, a separate BDFL preservation
+signal may create the single write-once branch
+`archive/workorder-10b1-rejected-2026-07-19`. Its one commit must have the then
+published documentation-only `main` head as parent, contain exactly these 13
+paths, reproduce the tree OID and fixture hashes, and be pushed only to that
+archive ref. Retrieval of at least one Rust path and one fixture through
+`git show "${ArchiveCommit}:<path>"` must reproduce their archived content
+hashes before `git switch main` clears the tree. No patch, stash, second
+artifact, force update, merge, cherry-pick, reset, clean, or manual deletion is
+authorized. Archive execution, archive push, retrieval proof, clearing, and
+its status record remain separately gated.
+
+Only the five fixture blobs may later be materialized byte-for-byte in 10B.1b
+after their hashes are checked. Rejected Rust, documentation, harness wiring,
+tests, and assertions are inspection-only design evidence. 10B.1a.1 starts
+from clean accepted main; it may not start with the interleaved rejected patch.
+
+### Review, publication, and hard stops
+
+This amendment is proposed and unauthorized. Its author is disqualified from
+its verdict. A fresh independent architect-reviewer must cold-start from
+repository ground truth and verify, rather than merely restate:
+
+- both independent rejection verdicts and the one-cycle exhaustion;
+- every inventory row against the accepted 10A AST, the current parser
+  grammar, every admitted canonical kind/operator/intent/malformed cause,
+  typed-failure wrapper, and every body/section statement relationship;
+- the direct numeric element-place omission and its representation-only
+  placement in 10B.1a;
+- independent authority domains, exhaustive compile-time closure, single and
+  pairwise corruption, cross-occurrence substitution, and anti-tautology
+  locks;
+- that every one of 10B.1a.1-10B.1a.11 and 10B.1b is separately review-sized,
+  ordered, capped, and has an exact envelope, real paths, positive/misuse
+  evidence, configuration coverage, compatibility locks, bans, and hard stop;
+- that the explicit-entry control is genuinely discriminating without
+  inverting parser precedence;
+- the bounded static-audit claim and the stronger typed/behavioral/corruption
+  proof;
+- the exact eight tracked paths, five fixture paths and hashes, empty index,
+  cross-shell 13-path subtree OID, and absence of 10B.2 or unrelated work; and
+- unchanged 10B.2-10B.12, 10C-10F, Session AR, decisions, diagnostics outside
+  the accepted H0010 allocation, archive history, and later-work bans.
+
+The reviewer runs only `git diff --check`. The rejected implementation's green
+tests are not document-acceptance evidence, and no implementation is resumed
+during review. It reports P0/P1/P2 findings and exactly one verdict: `ACCEPT`,
+`ACCEPT WITH REQUIRED FIX`, or `REJECT`. It must not edit, archive, clear,
+commit, push, implement, or begin another increment.
+
+Even `ACCEPT` authorizes only a BDFL-scoped `WORKORDER_10.md` documentation
+commit. Separate BDFL authority remains required for publication, status,
+archive execution, tree clearing, every 10B.1a subincrement, and each later
+increment. Any missing inventory fact, new file need, public behavior change,
+newly exposed defect, second rejection within a subincrement, or scope pressure
+stops for BDFL triage. No actor may solve it through another shim, fallback
+scanner, partial seal, locally expanded envelope, or implied authority.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
@@ -2936,6 +3647,28 @@ commit passed while the selector was dead. Increment 10B.1 is the next target
 but remains unauthorized pending independent acceptance and durable
 publication of this status record plus a separate explicit BDFL go signal.
 10B.2, 10C, Session AR, and every later item remain unauthorized.
+
+Increment 10B.1 was then implemented, independently `REJECT`ed, corrected once,
+and independently `REJECT`ed again. The correction cycle is exhausted, no
+implementation is accepted, and no third correction against that scope is
+authorized. The exact rejected state remains preserved with an empty index as
+the eight tracked paths and five fixtures recorded in the proposed 2026-07-19
+re-scope amendment; its cross-shell 13-path Git subtree OID is
+`af756a7fea21353794de585869a7d2df487fe663`.
+
+The proposed amendment replaces 10B.1 prospectively with the ordered
+10B.1a.1-10B.1a.11 canonical-seal foundation train followed by 10B.1b recursive
+H0010 consumption and discriminating entry evidence. It also bounds the direct
+source audit honestly and requires a separately authorized write-once archive
+before the rejected tree may be cleared. The amendment is unreviewed,
+unaccepted, uncommitted, unpublished, and does not authorize preservation
+execution or implementation. The next actor is a fresh independent
+pre-issuance reviewer. Even an `ACCEPT` verdict requires BDFL acceptance, a
+documentation-only commit, separately authorized publication with terminal
+Ubuntu and Windows CI, a durable status record, separate archive execution and
+clearing authority, and a separate 10B.1a.1 go signal. Every 10B.1a
+subincrement, 10B.1b, 10B.2, 10C, Session AR, and all later work remain
+unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
