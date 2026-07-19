@@ -612,6 +612,13 @@ connectives, or general list equality. H0701 marks meaningful prose with no
 executable intent; H0704 rejects malformed or semantically invalid executable
 candidates before evaluation. H0630 retains precedence for opaque Path use.
 
+Comparisons are non-chainable everywhere the shared expression parser owns an
+expression. Write `1 < 2 and 2 < 3`, not `1 < 2 < 3`. H0010 reports the later
+comparison operator, relates the first operator, and rejects the source before
+resolver, contract, or runtime handling. The rule is recursive through grouped,
+call, collection, permission, and typed-failure expression children; comparison-
+looking text inside a Text literal remains text.
+
 The broader reference rule is simple: important claims belong in checked sections, not comments. A checked section line should be specific enough that a future verifier, test, or reviewer could notice when an implementation breaks it.
 
 ## Test Obligations And Coverage

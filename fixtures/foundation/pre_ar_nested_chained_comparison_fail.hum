@@ -1,0 +1,14 @@
+module fixtures.foundation.pre_ar_nested_chained_comparison_fail
+
+task nested_chained_return -> Bool {
+  why:
+    reject a comparison chain nested under a Boolean operator
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return (1 < 2 < 3) and true
+}

@@ -24,6 +24,152 @@ pub struct ParsedSourceRange {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedLexicalTokenKind {
+    TextQuote,
+    ParenthesisOpen,
+    ParenthesisClose,
+    ListOpen,
+    ListClose,
+    RecordOpen,
+    RecordClose,
+    Identifier,
+    IntegerLiteral,
+    ComparisonOperator,
+    Comma,
+    Dot,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedMalformedExpressionCause {
+    UnterminatedTextLiteral,
+    MissingDelimiter,
+    MismatchedDelimiter,
+    DelimiterDepthExceeded,
+    MissingOperand,
+    InvalidComparisonOperator,
+    InvalidOperandStarter,
+    MalformedFieldPlace,
+    ListElementSeparator,
+    ListTrailingComma,
+    ListNonTextElement,
+    IntegerLiteralOutOfRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedExpectedLexicalEvidence {
+    Token(ParsedLexicalTokenKind),
+    Operand,
+    ComparisonOperator,
+    Identifier,
+    ListSeparatorOrClose,
+    TextListElement,
+    Int64Value,
+    MaximumDelimiterDepth(usize),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedActualLexicalEvidence {
+    EndOfInput,
+    Token {
+        kind: ParsedLexicalTokenKind,
+        range: ParsedSourceRange,
+    },
+    DelimiterDepth(usize),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedMalformedExpressionFact {
+    pub cause: ParsedMalformedExpressionCause,
+    pub offending: ParsedSourceRange,
+    pub expected: ParsedExpectedLexicalEvidence,
+    pub actual: ParsedActualLexicalEvidence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedLexicalStatus {
+    Complete,
+    Malformed(ParsedMalformedExpressionFact),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedExpressionIntent {
+    Return,
+    Binding,
+    SetValue,
+    SaveValue,
+    Condition,
+    LoopCollection,
+    LoopRangeStart,
+    LoopRangeEnd,
+    Failure,
+    TestExpectation,
+    NeedsPredicate,
+    EnsuresPredicate,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedDelimiterKind {
+    Parenthesis,
+    List,
+    Record,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedDelimiterSyntax {
+    pub kind: ParsedDelimiterKind,
+    pub open: ParsedSourceRange,
+    pub close: Option<ParsedSourceRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedCallSyntaxFacts {
+    pub open: ParsedSourceRange,
+    pub close: Option<ParsedSourceRange>,
+    pub separators: Vec<ParsedSourceRange>,
+    pub trailing: Option<ParsedSourceRange>,
+    pub gaps: Vec<ParsedSourceRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedCanonicalNodeSyntax {
+    pub node_id: ParserSyntaxNodeId,
+    pub child_position: Vec<usize>,
+    pub range: ParsedSourceRange,
+    pub operator: Option<ParsedSourceRange>,
+    pub delimiter: Option<ParsedDelimiterSyntax>,
+    pub call: Option<ParsedCallSyntaxFacts>,
+    pub delimiter_depth: usize,
+    pub lexical_status: ParsedLexicalStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedTypedFailureWrapperKind {
+    Try,
+    Wrap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedTypedFailureWrapperSyntax {
+    pub kind: ParsedTypedFailureWrapperKind,
+    pub try_keyword: ParsedSourceRange,
+    pub failure_root: Option<ParsedIdentifier>,
+    pub failure_variant: Option<ParsedIdentifier>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedExpressionOccurrenceFacts {
+    pub root_node_id: ParserSyntaxNodeId,
+    pub intent: ParsedExpressionIntent,
+    pub intent_signal: Option<ParsedSourceRange>,
+    pub maximum_delimiter_depth: usize,
+    pub lexical_status: ParsedLexicalStatus,
+    pub nodes: Vec<ParsedCanonicalNodeSyntax>,
+    pub typed_failure_wrapper: Option<ParsedTypedFailureWrapperSyntax>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParsedBinaryOperator {
     Multiply,
     Divide,
@@ -74,6 +220,11 @@ pub enum CanonicalExpressionKind {
     Permission {
         permission: ParamPermission,
         value: Box<CanonicalExpression>,
+    },
+    Try {
+        value: Box<CanonicalExpression>,
+        failure_root: Option<ParsedIdentifier>,
+        failure_variant: Option<ParsedIdentifier>,
     },
     Binary {
         operator: ParsedBinaryOperator,
@@ -224,6 +375,7 @@ pub struct CallableTypeSyntax {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedBodyStatement {
     pub kind: ParsedBodyStatementKind,
+    pub syntax: ParsedStatementSyntaxFacts,
     pub span: Span,
     pub source_node_id: ParserSyntaxNodeId,
     pub block_relationship: ParsedBlockRelationship,
@@ -233,6 +385,56 @@ pub struct ParsedBodyStatement {
     pub core_status: &'static str,
     pub core_expression_kind: Option<&'static str>,
     pub core_reason: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedLoopKind {
+    While,
+    ForEach,
+    ForIndex,
+    Unconditional,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedLoopRelationshipKind {
+    CollectionIn,
+    RangeUntil,
+    RangeThrough,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedLoopRelationshipFacts {
+    pub kind: ParsedLoopRelationshipKind,
+    pub binding: ParsedIdentifier,
+    pub introducer: ParsedSourceRange,
+    pub bound: Option<ParsedSourceRange>,
+    pub expression_nodes: Vec<ParserSyntaxNodeId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedStatementSyntaxKind {
+    Return,
+    Binding { mutable: bool },
+    Set,
+    Save,
+    Condition,
+    Loop { kind: ParsedLoopKind },
+    Failure,
+    TestExpectation,
+    BlockClose,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedStatementSyntaxFacts {
+    pub kind: ParsedStatementSyntaxKind,
+    pub keyword: ParsedSourceRange,
+    pub binding: Option<ParsedIdentifier>,
+    pub target: Option<ParsedExpression>,
+    pub destination: Option<ParsedIdentifier>,
+    pub relationship_token: Option<ParsedSourceRange>,
+    pub loop_relationship: Option<ParsedLoopRelationshipFacts>,
+    pub expression_nodes: Vec<ParserSyntaxNodeId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -266,6 +468,7 @@ pub struct ParsedExpression {
     pub kind: ParsedExpressionKind,
     pub span: Span,
     pub canonical: CanonicalExpression,
+    pub occurrence: ParsedExpressionOccurrenceFacts,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -321,6 +524,7 @@ pub struct Section {
     pub name: String,
     pub lines: Vec<SectionLine>,
     pub body_syntax: Vec<Option<ParsedBodyStatement>>,
+    pub expression_syntax: Vec<Option<ParsedExpression>>,
     pub span: Span,
 }
 

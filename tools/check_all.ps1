@@ -394,6 +394,120 @@ try {
     if ($CoreBodySource.Contains($ForbiddenRecognizer)) { throw "Increment 10A core_body retained a competing source recognizer: $ForbiddenRecognizer" }
   }
 
+  Write-Host '==> Increment 10B.1 canonical expression occurrence and recursive H0010 matrix'
+  foreach ($EvidenceTest in @(
+    'parser::tests::increment_10b1_expression_occurrence_facts_are_parser_owned_and_exact',
+    'parser::tests::increment_10b1_malformed_lexical_facts_are_structured_exact_and_fail_closed',
+    'parser::tests::increment_10b1_statement_relationship_facts_are_structured_and_exact',
+    'parser::tests::increment_10b1_h0010_recurses_over_canonical_expression_children',
+    'parser::tests::increment_10b1_h0010_source_audit_is_structural_complete_and_sabotage_sensitive',
+    'parser::tests::increment_10b1_h0010_depends_on_canonical_tree_not_retained_legacy_projection',
+    'core_body::tests::increment_10b1_core_body_rejects_nested_canonical_tree_corruption'
+  )) {
+    Invoke-ExactRustTest "Increment 10B.1 evidence $EvidenceTest" $Cargo $EvidenceTest
+  }
+
+  $Increment10B1FixtureHashes = @{
+    'fixtures/foundation/pre_ar_comparison_conjunction_pass.hum' = '3081b3ba84045cb64bb8c049fde683cbfc64c91dae956e9a71d012b193951433'
+    'fixtures/foundation/pre_ar_condition_chained_comparison_fail.hum' = 'c49bc27b53c2fbbfa8012525c25e756eb8da4871fe83ea2b6caec94466bc9d41'
+    'fixtures/foundation/pre_ar_nested_chained_comparison_fail.hum' = '15e0caed7466978b95c1867d9492b83844197b3dc59754cd7805949f8b5a5b50'
+    'fixtures/foundation/pre_ar_predicate_chained_comparison_fail.hum' = '7376de1f01f018943174876886ea37da02e5a4458b032d24214f5ff4116e8d30'
+    'fixtures/foundation/pre_ar_return_chained_comparison_fail.hum' = '6096390130a62ddc5a2128b936b188d05a0a63aa9036cad4ffd84c7b16207fb8'
+  }
+  foreach ($Fixture in $Increment10B1FixtureHashes.Keys) {
+    $ObservedHash = (Get-FileHash -LiteralPath (Join-Path $RepoRoot $Fixture) -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($ObservedHash -cne $Increment10B1FixtureHashes[$Fixture]) { throw "Increment 10B.1 fixture bytes drifted: $Fixture" }
+  }
+
+  $Increment10B1Positive = 'fixtures/foundation/pre_ar_comparison_conjunction_pass.hum'
+  foreach ($Stage in $FoundationStages) {
+    foreach ($Format in @('human', 'json')) {
+      $Args = @($Stage.Args)
+      if ($Format -eq 'json') { $Args += '--format=json' }
+      $Args += $Increment10B1Positive
+      $Result = Read-NativeChannelsWithExit "Increment 10B.1 conjunction $($Stage.Name) $Format" $Hum $Args
+      $Combined = $Result.Stdout + $Result.Stderr
+      if ($Result.ExitCode -notin @(0, 1) -or $Combined.Contains('H0010') -or $Combined.Contains('parser_fact_corrupt_v0') -or $Combined.Contains('runtime trap')) { throw "Increment 10B.1 independent comparisons were rejected or corrupted in $($Stage.Name) $Format" }
+      if ($Format -eq 'json') {
+        Assert-Json "Increment 10B.1 conjunction $($Stage.Name) JSON" $Result.Stdout
+        $Report = $Result.Stdout | ConvertFrom-Json
+        if ($null -ne $Report.summary.source_errors -and $Report.summary.source_errors -ne 0) { throw "Increment 10B.1 conjunction gained a source error in $($Stage.Name)" }
+        if ($Stage.Name -eq 'check' -and $Report.summary.errors -ne 0) { throw 'Increment 10B.1 conjunction check must remain source-clean' }
+      }
+    }
+  }
+  $PositiveGraph = Read-NativeChannelsWithExit 'Increment 10B.1 conjunction graph structural evidence' $Hum @('graph', $Increment10B1Positive)
+  if ($PositiveGraph.ExitCode -ne 0 -or $PositiveGraph.Stderr -ne '' -or $PositiveGraph.Stdout.Contains('H0010')) { throw 'Increment 10B.1 conjunction graph was not source-clean' }
+  Assert-Json 'Increment 10B.1 conjunction graph JSON' $PositiveGraph.Stdout
+  $PositiveGraphReport = $PositiveGraph.Stdout | ConvertFrom-Json
+  $PositiveGraphTasks = @(Get-GraphItems @($PositiveGraphReport.files[0].items) | Where-Object { $_.kind -eq 'task' })
+  $PositiveGraphTaskNames = @($PositiveGraphTasks.name | Sort-Object) -join ','
+  if ($PositiveGraphReport.summary.errors -ne 0 -or $PositiveGraphTasks.Count -ne 2 -or $PositiveGraphTaskNames -cne 'comparison_looking_text,independent_comparisons') { throw 'Increment 10B.1 conjunction graph identities drifted' }
+  $TextRuntime = Read-NativeChannelsWithExit 'Increment 10B.1 comparison-looking Text runtime first fresh run' $Hum @('run', $Increment10B1Positive, '--entry', 'comparison_looking_text')
+  $TextRuntimeRepeat = Read-NativeChannelsWithExit 'Increment 10B.1 comparison-looking Text runtime second fresh run' $Hum @('run', $Increment10B1Positive, '--entry', 'comparison_looking_text')
+  $TextObserved = $TextRuntime.Stdout.Replace([Environment]::NewLine, [string][char]10)
+  $TextExpected = '1 < 2 < 3' + [char]10
+  if ($TextRuntime.ExitCode -ne 0 -or $TextRuntime.Stderr -ne '' -or $TextObserved -cne $TextExpected -or $TextRuntime.Stdout -cne $TextRuntimeRepeat.Stdout -or $TextRuntime.Stderr -cne $TextRuntimeRepeat.Stderr -or $TextRuntime.ExitCode -ne $TextRuntimeRepeat.ExitCode) { throw 'Increment 10B.1 comparison-looking Text did not remain exact and repeatable' }
+
+  $Increment10B1Misuse = @(
+    @{ Path = 'fixtures/foundation/pre_ar_condition_chained_comparison_fail.hum'; Entry = 'chained_condition'; Line = 13; Primary = 14; Related = 10 },
+    @{ Path = 'fixtures/foundation/pre_ar_predicate_chained_comparison_fail.hum'; Entry = 'chained_predicate'; Line = 8; Primary = 11; Related = 7 },
+    @{ Path = 'fixtures/foundation/pre_ar_return_chained_comparison_fail.hum'; Entry = 'chained_return'; Line = 13; Primary = 18; Related = 14 },
+    @{ Path = 'fixtures/foundation/pre_ar_nested_chained_comparison_fail.hum'; Entry = 'nested_chained_return'; Line = 13; Primary = 19; Related = 15 }
+  )
+  foreach ($Misuse in $Increment10B1Misuse) {
+    foreach ($Format in @('human', 'json')) {
+      $Args = @('check')
+      if ($Format -eq 'json') { $Args += '--format=json' }
+      $Args += $Misuse.Path
+      $Check = Read-NativeChannelsWithExit "Increment 10B.1 H0010 check $Format $($Misuse.Path)" $Hum $Args
+      $Combined = $Check.Stdout + $Check.Stderr
+      if ($Check.ExitCode -ne 1 -or [regex]::Matches($Combined, 'H0010').Count -ne 1 -or $Combined.Contains('runtime trap') -or $Combined.Contains('parser_fact_corrupt_v0')) { throw "Increment 10B.1 check did not produce exactly one H0010 for $($Misuse.Path) in $Format" }
+      if ($Format -eq 'json') {
+        Assert-Json "Increment 10B.1 H0010 check JSON $($Misuse.Path)" $Check.Stdout
+        $CheckReport = $Check.Stdout | ConvertFrom-Json
+        $Rows = @($CheckReport.diagnostics)
+        if ($Rows.Count -ne 1 -or $Rows[0].code -ne 'H0010' -or $Rows[0].title -ne 'comparison chaining is not supported' -or $Rows[0].message -ne 'comparison chaining is not supported' -or $Rows[0].severity -ne 'error' -or $Rows[0].span.file -ne $Misuse.Path -or $Rows[0].span.line -ne $Misuse.Line -or $Rows[0].span.column -ne $Misuse.Primary -or @($Rows[0].related_spans).Count -ne 1 -or $Rows[0].related_spans[0].label -ne 'first comparison already being chained' -or $Rows[0].related_spans[0].span.line -ne $Misuse.Line -or $Rows[0].related_spans[0].span.column -ne $Misuse.Related -or $Rows[0].help -ne 'Repeat the middle operand and join independent comparisons, for example `1 < 2 and 2 < 3`.') { throw "Increment 10B.1 H0010 JSON projection drifted for $($Misuse.Path)" }
+      }
+    }
+    foreach ($Stage in $FoundationStages | Where-Object { $_.Name -ne 'check' }) {
+      foreach ($Format in @('human', 'json')) {
+        $Args = @($Stage.Args)
+        if ($Format -eq 'json') { $Args += '--format=json' }
+        $Args += $Misuse.Path
+        $Blocked = Read-NativeChannelsWithExit "Increment 10B.1 H0010 blocker $($Stage.Name) $Format $($Misuse.Path)" $Hum $Args
+        $Combined = $Blocked.Stdout + $Blocked.Stderr
+        if ($Blocked.ExitCode -ne 1 -or $Combined.Contains('runtime trap') -or $Combined.Contains('parser_fact_corrupt_v0')) { throw "Increment 10B.1 H0010 did not block $($Stage.Name) for $($Misuse.Path) in $Format" }
+        if ($Format -eq 'human' -and [regex]::Matches($Combined, 'H0010').Count -ne 1) { throw "Increment 10B.1 human blocker lost H0010 in $($Stage.Name) for $($Misuse.Path)" }
+        if ($Format -eq 'json') {
+          Assert-Json "Increment 10B.1 H0010 blocker $($Stage.Name) JSON $($Misuse.Path)" $Blocked.Stdout
+          $BlockedReport = $Blocked.Stdout | ConvertFrom-Json
+          $SourceErrors = if ($null -ne $BlockedReport.summary.source_errors) { $BlockedReport.summary.source_errors } else { 0 }
+          $Errors = if ($null -ne $BlockedReport.summary.errors) { $BlockedReport.summary.errors } else { 0 }
+          if ($SourceErrors -ne 1 -and $Errors -ne 1) { throw "Increment 10B.1 JSON blocker did not retain exactly one source error in $($Stage.Name) for $($Misuse.Path)" }
+        }
+      }
+    }
+    $Graph = Read-NativeChannelsWithExit "Increment 10B.1 H0010 graph $($Misuse.Path)" $Hum @('graph', $Misuse.Path)
+    if ($Graph.ExitCode -ne 1 -or $Graph.Stderr -ne '' -or [regex]::Matches($Graph.Stdout, 'H0010').Count -ne 1) { throw "Increment 10B.1 graph did not retain one H0010 for $($Misuse.Path)" }
+    Assert-Json "Increment 10B.1 H0010 graph JSON $($Misuse.Path)" $Graph.Stdout
+    $GraphReport = $Graph.Stdout | ConvertFrom-Json
+    if ($GraphReport.summary.files -ne 1 -or $GraphReport.summary.items -ne 1 -or $GraphReport.summary.errors -ne 1 -or @($GraphReport.diagnostics).Count -ne 1 -or $GraphReport.diagnostics[0].code -ne 'H0010') { throw "Increment 10B.1 graph structure drifted for $($Misuse.Path)" }
+    $LegacyRuntime = Read-NativeChannelsWithExit "Increment 10B.1 H0010 legacy runtime preflight $($Misuse.Path)" $Hum @('run', $Misuse.Path)
+    if ($LegacyRuntime.ExitCode -ne 1 -or $LegacyRuntime.Stdout -ne '' -or [regex]::Matches($LegacyRuntime.Stderr, 'error\[H0010\]').Count -ne 1 -or $LegacyRuntime.Stderr.Contains('runtime trap') -or $LegacyRuntime.Stderr.Contains('panicked')) { throw "Increment 10B.1 H0010 legacy runtime probe reached execution for $($Misuse.Path)" }
+    $Runtime = Read-NativeChannelsWithExit "Increment 10B.1 H0010 explicit-entry runtime preflight $($Misuse.Entry)" $Hum @('run', $Misuse.Path, '--entry', $Misuse.Entry)
+    $RuntimeExpected = @(
+      "$($Misuse.Path):$($Misuse.Line):$($Misuse.Primary): error[H0010]: comparison chaining is not supported",
+      '  help: Repeat the middle operand and join independent comparisons, for example `1 < 2 and 2 < 3`.',
+      "  related: first comparison already being chained at $($Misuse.Path):$($Misuse.Line):$($Misuse.Related)"
+    ) -join "`n"
+    $RuntimeStderr = $Runtime.Stderr.Replace(([string][char]13 + [string][char]10), [string][char]10).TrimEnd()
+    if ($Runtime.ExitCode -ne 1 -or $Runtime.Stdout -ne '' -or $RuntimeStderr -cne $RuntimeExpected -or [regex]::Matches($Runtime.Stderr, 'error\[H0010\]').Count -ne 1 -or $Runtime.Stderr.Contains('runtime trap') -or $Runtime.Stderr.Contains('panicked')) { throw "Increment 10B.1 explicit-entry H0010 runtime projection drifted for $($Misuse.Entry)" }
+  }
+  $NestedCheckFirst = Read-NativeChannelsWithExit 'Increment 10B.1 nested H0010 first fresh JSON run' $Hum @('check', '--format=json', 'fixtures/foundation/pre_ar_nested_chained_comparison_fail.hum')
+  $NestedCheckSecond = Read-NativeChannelsWithExit 'Increment 10B.1 nested H0010 second fresh JSON run' $Hum @('check', '--format=json', 'fixtures/foundation/pre_ar_nested_chained_comparison_fail.hum')
+  if ($NestedCheckFirst.Stdout -cne $NestedCheckSecond.Stdout -or $NestedCheckFirst.Stderr -cne $NestedCheckSecond.Stderr -or $NestedCheckFirst.ExitCode -ne $NestedCheckSecond.ExitCode) { throw 'Increment 10B.1 nested H0010 JSON evidence is not byte-identical across fresh runs' }
+
   $VersionJson = Read-NativeOutput 'version JSON' $Hum @('version', '--format', 'json')
   Assert-Json 'version JSON' $VersionJson
   if (-not $VersionJson.Contains('"core_lower": "hum.core_lower.v0"')) { throw 'version JSON is missing hum.core_lower.v0 schema' }
@@ -411,7 +525,7 @@ try {
   Assert-Json 'diagnostic catalog JSON' $DiagnosticsJson
   $DiagnosticsCatalog = $DiagnosticsJson | ConvertFrom-Json
   $DiagnosticCodes = @($DiagnosticsCatalog.diagnostics | ForEach-Object { $_.code })
-  if ($DiagnosticsCatalog.count -ne 87 -or $DiagnosticCodes.Count -ne 87 -or @($DiagnosticCodes | Sort-Object -Unique).Count -ne 87) { throw 'canonical diagnostic catalog must expose exactly 87 unique active codes' }
+  if ($DiagnosticsCatalog.count -ne 88 -or $DiagnosticCodes.Count -ne 88 -or @($DiagnosticCodes | Sort-Object -Unique).Count -ne 88) { throw 'canonical diagnostic catalog must expose exactly 88 unique active codes' }
   $DiagnosticCatalogSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/diagnostic_catalog.rs'))
   foreach ($RegistryEvidence in @('family_interval_failures_are_independent', 'exact_code_identity_and_ownership_failures_are_independent', 'retired_allocations_are_append_only_and_semantically_frozen', 'public_catalog_projection_rejects_every_semantic_field_mismatch', 'catalog_detail_coverage_rejects_missing_duplicate_and_unknown_rows', 'checked_documents_reject_unknown_contradictory_and_missing_projections')) {
     if (-not $DiagnosticCatalogSource.Contains($RegistryEvidence)) { throw "canonical diagnostic registry evidence was removed: $RegistryEvidence" }
@@ -684,7 +798,7 @@ try {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 73 -or $UniqueExactRustSelectorCredits.Count -ne 73) { throw "exact Rust selector inventory must credit 73 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 80 -or $UniqueExactRustSelectorCredits.Count -ne 80) { throw "exact Rust selector inventory must credit 80 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')

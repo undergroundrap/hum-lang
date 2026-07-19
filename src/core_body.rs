@@ -25,6 +25,30 @@ pub struct BodyStatement {
 }
 
 pub fn analyze_does_section(section: &Section) -> BodyGrammarReport {
+    let retained = section
+        .body_syntax
+        .iter()
+        .flatten()
+        .cloned()
+        .collect::<Vec<_>>();
+    if let Err(reason) = crate::parser::validate_retained_body_syntax(&retained) {
+        return BodyGrammarReport {
+            status: "parser_fact_corrupt_v0",
+            grammar_status: CORE_BODY_GRAMMAR_STATUS,
+            total_lines: section.lines.len(),
+            meaningful_lines: retained.len(),
+            recognized_lines: 0,
+            unsupported_lines: 1,
+            statements: vec![BodyStatement {
+                span: section.span.clone(),
+                text: String::new(),
+                kind: "parser_fact_corrupt",
+                status: "unsupported_v0",
+                expression_kind: None,
+                reason: Some(reason),
+            }],
+        };
+    }
     let mut statements = Vec::new();
     let mut meaningful_lines = 0usize;
     let mut recognized_lines = 0usize;
@@ -79,6 +103,7 @@ pub fn analyze_does_section(section: &Section) -> BodyGrammarReport {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::CanonicalExpressionKind;
     use crate::parser::parse_source;
 
     use super::analyze_does_section;
@@ -316,6 +341,54 @@ task compatibility(title: Text, flag: Bool) -> Int {
         assert_eq!(
             crate::core_expr::analyze_expression("-1").kind,
             "surface_text"
+        );
+    }
+
+    #[test]
+    fn increment_10b1_core_body_rejects_nested_canonical_tree_corruption() {
+        let mut parsed = parse_source(
+            "canonical-corruption.hum",
+            "task chained() -> Bool {\n  does:\n    return (1 < 2 < 3) and true\n}\n",
+        );
+        let crate::ast::Item::Task(task) = &mut parsed.file.items[0] else {
+            panic!("task")
+        };
+        let section = task
+            .sections
+            .iter_mut()
+            .find(|section| section.name == "does")
+            .expect("does");
+        let retained_text = section.lines.clone();
+        let statement = section.body_syntax[0].as_mut().expect("retained statement");
+        let crate::ast::ParsedBodyStatementKind::Return(value) = &mut statement.kind else {
+            panic!("return")
+        };
+        let CanonicalExpressionKind::Binary { left, .. } = &mut value.canonical.kind else {
+            panic!("boolean conjunction")
+        };
+        let CanonicalExpressionKind::Group(grouped) = &mut left.kind else {
+            panic!("group")
+        };
+        let CanonicalExpressionKind::Binary {
+            left: nested_left, ..
+        } = &mut grouped.kind
+        else {
+            panic!("outer comparison")
+        };
+        nested_left.kind = CanonicalExpressionKind::Unit;
+
+        assert_eq!(
+            section.lines, retained_text,
+            "source evidence remains fixed"
+        );
+        let report = analyze_does_section(section);
+        assert_eq!(report.status, "parser_fact_corrupt_v0");
+        assert_eq!(report.unsupported_lines, 1);
+        assert_eq!(report.statements.len(), 1);
+        assert_eq!(report.statements[0].kind, "parser_fact_corrupt");
+        assert_eq!(
+            report.statements[0].reason,
+            Some("parser_expression_occurrence_projection_corrupt_v0")
         );
     }
 }

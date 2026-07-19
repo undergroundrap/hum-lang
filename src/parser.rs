@@ -1,10 +1,17 @@
 use crate::ast::{
     App, CallableTypeSyntax, CanonicalExpression, CanonicalExpressionKind, Field, Item, Param,
-    ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship, ParsedBodyStatement,
-    ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus, ParsedCallTrailingStatus,
-    ParsedEffectDeclaration, ParsedEffectDeclarationKind, ParsedExpression, ParsedExpressionKind,
-    ParsedIdentifier, ParsedSourceRange, ParserSyntaxNodeId, Section, SectionLine, SourceFile,
-    Store, Task, Test, TypeDef, TypeSyntax, TypeSyntaxKind,
+    ParamPermission, ParsedActualLexicalEvidence, ParsedBinaryOperator, ParsedBlockRelationship,
+    ParsedBodyStatement, ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus,
+    ParsedCallSyntaxFacts, ParsedCallTrailingStatus, ParsedCanonicalNodeSyntax,
+    ParsedDelimiterKind, ParsedDelimiterSyntax, ParsedEffectDeclaration,
+    ParsedEffectDeclarationKind, ParsedExpectedLexicalEvidence, ParsedExpression,
+    ParsedExpressionIntent, ParsedExpressionKind, ParsedExpressionOccurrenceFacts,
+    ParsedIdentifier, ParsedLexicalStatus, ParsedLexicalTokenKind, ParsedLoopKind,
+    ParsedLoopRelationshipFacts, ParsedLoopRelationshipKind, ParsedMalformedExpressionCause,
+    ParsedMalformedExpressionFact, ParsedSourceRange, ParsedStatementSyntaxFacts,
+    ParsedStatementSyntaxKind, ParsedTypedFailureWrapperKind, ParsedTypedFailureWrapperSyntax,
+    ParserSyntaxNodeId, Section, SectionLine, SourceFile, Store, Task, Test, TypeDef, TypeSyntax,
+    TypeSyntaxKind,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::syntax;
@@ -287,6 +294,7 @@ impl Parser {
         let body_start = index + 1;
         let body_end = close_index;
         let sections = self.parse_sections(body_start, body_end, item_indent + 2);
+        self.emit_chained_comparison_diagnostics(&sections);
         let span = self.span(line.number);
 
         let item = if header.starts_with("app ") {
@@ -449,10 +457,37 @@ impl Parser {
                 } else {
                     vec![None; lines.len()]
                 };
+                let mut expression_syntax = vec![None; lines.len()];
+                if matches!(name.as_str(), "needs" | "ensures") {
+                    let semantic_node = self
+                        .current_semantic_node
+                        .as_deref()
+                        .unwrap_or("resolver-item:unknown");
+                    let intent = if name == "needs" {
+                        ParsedExpressionIntent::NeedsPredicate
+                    } else {
+                        ParsedExpressionIntent::EnsuresPredicate
+                    };
+                    for (line_index, section_line) in lines.iter().enumerate() {
+                        let text = section_line.text.trim();
+                        if text.is_empty() || text.starts_with('#') || text.starts_with("//") {
+                            continue;
+                        }
+                        expression_syntax[line_index] = Some(parse_expression_syntax(
+                            text,
+                            section_line.span.clone(),
+                            ParserSyntaxNodeId::new(format!(
+                                "parser-contract:{semantic_node}:section-{name}:line-{line_index}"
+                            )),
+                            intent,
+                        ));
+                    }
+                }
                 sections.push(Section {
                     name,
                     lines,
                     body_syntax,
+                    expression_syntax,
                     span: self.span(line.number),
                 });
                 index = cursor;
@@ -462,6 +497,42 @@ impl Parser {
         }
 
         sections
+    }
+
+    fn emit_chained_comparison_diagnostics(&mut self, sections: &[Section]) {
+        for section in sections {
+            for expression in section.expression_syntax.iter().flatten() {
+                self.emit_expression_chains(expression);
+            }
+            for statement in section.body_syntax.iter().flatten() {
+                for expression in statement_expressions(statement) {
+                    self.emit_expression_chains(expression);
+                }
+            }
+        }
+    }
+
+    fn emit_expression_chains(&mut self, expression: &ParsedExpression) {
+        for chain in chained_comparison_sites(expression) {
+            let diagnostic = Diagnostic::error(
+                DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED,
+                "comparison chaining is not supported",
+                Some(chain.later.start.clone()),
+            )
+            .with_related_span(
+                "first comparison already being chained",
+                chain.first.start.clone(),
+            )
+            .with_help(
+                "Repeat the middle operand and join independent comparisons, for example `1 < 2 and 2 < 3`.",
+            );
+            self.emit_for_semantic_node(
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(179),
+                "expression_node",
+                chain.node_id.as_str().to_string(),
+                diagnostic,
+            );
+        }
     }
 
     fn parse_fields(&mut self, start: usize, end: usize, field_indent: usize) -> Vec<Field> {
@@ -733,6 +804,17 @@ impl Parser {
                 self.semantic_file_index
             )
         });
+        self.emit_for_semantic_node(cause_key, node_role, semantic_node, diagnostic);
+    }
+
+    fn emit_for_semantic_node(
+        &mut self,
+        cause_key: crate::diagnostic_catalog::DiagnosticCauseKey,
+        node_role: &'static str,
+        semantic_node: String,
+        diagnostic: Diagnostic,
+    ) {
+        let event = self.diagnostics.len();
         let semantic_origin =
             format!("parser-node:{semantic_node}:event-{event}:role-{node_role}",);
         let route = vec![
@@ -781,7 +863,9 @@ fn parse_task_body_syntax(sections: &[Section]) -> Vec<ParsedBodyStatement> {
     }
 }
 
-fn validate_retained_body_syntax(statements: &[ParsedBodyStatement]) -> Result<(), &'static str> {
+pub(crate) fn validate_retained_body_syntax(
+    statements: &[ParsedBodyStatement],
+) -> Result<(), &'static str> {
     let mut depth = 0usize;
     let mut identities = std::collections::BTreeSet::new();
     for (index, statement) in statements.iter().enumerate() {
@@ -804,16 +888,106 @@ fn validate_retained_body_syntax(statements: &[ParsedBodyStatement]) -> Result<(
         }
         match &statement.kind {
             ParsedBodyStatementKind::Return(expression) => {
-                validate_canonical_expression(&expression.canonical)?;
+                validate_expression_occurrence(expression)?;
             }
             ParsedBodyStatementKind::Binding { value, .. } => {
                 if let Some(expression) = value {
-                    validate_canonical_expression(&expression.canonical)?;
+                    validate_expression_occurrence(expression)?;
                 }
             }
             ParsedBodyStatementKind::Other { expressions } => {
                 for expression in expressions {
-                    validate_canonical_expression(&expression.canonical)?;
+                    validate_expression_occurrence(expression)?;
+                }
+            }
+        }
+        if let Some(target) = &statement.syntax.target {
+            validate_expression_occurrence(target)?;
+        }
+        let exact_nodes = statement_kind_expressions(&statement.kind)
+            .into_iter()
+            .map(|expression| expression.canonical.node_id.clone())
+            .collect::<Vec<_>>();
+        if statement.syntax.expression_nodes != exact_nodes {
+            return Err("parser_statement_expression_relationship_corrupt_v0");
+        }
+        match statement.syntax.kind {
+            ParsedStatementSyntaxKind::Loop {
+                kind: ParsedLoopKind::ForEach,
+            } => {
+                let Some(binding) = statement.syntax.binding.as_ref() else {
+                    return Err("parser_loop_binding_relationship_corrupt_v0");
+                };
+                let Some(relationship) = statement.syntax.loop_relationship.as_ref() else {
+                    return Err("parser_loop_binding_relationship_corrupt_v0");
+                };
+                let expressions = statement_kind_expressions(&statement.kind);
+                if relationship.kind != ParsedLoopRelationshipKind::CollectionIn
+                    || relationship.binding != *binding
+                    || relationship.introducer.byte_len != 2
+                    || relationship.bound.is_some()
+                    || relationship.expression_nodes != exact_nodes
+                    || expressions.len() != 1
+                    || expressions[0].occurrence.intent != ParsedExpressionIntent::LoopCollection
+                    || binding.span.file != relationship.introducer.start.file
+                    || binding.span.line != relationship.introducer.start.line
+                    || binding.span.column >= relationship.introducer.start.column
+                    || relationship.introducer.start.column
+                        >= expressions[0].canonical.range.start.column
+                {
+                    return Err("parser_loop_binding_relationship_corrupt_v0");
+                }
+            }
+            ParsedStatementSyntaxKind::Loop {
+                kind: ParsedLoopKind::ForIndex,
+            } => {
+                let Some(binding) = statement.syntax.binding.as_ref() else {
+                    return Err("parser_loop_binding_relationship_corrupt_v0");
+                };
+                let Some(relationship) = statement.syntax.loop_relationship.as_ref() else {
+                    return Err("parser_loop_binding_relationship_corrupt_v0");
+                };
+                let Some(bound) = relationship.bound.as_ref() else {
+                    return Err("parser_loop_binding_relationship_corrupt_v0");
+                };
+                let expressions = statement_kind_expressions(&statement.kind);
+                if !matches!(
+                    relationship.kind,
+                    ParsedLoopRelationshipKind::RangeUntil
+                        | ParsedLoopRelationshipKind::RangeThrough
+                ) || relationship.binding != *binding
+                    || relationship.introducer.byte_len != 4
+                    || bound.byte_len
+                        != match relationship.kind {
+                            ParsedLoopRelationshipKind::RangeUntil => 5,
+                            ParsedLoopRelationshipKind::RangeThrough => 7,
+                            ParsedLoopRelationshipKind::CollectionIn => unreachable!(),
+                        }
+                    || relationship.expression_nodes != exact_nodes
+                    || expressions.len() != 2
+                    || expressions[0].occurrence.intent != ParsedExpressionIntent::LoopRangeStart
+                    || expressions[1].occurrence.intent != ParsedExpressionIntent::LoopRangeEnd
+                    || binding.span.file != relationship.introducer.start.file
+                    || binding.span.line != relationship.introducer.start.line
+                    || binding.span.column >= relationship.introducer.start.column
+                    || relationship.introducer.start.column
+                        >= expressions[0].canonical.range.start.column
+                    || expressions[0].canonical.range.start.column >= bound.start.column
+                    || bound.start.column >= expressions[1].canonical.range.start.column
+                {
+                    return Err("parser_loop_binding_relationship_corrupt_v0");
+                }
+            }
+            ParsedStatementSyntaxKind::Loop {
+                kind: ParsedLoopKind::While | ParsedLoopKind::Unconditional,
+            } => {
+                if statement.syntax.loop_relationship.is_some() {
+                    return Err("parser_loop_binding_relationship_corrupt_v0");
+                }
+            }
+            _ => {
+                if statement.syntax.loop_relationship.is_some() {
+                    return Err("parser_loop_binding_relationship_corrupt_v0");
                 }
             }
         }
@@ -1074,6 +1248,7 @@ fn parse_body_statement_syntax(
             "",
             offset_span(&line.span, text.len()),
             source_node_id.child("expression-0"),
+            ParsedExpressionIntent::Return,
         );
         return Some(parsed_body_statement(
             ParsedBodyStatementKind::Return(expression),
@@ -1090,6 +1265,7 @@ fn parse_body_statement_syntax(
             rest,
             offset_span(&line.span, offset),
             source_node_id.child("expression-0"),
+            ParsedExpressionIntent::Return,
         );
         return Some(parsed_body_statement(
             ParsedBodyStatementKind::Return(expression),
@@ -1123,6 +1299,7 @@ fn parse_body_statement_syntax(
                     value,
                     offset_span(&line.span, rest_offset + equals + 1 + leading),
                     source_node_id.child("expression-0"),
+                    ParsedExpressionIntent::Binding,
                 )
             });
             return Some(parsed_body_statement(
@@ -1161,8 +1338,10 @@ fn parsed_body_statement(
 ) -> ParsedBodyStatement {
     let (core_kind, core_status, core_expression_kind, core_reason) =
         parser_core_shape(line.text.trim(), &kind);
+    let syntax = parser_statement_syntax(line.text.trim(), &line.span, &source_node_id, &kind);
     ParsedBodyStatement {
         kind,
+        syntax,
         span: line.span.clone(),
         source_node_id,
         block_relationship,
@@ -1173,6 +1352,254 @@ fn parsed_body_statement(
         core_expression_kind,
         core_reason,
     }
+}
+
+struct ParsedLoopHeaderParts<'a> {
+    kind: ParsedLoopKind,
+    binder: &'a str,
+    binder_offset: usize,
+    introducer_offset: usize,
+    introducer_len: usize,
+    bound: Option<(ParsedLoopRelationshipKind, usize, usize)>,
+    expressions: Vec<(&'a str, usize, ParsedExpressionIntent)>,
+}
+
+fn parsed_loop_header_parts(text: &str) -> Option<ParsedLoopHeaderParts<'_>> {
+    if let Some(rest) = keyword_rest(text, "for each") {
+        let rest_offset = text.len() - rest.len();
+        let body = rest.strip_suffix('{')?.trim_end();
+        let split = find_top_level_phrase(body, " in ")?;
+        let binder_raw = &body[..split];
+        let binder = binder_raw.trim();
+        let binder_leading = binder_raw.len() - binder_raw.trim_start().len();
+        let collection_raw = &body[split + " in ".len()..];
+        let collection = collection_raw.trim();
+        let collection_leading = collection_raw.len() - collection_raw.trim_start().len();
+        return Some(ParsedLoopHeaderParts {
+            kind: ParsedLoopKind::ForEach,
+            binder,
+            binder_offset: rest_offset + binder_leading,
+            introducer_offset: rest_offset + split + 1,
+            introducer_len: 2,
+            bound: Some((ParsedLoopRelationshipKind::CollectionIn, 0, 0)),
+            expressions: if collection.is_empty() {
+                Vec::new()
+            } else {
+                vec![(
+                    collection,
+                    rest_offset + split + " in ".len() + collection_leading,
+                    ParsedExpressionIntent::LoopCollection,
+                )]
+            },
+        });
+    }
+
+    let rest = keyword_rest(text, "for index")?;
+    let rest_offset = text.len() - rest.len();
+    let body = rest.strip_suffix('{')?.trim_end();
+    let from_split = find_top_level_phrase(body, " from ")?;
+    let binder_raw = &body[..from_split];
+    let binder = binder_raw.trim();
+    let binder_leading = binder_raw.len() - binder_raw.trim_start().len();
+    let range_raw = &body[from_split + " from ".len()..];
+    let range_offset = rest_offset + from_split + " from ".len();
+    let (kind, bound_text, bound_split) = [
+        (ParsedLoopRelationshipKind::RangeUntil, " until "),
+        (ParsedLoopRelationshipKind::RangeThrough, " through "),
+    ]
+    .into_iter()
+    .filter_map(|(kind, token)| {
+        find_top_level_phrase(range_raw, token).map(|split| (kind, token, split))
+    })
+    .min_by_key(|(_, _, split)| *split)?;
+    let start_raw = &range_raw[..bound_split];
+    let end_raw = &range_raw[bound_split + bound_text.len()..];
+    let start = start_raw.trim();
+    let end = end_raw.trim();
+    let start_leading = start_raw.len() - start_raw.trim_start().len();
+    let end_leading = end_raw.len() - end_raw.trim_start().len();
+    let mut expressions = Vec::new();
+    if !start.is_empty() {
+        expressions.push((
+            start,
+            range_offset + start_leading,
+            ParsedExpressionIntent::LoopRangeStart,
+        ));
+    }
+    if !end.is_empty() {
+        expressions.push((
+            end,
+            range_offset + bound_split + bound_text.len() + end_leading,
+            ParsedExpressionIntent::LoopRangeEnd,
+        ));
+    }
+    Some(ParsedLoopHeaderParts {
+        kind: ParsedLoopKind::ForIndex,
+        binder,
+        binder_offset: rest_offset + binder_leading,
+        introducer_offset: rest_offset + from_split + 1,
+        introducer_len: 4,
+        bound: Some((
+            kind,
+            range_offset + bound_split + 1,
+            bound_text.trim().len(),
+        )),
+        expressions,
+    })
+}
+
+fn parser_statement_syntax(
+    text: &str,
+    span: &Span,
+    source_node_id: &ParserSyntaxNodeId,
+    body_kind: &ParsedBodyStatementKind,
+) -> ParsedStatementSyntaxFacts {
+    let keyword_text = text.split_ascii_whitespace().next().unwrap_or_default();
+    let mut facts = ParsedStatementSyntaxFacts {
+        kind: ParsedStatementSyntaxKind::Other,
+        keyword: source_range(span, 0, keyword_text.len()),
+        binding: None,
+        target: None,
+        destination: None,
+        relationship_token: None,
+        loop_relationship: None,
+        expression_nodes: statement_kind_expressions(body_kind)
+            .into_iter()
+            .map(|expression| expression.canonical.node_id.clone())
+            .collect(),
+    };
+    if text == "}" {
+        facts.kind = ParsedStatementSyntaxKind::BlockClose;
+        return facts;
+    }
+    if keyword_rest(text, "return").is_some() || text == "return" {
+        facts.kind = ParsedStatementSyntaxKind::Return;
+        return facts;
+    }
+    if let ParsedBodyStatementKind::Binding { mutable, name, .. } = body_kind {
+        facts.kind = ParsedStatementSyntaxKind::Binding { mutable: *mutable };
+        facts.binding = name.clone();
+        if let Some(equals) = find_top_level_char(text, '=') {
+            facts.relationship_token = Some(source_range(span, equals, 1));
+        }
+        return facts;
+    }
+    if let Some(rest) = keyword_rest(text, "set") {
+        facts.kind = ParsedStatementSyntaxKind::Set;
+        if let Some(equals) = find_top_level_char(rest, '=') {
+            let rest_offset = text.len() - rest.len();
+            let target_raw = &rest[..equals];
+            let target = target_raw.trim();
+            if !target.is_empty() {
+                let target_leading = target_raw.len() - target_raw.trim_start().len();
+                facts.target = Some(parse_expression_syntax(
+                    target,
+                    offset_span(span, rest_offset + target_leading),
+                    source_node_id.child("set-target"),
+                    ParsedExpressionIntent::Other,
+                ));
+            }
+            facts.relationship_token = Some(source_range(span, rest_offset + equals, 1));
+        }
+        return facts;
+    }
+    if let Some(rest) = keyword_rest(text, "save") {
+        facts.kind = ParsedStatementSyntaxKind::Save;
+        if let Some(split) = find_top_level_phrase(rest, " in ") {
+            let rest_offset = text.len() - rest.len();
+            let destination_text = rest[split + " in ".len()..].trim();
+            let destination_leading = rest[split + " in ".len()..].len()
+                - rest[split + " in ".len()..].trim_start().len();
+            facts.destination = is_value_identifier(destination_text).then(|| ParsedIdentifier {
+                name: destination_text.to_string(),
+                span: offset_span(
+                    span,
+                    rest_offset + split + " in ".len() + destination_leading,
+                ),
+            });
+            facts.relationship_token = Some(source_range(span, rest_offset + split + 1, 2));
+        }
+        return facts;
+    }
+    if keyword_rest(text, "if").is_some() {
+        facts.kind = ParsedStatementSyntaxKind::Condition;
+        return facts;
+    }
+    if keyword_rest(text, "while").is_some() {
+        facts.kind = ParsedStatementSyntaxKind::Loop {
+            kind: ParsedLoopKind::While,
+        };
+        facts.keyword = source_range(span, 0, "while".len());
+        return facts;
+    }
+    if let Some(loop_header) = parsed_loop_header_parts(text) {
+        facts.kind = ParsedStatementSyntaxKind::Loop {
+            kind: loop_header.kind,
+        };
+        facts.keyword = source_range(
+            span,
+            0,
+            match loop_header.kind {
+                ParsedLoopKind::ForEach => "for each".len(),
+                ParsedLoopKind::ForIndex => "for index".len(),
+                ParsedLoopKind::While | ParsedLoopKind::Unconditional => unreachable!(),
+            },
+        );
+        facts.binding = (!loop_header.binder.is_empty()).then(|| ParsedIdentifier {
+            name: loop_header.binder.to_string(),
+            span: offset_span(span, loop_header.binder_offset),
+        });
+        let relationship_kind = loop_header
+            .bound
+            .map(|(kind, _, _)| kind)
+            .unwrap_or(ParsedLoopRelationshipKind::CollectionIn);
+        facts.loop_relationship =
+            facts
+                .binding
+                .clone()
+                .map(|binding| ParsedLoopRelationshipFacts {
+                    kind: relationship_kind,
+                    binding,
+                    introducer: source_range(
+                        span,
+                        loop_header.introducer_offset,
+                        loop_header.introducer_len,
+                    ),
+                    bound: loop_header.bound.and_then(|(_, offset, len)| {
+                        (len != 0).then(|| source_range(span, offset, len))
+                    }),
+                    expression_nodes: facts.expression_nodes.clone(),
+                });
+        return facts;
+    }
+    if text == "loop {" {
+        facts.kind = ParsedStatementSyntaxKind::Loop {
+            kind: ParsedLoopKind::Unconditional,
+        };
+        return facts;
+    }
+    if keyword_rest(text, "fail").is_some() {
+        facts.kind = ParsedStatementSyntaxKind::Failure;
+    } else if keyword_rest(text, "expect").is_some() {
+        facts.kind = ParsedStatementSyntaxKind::TestExpectation;
+    }
+    facts
+}
+
+fn statement_kind_expressions(kind: &ParsedBodyStatementKind) -> Vec<&ParsedExpression> {
+    match kind {
+        ParsedBodyStatementKind::Return(expression) => vec![expression],
+        ParsedBodyStatementKind::Binding { value, .. } => value.iter().collect(),
+        ParsedBodyStatementKind::Other { expressions } => expressions.iter().collect(),
+    }
+}
+
+fn statement_expressions(statement: &ParsedBodyStatement) -> Vec<&ParsedExpression> {
+    let mut expressions = statement_kind_expressions(&statement.kind);
+    if let Some(target) = &statement.syntax.target {
+        expressions.push(target);
+    }
+    expressions
 }
 
 fn parser_core_shape(
@@ -1408,6 +1835,226 @@ fn validate_canonical_expression(expression: &CanonicalExpression) -> Result<(),
     validate_canonical_node(expression, None, &mut identities)
 }
 
+pub(crate) fn validate_expression_occurrence(
+    expression: &ParsedExpression,
+) -> Result<(), &'static str> {
+    validate_canonical_expression(&expression.canonical)?;
+    if expression.occurrence.root_node_id != expression.canonical.node_id
+        || expression.occurrence.nodes.is_empty()
+        || expression.occurrence.nodes[0].node_id != expression.canonical.node_id
+        || expression.occurrence.nodes[0].child_position != Vec::<usize>::new()
+        || expression.occurrence.nodes[0].range != expression.canonical.range
+        || expression.occurrence.nodes[0].lexical_status != expression.occurrence.lexical_status
+    {
+        return Err("parser_expression_occurrence_root_corrupt_v0");
+    }
+    validate_lexical_status(
+        &expression.occurrence.lexical_status,
+        &expression.canonical.range,
+    )?;
+    if let Some(intent_signal) = &expression.occurrence.intent_signal
+        && (intent_signal.start.file != expression.canonical.range.start.file
+            || intent_signal.start.line != expression.canonical.range.start.line
+            || intent_signal.start.column < expression.canonical.range.start.column
+            || intent_signal.start.column + intent_signal.byte_len
+                > expression.canonical.range.start.column + expression.canonical.range.byte_len)
+    {
+        return Err("parser_expression_intent_signal_corrupt_v0");
+    }
+    let mut expected = Vec::new();
+    collect_canonical_identity_projection(&expression.canonical, Vec::new(), &mut expected);
+    let observed = expression
+        .occurrence
+        .nodes
+        .iter()
+        .map(|node| {
+            (
+                node.node_id.clone(),
+                node.child_position.clone(),
+                node.range.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    if observed != expected {
+        return Err("parser_expression_occurrence_projection_corrupt_v0");
+    }
+    for node in &expression.occurrence.nodes {
+        validate_lexical_status(&node.lexical_status, &node.range)?;
+    }
+    let canonical_wrapper = match &expression.canonical.kind {
+        CanonicalExpressionKind::Try {
+            failure_root,
+            failure_variant,
+            ..
+        } => Some((failure_root.as_ref(), failure_variant.as_ref())),
+        _ => None,
+    };
+    let occurrence_wrapper = expression.occurrence.typed_failure_wrapper.as_ref();
+    if canonical_wrapper.is_some() != occurrence_wrapper.is_some()
+        || canonical_wrapper.is_some_and(|(root, variant)| {
+            occurrence_wrapper.is_none_or(|wrapper| {
+                root != wrapper.failure_root.as_ref() || variant != wrapper.failure_variant.as_ref()
+            })
+        })
+    {
+        return Err("parser_expression_occurrence_wrapper_corrupt_v0");
+    }
+    Ok(())
+}
+
+fn validate_lexical_status(
+    status: &ParsedLexicalStatus,
+    expression_range: &ParsedSourceRange,
+) -> Result<(), &'static str> {
+    let ParsedLexicalStatus::Malformed(fact) = status else {
+        return Ok(());
+    };
+    if fact.offending.start.file != expression_range.start.file
+        || fact.offending.start.line != expression_range.start.line
+        || fact.offending.start.column < expression_range.start.column
+        || fact.offending.start.column + fact.offending.byte_len
+            > expression_range.start.column + expression_range.byte_len
+    {
+        return Err("parser_expression_lexical_range_corrupt_v0");
+    }
+    let exact = match fact.cause {
+        ParsedMalformedExpressionCause::UnterminatedTextLiteral => matches!(
+            (&fact.expected, &fact.actual),
+            (
+                ParsedExpectedLexicalEvidence::Token(ParsedLexicalTokenKind::TextQuote),
+                ParsedActualLexicalEvidence::EndOfInput
+            )
+        ),
+        ParsedMalformedExpressionCause::MissingDelimiter => matches!(
+            (&fact.expected, &fact.actual),
+            (
+                ParsedExpectedLexicalEvidence::Token(
+                    ParsedLexicalTokenKind::ParenthesisClose
+                        | ParsedLexicalTokenKind::ListClose
+                        | ParsedLexicalTokenKind::RecordClose
+                ),
+                ParsedActualLexicalEvidence::EndOfInput
+            )
+        ),
+        ParsedMalformedExpressionCause::MismatchedDelimiter => matches!(
+            (&fact.expected, &fact.actual),
+            (
+                ParsedExpectedLexicalEvidence::Token(
+                    ParsedLexicalTokenKind::ParenthesisClose
+                        | ParsedLexicalTokenKind::ListClose
+                        | ParsedLexicalTokenKind::RecordClose
+                ) | ParsedExpectedLexicalEvidence::Operand,
+                ParsedActualLexicalEvidence::Token {
+                    kind: ParsedLexicalTokenKind::ParenthesisClose
+                        | ParsedLexicalTokenKind::ListClose
+                        | ParsedLexicalTokenKind::RecordClose,
+                    range,
+                }
+            ) if *range == fact.offending
+        ),
+        ParsedMalformedExpressionCause::DelimiterDepthExceeded => matches!(
+            (&fact.expected, &fact.actual),
+            (
+                ParsedExpectedLexicalEvidence::MaximumDelimiterDepth(MAX_EXPRESSION_DELIMITER_DEPTH),
+                ParsedActualLexicalEvidence::DelimiterDepth(actual)
+            ) if *actual > MAX_EXPRESSION_DELIMITER_DEPTH
+        ),
+        ParsedMalformedExpressionCause::MissingOperand => {
+            matches!(fact.expected, ParsedExpectedLexicalEvidence::Operand)
+        }
+        ParsedMalformedExpressionCause::InvalidComparisonOperator => matches!(
+            (&fact.expected, &fact.actual),
+            (
+                ParsedExpectedLexicalEvidence::ComparisonOperator,
+                ParsedActualLexicalEvidence::Token {
+                    kind: ParsedLexicalTokenKind::ComparisonOperator,
+                    range,
+                }
+            ) if *range == fact.offending
+        ),
+        ParsedMalformedExpressionCause::InvalidOperandStarter => {
+            matches!(fact.expected, ParsedExpectedLexicalEvidence::Operand)
+        }
+        ParsedMalformedExpressionCause::MalformedFieldPlace => {
+            matches!(fact.expected, ParsedExpectedLexicalEvidence::Identifier)
+        }
+        ParsedMalformedExpressionCause::ListElementSeparator => matches!(
+            fact.expected,
+            ParsedExpectedLexicalEvidence::ListSeparatorOrClose
+        ),
+        ParsedMalformedExpressionCause::ListTrailingComma
+        | ParsedMalformedExpressionCause::ListNonTextElement => matches!(
+            fact.expected,
+            ParsedExpectedLexicalEvidence::TextListElement
+        ),
+        ParsedMalformedExpressionCause::IntegerLiteralOutOfRange => matches!(
+            (&fact.expected, &fact.actual),
+            (
+                ParsedExpectedLexicalEvidence::Int64Value,
+                ParsedActualLexicalEvidence::Token {
+                    kind: ParsedLexicalTokenKind::IntegerLiteral,
+                    range,
+                }
+            ) if *range == fact.offending
+        ),
+    };
+    if exact {
+        Ok(())
+    } else {
+        Err("parser_expression_lexical_evidence_corrupt_v0")
+    }
+}
+
+fn collect_canonical_identity_projection(
+    expression: &CanonicalExpression,
+    child_position: Vec<usize>,
+    output: &mut Vec<(ParserSyntaxNodeId, Vec<usize>, ParsedSourceRange)>,
+) {
+    output.push((
+        expression.node_id.clone(),
+        child_position.clone(),
+        expression.range.clone(),
+    ));
+    let mut visit = |child: &CanonicalExpression, index: usize| {
+        let mut position = child_position.clone();
+        position.push(index);
+        collect_canonical_identity_projection(child, position, output);
+    };
+    match &expression.kind {
+        CanonicalExpressionKind::Field { base, .. } => visit(base, 0),
+        CanonicalExpressionKind::ListLiteral(values) => {
+            for (index, value) in values.iter().enumerate() {
+                visit(value, index);
+            }
+        }
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            for (index, (_, value)) in fields.iter().enumerate() {
+                visit(value, index);
+            }
+        }
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            visit(callee, 0);
+            for (index, argument) in arguments.iter().enumerate() {
+                visit(argument, index + 1);
+            }
+        }
+        CanonicalExpressionKind::Permission { value, .. }
+        | CanonicalExpressionKind::Try { value, .. }
+        | CanonicalExpressionKind::Group(value) => visit(value, 0),
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            visit(left, 0);
+            visit(right, 1);
+        }
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => {}
+    }
+}
+
 fn validate_canonical_node(
     expression: &CanonicalExpression,
     expected_id: Option<&ParserSyntaxNodeId>,
@@ -1458,6 +2105,16 @@ fn validate_canonical_node(
         CanonicalExpressionKind::Permission { value, .. } => {
             validate_child(value, "permission-value", identities)?;
         }
+        CanonicalExpressionKind::Try {
+            value,
+            failure_root,
+            failure_variant,
+        } => {
+            validate_child(value, "try-value", identities)?;
+            if failure_root.is_some() != failure_variant.is_some() {
+                return Err("canonical_typed_failure_wrapper_corrupt_v0");
+            }
+        }
         CanonicalExpressionKind::Binary { left, right, .. } => {
             validate_child(left, "binary-left", identities)?;
             validate_child(right, "binary-right", identities)?;
@@ -1484,37 +2141,63 @@ fn parse_other_statement_expressions(
     span: &Span,
     source_node_id: &ParserSyntaxNodeId,
 ) -> Vec<ParsedExpression> {
-    let candidate = if let Some(rest) = keyword_rest(text, "set") {
+    if let Some(loop_header) = parsed_loop_header_parts(text) {
+        return loop_header
+            .expressions
+            .into_iter()
+            .enumerate()
+            .map(|(index, (expression, offset, intent))| {
+                parse_expression_syntax(
+                    expression,
+                    offset_span(span, offset),
+                    source_node_id.child(&format!("expression-{index}")),
+                    intent,
+                )
+            })
+            .collect();
+    }
+    let (candidate, intent) = if let Some(rest) = keyword_rest(text, "set") {
         find_top_level_char(rest, '=')
             .map(|index| (&rest[index + 1..], text.len() - rest.len() + index + 1))
+            .map_or((None, ParsedExpressionIntent::Other), |candidate| {
+                (Some(candidate), ParsedExpressionIntent::SetValue)
+            })
     } else if let Some(rest) = keyword_rest(text, "save") {
         let value = rest.split_once(" in ").map_or(rest, |(value, _)| value);
-        Some((value, text.len() - rest.len()))
+        (
+            Some((value, text.len() - rest.len())),
+            ParsedExpressionIntent::SaveValue,
+        )
     } else if let Some(rest) = keyword_rest(text, "expect") {
-        Some((rest, text.len() - rest.len()))
+        (
+            Some((rest, text.len() - rest.len())),
+            ParsedExpressionIntent::TestExpectation,
+        )
     } else if let Some(rest) = keyword_rest(text, "fail") {
-        Some((rest, text.len() - rest.len()))
+        (
+            Some((rest, text.len() - rest.len())),
+            ParsedExpressionIntent::Failure,
+        )
     } else if let Some(rest) = keyword_rest(text, "if") {
-        Some((
-            rest.trim_end_matches('{').trim_end(),
-            text.len() - rest.len(),
-        ))
+        (
+            Some((
+                rest.trim_end_matches('{').trim_end(),
+                text.len() - rest.len(),
+            )),
+            ParsedExpressionIntent::Condition,
+        )
     } else if let Some(rest) = keyword_rest(text, "while") {
-        Some((
-            rest.trim_end_matches('{').trim_end(),
-            text.len() - rest.len(),
-        ))
-    } else if let Some(rest) = keyword_rest(text, "for each") {
-        rest.split_once(" in ").map(|(_, collection)| {
-            (
-                collection.trim_end_matches('{').trim_end(),
-                text.len() - collection.len(),
-            )
-        })
+        (
+            Some((
+                rest.trim_end_matches('{').trim_end(),
+                text.len() - rest.len(),
+            )),
+            ParsedExpressionIntent::Condition,
+        )
     } else if text != "}" && !text.ends_with(':') {
-        Some((text, 0))
+        (Some((text, 0)), ParsedExpressionIntent::Other)
     } else {
-        None
+        (None, ParsedExpressionIntent::Other)
     };
     candidate
         .filter(|(expression, _)| !expression.trim().is_empty())
@@ -1523,6 +2206,7 @@ fn parse_other_statement_expressions(
                 expression,
                 offset_span(span, offset),
                 source_node_id.child("expression-0"),
+                intent,
             )]
         })
         .unwrap_or_default()
@@ -1532,10 +2216,13 @@ fn parse_expression_syntax(
     text: &str,
     span: Span,
     source_node_id: ParserSyntaxNodeId,
+    intent: ParsedExpressionIntent,
 ) -> ParsedExpression {
     let leading = text.len() - text.trim_start().len();
     let text = text.trim();
     let span = offset_span(&span, leading);
+    let (canonical, occurrence) =
+        parse_canonical_expression_occurrence(text, &span, source_node_id.clone(), intent);
     for (keyword, permission) in [
         ("borrow", ParamPermission::Borrow),
         ("change", ParamPermission::Change),
@@ -1550,9 +2237,11 @@ fn parse_expression_syntax(
                         rest,
                         offset_span(&span, offset),
                         source_node_id.child("permission-value"),
+                        intent,
                     )),
                 },
-                canonical: parse_canonical_expression(text, &span, source_node_id),
+                canonical: canonical.clone(),
+                occurrence: occurrence.clone(),
                 span,
             };
         }
@@ -1563,7 +2252,8 @@ fn parse_expression_syntax(
                 name: text.to_string(),
                 span: span.clone(),
             }),
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            canonical: canonical.clone(),
+            occurrence: occurrence.clone(),
             span,
         };
     }
@@ -1575,7 +2265,8 @@ fn parse_expression_syntax(
                 },
                 ParsedExpressionKind::UIntLiteral,
             ),
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            canonical: canonical.clone(),
+            occurrence: occurrence.clone(),
             span,
         };
     }
@@ -1594,12 +2285,14 @@ fn parse_expression_syntax(
                     &text[range.clone()],
                     offset_span(&span, range.start),
                     source_node_id.child(&format!("compound-{index}")),
+                    intent,
                 )
             })
             .collect();
         return ParsedExpression {
             kind: ParsedExpressionKind::Compound { operands },
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            canonical: canonical.clone(),
+            occurrence: occurrence.clone(),
             span,
         };
     }
@@ -1611,6 +2304,7 @@ fn parse_expression_syntax(
             callee_text,
             offset_span(&span, callee_offset),
             source_node_id.child("call-callee"),
+            intent,
         );
         let (inside, close, trailing) = match matching_delimiter(text, open, '(', ')') {
             Some(close) => (
@@ -1641,6 +2335,7 @@ fn parse_expression_syntax(
                     trimmed,
                     offset_span(&span, open + 1 + range.start + leading),
                     source_node_id.child(&format!("call-argument-{index}")),
+                    intent,
                 ))
             })
             .collect();
@@ -1653,7 +2348,8 @@ fn parse_expression_syntax(
                 close_status: close,
                 trailing_status: trailing,
             }),
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            canonical: canonical.clone(),
+            occurrence: occurrence.clone(),
             span,
         };
     }
@@ -1666,6 +2362,7 @@ fn parse_expression_syntax(
             callee_text,
             span.clone(),
             source_node_id.child("call-callee"),
+            intent,
         );
         return ParsedExpression {
             kind: ParsedExpressionKind::Call(ParsedCall {
@@ -1675,7 +2372,8 @@ fn parse_expression_syntax(
                 close_status: ParsedCallCloseStatus::Mismatched,
                 trailing_status: ParsedCallTrailingStatus::Complete,
             }),
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            canonical: canonical.clone(),
+            occurrence: occurrence.clone(),
             span,
         };
     }
@@ -1684,7 +2382,8 @@ fn parse_expression_syntax(
     if !operands.is_empty() {
         return ParsedExpression {
             kind: ParsedExpressionKind::Compound { operands },
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            canonical: canonical.clone(),
+            occurrence: occurrence.clone(),
             span,
         };
     }
@@ -1697,9 +2396,990 @@ fn parse_expression_syntax(
         } else {
             ParsedExpressionKind::Other
         },
-        canonical: parse_canonical_expression(text, &span, source_node_id),
+        canonical,
+        occurrence,
         span,
     }
+}
+
+fn parse_canonical_expression_occurrence(
+    text: &str,
+    span: &Span,
+    node_id: ParserSyntaxNodeId,
+    intent: ParsedExpressionIntent,
+) -> (CanonicalExpression, ParsedExpressionOccurrenceFacts) {
+    let canonical = parse_canonical_expression(text, span, node_id.clone());
+    let (lexical_status, maximum_delimiter_depth) =
+        expression_lexical_status(text, span, intent, &canonical);
+    let mut nodes = Vec::new();
+    collect_canonical_node_syntax(&canonical, text, span, intent, Vec::new(), 0, &mut nodes);
+    let occurrence = ParsedExpressionOccurrenceFacts {
+        root_node_id: node_id,
+        intent,
+        intent_signal: parser_expression_intent_signal(text, span),
+        maximum_delimiter_depth,
+        lexical_status,
+        nodes,
+        typed_failure_wrapper: parse_typed_failure_wrapper_syntax(text, span),
+    };
+    (canonical, occurrence)
+}
+
+#[derive(Debug, Clone)]
+struct ChainedComparisonSites {
+    node_id: ParserSyntaxNodeId,
+    first: ParsedSourceRange,
+    later: ParsedSourceRange,
+}
+
+fn chained_comparison_sites(expression: &ParsedExpression) -> Vec<ChainedComparisonSites> {
+    let mut output = Vec::new();
+    collect_chained_comparisons(
+        &expression.canonical,
+        &expression.occurrence.nodes,
+        &mut output,
+    );
+    output
+}
+
+fn collect_chained_comparisons(
+    expression: &CanonicalExpression,
+    facts: &[ParsedCanonicalNodeSyntax],
+    output: &mut Vec<ChainedComparisonSites>,
+) {
+    if is_comparison_node(expression) {
+        let mut ranges = Vec::new();
+        collect_connected_comparison_ranges(expression, facts, &mut ranges);
+        if ranges.len() > 1 {
+            ranges.sort_by_key(|range| {
+                (
+                    range.start.file.clone(),
+                    range.start.line,
+                    range.start.column,
+                )
+            });
+            output.push(ChainedComparisonSites {
+                node_id: expression.node_id.clone(),
+                first: ranges[0].clone(),
+                later: ranges[ranges.len() - 1].clone(),
+            });
+            if let CanonicalExpressionKind::Binary { left, right, .. } = &expression.kind {
+                if !is_connected_comparison_operand(left) {
+                    collect_chained_comparisons(left, facts, output);
+                }
+                if !is_connected_comparison_operand(right) {
+                    collect_chained_comparisons(right, facts, output);
+                }
+            }
+            return;
+        }
+    }
+    visit_canonical_children(expression, |child| {
+        collect_chained_comparisons(child, facts, output)
+    });
+}
+
+fn collect_connected_comparison_ranges(
+    expression: &CanonicalExpression,
+    facts: &[ParsedCanonicalNodeSyntax],
+    ranges: &mut Vec<ParsedSourceRange>,
+) {
+    let expression = unwrap_groups(expression);
+    if !is_comparison_node(expression) {
+        return;
+    }
+    if let Some(operator) = facts
+        .iter()
+        .find(|fact| fact.node_id == expression.node_id)
+        .and_then(|fact| fact.operator.clone())
+    {
+        ranges.push(operator);
+    }
+    if let CanonicalExpressionKind::Binary { left, right, .. } = &expression.kind {
+        collect_connected_comparison_ranges(left, facts, ranges);
+        collect_connected_comparison_ranges(right, facts, ranges);
+    }
+}
+
+fn unwrap_groups(mut expression: &CanonicalExpression) -> &CanonicalExpression {
+    while let CanonicalExpressionKind::Group(value) = &expression.kind {
+        expression = value;
+    }
+    expression
+}
+
+fn is_connected_comparison_operand(expression: &CanonicalExpression) -> bool {
+    is_comparison_node(unwrap_groups(expression))
+}
+
+fn is_comparison_node(expression: &CanonicalExpression) -> bool {
+    matches!(
+        &expression.kind,
+        CanonicalExpressionKind::Binary {
+            operator: ParsedBinaryOperator::Equal
+                | ParsedBinaryOperator::NotEqual
+                | ParsedBinaryOperator::Less
+                | ParsedBinaryOperator::LessEqual
+                | ParsedBinaryOperator::Greater
+                | ParsedBinaryOperator::GreaterEqual,
+            left,
+            right,
+        }
+        if is_present_comparison_operand(left) && is_present_comparison_operand(right)
+    )
+}
+
+fn is_present_comparison_operand(expression: &CanonicalExpression) -> bool {
+    !matches!(
+        unwrap_groups(expression).kind,
+        CanonicalExpressionKind::Unit | CanonicalExpressionKind::Unsupported
+    )
+}
+
+fn visit_canonical_children(
+    expression: &CanonicalExpression,
+    mut visit: impl FnMut(&CanonicalExpression),
+) {
+    match &expression.kind {
+        CanonicalExpressionKind::Field { base, .. } => visit(base),
+        CanonicalExpressionKind::ListLiteral(values) => {
+            for value in values {
+                visit(value);
+            }
+        }
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            for (_, value) in fields {
+                visit(value);
+            }
+        }
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            visit(callee);
+            for argument in arguments {
+                visit(argument);
+            }
+        }
+        CanonicalExpressionKind::Permission { value, .. }
+        | CanonicalExpressionKind::Try { value, .. }
+        | CanonicalExpressionKind::Group(value) => visit(value),
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            visit(left);
+            visit(right);
+        }
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => {}
+    }
+}
+
+fn collect_canonical_node_syntax(
+    expression: &CanonicalExpression,
+    root_text: &str,
+    root_span: &Span,
+    intent: ParsedExpressionIntent,
+    child_position: Vec<usize>,
+    delimiter_depth: usize,
+    nodes: &mut Vec<ParsedCanonicalNodeSyntax>,
+) {
+    let node_text = source_text_for_range(root_text, root_span, &expression.range);
+    let (lexical_status, _) =
+        expression_lexical_status(node_text, &expression.range.start, intent, expression);
+    let operator = matches!(expression.kind, CanonicalExpressionKind::Binary { .. })
+        .then(|| {
+            top_level_binary_operator(node_text).map(|(_, start, end)| {
+                source_range(&expression.range.start, start, end.saturating_sub(start))
+            })
+        })
+        .flatten();
+    let delimiter = delimiter_syntax(expression, node_text);
+    let call = matches!(expression.kind, CanonicalExpressionKind::Call { .. })
+        .then(|| call_syntax_facts(node_text, &expression.range.start))
+        .flatten();
+    nodes.push(ParsedCanonicalNodeSyntax {
+        node_id: expression.node_id.clone(),
+        child_position: child_position.clone(),
+        range: expression.range.clone(),
+        operator,
+        delimiter,
+        call,
+        delimiter_depth,
+        lexical_status,
+    });
+
+    let mut visit = |child: &CanonicalExpression, index: usize, depth: usize| {
+        let mut position = child_position.clone();
+        position.push(index);
+        collect_canonical_node_syntax(child, root_text, root_span, intent, position, depth, nodes);
+    };
+    match &expression.kind {
+        CanonicalExpressionKind::Field { base, .. } => visit(base, 0, delimiter_depth),
+        CanonicalExpressionKind::ListLiteral(values) => {
+            for (index, value) in values.iter().enumerate() {
+                visit(value, index, delimiter_depth + 1);
+            }
+        }
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            for (index, (_, value)) in fields.iter().enumerate() {
+                visit(value, index, delimiter_depth + 1);
+            }
+        }
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            visit(callee, 0, delimiter_depth);
+            for (index, argument) in arguments.iter().enumerate() {
+                visit(argument, index + 1, delimiter_depth + 1);
+            }
+        }
+        CanonicalExpressionKind::Permission { value, .. } => visit(value, 0, delimiter_depth),
+        CanonicalExpressionKind::Try { value, .. } => visit(value, 0, delimiter_depth),
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            visit(left, 0, delimiter_depth);
+            visit(right, 1, delimiter_depth);
+        }
+        CanonicalExpressionKind::Group(value) => visit(value, 0, delimiter_depth + 1),
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => {}
+    }
+}
+
+fn source_text_for_range<'a>(
+    root_text: &'a str,
+    root_span: &Span,
+    range: &ParsedSourceRange,
+) -> &'a str {
+    if range.start.file != root_span.file || range.start.line != root_span.line {
+        return "";
+    }
+    let start = range.start.column.saturating_sub(root_span.column);
+    let end = start.saturating_add(range.byte_len);
+    root_text.get(start..end).unwrap_or("")
+}
+
+fn source_range(span: &Span, offset: usize, byte_len: usize) -> ParsedSourceRange {
+    ParsedSourceRange {
+        start: offset_span(span, offset),
+        byte_len,
+    }
+}
+
+fn delimiter_syntax(expression: &CanonicalExpression, text: &str) -> Option<ParsedDelimiterSyntax> {
+    let (kind, open, close) = match &expression.kind {
+        CanonicalExpressionKind::Group(_) => (
+            ParsedDelimiterKind::Parenthesis,
+            text.find('(')?,
+            matching_delimiter_quoted(text, text.find('(')?, '(', ')'),
+        ),
+        CanonicalExpressionKind::ListLiteral(_) => (
+            ParsedDelimiterKind::List,
+            text.find('[')?,
+            matching_delimiter_quoted(text, text.find('[')?, '[', ']'),
+        ),
+        CanonicalExpressionKind::RecordLiteral { .. } => (
+            ParsedDelimiterKind::Record,
+            text.find('{')?,
+            matching_delimiter_quoted(text, text.find('{')?, '{', '}'),
+        ),
+        CanonicalExpressionKind::Call { .. } => {
+            let open = find_top_level_open_paren(text)?;
+            (
+                ParsedDelimiterKind::Parenthesis,
+                open,
+                matching_delimiter_quoted(text, open, '(', ')'),
+            )
+        }
+        _ => return None,
+    };
+    Some(ParsedDelimiterSyntax {
+        kind,
+        open: source_range(&expression.range.start, open, 1),
+        close: close.map(|close| source_range(&expression.range.start, close, 1)),
+    })
+}
+
+fn call_syntax_facts(text: &str, span: &Span) -> Option<ParsedCallSyntaxFacts> {
+    let open = find_top_level_open_paren(text)?;
+    let close = matching_delimiter_quoted(text, open, '(', ')');
+    let inside_end = close.unwrap_or(text.len());
+    let separators = top_level_separator_offsets(&text[open + 1..inside_end], ',')
+        .into_iter()
+        .map(|offset| source_range(span, open + 1 + offset, 1))
+        .collect();
+    let trailing = close.and_then(|close| {
+        (close + 1 < text.len()).then(|| source_range(span, close + 1, text.len() - close - 1))
+    });
+    let gaps = whitespace_ranges(text)
+        .into_iter()
+        .map(|range| source_range(span, range.start, range.end - range.start))
+        .collect();
+    Some(ParsedCallSyntaxFacts {
+        open: source_range(span, open, 1),
+        close: close.map(|close| source_range(span, close, 1)),
+        separators,
+        trailing,
+        gaps,
+    })
+}
+
+fn top_level_separator_offsets(text: &str, delimiter: char) -> Vec<usize> {
+    let mut offsets = Vec::new();
+    let mut depth = 0usize;
+    let mut quoted = false;
+    let mut escaped = false;
+    for (index, ch) in text.char_indices() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => quoted = true,
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ if ch == delimiter && depth == 0 => offsets.push(index),
+            _ => {}
+        }
+    }
+    offsets
+}
+
+fn whitespace_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut start = None;
+    for (index, ch) in text.char_indices() {
+        if ch.is_ascii_whitespace() {
+            start.get_or_insert(index);
+        } else if let Some(start) = start.take() {
+            ranges.push(start..index);
+        }
+    }
+    if let Some(start) = start {
+        ranges.push(start..text.len());
+    }
+    ranges
+}
+
+const MAX_EXPRESSION_DELIMITER_DEPTH: usize = 16;
+
+fn expression_lexical_status(
+    text: &str,
+    span: &Span,
+    intent: ParsedExpressionIntent,
+    canonical: &CanonicalExpression,
+) -> (ParsedLexicalStatus, usize) {
+    let (delimiter_status, maximum) = delimiter_lexical_status(text, span);
+    if delimiter_status != ParsedLexicalStatus::Complete {
+        return (delimiter_status, maximum);
+    }
+    if matches!(
+        intent,
+        ParsedExpressionIntent::NeedsPredicate | ParsedExpressionIntent::EnsuresPredicate
+    ) && parser_expression_intent_signal(text, span).is_some()
+        && let Some(issue) = predicate_lexical_issue(text, span, canonical)
+    {
+        return (ParsedLexicalStatus::Malformed(issue), maximum);
+    }
+    (ParsedLexicalStatus::Complete, maximum)
+}
+
+fn delimiter_lexical_status(text: &str, span: &Span) -> (ParsedLexicalStatus, usize) {
+    let mut stack: Vec<(char, usize)> = Vec::new();
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut quote_start = 0usize;
+    let mut maximum = 0usize;
+    for (index, ch) in text.char_indices() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => {
+                quoted = true;
+                quote_start = index;
+            }
+            '(' | '[' | '{' => {
+                stack.push((ch, index));
+                maximum = maximum.max(stack.len());
+                if maximum > MAX_EXPRESSION_DELIMITER_DEPTH {
+                    return (
+                        ParsedLexicalStatus::Malformed(ParsedMalformedExpressionFact {
+                            cause: ParsedMalformedExpressionCause::DelimiterDepthExceeded,
+                            offending: source_range(span, index, ch.len_utf8()),
+                            expected: ParsedExpectedLexicalEvidence::MaximumDelimiterDepth(
+                                MAX_EXPRESSION_DELIMITER_DEPTH,
+                            ),
+                            actual: ParsedActualLexicalEvidence::DelimiterDepth(maximum),
+                        }),
+                        maximum,
+                    );
+                }
+            }
+            ')' | ']' | '}' => {
+                let expected_open = opening_delimiter_for_close(ch);
+                if stack.last().map(|(open, _)| *open) == Some(expected_open) {
+                    stack.pop();
+                } else {
+                    let expected =
+                        stack
+                            .last()
+                            .map_or(ParsedExpectedLexicalEvidence::Operand, |(open, _)| {
+                                ParsedExpectedLexicalEvidence::Token(closing_token_for_open(*open))
+                            });
+                    let offending = source_range(span, index, ch.len_utf8());
+                    return (
+                        ParsedLexicalStatus::Malformed(ParsedMalformedExpressionFact {
+                            cause: ParsedMalformedExpressionCause::MismatchedDelimiter,
+                            offending: offending.clone(),
+                            expected,
+                            actual: ParsedActualLexicalEvidence::Token {
+                                kind: lexical_token_kind(ch),
+                                range: offending,
+                            },
+                        }),
+                        maximum,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    if quoted {
+        (
+            ParsedLexicalStatus::Malformed(ParsedMalformedExpressionFact {
+                cause: ParsedMalformedExpressionCause::UnterminatedTextLiteral,
+                offending: source_range(span, quote_start, text.len() - quote_start),
+                expected: ParsedExpectedLexicalEvidence::Token(ParsedLexicalTokenKind::TextQuote),
+                actual: ParsedActualLexicalEvidence::EndOfInput,
+            }),
+            maximum,
+        )
+    } else if let Some((open, _)) = stack.last() {
+        (
+            ParsedLexicalStatus::Malformed(ParsedMalformedExpressionFact {
+                cause: ParsedMalformedExpressionCause::MissingDelimiter,
+                offending: source_range(span, text.len(), 0),
+                expected: ParsedExpectedLexicalEvidence::Token(closing_token_for_open(*open)),
+                actual: ParsedActualLexicalEvidence::EndOfInput,
+            }),
+            maximum,
+        )
+    } else {
+        (ParsedLexicalStatus::Complete, maximum)
+    }
+}
+
+fn opening_delimiter_for_close(close: char) -> char {
+    match close {
+        ')' => '(',
+        ']' => '[',
+        '}' => '{',
+        _ => unreachable!(),
+    }
+}
+
+fn closing_token_for_open(open: char) -> ParsedLexicalTokenKind {
+    match open {
+        '(' => ParsedLexicalTokenKind::ParenthesisClose,
+        '[' => ParsedLexicalTokenKind::ListClose,
+        '{' => ParsedLexicalTokenKind::RecordClose,
+        _ => unreachable!(),
+    }
+}
+
+fn lexical_token_kind(ch: char) -> ParsedLexicalTokenKind {
+    match ch {
+        '"' => ParsedLexicalTokenKind::TextQuote,
+        '(' => ParsedLexicalTokenKind::ParenthesisOpen,
+        ')' => ParsedLexicalTokenKind::ParenthesisClose,
+        '[' => ParsedLexicalTokenKind::ListOpen,
+        ']' => ParsedLexicalTokenKind::ListClose,
+        '{' => ParsedLexicalTokenKind::RecordOpen,
+        '}' => ParsedLexicalTokenKind::RecordClose,
+        ',' => ParsedLexicalTokenKind::Comma,
+        '.' => ParsedLexicalTokenKind::Dot,
+        '<' | '>' | '=' | '!' => ParsedLexicalTokenKind::ComparisonOperator,
+        value if value.is_ascii_digit() => ParsedLexicalTokenKind::IntegerLiteral,
+        value if value.is_ascii_alphabetic() || value == '_' => ParsedLexicalTokenKind::Identifier,
+        _ => ParsedLexicalTokenKind::Other,
+    }
+}
+
+fn actual_lexical_evidence(text: &str, span: &Span, offset: usize) -> ParsedActualLexicalEvidence {
+    text.get(offset..)
+        .and_then(|rest| rest.chars().next())
+        .map_or(ParsedActualLexicalEvidence::EndOfInput, |ch| {
+            let range = source_range(span, offset, ch.len_utf8());
+            ParsedActualLexicalEvidence::Token {
+                kind: lexical_token_kind(ch),
+                range,
+            }
+        })
+}
+
+fn parser_expression_intent_signal(text: &str, span: &Span) -> Option<ParsedSourceRange> {
+    let mut quoted = false;
+    let mut escaped = false;
+    for (index, ch) in text.char_indices() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            quoted = true;
+            continue;
+        }
+        if matches!(ch, '=' | '<' | '>') {
+            return Some(source_range(span, index, ch.len_utf8()));
+        }
+        if ch == '!' {
+            let next = text[index + ch.len_utf8()..]
+                .char_indices()
+                .find(|(_, next)| !matches!(next, ' ' | '\t'))
+                .map(|(offset, next)| (index + ch.len_utf8() + offset, next));
+            let left = text[..index].trim_end();
+            if next.is_some_and(|(_, next)| next == '=')
+                || (!left.is_empty()
+                    && next.is_some_and(|(_, next)| {
+                        matches!(next, '"' | '[' | '(' | '-' | '0'..='9' | 'a'..='z' | '_')
+                    }))
+            {
+                return Some(source_range(span, index, ch.len_utf8()));
+            }
+        }
+    }
+    for name in ["old", "list_len", "list_count"] {
+        let mut start = 0usize;
+        while let Some(relative) = text[start..].find(name) {
+            let index = start + relative;
+            let before = index == 0
+                || !text.as_bytes()[index - 1].is_ascii_alphanumeric()
+                    && text.as_bytes()[index - 1] != b'_';
+            let after_name = index + name.len();
+            let after = after_name == text.len()
+                || !text.as_bytes()[after_name].is_ascii_alphanumeric()
+                    && text.as_bytes()[after_name] != b'_';
+            if before && after {
+                let open = text[after_name..]
+                    .char_indices()
+                    .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
+                    .map(|(offset, ch)| (after_name + offset, ch));
+                if let Some((open, '(')) = open {
+                    return Some(source_range(span, index, open + 1 - index));
+                }
+            }
+            start = after_name;
+        }
+    }
+    None
+}
+
+fn predicate_lexical_issue(
+    text: &str,
+    span: &Span,
+    canonical: &CanonicalExpression,
+) -> Option<ParsedMalformedExpressionFact> {
+    let trimmed = text.trim();
+    let leading = text.len() - text.trim_start().len();
+    if trimmed.is_empty() {
+        return Some(ParsedMalformedExpressionFact {
+            cause: ParsedMalformedExpressionCause::MissingOperand,
+            offending: source_range(span, text.len(), 0),
+            expected: ParsedExpectedLexicalEvidence::Operand,
+            actual: ParsedActualLexicalEvidence::EndOfInput,
+        });
+    }
+    if let Some((offset, len)) = out_of_range_integer_token(trimmed) {
+        let offending = source_range(span, leading + offset, len);
+        return Some(ParsedMalformedExpressionFact {
+            cause: ParsedMalformedExpressionCause::IntegerLiteralOutOfRange,
+            offending: offending.clone(),
+            expected: ParsedExpectedLexicalEvidence::Int64Value,
+            actual: ParsedActualLexicalEvidence::Token {
+                kind: ParsedLexicalTokenKind::IntegerLiteral,
+                range: offending,
+            },
+        });
+    }
+    if let Some(issue) = first_predicate_list_lexical_issue(text, span) {
+        return Some(issue);
+    }
+    if let Some(issue) = predicate_field_lexical_issue(trimmed, span, leading) {
+        return Some(issue);
+    }
+    let first = trimmed.chars().next()?;
+    if !matches!(first, '"' | '[' | '(' | '-' | '0'..='9' | 'a'..='z' | '_') {
+        let offending = source_range(span, leading, first.len_utf8());
+        return Some(ParsedMalformedExpressionFact {
+            cause: ParsedMalformedExpressionCause::InvalidOperandStarter,
+            offending: offending.clone(),
+            expected: ParsedExpectedLexicalEvidence::Operand,
+            actual: ParsedActualLexicalEvidence::Token {
+                kind: lexical_token_kind(first),
+                range: offending,
+            },
+        });
+    }
+    if let Some(issue) = missing_operand_issue(canonical, span, text) {
+        return Some(issue);
+    }
+    if !canonical_contains_comparison(canonical)
+        && let Some((offset, len)) = first_comparison_spelling(text)
+    {
+        let offending = source_range(span, offset, len);
+        return Some(ParsedMalformedExpressionFact {
+            cause: ParsedMalformedExpressionCause::InvalidComparisonOperator,
+            offending: offending.clone(),
+            expected: ParsedExpectedLexicalEvidence::ComparisonOperator,
+            actual: ParsedActualLexicalEvidence::Token {
+                kind: ParsedLexicalTokenKind::ComparisonOperator,
+                range: offending,
+            },
+        });
+    }
+    None
+}
+
+fn out_of_range_integer_token(text: &str) -> Option<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    let mut quoted = false;
+    while index < bytes.len() {
+        if bytes[index] == b'"' {
+            quoted = !quoted;
+            index += 1;
+            continue;
+        }
+        if quoted {
+            index += 1;
+            continue;
+        }
+        let signed = bytes[index] == b'-'
+            && bytes
+                .get(index + 1)
+                .is_some_and(|next| next.is_ascii_digit());
+        if bytes[index].is_ascii_digit() || signed {
+            let start = index;
+            if signed {
+                index += 1;
+            }
+            while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+                index += 1;
+            }
+            let token = &text[start..index];
+            if token.parse::<i64>().is_err() {
+                return Some((start, index - start));
+            }
+            continue;
+        }
+        index += 1;
+    }
+    None
+}
+
+fn canonical_contains_comparison(expression: &CanonicalExpression) -> bool {
+    is_comparison_node(expression)
+        || match &expression.kind {
+            CanonicalExpressionKind::Field { base, .. }
+            | CanonicalExpressionKind::Permission { value: base, .. }
+            | CanonicalExpressionKind::Try { value: base, .. }
+            | CanonicalExpressionKind::Group(base) => canonical_contains_comparison(base),
+            CanonicalExpressionKind::ListLiteral(values) => {
+                values.iter().any(canonical_contains_comparison)
+            }
+            CanonicalExpressionKind::RecordLiteral { fields, .. } => fields
+                .iter()
+                .any(|(_, value)| canonical_contains_comparison(value)),
+            CanonicalExpressionKind::Call { callee, arguments } => {
+                canonical_contains_comparison(callee)
+                    || arguments.iter().any(canonical_contains_comparison)
+            }
+            CanonicalExpressionKind::Binary { left, right, .. } => {
+                canonical_contains_comparison(left) || canonical_contains_comparison(right)
+            }
+            CanonicalExpressionKind::Unit
+            | CanonicalExpressionKind::Identifier(_)
+            | CanonicalExpressionKind::UIntLiteral(_)
+            | CanonicalExpressionKind::IntLiteral(_)
+            | CanonicalExpressionKind::BoolLiteral(_)
+            | CanonicalExpressionKind::TextLiteral(_)
+            | CanonicalExpressionKind::Unsupported => false,
+        }
+}
+
+fn first_comparison_spelling(text: &str) -> Option<(usize, usize)> {
+    let mut quoted = false;
+    let mut escaped = false;
+    for (index, ch) in text.char_indices() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            quoted = true;
+            continue;
+        }
+        if matches!(ch, '=' | '<' | '>' | '!') {
+            let len = text[index..]
+                .chars()
+                .take_while(|value| matches!(value, '=' | '<' | '>' | '!'))
+                .map(char::len_utf8)
+                .sum::<usize>();
+            return Some((index, len.max(ch.len_utf8())));
+        }
+    }
+    None
+}
+
+fn missing_operand_issue(
+    expression: &CanonicalExpression,
+    root_span: &Span,
+    root_text: &str,
+) -> Option<ParsedMalformedExpressionFact> {
+    if let CanonicalExpressionKind::Binary { left, right, .. } = &expression.kind {
+        for child in [left.as_ref(), right.as_ref()] {
+            if matches!(
+                child.kind,
+                CanonicalExpressionKind::Unit | CanonicalExpressionKind::Unsupported
+            ) {
+                let relative = child.range.start.column.saturating_sub(root_span.column);
+                let offending = child.range.clone();
+                return Some(ParsedMalformedExpressionFact {
+                    cause: ParsedMalformedExpressionCause::MissingOperand,
+                    expected: ParsedExpectedLexicalEvidence::Operand,
+                    actual: actual_lexical_evidence(root_text, root_span, relative),
+                    offending,
+                });
+            }
+        }
+        return missing_operand_issue(left, root_span, root_text)
+            .or_else(|| missing_operand_issue(right, root_span, root_text));
+    }
+    None
+}
+
+fn predicate_field_lexical_issue(
+    text: &str,
+    span: &Span,
+    leading: usize,
+) -> Option<ParsedMalformedExpressionFact> {
+    let dot_offsets = text
+        .char_indices()
+        .filter_map(|(index, ch)| (ch == '.').then_some(index))
+        .collect::<Vec<_>>();
+    let invalid = dot_offsets.iter().copied().find(|index| {
+        let next = text[*index + 1..].chars().next();
+        next.is_none_or(|ch| !(ch.is_ascii_lowercase() || ch == '_'))
+    });
+    let offending_offset = invalid.or_else(|| dot_offsets.get(1).copied())?;
+    let offending = source_range(span, leading + offending_offset, 1);
+    Some(ParsedMalformedExpressionFact {
+        cause: ParsedMalformedExpressionCause::MalformedFieldPlace,
+        offending: offending.clone(),
+        expected: ParsedExpectedLexicalEvidence::Identifier,
+        actual: actual_lexical_evidence(text, span, offending_offset),
+    })
+}
+
+fn predicate_list_lexical_issue(
+    text: &str,
+    span: &Span,
+    leading: usize,
+) -> Option<ParsedMalformedExpressionFact> {
+    if !(text.starts_with('[') && text.ends_with(']')) {
+        return None;
+    }
+    let inside = &text[1..text.len() - 1];
+    let ranges = split_top_level_ranges(inside, ',');
+    if inside.trim_end().ends_with(',') {
+        let offset = inside.rfind(',')? + 1;
+        let offending = source_range(span, leading + offset, 1);
+        return Some(ParsedMalformedExpressionFact {
+            cause: ParsedMalformedExpressionCause::ListTrailingComma,
+            offending: offending.clone(),
+            expected: ParsedExpectedLexicalEvidence::TextListElement,
+            actual: ParsedActualLexicalEvidence::EndOfInput,
+        });
+    }
+    for range in ranges {
+        let raw = &inside[range.clone()];
+        let value = raw.trim();
+        let value_leading = raw.len() - raw.trim_start().len();
+        let offset = leading + 1 + range.start + value_leading;
+        if !(value.starts_with('"') && value.ends_with('"') && value.len() >= 2) {
+            let offending =
+                source_range(span, offset, value.chars().next().map_or(0, char::len_utf8));
+            return Some(ParsedMalformedExpressionFact {
+                cause: ParsedMalformedExpressionCause::ListNonTextElement,
+                offending: offending.clone(),
+                expected: ParsedExpectedLexicalEvidence::TextListElement,
+                actual: actual_lexical_evidence(text, span, 1 + range.start + value_leading),
+            });
+        }
+        if let Some(close) = value[1..].find('"').map(|close| close + 1) {
+            let trailing = value[close + 1..].trim_start();
+            if !trailing.is_empty() {
+                let trailing_offset = value.len() - trailing.len();
+                let offending = source_range(span, offset + trailing_offset, 1);
+                return Some(ParsedMalformedExpressionFact {
+                    cause: ParsedMalformedExpressionCause::ListElementSeparator,
+                    offending: offending.clone(),
+                    expected: ParsedExpectedLexicalEvidence::ListSeparatorOrClose,
+                    actual: actual_lexical_evidence(
+                        value,
+                        &offset_span(span, offset),
+                        trailing_offset,
+                    ),
+                });
+            }
+        }
+    }
+    None
+}
+
+fn first_predicate_list_lexical_issue(
+    text: &str,
+    span: &Span,
+) -> Option<ParsedMalformedExpressionFact> {
+    let mut quoted = false;
+    let mut escaped = false;
+    for (index, ch) in text.char_indices() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            quoted = true;
+            continue;
+        }
+        if ch == '['
+            && let Some(close) = matching_delimiter_quoted(text, index, '[', ']')
+        {
+            let list = &text[index..=close];
+            if let Some(issue) = predicate_list_lexical_issue(list, &offset_span(span, index), 0) {
+                return Some(issue);
+            }
+        }
+    }
+    None
+}
+
+fn parse_typed_failure_wrapper_syntax(
+    text: &str,
+    span: &Span,
+) -> Option<ParsedTypedFailureWrapperSyntax> {
+    let rest = keyword_rest(text, "try")?;
+    let rest_offset = text.len() - rest.len();
+    let (_, wrapper) = split_typed_failure_wrapper(rest, span, rest_offset);
+    Some(ParsedTypedFailureWrapperSyntax {
+        kind: if wrapper.is_some() {
+            ParsedTypedFailureWrapperKind::Wrap
+        } else {
+            ParsedTypedFailureWrapperKind::Try
+        },
+        try_keyword: source_range(span, 0, "try".len()),
+        failure_root: wrapper
+            .as_ref()
+            .and_then(|wrapper| wrapper.failure_root.clone()),
+        failure_variant: wrapper
+            .as_ref()
+            .and_then(|wrapper| wrapper.failure_variant.clone()),
+    })
+}
+
+fn split_typed_failure_wrapper<'a>(
+    text: &'a str,
+    span: &Span,
+    text_offset: usize,
+) -> (&'a str, Option<ParsedTypedFailureWrapperSyntax>) {
+    let Some(wrapper_start) = find_top_level_phrase(text, " or fail ") else {
+        return (text, None);
+    };
+    let value = text[..wrapper_start].trim_end();
+    let failure_start = wrapper_start + " or fail ".len();
+    let failure = text[failure_start..].trim();
+    let leading = text[failure_start..].len() - text[failure_start..].trim_start().len();
+    let absolute = text_offset + failure_start + leading;
+    let (root, variant) = failure.split_once('.').unwrap_or((failure, ""));
+    let root = is_type_identifier(root).then(|| ParsedIdentifier {
+        name: root.to_string(),
+        span: offset_span(span, absolute),
+    });
+    let variant_offset = failure.find('.').map_or(failure.len(), |dot| dot + 1);
+    let variant = is_value_identifier(variant).then(|| ParsedIdentifier {
+        name: variant.to_string(),
+        span: offset_span(span, absolute + variant_offset),
+    });
+    (
+        value,
+        Some(ParsedTypedFailureWrapperSyntax {
+            kind: ParsedTypedFailureWrapperKind::Wrap,
+            try_keyword: source_range(span, 0, "try".len()),
+            failure_root: root,
+            failure_variant: variant,
+        }),
+    )
+}
+
+fn find_top_level_phrase(text: &str, phrase: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut quoted = false;
+    let mut escaped = false;
+    for (index, ch) in text.char_indices() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => quoted = true,
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ if depth == 0 && text[index..].starts_with(phrase) => return Some(index),
+            _ => {}
+        }
+    }
+    None
 }
 
 fn parse_canonical_expression(
@@ -1720,6 +3400,28 @@ fn parse_canonical_expression(
             node_id,
             range,
             kind: CanonicalExpressionKind::Unit,
+        };
+    }
+
+    if let Some(rest) = keyword_rest(text, "try") {
+        let value_offset = text.len() - rest.len();
+        let (value_text, wrapper) = split_typed_failure_wrapper(rest, &span, value_offset);
+        return CanonicalExpression {
+            node_id: node_id.clone(),
+            range,
+            kind: CanonicalExpressionKind::Try {
+                value: Box::new(parse_canonical_expression(
+                    value_text,
+                    &offset_span(&span, value_offset),
+                    node_id.child("try-value"),
+                )),
+                failure_root: wrapper
+                    .as_ref()
+                    .and_then(|wrapper| wrapper.failure_root.clone()),
+                failure_variant: wrapper
+                    .as_ref()
+                    .and_then(|wrapper| wrapper.failure_variant.clone()),
+            },
         };
     }
 
@@ -2176,16 +3878,20 @@ fn compound_identifier_operands(
             let name = &text[start..index];
             if is_value_identifier(name) {
                 let identifier_span = offset_span(span, start);
+                let node_id = source_node_id.child(&format!("compound-{}", operands.len()));
+                let (canonical, occurrence) = parse_canonical_expression_occurrence(
+                    name,
+                    &identifier_span,
+                    node_id,
+                    ParsedExpressionIntent::Other,
+                );
                 operands.push(ParsedExpression {
                     kind: ParsedExpressionKind::Identifier(ParsedIdentifier {
                         name: name.to_string(),
                         span: identifier_span.clone(),
                     }),
-                    canonical: parse_canonical_expression(
-                        name,
-                        &identifier_span,
-                        source_node_id.child(&format!("compound-{}", operands.len())),
-                    ),
+                    canonical,
+                    occurrence,
                     span: identifier_span,
                 });
             }
@@ -2570,10 +4276,313 @@ mod tests {
     };
     use crate::ast::{
         CanonicalExpressionKind, Item, ParsedBinaryOperator, ParsedBlockRelationship,
-        ParsedBodyStatementKind, ParsedCallCloseStatus, ParsedExpressionKind, ParserSyntaxNodeId,
-        TypeSyntaxKind,
+        ParsedBodyStatementKind, ParsedCallCloseStatus, ParsedExpressionIntent,
+        ParsedExpressionKind, ParsedLexicalStatus, ParsedLoopKind, ParsedLoopRelationshipKind,
+        ParsedMalformedExpressionCause, ParsedStatementSyntaxKind, ParsedTypedFailureWrapperKind,
+        ParserSyntaxNodeId, TypeSyntaxKind,
     };
     use crate::diagnostic::{DiagnosticCode, Severity};
+
+    #[derive(Debug)]
+    struct RustFunction<'a> {
+        name: &'a str,
+        signature: &'a str,
+        body: &'a str,
+    }
+
+    fn rust_code_mask(source: &str) -> String {
+        let bytes = source.as_bytes();
+        let mut masked = bytes.to_vec();
+        let mut index = 0usize;
+        let mut block_comment_depth = 0usize;
+        while index < bytes.len() {
+            if block_comment_depth > 0 {
+                if bytes.get(index..index + 2) == Some(b"/*") {
+                    masked[index] = b' ';
+                    masked[index + 1] = b' ';
+                    block_comment_depth += 1;
+                    index += 2;
+                } else if bytes.get(index..index + 2) == Some(b"*/") {
+                    masked[index] = b' ';
+                    masked[index + 1] = b' ';
+                    block_comment_depth -= 1;
+                    index += 2;
+                } else {
+                    if bytes[index] != b'\n' {
+                        masked[index] = b' ';
+                    }
+                    index += 1;
+                }
+                continue;
+            }
+            if bytes.get(index..index + 2) == Some(b"//") {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    masked[index] = b' ';
+                    index += 1;
+                }
+                continue;
+            }
+            if bytes.get(index..index + 2) == Some(b"/*") {
+                masked[index] = b' ';
+                masked[index + 1] = b' ';
+                block_comment_depth = 1;
+                index += 2;
+                continue;
+            }
+            if bytes[index] == b'"' {
+                masked[index] = b' ';
+                index += 1;
+                let mut escaped = false;
+                while index < bytes.len() {
+                    let byte = bytes[index];
+                    if byte != b'\n' {
+                        masked[index] = b' ';
+                    }
+                    index += 1;
+                    if escaped {
+                        escaped = false;
+                    } else if byte == b'\\' {
+                        escaped = true;
+                    } else if byte == b'"' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if bytes[index] == b'\'' {
+                let close = if bytes.get(index + 1) == Some(&b'\\') {
+                    index + 3
+                } else {
+                    index + 2
+                };
+                if bytes.get(close) == Some(&b'\'') {
+                    for value in masked.iter_mut().take(close + 1).skip(index) {
+                        *value = b' ';
+                    }
+                    index = close + 1;
+                    continue;
+                }
+            }
+            index += 1;
+        }
+        String::from_utf8(masked).expect("Rust source mask stays UTF-8")
+    }
+
+    fn matching_code_brace(mask: &str, open: usize) -> Option<usize> {
+        let mut depth = 0usize;
+        for (offset, byte) in mask.as_bytes()[open..].iter().copied().enumerate() {
+            match byte {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth = depth.checked_sub(1)?;
+                    if depth == 0 {
+                        return Some(open + offset);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn production_source_without_cfg_test_items(source: &str) -> Result<String, &'static str> {
+        let mask = rust_code_mask(source);
+        let marker = "#[cfg(test)]";
+        let mut production = source.as_bytes().to_vec();
+        let mut search = 0usize;
+        let mut removed = 0usize;
+        while let Some(relative) = mask[search..].find(marker) {
+            let start = search + relative;
+            let open = mask[start..]
+                .find('{')
+                .map(|offset| start + offset)
+                .ok_or("cfg_test_item_open_missing_v0")?;
+            let close = matching_code_brace(&mask, open).ok_or("cfg_test_item_close_missing_v0")?;
+            for (index, value) in production
+                .iter_mut()
+                .enumerate()
+                .take(close + 1)
+                .skip(start)
+            {
+                if source.as_bytes()[index] != b'\n' {
+                    *value = b' ';
+                }
+            }
+            removed += 1;
+            search = close + 1;
+        }
+        if removed == 0 {
+            return Err("cfg_test_item_missing_v0");
+        }
+        String::from_utf8(production).map_err(|_| "production_source_utf8_corrupt_v0")
+    }
+
+    fn rust_functions(source: &str) -> Result<Vec<RustFunction<'_>>, &'static str> {
+        let mask = rust_code_mask(source);
+        let bytes = mask.as_bytes();
+        let mut functions = Vec::new();
+        let mut index = 0usize;
+        while index + 2 < bytes.len() {
+            let boundary_before = index == 0
+                || !(bytes[index - 1].is_ascii_alphanumeric() || bytes[index - 1] == b'_');
+            let boundary_after =
+                !(bytes[index + 2].is_ascii_alphanumeric() || bytes[index + 2] == b'_');
+            if boundary_before && boundary_after && &bytes[index..index + 2] == b"fn" {
+                let mut name_start = index + 2;
+                while bytes
+                    .get(name_start)
+                    .is_some_and(|byte| byte.is_ascii_whitespace())
+                {
+                    name_start += 1;
+                }
+                let mut name_end = name_start;
+                while bytes
+                    .get(name_end)
+                    .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+                {
+                    name_end += 1;
+                }
+                let open = mask[name_end..]
+                    .find('{')
+                    .map(|offset| name_end + offset)
+                    .ok_or("production_function_open_missing_v0")?;
+                let close = matching_code_brace(&mask, open)
+                    .ok_or("production_function_close_missing_v0")?;
+                functions.push(RustFunction {
+                    name: &source[name_start..name_end],
+                    signature: &source[index..open],
+                    body: &source[open + 1..close],
+                });
+                index = close + 1;
+            } else {
+                index += 1;
+            }
+        }
+        Ok(functions)
+    }
+
+    fn struct_field_names<'a>(
+        source: &'a str,
+        declaration: &str,
+    ) -> Result<Vec<&'a str>, &'static str> {
+        let mask = rust_code_mask(source);
+        let start = mask
+            .find(declaration)
+            .ok_or("authority_struct_missing_v0")?;
+        let open = mask[start..]
+            .find('{')
+            .map(|offset| start + offset)
+            .ok_or("authority_struct_open_missing_v0")?;
+        let close = matching_code_brace(&mask, open).ok_or("authority_struct_close_missing_v0")?;
+        let mut fields = Vec::new();
+        for line in source[open + 1..close].lines() {
+            let line = line.trim();
+            let line = line.strip_prefix("pub ").unwrap_or(line);
+            if let Some((name, _)) = line.split_once(':') {
+                fields.push(name.trim());
+            }
+        }
+        Ok(fields)
+    }
+
+    fn audit_h0010_production_dataflow(
+        parser_source: &str,
+        ast_source: &str,
+    ) -> Result<usize, &'static str> {
+        let production = production_source_without_cfg_test_items(parser_source)?;
+        let functions = rust_functions(&production)?;
+        let roots = functions
+            .iter()
+            .filter(|function| {
+                function
+                    .body
+                    .contains("DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED")
+            })
+            .collect::<Vec<_>>();
+        if roots.len() != 1
+            || production
+                .matches("DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED")
+                .count()
+                != 1
+            || production
+                .matches("DiagnosticCauseKey::producer_owned(179)")
+                .count()
+                != 1
+        {
+            return Err("h0010_emission_authority_not_unique_v0");
+        }
+        let mut reachable = std::collections::BTreeSet::from([roots[0].name]);
+        loop {
+            let before = reachable.len();
+            for function in &functions {
+                if !reachable.contains(function.name) {
+                    continue;
+                }
+                let mask = rust_code_mask(function.body);
+                for candidate in &functions {
+                    if mask.match_indices(candidate.name).any(|(index, _)| {
+                        let before = index.checked_sub(1).and_then(|at| mask.as_bytes().get(at));
+                        let after = mask.as_bytes().get(index + candidate.name.len());
+                        !before.is_some_and(|byte| {
+                            byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b':')
+                        }) && after.is_some_and(|byte| *byte == b'(')
+                    }) {
+                        reachable.insert(candidate.name);
+                    }
+                }
+            }
+            if reachable.len() == before {
+                break;
+            }
+        }
+        for function in &functions {
+            if !reachable.contains(function.name) {
+                continue;
+            }
+            if function.signature.contains("&str")
+                || function.signature.contains("String")
+                || function.body.contains("ParsedExpressionKind")
+                || function.body.contains("ParsedCall")
+                || function.body.contains("render_parsed_expression")
+                || function.body.contains("source_text_for_range")
+                || function.body.contains("top_level_binary_operator")
+                || function.body.contains("parser_owned_top_level_call_ranges")
+            {
+                return Err("h0010_raw_or_parallel_authority_reachable_v0");
+            }
+        }
+        let occurrence_fields =
+            struct_field_names(ast_source, "pub struct ParsedExpressionOccurrenceFacts")?;
+        if occurrence_fields
+            != [
+                "root_node_id",
+                "intent",
+                "intent_signal",
+                "maximum_delimiter_depth",
+                "lexical_status",
+                "nodes",
+                "typed_failure_wrapper",
+            ]
+        {
+            return Err("expression_occurrence_parallel_authority_field_v0");
+        }
+        let node_fields = struct_field_names(ast_source, "pub struct ParsedCanonicalNodeSyntax")?;
+        if node_fields
+            != [
+                "node_id",
+                "child_position",
+                "range",
+                "operator",
+                "delimiter",
+                "call",
+                "delimiter_depth",
+                "lexical_status",
+            ]
+        {
+            return Err("canonical_node_parallel_authority_field_v0");
+        }
+        Ok(reachable.len())
+    }
 
     #[test]
     fn parser_body_syntax_owns_repeated_sibling_and_nested_calls() {
@@ -3170,5 +5179,575 @@ task after() -> UInt {
             task.body_syntax[0].core_expression_kind,
             Some("name_or_text")
         );
+    }
+
+    #[test]
+    fn increment_10b1_expression_occurrence_facts_are_parser_owned_and_exact() {
+        let parsed = parse_source(
+            "expression-occurrence.hum",
+            "task choose(value: UInt) -> UInt {\n  does:\n    return try apply(change value, [1, 2], Pair { left: 1, right: 2 }) or fail ChoiceError.invalid\n}\n",
+        );
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("task")
+        };
+        let statement = &task.body_syntax[0];
+        let ParsedBodyStatementKind::Return(value) = &statement.kind else {
+            panic!("return")
+        };
+
+        assert_eq!(value.occurrence.intent, ParsedExpressionIntent::Return);
+        assert_eq!(value.occurrence.root_node_id, value.canonical.node_id);
+        assert!(value.occurrence.maximum_delimiter_depth >= 2);
+        assert_eq!(statement.syntax.kind, ParsedStatementSyntaxKind::Return);
+        assert_eq!(
+            statement.syntax.expression_nodes,
+            vec![value.canonical.node_id.clone()]
+        );
+        let wrapper = value
+            .occurrence
+            .typed_failure_wrapper
+            .as_ref()
+            .expect("typed failure wrapper");
+        assert_eq!(wrapper.kind, ParsedTypedFailureWrapperKind::Wrap);
+        assert_eq!(
+            wrapper
+                .failure_root
+                .as_ref()
+                .map(|value| value.name.as_str()),
+            Some("ChoiceError")
+        );
+        assert_eq!(
+            wrapper
+                .failure_variant
+                .as_ref()
+                .map(|value| value.name.as_str()),
+            Some("invalid")
+        );
+
+        let call = value
+            .occurrence
+            .nodes
+            .iter()
+            .find_map(|node| node.call.as_ref())
+            .expect("call syntax facts");
+        assert!(call.close.is_some());
+        assert_eq!(call.separators.len(), 2);
+        assert!(!call.gaps.is_empty());
+        assert!(
+            value
+                .occurrence
+                .nodes
+                .iter()
+                .enumerate()
+                .all(|(index, node)| index == 0 || !node.child_position.is_empty())
+        );
+        assert!(super::validate_expression_occurrence(value).is_ok());
+
+        let mut missing_node = value.clone();
+        missing_node.occurrence.nodes.pop();
+        assert_eq!(
+            super::validate_expression_occurrence(&missing_node),
+            Err("parser_expression_occurrence_projection_corrupt_v0")
+        );
+
+        let mut substituted_position = value.clone();
+        substituted_position.occurrence.nodes[1].child_position = vec![99];
+        assert_eq!(
+            super::validate_expression_occurrence(&substituted_position),
+            Err("parser_expression_occurrence_projection_corrupt_v0")
+        );
+    }
+
+    #[test]
+    fn increment_10b1_malformed_lexical_facts_are_structured_exact_and_fail_closed() {
+        let parse_contract = |text: &str| {
+            let parsed = parse_source(
+                "malformed-expression-facts.hum",
+                &format!(
+                    "task lexical(value: UInt) -> UInt {{\n  ensures:\n    {text}\n\n  does:\n    return value\n}}\n"
+                ),
+            );
+            let Item::Task(task) = &parsed.file.items[0] else {
+                panic!("task")
+            };
+            task.sections
+                .iter()
+                .find(|section| section.name == "ensures")
+                .and_then(|section| section.expression_syntax[0].clone())
+                .expect("parser-owned contract expression")
+        };
+
+        let cases = [
+            (
+                "value == \"unterminated",
+                ParsedMalformedExpressionCause::UnterminatedTextLiteral,
+            ),
+            (
+                "value == (1]",
+                ParsedMalformedExpressionCause::MismatchedDelimiter,
+            ),
+            (
+                "value == (1",
+                ParsedMalformedExpressionCause::MissingDelimiter,
+            ),
+            ("value ==", ParsedMalformedExpressionCause::MissingOperand),
+            (
+                "value = 1",
+                ParsedMalformedExpressionCause::InvalidComparisonOperator,
+            ),
+            (
+                "@ == 1",
+                ParsedMalformedExpressionCause::InvalidOperandStarter,
+            ),
+            (
+                "value. == 1",
+                ParsedMalformedExpressionCause::MalformedFieldPlace,
+            ),
+            (
+                "list_count([\"a\" \"b\"], \"a\") > 0",
+                ParsedMalformedExpressionCause::ListElementSeparator,
+            ),
+            (
+                "list_count([\"a\",], \"a\") > 0",
+                ParsedMalformedExpressionCause::ListTrailingComma,
+            ),
+            (
+                "list_count([1], \"a\") > 0",
+                ParsedMalformedExpressionCause::ListNonTextElement,
+            ),
+            (
+                "999999999999999999999999 == 1",
+                ParsedMalformedExpressionCause::IntegerLiteralOutOfRange,
+            ),
+            (
+                "(((((((((((((((((value == 1)))))))))))))))))",
+                ParsedMalformedExpressionCause::DelimiterDepthExceeded,
+            ),
+        ];
+        for (text, expected_cause) in cases {
+            let expression = parse_contract(text);
+            let ParsedLexicalStatus::Malformed(fact) = &expression.occurrence.lexical_status else {
+                panic!(
+                    "missing structured lexical issue for {text}: {:#?}",
+                    expression.occurrence
+                )
+            };
+            assert_eq!(fact.cause, expected_cause, "{text}");
+            assert!(expression.occurrence.intent_signal.is_some(), "{text}");
+            assert!(
+                super::validate_expression_occurrence(&expression).is_ok(),
+                "{text}"
+            );
+            assert_eq!(
+                expression.occurrence.nodes[0].lexical_status, expression.occurrence.lexical_status,
+                "{text}"
+            );
+        }
+
+        let expression = parse_contract("value == (1]");
+        let mut missing = expression.clone();
+        missing.occurrence.lexical_status = ParsedLexicalStatus::Complete;
+        assert_eq!(
+            super::validate_expression_occurrence(&missing),
+            Err("parser_expression_occurrence_root_corrupt_v0")
+        );
+
+        let mut substituted = expression.clone();
+        let ParsedLexicalStatus::Malformed(fact) = &mut substituted.occurrence.lexical_status
+        else {
+            panic!("malformed fact")
+        };
+        fact.cause = ParsedMalformedExpressionCause::IntegerLiteralOutOfRange;
+        substituted.occurrence.nodes[0].lexical_status =
+            substituted.occurrence.lexical_status.clone();
+        assert_eq!(
+            super::validate_expression_occurrence(&substituted),
+            Err("parser_expression_lexical_evidence_corrupt_v0")
+        );
+
+        let mut wrong_range = expression.clone();
+        let ParsedLexicalStatus::Malformed(fact) = &mut wrong_range.occurrence.lexical_status
+        else {
+            panic!("malformed fact")
+        };
+        fact.offending.start.column =
+            expression.canonical.range.start.column + expression.canonical.range.byte_len + 1;
+        wrong_range.occurrence.nodes[0].lexical_status =
+            wrong_range.occurrence.lexical_status.clone();
+        assert_eq!(
+            super::validate_expression_occurrence(&wrong_range),
+            Err("parser_expression_lexical_range_corrupt_v0")
+        );
+
+        let valid = parse_contract("value == 1");
+        assert_eq!(
+            valid.occurrence.lexical_status,
+            ParsedLexicalStatus::Complete
+        );
+        assert!(matches!(
+            valid.occurrence.intent_signal,
+            Some(ref signal) if signal.byte_len == 1
+        ));
+        assert!(matches!(
+            &valid.occurrence.nodes[0].operator,
+            Some(operator) if operator.byte_len == 2
+        ));
+    }
+
+    #[test]
+    fn increment_10b1_h0010_source_audit_is_structural_complete_and_sabotage_sensitive() {
+        let parser_source = include_str!("parser.rs");
+        let ast_source = include_str!("ast.rs");
+        assert_eq!(
+            audit_h0010_production_dataflow(parser_source, ast_source),
+            Ok(9)
+        );
+
+        let sabotage = parser_source
+            .replace(
+                "for chain in chained_comparison_sites(expression) {",
+                "let _competing = renamed_raw_authority(expression.span.file.as_str());\n        for chain in chained_comparison_sites(expression) {",
+            )
+            .replacen(
+                "#[cfg(test)]",
+                "fn renamed_raw_authority(raw: &str) -> bool { raw.split('<').count() > 2 }\n\n#[cfg(test)]",
+                1,
+            );
+        assert_eq!(
+            audit_h0010_production_dataflow(&sabotage, ast_source),
+            Err("h0010_raw_or_parallel_authority_reachable_v0")
+        );
+    }
+
+    #[test]
+    fn increment_10b1_h0010_depends_on_canonical_tree_not_retained_legacy_projection() {
+        let parsed = parse_source(
+            "canonical-chain-authority.hum",
+            "task chained() -> Bool {\n  does:\n    return (1 < 2 < 3) and true\n}\n",
+        );
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("task")
+        };
+        let ParsedBodyStatementKind::Return(expression) = &task.body_syntax[0].kind else {
+            panic!("return")
+        };
+        assert_eq!(super::chained_comparison_sites(expression).len(), 1);
+
+        let mut corrupted = expression.clone();
+        let CanonicalExpressionKind::Binary { left, .. } = &mut corrupted.canonical.kind else {
+            panic!("Boolean root")
+        };
+        let CanonicalExpressionKind::Group(chain) = &mut left.kind else {
+            panic!("grouped chain")
+        };
+        chain.kind = CanonicalExpressionKind::BoolLiteral(true);
+        assert!(super::chained_comparison_sites(&corrupted).is_empty());
+        assert_eq!(
+            corrupted.kind, expression.kind,
+            "legacy projection held fixed"
+        );
+        assert_eq!(
+            corrupted.occurrence, expression.occurrence,
+            "occurrence projection held fixed"
+        );
+        assert!(super::validate_expression_occurrence(&corrupted).is_err());
+    }
+
+    #[test]
+    fn increment_10b1_statement_relationship_facts_are_structured_and_exact() {
+        let parsed = parse_source(
+            "statement-facts.hum",
+            r#"task statement_facts(value: UInt, items: List UInt) -> UInt {
+  does:
+    let item = value
+    set item = item + 1
+    save item in items
+    if item > 0 {
+      return item
+    }
+    while item < 3 {
+      set item = item + 1
+    }
+    for each entry in items {
+      return entry
+    }
+    for index position from 0 until 3 {
+      return position
+    }
+    for index slot from 1 through 4 {
+      return slot
+    }
+    return item
+}
+"#,
+        );
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("task")
+        };
+        assert!(validate_retained_body_syntax(&task.body_syntax).is_ok());
+
+        let binding = &task.body_syntax[0].syntax;
+        assert_eq!(
+            binding.kind,
+            ParsedStatementSyntaxKind::Binding { mutable: false }
+        );
+        assert_eq!(
+            binding.binding.as_ref().map(|value| value.name.as_str()),
+            Some("item")
+        );
+        assert!(binding.relationship_token.is_some());
+        assert_eq!(binding.expression_nodes.len(), 1);
+
+        let set = &task.body_syntax[1].syntax;
+        assert_eq!(set.kind, ParsedStatementSyntaxKind::Set);
+        assert!(matches!(
+            set.target.as_ref().map(|target| &target.canonical.kind),
+            Some(CanonicalExpressionKind::Identifier(name)) if name == "item"
+        ));
+        assert!(set.relationship_token.is_some());
+        assert_eq!(set.expression_nodes.len(), 1);
+
+        let save = &task.body_syntax[2].syntax;
+        assert_eq!(save.kind, ParsedStatementSyntaxKind::Save);
+        assert_eq!(
+            save.destination.as_ref().map(|value| value.name.as_str()),
+            Some("items")
+        );
+        assert!(save.relationship_token.is_some());
+        assert_eq!(save.expression_nodes.len(), 1);
+
+        let condition = &task.body_syntax[3];
+        assert_eq!(condition.syntax.kind, ParsedStatementSyntaxKind::Condition);
+        assert_eq!(
+            super::statement_expressions(condition)[0].occurrence.intent,
+            ParsedExpressionIntent::Condition
+        );
+
+        let while_loop = &task.body_syntax[6];
+        assert_eq!(
+            while_loop.syntax.kind,
+            ParsedStatementSyntaxKind::Loop {
+                kind: ParsedLoopKind::While
+            }
+        );
+        assert_eq!(
+            super::statement_expressions(while_loop)[0]
+                .occurrence
+                .intent,
+            ParsedExpressionIntent::Condition
+        );
+
+        let for_each = &task.body_syntax[9];
+        assert_eq!(
+            for_each.syntax.kind,
+            ParsedStatementSyntaxKind::Loop {
+                kind: ParsedLoopKind::ForEach
+            }
+        );
+        assert_eq!(
+            super::statement_expressions(for_each)[0].occurrence.intent,
+            ParsedExpressionIntent::LoopCollection
+        );
+        let for_each_relationship = for_each
+            .syntax
+            .loop_relationship
+            .as_ref()
+            .expect("for each relationship");
+        assert_eq!(
+            for_each_relationship.kind,
+            ParsedLoopRelationshipKind::CollectionIn
+        );
+        assert_eq!(for_each_relationship.binding.name, "entry");
+        assert_eq!(for_each_relationship.introducer.byte_len, 2);
+        assert!(for_each_relationship.bound.is_none());
+        assert_eq!(
+            for_each_relationship.expression_nodes,
+            for_each.syntax.expression_nodes
+        );
+
+        let for_index = &task.body_syntax[12];
+        assert_eq!(
+            for_index.syntax.kind,
+            ParsedStatementSyntaxKind::Loop {
+                kind: ParsedLoopKind::ForIndex
+            }
+        );
+        let for_index_relationship = for_index
+            .syntax
+            .loop_relationship
+            .as_ref()
+            .expect("for index relationship");
+        assert_eq!(
+            for_index_relationship.kind,
+            ParsedLoopRelationshipKind::RangeUntil
+        );
+        assert_eq!(for_index_relationship.binding.name, "position");
+        assert_eq!(for_index_relationship.introducer.byte_len, 4);
+        assert_eq!(
+            for_index_relationship
+                .bound
+                .as_ref()
+                .map(|range| range.byte_len),
+            Some(5)
+        );
+        assert_eq!(
+            super::statement_expressions(for_index)
+                .iter()
+                .map(|expression| expression.occurrence.intent)
+                .collect::<Vec<_>>(),
+            [
+                ParsedExpressionIntent::LoopRangeStart,
+                ParsedExpressionIntent::LoopRangeEnd
+            ]
+        );
+
+        let for_index_through = &task.body_syntax[15];
+        let through_relationship = for_index_through
+            .syntax
+            .loop_relationship
+            .as_ref()
+            .expect("for index through relationship");
+        assert_eq!(
+            through_relationship.kind,
+            ParsedLoopRelationshipKind::RangeThrough
+        );
+        assert_eq!(through_relationship.binding.name, "slot");
+        assert_eq!(
+            through_relationship
+                .bound
+                .as_ref()
+                .map(|range| range.byte_len),
+            Some(7)
+        );
+
+        let mut wrong_relationship = task.body_syntax.clone();
+        wrong_relationship[1].syntax.expression_nodes =
+            wrong_relationship[0].syntax.expression_nodes.clone();
+        assert_eq!(
+            validate_retained_body_syntax(&wrong_relationship),
+            Err("parser_statement_expression_relationship_corrupt_v0")
+        );
+
+        let mut missing_loop_binding = task.body_syntax.clone();
+        missing_loop_binding[9].syntax.binding = None;
+        assert_eq!(
+            validate_retained_body_syntax(&missing_loop_binding),
+            Err("parser_loop_binding_relationship_corrupt_v0")
+        );
+
+        let mut substituted_loop_binding = task.body_syntax.clone();
+        substituted_loop_binding[9]
+            .syntax
+            .loop_relationship
+            .as_mut()
+            .expect("for each relationship")
+            .binding = task.body_syntax[12]
+            .syntax
+            .binding
+            .clone()
+            .expect("for index binding");
+        assert_eq!(
+            validate_retained_body_syntax(&substituted_loop_binding),
+            Err("parser_loop_binding_relationship_corrupt_v0")
+        );
+
+        let mut substituted_range_relation = task.body_syntax.clone();
+        substituted_range_relation[12]
+            .syntax
+            .loop_relationship
+            .as_mut()
+            .expect("for index relationship")
+            .kind = ParsedLoopRelationshipKind::RangeThrough;
+        assert_eq!(
+            validate_retained_body_syntax(&substituted_range_relation),
+            Err("parser_loop_binding_relationship_corrupt_v0")
+        );
+
+        let mut missing_range_bound = task.body_syntax.clone();
+        missing_range_bound[12]
+            .syntax
+            .loop_relationship
+            .as_mut()
+            .expect("for index relationship")
+            .bound = None;
+        assert_eq!(
+            validate_retained_body_syntax(&missing_range_bound),
+            Err("parser_loop_binding_relationship_corrupt_v0")
+        );
+
+        let mut reordered_range = task.body_syntax.clone();
+        let ParsedBodyStatementKind::Other { expressions } = &mut reordered_range[12].kind else {
+            panic!("for index expressions")
+        };
+        expressions.swap(0, 1);
+        assert_eq!(
+            validate_retained_body_syntax(&reordered_range),
+            Err("parser_statement_expression_relationship_corrupt_v0")
+        );
+    }
+
+    #[test]
+    fn increment_10b1_h0010_recurses_over_canonical_expression_children() {
+        let parsed = parse_source(
+            "recursive-chain.hum",
+            r#"task inspect(value: UInt) -> Bool {
+  does:
+    let call_chain = choose(1 < 2 < 3)
+    let list_chain = [1 < 2 < 3]
+    let record_chain = Pair { value: 1 < 2 < 3 }
+    let permission_chain = borrow (1 < 2 < 3)
+    let try_chain = try choose(1 < 2 < 3)
+    return (1 < 2 < 3) and true
+}
+"#,
+        );
+        let diagnostics = parsed
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.code == DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(diagnostics.len(), 6, "{:#?}", parsed.diagnostics);
+        assert!(diagnostics.iter().all(|diagnostic| {
+            diagnostic.message == "comparison chaining is not supported"
+                && diagnostic.related_spans.len() == 1
+                && diagnostic.related_spans[0].label == "first comparison already being chained"
+                && diagnostic
+                    .span
+                    .as_ref()
+                    .is_some_and(|primary| primary.column > diagnostic.related_spans[0].span.column)
+        }));
+
+        let occurrences = parsed
+            .diagnostic_occurrences
+            .normalized_occurrences()
+            .into_iter()
+            .filter(|occurrence| {
+                occurrence.diagnostic().code == DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(occurrences.len(), 6);
+        assert!(occurrences.iter().all(|occurrence| {
+            occurrence.cause_key().ordinal() == 179
+                && occurrence.owning_stage() == "parser"
+                && occurrence.semantic_owner() == "source_shape"
+        }));
+        assert_eq!(
+            occurrences
+                .iter()
+                .map(|occurrence| occurrence.id())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            6
+        );
+
+        let accepted = parse_source(
+            "independent-comparisons.hum",
+            "task accepted() -> Bool {\n  does:\n    let text = \"1 < 2 < 3\"\n    return 1 < 2 and 2 < 3\n}\n",
+        );
+        assert!(accepted.diagnostics.iter().all(|diagnostic| {
+            diagnostic.code != DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED
+        }));
     }
 }

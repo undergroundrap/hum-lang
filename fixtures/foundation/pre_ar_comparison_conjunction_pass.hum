@@ -1,0 +1,33 @@
+module fixtures.foundation.pre_ar_comparison_conjunction_pass
+
+task independent_comparisons -> Bool {
+  why:
+    accept independent comparisons joined explicitly
+
+  ensures:
+    result == true
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return 1 < 2 and 2 < 3
+}
+
+task comparison_looking_text -> Text {
+  why:
+    keep comparison spelling inside Text literal contents
+
+  ensures:
+    result == "1 < 2 < 3"
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return "1 < 2 < 3"
+}
