@@ -140,9 +140,27 @@ requirement that no text scanner can satisfy. The rejected work remains
 uncommitted and unaccepted as exactly eight modified tracked paths plus five
 untracked fixtures, with an empty index. Its exact 13-path Git subtree OID is
 `af756a7fea21353794de585869a7d2df487fe663`, reproduced independently through
-fresh empty temporary indexes in PowerShell and Git Bash. The proposed
-10B.1 re-scope amendment below authorizes no archive, clearing, implementation,
-commit, push, 10B.1a subincrement, 10B.1b, 10B.2, or later work.
+fresh empty temporary indexes in PowerShell and Git Bash.
+
+The 10B.1 foundation re-scope amendment below received independent `ACCEPT`
+with no P0, P1, or P2 findings and was BDFL-accepted, committed, and durably
+published as `4fcd67473777751994c989363034e794a8624e5f`. Required workflow
+`29705697959`, attempt 1, succeeded for that exact commit. Ubuntu job
+`88242175358` on `ubuntu-latest` succeeded in 8m 15s, including 7m 35s in
+`Run Hum preflight`; Windows job `88242175363` on `windows-latest` succeeded
+in 16m 49s, including 16m 07s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`; Cargo caching and Rust
+toolchain preparation succeeded, and `Run status-only evidence` was skipped.
+
+The rejected 10B.1 implementation remains preserved, unchanged, uncommitted,
+and unaccepted at subtree OID
+`af756a7fea21353794de585869a7d2df487fe663`. Archive creation and clearing
+remain unauthorized pending independent acceptance and durable publication of
+this status record plus a separate explicit BDFL signal. Increment 10B.1a.1 is
+the first future foundation target but remains unauthorized until that
+preservation lifecycle is complete and the BDFL issues a separate go signal.
+Increment 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every later item
+remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -3656,19 +3674,28 @@ the eight tracked paths and five fixtures recorded in the proposed 2026-07-19
 re-scope amendment; its cross-shell 13-path Git subtree OID is
 `af756a7fea21353794de585869a7d2df487fe663`.
 
-The proposed amendment replaces 10B.1 prospectively with the ordered
+The amendment replaces 10B.1 prospectively with the ordered
 10B.1a.1-10B.1a.11 canonical-seal foundation train followed by 10B.1b recursive
-H0010 consumption and discriminating entry evidence. It also bounds the direct
+H0010 consumption and discriminating entry evidence. It bounds the direct
 source audit honestly and requires a separately authorized write-once archive
-before the rejected tree may be cleared. The amendment is unreviewed,
-unaccepted, uncommitted, unpublished, and does not authorize preservation
-execution or implementation. The next actor is a fresh independent
-pre-issuance reviewer. Even an `ACCEPT` verdict requires BDFL acceptance, a
-documentation-only commit, separately authorized publication with terminal
-Ubuntu and Windows CI, a durable status record, separate archive execution and
-clearing authority, and a separate 10B.1a.1 go signal. Every 10B.1a
-subincrement, 10B.1b, 10B.2, 10C, Session AR, and all later work remain
-unauthorized.
+before the rejected tree may be cleared. The amendment received independent
+`ACCEPT` with no P0, P1, or P2 findings, was BDFL-accepted, and was committed
+and durably published as `4fcd67473777751994c989363034e794a8624e5f`.
+Workflow `29705697959`, attempt 1, succeeded for that exact commit. Ubuntu job
+`88242175358` on `ubuntu-latest` succeeded in 8m 15s, including 7m 35s in
+`Run Hum preflight`; Windows job `88242175363` on `windows-latest` succeeded
+in 16m 49s, including 16m 07s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`; Cargo caching and Rust
+toolchain preparation succeeded, and `Run status-only evidence` was skipped.
+
+The rejected implementation remains preserved, unchanged, uncommitted, and
+unaccepted at subtree OID `af756a7fea21353794de585869a7d2df487fe663`.
+Archive creation and clearing remain unauthorized pending independent
+acceptance and durable publication of this status record plus a separate
+explicit BDFL signal. Increment 10B.1a.1 is the first future foundation target
+but remains unauthorized until the rejected-tree preservation lifecycle is
+complete and the BDFL issues a separate go signal. Increment 10B.1a.2, 10B.1b,
+10B.2, 10C, Session AR, and every later item remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
