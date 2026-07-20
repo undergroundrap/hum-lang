@@ -223,17 +223,31 @@ in 16m 58s, including 16m 16s in `Run Hum preflight`. Both selected
 `mode=full` with `reason=no_status_transition`; Cargo caching and Rust
 toolchain preparation succeeded, and `Run status-only evidence` was skipped.
 
+The Increment 10B.1a.1.1 compile-blocker correction-gate amendment received
+independent `ACCEPT` with no P0, P1, or P2 findings and was BDFL-accepted,
+committed, and durably published as
+`35c2d60a93564fee43083caecce26a95b3c5eb5f`. Workflow `29780382399`, attempt
+1, succeeded for that exact commit. Ubuntu job `88479965549` on
+`ubuntu-latest` succeeded in 10m 02s, including 9m 37s in
+`Run Hum preflight`; Windows job `88479965621` on `windows-latest` succeeded
+in 12m 32s, including 11m 35s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`; Cargo caching and Rust
+toolchain preparation succeeded, and `Run status-only evidence` was skipped.
+
 The corrected 507-line implementation remains frozen, uncommitted,
 unaccepted, and byte-identical at two-path tree OID
-`70d248f77d4b851520b3a5960060b4c2d085a85b`. No implementation acceptance
-check has run against it. The only next eligible action is to reproduce that
-exact OID, run the complete Increment 10B.1a.1.1 acceptance checks, and submit
-those exact bytes for fresh independent implementation review. That action
-remains unauthorized pending independent acceptance, commit, publication,
-and terminal required CI for this status record plus a separate explicit BDFL
-go signal. No implementation edit or further correction cycle is authorized.
-Increment 10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every
-later item remain unauthorized.
+`70d248f77d4b851520b3a5960060b4c2d085a85b`. The `E0425` test-scope
+visibility correction has not been applied. No implementation acceptance
+command beyond the previously recorded failed compile attempt has run.
+Applying the exact authorized test-scope import or qualification remains
+unauthorized pending independent acceptance, commit, publication, and
+terminal required CI for this status record plus a separate explicit BDFL
+corrective go signal. After that signal, only the exact published visibility
+correction may be applied, followed by a new cross-shell OID and a complete
+restart of the Increment 10B.1a.1.1 acceptance sequence. No additional
+implementation edit or correction cycle is authorized. Increment
+10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every later item
+remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -4422,17 +4436,31 @@ in 16m 58s, including 16m 16s in `Run Hum preflight`. Both selected
 `mode=full` with `reason=no_status_transition`; Cargo caching and Rust
 toolchain preparation succeeded, and `Run status-only evidence` was skipped.
 
+The Increment 10B.1a.1.1 compile-blocker correction-gate amendment received
+independent `ACCEPT` with no P0, P1, or P2 findings and was BDFL-accepted,
+committed, and durably published as
+`35c2d60a93564fee43083caecce26a95b3c5eb5f`. Workflow `29780382399`, attempt
+1, succeeded for that exact commit. Ubuntu job `88479965549` on
+`ubuntu-latest` succeeded in 10m 02s, including 9m 37s in
+`Run Hum preflight`; Windows job `88479965621` on `windows-latest` succeeded
+in 12m 32s, including 11m 35s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`; Cargo caching and Rust
+toolchain preparation succeeded, and `Run status-only evidence` was skipped.
+
 The corrected 507-line implementation remains frozen, uncommitted,
 unaccepted, and byte-identical at two-path tree OID
-`70d248f77d4b851520b3a5960060b4c2d085a85b`. No implementation acceptance
-check has run against it. The only next eligible action is to reproduce that
-exact OID, run the complete Increment 10B.1a.1.1 acceptance checks, and submit
-those exact bytes for fresh independent implementation review. That action
-remains unauthorized pending independent acceptance, commit, publication,
-and terminal required CI for this status record plus a separate explicit BDFL
-go signal. No implementation edit or further correction cycle is authorized.
-Increment 10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every
-later item remain unauthorized.
+`70d248f77d4b851520b3a5960060b4c2d085a85b`. The `E0425` test-scope
+visibility correction has not been applied. No implementation acceptance
+command beyond the previously recorded failed compile attempt has run.
+Applying the exact authorized test-scope import or qualification remains
+unauthorized pending independent acceptance, commit, publication, and
+terminal required CI for this status record plus a separate explicit BDFL
+corrective go signal. After that signal, only the exact published visibility
+correction may be applied, followed by a new cross-shell OID and a complete
+restart of the Increment 10B.1a.1.1 acceptance sequence. No additional
+implementation edit or correction cycle is authorized. Increment
+10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every later item
+remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
