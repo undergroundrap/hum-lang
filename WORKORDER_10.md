@@ -152,15 +152,26 @@ in 16m 49s, including 16m 07s in `Run Hum preflight`. Both selected
 `mode=full` with `reason=no_status_transition`; Cargo caching and Rust
 toolchain preparation succeeded, and `Run status-only evidence` was skipped.
 
-The rejected 10B.1 implementation remains preserved, unchanged, uncommitted,
-and unaccepted at subtree OID
-`af756a7fea21353794de585869a7d2df487fe663`. Archive creation and clearing
-remain unauthorized pending independent acceptance and durable publication of
-this status record plus a separate explicit BDFL signal. Increment 10B.1a.1 is
-the first future foundation target but remains unauthorized until that
-preservation lifecycle is complete and the BDFL issues a separate go signal.
-Increment 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every later item
-remain unauthorized.
+Under the subsequent explicit BDFL execution signal, the rejected 10B.1 tree
+was archived from `$ArchiveBase`
+`1584783763ac6eec3afd9b9850bde895d1b37365` as the single commit
+`6f1caf857908c03769e5126eeba0df8af7d01b34` on the write-once local and live
+remote branch `archive/workorder-10b1-rejected-2026-07-19`. Its parent is
+exactly `$ArchiveBase`, its exact 13-path inventory reproduces subtree OID
+`af756a7fea21353794de585869a7d2df487fe663` independently in PowerShell and
+Git Bash, and all five fixture blobs retain their frozen SHA-256 hashes.
+Byte-exact `git show "${ArchiveCommit}:<path>"` retrieval proved both
+`src/parser.rs` and the condition-chain fixture before `git switch main`
+performed the sole clearing operation. Local and live remote `main` remain at
+`$ArchiveBase`; the worktree, real index, and untracked set are empty; the
+archive ref remains exact; and no workflow ran for the archive branch. The
+rejected-tree preservation lifecycle is complete.
+
+Increment 10B.1a.1 is the next foundation target but remains unauthorized
+pending independent acceptance, BDFL acceptance, local commit, durable
+publication, and terminal required CI for this status record, followed by a
+separate explicit BDFL go signal. Increment 10B.1a.2, 10B.1b, 10B.2, 10C,
+Session AR, and every later item remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -3688,14 +3699,67 @@ in 16m 49s, including 16m 07s in `Run Hum preflight`. Both selected
 `mode=full` with `reason=no_status_transition`; Cargo caching and Rust
 toolchain preparation succeeded, and `Run status-only evidence` was skipped.
 
-The rejected implementation remains preserved, unchanged, uncommitted, and
-unaccepted at subtree OID `af756a7fea21353794de585869a7d2df487fe663`.
-Archive creation and clearing remain unauthorized pending independent
-acceptance and durable publication of this status record plus a separate
-explicit BDFL signal. Increment 10B.1a.1 is the first future foundation target
-but remains unauthorized until the rejected-tree preservation lifecycle is
-complete and the BDFL issues a separate go signal. Increment 10B.1a.2, 10B.1b,
-10B.2, 10C, Session AR, and every later item remain unauthorized.
+Under the subsequent explicit BDFL execution signal, the rejected 10B.1
+implementation was archived from `$ArchiveBase`
+`1584783763ac6eec3afd9b9850bde895d1b37365` as `$ArchiveCommit`
+`6f1caf857908c03769e5126eeba0df8af7d01b34` on the write-once local and live
+remote branch `archive/workorder-10b1-rejected-2026-07-19`.
+`$ArchiveCommit^ == $ArchiveBase`, and the archive commit contains exactly
+these 13 paths and no other path:
+
+- `docs/DIAGNOSTICS.md`;
+- `docs/LANGUAGE_REFERENCE.md`;
+- `fixtures/foundation/pre_ar_comparison_conjunction_pass.hum`;
+- `fixtures/foundation/pre_ar_condition_chained_comparison_fail.hum`;
+- `fixtures/foundation/pre_ar_nested_chained_comparison_fail.hum`;
+- `fixtures/foundation/pre_ar_predicate_chained_comparison_fail.hum`;
+- `fixtures/foundation/pre_ar_return_chained_comparison_fail.hum`;
+- `src/ast.rs`;
+- `src/core_body.rs`;
+- `src/diagnostic_catalog.rs`;
+- `src/diagnostics.rs`;
+- `src/parser.rs`; and
+- `tools/check_all.ps1`.
+
+Fresh empty temporary indexes in PowerShell and Git Bash each loaded exactly
+those 13 archived paths and independently reproduced subtree OID
+`af756a7fea21353794de585869a7d2df487fe663`. The five archived fixture blobs
+reproduce these exact SHA-256 hashes:
+
+- `pre_ar_comparison_conjunction_pass.hum`:
+  `3081b3ba84045cb64bb8c049fde683cbfc64c91dae956e9a71d012b193951433`;
+- `pre_ar_condition_chained_comparison_fail.hum`:
+  `c49bc27b53c2fbbfa8012525c25e756eb8da4871fe83ea2b6caec94466bc9d41`;
+- `pre_ar_nested_chained_comparison_fail.hum`:
+  `15e0caed7466978b95c1867d9492b83844197b3dc59754cd7805949f8b5a5b50`;
+- `pre_ar_predicate_chained_comparison_fail.hum`:
+  `7376de1f01f018943174876886ea37da02e5a4458b032d24214f5ff4116e8d30`;
+  and
+- `pre_ar_return_chained_comparison_fail.hum`:
+  `6096390130a62ddc5a2128b936b188d05a0a63aa9036cad4ffd84c7b16207fb8`.
+
+Before archival, `src/parser.rs` had SHA-256
+`6b5466ad403286ddcb322cd6a0eabe1025ddafbeb9d9434e6063cbf8ed74298b`,
+and the condition-chain fixture had SHA-256
+`c49bc27b53c2fbbfa8012525c25e756eb8da4871fe83ea2b6caec94466bc9d41`.
+Raw byte-stream retrieval through the recorded
+`git show "${ArchiveCommit}:<path>"` route reproduced both exact hashes, and
+all temporary retrieval and index files were removed.
+
+Only after archive publication and both retrieval proofs succeeded did
+`git switch main` perform the sole clearing operation. `HEAD`, local
+`origin/main`, and live remote `main` all remain at `$ArchiveBase`; the main
+worktree, real index, and untracked set are empty; `WORKORDER_10.md` is
+unchanged outside this status record; local and live archive refs both equal
+`$ArchiveCommit`; and no workflow ran for the archive branch. No rejected
+archive byte was merged into `main`. The rejected Increment 10B.1 preservation
+lifecycle is complete.
+
+Increment 10B.1a.1 is the next foundation target but remains unauthorized
+pending independent acceptance, BDFL acceptance, local commit, durable
+publication, and terminal required CI for this status record, followed by a
+separate explicit BDFL go signal. Increment 10B.1a.2, 10B.1b, 10B.2, 10C,
+Session AR, and every later item remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
