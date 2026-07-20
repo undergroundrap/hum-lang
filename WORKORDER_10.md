@@ -167,11 +167,16 @@ performed the sole clearing operation. Local and live remote `main` remain at
 archive ref remains exact; and no workflow ran for the archive branch. The
 rejected-tree preservation lifecycle is complete.
 
-Increment 10B.1a.1 is the next foundation target but remains unauthorized
-pending independent acceptance, BDFL acceptance, local commit, durable
-publication, and terminal required CI for this status record, followed by a
-separate explicit BDFL go signal. Increment 10B.1a.2, 10B.1b, 10B.2, 10C,
-Session AR, and every later item remain unauthorized.
+Increment 10B.1a.1 subsequently received its separate BDFL go signal and
+stopped at the mandatory size gate before review. The preserved uncommitted
+tree changes only `src/ast.rs` by 92 insertions and `src/parser.rs` by 323
+insertions and 6 deletions, with an empty index and no untracked paths. Those
+421 changed lines already intermingle all fourteen planned identity facts
+while omitting the independent catalogue, pair matrix, cross-occurrence
+matrix, exact selector, and named sabotage evidence. The stopped work is not
+accepted implementation evidence. The bounded size-stop amendment below is
+proposed to decompose that unit; neither replacement unit, 10B.1a.2, 10B.1b,
+10B.2, 10C, Session AR, nor any later item is authorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -2913,6 +2918,302 @@ newly exposed defect, second rejection within a subincrement, or scope pressure
 stops for BDFL triage. No actor may solve it through another shim, fallback
 scanner, partial seal, locally expanded envelope, or implied authority.
 
+## Increment 10B.1a.1 size-stop decomposition amendment (2026-07-19; proposed)
+
+### Authority, stop evidence, and exact preserved identity
+
+The BDFL authorized only this architecture/documentation pass after the first
+10B.1a.1 implementation attempt obeyed the existing 500-line hard stop. This
+amendment does not accept, correct, resume, archive, commit, or dispose of that
+attempt. It prospectively supersedes only the sizing and sequence of the
+published `10B.1a.1: source, owner, and occurrence identity kernel`. Every
+fact, corruption obligation, compatibility lock, configuration requirement,
+and later-unit prohibition in the published 10B.1 foundation re-scope remains
+binding.
+
+The stopped implementation is frozen for amendment review as exactly:
+
+- baseline `HEAD == origin/main ==
+  b6c5f35e447133cdcf0f7c39891db25c70b7bef8`;
+- `src/ast.rs`: 92 insertions and zero deletions;
+- `src/parser.rs`: 323 insertions and 6 deletions;
+- empty real index and no untracked path; and
+- no modification to `WORKORDER_10.md`, `tools/check_all.ps1`, 10B.1a.2, or
+  later work before this amendment began.
+
+Fresh empty temporary Git indexes containing exactly those two working-tree
+paths produced this content-addressed identity:
+
+- two-path tree OID:
+  `5dc0d187645fb9c84f0cddbb81eb344efde51a09`;
+- `src/ast.rs` blob:
+  `bdbaad8568d27dcad3256c663938a114025594fb`; and
+- `src/parser.rs` blob:
+  `80b890ff8b3d2f4de9ca0aa089c1bfbf50baa7f4`.
+
+The procedure was run independently in PowerShell and Git Bash. Each shell
+indexed exactly two paths and returned the same tree and blob OIDs; both
+temporary indexes were removed and the real index remained empty. Review must
+reproduce that exact identity. A shell-piped textual diff hash, file count, or
+line count cannot substitute for it.
+
+The attempt stopped honestly because 421 changed lines left only 79 lines
+under the absolute ceiling while the implementation still lacked all of the
+load-bearing independent evidence: the fourteen-row test-only catalogue, 91
+unordered coherent pair corruptions, the required cross-occurrence cases,
+mutation operators, exact selector assertions, and named sabotage wiring.
+Compressing those obligations into the remaining budget, omitting them, or
+calling a green aggregate suite acceptance evidence is prohibited.
+
+### Exact disposition of the stopped two-file tree
+
+The stopped tree is inspection-only design evidence. It contains useful type
+and traversal candidates, but its lines receive no presumption of correctness
+and no prior implementation credit. After this amendment is independently
+accepted, BDFL-accepted, committed, published, terminal-green, durably
+recorded, and followed by a separate BDFL go signal for 10B.1a.1.1, the first
+unit may narrow that same working tree by reviewed source edits. It may not use
+`reset`, `clean`, `restore`, checkout-path, stash, patch application,
+cherry-pick, or an archive round-trip to manufacture a clean-looking result.
+
+The only candidates that may be selectively retained in 10B.1a.1.1 are:
+
+- the type shells for `SourceBlob`, `SemanticFile`, `SourceRevision`, `Item`,
+  `Section`, `Statement`, and `AuthorityHandle`;
+- exact retained source-revision bytes captured by the ordinary
+  `parse_source` entry;
+- parser-owned item, section, and statement traversal facts; and
+- source/owner authority construction that is separated from its exported
+  projection and independently validated.
+
+Even those candidates must be re-reviewed as part of the complete first-unit
+diff. The current tuple fields and `Vec<usize>` payloads are crate-visible,
+the current source-blob value uses source length as part of its identity, and
+the current authority and projection are built together. Those shapes are not
+accepted merely because their names match the inventory. Retention is allowed
+only after the unit proves producer ownership, constructor opacity, exact
+same-length/different-content separation, and an authority independent of the
+projection under corruption.
+
+The following stopped work is premature 10B.1a.1.2 material and must be
+removed before 10B.1a.1.1 review:
+
+- `Occurrence`, `ExpressionRole`, `Root`, `RootRange`, `Intent`,
+  `AssigningEvent`, and `PredicateRecognition` types and fields;
+- the fourteen-field `CanonicalOccurrenceFact`, occurrence authority, seal,
+  and `OCCURRENCE_SEAL_FACT_COUNT` projection;
+- `Section.expression_occurrences` and all role/root/event attachment;
+- `occurrence_ranges`, `trimmed_range`, the current role-index occurrence
+  minting, and predicate-recognition dispatch; and
+- the current fourteen-way `validate_expression_occurrence` comparison.
+
+The current `seal_section_occurrences` function interleaves both units and may
+not be retained as a whole. First-unit source/owner logic must be isolated or
+re-authored without carrying any second-unit claim. No current test catalogue,
+single-field mutation, pair mutation, cross-occurrence mutation, selector, or
+sabotage exists to retain. Deleting premature lines is narrowing, not evidence;
+the surviving and newly written first-unit code must independently pass every
+10B.1a.1.1 gate below.
+
+10B.1a.1.2 starts only from the independently accepted, committed, published,
+terminal-green, durably recorded 10B.1a.1.1 baseline. It may inspect the
+removed stopped code as design evidence, but it may not copy it mechanically
+or claim its former green compilation as proof. Every 10B.1a.1.2 line and test
+is reviewed as new work against the cumulative fourteen-field contract.
+
+### 10B.1a.1.1: source and owner authority kernel
+
+Dependency role: establish the producer-owned source and owner boundary before
+an occurrence, role, root, range, intent, or predicate-recognition fact can be
+attached to it.
+
+Exact envelope: `src/ast.rs`, `src/parser.rs`, and `tools/check_all.ps1` only.
+
+This unit owns exactly seven independently catalogued fields:
+
+1. `SourceBlob`;
+2. `SemanticFile`;
+3. `SourceRevision`;
+4. `Item`;
+5. `Section`;
+6. `Statement`; and
+7. `AuthorityHandle`.
+
+The test-only `CanonicalSealField` catalogue is authored independently of the
+production authority and validator and contains those exact seven literal
+rows. Its expected field count is the independently supplied literal `7`.
+Every unordered pair is exercised, with the independently supplied literal
+count `21 = 7 * 6 / 2`; the test may not derive either expectation from the
+catalogue, validator, authority, or projection it checks.
+
+Real `parse_source` inputs must produce every field through ordinary source,
+item, section, and statement traversal. At least two byte-distinct source
+blobs of equal length, repeated same-spelled items/sections/statements in
+separate valid sources, and multiple owner records in one source must prove
+that content length, filename, display name, span, line/column, public text,
+or source order alone cannot mint or select authority.
+
+For each of the seven fields, independently corrupting, removing,
+duplicating, reordering, adding, or substituting only that projection while
+the retained producer authority stays fixed must fail validation. Coherently
+co-mutating every one of the 21 unordered pairs while that authority stays
+fixed must also fail. Valid source/owner facts from another real parsed record
+must not substitute across semantic files, items, sections, statements, or
+authority handles even when public-looking values are compatible.
+
+The exact focused selector must select a documented nonzero set and must fail
+if the source/owner producer arm, validator arm, catalogue row, any one of the
+required mutation operators, any pair case, or the equal-length-source and
+foreign-owner probes are removed. Two fresh executions must produce identical
+private inventories and results. Existing human, JSON, Core, graph, runtime,
+diagnostic, ordering, span, and exit bytes remain unchanged.
+
+The unit targets 200-350 total changed lines relative to
+`b6c5f35e447133cdcf0f7c39891db25c70b7bef8`. Five hundred total changed lines
+across production, tests, tools, and fixtures is an absolute pre-review
+ceiling. The stopped tree must be narrowed until the complete honest unit,
+including evidence, fits. Crossing the ceiling, needing an unlisted file, or
+leaving a load-bearing test outside the exact selector stops for a fresh
+amendment; it does not authorize compression or omission.
+
+10B.1a.1.1 adds no occurrence-role field, node payload, token or reduction
+seal, H0010 allocation or behavior, Core use, parser diagnostic, semantic
+consumer, public schema, fixture, or later-unit work.
+
+### 10B.1a.1.2: occurrence and role kernel
+
+Dependency role: attach one exact producer-owned occurrence and its role/root
+facts to the accepted source/owner authority without reopening or weakening
+the first seven fields.
+
+Exact envelope: `src/ast.rs`, `src/parser.rs`, and `tools/check_all.ps1` only.
+
+This unit adds exactly seven independently catalogued fields:
+
+1. `Occurrence`;
+2. `ExpressionRole`;
+3. `Root`;
+4. `RootRange`, including the exact zero-width `Unit` position;
+5. `Intent`;
+6. `AssigningEvent`; and
+7. `PredicateRecognition`, including required presence and absence.
+
+The cumulative independently authored `CanonicalSealField` catalogue now
+contains exactly fourteen literal rows. It reruns all seven accepted first-unit
+single-field mutations, adds all seven new single-field mutations, and pins the
+literal cumulative pair count `91 = 14 * 13 / 2`: 21 old/old pairs, 49 old/new
+pairs, and 21 new/new pairs. No expected row, count, pair, identity, or answer
+may be generated from the production validator, retained authority, exported
+projection, or public root summary.
+
+The cumulative real-parse corpus must include exactly these six independently
+named cross-occurrence relationship classes:
+
+1. same bytes parsed as a distinct source blob and semantic file;
+2. distinct owning items in one semantic file;
+3. distinct sections in one item;
+4. distinct statements in one section;
+5. sibling expression roles in one statement, including target/value or
+   loop-start/loop-end positions; and
+6. repeated byte-identical same-line expressions whose public-looking text and
+   compatible ranges cannot collapse their occurrence, role, root, event, or
+   predicate-recognition identities.
+
+For each class, substituting a valid complete occurrence or any valid field
+from the foreign occurrence must fail against the retained authority. Missing,
+duplicate, reordered, extra, coherent same-value, cross-owner, and
+cross-occurrence projections must fail. `RootRange` is display and blame
+evidence, never semantic identity; Unit's zero-width position remains exact
+without becoming an identity mint.
+
+The exact selector and permanent `tools/check_all.ps1` wiring must assert the
+nonzero focused test inventory, literal `14` field count, literal `91` pair
+count, and all six named cross-occurrence cases. Named sabotages must prove the
+selector turns red when any producer or validator arm, catalogue row,
+single-field mutation, pair family, relationship class, Unit-position check,
+predicate presence/absence check, or independent-authority input is removed or
+reconstructed from the projection. Two fresh runs must be byte-identical.
+
+The unit targets 200-350 total changed lines relative to the accepted
+10B.1a.1.1 commit and has the same absolute 500-line pre-review ceiling. It
+must preserve every first-unit positive and misuse case. Any needed change to
+the meaning, opacity, producer, validator, catalogue row, or corruption
+operator of a first-unit field is a stopped-gate finding against 10B.1a.1.1,
+not local 10B.1a.1.2 scope.
+
+10B.1a.1.2 adds no common-node payload, token or reduction identity, H0010,
+Core consumption, parser diagnostic, semantic consumer, public schema, or
+10B.1a.2 work. Completing it completes the published 10B.1a.1 container only;
+it does not complete the canonical seal foundation.
+
+### Common checks, compatibility, and ordered publication gates
+
+Each replacement unit separately runs its exact focused selector and sabotage
+matrix, then `cargo fmt --check`, `cargo test`,
+`cargo clippy --all-targets -- -D warnings`, `git diff --check`, and
+`.\tools\check_all.ps1`. Each report enumerates the host production, host test,
+and all-target configurations, inspects any non-host `cfg` branch, identifies
+locally unavailable configurations, and leaves required Ubuntu and Windows
+confirmation to the separately authorized publication CI.
+
+Both units inherit every common 10B.1a anti-ghost, real-parse-source,
+independent-authority, singleton mutation, coherent pair mutation,
+cross-occurrence substitution, deterministic-repeatability,
+public-compatibility, configuration, and hard-stop gate. A synthetic
+successful authority, projection-derived expectation, zero-match selector,
+public-only summary, hand-built occurrence, or corruption that mutates both
+the projection and its supposedly independent authority receives no evidence
+credit.
+
+No byte of 10B.1a.1.2 may be implemented before 10B.1a.1.1 is independently
+accepted, committed, published, terminal-green on Ubuntu and Windows, durably
+recorded in this Work Order, and separately authorized by the BDFL. The same
+full sequence must complete for 10B.1a.1.2 before 10B.1a.2 can begin. Every
+prior reference to completion of `10B.1a.1` now means completion of both
+replacement units in that order. Existing references to
+`10B.1a.1-10B.1a.11` remain otherwise unchanged.
+
+H0010 allocation and behavior, canonical node payloads, common node topology,
+Core construction or consumption, parser diagnostics, semantic consumers,
+10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every later item remain
+unauthorized. A newly exposed defect, second failed review within either
+replacement unit, need for another file, public-byte change, inability to fit
+the complete evidence under 500 lines, or any amendment need stops and returns
+to the BDFL without a workaround.
+
+### Independent pre-issuance review and authorization boundary
+
+This amendment is proposed and unauthorized. Its author is disqualified from
+its verdict. A fresh independent architect-reviewer must cold-start from
+repository ground truth, reproduce the two-path Git-object identity in
+PowerShell and Git Bash, inspect the complete stopped diff, and verify:
+
+- the source/owner versus occurrence-role disposition is exact and leaves no
+  second-unit fact or claim in the first unit;
+- seven fields and 21 unordered pairs are complete for 10B.1a.1.1;
+- seven additional fields, fourteen cumulative fields, 91 unordered pairs,
+  and six nondegenerate cross-occurrence classes are complete for
+  10B.1a.1.2;
+- each unit retains the full common evidence, public-compatibility,
+  configuration, 200-350-line target, 500-line stop, exact-envelope, and
+  publication gates;
+- the stopped tree receives no acceptance credit and remains byte-for-byte
+  unchanged during this documentation pass; and
+- H0010, node payloads, Core, semantic consumers, 10B.1a.2, and every later
+  item remain unauthorized.
+
+The reviewer runs only proportional documentation checks:
+`git diff --check` and `.\tools\check_text_hygiene.ps1`. The incomplete stopped
+implementation is not local preflight acceptance evidence. The reviewer must
+not edit, narrow, implement, commit, push, begin either replacement unit, or
+begin later work. It reports P0/P1/P2 findings and exactly one verdict:
+`ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT`.
+
+Even `ACCEPT` authorizes only a separately BDFL-scoped `WORKORDER_10.md`
+documentation commit. Publication, status, narrowing of the stopped tree,
+10B.1a.1.1 implementation, 10B.1a.1.2 implementation, and every later action
+retain separate BDFL gates.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
@@ -3755,11 +4056,17 @@ unchanged outside this status record; local and live archive refs both equal
 archive byte was merged into `main`. The rejected Increment 10B.1 preservation
 lifecycle is complete.
 
-Increment 10B.1a.1 is the next foundation target but remains unauthorized
-pending independent acceptance, BDFL acceptance, local commit, durable
-publication, and terminal required CI for this status record, followed by a
-separate explicit BDFL go signal. Increment 10B.1a.2, 10B.1b, 10B.2, 10C,
-Session AR, and every later item remain unauthorized.
+Increment 10B.1a.1 received its separate BDFL go signal and stopped before
+review at the mandatory size ceiling with exactly the two modified source
+paths and Git-object identity recorded in the proposed size-stop decomposition
+amendment. The implementation remains uncommitted, unaccepted, and preserved
+with an empty index and no untracked path. The amendment prospectively splits
+10B.1a.1 into ordered 10B.1a.1.1 and 10B.1a.1.2 units, but neither unit is
+authorized to resume or begin. Independent acceptance, BDFL acceptance, a
+`WORKORDER_10.md`-only commit, durable publication, terminal Ubuntu and
+Windows CI, a status record, and a separate explicit BDFL go signal remain
+required before any narrowing or implementation. 10B.1a.2, 10B.1b, 10B.2,
+10C, Session AR, and every later item remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
