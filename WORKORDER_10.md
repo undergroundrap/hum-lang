@@ -194,6 +194,25 @@ separate explicit BDFL signal. Increment 10B.1a.1.1 is the next target but
 remains unauthorized. Increment 10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C,
 Session AR, and every later item remain unauthorized.
 
+Increment 10B.1a.1.1 subsequently received its separate BDFL go signal. Its
+initial 499-line implementation was independently `REJECT`ed for two P1
+findings: the retained authority constructed its own projection and therefore
+preserved self-validation, and the `ProducerArm`, `ValidatorArm`, and
+`EqualLengthEvidence` sabotages changed test bookkeeping rather than production
+behavior. The single authorized correction cycle removed those shortcuts, but
+Rustfmt produced an exact 507-line tree, crossing the published 500-line hard
+ceiling. The implementer stopped before acceptance checks, fresh review,
+commit, or push.
+
+That exact corrected tree remains preserved, uncommitted, and unaccepted as
+502 insertions and 2 deletions in `src/parser.rs` plus 2 insertions and 1
+deletion in `tools/check_all.ps1`, with an empty index and no untracked path.
+Fresh temporary Git indexes in PowerShell and Git Bash independently reproduce
+its exact two-path tree OID
+`70d248f77d4b851520b3a5960060b4c2d085a85b`. The proposed frozen-tree
+size-stop amendment below grants no acceptance or implementation authority.
+Increment 10B.1a.1.2 and every later item remain unauthorized.
+
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
 authoring authorization and therefore disqualified from this document's
@@ -3230,6 +3249,131 @@ documentation commit. Publication, status, narrowing of the stopped tree,
 10B.1a.1.1 implementation, 10B.1a.1.2 implementation, and every later action
 retain separate BDFL gates.
 
+## Increment 10B.1a.1.1 frozen-tree size-stop amendment (2026-07-20; proposed)
+
+### Authority, rejection history, and corrected stop
+
+The BDFL authorized only this bounded documentation amendment. It does not
+accept, resume, correct, test, review, commit, or publish the stopped
+implementation. It supersedes only the 500-line pre-review stop for the one
+exact corrected tree identified below; every semantic, evidence,
+compatibility, configuration, envelope, sequencing, and later-work gate in
+the published Increment 10B.1a.1.1 mandate remains binding.
+
+The first 499-line implementation was independently `REJECT`ed with exactly
+two P1 findings:
+
+1. the retained source/owner authority constructed its own exported
+   projection, so the purported independent validation remained
+   self-validation; and
+2. the `ProducerArm`, `ValidatorArm`, and `EqualLengthEvidence` sabotages
+   changed test bookkeeping or answers rather than load-bearing production
+   behavior.
+
+The single authorized correction cycle removed only those shortcuts:
+
+- exported projection construction now begins independently from ordinary
+  parser-owned facts instead of a
+  `CanonicalSourceOwnerAuthority::project` path;
+- retained authority remains separate from the exported projection;
+- producer sabotage exercises prohibited projection-derived authority
+  reconstruction;
+- validator sabotage bypasses an actual validation arm against a corrupted
+  projection;
+- equal-length sabotage changes the actual real-source control; and
+- the existing 42 single-field rejections, 21 coherent unordered-pair
+  rejections, and nine foreign-owner rejections remain present.
+
+Rustfmt then produced an exact 507 changed lines. Because that crossed the
+published 500-line hard ceiling, the implementer stopped immediately before
+running the complete acceptance checks, requesting fresh implementation
+review, committing, or pushing. No green or accepted result is inferred from
+the corrected source.
+
+### Exact frozen implementation identity
+
+The sole tree eligible for the exception below is frozen against synchronized
+`main` at
+`9ca7a33e88d3fe3c387c6b9faf3d8b1c907a82b5` as exactly:
+
+- `src/parser.rs`: 502 insertions and 2 deletions;
+- `tools/check_all.ps1`: 2 insertions and 1 deletion;
+- 507 total changed lines;
+- clean `WORKORDER_10.md` and `src/ast.rs` at the pre-amendment boundary;
+- empty real index and no untracked path; and
+- no Increment 10B.1a.1.2 or later work.
+
+A fresh temporary Git index containing exactly those two implementation paths
+must produce tree OID
+`70d248f77d4b851520b3a5960060b4c2d085a85b`. PowerShell and Git Bash
+independently reproduced that same OID before this amendment was authored, and
+all temporary indexes were removed. Line counts, path counts, a shell-piped
+diff hash, or a test report cannot substitute for the Git-object identity.
+
+### One-time exception and unchanged limits
+
+The 200-350 changed-line range remains the project-wide review-size target.
+The absolute 500-line pre-review ceiling remains unchanged for Increment
+10B.1a.1.2 and every later unit. This amendment authorizes a one-time exception
+only for the exact 507-line Increment 10B.1a.1.1 tree at OID
+`70d248f77d4b851520b3a5960060b4c2d085a85b`.
+
+The exception does not accept the implementation and authorizes no additional
+implementation byte before review. It does not relax, replace, or reduce any
+of the following accepted requirements:
+
+- the exact seven-field independent catalogue and literal field count;
+- all 42 single-field mutation rejections;
+- all 21 coherent unordered-pair mutation rejections;
+- all nine foreign-owner and cross-owner rejections;
+- every producer, validator, catalogue, mutation-operator, pair,
+  equal-length-source, and foreign-owner sabotage;
+- ordinary real-`parse_source` production evidence and independently retained
+  authority;
+- deterministic repeatability and the exact nonzero selector;
+- unchanged human, JSON, Core, graph, runtime, diagnostic, ordering, span, and
+  exit bytes;
+- host, all-target, unavailable-configuration, Ubuntu, and Windows coverage;
+  or
+- the exact file envelope and every 10B.1a.1.2 and later-work prohibition.
+
+No actor may cite the seven-line excess to compress, remove, weaken, combine,
+or reconstruct any evidence obligation. No other tree, future formatting
+result, correction, cleanup, or near-equivalent diff inherits this exception.
+
+### Exact next gate and fail-closed stop
+
+This amendment must first receive fresh independent pre-issuance review. Even
+an `ACCEPT` verdict authorizes only a BDFL-scoped `WORKORDER_10.md` commit.
+Only after the exact amendment is BDFL-accepted, committed, published,
+terminal-green on required Ubuntu and Windows CI, durably recorded, and
+followed by a separate explicit BDFL go signal may an implementer do exactly
+the following:
+
+1. reproduce the frozen two-path OID before any acceptance command;
+2. run the complete Increment 10B.1a.1.1 focused selector and sabotage matrix,
+   `cargo fmt --check`, `cargo test`,
+   `cargo clippy --all-targets -- -D warnings`, `git diff --check`, and
+   `.\tools\check_all.ps1`; and
+3. if and only if every check succeeds and the OID remains exact, submit those
+   exact frozen implementation bytes to a fresh independent architect-reviewer.
+
+That later go signal authorizes no implementation edit. If the OID changes,
+any check fails, or fresh implementation review requires any correction, the
+unit stops for BDFL re-scope. No further correction cycle, locally expanded
+envelope, cleanup, compression, or workaround is implied.
+
+For this document pass, the independent pre-issuance reviewer reproduces the
+repository envelope and cross-shell OID, reads the complete frozen diff, and
+verifies the rejection history, exact correction claims, single-tree
+exception, unchanged future ceilings, complete retained evidence gates, and
+fail-closed next sequence. The reviewer runs only `git diff --check` and
+`.\tools\check_text_hygiene.ps1`; the unaccepted implementation must not be
+used as preflight acceptance evidence. The reviewer must not edit, run
+implementation acceptance checks, commit, push, resume implementation, begin
+Increment 10B.1a.1.2, or perform later work. It reports P0/P1/P2 findings and
+exactly one verdict: `ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT`.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
@@ -4095,6 +4239,26 @@ publication of this status record plus a separate explicit BDFL signal.
 Increment 10B.1a.1.1 is the next target but remains unauthorized. Increment
 10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every later item
 remain unauthorized.
+
+Increment 10B.1a.1.1 then received its separate BDFL go signal. Its initial
+499-line implementation was independently `REJECT`ed for self-validating
+authority/projection construction and non-load-bearing producer, validator,
+and equal-length sabotages. The single authorized correction removed those
+shortcuts while retaining the complete 42 single-field, 21 pair, and nine
+foreign-owner cases. Rustfmt produced 507 changed lines, so the implementer
+stopped at the published 500-line ceiling before acceptance checks, fresh
+review, commit, or push.
+
+The corrected implementation remains frozen, uncommitted, and unaccepted as
+only `src/parser.rs` and `tools/check_all.ps1`, with exact two-path tree OID
+`70d248f77d4b851520b3a5960060b4c2d085a85b` independently reproduced in
+PowerShell and Git Bash. The proposed one-time exact-tree size-stop amendment
+grants no acceptance or additional implementation authority. Increment
+10B.1a.1.1 remains paused pending independent document acceptance, a
+BDFL-authorized documentation commit, publication, terminal-green required
+CI, durable status recording, and a separate explicit BDFL go signal for
+checks and fresh review of those exact frozen bytes. Increment 10B.1a.1.2 and
+every later item remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
