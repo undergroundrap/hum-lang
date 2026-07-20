@@ -213,6 +213,28 @@ its exact two-path tree OID
 size-stop amendment below grants no acceptance or implementation authority.
 Increment 10B.1a.1.2 and every later item remain unauthorized.
 
+The frozen-tree size-stop amendment received independent `ACCEPT` with no P0,
+P1, or P2 findings and was BDFL-accepted, committed, and durably published as
+`862f4a09f527b12e3ebf66059b7cef6be7c5d66c`. Workflow `29721006041`,
+attempt 1, succeeded for that exact commit. Ubuntu job `88283875461` on
+`ubuntu-latest` succeeded in 10m 14s, including 9m 51s in
+`Run Hum preflight`; Windows job `88283875494` on `windows-latest` succeeded
+in 16m 58s, including 16m 16s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`; Cargo caching and Rust
+toolchain preparation succeeded, and `Run status-only evidence` was skipped.
+
+The corrected 507-line implementation remains frozen, uncommitted,
+unaccepted, and byte-identical at two-path tree OID
+`70d248f77d4b851520b3a5960060b4c2d085a85b`. No implementation acceptance
+check has run against it. The only next eligible action is to reproduce that
+exact OID, run the complete Increment 10B.1a.1.1 acceptance checks, and submit
+those exact bytes for fresh independent implementation review. That action
+remains unauthorized pending independent acceptance, commit, publication,
+and terminal required CI for this status record plus a separate explicit BDFL
+go signal. No implementation edit or further correction cycle is authorized.
+Increment 10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every
+later item remain unauthorized.
+
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
 authoring authorization and therefore disqualified from this document's
@@ -4259,6 +4281,28 @@ BDFL-authorized documentation commit, publication, terminal-green required
 CI, durable status recording, and a separate explicit BDFL go signal for
 checks and fresh review of those exact frozen bytes. Increment 10B.1a.1.2 and
 every later item remain unauthorized.
+
+The frozen-tree size-stop amendment received independent `ACCEPT` with no P0,
+P1, or P2 findings and was BDFL-accepted, committed, and durably published as
+`862f4a09f527b12e3ebf66059b7cef6be7c5d66c`. Workflow `29721006041`,
+attempt 1, succeeded for that exact commit. Ubuntu job `88283875461` on
+`ubuntu-latest` succeeded in 10m 14s, including 9m 51s in
+`Run Hum preflight`; Windows job `88283875494` on `windows-latest` succeeded
+in 16m 58s, including 16m 16s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`; Cargo caching and Rust
+toolchain preparation succeeded, and `Run status-only evidence` was skipped.
+
+The corrected 507-line implementation remains frozen, uncommitted,
+unaccepted, and byte-identical at two-path tree OID
+`70d248f77d4b851520b3a5960060b4c2d085a85b`. No implementation acceptance
+check has run against it. The only next eligible action is to reproduce that
+exact OID, run the complete Increment 10B.1a.1.1 acceptance checks, and submit
+those exact bytes for fresh independent implementation review. That action
+remains unauthorized pending independent acceptance, commit, publication,
+and terminal required CI for this status record plus a separate explicit BDFL
+go signal. No implementation edit or further correction cycle is authorized.
+Increment 10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every
+later item remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
