@@ -174,9 +174,25 @@ insertions and 6 deletions, with an empty index and no untracked paths. Those
 421 changed lines already intermingle all fourteen planned identity facts
 while omitting the independent catalogue, pair matrix, cross-occurrence
 matrix, exact selector, and named sabotage evidence. The stopped work is not
-accepted implementation evidence. The bounded size-stop amendment below is
-proposed to decompose that unit; neither replacement unit, 10B.1a.2, 10B.1b,
-10B.2, 10C, Session AR, nor any later item is authorized.
+accepted implementation evidence. Its exact two-path tree OID remains
+`5dc0d187645fb9c84f0cddbb81eb344efde51a09`.
+
+The bounded size-stop decomposition amendment below received independent
+`ACCEPT` with no P0, P1, or P2 findings and was BDFL-accepted, committed, and
+durably published as `c9284b4125127339e1a8ab56c456d71bec2c7aab`.
+Workflow `29714772931`, attempt 1, succeeded for that exact commit. Ubuntu job
+`88265749122` on `ubuntu-latest` succeeded in 10m 15s, including 9m 45s in
+`Run Hum preflight`; Windows job `88265749118` on `windows-latest` succeeded
+in 16m 17s, including 15m 32s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`; Cargo caching and Rust
+toolchain preparation succeeded, and `Run status-only evidence` was skipped.
+
+The stopped two-path implementation remains preserved, uncommitted, and
+unaccepted at the exact tree OID above. Narrowing remains unauthorized pending
+independent acceptance and durable publication of this status record plus a
+separate explicit BDFL signal. Increment 10B.1a.1.1 is the next target but
+remains unauthorized. Increment 10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C,
+Session AR, and every later item remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -4060,13 +4076,25 @@ Increment 10B.1a.1 received its separate BDFL go signal and stopped before
 review at the mandatory size ceiling with exactly the two modified source
 paths and Git-object identity recorded in the proposed size-stop decomposition
 amendment. The implementation remains uncommitted, unaccepted, and preserved
-with an empty index and no untracked path. The amendment prospectively splits
-10B.1a.1 into ordered 10B.1a.1.1 and 10B.1a.1.2 units, but neither unit is
-authorized to resume or begin. Independent acceptance, BDFL acceptance, a
-`WORKORDER_10.md`-only commit, durable publication, terminal Ubuntu and
-Windows CI, a status record, and a separate explicit BDFL go signal remain
-required before any narrowing or implementation. 10B.1a.2, 10B.1b, 10B.2,
-10C, Session AR, and every later item remain unauthorized.
+with an empty index and no untracked path at exact two-path tree OID
+`5dc0d187645fb9c84f0cddbb81eb344efde51a09`.
+
+The decomposition amendment received independent `ACCEPT` with no P0, P1, or
+P2 findings and was BDFL-accepted, committed, and durably published as
+`c9284b4125127339e1a8ab56c456d71bec2c7aab`. Workflow `29714772931`, attempt
+1, succeeded for that exact commit. Ubuntu job `88265749122` on
+`ubuntu-latest` succeeded in 10m 15s, including 9m 45s in
+`Run Hum preflight`; Windows job `88265749118` on `windows-latest` succeeded
+in 16m 17s, including 15m 32s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`; Cargo caching and Rust
+toolchain preparation succeeded, and `Run status-only evidence` was skipped.
+
+The stopped two-path implementation remains preserved and unaccepted.
+Narrowing remains unauthorized pending independent acceptance and durable
+publication of this status record plus a separate explicit BDFL signal.
+Increment 10B.1a.1.1 is the next target but remains unauthorized. Increment
+10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every later item
+remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
