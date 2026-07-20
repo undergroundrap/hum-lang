@@ -3396,6 +3396,136 @@ implementation acceptance checks, commit, push, resume implementation, begin
 Increment 10B.1a.1.2, or perform later work. It reports P0/P1/P2 findings and
 exactly one verdict: `ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT`.
 
+## Increment 10B.1a.1.1 acceptance-check compile-blocker amendment (2026-07-20; proposed)
+
+### Authority, exact failure, and preserved tree
+
+The BDFL authorized only this bounded documentation amendment after the first
+acceptance command permitted by the frozen-tree size-stop amendment failed at
+Rust test compilation. This amendment does not accept, edit, resume, compile,
+review, commit, or publish the implementation. It supersedes only the failed
+acceptance-command transition for the one exact visibility defect below.
+
+The attempted selector was exactly:
+
+```text
+parser::tests::source_owner_authority_kernel_is_complete_and_load_bearing
+```
+
+The exact-selector guard first asks Cargo to list that fully qualified test.
+Compilation stopped before the selector could be listed or executed with Rust
+error `E0425` at `src/parser.rs:2989`: the test module calls the existing
+parent-module function `source_owner_fact_matches` without importing or
+qualifying it. No remaining focused selector, sabotage matrix, formatting,
+test, Clippy, diff-hygiene, complete-preflight, or implementation-review step
+ran. No green or accepted result is inferred.
+
+The implementation remains byte-identical to the pre-command frozen tree:
+
+- `HEAD == origin/main == live remote main ==
+  261005fed253c3cd3cdb8ddf6e8ca73dc095b8f0`;
+- `src/parser.rs`: 502 insertions and 2 deletions;
+- `tools/check_all.ps1`: 2 insertions and 1 deletion;
+- clean `WORKORDER_10.md` and `src/ast.rs` before this amendment;
+- empty real index and no untracked path; and
+- two-path tree OID
+  `70d248f77d4b851520b3a5960060b4c2d085a85b`, independently reproduced
+  through fresh empty temporary indexes in PowerShell and Git Bash both before
+  and after the failed command.
+
+### Complete scope inspection and exact correction
+
+The complete `#[cfg(test)] mod tests` scope in `src/parser.rs` was inspected
+without running another implementation check. Its explicit `use super::{...}`
+list already imports every other parent-module type and function referenced
+unqualified by the new source/owner matrix. The only omitted parent item used
+unqualified is `source_owner_fact_matches`, at the one validator-arm sabotage
+call identified by the compiler. The function already exists in the parent
+module and requires no production visibility, signature, body, authority, or
+validation change.
+
+The sole future implementation correction authorized by this amendment is one
+of these semantically equivalent test-scope forms, and exactly one must be
+chosen:
+
+1. add `source_owner_fact_matches` to the existing test module's
+   `use super::{...}` list; or
+2. change that one test-only call to
+   `super::source_owner_fact_matches(...)`.
+
+Changing the function to `pub`, `pub(crate)`, or another broader visibility is
+forbidden. No production behavior, authority construction, retained
+authority, exported projection, validator logic, catalogue, mutation
+operator, single-field case, pair case, foreign-owner case, sabotage,
+selector, public output, diagnostic, `tools/check_all.ps1`, or other source
+byte may change. Static inspection found no second scope defect, but it does
+not predict later compiler output: any additional compiler error is a fresh
+hard stop, not authority to repair it.
+
+### Successor identity and restarted acceptance sequence
+
+The former exact-tree exception belongs only to OID
+`70d248f77d4b851520b3a5960060b4c2d085a85b` and does not transfer
+automatically to changed bytes. After this amendment is independently
+accepted, BDFL-accepted, committed, published, terminal-green on required
+Ubuntu and Windows CI, durably recorded, and followed by a separate explicit
+BDFL go signal, an implementer may apply only the exact test-scope correction
+above.
+
+Before any acceptance command, fresh empty temporary Git indexes in
+PowerShell and Git Bash must independently produce one identical new two-path
+tree OID from exactly `src/parser.rs` and `tools/check_all.ps1`. The report
+must record that successor OID, exact path inventory, and exact line counts,
+and must prove that the diff from the predecessor frozen tree contains only
+the selected import or qualification. That newly reproduced successor tree,
+and no near-equivalent tree, receives the one-time 507-line size-stop
+exception solely for acceptance and fresh review. If formatting changes its
+bytes or OID, the exception is lost and the unit stops.
+
+The complete acceptance sequence then restarts at the exact selector. It runs
+the full Increment 10B.1a.1.1 focused selector and sabotage matrix,
+`cargo fmt --check`, `cargo test`,
+`cargo clippy --all-targets -- -D warnings`, `git diff --check`, and
+`.\tools\check_all.ps1`. Every command must succeed, and the successor OID
+must remain exact afterward, before those exact bytes may be submitted to a
+fresh independent implementation reviewer.
+
+Any additional compiler error, failed check, OID drift, implementation-review
+finding requiring correction, unlisted path, or wider change stops for the
+BDFL without repair. No further correction cycle, cleanup, compression,
+workaround, or local expansion is implied. Increment 10B.1a.1.2,
+10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every later item remain
+unauthorized.
+
+### Independent pre-issuance review and hard stop
+
+This amendment is proposed and unauthorized. Its author is disqualified from
+its verdict. A fresh independent architect-reviewer must cold-start from
+repository ground truth, reproduce the exact preserved envelope and
+cross-shell predecessor OID, inspect the complete test-module scope and
+amendment diff, and verify that:
+
+- the recorded selector failure and untouched-tree evidence are exact;
+- one missing test-scope import or qualification is the complete visible
+  blocker, without a production visibility or logic change;
+- the successor-tree identity and exact-diff gates do not treat the old OID as
+  authority for changed bytes;
+- every semantic, corruption, selector, public-compatibility, configuration,
+  and later-work gate remains unchanged; and
+- another compiler error, failed check, changed OID, or requested correction
+  fails closed without another implied cycle.
+
+The reviewer runs only `git diff --check` and
+`.\tools\check_text_hygiene.ps1`. It must not run implementation acceptance
+checks, edit the amendment or frozen implementation, commit, push, begin the
+visibility correction, or begin later work. It reports P0/P1/P2 findings and
+exactly one verdict: `ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT`.
+
+Even `ACCEPT` authorizes only a separately BDFL-scoped
+`WORKORDER_10.md` documentation commit. Publication, status recording, the
+one exact test-scope correction, restarted acceptance checks, implementation
+review, Increment 10B.1a.1.2, and every later action retain separate gates.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
