@@ -85,6 +85,107 @@ pub enum CanonicalExpressionKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalCommonNodeKind {
+    Unit,
+    Identifier,
+    Field,
+    UIntLiteral,
+    IntLiteral,
+    BoolLiteral,
+    TextLiteral,
+    ListLiteral,
+    RecordLiteral,
+    Call,
+    Permission,
+    Binary,
+    Group,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalCommonChildRole {
+    FieldBase,
+    ListElement,
+    RecordFieldValue,
+    CallCallee,
+    CallArgument,
+    PermissionValue,
+    BinaryLeft,
+    BinaryRight,
+    GroupValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalCommonLexicalStatus {
+    Complete,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalReductionChildEvent {
+    pub(crate) role: CanonicalCommonChildRole,
+    pub(crate) ordinal: usize,
+    pub(crate) event: Box<CanonicalReductionEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalReductionEvent {
+    pub(crate) range: ParsedSourceRange,
+    pub(crate) kind: CanonicalCommonNodeKind,
+    pub(crate) children: Vec<CanonicalReductionChildEvent>,
+    pub(crate) delimiter_depth_before: usize,
+    pub(crate) delimiter_depth_after: usize,
+    pub(crate) lexical_status: CanonicalCommonLexicalStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalLexicalTokenEvent {
+    pub(crate) range: ParsedSourceRange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalExpressionRoleEvent {
+    ReturnValue,
+    BindingValue,
+    SetValue,
+    SavedValue,
+    Condition,
+    LoopCollection,
+    LoopRangeStart,
+    LoopRangeEnd,
+    FailureValue,
+    TestExpectation,
+    NeedsPredicate,
+    EnsuresPredicate,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalExpressionIntentEvent {
+    Return,
+    Binding,
+    SetValue,
+    SaveValue,
+    Condition,
+    LoopCollection,
+    LoopRangeStart,
+    LoopRangeEnd,
+    Failure,
+    TestExpectation,
+    NeedsPredicate,
+    EnsuresPredicate,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalOccurrenceAssignmentEvent {
+    pub(crate) expression_node_id: ParserSyntaxNodeId,
+    pub(crate) role: CanonicalExpressionRoleEvent,
+    pub(crate) intent: CanonicalExpressionIntentEvent,
+    pub(crate) predicate_recognized: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParsedBlockRelationship {
     None,
     Opens,
@@ -233,6 +334,8 @@ pub struct ParsedBodyStatement {
     pub core_status: &'static str,
     pub core_expression_kind: Option<&'static str>,
     pub core_reason: Option<&'static str>,
+    pub(crate) canonical_extra_occurrences: Vec<ParsedExpression>,
+    pub(crate) canonical_assignments: Vec<CanonicalOccurrenceAssignmentEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -266,6 +369,8 @@ pub struct ParsedExpression {
     pub kind: ParsedExpressionKind,
     pub span: Span,
     pub canonical: CanonicalExpression,
+    pub(crate) canonical_event: CanonicalReductionEvent,
+    pub(crate) canonical_tokens: Vec<CanonicalLexicalTokenEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

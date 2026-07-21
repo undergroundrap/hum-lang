@@ -1,10 +1,14 @@
 use crate::ast::{
-    App, CallableTypeSyntax, CanonicalExpression, CanonicalExpressionKind, Field, Item, Param,
-    ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship, ParsedBodyStatement,
-    ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus, ParsedCallTrailingStatus,
-    ParsedEffectDeclaration, ParsedEffectDeclarationKind, ParsedExpression, ParsedExpressionKind,
-    ParsedIdentifier, ParsedSourceRange, ParserSyntaxNodeId, Section, SectionLine, SourceFile,
-    Store, Task, Test, TypeDef, TypeSyntax, TypeSyntaxKind,
+    App, CallableTypeSyntax, CanonicalCommonChildRole, CanonicalCommonLexicalStatus,
+    CanonicalCommonNodeKind, CanonicalExpression, CanonicalExpressionIntentEvent,
+    CanonicalExpressionKind, CanonicalExpressionRoleEvent, CanonicalLexicalTokenEvent,
+    CanonicalOccurrenceAssignmentEvent, CanonicalReductionChildEvent, CanonicalReductionEvent,
+    Field, Item, Param, ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship,
+    ParsedBodyStatement, ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus,
+    ParsedCallTrailingStatus, ParsedEffectDeclaration, ParsedEffectDeclarationKind,
+    ParsedExpression, ParsedExpressionKind, ParsedIdentifier, ParsedSourceRange,
+    ParserSyntaxNodeId, Section, SectionLine, SourceFile, Store, Task, Test, TypeDef, TypeSyntax,
+    TypeSyntaxKind,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::syntax;
@@ -138,6 +142,266 @@ fn validate_source_owner_seal(seal: &CanonicalSourceOwnerSeal) -> Result<(), &'s
     Ok(())
 }
 
+macro_rules! opaque_occurrence_id {
+    ($($name:ident),+ $(,)?) => {
+        $(
+            #[derive(Debug, Clone, PartialEq, Eq)]
+            struct $name(CanonicalOwnerIdentity);
+        )+
+    };
+}
+
+opaque_occurrence_id!(
+    CanonicalOccurrenceIdentity,
+    CanonicalNodeIdentity,
+    CanonicalTokenIdentity,
+    CanonicalReductionIdentity,
+    CanonicalAssigningEvent,
+    CanonicalPredicateEvent,
+);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanonicalExpressionRole {
+    ReturnValue,
+    BindingValue,
+    SetValue,
+    SavedValue,
+    Condition,
+    LoopCollection,
+    LoopRangeStart,
+    LoopRangeEnd,
+    FailureValue,
+    TestExpectation,
+    NeedsPredicate,
+    EnsuresPredicate,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanonicalExpressionIntent {
+    Return,
+    Binding,
+    SetValue,
+    SaveValue,
+    Condition,
+    LoopCollection,
+    LoopRangeStart,
+    LoopRangeEnd,
+    Failure,
+    TestExpectation,
+    NeedsPredicate,
+    EnsuresPredicate,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CanonicalPredicateRecognition {
+    Present(CanonicalPredicateEvent),
+    Absent(CanonicalPredicateEvent),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CanonicalSealFact {
+    SourceBlob(CanonicalSourceBlob),
+    SemanticFile(CanonicalSemanticFile),
+    SourceRevision(CanonicalSourceRevision),
+    Item(CanonicalItemOwner),
+    Section(CanonicalSectionOwner),
+    Statement(CanonicalStatementOwner),
+    AuthorityHandle(CanonicalAuthorityHandle),
+    Occurrence(CanonicalOccurrenceIdentity),
+    ExpressionRole(CanonicalExpressionRole),
+    Root(CanonicalNodeIdentity),
+    RootRange(ParsedSourceRange),
+    RootReduction(CanonicalReductionIdentity),
+    Intent(CanonicalExpressionIntent),
+    AssigningEvent(CanonicalAssigningEvent),
+    AssignmentSyntaxNode(CanonicalAssigningEvent, ParserSyntaxNodeId),
+    PredicateRecognition(CanonicalPredicateRecognition),
+    PreorderCount(usize),
+    MaximumDelimiterDepth(usize),
+    NodeIdentity(CanonicalNodeIdentity),
+    NodeOccurrence(CanonicalNodeIdentity, CanonicalOccurrenceIdentity),
+    TokenIdentity(CanonicalTokenIdentity),
+    ReductionIdentity(CanonicalNodeIdentity, CanonicalReductionIdentity),
+    ParentIdentity(CanonicalNodeIdentity, Option<CanonicalNodeIdentity>),
+    ChildRole(CanonicalNodeIdentity, Option<CanonicalCommonChildRole>),
+    ChildOrdinal(CanonicalNodeIdentity, Option<usize>),
+    PreorderOrdinal(CanonicalNodeIdentity, usize),
+    NodeSource(CanonicalNodeIdentity, CanonicalSemanticFile),
+    NodeRange(CanonicalNodeIdentity, ParsedSourceRange),
+    TokenInterval(
+        CanonicalNodeIdentity,
+        Option<(CanonicalTokenIdentity, CanonicalTokenIdentity)>,
+    ),
+    Kind(CanonicalNodeIdentity, CanonicalCommonNodeKind),
+    OrderedChildren(CanonicalNodeIdentity, Vec<CanonicalNodeIdentity>),
+    ChildCardinality(CanonicalNodeIdentity, usize),
+    DelimiterDepthBefore(CanonicalNodeIdentity, usize),
+    DelimiterDepthAfter(CanonicalNodeIdentity, usize),
+    LexicalStatus(CanonicalNodeIdentity, CanonicalCommonLexicalStatus),
+    IllegalFieldsAbsent(CanonicalNodeIdentity),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalOccurrenceSeal {
+    projection: Vec<CanonicalSealFact>,
+    authority: Vec<CanonicalSealFact>,
+}
+
+fn canonical_fact_matches(left: &CanonicalSealFact, right: &CanonicalSealFact) -> bool {
+    match (left, right) {
+        (CanonicalSealFact::SourceBlob(left), CanonicalSealFact::SourceBlob(right)) => {
+            left == right
+        }
+        (CanonicalSealFact::SemanticFile(left), CanonicalSealFact::SemanticFile(right)) => {
+            left == right
+        }
+        (CanonicalSealFact::SourceRevision(left), CanonicalSealFact::SourceRevision(right)) => {
+            left == right
+        }
+        (CanonicalSealFact::Item(left), CanonicalSealFact::Item(right)) => left == right,
+        (CanonicalSealFact::Section(left), CanonicalSealFact::Section(right)) => left == right,
+        (CanonicalSealFact::Statement(left), CanonicalSealFact::Statement(right)) => left == right,
+        (CanonicalSealFact::AuthorityHandle(left), CanonicalSealFact::AuthorityHandle(right)) => {
+            left == right
+        }
+        (CanonicalSealFact::Occurrence(left), CanonicalSealFact::Occurrence(right)) => {
+            left == right
+        }
+        (CanonicalSealFact::ExpressionRole(left), CanonicalSealFact::ExpressionRole(right)) => {
+            left == right
+        }
+        (CanonicalSealFact::Root(left), CanonicalSealFact::Root(right)) => left == right,
+        (CanonicalSealFact::RootRange(left), CanonicalSealFact::RootRange(right)) => left == right,
+        (CanonicalSealFact::RootReduction(left), CanonicalSealFact::RootReduction(right)) => {
+            left == right
+        }
+        (CanonicalSealFact::Intent(left), CanonicalSealFact::Intent(right)) => left == right,
+        (CanonicalSealFact::AssigningEvent(left), CanonicalSealFact::AssigningEvent(right)) => {
+            left == right
+        }
+        (
+            CanonicalSealFact::AssignmentSyntaxNode(left_event, left_node),
+            CanonicalSealFact::AssignmentSyntaxNode(right_event, right_node),
+        ) => left_event == right_event && left_node == right_node,
+        (
+            CanonicalSealFact::PredicateRecognition(left),
+            CanonicalSealFact::PredicateRecognition(right),
+        ) => left == right,
+        (CanonicalSealFact::PreorderCount(left), CanonicalSealFact::PreorderCount(right)) => {
+            left == right
+        }
+        (
+            CanonicalSealFact::MaximumDelimiterDepth(left),
+            CanonicalSealFact::MaximumDelimiterDepth(right),
+        ) => left == right,
+        (CanonicalSealFact::NodeIdentity(left), CanonicalSealFact::NodeIdentity(right)) => {
+            left == right
+        }
+        (
+            CanonicalSealFact::NodeOccurrence(left_node, left),
+            CanonicalSealFact::NodeOccurrence(right_node, right),
+        ) => left_node == right_node && left == right,
+        (CanonicalSealFact::TokenIdentity(left), CanonicalSealFact::TokenIdentity(right)) => {
+            left == right
+        }
+        (
+            CanonicalSealFact::ReductionIdentity(left_node, left),
+            CanonicalSealFact::ReductionIdentity(right_node, right),
+        ) => left_node == right_node && left == right,
+        (
+            CanonicalSealFact::ParentIdentity(left_node, left),
+            CanonicalSealFact::ParentIdentity(right_node, right),
+        ) => left_node == right_node && left == right,
+        (
+            CanonicalSealFact::ChildRole(left_node, left),
+            CanonicalSealFact::ChildRole(right_node, right),
+        ) => left_node == right_node && left == right,
+        (
+            CanonicalSealFact::ChildOrdinal(left_node, left),
+            CanonicalSealFact::ChildOrdinal(right_node, right),
+        ) => left_node == right_node && left == right,
+        (
+            CanonicalSealFact::PreorderOrdinal(left_node, left),
+            CanonicalSealFact::PreorderOrdinal(right_node, right),
+        ) => left_node == right_node && left == right,
+        (
+            CanonicalSealFact::NodeSource(left_node, left),
+            CanonicalSealFact::NodeSource(right_node, right),
+        ) => left_node == right_node && left == right,
+        (
+            CanonicalSealFact::NodeRange(left_node, left),
+            CanonicalSealFact::NodeRange(right_node, right),
+        ) => left_node == right_node && left == right,
+        (
+            CanonicalSealFact::TokenInterval(left_node, left),
+            CanonicalSealFact::TokenInterval(right_node, right),
+        ) => left_node == right_node && left == right,
+        (CanonicalSealFact::Kind(left_node, left), CanonicalSealFact::Kind(right_node, right)) => {
+            left_node == right_node && left == right
+        }
+        (
+            CanonicalSealFact::OrderedChildren(left_node, left),
+            CanonicalSealFact::OrderedChildren(right_node, right),
+        ) => left_node == right_node && left == right,
+        (
+            CanonicalSealFact::ChildCardinality(left_node, left),
+            CanonicalSealFact::ChildCardinality(right_node, right),
+        ) => left_node == right_node && left == right,
+        (
+            CanonicalSealFact::DelimiterDepthBefore(left_node, left),
+            CanonicalSealFact::DelimiterDepthBefore(right_node, right),
+        ) => left_node == right_node && left == right,
+        (
+            CanonicalSealFact::DelimiterDepthAfter(left_node, left),
+            CanonicalSealFact::DelimiterDepthAfter(right_node, right),
+        ) => left_node == right_node && left == right,
+        (
+            CanonicalSealFact::LexicalStatus(left_node, left),
+            CanonicalSealFact::LexicalStatus(right_node, right),
+        ) => left_node == right_node && left == right,
+        (
+            CanonicalSealFact::IllegalFieldsAbsent(left),
+            CanonicalSealFact::IllegalFieldsAbsent(right),
+        ) => left == right,
+        _ => false,
+    }
+}
+
+fn validate_occurrence_seal(seal: &CanonicalOccurrenceSeal) -> Result<(), &'static str> {
+    validate_occurrence_seal_inner(seal, None)
+}
+
+fn validate_occurrence_seal_inner(
+    seal: &CanonicalOccurrenceSeal,
+    ignored_index: Option<usize>,
+) -> Result<(), &'static str> {
+    if seal.projection.len() != seal.authority.len() {
+        return Err("canonical_occurrence_field_count_corrupt_v0");
+    }
+    if seal
+        .projection
+        .iter()
+        .zip(&seal.authority)
+        .enumerate()
+        .any(|(index, (left, right))| {
+            Some(index) != ignored_index && !canonical_fact_matches(left, right)
+        })
+    {
+        return Err("canonical_occurrence_authority_mismatch_v0");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn validate_occurrence_seal_ignoring_one_fact(
+    seal: &CanonicalOccurrenceSeal,
+    ignored_index: usize,
+) -> Result<(), &'static str> {
+    validate_occurrence_seal_inner(seal, Some(ignored_index))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct ParsedCallPosition {
     statement_index: usize,
@@ -185,6 +449,8 @@ pub struct ParseOutput {
     pub(crate) diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
     #[cfg_attr(not(test), allow(dead_code))]
     source_owner_seals: Vec<CanonicalSourceOwnerSeal>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    occurrence_seals: Vec<CanonicalOccurrenceSeal>,
 }
 
 #[derive(Debug, Clone)]
@@ -211,6 +477,7 @@ struct Parser {
     diagnostics: Vec<Diagnostic>,
     diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
     source_owner_seals: Vec<CanonicalSourceOwnerSeal>,
+    occurrence_seals: Vec<CanonicalOccurrenceSeal>,
 }
 
 #[cfg(test)]
@@ -251,6 +518,7 @@ pub(crate) fn parse_source_at_index(
         diagnostics: Vec::new(),
         diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet::default(),
         source_owner_seals: Vec::new(),
+        occurrence_seals: Vec::new(),
     };
     let (module, items) = parser.parse_file_items();
     parser
@@ -267,6 +535,7 @@ pub(crate) fn parse_source_at_index(
         diagnostics: parser.diagnostics,
         diagnostic_occurrences: parser.diagnostic_occurrences,
         source_owner_seals: parser.source_owner_seals,
+        occurrence_seals: parser.occurrence_seals,
     }
 }
 
@@ -585,12 +854,12 @@ impl Parser {
                     cursor += 1;
                 }
 
+                let semantic_node = self
+                    .current_semantic_node
+                    .clone()
+                    .unwrap_or_else(|| "resolver-item:unknown".to_string());
                 let body_syntax = if name == "does" {
-                    let semantic_node = self
-                        .current_semantic_node
-                        .as_deref()
-                        .unwrap_or("resolver-item:unknown");
-                    let retained = retain_body_syntax(&lines, semantic_node);
+                    let retained = retain_body_syntax(&lines, &semantic_node);
                     for line in &lines {
                         if let Some(identifier) =
                             invalid_non_ascii_return_identifier(line.text.trim())
@@ -607,7 +876,14 @@ impl Parser {
                 } else {
                     vec![None; lines.len()]
                 };
-                self.retain_source_owner_records(sections.len(), &lines);
+                let owners = self.retain_source_owner_records(sections.len(), &lines);
+                self.retain_occurrence_records(
+                    &name,
+                    &lines,
+                    &body_syntax,
+                    &owners,
+                    &semantic_node,
+                );
                 sections.push(Section {
                     name,
                     lines,
@@ -623,17 +899,23 @@ impl Parser {
         sections
     }
 
-    fn retain_source_owner_records(&mut self, section_index: usize, lines: &[SectionLine]) {
+    fn retain_source_owner_records(
+        &mut self,
+        section_index: usize,
+        lines: &[SectionLine],
+    ) -> Vec<Option<CanonicalSourceOwnerSeal>> {
         let item = self
             .current_item_owner
             .clone()
             .expect("section parsing requires an owning item");
         let section = CanonicalSectionOwner(source_owner_child_identity(4, &item.0, section_index));
-        for (statement_index, _) in lines
-            .iter()
-            .filter(|line| !is_ignorable(line.text.trim()))
-            .enumerate()
-        {
+        let mut owners = Vec::with_capacity(lines.len());
+        let mut statement_index = 0usize;
+        for line in lines {
+            if is_ignorable(line.text.trim()) {
+                owners.push(None);
+                continue;
+            }
             let statement = CanonicalStatementOwner(source_owner_child_identity(
                 5,
                 &section.0,
@@ -664,7 +946,83 @@ impl Parser {
             };
             validate_source_owner_seal(&seal)
                 .expect("parser source/owner projection must match retained authority");
-            self.source_owner_seals.push(seal);
+            self.source_owner_seals.push(seal.clone());
+            owners.push(Some(seal));
+            statement_index += 1;
+        }
+        owners
+    }
+
+    fn retain_occurrence_records(
+        &mut self,
+        section_name: &str,
+        lines: &[SectionLine],
+        body_syntax: &[Option<ParsedBodyStatement>],
+        owners: &[Option<CanonicalSourceOwnerSeal>],
+        semantic_node: &str,
+    ) {
+        for (line_index, line) in lines.iter().enumerate() {
+            let Some(owner) = owners.get(line_index).and_then(Option::as_ref) else {
+                continue;
+            };
+            if section_name == "does" {
+                let Some(statement) = body_syntax.get(line_index).and_then(Option::as_ref) else {
+                    continue;
+                };
+                let roots = statement_expression_roots(statement, line.text.trim());
+                assert_eq!(
+                    roots.len(),
+                    statement.canonical_assignments.len(),
+                    "parser statement roots and retained assignments must stay aligned"
+                );
+                for (ordinal, ((expression, role, intent), assignment)) in roots
+                    .into_iter()
+                    .zip(&statement.canonical_assignments)
+                    .enumerate()
+                {
+                    let seal =
+                        build_occurrence_seal(expression, owner, role, intent, assignment, ordinal);
+                    validate_occurrence_seal(&seal)
+                        .expect("parser occurrence projection must match retained authority");
+                    self.occurrence_seals.push(seal);
+                }
+            } else if matches!(section_name, "needs" | "ensures") {
+                let role = if section_name == "needs" {
+                    CanonicalExpressionRole::NeedsPredicate
+                } else {
+                    CanonicalExpressionRole::EnsuresPredicate
+                };
+                let intent = if section_name == "needs" {
+                    CanonicalExpressionIntent::NeedsPredicate
+                } else {
+                    CanonicalExpressionIntent::EnsuresPredicate
+                };
+                let expression = parse_expression_syntax(
+                    line.text.trim(),
+                    line.span.clone(),
+                    ParserSyntaxNodeId::new(format!(
+                        "parser-contract:{semantic_node}:{section_name}:{line_index}"
+                    )),
+                );
+                let assignment = CanonicalOccurrenceAssignmentEvent {
+                    expression_node_id: expression.canonical.node_id.clone(),
+                    role: if section_name == "needs" {
+                        CanonicalExpressionRoleEvent::NeedsPredicate
+                    } else {
+                        CanonicalExpressionRoleEvent::EnsuresPredicate
+                    },
+                    intent: if section_name == "needs" {
+                        CanonicalExpressionIntentEvent::NeedsPredicate
+                    } else {
+                        CanonicalExpressionIntentEvent::EnsuresPredicate
+                    },
+                    predicate_recognized: true,
+                };
+                let seal = build_occurrence_seal(&expression, owner, role, intent, &assignment, 0);
+                validate_occurrence_seal(&seal)
+                    .expect("parser predicate occurrence must match retained authority");
+                self.occurrence_seals.push(seal);
+            }
         }
     }
 
@@ -965,6 +1323,582 @@ impl Parser {
             .find(|line| line.number == line_number)
             .map_or(1, |line| first_visible_column(&line.text));
         Span::new(self.path.clone(), line_number, column)
+    }
+}
+
+fn statement_expression_roots<'a>(
+    statement: &'a ParsedBodyStatement,
+    text: &str,
+) -> Vec<(
+    &'a ParsedExpression,
+    CanonicalExpressionRole,
+    CanonicalExpressionIntent,
+)> {
+    if !statement.canonical_extra_occurrences.is_empty() {
+        return statement
+            .canonical_extra_occurrences
+            .iter()
+            .enumerate()
+            .map(|(index, expression)| {
+                let (role, intent) = projected_other_assignment(text, index);
+                (expression, role, intent)
+            })
+            .collect();
+    }
+    match &statement.kind {
+        ParsedBodyStatementKind::Return(expression) => vec![(
+            expression,
+            CanonicalExpressionRole::ReturnValue,
+            CanonicalExpressionIntent::Return,
+        )],
+        ParsedBodyStatementKind::Binding {
+            value: Some(expression),
+            ..
+        } => vec![(
+            expression,
+            CanonicalExpressionRole::BindingValue,
+            CanonicalExpressionIntent::Binding,
+        )],
+        ParsedBodyStatementKind::Binding { value: None, .. } => Vec::new(),
+        ParsedBodyStatementKind::Other { expressions } => expressions
+            .iter()
+            .enumerate()
+            .map(|(index, expression)| {
+                let (role, intent) = projected_other_assignment(text, index);
+                (expression, role, intent)
+            })
+            .collect(),
+    }
+}
+
+fn projected_other_assignment(
+    text: &str,
+    index: usize,
+) -> (CanonicalExpressionRole, CanonicalExpressionIntent) {
+    if projected_keyword(text, "set") {
+        (
+            CanonicalExpressionRole::SetValue,
+            CanonicalExpressionIntent::SetValue,
+        )
+    } else if projected_keyword(text, "save") {
+        (
+            CanonicalExpressionRole::SavedValue,
+            CanonicalExpressionIntent::SaveValue,
+        )
+    } else if projected_keyword(text, "if") || projected_keyword(text, "while") {
+        (
+            CanonicalExpressionRole::Condition,
+            CanonicalExpressionIntent::Condition,
+        )
+    } else if projected_keyword(text, "for each") {
+        (
+            CanonicalExpressionRole::LoopCollection,
+            CanonicalExpressionIntent::LoopCollection,
+        )
+    } else if projected_keyword(text, "for index") && index == 0 {
+        (
+            CanonicalExpressionRole::LoopRangeStart,
+            CanonicalExpressionIntent::LoopRangeStart,
+        )
+    } else if projected_keyword(text, "for index") {
+        (
+            CanonicalExpressionRole::LoopRangeEnd,
+            CanonicalExpressionIntent::LoopRangeEnd,
+        )
+    } else if projected_keyword(text, "fail") {
+        (
+            CanonicalExpressionRole::FailureValue,
+            CanonicalExpressionIntent::Failure,
+        )
+    } else if projected_keyword(text, "expect") {
+        (
+            CanonicalExpressionRole::TestExpectation,
+            CanonicalExpressionIntent::TestExpectation,
+        )
+    } else {
+        (
+            CanonicalExpressionRole::Other,
+            CanonicalExpressionIntent::Other,
+        )
+    }
+}
+
+fn projected_keyword(text: &str, keyword: &str) -> bool {
+    text.strip_prefix(keyword)
+        .is_some_and(|rest| rest.starts_with([' ', '\t']))
+}
+
+fn occurrence_identity(
+    handle: &CanonicalAuthorityHandle,
+    ordinal: usize,
+) -> CanonicalOccurrenceIdentity {
+    CanonicalOccurrenceIdentity(source_owner_child_identity(7, &handle.0, ordinal))
+}
+
+fn occurrence_node_identity(
+    occurrence: &CanonicalOccurrenceIdentity,
+    preorder: usize,
+) -> CanonicalNodeIdentity {
+    CanonicalNodeIdentity(source_owner_child_identity(8, &occurrence.0, preorder))
+}
+
+fn occurrence_token_identity(
+    occurrence: &CanonicalOccurrenceIdentity,
+    ordinal: usize,
+) -> CanonicalTokenIdentity {
+    CanonicalTokenIdentity(source_owner_child_identity(9, &occurrence.0, ordinal))
+}
+
+fn occurrence_reduction_identity(
+    occurrence: &CanonicalOccurrenceIdentity,
+    preorder: usize,
+) -> CanonicalReductionIdentity {
+    CanonicalReductionIdentity(source_owner_child_identity(10, &occurrence.0, preorder))
+}
+
+fn assigning_event_identity(
+    handle: &CanonicalAuthorityHandle,
+    ordinal: usize,
+) -> CanonicalAssigningEvent {
+    CanonicalAssigningEvent(source_owner_child_identity(11, &handle.0, ordinal))
+}
+
+fn predicate_event_identity(
+    handle: &CanonicalAuthorityHandle,
+    ordinal: usize,
+) -> CanonicalPredicateEvent {
+    CanonicalPredicateEvent(source_owner_child_identity(12, &handle.0, ordinal))
+}
+
+fn authority_role(role: CanonicalExpressionRoleEvent) -> CanonicalExpressionRole {
+    match role {
+        CanonicalExpressionRoleEvent::ReturnValue => CanonicalExpressionRole::ReturnValue,
+        CanonicalExpressionRoleEvent::BindingValue => CanonicalExpressionRole::BindingValue,
+        CanonicalExpressionRoleEvent::SetValue => CanonicalExpressionRole::SetValue,
+        CanonicalExpressionRoleEvent::SavedValue => CanonicalExpressionRole::SavedValue,
+        CanonicalExpressionRoleEvent::Condition => CanonicalExpressionRole::Condition,
+        CanonicalExpressionRoleEvent::LoopCollection => CanonicalExpressionRole::LoopCollection,
+        CanonicalExpressionRoleEvent::LoopRangeStart => CanonicalExpressionRole::LoopRangeStart,
+        CanonicalExpressionRoleEvent::LoopRangeEnd => CanonicalExpressionRole::LoopRangeEnd,
+        CanonicalExpressionRoleEvent::FailureValue => CanonicalExpressionRole::FailureValue,
+        CanonicalExpressionRoleEvent::TestExpectation => CanonicalExpressionRole::TestExpectation,
+        CanonicalExpressionRoleEvent::NeedsPredicate => CanonicalExpressionRole::NeedsPredicate,
+        CanonicalExpressionRoleEvent::EnsuresPredicate => CanonicalExpressionRole::EnsuresPredicate,
+        CanonicalExpressionRoleEvent::Other => CanonicalExpressionRole::Other,
+    }
+}
+
+fn authority_intent(intent: CanonicalExpressionIntentEvent) -> CanonicalExpressionIntent {
+    match intent {
+        CanonicalExpressionIntentEvent::Return => CanonicalExpressionIntent::Return,
+        CanonicalExpressionIntentEvent::Binding => CanonicalExpressionIntent::Binding,
+        CanonicalExpressionIntentEvent::SetValue => CanonicalExpressionIntent::SetValue,
+        CanonicalExpressionIntentEvent::SaveValue => CanonicalExpressionIntent::SaveValue,
+        CanonicalExpressionIntentEvent::Condition => CanonicalExpressionIntent::Condition,
+        CanonicalExpressionIntentEvent::LoopCollection => CanonicalExpressionIntent::LoopCollection,
+        CanonicalExpressionIntentEvent::LoopRangeStart => CanonicalExpressionIntent::LoopRangeStart,
+        CanonicalExpressionIntentEvent::LoopRangeEnd => CanonicalExpressionIntent::LoopRangeEnd,
+        CanonicalExpressionIntentEvent::Failure => CanonicalExpressionIntent::Failure,
+        CanonicalExpressionIntentEvent::TestExpectation => {
+            CanonicalExpressionIntent::TestExpectation
+        }
+        CanonicalExpressionIntentEvent::NeedsPredicate => CanonicalExpressionIntent::NeedsPredicate,
+        CanonicalExpressionIntentEvent::EnsuresPredicate => {
+            CanonicalExpressionIntent::EnsuresPredicate
+        }
+        CanonicalExpressionIntentEvent::Other => CanonicalExpressionIntent::Other,
+    }
+}
+
+fn role_is_predicate(role: CanonicalExpressionRole) -> bool {
+    matches!(
+        role,
+        CanonicalExpressionRole::Condition
+            | CanonicalExpressionRole::NeedsPredicate
+            | CanonicalExpressionRole::EnsuresPredicate
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalNodeEvidence {
+    range: ParsedSourceRange,
+    kind: CanonicalCommonNodeKind,
+    parent: Option<usize>,
+    child_role: Option<CanonicalCommonChildRole>,
+    child_ordinal: Option<usize>,
+    children: Vec<usize>,
+    delimiter_depth_before: usize,
+    delimiter_depth_after: usize,
+    lexical_status: CanonicalCommonLexicalStatus,
+}
+
+fn common_node_kind(expression: &CanonicalExpression) -> CanonicalCommonNodeKind {
+    match expression.kind {
+        CanonicalExpressionKind::Unit => CanonicalCommonNodeKind::Unit,
+        CanonicalExpressionKind::Identifier(_) => CanonicalCommonNodeKind::Identifier,
+        CanonicalExpressionKind::Field { .. } => CanonicalCommonNodeKind::Field,
+        CanonicalExpressionKind::UIntLiteral(_) => CanonicalCommonNodeKind::UIntLiteral,
+        CanonicalExpressionKind::IntLiteral(_) => CanonicalCommonNodeKind::IntLiteral,
+        CanonicalExpressionKind::BoolLiteral(_) => CanonicalCommonNodeKind::BoolLiteral,
+        CanonicalExpressionKind::TextLiteral(_) => CanonicalCommonNodeKind::TextLiteral,
+        CanonicalExpressionKind::ListLiteral(_) => CanonicalCommonNodeKind::ListLiteral,
+        CanonicalExpressionKind::RecordLiteral { .. } => CanonicalCommonNodeKind::RecordLiteral,
+        CanonicalExpressionKind::Call { .. } => CanonicalCommonNodeKind::Call,
+        CanonicalExpressionKind::Permission { .. } => CanonicalCommonNodeKind::Permission,
+        CanonicalExpressionKind::Binary { .. } => CanonicalCommonNodeKind::Binary,
+        CanonicalExpressionKind::Group(_) => CanonicalCommonNodeKind::Group,
+        CanonicalExpressionKind::Unsupported => CanonicalCommonNodeKind::Unsupported,
+    }
+}
+
+fn canonical_expression_children(
+    expression: &CanonicalExpression,
+) -> Vec<(CanonicalCommonChildRole, usize, &CanonicalExpression)> {
+    match &expression.kind {
+        CanonicalExpressionKind::Field { base, .. } => {
+            vec![(CanonicalCommonChildRole::FieldBase, 0, base)]
+        }
+        CanonicalExpressionKind::ListLiteral(values) => values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| (CanonicalCommonChildRole::ListElement, index, value))
+            .collect(),
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => fields
+            .iter()
+            .enumerate()
+            .map(|(index, (_, value))| (CanonicalCommonChildRole::RecordFieldValue, index, value))
+            .collect(),
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            let mut children = vec![(CanonicalCommonChildRole::CallCallee, 0, callee.as_ref())];
+            children.extend(arguments.iter().enumerate().map(|(index, argument)| {
+                (CanonicalCommonChildRole::CallArgument, index, argument)
+            }));
+            children
+        }
+        CanonicalExpressionKind::Permission { value, .. } => {
+            vec![(CanonicalCommonChildRole::PermissionValue, 0, value)]
+        }
+        CanonicalExpressionKind::Binary { left, right, .. } => vec![
+            (CanonicalCommonChildRole::BinaryLeft, 0, left),
+            (CanonicalCommonChildRole::BinaryRight, 1, right),
+        ],
+        CanonicalExpressionKind::Group(value) => {
+            vec![(CanonicalCommonChildRole::GroupValue, 0, value)]
+        }
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => Vec::new(),
+    }
+}
+
+fn nested_delimiter_child(role: CanonicalCommonChildRole) -> bool {
+    matches!(
+        role,
+        CanonicalCommonChildRole::ListElement
+            | CanonicalCommonChildRole::RecordFieldValue
+            | CanonicalCommonChildRole::CallArgument
+            | CanonicalCommonChildRole::GroupValue
+    )
+}
+
+fn projected_node_evidence(expression: &CanonicalExpression) -> Vec<CanonicalNodeEvidence> {
+    let mut evidence = Vec::new();
+    append_projected_node_evidence(expression, None, None, None, 0, &mut evidence);
+    evidence
+}
+
+fn append_projected_node_evidence(
+    expression: &CanonicalExpression,
+    parent: Option<usize>,
+    child_role: Option<CanonicalCommonChildRole>,
+    child_ordinal: Option<usize>,
+    delimiter_depth: usize,
+    evidence: &mut Vec<CanonicalNodeEvidence>,
+) -> usize {
+    let index = evidence.len();
+    evidence.push(CanonicalNodeEvidence {
+        range: expression.range.clone(),
+        kind: common_node_kind(expression),
+        parent,
+        child_role,
+        child_ordinal,
+        children: Vec::new(),
+        delimiter_depth_before: delimiter_depth,
+        delimiter_depth_after: delimiter_depth,
+        lexical_status: if matches!(expression.kind, CanonicalExpressionKind::Unsupported) {
+            CanonicalCommonLexicalStatus::Unsupported
+        } else {
+            CanonicalCommonLexicalStatus::Complete
+        },
+    });
+    let children = canonical_expression_children(expression)
+        .into_iter()
+        .map(|(role, ordinal, child)| {
+            append_projected_node_evidence(
+                child,
+                Some(index),
+                Some(role),
+                Some(ordinal),
+                delimiter_depth + usize::from(nested_delimiter_child(role)),
+                evidence,
+            )
+        })
+        .collect();
+    evidence[index].children = children;
+    index
+}
+
+fn retained_node_evidence(event: &CanonicalReductionEvent) -> Vec<CanonicalNodeEvidence> {
+    let mut evidence = Vec::new();
+    append_retained_node_evidence(event, None, None, None, &mut evidence);
+    evidence
+}
+
+fn append_retained_node_evidence(
+    event: &CanonicalReductionEvent,
+    parent: Option<usize>,
+    child_role: Option<CanonicalCommonChildRole>,
+    child_ordinal: Option<usize>,
+    evidence: &mut Vec<CanonicalNodeEvidence>,
+) -> usize {
+    let index = evidence.len();
+    evidence.push(CanonicalNodeEvidence {
+        range: event.range.clone(),
+        kind: event.kind,
+        parent,
+        child_role,
+        child_ordinal,
+        children: Vec::new(),
+        delimiter_depth_before: event.delimiter_depth_before,
+        delimiter_depth_after: event.delimiter_depth_after,
+        lexical_status: event.lexical_status,
+    });
+    let children = event
+        .children
+        .iter()
+        .map(|child| {
+            append_retained_node_evidence(
+                &child.event,
+                Some(index),
+                Some(child.role),
+                Some(child.ordinal),
+                evidence,
+            )
+        })
+        .collect();
+    evidence[index].children = children;
+    index
+}
+
+fn translated_owner_projection(owner: &CanonicalSourceOwnerSeal) -> Vec<CanonicalSealFact> {
+    owner
+        .projection
+        .iter()
+        .map(|fact| match fact {
+            CanonicalSourceOwnerFact::SourceBlob(value) => {
+                CanonicalSealFact::SourceBlob(value.clone())
+            }
+            CanonicalSourceOwnerFact::SemanticFile(value) => {
+                CanonicalSealFact::SemanticFile(value.clone())
+            }
+            CanonicalSourceOwnerFact::SourceRevision(value) => {
+                CanonicalSealFact::SourceRevision(value.clone())
+            }
+            CanonicalSourceOwnerFact::Item(value) => CanonicalSealFact::Item(value.clone()),
+            CanonicalSourceOwnerFact::Section(value) => CanonicalSealFact::Section(value.clone()),
+            CanonicalSourceOwnerFact::Statement(value) => {
+                CanonicalSealFact::Statement(value.clone())
+            }
+            CanonicalSourceOwnerFact::AuthorityHandle(value) => {
+                CanonicalSealFact::AuthorityHandle(value.clone())
+            }
+        })
+        .collect()
+}
+
+fn retained_owner_authority(owner: &CanonicalSourceOwnerSeal) -> Vec<CanonicalSealFact> {
+    vec![
+        CanonicalSealFact::SourceBlob(owner.authority.source_blob.clone()),
+        CanonicalSealFact::SemanticFile(owner.authority.semantic_file.clone()),
+        CanonicalSealFact::SourceRevision(owner.authority.source_revision.clone()),
+        CanonicalSealFact::Item(owner.authority.item.clone()),
+        CanonicalSealFact::Section(owner.authority.section.clone()),
+        CanonicalSealFact::Statement(owner.authority.statement.clone()),
+        CanonicalSealFact::AuthorityHandle(owner.authority.handle.clone()),
+    ]
+}
+
+struct OccurrenceFactInput<'a> {
+    owner_facts: Vec<CanonicalSealFact>,
+    handle: &'a CanonicalAuthorityHandle,
+    semantic_file: &'a CanonicalSemanticFile,
+    occurrence: CanonicalOccurrenceIdentity,
+    role: CanonicalExpressionRole,
+    intent: CanonicalExpressionIntent,
+    assignment_node: &'a ParserSyntaxNodeId,
+    predicate_recognized: bool,
+    ordinal: usize,
+    nodes: &'a [CanonicalNodeEvidence],
+    tokens: &'a [CanonicalLexicalTokenEvent],
+}
+
+fn occurrence_facts(input: OccurrenceFactInput<'_>) -> Vec<CanonicalSealFact> {
+    let mut facts = input.owner_facts;
+    let root = occurrence_node_identity(&input.occurrence, 0);
+    let root_reduction = occurrence_reduction_identity(&input.occurrence, 0);
+    let assigning_event = assigning_event_identity(input.handle, input.ordinal);
+    let predicate_event = predicate_event_identity(input.handle, input.ordinal);
+    facts.extend([
+        CanonicalSealFact::Occurrence(input.occurrence.clone()),
+        CanonicalSealFact::ExpressionRole(input.role),
+        CanonicalSealFact::Root(root),
+        CanonicalSealFact::RootRange(input.nodes[0].range.clone()),
+        CanonicalSealFact::RootReduction(root_reduction),
+        CanonicalSealFact::Intent(input.intent),
+        CanonicalSealFact::AssigningEvent(assigning_event.clone()),
+        CanonicalSealFact::AssignmentSyntaxNode(assigning_event, input.assignment_node.clone()),
+        CanonicalSealFact::PredicateRecognition(if input.predicate_recognized {
+            CanonicalPredicateRecognition::Present(predicate_event)
+        } else {
+            CanonicalPredicateRecognition::Absent(predicate_event)
+        }),
+        CanonicalSealFact::PreorderCount(input.nodes.len()),
+        CanonicalSealFact::MaximumDelimiterDepth(
+            input
+                .nodes
+                .iter()
+                .map(|node| node.delimiter_depth_before.max(node.delimiter_depth_after))
+                .max()
+                .unwrap_or_default(),
+        ),
+    ]);
+    let token_ids = (0..input.tokens.len())
+        .map(|index| occurrence_token_identity(&input.occurrence, index))
+        .collect::<Vec<_>>();
+    facts.extend(
+        token_ids
+            .iter()
+            .cloned()
+            .map(CanonicalSealFact::TokenIdentity),
+    );
+    for (preorder, node) in input.nodes.iter().enumerate() {
+        let node_id = occurrence_node_identity(&input.occurrence, preorder);
+        let parent = node
+            .parent
+            .map(|index| occurrence_node_identity(&input.occurrence, index));
+        let children = node
+            .children
+            .iter()
+            .map(|index| occurrence_node_identity(&input.occurrence, *index))
+            .collect::<Vec<_>>();
+        let interval = node_token_interval(node, input.tokens, &token_ids);
+        facts.extend([
+            CanonicalSealFact::NodeIdentity(node_id.clone()),
+            CanonicalSealFact::NodeOccurrence(node_id.clone(), input.occurrence.clone()),
+            CanonicalSealFact::ReductionIdentity(
+                node_id.clone(),
+                occurrence_reduction_identity(&input.occurrence, preorder),
+            ),
+            CanonicalSealFact::ParentIdentity(node_id.clone(), parent),
+            CanonicalSealFact::ChildRole(node_id.clone(), node.child_role),
+            CanonicalSealFact::ChildOrdinal(node_id.clone(), node.child_ordinal),
+            CanonicalSealFact::PreorderOrdinal(node_id.clone(), preorder),
+            CanonicalSealFact::NodeSource(node_id.clone(), input.semantic_file.clone()),
+            CanonicalSealFact::NodeRange(node_id.clone(), node.range.clone()),
+            CanonicalSealFact::TokenInterval(node_id.clone(), interval),
+            CanonicalSealFact::Kind(node_id.clone(), node.kind),
+            CanonicalSealFact::OrderedChildren(node_id.clone(), children),
+            CanonicalSealFact::ChildCardinality(node_id.clone(), node.children.len()),
+            CanonicalSealFact::DelimiterDepthBefore(node_id.clone(), node.delimiter_depth_before),
+            CanonicalSealFact::DelimiterDepthAfter(node_id.clone(), node.delimiter_depth_after),
+            CanonicalSealFact::LexicalStatus(node_id.clone(), node.lexical_status),
+            CanonicalSealFact::IllegalFieldsAbsent(node_id),
+        ]);
+    }
+    facts
+}
+
+fn node_token_interval(
+    node: &CanonicalNodeEvidence,
+    tokens: &[CanonicalLexicalTokenEvent],
+    token_ids: &[CanonicalTokenIdentity],
+) -> Option<(CanonicalTokenIdentity, CanonicalTokenIdentity)> {
+    let indexes = tokens
+        .iter()
+        .enumerate()
+        .filter_map(|(index, token)| range_contains(&node.range, &token.range).then_some(index))
+        .collect::<Vec<_>>();
+    indexes
+        .first()
+        .zip(indexes.last())
+        .map(|(first, last)| (token_ids[*first].clone(), token_ids[*last].clone()))
+}
+
+fn range_contains(parent: &ParsedSourceRange, child: &ParsedSourceRange) -> bool {
+    parent.start.file == child.start.file
+        && parent.start.line == child.start.line
+        && parent.start.column <= child.start.column
+        && child.start.column + child.byte_len <= parent.start.column + parent.byte_len
+}
+
+fn build_occurrence_seal(
+    expression: &ParsedExpression,
+    owner: &CanonicalSourceOwnerSeal,
+    projected_role: CanonicalExpressionRole,
+    projected_intent: CanonicalExpressionIntent,
+    assignment: &CanonicalOccurrenceAssignmentEvent,
+    ordinal: usize,
+) -> CanonicalOccurrenceSeal {
+    let projected_occurrence = occurrence_identity(
+        match owner.projection.last() {
+            Some(CanonicalSourceOwnerFact::AuthorityHandle(handle)) => handle,
+            _ => panic!("source/owner projection must end with its authority handle"),
+        },
+        ordinal,
+    );
+    let authority_occurrence = occurrence_identity(&owner.authority.handle, ordinal);
+    let projected_nodes = projected_node_evidence(&expression.canonical);
+    let retained_nodes = retained_node_evidence(&expression.canonical_event);
+    let projected_handle = match owner.projection.last() {
+        Some(CanonicalSourceOwnerFact::AuthorityHandle(handle)) => handle,
+        _ => unreachable!("validated source/owner projection has a handle"),
+    };
+    let projection = occurrence_facts(OccurrenceFactInput {
+        owner_facts: translated_owner_projection(owner),
+        handle: projected_handle,
+        semantic_file: match owner.projection.get(1) {
+            Some(CanonicalSourceOwnerFact::SemanticFile(file)) => file,
+            _ => panic!("source/owner projection must contain semantic file identity"),
+        },
+        occurrence: projected_occurrence,
+        role: projected_role,
+        intent: projected_intent,
+        assignment_node: &expression.canonical.node_id,
+        predicate_recognized: role_is_predicate(projected_role),
+        ordinal,
+        nodes: &projected_nodes,
+        tokens: &expression.canonical_tokens,
+    });
+    let authority = occurrence_facts(OccurrenceFactInput {
+        owner_facts: retained_owner_authority(owner),
+        handle: &owner.authority.handle,
+        semantic_file: &owner.authority.semantic_file,
+        occurrence: authority_occurrence,
+        role: authority_role(assignment.role),
+        intent: authority_intent(assignment.intent),
+        assignment_node: &assignment.expression_node_id,
+        predicate_recognized: assignment.predicate_recognized,
+        ordinal,
+        nodes: &retained_nodes,
+        tokens: &expression.canonical_tokens,
+    });
+    CanonicalOccurrenceSeal {
+        projection,
+        authority,
     }
 }
 
@@ -1365,6 +2299,10 @@ fn parsed_body_statement(
 ) -> ParsedBodyStatement {
     let (core_kind, core_status, core_expression_kind, core_reason) =
         parser_core_shape(line.text.trim(), &kind);
+    let canonical_extra_occurrences =
+        parse_for_index_occurrence_expressions(line.text.trim(), &line.span, &source_node_id);
+    let canonical_assignments =
+        retained_statement_assignments(line.text.trim(), &kind, &canonical_extra_occurrences);
     ParsedBodyStatement {
         kind,
         span: line.span.clone(),
@@ -1376,6 +2314,130 @@ fn parsed_body_statement(
         core_status,
         core_expression_kind,
         core_reason,
+        canonical_extra_occurrences,
+        canonical_assignments,
+    }
+}
+
+fn retained_statement_assignments(
+    text: &str,
+    kind: &ParsedBodyStatementKind,
+    canonical_extra_occurrences: &[ParsedExpression],
+) -> Vec<CanonicalOccurrenceAssignmentEvent> {
+    if !canonical_extra_occurrences.is_empty() {
+        return canonical_extra_occurrences
+            .iter()
+            .enumerate()
+            .map(|(index, expression)| {
+                let (role, intent, predicate_recognized) = retained_other_assignment(text, index);
+                assignment_event(expression, role, intent, predicate_recognized)
+            })
+            .collect();
+    }
+    match kind {
+        ParsedBodyStatementKind::Return(expression) => vec![assignment_event(
+            expression,
+            CanonicalExpressionRoleEvent::ReturnValue,
+            CanonicalExpressionIntentEvent::Return,
+            false,
+        )],
+        ParsedBodyStatementKind::Binding {
+            value: Some(expression),
+            ..
+        } => vec![assignment_event(
+            expression,
+            CanonicalExpressionRoleEvent::BindingValue,
+            CanonicalExpressionIntentEvent::Binding,
+            false,
+        )],
+        ParsedBodyStatementKind::Binding { value: None, .. } => Vec::new(),
+        ParsedBodyStatementKind::Other { expressions } => expressions
+            .iter()
+            .enumerate()
+            .map(|(index, expression)| {
+                let (role, intent, predicate_recognized) = retained_other_assignment(text, index);
+                assignment_event(expression, role, intent, predicate_recognized)
+            })
+            .collect(),
+    }
+}
+
+fn assignment_event(
+    expression: &ParsedExpression,
+    role: CanonicalExpressionRoleEvent,
+    intent: CanonicalExpressionIntentEvent,
+    predicate_recognized: bool,
+) -> CanonicalOccurrenceAssignmentEvent {
+    CanonicalOccurrenceAssignmentEvent {
+        expression_node_id: expression.canonical.node_id.clone(),
+        role,
+        intent,
+        predicate_recognized,
+    }
+}
+
+fn retained_other_assignment(
+    text: &str,
+    index: usize,
+) -> (
+    CanonicalExpressionRoleEvent,
+    CanonicalExpressionIntentEvent,
+    bool,
+) {
+    if keyword_rest(text, "set").is_some() {
+        (
+            CanonicalExpressionRoleEvent::SetValue,
+            CanonicalExpressionIntentEvent::SetValue,
+            false,
+        )
+    } else if keyword_rest(text, "save").is_some() {
+        (
+            CanonicalExpressionRoleEvent::SavedValue,
+            CanonicalExpressionIntentEvent::SaveValue,
+            false,
+        )
+    } else if keyword_rest(text, "if").is_some() || keyword_rest(text, "while").is_some() {
+        (
+            CanonicalExpressionRoleEvent::Condition,
+            CanonicalExpressionIntentEvent::Condition,
+            true,
+        )
+    } else if keyword_rest(text, "for each").is_some() {
+        (
+            CanonicalExpressionRoleEvent::LoopCollection,
+            CanonicalExpressionIntentEvent::LoopCollection,
+            false,
+        )
+    } else if keyword_rest(text, "for index").is_some() && index == 0 {
+        (
+            CanonicalExpressionRoleEvent::LoopRangeStart,
+            CanonicalExpressionIntentEvent::LoopRangeStart,
+            false,
+        )
+    } else if keyword_rest(text, "for index").is_some() {
+        (
+            CanonicalExpressionRoleEvent::LoopRangeEnd,
+            CanonicalExpressionIntentEvent::LoopRangeEnd,
+            false,
+        )
+    } else if keyword_rest(text, "fail").is_some() {
+        (
+            CanonicalExpressionRoleEvent::FailureValue,
+            CanonicalExpressionIntentEvent::Failure,
+            false,
+        )
+    } else if keyword_rest(text, "expect").is_some() {
+        (
+            CanonicalExpressionRoleEvent::TestExpectation,
+            CanonicalExpressionIntentEvent::TestExpectation,
+            false,
+        )
+    } else {
+        (
+            CanonicalExpressionRoleEvent::Other,
+            CanonicalExpressionIntentEvent::Other,
+            false,
+        )
     }
 }
 
@@ -1732,6 +2794,145 @@ fn parse_other_statement_expressions(
         .unwrap_or_default()
 }
 
+fn parse_for_index_occurrence_expressions(
+    text: &str,
+    span: &Span,
+    source_node_id: &ParserSyntaxNodeId,
+) -> Vec<ParsedExpression> {
+    if let Some(rest) = keyword_rest(text, "for index") {
+        let rest_offset = text.len() - rest.len();
+        if let Some(from) = rest.find(" from ") {
+            let bounds_offset = rest_offset + from + " from ".len();
+            let bounds = &rest[from + " from ".len()..];
+            let separator = bounds
+                .find(" until ")
+                .map(|index| (index, " until ".len()))
+                .or_else(|| {
+                    bounds
+                        .find(" through ")
+                        .map(|index| (index, " through ".len()))
+                });
+            if let Some((separator, separator_len)) = separator {
+                let start_raw = &bounds[..separator];
+                let end_raw = bounds[separator + separator_len..]
+                    .trim_end_matches('{')
+                    .trim_end();
+                let start = start_raw.trim();
+                if !start.is_empty() && !end_raw.is_empty() {
+                    let start_leading = start_raw.len() - start_raw.trim_start().len();
+                    let end_leading = bounds[separator + separator_len..].len()
+                        - bounds[separator + separator_len..].trim_start().len();
+                    return vec![
+                        parse_expression_syntax(
+                            start,
+                            offset_span(span, bounds_offset + start_leading),
+                            source_node_id.child("canonical-occurrence-expression-0"),
+                        ),
+                        parse_expression_syntax(
+                            end_raw,
+                            offset_span(
+                                span,
+                                bounds_offset + separator + separator_len + end_leading,
+                            ),
+                            source_node_id.child("canonical-occurrence-expression-1"),
+                        ),
+                    ];
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+struct CanonicalExpressionBuild {
+    expression: CanonicalExpression,
+    event: CanonicalReductionEvent,
+}
+
+fn parsed_expression(
+    kind: ParsedExpressionKind,
+    text: &str,
+    span: Span,
+    source_node_id: ParserSyntaxNodeId,
+) -> ParsedExpression {
+    let canonical = parse_canonical_expression(text, &span, source_node_id, 0);
+    let canonical_tokens = canonical_lexical_events(text, &span);
+    ParsedExpression {
+        kind,
+        span,
+        canonical: canonical.expression,
+        canonical_event: canonical.event,
+        canonical_tokens,
+    }
+}
+
+fn canonical_lexical_events(text: &str, span: &Span) -> Vec<CanonicalLexicalTokenEvent> {
+    let leading = text.len() - text.trim_start().len();
+    let text = text.trim();
+    let span = offset_span(span, leading);
+    let mut events = Vec::new();
+    let mut index = 0usize;
+    while index < text.len() {
+        let ch = text[index..]
+            .chars()
+            .next()
+            .expect("token cursor must remain on a character boundary");
+        if ch.is_whitespace() {
+            index += ch.len_utf8();
+            continue;
+        }
+        let start = index;
+        if ch == '"' {
+            index += ch.len_utf8();
+            let mut escaped = false;
+            while index < text.len() {
+                let next = text[index..]
+                    .chars()
+                    .next()
+                    .expect("text token cursor must remain on a character boundary");
+                index += next.len_utf8();
+                if escaped {
+                    escaped = false;
+                } else if next == '\\' {
+                    escaped = true;
+                } else if next == '"' {
+                    break;
+                }
+            }
+        } else if ch.is_ascii_alphanumeric() || ch == '_' {
+            index += ch.len_utf8();
+            while index < text.len() {
+                let next = text[index..]
+                    .chars()
+                    .next()
+                    .expect("word token cursor must remain on a character boundary");
+                if next.is_ascii_alphanumeric() || next == '_' {
+                    index += next.len_utf8();
+                } else {
+                    break;
+                }
+            }
+        } else {
+            index += ch.len_utf8();
+            if index < text.len()
+                && matches!(
+                    (ch, text.as_bytes()[index]),
+                    ('=', b'=') | ('!', b'=') | ('<', b'=') | ('>', b'=')
+                )
+            {
+                index += 1;
+            }
+        }
+        events.push(CanonicalLexicalTokenEvent {
+            range: ParsedSourceRange {
+                start: offset_span(&span, start),
+                byte_len: index - start,
+            },
+        });
+    }
+    events
+}
+
 fn parse_expression_syntax(
     text: &str,
     span: Span,
@@ -1747,8 +2948,8 @@ fn parse_expression_syntax(
     ] {
         if let Some(rest) = keyword_rest(text, keyword) {
             let offset = text.len() - rest.len();
-            return ParsedExpression {
-                kind: ParsedExpressionKind::Permission {
+            return parsed_expression(
+                ParsedExpressionKind::Permission {
                     permission,
                     value: Box::new(parse_expression_syntax(
                         rest,
@@ -1756,32 +2957,35 @@ fn parse_expression_syntax(
                         source_node_id.child("permission-value"),
                     )),
                 },
-                canonical: parse_canonical_expression(text, &span, source_node_id),
+                text,
                 span,
-            };
+                source_node_id,
+            );
         }
     }
     if is_value_identifier(text) {
-        return ParsedExpression {
-            kind: ParsedExpressionKind::Identifier(ParsedIdentifier {
+        return parsed_expression(
+            ParsedExpressionKind::Identifier(ParsedIdentifier {
                 name: text.to_string(),
                 span: span.clone(),
             }),
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            text,
             span,
-        };
+            source_node_id,
+        );
     }
     if !text.is_empty() && text.chars().all(|ch| ch.is_ascii_digit()) {
-        return ParsedExpression {
-            kind: text.parse::<u64>().map_or(
+        return parsed_expression(
+            text.parse::<u64>().map_or(
                 ParsedExpressionKind::Unsupported {
                     reason: "uint_literal_out_of_range_v0",
                 },
                 ParsedExpressionKind::UIntLiteral,
             ),
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            text,
             span,
-        };
+            source_node_id,
+        );
     }
 
     let parser_owned_calls = parser_owned_top_level_call_ranges(text);
@@ -1801,11 +3005,12 @@ fn parse_expression_syntax(
                 )
             })
             .collect();
-        return ParsedExpression {
-            kind: ParsedExpressionKind::Compound { operands },
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+        return parsed_expression(
+            ParsedExpressionKind::Compound { operands },
+            text,
             span,
-        };
+            source_node_id,
+        );
     }
 
     if let Some(open) = text.find('(') {
@@ -1849,17 +3054,18 @@ fn parse_expression_syntax(
             })
             .collect();
         let trailing = classify_call_trailing(trailing);
-        return ParsedExpression {
-            kind: ParsedExpressionKind::Call(ParsedCall {
+        return parsed_expression(
+            ParsedExpressionKind::Call(ParsedCall {
                 callee: Box::new(callee),
                 arguments,
                 argument_separators_hws_valid,
                 close_status: close,
                 trailing_status: trailing,
             }),
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            text,
             span,
-        };
+            source_node_id,
+        );
     }
 
     if let Some(open) = text.find('[')
@@ -1871,38 +3077,82 @@ fn parse_expression_syntax(
             span.clone(),
             source_node_id.child("call-callee"),
         );
-        return ParsedExpression {
-            kind: ParsedExpressionKind::Call(ParsedCall {
+        return parsed_expression(
+            ParsedExpressionKind::Call(ParsedCall {
                 callee: Box::new(callee),
                 arguments: Vec::new(),
                 argument_separators_hws_valid: true,
                 close_status: ParsedCallCloseStatus::Mismatched,
                 trailing_status: ParsedCallTrailingStatus::Complete,
             }),
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+            text,
             span,
-        };
+            source_node_id,
+        );
     }
 
     let operands = compound_identifier_operands(text, &span, &source_node_id);
     if !operands.is_empty() {
-        return ParsedExpression {
-            kind: ParsedExpressionKind::Compound { operands },
-            canonical: parse_canonical_expression(text, &span, source_node_id),
+        return parsed_expression(
+            ParsedExpressionKind::Compound { operands },
+            text,
             span,
-        };
+            source_node_id,
+        );
     }
 
-    ParsedExpression {
-        kind: if text.contains("task") || text.contains(')') || text.contains('(') {
+    parsed_expression(
+        if text.contains("task") || text.contains(')') || text.contains('(') {
             ParsedExpressionKind::Unsupported {
                 reason: "unsupported_callable_expression_shape_v0",
             }
         } else {
             ParsedExpressionKind::Other
         },
-        canonical: parse_canonical_expression(text, &span, source_node_id),
+        text,
         span,
+        source_node_id,
+    )
+}
+
+fn canonical_expression_build(
+    node_id: ParserSyntaxNodeId,
+    range: ParsedSourceRange,
+    kind: CanonicalExpressionKind,
+    event_kind: CanonicalCommonNodeKind,
+    children: Vec<CanonicalReductionChildEvent>,
+    delimiter_depth: usize,
+) -> CanonicalExpressionBuild {
+    CanonicalExpressionBuild {
+        expression: CanonicalExpression {
+            node_id,
+            range: range.clone(),
+            kind,
+        },
+        event: CanonicalReductionEvent {
+            range,
+            kind: event_kind,
+            children,
+            delimiter_depth_before: delimiter_depth,
+            delimiter_depth_after: delimiter_depth,
+            lexical_status: if event_kind == CanonicalCommonNodeKind::Unsupported {
+                CanonicalCommonLexicalStatus::Unsupported
+            } else {
+                CanonicalCommonLexicalStatus::Complete
+            },
+        },
+    }
+}
+
+fn reduction_child(
+    role: CanonicalCommonChildRole,
+    ordinal: usize,
+    build: &CanonicalExpressionBuild,
+) -> CanonicalReductionChildEvent {
+    CanonicalReductionChildEvent {
+        role,
+        ordinal,
+        event: Box::new(build.event.clone()),
     }
 }
 
@@ -1910,7 +3160,8 @@ fn parse_canonical_expression(
     text: &str,
     span: &Span,
     node_id: ParserSyntaxNodeId,
-) -> CanonicalExpression {
+    delimiter_depth: usize,
+) -> CanonicalExpressionBuild {
     let leading = text.len() - text.trim_start().len();
     let text = text.trim();
     let span = offset_span(span, leading);
@@ -1920,11 +3171,14 @@ fn parse_canonical_expression(
     };
 
     if text.is_empty() {
-        return CanonicalExpression {
+        return canonical_expression_build(
             node_id,
             range,
-            kind: CanonicalExpressionKind::Unit,
-        };
+            CanonicalExpressionKind::Unit,
+            CanonicalCommonNodeKind::Unit,
+            Vec::new(),
+            delimiter_depth,
+        );
     }
 
     for (keyword, permission) in [
@@ -1934,92 +3188,135 @@ fn parse_canonical_expression(
     ] {
         if let Some(rest) = keyword_rest(text, keyword) {
             let offset = text.len() - rest.len();
-            return CanonicalExpression {
-                node_id: node_id.clone(),
+            let value = parse_canonical_expression(
+                rest,
+                &offset_span(&span, offset),
+                node_id.child("permission-value"),
+                delimiter_depth,
+            );
+            let children = vec![reduction_child(
+                CanonicalCommonChildRole::PermissionValue,
+                0,
+                &value,
+            )];
+            return canonical_expression_build(
+                node_id,
                 range,
-                kind: CanonicalExpressionKind::Permission {
+                CanonicalExpressionKind::Permission {
                     permission,
-                    value: Box::new(parse_canonical_expression(
-                        rest,
-                        &offset_span(&span, offset),
-                        node_id.child("permission-value"),
-                    )),
+                    value: Box::new(value.expression),
                 },
-            };
+                CanonicalCommonNodeKind::Permission,
+                children,
+                delimiter_depth,
+            );
         }
     }
 
     if let Ok(value) = text.parse::<i64>()
         && value < 0
     {
-        return CanonicalExpression {
+        return canonical_expression_build(
             node_id,
             range,
-            kind: CanonicalExpressionKind::IntLiteral(value),
-        };
+            CanonicalExpressionKind::IntLiteral(value),
+            CanonicalCommonNodeKind::IntLiteral,
+            Vec::new(),
+            delimiter_depth,
+        );
     }
 
     if let Some((operator, start, end)) = top_level_binary_operator(text) {
-        return CanonicalExpression {
-            node_id: node_id.clone(),
+        let left = parse_canonical_expression(
+            &text[..start],
+            &span,
+            node_id.child("binary-left"),
+            delimiter_depth,
+        );
+        let right = parse_canonical_expression(
+            &text[end..],
+            &offset_span(&span, end),
+            node_id.child("binary-right"),
+            delimiter_depth,
+        );
+        let children = vec![
+            reduction_child(CanonicalCommonChildRole::BinaryLeft, 0, &left),
+            reduction_child(CanonicalCommonChildRole::BinaryRight, 1, &right),
+        ];
+        return canonical_expression_build(
+            node_id,
             range,
-            kind: CanonicalExpressionKind::Binary {
+            CanonicalExpressionKind::Binary {
                 operator,
-                left: Box::new(parse_canonical_expression(
-                    &text[..start],
-                    &span,
-                    node_id.child("binary-left"),
-                )),
-                right: Box::new(parse_canonical_expression(
-                    &text[end..],
-                    &offset_span(&span, end),
-                    node_id.child("binary-right"),
-                )),
+                left: Box::new(left.expression),
+                right: Box::new(right.expression),
             },
-        };
+            CanonicalCommonNodeKind::Binary,
+            children,
+            delimiter_depth,
+        );
     }
 
     if text.starts_with('(')
         && matching_delimiter_quoted(text, 0, '(', ')') == Some(text.len().saturating_sub(1))
     {
-        return CanonicalExpression {
-            node_id: node_id.clone(),
+        let value = parse_canonical_expression(
+            &text[1..text.len() - 1],
+            &offset_span(&span, 1),
+            node_id.child("group-value"),
+            delimiter_depth + 1,
+        );
+        let children = vec![reduction_child(
+            CanonicalCommonChildRole::GroupValue,
+            0,
+            &value,
+        )];
+        return canonical_expression_build(
+            node_id,
             range,
-            kind: CanonicalExpressionKind::Group(Box::new(parse_canonical_expression(
-                &text[1..text.len() - 1],
-                &offset_span(&span, 1),
-                node_id.child("group-value"),
-            ))),
-        };
+            CanonicalExpressionKind::Group(Box::new(value.expression)),
+            CanonicalCommonNodeKind::Group,
+            children,
+            delimiter_depth,
+        );
     }
 
     if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
-        return CanonicalExpression {
+        return canonical_expression_build(
             node_id,
             range,
-            kind: CanonicalExpressionKind::TextLiteral(text[1..text.len() - 1].to_string()),
-        };
+            CanonicalExpressionKind::TextLiteral(text[1..text.len() - 1].to_string()),
+            CanonicalCommonNodeKind::TextLiteral,
+            Vec::new(),
+            delimiter_depth,
+        );
     }
     if let Ok(value) = text.parse::<u64>() {
-        return CanonicalExpression {
+        return canonical_expression_build(
             node_id,
             range,
-            kind: CanonicalExpressionKind::UIntLiteral(value),
-        };
+            CanonicalExpressionKind::UIntLiteral(value),
+            CanonicalCommonNodeKind::UIntLiteral,
+            Vec::new(),
+            delimiter_depth,
+        );
     }
     if matches!(text, "true" | "false") {
-        return CanonicalExpression {
+        return canonical_expression_build(
             node_id,
             range,
-            kind: CanonicalExpressionKind::BoolLiteral(text == "true"),
-        };
+            CanonicalExpressionKind::BoolLiteral(text == "true"),
+            CanonicalCommonNodeKind::BoolLiteral,
+            Vec::new(),
+            delimiter_depth,
+        );
     }
 
     if text.starts_with('[')
         && matching_delimiter_quoted(text, 0, '[', ']') == Some(text.len().saturating_sub(1))
     {
         let inside = &text[1..text.len() - 1];
-        let values = split_top_level_ranges_quoted(inside, ',')
+        let builds = split_top_level_ranges_quoted(inside, ',')
             .into_iter()
             .enumerate()
             .filter_map(|(index, value_range)| {
@@ -2029,26 +3326,41 @@ fn parse_canonical_expression(
                         raw,
                         &offset_span(&span, 1 + value_range.start),
                         node_id.child(&format!("list-item-{index}")),
+                        delimiter_depth + 1,
                     )
                 })
             })
+            .collect::<Vec<_>>();
+        let children = builds
+            .iter()
+            .enumerate()
+            .map(|(index, build)| {
+                reduction_child(CanonicalCommonChildRole::ListElement, index, build)
+            })
             .collect();
-        return CanonicalExpression {
+        let values = builds.into_iter().map(|build| build.expression).collect();
+        return canonical_expression_build(
             node_id,
             range,
-            kind: CanonicalExpressionKind::ListLiteral(values),
-        };
+            CanonicalExpressionKind::ListLiteral(values),
+            CanonicalCommonNodeKind::ListLiteral,
+            children,
+            delimiter_depth,
+        );
     }
 
     if text.ends_with('{') && is_type_identifier(text[..text.len() - 1].trim()) {
-        return CanonicalExpression {
+        return canonical_expression_build(
             node_id,
             range,
-            kind: CanonicalExpressionKind::RecordLiteral {
+            CanonicalExpressionKind::RecordLiteral {
                 name: text[..text.len() - 1].trim().to_string(),
                 fields: Vec::new(),
             },
-        };
+            CanonicalCommonNodeKind::RecordLiteral,
+            Vec::new(),
+            delimiter_depth,
+        );
     }
 
     if let Some(open) = text.find('{')
@@ -2057,7 +3369,7 @@ fn parse_canonical_expression(
     {
         let name = text[..open].trim().to_string();
         let inside = &text[open + 1..text.len() - 1];
-        let fields = split_top_level_ranges_quoted(inside, ',')
+        let builds = split_top_level_ranges_quoted(inside, ',')
             .into_iter()
             .enumerate()
             .filter_map(|(index, field_range)| {
@@ -2074,22 +3386,43 @@ fn parse_canonical_expression(
                         value,
                         &offset_span(&span, open + 1 + field_range.start + value_offset),
                         node_id.child(&format!("record-field-{index}")),
+                        delimiter_depth + 1,
                     ),
                 ))
             })
+            .collect::<Vec<_>>();
+        let children = builds
+            .iter()
+            .enumerate()
+            .map(|(index, (_, build))| {
+                reduction_child(CanonicalCommonChildRole::RecordFieldValue, index, build)
+            })
             .collect();
-        return CanonicalExpression {
+        let fields = builds
+            .into_iter()
+            .map(|(field, build)| (field, build.expression))
+            .collect();
+        return canonical_expression_build(
             node_id,
             range,
-            kind: CanonicalExpressionKind::RecordLiteral { name, fields },
-        };
+            CanonicalExpressionKind::RecordLiteral { name, fields },
+            CanonicalCommonNodeKind::RecordLiteral,
+            children,
+            delimiter_depth,
+        );
     }
 
     if let Some(open) = find_top_level_open_paren(text)
         && matching_delimiter_quoted(text, open, '(', ')') == Some(text.len().saturating_sub(1))
     {
         let inside = &text[open + 1..text.len() - 1];
-        let arguments = split_top_level_ranges_quoted(inside, ',')
+        let callee = parse_canonical_expression(
+            &text[..open],
+            &span,
+            node_id.child("call-callee"),
+            delimiter_depth,
+        );
+        let argument_builds = split_top_level_ranges_quoted(inside, ',')
             .into_iter()
             .enumerate()
             .filter_map(|(index, argument_range)| {
@@ -2099,50 +3432,82 @@ fn parse_canonical_expression(
                         raw,
                         &offset_span(&span, open + 1 + argument_range.start),
                         node_id.child(&format!("call-argument-{index}")),
+                        delimiter_depth + 1,
                     )
                 })
             })
+            .collect::<Vec<_>>();
+        let mut children = vec![reduction_child(
+            CanonicalCommonChildRole::CallCallee,
+            0,
+            &callee,
+        )];
+        children.extend(argument_builds.iter().enumerate().map(|(index, build)| {
+            reduction_child(CanonicalCommonChildRole::CallArgument, index, build)
+        }));
+        let arguments = argument_builds
+            .into_iter()
+            .map(|build| build.expression)
             .collect();
-        return CanonicalExpression {
-            node_id: node_id.clone(),
+        return canonical_expression_build(
+            node_id,
             range,
-            kind: CanonicalExpressionKind::Call {
-                callee: Box::new(parse_canonical_expression(
-                    &text[..open],
-                    &span,
-                    node_id.child("call-callee"),
-                )),
+            CanonicalExpressionKind::Call {
+                callee: Box::new(callee.expression),
                 arguments,
             },
-        };
+            CanonicalCommonNodeKind::Call,
+            children,
+            delimiter_depth,
+        );
     }
 
     if let Some(dot) = find_top_level_dot(text) {
         let field = text[dot + 1..].trim();
         if is_value_identifier(field) {
-            return CanonicalExpression {
-                node_id: node_id.clone(),
+            let base = parse_canonical_expression(
+                &text[..dot],
+                &span,
+                node_id.child("field-base"),
+                delimiter_depth,
+            );
+            let children = vec![reduction_child(
+                CanonicalCommonChildRole::FieldBase,
+                0,
+                &base,
+            )];
+            return canonical_expression_build(
+                node_id,
                 range,
-                kind: CanonicalExpressionKind::Field {
-                    base: Box::new(parse_canonical_expression(
-                        &text[..dot],
-                        &span,
-                        node_id.child("field-base"),
-                    )),
+                CanonicalExpressionKind::Field {
+                    base: Box::new(base.expression),
                     field: field.to_string(),
                 },
-            };
+                CanonicalCommonNodeKind::Field,
+                children,
+                delimiter_depth,
+            );
         }
     }
-    CanonicalExpression {
+    let (kind, event_kind) = if is_value_identifier(text) {
+        (
+            CanonicalExpressionKind::Identifier(text.to_string()),
+            CanonicalCommonNodeKind::Identifier,
+        )
+    } else {
+        (
+            CanonicalExpressionKind::Unsupported,
+            CanonicalCommonNodeKind::Unsupported,
+        )
+    };
+    canonical_expression_build(
         node_id,
         range,
-        kind: if is_value_identifier(text) {
-            CanonicalExpressionKind::Identifier(text.to_string())
-        } else {
-            CanonicalExpressionKind::Unsupported
-        },
-    }
+        kind,
+        event_kind,
+        Vec::new(),
+        delimiter_depth,
+    )
 }
 
 fn top_level_binary_operator(text: &str) -> Option<(ParsedBinaryOperator, usize, usize)> {
@@ -2380,18 +3745,15 @@ fn compound_identifier_operands(
             let name = &text[start..index];
             if is_value_identifier(name) {
                 let identifier_span = offset_span(span, start);
-                operands.push(ParsedExpression {
-                    kind: ParsedExpressionKind::Identifier(ParsedIdentifier {
+                operands.push(parsed_expression(
+                    ParsedExpressionKind::Identifier(ParsedIdentifier {
                         name: name.to_string(),
                         span: identifier_span.clone(),
                     }),
-                    canonical: parse_canonical_expression(
-                        name,
-                        &identifier_span,
-                        source_node_id.child(&format!("compound-{}", operands.len())),
-                    ),
-                    span: identifier_span,
-                });
+                    name,
+                    identifier_span,
+                    source_node_id.child(&format!("compound-{}", operands.len())),
+                ));
             }
             continue;
         }
@@ -2769,16 +4131,22 @@ fn is_section_header(trimmed: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        CanonicalAuthorityHandle, CanonicalItemOwner, CanonicalSectionOwner, CanonicalSemanticFile,
-        CanonicalSourceBlob, CanonicalSourceOwnerFact, CanonicalSourceOwnerSeal,
-        CanonicalSourceRevision, CanonicalStatementOwner, executable_call_nodes, parse_source,
+        CanonicalAssigningEvent, CanonicalAuthorityHandle, CanonicalExpressionIntent,
+        CanonicalExpressionRole, CanonicalItemOwner, CanonicalNodeIdentity,
+        CanonicalOccurrenceIdentity, CanonicalOccurrenceSeal, CanonicalPredicateRecognition,
+        CanonicalReductionIdentity, CanonicalSealFact, CanonicalSectionOwner,
+        CanonicalSemanticFile, CanonicalSourceBlob, CanonicalSourceOwnerFact,
+        CanonicalSourceOwnerSeal, CanonicalSourceRevision, CanonicalStatementOwner,
+        CanonicalTokenIdentity, build_occurrence_seal, executable_call_nodes, parse_source,
         parse_source_at_index, source_owner_fact_matches, validate_canonical_expression,
+        validate_occurrence_seal, validate_occurrence_seal_ignoring_one_fact,
         validate_retained_body_syntax, validate_source_owner_seal,
     };
     use crate::ast::{
+        CanonicalCommonChildRole, CanonicalCommonLexicalStatus, CanonicalCommonNodeKind,
         CanonicalExpressionKind, Item, ParsedBinaryOperator, ParsedBlockRelationship,
-        ParsedBodyStatementKind, ParsedCallCloseStatus, ParsedExpressionKind, ParserSyntaxNodeId,
-        TypeSyntaxKind,
+        ParsedBodyStatementKind, ParsedCallCloseStatus, ParsedExpressionKind, ParsedSourceRange,
+        ParserSyntaxNodeId, TypeSyntaxKind,
     };
     use crate::diagnostic::{DiagnosticCode, Severity};
 
@@ -3070,6 +4438,900 @@ mod tests {
         ] {
             assert!(
                 !complete_source_owner_evidence(&source_owner_evidence(Some(sabotage))),
+                "{sabotage:?} sabotage stayed green"
+            );
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    enum F1SealField {
+        SourceBlob,
+        SemanticFile,
+        SourceRevision,
+        Item,
+        Section,
+        Statement,
+        AuthorityHandle,
+        Occurrence,
+        ExpressionRole,
+        Root,
+        RootRange,
+        RootReduction,
+        Intent,
+        AssigningEvent,
+        AssignmentSyntaxNode,
+        PredicateRecognition,
+        PreorderCount,
+        MaximumDelimiterDepth,
+        NodeIdentity,
+        NodeOccurrence,
+        TokenIdentity,
+        ReductionIdentity,
+        ParentIdentity,
+        ChildRole,
+        ChildOrdinal,
+        PreorderOrdinal,
+        NodeSource,
+        NodeRange,
+        TokenInterval,
+        Kind,
+        OrderedChildren,
+        ChildCardinality,
+        DelimiterDepthBefore,
+        DelimiterDepthAfter,
+        LexicalStatus,
+        IllegalFieldsAbsent,
+    }
+
+    const F1_SEAL_FIELDS: [F1SealField; 36] = [
+        F1SealField::SourceBlob,
+        F1SealField::SemanticFile,
+        F1SealField::SourceRevision,
+        F1SealField::Item,
+        F1SealField::Section,
+        F1SealField::Statement,
+        F1SealField::AuthorityHandle,
+        F1SealField::Occurrence,
+        F1SealField::ExpressionRole,
+        F1SealField::Root,
+        F1SealField::RootRange,
+        F1SealField::RootReduction,
+        F1SealField::Intent,
+        F1SealField::AssigningEvent,
+        F1SealField::AssignmentSyntaxNode,
+        F1SealField::PredicateRecognition,
+        F1SealField::PreorderCount,
+        F1SealField::MaximumDelimiterDepth,
+        F1SealField::NodeIdentity,
+        F1SealField::NodeOccurrence,
+        F1SealField::TokenIdentity,
+        F1SealField::ReductionIdentity,
+        F1SealField::ParentIdentity,
+        F1SealField::ChildRole,
+        F1SealField::ChildOrdinal,
+        F1SealField::PreorderOrdinal,
+        F1SealField::NodeSource,
+        F1SealField::NodeRange,
+        F1SealField::TokenInterval,
+        F1SealField::Kind,
+        F1SealField::OrderedChildren,
+        F1SealField::ChildCardinality,
+        F1SealField::DelimiterDepthBefore,
+        F1SealField::DelimiterDepthAfter,
+        F1SealField::LexicalStatus,
+        F1SealField::IllegalFieldsAbsent,
+    ];
+
+    const F1_COMMON_KINDS: [CanonicalCommonNodeKind; 14] = [
+        CanonicalCommonNodeKind::Unit,
+        CanonicalCommonNodeKind::Identifier,
+        CanonicalCommonNodeKind::Field,
+        CanonicalCommonNodeKind::UIntLiteral,
+        CanonicalCommonNodeKind::IntLiteral,
+        CanonicalCommonNodeKind::BoolLiteral,
+        CanonicalCommonNodeKind::TextLiteral,
+        CanonicalCommonNodeKind::ListLiteral,
+        CanonicalCommonNodeKind::RecordLiteral,
+        CanonicalCommonNodeKind::Call,
+        CanonicalCommonNodeKind::Permission,
+        CanonicalCommonNodeKind::Binary,
+        CanonicalCommonNodeKind::Group,
+        CanonicalCommonNodeKind::Unsupported,
+    ];
+
+    const F1_CHILD_ROLES: [CanonicalCommonChildRole; 9] = [
+        CanonicalCommonChildRole::FieldBase,
+        CanonicalCommonChildRole::ListElement,
+        CanonicalCommonChildRole::RecordFieldValue,
+        CanonicalCommonChildRole::CallCallee,
+        CanonicalCommonChildRole::CallArgument,
+        CanonicalCommonChildRole::PermissionValue,
+        CanonicalCommonChildRole::BinaryLeft,
+        CanonicalCommonChildRole::BinaryRight,
+        CanonicalCommonChildRole::GroupValue,
+    ];
+
+    const F1_ROLES: [CanonicalExpressionRole; 13] = [
+        CanonicalExpressionRole::ReturnValue,
+        CanonicalExpressionRole::BindingValue,
+        CanonicalExpressionRole::SetValue,
+        CanonicalExpressionRole::SavedValue,
+        CanonicalExpressionRole::Condition,
+        CanonicalExpressionRole::LoopCollection,
+        CanonicalExpressionRole::LoopRangeStart,
+        CanonicalExpressionRole::LoopRangeEnd,
+        CanonicalExpressionRole::FailureValue,
+        CanonicalExpressionRole::TestExpectation,
+        CanonicalExpressionRole::NeedsPredicate,
+        CanonicalExpressionRole::EnsuresPredicate,
+        CanonicalExpressionRole::Other,
+    ];
+
+    const F1_SOURCE_A: &str = r#"# alpha
+task seal(value: UInt) -> UInt {
+  needs:
+    value > 0
+  ensures:
+    value > 0
+  does:
+    return
+    return call((value + 1), [value, 2], Thing { field: value }, target.field, borrow value, -1, true, "x")
+    return call(value)
+    return call(value)
+    let first = value
+    change second = 1
+    set target = value
+    save value in store
+    if value > 0 {
+      }
+    while value < 2 {
+      }
+    for each item in [value] {
+      }
+    for index index from 0 until 2 {
+      }
+    fail "bad"
+    expect true
+    @
+}
+"#;
+
+    const F1_SOURCE_B: &str = r#"# bravo
+task seal(value: UInt) -> UInt {
+  needs:
+    value > 0
+  ensures:
+    value > 0
+  does:
+    return
+    return call((value + 1), [value, 2], Thing { field: value }, target.field, borrow value, -1, true, "x")
+    return call(value)
+    return call(value)
+    let first = value
+    change second = 1
+    set target = value
+    save value in store
+    if value > 0 {
+      }
+    while value < 2 {
+      }
+    for each item in [value] {
+      }
+    for index index from 0 until 2 {
+      }
+    fail "bad"
+    expect true
+    @
+}
+"#;
+
+    fn f1_fact_field(fact: &CanonicalSealFact) -> F1SealField {
+        match fact {
+            CanonicalSealFact::SourceBlob(_) => F1SealField::SourceBlob,
+            CanonicalSealFact::SemanticFile(_) => F1SealField::SemanticFile,
+            CanonicalSealFact::SourceRevision(_) => F1SealField::SourceRevision,
+            CanonicalSealFact::Item(_) => F1SealField::Item,
+            CanonicalSealFact::Section(_) => F1SealField::Section,
+            CanonicalSealFact::Statement(_) => F1SealField::Statement,
+            CanonicalSealFact::AuthorityHandle(_) => F1SealField::AuthorityHandle,
+            CanonicalSealFact::Occurrence(_) => F1SealField::Occurrence,
+            CanonicalSealFact::ExpressionRole(_) => F1SealField::ExpressionRole,
+            CanonicalSealFact::Root(_) => F1SealField::Root,
+            CanonicalSealFact::RootRange(_) => F1SealField::RootRange,
+            CanonicalSealFact::RootReduction(_) => F1SealField::RootReduction,
+            CanonicalSealFact::Intent(_) => F1SealField::Intent,
+            CanonicalSealFact::AssigningEvent(_) => F1SealField::AssigningEvent,
+            CanonicalSealFact::AssignmentSyntaxNode(_, _) => F1SealField::AssignmentSyntaxNode,
+            CanonicalSealFact::PredicateRecognition(_) => F1SealField::PredicateRecognition,
+            CanonicalSealFact::PreorderCount(_) => F1SealField::PreorderCount,
+            CanonicalSealFact::MaximumDelimiterDepth(_) => F1SealField::MaximumDelimiterDepth,
+            CanonicalSealFact::NodeIdentity(_) => F1SealField::NodeIdentity,
+            CanonicalSealFact::NodeOccurrence(_, _) => F1SealField::NodeOccurrence,
+            CanonicalSealFact::TokenIdentity(_) => F1SealField::TokenIdentity,
+            CanonicalSealFact::ReductionIdentity(_, _) => F1SealField::ReductionIdentity,
+            CanonicalSealFact::ParentIdentity(_, _) => F1SealField::ParentIdentity,
+            CanonicalSealFact::ChildRole(_, _) => F1SealField::ChildRole,
+            CanonicalSealFact::ChildOrdinal(_, _) => F1SealField::ChildOrdinal,
+            CanonicalSealFact::PreorderOrdinal(_, _) => F1SealField::PreorderOrdinal,
+            CanonicalSealFact::NodeSource(_, _) => F1SealField::NodeSource,
+            CanonicalSealFact::NodeRange(_, _) => F1SealField::NodeRange,
+            CanonicalSealFact::TokenInterval(_, _) => F1SealField::TokenInterval,
+            CanonicalSealFact::Kind(_, _) => F1SealField::Kind,
+            CanonicalSealFact::OrderedChildren(_, _) => F1SealField::OrderedChildren,
+            CanonicalSealFact::ChildCardinality(_, _) => F1SealField::ChildCardinality,
+            CanonicalSealFact::DelimiterDepthBefore(_, _) => F1SealField::DelimiterDepthBefore,
+            CanonicalSealFact::DelimiterDepthAfter(_, _) => F1SealField::DelimiterDepthAfter,
+            CanonicalSealFact::LexicalStatus(_, _) => F1SealField::LexicalStatus,
+            CanonicalSealFact::IllegalFieldsAbsent(_) => F1SealField::IllegalFieldsAbsent,
+        }
+    }
+
+    fn corrupt_owner_identity(
+        identity: &super::CanonicalOwnerIdentity,
+    ) -> super::CanonicalOwnerIdentity {
+        let mut identity = identity.clone();
+        identity.domain ^= 0x40;
+        identity
+    }
+
+    fn corrupt_node(value: &CanonicalNodeIdentity) -> CanonicalNodeIdentity {
+        CanonicalNodeIdentity(corrupt_owner_identity(&value.0))
+    }
+
+    fn corrupt_token(value: &CanonicalTokenIdentity) -> CanonicalTokenIdentity {
+        CanonicalTokenIdentity(corrupt_owner_identity(&value.0))
+    }
+
+    fn corrupt_reduction(value: &CanonicalReductionIdentity) -> CanonicalReductionIdentity {
+        CanonicalReductionIdentity(corrupt_owner_identity(&value.0))
+    }
+
+    fn corrupt_occurrence(value: &CanonicalOccurrenceIdentity) -> CanonicalOccurrenceIdentity {
+        CanonicalOccurrenceIdentity(corrupt_owner_identity(&value.0))
+    }
+
+    fn corrupt_assigning(value: &CanonicalAssigningEvent) -> CanonicalAssigningEvent {
+        CanonicalAssigningEvent(corrupt_owner_identity(&value.0))
+    }
+
+    fn corrupt_range(value: &ParsedSourceRange) -> ParsedSourceRange {
+        let mut value = value.clone();
+        value.byte_len = value.byte_len.saturating_add(1);
+        value
+    }
+
+    fn corrupted_f1_fact(fact: &CanonicalSealFact) -> CanonicalSealFact {
+        macro_rules! corrupt_owner_fact {
+            ($variant:ident, $kind:ident, $value:ident) => {
+                CanonicalSealFact::$variant($kind(corrupt_owner_identity(&$value.0)))
+            };
+        }
+        match fact {
+            CanonicalSealFact::SourceBlob(value) => {
+                corrupt_owner_fact!(SourceBlob, CanonicalSourceBlob, value)
+            }
+            CanonicalSealFact::SemanticFile(value) => {
+                corrupt_owner_fact!(SemanticFile, CanonicalSemanticFile, value)
+            }
+            CanonicalSealFact::SourceRevision(value) => {
+                CanonicalSealFact::SourceRevision(CanonicalSourceRevision(corrupt_bytes(&value.0)))
+            }
+            CanonicalSealFact::Item(value) => corrupt_owner_fact!(Item, CanonicalItemOwner, value),
+            CanonicalSealFact::Section(value) => {
+                corrupt_owner_fact!(Section, CanonicalSectionOwner, value)
+            }
+            CanonicalSealFact::Statement(value) => {
+                corrupt_owner_fact!(Statement, CanonicalStatementOwner, value)
+            }
+            CanonicalSealFact::AuthorityHandle(value) => {
+                corrupt_owner_fact!(AuthorityHandle, CanonicalAuthorityHandle, value)
+            }
+            CanonicalSealFact::Occurrence(value) => {
+                CanonicalSealFact::Occurrence(corrupt_occurrence(value))
+            }
+            CanonicalSealFact::ExpressionRole(value) => {
+                CanonicalSealFact::ExpressionRole(if *value == CanonicalExpressionRole::Other {
+                    CanonicalExpressionRole::ReturnValue
+                } else {
+                    CanonicalExpressionRole::Other
+                })
+            }
+            CanonicalSealFact::Root(value) => CanonicalSealFact::Root(corrupt_node(value)),
+            CanonicalSealFact::RootRange(value) => {
+                CanonicalSealFact::RootRange(corrupt_range(value))
+            }
+            CanonicalSealFact::RootReduction(value) => {
+                CanonicalSealFact::RootReduction(corrupt_reduction(value))
+            }
+            CanonicalSealFact::Intent(value) => {
+                CanonicalSealFact::Intent(if *value == CanonicalExpressionIntent::Other {
+                    CanonicalExpressionIntent::Return
+                } else {
+                    CanonicalExpressionIntent::Other
+                })
+            }
+            CanonicalSealFact::AssigningEvent(value) => {
+                CanonicalSealFact::AssigningEvent(corrupt_assigning(value))
+            }
+            CanonicalSealFact::AssignmentSyntaxNode(event, node) => {
+                CanonicalSealFact::AssignmentSyntaxNode(event.clone(), node.child("corrupt"))
+            }
+            CanonicalSealFact::PredicateRecognition(value) => {
+                CanonicalSealFact::PredicateRecognition(match value {
+                    CanonicalPredicateRecognition::Present(event) => {
+                        CanonicalPredicateRecognition::Absent(event.clone())
+                    }
+                    CanonicalPredicateRecognition::Absent(event) => {
+                        CanonicalPredicateRecognition::Present(event.clone())
+                    }
+                })
+            }
+            CanonicalSealFact::PreorderCount(value) => CanonicalSealFact::PreorderCount(value + 1),
+            CanonicalSealFact::MaximumDelimiterDepth(value) => {
+                CanonicalSealFact::MaximumDelimiterDepth(value + 1)
+            }
+            CanonicalSealFact::NodeIdentity(value) => {
+                CanonicalSealFact::NodeIdentity(corrupt_node(value))
+            }
+            CanonicalSealFact::NodeOccurrence(node, occurrence) => {
+                CanonicalSealFact::NodeOccurrence(node.clone(), corrupt_occurrence(occurrence))
+            }
+            CanonicalSealFact::TokenIdentity(value) => {
+                CanonicalSealFact::TokenIdentity(corrupt_token(value))
+            }
+            CanonicalSealFact::ReductionIdentity(node, reduction) => {
+                CanonicalSealFact::ReductionIdentity(node.clone(), corrupt_reduction(reduction))
+            }
+            CanonicalSealFact::ParentIdentity(node, parent) => CanonicalSealFact::ParentIdentity(
+                node.clone(),
+                Some(
+                    parent
+                        .as_ref()
+                        .map_or_else(|| corrupt_node(node), corrupt_node),
+                ),
+            ),
+            CanonicalSealFact::ChildRole(node, role) => CanonicalSealFact::ChildRole(
+                node.clone(),
+                if role.is_some() {
+                    None
+                } else {
+                    Some(CanonicalCommonChildRole::BinaryLeft)
+                },
+            ),
+            CanonicalSealFact::ChildOrdinal(node, ordinal) => {
+                CanonicalSealFact::ChildOrdinal(node.clone(), Some(ordinal.unwrap_or_default() + 1))
+            }
+            CanonicalSealFact::PreorderOrdinal(node, ordinal) => {
+                CanonicalSealFact::PreorderOrdinal(node.clone(), ordinal + 1)
+            }
+            CanonicalSealFact::NodeSource(node, source) => CanonicalSealFact::NodeSource(
+                node.clone(),
+                CanonicalSemanticFile(corrupt_owner_identity(&source.0)),
+            ),
+            CanonicalSealFact::NodeRange(node, range) => {
+                CanonicalSealFact::NodeRange(node.clone(), corrupt_range(range))
+            }
+            CanonicalSealFact::TokenInterval(node, interval) => CanonicalSealFact::TokenInterval(
+                node.clone(),
+                interval.as_ref().map_or_else(
+                    || {
+                        let token = CanonicalTokenIdentity(super::source_owner_identity(
+                            9,
+                            &CanonicalSourceRevision(vec![0xff].into()),
+                            &[0],
+                        ));
+                        Some((token.clone(), token))
+                    },
+                    |(first, last)| Some((corrupt_token(first), corrupt_token(last))),
+                ),
+            ),
+            CanonicalSealFact::Kind(node, kind) => CanonicalSealFact::Kind(
+                node.clone(),
+                if *kind == CanonicalCommonNodeKind::Unit {
+                    CanonicalCommonNodeKind::Identifier
+                } else {
+                    CanonicalCommonNodeKind::Unit
+                },
+            ),
+            CanonicalSealFact::OrderedChildren(node, children) => {
+                let mut children = children.clone();
+                if children.len() > 1 {
+                    children.reverse();
+                } else {
+                    children.push(corrupt_node(node));
+                }
+                CanonicalSealFact::OrderedChildren(node.clone(), children)
+            }
+            CanonicalSealFact::ChildCardinality(node, count) => {
+                CanonicalSealFact::ChildCardinality(node.clone(), count + 1)
+            }
+            CanonicalSealFact::DelimiterDepthBefore(node, depth) => {
+                CanonicalSealFact::DelimiterDepthBefore(node.clone(), depth + 1)
+            }
+            CanonicalSealFact::DelimiterDepthAfter(node, depth) => {
+                CanonicalSealFact::DelimiterDepthAfter(node.clone(), depth + 1)
+            }
+            CanonicalSealFact::LexicalStatus(node, status) => CanonicalSealFact::LexicalStatus(
+                node.clone(),
+                if *status == CanonicalCommonLexicalStatus::Complete {
+                    CanonicalCommonLexicalStatus::Unsupported
+                } else {
+                    CanonicalCommonLexicalStatus::Complete
+                },
+            ),
+            CanonicalSealFact::IllegalFieldsAbsent(node) => {
+                CanonicalSealFact::IllegalFieldsAbsent(corrupt_node(node))
+            }
+        }
+    }
+
+    fn f1_representatives(
+        seal: &CanonicalOccurrenceSeal,
+    ) -> std::collections::BTreeMap<F1SealField, usize> {
+        let mut representatives = std::collections::BTreeMap::new();
+        for (index, fact) in seal.projection.iter().enumerate() {
+            representatives.entry(f1_fact_field(fact)).or_insert(index);
+        }
+        representatives
+    }
+
+    fn foreign_fact(
+        field: F1SealField,
+        base: &CanonicalSealFact,
+        foreign: &[CanonicalOccurrenceSeal],
+    ) -> CanonicalSealFact {
+        foreign
+            .iter()
+            .flat_map(|seal| &seal.projection)
+            .find(|fact| f1_fact_field(fact) == field && *fact != base)
+            .cloned()
+            .unwrap_or_else(|| panic!("foreign corpus lacks distinct {field:?} evidence"))
+    }
+
+    fn mutate_f1_projection(
+        seal: &CanonicalOccurrenceSeal,
+        foreign: &[CanonicalOccurrenceSeal],
+        index: usize,
+        mutation: ProjectionMutation,
+    ) -> CanonicalOccurrenceSeal {
+        let mut mutated = seal.clone();
+        let field = f1_fact_field(&mutated.projection[index]);
+        let replacement = foreign_fact(field, &mutated.projection[index], foreign);
+        match mutation {
+            ProjectionMutation::Corrupt => {
+                mutated.projection[index] = corrupted_f1_fact(&mutated.projection[index]);
+            }
+            ProjectionMutation::Missing => {
+                mutated.projection.remove(index);
+            }
+            ProjectionMutation::Duplicate => {
+                mutated
+                    .projection
+                    .insert(index, mutated.projection[index].clone());
+            }
+            ProjectionMutation::Reordered => {
+                let other = if index + 1 == mutated.projection.len() {
+                    index - 1
+                } else {
+                    index + 1
+                };
+                mutated.projection.swap(index, other);
+            }
+            ProjectionMutation::Extra => mutated.projection.push(replacement),
+            ProjectionMutation::Substituted => mutated.projection[index] = replacement,
+        }
+        mutated
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum F1Sabotage {
+        ProducerArm,
+        ValidatorArm,
+        CatalogueRow,
+        MutationOperator,
+        PairCase,
+        EqualLengthEvidence,
+        CrossOccurrence,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct F1Evidence {
+        deterministic: bool,
+        public_compatible: bool,
+        equal_length_distinct: bool,
+        field_count: usize,
+        kind_count: usize,
+        role_count: usize,
+        child_role_count: usize,
+        lexical_status_count: usize,
+        node_count: usize,
+        token_count: usize,
+        single_rejections: usize,
+        pair_rejections: usize,
+        cross_occurrence_rejections: usize,
+        producer_event_rejected: bool,
+        same_line_distinct: bool,
+        horizontal_whitespace_compatible: bool,
+        unit_position_exact: bool,
+        root_token_interval_complete: bool,
+        preorder_order_exact: bool,
+    }
+
+    fn occurrence_fact(seal: &CanonicalOccurrenceSeal, field: F1SealField) -> &CanonicalSealFact {
+        seal.projection
+            .iter()
+            .find(|fact| f1_fact_field(fact) == field)
+            .unwrap_or_else(|| panic!("occurrence lacks {field:?}"))
+    }
+
+    fn f1_evidence(sabotage: Option<F1Sabotage>) -> F1Evidence {
+        let identity_foreign_source = if matches!(sabotage, Some(F1Sabotage::EqualLengthEvidence)) {
+            F1_SOURCE_A
+        } else {
+            F1_SOURCE_B
+        };
+        let parsed = parse_source("f1.hum", F1_SOURCE_A);
+        let repeated = parse_source("f1.hum", F1_SOURCE_A);
+        let foreign = parse_source("f1.hum", F1_SOURCE_B);
+        let identity_foreign = parse_source("f1.hum", identity_foreign_source);
+        let renamed = parse_source("renamed.hum", F1_SOURCE_A);
+        assert_eq!(F1_SOURCE_A.len(), identity_foreign_source.len());
+        assert_eq!(parsed.file, repeated.file);
+        assert_eq!(parsed.diagnostics, repeated.diagnostics);
+        assert_eq!(parsed.file, foreign.file);
+        assert_eq!(
+            parsed.occurrence_seals.len(),
+            renamed.occurrence_seals.len()
+        );
+        for (left, right) in parsed
+            .occurrence_seals
+            .iter()
+            .zip(&renamed.occurrence_seals)
+        {
+            for field in [
+                F1SealField::Occurrence,
+                F1SealField::Root,
+                F1SealField::RootReduction,
+                F1SealField::AssigningEvent,
+                F1SealField::NodeIdentity,
+                F1SealField::TokenIdentity,
+                F1SealField::ReductionIdentity,
+            ] {
+                assert_eq!(
+                    left.projection
+                        .iter()
+                        .filter(|fact| f1_fact_field(fact) == field)
+                        .collect::<Vec<_>>(),
+                    right
+                        .projection
+                        .iter()
+                        .filter(|fact| f1_fact_field(fact) == field)
+                        .collect::<Vec<_>>(),
+                    "filename changed private {field:?} identity"
+                );
+            }
+        }
+        let base = parsed
+            .occurrence_seals
+            .iter()
+            .max_by_key(
+                |seal| match occurrence_fact(seal, F1SealField::PreorderCount) {
+                    CanonicalSealFact::PreorderCount(count) => *count,
+                    _ => unreachable!(),
+                },
+            )
+            .expect("F1 corpus occurrence");
+        let catalogue = if matches!(sabotage, Some(F1Sabotage::CatalogueRow)) {
+            &F1_SEAL_FIELDS[..35]
+        } else {
+            &F1_SEAL_FIELDS[..]
+        };
+        let operators = if matches!(sabotage, Some(F1Sabotage::MutationOperator)) {
+            &PROJECTION_MUTATIONS[..5]
+        } else {
+            &PROJECTION_MUTATIONS[..]
+        };
+        let representatives = f1_representatives(base);
+        assert_eq!(representatives.len(), 36);
+        let mut single_rejections = 0usize;
+        for field in catalogue {
+            let index = representatives[field];
+            for mutation in operators {
+                let mutated =
+                    mutate_f1_projection(base, &foreign.occurrence_seals, index, *mutation);
+                let rejected = if matches!(sabotage, Some(F1Sabotage::ValidatorArm))
+                    && *field == F1SealField::IllegalFieldsAbsent
+                    && matches!(mutation, ProjectionMutation::Corrupt)
+                {
+                    validate_occurrence_seal_ignoring_one_fact(&mutated, index).is_err()
+                } else {
+                    validate_occurrence_seal(&mutated).is_err()
+                };
+                single_rejections += usize::from(rejected);
+            }
+        }
+        let mut pair_rejections = 0usize;
+        let pair_limit = if matches!(sabotage, Some(F1Sabotage::PairCase)) {
+            629
+        } else {
+            630
+        };
+        'pairs: for left in 0..catalogue.len() {
+            for right in left + 1..catalogue.len() {
+                if pair_rejections == pair_limit {
+                    break 'pairs;
+                }
+                let mut pair = base.clone();
+                for field in [catalogue[left], catalogue[right]] {
+                    let index = representatives[&field];
+                    pair.projection[index] =
+                        foreign_fact(field, &pair.projection[index], &foreign.occurrence_seals);
+                }
+                pair_rejections += usize::from(validate_occurrence_seal(&pair).is_err());
+            }
+        }
+        let same_shaped = parsed
+            .occurrence_seals
+            .iter()
+            .filter(|seal| {
+                matches!(
+                    occurrence_fact(seal, F1SealField::ExpressionRole),
+                    CanonicalSealFact::ExpressionRole(CanonicalExpressionRole::ReturnValue)
+                ) && matches!(
+                    occurrence_fact(seal, F1SealField::PreorderCount),
+                    CanonicalSealFact::PreorderCount(3)
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(same_shaped.len(), 2);
+        const CROSS_FIELDS: [F1SealField; 15] = [
+            F1SealField::Statement,
+            F1SealField::AuthorityHandle,
+            F1SealField::Occurrence,
+            F1SealField::Root,
+            F1SealField::RootRange,
+            F1SealField::RootReduction,
+            F1SealField::AssigningEvent,
+            F1SealField::AssignmentSyntaxNode,
+            F1SealField::PredicateRecognition,
+            F1SealField::NodeIdentity,
+            F1SealField::NodeOccurrence,
+            F1SealField::TokenIdentity,
+            F1SealField::ReductionIdentity,
+            F1SealField::TokenInterval,
+            F1SealField::OrderedChildren,
+        ];
+        let base_sibling = same_shaped[0];
+        let foreign_sibling = same_shaped[1];
+        let sibling_representatives = f1_representatives(base_sibling);
+        let mut cross_cases = CROSS_FIELDS
+            .iter()
+            .map(|field| {
+                let index = sibling_representatives[field];
+                let mut substituted = base_sibling.clone();
+                substituted.projection[index] = foreign_sibling.projection[index].clone();
+                substituted
+            })
+            .collect::<Vec<_>>();
+        let mut complete_substitution = base_sibling.clone();
+        complete_substitution.projection = foreign_sibling.projection.clone();
+        cross_cases.push(complete_substitution);
+        if matches!(sabotage, Some(F1Sabotage::CrossOccurrence)) {
+            cross_cases.pop();
+        }
+        let cross_occurrence_rejections = cross_cases
+            .iter()
+            .filter(|seal| validate_occurrence_seal(seal).is_err())
+            .count();
+        let leaf_source = "task leaf(value: UInt) -> UInt {\n  does:\n    return value\n}\n";
+        let leaf = parse_source("leaf.hum", leaf_source);
+        let Item::Task(task) = &leaf.file.items[0] else {
+            panic!("leaf task")
+        };
+        let statement = &task.body_syntax[0];
+        let ParsedBodyStatementKind::Return(expression) = &statement.kind else {
+            panic!("leaf return")
+        };
+        let mut corrupted_expression = expression.clone();
+        corrupted_expression.canonical_event.kind = CanonicalCommonNodeKind::Unsupported;
+        corrupted_expression.canonical_event.lexical_status =
+            CanonicalCommonLexicalStatus::Unsupported;
+        if matches!(sabotage, Some(F1Sabotage::ProducerArm)) {
+            corrupted_expression.canonical.kind = CanonicalExpressionKind::Unsupported;
+        }
+        let corrupted_seal = build_occurrence_seal(
+            &corrupted_expression,
+            &leaf.source_owner_seals[0],
+            CanonicalExpressionRole::ReturnValue,
+            CanonicalExpressionIntent::Return,
+            &statement.canonical_assignments[0],
+            0,
+        );
+        let same_line = parsed
+            .occurrence_seals
+            .windows(2)
+            .find(|pair| {
+                matches!(
+                    occurrence_fact(&pair[0], F1SealField::ExpressionRole),
+                    CanonicalSealFact::ExpressionRole(CanonicalExpressionRole::LoopRangeStart)
+                ) && matches!(
+                    occurrence_fact(&pair[1], F1SealField::ExpressionRole),
+                    CanonicalSealFact::ExpressionRole(CanonicalExpressionRole::LoopRangeEnd)
+                )
+            })
+            .expect("same-line loop roots");
+        let tabbed = parse_source(
+            "tabbed.hum",
+            "task tabbed(value: UInt) -> UInt {\n  does:\n    set\ttarget = value\n    return value\n}\n",
+        );
+        let unit = parsed
+            .occurrence_seals
+            .iter()
+            .find(|seal| {
+                matches!(
+                    occurrence_fact(seal, F1SealField::Kind),
+                    CanonicalSealFact::Kind(_, CanonicalCommonNodeKind::Unit)
+                )
+            })
+            .expect("Unit occurrence");
+        let token_ids = base
+            .projection
+            .iter()
+            .filter_map(|fact| match fact {
+                CanonicalSealFact::TokenIdentity(identity) => Some(identity),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        F1Evidence {
+            deterministic: parsed.occurrence_seals == repeated.occurrence_seals,
+            public_compatible: parsed.file == repeated.file
+                && parsed.diagnostics == repeated.diagnostics,
+            equal_length_distinct: F1_SOURCE_A.as_bytes() != identity_foreign_source.as_bytes()
+                && parsed.occurrence_seals != identity_foreign.occurrence_seals,
+            field_count: catalogue.len(),
+            kind_count: F1_COMMON_KINDS
+                .iter()
+                .filter(|kind| {
+                    parsed.occurrence_seals.iter().any(|seal| {
+                        seal.projection.iter().any(|fact| {
+                            matches!(fact, CanonicalSealFact::Kind(_, actual) if actual == *kind)
+                        })
+                    })
+                })
+                .count(),
+            role_count: F1_ROLES
+                .iter()
+                .filter(|role| {
+                    parsed.occurrence_seals.iter().any(|seal| {
+                        matches!(
+                            occurrence_fact(seal, F1SealField::ExpressionRole),
+                            CanonicalSealFact::ExpressionRole(actual) if actual == *role
+                        )
+                    })
+                })
+                .count(),
+            child_role_count: F1_CHILD_ROLES
+                .iter()
+                .filter(|role| {
+                    parsed.occurrence_seals.iter().any(|seal| {
+                        seal.projection.iter().any(|fact| {
+                            matches!(fact, CanonicalSealFact::ChildRole(_, Some(actual)) if actual == *role)
+                        })
+                    })
+                })
+                .count(),
+            lexical_status_count: [
+                CanonicalCommonLexicalStatus::Complete,
+                CanonicalCommonLexicalStatus::Unsupported,
+            ]
+            .iter()
+            .filter(|status| {
+                parsed.occurrence_seals.iter().any(|seal| {
+                    seal.projection.iter().any(|fact| {
+                        matches!(fact, CanonicalSealFact::LexicalStatus(_, actual) if actual == *status)
+                    })
+                })
+            })
+            .count(),
+            node_count: parsed
+                .occurrence_seals
+                .iter()
+                .map(
+                    |seal| match occurrence_fact(seal, F1SealField::PreorderCount) {
+                        CanonicalSealFact::PreorderCount(count) => *count,
+                        _ => unreachable!(),
+                    },
+                )
+                .sum(),
+            token_count: parsed
+                .occurrence_seals
+                .iter()
+                .flat_map(|seal| &seal.projection)
+                .filter(|fact| f1_fact_field(fact) == F1SealField::TokenIdentity)
+                .count(),
+            single_rejections,
+            pair_rejections,
+            cross_occurrence_rejections,
+            producer_event_rejected: validate_occurrence_seal(&corrupted_seal).is_err(),
+            same_line_distinct: occurrence_fact(&same_line[0], F1SealField::Occurrence)
+                != occurrence_fact(&same_line[1], F1SealField::Occurrence),
+            horizontal_whitespace_compatible: matches!(
+                occurrence_fact(&tabbed.occurrence_seals[0], F1SealField::ExpressionRole),
+                CanonicalSealFact::ExpressionRole(CanonicalExpressionRole::SetValue)
+            ),
+            unit_position_exact: matches!(
+                occurrence_fact(unit, F1SealField::RootRange),
+                CanonicalSealFact::RootRange(range) if range.byte_len == 0
+            ) && matches!(
+                occurrence_fact(unit, F1SealField::TokenInterval),
+                CanonicalSealFact::TokenInterval(_, None)
+            ) && matches!(
+                occurrence_fact(unit, F1SealField::ChildCardinality),
+                CanonicalSealFact::ChildCardinality(_, 0)
+            ) && !unit
+                .projection
+                .iter()
+                .any(|fact| matches!(fact, CanonicalSealFact::TokenIdentity(_))),
+            root_token_interval_complete: matches!(
+                occurrence_fact(base, F1SealField::TokenInterval),
+                CanonicalSealFact::TokenInterval(_, Some((first, last)))
+                    if Some(first) == token_ids.first().copied()
+                        && Some(last) == token_ids.last().copied()
+            ),
+            preorder_order_exact: parsed.occurrence_seals.iter().all(|seal| {
+                seal.projection
+                    .iter()
+                    .filter_map(|fact| match fact {
+                        CanonicalSealFact::PreorderOrdinal(_, ordinal) => Some(*ordinal),
+                        _ => None,
+                    })
+                    .eq(0..match occurrence_fact(seal, F1SealField::PreorderCount) {
+                        CanonicalSealFact::PreorderCount(count) => *count,
+                        _ => unreachable!(),
+                    })
+            }),
+        }
+    }
+
+    fn complete_f1_evidence(evidence: &F1Evidence) -> bool {
+        evidence.deterministic
+            && evidence.public_compatible
+            && evidence.equal_length_distinct
+            && evidence.field_count == 36
+            && evidence.kind_count == 14
+            && evidence.role_count == 13
+            && evidence.child_role_count == 9
+            && evidence.lexical_status_count == 2
+            && evidence.node_count == 48
+            && evidence.token_count == 67
+            && evidence.single_rejections == 216
+            && evidence.pair_rejections == 630
+            && evidence.cross_occurrence_rejections == 16
+            && evidence.producer_event_rejected
+            && evidence.same_line_distinct
+            && evidence.horizontal_whitespace_compatible
+            && evidence.unit_position_exact
+            && evidence.root_token_interval_complete
+            && evidence.preorder_order_exact
+    }
+
+    #[test]
+    fn occurrence_authority_and_common_node_topology_are_complete_and_load_bearing() {
+        let first = f1_evidence(None);
+        let second = f1_evidence(None);
+        assert_eq!(first, second, "fresh F1 inventories must be deterministic");
+        assert!(complete_f1_evidence(&first), "{first:#?}");
+        for sabotage in [
+            F1Sabotage::ProducerArm,
+            F1Sabotage::ValidatorArm,
+            F1Sabotage::CatalogueRow,
+            F1Sabotage::MutationOperator,
+            F1Sabotage::PairCase,
+            F1Sabotage::EqualLengthEvidence,
+            F1Sabotage::CrossOccurrence,
+        ] {
+            assert!(
+                !complete_f1_evidence(&f1_evidence(Some(sabotage))),
                 "{sabotage:?} sabotage stayed green"
             );
         }
