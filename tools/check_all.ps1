@@ -297,6 +297,7 @@ try {
   )) {
     Invoke-ExactRustTest "Increment 10A evidence $EvidenceTest" $Cargo $EvidenceTest
   }
+  Invoke-ExactRustTest 'Increment 10B.1a.1.1 source/owner matrix: 7 fields, 21 pairs, named sabotage' $Cargo 'parser::tests::source_owner_authority_kernel_is_complete_and_load_bearing'
   $FoundationNonAscii = Join-Path ([System.IO.Path]::GetTempPath()) "hum-10a-nonascii-$([guid]::NewGuid().ToString('N')).hum"
   try {
     $FoundationNonAsciiSource = "module temp.nonascii`n`ntask non_ascii() -> Text {`n  does:`n    return caf$([char]0x00E9)`n}`n"
@@ -684,7 +685,7 @@ try {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 73 -or $UniqueExactRustSelectorCredits.Count -ne 73) { throw "exact Rust selector inventory must credit 73 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 74 -or $UniqueExactRustSelectorCredits.Count -ne 74) { throw "exact Rust selector inventory must credit 74 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')

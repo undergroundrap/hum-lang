@@ -9,6 +9,134 @@ use crate::ast::{
 use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::syntax;
 use crate::typed_failure;
+use std::sync::Arc;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalOwnerIdentity {
+    domain: u8,
+    revision: Arc<[u8]>,
+    traversal: Arc<[usize]>,
+}
+
+macro_rules! opaque_source_owner_id {
+    ($($name:ident),+ $(,)?) => {
+        $(
+            #[derive(Debug, Clone, PartialEq, Eq)]
+            struct $name(CanonicalOwnerIdentity);
+        )+
+    };
+}
+
+opaque_source_owner_id!(
+    CanonicalSourceBlob,
+    CanonicalSemanticFile,
+    CanonicalItemOwner,
+    CanonicalSectionOwner,
+    CanonicalStatementOwner,
+    CanonicalAuthorityHandle,
+);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalSourceRevision(Arc<[u8]>);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CanonicalSourceOwnerFact {
+    SourceBlob(CanonicalSourceBlob),
+    SemanticFile(CanonicalSemanticFile),
+    SourceRevision(CanonicalSourceRevision),
+    Item(CanonicalItemOwner),
+    Section(CanonicalSectionOwner),
+    Statement(CanonicalStatementOwner),
+    AuthorityHandle(CanonicalAuthorityHandle),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalSourceOwnerAuthority {
+    source_blob: CanonicalSourceBlob,
+    semantic_file: CanonicalSemanticFile,
+    source_revision: CanonicalSourceRevision,
+    item: CanonicalItemOwner,
+    section: CanonicalSectionOwner,
+    statement: CanonicalStatementOwner,
+    handle: CanonicalAuthorityHandle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalSourceOwnerSeal {
+    projection: Vec<CanonicalSourceOwnerFact>,
+    authority: CanonicalSourceOwnerAuthority,
+}
+
+fn source_owner_identity(
+    domain: u8,
+    revision: &CanonicalSourceRevision,
+    traversal: &[usize],
+) -> CanonicalOwnerIdentity {
+    CanonicalOwnerIdentity {
+        domain,
+        revision: revision.0.clone(),
+        traversal: traversal.into(),
+    }
+}
+
+fn source_owner_child_identity(
+    domain: u8,
+    parent: &CanonicalOwnerIdentity,
+    ordinal: usize,
+) -> CanonicalOwnerIdentity {
+    let mut traversal = parent.traversal.to_vec();
+    traversal.push(ordinal);
+    CanonicalOwnerIdentity {
+        domain,
+        revision: parent.revision.clone(),
+        traversal: traversal.into(),
+    }
+}
+
+fn source_owner_fact_matches(
+    authority: &CanonicalSourceOwnerAuthority,
+    index: usize,
+    fact: &CanonicalSourceOwnerFact,
+) -> bool {
+    match fact {
+        CanonicalSourceOwnerFact::SourceBlob(value) => {
+            index == 0 && value == &authority.source_blob
+        }
+        CanonicalSourceOwnerFact::SemanticFile(value) => {
+            index == 1 && value == &authority.semantic_file
+        }
+        CanonicalSourceOwnerFact::SourceRevision(value) => {
+            index == 2 && value == &authority.source_revision
+        }
+        CanonicalSourceOwnerFact::Item(value) => index == 3 && value == &authority.item,
+        CanonicalSourceOwnerFact::Section(value) => index == 4 && value == &authority.section,
+        CanonicalSourceOwnerFact::Statement(value) => index == 5 && value == &authority.statement,
+        CanonicalSourceOwnerFact::AuthorityHandle(value) => {
+            index == 6 && value == &authority.handle
+        }
+    }
+}
+
+fn source_owner_authority_is_coherent(authority: &CanonicalSourceOwnerAuthority) -> bool {
+    authority.source_blob.0.domain == 1
+        && authority.source_blob.0.revision.as_ref() == authority.source_revision.0.as_ref()
+}
+
+fn validate_source_owner_seal(seal: &CanonicalSourceOwnerSeal) -> Result<(), &'static str> {
+    if seal.projection.len() != 7 {
+        return Err("canonical_source_owner_field_count_corrupt_v0");
+    }
+    if !source_owner_authority_is_coherent(&seal.authority)
+        || seal
+            .projection
+            .iter()
+            .enumerate()
+            .any(|(index, fact)| !source_owner_fact_matches(&seal.authority, index, fact))
+    {
+        return Err("canonical_source_owner_authority_mismatch_v0");
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct ParsedCallPosition {
@@ -55,6 +183,8 @@ pub struct ParseOutput {
     pub file: SourceFile,
     pub diagnostics: Vec<Diagnostic>,
     pub(crate) diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
+    #[cfg_attr(not(test), allow(dead_code))]
+    source_owner_seals: Vec<CanonicalSourceOwnerSeal>,
 }
 
 #[derive(Debug, Clone)]
@@ -72,10 +202,15 @@ enum IdentifierKind {
 struct Parser {
     path: String,
     semantic_file_index: usize,
+    source_revision: CanonicalSourceRevision,
+    source_blob: CanonicalSourceBlob,
+    semantic_file: CanonicalSemanticFile,
+    current_item_owner: Option<CanonicalItemOwner>,
     current_semantic_node: Option<String>,
     lines: Vec<SourceLine>,
     diagnostics: Vec<Diagnostic>,
     diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
+    source_owner_seals: Vec<CanonicalSourceOwnerSeal>,
 }
 
 #[cfg(test)]
@@ -89,6 +224,12 @@ pub(crate) fn parse_source_at_index(
     semantic_file_index: usize,
 ) -> ParseOutput {
     let path = path.into();
+    let source_revision = CanonicalSourceRevision(source.as_bytes().into());
+    let file_traversal = [semantic_file_index];
+    let source_blob =
+        CanonicalSourceBlob(source_owner_identity(1, &source_revision, &file_traversal));
+    let semantic_file =
+        CanonicalSemanticFile(source_owner_identity(2, &source_revision, &file_traversal));
     let lines = source
         .lines()
         .enumerate()
@@ -101,10 +242,15 @@ pub(crate) fn parse_source_at_index(
     let mut parser = Parser {
         path: path.clone(),
         semantic_file_index,
+        source_revision,
+        source_blob,
+        semantic_file,
+        current_item_owner: None,
         current_semantic_node: None,
         lines,
         diagnostics: Vec::new(),
         diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet::default(),
+        source_owner_seals: Vec::new(),
     };
     let (module, items) = parser.parse_file_items();
     parser
@@ -120,6 +266,7 @@ pub(crate) fn parse_source_at_index(
         },
         diagnostics: parser.diagnostics,
         diagnostic_occurrences: parser.diagnostic_occurrences,
+        source_owner_seals: parser.source_owner_seals,
     }
 }
 
@@ -240,7 +387,18 @@ impl Parser {
                 .join(".")
         );
         let prior = self.current_semantic_node.replace(semantic_node);
+        let item_traversal = std::iter::once(self.semantic_file_index)
+            .chain(item_path.iter().copied())
+            .collect::<Vec<_>>();
+        let prior_item =
+            self.current_item_owner
+                .replace(CanonicalItemOwner(source_owner_identity(
+                    3,
+                    &self.source_revision,
+                    &item_traversal,
+                )));
         let parsed = self.parse_item_at(index, item_path);
+        self.current_item_owner = prior_item;
         self.current_semantic_node = prior;
         parsed
     }
@@ -449,6 +607,7 @@ impl Parser {
                 } else {
                     vec![None; lines.len()]
                 };
+                self.retain_source_owner_records(sections.len(), &lines);
                 sections.push(Section {
                     name,
                     lines,
@@ -462,6 +621,51 @@ impl Parser {
         }
 
         sections
+    }
+
+    fn retain_source_owner_records(&mut self, section_index: usize, lines: &[SectionLine]) {
+        let item = self
+            .current_item_owner
+            .clone()
+            .expect("section parsing requires an owning item");
+        let section = CanonicalSectionOwner(source_owner_child_identity(4, &item.0, section_index));
+        for (statement_index, _) in lines
+            .iter()
+            .filter(|line| !is_ignorable(line.text.trim()))
+            .enumerate()
+        {
+            let statement = CanonicalStatementOwner(source_owner_child_identity(
+                5,
+                &section.0,
+                statement_index,
+            ));
+            let handle = CanonicalAuthorityHandle(source_owner_child_identity(6, &statement.0, 0));
+            let projection = vec![
+                CanonicalSourceOwnerFact::SourceBlob(self.source_blob.clone()),
+                CanonicalSourceOwnerFact::SemanticFile(self.semantic_file.clone()),
+                CanonicalSourceOwnerFact::SourceRevision(self.source_revision.clone()),
+                CanonicalSourceOwnerFact::Item(item.clone()),
+                CanonicalSourceOwnerFact::Section(section.clone()),
+                CanonicalSourceOwnerFact::Statement(statement.clone()),
+                CanonicalSourceOwnerFact::AuthorityHandle(handle.clone()),
+            ];
+            let authority = CanonicalSourceOwnerAuthority {
+                source_blob: self.source_blob.clone(),
+                semantic_file: self.semantic_file.clone(),
+                source_revision: self.source_revision.clone(),
+                item: item.clone(),
+                section: section.clone(),
+                statement: statement.clone(),
+                handle,
+            };
+            let seal = CanonicalSourceOwnerSeal {
+                projection,
+                authority,
+            };
+            validate_source_owner_seal(&seal)
+                .expect("parser source/owner projection must match retained authority");
+            self.source_owner_seals.push(seal);
+        }
     }
 
     fn parse_fields(&mut self, start: usize, end: usize, field_indent: usize) -> Vec<Field> {
@@ -2565,8 +2769,11 @@ fn is_section_header(trimmed: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        executable_call_nodes, parse_source, parse_source_at_index, validate_canonical_expression,
-        validate_retained_body_syntax,
+        CanonicalAuthorityHandle, CanonicalItemOwner, CanonicalSectionOwner, CanonicalSemanticFile,
+        CanonicalSourceBlob, CanonicalSourceOwnerFact, CanonicalSourceOwnerSeal,
+        CanonicalSourceRevision, CanonicalStatementOwner, executable_call_nodes, parse_source,
+        parse_source_at_index, source_owner_fact_matches, validate_canonical_expression,
+        validate_retained_body_syntax, validate_source_owner_seal,
     };
     use crate::ast::{
         CanonicalExpressionKind, Item, ParsedBinaryOperator, ParsedBlockRelationship,
@@ -2574,6 +2781,299 @@ mod tests {
         TypeSyntaxKind,
     };
     use crate::diagnostic::{DiagnosticCode, Severity};
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum CanonicalSealField {
+        SourceBlob,
+        SemanticFile,
+        SourceRevision,
+        Item,
+        Section,
+        Statement,
+        AuthorityHandle,
+    }
+
+    const CANONICAL_SEAL_FIELDS: [CanonicalSealField; 7] = [
+        CanonicalSealField::SourceBlob,
+        CanonicalSealField::SemanticFile,
+        CanonicalSealField::SourceRevision,
+        CanonicalSealField::Item,
+        CanonicalSealField::Section,
+        CanonicalSealField::Statement,
+        CanonicalSealField::AuthorityHandle,
+    ];
+
+    #[derive(Debug, Clone, Copy)]
+    enum ProjectionMutation {
+        Corrupt,
+        Missing,
+        Duplicate,
+        Reordered,
+        Extra,
+        Substituted,
+    }
+
+    const PROJECTION_MUTATIONS: [ProjectionMutation; 6] = [
+        ProjectionMutation::Corrupt,
+        ProjectionMutation::Missing,
+        ProjectionMutation::Duplicate,
+        ProjectionMutation::Reordered,
+        ProjectionMutation::Extra,
+        ProjectionMutation::Substituted,
+    ];
+
+    #[derive(Debug, Clone, Copy)]
+    enum MatrixSabotage {
+        ProducerArm,
+        ValidatorArm,
+        CatalogueRow,
+        MutationOperator,
+        PairCase,
+        EqualLengthEvidence,
+        ForeignOwnerEvidence,
+    }
+
+    fn fact_field(fact: &CanonicalSourceOwnerFact) -> CanonicalSealField {
+        match fact {
+            CanonicalSourceOwnerFact::SourceBlob(_) => CanonicalSealField::SourceBlob,
+            CanonicalSourceOwnerFact::SemanticFile(_) => CanonicalSealField::SemanticFile,
+            CanonicalSourceOwnerFact::SourceRevision(_) => CanonicalSealField::SourceRevision,
+            CanonicalSourceOwnerFact::Item(_) => CanonicalSealField::Item,
+            CanonicalSourceOwnerFact::Section(_) => CanonicalSealField::Section,
+            CanonicalSourceOwnerFact::Statement(_) => CanonicalSealField::Statement,
+            CanonicalSourceOwnerFact::AuthorityHandle(_) => CanonicalSealField::AuthorityHandle,
+        }
+    }
+
+    fn corrupt_bytes(bytes: &std::sync::Arc<[u8]>) -> std::sync::Arc<[u8]> {
+        let mut corrupted = bytes.to_vec();
+        corrupted.push(0xff);
+        corrupted.into()
+    }
+
+    fn corrupted_fact(fact: &CanonicalSourceOwnerFact) -> CanonicalSourceOwnerFact {
+        macro_rules! corrupt_id {
+            ($variant:ident, $kind:ident, $value:ident) => {{
+                let mut identity = $value.0.clone();
+                identity.domain ^= 0x80;
+                CanonicalSourceOwnerFact::$variant($kind(identity))
+            }};
+        }
+        match fact {
+            CanonicalSourceOwnerFact::SourceBlob(value) => {
+                corrupt_id!(SourceBlob, CanonicalSourceBlob, value)
+            }
+            CanonicalSourceOwnerFact::SemanticFile(value) => {
+                corrupt_id!(SemanticFile, CanonicalSemanticFile, value)
+            }
+            CanonicalSourceOwnerFact::SourceRevision(value) => {
+                CanonicalSourceOwnerFact::SourceRevision(CanonicalSourceRevision(corrupt_bytes(
+                    &value.0,
+                )))
+            }
+            CanonicalSourceOwnerFact::Item(value) => corrupt_id!(Item, CanonicalItemOwner, value),
+            CanonicalSourceOwnerFact::Section(value) => {
+                corrupt_id!(Section, CanonicalSectionOwner, value)
+            }
+            CanonicalSourceOwnerFact::Statement(value) => {
+                corrupt_id!(Statement, CanonicalStatementOwner, value)
+            }
+            CanonicalSourceOwnerFact::AuthorityHandle(value) => {
+                corrupt_id!(AuthorityHandle, CanonicalAuthorityHandle, value)
+            }
+        }
+    }
+
+    fn mutate_projection(
+        seal: &CanonicalSourceOwnerSeal,
+        foreign: &CanonicalSourceOwnerSeal,
+        index: usize,
+        mutation: ProjectionMutation,
+    ) -> CanonicalSourceOwnerSeal {
+        let mut mutated = seal.clone();
+        match mutation {
+            ProjectionMutation::Corrupt => {
+                mutated.projection[index] = corrupted_fact(&mutated.projection[index]);
+            }
+            ProjectionMutation::Missing => {
+                mutated.projection.remove(index);
+            }
+            ProjectionMutation::Duplicate => {
+                mutated
+                    .projection
+                    .insert(index, mutated.projection[index].clone());
+            }
+            ProjectionMutation::Reordered => {
+                let other = if index == 6 { 5 } else { index + 1 };
+                mutated.projection.swap(index, other);
+            }
+            ProjectionMutation::Extra => {
+                mutated.projection.push(foreign.projection[index].clone());
+            }
+            ProjectionMutation::Substituted => {
+                mutated.projection[index] = foreign.projection[index].clone();
+            }
+        }
+        mutated
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct SourceOwnerEvidence {
+        inventory: Vec<Vec<CanonicalSourceOwnerFact>>,
+        projection_reconstruction_rejected: bool,
+        single_rejections: usize,
+        pair_rejections: usize,
+        foreign_rejections: usize,
+        equal_length_distinct: bool,
+    }
+
+    fn source_owner_evidence(sabotage: Option<MatrixSabotage>) -> SourceOwnerEvidence {
+        const SOURCE_A: &str =
+            "# a\ntask same() -> UInt {\n  does:\n    return 1\n    return 1\n}\n";
+        const SOURCE_B: &str =
+            "# b\ntask same() -> UInt {\n  does:\n    return 1\n    return 1\n}\n";
+        let foreign_source = if matches!(sabotage, Some(MatrixSabotage::EqualLengthEvidence)) {
+            SOURCE_A
+        } else {
+            SOURCE_B
+        };
+        let first = parse_source("same.hum", SOURCE_A);
+        let foreign = parse_source("same.hum", foreign_source);
+        let renamed = parse_source("renamed.hum", SOURCE_A);
+        assert!(first.diagnostics.is_empty() && foreign.diagnostics.is_empty());
+        assert_eq!(
+            first.file, foreign.file,
+            "public owner projections must stay compatible"
+        );
+        assert_eq!(
+            first.source_owner_seals, renamed.source_owner_seals,
+            "filename must not mint identity"
+        );
+        let base = &first.source_owner_seals[0];
+        let sibling = &first.source_owner_seals[1];
+        let other = &foreign.source_owner_seals[0];
+        let catalogue = if matches!(sabotage, Some(MatrixSabotage::CatalogueRow)) {
+            &CANONICAL_SEAL_FIELDS[..6]
+        } else {
+            &CANONICAL_SEAL_FIELDS[..]
+        };
+        let operators = if matches!(sabotage, Some(MatrixSabotage::MutationOperator)) {
+            &PROJECTION_MUTATIONS[..5]
+        } else {
+            &PROJECTION_MUTATIONS[..]
+        };
+        let mut reconstructed = mutate_projection(base, other, 0, ProjectionMutation::Corrupt);
+        if matches!(sabotage, Some(MatrixSabotage::ProducerArm)) {
+            reconstructed = base.clone();
+        }
+        if let CanonicalSourceOwnerFact::SourceBlob(value) = &reconstructed.projection[0] {
+            reconstructed.authority.source_blob = value.clone();
+        }
+        let projection_reconstruction_rejected =
+            validate_source_owner_seal(&reconstructed).is_err();
+        let mut single_rejections = 0;
+        for (index, field) in catalogue.iter().copied().enumerate() {
+            assert_eq!(field, fact_field(&base.projection[index]));
+            single_rejections += operators
+                .iter()
+                .filter(|mutation| {
+                    let mutated = mutate_projection(base, other, index, **mutation);
+                    if matches!(sabotage, Some(MatrixSabotage::ValidatorArm))
+                        && index == 6
+                        && matches!(**mutation, ProjectionMutation::Corrupt)
+                    {
+                        mutated.projection[..6]
+                            .iter()
+                            .enumerate()
+                            .any(|(index, fact)| {
+                                !source_owner_fact_matches(&mutated.authority, index, fact)
+                            })
+                    } else {
+                        validate_source_owner_seal(&mutated).is_err()
+                    }
+                })
+                .count();
+        }
+        let pair_limit = if matches!(sabotage, Some(MatrixSabotage::PairCase)) {
+            20
+        } else {
+            21
+        };
+        let mut pair_rejections = 0;
+        for left in 0..catalogue.len() {
+            for right in left + 1..catalogue.len() {
+                if pair_rejections == pair_limit {
+                    break;
+                }
+                let mut pair = base.clone();
+                pair.projection[left] = other.projection[left].clone();
+                pair.projection[right] = other.projection[right].clone();
+                pair_rejections += usize::from(validate_source_owner_seal(&pair).is_err());
+            }
+        }
+        let mut foreign_cases = (0..catalogue.len())
+            .map(|index| mutate_projection(base, other, index, ProjectionMutation::Substituted))
+            .collect::<Vec<_>>();
+        for index in [5, 6] {
+            let mut cross_owner = base.clone();
+            cross_owner.projection[index] = sibling.projection[index].clone();
+            foreign_cases.push(cross_owner);
+        }
+        if matches!(sabotage, Some(MatrixSabotage::ForeignOwnerEvidence)) {
+            foreign_cases.pop();
+        }
+        SourceOwnerEvidence {
+            inventory: first
+                .source_owner_seals
+                .iter()
+                .chain(foreign.source_owner_seals.iter())
+                .map(|seal| seal.projection.clone())
+                .collect(),
+            projection_reconstruction_rejected,
+            single_rejections,
+            pair_rejections,
+            foreign_rejections: foreign_cases
+                .iter()
+                .filter(|seal| validate_source_owner_seal(seal).is_err())
+                .count(),
+            equal_length_distinct: SOURCE_A.len() == foreign_source.len()
+                && SOURCE_A.as_bytes() != foreign_source.as_bytes()
+                && base.projection != other.projection,
+        }
+    }
+
+    fn complete_source_owner_evidence(evidence: &SourceOwnerEvidence) -> bool {
+        evidence.projection_reconstruction_rejected
+            && evidence.single_rejections == 42
+            && evidence.pair_rejections == 21
+            && evidence.foreign_rejections == 9
+            && evidence.equal_length_distinct
+    }
+
+    #[test]
+    fn source_owner_authority_kernel_is_complete_and_load_bearing() {
+        let first = source_owner_evidence(None);
+        let second = source_owner_evidence(None);
+        assert_eq!(
+            first, second,
+            "fresh private inventories must be deterministic"
+        );
+        assert!(complete_source_owner_evidence(&first));
+        for sabotage in [
+            MatrixSabotage::ProducerArm,
+            MatrixSabotage::ValidatorArm,
+            MatrixSabotage::CatalogueRow,
+            MatrixSabotage::MutationOperator,
+            MatrixSabotage::PairCase,
+            MatrixSabotage::EqualLengthEvidence,
+            MatrixSabotage::ForeignOwnerEvidence,
+        ] {
+            assert!(
+                !complete_source_owner_evidence(&source_owner_evidence(Some(sabotage))),
+                "{sabotage:?} sabotage stayed green"
+            );
+        }
+    }
 
     #[test]
     fn parser_body_syntax_owns_repeated_sibling_and_nested_calls() {
