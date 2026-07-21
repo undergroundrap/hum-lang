@@ -178,6 +178,75 @@ encoding and line-ending conversion; Git-computed object identities
 (`git write-tree`, per-file blob hashes, the archive commit SHA) do not.
 Demand the identity be reproduced in both shells, not asserted.
 
+### Ceremony proportionality and anti-pathology tripwire (distilled 2026-07-21 from Work Order 10)
+
+Process weight must match the kind of change. This rule changes no technical
+acceptance bar: real production-path evidence, complete applicable checks, one
+final independent review, scoped commits, separately authorized pushes, and
+terminal required CI remain mandatory where the active Work Order requires
+them. It decides whether a correction is ordinary implementation work or a
+substantive change that must return to the Work Order boundary.
+
+A correction is implementer-inline when all of these are true:
+
+- every changed path is already inside the active accepted envelope;
+- semantic scope, accepted architecture, public human/JSON/runtime/schema
+  behavior, diagnostic allocation and meaning, evidence meaning, and
+  acceptance criteria remain unchanged;
+- no dependency, platform surface, or reserved BDFL decision is added or
+  changed; and
+- the complete corrected deliverable still receives its real checks and final
+  independent implementation review.
+
+Missing imports or explicit qualifications; rustfmt ordering or wrapping;
+compiler, Clippy, lint, warning, or typo repairs; exact-selector or
+deterministic harness plumbing; and small in-envelope line-count changes are
+normally implementer-inline. The implementer fixes them in place, discloses
+them in the final handoff, and proves them with the complete deliverable. Such
+a mechanical correction must not create its own Work Order amendment,
+pre-issuance documentation review, publication relay, status record, exception
+gate, or separate corrective go signal. It receives no automatic acceptance
+credit merely because it is mechanical.
+
+A substantive Work Order amendment is required for any semantic scope or
+behavior change; any production, test, fixture, tool, schema, or documentation
+path outside the accepted envelope; a new or changed diagnostic meaning or
+allocation; public output or schema change; architecture, authority,
+ownership, or precedence change; materially changed acceptance evidence; a
+new dependency or platform surface; or another reserved BDFL decision. When
+classification is genuinely ambiguous, stop and report the concrete ambiguity
+directly to the BDFL. Ambiguity grants no edit and does not authorize an agent
+to invent a gate, exception, status layer, or workaround.
+
+Size work by dependency coherence, not a line-count quota. The governing unit
+is the smallest change that compiles in every applicable configuration, is
+testable through its real production path, can be independently reviewed in
+one sitting, leaves no deliberately broken intermediate representation, and
+does not need a later unit merely to compile, format, or make its acceptance
+harness select nonzero evidence. Smaller than compilable is too small. Line
+counts are review telemetry, never authority by themselves to stop, split,
+reject, or create an exception. A genuinely oversized unit may be split once
+at a real producer, authority, validator, or consumer dependency boundary; it
+must not be decomposed into sub-sub-units or hidden phases merely to satisfy a
+size target.
+
+Any one of these conditions is a ceremony-pathology tripwire:
+
+- two consecutive governance-only commits land without implementation code;
+- a compile, formatting, Clippy, lint, warning, typo, selector,
+  harness-plumbing, or small in-envelope line-count issue is proposed as a
+  Work Order amendment;
+- decomposition exceeds two meaningful levels or introduces a sub-sub-unit;
+- a line-count target produces a stop, exception, or re-scope amendment; or
+- process work consumes more commits or elapsed time than the implementation
+  it governs.
+
+When a tripwire fires, stop and return directly to the BDFL with the concrete
+evidence. The response is simplification, a coherent re-scope, or a direct
+BDFL ruling--never another status layer, exception gate, tripwire amendment,
+or process about the process. This stop rule grants no implementation,
+acceptance, commit, push, publication, or later-work authority.
+
 ### Assuming the implementer role
 
 Cold-start read order: same as above. Then: execute exactly the next
