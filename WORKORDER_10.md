@@ -3540,6 +3540,150 @@ Even `ACCEPT` authorizes only a separately BDFL-scoped
 one exact test-scope correction, restarted acceptance checks, implementation
 review, Increment 10B.1a.1.2, and every later action retain separate gates.
 
+## Increment 10B.1a.1.1 rustfmt-only stopped-gate amendment (2026-07-20; proposed)
+
+### Authority and exact stopped evidence
+
+The BDFL authorized only this bounded documentation amendment after the exact
+test-scope visibility correction passed the first restarted acceptance
+selector and the immediately following non-writing formatting check stopped on
+one import-order difference. This amendment does not accept, format, edit,
+resume, review, commit, or publish the implementation.
+
+The repository boundary before this amendment is:
+
+- `HEAD == origin/main == live remote main ==
+  49be6f7d2d0debc593d22fc7e688856f8148b5d9`;
+- clean `WORKORDER_10.md` and `src/ast.rs`;
+- `src/parser.rs`: 502 insertions and 2 deletions;
+- `tools/check_all.ps1`: 2 insertions and 1 deletion;
+- 507 total changed lines;
+- empty real index and no untracked path; and
+- no Increment 10B.1a.1.2 or later work.
+
+Fresh empty temporary Git indexes containing exactly `src/parser.rs` and
+`tools/check_all.ps1` independently produced the same two-path tree OID in
+PowerShell and Git Bash:
+
+`b0952888f929d529fed38e7d8eee2ce4878971ed`.
+
+The Git-object diff from predecessor OID
+`70d248f77d4b851520b3a5960060b4c2d085a85b` to that stopped tree contains
+exactly the already authorized addition of `source_owner_fact_matches` to the
+existing test module's `use super::{...}` list. It contains no production,
+validation, catalogue, matrix, sabotage, selector, tool, or other source
+change.
+
+The restarted exact selector was:
+
+```text
+parser::tests::source_owner_authority_kernel_is_complete_and_load_bearing
+```
+
+The permanent exact-selector guard selected exactly one test; that test passed,
+with zero failed and zero ignored. This result is stopped-tree evidence only.
+It does not transfer to any successor bytes and is not implementation
+acceptance.
+
+The next command was exactly the non-writing `cargo fmt --check`. It failed on
+only this current test-import layout:
+
+```rust
+parse_source_at_index, validate_canonical_expression, validate_retained_body_syntax,
+source_owner_fact_matches, validate_source_owner_seal,
+```
+
+Rustfmt required exactly this ordering and wrapping:
+
+```rust
+parse_source_at_index, source_owner_fact_matches, validate_canonical_expression,
+validate_retained_body_syntax, validate_source_owner_seal,
+```
+
+The check wrote no file. No remaining focused selector or sabotage command,
+`cargo test`, Clippy, diff-hygiene check, complete preflight, or implementation
+review ran after that failure. The real index and untracked set remained empty,
+and both shells reproduced stopped-tree OID
+`b0952888f929d529fed38e7d8eee2ce4878971ed` after the stop.
+
+### Sole future normalization and successor identity
+
+After this amendment is independently accepted, BDFL-accepted, committed,
+published, terminal-green on required Ubuntu and Windows CI, durably recorded,
+and followed by a separate explicit BDFL corrective go signal, the only
+permitted implementation action is to replace the exact two current import
+lines above with the exact two rustfmt-required lines above in `src/parser.rs`.
+The edit must be applied directly and manually. A writing `cargo fmt`,
+`rustfmt`, editor format-on-save operation, bulk formatter, or other
+normalization command is forbidden. The next formatting command may only be
+the non-writing `cargo fmt --check` in the restarted acceptance sequence.
+
+No production behavior, authority construction, retained authority, exported
+projection, validator logic, catalogue, mutation operator, single-field case,
+pair case, foreign-owner case, sabotage, selector, public output, diagnostic,
+`tools/check_all.ps1`, or other source byte may change. The prior selector pass
+does not authorize a near-equivalent normalization, cleanup, compression, or
+additional correction.
+
+Before any acceptance command, fresh empty temporary Git indexes in PowerShell
+and Git Bash must independently produce one identical successor two-path tree
+OID from exactly `src/parser.rs` and `tools/check_all.ps1`. The report must
+record that OID, the exact two-path inventory, and exact line counts. A direct
+Git-object comparison from stopped-tree OID
+`b0952888f929d529fed38e7d8eee2ce4878971ed` to the successor must contain
+exactly the two-line import-order and wrapping normalization specified above.
+Any other byte, path, count, or identity change is a hard stop.
+
+### Complete acceptance restart and hard stop
+
+The complete Increment 10B.1a.1.1 acceptance sequence restarts from the exact
+selector; no prior green result is carried forward. It then runs every focused
+selector, mutation, sabotage, public-compatibility, and configuration check
+required by the published gates, followed by:
+
+- `cargo fmt --check`;
+- `cargo test`;
+- `cargo clippy --all-targets -- -D warnings`;
+- `git diff --check`; and
+- `.\tools\check_all.ps1`.
+
+The successor OID must remain exact after all checks and throughout fresh
+independent implementation review. Any additional compiler error, formatting
+difference, failed check, OID drift, unlisted path, or review finding requiring
+correction stops for the BDFL without repair. No further correction cycle,
+implementation edit, local workaround, or automatic formatter is implied.
+
+Increment 10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, the
+Cranelift feasibility spike, and every later item remain unauthorized.
+
+### Independent pre-issuance review
+
+This amendment is proposed and unauthorized. Its author is disqualified from
+its verdict. A fresh independent architect-reviewer must cold-start from
+repository ground truth, reproduce both cross-shell stopped-tree identities,
+inspect the exact predecessor diff, the recorded selector and rustfmt evidence,
+the current import bytes, and the complete amendment diff, and verify that:
+
+- the only future implementation authority is the exact two-line manual
+  normalization;
+- the selector result is not reused as successor-tree evidence;
+- the successor OID and exact-diff gate reject every additional change;
+- the complete acceptance sequence restarts from its first selector;
+- no writing formatter or additional correction is authorized; and
+- every semantic, evidence, compatibility, configuration, and later-work gate
+  remains unchanged.
+
+The reviewer runs only `git diff --check` and
+`.\tools\check_text_hygiene.ps1`. It must not run Cargo, rustfmt, implementation
+acceptance checks, edit any file, commit, push, apply the normalization, or
+begin later work. It reports P0/P1/P2 findings and exactly one verdict:
+`ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT`.
+
+Even `ACCEPT` authorizes only a separately BDFL-scoped
+`WORKORDER_10.md` documentation commit. Publication, status recording, the
+exact normalization, acceptance checks, implementation review, Increment
+10B.1a.1.2, and every later action retain separate gates.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
