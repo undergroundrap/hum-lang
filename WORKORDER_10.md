@@ -3684,6 +3684,349 @@ Even `ACCEPT` authorizes only a separately BDFL-scoped
 exact normalization, acceptance checks, implementation review, Increment
 10B.1a.1.2, and every later action retain separate gates.
 
+## Work Order 10 ceremony reset and foundation collapse amendment (2026-07-20; proposed)
+
+### BDFL authority, trigger evidence, and scope
+
+The BDFL authorized one final bounded Work Order 10 process-reset amendment
+after the foundation decomposition itself became a delivery blocker. This
+amendment is prospective and Work Order 10-specific. It does not edit, accept,
+format, test, review, commit, or publish the frozen implementation. It does not
+amend `AGENTS.md`, allocate a diagnostic, change public behavior, begin a
+backend, or authorize a later compiler increment.
+
+The reset boundary is exact:
+
+- `HEAD == origin/main == live remote main ==
+  da6287c527b87cee644b94dc0a96b409017d88f0`;
+- clean `WORKORDER_10.md` and `src/ast.rs` before this amendment;
+- empty real index and no untracked path;
+- `src/parser.rs`: 502 insertions and 2 deletions;
+- `tools/check_all.ps1`: 2 insertions and 1 deletion;
+- 507 total implementation changed lines;
+- identical PowerShell and Git Bash two-path tree OID
+  `b0952888f929d529fed38e7d8eee2ce4878971ed`; and
+- no Increment 10B.1a.1.2 or later implementation.
+
+Commit `da6287c527b87cee644b94dc0a96b409017d88f0` durably published the
+independently accepted rustfmt-only stopped-gate amendment. Workflow
+`29790972151`, attempt 1, succeeded for that exact commit. Ubuntu job
+`88512496490` on `ubuntu-latest` succeeded in 10m 04s, including 9m 42s in
+`Run Hum preflight`; Windows job `88512496422` on `windows-latest` succeeded
+in 16m 26s, including 15m 34s in `Run Hum preflight`. Both selected
+`mode=full` with `reason=no_status_transition`, succeeded in Cargo caching and
+Rust-toolchain preparation, skipped `Run status-only evidence`, and concluded
+success.
+
+The evidence above is sufficient durable publication evidence for the
+rustfmt-only amendment. This reset supersedes the former requirements for a
+rustfmt-amendment publication-status record, review/commit/push/CI of that
+status record, and another corrective go signal before the already specified
+manual normalization. The historical sections remain accurate records of the
+rules that applied when written; their conflicting future gates are inactive
+once this reset becomes effective.
+
+The process pathology is independently observable in first-parent history:
+after the foundation re-scope publication, consecutive governance-only commits
+landed without implementation while a seven-line size overrun, one missing
+test import, and one rustfmt-only ordering difference each produced another
+documentation gate. The prior eleven-part foundation train then decomposed its
+first part again. Those facts trigger simplification, not another nested gate.
+
+### Effective boundary and direct completion of the frozen unit
+
+This reset becomes effective only after these exact amendment bytes receive
+one fresh independent `ACCEPT`, BDFL acceptance, one scoped
+`WORKORDER_10.md` commit, separately authorized publication, and terminal
+success in required Ubuntu and Windows CI. No publication-status record or
+second reset document follows. Terminal-green publication makes the reset
+effective immediately.
+
+At that moment the implementer is directly authorized to complete the current
+Increment 10B.1a.1.1 deliverable without another Work Order status record or
+go signal. The permitted sequence is:
+
+1. replace only the two current import lines recorded in the rustfmt-only
+   amendment with its exact two rustfmt-required lines, manually;
+2. reproduce one identical successor two-path OID in fresh empty PowerShell
+   and Git Bash indexes;
+3. prove the Git-object diff from
+   `b0952888f929d529fed38e7d8eee2ce4878971ed` contains only that import-order
+   and wrapping normalization;
+4. restart the complete Increment 10B.1a.1.1 acceptance sequence at its exact
+   selector, including every focused mutation and sabotage matrix and every
+   standing check; and
+5. submit the complete final bytes to one fresh independent implementation
+   reviewer.
+
+The prior selector pass remains evidence about the stopped OID only and does
+not transfer. A writing formatter remains unnecessary for the known two-line
+normalization; it must be applied directly, followed by non-writing
+`cargo fmt --check`. Once the known normalization is applied, any ordinary
+mechanical correction satisfying the proportionality rule below may be made
+inline and disclosed in the final handoff. The final reviewer examines the
+complete implementation, including every inline correction, rather than a
+synthetically frozen intermediate state.
+
+An `ACCEPT` verdict authorizes the exact scoped implementation commit under
+the standing BDFL commit boundary. Push remains separately BDFL-authorized.
+No intermediate Work Order status commit is required. After terminal-green
+publication of the accepted implementation, its commit and CI evidence are
+recorded once at the next substantive Work Order boundary or final WO10
+closure, not through a standalone status-only relay.
+
+### Work Order 10 ceremony proportionality
+
+For the remainder of Work Order 10, a correction is implementer-inline when
+all of these are true:
+
+- every changed path is already inside the active increment's accepted
+  envelope;
+- the correction preserves semantic scope, accepted architecture, public
+  human/JSON/runtime/schema behavior, diagnostic allocation and meaning,
+  evidence meaning, and acceptance criteria;
+- the correction introduces no dependency, platform surface, or reserved BDFL
+  decision; and
+- the complete corrected deliverable remains subject to the increment's real
+  checks and one final independent implementation review.
+
+Examples include missing imports or explicit qualification; rustfmt-only
+ordering or wrapping; compiler, Clippy, lint, warning, or typo repair;
+test-selector or deterministic harness plumbing inside the accepted envelope;
+and a small line-count change or overrun that adds no semantic scope. These are
+implementation work. They require no Work Order amendment, pre-issuance
+review, documentation publication, status record, or separate BDFL correction
+signal. They receive no automatic acceptance credit: their evidence comes from
+the complete checks and final independent review of the corrected deliverable.
+
+A Work Order amendment remains mandatory only for a semantic scope or behavior
+change; a production, test, fixture, tool, schema, or documentation path
+outside the accepted envelope; a new or changed diagnostic meaning or
+allocation; public output or schema change; architecture, authority, ownership,
+or precedence change; materially changed acceptance evidence; a new dependency
+or platform surface; or another reserved BDFL decision.
+
+An ambiguous case stops and reports the concrete ambiguity directly to the
+BDFL. Ambiguity grants no edit, but it also does not authorize the agent to
+invent an amendment, status gate, exception, or workaround. The BDFL decides
+whether the existing envelope already owns the correction or a substantive
+amendment is warranted.
+
+### Coherent-unit sizing replaces line-count authority
+
+The former 200-350 changed-line target and absolute 500-line ceiling are
+superseded as authorization, stop, split, and acceptance gates for all
+remaining Work Order 10 work. Line counts remain useful review telemetry, but
+they cannot by themselves cause a size stop, exception amendment,
+sub-increment split, rejection, or loss of otherwise valid evidence.
+
+The governing unit is the smallest dependency-coherent change that:
+
+- compiles as a complete production and test configuration;
+- is testable through its real production path;
+- can be independently reviewed in one sitting;
+- leaves no deliberately broken or unusable intermediate representation; and
+- does not require a later increment merely to compile, format, or make its
+  own acceptance harness select nonzero evidence.
+
+Smaller than compilable is too small. If a unit is genuinely larger than one
+review sitting, it may be split once along an actual producer/authority/
+validator/consumer dependency boundary. It may not be split merely to satisfy
+a line count, and a split may not create another hierarchy of sub-sub-units.
+
+### Four replacement foundation increments
+
+The former eleven-unit 10B.1a.1-10B.1a.11 publication train and the nested
+10B.1a.1.1/10B.1a.1.2 sequence are superseded as future increment boundaries.
+The current frozen 10B.1a.1.1 deliverable is completed first under the direct
+sequence above. Once accepted and published, its seven source/owner authority
+facts become inherited baseline evidence for Replacement F1; it is not a
+fifth replacement increment and is not reimplemented.
+
+All remaining seal-foundation work is exactly these four named, ordered
+increments. There is no open-ended count and no hierarchy below them.
+
+#### Replacement F1: occurrence authority and common node topology
+
+F1 owns the complete requirements formerly assigned to 10B.1a.1 and
+10B.1a.2. The accepted seven-field source/owner kernel is its inherited
+producer-owned baseline. F1 completes occurrence identity, expression role,
+root identity and Unit position, intent, assigning event,
+predicate-recognition state, retained authority, and the complete common node
+skeleton: opaque node/token/reduction identities, typed parent/child roles and
+ordinals, preorder order/count, exact source/range/token interval, kind and
+reduction identity, ordered children/cardinality, delimiter depth and lexical
+status, and absence of illegal fields.
+
+The independent catalogue, corruption mechanism, all inherited single and
+pair mutations, cross-occurrence substitutions, sabotage, repeatability, and
+public-compatibility checks remain cumulative and load-bearing. F1 changes
+only the existing former 10B.1a.1/10B.1a.2 envelope unless a substantive
+amendment is honestly required under the proportionality rule.
+
+#### Replacement F2: successful canonical expression payloads
+
+F2 owns exactly the successful kind and lexical topology requirements formerly
+assigned to 10B.1a.3 through 10B.1a.7:
+
+- Unit, Identifier, UIntLiteral, IntLiteral, BoolLiteral, and TextLiteral;
+- Field and direct numeric element place;
+- delimiter pairs, Group, and ListLiteral;
+- RecordLiteral and Call; and
+- Binary, Permission, and typed-failure Try wrappers.
+
+It seals every previously enumerated token, range, spelling, semantic value,
+child edge, separator, gap, adjacency, delimiter, reduction, precedence,
+associativity, wrapper, and successful termination fact through ordinary
+`parse_source`. It adds no H0010 behavior, evaluation, mutation, ownership,
+Core schema, or semantic consumer. The complete cumulative corruption matrix
+from F1 through every F2 field must remain nondegenerate.
+
+#### Replacement F3: parser completion and statement relationships
+
+F3 owns exactly the requirements formerly assigned to 10B.1a.8 through
+10B.1a.10. It completes the closed lexical status, `Complete`, `Unsupported`,
+and all twelve malformed causes with exact producing event and expected/actual
+evidence. It also binds sealed roots to all linear and control-flow statement
+relationships: `needs:`, `ensures:`, return, immutable and mutable binding,
+set, save, fail, expect, free expression, if, while, `for each`, both
+`for index` forms, unconditional loop, binders, and block open/close topology.
+
+The three retained authority domains remain separate. A binder is one shared
+producer-owned token/event identity, and malformed or relationship evidence
+cannot be co-mutated against a projection-derived authority. Every former
+10B.1a.8-10B.1a.10 field and misuse case remains in the cumulative catalogue
+and pair/cross-occurrence matrix.
+
+#### Replacement F4: complete seal and private Core boundary
+
+F4 owns exactly the integration requirements formerly assigned to
+10B.1a.11. It freezes the complete catalogue and independent counts, adds the
+one real complete-inventory fixture, proves every successful kind and
+relationship through ordinary parser and private Core-body paths, and makes
+complete seal validation mandatory before private Core-body construction.
+`src/ast.rs` remains read-only in F4; a missing AST fact is a finding against
+F1-F3, not authority to repair it during integration. Public Core schema and
+bytes remain unchanged, and F4 allocates or emits no H0010 diagnostic.
+
+The mapping is total and exclusive:
+
+| Former unit | Sole replacement owner |
+| --- | --- |
+| 10B.1a.1 | F1, with the accepted current seven-field kernel inherited |
+| 10B.1a.2 | F1 |
+| 10B.1a.3 | F2 |
+| 10B.1a.4 | F2 |
+| 10B.1a.5 | F2 |
+| 10B.1a.6 | F2 |
+| 10B.1a.7 | F2 |
+| 10B.1a.8 | F3 |
+| 10B.1a.9 | F3 |
+| 10B.1a.10 | F3 |
+| 10B.1a.11 | F4 |
+
+The full inventory at the start of the repeated-rejection re-scope amendment,
+including every independent authority domain, occurrence-wide fact, common
+node fact, kind-specific row, lexical/malformed fact, statement relationship,
+catalogue rule, corruption rule, sabotage, exact selector, compatibility lock,
+and Core-boundary requirement, remains authoritative. Grouping changes only
+implementation boundaries and ceremony; it drops, weakens, duplicates, or
+reassigns no semantic requirement.
+
+F1-F4 are ordered implementation deliverables. Each receives one implementer
+pass, one complete final independent implementation review, one accepted code
+commit, and one terminal-green publication before its successor begins.
+Intermediate documentation-only status commits are eliminated. The BDFL
+retains explicit authority for each code commit and push and for beginning the
+next replacement increment. No replacement may be decomposed again without a
+complete BDFL process-reset decision; an agent may not locally create F1.1,
+F2a, phases, slices, or equivalent hidden sub-units.
+
+Increment 10B.1b begins only after F4 is accepted and published. The former
+references to completion of all eleven units now mean completion of F1-F4.
+The meaning, envelope, diagnostic allocation, real-path evidence, and public
+compatibility requirements of 10B.1b remain unchanged.
+
+### Work Order 10 ceremony-pathology tripwire
+
+This reset is the terminating response to the already-triggered historical
+pathology. Its own one documentation commit and publication do not begin a new
+tripwire count. The counter starts after this reset becomes effective, and the
+current Increment 10B.1a.1.1 implementation must land before another
+governance-only commit.
+
+For the remainder of Work Order 10, any one of these conditions stops work and
+returns directly to the BDFL without adding another process gate:
+
+- two consecutive governance-only commits land without implementation code;
+- a compile, formatting, Clippy, lint, warning, typo, selector, harness-plumbing,
+  or small in-envelope line-count issue is proposed as a Work Order amendment;
+- decomposition exceeds two meaningful levels or introduces a sub-sub-unit;
+- a line-count target produces a stop, exception, or re-scope amendment; or
+- process work consumes more commits or elapsed time than the implementation
+  it governs.
+
+The response is simplification, coherent re-scoping, or a direct BDFL ruling,
+never another status layer, exception gate, or amendment about the tripwire.
+
+### One-cycle reset and strategic boundaries
+
+This reset receives one amendment-author pass, one fresh independent
+pre-issuance review, and exactly one verdict. Any verdict other than `ACCEPT`
+stops and returns the frozen tree to the BDFL. No correction cycle,
+sub-amendment, status amendment, or second reset review is authorized.
+
+An `ACCEPT` authorizes only BDFL acceptance of these exact bytes, one scoped
+`WORKORDER_10.md` commit, and one separately explicit push/CI action. Once the
+published reset is terminal-green, it is effective immediately; no reset
+publication-status record is permitted or required.
+
+After Increment 10B.1a.1.1 lands and the tree is clean, a separate permanent
+ceremony-proportionality and tripwire rule may be proposed for `AGENTS.md`
+through one bounded reviewed change. It is not authored or authorized here.
+The next strategic investigation is a maximum three-working-day throwaway
+Cranelift feasibility spike derived from accepted decision 0008. That spike is
+evidence work, not production backend implementation, and requires a separate
+explicit BDFL signal. This amendment does not design or begin it.
+
+The canonical parser-owned architecture; every anti-ghost, corruption,
+mutation, independent-authority, H0010, diagnostic-registry, precedence,
+public-compatibility, and configuration requirement; accepted decisions; and
+the prohibitions on 10B.2, 10C, Session AR, and later implementation remain
+unchanged except for the explicit Work Order 10 process and foundation-boundary
+supersessions above.
+
+### Single independent pre-issuance review
+
+The author of these reset bytes is disqualified from their verdict. One fresh
+independent architect-reviewer must cold-start from repository ground truth,
+inspect the complete reset and the full superseded dependency map, reproduce
+the frozen two-path OID, and verify that:
+
+- the reset cannot create another amendment or status-record cycle;
+- inline mechanical corrections cannot change semantic scope, architecture,
+  public behavior, diagnostics, evidence meaning, or the accepted envelope;
+- line counts are telemetry and the coherent-unit rule remains reviewable;
+- exactly F1-F4 replace all eleven former units with a total, exclusive mapping;
+- every former authority, fact, corruption, sabotage, selector,
+  compatibility, configuration, and Core-boundary requirement remains live;
+- the tripwire stops ceremony recursion without granting implementation or
+  publication authority;
+- the current implementation and `AGENTS.md` remain untouched; and
+- the Cranelift spike, 10B.2, 10C, Session AR, and every later item remain
+  unauthorized.
+
+The reviewer runs only `git diff --check` and
+`.\tools\check_text_hygiene.ps1`. It must not edit any file, run Cargo,
+rustfmt, Clippy, implementation selectors, or full preflight, commit, push,
+apply the normalization, begin the permanent `AGENTS.md` rule, begin the
+Cranelift spike, or begin later work. It reports P0/P1/P2 findings and exactly
+one verdict: `ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT`.
+
+Any verdict other than `ACCEPT` is the final result of this one-cycle reset and
+returns to the BDFL. Even `ACCEPT` authorizes no implementation edit, commit,
+push, or later work until the BDFL exercises the exact reserved actions above.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
