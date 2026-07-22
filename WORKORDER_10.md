@@ -4027,6 +4027,657 @@ Any verdict other than `ACCEPT` is the final result of this one-cycle reset and
 returns to the BDFL. Even `ACCEPT` authorizes no implementation edit, commit,
 push, or later work until the BDFL exercises the exact reserved actions above.
 
+## Replacement F4 seal-transport boundary correction amendment (2026-07-22; proposed)
+
+### Authority, classification, and stopped-gate evidence
+
+The BDFL authorized one bounded substantive architecture/envelope amendment
+after Replacement F4 stopped before its first edit. This is the kind of
+authority/ownership and out-of-envelope correction for which the ceremony-
+proportionality rule still requires a Work Order amendment. It is not a
+mechanical gate, size exception, status record, or new subincrement.
+
+The stopped gate and the successive independent rejection findings were reproduced
+against clean synchronized `main` at
+`3e20adee78f42bb974ad8f04ab175a63272fe6e0`, the accepted and published
+Replacement F3 implementation. The worktree, real index, and untracked set
+were empty, and no F4 or later implementation existed. Inspection established:
+
+- `parser::ParseOutput` alone retained the three complete parser-owned seal
+  domains as `source_owner_seals`, `occurrence_seals`, and `statement_seals`;
+- production `main::load_program` called `parse_source_at_index`, used
+  `parsed.file` for ordinary checking and app-entry analysis, and finally
+  moved only `parsed.file` into `Program`, discarding the three sibling seal
+  vectors;
+- `ast::Section` retained only its public name, lines, body syntax, and span,
+  with no seal authority or validated capability;
+- `core_body::analyze_does_section` accepted only `&Section` and immediately
+  began constructing `BodyGrammarReport`; and
+- the original four-path F4 envelope made it impossible to carry the original
+  parser-owned authority through the real `load_program` path to that private
+  Core boundary because `src/ast.rs` was expressly read-only.
+
+The first rejected draft then placed an independent witness on the item and
+described separately supplied traversal values, but did not bind those values
+to live container borrows. Safe code could retain an owned expectation, move
+an item together with its witness and section capability after the expectation
+was produced, and then present the stale expectation; all carried values would
+still agree. The corrected boundary must make that sequence unrepresentable,
+not merely ask callers not to cache it.
+
+The second rejection correctly found the production function-item use at
+`src/typed_failure.rs::collect_program_analysis`, but its stated total of
+fifteen production uses across thirteen files was itself incomplete. A full
+symbol search, including callbacks without a following `(`, also found two
+production function-item uses in `src/ir_readiness.rs` and one in `src/run.rs`.
+Repository truth is eighteen production uses across fourteen consumer files.
+This amendment records that larger complete inventory rather than preserving
+the rejected review's undercount.
+
+Fresh review of the first lifetime-bound replacement confirmed that its borrow
+prevented stale expectation reuse but rejected its Program-side grounding. It
+dropped the sibling `ParseOutput` context when moving `parsed.file` and placed
+no independent file/source-revision witness on `SourceFile`. Consequently, a
+whole item with its item witness and Section capabilities could move between
+same-index files whose bytes differed only in ignored comments: the public AST
+could remain equal, the fresh traversal ordinal could remain equal, and all
+carried item/Section authority could still agree with itself. The correction
+below adds the missing destination-file anchor; the lifetime expectation alone
+was necessary but not sufficient. That review also found that the supposed
+test-only Rust `Task` literal in `src/ir_readiness.rs` was actually Hum source
+inside a raw test string. The constructor inventory and exact envelope below
+correct that factual error without removing `ir_readiness`'s two real
+production callbacks.
+
+Review of that file-anchor correction accepted the transport architecture but
+found one hidden evidence ripple: two `src/resolve.rs` tests intentionally
+mutated cloned retained Section text and expected resolution to proceed. That
+expectation contradicts F4's mandatory projection seal. Because `resolve.rs`
+was already required for production Core migration, the exact envelope count
+does not change; the corrected test disposition is specified below rather than
+silently preserving an impossible success assertion.
+
+Parse-time validation whose proof is discarded cannot prove validation at the
+Core boundary. Rebuilding authority from `Section`, trusting a Boolean stamp or
+projection-derived digest, using a test-only helper, consulting global mutable
+state, rendering and reparsing, or inferring from public Core/root summaries
+would recreate exactly the authority and ghost-evidence defects that Work
+Order 10 forbids. F4 therefore stopped correctly without editing, testing, or
+requesting implementation review.
+
+### Complete production transport and construction inventory
+
+The production parser transport is closed and singular:
+
+| Path and function | Current behavior | Corrected F4 consequence |
+| --- | --- | --- |
+| `src/parser.rs`: `parse_source_at_index` | Constructs `ParseOutput.file` and the three sibling seal vectors. | Finalizes one immutable parser-owned capability per applicable section, one separate item-owned witness, one independent private file witness on `SourceFile`, and one sibling `ParseOutput` semantic-file context before returning; the sibling seal vectors remain available to cumulative F1-F3 evidence. |
+| `src/main.rs`: `load_program` | Calls `check_file_with_semantic_index(&parsed.file, semantic_file_index)`, then moves only `parsed.file` into `Program`. | Must keep the complete `ParseOutput` live while checking and pass its borrowed, opaque semantic-file context rather than a scalar index. After that borrow ends, moving `parsed.file` transports the independent file witness, item witnesses, and section capabilities into `Program`; only the sibling parse context is deliberately not moved. |
+| `src/check.rs`: `check_file_with_semantic_index` and its helper chain | Receives a raw file plus caller-supplied ordinal and eventually calls Core with only `&Section`. | Replaces the production scalar-index entry with a borrowed `ParseOutput` container view, threads the live file/item/section context to `local_mutables`, and obtains the same lifetime-bound expectation required of later Program stages. |
+
+`parser::parse_source` is `#[cfg(test)]`; every other direct `parse_source`
+transport is test-only and is not a second production loader. `Section` is
+constructed in production only by the parser. A permanent source audit must
+keep both properties true: no second production parse transport and no manual
+production `Section` constructor may bypass parser finalization.
+
+The complete production call graph into the private Core-body boundary is
+eighteen uses across fourteen consumer files:
+
+| Consumer path | Production function(s) entering `analyze_does_section` |
+| --- | --- |
+| `src/check.rs` | `local_mutables` |
+| `src/core_lower.rs` | `core_item` |
+| `src/core_preview.rs` | `core_candidate` |
+| `src/effect_check.rs` | `check_item` |
+| `src/full_type_check.rs` | `type_item` |
+| `src/ir_readiness.rs` | `add_section_family_facts` callback; `body_grammar_for_item` callback |
+| `src/ownership_check.rs` | `check_item` |
+| `src/path_boundary.rs` | `check_task_signature`; `check_source_path_construction` |
+| `src/predicate.rs` | `reachable_diagnostics` |
+| `src/resolve.rs` | `Resolver::resolve_does_section` |
+| `src/resource_check.rs` | `check_task` |
+| `src/run.rs` | `Interpreter::reachable_type_tasks`; `Interpreter::execute_task_body`; `Interpreter::preflight_reachable_typed_failures` callback |
+| `src/type_check.rs` | `checked_returns_for_task` |
+| `src/typed_failure.rs` | `collect_program_analysis` callback |
+
+Six calls inside `core_body`'s own test module and two direct calls inside
+`typed_failure`'s test module are test-only. The complete symbol inventory is
+therefore eighteen production uses, eight test calls, the one definition, and
+the one test-module import. There is no alias, re-export, method pointer, macro,
+or additional closure use. Every test call must use ordinary parser output
+after F4 but does not enlarge the production call graph.
+
+Every production caller already goes through the single
+`core_body::analyze_does_section` entry, but a raw `&Section` does not carry an
+expected parent witness independent of the candidate capability. Each of the
+fourteen consumer files must therefore migrate every inventoried direct call
+or callback and its local helper chain to create the exact live-container
+expectation described below. Function-item callbacks must become explicit
+closures that construct a fresh expectation; the guarded function may no
+longer be passed as a raw `fn(&Section)` value.
+This is transport plumbing only: it may not change what any consumer accepts,
+computes, diagnoses, orders, renders, or executes. Adding a parallel raw-
+section entry would create a bypass and is prohibited. If implementation
+discovers another production Core-body construction or call path outside this
+inventory, F4 stops rather than extending or working around the map.
+
+The constructor and test-compilation inventory is also closed. Production
+`SourceFile`, item, and `Section` literals that install real syntax are all in
+`src/parser.rs`. `src/app_entry.rs` has the only other production
+`SourceFile` literal: an empty semantic-position placeholder that never owns
+an item or reaches Core, but it must migrate to the explicit non-authoritative
+empty-placeholder constructor when `SourceFile` gains its private file
+witness. It may not issue or imitate a valid parser witness. There is no non-
+parser Rust item literal: the apparent `Task { ... }` in
+`src/ir_readiness.rs` is Hum source inside a test raw string. The sole
+`BodyGrammarReport` literal is the current constructor in `src/core_body.rs`.
+Existing `Program` literals do not gain a field and continue to contain
+parser-produced `SourceFile` values or the explicitly empty app-entry
+placeholders. The raw-file check test surface consists of calls in
+`src/check.rs` itself plus
+`src/graph.rs`, `src/core_verify.rs`, `src/diagnostic.rs`, `src/run.rs`, and
+`src/type_check.rs`; each is either already in a production-consumer path or
+is listed separately in the exact envelope below. No AST or private carrier is
+currently serialized by derive or a direct serializer; existing public Core,
+JSON, graph, human, and diagnostic serializers consume projections and remain
+read-only compatibility surfaces.
+
+Two existing `src/resolve.rs` tests are an intentional semantic ripple, not
+unchanged cumulative evidence:
+`resolver_call_identity_ignores_retained_section_text_after_parsing` and
+`later_resolver_call_identity_ignores_earlier_retained_statement_references`
+mutate `Section.lines[*].text` on a cloned parsed file and then expect resolver
+success. That post-parse candidate/authority disagreement becomes invalid at
+the F4 boundary. Their former success expectation is superseded only for this
+corrupt state; it may not be retained by bypassing, refreshing, or co-mutating
+the seal. F4 must replace those two tests with negative real-boundary evidence:
+construct the ordinary parsed Program, mutate only the named cloned Section
+projection, obtain the fresh Program-bound expectation for that exact live
+section, traverse the guarded Core validator, and prove rejection before any
+`BodyGrammarReport` or resolver call summary exists. This test-only fallible
+observation may expose the real private rejection but may not mint authority,
+provide an expected answer, or create a second successful Core entry. The
+existing no-render/reparse source audit and valid-input resolver evidence
+remain mandatory; no other resolver behavior or test semantics change.
+
+### Public and compatibility surface inventory
+
+The private capability is compiler evidence, not a public AST or Core field.
+These observable surfaces remain exact:
+
+- existing `Program`, `SourceFile`, and `Section` public fields and their
+  source-order, cloning, equality, and ordinary debug behavior;
+- existing `ParsedBodyStatement`, expression, token, span, diagnostic, graph,
+  human, and JSON projections;
+- `BodyGrammarReport` and `BodyStatement` values on valid input;
+- `hum.core_preview.v0`, `hum.core_lower.v0`, and `hum.core_verify.v0` schemas,
+  serialized bytes, row order, blockers, spans, and status strings; and
+- check, resolve, declaration type, full type, effect, ownership, resource,
+  predicate, Path, and runtime output, precedence, exit behavior, and adapter
+  behavior.
+
+The capability, file witness, and item witness must not appear in public
+serialization, public Debug output, graph rows, schema counts, or public
+equality. Existing comparisons in which two publicly equivalent parsed files
+have different private source identities must remain equal. Cloning a file,
+item, or section must preserve its same immutable private authority; mutating a
+clone's public/body projection must not update that authority and must
+therefore be rejected at Core.
+
+The persistent capability, file witness, item witness, and parse context
+contain no borrowed, thread-local, process-global, random, or platform state.
+They are owned, deterministic, clone-preserving, and composed only from
+parser-produced identities and immutable retained facts. The transient Core
+expectation is the deliberate exception: it contains non-`'static` immutable
+borrows tying one analysis call to its live container. None of these objects
+adds a dependency, feature, `cfg` branch, system tool, or platform-specific
+behavior.
+
+### Selected architecture: candidate capability, independent witnesses, and a
+lifetime-bound expectation
+
+F4 adopts one design and rejects the alternatives. Each applicable
+parser-produced `Section` privately carries an opaque candidate
+`CanonicalCoreSealCapability`; its enclosing parser-produced item privately
+carries a distinct `CanonicalCoreOwnerWitness`; and its parser-produced
+`SourceFile` privately carries a distinct `CanonicalCoreFileWitness`.
+`ParseOutput` separately retains an opaque sibling
+`CanonicalCoreParseContext` for the pre-Program check. The candidate, item
+witness, file witness, and parse context are issued independently during
+parser finalization and are stored in different owners. Core receives none of
+their expected identities as caller-supplied scalar data. The exact Rust names
+may follow existing naming conventions, but these ownership and separation
+rules are mandatory.
+
+The capability is not a Boolean, nonce, cache entry, or digest-only receipt.
+It owns or immutably shares enough of the original parser evidence to recheck:
+
+- the independently retained source/owner seal authority;
+- the independently retained expression-occurrence authority;
+- the independently retained statement-relationship authority;
+- the corresponding exported seal projections;
+- the exact source revision, semantic-file, item, section, statement,
+  occurrence, node/root, relationship, and ordering bindings; and
+- an immutable snapshot of the existing `Section` projection that reaches
+  Core, excluding the capability itself.
+
+The Rust dependency direction is explicit. `src/ast.rs` declares only the
+crate-private opaque carrier wrappers, including the file-witness wrapper, a
+sealed live-container reference, the lifetime-bound expectation, and the
+object-safe immutable verification interfaces used by those wrappers. Parser-
+private implementation objects own the existing seal and source-revision
+types and implement those interfaces in `src/parser.rs`; `src/ast.rs` does not
+import parser or Core types, and `src/core_body.rs` consumes only the opaque
+expectation and its validation results. The wrappers use immutable shared
+ownership where sharing is needed and preserve the current `Send`/`Sync`
+properties of the persistent AST. A permanent source audit rejects any non-
+parser production implementation, issuer, or installer of the valid
+capability, file witness, item witness, or parse-context interfaces.
+
+The parser may share immutable file-level evidence with `Arc`, but each
+section capability has an exact section-owner view. No capability is issued
+until all three domains validate against their independent retained authority,
+the section projection matches the evidence, and the capability has been
+bound to that exact section owner. A pending, absent, partial, duplicated,
+foreign, substituted, or inconsistent carrier is not valid authority.
+
+The separate file-owned witness retains the parser-supplied source revision,
+semantic-file identity/index, normalized source path identity, and applicable
+ordered top-level item-owner identities for that `SourceFile`. It is not
+copied from an item witness or Section capability and cannot be replaced or
+updated through the public file projection. The separate item-owned witness
+retains its independently supplied expected source revision, semantic-file
+identity/index, item identity and traversal, item kind, and ordered section-
+owner/slot identities. It is not copied from either the file witness or the
+Section capability and is not reconstructed from their projections. The
+separate sibling `ParseOutput` context independently retains the parser's
+semantic-file identity/index, normalized path identity, and source revision
+but no file-witness, item-witness, or Section-capability projection. It remains
+beside `ParseOutput.file` during the pre-Program check and is dropped only
+after that checked borrow ends and the file moves into the Program.
+
+One central AST-owned locator accepts a sealed live-container reference in one
+of exactly two forms: a parser-created borrowed view of the complete
+`ParseOutput` file plus its sibling parse context, or a borrowed `Program`.
+`src/ast.rs` does not name or depend on `parser::ParseOutput`: `src/parser.rs`
+alone implements the crate-private `ParseOutput` method that borrows both
+siblings and creates the sealed neutral view consumed by the AST locator. The
+locator freshly walks the live container by reference identity and returns
+`CanonicalCoreSectionExpectation<'a>`, which immutably borrows the exact
+container, file, item, and Section for `'a` and retains private actual file,
+nested-item, item-kind, section-slot, and section-name traversal facts. The
+expectation has private fields, is non-`Clone`, non-`Copy`, non-`Default`,
+non-serializable, and has no constructor from names, spans, IDs, paths,
+ordinals, public projections, or an owned traversal record. Core receives the
+Section only through this expectation; it never receives a separately paired
+`&Section`.
+
+The parse-side front door is the parser-owned method and may be called only on
+a borrowed complete `ParseOutput`; callers cannot split its file from its
+sibling context or substitute a scalar semantic-file ordinal. The Program-
+side front door borrows the complete live Program and derives the current file
+ordinal from that traversal. Both delegate to the same AST locator. If the
+exact item and Section references are not present at the traversed location,
+construction fails. The pre-Program form binds the live file and its file
+witness to the independent sibling parse context; the Program form binds the
+live file witness to the freshly observed Program file ordinal/path before it
+uses any item or Section witness. Because the expectation retains those
+immutable borrows, safe Rust cannot mutate, replace, reorder, or reparent the
+container while it exists. After a mutation, a new lookup observes the new
+traversal and compares it first to the destination file witness and then to
+the unchanged item witness.
+
+This closes both whole-carrier and stale-expectation cases. Moving a valid
+Section together with its capability under another item or section slot fails
+against the independent item witness. Replacing only the capability with one
+from byte-identical source parsed at another semantic-file index fails against
+the file witness plus the live ParseOutput/Program context. Moving a whole
+item together with its witness and Section capabilities into another
+`SourceFile` cannot reuse a stale expectation because the borrow prevents the
+move; a new expectation compares the foreign item's source revision and file
+identity to the destination file witness and fails even when file ordinal and
+public Section projection match. This includes files that are publicly equal
+because their source bytes differ only in ignored comments. Moving a whole
+`SourceFile` to another Program ordinal fails its file witness; pairing a
+SourceFile, item, or Section reference from one live `ParseOutput` or Program
+with another live container fails locator construction. An independently
+parsed Program analyzed only with its own references remains a separate valid
+compiler input.
+
+`src/ast.rs` becomes writable only for this private transport boundary:
+
+- add the private file-witness field on `SourceFile`, the private section-
+  capability field, the separate private item-witness field on every item kind
+  that can own sections, and the minimum private/crate-private installation
+  and read-only inspection surface needed by parser and Core validation;
+- add the sealed live-container reference and non-owning
+  `CanonicalCoreSectionExpectation<'a>` described above; neither exposes its
+  traversal fields or permits construction outside the central locator;
+- preserve the existing public `Section` fields and public projection;
+- provide no public constructor, default valid value, setter, replacement
+  path, or production mutation access for the capability, file witness, or
+  item witness;
+- keep parser as the sole production issuer of a valid capability, file
+  witness, item witness, and parse context, enforced by source audit;
+- permit `src/app_entry.rs` to create only an explicit empty, non-authoritative
+  `SourceFile` placeholder with no items and no valid file witness; locator
+  construction on that placeholder must fail closed if an applicable item is
+  ever introduced;
+- make the central locator obtain actual file/item/section traversal by
+  reference identity from live borrows without reading the candidate
+  capability or accepting scalar traversal evidence; and
+- keep public equality and ordinary debug/serialization behavior independent
+  of all private objects, replacing affected derives with byte-compatible
+  manual implementations where Rust's derived output would expose or compare
+  a private field.
+
+The temporary parser-internal construction state may be unsealed while the
+parser is still building a file, but no returned `ParseOutput.file` may contain
+an applicable unsealed section. Core always rejects absent or pending state.
+This construction detail grants no second authority path.
+
+At `src/core_body.rs`, `analyze_does_section` remains the sole production entry
+but its only argument is one `CanonicalCoreSectionExpectation<'_>` consumed by
+value. There is no overload accepting `&Section`. It performs this order:
+
+1. recheck the expectation's borrowed live container, actual traversal, exact
+   item reference, and exact Section reference;
+2. obtain the file-owned witness, item-owned witness, and candidate capability
+   through those exact borrowed owners;
+3. in the pre-Program form, validate the live file witness against the sibling
+   `ParseOutput` context; in the Program form, validate it against the fresh
+   live Program file traversal;
+4. validate the item witness against the file witness and actual file/item/
+   section traversal;
+5. validate all three retained authority domains and their projections;
+6. validate the capability against the independent file and item witnesses
+   and the current section projection;
+7. produce a private unforgeable-for-callers `ValidatedCoreSection` token; and
+8. only then invoke the sole private `BodyGrammarReport` construction path.
+
+The report constructor must require the validated token structurally. Missing
+or corrupt authority takes one fixed internal-invariant rejection path before
+any `BodyGrammarReport`, Core row, serialized byte, runtime body, or adapter
+action exists. It may not fall back to the old raw `&Section` construction,
+return an empty/partial report, reuse public diagnostics, allocate an H-code,
+or continue through a generic runtime trap. The fallible validator remains
+directly observable to F4's private corruption tests, while valid callers
+retain their existing behavior and call shape.
+
+The central boundary protects all eighteen inventoried production uses
+after their exact expectation-plumbing edits. A permanent source audit must
+prove:
+
+- exactly one production `Section` construction owner: parser finalization;
+- exactly one valid production private file-witness issuer: parser
+  finalization, with the distinct app-entry empty-placeholder path unable to
+  create valid Core authority;
+- exactly one production private item-witness issuer: parser finalization;
+- exactly one production `BodyGrammarReport` construction owner: the private
+  post-validation Core constructor;
+- no second raw-section Core entry, fallback constructor, capability default,
+  file- or item-witness default, clone/copy/default expectation, owned
+  traversal result, capability/witness reconstruction, global registry, or
+  side channel;
+- only parser production code issues or installs valid capabilities, file
+  witnesses, item witnesses, and parse contexts;
+- every expectation is freshly obtained from a live complete `ParseOutput` or
+  Program without reading the candidate capability or accepting caller-
+  supplied scalar identity; and
+- all inventoried consumers enter the guarded `core_body::analyze_does_section`
+  path only through the single lifetime-bound expectation argument.
+
+### Corrected exact F4 envelope
+
+The complete writable F4 envelope is exactly twenty-four paths:
+
+- `src/ast.rs`, only for the private SourceFile witness, section capability,
+  independent item witness, explicit non-authoritative empty-file placeholder,
+  sealed live-container reference, lifetime-bound expectation, and central
+  reference-identity locator described above;
+- `src/parser.rs`, for capability issuance, retained-authority validation,
+  file-witness, item-witness, and parse-context issuance, cumulative
+  composition, the `ParseOutput` borrowed context front door, corruption
+  seams, and real parser evidence;
+- `src/core_body.rs`, for the mandatory validator/token/private-constructor
+  boundary, its six tests, and removal of the raw-Section signature;
+- `src/main.rs`, only to keep the complete `ParseOutput` borrowed during the
+  pre-Program check and stop supplying a scalar semantic-file index to Core
+  transport;
+- `src/app_entry.rs`, only to replace its one empty semantic-position
+  `SourceFile` literal with the explicit non-authoritative empty-placeholder
+  constructor; it may not issue a valid file witness or enter Core;
+- `src/check.rs`, for the guarded ParseOutput-context entry, live item/section
+  threading, its tests, and removal of raw-file-only Core analysis;
+- `src/core_lower.rs`, only to create fresh Program-bound expectations at its
+  one existing production Core use;
+- `src/core_preview.rs`, only to create a fresh Program-bound expectation at
+  its one existing production Core use;
+- `src/effect_check.rs`, only to create a fresh Program-bound expectation at
+  its one existing production Core use;
+- `src/full_type_check.rs`, only to create a fresh Program-bound expectation at
+  its one existing production Core use;
+- `src/ir_readiness.rs`, only for its two production function-item uses;
+- `src/ownership_check.rs`, only to create a fresh Program-bound expectation at
+  its one existing production Core use;
+- `src/path_boundary.rs`, only to create fresh Program-bound expectations at
+  its two existing production Core uses;
+- `src/predicate.rs`, only to create a fresh Program-bound expectation at its
+  one existing production Core use;
+- `src/resolve.rs`, to create a fresh Program-bound expectation at its one
+  existing production Core use and to replace only the two inventoried
+  post-parse text-mutation success tests with the negative real-boundary
+  rejection evidence specified above;
+- `src/resource_check.rs`, only to create a fresh Program-bound expectation at
+  its one existing production Core use;
+- `src/run.rs`, for its three production Core uses and its existing test-only
+  check helper migration;
+- `src/type_check.rs`, for its one production Core use and its existing
+  test-only check helper migration;
+- `src/typed_failure.rs`, for its production `collect_program_analysis`
+  function-item use plus its two test-only direct Core calls;
+- `src/graph.rs`, only to migrate its test-only check call from a raw file to
+  the real borrowed ParseOutput context;
+- `src/core_verify.rs`, only to migrate its test-only check call from a raw
+  file to the real borrowed ParseOutput context;
+- `src/diagnostic.rs`, only to migrate its test-only check calls from a raw
+  file to the real borrowed ParseOutput context;
+- `tools/check_all.ps1`, for exact selectors, source audits, repeated runs,
+  compatibility checks, and named sabotage; and
+- `fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum`, the one real
+  successful complete-inventory program.
+
+The fourteen production consumer paths may change only to thread the live
+`ParseOutput` or Program borrow, exact Item, and exact Section to the central
+locator immediately before their eighteen existing uses. They may forward
+live references through local helper chains, but may not forward or cache an
+expectation, accept scalar traversal identity, own validation, reconstruct
+identity, search by public name/text/equality, change semantics, or add a
+second Core entry. `src/ir_readiness.rs` and `src/typed_failure.rs` are
+production consumers, not merely test ripple.
+
+Removing the raw-file-only test check path requires the three listed external
+test-call migrations in `graph`, `core_verify`, and `diagnostic`; the analogous
+`run` and `type_check` migrations are already inside production consumer
+paths. Those tests must borrow the complete parser output rather than receive a
+test-only synthesized context. `src/app_entry.rs` changes only because its
+empty production `SourceFile` placeholder must use the explicit non-
+authoritative constructor after the private file witness is added; app-entry
+analysis still never enters Core and cannot create valid seal authority.
+
+All other paths are out of scope. If implementation needs another loader,
+consumer, constructor, schema, diagnostic, workflow, dependency, or other
+path, the envelope is wrong and F4 stops for the BDFL; no local extension,
+test-only bypass, or parallel API is authorized.
+
+This amendment supersedes only Replacement F4's former four-path envelope,
+its `src/ast.rs` read-only clause, and its instruction to classify this exact
+transport absence as an F1-F3 fact failure. F1-F3 supplied all semantic facts;
+the defect is the missing private carrier across the integration boundary.
+Every other F4 mandate remains live.
+
+### Complete-catalogue and real-path acceptance
+
+Repository truth independently derives the frozen cumulative catalogue as:
+
+- 36 F1 occurrence/common-topology fields;
+- 64 F2 successful payload/topology fields;
+- 8 F3 malformed/completion fields; and
+- 24 F3 statement-relationship fields.
+
+The total remains exactly 132 fields, and the complete unordered-pair count is
+`132 * 131 / 2 == 8,646`. These literals remain independently supplied test
+expectations outside production validation; production may not derive its
+acceptance target from the candidate catalogue it validates.
+
+The existing F1-F3 selectors and corruption matrices remain cumulative and
+unchanged. F4 adds the exact deterministic nonzero F4 selector and the one
+complete-inventory Hum fixture containing every successful expression kind
+and every compatible statement relationship. Positive evidence must run that
+fixture through the real CLI `load_program` transport, ordinary parser
+finalization, the borrowed complete-`ParseOutput` check context before the
+file move, the resulting live `Program` context after the move, the guarded
+private Core-body constructor, and existing Core preview/lower/verify
+surfaces. A parser-only, raw-file-only, or directly fabricated
+`Section`/capability/context test cannot satisfy the real-path requirement.
+
+Permanent evidence must independently prove:
+
+- every one of the 132 catalogue fields remains represented and every one of
+  the 8,646 unordered pairs remains selected exactly once;
+- the real fixture reaches private Core construction only after capability
+  validation and retains byte-exact public Core/human/JSON/runtime behavior;
+- missing, extra, reordered, substituted, reparented, wrong-kind,
+  wrong-payload, wrong-token, wrong-range, wrong-revision, wrong-depth,
+  wrong-intent, wrong-status, wrong-wrapper, wrong-binder, wrong-loop,
+  wrong-block, and foreign same-shaped facts reject before construction;
+- absence, pending state, incomplete authority, wrong section binding,
+  authority substitution, and coherent projection/authority co-mutation each
+  reject independently;
+- moving a Section plus its intact capability under a different item or
+  section slot rejects against the independent item witness and fresh live
+  traversal;
+- substituting a capability from identical source bytes parsed at another
+  semantic-file index rejects against the independent file witness plus the
+  sibling parse context or live Program traversal;
+- moving a whole item together with its witness and Section capabilities to a
+  different file, nested-item path, or item ordinal rejects when a fresh
+  expectation compares it with the destination file witness and changed live
+  traversal; the permanent case must include two same-index files whose bytes
+  differ only by ignored top-level comments so their public AST projections
+  remain equal while their source revisions do not;
+- moving a whole SourceFile plus its file witness to another Program ordinal
+  rejects against the fresh Program traversal;
+- pairing a SourceFile, item, or Section from one live `ParseOutput` or Program
+  with a different live container fails expectation construction even when all
+  public values are equal;
+- capturing an expectation and then relocating, replacing, or mutating its
+  borrowed container/item/Section is rejected by the Rust borrow checker;
+  turning the expectation into owned or `'static` traversal evidence, or
+  making it `Clone`, `Copy`, or reconstructible, must turn permanent
+  compile/source evidence red;
+- caller-supplied or reconstructed file/item/section ordinals, paths, names,
+  spans, IDs, reference substitutes, or public projections cannot construct
+  an expectation, and restoring such a constructor turns source audit red;
+- corrupting, substituting, omitting, or rebuilding the file witness, item-
+  owned witness, parse context, capability, or actual live-container traversal
+  each rejects independently, including coherent capability/item-witness/
+  projection co-substitution against an unchanged destination file witness;
+- mutating a cloned file/item/Section projection without changing its retained
+  authority rejects, while an unchanged clone remains valid;
+- both named `src/resolve.rs` post-parse text-mutation tests are replaced by
+  real Program-locator/Core-validator rejection tests and can no longer return
+  or compare resolver summaries from the corrupt projection;
+- representative corruption of each source/owner, occurrence, and statement
+  authority domain changes the Core-boundary result;
+- moving validation after construction, bypassing the token, restoring a raw
+  `&Section` Core overload or constructor, dropping capability installation
+  in parser finalization, dropping file-witness, item-witness, or parse-context
+  issuance, allowing app-entry placeholders to forge valid file witnesses, or
+  dropping either pre-Program or Program expectation plumbing through
+  `load_program` turns evidence red;
+- deleting a producer, validator, catalogue, mutation, pair, substitution,
+  boundary-call, source-audit, or selector arm turns permanent evidence red;
+  and
+- two fresh selector runs produce identical inventories, pair counts,
+  validation results, and public bytes.
+
+Test-only corruption access is authorized only inside the corrected twenty-
+four-path envelope and only to alter the real private carrier or guarded Core
+branch. It must not provide expected answers, a second successful constructor,
+an owned/stale expectation path, or a production capability factory. Runtime
+corruption seams may represent only states that valid production APIs cannot
+express; the stale-expectation case itself must remain compile-time
+unrepresentable. Sabotage that changes only test bookkeeping receives no
+credit.
+
+The complete acceptance sequence remains:
+
+- exact cumulative F1, F2, F3, and F4 selectors and corruption matrices;
+- the real parser-to-private-Core inventory proof and two-run repeatability;
+- `cargo fmt --check`;
+- `cargo test`;
+- `cargo clippy --all-targets -- -D warnings`;
+- `git diff --check`; and
+- `.\tools\check_all.ps1`.
+
+Windows host checks exercise `x86_64-pc-windows-msvc`; required Ubuntu and
+Windows CI remain final cross-platform authority after a separately authorized
+push. F4 adds no platform-specific or feature-gated branch. Any configuration
+that cannot be exercised is disclosed rather than inferred.
+
+### Locks, sequence, and one-cycle review
+
+F4 adds no H0010 allocation or emission, recursive comparison behavior,
+resolver/checker/effect/ownership/runtime consumer convergence, production
+Cranelift integration, public AST/Core field, schema change, dependency, or
+later feature. H0010, 10B.1b, 10B.2, 10C, Session AR, and all later work remain
+unauthorized.
+
+This proposed amendment authorizes no implementation. It must receive one
+fresh independent pre-issuance review, BDFL acceptance of the exact bytes, one
+scoped `WORKORDER_10.md` commit, separately authorized publication, and
+terminal-green required Ubuntu and Windows CI before a separate BDFL F4 go
+signal can resume implementation. Under the ceremony reset, no standalone
+publication-status record follows this substantive amendment.
+
+The amendment author is disqualified from its verdict. The reviewer must
+independently reproduce the singular production loader, parser-only production
+valid `SourceFile`/item/`Section` construction, the one non-authoritative empty
+app-entry placeholder, all eighteen production uses across fourteen consumer
+files including every function-item/callback use, all eight test calls, the
+36/64/8/24 catalogue derivation, and the 132/8,646 totals. It must verify that
+the private candidate capability, independent file witness, independent item
+witness and parse context, and lifetime-bound live-container expectation are
+satisfiable, complete, non-public, stored in their specified owners, and
+structurally mandatory before the sole Core constructor. It must prove the
+expectation cannot outlive or be separated from its borrowed live container/
+file/item/Section, that no raw
+Section or scalar-traversal path can reach Core, that whole-section,
+whole-capability, whole-item, semantic-index, wrong-container, coherent
+co-substitution, and stale-expectation attacks fail, that the Rust module and
+borrow design introduces no AST/parser cycle, that the exact twenty-four-path
+envelope covers every affected constructor and test-compilation ripple, and
+that no loader or additional consumer edit is silently required.
+
+The reviewer runs only:
+
+```powershell
+git diff --check
+.\tools\check_text_hygiene.ps1
+```
+
+It must not edit, implement F4, run implementation acceptance checks, commit,
+push, or begin later work. It reports P0/P1/P2 findings and exactly one verdict:
+`ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT`.
+
+At most one bounded correction/re-review cycle is permitted for this
+amendment. Another architecture or envelope surprise stops directly for the
+BDFL rather than creating another process layer. Even `ACCEPT` authorizes only
+the later exact BDFL-scoped documentation commit; it does not authorize F4
+implementation, publication, or any later increment.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
