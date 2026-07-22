@@ -664,12 +664,13 @@ fn type_diagnostics(declarations: &[TypeDeclaration]) -> Vec<TypeCheckDiagnostic
 fn collect_checked_returns(program: &Program, blocked: bool) -> Vec<CheckedReturn> {
     let mut checked_returns = Vec::new();
     for file in &program.files {
-        collect_checked_returns_from_items(&file.items, blocked, &mut checked_returns);
+        collect_checked_returns_from_items(program, &file.items, blocked, &mut checked_returns);
     }
     checked_returns
 }
 
 fn collect_checked_returns_from_items(
+    program: &Program,
     items: &[Item],
     blocked: bool,
     checked_returns: &mut Vec<CheckedReturn>,
@@ -677,19 +678,30 @@ fn collect_checked_returns_from_items(
     for item in items {
         match item {
             Item::App(app) => {
-                collect_checked_returns_from_items(&app.items, blocked, checked_returns)
+                collect_checked_returns_from_items(program, &app.items, blocked, checked_returns)
             }
-            Item::Task(task) => checked_returns.extend(checked_returns_for_task(task, blocked)),
+            Item::Task(task) => {
+                checked_returns.extend(checked_returns_for_task(program, item, task, blocked))
+            }
             _ => {}
         }
     }
 }
 
-fn checked_returns_for_task(task: &Task, blocked: bool) -> Vec<CheckedReturn> {
+fn checked_returns_for_task(
+    program: &Program,
+    item: &Item,
+    task: &Task,
+    blocked: bool,
+) -> Vec<CheckedReturn> {
     let Some(section) = task.section("does") else {
         return Vec::new();
     };
-    let body = core_body::analyze_does_section(section);
+    let body = core_body::analyze_does_section(
+        program
+            .canonical_core_expectation(item, section)
+            .expect("live type-check task must have parser authority"),
+    );
     let mut environment = initial_task_type_environment(task);
     let mut checked_returns = Vec::new();
 
@@ -1682,7 +1694,7 @@ mod tests {
 }
 "#,
         );
-        let checked = crate::check::check_file_with_occurrences(&parsed.file);
+        let checked = crate::check::check_file_with_occurrences(&parsed);
         let mut source_occurrences = parsed.diagnostic_occurrences.clone();
         source_occurrences
             .extend_owned(&checked.diagnostic_occurrences)

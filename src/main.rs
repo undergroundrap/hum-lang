@@ -3014,7 +3014,7 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
         let parse = parse_start.elapsed();
 
         let check_start = Instant::now();
-        let checked = check::check_file_with_semantic_index(&parsed.file, semantic_file_index);
+        let checked = check::check_parse_output(&parsed);
         let mut file_diagnostics = checked.diagnostics;
         diagnostic_occurrences
             .extend_owned(&parsed.diagnostic_occurrences)
@@ -5170,6 +5170,116 @@ mod tests {
         let error = parse_cli(vec!["syntax".to_string(), "examples".to_string()])
             .expect_err("syntax should reject inputs");
         assert_eq!(error, "`syntax` does not accept input files");
+    }
+
+    #[test]
+    fn replacement_f4_complete_inventory_uses_real_load_and_private_core() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join("foundation")
+            .join("pre_ar_canonical_seal_inventory_pass.hum");
+        let loaded =
+            load_program(std::slice::from_ref(&fixture)).expect("load complete F4 inventory");
+        assert!(
+            loaded
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity != crate::diagnostic::Severity::Error),
+            "complete F4 inventory diagnostics: {:#?}",
+            loaded.diagnostics
+        );
+        let file = &loaded.program.files[0];
+        let item = file
+            .items
+            .iter()
+            .find(|item| item.name() == "payload")
+            .expect("payload task from real load_program");
+        let crate::ast::Item::Task(task) = item else {
+            panic!("payload item must remain a task")
+        };
+        let section = task.section("does").expect("payload does section");
+        let expectation = loaded
+            .program
+            .canonical_core_expectation(item, section)
+            .expect("live Program expectation after real load_program");
+        let report = crate::core_body::analyze_does_section(expectation);
+        assert_eq!(
+            (
+                report.total_lines,
+                report.meaningful_lines,
+                report.recognized_lines,
+                report.unsupported_lines,
+                report.statements.len(),
+            ),
+            (42, 42, 42, 0, 42),
+            "the real load_program payload inventory must cross validated Core completely"
+        );
+
+        let public_surfaces = (
+            crate::core_preview::core_preview_json(&loaded.program, &loaded.diagnostics),
+            crate::core_lower::core_lower_json(&loaded.program, &loaded.diagnostics),
+            crate::core_verify::core_verify_json(&loaded.program, &loaded.diagnostics),
+        );
+        assert!(
+            public_surfaces
+                .0
+                .contains("\"schema\": \"hum.core_preview.v0\"")
+        );
+        assert!(
+            public_surfaces
+                .1
+                .contains("\"schema\": \"hum.core_lower.v0\"")
+        );
+        assert!(
+            public_surfaces
+                .2
+                .contains("\"schema\": \"hum.core_verify.v0\"")
+        );
+        assert!(
+            !format!(
+                "{}{}{}",
+                public_surfaces.0, public_surfaces.1, public_surfaces.2
+            )
+            .contains("canonical_core_"),
+            "private seal transport must not leak through public Core surfaces"
+        );
+
+        let repeated = load_program(&[fixture]).expect("repeat complete F4 inventory load");
+        let repeated_file = &repeated.program.files[0];
+        let repeated_item = repeated_file
+            .items
+            .iter()
+            .find(|item| item.name() == "payload")
+            .expect("repeated payload task");
+        let crate::ast::Item::Task(repeated_task) = repeated_item else {
+            panic!("repeated payload item must remain a task")
+        };
+        let repeated_expectation = repeated
+            .program
+            .canonical_core_expectation(
+                repeated_item,
+                repeated_task
+                    .section("does")
+                    .expect("repeated does section"),
+            )
+            .expect("repeated live Program expectation");
+        assert_eq!(
+            format!("{report:?}"),
+            format!(
+                "{:?}",
+                crate::core_body::analyze_does_section(repeated_expectation)
+            ),
+            "two ordinary load_program paths must produce identical private Core reports"
+        );
+        assert_eq!(
+            public_surfaces,
+            (
+                crate::core_preview::core_preview_json(&repeated.program, &repeated.diagnostics,),
+                crate::core_lower::core_lower_json(&repeated.program, &repeated.diagnostics),
+                crate::core_verify::core_verify_json(&repeated.program, &repeated.diagnostics),
+            ),
+            "two ordinary load_program paths must produce byte-identical public Core surfaces"
+        );
     }
 
     #[test]

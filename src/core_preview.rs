@@ -399,6 +399,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CorePreviewRep
     }
     for file in &program.files {
         collect_candidates_from_items(
+            program,
             &file.items,
             diagnostics,
             &checked_returns,
@@ -517,6 +518,7 @@ pub(crate) fn consume_path_precedence(
 }
 
 fn collect_candidates_from_items(
+    program: &Program,
     items: &[Item],
     diagnostics: &[Diagnostic],
     checked_returns: &[CheckedReturnSummary],
@@ -526,6 +528,7 @@ fn collect_candidates_from_items(
 ) {
     for item in items {
         if let Some(candidate) = core_candidate(
+            program,
             item,
             diagnostics,
             checked_returns,
@@ -536,6 +539,7 @@ fn collect_candidates_from_items(
         }
         if let Item::App(app) = item {
             collect_candidates_from_items(
+                program,
                 &app.items,
                 diagnostics,
                 checked_returns,
@@ -548,6 +552,7 @@ fn collect_candidates_from_items(
 }
 
 fn core_candidate(
+    program: &Program,
     item: &Item,
     diagnostics: &[Diagnostic],
     checked_returns: &[CheckedReturnSummary],
@@ -557,7 +562,11 @@ fn core_candidate(
     let section = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
-    let body = core_body::analyze_does_section(section);
+    let body = core_body::analyze_does_section(
+        program
+            .canonical_core_expectation(item, section)
+            .expect("live Core candidate must have parser authority"),
+    );
     let failure_analysis = match item {
         Item::Task(task) => failure_analysis.task(task).cloned().unwrap_or_default(),
         _ => Default::default(),

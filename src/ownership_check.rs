@@ -815,7 +815,11 @@ fn check_item(program: &Program, item: &Item, blocked: bool) -> Option<Ownership
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
-    let body = core_body::analyze_does_section(does);
+    let body = core_body::analyze_does_section(
+        program
+            .canonical_core_expectation(item, does)
+            .expect("live ownership item must have parser authority"),
+    );
     let declarations = collect_declarations(item_sections(item));
     let mut existing_names = item_parameters(item)
         .into_iter()

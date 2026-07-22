@@ -4226,7 +4226,7 @@ task run_right -> UInt {
     }
 
     #[test]
-    fn legacy_section_text_cannot_rescue_a_blocked_parser_fact() {
+    fn legacy_section_text_corruption_is_rejected_before_callable_analysis() {
         let parsed = parse_source(
             "legacy_sabotage.hum",
             "task apply_once(transform: task(UInt) -> UInt, value: UInt) -> UInt {\n  does:\n    return transform(value\n}\n",
@@ -4243,15 +4243,17 @@ task run_right -> UInt {
             .expect("does")
             .lines[0]
             .text = "return transform(value)".to_string();
-        let analysis = analyze_program(&program);
-        assert_eq!(analysis.diagnostics.len(), 1);
-        assert_eq!(
-            analysis.diagnostics[0].diagnostic().code,
-            crate::diagnostic::DiagnosticCode::INVALID_CALLABLE_FORM
-        );
-        assert_eq!(
-            analysis.diagnostics[0].detail_reason,
-            "indirect_application_shape_outside_al_v0"
-        );
+        let item = &program.files[0].items[0];
+        let Item::Task(task) = item else {
+            panic!("task")
+        };
+        let does = task.section("does").expect("does");
+        let expectation = program
+            .canonical_core_expectation(item, does)
+            .expect("corrupt projection remains live and locatable");
+        assert!(matches!(
+            crate::core_body::try_analyze_does_section(expectation),
+            Err("canonical_core_section_projection_mismatch_v0")
+        ));
     }
 }

@@ -62,6 +62,7 @@ struct PassStatus {
 }
 
 struct CandidateContext<'a> {
+    program: &'a Program,
     diagnostics: &'a [Diagnostic],
     resolve_summary: &'a resolve::ResolveReadinessSummary,
     type_check_summary: &'a type_check::TypeCheckSummary,
@@ -524,6 +525,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> IrReadinessRep
         .expect("IR readiness must consume the separately carried profile projection");
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
     let context = CandidateContext {
+        program,
         diagnostics,
         resolve_summary: &resolve_summary,
         type_check_summary: &type_check_summary,
@@ -635,7 +637,7 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
         .iter()
         .map(|section| section.name.clone())
         .collect::<Vec<_>>();
-    let body_grammar = body_grammar_for_item(item);
+    let body_grammar = body_grammar_for_item(context.program, item);
 
     LoweringCandidate {
         id: readiness_id(item),
@@ -751,8 +753,8 @@ fn facts_available(item: &Item, context: &CandidateContext<'_>) -> Vec<&'static 
         Item::App(app) => add_app_facts(app, &mut facts),
         Item::Type(type_def) => add_type_facts(type_def, &mut facts),
         Item::Store(store) => add_store_facts(store, &mut facts),
-        Item::Task(task) => add_task_facts(task, &mut facts),
-        Item::Test(test) => add_test_facts(test, &mut facts),
+        Item::Task(task) => add_task_facts(context.program, item, task, &mut facts),
+        Item::Test(test) => add_test_facts(context.program, item, test, &mut facts),
     }
 
     facts
@@ -803,17 +805,17 @@ fn add_store_facts(store: &Store, facts: &mut Vec<&'static str>) {
     }
 }
 
-fn add_task_facts(task: &Task, facts: &mut Vec<&'static str>) {
+fn add_task_facts(program: &Program, item: &Item, task: &Task, facts: &mut Vec<&'static str>) {
     if !task.params.is_empty() {
         facts.push("signature_params");
     }
     if task.result.is_some() {
         facts.push("signature_result");
     }
-    add_section_family_facts(&task.sections, facts);
+    add_section_family_facts(program, item, &task.sections, facts);
 }
 
-fn add_test_facts(test: &Test, facts: &mut Vec<&'static str>) {
+fn add_test_facts(program: &Program, item: &Item, test: &Test, facts: &mut Vec<&'static str>) {
     if !test.params.is_empty() {
         facts.push("signature_params");
     }
@@ -823,10 +825,15 @@ fn add_test_facts(test: &Test, facts: &mut Vec<&'static str>) {
     if test.section("covers").is_some() {
         facts.push("test_coverage_hints");
     }
-    add_section_family_facts(&test.sections, facts);
+    add_section_family_facts(program, item, &test.sections, facts);
 }
 
-fn add_section_family_facts(sections: &[Section], facts: &mut Vec<&'static str>) {
+fn add_section_family_facts(
+    program: &Program,
+    item: &Item,
+    sections: &[Section],
+    facts: &mut Vec<&'static str>,
+) {
     if has_any_section(sections, &["uses", "changes"]) {
         facts.push("effect_hints");
     }
@@ -861,18 +868,30 @@ fn add_section_family_facts(sections: &[Section], facts: &mut Vec<&'static str>)
     if sections
         .iter()
         .find(|section| section.name == "does")
-        .map(core_body::analyze_does_section)
+        .map(|section| {
+            core_body::analyze_does_section(
+                program
+                    .canonical_core_expectation(item, section)
+                    .expect("live readiness item must have parser authority"),
+            )
+        })
         .is_some_and(|report| report.recognized_lines > 0)
     {
         facts.push("body_grammar_partial_v0");
     }
 }
 
-fn body_grammar_for_item(item: &Item) -> Option<BodyGrammarReport> {
+fn body_grammar_for_item(program: &Program, item: &Item) -> Option<BodyGrammarReport> {
     item_sections(item)
         .iter()
         .find(|section| section.name == "does")
-        .map(core_body::analyze_does_section)
+        .map(|section| {
+            core_body::analyze_does_section(
+                program
+                    .canonical_core_expectation(item, section)
+                    .expect("live readiness body must have parser authority"),
+            )
+        })
 }
 
 fn has_any_section(sections: &[Section], names: &[&str]) -> bool {

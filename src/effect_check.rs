@@ -411,7 +411,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckRep
     let failure_analysis = typed_failure::analyze_program(program);
     let mut items = Vec::new();
     for file in &program.files {
-        collect_items(&file.items, blocked, &failure_analysis, &mut items);
+        collect_items(program, &file.items, blocked, &failure_analysis, &mut items);
     }
     let capability_analysis = capability_root::analyze(program);
     for route in &capability_analysis.routes {
@@ -497,22 +497,24 @@ pub(crate) fn validate_static_prior_blocker_projection(
 }
 
 fn collect_items(
+    program: &Program,
     items: &[Item],
     blocked: bool,
     failure_analysis: &ProgramFailureAnalysis,
     out: &mut Vec<EffectItem>,
 ) {
     for item in items {
-        if let Some(effect_item) = check_item(item, blocked, failure_analysis) {
+        if let Some(effect_item) = check_item(program, item, blocked, failure_analysis) {
             out.push(effect_item);
         }
         if let Item::App(app) = item {
-            collect_items(&app.items, blocked, failure_analysis, out);
+            collect_items(program, &app.items, blocked, failure_analysis, out);
         }
     }
 }
 
 fn check_item(
+    program: &Program,
     item: &Item,
     blocked: bool,
     failure_analysis: &ProgramFailureAnalysis,
@@ -520,7 +522,11 @@ fn check_item(
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
-    let body = core_body::analyze_does_section(does);
+    let body = core_body::analyze_does_section(
+        program
+            .canonical_core_expectation(item, does)
+            .expect("live effect item must have parser authority"),
+    );
     let declarations = collect_declarations(item_sections(item));
     let local_mutables = local_mutables(&body.statements);
     let writable_aliases = body

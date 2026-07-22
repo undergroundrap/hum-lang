@@ -211,6 +211,7 @@ struct ResolveReference {
 }
 
 struct CallableResolveInput<'a> {
+    item: &'a Item,
     owner_kind: &'static str,
     owner_name: &'a str,
     owner_definition_id: String,
@@ -256,7 +257,8 @@ struct DefinitionInput<'a> {
     defer_duplicate_diagnostic: bool,
 }
 
-struct ResolverContext {
+struct ResolverContext<'program> {
+    program: &'program Program,
     scopes: Vec<ResolveScope>,
     definitions: Vec<ResolveDefinition>,
     references: Vec<ResolveReference>,
@@ -767,10 +769,10 @@ fn build_report_with_source(
     }
 }
 
-impl ResolverContext {
-    fn new(program: &Program) -> Self {
-        let _ = program;
+impl<'program> ResolverContext<'program> {
+    fn new(program: &'program Program) -> Self {
         Self {
+            program,
             scopes: Vec::new(),
             definitions: Vec::new(),
             references: Vec::new(),
@@ -961,6 +963,7 @@ impl ResolverContext {
                     self.resolve_callable(
                         scope_id,
                         CallableResolveInput {
+                            item,
                             owner_kind: "task",
                             owner_name: &task.name,
                             owner_definition_id,
@@ -977,6 +980,7 @@ impl ResolverContext {
                     self.resolve_callable(
                         scope_id,
                         CallableResolveInput {
+                            item,
                             owner_kind: "test",
                             owner_name: &test.name,
                             owner_definition_id,
@@ -993,6 +997,7 @@ impl ResolverContext {
 
     fn resolve_callable(&mut self, parent_scope_id: &str, input: CallableResolveInput<'_>) {
         let CallableResolveInput {
+            item,
             owner_kind,
             owner_name,
             owner_definition_id,
@@ -1041,7 +1046,7 @@ impl ResolverContext {
             );
         }
         if let Some(section) = find_section(sections, "does") {
-            self.resolve_does_section(&callable_scope, section);
+            self.resolve_does_section(&callable_scope, item, section);
         }
         if let Some(body_syntax) = body_syntax {
             self.resolve_structured_callable_references(&callable_scope, body_syntax);
@@ -1253,8 +1258,12 @@ impl ResolverContext {
         }
     }
 
-    fn resolve_does_section(&mut self, root_scope_id: &str, section: &Section) {
-        let body = core_body::analyze_does_section(section);
+    fn resolve_does_section(&mut self, root_scope_id: &str, item: &Item, section: &Section) {
+        let body = core_body::analyze_does_section(
+            self.program
+                .canonical_core_expectation(item, section)
+                .expect("live resolver item must have parser authority"),
+        );
         let existing_names = self
             .definitions_by_scope_name
             .keys()
@@ -2708,7 +2717,7 @@ mod tests {
 
     use super::{
         diagnostic_occurrence_set_from_source, parser_precedence_relationships,
-        resolve_call_occurrence_summaries, resolve_json, resolve_reference_summaries, resolve_text,
+        resolve_call_occurrence_summaries, resolve_json, resolve_text,
     };
 
     #[test]
@@ -2763,7 +2772,7 @@ task caller(value: UInt) -> UInt {
     }
 
     #[test]
-    fn resolver_call_identity_ignores_retained_section_text_after_parsing() {
+    fn resolver_rejects_retained_section_text_corruption_before_summary() {
         let parsed = parse_source(
             "resolver-call-text-sabotage.hum",
             r#"task leaf(value: UInt) -> UInt {
@@ -2777,18 +2786,6 @@ task caller(value: UInt) -> UInt {
 }
 "#,
         );
-        let baseline = resolve_call_occurrence_summaries(
-            &Program {
-                files: vec![parsed.file.clone()],
-            },
-            &[],
-        );
-        assert_eq!(baseline.len(), 4);
-        assert!(baseline.iter().any(|call| {
-            call.identifier_uses()
-                .any(|identifier| identifier.name() == "value" && identifier.consumed())
-        }));
-
         for replacement in [
             "",
             "return unrelated_value",
@@ -2805,16 +2802,24 @@ task caller(value: UInt) -> UInt {
                 .expect("does section")
                 .lines[0]
                 .text = replacement.to_string();
-            let sabotaged = resolve_call_occurrence_summaries(&Program { files: vec![file] }, &[]);
-            assert_eq!(
-                sabotaged, baseline,
-                "retained display text must not add, remove, retarget, or renumber parser-owned calls"
-            );
+            let program = Program { files: vec![file] };
+            let item = &program.files[0].items[1];
+            let Item::Task(caller) = item else {
+                panic!("caller task")
+            };
+            let does = caller.section("does").expect("does section");
+            let expectation = program
+                .canonical_core_expectation(item, does)
+                .expect("corrupt projection remains live and locatable");
+            assert!(matches!(
+                crate::core_body::try_analyze_does_section(expectation),
+                Err("canonical_core_section_projection_mismatch_v0")
+            ));
         }
     }
 
     #[test]
-    fn later_resolver_call_identity_ignores_earlier_retained_statement_references() {
+    fn resolver_rejects_earlier_statement_text_corruption_before_later_summary() {
         let parsed = parse_source(
             "resolver-earlier-text-sabotage.hum",
             r#"task first(value: UInt) -> UInt {
@@ -2828,22 +2833,6 @@ task later(value: UInt) -> UInt {
 }
 "#,
         );
-        let baseline_program = Program {
-            files: vec![parsed.file.clone()],
-        };
-        let baseline_calls = resolve_call_occurrence_summaries(&baseline_program, &[]);
-        let [baseline] = baseline_calls.as_slice() else {
-            panic!("one later call, got {baseline_calls:#?}")
-        };
-        let baseline_public_reference = resolve_reference_summaries(&baseline_program, &[])
-            .into_iter()
-            .find(|reference| {
-                reference.reference_kind == "callee_ref"
-                    && reference.name == "first"
-                    && reference.source_span.line == 8
-            })
-            .expect("later public callee reference");
-
         for replacement in ["return 0", "return value + extra_one + extra_two"] {
             let mut file = parsed.file.clone();
             let Item::Task(first) = &mut file.items[0] else {
@@ -2857,38 +2846,19 @@ task later(value: UInt) -> UInt {
                 .lines[0]
                 .text = replacement.to_string();
 
-            let sabotaged_program = Program { files: vec![file] };
-            let sabotaged_calls = resolve_call_occurrence_summaries(&sabotaged_program, &[]);
-            let [sabotaged] = sabotaged_calls.as_slice() else {
-                panic!("one later call, got {sabotaged_calls:#?}")
+            let program = Program { files: vec![file] };
+            let item = &program.files[0].items[0];
+            let Item::Task(first) = item else {
+                panic!("first task")
             };
-            let sabotaged_public_reference = resolve_reference_summaries(&sabotaged_program, &[])
-                .into_iter()
-                .find(|reference| {
-                    reference.reference_kind == "callee_ref"
-                        && reference.name == "first"
-                        && reference.source_span.line == 8
-                })
-                .expect("later public callee reference");
-            assert_ne!(
-                sabotaged_public_reference.id, baseline_public_reference.id,
-                "sabotage must actually perturb the legacy global ordinary-reference serial"
-            );
-            assert_eq!(
-                sabotaged.resolver_occurrence_id(),
-                baseline.resolver_occurrence_id(),
-                "earlier retained references must not renumber a later call occurrence"
-            );
-            assert_eq!(
-                sabotaged.relationship_route(),
-                baseline.relationship_route()
-            );
-            assert_eq!(sabotaged.owner_definition_id, baseline.owner_definition_id);
-            assert_eq!(
-                sabotaged.target_definition_id,
-                baseline.target_definition_id
-            );
-            assert_eq!(sabotaged.identifier_uses, baseline.identifier_uses);
+            let does = first.section("does").expect("does section");
+            let expectation = program
+                .canonical_core_expectation(item, does)
+                .expect("corrupt projection remains live and locatable");
+            assert!(matches!(
+                crate::core_body::try_analyze_does_section(expectation),
+                Err("canonical_core_section_projection_mismatch_v0")
+            ));
         }
     }
 

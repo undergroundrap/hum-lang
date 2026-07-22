@@ -203,7 +203,13 @@ fn collect_program_analysis(
             Item::Task(task) => {
                 let statements = task
                     .section("does")
-                    .map(crate::core_body::analyze_does_section)
+                    .map(|does| {
+                        crate::core_body::analyze_does_section(
+                            program
+                                .canonical_core_expectation_for_task(task, does)
+                                .expect("live failure task must have parser authority"),
+                        )
+                    })
                     .map(|body| body.statements)
                     .unwrap_or_default();
                 let owner_definition_id =
@@ -1638,8 +1644,12 @@ task caller() -> UInt {
                 _ => None,
             })
             .expect("caller task");
-        let body =
-            crate::core_body::analyze_does_section(caller.section("does").expect("caller does"));
+        let does = caller.section("does").expect("caller does");
+        let body = crate::core_body::analyze_does_section(
+            program
+                .canonical_core_expectation_for_task(caller, does)
+                .expect("caller expectation"),
+        );
         let local = analyze_task(caller, &body.statements, &catalog);
         assert!(local.facts.values().all(|fact| fact.occurrence.is_none()));
         assert_eq!(
@@ -1687,9 +1697,13 @@ task caller() -> Result UInt, SourceError {
                 _ => None,
             })
             .expect("caller task");
-        let statements =
-            crate::core_body::analyze_does_section(caller.section("does").expect("caller does"))
-                .statements;
+        let does = caller.section("does").expect("caller does");
+        let statements = crate::core_body::analyze_does_section(
+            program
+                .canonical_core_expectation_for_task(caller, does)
+                .expect("caller expectation"),
+        )
+        .statements;
         let catalog = FailureCatalog::from_program(&program);
         let owner = crate::resolve::semantic_task_definition_identity(&program, caller);
         let resolver_calls = crate::resolve::resolve_call_occurrence_summaries(&program, &[])

@@ -240,7 +240,14 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ResourceCheckR
     let mut tasks = 0;
     let callables = callable::analyze_program(program);
     for file in &program.files {
-        collect_items(&file.items, blocked, &callables, &mut tasks, &mut items);
+        collect_items(
+            program,
+            &file.items,
+            blocked,
+            &callables,
+            &mut tasks,
+            &mut items,
+        );
     }
     let diagnostic_occurrences = ownership_check::diagnostic_occurrence_set(program, diagnostics);
     let projection = diagnostic_projection_from_ownership(&diagnostic_occurrences)
@@ -301,6 +308,7 @@ pub(crate) fn validate_prior_blocker_projection(
 }
 
 fn collect_items(
+    program: &Program,
     items: &[Item],
     blocked: bool,
     callables: &CallableAnalysis,
@@ -309,10 +317,10 @@ fn collect_items(
 ) {
     for item in items {
         match item {
-            Item::App(app) => collect_items(&app.items, blocked, callables, tasks, out),
+            Item::App(app) => collect_items(program, &app.items, blocked, callables, tasks, out),
             Item::Task(task) => {
                 *tasks += 1;
-                if let Some(item) = check_task(task, blocked, callables) {
+                if let Some(item) = check_task(program, item, task, blocked, callables) {
                     out.push(item);
                 }
             }
@@ -321,9 +329,19 @@ fn collect_items(
     }
 }
 
-fn check_task(task: &Task, blocked: bool, callables: &CallableAnalysis) -> Option<ResourceItem> {
+fn check_task(
+    program: &Program,
+    item: &Item,
+    task: &Task,
+    blocked: bool,
+    callables: &CallableAnalysis,
+) -> Option<ResourceItem> {
     let does = task.section("does")?;
-    let body = core_body::analyze_does_section(does);
+    let body = core_body::analyze_does_section(
+        program
+            .canonical_core_expectation(item, does)
+            .expect("live resource task must have parser authority"),
+    );
     let declarations = collect_resource_declarations(&task.sections);
     let checks = task_resource_checks(
         task,

@@ -399,7 +399,11 @@ impl PredicateAnalysis {
             let Some(does) = task.section("does") else {
                 continue;
             };
-            let body = core_body::analyze_does_section(does);
+            let body = core_body::analyze_does_section(
+                program
+                    .canonical_core_expectation_for_task(task, does)
+                    .expect("live predicate task must have parser authority"),
+            );
             for statement in &body.statements {
                 let Some(expression) = typed_failure::statement_expression(statement) else {
                     continue;

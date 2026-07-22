@@ -1285,8 +1285,8 @@ mod tests {
         include_app_boundaries: bool,
     ) -> (crate::ast::Program, Vec<Diagnostic>) {
         let parsed = crate::parser::parse_source(path, source);
-        let mut diagnostics = parsed.diagnostics;
-        diagnostics.extend(crate::check::check_file(&parsed.file));
+        let mut diagnostics = parsed.diagnostics.clone();
+        diagnostics.extend(crate::check::check_file(&parsed));
         let program = crate::ast::Program {
             files: vec![parsed.file],
         };
@@ -1308,7 +1308,7 @@ mod tests {
         DiagnosticOccurrenceSet,
     ) {
         let parsed = crate::parser::parse_source(path, source);
-        let checked = crate::check::check_file_with_occurrences(&parsed.file);
+        let checked = crate::check::check_file_with_occurrences(&parsed);
         let mut occurrences = parsed.diagnostic_occurrences.clone();
         occurrences
             .extend_owned(&checked.diagnostic_occurrences)

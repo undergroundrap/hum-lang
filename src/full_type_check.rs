@@ -530,7 +530,11 @@ fn type_item(
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
-    let body = core_body::analyze_does_section(does);
+    let body = core_body::analyze_does_section(
+        program
+            .canonical_core_expectation(item, does)
+            .expect("live typed item must have parser authority"),
+    );
     let mut environment = initial_environment(item_params(item));
     let mut statements = Vec::new();
     for (index, statement) in body.statements.iter().enumerate() {

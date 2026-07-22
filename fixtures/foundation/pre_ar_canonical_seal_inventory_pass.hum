@@ -1,0 +1,99 @@
+type Thing {
+  first: UInt
+  second: UInt
+}
+
+task source(value: UInt) -> Result UInt, PayloadError {
+  does:
+    return value
+}
+
+task payload(value: UInt, other: UInt) -> UInt {
+  changes:
+    target
+    items
+
+  does:
+    return
+    return value
+    return 7
+    return -7
+    return 7 - 2
+    return true
+    return false
+    return "hello"
+    return "line\nvalue"
+    return target.field
+    return items[0]
+    return (value)
+    return [value, 7,]
+    return []
+    return Thing { first: value, second: 7, }
+    return {}
+    return source(value, 7,)
+    return source()
+    return source(value)
+    return (source(value))
+    return source("a, b", source(value), [value, other], value)
+    return value * other
+    return value / other
+    return value + other
+    return value - other
+    return value == other
+    return value != other
+    return value < other
+    return value <= other
+    return value > other
+    return value >= other
+    return value is other
+    return value does other
+    return value returns other
+    return value fails with other
+    return value and other
+    return value or other
+    return borrow value
+    return change value
+    return consume value
+    return try source(value) or fail PayloadError.context
+    return try source(value)
+}
+
+task relationships(value: UInt, other: UInt) -> UInt {
+  needs:
+    value
+
+  ensures:
+    value
+
+  changes:
+    target
+    items
+
+  does:
+    return value
+    let item: UInt = value
+    change mutable: UInt = other
+    set target = value
+    save value in items
+    fail value
+    expect value
+    source(value)
+    if value {
+      return value
+    }
+    while value {
+      set target = value
+    }
+    for each element in values {
+      return element
+    }
+    for index index_a from 0 until 4 {
+      return index_a
+    }
+    for index index_b from 0 through 4 {
+      return index_b
+    }
+    loop {
+      return value
+    }
+}

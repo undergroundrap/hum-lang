@@ -301,6 +301,26 @@ try {
   Invoke-ExactRustTest 'Replacement F1 occurrence/common matrix: 36 fields, 16 kinds, 11 child roles, 27 variant mutations, 216 singles, 630 pairs, 16 cross-occurrence cases, named sabotage' $Cargo 'parser::tests::occurrence_authority_and_common_node_topology_are_complete_and_load_bearing'
   Invoke-ExactRustTest 'Replacement F2 successful payload matrix: 64 fields, 384 singles, 4950 cumulative pairs, 64 foreign substitutions, named sabotage' $Cargo 'parser::tests::successful_canonical_expression_payloads_are_complete_and_load_bearing'
   Invoke-ExactRustTest 'Replacement F3 parser completion/statement matrix: 32 fields, 192 singles, 8646 cumulative pairs, 32 foreign substitutions, 7 coherent co-mutations, six permanent rejection probes, named sabotage' $Cargo 'parser::tests::parser_completion_and_statement_relationships_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Replacement F4 private Core boundary: 132 fields, 8646 pairs, retained authority, substitution and transport corruption' $Cargo 'parser::tests::complete_canonical_seal_reaches_private_core_and_rejects_transport_corruption'
+  Invoke-ExactRustTest 'Replacement F4 real load_program and private Core inventory path' $Cargo 'tests::replacement_f4_complete_inventory_uses_real_load_and_private_core'
+  $F4Fixture = 'fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum'
+  $F4First = Read-NativeChannelsWithExit 'Replacement F4 complete inventory CLI proof' $Hum @('check', $F4Fixture)
+  $F4Second = Read-NativeChannelsWithExit 'Replacement F4 complete inventory CLI repeatability proof' $Hum @('check', $F4Fixture)
+  if ($F4First.ExitCode -ne 0 -or $F4First.ExitCode -ne $F4Second.ExitCode -or $F4First.Stdout -cne $F4Second.Stdout -or $F4First.Stderr -cne $F4Second.Stderr) { throw 'Replacement F4 complete inventory public check path is not successful and deterministic' }
+  if (($F4First.Stdout + $F4First.Stderr).Contains('canonical_core_')) { throw 'Replacement F4 private seal transport leaked into public complete-inventory output' }
+  foreach ($F4Surface in @(
+    @{ Name = 'core-preview'; Schema = 'hum.core_preview.v0' },
+    @{ Name = 'core-lower'; Schema = 'hum.core_lower.v0' },
+    @{ Name = 'core-verify'; Schema = 'hum.core_verify.v0' }
+  )) {
+    $FirstSurface = Read-NativeChannelsWithExit "Replacement F4 $($F4Surface.Name) complete inventory proof" $Hum @($F4Surface.Name, '--format=json', $F4Fixture)
+    $SecondSurface = Read-NativeChannelsWithExit "Replacement F4 $($F4Surface.Name) repeatability proof" $Hum @($F4Surface.Name, '--format=json', $F4Fixture)
+    if ($FirstSurface.ExitCode -ne 0 -or $FirstSurface.ExitCode -ne $SecondSurface.ExitCode -or $FirstSurface.Stdout -cne $SecondSurface.Stdout -or $FirstSurface.Stderr -cne $SecondSurface.Stderr) { throw "Replacement F4 $($F4Surface.Name) complete inventory path is not successful and deterministic" }
+    Assert-Json "Replacement F4 $($F4Surface.Name) complete inventory JSON" $FirstSurface.Stdout
+    $ParsedSurface = $FirstSurface.Stdout | ConvertFrom-Json
+    if ($ParsedSurface.schema -cne $F4Surface.Schema) { throw "Replacement F4 $($F4Surface.Name) schema drifted: $($ParsedSurface.schema)" }
+    if (($FirstSurface.Stdout + $FirstSurface.Stderr).Contains('canonical_core_')) { throw "Replacement F4 private seal transport leaked through $($F4Surface.Name)" }
+  }
   Invoke-ExactRustTest 'Replacement F2 UTF-8 Text escape boundary regression' $Cargo 'parser::tests::f2_utf8_text_escape_payload_is_boundary_safe'
   Invoke-ExactRustTest 'Replacement F2 malformed try fail-closed regression' $Cargo 'parser::tests::f2_malformed_try_is_unsupported_without_authority_mismatch'
   Invoke-ExactRustTest 'Replacement F2 grammar-exact topology channel regression' $Cargo 'parser::tests::f2_topology_channels_ignore_nested_and_quoted_tokens'
@@ -648,6 +668,59 @@ task malformed() -> UInt {
     if ($TerminalTestModules.Count -eq 0) { return $Source }
     return $Source.Substring(0, $TerminalTestModules[0].Index)
   }
+  Write-Host '==> Replacement F4 mandatory private Core boundary source audit'
+  $F4CoreProduction = Get-AqRustProductionSource 'src/core_body.rs'
+  $F4AstProduction = Get-AqRustProductionSource 'src/ast.rs'
+  $F4ParserProduction = Get-AqRustProductionSource 'src/parser.rs'
+  $F4ParserTestSource = [System.IO.File]::ReadAllText((Resolve-Path 'src/parser.rs'))
+  if (-not [regex]::IsMatch($F4CoreProduction, 'pub\(crate\) fn analyze_does_section\s*\(\s*expectation:\s*CanonicalCoreSectionExpectation')) { throw 'Replacement F4 Core entry must accept only the lifetime-bound expectation' }
+  if ([regex]::IsMatch($F4CoreProduction, 'analyze_does_section\s*\([^)]*&\s*Section') -or $F4CoreProduction.Contains('analyze_does_section_raw')) { throw 'Replacement F4 raw-Section Core bypass was restored' }
+  if ([regex]::Matches($F4CoreProduction, '(?m)^    BodyGrammarReport\s*\{').Count -ne 1 -or -not $F4CoreProduction.Contains('fn construct_body_grammar_report(validated: ValidatedCoreSection') -or [regex]::Matches($F4CoreProduction, '_validated_construction:\s*ValidatedBodyGrammarReportConstruction').Count -ne 2 -or [regex]::Matches($F4CoreProduction, '(?m)^struct ValidatedBodyGrammarReportConstruction;').Count -ne 1) { throw 'Replacement F4 BodyGrammarReport construction escaped the private validated marker' }
+  $F4ValidateIndex = $F4CoreProduction.IndexOf('let validated = expectation.validate()?;')
+  $F4ConstructIndex = $F4CoreProduction.IndexOf('construct_body_grammar_report(validated)')
+  if ($F4ValidateIndex -lt 0 -or $F4ConstructIndex -le $F4ValidateIndex) { throw 'Replacement F4 validation must remain before private Core construction' }
+  if ([regex]::IsMatch($F4AstProduction, '#\[derive\([^\]]*(?:Clone|Copy|Default)[^\]]*\)\]\s*pub\(crate\) struct CanonicalCoreSectionExpectation') -or $F4AstProduction.Contains('impl Clone for CanonicalCoreSectionExpectation') -or $F4AstProduction.Contains('impl Copy for CanonicalCoreSectionExpectation') -or $F4AstProduction.Contains('impl Default for CanonicalCoreSectionExpectation')) { throw 'Replacement F4 expectation must remain a non-cloneable lifetime-bound borrow' }
+  $F4ExpectationShape = [regex]::Match($F4AstProduction, '(?s)pub\(crate\) struct CanonicalCoreSectionExpectation<''a>\s*\{(.*?)\n\}')
+  $F4ProgramLocator = [regex]::Match($F4AstProduction, '(?s)pub\(crate\) fn canonical_core_expectation<''a>\(\s*&''a self,\s*item: &''a Item,\s*section: &''a Section,')
+  if (-not $F4ExpectationShape.Success -or -not $F4ProgramLocator.Success -or -not $F4ExpectationShape.Groups[1].Value.Contains("container: CanonicalCoreContainerRef<'a>") -or -not $F4ExpectationShape.Groups[1].Value.Contains("file: &'a SourceFile") -or -not $F4ExpectationShape.Groups[1].Value.Contains("item: &'a Item") -or -not $F4ExpectationShape.Groups[1].Value.Contains("section: &'a Section") -or -not $F4ParserTestSource.Contains("assert_not_impl!(CanonicalCoreSectionExpectation<'static>, Clone)") -or -not $F4ParserTestSource.Contains("assert_not_impl!(CanonicalCoreSectionExpectation<'static>, Copy)") -or -not $F4ParserTestSource.Contains("assert_not_impl!(CanonicalCoreSectionExpectation<'static>, Default)")) { throw 'Replacement F4 stale expectation borrow topology drifted' }
+  $F4ProductionSources = [ordered]@{}
+  foreach ($SourceFile in Get-ChildItem -Path 'src' -Filter '*.rs') {
+    $F4ProductionSources["src/$($SourceFile.Name)"] = Get-AqRustProductionSource $SourceFile.FullName
+  }
+  foreach ($Entry in $F4ProductionSources.GetEnumerator()) {
+    if ($Entry.Key -in @('src/ast.rs', 'src/parser.rs')) { continue }
+    if ([regex]::IsMatch($Entry.Value, 'CanonicalCore(?:FileWitness|OwnerWitness|SealCapability|ParseContext)::parser_issue\s*\(') -or [regex]::IsMatch($Entry.Value, '(?:SourceFile|App|TypeDef|Store|Task|Test|Section)::parser_new\s*\(') -or [regex]::IsMatch($Entry.Value, 'CanonicalCore(?:FileWitness|OwnerWitness|SealCapability|ParseContext)\s*\(') -or [regex]::IsMatch($Entry.Value, 'canonical_core_(?:file_witness|owner_witness|seal_capability)\s*:\s*Some\s*\(')) { throw "Replacement F4 valid-authority issuer escaped ast/parser: $($Entry.Key)" }
+  }
+  if ([regex]::Matches($F4AstProduction, 'pub\(crate\) fn parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, '::parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, 'SourceFile::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ParserProduction, 'Item::(?:App|Type|Store|Task|Test)\([^\r\n]*::parser_new\(').Count -ne 5 -or [regex]::Matches($F4ParserProduction, 'Section::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ProductionSources['src/app_entry.rs'], 'SourceFile::empty_non_authoritative\(').Count -ne 1) { throw 'Replacement F4 valid-authority issuer or installer inventory drifted' }
+  $F4ConsumerCalls = [ordered]@{
+    'src/check.rs' = 1
+    'src/core_lower.rs' = 1
+    'src/core_preview.rs' = 1
+    'src/effect_check.rs' = 1
+    'src/full_type_check.rs' = 1
+    'src/ir_readiness.rs' = 2
+    'src/ownership_check.rs' = 1
+    'src/path_boundary.rs' = 2
+    'src/predicate.rs' = 1
+    'src/resolve.rs' = 1
+    'src/resource_check.rs' = 1
+    'src/run.rs' = 3
+    'src/type_check.rs' = 1
+    'src/typed_failure.rs' = 1
+  }
+  $F4ProductionCallCount = 0
+  foreach ($Entry in $F4ConsumerCalls.GetEnumerator()) {
+    $Production = Get-AqRustProductionSource $Entry.Key
+    $Count = [regex]::Matches($Production, '\banalyze_does_section\s*\(').Count
+    if ($Count -ne $Entry.Value) { throw "Replacement F4 Core caller inventory drifted for $($Entry.Key): expected $($Entry.Value), found $Count" }
+    if ([regex]::IsMatch($Production, '(?:map|and_then|filter_map)\s*\(\s*(?:crate::)?core_body::analyze_does_section') -or [regex]::IsMatch($Production, '=\s*(?:crate::)?core_body::analyze_does_section\s*[;,]')) { throw "Replacement F4 production callback bypassed fresh expectation location in $($Entry.Key)" }
+    $F4ProductionCallCount += $Count
+  }
+  if ($F4ConsumerCalls.Count -ne 14 -or $F4ProductionCallCount -ne 18) { throw "Replacement F4 must retain exactly 18 production Core uses across 14 consumer files, found $F4ProductionCallCount across $($F4ConsumerCalls.Count)" }
+  if (-not $F4ParserProduction.Contains('CanonicalCoreFileWitness::parser_issue') -or -not $F4ParserProduction.Contains('CanonicalCoreOwnerWitness::parser_issue') -or -not $F4ParserProduction.Contains('CanonicalCoreSealCapability::parser_issue') -or -not $F4ParserProduction.Contains('CanonicalCoreParseContext::parser_issue')) { throw 'Replacement F4 independent file, item, Section, and pre-Program authority issuance is incomplete' }
+  if (-not $F4ParserTestSource.Contains('assert_eq!(catalogue_count, 132)') -or -not $F4ParserTestSource.Contains('assert_eq!(pairs.len(), 8_646)')) { throw 'Replacement F4 independently supplied 132-field/8646-pair pins are missing' }
+  $F4AuditPin = [regex]::Match($F4ParserTestSource, '(?s)const REQUIRED_SOURCE_AUDIT_ARMS: \[&str; 13\] = \[(.*?)\];')
+  if (-not $F4AuditPin.Success -or [regex]::Matches($F4AuditPin.Groups[1].Value, '"Replacement F4 [^"]+"').Count -ne 13 -or -not $F4ParserTestSource.Contains('for arm in REQUIRED_SOURCE_AUDIT_ARMS')) { throw 'Replacement F4 F4-selector audit-arm pinning drifted' }
   $AqMainProduction = Get-AqRustProductionSource 'src/main.rs'
   $AqRunProduction = Get-AqRustProductionSource 'src/run.rs'
   $AqAppProduction = Get-AqRustProductionSource 'src/app_entry.rs'
@@ -711,8 +784,8 @@ task malformed() -> UInt {
     'parser::tests::parser_body_syntax_owns_repeated_sibling_and_nested_calls',
     'resolve::tests::parser_precedence_is_consumed_for_a_genuine_shared_item_node',
     'resolve::tests::resolver_mints_distinct_repeated_sibling_and_nested_call_occurrences',
-    'resolve::tests::resolver_call_identity_ignores_retained_section_text_after_parsing',
-    'resolve::tests::later_resolver_call_identity_ignores_earlier_retained_statement_references',
+    'resolve::tests::resolver_rejects_retained_section_text_corruption_before_summary',
+    'resolve::tests::resolver_rejects_earlier_statement_text_corruption_before_later_summary',
     'type_check::tests::resolver_precedence_is_consumed_for_a_genuine_blocked_type_relationship',
     'capability_root::tests::capability_occurrence_identity_uses_structural_items_not_display_names',
     'capability_root::tests::call_occurrence_policy_ids_are_unique_and_repeatable',
@@ -724,7 +797,7 @@ task malformed() -> UInt {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 80 -or $UniqueExactRustSelectorCredits.Count -ne 80) { throw "exact Rust selector inventory must credit 80 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 82 -or $UniqueExactRustSelectorCredits.Count -ne 82) { throw "exact Rust selector inventory must credit 82 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')

@@ -1,9 +1,9 @@
-use crate::ast::Section;
+use crate::ast::{CanonicalCoreSectionExpectation, ValidatedCoreSection};
 use crate::diagnostic::Span;
 
 pub const CORE_BODY_GRAMMAR_STATUS: &str = "partial_v0";
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BodyGrammarReport {
     pub status: &'static str,
     pub grammar_status: &'static str,
@@ -12,6 +12,25 @@ pub struct BodyGrammarReport {
     pub recognized_lines: usize,
     pub unsupported_lines: usize,
     pub statements: Vec<BodyStatement>,
+    _validated_construction: ValidatedBodyGrammarReportConstruction,
+}
+
+#[derive(Clone)]
+struct ValidatedBodyGrammarReportConstruction;
+
+impl std::fmt::Debug for BodyGrammarReport {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BodyGrammarReport")
+            .field("status", &self.status)
+            .field("grammar_status", &self.grammar_status)
+            .field("total_lines", &self.total_lines)
+            .field("meaningful_lines", &self.meaningful_lines)
+            .field("recognized_lines", &self.recognized_lines)
+            .field("unsupported_lines", &self.unsupported_lines)
+            .field("statements", &self.statements)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -24,7 +43,22 @@ pub struct BodyStatement {
     pub reason: Option<&'static str>,
 }
 
-pub fn analyze_does_section(section: &Section) -> BodyGrammarReport {
+pub(crate) fn analyze_does_section(
+    expectation: CanonicalCoreSectionExpectation<'_>,
+) -> BodyGrammarReport {
+    try_analyze_does_section(expectation)
+        .expect("canonical Core section authority invariant failed before construction")
+}
+
+pub(crate) fn try_analyze_does_section(
+    expectation: CanonicalCoreSectionExpectation<'_>,
+) -> Result<BodyGrammarReport, &'static str> {
+    let validated = expectation.validate()?;
+    Ok(construct_body_grammar_report(validated))
+}
+
+fn construct_body_grammar_report(validated: ValidatedCoreSection<'_>) -> BodyGrammarReport {
+    let section = validated.section();
     let mut statements = Vec::new();
     let mut meaningful_lines = 0usize;
     let mut recognized_lines = 0usize;
@@ -74,6 +108,7 @@ pub fn analyze_does_section(section: &Section) -> BodyGrammarReport {
         recognized_lines,
         unsupported_lines,
         statements,
+        _validated_construction: ValidatedBodyGrammarReportConstruction,
     }
 }
 
@@ -81,7 +116,7 @@ pub fn analyze_does_section(section: &Section) -> BodyGrammarReport {
 mod tests {
     use crate::parser::parse_source;
 
-    use super::analyze_does_section;
+    use super::{analyze_does_section, try_analyze_does_section};
 
     #[test]
     fn recognizes_first_core_body_shapes_without_lowering() {
@@ -109,7 +144,12 @@ mod tests {
             crate::ast::Item::Task(task) => task,
             other => panic!("expected task, got {other:?}"),
         };
-        let report = analyze_does_section(task.section("does").expect("does section"));
+        let section = task.section("does").expect("does section");
+        let report = analyze_does_section(
+            parsed
+                .canonical_core_expectation(&parsed.file.items[0], section)
+                .expect("parser-owned expectation"),
+        );
 
         assert_eq!(report.grammar_status, "partial_v0");
         assert_eq!(report.meaningful_lines, 10);
@@ -163,8 +203,18 @@ test count unit {
             crate::ast::Item::Test(test) => test,
             other => panic!("expected test, got {other:?}"),
         };
-        let task_report = analyze_does_section(task.section("does").expect("task does"));
-        let test_report = analyze_does_section(test.section("does").expect("test does"));
+        let task_section = task.section("does").expect("task does");
+        let test_section = test.section("does").expect("test does");
+        let task_report = analyze_does_section(
+            parsed
+                .canonical_core_expectation(&parsed.file.items[0], task_section)
+                .expect("task expectation"),
+        );
+        let test_report = analyze_does_section(
+            parsed
+                .canonical_core_expectation(&parsed.file.items[1], test_section)
+                .expect("test expectation"),
+        );
 
         assert_eq!(task_report.unsupported_lines, 0);
         assert!(
@@ -199,20 +249,29 @@ test count unit {
             "retained-body.hum",
             "task retained() -> UInt {\n  does:\n    return 7\n}\n",
         );
-        let crate::ast::Item::Task(task) = &mut parsed.file.items[0] else {
+        {
+            let crate::ast::Item::Task(task) = &mut parsed.file.items[0] else {
+                panic!("task")
+            };
+            let section = task
+                .sections
+                .iter_mut()
+                .find(|section| section.name == "does")
+                .expect("does");
+            section.lines[0].text = "save fabricated in nowhere".to_string();
+        }
+        let item = &parsed.file.items[0];
+        let crate::ast::Item::Task(task) = item else {
             panic!("task")
         };
-        let section = task
-            .sections
-            .iter_mut()
-            .find(|section| section.name == "does")
-            .expect("does");
-        section.lines[0].text = "save fabricated in nowhere".to_string();
-        let report = analyze_does_section(section);
-        assert_eq!(report.meaningful_lines, 1);
-        assert_eq!(report.statements[0].kind, "return");
-        assert_eq!(report.statements[0].expression_kind, Some("int_literal"));
-        assert_eq!(report.statements[0].status, "recognized_v0");
+        let section = task.section("does").expect("does");
+        let expectation = parsed
+            .canonical_core_expectation(item, section)
+            .expect("live expectation remains locatable");
+        assert!(matches!(
+            try_analyze_does_section(expectation),
+            Err("canonical_core_section_projection_mismatch_v0")
+        ));
     }
 
     #[test]
@@ -221,22 +280,32 @@ test count unit {
             "retained-body-mutation.hum",
             "task retained() -> UInt {\n  does:\n    return 7\n}\n",
         );
-        let crate::ast::Item::Task(task) = &mut parsed.file.items[0] else {
+        {
+            let crate::ast::Item::Task(task) = &mut parsed.file.items[0] else {
+                panic!("task")
+            };
+            let section = task
+                .sections
+                .iter_mut()
+                .find(|section| section.name == "does")
+                .expect("does");
+            let retained = section.body_syntax[0].as_mut().expect("retained fact");
+            retained.core_kind = "unknown_body_line";
+            retained.core_status = "unsupported_v0";
+            retained.core_reason = Some("mutated_parser_fact_v0");
+        }
+        let item = &parsed.file.items[0];
+        let crate::ast::Item::Task(task) = item else {
             panic!("task")
         };
-        let section = task
-            .sections
-            .iter_mut()
-            .find(|section| section.name == "does")
-            .expect("does");
-        let retained = section.body_syntax[0].as_mut().expect("retained fact");
-        retained.core_kind = "unknown_body_line";
-        retained.core_status = "unsupported_v0";
-        retained.core_reason = Some("mutated_parser_fact_v0");
-        let report = analyze_does_section(section);
-        assert_eq!(report.unsupported_lines, 1);
-        assert_eq!(report.statements[0].kind, "unknown_body_line");
-        assert_eq!(report.statements[0].reason, Some("mutated_parser_fact_v0"));
+        let section = task.section("does").expect("does");
+        let expectation = parsed
+            .canonical_core_expectation(item, section)
+            .expect("live expectation remains locatable");
+        assert!(matches!(
+            try_analyze_does_section(expectation),
+            Err("canonical_core_section_projection_mismatch_v0")
+        ));
     }
 
     #[test]
@@ -273,7 +342,12 @@ task compatibility(title: Text, flag: Bool) -> Int {
         let crate::ast::Item::Task(task) = &parsed.file.items[3] else {
             panic!("compatibility task")
         };
-        let report = analyze_does_section(task.section("does").expect("does"));
+        let section = task.section("does").expect("does");
+        let report = analyze_does_section(
+            parsed
+                .canonical_core_expectation(&parsed.file.items[3], section)
+                .expect("compatibility expectation"),
+        );
         let kind_for = |text: &str| {
             report
                 .statements

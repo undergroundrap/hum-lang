@@ -1,14 +1,15 @@
 use std::collections::BTreeSet;
 
-use crate::ast::{Item, Section, SourceFile, Task, Test};
+use crate::ast::{Item, Section, Task, Test};
 use crate::core_body;
 use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::graph::hollow_contract_reason;
+use crate::parser::ParseOutput;
 use crate::{syntax, target_facts, writable_field_alias};
 
 #[cfg(test)]
-pub fn check_file(file: &SourceFile) -> Vec<Diagnostic> {
-    check_file_with_occurrences(file).diagnostics
+pub fn check_file(parsed: &ParseOutput) -> Vec<Diagnostic> {
+    check_file_with_occurrences(parsed).diagnostics
 }
 
 pub(crate) struct CheckOutput {
@@ -23,21 +24,18 @@ struct CheckCollector {
 }
 
 #[cfg(test)]
-pub(crate) fn check_file_with_occurrences(file: &SourceFile) -> CheckOutput {
-    check_file_with_semantic_index(file, 0)
+pub(crate) fn check_file_with_occurrences(parsed: &ParseOutput) -> CheckOutput {
+    check_parse_output(parsed)
 }
 
-pub(crate) fn check_file_with_semantic_index(
-    file: &SourceFile,
-    semantic_file_index: usize,
-) -> CheckOutput {
+pub(crate) fn check_parse_output(parsed: &ParseOutput) -> CheckOutput {
     let mut diagnostics = CheckCollector {
-        semantic_file_index,
+        semantic_file_index: parsed.semantic_file_index(),
         diagnostics: Vec::new(),
         diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet::default(),
     };
-    for item in &file.items {
-        check_item(item, &mut diagnostics);
+    for item in &parsed.file.items {
+        check_item(parsed, item, &mut diagnostics);
     }
     diagnostics
         .diagnostic_occurrences
@@ -49,7 +47,7 @@ pub(crate) fn check_file_with_semantic_index(
     }
 }
 
-fn check_item(item: &Item, diagnostics: &mut CheckCollector) {
+fn check_item(parsed: &ParseOutput, item: &Item, diagnostics: &mut CheckCollector) {
     match item {
         Item::App(app) => {
             check_target_declarations("app", &app.name, &app.sections, diagnostics);
@@ -66,7 +64,7 @@ fn check_item(item: &Item, diagnostics: &mut CheckCollector) {
                 );
             }
             for item in &app.items {
-                check_item(item, diagnostics);
+                check_item(parsed, item, diagnostics);
             }
         }
         Item::Type(type_def) => {
@@ -111,12 +109,12 @@ fn check_item(item: &Item, diagnostics: &mut CheckCollector) {
                 );
             }
         }
-        Item::Task(task) => check_task(task, diagnostics),
+        Item::Task(task) => check_task(parsed, item, task, diagnostics),
         Item::Test(test) => check_test(test, diagnostics),
     }
 }
 
-fn check_task(task: &Task, diagnostics: &mut CheckCollector) {
+fn check_task(parsed: &ParseOutput, item: &Item, task: &Task, diagnostics: &mut CheckCollector) {
     check_target_declarations("task", &task.name, &task.sections, diagnostics);
 
     if task.name == "stdout_write" {
@@ -215,7 +213,7 @@ fn check_task(task: &Task, diagnostics: &mut CheckCollector) {
     }
 
     check_contract_quality(task, diagnostics);
-    check_declared_mutation(task, diagnostics);
+    check_declared_mutation(parsed, item, task, diagnostics);
     check_cost_contract(task, diagnostics);
     check_security_contracts(task, diagnostics);
 }
@@ -635,7 +633,12 @@ fn check_contract_quality(task: &Task, diagnostics: &mut CheckCollector) {
     }
 }
 
-fn check_declared_mutation(task: &Task, diagnostics: &mut CheckCollector) {
+fn check_declared_mutation(
+    parsed: &ParseOutput,
+    item: &Item,
+    task: &Task,
+    diagnostics: &mut CheckCollector,
+) {
     let Some(does) = task.section("does") else {
         return;
     };
@@ -644,7 +647,7 @@ fn check_declared_mutation(task: &Task, diagnostics: &mut CheckCollector) {
         .section("changes")
         .map(section_resource_set)
         .unwrap_or_default();
-    let local_mutables = local_mutables(does);
+    let local_mutables = local_mutables(parsed, item, does);
     let parameter_roots = task
         .params
         .iter()
@@ -887,7 +890,7 @@ fn first_resource(text: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn local_mutables(section: &Section) -> BTreeSet<String> {
+fn local_mutables(parsed: &ParseOutput, item: &Item, section: &Section) -> BTreeSet<String> {
     let mut mutables = meaningful_lines(section)
         .filter_map(|line| line.text.strip_prefix("change "))
         .filter_map(|rest| {
@@ -897,7 +900,11 @@ fn local_mutables(section: &Section) -> BTreeSet<String> {
             Some(target.to_string())
         })
         .collect::<BTreeSet<_>>();
-    let body = core_body::analyze_does_section(section);
+    let body = core_body::analyze_does_section(
+        parsed
+            .canonical_core_expectation(item, section)
+            .expect("live pre-Program item must have parser authority"),
+    );
     mutables.extend(
         body.statements
             .iter()
@@ -937,10 +944,10 @@ mod tests {
     #[test]
     fn producer_identity_is_unique_across_files_with_matching_check_events() {
         let source = "type Empty {\n}\n";
-        let first = parse_source("first.hum", source);
-        let second = parse_source("second.hum", source);
-        let first_checked = super::check_file_with_semantic_index(&first.file, 0);
-        let second_checked = super::check_file_with_semantic_index(&second.file, 1);
+        let first = crate::parser::parse_source_at_index("first.hum", source, 0);
+        let second = crate::parser::parse_source_at_index("second.hum", source, 1);
+        let first_checked = super::check_parse_output(&first);
+        let second_checked = super::check_parse_output(&second);
         let mut combined = first_checked.diagnostic_occurrences;
         combined
             .extend_owned(&second_checked.diagnostic_occurrences)
@@ -951,10 +958,10 @@ mod tests {
     #[test]
     fn check_occurrence_identity_does_not_depend_on_display_path() {
         let source = "type Empty {\n}\n";
-        let first = parse_source("first-display.hum", source);
-        let renamed = parse_source("renamed-display.hum", source);
-        let first = super::check_file_with_semantic_index(&first.file, 7);
-        let renamed = super::check_file_with_semantic_index(&renamed.file, 7);
+        let first = crate::parser::parse_source_at_index("first-display.hum", source, 7);
+        let renamed = crate::parser::parse_source_at_index("renamed-display.hum", source, 7);
+        let first = super::check_parse_output(&first);
+        let renamed = super::check_parse_output(&renamed);
         let first = first
             .diagnostic_occurrences
             .occurrences()
@@ -989,7 +996,7 @@ mod tests {
 }
 "#;
         let parsed = parse_source("bad-targets.hum", source);
-        let diagnostics = check_file(&parsed.file);
+        let diagnostics = check_file(&parsed);
 
         assert!(diagnostics.iter().any(|diagnostic| {
             diagnostic.severity == Severity::Error
@@ -1030,7 +1037,7 @@ mod tests {
 }
 "#;
         let parsed = parse_source("confused-target.hum", source);
-        let diagnostics = check_file(&parsed.file);
+        let diagnostics = check_file(&parsed);
 
         assert!(diagnostics.iter().any(|diagnostic| {
             diagnostic.severity == Severity::Error
@@ -1059,7 +1066,7 @@ mod tests {
 }
 "#;
         let parsed = parse_source("bad-target-capability.hum", source);
-        let diagnostics = check_file(&parsed.file);
+        let diagnostics = check_file(&parsed);
 
         assert!(diagnostics.iter().any(|diagnostic| {
             diagnostic.severity == Severity::Error
@@ -1092,7 +1099,7 @@ mod tests {
 }
 "#;
         let parsed = parse_source("bad.hum", source);
-        let diagnostics = check_file(&parsed.file);
+        let diagnostics = check_file(&parsed);
         let hollow_count = diagnostics
             .iter()
             .filter(|diagnostic| {
@@ -1131,7 +1138,7 @@ mod tests {
 }
 "#;
         let parsed = parse_source("good.hum", source);
-        let diagnostics = check_file(&parsed.file);
+        let diagnostics = check_file(&parsed);
         assert!(
             diagnostics
                 .iter()
@@ -1149,7 +1156,7 @@ mod tests {
 }
 "#;
         let parsed = parse_source("bad.hum", source);
-        let diagnostics = check_file(&parsed.file);
+        let diagnostics = check_file(&parsed);
         assert!(diagnostics.iter().any(|diagnostic| {
             diagnostic.severity == Severity::Error
                 && diagnostic.code == DiagnosticCode::UNDECLARED_SAVE_TARGET
@@ -1174,7 +1181,7 @@ mod tests {
 }
 "#;
         let parsed = parse_source("bad.hum", source);
-        let diagnostics = check_file(&parsed.file);
+        let diagnostics = check_file(&parsed);
         assert!(diagnostics.iter().any(|diagnostic| {
             diagnostic.severity == Severity::Error
                 && diagnostic.code == DiagnosticCode::CONSTANT_COST_HAS_FOR_EACH
@@ -1194,7 +1201,7 @@ mod tests {
 }
 "#;
         let parsed = parse_source("bad.hum", source);
-        let diagnostics = check_file(&parsed.file);
+        let diagnostics = check_file(&parsed);
         assert!(diagnostics.iter().any(|diagnostic| {
             diagnostic.severity == Severity::Warning
                 && diagnostic.code == DiagnosticCode::SECTION_OUT_OF_ORDER

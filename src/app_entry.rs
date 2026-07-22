@@ -68,10 +68,12 @@ pub(crate) fn diagnostics_for_file_with_semantic_index(
     semantic_file_index: usize,
 ) -> (Vec<Diagnostic>, crate::diagnostic::DiagnosticOccurrenceSet) {
     let mut files = (0..semantic_file_index)
-        .map(|index| SourceFile {
-            path: format!("<semantic-file-{index}>"),
-            module: None,
-            items: Vec::new(),
+        .map(|index| {
+            SourceFile::empty_non_authoritative(
+                format!("<semantic-file-{index}>"),
+                None,
+                Vec::new(),
+            )
         })
         .collect::<Vec<_>>();
     files.push(file.clone());

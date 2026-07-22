@@ -137,6 +137,7 @@ fn check_scope(
         match item {
             Item::Task(task) => check_source_path_construction(
                 program,
+                item,
                 SourceOwner {
                     kind: "task",
                     name: &task.name,
@@ -149,6 +150,7 @@ fn check_scope(
             ),
             Item::Test(test) => check_source_path_construction(
                 program,
+                item,
                 SourceOwner {
                     kind: "test",
                     name: &test.name,
@@ -267,7 +269,11 @@ fn check_task_signature(
         })
     });
     let body_use = task.section("does").and_then(|does| {
-        let body = core_body::analyze_does_section(does);
+        let body = core_body::analyze_does_section(
+            program
+                .canonical_core_expectation_for_task(task, does)
+                .expect("live Path task must have parser authority"),
+        );
         body.statements
             .into_iter()
             .enumerate()
@@ -368,6 +374,7 @@ struct SourceOwner<'a> {
 
 fn check_source_path_construction(
     program: &Program,
+    item: &Item,
     owner: SourceOwner<'_>,
     does: Option<&Section>,
     path_callees: &BTreeMap<&str, &Task>,
@@ -376,7 +383,11 @@ fn check_source_path_construction(
     let Some(does) = does else {
         return;
     };
-    let body = core_body::analyze_does_section(does);
+    let body = core_body::analyze_does_section(
+        program
+            .canonical_core_expectation(item, does)
+            .expect("live Path source owner must have parser authority"),
+    );
     for (statement_index, statement) in body.statements.into_iter().enumerate() {
         let Some(expression) = expression_text(&statement.text) else {
             continue;

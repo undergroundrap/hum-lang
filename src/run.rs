@@ -1182,7 +1182,11 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             let Some(does) = task.section("does") else {
                 continue;
             };
-            let body = core_body::analyze_does_section(does);
+            let body = core_body::analyze_does_section(
+                self.program
+                    .canonical_core_expectation_for_task(task, does)
+                    .expect("live runtime task must have parser authority"),
+            );
             for statement in &body.statements {
                 let mut resolver_owned_callable_occurrence = false;
                 if let Some(application) = self
@@ -1340,7 +1344,11 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         let Some(does) = task.section("does") else {
             return Err(format!("task `{}` has no `does:` section", task.name));
         };
-        let body = core_body::analyze_does_section(does);
+        let body = core_body::analyze_does_section(
+            self.program
+                .canonical_core_expectation_for_task(task, does)
+                .expect("live executed task must have parser authority"),
+        );
         let mut existing_names = task
             .params
             .iter()
@@ -1484,7 +1492,13 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             .iter()
             .flat_map(|task| {
                 task.section("does")
-                    .map(core_body::analyze_does_section)
+                    .map(|does| {
+                        core_body::analyze_does_section(
+                            self.program
+                                .canonical_core_expectation_for_task(task, does)
+                                .expect("live failure-preflight task must have parser authority"),
+                        )
+                    })
                     .into_iter()
                     .flat_map(|body| {
                         body.statements
@@ -7033,8 +7047,8 @@ task set_after_move() -> Int {
 
     fn fixture_program(path: &str, source: &str) -> Program {
         let parsed = parser::parse_source(path, source);
-        let mut diagnostics = parsed.diagnostics;
-        diagnostics.extend(check::check_file(&parsed.file));
+        let mut diagnostics = parsed.diagnostics.clone();
+        diagnostics.extend(check::check_file(&parsed));
         let errors = diagnostics
             .iter()
             .filter(|diagnostic| diagnostic.severity == Severity::Error)

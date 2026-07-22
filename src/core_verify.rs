@@ -1154,7 +1154,7 @@ mod tests {
             "fixtures/diagnostics/session_ap_same_line_independent_causes_fail.hum",
             source,
         );
-        let checked = crate::check::check_file_with_occurrences(&parsed.file);
+        let checked = crate::check::check_file_with_occurrences(&parsed);
         let mut source_occurrences = parsed.diagnostic_occurrences.clone();
         source_occurrences
             .extend_owned(&checked.diagnostic_occurrences)

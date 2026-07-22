@@ -316,6 +316,7 @@ pub(crate) fn build_core_lower_report_from_preview(
     let mut core_items = Vec::new();
     for file in &program.files {
         collect_items(
+            program,
             &file.items,
             &checked_returns,
             errors,
@@ -361,6 +362,7 @@ pub(crate) fn diagnostic_projection_from_preview(
 
 #[allow(clippy::too_many_arguments)]
 fn collect_items(
+    program: &Program,
     items: &[Item],
     checked_returns: &[CheckedReturnSummary],
     source_errors: usize,
@@ -372,6 +374,7 @@ fn collect_items(
 ) {
     for item in items {
         if let Some(core_item) = core_item(
+            program,
             item,
             checked_returns,
             source_errors,
@@ -384,6 +387,7 @@ fn collect_items(
         }
         if let Item::App(app) = item {
             collect_items(
+                program,
                 &app.items,
                 checked_returns,
                 source_errors,
@@ -397,7 +401,9 @@ fn collect_items(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn core_item(
+    program: &Program,
     item: &Item,
     checked_returns: &[CheckedReturnSummary],
     source_errors: usize,
@@ -409,7 +415,11 @@ fn core_item(
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
-    let body = core_body::analyze_does_section(does);
+    let body = core_body::analyze_does_section(
+        program
+            .canonical_core_expectation(item, does)
+            .expect("live Core item must have parser authority"),
+    );
     let failure_analysis = match item {
         Item::Task(task) => failure_analysis.task(task).cloned().unwrap_or_default(),
         _ => Default::default(),

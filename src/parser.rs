@@ -1,19 +1,23 @@
 use crate::ast::{
     App, CallableTypeSyntax, CanonicalActualLexicalEvidence, CanonicalAssociativity,
     CanonicalCommonChildRole, CanonicalCommonLexicalStatus, CanonicalCommonNodeKind,
-    CanonicalCompletionEvent, CanonicalDelimiterKind, CanonicalExpectedLexicalEvidence,
-    CanonicalExpression, CanonicalExpressionIntentEvent, CanonicalExpressionKind,
-    CanonicalExpressionRoleEvent, CanonicalLexicalTokenEvent, CanonicalLexicalTokenKind,
-    CanonicalMalformedCause, CanonicalMalformedEvent, CanonicalOccurrenceAssignmentEvent,
-    CanonicalPayloadEvent, CanonicalPayloadEventValue, CanonicalPayloadField,
-    CanonicalReductionChildEvent, CanonicalReductionEvent, CanonicalStatementEventFact,
-    CanonicalStatementEventField, CanonicalStatementEventValue, CanonicalStatementKindEvent,
-    CanonicalTryWrapperKind, Field, Item, Param, ParamPermission, ParsedBinaryOperator,
-    ParsedBlockRelationship, ParsedBodyStatement, ParsedBodyStatementKind, ParsedCall,
-    ParsedCallCloseStatus, ParsedCallTrailingStatus, ParsedEffectDeclaration,
-    ParsedEffectDeclarationKind, ParsedExpression, ParsedExpressionKind, ParsedIdentifier,
-    ParsedSourceRange, ParserSyntaxNodeId, Section, SectionLine, SourceFile, Store, Task, Test,
-    TypeDef, TypeSyntax, TypeSyntaxKind,
+    CanonicalCompletionEvent, CanonicalCoreFileBinding, CanonicalCoreFileVerifier,
+    CanonicalCoreFileWitness, CanonicalCoreOwnerBinding, CanonicalCoreOwnerVerifier,
+    CanonicalCoreOwnerWitness, CanonicalCoreParseContext, CanonicalCoreParseContextVerifier,
+    CanonicalCoreSealCapability, CanonicalCoreSectionExpectation, CanonicalCoreSectionVerifier,
+    CanonicalDelimiterKind, CanonicalExpectedLexicalEvidence, CanonicalExpression,
+    CanonicalExpressionIntentEvent, CanonicalExpressionKind, CanonicalExpressionRoleEvent,
+    CanonicalLexicalTokenEvent, CanonicalLexicalTokenKind, CanonicalMalformedCause,
+    CanonicalMalformedEvent, CanonicalOccurrenceAssignmentEvent, CanonicalPayloadEvent,
+    CanonicalPayloadEventValue, CanonicalPayloadField, CanonicalReductionChildEvent,
+    CanonicalReductionEvent, CanonicalStatementEventFact, CanonicalStatementEventField,
+    CanonicalStatementEventValue, CanonicalStatementKindEvent, CanonicalTryWrapperKind, Field,
+    Item, Param, ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship,
+    ParsedBodyStatement, ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus,
+    ParsedCallTrailingStatus, ParsedEffectDeclaration, ParsedEffectDeclarationKind,
+    ParsedExpression, ParsedExpressionKind, ParsedIdentifier, ParsedSourceRange,
+    ParserSyntaxNodeId, Section, SectionLine, SourceFile, Store, Task, Test, TypeDef, TypeSyntax,
+    TypeSyntaxKind,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::syntax;
@@ -1709,7 +1713,159 @@ pub(crate) struct ParsedExecutableCallNode {
     pub(crate) identifier_uses: Vec<ParsedCallIdentifierUse>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+struct ParserCanonicalCoreFileWitness {
+    binding: CanonicalCoreFileBinding,
+}
+
+impl CanonicalCoreFileVerifier for ParserCanonicalCoreFileWitness {
+    fn binding(&self) -> &CanonicalCoreFileBinding {
+        &self.binding
+    }
+}
+
+#[derive(Clone)]
+struct ParserCanonicalCoreOwnerWitness {
+    binding: CanonicalCoreOwnerBinding,
+}
+
+impl CanonicalCoreOwnerVerifier for ParserCanonicalCoreOwnerWitness {
+    fn binding(&self) -> &CanonicalCoreOwnerBinding {
+        &self.binding
+    }
+}
+
+#[derive(Clone)]
+struct ParserCanonicalCoreParseContext {
+    binding: CanonicalCoreFileBinding,
+}
+
+impl CanonicalCoreParseContextVerifier for ParserCanonicalCoreParseContext {
+    fn binding(&self) -> &CanonicalCoreFileBinding {
+        &self.binding
+    }
+}
+
+#[derive(Clone)]
+struct CanonicalCoreSectionSnapshot {
+    name: String,
+    lines: Vec<SectionLine>,
+    body_syntax: Vec<Option<ParsedBodyStatement>>,
+    span: Span,
+}
+
+#[derive(Clone)]
+struct ParserCanonicalCoreSectionCapability {
+    file: CanonicalCoreFileBinding,
+    item_path: Arc<[usize]>,
+    item_kind: &'static str,
+    section_slot: usize,
+    snapshot: CanonicalCoreSectionSnapshot,
+    source_owner_seals: Vec<CanonicalSourceOwnerSeal>,
+    occurrence_seals: Vec<CanonicalOccurrenceSeal>,
+    statement_seals: Vec<CanonicalStatementSeal>,
+}
+
+impl CanonicalCoreSectionVerifier for ParserCanonicalCoreSectionCapability {
+    fn validate(
+        &self,
+        file: &CanonicalCoreFileBinding,
+        owner: &CanonicalCoreOwnerBinding,
+        section_slot: usize,
+        section: &Section,
+    ) -> Result<(), &'static str> {
+        if file != &self.file
+            || owner.file != self.file
+            || owner.item_path != self.item_path
+            || owner.item_kind != self.item_kind
+            || section_slot != self.section_slot
+        {
+            return Err("canonical_core_section_binding_mismatch_v0");
+        }
+        if section.name != self.snapshot.name
+            || section.lines != self.snapshot.lines
+            || section.body_syntax != self.snapshot.body_syntax
+            || section.span != self.snapshot.span
+        {
+            return Err("canonical_core_section_projection_mismatch_v0");
+        }
+        for seal in &self.source_owner_seals {
+            validate_source_owner_seal(seal)?;
+            if seal.authority.source_revision.0.as_ref() != self.file.source_revision.as_ref()
+                || seal.authority.item.0.revision.as_ref() != self.file.source_revision.as_ref()
+                || seal.authority.item.0.traversal.as_ref()
+                    != std::iter::once(self.file.semantic_file_index)
+                        .chain(self.item_path.iter().copied())
+                        .collect::<Vec<_>>()
+                        .as_slice()
+                || seal.authority.section.0.traversal.last().copied() != Some(section_slot)
+            {
+                return Err("canonical_core_source_owner_binding_mismatch_v0");
+            }
+        }
+        for seal in &self.occurrence_seals {
+            validate_occurrence_seal(seal)?;
+            let expected_item = std::iter::once(self.file.semantic_file_index)
+                .chain(self.item_path.iter().copied())
+                .collect::<Vec<_>>();
+            let item_matches = seal.projection.iter().any(|fact| {
+                matches!(fact, CanonicalSealFact::Item(value) if value.0.revision.as_ref() == self.file.source_revision.as_ref() && value.0.traversal.as_ref() == expected_item.as_slice())
+            });
+            let section_matches = seal.projection.iter().any(|fact| {
+                matches!(fact, CanonicalSealFact::Section(value) if value.0.traversal.last().copied() == Some(section_slot))
+            });
+            if !item_matches || !section_matches {
+                return Err("canonical_core_occurrence_binding_mismatch_v0");
+            }
+        }
+        for seal in &self.statement_seals {
+            validate_statement_seal(seal)?;
+            let section_matches = seal.projection.iter().any(|fact| {
+                matches!(&fact.value, CanonicalStatementSealValue::Section(value) if value.0.traversal.last().copied() == Some(section_slot))
+            });
+            if !section_matches {
+                return Err("canonical_core_statement_binding_mismatch_v0");
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn corrupt_retained_authority_for_test(
+        &self,
+        domain: crate::ast::CanonicalCoreRetainedAuthorityDomain,
+    ) -> Arc<dyn CanonicalCoreSectionVerifier> {
+        let mut corrupted = self.clone();
+        match domain {
+            crate::ast::CanonicalCoreRetainedAuthorityDomain::SourceOwner => {
+                corrupted.source_owner_seals[0].authority.handle.0.domain ^= 0x40;
+            }
+            crate::ast::CanonicalCoreRetainedAuthorityDomain::Occurrence => {
+                let CanonicalSealFact::SourceBlob(source_blob) =
+                    &mut corrupted.occurrence_seals[0].authority[0]
+                else {
+                    panic!("occurrence authority begins with source-blob identity")
+                };
+                source_blob.0.domain ^= 0x40;
+            }
+            crate::ast::CanonicalCoreRetainedAuthorityDomain::Statement => {
+                let CanonicalStatementSealValue::Kind(kind) =
+                    &mut corrupted.statement_seals[0].authority[0].value
+                else {
+                    panic!("statement authority begins with statement kind")
+                };
+                *kind = if *kind == CanonicalStatementKindEvent::Return {
+                    CanonicalStatementKindEvent::UnconditionalLoop
+                } else {
+                    CanonicalStatementKindEvent::Return
+                };
+            }
+        }
+        Arc::new(corrupted)
+    }
+}
+
+#[derive(Clone)]
 pub struct ParseOutput {
     pub file: SourceFile,
     pub diagnostics: Vec<Diagnostic>,
@@ -1720,6 +1876,44 @@ pub struct ParseOutput {
     occurrence_seals: Vec<CanonicalOccurrenceSeal>,
     #[cfg_attr(not(test), allow(dead_code))]
     statement_seals: Vec<CanonicalStatementSeal>,
+    canonical_core_parse_context: CanonicalCoreParseContext,
+}
+
+impl std::fmt::Debug for ParseOutput {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ParseOutput")
+            .field("file", &self.file)
+            .field("diagnostics", &self.diagnostics)
+            .field("diagnostic_occurrences", &self.diagnostic_occurrences)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ParseOutput {
+    pub(crate) fn semantic_file_index(&self) -> usize {
+        self.canonical_core_parse_context
+            .binding()
+            .semantic_file_index
+    }
+
+    pub(crate) fn canonical_core_expectation<'a>(
+        &'a self,
+        item: &'a Item,
+        section: &'a Section,
+    ) -> Result<CanonicalCoreSectionExpectation<'a>, &'static str> {
+        crate::ast::canonical_core_parse_expectation(
+            &self.file,
+            &self.canonical_core_parse_context,
+            item,
+            section,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn corrupt_canonical_core_parse_context_from(&mut self, foreign: &Self) {
+        self.canonical_core_parse_context = foreign.canonical_core_parse_context.clone();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1797,21 +1991,65 @@ pub(crate) fn parse_source_at_index(
         .validate()
         .expect("parser diagnostics must use registered parser causes");
 
+    let file_binding = parser.canonical_core_file_binding();
+    let file_witness =
+        CanonicalCoreFileWitness::parser_issue(Arc::new(ParserCanonicalCoreFileWitness {
+            binding: file_binding.clone(),
+        }));
+    let canonical_core_parse_context =
+        CanonicalCoreParseContext::parser_issue(Arc::new(ParserCanonicalCoreParseContext {
+            binding: parser.canonical_core_file_binding(),
+        }));
+
     ParseOutput {
-        file: SourceFile {
-            path,
-            module,
-            items,
-        },
+        file: SourceFile::parser_new(path, module, items, file_witness),
         diagnostics: parser.diagnostics,
         diagnostic_occurrences: parser.diagnostic_occurrences,
         source_owner_seals: parser.source_owner_seals,
         occurrence_seals: parser.occurrence_seals,
         statement_seals: parser.statement_seals,
+        canonical_core_parse_context,
     }
 }
 
 impl Parser {
+    fn canonical_core_file_binding(&self) -> CanonicalCoreFileBinding {
+        CanonicalCoreFileBinding {
+            source_revision: self.source_revision.0.clone(),
+            semantic_file_index: self.semantic_file_index,
+            normalized_path: self.path.replace('\\', "/").into(),
+        }
+    }
+
+    fn canonical_core_owner_binding(
+        &self,
+        item_path: &[usize],
+        item_kind: &'static str,
+        sections: &[Section],
+    ) -> CanonicalCoreOwnerBinding {
+        CanonicalCoreOwnerBinding {
+            file: self.canonical_core_file_binding(),
+            item_path: item_path.into(),
+            item_kind,
+            section_slots: sections
+                .iter()
+                .map(|section| Arc::<str>::from(section.name.as_str()))
+                .collect::<Vec<_>>()
+                .into(),
+        }
+    }
+
+    fn canonical_core_owner_witness(
+        &self,
+        item_path: &[usize],
+        item_kind: &'static str,
+        sections: &[Section],
+    ) -> CanonicalCoreOwnerWitness {
+        CanonicalCoreOwnerWitness::parser_issue(Arc::new(ParserCanonicalCoreOwnerWitness {
+            binding: self.canonical_core_owner_binding(item_path, item_kind, sections),
+        }))
+    }
+
     fn parse_file_items(&mut self) -> (Option<String>, Vec<Item>) {
         let mut module = None;
         let mut items = Vec::new();
@@ -1985,7 +2223,21 @@ impl Parser {
         let item_indent = count_indent(&line.text);
         let body_start = index + 1;
         let body_end = close_index;
-        let sections = self.parse_sections(body_start, body_end, item_indent + 2);
+        let item_kind = if header.starts_with("app ") {
+            "app"
+        } else if header.starts_with("type ") {
+            "type"
+        } else if header.starts_with("store ") {
+            "store"
+        } else if header.starts_with("task ") {
+            "task"
+        } else if header.starts_with("test ") {
+            "test"
+        } else {
+            "unknown"
+        };
+        let sections =
+            self.parse_sections(body_start, body_end, item_indent + 2, item_path, item_kind);
         let span = self.span(line.number);
 
         let item = if header.starts_with("app ") {
@@ -1993,36 +2245,25 @@ impl Parser {
             self.validate_identifier("app name", &name, IdentifierKind::Value, line.number);
             let nested_items =
                 self.parse_items_in_range(body_start, body_end, item_indent + 2, item_path);
-            Item::App(App {
-                name,
-                sections,
-                items: nested_items,
-                span,
-            })
+            let witness = self.canonical_core_owner_witness(item_path, "app", &sections);
+            Item::App(App::parser_new(name, sections, nested_items, span, witness))
         } else if header.starts_with("type ") {
             let name = header.trim_start_matches("type ").trim().to_string();
             self.validate_identifier("type name", &name, IdentifierKind::Type, line.number);
             let fields = self.parse_fields(body_start, body_end, item_indent + 2);
-            Item::Type(TypeDef {
-                name,
-                fields,
-                sections,
-                span,
-            })
+            let witness = self.canonical_core_owner_witness(item_path, "type", &sections);
+            Item::Type(TypeDef::parser_new(name, fields, sections, span, witness))
         } else if header.starts_with("store ") {
             let (name, ty) = parse_store_header(header);
             self.validate_identifier("store name", &name, IdentifierKind::Value, line.number);
-            Item::Store(Store {
-                name,
-                ty,
-                sections,
-                span,
-            })
+            let witness = self.canonical_core_owner_witness(item_path, "store", &sections);
+            Item::Store(Store::parser_new(name, ty, sections, span, witness))
         } else if header.starts_with("task ") {
             let (name, params, result, result_syntax) = self.parse_task_header(header, line.number);
             let effect_syntax = parse_task_effect_syntax(&sections);
             let body_syntax = parse_task_body_syntax(&sections);
-            Item::Task(Task {
+            let witness = self.canonical_core_owner_witness(item_path, "task", &sections);
+            Item::Task(Task::parser_new(
                 name,
                 params,
                 result,
@@ -2031,16 +2272,14 @@ impl Parser {
                 effect_syntax,
                 body_syntax,
                 span,
-            })
+                witness,
+            ))
         } else if header.starts_with("test ") {
             let (name, params, modifiers) = self.parse_test_header(header, line.number);
-            Item::Test(Test {
-                name,
-                params,
-                modifiers,
-                sections,
-                span,
-            })
+            let witness = self.canonical_core_owner_witness(item_path, "test", &sections);
+            Item::Test(Test::parser_new(
+                name, params, modifiers, sections, span, witness,
+            ))
         } else {
             self.emit(
                 crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(52),
@@ -2097,7 +2336,14 @@ impl Parser {
         None
     }
 
-    fn parse_sections(&mut self, start: usize, end: usize, section_indent: usize) -> Vec<Section> {
+    fn parse_sections(
+        &mut self,
+        start: usize,
+        end: usize,
+        section_indent: usize,
+        item_path: &[usize],
+        item_kind: &'static str,
+    ) -> Vec<Section> {
         let mut sections = Vec::new();
         let mut index = start;
 
@@ -2148,7 +2394,11 @@ impl Parser {
                 } else {
                     vec![None; lines.len()]
                 };
-                let owners = self.retain_source_owner_records(sections.len(), &lines);
+                let source_owner_start = self.source_owner_seals.len();
+                let occurrence_start = self.occurrence_seals.len();
+                let statement_start = self.statement_seals.len();
+                let section_slot = sections.len();
+                let owners = self.retain_source_owner_records(section_slot, &lines);
                 self.retain_occurrence_records(
                     &name,
                     &self.span(line.number),
@@ -2157,12 +2407,31 @@ impl Parser {
                     &owners,
                     &semantic_node,
                 );
-                sections.push(Section {
+                let span = self.span(line.number);
+                let capability = CanonicalCoreSealCapability::parser_issue(Arc::new(
+                    ParserCanonicalCoreSectionCapability {
+                        file: self.canonical_core_file_binding(),
+                        item_path: item_path.into(),
+                        item_kind,
+                        section_slot,
+                        snapshot: CanonicalCoreSectionSnapshot {
+                            name: name.clone(),
+                            lines: lines.clone(),
+                            body_syntax: body_syntax.clone(),
+                            span: span.clone(),
+                        },
+                        source_owner_seals: self.source_owner_seals[source_owner_start..].to_vec(),
+                        occurrence_seals: self.occurrence_seals[occurrence_start..].to_vec(),
+                        statement_seals: self.statement_seals[statement_start..].to_vec(),
+                    },
+                ));
+                sections.push(Section::parser_new(
                     name,
                     lines,
                     body_syntax,
-                    span: self.span(line.number),
-                });
+                    span,
+                    capability,
+                ));
                 index = cursor;
             } else {
                 index += 1;
@@ -9359,11 +9628,14 @@ mod tests {
     };
     use crate::ast::{
         CanonicalActualLexicalEvidence, CanonicalAssociativity, CanonicalCommonChildRole,
-        CanonicalCommonLexicalStatus, CanonicalCommonNodeKind, CanonicalDelimiterKind,
-        CanonicalExpectedLexicalEvidence, CanonicalExpressionKind, CanonicalMalformedCause,
-        CanonicalPayloadField, CanonicalStatementEventField, CanonicalStatementKindEvent,
-        CanonicalTryWrapperKind, Item, ParsedBinaryOperator, ParsedBlockRelationship,
-        ParsedBodyStatementKind, ParsedCallCloseStatus, ParsedExpressionKind, ParsedSourceRange,
+        CanonicalCommonLexicalStatus, CanonicalCommonNodeKind,
+        CanonicalCoreRetainedAuthorityDomain, CanonicalCoreSectionExpectation,
+        CanonicalDelimiterKind, CanonicalExpectedLexicalEvidence, CanonicalExpression,
+        CanonicalExpressionKind, CanonicalMalformedCause, CanonicalPayloadField,
+        CanonicalStatementEventField, CanonicalStatementEventValue, CanonicalStatementKindEvent,
+        CanonicalTryWrapperKind, Item, ParamPermission, ParsedBinaryOperator,
+        ParsedBlockRelationship, ParsedBodyStatement, ParsedBodyStatementKind,
+        ParsedCallCloseStatus, ParsedExpression, ParsedExpressionKind, ParsedSourceRange,
         ParserSyntaxNodeId, TypeSyntaxKind,
     };
     use crate::diagnostic::{DiagnosticCode, Severity};
@@ -9388,6 +9660,23 @@ mod tests {
         CanonicalSealField::Statement,
         CanonicalSealField::AuthorityHandle,
     ];
+
+    macro_rules! assert_not_impl {
+        ($type:ty, $trait:path) => {
+            const _: fn() = || {
+                trait AmbiguousIfImplemented<A> {
+                    fn marker() {}
+                }
+                impl<T: ?Sized> AmbiguousIfImplemented<()> for T {}
+                impl<T: ?Sized + $trait> AmbiguousIfImplemented<u8> for T {}
+                let _ = <$type as AmbiguousIfImplemented<_>>::marker;
+            };
+        };
+    }
+
+    assert_not_impl!(CanonicalCoreSectionExpectation<'static>, Clone);
+    assert_not_impl!(CanonicalCoreSectionExpectation<'static>, Copy);
+    assert_not_impl!(CanonicalCoreSectionExpectation<'static>, Default);
 
     #[derive(Debug, Clone, Copy)]
     enum ProjectionMutation {
@@ -13369,6 +13658,647 @@ task after() -> UInt {
         assert_eq!(
             task.body_syntax[0].core_expression_kind,
             Some("name_or_text")
+        );
+    }
+
+    fn collect_f4_expression_inventory(
+        expression: &CanonicalExpression,
+        kinds: &mut std::collections::BTreeSet<&'static str>,
+        operators: &mut std::collections::BTreeSet<ParsedBinaryOperator>,
+        permissions: &mut std::collections::BTreeSet<&'static str>,
+        try_shapes: &mut std::collections::BTreeSet<(bool, bool)>,
+    ) {
+        let kind = match &expression.kind {
+            CanonicalExpressionKind::Unit => "unit",
+            CanonicalExpressionKind::Identifier(_) => "identifier",
+            CanonicalExpressionKind::Field { base, .. } => {
+                collect_f4_expression_inventory(base, kinds, operators, permissions, try_shapes);
+                "field"
+            }
+            CanonicalExpressionKind::ElementPlace { base, .. } => {
+                collect_f4_expression_inventory(base, kinds, operators, permissions, try_shapes);
+                "element_place"
+            }
+            CanonicalExpressionKind::UIntLiteral(_) => "uint",
+            CanonicalExpressionKind::IntLiteral(_) => "int",
+            CanonicalExpressionKind::BoolLiteral(_) => "bool",
+            CanonicalExpressionKind::TextLiteral(_) => "text",
+            CanonicalExpressionKind::ListLiteral(values) => {
+                for value in values {
+                    collect_f4_expression_inventory(
+                        value,
+                        kinds,
+                        operators,
+                        permissions,
+                        try_shapes,
+                    );
+                }
+                "list"
+            }
+            CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+                for (_, value) in fields {
+                    collect_f4_expression_inventory(
+                        value,
+                        kinds,
+                        operators,
+                        permissions,
+                        try_shapes,
+                    );
+                }
+                "record"
+            }
+            CanonicalExpressionKind::Call { callee, arguments } => {
+                collect_f4_expression_inventory(callee, kinds, operators, permissions, try_shapes);
+                for argument in arguments {
+                    collect_f4_expression_inventory(
+                        argument,
+                        kinds,
+                        operators,
+                        permissions,
+                        try_shapes,
+                    );
+                }
+                "call"
+            }
+            CanonicalExpressionKind::Permission { permission, value } => {
+                permissions.insert(match permission {
+                    ParamPermission::Borrow => "borrow",
+                    ParamPermission::Change => "change",
+                    ParamPermission::Consume => "consume",
+                });
+                collect_f4_expression_inventory(value, kinds, operators, permissions, try_shapes);
+                "permission"
+            }
+            CanonicalExpressionKind::Try {
+                value,
+                failure_root,
+                failure_variant,
+            } => {
+                try_shapes.insert((failure_root.is_some(), failure_variant.is_some()));
+                collect_f4_expression_inventory(value, kinds, operators, permissions, try_shapes);
+                "try"
+            }
+            CanonicalExpressionKind::Binary {
+                operator,
+                left,
+                right,
+            } => {
+                operators.insert(*operator);
+                collect_f4_expression_inventory(left, kinds, operators, permissions, try_shapes);
+                collect_f4_expression_inventory(right, kinds, operators, permissions, try_shapes);
+                "binary"
+            }
+            CanonicalExpressionKind::Group(value) => {
+                collect_f4_expression_inventory(value, kinds, operators, permissions, try_shapes);
+                "group"
+            }
+            CanonicalExpressionKind::Unsupported => "unsupported",
+        };
+        kinds.insert(kind);
+    }
+
+    fn f4_statement_expressions(statement: &ParsedBodyStatement) -> Vec<&ParsedExpression> {
+        let mut expressions = match &statement.kind {
+            ParsedBodyStatementKind::Return(value) => vec![value],
+            ParsedBodyStatementKind::Binding { value, .. } => value.iter().collect(),
+            ParsedBodyStatementKind::Other { expressions } => expressions.iter().collect(),
+        };
+        expressions.extend(&statement.canonical_extra_occurrences);
+        expressions
+    }
+
+    fn assert_f4_complete_inventory(program: &crate::ast::Program) {
+        let mut kinds = std::collections::BTreeSet::new();
+        let mut operators = std::collections::BTreeSet::new();
+        let mut permissions = std::collections::BTreeSet::new();
+        let mut try_shapes = std::collections::BTreeSet::new();
+        let mut statement_kinds = std::collections::BTreeSet::new();
+        let mut statement_relationships = std::collections::BTreeSet::new();
+        let mut validated_sections = 0usize;
+        let mut total_lines = 0usize;
+        let mut meaningful_lines = 0usize;
+        let mut recognized_lines = 0usize;
+        let mut unsupported_lines = 0usize;
+        let mut core_statements = 0usize;
+
+        for item in &program.files[0].items {
+            let Item::Task(task) = item else {
+                continue;
+            };
+            for section in &task.sections {
+                let report = crate::core_body::try_analyze_does_section(
+                    program
+                        .canonical_core_expectation(item, section)
+                        .expect("complete-inventory Section has one live location"),
+                )
+                .expect("complete-inventory Section validates before private Core construction");
+                validated_sections += 1;
+                total_lines += report.total_lines;
+                meaningful_lines += report.meaningful_lines;
+                recognized_lines += report.recognized_lines;
+                unsupported_lines += report.unsupported_lines;
+                core_statements += report.statements.len();
+
+                for statement in section.body_syntax.iter().flatten() {
+                    for expression in f4_statement_expressions(statement) {
+                        collect_f4_expression_inventory(
+                            &expression.canonical,
+                            &mut kinds,
+                            &mut operators,
+                            &mut permissions,
+                            &mut try_shapes,
+                        );
+                    }
+                    let kind = statement
+                        .canonical_statement_projection
+                        .iter()
+                        .find_map(|fact| match (&fact.field, &fact.value) {
+                            (
+                                CanonicalStatementEventField::Kind,
+                                CanonicalStatementEventValue::Kind(kind),
+                            ) => Some(*kind),
+                            _ => None,
+                        })
+                        .expect("every complete-inventory statement retains its kind");
+                    statement_kinds.insert(kind);
+                    let relationships = statement
+                        .canonical_statement_projection
+                        .iter()
+                        .filter_map(|fact| match (&fact.field, &fact.value) {
+                            (
+                                CanonicalStatementEventField::RelationshipToken,
+                                CanonicalStatementEventValue::Token { spelling, .. },
+                            ) => Some(spelling.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    if !relationships.is_empty() {
+                        statement_relationships.insert((kind, relationships));
+                    }
+                }
+            }
+        }
+
+        assert_eq!(validated_sections, 7);
+        assert_eq!(total_lines, 79);
+        assert_eq!(meaningful_lines, 69);
+        assert_eq!(recognized_lines, 67);
+        assert_eq!(unsupported_lines, 2);
+        assert_eq!(core_statements, 69);
+        assert_eq!(
+            kinds,
+            [
+                "binary",
+                "bool",
+                "call",
+                "element_place",
+                "field",
+                "group",
+                "identifier",
+                "int",
+                "list",
+                "permission",
+                "record",
+                "text",
+                "try",
+                "uint",
+                "unit",
+                "unsupported",
+            ]
+            .into_iter()
+            .collect(),
+            "all fifteen successful canonical expression kinds plus the explicit unsupported boundary must cross validated Core"
+        );
+        assert_eq!(
+            operators,
+            [
+                ParsedBinaryOperator::Multiply,
+                ParsedBinaryOperator::Divide,
+                ParsedBinaryOperator::Add,
+                ParsedBinaryOperator::Subtract,
+                ParsedBinaryOperator::Equal,
+                ParsedBinaryOperator::NotEqual,
+                ParsedBinaryOperator::Less,
+                ParsedBinaryOperator::LessEqual,
+                ParsedBinaryOperator::Greater,
+                ParsedBinaryOperator::GreaterEqual,
+                ParsedBinaryOperator::Is,
+                ParsedBinaryOperator::Does,
+                ParsedBinaryOperator::Returns,
+                ParsedBinaryOperator::FailsWith,
+                ParsedBinaryOperator::And,
+                ParsedBinaryOperator::Or,
+            ]
+            .into_iter()
+            .collect(),
+            "all sixteen successful binary operators must cross validated Core"
+        );
+        assert_eq!(
+            permissions,
+            ["borrow", "change", "consume"].into_iter().collect()
+        );
+        assert_eq!(
+            try_shapes,
+            [(false, false), (true, true)].into_iter().collect()
+        );
+        assert_eq!(
+            statement_kinds,
+            [
+                CanonicalStatementKindEvent::Return,
+                CanonicalStatementKindEvent::ImmutableBinding,
+                CanonicalStatementKindEvent::MutableBinding,
+                CanonicalStatementKindEvent::Set,
+                CanonicalStatementKindEvent::Save,
+                CanonicalStatementKindEvent::Fail,
+                CanonicalStatementKindEvent::Expect,
+                CanonicalStatementKindEvent::FreeExpression,
+                CanonicalStatementKindEvent::If,
+                CanonicalStatementKindEvent::While,
+                CanonicalStatementKindEvent::ForEach,
+                CanonicalStatementKindEvent::ForIndexUntil,
+                CanonicalStatementKindEvent::ForIndexThrough,
+                CanonicalStatementKindEvent::UnconditionalLoop,
+                CanonicalStatementKindEvent::BlockClose,
+            ]
+            .into_iter()
+            .collect(),
+            "all fifteen does-body statement relationships must cross validated Core"
+        );
+        assert_eq!(
+            statement_relationships,
+            [
+                (CanonicalStatementKindEvent::Save, vec!["in".to_string()]),
+                (CanonicalStatementKindEvent::ForEach, vec!["in".to_string()]),
+                (
+                    CanonicalStatementKindEvent::ForIndexUntil,
+                    vec!["from".to_string(), "until".to_string()],
+                ),
+                (
+                    CanonicalStatementKindEvent::ForIndexThrough,
+                    vec!["from".to_string(), "through".to_string()],
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            "every does-body relationship token family must cross validated Core"
+        );
+    }
+
+    fn assert_f4_retained_statement_inventory(seals: &[CanonicalStatementSeal]) {
+        let kinds = seals
+            .iter()
+            .map(|seal| seal.schema_authority.kind)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            kinds,
+            [
+                CanonicalStatementKindEvent::NeedsPredicate,
+                CanonicalStatementKindEvent::EnsuresPredicate,
+                CanonicalStatementKindEvent::Return,
+                CanonicalStatementKindEvent::ImmutableBinding,
+                CanonicalStatementKindEvent::MutableBinding,
+                CanonicalStatementKindEvent::Set,
+                CanonicalStatementKindEvent::Save,
+                CanonicalStatementKindEvent::Fail,
+                CanonicalStatementKindEvent::Expect,
+                CanonicalStatementKindEvent::FreeExpression,
+                CanonicalStatementKindEvent::If,
+                CanonicalStatementKindEvent::While,
+                CanonicalStatementKindEvent::ForEach,
+                CanonicalStatementKindEvent::ForIndexUntil,
+                CanonicalStatementKindEvent::ForIndexThrough,
+                CanonicalStatementKindEvent::UnconditionalLoop,
+                CanonicalStatementKindEvent::BlockClose,
+            ]
+            .into_iter()
+            .collect(),
+            "all seventeen statement relationships must remain in retained authority"
+        );
+        let relationships = seals
+            .iter()
+            .filter_map(|seal| {
+                let spellings = seal
+                    .projection
+                    .iter()
+                    .filter_map(|fact| match (&fact.field, &fact.value) {
+                        (
+                            CanonicalStatementEventField::RelationshipToken,
+                            CanonicalStatementSealValue::Token(_, _, spelling),
+                        ) => Some(spelling.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                (!spellings.is_empty()).then_some((seal.schema_authority.kind, spellings))
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            relationships,
+            [
+                (
+                    CanonicalStatementKindEvent::NeedsPredicate,
+                    vec![":".to_string()],
+                ),
+                (
+                    CanonicalStatementKindEvent::EnsuresPredicate,
+                    vec![":".to_string()],
+                ),
+                (CanonicalStatementKindEvent::Save, vec!["in".to_string()]),
+                (CanonicalStatementKindEvent::ForEach, vec!["in".to_string()]),
+                (
+                    CanonicalStatementKindEvent::ForIndexUntil,
+                    vec!["from".to_string(), "until".to_string()],
+                ),
+                (
+                    CanonicalStatementKindEvent::ForIndexThrough,
+                    vec!["from".to_string(), "through".to_string()],
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            "all six relationship-token families must remain in retained authority"
+        );
+    }
+
+    fn f4_task_and_does<'a>(
+        file: &'a crate::ast::SourceFile,
+        name: &str,
+    ) -> (&'a Item, &'a crate::ast::Section) {
+        let item = file
+            .items
+            .iter()
+            .find(|item| item.name() == name)
+            .expect("named F4 task");
+        let Item::Task(task) = item else {
+            panic!("named F4 item must be a task")
+        };
+        (item, task.section("does").expect("F4 does section"))
+    }
+
+    fn f4_core_result(
+        program: &crate::ast::Program,
+        item: &Item,
+        section: &crate::ast::Section,
+    ) -> Result<String, &'static str> {
+        let expectation = program.canonical_core_expectation(item, section)?;
+        crate::core_body::try_analyze_does_section(expectation).map(|report| format!("{report:?}"))
+    }
+
+    #[test]
+    fn complete_canonical_seal_reaches_private_core_and_rejects_transport_corruption() {
+        const INVENTORY: &str =
+            include_str!("../fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum");
+        const REQUIRED_SOURCE_AUDIT_ARMS: [&str; 13] = [
+            "Replacement F4 Core entry must accept only the lifetime-bound expectation",
+            "Replacement F4 raw-Section Core bypass was restored",
+            "Replacement F4 BodyGrammarReport construction escaped the private validated marker",
+            "Replacement F4 validation must remain before private Core construction",
+            "Replacement F4 expectation must remain a non-cloneable lifetime-bound borrow",
+            "Replacement F4 valid-authority issuer escaped ast/parser",
+            "Replacement F4 valid-authority issuer or installer inventory drifted",
+            "Replacement F4 Core caller inventory drifted",
+            "Replacement F4 production callback bypassed fresh expectation location",
+            "Replacement F4 independent file, item, Section, and pre-Program authority issuance is incomplete",
+            "Replacement F4 independently supplied 132-field/8646-pair pins are missing",
+            "Replacement F4 stale expectation borrow topology drifted",
+            "Replacement F4 F4-selector audit-arm pinning drifted",
+        ];
+        let check_all = include_str!("../tools/check_all.ps1");
+        for arm in REQUIRED_SOURCE_AUDIT_ARMS {
+            assert_eq!(
+                check_all.matches(arm).count(),
+                1,
+                "the exact F4 selector must independently pin source-audit arm `{arm}`"
+            );
+        }
+        let first = parse_source_at_index("inventory.hum", INVENTORY, 0);
+        let second = parse_source_at_index("inventory.hum", INVENTORY, 0);
+        assert_f4_retained_statement_inventory(&first.statement_seals);
+        let catalogue_count = F1_SEAL_FIELDS.len()
+            + F2_SEAL_FIELDS.len()
+            + F3_MALFORMED_FIELDS.len()
+            + F3_STATEMENT_FIELDS.len();
+        assert_eq!(catalogue_count, 132);
+        let pairs = (0..catalogue_count)
+            .flat_map(|left| ((left + 1)..catalogue_count).map(move |right| (left, right)))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(pairs.len(), 8_646);
+
+        let (parse_item, parse_section) = f4_task_and_does(&first.file, "payload");
+        let parse_report = crate::core_body::analyze_does_section(
+            first
+                .canonical_core_expectation(parse_item, parse_section)
+                .expect("borrowed ParseOutput expectation"),
+        );
+        assert_eq!(
+            (
+                parse_report.total_lines,
+                parse_report.meaningful_lines,
+                parse_report.recognized_lines,
+                parse_report.unsupported_lines,
+                parse_report.statements.len(),
+            ),
+            (42, 42, 42, 0, 42),
+            "the borrowed pre-Program payload must cross validated Core completely"
+        );
+
+        let program = crate::ast::Program {
+            files: vec![first.file.clone()],
+        };
+        assert_f4_complete_inventory(&program);
+        let (item, section) = f4_task_and_does(&program.files[0], "payload");
+        let first_report =
+            f4_core_result(&program, item, section).expect("valid Program authority");
+        let second_program = crate::ast::Program {
+            files: vec![second.file.clone()],
+        };
+        let (second_item, second_section) = f4_task_and_does(&second_program.files[0], "payload");
+        assert_eq!(
+            first_report,
+            f4_core_result(&second_program, second_item, second_section)
+                .expect("second valid Program authority"),
+            "two fresh complete inventories must produce identical private Core reports"
+        );
+
+        let mut projection = program.clone();
+        let Item::Task(task) = &mut projection.files[0].items[2] else {
+            panic!("payload task")
+        };
+        task.sections
+            .iter_mut()
+            .find(|section| section.name == "does")
+            .expect("does")
+            .lines[0]
+            .text = "return fabricated".to_string();
+        let (item, section) = f4_task_and_does(&projection.files[0], "payload");
+        assert_eq!(
+            f4_core_result(&projection, item, section),
+            Err("canonical_core_section_projection_mismatch_v0")
+        );
+
+        let mut missing_file = program.clone();
+        missing_file.files[0].remove_canonical_core_file_witness();
+        let (item, section) = f4_task_and_does(&missing_file.files[0], "payload");
+        assert_eq!(
+            f4_core_result(&missing_file, item, section),
+            Err("canonical_core_file_witness_absent_v0")
+        );
+
+        let mut missing_item = program.clone();
+        missing_item.files[0].items[2].remove_canonical_core_owner_witness();
+        let (item, section) = f4_task_and_does(&missing_item.files[0], "payload");
+        assert_eq!(
+            f4_core_result(&missing_item, item, section),
+            Err("canonical_core_item_witness_absent_v0")
+        );
+
+        let mut missing_capability = program.clone();
+        let Item::Task(task) = &mut missing_capability.files[0].items[2] else {
+            panic!("payload task")
+        };
+        task.sections
+            .iter_mut()
+            .find(|section| section.name == "does")
+            .expect("does")
+            .remove_canonical_core_capability();
+        let (item, section) = f4_task_and_does(&missing_capability.files[0], "payload");
+        assert_eq!(
+            f4_core_result(&missing_capability, item, section),
+            Err("canonical_core_section_capability_absent_v0")
+        );
+
+        let foreign = parse_source_at_index("inventory.hum", INVENTORY, 1);
+        let mut foreign_capability = program.clone();
+        let (_, foreign_section) = f4_task_and_does(&foreign.file, "payload");
+        let Item::Task(task) = &mut foreign_capability.files[0].items[2] else {
+            panic!("payload task")
+        };
+        task.sections
+            .iter_mut()
+            .find(|section| section.name == "does")
+            .expect("does")
+            .corrupt_canonical_core_capability_from(foreign_section);
+        let (item, section) = f4_task_and_does(&foreign_capability.files[0], "payload");
+        assert_eq!(
+            f4_core_result(&foreign_capability, item, section),
+            Err("canonical_core_section_binding_mismatch_v0")
+        );
+
+        let mut foreign_owner = program.clone();
+        foreign_owner.files[0].items[2]
+            .corrupt_canonical_core_owner_witness_from(&foreign.file.items[2]);
+        let (item, section) = f4_task_and_does(&foreign_owner.files[0], "payload");
+        assert_eq!(
+            f4_core_result(&foreign_owner, item, section),
+            Err("canonical_core_item_witness_mismatch_v0")
+        );
+
+        let mut foreign_file = program.clone();
+        foreign_file.files[0].corrupt_canonical_core_file_witness_from(&foreign.file);
+        let (item, section) = f4_task_and_does(&foreign_file.files[0], "payload");
+        assert_eq!(
+            f4_core_result(&foreign_file, item, section),
+            Err("canonical_core_file_witness_mismatch_v0")
+        );
+
+        for (domain, expected_error) in [
+            (
+                CanonicalCoreRetainedAuthorityDomain::SourceOwner,
+                "canonical_source_owner_authority_mismatch_v0",
+            ),
+            (
+                CanonicalCoreRetainedAuthorityDomain::Occurrence,
+                "canonical_occurrence_authority_mismatch_v0",
+            ),
+            (
+                CanonicalCoreRetainedAuthorityDomain::Statement,
+                "canonical_statement_authority_mismatch_v0",
+            ),
+        ] {
+            let mut corrupted = program.clone();
+            let Item::Task(task) = &mut corrupted.files[0].items[2] else {
+                panic!("payload task")
+            };
+            task.sections
+                .iter_mut()
+                .find(|section| section.name == "does")
+                .expect("does")
+                .corrupt_canonical_core_retained_authority(domain);
+            let (item, section) = f4_task_and_does(&corrupted.files[0], "payload");
+            assert_eq!(
+                f4_core_result(&corrupted, item, section),
+                Err(expected_error),
+                "each retained authority domain must independently block private Core"
+            );
+        }
+
+        let mut reparented_section = program.clone();
+        let (_, payload_does) = f4_task_and_does(&reparented_section.files[0], "payload");
+        let payload_does = payload_does.clone();
+        let Item::Task(relationships) = &mut reparented_section.files[0].items[3] else {
+            panic!("relationships task")
+        };
+        let relationship_slot = relationships
+            .sections
+            .iter()
+            .position(|section| section.name == "does")
+            .expect("relationships does");
+        relationships.sections[relationship_slot] = payload_does;
+        let (item, section) = f4_task_and_does(&reparented_section.files[0], "relationships");
+        assert_eq!(
+            f4_core_result(&reparented_section, item, section),
+            Err("canonical_core_section_binding_mismatch_v0"),
+            "a Section and intact capability cannot move to another item or slot"
+        );
+
+        let mut wrong_parse_context = parse_source_at_index("inventory.hum", INVENTORY, 0);
+        let foreign_parse_context = parse_source_at_index("inventory.hum", INVENTORY, 1);
+        wrong_parse_context.corrupt_canonical_core_parse_context_from(&foreign_parse_context);
+        let (item, section) = f4_task_and_does(&wrong_parse_context.file, "payload");
+        let error = crate::core_body::try_analyze_does_section(
+            wrong_parse_context
+                .canonical_core_expectation(item, section)
+                .expect("wrong context remains lifetime-bound to its live ParseOutput"),
+        )
+        .expect_err("a foreign ParseOutput context must fail before Core construction");
+        assert_eq!(error, "canonical_core_parse_context_mismatch_v0");
+
+        let source_a = "# alpha\ntask same() -> UInt {\n  does:\n    return 1\n}\n";
+        let source_b = "# bravo\ntask same() -> UInt {\n  does:\n    return 1\n}\n";
+        let alpha = parse_source_at_index("same.hum", source_a, 0);
+        let bravo = parse_source_at_index("same.hum", source_b, 0);
+        assert_eq!(
+            alpha.file, bravo.file,
+            "private authority changed public equality"
+        );
+        let mut transplanted = crate::ast::Program {
+            files: vec![bravo.file.clone()],
+        };
+        transplanted.files[0].items[0] = alpha.file.items[0].clone();
+        let (item, section) = f4_task_and_does(&transplanted.files[0], "same");
+        assert_eq!(
+            f4_core_result(&transplanted, item, section),
+            Err("canonical_core_item_witness_mismatch_v0")
+        );
+
+        let ordinal_zero = parse_source_at_index("zero.hum", source_a, 0);
+        let ordinal_one = parse_source_at_index("one.hum", source_b, 1);
+        let moved_file = crate::ast::Program {
+            files: vec![ordinal_one.file, ordinal_zero.file],
+        };
+        let (item, section) = f4_task_and_does(&moved_file.files[0], "same");
+        assert_eq!(
+            f4_core_result(&moved_file, item, section),
+            Err("canonical_core_file_witness_mismatch_v0")
+        );
+
+        let wrong_program = crate::ast::Program {
+            files: vec![second.file.clone()],
+        };
+        let (item, section) = f4_task_and_does(&program.files[0], "payload");
+        assert!(
+            wrong_program
+                .canonical_core_expectation(item, section)
+                .is_err()
         );
     }
 }
