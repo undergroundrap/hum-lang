@@ -23,7 +23,7 @@ pub struct ParsedSourceRange {
     pub byte_len: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ParsedBinaryOperator {
     Multiply,
     Divide,
@@ -48,6 +48,7 @@ pub struct CanonicalExpression {
     pub node_id: ParserSyntaxNodeId,
     pub range: ParsedSourceRange,
     pub kind: CanonicalExpressionKind,
+    pub(crate) payload: Vec<CanonicalPayloadEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +58,10 @@ pub enum CanonicalExpressionKind {
     Field {
         base: Box<CanonicalExpression>,
         field: String,
+    },
+    ElementPlace {
+        base: Box<CanonicalExpression>,
+        index: u64,
     },
     UIntLiteral(u64),
     IntLiteral(i64),
@@ -75,6 +80,11 @@ pub enum CanonicalExpressionKind {
         permission: ParamPermission,
         value: Box<CanonicalExpression>,
     },
+    Try {
+        value: Box<CanonicalExpression>,
+        failure_root: Option<String>,
+        failure_variant: Option<String>,
+    },
     Binary {
         operator: ParsedBinaryOperator,
         left: Box<CanonicalExpression>,
@@ -89,6 +99,7 @@ pub(crate) enum CanonicalCommonNodeKind {
     Unit,
     Identifier,
     Field,
+    ElementPlace,
     UIntLiteral,
     IntLiteral,
     BoolLiteral,
@@ -97,6 +108,7 @@ pub(crate) enum CanonicalCommonNodeKind {
     RecordLiteral,
     Call,
     Permission,
+    Try,
     Binary,
     Group,
     Unsupported,
@@ -105,11 +117,13 @@ pub(crate) enum CanonicalCommonNodeKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CanonicalCommonChildRole {
     FieldBase,
+    ElementBase,
     ListElement,
     RecordFieldValue,
     CallCallee,
     CallArgument,
     PermissionValue,
+    TryValue,
     BinaryLeft,
     BinaryRight,
     GroupValue,
@@ -136,11 +150,135 @@ pub(crate) struct CanonicalReductionEvent {
     pub(crate) delimiter_depth_before: usize,
     pub(crate) delimiter_depth_after: usize,
     pub(crate) lexical_status: CanonicalCommonLexicalStatus,
+    pub(crate) payload: Vec<CanonicalPayloadEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CanonicalLexicalTokenEvent {
     pub(crate) range: ParsedSourceRange,
+    pub(crate) spelling: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum CanonicalPayloadField {
+    UnitPosition,
+    IdentifierToken,
+    IdentifierValue,
+    UIntDigitsToken,
+    UIntValue,
+    IntSignToken,
+    IntDigitsToken,
+    IntValue,
+    IntSignedLiteral,
+    BoolToken,
+    BoolValue,
+    TextOpenQuote,
+    TextCloseQuote,
+    TextRawContent,
+    TextEscapeEvents,
+    TextDecodedValue,
+    TextTerminated,
+    FieldBaseEdge,
+    FieldDotToken,
+    FieldNameToken,
+    FieldValue,
+    ElementBaseEdge,
+    ElementOpenBracket,
+    ElementCloseBracket,
+    ElementIndexToken,
+    ElementIndexValue,
+    ElementPlaceRole,
+    DelimiterPair,
+    DelimiterNestingParent,
+    DelimiterSemanticGaps,
+    DelimiterSeparators,
+    AggregateEmpty,
+    AggregateTrailing,
+    GroupValueEdge,
+    ListElementEdges,
+    RecordNameToken,
+    RecordFieldTokens,
+    RecordColonTokens,
+    RecordValueEdges,
+    CallCalleeEdge,
+    CallArgumentEdges,
+    CallAdjacency,
+    CallCloseState,
+    CallTrailingState,
+    BinaryOperator,
+    BinaryOperatorTokens,
+    BinaryOperatorRange,
+    BinaryPrecedence,
+    BinaryAssociativity,
+    BinaryLeftBoundary,
+    BinaryRightBoundary,
+    BinaryReductionOrder,
+    BinaryChildRoles,
+    PermissionKeyword,
+    PermissionDiscriminant,
+    PermissionGap,
+    PermissionValueEdge,
+    TryKeyword,
+    TryValueEdge,
+    TryWrapperRelation,
+    TryFailureRootToken,
+    TryDotToken,
+    TryFailureVariantToken,
+    TryWrapperKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalDelimiterKind {
+    Parenthesis,
+    List,
+    Record,
+    Element,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalAssociativity {
+    Left,
+    #[cfg(test)]
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalTryWrapperKind {
+    Propagate,
+    Wrap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CanonicalPayloadEventValue {
+    Position(Span),
+    Token(ParsedSourceRange, String),
+    Tokens(Vec<(ParsedSourceRange, String)>),
+    Range(ParsedSourceRange),
+    Ranges(Vec<ParsedSourceRange>),
+    Text(String),
+    UInt(u64),
+    Int(i64),
+    Bool(bool),
+    Usize(usize),
+    Bools(Vec<bool>),
+    Parent,
+    ChildOrdinal(usize),
+    ChildOrdinals(Vec<usize>),
+    DelimiterPair {
+        kind: CanonicalDelimiterKind,
+        open: ParsedSourceRange,
+        close: ParsedSourceRange,
+    },
+    Operator(ParsedBinaryOperator),
+    Permission(ParamPermission),
+    Associativity(CanonicalAssociativity),
+    WrapperKind(CanonicalTryWrapperKind),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalPayloadEvent {
+    pub(crate) field: CanonicalPayloadField,
+    pub(crate) value: CanonicalPayloadEventValue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

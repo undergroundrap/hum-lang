@@ -1,14 +1,15 @@
 use crate::ast::{
-    App, CallableTypeSyntax, CanonicalCommonChildRole, CanonicalCommonLexicalStatus,
-    CanonicalCommonNodeKind, CanonicalExpression, CanonicalExpressionIntentEvent,
-    CanonicalExpressionKind, CanonicalExpressionRoleEvent, CanonicalLexicalTokenEvent,
-    CanonicalOccurrenceAssignmentEvent, CanonicalReductionChildEvent, CanonicalReductionEvent,
-    Field, Item, Param, ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship,
-    ParsedBodyStatement, ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus,
-    ParsedCallTrailingStatus, ParsedEffectDeclaration, ParsedEffectDeclarationKind,
-    ParsedExpression, ParsedExpressionKind, ParsedIdentifier, ParsedSourceRange,
-    ParserSyntaxNodeId, Section, SectionLine, SourceFile, Store, Task, Test, TypeDef, TypeSyntax,
-    TypeSyntaxKind,
+    App, CallableTypeSyntax, CanonicalAssociativity, CanonicalCommonChildRole,
+    CanonicalCommonLexicalStatus, CanonicalCommonNodeKind, CanonicalDelimiterKind,
+    CanonicalExpression, CanonicalExpressionIntentEvent, CanonicalExpressionKind,
+    CanonicalExpressionRoleEvent, CanonicalLexicalTokenEvent, CanonicalOccurrenceAssignmentEvent,
+    CanonicalPayloadEvent, CanonicalPayloadEventValue, CanonicalPayloadField,
+    CanonicalReductionChildEvent, CanonicalReductionEvent, CanonicalTryWrapperKind, Field, Item,
+    Param, ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship, ParsedBodyStatement,
+    ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus, ParsedCallTrailingStatus,
+    ParsedEffectDeclaration, ParsedEffectDeclarationKind, ParsedExpression, ParsedExpressionKind,
+    ParsedIdentifier, ParsedSourceRange, ParserSyntaxNodeId, Section, SectionLine, SourceFile,
+    Store, Task, Test, TypeDef, TypeSyntax, TypeSyntaxKind,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::syntax;
@@ -158,6 +159,7 @@ opaque_occurrence_id!(
     CanonicalReductionIdentity,
     CanonicalAssigningEvent,
     CanonicalPredicateEvent,
+    CanonicalPayloadIdentity,
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,9 +246,48 @@ enum CanonicalSealFact {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum CanonicalPayloadValue {
+    Position(Span),
+    Token(CanonicalTokenIdentity, ParsedSourceRange, String),
+    Tokens(Vec<(CanonicalTokenIdentity, ParsedSourceRange, String)>),
+    Range(ParsedSourceRange),
+    Ranges(Vec<ParsedSourceRange>),
+    Text(String),
+    UInt(u64),
+    Int(i64),
+    Bool(bool),
+    Usize(usize),
+    Bools(Vec<bool>),
+    Node(CanonicalNodeIdentity),
+    Nodes(Vec<CanonicalNodeIdentity>),
+    OptionalNode(Option<CanonicalNodeIdentity>),
+    DelimiterPair {
+        kind: CanonicalDelimiterKind,
+        open: CanonicalTokenIdentity,
+        open_range: ParsedSourceRange,
+        close: CanonicalTokenIdentity,
+        close_range: ParsedSourceRange,
+    },
+    Operator(ParsedBinaryOperator),
+    Permission(ParamPermission),
+    Associativity(CanonicalAssociativity),
+    WrapperKind(CanonicalTryWrapperKind),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalPayloadSealFact {
+    identity: CanonicalPayloadIdentity,
+    node: CanonicalNodeIdentity,
+    field: CanonicalPayloadField,
+    value: CanonicalPayloadValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct CanonicalOccurrenceSeal {
     projection: Vec<CanonicalSealFact>,
     authority: Vec<CanonicalSealFact>,
+    payload_projection: Vec<CanonicalPayloadSealFact>,
+    payload_authority: Vec<CanonicalPayloadSealFact>,
 }
 
 fn canonical_fact_matches(left: &CanonicalSealFact, right: &CanonicalSealFact) -> bool {
@@ -370,12 +411,13 @@ fn canonical_fact_matches(left: &CanonicalSealFact, right: &CanonicalSealFact) -
 }
 
 fn validate_occurrence_seal(seal: &CanonicalOccurrenceSeal) -> Result<(), &'static str> {
-    validate_occurrence_seal_inner(seal, None)
+    validate_occurrence_seal_inner(seal, None, None)
 }
 
 fn validate_occurrence_seal_inner(
     seal: &CanonicalOccurrenceSeal,
     ignored_index: Option<usize>,
+    ignored_payload_index: Option<usize>,
 ) -> Result<(), &'static str> {
     if seal.projection.len() != seal.authority.len() {
         return Err("canonical_occurrence_field_count_corrupt_v0");
@@ -391,7 +433,156 @@ fn validate_occurrence_seal_inner(
     {
         return Err("canonical_occurrence_authority_mismatch_v0");
     }
+    if seal.payload_projection.len() != seal.payload_authority.len() {
+        return Err("canonical_payload_field_count_corrupt_v0");
+    }
+    if seal
+        .payload_projection
+        .iter()
+        .zip(&seal.payload_authority)
+        .enumerate()
+        .any(|(index, (left, right))| Some(index) != ignored_payload_index && left != right)
+    {
+        return Err("canonical_payload_authority_mismatch_v0");
+    }
+    for fact in &seal.projection {
+        let CanonicalSealFact::Kind(node, kind) = fact else {
+            continue;
+        };
+        let lexically_unsupported = seal.projection.iter().any(|fact| {
+            matches!(
+                fact,
+                CanonicalSealFact::LexicalStatus(
+                    status_node,
+                    CanonicalCommonLexicalStatus::Unsupported
+                ) if status_node == node
+            )
+        });
+        let actual = seal
+            .payload_projection
+            .iter()
+            .filter(|payload| &payload.node == node)
+            .map(|payload| payload.field)
+            .collect::<Vec<_>>();
+        if lexically_unsupported {
+            if !actual.is_empty() {
+                return Err("unsupported_canonical_payload_present_v0");
+            }
+            continue;
+        }
+        if actual != expected_payload_fields(*kind) {
+            return Err("canonical_payload_field_shape_corrupt_v0");
+        }
+    }
     Ok(())
+}
+
+fn expected_payload_fields(kind: CanonicalCommonNodeKind) -> &'static [CanonicalPayloadField] {
+    use CanonicalPayloadField as F;
+    match kind {
+        CanonicalCommonNodeKind::Unit => &[F::UnitPosition],
+        CanonicalCommonNodeKind::Identifier => &[F::IdentifierToken, F::IdentifierValue],
+        CanonicalCommonNodeKind::UIntLiteral => &[F::UIntDigitsToken, F::UIntValue],
+        CanonicalCommonNodeKind::IntLiteral => &[
+            F::IntSignToken,
+            F::IntDigitsToken,
+            F::IntValue,
+            F::IntSignedLiteral,
+        ],
+        CanonicalCommonNodeKind::BoolLiteral => &[F::BoolToken, F::BoolValue],
+        CanonicalCommonNodeKind::TextLiteral => &[
+            F::TextOpenQuote,
+            F::TextCloseQuote,
+            F::TextRawContent,
+            F::TextEscapeEvents,
+            F::TextDecodedValue,
+            F::TextTerminated,
+        ],
+        CanonicalCommonNodeKind::Field => &[
+            F::FieldBaseEdge,
+            F::FieldDotToken,
+            F::FieldNameToken,
+            F::FieldValue,
+        ],
+        CanonicalCommonNodeKind::ElementPlace => &[
+            F::DelimiterPair,
+            F::DelimiterNestingParent,
+            F::DelimiterSemanticGaps,
+            F::ElementBaseEdge,
+            F::ElementOpenBracket,
+            F::ElementCloseBracket,
+            F::ElementIndexToken,
+            F::ElementIndexValue,
+            F::ElementPlaceRole,
+        ],
+        CanonicalCommonNodeKind::Group => &[
+            F::DelimiterPair,
+            F::DelimiterNestingParent,
+            F::DelimiterSemanticGaps,
+            F::GroupValueEdge,
+        ],
+        CanonicalCommonNodeKind::ListLiteral => &[
+            F::DelimiterPair,
+            F::DelimiterNestingParent,
+            F::DelimiterSemanticGaps,
+            F::DelimiterSeparators,
+            F::AggregateEmpty,
+            F::AggregateTrailing,
+            F::ListElementEdges,
+        ],
+        CanonicalCommonNodeKind::RecordLiteral => &[
+            F::DelimiterPair,
+            F::DelimiterNestingParent,
+            F::DelimiterSemanticGaps,
+            F::RecordNameToken,
+            F::RecordFieldTokens,
+            F::RecordColonTokens,
+            F::DelimiterSeparators,
+            F::RecordValueEdges,
+            F::AggregateEmpty,
+            F::AggregateTrailing,
+        ],
+        CanonicalCommonNodeKind::Call => &[
+            F::DelimiterPair,
+            F::DelimiterNestingParent,
+            F::DelimiterSemanticGaps,
+            F::DelimiterSeparators,
+            F::AggregateEmpty,
+            F::AggregateTrailing,
+            F::CallCalleeEdge,
+            F::CallArgumentEdges,
+            F::CallAdjacency,
+            F::CallCloseState,
+            F::CallTrailingState,
+        ],
+        CanonicalCommonNodeKind::Binary => &[
+            F::BinaryOperator,
+            F::BinaryOperatorTokens,
+            F::BinaryOperatorRange,
+            F::BinaryPrecedence,
+            F::BinaryAssociativity,
+            F::BinaryLeftBoundary,
+            F::BinaryRightBoundary,
+            F::BinaryReductionOrder,
+            F::BinaryChildRoles,
+        ],
+        CanonicalCommonNodeKind::Permission => &[
+            F::PermissionKeyword,
+            F::PermissionDiscriminant,
+            F::PermissionGap,
+            F::PermissionValueEdge,
+        ],
+        CanonicalCommonNodeKind::Try => &[
+            F::TryKeyword,
+            F::TryValueEdge,
+            F::TryWrapperRelation,
+            F::TryFailureRootToken,
+            F::TryDotToken,
+            F::TryFailureVariantToken,
+            F::TryWrapperKind,
+        ],
+        CanonicalCommonNodeKind::Unsupported => &[],
+    }
 }
 
 #[cfg(test)]
@@ -399,7 +590,15 @@ fn validate_occurrence_seal_ignoring_one_fact(
     seal: &CanonicalOccurrenceSeal,
     ignored_index: usize,
 ) -> Result<(), &'static str> {
-    validate_occurrence_seal_inner(seal, Some(ignored_index))
+    validate_occurrence_seal_inner(seal, Some(ignored_index), None)
+}
+
+#[cfg(test)]
+fn validate_occurrence_seal_ignoring_one_payload_fact(
+    seal: &CanonicalOccurrenceSeal,
+    ignored_index: usize,
+) -> Result<(), &'static str> {
+    validate_occurrence_seal_inner(seal, None, Some(ignored_index))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1530,6 +1729,7 @@ struct CanonicalNodeEvidence {
     delimiter_depth_before: usize,
     delimiter_depth_after: usize,
     lexical_status: CanonicalCommonLexicalStatus,
+    payload: Vec<CanonicalPayloadEvent>,
 }
 
 fn common_node_kind(expression: &CanonicalExpression) -> CanonicalCommonNodeKind {
@@ -1537,6 +1737,7 @@ fn common_node_kind(expression: &CanonicalExpression) -> CanonicalCommonNodeKind
         CanonicalExpressionKind::Unit => CanonicalCommonNodeKind::Unit,
         CanonicalExpressionKind::Identifier(_) => CanonicalCommonNodeKind::Identifier,
         CanonicalExpressionKind::Field { .. } => CanonicalCommonNodeKind::Field,
+        CanonicalExpressionKind::ElementPlace { .. } => CanonicalCommonNodeKind::ElementPlace,
         CanonicalExpressionKind::UIntLiteral(_) => CanonicalCommonNodeKind::UIntLiteral,
         CanonicalExpressionKind::IntLiteral(_) => CanonicalCommonNodeKind::IntLiteral,
         CanonicalExpressionKind::BoolLiteral(_) => CanonicalCommonNodeKind::BoolLiteral,
@@ -1545,6 +1746,7 @@ fn common_node_kind(expression: &CanonicalExpression) -> CanonicalCommonNodeKind
         CanonicalExpressionKind::RecordLiteral { .. } => CanonicalCommonNodeKind::RecordLiteral,
         CanonicalExpressionKind::Call { .. } => CanonicalCommonNodeKind::Call,
         CanonicalExpressionKind::Permission { .. } => CanonicalCommonNodeKind::Permission,
+        CanonicalExpressionKind::Try { .. } => CanonicalCommonNodeKind::Try,
         CanonicalExpressionKind::Binary { .. } => CanonicalCommonNodeKind::Binary,
         CanonicalExpressionKind::Group(_) => CanonicalCommonNodeKind::Group,
         CanonicalExpressionKind::Unsupported => CanonicalCommonNodeKind::Unsupported,
@@ -1557,6 +1759,9 @@ fn canonical_expression_children(
     match &expression.kind {
         CanonicalExpressionKind::Field { base, .. } => {
             vec![(CanonicalCommonChildRole::FieldBase, 0, base)]
+        }
+        CanonicalExpressionKind::ElementPlace { base, .. } => {
+            vec![(CanonicalCommonChildRole::ElementBase, 0, base)]
         }
         CanonicalExpressionKind::ListLiteral(values) => values
             .iter()
@@ -1577,6 +1782,9 @@ fn canonical_expression_children(
         }
         CanonicalExpressionKind::Permission { value, .. } => {
             vec![(CanonicalCommonChildRole::PermissionValue, 0, value)]
+        }
+        CanonicalExpressionKind::Try { value, .. } => {
+            vec![(CanonicalCommonChildRole::TryValue, 0, value)]
         }
         CanonicalExpressionKind::Binary { left, right, .. } => vec![
             (CanonicalCommonChildRole::BinaryLeft, 0, left),
@@ -1629,11 +1837,15 @@ fn append_projected_node_evidence(
         children: Vec::new(),
         delimiter_depth_before: delimiter_depth,
         delimiter_depth_after: delimiter_depth,
-        lexical_status: if matches!(expression.kind, CanonicalExpressionKind::Unsupported) {
+        lexical_status: if matches!(expression.kind, CanonicalExpressionKind::Unsupported)
+            || (expression.payload.is_empty()
+                && !expected_payload_fields(common_node_kind(expression)).is_empty())
+        {
             CanonicalCommonLexicalStatus::Unsupported
         } else {
             CanonicalCommonLexicalStatus::Complete
         },
+        payload: expression.payload.clone(),
     });
     let children = canonical_expression_children(expression)
         .into_iter()
@@ -1675,7 +1887,14 @@ fn append_retained_node_evidence(
         children: Vec::new(),
         delimiter_depth_before: event.delimiter_depth_before,
         delimiter_depth_after: event.delimiter_depth_after,
-        lexical_status: event.lexical_status,
+        lexical_status: if event.payload.is_empty()
+            && !expected_payload_fields(event.kind).is_empty()
+        {
+            CanonicalCommonLexicalStatus::Unsupported
+        } else {
+            event.lexical_status
+        },
+        payload: event.payload.clone(),
     });
     let children = event
         .children
@@ -1838,6 +2057,1519 @@ fn node_token_interval(
         .map(|(first, last)| (token_ids[*first].clone(), token_ids[*last].clone()))
 }
 
+fn payload_facts(
+    occurrence: &CanonicalOccurrenceIdentity,
+    nodes: &[CanonicalNodeEvidence],
+    tokens: &[CanonicalLexicalTokenEvent],
+) -> Vec<CanonicalPayloadSealFact> {
+    let token_ids = (0..tokens.len())
+        .map(|index| occurrence_token_identity(occurrence, index))
+        .collect::<Vec<_>>();
+    let token_value = |range: &ParsedSourceRange, spelling: &str| {
+        tokens
+            .iter()
+            .enumerate()
+            .find(|(_, token)| token.range == *range && token.spelling == spelling)
+            .map(|(index, token)| {
+                CanonicalPayloadValue::Token(
+                    token_ids[index].clone(),
+                    token.range.clone(),
+                    token.spelling.clone(),
+                )
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "payload token {spelling:?} at {range:?} must be a parser lexical event; retained tokens: {tokens:?}"
+                )
+            })
+    };
+    let tokens_value = |values: &[(ParsedSourceRange, String)]| {
+        CanonicalPayloadValue::Tokens(
+            values
+                .iter()
+                .map(|(range, spelling)| match token_value(range, spelling) {
+                    CanonicalPayloadValue::Token(identity, range, spelling) => {
+                        (identity, range, spelling)
+                    }
+                    _ => unreachable!(),
+                })
+                .collect(),
+        )
+    };
+    let mut facts = Vec::new();
+    for (preorder, node) in nodes.iter().enumerate() {
+        let node_id = occurrence_node_identity(occurrence, preorder);
+        for (payload_ordinal, event) in node.payload.iter().enumerate() {
+            let value = match &event.value {
+                CanonicalPayloadEventValue::Position(value) => {
+                    CanonicalPayloadValue::Position(value.clone())
+                }
+                CanonicalPayloadEventValue::Token(range, spelling) => token_value(range, spelling),
+                CanonicalPayloadEventValue::Tokens(values) => tokens_value(values),
+                CanonicalPayloadEventValue::Range(value) => {
+                    CanonicalPayloadValue::Range(value.clone())
+                }
+                CanonicalPayloadEventValue::Ranges(values) => {
+                    CanonicalPayloadValue::Ranges(values.clone())
+                }
+                CanonicalPayloadEventValue::Text(value) => {
+                    CanonicalPayloadValue::Text(value.clone())
+                }
+                CanonicalPayloadEventValue::UInt(value) => CanonicalPayloadValue::UInt(*value),
+                CanonicalPayloadEventValue::Int(value) => CanonicalPayloadValue::Int(*value),
+                CanonicalPayloadEventValue::Bool(value) => CanonicalPayloadValue::Bool(*value),
+                CanonicalPayloadEventValue::Usize(value) => CanonicalPayloadValue::Usize(*value),
+                CanonicalPayloadEventValue::Bools(values) => {
+                    CanonicalPayloadValue::Bools(values.clone())
+                }
+                CanonicalPayloadEventValue::Parent => {
+                    let mut parent = node.parent;
+                    while let Some(index) = parent {
+                        if matches!(
+                            nodes[index].kind,
+                            CanonicalCommonNodeKind::ElementPlace
+                                | CanonicalCommonNodeKind::Group
+                                | CanonicalCommonNodeKind::ListLiteral
+                                | CanonicalCommonNodeKind::RecordLiteral
+                                | CanonicalCommonNodeKind::Call
+                        ) {
+                            break;
+                        }
+                        parent = nodes[index].parent;
+                    }
+                    CanonicalPayloadValue::OptionalNode(
+                        parent.map(|parent| occurrence_node_identity(occurrence, parent)),
+                    )
+                }
+                CanonicalPayloadEventValue::ChildOrdinal(ordinal) => CanonicalPayloadValue::Node(
+                    occurrence_node_identity(occurrence, node.children[*ordinal]),
+                ),
+                CanonicalPayloadEventValue::ChildOrdinals(ordinals) => {
+                    CanonicalPayloadValue::Nodes(
+                        ordinals
+                            .iter()
+                            .map(|ordinal| {
+                                occurrence_node_identity(occurrence, node.children[*ordinal])
+                            })
+                            .collect(),
+                    )
+                }
+                CanonicalPayloadEventValue::DelimiterPair { kind, open, close } => {
+                    let open_value = token_value(open, &delimiter_spelling(*kind, true));
+                    let close_value = token_value(close, &delimiter_spelling(*kind, false));
+                    let CanonicalPayloadValue::Token(open_id, open_range, _) = open_value else {
+                        unreachable!()
+                    };
+                    let CanonicalPayloadValue::Token(close_id, close_range, _) = close_value else {
+                        unreachable!()
+                    };
+                    CanonicalPayloadValue::DelimiterPair {
+                        kind: *kind,
+                        open: open_id,
+                        open_range,
+                        close: close_id,
+                        close_range,
+                    }
+                }
+                CanonicalPayloadEventValue::Operator(value) => {
+                    CanonicalPayloadValue::Operator(*value)
+                }
+                CanonicalPayloadEventValue::Permission(value) => {
+                    CanonicalPayloadValue::Permission(*value)
+                }
+                CanonicalPayloadEventValue::Associativity(value) => {
+                    CanonicalPayloadValue::Associativity(*value)
+                }
+                CanonicalPayloadEventValue::WrapperKind(value) => {
+                    CanonicalPayloadValue::WrapperKind(*value)
+                }
+            };
+            facts.push(CanonicalPayloadSealFact {
+                identity: CanonicalPayloadIdentity(source_owner_child_identity(
+                    16,
+                    &node_id.0,
+                    payload_ordinal,
+                )),
+                node: node_id.clone(),
+                field: event.field,
+                value,
+            });
+        }
+    }
+    facts
+}
+
+fn delimiter_spelling(kind: CanonicalDelimiterKind, open: bool) -> String {
+    match (kind, open) {
+        (CanonicalDelimiterKind::Parenthesis, true) => "(",
+        (CanonicalDelimiterKind::Parenthesis, false) => ")",
+        (CanonicalDelimiterKind::List | CanonicalDelimiterKind::Element, true) => "[",
+        (CanonicalDelimiterKind::List | CanonicalDelimiterKind::Element, false) => "]",
+        (CanonicalDelimiterKind::Record, true) => "{",
+        (CanonicalDelimiterKind::Record, false) => "}",
+    }
+    .to_string()
+}
+
+fn source_range_at(span: &Span, start: usize, byte_len: usize) -> ParsedSourceRange {
+    ParsedSourceRange {
+        start: offset_span(span, start),
+        byte_len,
+    }
+}
+
+fn payload_token(
+    field: CanonicalPayloadField,
+    span: &Span,
+    start: usize,
+    spelling: &str,
+) -> CanonicalPayloadEvent {
+    CanonicalPayloadEvent {
+        field,
+        value: CanonicalPayloadEventValue::Token(
+            source_range_at(span, start, spelling.len()),
+            spelling.to_string(),
+        ),
+    }
+}
+
+fn payload_value(
+    field: CanonicalPayloadField,
+    value: CanonicalPayloadEventValue,
+) -> CanonicalPayloadEvent {
+    CanonicalPayloadEvent { field, value }
+}
+
+fn retained_delimiter_payload(
+    kind: CanonicalDelimiterKind,
+    span: &Span,
+    text: &str,
+    open: usize,
+    close: usize,
+) -> Vec<CanonicalPayloadEvent> {
+    let open_range = source_range_at(span, open, 1);
+    let close_range = source_range_at(span, close, 1);
+    let gaps = retained_semantic_gap_ranges(text, span, open, close);
+    vec![
+        payload_value(
+            CanonicalPayloadField::DelimiterPair,
+            CanonicalPayloadEventValue::DelimiterPair {
+                kind,
+                open: open_range,
+                close: close_range,
+            },
+        ),
+        payload_value(
+            CanonicalPayloadField::DelimiterNestingParent,
+            CanonicalPayloadEventValue::Parent,
+        ),
+        payload_value(
+            CanonicalPayloadField::DelimiterSemanticGaps,
+            CanonicalPayloadEventValue::Ranges(gaps),
+        ),
+    ]
+}
+
+fn projected_separator_offsets(text: &str, separator: char) -> Vec<usize> {
+    let mut depth = 0usize;
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut offsets = Vec::new();
+    for (index, ch) in text.char_indices() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => quoted = true,
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ if depth == 0 && ch == separator => offsets.push(index),
+            _ => {}
+        }
+    }
+    offsets
+}
+
+fn retained_separator_offsets(text: &str, separator: char) -> Vec<usize> {
+    let mut stack = Vec::new();
+    let mut quote_open = false;
+    let mut escape_pending = false;
+    let mut offsets = Vec::new();
+    for (index, ch) in text.char_indices() {
+        if quote_open {
+            if escape_pending {
+                escape_pending = false;
+            } else {
+                match ch {
+                    '\\' => escape_pending = true,
+                    '"' => quote_open = false,
+                    _ => {}
+                }
+            }
+            continue;
+        }
+        match ch {
+            '"' => quote_open = true,
+            '(' | '[' | '{' => stack.push(ch),
+            ')' | ']' | '}' => {
+                stack.pop();
+            }
+            _ if stack.is_empty() && ch == separator => offsets.push(index),
+            _ => {}
+        }
+    }
+    offsets
+}
+
+fn projected_top_level_separator_tokens(
+    text: &str,
+    span: &Span,
+    separator: char,
+) -> Vec<(ParsedSourceRange, String)> {
+    projected_separator_offsets(text, separator)
+        .into_iter()
+        .map(|index| {
+            (
+                source_range_at(span, index, separator.len_utf8()),
+                separator.to_string(),
+            )
+        })
+        .collect()
+}
+
+fn retained_top_level_separator_tokens(
+    text: &str,
+    span: &Span,
+    separator: char,
+) -> Vec<(ParsedSourceRange, String)> {
+    retained_separator_offsets(text, separator)
+        .into_iter()
+        .map(|index| {
+            (
+                source_range_at(span, index, separator.len_utf8()),
+                separator.to_string(),
+            )
+        })
+        .collect()
+}
+
+fn projected_semantic_gap_ranges(
+    text: &str,
+    span: &Span,
+    open: usize,
+    close: usize,
+) -> Vec<ParsedSourceRange> {
+    let inside = &text[open + 1..close];
+    let inside_span = offset_span(span, open + 1);
+    let mut ranges = Vec::new();
+    for segment in split_top_level_ranges_quoted(inside, ',') {
+        let value = &inside[segment.clone()];
+        let leading = value.len() - value.trim_start().len();
+        let trailing_start = value.trim_end().len();
+        for (start, len) in [
+            (segment.start, leading),
+            (segment.start + trailing_start, value.len() - trailing_start),
+        ] {
+            if len > 0 {
+                let range = source_range_at(&inside_span, start, len);
+                if !ranges.contains(&range) {
+                    ranges.push(range);
+                }
+            }
+        }
+    }
+    ranges
+}
+
+fn retained_semantic_gap_ranges(
+    text: &str,
+    span: &Span,
+    open: usize,
+    close: usize,
+) -> Vec<ParsedSourceRange> {
+    let inside = &text[open + 1..close];
+    let inside_span = offset_span(span, open + 1);
+    let mut boundaries = retained_separator_offsets(inside, ',');
+    boundaries.push(inside.len());
+    let mut start = 0usize;
+    let mut ranges = Vec::new();
+    for end in boundaries {
+        let value = &inside[start..end];
+        let leading = value.len() - value.trim_start().len();
+        let trailing_start = value.trim_end().len();
+        for (offset, len) in [
+            (start, leading),
+            (start + trailing_start, value.len() - trailing_start),
+        ] {
+            if len > 0 {
+                let range = source_range_at(&inside_span, offset, len);
+                if !ranges.contains(&range) {
+                    ranges.push(range);
+                }
+            }
+        }
+        start = end.saturating_add(1);
+    }
+    ranges
+}
+
+fn projected_call_adjacency_facts(text: &str, open: usize) -> Vec<bool> {
+    let close = text.len() - 1;
+    let inside = &text[open + 1..close];
+    let separators = projected_separator_offsets(inside, ',');
+    let mut facts = vec![
+        text[..open]
+            .chars()
+            .next_back()
+            .is_some_and(|ch| !ch.is_whitespace()),
+        inside.chars().next().is_none_or(|ch| !ch.is_whitespace()),
+    ];
+    for index in separators {
+        facts.push(
+            inside[index + 1..]
+                .chars()
+                .next()
+                .is_some_and(char::is_whitespace),
+        );
+    }
+    facts.push(
+        inside
+            .chars()
+            .next_back()
+            .is_none_or(|ch| !ch.is_whitespace()),
+    );
+    facts
+}
+
+fn retained_call_adjacency_facts(text: &str, open: usize) -> Vec<bool> {
+    let close = text.len() - 1;
+    let inside = &text[open + 1..close];
+    let separators = retained_separator_offsets(inside, ',');
+    let mut facts = Vec::with_capacity(separators.len() + 3);
+    facts.push(
+        text.get(..open)
+            .and_then(|prefix| prefix.chars().next_back())
+            .is_some_and(|ch| !ch.is_whitespace()),
+    );
+    facts.push(inside.chars().next().is_none_or(|ch| !ch.is_whitespace()));
+    for separator in separators {
+        facts.push(
+            inside
+                .get(separator + 1..)
+                .and_then(|suffix| suffix.chars().next())
+                .is_some_and(char::is_whitespace),
+        );
+    }
+    facts.push(
+        inside
+            .chars()
+            .next_back()
+            .is_none_or(|ch| !ch.is_whitespace()),
+    );
+    facts
+}
+
+fn binary_boundaries(text: &str, start: usize, end: usize) -> (bool, bool) {
+    let left = text[..start]
+        .chars()
+        .next_back()
+        .is_none_or(|ch| !(ch.is_ascii_alphanumeric() || ch == '_'));
+    let right = text[end..]
+        .chars()
+        .next()
+        .is_none_or(|ch| !(ch.is_ascii_alphanumeric() || ch == '_'));
+    (left, right)
+}
+
+fn binary_operator_is_in_malformed_comparison_run(text: &str, start: usize, end: usize) -> bool {
+    let comparison_punctuation = |ch: char| matches!(ch, '=' | '!' | '<' | '>');
+    text[..start]
+        .chars()
+        .next_back()
+        .is_some_and(comparison_punctuation)
+        || text[end..]
+            .chars()
+            .next()
+            .is_some_and(comparison_punctuation)
+}
+
+fn operator_precedence(operator: ParsedBinaryOperator) -> usize {
+    match operator {
+        ParsedBinaryOperator::Or => 1,
+        ParsedBinaryOperator::And => 2,
+        ParsedBinaryOperator::Equal
+        | ParsedBinaryOperator::NotEqual
+        | ParsedBinaryOperator::Less
+        | ParsedBinaryOperator::LessEqual
+        | ParsedBinaryOperator::Greater
+        | ParsedBinaryOperator::GreaterEqual
+        | ParsedBinaryOperator::Is
+        | ParsedBinaryOperator::Does
+        | ParsedBinaryOperator::Returns
+        | ParsedBinaryOperator::FailsWith => 3,
+        ParsedBinaryOperator::Add | ParsedBinaryOperator::Subtract => 4,
+        ParsedBinaryOperator::Multiply | ParsedBinaryOperator::Divide => 5,
+    }
+}
+
+fn projected_decoded_text(value: &str) -> String {
+    let mut decoded = String::new();
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            decoded.push(ch);
+            continue;
+        }
+        let Some(escaped) = chars.next() else {
+            decoded.push('\\');
+            break;
+        };
+        match escaped {
+            '"' => decoded.push('"'),
+            '\\' => decoded.push('\\'),
+            'n' => decoded.push('\n'),
+            'r' => decoded.push('\r'),
+            't' => decoded.push('\t'),
+            other => {
+                decoded.push('\\');
+                decoded.push(other);
+            }
+        }
+    }
+    decoded
+}
+
+fn retained_decoded_text(value: &str) -> String {
+    let mut decoded = String::with_capacity(value.len());
+    let mut positions = value.char_indices().peekable();
+    while let Some((_, current)) = positions.next() {
+        if current != '\\' {
+            decoded.push(current);
+            continue;
+        }
+        let Some((_, escaped)) = positions.next() else {
+            decoded.push('\\');
+            continue;
+        };
+        match escaped {
+            'n' => decoded.push('\n'),
+            'r' => decoded.push('\r'),
+            't' => decoded.push('\t'),
+            '"' => decoded.push('"'),
+            '\\' => decoded.push('\\'),
+            other => {
+                decoded.extend(['\\', other]);
+            }
+        }
+    }
+    decoded
+}
+
+fn projected_text_escape_events(text: &str, span: &Span) -> Vec<(ParsedSourceRange, String)> {
+    let interior = &text[1..text.len() - 1];
+    let mut events = Vec::new();
+    let mut chars = interior.char_indices();
+    while let Some((index, ch)) = chars.next() {
+        if ch != '\\' {
+            continue;
+        }
+        let end = chars
+            .next()
+            .map_or(index + 1, |(next, escaped)| next + escaped.len_utf8());
+        events.push((
+            source_range_at(span, 1 + index, end - index),
+            interior[index..end].to_string(),
+        ));
+    }
+    events
+}
+
+fn retained_text_escape_events(text: &str, span: &Span) -> Vec<(ParsedSourceRange, String)> {
+    canonical_lexical_events(text, span)
+        .into_iter()
+        .filter(|event| event.spelling.starts_with('\\'))
+        .map(|event| (event.range, event.spelling))
+        .collect()
+}
+
+fn projected_delimiter_payload(
+    kind: CanonicalDelimiterKind,
+    span: &Span,
+    text: &str,
+    open: usize,
+    close: usize,
+) -> Vec<CanonicalPayloadEvent> {
+    vec![
+        payload_value(
+            CanonicalPayloadField::DelimiterPair,
+            CanonicalPayloadEventValue::DelimiterPair {
+                kind,
+                open: source_range_at(span, open, 1),
+                close: source_range_at(span, close, 1),
+            },
+        ),
+        payload_value(
+            CanonicalPayloadField::DelimiterNestingParent,
+            CanonicalPayloadEventValue::Parent,
+        ),
+        payload_value(
+            CanonicalPayloadField::DelimiterSemanticGaps,
+            CanonicalPayloadEventValue::Ranges(projected_semantic_gap_ranges(
+                text, span, open, close,
+            )),
+        ),
+    ]
+}
+
+fn projected_payload_events(
+    kind: &CanonicalExpressionKind,
+    text: &str,
+    span: &Span,
+    child_count: usize,
+) -> Vec<CanonicalPayloadEvent> {
+    let mut events = Vec::new();
+    match kind {
+        CanonicalExpressionKind::Unit => events.push(payload_value(
+            CanonicalPayloadField::UnitPosition,
+            CanonicalPayloadEventValue::Position(span.clone()),
+        )),
+        CanonicalExpressionKind::Identifier(value) => events.extend([
+            payload_token(CanonicalPayloadField::IdentifierToken, span, 0, text),
+            payload_value(
+                CanonicalPayloadField::IdentifierValue,
+                CanonicalPayloadEventValue::Text(value.clone()),
+            ),
+        ]),
+        CanonicalExpressionKind::UIntLiteral(value) => events.extend([
+            payload_token(CanonicalPayloadField::UIntDigitsToken, span, 0, text),
+            payload_value(
+                CanonicalPayloadField::UIntValue,
+                CanonicalPayloadEventValue::UInt(*value),
+            ),
+        ]),
+        CanonicalExpressionKind::IntLiteral(value) => events.extend([
+            payload_token(CanonicalPayloadField::IntSignToken, span, 0, &text[..1]),
+            payload_token(CanonicalPayloadField::IntDigitsToken, span, 1, &text[1..]),
+            payload_value(
+                CanonicalPayloadField::IntValue,
+                CanonicalPayloadEventValue::Int(*value),
+            ),
+            payload_value(
+                CanonicalPayloadField::IntSignedLiteral,
+                CanonicalPayloadEventValue::Bool(text.starts_with('-')),
+            ),
+        ]),
+        CanonicalExpressionKind::BoolLiteral(value) => events.extend([
+            payload_token(CanonicalPayloadField::BoolToken, span, 0, text),
+            payload_value(
+                CanonicalPayloadField::BoolValue,
+                CanonicalPayloadEventValue::Bool(*value),
+            ),
+        ]),
+        CanonicalExpressionKind::TextLiteral(value) => {
+            let escapes = projected_text_escape_events(text, span);
+            events.extend([
+                payload_token(CanonicalPayloadField::TextOpenQuote, span, 0, "\""),
+                payload_token(
+                    CanonicalPayloadField::TextCloseQuote,
+                    span,
+                    text.len() - 1,
+                    "\"",
+                ),
+                payload_value(
+                    CanonicalPayloadField::TextRawContent,
+                    CanonicalPayloadEventValue::Range(source_range_at(span, 1, text.len() - 2)),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TextEscapeEvents,
+                    CanonicalPayloadEventValue::Tokens(escapes),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TextDecodedValue,
+                    CanonicalPayloadEventValue::Text(projected_decoded_text(value)),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TextTerminated,
+                    CanonicalPayloadEventValue::Bool(text.ends_with('"')),
+                ),
+            ]);
+        }
+        CanonicalExpressionKind::Field { field, .. } => {
+            let dot = find_top_level_dot(text).expect("canonical field dot");
+            let field_start = text.rfind(field).expect("canonical field token");
+            events.extend([
+                payload_value(
+                    CanonicalPayloadField::FieldBaseEdge,
+                    CanonicalPayloadEventValue::ChildOrdinal(0),
+                ),
+                payload_token(CanonicalPayloadField::FieldDotToken, span, dot, "."),
+                payload_token(
+                    CanonicalPayloadField::FieldNameToken,
+                    span,
+                    field_start,
+                    field,
+                ),
+                payload_value(
+                    CanonicalPayloadField::FieldValue,
+                    CanonicalPayloadEventValue::Text(field.clone()),
+                ),
+            ]);
+        }
+        CanonicalExpressionKind::ElementPlace { index, .. } => {
+            let open = terminal_element_open(text).expect("canonical element open");
+            let close = text.len() - 1;
+            let index_text = text[open + 1..close].trim();
+            let index_start = open + 1 + text[open + 1..close].find(index_text).unwrap_or_default();
+            events.extend(projected_delimiter_payload(
+                CanonicalDelimiterKind::Element,
+                span,
+                text,
+                open,
+                close,
+            ));
+            events.extend([
+                payload_value(
+                    CanonicalPayloadField::ElementBaseEdge,
+                    CanonicalPayloadEventValue::ChildOrdinal(0),
+                ),
+                payload_token(CanonicalPayloadField::ElementOpenBracket, span, open, "["),
+                payload_token(CanonicalPayloadField::ElementCloseBracket, span, close, "]"),
+                payload_token(
+                    CanonicalPayloadField::ElementIndexToken,
+                    span,
+                    index_start,
+                    index_text,
+                ),
+                payload_value(
+                    CanonicalPayloadField::ElementIndexValue,
+                    CanonicalPayloadEventValue::UInt(*index),
+                ),
+                payload_value(
+                    CanonicalPayloadField::ElementPlaceRole,
+                    CanonicalPayloadEventValue::Bool(true),
+                ),
+            ]);
+        }
+        CanonicalExpressionKind::Group(_) => {
+            events.extend(projected_delimiter_payload(
+                CanonicalDelimiterKind::Parenthesis,
+                span,
+                text,
+                0,
+                text.len() - 1,
+            ));
+            events.push(payload_value(
+                CanonicalPayloadField::GroupValueEdge,
+                CanonicalPayloadEventValue::ChildOrdinal(0),
+            ));
+        }
+        CanonicalExpressionKind::ListLiteral(values) => {
+            let inside = &text[1..text.len() - 1];
+            events.extend(projected_delimiter_payload(
+                CanonicalDelimiterKind::List,
+                span,
+                text,
+                0,
+                text.len() - 1,
+            ));
+            events.extend([
+                payload_value(
+                    CanonicalPayloadField::DelimiterSeparators,
+                    CanonicalPayloadEventValue::Tokens(projected_top_level_separator_tokens(
+                        inside,
+                        &offset_span(span, 1),
+                        ',',
+                    )),
+                ),
+                payload_value(
+                    CanonicalPayloadField::AggregateEmpty,
+                    CanonicalPayloadEventValue::Bool(values.is_empty()),
+                ),
+                payload_value(
+                    CanonicalPayloadField::AggregateTrailing,
+                    CanonicalPayloadEventValue::Bool(inside.trim_end().ends_with(',')),
+                ),
+                payload_value(
+                    CanonicalPayloadField::ListElementEdges,
+                    CanonicalPayloadEventValue::ChildOrdinals((0..child_count).collect()),
+                ),
+            ]);
+        }
+        CanonicalExpressionKind::RecordLiteral { name, fields } => {
+            let open = text.find('{').expect("canonical record open");
+            if !text.ends_with('}') {
+                return Vec::new();
+            }
+            let inside = &text[open + 1..text.len() - 1];
+            events.extend(projected_delimiter_payload(
+                CanonicalDelimiterKind::Record,
+                span,
+                text,
+                open,
+                text.len() - 1,
+            ));
+            let name_tokens = if name.is_empty() {
+                Vec::new()
+            } else {
+                vec![(
+                    source_range_at(
+                        span,
+                        text[..open].find(name).unwrap_or_default(),
+                        name.len(),
+                    ),
+                    name.clone(),
+                )]
+            };
+            let field_ranges = split_top_level_ranges_quoted(inside, ',');
+            let mut field_tokens = Vec::new();
+            let mut colon_tokens = Vec::new();
+            for (ordinal, range) in field_ranges.into_iter().enumerate() {
+                let raw = &inside[range.clone()];
+                if let Some(colon) = find_top_level_char(raw, ':') {
+                    let field = fields
+                        .get(ordinal)
+                        .map(|(field, _)| field.as_str())
+                        .unwrap_or_else(|| raw[..colon].trim());
+                    let start =
+                        open + 1 + range.start + raw[..colon].find(field).unwrap_or_default();
+                    field_tokens
+                        .push((source_range_at(span, start, field.len()), field.to_string()));
+                    colon_tokens.push((
+                        source_range_at(span, open + 1 + range.start + colon, 1),
+                        ":".to_string(),
+                    ));
+                }
+            }
+            events.extend([
+                payload_value(
+                    CanonicalPayloadField::RecordNameToken,
+                    CanonicalPayloadEventValue::Tokens(name_tokens),
+                ),
+                payload_value(
+                    CanonicalPayloadField::RecordFieldTokens,
+                    CanonicalPayloadEventValue::Tokens(field_tokens),
+                ),
+                payload_value(
+                    CanonicalPayloadField::RecordColonTokens,
+                    CanonicalPayloadEventValue::Tokens(colon_tokens),
+                ),
+                payload_value(
+                    CanonicalPayloadField::DelimiterSeparators,
+                    CanonicalPayloadEventValue::Tokens(projected_top_level_separator_tokens(
+                        inside,
+                        &offset_span(span, open + 1),
+                        ',',
+                    )),
+                ),
+                payload_value(
+                    CanonicalPayloadField::RecordValueEdges,
+                    CanonicalPayloadEventValue::ChildOrdinals((0..child_count).collect()),
+                ),
+                payload_value(
+                    CanonicalPayloadField::AggregateEmpty,
+                    CanonicalPayloadEventValue::Bool(fields.is_empty()),
+                ),
+                payload_value(
+                    CanonicalPayloadField::AggregateTrailing,
+                    CanonicalPayloadEventValue::Bool(inside.trim_end().ends_with(',')),
+                ),
+            ]);
+        }
+        CanonicalExpressionKind::Call { arguments, .. } => {
+            let open = find_top_level_open_paren(text).expect("canonical call open");
+            let inside = &text[open + 1..text.len() - 1];
+            events.extend(projected_delimiter_payload(
+                CanonicalDelimiterKind::Parenthesis,
+                span,
+                text,
+                open,
+                text.len() - 1,
+            ));
+            events.extend([
+                payload_value(
+                    CanonicalPayloadField::DelimiterSeparators,
+                    CanonicalPayloadEventValue::Tokens(projected_top_level_separator_tokens(
+                        inside,
+                        &offset_span(span, open + 1),
+                        ',',
+                    )),
+                ),
+                payload_value(
+                    CanonicalPayloadField::AggregateEmpty,
+                    CanonicalPayloadEventValue::Bool(arguments.is_empty()),
+                ),
+                payload_value(
+                    CanonicalPayloadField::AggregateTrailing,
+                    CanonicalPayloadEventValue::Bool(inside.trim_end().ends_with(',')),
+                ),
+                payload_value(
+                    CanonicalPayloadField::CallCalleeEdge,
+                    CanonicalPayloadEventValue::ChildOrdinal(0),
+                ),
+                payload_value(
+                    CanonicalPayloadField::CallArgumentEdges,
+                    CanonicalPayloadEventValue::ChildOrdinals((1..child_count).collect()),
+                ),
+                payload_value(
+                    CanonicalPayloadField::CallAdjacency,
+                    CanonicalPayloadEventValue::Bools(projected_call_adjacency_facts(text, open)),
+                ),
+                payload_value(
+                    CanonicalPayloadField::CallCloseState,
+                    CanonicalPayloadEventValue::Bool(true),
+                ),
+                payload_value(
+                    CanonicalPayloadField::CallTrailingState,
+                    CanonicalPayloadEventValue::Bool(!inside.trim_end().ends_with(',')),
+                ),
+            ]);
+        }
+        CanonicalExpressionKind::Binary { operator, .. } => {
+            let (_, start, end) =
+                top_level_binary_operator(text).expect("canonical binary operator");
+            let operator_text = &text[start..end];
+            let operator_tokens =
+                canonical_lexical_events(operator_text, &offset_span(span, start))
+                    .into_iter()
+                    .map(|event| (event.range, event.spelling))
+                    .collect();
+            let (left_boundary, right_boundary) = binary_boundaries(text, start, end);
+            events.extend([
+                payload_value(
+                    CanonicalPayloadField::BinaryOperator,
+                    CanonicalPayloadEventValue::Operator(*operator),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryOperatorTokens,
+                    CanonicalPayloadEventValue::Tokens(operator_tokens),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryOperatorRange,
+                    CanonicalPayloadEventValue::Range(source_range_at(span, start, end - start)),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryPrecedence,
+                    CanonicalPayloadEventValue::Usize(operator_precedence(*operator)),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryAssociativity,
+                    CanonicalPayloadEventValue::Associativity(CanonicalAssociativity::Left),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryLeftBoundary,
+                    CanonicalPayloadEventValue::Bool(left_boundary),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryRightBoundary,
+                    CanonicalPayloadEventValue::Bool(right_boundary),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryReductionOrder,
+                    CanonicalPayloadEventValue::ChildOrdinals(vec![0, 1]),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryChildRoles,
+                    CanonicalPayloadEventValue::ChildOrdinals(vec![0, 1]),
+                ),
+            ]);
+        }
+        CanonicalExpressionKind::Permission { permission, .. } => {
+            let keyword = permission.as_str();
+            let value_start = text.len()
+                - keyword_rest(text, keyword)
+                    .expect("canonical permission value")
+                    .len();
+            events.extend([
+                payload_token(CanonicalPayloadField::PermissionKeyword, span, 0, keyword),
+                payload_value(
+                    CanonicalPayloadField::PermissionDiscriminant,
+                    CanonicalPayloadEventValue::Permission(*permission),
+                ),
+                payload_value(
+                    CanonicalPayloadField::PermissionGap,
+                    CanonicalPayloadEventValue::Range(source_range_at(
+                        span,
+                        keyword.len(),
+                        value_start - keyword.len(),
+                    )),
+                ),
+                payload_value(
+                    CanonicalPayloadField::PermissionValueEdge,
+                    CanonicalPayloadEventValue::ChildOrdinal(0),
+                ),
+            ]);
+        }
+        CanonicalExpressionKind::Try {
+            failure_root,
+            failure_variant,
+            ..
+        } => {
+            let rest = keyword_rest(text, "try").expect("canonical try value");
+            let value_start = text.len() - rest.len();
+            let wrapper_start = find_top_level_phrase(rest, " or fail ");
+            let mut relation = Vec::new();
+            let mut roots = Vec::new();
+            let mut dots = Vec::new();
+            let mut variants = Vec::new();
+            if let Some(start) = wrapper_start {
+                let absolute = value_start + start;
+                relation.extend([
+                    (source_range_at(span, absolute + 1, 2), "or".to_string()),
+                    (source_range_at(span, absolute + 4, 4), "fail".to_string()),
+                ]);
+                let failure_start = absolute + " or fail ".len();
+                if let Some(root) = failure_root {
+                    roots.push((
+                        source_range_at(span, failure_start, root.len()),
+                        root.clone(),
+                    ));
+                }
+                if let Some(dot) = text[failure_start..].find('.') {
+                    dots.push((
+                        source_range_at(span, failure_start + dot, 1),
+                        ".".to_string(),
+                    ));
+                    if let Some(variant) = failure_variant {
+                        variants.push((
+                            source_range_at(span, failure_start + dot + 1, variant.len()),
+                            variant.clone(),
+                        ));
+                    }
+                }
+            }
+            events.extend([
+                payload_token(CanonicalPayloadField::TryKeyword, span, 0, "try"),
+                payload_value(
+                    CanonicalPayloadField::TryValueEdge,
+                    CanonicalPayloadEventValue::ChildOrdinal(0),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TryWrapperRelation,
+                    CanonicalPayloadEventValue::Tokens(relation),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TryFailureRootToken,
+                    CanonicalPayloadEventValue::Tokens(roots),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TryDotToken,
+                    CanonicalPayloadEventValue::Tokens(dots),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TryFailureVariantToken,
+                    CanonicalPayloadEventValue::Tokens(variants),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TryWrapperKind,
+                    CanonicalPayloadEventValue::WrapperKind(if wrapper_start.is_some() {
+                        CanonicalTryWrapperKind::Wrap
+                    } else {
+                        CanonicalTryWrapperKind::Propagate
+                    }),
+                ),
+            ]);
+        }
+        CanonicalExpressionKind::Unsupported => {}
+    }
+    events
+}
+
+fn retained_payload_events(
+    kind: CanonicalCommonNodeKind,
+    text: &str,
+    span: &Span,
+    child_count: usize,
+) -> Vec<CanonicalPayloadEvent> {
+    let mut events = Vec::new();
+    match kind {
+        CanonicalCommonNodeKind::Unit => events.push(payload_value(
+            CanonicalPayloadField::UnitPosition,
+            CanonicalPayloadEventValue::Position(span.clone()),
+        )),
+        CanonicalCommonNodeKind::Identifier => {
+            events.push(payload_token(
+                CanonicalPayloadField::IdentifierToken,
+                span,
+                0,
+                text,
+            ));
+            events.push(payload_value(
+                CanonicalPayloadField::IdentifierValue,
+                CanonicalPayloadEventValue::Text(text.to_string()),
+            ));
+        }
+        CanonicalCommonNodeKind::UIntLiteral => {
+            events.push(payload_token(
+                CanonicalPayloadField::UIntDigitsToken,
+                span,
+                0,
+                text,
+            ));
+            events.push(payload_value(
+                CanonicalPayloadField::UIntValue,
+                CanonicalPayloadEventValue::UInt(text.parse().expect("successful UInt payload")),
+            ));
+        }
+        CanonicalCommonNodeKind::IntLiteral => {
+            events.push(payload_token(
+                CanonicalPayloadField::IntSignToken,
+                span,
+                0,
+                &text[..1],
+            ));
+            events.push(payload_token(
+                CanonicalPayloadField::IntDigitsToken,
+                span,
+                1,
+                &text[1..],
+            ));
+            events.push(payload_value(
+                CanonicalPayloadField::IntValue,
+                CanonicalPayloadEventValue::Int(text.parse().expect("successful Int payload")),
+            ));
+            events.push(payload_value(
+                CanonicalPayloadField::IntSignedLiteral,
+                CanonicalPayloadEventValue::Bool(true),
+            ));
+        }
+        CanonicalCommonNodeKind::BoolLiteral => {
+            events.push(payload_token(
+                CanonicalPayloadField::BoolToken,
+                span,
+                0,
+                text,
+            ));
+            events.push(payload_value(
+                CanonicalPayloadField::BoolValue,
+                CanonicalPayloadEventValue::Bool(text == "true"),
+            ));
+        }
+        CanonicalCommonNodeKind::TextLiteral => {
+            events.push(payload_token(
+                CanonicalPayloadField::TextOpenQuote,
+                span,
+                0,
+                "\"",
+            ));
+            events.push(payload_token(
+                CanonicalPayloadField::TextCloseQuote,
+                span,
+                text.len() - 1,
+                "\"",
+            ));
+            events.push(payload_value(
+                CanonicalPayloadField::TextRawContent,
+                CanonicalPayloadEventValue::Range(source_range_at(span, 1, text.len() - 2)),
+            ));
+            let escapes = retained_text_escape_events(text, span);
+            events.push(payload_value(
+                CanonicalPayloadField::TextEscapeEvents,
+                CanonicalPayloadEventValue::Tokens(escapes),
+            ));
+            events.push(payload_value(
+                CanonicalPayloadField::TextDecodedValue,
+                CanonicalPayloadEventValue::Text(retained_decoded_text(&text[1..text.len() - 1])),
+            ));
+            events.push(payload_value(
+                CanonicalPayloadField::TextTerminated,
+                CanonicalPayloadEventValue::Bool(true),
+            ));
+        }
+        CanonicalCommonNodeKind::Field => {
+            let dot = find_top_level_dot(text).expect("successful field dot");
+            let field = text[dot + 1..].trim();
+            let field_start = text.rfind(field).expect("field token");
+            events.extend([
+                payload_value(
+                    CanonicalPayloadField::FieldBaseEdge,
+                    CanonicalPayloadEventValue::ChildOrdinal(0),
+                ),
+                payload_token(CanonicalPayloadField::FieldDotToken, span, dot, "."),
+                payload_token(
+                    CanonicalPayloadField::FieldNameToken,
+                    span,
+                    field_start,
+                    field,
+                ),
+                payload_value(
+                    CanonicalPayloadField::FieldValue,
+                    CanonicalPayloadEventValue::Text(field.to_string()),
+                ),
+            ]);
+        }
+        CanonicalCommonNodeKind::ElementPlace => {
+            let open = terminal_element_open(text).expect("successful element open");
+            let close = text.len() - 1;
+            let index_text = text[open + 1..close].trim();
+            let index_start = open + 1 + text[open + 1..close].find(index_text).unwrap_or_default();
+            events.extend(retained_delimiter_payload(
+                CanonicalDelimiterKind::Element,
+                span,
+                text,
+                open,
+                close,
+            ));
+            events.extend([
+                payload_value(
+                    CanonicalPayloadField::ElementBaseEdge,
+                    CanonicalPayloadEventValue::ChildOrdinal(0),
+                ),
+                payload_token(CanonicalPayloadField::ElementOpenBracket, span, open, "["),
+                payload_token(CanonicalPayloadField::ElementCloseBracket, span, close, "]"),
+                payload_token(
+                    CanonicalPayloadField::ElementIndexToken,
+                    span,
+                    index_start,
+                    index_text,
+                ),
+                payload_value(
+                    CanonicalPayloadField::ElementIndexValue,
+                    CanonicalPayloadEventValue::UInt(
+                        index_text.parse().expect("successful element index"),
+                    ),
+                ),
+                payload_value(
+                    CanonicalPayloadField::ElementPlaceRole,
+                    CanonicalPayloadEventValue::Bool(true),
+                ),
+            ]);
+        }
+        CanonicalCommonNodeKind::Group => {
+            events.extend(retained_delimiter_payload(
+                CanonicalDelimiterKind::Parenthesis,
+                span,
+                text,
+                0,
+                text.len() - 1,
+            ));
+            events.push(payload_value(
+                CanonicalPayloadField::GroupValueEdge,
+                CanonicalPayloadEventValue::ChildOrdinal(0),
+            ));
+        }
+        CanonicalCommonNodeKind::ListLiteral => {
+            events.extend(retained_delimiter_payload(
+                CanonicalDelimiterKind::List,
+                span,
+                text,
+                0,
+                text.len() - 1,
+            ));
+            let inside = &text[1..text.len() - 1];
+            let separators =
+                retained_top_level_separator_tokens(inside, &offset_span(span, 1), ',');
+            events.extend([
+                payload_value(
+                    CanonicalPayloadField::DelimiterSeparators,
+                    CanonicalPayloadEventValue::Tokens(separators),
+                ),
+                payload_value(
+                    CanonicalPayloadField::AggregateEmpty,
+                    CanonicalPayloadEventValue::Bool(child_count == 0),
+                ),
+                payload_value(
+                    CanonicalPayloadField::AggregateTrailing,
+                    CanonicalPayloadEventValue::Bool(inside.trim_end().ends_with(',')),
+                ),
+                payload_value(
+                    CanonicalPayloadField::ListElementEdges,
+                    CanonicalPayloadEventValue::ChildOrdinals((0..child_count).collect()),
+                ),
+            ]);
+        }
+        CanonicalCommonNodeKind::RecordLiteral => {
+            let open = text.find('{').expect("successful record open");
+            if !text.ends_with('}') {
+                return Vec::new();
+            }
+            let inside = &text[open + 1..text.len() - 1];
+            events.extend(retained_delimiter_payload(
+                CanonicalDelimiterKind::Record,
+                span,
+                text,
+                open,
+                text.len() - 1,
+            ));
+            let name = text[..open].trim();
+            let name_tokens = if name.is_empty() {
+                Vec::new()
+            } else {
+                vec![(
+                    source_range_at(
+                        span,
+                        text[..open].find(name).unwrap_or_default(),
+                        name.len(),
+                    ),
+                    name.to_string(),
+                )]
+            };
+            let field_ranges = split_top_level_ranges_quoted(inside, ',');
+            let mut fields = Vec::new();
+            let mut colons = Vec::new();
+            for range in field_ranges {
+                let raw = &inside[range.clone()];
+                if let Some(colon) = find_top_level_char(raw, ':') {
+                    let field = raw[..colon].trim();
+                    let field_start =
+                        open + 1 + range.start + raw[..colon].find(field).unwrap_or_default();
+                    fields.push((
+                        source_range_at(span, field_start, field.len()),
+                        field.to_string(),
+                    ));
+                    colons.push((
+                        source_range_at(span, open + 1 + range.start + colon, 1),
+                        ":".to_string(),
+                    ));
+                }
+            }
+            events.extend([
+                payload_value(
+                    CanonicalPayloadField::RecordNameToken,
+                    CanonicalPayloadEventValue::Tokens(name_tokens),
+                ),
+                payload_value(
+                    CanonicalPayloadField::RecordFieldTokens,
+                    CanonicalPayloadEventValue::Tokens(fields),
+                ),
+                payload_value(
+                    CanonicalPayloadField::RecordColonTokens,
+                    CanonicalPayloadEventValue::Tokens(colons),
+                ),
+                payload_value(
+                    CanonicalPayloadField::DelimiterSeparators,
+                    CanonicalPayloadEventValue::Tokens(retained_top_level_separator_tokens(
+                        inside,
+                        &offset_span(span, open + 1),
+                        ',',
+                    )),
+                ),
+                payload_value(
+                    CanonicalPayloadField::RecordValueEdges,
+                    CanonicalPayloadEventValue::ChildOrdinals((0..child_count).collect()),
+                ),
+                payload_value(
+                    CanonicalPayloadField::AggregateEmpty,
+                    CanonicalPayloadEventValue::Bool(child_count == 0),
+                ),
+                payload_value(
+                    CanonicalPayloadField::AggregateTrailing,
+                    CanonicalPayloadEventValue::Bool(inside.trim_end().ends_with(',')),
+                ),
+            ]);
+        }
+        CanonicalCommonNodeKind::Call => {
+            let open = find_top_level_open_paren(text).expect("successful call open");
+            let inside = &text[open + 1..text.len() - 1];
+            events.extend(retained_delimiter_payload(
+                CanonicalDelimiterKind::Parenthesis,
+                span,
+                text,
+                open,
+                text.len() - 1,
+            ));
+            events.extend([
+                payload_value(
+                    CanonicalPayloadField::DelimiterSeparators,
+                    CanonicalPayloadEventValue::Tokens(retained_top_level_separator_tokens(
+                        inside,
+                        &offset_span(span, open + 1),
+                        ',',
+                    )),
+                ),
+                payload_value(
+                    CanonicalPayloadField::AggregateEmpty,
+                    CanonicalPayloadEventValue::Bool(child_count == 1),
+                ),
+                payload_value(
+                    CanonicalPayloadField::AggregateTrailing,
+                    CanonicalPayloadEventValue::Bool(inside.trim_end().ends_with(',')),
+                ),
+                payload_value(
+                    CanonicalPayloadField::CallCalleeEdge,
+                    CanonicalPayloadEventValue::ChildOrdinal(0),
+                ),
+                payload_value(
+                    CanonicalPayloadField::CallArgumentEdges,
+                    CanonicalPayloadEventValue::ChildOrdinals((1..child_count).collect()),
+                ),
+                payload_value(
+                    CanonicalPayloadField::CallAdjacency,
+                    CanonicalPayloadEventValue::Bools(retained_call_adjacency_facts(text, open)),
+                ),
+                payload_value(
+                    CanonicalPayloadField::CallCloseState,
+                    CanonicalPayloadEventValue::Bool(true),
+                ),
+                payload_value(
+                    CanonicalPayloadField::CallTrailingState,
+                    CanonicalPayloadEventValue::Bool(!inside.trim_end().ends_with(',')),
+                ),
+            ]);
+        }
+        CanonicalCommonNodeKind::Binary => {
+            let (operator, start, end) =
+                top_level_binary_operator(text).expect("successful binary operator");
+            let operator_text = &text[start..end];
+            let operator_tokens =
+                canonical_lexical_events(operator_text, &offset_span(span, start))
+                    .into_iter()
+                    .map(|event| (event.range, event.spelling))
+                    .collect();
+            let (left_boundary, right_boundary) = binary_boundaries(text, start, end);
+            events.extend([
+                payload_value(
+                    CanonicalPayloadField::BinaryOperator,
+                    CanonicalPayloadEventValue::Operator(operator),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryOperatorTokens,
+                    CanonicalPayloadEventValue::Tokens(operator_tokens),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryOperatorRange,
+                    CanonicalPayloadEventValue::Range(source_range_at(span, start, end - start)),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryPrecedence,
+                    CanonicalPayloadEventValue::Usize(operator_precedence(operator)),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryAssociativity,
+                    CanonicalPayloadEventValue::Associativity(CanonicalAssociativity::Left),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryLeftBoundary,
+                    CanonicalPayloadEventValue::Bool(left_boundary),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryRightBoundary,
+                    CanonicalPayloadEventValue::Bool(right_boundary),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryReductionOrder,
+                    CanonicalPayloadEventValue::ChildOrdinals(vec![0, 1]),
+                ),
+                payload_value(
+                    CanonicalPayloadField::BinaryChildRoles,
+                    CanonicalPayloadEventValue::ChildOrdinals(vec![0, 1]),
+                ),
+            ]);
+        }
+        CanonicalCommonNodeKind::Permission => {
+            let (keyword, permission) = if keyword_rest(text, "borrow").is_some() {
+                ("borrow", ParamPermission::Borrow)
+            } else if keyword_rest(text, "change").is_some() {
+                ("change", ParamPermission::Change)
+            } else {
+                ("consume", ParamPermission::Consume)
+            };
+            let value_start =
+                text.len() - keyword_rest(text, keyword).expect("permission value").len();
+            events.extend([
+                payload_token(CanonicalPayloadField::PermissionKeyword, span, 0, keyword),
+                payload_value(
+                    CanonicalPayloadField::PermissionDiscriminant,
+                    CanonicalPayloadEventValue::Permission(permission),
+                ),
+                payload_value(
+                    CanonicalPayloadField::PermissionGap,
+                    CanonicalPayloadEventValue::Range(source_range_at(
+                        span,
+                        keyword.len(),
+                        value_start - keyword.len(),
+                    )),
+                ),
+                payload_value(
+                    CanonicalPayloadField::PermissionValueEdge,
+                    CanonicalPayloadEventValue::ChildOrdinal(0),
+                ),
+            ]);
+        }
+        CanonicalCommonNodeKind::Try => {
+            let rest = keyword_rest(text, "try").expect("try value");
+            let value_start = text.len() - rest.len();
+            let wrapper_start = find_top_level_phrase(rest, " or fail ");
+            let wrapper_kind = if wrapper_start.is_some() {
+                CanonicalTryWrapperKind::Wrap
+            } else {
+                CanonicalTryWrapperKind::Propagate
+            };
+            let mut relation_tokens = Vec::new();
+            let mut root_token = Vec::new();
+            let mut dot_token = Vec::new();
+            let mut variant_token = Vec::new();
+            if let Some(wrapper_start) = wrapper_start {
+                let absolute = value_start + wrapper_start;
+                relation_tokens.push((source_range_at(span, absolute + 1, 2), "or".to_string()));
+                relation_tokens.push((source_range_at(span, absolute + 4, 4), "fail".to_string()));
+                let failure_start = absolute + " or fail ".len();
+                let failure = text[failure_start..].trim();
+                let leading =
+                    text[failure_start..].len() - text[failure_start..].trim_start().len();
+                let absolute_failure = failure_start + leading;
+                let (root, variant) = failure.split_once('.').unwrap_or((failure, ""));
+                if !is_type_identifier(root) || !is_value_identifier(variant) {
+                    return Vec::new();
+                }
+                if !root.is_empty() {
+                    root_token.push((
+                        source_range_at(span, absolute_failure, root.len()),
+                        root.to_string(),
+                    ));
+                }
+                if let Some(dot) = failure.find('.') {
+                    dot_token.push((
+                        source_range_at(span, absolute_failure + dot, 1),
+                        ".".to_string(),
+                    ));
+                    if !variant.is_empty() {
+                        variant_token.push((
+                            source_range_at(span, absolute_failure + dot + 1, variant.len()),
+                            variant.to_string(),
+                        ));
+                    }
+                }
+            }
+            events.extend([
+                payload_token(CanonicalPayloadField::TryKeyword, span, 0, "try"),
+                payload_value(
+                    CanonicalPayloadField::TryValueEdge,
+                    CanonicalPayloadEventValue::ChildOrdinal(0),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TryWrapperRelation,
+                    CanonicalPayloadEventValue::Tokens(relation_tokens),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TryFailureRootToken,
+                    CanonicalPayloadEventValue::Tokens(root_token),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TryDotToken,
+                    CanonicalPayloadEventValue::Tokens(dot_token),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TryFailureVariantToken,
+                    CanonicalPayloadEventValue::Tokens(variant_token),
+                ),
+                payload_value(
+                    CanonicalPayloadField::TryWrapperKind,
+                    CanonicalPayloadEventValue::WrapperKind(wrapper_kind),
+                ),
+            ]);
+        }
+        CanonicalCommonNodeKind::Unsupported => {}
+    }
+    events
+}
+
 fn range_contains(parent: &ParsedSourceRange, child: &ParsedSourceRange) -> bool {
     parent.start.file == child.start.file
         && parent.start.line == child.start.line
@@ -1874,7 +3606,7 @@ fn build_occurrence_seal(
             Some(CanonicalSourceOwnerFact::SemanticFile(file)) => file,
             _ => panic!("source/owner projection must contain semantic file identity"),
         },
-        occurrence: projected_occurrence,
+        occurrence: projected_occurrence.clone(),
         role: projected_role,
         intent: projected_intent,
         assignment_node: &expression.canonical.node_id,
@@ -1887,7 +3619,7 @@ fn build_occurrence_seal(
         owner_facts: retained_owner_authority(owner),
         handle: &owner.authority.handle,
         semantic_file: &owner.authority.semantic_file,
-        occurrence: authority_occurrence,
+        occurrence: authority_occurrence.clone(),
         role: authority_role(assignment.role),
         intent: authority_intent(assignment.intent),
         assignment_node: &assignment.expression_node_id,
@@ -1896,9 +3628,21 @@ fn build_occurrence_seal(
         nodes: &retained_nodes,
         tokens: &expression.canonical_tokens,
     });
+    let payload_projection = payload_facts(
+        &projected_occurrence,
+        &projected_nodes,
+        &expression.canonical_tokens,
+    );
+    let payload_authority = payload_facts(
+        &authority_occurrence,
+        &retained_nodes,
+        &expression.canonical_tokens,
+    );
     CanonicalOccurrenceSeal {
         projection,
         authority,
+        payload_projection,
+        payload_authority,
     }
 }
 
@@ -2705,6 +4449,9 @@ fn validate_canonical_node(
         CanonicalExpressionKind::Field { base, .. } => {
             validate_child(base, "field-base", identities)?;
         }
+        CanonicalExpressionKind::ElementPlace { base, .. } => {
+            validate_child(base, "element-base", identities)?;
+        }
         CanonicalExpressionKind::ListLiteral(values) => {
             for (index, value) in values.iter().enumerate() {
                 validate_child(value, &format!("list-item-{index}"), identities)?;
@@ -2723,6 +4470,9 @@ fn validate_canonical_node(
         }
         CanonicalExpressionKind::Permission { value, .. } => {
             validate_child(value, "permission-value", identities)?;
+        }
+        CanonicalExpressionKind::Try { value, .. } => {
+            validate_child(value, "try-value", identities)?;
         }
         CanonicalExpressionKind::Binary { left, right, .. } => {
             validate_child(left, "binary-left", identities)?;
@@ -2883,22 +4633,51 @@ fn canonical_lexical_events(text: &str, span: &Span) -> Vec<CanonicalLexicalToke
         }
         let start = index;
         if ch == '"' {
-            index += ch.len_utf8();
-            let mut escaped = false;
+            events.push(CanonicalLexicalTokenEvent {
+                range: ParsedSourceRange {
+                    start: offset_span(&span, start),
+                    byte_len: 1,
+                },
+                spelling: "\"".to_string(),
+            });
+            index += 1;
             while index < text.len() {
                 let next = text[index..]
                     .chars()
                     .next()
                     .expect("text token cursor must remain on a character boundary");
-                index += next.len_utf8();
-                if escaped {
-                    escaped = false;
-                } else if next == '\\' {
-                    escaped = true;
+                if next == '\\' {
+                    let escape_start = index;
+                    index += 1;
+                    if index < text.len() {
+                        let escaped = text[index..]
+                            .chars()
+                            .next()
+                            .expect("escape cursor must remain on a character boundary");
+                        index += escaped.len_utf8();
+                    }
+                    events.push(CanonicalLexicalTokenEvent {
+                        range: ParsedSourceRange {
+                            start: offset_span(&span, escape_start),
+                            byte_len: index - escape_start,
+                        },
+                        spelling: text[escape_start..index].to_string(),
+                    });
                 } else if next == '"' {
+                    events.push(CanonicalLexicalTokenEvent {
+                        range: ParsedSourceRange {
+                            start: offset_span(&span, index),
+                            byte_len: 1,
+                        },
+                        spelling: "\"".to_string(),
+                    });
+                    index += 1;
                     break;
+                } else {
+                    index += next.len_utf8();
                 }
             }
+            continue;
         } else if ch.is_ascii_alphanumeric() || ch == '_' {
             index += ch.len_utf8();
             while index < text.len() {
@@ -2928,6 +4707,7 @@ fn canonical_lexical_events(text: &str, span: &Span) -> Vec<CanonicalLexicalToke
                 start: offset_span(&span, start),
                 byte_len: index - start,
             },
+            spelling: text[start..index].to_string(),
         });
     }
     events
@@ -3122,12 +4902,16 @@ fn canonical_expression_build(
     event_kind: CanonicalCommonNodeKind,
     children: Vec<CanonicalReductionChildEvent>,
     delimiter_depth: usize,
+    text: &str,
 ) -> CanonicalExpressionBuild {
+    let projected_payload = projected_payload_events(&kind, text, &range.start, children.len());
+    let retained_payload = retained_payload_events(event_kind, text, &range.start, children.len());
     CanonicalExpressionBuild {
         expression: CanonicalExpression {
             node_id,
             range: range.clone(),
             kind,
+            payload: projected_payload,
         },
         event: CanonicalReductionEvent {
             range,
@@ -3140,6 +4924,7 @@ fn canonical_expression_build(
             } else {
                 CanonicalCommonLexicalStatus::Complete
             },
+            payload: retained_payload,
         },
     }
 }
@@ -3178,6 +4963,46 @@ fn parse_canonical_expression(
             CanonicalCommonNodeKind::Unit,
             Vec::new(),
             delimiter_depth,
+            text,
+        );
+    }
+
+    if let Some(rest) = keyword_rest(text, "try") {
+        let value_offset = text.len() - rest.len();
+        let Ok((value_text, failure_root, failure_variant)) = split_try_wrapper(rest) else {
+            return canonical_expression_build(
+                node_id,
+                range,
+                CanonicalExpressionKind::Unsupported,
+                CanonicalCommonNodeKind::Unsupported,
+                Vec::new(),
+                delimiter_depth,
+                text,
+            );
+        };
+        let value = parse_canonical_expression(
+            value_text,
+            &offset_span(&span, value_offset),
+            node_id.child("try-value"),
+            delimiter_depth,
+        );
+        let children = vec![reduction_child(
+            CanonicalCommonChildRole::TryValue,
+            0,
+            &value,
+        )];
+        return canonical_expression_build(
+            node_id,
+            range,
+            CanonicalExpressionKind::Try {
+                value: Box::new(value.expression),
+                failure_root,
+                failure_variant,
+            },
+            CanonicalCommonNodeKind::Try,
+            children,
+            delimiter_depth,
+            text,
         );
     }
 
@@ -3209,6 +5034,7 @@ fn parse_canonical_expression(
                 CanonicalCommonNodeKind::Permission,
                 children,
                 delimiter_depth,
+                text,
             );
         }
     }
@@ -3223,10 +5049,22 @@ fn parse_canonical_expression(
             CanonicalCommonNodeKind::IntLiteral,
             Vec::new(),
             delimiter_depth,
+            text,
         );
     }
 
     if let Some((operator, start, end)) = top_level_binary_operator(text) {
+        if binary_operator_is_in_malformed_comparison_run(text, start, end) {
+            return canonical_expression_build(
+                node_id,
+                range,
+                CanonicalExpressionKind::Unsupported,
+                CanonicalCommonNodeKind::Unsupported,
+                Vec::new(),
+                delimiter_depth,
+                text,
+            );
+        }
         let left = parse_canonical_expression(
             &text[..start],
             &span,
@@ -3254,6 +5092,7 @@ fn parse_canonical_expression(
             CanonicalCommonNodeKind::Binary,
             children,
             delimiter_depth,
+            text,
         );
     }
 
@@ -3278,6 +5117,7 @@ fn parse_canonical_expression(
             CanonicalCommonNodeKind::Group,
             children,
             delimiter_depth,
+            text,
         );
     }
 
@@ -3289,6 +5129,7 @@ fn parse_canonical_expression(
             CanonicalCommonNodeKind::TextLiteral,
             Vec::new(),
             delimiter_depth,
+            text,
         );
     }
     if let Ok(value) = text.parse::<u64>() {
@@ -3299,6 +5140,7 @@ fn parse_canonical_expression(
             CanonicalCommonNodeKind::UIntLiteral,
             Vec::new(),
             delimiter_depth,
+            text,
         );
     }
     if matches!(text, "true" | "false") {
@@ -3309,7 +5151,41 @@ fn parse_canonical_expression(
             CanonicalCommonNodeKind::BoolLiteral,
             Vec::new(),
             delimiter_depth,
+            text,
         );
+    }
+
+    if let Some(open) = terminal_element_open(text) {
+        let index_text = text[open + 1..text.len() - 1].trim();
+        if !text[..open].trim().is_empty()
+            && !index_text.is_empty()
+            && index_text.chars().all(|ch| ch.is_ascii_digit())
+            && let Ok(index) = index_text.parse::<u64>()
+        {
+            let base = parse_canonical_expression(
+                &text[..open],
+                &span,
+                node_id.child("element-base"),
+                delimiter_depth,
+            );
+            let children = vec![reduction_child(
+                CanonicalCommonChildRole::ElementBase,
+                0,
+                &base,
+            )];
+            return canonical_expression_build(
+                node_id,
+                range,
+                CanonicalExpressionKind::ElementPlace {
+                    base: Box::new(base.expression),
+                    index,
+                },
+                CanonicalCommonNodeKind::ElementPlace,
+                children,
+                delimiter_depth,
+                text,
+            );
+        }
     }
 
     if text.starts_with('[')
@@ -3346,6 +5222,7 @@ fn parse_canonical_expression(
             CanonicalCommonNodeKind::ListLiteral,
             children,
             delimiter_depth,
+            text,
         );
     }
 
@@ -3360,6 +5237,7 @@ fn parse_canonical_expression(
             CanonicalCommonNodeKind::RecordLiteral,
             Vec::new(),
             delimiter_depth,
+            text,
         );
     }
 
@@ -3409,6 +5287,7 @@ fn parse_canonical_expression(
             CanonicalCommonNodeKind::RecordLiteral,
             children,
             delimiter_depth,
+            text,
         );
     }
 
@@ -3459,6 +5338,7 @@ fn parse_canonical_expression(
             CanonicalCommonNodeKind::Call,
             children,
             delimiter_depth,
+            text,
         );
     }
 
@@ -3486,6 +5366,7 @@ fn parse_canonical_expression(
                 CanonicalCommonNodeKind::Field,
                 children,
                 delimiter_depth,
+                text,
             );
         }
     }
@@ -3507,7 +5388,65 @@ fn parse_canonical_expression(
         event_kind,
         Vec::new(),
         delimiter_depth,
+        text,
     )
+}
+
+fn split_try_wrapper(text: &str) -> Result<(&str, Option<String>, Option<String>), &'static str> {
+    let Some(wrapper_start) = find_top_level_phrase(text, " or fail ") else {
+        let value = text.trim_end();
+        return (!value.is_empty())
+            .then_some((value, None, None))
+            .ok_or("missing_try_value_v0");
+    };
+    let value = text[..wrapper_start].trim_end();
+    let failure = text[wrapper_start + " or fail ".len()..].trim();
+    let Some((root, variant)) = failure.split_once('.') else {
+        return Err("malformed_try_failure_path_v0");
+    };
+    if value.is_empty() || !is_type_identifier(root) || !is_value_identifier(variant) {
+        return Err("malformed_try_failure_path_v0");
+    }
+    Ok((value, Some(root.to_string()), Some(variant.to_string())))
+}
+
+fn find_top_level_phrase(text: &str, phrase: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut quoted = false;
+    let mut escaped = false;
+    for (index, ch) in text.char_indices() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => quoted = true,
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ if depth == 0 && text[index..].starts_with(phrase) => return Some(index),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn terminal_element_open(text: &str) -> Option<usize> {
+    if !text.ends_with(']') {
+        return None;
+    }
+    text.char_indices()
+        .filter(|(_, ch)| *ch == '[')
+        .filter_map(|(open, _)| {
+            (open > 0 && matching_delimiter_quoted(text, open, '[', ']') == Some(text.len() - 1))
+                .then_some(open)
+        })
+        .next_back()
 }
 
 fn top_level_binary_operator(text: &str) -> Option<(ParsedBinaryOperator, usize, usize)> {
@@ -4133,20 +6072,23 @@ mod tests {
     use super::{
         CanonicalAssigningEvent, CanonicalAuthorityHandle, CanonicalExpressionIntent,
         CanonicalExpressionRole, CanonicalItemOwner, CanonicalNodeIdentity,
-        CanonicalOccurrenceIdentity, CanonicalOccurrenceSeal, CanonicalPredicateRecognition,
-        CanonicalReductionIdentity, CanonicalSealFact, CanonicalSectionOwner,
-        CanonicalSemanticFile, CanonicalSourceBlob, CanonicalSourceOwnerFact,
-        CanonicalSourceOwnerSeal, CanonicalSourceRevision, CanonicalStatementOwner,
-        CanonicalTokenIdentity, build_occurrence_seal, executable_call_nodes, parse_source,
-        parse_source_at_index, source_owner_fact_matches, validate_canonical_expression,
-        validate_occurrence_seal, validate_occurrence_seal_ignoring_one_fact,
-        validate_retained_body_syntax, validate_source_owner_seal,
+        CanonicalOccurrenceIdentity, CanonicalOccurrenceSeal, CanonicalPayloadSealFact,
+        CanonicalPayloadValue, CanonicalPredicateRecognition, CanonicalReductionIdentity,
+        CanonicalSealFact, CanonicalSectionOwner, CanonicalSemanticFile, CanonicalSourceBlob,
+        CanonicalSourceOwnerFact, CanonicalSourceOwnerSeal, CanonicalSourceRevision,
+        CanonicalStatementOwner, CanonicalTokenIdentity, build_occurrence_seal,
+        executable_call_nodes, parse_source, parse_source_at_index, source_owner_fact_matches,
+        validate_canonical_expression, validate_occurrence_seal,
+        validate_occurrence_seal_ignoring_one_fact,
+        validate_occurrence_seal_ignoring_one_payload_fact, validate_retained_body_syntax,
+        validate_source_owner_seal,
     };
     use crate::ast::{
-        CanonicalCommonChildRole, CanonicalCommonLexicalStatus, CanonicalCommonNodeKind,
-        CanonicalExpressionKind, Item, ParsedBinaryOperator, ParsedBlockRelationship,
-        ParsedBodyStatementKind, ParsedCallCloseStatus, ParsedExpressionKind, ParsedSourceRange,
-        ParserSyntaxNodeId, TypeSyntaxKind,
+        CanonicalAssociativity, CanonicalCommonChildRole, CanonicalCommonLexicalStatus,
+        CanonicalCommonNodeKind, CanonicalDelimiterKind, CanonicalExpressionKind,
+        CanonicalPayloadField, CanonicalTryWrapperKind, Item, ParsedBinaryOperator,
+        ParsedBlockRelationship, ParsedBodyStatementKind, ParsedCallCloseStatus,
+        ParsedExpressionKind, ParsedSourceRange, ParserSyntaxNodeId, TypeSyntaxKind,
     };
     use crate::diagnostic::{DiagnosticCode, Severity};
 
@@ -4522,10 +6464,11 @@ mod tests {
         F1SealField::IllegalFieldsAbsent,
     ];
 
-    const F1_COMMON_KINDS: [CanonicalCommonNodeKind; 14] = [
+    const F1_COMMON_KINDS: [CanonicalCommonNodeKind; 16] = [
         CanonicalCommonNodeKind::Unit,
         CanonicalCommonNodeKind::Identifier,
         CanonicalCommonNodeKind::Field,
+        CanonicalCommonNodeKind::ElementPlace,
         CanonicalCommonNodeKind::UIntLiteral,
         CanonicalCommonNodeKind::IntLiteral,
         CanonicalCommonNodeKind::BoolLiteral,
@@ -4534,18 +6477,21 @@ mod tests {
         CanonicalCommonNodeKind::RecordLiteral,
         CanonicalCommonNodeKind::Call,
         CanonicalCommonNodeKind::Permission,
+        CanonicalCommonNodeKind::Try,
         CanonicalCommonNodeKind::Binary,
         CanonicalCommonNodeKind::Group,
         CanonicalCommonNodeKind::Unsupported,
     ];
 
-    const F1_CHILD_ROLES: [CanonicalCommonChildRole; 9] = [
+    const F1_CHILD_ROLES: [CanonicalCommonChildRole; 11] = [
         CanonicalCommonChildRole::FieldBase,
+        CanonicalCommonChildRole::ElementBase,
         CanonicalCommonChildRole::ListElement,
         CanonicalCommonChildRole::RecordFieldValue,
         CanonicalCommonChildRole::CallCallee,
         CanonicalCommonChildRole::CallArgument,
         CanonicalCommonChildRole::PermissionValue,
+        CanonicalCommonChildRole::TryValue,
         CanonicalCommonChildRole::BinaryLeft,
         CanonicalCommonChildRole::BinaryRight,
         CanonicalCommonChildRole::GroupValue,
@@ -4578,6 +6524,8 @@ task seal(value: UInt) -> UInt {
     return call((value + 1), [value, 2], Thing { field: value }, target.field, borrow value, -1, true, "x")
     return call(value)
     return call(value)
+    return items[0]
+    return try source(value)
     let first = value
     change second = 1
     set target = value
@@ -4607,6 +6555,8 @@ task seal(value: UInt) -> UInt {
     return call((value + 1), [value, 2], Thing { field: value }, target.field, borrow value, -1, true, "x")
     return call(value)
     return call(value)
+    return items[0]
+    return try source(value)
     let first = value
     change second = 1
     set target = value
@@ -4932,6 +6882,8 @@ task seal(value: UInt) -> UInt {
         PairCase,
         EqualLengthEvidence,
         CrossOccurrence,
+        CommonKindRow,
+        ChildRoleRow,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4949,6 +6901,7 @@ task seal(value: UInt) -> UInt {
         single_rejections: usize,
         pair_rejections: usize,
         cross_occurrence_rejections: usize,
+        common_variant_rejections: usize,
         producer_event_rejected: bool,
         same_line_distinct: bool,
         horizontal_whitespace_compatible: bool,
@@ -5030,6 +6983,16 @@ task seal(value: UInt) -> UInt {
             &PROJECTION_MUTATIONS[..5]
         } else {
             &PROJECTION_MUTATIONS[..]
+        };
+        let common_kinds = if matches!(sabotage, Some(F1Sabotage::CommonKindRow)) {
+            &F1_COMMON_KINDS[..F1_COMMON_KINDS.len() - 1]
+        } else {
+            &F1_COMMON_KINDS[..]
+        };
+        let child_roles = if matches!(sabotage, Some(F1Sabotage::ChildRoleRow)) {
+            &F1_CHILD_ROLES[..F1_CHILD_ROLES.len() - 1]
+        } else {
+            &F1_CHILD_ROLES[..]
         };
         let representatives = f1_representatives(base);
         assert_eq!(representatives.len(), 36);
@@ -5123,6 +7086,48 @@ task seal(value: UInt) -> UInt {
             .iter()
             .filter(|seal| validate_occurrence_seal(seal).is_err())
             .count();
+        let mut common_variant_rejections = 0usize;
+        for kind in common_kinds {
+            let (seal, index) = parsed
+                .occurrence_seals
+                .iter()
+                .enumerate()
+                .find_map(|(seal, occurrence)| {
+                    occurrence
+                        .projection
+                        .iter()
+                        .position(|fact| {
+                            matches!(fact, CanonicalSealFact::Kind(_, actual) if actual == kind)
+                        })
+                        .map(|index| (seal, index))
+                })
+                .unwrap_or_else(|| panic!("F1 corpus lacks {kind:?}"));
+            let mut corrupted = parsed.occurrence_seals[seal].clone();
+            corrupted.projection[index] = corrupted_f1_fact(&corrupted.projection[index]);
+            common_variant_rejections += usize::from(validate_occurrence_seal(&corrupted).is_err());
+        }
+        for role in child_roles {
+            let (seal, index) = parsed
+                .occurrence_seals
+                .iter()
+                .enumerate()
+                .find_map(|(seal, occurrence)| {
+                    occurrence
+                        .projection
+                        .iter()
+                        .position(|fact| {
+                            matches!(
+                                fact,
+                                CanonicalSealFact::ChildRole(_, Some(actual)) if actual == role
+                            )
+                        })
+                        .map(|index| (seal, index))
+                })
+                .unwrap_or_else(|| panic!("F1 corpus lacks {role:?}"));
+            let mut corrupted = parsed.occurrence_seals[seal].clone();
+            corrupted.projection[index] = corrupted_f1_fact(&corrupted.projection[index]);
+            common_variant_rejections += usize::from(validate_occurrence_seal(&corrupted).is_err());
+        }
         let leaf_source = "task leaf(value: UInt) -> UInt {\n  does:\n    return value\n}\n";
         let leaf = parse_source("leaf.hum", leaf_source);
         let Item::Task(task) = &leaf.file.items[0] else {
@@ -5138,6 +7143,8 @@ task seal(value: UInt) -> UInt {
             CanonicalCommonLexicalStatus::Unsupported;
         if matches!(sabotage, Some(F1Sabotage::ProducerArm)) {
             corrupted_expression.canonical.kind = CanonicalExpressionKind::Unsupported;
+            corrupted_expression.canonical.payload.clear();
+            corrupted_expression.canonical_event.payload.clear();
         }
         let corrupted_seal = build_occurrence_seal(
             &corrupted_expression,
@@ -5189,7 +7196,7 @@ task seal(value: UInt) -> UInt {
             equal_length_distinct: F1_SOURCE_A.as_bytes() != identity_foreign_source.as_bytes()
                 && parsed.occurrence_seals != identity_foreign.occurrence_seals,
             field_count: catalogue.len(),
-            kind_count: F1_COMMON_KINDS
+            kind_count: common_kinds
                 .iter()
                 .filter(|kind| {
                     parsed.occurrence_seals.iter().any(|seal| {
@@ -5210,7 +7217,7 @@ task seal(value: UInt) -> UInt {
                     })
                 })
                 .count(),
-            child_role_count: F1_CHILD_ROLES
+            child_role_count: child_roles
                 .iter()
                 .filter(|role| {
                     parsed.occurrence_seals.iter().any(|seal| {
@@ -5252,6 +7259,7 @@ task seal(value: UInt) -> UInt {
             single_rejections,
             pair_rejections,
             cross_occurrence_rejections,
+            common_variant_rejections,
             producer_event_rejected: validate_occurrence_seal(&corrupted_seal).is_err(),
             same_line_distinct: occurrence_fact(&same_line[0], F1SealField::Occurrence)
                 != occurrence_fact(&same_line[1], F1SealField::Occurrence),
@@ -5298,15 +7306,16 @@ task seal(value: UInt) -> UInt {
             && evidence.public_compatible
             && evidence.equal_length_distinct
             && evidence.field_count == 36
-            && evidence.kind_count == 14
+            && evidence.kind_count == 16
             && evidence.role_count == 13
-            && evidence.child_role_count == 9
+            && evidence.child_role_count == 11
             && evidence.lexical_status_count == 2
-            && evidence.node_count == 48
-            && evidence.token_count == 67
+            && evidence.node_count == 54
+            && evidence.token_count == 78
             && evidence.single_rejections == 216
             && evidence.pair_rejections == 630
             && evidence.cross_occurrence_rejections == 16
+            && evidence.common_variant_rejections == 27
             && evidence.producer_event_rejected
             && evidence.same_line_distinct
             && evidence.horizontal_whitespace_compatible
@@ -5329,12 +7338,1089 @@ task seal(value: UInt) -> UInt {
             F1Sabotage::PairCase,
             F1Sabotage::EqualLengthEvidence,
             F1Sabotage::CrossOccurrence,
+            F1Sabotage::CommonKindRow,
+            F1Sabotage::ChildRoleRow,
         ] {
             assert!(
                 !complete_f1_evidence(&f1_evidence(Some(sabotage))),
                 "{sabotage:?} sabotage stayed green"
             );
         }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    enum F2SealField {
+        UnitPosition,
+        IdentifierToken,
+        IdentifierValue,
+        UIntDigitsToken,
+        UIntValue,
+        IntSignToken,
+        IntDigitsToken,
+        IntValue,
+        IntSignedLiteral,
+        BoolToken,
+        BoolValue,
+        TextOpenQuote,
+        TextCloseQuote,
+        TextRawContent,
+        TextEscapeEvents,
+        TextDecodedValue,
+        TextTerminated,
+        FieldBaseEdge,
+        FieldDotToken,
+        FieldNameToken,
+        FieldValue,
+        ElementBaseEdge,
+        ElementOpenBracket,
+        ElementCloseBracket,
+        ElementIndexToken,
+        ElementIndexValue,
+        ElementPlaceRole,
+        DelimiterPair,
+        DelimiterNestingParent,
+        DelimiterSemanticGaps,
+        DelimiterSeparators,
+        AggregateEmpty,
+        AggregateTrailing,
+        GroupValueEdge,
+        ListElementEdges,
+        RecordNameToken,
+        RecordFieldTokens,
+        RecordColonTokens,
+        RecordValueEdges,
+        CallCalleeEdge,
+        CallArgumentEdges,
+        CallAdjacency,
+        CallCloseState,
+        CallTrailingState,
+        BinaryOperator,
+        BinaryOperatorTokens,
+        BinaryOperatorRange,
+        BinaryPrecedence,
+        BinaryAssociativity,
+        BinaryLeftBoundary,
+        BinaryRightBoundary,
+        BinaryReductionOrder,
+        BinaryChildRoles,
+        PermissionKeyword,
+        PermissionDiscriminant,
+        PermissionGap,
+        PermissionValueEdge,
+        TryKeyword,
+        TryValueEdge,
+        TryWrapperRelation,
+        TryFailureRootToken,
+        TryDotToken,
+        TryFailureVariantToken,
+        TryWrapperKind,
+    }
+
+    const F2_SEAL_FIELDS: [F2SealField; 64] = [
+        F2SealField::UnitPosition,
+        F2SealField::IdentifierToken,
+        F2SealField::IdentifierValue,
+        F2SealField::UIntDigitsToken,
+        F2SealField::UIntValue,
+        F2SealField::IntSignToken,
+        F2SealField::IntDigitsToken,
+        F2SealField::IntValue,
+        F2SealField::IntSignedLiteral,
+        F2SealField::BoolToken,
+        F2SealField::BoolValue,
+        F2SealField::TextOpenQuote,
+        F2SealField::TextCloseQuote,
+        F2SealField::TextRawContent,
+        F2SealField::TextEscapeEvents,
+        F2SealField::TextDecodedValue,
+        F2SealField::TextTerminated,
+        F2SealField::FieldBaseEdge,
+        F2SealField::FieldDotToken,
+        F2SealField::FieldNameToken,
+        F2SealField::FieldValue,
+        F2SealField::ElementBaseEdge,
+        F2SealField::ElementOpenBracket,
+        F2SealField::ElementCloseBracket,
+        F2SealField::ElementIndexToken,
+        F2SealField::ElementIndexValue,
+        F2SealField::ElementPlaceRole,
+        F2SealField::DelimiterPair,
+        F2SealField::DelimiterNestingParent,
+        F2SealField::DelimiterSemanticGaps,
+        F2SealField::DelimiterSeparators,
+        F2SealField::AggregateEmpty,
+        F2SealField::AggregateTrailing,
+        F2SealField::GroupValueEdge,
+        F2SealField::ListElementEdges,
+        F2SealField::RecordNameToken,
+        F2SealField::RecordFieldTokens,
+        F2SealField::RecordColonTokens,
+        F2SealField::RecordValueEdges,
+        F2SealField::CallCalleeEdge,
+        F2SealField::CallArgumentEdges,
+        F2SealField::CallAdjacency,
+        F2SealField::CallCloseState,
+        F2SealField::CallTrailingState,
+        F2SealField::BinaryOperator,
+        F2SealField::BinaryOperatorTokens,
+        F2SealField::BinaryOperatorRange,
+        F2SealField::BinaryPrecedence,
+        F2SealField::BinaryAssociativity,
+        F2SealField::BinaryLeftBoundary,
+        F2SealField::BinaryRightBoundary,
+        F2SealField::BinaryReductionOrder,
+        F2SealField::BinaryChildRoles,
+        F2SealField::PermissionKeyword,
+        F2SealField::PermissionDiscriminant,
+        F2SealField::PermissionGap,
+        F2SealField::PermissionValueEdge,
+        F2SealField::TryKeyword,
+        F2SealField::TryValueEdge,
+        F2SealField::TryWrapperRelation,
+        F2SealField::TryFailureRootToken,
+        F2SealField::TryDotToken,
+        F2SealField::TryFailureVariantToken,
+        F2SealField::TryWrapperKind,
+    ];
+
+    const F2_SOURCE_A: &str = r#"# alpha
+task payload(value: UInt, other: UInt) -> UInt {
+  does:
+    return
+    return value
+    return value
+    return 7
+    return 7
+    return -7
+    return 7 - 2
+    return true
+    return false
+    return "hé\"llo"
+    return "\é"
+    return "🙂\éß"
+    return target.field
+    return items[0]
+    return (value)
+    return [value, 7,]
+    return []
+    return Thing { first: value, second: 7, }
+    return {}
+    return call(value, 7,)
+    return call()
+    return call(value)
+    return call(value)
+    return (call(value))
+    return call("a, b", nested(value, other), [value, other], value)
+    return value * other
+    return value / other
+    return value + other
+    return value - other
+    return value == other
+    return value != other
+    return value < other
+    return value <= other
+    return value > other
+    return value >= other
+    return value is other
+    return value does other
+    return value returns other
+    return value fails with other
+    return value and other
+    return value or other
+    return borrow value
+    return change value
+    return consume value
+    return try source(value) or fail PayloadError.context
+    return try source(value)
+}
+"#;
+
+    const F2_SOURCE_B: &str = r#"# bravo
+task payload(value: UInt, other: UInt) -> UInt {
+  does:
+    return
+    return value
+    return value
+    return 7
+    return 7
+    return -7
+    return 7 - 2
+    return true
+    return false
+    return "hé\"llo"
+    return "\é"
+    return "🙂\éß"
+    return target.field
+    return items[0]
+    return (value)
+    return [value, 7,]
+    return []
+    return Thing { first: value, second: 7, }
+    return {}
+    return call(value, 7,)
+    return call()
+    return call(value)
+    return call(value)
+    return (call(value))
+    return call("a, b", nested(value, other), [value, other], value)
+    return value * other
+    return value / other
+    return value + other
+    return value - other
+    return value == other
+    return value != other
+    return value < other
+    return value <= other
+    return value > other
+    return value >= other
+    return value is other
+    return value does other
+    return value returns other
+    return value fails with other
+    return value and other
+    return value or other
+    return borrow value
+    return change value
+    return consume value
+    return try source(value) or fail PayloadError.context
+    return try source(value)
+}
+"#;
+
+    fn f2_field(field: CanonicalPayloadField) -> F2SealField {
+        use CanonicalPayloadField as P;
+        match field {
+            P::UnitPosition => F2SealField::UnitPosition,
+            P::IdentifierToken => F2SealField::IdentifierToken,
+            P::IdentifierValue => F2SealField::IdentifierValue,
+            P::UIntDigitsToken => F2SealField::UIntDigitsToken,
+            P::UIntValue => F2SealField::UIntValue,
+            P::IntSignToken => F2SealField::IntSignToken,
+            P::IntDigitsToken => F2SealField::IntDigitsToken,
+            P::IntValue => F2SealField::IntValue,
+            P::IntSignedLiteral => F2SealField::IntSignedLiteral,
+            P::BoolToken => F2SealField::BoolToken,
+            P::BoolValue => F2SealField::BoolValue,
+            P::TextOpenQuote => F2SealField::TextOpenQuote,
+            P::TextCloseQuote => F2SealField::TextCloseQuote,
+            P::TextRawContent => F2SealField::TextRawContent,
+            P::TextEscapeEvents => F2SealField::TextEscapeEvents,
+            P::TextDecodedValue => F2SealField::TextDecodedValue,
+            P::TextTerminated => F2SealField::TextTerminated,
+            P::FieldBaseEdge => F2SealField::FieldBaseEdge,
+            P::FieldDotToken => F2SealField::FieldDotToken,
+            P::FieldNameToken => F2SealField::FieldNameToken,
+            P::FieldValue => F2SealField::FieldValue,
+            P::ElementBaseEdge => F2SealField::ElementBaseEdge,
+            P::ElementOpenBracket => F2SealField::ElementOpenBracket,
+            P::ElementCloseBracket => F2SealField::ElementCloseBracket,
+            P::ElementIndexToken => F2SealField::ElementIndexToken,
+            P::ElementIndexValue => F2SealField::ElementIndexValue,
+            P::ElementPlaceRole => F2SealField::ElementPlaceRole,
+            P::DelimiterPair => F2SealField::DelimiterPair,
+            P::DelimiterNestingParent => F2SealField::DelimiterNestingParent,
+            P::DelimiterSemanticGaps => F2SealField::DelimiterSemanticGaps,
+            P::DelimiterSeparators => F2SealField::DelimiterSeparators,
+            P::AggregateEmpty => F2SealField::AggregateEmpty,
+            P::AggregateTrailing => F2SealField::AggregateTrailing,
+            P::GroupValueEdge => F2SealField::GroupValueEdge,
+            P::ListElementEdges => F2SealField::ListElementEdges,
+            P::RecordNameToken => F2SealField::RecordNameToken,
+            P::RecordFieldTokens => F2SealField::RecordFieldTokens,
+            P::RecordColonTokens => F2SealField::RecordColonTokens,
+            P::RecordValueEdges => F2SealField::RecordValueEdges,
+            P::CallCalleeEdge => F2SealField::CallCalleeEdge,
+            P::CallArgumentEdges => F2SealField::CallArgumentEdges,
+            P::CallAdjacency => F2SealField::CallAdjacency,
+            P::CallCloseState => F2SealField::CallCloseState,
+            P::CallTrailingState => F2SealField::CallTrailingState,
+            P::BinaryOperator => F2SealField::BinaryOperator,
+            P::BinaryOperatorTokens => F2SealField::BinaryOperatorTokens,
+            P::BinaryOperatorRange => F2SealField::BinaryOperatorRange,
+            P::BinaryPrecedence => F2SealField::BinaryPrecedence,
+            P::BinaryAssociativity => F2SealField::BinaryAssociativity,
+            P::BinaryLeftBoundary => F2SealField::BinaryLeftBoundary,
+            P::BinaryRightBoundary => F2SealField::BinaryRightBoundary,
+            P::BinaryReductionOrder => F2SealField::BinaryReductionOrder,
+            P::BinaryChildRoles => F2SealField::BinaryChildRoles,
+            P::PermissionKeyword => F2SealField::PermissionKeyword,
+            P::PermissionDiscriminant => F2SealField::PermissionDiscriminant,
+            P::PermissionGap => F2SealField::PermissionGap,
+            P::PermissionValueEdge => F2SealField::PermissionValueEdge,
+            P::TryKeyword => F2SealField::TryKeyword,
+            P::TryValueEdge => F2SealField::TryValueEdge,
+            P::TryWrapperRelation => F2SealField::TryWrapperRelation,
+            P::TryFailureRootToken => F2SealField::TryFailureRootToken,
+            P::TryDotToken => F2SealField::TryDotToken,
+            P::TryFailureVariantToken => F2SealField::TryFailureVariantToken,
+            P::TryWrapperKind => F2SealField::TryWrapperKind,
+        }
+    }
+
+    fn corrupt_payload_fact(
+        fact: &CanonicalPayloadSealFact,
+        foreign: &CanonicalPayloadSealFact,
+    ) -> CanonicalPayloadSealFact {
+        let mut fact = fact.clone();
+        fact.identity.0 = corrupt_owner_identity(&fact.identity.0);
+        fact.value = match &fact.value {
+            CanonicalPayloadValue::Position(value) => {
+                let mut value = value.clone();
+                value.column += 1;
+                CanonicalPayloadValue::Position(value)
+            }
+            CanonicalPayloadValue::Token(identity, range, spelling) => {
+                CanonicalPayloadValue::Token(
+                    corrupt_token(identity),
+                    range.clone(),
+                    spelling.clone(),
+                )
+            }
+            CanonicalPayloadValue::Tokens(values) => {
+                let mut values = values.clone();
+                if let Some((identity, _, _)) = values.first_mut() {
+                    *identity = corrupt_token(identity);
+                    CanonicalPayloadValue::Tokens(values)
+                } else {
+                    foreign.value.clone()
+                }
+            }
+            CanonicalPayloadValue::Range(value) => {
+                CanonicalPayloadValue::Range(corrupt_range(value))
+            }
+            CanonicalPayloadValue::Ranges(values) => {
+                let mut values = values.clone();
+                if let Some(value) = values.first_mut() {
+                    *value = corrupt_range(value);
+                    CanonicalPayloadValue::Ranges(values)
+                } else {
+                    foreign.value.clone()
+                }
+            }
+            CanonicalPayloadValue::Text(value) => CanonicalPayloadValue::Text(format!("{value}!")),
+            CanonicalPayloadValue::UInt(value) => CanonicalPayloadValue::UInt(value + 1),
+            CanonicalPayloadValue::Int(value) => CanonicalPayloadValue::Int(value + 1),
+            CanonicalPayloadValue::Bool(value) => CanonicalPayloadValue::Bool(!value),
+            CanonicalPayloadValue::Usize(value) => CanonicalPayloadValue::Usize(value + 1),
+            CanonicalPayloadValue::Bools(values) => {
+                let mut values = values.clone();
+                if let Some(value) = values.first_mut() {
+                    *value = !*value;
+                } else {
+                    values.push(true);
+                }
+                CanonicalPayloadValue::Bools(values)
+            }
+            CanonicalPayloadValue::Node(value) => CanonicalPayloadValue::Node(corrupt_node(value)),
+            CanonicalPayloadValue::Nodes(values) => {
+                let mut values = values.clone();
+                if values.len() > 1 {
+                    values.reverse();
+                } else if let Some(value) = values.first_mut() {
+                    *value = corrupt_node(value);
+                } else {
+                    values.push(corrupt_node(&fact.node));
+                }
+                CanonicalPayloadValue::Nodes(values)
+            }
+            CanonicalPayloadValue::OptionalNode(value) => CanonicalPayloadValue::OptionalNode(
+                value
+                    .as_ref()
+                    .map_or_else(|| Some(corrupt_node(&fact.node)), |_| None),
+            ),
+            CanonicalPayloadValue::DelimiterPair {
+                kind,
+                open,
+                open_range,
+                close,
+                close_range,
+            } => CanonicalPayloadValue::DelimiterPair {
+                kind: if *kind == CanonicalDelimiterKind::Parenthesis {
+                    CanonicalDelimiterKind::List
+                } else {
+                    CanonicalDelimiterKind::Parenthesis
+                },
+                open: corrupt_token(open),
+                open_range: open_range.clone(),
+                close: close.clone(),
+                close_range: close_range.clone(),
+            },
+            CanonicalPayloadValue::Operator(value) => {
+                CanonicalPayloadValue::Operator(if *value == ParsedBinaryOperator::Add {
+                    ParsedBinaryOperator::Subtract
+                } else {
+                    ParsedBinaryOperator::Add
+                })
+            }
+            CanonicalPayloadValue::Permission(value) => CanonicalPayloadValue::Permission(
+                if *value == crate::ast::ParamPermission::Borrow {
+                    crate::ast::ParamPermission::Consume
+                } else {
+                    crate::ast::ParamPermission::Borrow
+                },
+            ),
+            CanonicalPayloadValue::Associativity(_) => {
+                CanonicalPayloadValue::Associativity(CanonicalAssociativity::Right)
+            }
+            CanonicalPayloadValue::WrapperKind(value) => {
+                CanonicalPayloadValue::WrapperKind(if *value == CanonicalTryWrapperKind::Wrap {
+                    CanonicalTryWrapperKind::Propagate
+                } else {
+                    CanonicalTryWrapperKind::Wrap
+                })
+            }
+        };
+        fact
+    }
+
+    fn foreign_payload_fact(
+        field: F2SealField,
+        base: &CanonicalPayloadSealFact,
+        foreign: &[CanonicalOccurrenceSeal],
+    ) -> CanonicalPayloadSealFact {
+        let mut replacement = foreign
+            .iter()
+            .flat_map(|seal| &seal.payload_projection)
+            .find(|fact| f2_field(fact.field) == field && fact != &base)
+            .cloned()
+            .unwrap_or_else(|| panic!("foreign corpus lacks {field:?}"));
+        replacement.node = base.node.clone();
+        replacement
+    }
+
+    fn mutate_f2_projection(
+        seal: &CanonicalOccurrenceSeal,
+        foreign: &[CanonicalOccurrenceSeal],
+        index: usize,
+        mutation: ProjectionMutation,
+    ) -> CanonicalOccurrenceSeal {
+        let mut mutated = seal.clone();
+        let field = f2_field(mutated.payload_projection[index].field);
+        let replacement = foreign_payload_fact(field, &mutated.payload_projection[index], foreign);
+        match mutation {
+            ProjectionMutation::Corrupt => {
+                mutated.payload_projection[index] =
+                    corrupt_payload_fact(&mutated.payload_projection[index], &replacement);
+            }
+            ProjectionMutation::Missing => {
+                mutated.payload_projection.remove(index);
+            }
+            ProjectionMutation::Duplicate => {
+                mutated
+                    .payload_projection
+                    .insert(index, mutated.payload_projection[index].clone());
+            }
+            ProjectionMutation::Reordered => {
+                if mutated.payload_projection.len() == 1 {
+                    mutated.payload_projection.insert(0, replacement);
+                } else {
+                    let other = if index + 1 == mutated.payload_projection.len() {
+                        index - 1
+                    } else {
+                        index + 1
+                    };
+                    mutated.payload_projection.swap(index, other);
+                }
+            }
+            ProjectionMutation::Extra => mutated.payload_projection.push(replacement),
+            ProjectionMutation::Substituted => mutated.payload_projection[index] = replacement,
+        }
+        mutated
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum CombinedField {
+        F1(F1SealField),
+        F2(F2SealField),
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct CombinedLocation {
+        seal: usize,
+        index: usize,
+        field: CombinedField,
+    }
+
+    fn f2_semantic_examples_are_exact(seals: &[CanonicalOccurrenceSeal]) -> bool {
+        let unsupported = seals.iter().flat_map(|seal| &seal.projection).any(|fact| {
+            matches!(
+                fact,
+                CanonicalSealFact::Kind(_, CanonicalCommonNodeKind::Unsupported)
+            )
+        });
+        if unsupported {
+            return false;
+        }
+        let payloads = seals
+            .iter()
+            .flat_map(|seal| &seal.payload_projection)
+            .collect::<Vec<_>>();
+        let expected_operators = [
+            (ParsedBinaryOperator::Multiply, 5, ["*", ""]),
+            (ParsedBinaryOperator::Divide, 5, ["/", ""]),
+            (ParsedBinaryOperator::Add, 4, ["+", ""]),
+            (ParsedBinaryOperator::Subtract, 4, ["-", ""]),
+            (ParsedBinaryOperator::Equal, 3, ["==", ""]),
+            (ParsedBinaryOperator::NotEqual, 3, ["!=", ""]),
+            (ParsedBinaryOperator::Less, 3, ["<", ""]),
+            (ParsedBinaryOperator::LessEqual, 3, ["<=", ""]),
+            (ParsedBinaryOperator::Greater, 3, [">", ""]),
+            (ParsedBinaryOperator::GreaterEqual, 3, [">=", ""]),
+            (ParsedBinaryOperator::Is, 3, ["is", ""]),
+            (ParsedBinaryOperator::Does, 3, ["does", ""]),
+            (ParsedBinaryOperator::Returns, 3, ["returns", ""]),
+            (ParsedBinaryOperator::FailsWith, 3, ["fails", "with"]),
+            (ParsedBinaryOperator::And, 2, ["and", ""]),
+            (ParsedBinaryOperator::Or, 1, ["or", ""]),
+        ];
+        let operator_nodes = payloads
+            .iter()
+            .filter_map(|fact| match fact.value {
+                CanonicalPayloadValue::Operator(value) => Some((value, &fact.node)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let operator_kinds = operator_nodes
+            .iter()
+            .map(|(operator, _)| *operator)
+            .collect::<std::collections::BTreeSet<_>>();
+        let operators_exact = expected_operators.iter().all(|(operator, precedence, tokens)| {
+            let Some((_, node)) = operator_nodes
+                .iter()
+                .find(|(actual, _)| actual == operator)
+            else {
+                return false;
+            };
+            let on_node = |field| {
+                payloads
+                    .iter()
+                    .find(|fact| &fact.node == *node && fact.field == field)
+                    .map(|fact| &fact.value)
+            };
+            let expected_tokens = tokens
+                .iter()
+                .filter(|token| !token.is_empty())
+                .copied()
+                .collect::<Vec<_>>();
+            matches!(
+                on_node(CanonicalPayloadField::BinaryPrecedence),
+                Some(CanonicalPayloadValue::Usize(actual)) if actual == precedence
+            ) && matches!(
+                on_node(CanonicalPayloadField::BinaryAssociativity),
+                Some(CanonicalPayloadValue::Associativity(CanonicalAssociativity::Left))
+            ) && matches!(
+                on_node(CanonicalPayloadField::BinaryOperatorTokens),
+                Some(CanonicalPayloadValue::Tokens(actual))
+                    if actual.iter().map(|(_, _, spelling)| spelling.as_str()).collect::<Vec<_>>() == expected_tokens
+            ) && matches!(
+                on_node(CanonicalPayloadField::BinaryLeftBoundary),
+                Some(CanonicalPayloadValue::Bool(true))
+            ) && matches!(
+                on_node(CanonicalPayloadField::BinaryRightBoundary),
+                Some(CanonicalPayloadValue::Bool(true))
+            ) && matches!(
+                on_node(CanonicalPayloadField::BinaryReductionOrder),
+                Some(CanonicalPayloadValue::Nodes(actual)) if actual.len() == 2 && actual[0] != actual[1]
+            ) && matches!(
+                on_node(CanonicalPayloadField::BinaryChildRoles),
+                Some(CanonicalPayloadValue::Nodes(actual)) if actual.len() == 2 && actual[0] != actual[1]
+            )
+        });
+        let permissions = payloads
+            .iter()
+            .filter_map(|fact| match fact.value {
+                CanonicalPayloadValue::Permission(value) => Some(value.as_str()),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        let wrappers = payloads
+            .iter()
+            .filter_map(|fact| match fact.value {
+                CanonicalPayloadValue::WrapperKind(value) => Some(value),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let delimiter_kinds = payloads
+            .iter()
+            .filter_map(|fact| match fact.value {
+                CanonicalPayloadValue::DelimiterPair { kind, .. } => Some(kind),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let utf8_escape_exact = payloads
+            .iter()
+            .find(|fact| {
+                fact.field == CanonicalPayloadField::TextDecodedValue
+                    && matches!(&fact.value, CanonicalPayloadValue::Text(value) if value == "\\é")
+            })
+            .is_some_and(|decoded| {
+                payloads.iter().any(|fact| {
+                    fact.node == decoded.node
+                        && fact.field == CanonicalPayloadField::TextEscapeEvents
+                        && matches!(
+                            &fact.value,
+                            CanonicalPayloadValue::Tokens(tokens)
+                                if tokens.len() == 1 && tokens[0].2 == "\\é"
+                        )
+                })
+            });
+        let outer_call_topology_exact = payloads
+            .iter()
+            .find(|fact| {
+                fact.field == CanonicalPayloadField::CallArgumentEdges
+                    && matches!(&fact.value, CanonicalPayloadValue::Nodes(nodes) if nodes.len() == 4)
+            })
+            .is_some_and(|arguments| {
+                let on_node = |field| {
+                    payloads
+                        .iter()
+                        .find(|fact| fact.node == arguments.node && fact.field == field)
+                        .map(|fact| &fact.value)
+                };
+                matches!(
+                    on_node(CanonicalPayloadField::DelimiterSeparators),
+                    Some(CanonicalPayloadValue::Tokens(tokens)) if tokens.len() == 3
+                ) && matches!(
+                    on_node(CanonicalPayloadField::DelimiterSemanticGaps),
+                    Some(CanonicalPayloadValue::Ranges(gaps)) if gaps.len() == 3
+                ) && matches!(
+                    on_node(CanonicalPayloadField::CallAdjacency),
+                    Some(CanonicalPayloadValue::Bools(adjacency))
+                        if adjacency.len() == 6 && adjacency.iter().all(|adjacent| *adjacent)
+                )
+            });
+        operators_exact
+            && operator_kinds.len() == 16
+            && permissions == ["borrow", "change", "consume"].into_iter().collect()
+            && wrappers.contains(&CanonicalTryWrapperKind::Wrap)
+            && wrappers.contains(&CanonicalTryWrapperKind::Propagate)
+            && delimiter_kinds.contains(&CanonicalDelimiterKind::Parenthesis)
+            && delimiter_kinds.contains(&CanonicalDelimiterKind::List)
+            && delimiter_kinds.contains(&CanonicalDelimiterKind::Record)
+            && delimiter_kinds.contains(&CanonicalDelimiterKind::Element)
+            && utf8_escape_exact
+            && outer_call_topology_exact
+            && payloads.iter().any(|fact| {
+                fact.field == CanonicalPayloadField::DelimiterNestingParent
+                    && matches!(fact.value, CanonicalPayloadValue::OptionalNode(Some(_)))
+            })
+            && payloads.iter().any(|fact| {
+                fact.field == CanonicalPayloadField::AggregateEmpty
+                    && matches!(fact.value, CanonicalPayloadValue::Bool(true))
+            })
+            && payloads.iter().any(|fact| {
+                fact.field == CanonicalPayloadField::AggregateTrailing
+                    && matches!(fact.value, CanonicalPayloadValue::Bool(true))
+            })
+            && payloads.iter().any(|fact| {
+                fact.field == CanonicalPayloadField::CallAdjacency
+                    && matches!(&fact.value, CanonicalPayloadValue::Bools(values) if values.contains(&true) && values.contains(&false))
+            })
+            && payloads.iter().any(|fact| {
+                fact.field == CanonicalPayloadField::TextDecodedValue
+                    && matches!(&fact.value, CanonicalPayloadValue::Text(value) if value == "hé\"llo")
+            })
+            && payloads.iter().any(|fact| {
+                fact.field == CanonicalPayloadField::IntSignedLiteral
+                    && matches!(fact.value, CanonicalPayloadValue::Bool(true))
+            })
+            && payloads.iter().any(|fact| {
+                fact.field == CanonicalPayloadField::FieldValue
+                    && matches!(&fact.value, CanonicalPayloadValue::Text(value) if value == "field")
+            })
+            && payloads.iter().any(|fact| {
+                fact.field == CanonicalPayloadField::ElementIndexValue
+                    && matches!(fact.value, CanonicalPayloadValue::UInt(0))
+            })
+            && payloads.iter().any(|fact| {
+                fact.field == CanonicalPayloadField::RecordNameToken
+                    && matches!(&fact.value, CanonicalPayloadValue::Tokens(tokens) if tokens.iter().any(|(_, _, spelling)| spelling == "Thing"))
+            })
+            && payloads.iter().any(|fact| {
+                fact.field == CanonicalPayloadField::TryWrapperRelation
+                    && matches!(&fact.value, CanonicalPayloadValue::Tokens(tokens) if tokens.iter().map(|(_, _, spelling)| spelling.as_str()).collect::<Vec<_>>() == ["or", "fail"])
+            })
+            && payloads.iter().any(|fact| {
+                fact.field == CanonicalPayloadField::TryFailureRootToken
+                    && matches!(&fact.value, CanonicalPayloadValue::Tokens(tokens) if tokens.iter().any(|(_, _, spelling)| spelling == "PayloadError"))
+            })
+            && payloads.iter().any(|fact| {
+                fact.field == CanonicalPayloadField::TryFailureVariantToken
+                    && matches!(&fact.value, CanonicalPayloadValue::Tokens(tokens) if tokens.iter().any(|(_, _, spelling)| spelling == "context"))
+            })
+            && payloads.iter().all(|fact| {
+                !matches!(&fact.value, CanonicalPayloadValue::Text(value) if value.ends_with('!'))
+            })
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct F2Evidence {
+        deterministic: bool,
+        public_compatible: bool,
+        production_valid: bool,
+        field_count: usize,
+        single_rejections: usize,
+        cumulative_pair_rejections: usize,
+        foreign_rejections: usize,
+        semantics_exact: bool,
+        producer_corruption_rejected: bool,
+        shared_comutation_caught: bool,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum F2Sabotage {
+        ProducerArm,
+        ValidatorArm,
+        CatalogueRow,
+        MutationOperator,
+        PairMutation,
+        CrossOccurrence,
+    }
+
+    fn f2_evidence(sabotage: Option<F2Sabotage>) -> F2Evidence {
+        let parsed = parse_source("f2.hum", F2_SOURCE_A);
+        let repeated = parse_source("f2.hum", F2_SOURCE_A);
+        let foreign = parse_source("f2.hum", F2_SOURCE_B);
+        let f1_foreign = parse_source("f1.hum", F1_SOURCE_B);
+        assert_eq!(F2_SOURCE_A.len(), F2_SOURCE_B.len());
+        assert_eq!(parsed.file, repeated.file);
+        assert_eq!(parsed.diagnostics, repeated.diagnostics);
+        let mut f2_locations = std::collections::BTreeMap::new();
+        for (seal, occurrence) in parsed.occurrence_seals.iter().enumerate() {
+            for (index, fact) in occurrence.payload_projection.iter().enumerate() {
+                f2_locations
+                    .entry(f2_field(fact.field))
+                    .or_insert((seal, index));
+            }
+        }
+        assert_eq!(f2_locations.len(), F2_SEAL_FIELDS.len());
+        let mut production_seals = parsed.occurrence_seals.clone();
+        if matches!(sabotage, Some(F2Sabotage::ProducerArm)) {
+            let producer_location = f2_locations[&F2SealField::IdentifierValue];
+            production_seals[producer_location.0]
+                .payload_authority
+                .remove(producer_location.1);
+        }
+        let catalogue = if matches!(sabotage, Some(F2Sabotage::CatalogueRow)) {
+            &F2_SEAL_FIELDS[..F2_SEAL_FIELDS.len() - 1]
+        } else {
+            &F2_SEAL_FIELDS[..]
+        };
+        let mutation_operators = if matches!(sabotage, Some(F2Sabotage::MutationOperator)) {
+            &PROJECTION_MUTATIONS[..PROJECTION_MUTATIONS.len() - 1]
+        } else {
+            &PROJECTION_MUTATIONS[..]
+        };
+        let mut single_rejections = 0usize;
+        let mut foreign_rejections = 0usize;
+        for &field in catalogue {
+            let (seal, index) = f2_locations[&field];
+            for &mutation in mutation_operators {
+                let mutated = mutate_f2_projection(
+                    &production_seals[seal],
+                    &foreign.occurrence_seals,
+                    index,
+                    mutation,
+                );
+                let rejected = if matches!(sabotage, Some(F2Sabotage::ValidatorArm))
+                    && field == F2SealField::IdentifierValue
+                    && matches!(mutation, ProjectionMutation::Corrupt)
+                {
+                    validate_occurrence_seal_ignoring_one_payload_fact(&mutated, index).is_err()
+                } else if matches!(sabotage, Some(F2Sabotage::CrossOccurrence))
+                    && field == F2SealField::TryWrapperKind
+                    && matches!(mutation, ProjectionMutation::Substituted)
+                {
+                    let mut shared_foreign = mutated;
+                    shared_foreign.payload_authority[index] =
+                        shared_foreign.payload_projection[index].clone();
+                    validate_occurrence_seal(&shared_foreign).is_err()
+                } else {
+                    validate_occurrence_seal(&mutated).is_err()
+                };
+                single_rejections += usize::from(rejected);
+                if matches!(mutation, ProjectionMutation::Substituted) {
+                    foreign_rejections += usize::from(rejected);
+                }
+            }
+        }
+        let f1_base_seal = production_seals
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, seal)| seal.projection.len())
+            .map(|(index, _)| index)
+            .expect("F2 corpus occurrence");
+        let f1_representatives = f1_representatives(&production_seals[f1_base_seal]);
+        let mut combined = F1_SEAL_FIELDS
+            .iter()
+            .map(|field| CombinedLocation {
+                seal: f1_base_seal,
+                index: f1_representatives[field],
+                field: CombinedField::F1(*field),
+            })
+            .collect::<Vec<_>>();
+        combined.extend(F2_SEAL_FIELDS.iter().map(|field| {
+            let (seal, index) = f2_locations[field];
+            CombinedLocation {
+                seal,
+                index,
+                field: CombinedField::F2(*field),
+            }
+        }));
+        assert_eq!(combined.len(), 100);
+        let mut cumulative_pair_rejections = 0usize;
+        let pair_limit = if matches!(sabotage, Some(F2Sabotage::PairMutation)) {
+            4_949
+        } else {
+            4_950
+        };
+        'pairs: for left in 0..combined.len() {
+            for right in left + 1..combined.len() {
+                if cumulative_pair_rejections == pair_limit {
+                    break 'pairs;
+                }
+                let mut seals = production_seals.clone();
+                for location in [combined[left], combined[right]] {
+                    match location.field {
+                        CombinedField::F1(field) => {
+                            seals[location.seal].projection[location.index] = foreign_fact(
+                                field,
+                                &seals[location.seal].projection[location.index],
+                                &f1_foreign.occurrence_seals,
+                            );
+                        }
+                        CombinedField::F2(field) => {
+                            seals[location.seal].payload_projection[location.index] =
+                                foreign_payload_fact(
+                                    field,
+                                    &seals[location.seal].payload_projection[location.index],
+                                    &foreign.occurrence_seals,
+                                );
+                        }
+                    }
+                }
+                cumulative_pair_rejections += usize::from(
+                    seals
+                        .iter()
+                        .any(|seal| validate_occurrence_seal(seal).is_err()),
+                );
+            }
+        }
+        let producer_location = f2_locations[&F2SealField::IdentifierValue];
+        let mut producer_corruption = parsed.occurrence_seals[producer_location.0].clone();
+        producer_corruption.payload_authority[producer_location.1] = corrupt_payload_fact(
+            &producer_corruption.payload_authority[producer_location.1],
+            &foreign.occurrence_seals[producer_location.0].payload_authority[producer_location.1],
+        );
+        let text_location = f2_locations[&F2SealField::TextDecodedValue];
+        let mut shared = parsed.occurrence_seals.clone();
+        let replacement = CanonicalPayloadValue::Text("shared-corrupt!".to_string());
+        shared[text_location.0].payload_projection[text_location.1].value = replacement.clone();
+        shared[text_location.0].payload_authority[text_location.1].value = replacement;
+        F2Evidence {
+            deterministic: parsed.occurrence_seals == repeated.occurrence_seals,
+            public_compatible: parsed.file == repeated.file
+                && parsed.diagnostics == repeated.diagnostics,
+            production_valid: production_seals
+                .iter()
+                .all(|seal| validate_occurrence_seal(seal).is_ok()),
+            field_count: catalogue.len(),
+            single_rejections,
+            cumulative_pair_rejections,
+            foreign_rejections,
+            semantics_exact: f2_semantic_examples_are_exact(&parsed.occurrence_seals),
+            producer_corruption_rejected: validate_occurrence_seal(&producer_corruption).is_err(),
+            shared_comutation_caught: validate_occurrence_seal(&shared[text_location.0]).is_ok()
+                && !f2_semantic_examples_are_exact(&shared),
+        }
+    }
+
+    #[test]
+    fn successful_canonical_expression_payloads_are_complete_and_load_bearing() {
+        let first = f2_evidence(None);
+        let second = f2_evidence(None);
+        assert_eq!(first, second, "fresh F2 inventories must be deterministic");
+        assert_eq!(first.field_count, 64);
+        assert_eq!(first.single_rejections, 384);
+        assert_eq!(first.cumulative_pair_rejections, 4_950);
+        assert_eq!(first.foreign_rejections, 64);
+        assert!(first.deterministic);
+        assert!(first.public_compatible);
+        assert!(first.production_valid);
+        assert!(first.semantics_exact);
+        assert!(first.producer_corruption_rejected);
+        assert!(first.shared_comutation_caught);
+        for sabotage in [
+            F2Sabotage::ProducerArm,
+            F2Sabotage::ValidatorArm,
+            F2Sabotage::CatalogueRow,
+            F2Sabotage::MutationOperator,
+            F2Sabotage::PairMutation,
+            F2Sabotage::CrossOccurrence,
+        ] {
+            assert_ne!(
+                f2_evidence(Some(sabotage)),
+                first,
+                "{sabotage:?} must change load-bearing F2 evidence"
+            );
+        }
+    }
+
+    #[test]
+    fn f2_utf8_text_escape_payload_is_boundary_safe() {
+        let parsed = parse_source(
+            "f2-utf8-escape.hum",
+            r#"task utf8_escape() -> Text {
+  does:
+    return "\é"
+    return "🙂\éß"
+}
+"#,
+        );
+        assert!(parsed.diagnostics.is_empty());
+        assert!(
+            parsed
+                .occurrence_seals
+                .iter()
+                .all(|seal| validate_occurrence_seal(seal).is_ok())
+        );
+        for expected in ["\\é", "🙂\\éß"] {
+            let decoded = parsed
+                .occurrence_seals
+                .iter()
+                .flat_map(|seal| &seal.payload_projection)
+                .find(|fact| {
+                    fact.field == CanonicalPayloadField::TextDecodedValue
+                        && matches!(&fact.value, CanonicalPayloadValue::Text(value) if value == expected)
+                })
+                .unwrap_or_else(|| panic!("missing decoded UTF-8 Text payload {expected:?}"));
+            let escapes = parsed
+                .occurrence_seals
+                .iter()
+                .flat_map(|seal| &seal.payload_projection)
+                .find(|fact| {
+                    fact.node == decoded.node
+                        && fact.field == CanonicalPayloadField::TextEscapeEvents
+                })
+                .expect("UTF-8 Text escape events");
+            assert!(matches!(
+                &escapes.value,
+                CanonicalPayloadValue::Tokens(tokens)
+                    if tokens.len() == 1 && tokens[0].2 == "\\é"
+            ));
+        }
+    }
+
+    #[test]
+    fn f2_malformed_try_is_unsupported_without_authority_mismatch() {
+        let parsed = parse_source(
+            "f2-malformed-try.hum",
+            r#"task malformed() -> UInt {
+  does:
+    return try source() or fail payloadError.context
+}
+"#,
+        );
+        assert!(
+            parsed
+                .occurrence_seals
+                .iter()
+                .all(|seal| validate_occurrence_seal(seal).is_ok())
+        );
+        let malformed = parsed
+            .occurrence_seals
+            .iter()
+            .find(|seal| {
+                seal.projection.iter().any(|fact| {
+                    matches!(
+                        fact,
+                        CanonicalSealFact::Kind(_, CanonicalCommonNodeKind::Unsupported)
+                    )
+                })
+            })
+            .expect("malformed try occurrence");
+        assert!(malformed.payload_projection.is_empty());
+        assert!(malformed.payload_authority.is_empty());
+        assert_eq!(malformed.projection, malformed.authority);
+        assert!(malformed.projection.iter().any(|fact| {
+            matches!(
+                fact,
+                CanonicalSealFact::LexicalStatus(_, CanonicalCommonLexicalStatus::Unsupported)
+            )
+        }));
+    }
+
+    #[test]
+    fn f2_topology_channels_ignore_nested_and_quoted_tokens() {
+        let parsed = parse_source(
+            "f2-topology.hum",
+            r#"task topology(value: UInt, other: UInt) -> UInt {
+  does:
+    return call("a, b", nested(value, other), [value, other], value)
+}
+"#,
+        );
+        let (seal_index, fact_index) = parsed
+            .occurrence_seals
+            .iter()
+            .enumerate()
+            .find_map(|(seal_index, seal)| {
+                seal.payload_projection
+                    .iter()
+                    .position(|fact| {
+                        fact.field == CanonicalPayloadField::CallArgumentEdges
+                            && matches!(&fact.value, CanonicalPayloadValue::Nodes(nodes) if nodes.len() == 4)
+                    })
+                    .map(|fact_index| (seal_index, fact_index))
+            })
+            .expect("outer four-argument call");
+        let seal = &parsed.occurrence_seals[seal_index];
+        let call_node = &seal.payload_projection[fact_index].node;
+        let fact = |field| {
+            seal.payload_projection
+                .iter()
+                .find(|fact| &fact.node == call_node && fact.field == field)
+                .unwrap_or_else(|| panic!("missing outer-call payload {field:?}"))
+        };
+        assert!(matches!(
+            &fact(CanonicalPayloadField::DelimiterSeparators).value,
+            CanonicalPayloadValue::Tokens(tokens) if tokens.len() == 3
+        ));
+        assert!(matches!(
+            &fact(CanonicalPayloadField::DelimiterSemanticGaps).value,
+            CanonicalPayloadValue::Ranges(gaps) if gaps.len() == 3
+        ));
+        assert!(matches!(
+            &fact(CanonicalPayloadField::CallAdjacency).value,
+            CanonicalPayloadValue::Bools(adjacency)
+                if adjacency.len() == 6 && adjacency.iter().all(|adjacent| *adjacent)
+        ));
+
+        let topology_index = seal
+            .payload_projection
+            .iter()
+            .position(|fact| {
+                &fact.node == call_node && fact.field == CanonicalPayloadField::CallAdjacency
+            })
+            .expect("outer-call adjacency");
+        let mut projected_corruption = seal.clone();
+        projected_corruption.payload_projection[topology_index]
+            .identity
+            .0 = corrupt_owner_identity(
+            &projected_corruption.payload_projection[topology_index]
+                .identity
+                .0,
+        );
+        assert!(validate_occurrence_seal(&projected_corruption).is_err());
+        let mut retained_corruption = seal.clone();
+        retained_corruption.payload_authority[topology_index]
+            .identity
+            .0 = corrupt_owner_identity(
+            &retained_corruption.payload_authority[topology_index]
+                .identity
+                .0,
+        );
+        assert!(validate_occurrence_seal(&retained_corruption).is_err());
     }
 
     #[test]

@@ -298,7 +298,44 @@ try {
     Invoke-ExactRustTest "Increment 10A evidence $EvidenceTest" $Cargo $EvidenceTest
   }
   Invoke-ExactRustTest 'Increment 10B.1a.1.1 source/owner matrix: 7 fields, 21 pairs, named sabotage' $Cargo 'parser::tests::source_owner_authority_kernel_is_complete_and_load_bearing'
-  Invoke-ExactRustTest 'Replacement F1 occurrence/common matrix: 36 fields, 216 singles, 630 pairs, 16 cross-occurrence cases, named sabotage' $Cargo 'parser::tests::occurrence_authority_and_common_node_topology_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Replacement F1 occurrence/common matrix: 36 fields, 16 kinds, 11 child roles, 27 variant mutations, 216 singles, 630 pairs, 16 cross-occurrence cases, named sabotage' $Cargo 'parser::tests::occurrence_authority_and_common_node_topology_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Replacement F2 successful payload matrix: 64 fields, 384 singles, 4950 cumulative pairs, 64 foreign substitutions, named sabotage' $Cargo 'parser::tests::successful_canonical_expression_payloads_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Replacement F2 UTF-8 Text escape boundary regression' $Cargo 'parser::tests::f2_utf8_text_escape_payload_is_boundary_safe'
+  Invoke-ExactRustTest 'Replacement F2 malformed try fail-closed regression' $Cargo 'parser::tests::f2_malformed_try_is_unsupported_without_authority_mismatch'
+  Invoke-ExactRustTest 'Replacement F2 grammar-exact topology channel regression' $Cargo 'parser::tests::f2_topology_channels_ignore_nested_and_quoted_tokens'
+  $F2Utf8 = Join-Path ([System.IO.Path]::GetTempPath()) "hum-f2-utf8-$([guid]::NewGuid().ToString('N')).hum"
+  $F2MalformedTry = Join-Path ([System.IO.Path]::GetTempPath()) "hum-f2-malformed-try-$([guid]::NewGuid().ToString('N')).hum"
+  try {
+    $F2Utf8Source = @'
+task utf8_escape() -> Text {
+  does:
+    return "\é"
+    return "🙂\éß"
+}
+'@
+    $F2MalformedTrySource = @'
+task malformed() -> UInt {
+  does:
+    return try source() or fail payloadError.context
+}
+'@
+    $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($F2Utf8, $F2Utf8Source, $Utf8NoBom)
+    [System.IO.File]::WriteAllText($F2MalformedTry, $F2MalformedTrySource, $Utf8NoBom)
+    $F2Utf8Run = Read-NativeChannelsWithExit 'Replacement F2 UTF-8 Text escape CLI regression' $Hum @('check', $F2Utf8)
+    $F2Utf8Expected = 'checked 1 file(s): 0 error(s), 0 warning(s)'
+    if ($F2Utf8Run.ExitCode -ne 0 -or $F2Utf8Run.Stdout.TrimEnd() -cne $F2Utf8Expected -or $F2Utf8Run.Stderr -ne '') {
+      throw "Replacement F2 UTF-8 Text escape did not remain a successful checked program: stdout=$($F2Utf8Run.Stdout) stderr=$($F2Utf8Run.Stderr) exit=$($F2Utf8Run.ExitCode)"
+    }
+    $F2MalformedTryRun = Read-NativeChannelsWithExit 'Replacement F2 malformed try CLI fail-closed regression' $Hum @('check', $F2MalformedTry)
+    $F2MalformedTryCombined = $F2MalformedTryRun.Stdout + $F2MalformedTryRun.Stderr
+    if ($F2MalformedTryRun.ExitCode -ne 0 -or $F2MalformedTryRun.Stdout.TrimEnd() -cne $F2Utf8Expected -or $F2MalformedTryRun.Stderr -ne '' -or $F2MalformedTryCombined.Contains('canonical_payload_authority_mismatch_v0') -or $F2MalformedTryCombined.Contains('panicked') -or $F2MalformedTryCombined.Contains('runtime trap')) {
+      throw "Replacement F2 malformed try changed established public behavior or reached an internal mismatch before F3 diagnostic ownership: stdout=$($F2MalformedTryRun.Stdout) stderr=$($F2MalformedTryRun.Stderr) exit=$($F2MalformedTryRun.ExitCode)"
+    }
+  } finally {
+    Remove-Item -LiteralPath $F2Utf8 -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $F2MalformedTry -ErrorAction SilentlyContinue
+  }
   $FoundationNonAscii = Join-Path ([System.IO.Path]::GetTempPath()) "hum-10a-nonascii-$([guid]::NewGuid().ToString('N')).hum"
   try {
     $FoundationNonAsciiSource = "module temp.nonascii`n`ntask non_ascii() -> Text {`n  does:`n    return caf$([char]0x00E9)`n}`n"
@@ -686,7 +723,7 @@ try {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 75 -or $UniqueExactRustSelectorCredits.Count -ne 75) { throw "exact Rust selector inventory must credit 75 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 79 -or $UniqueExactRustSelectorCredits.Count -ne 79) { throw "exact Rust selector inventory must credit 79 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
