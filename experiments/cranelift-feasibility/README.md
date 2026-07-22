@@ -20,7 +20,6 @@ From the repository root, first build the production `hum` executable without
 changing production sources:
 
 ```powershell
-$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 cargo build --bin hum
 Set-Location experiments\cranelift-feasibility
 cargo fmt --check
@@ -28,7 +27,7 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 cargo run --quiet -- proof
 Set-Location ..\..
-git -c safe.directory=C:/Users/ocean/dev/projects/hum-lang diff --check
+git diff --check
 ```
 
 The proof emits disposable artifacts beneath `target/proof/`:

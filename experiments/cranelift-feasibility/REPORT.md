@@ -77,7 +77,6 @@ Toolchain:
 Exact proof command:
 
 ```powershell
-$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 cargo run --quiet -- proof
 ```
 
