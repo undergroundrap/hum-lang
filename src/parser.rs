@@ -1,15 +1,19 @@
 use crate::ast::{
-    App, CallableTypeSyntax, CanonicalAssociativity, CanonicalCommonChildRole,
-    CanonicalCommonLexicalStatus, CanonicalCommonNodeKind, CanonicalDelimiterKind,
+    App, CallableTypeSyntax, CanonicalActualLexicalEvidence, CanonicalAssociativity,
+    CanonicalCommonChildRole, CanonicalCommonLexicalStatus, CanonicalCommonNodeKind,
+    CanonicalCompletionEvent, CanonicalDelimiterKind, CanonicalExpectedLexicalEvidence,
     CanonicalExpression, CanonicalExpressionIntentEvent, CanonicalExpressionKind,
-    CanonicalExpressionRoleEvent, CanonicalLexicalTokenEvent, CanonicalOccurrenceAssignmentEvent,
+    CanonicalExpressionRoleEvent, CanonicalLexicalTokenEvent, CanonicalLexicalTokenKind,
+    CanonicalMalformedCause, CanonicalMalformedEvent, CanonicalOccurrenceAssignmentEvent,
     CanonicalPayloadEvent, CanonicalPayloadEventValue, CanonicalPayloadField,
-    CanonicalReductionChildEvent, CanonicalReductionEvent, CanonicalTryWrapperKind, Field, Item,
-    Param, ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship, ParsedBodyStatement,
-    ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus, ParsedCallTrailingStatus,
-    ParsedEffectDeclaration, ParsedEffectDeclarationKind, ParsedExpression, ParsedExpressionKind,
-    ParsedIdentifier, ParsedSourceRange, ParserSyntaxNodeId, Section, SectionLine, SourceFile,
-    Store, Task, Test, TypeDef, TypeSyntax, TypeSyntaxKind,
+    CanonicalReductionChildEvent, CanonicalReductionEvent, CanonicalStatementEventFact,
+    CanonicalStatementEventField, CanonicalStatementEventValue, CanonicalStatementKindEvent,
+    CanonicalTryWrapperKind, Field, Item, Param, ParamPermission, ParsedBinaryOperator,
+    ParsedBlockRelationship, ParsedBodyStatement, ParsedBodyStatementKind, ParsedCall,
+    ParsedCallCloseStatus, ParsedCallTrailingStatus, ParsedEffectDeclaration,
+    ParsedEffectDeclarationKind, ParsedExpression, ParsedExpressionKind, ParsedIdentifier,
+    ParsedSourceRange, ParserSyntaxNodeId, Section, SectionLine, SourceFile, Store, Task, Test,
+    TypeDef, TypeSyntax, TypeSyntaxKind,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::syntax;
@@ -160,6 +164,9 @@ opaque_occurrence_id!(
     CanonicalAssigningEvent,
     CanonicalPredicateEvent,
     CanonicalPayloadIdentity,
+    CanonicalMalformedEventIdentity,
+    CanonicalStatementTokenIdentity,
+    CanonicalStatementBlockIdentity,
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,12 +289,778 @@ struct CanonicalPayloadSealFact {
     value: CanonicalPayloadValue,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum CanonicalMalformedSealField {
+    Status,
+    Node,
+    Cause,
+    ProducingEvent,
+    OffendingRange,
+    ConsumedRange,
+    ExpectedEvidence,
+    ActualEvidence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CanonicalMalformedSealValue {
+    Unsupported,
+    Node(CanonicalNodeIdentity),
+    Cause(CanonicalMalformedCause),
+    ProducingEvent(CanonicalMalformedEventIdentity, ParsedSourceRange),
+    Range(ParsedSourceRange),
+    Expected(CanonicalExpectedLexicalEvidence),
+    Actual(CanonicalActualLexicalEvidence),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalMalformedSealFact {
+    field: CanonicalMalformedSealField,
+    value: CanonicalMalformedSealValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CanonicalStatementSealValue {
+    Kind(CanonicalStatementKindEvent),
+    Section(CanonicalSectionOwner),
+    Statement(CanonicalStatementOwner),
+    Range(ParsedSourceRange),
+    Token(CanonicalStatementTokenIdentity, ParsedSourceRange, String),
+    Tokens(Vec<(CanonicalStatementTokenIdentity, ParsedSourceRange, String)>),
+    TokenReference(CanonicalStatementTokenIdentity),
+    Root(CanonicalOccurrenceIdentity, usize, ParserSyntaxNodeId),
+    Roots(Vec<(CanonicalOccurrenceIdentity, usize, ParserSyntaxNodeId)>),
+    Block(CanonicalStatementBlockIdentity),
+    Usize(usize),
+    Bool(bool),
+    BlockRelationship(ParsedBlockRelationship),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalStatementSealFact {
+    field: CanonicalStatementEventField,
+    value: CanonicalStatementSealValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalStatementSeal {
+    projection: Vec<CanonicalStatementSealFact>,
+    authority: Vec<CanonicalStatementSealFact>,
+    schema_authority: CanonicalStatementSchemaAuthority,
+    block_authority: CanonicalStatementBlockAuthority,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalStatementSchemaAuthority {
+    kind: CanonicalStatementKindEvent,
+    fields: Vec<CanonicalStatementEventField>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalStatementBlockAuthority {
+    relationship: ParsedBlockRelationship,
+    depth_before: usize,
+    depth_after: usize,
+    owner: Option<CanonicalStatementBlockIdentity>,
+    open_token: Option<(CanonicalStatementTokenIdentity, ParsedSourceRange, String)>,
+    close_token: Option<(CanonicalStatementTokenIdentity, ParsedSourceRange, String)>,
+}
+
+struct StatementSealOwner<'a> {
+    section: &'a CanonicalSectionOwner,
+    statement: &'a CanonicalStatementOwner,
+    handle: &'a CanonicalAuthorityHandle,
+    block: Option<&'a CanonicalStatementBlockIdentity>,
+}
+
+fn translate_statement_events(
+    events: &[CanonicalStatementEventFact],
+    owner: StatementSealOwner<'_>,
+) -> Vec<CanonicalStatementSealFact> {
+    let token_identity = |slot| {
+        CanonicalStatementTokenIdentity(source_owner_child_identity(14, &owner.statement.0, slot))
+    };
+    let mut facts = Vec::with_capacity(events.len() + 1);
+    for event in events {
+        let value = match &event.value {
+            CanonicalStatementEventValue::Kind(value) => {
+                let value = CanonicalStatementSealValue::Kind(*value);
+                facts.push(CanonicalStatementSealFact {
+                    field: CanonicalStatementEventField::Kind,
+                    value,
+                });
+                facts.push(CanonicalStatementSealFact {
+                    field: CanonicalStatementEventField::Section,
+                    value: CanonicalStatementSealValue::Section(owner.section.clone()),
+                });
+                continue;
+            }
+            CanonicalStatementEventValue::Text(_) => {
+                CanonicalStatementSealValue::Statement(owner.statement.clone())
+            }
+            CanonicalStatementEventValue::Range(value) => {
+                CanonicalStatementSealValue::Range(value.clone())
+            }
+            CanonicalStatementEventValue::Token {
+                slot,
+                range,
+                spelling,
+            } => CanonicalStatementSealValue::Token(
+                token_identity(*slot),
+                range.clone(),
+                spelling.clone(),
+            ),
+            CanonicalStatementEventValue::Tokens(values) => CanonicalStatementSealValue::Tokens(
+                values
+                    .iter()
+                    .map(|(slot, range, spelling)| {
+                        (token_identity(*slot), range.clone(), spelling.clone())
+                    })
+                    .collect(),
+            ),
+            CanonicalStatementEventValue::TokenReference(slot) => {
+                CanonicalStatementSealValue::TokenReference(token_identity(*slot))
+            }
+            CanonicalStatementEventValue::Root { ordinal, node } => {
+                CanonicalStatementSealValue::Root(
+                    occurrence_identity(owner.handle, *ordinal),
+                    *ordinal,
+                    node.clone(),
+                )
+            }
+            CanonicalStatementEventValue::Roots(values) => CanonicalStatementSealValue::Roots(
+                values
+                    .iter()
+                    .map(|(ordinal, node)| {
+                        (
+                            occurrence_identity(owner.handle, *ordinal),
+                            *ordinal,
+                            node.clone(),
+                        )
+                    })
+                    .collect(),
+            ),
+            CanonicalStatementEventValue::Usize(value) => {
+                CanonicalStatementSealValue::Usize(*value)
+            }
+            CanonicalStatementEventValue::Bool(value)
+                if event.field == CanonicalStatementEventField::BlockOwner && *value =>
+            {
+                CanonicalStatementSealValue::Block(
+                    owner
+                        .block
+                        .expect("statement block relationship requires an owning block")
+                        .clone(),
+                )
+            }
+            CanonicalStatementEventValue::Bool(value) => CanonicalStatementSealValue::Bool(*value),
+            CanonicalStatementEventValue::BlockRelationship(value) => {
+                CanonicalStatementSealValue::BlockRelationship(*value)
+            }
+        };
+        facts.push(CanonicalStatementSealFact {
+            field: event.field,
+            value,
+        });
+    }
+    facts
+}
+
+fn build_statement_seal(
+    projection: &[CanonicalStatementEventFact],
+    authority: &[CanonicalStatementEventFact],
+    owner: &CanonicalSourceOwnerSeal,
+    projected_block: Option<&CanonicalStatementBlockIdentity>,
+    authority_block: Option<&CanonicalStatementBlockIdentity>,
+) -> CanonicalStatementSeal {
+    let (projected_section, projected_statement, projected_handle) = match (
+        owner.projection.get(4),
+        owner.projection.get(5),
+        owner.projection.get(6),
+    ) {
+        (
+            Some(CanonicalSourceOwnerFact::Section(section)),
+            Some(CanonicalSourceOwnerFact::Statement(statement)),
+            Some(CanonicalSourceOwnerFact::AuthorityHandle(handle)),
+        ) => (section, statement, handle),
+        _ => panic!("statement projection requires exact source-owner identities"),
+    };
+    let projection = translate_statement_events(
+        projection,
+        StatementSealOwner {
+            section: projected_section,
+            statement: projected_statement,
+            handle: projected_handle,
+            block: projected_block,
+        },
+    );
+    let authority = translate_statement_events(
+        authority,
+        StatementSealOwner {
+            section: &owner.authority.section,
+            statement: &owner.authority.statement,
+            handle: &owner.authority.handle,
+            block: authority_block,
+        },
+    );
+    let authority_value = |field| {
+        authority
+            .iter()
+            .find(|fact| fact.field == field)
+            .map(|fact| &fact.value)
+    };
+    let kind = match authority_value(CanonicalStatementEventField::Kind) {
+        Some(CanonicalStatementSealValue::Kind(kind)) => *kind,
+        _ => panic!("retained statement authority requires one kind"),
+    };
+    let block_authority = CanonicalStatementBlockAuthority {
+        relationship: match authority_value(CanonicalStatementEventField::BlockRelationship) {
+            Some(CanonicalStatementSealValue::BlockRelationship(value)) => *value,
+            _ => panic!("retained statement authority requires a block relationship"),
+        },
+        depth_before: match authority_value(CanonicalStatementEventField::BlockDepthBefore) {
+            Some(CanonicalStatementSealValue::Usize(value)) => *value,
+            _ => panic!("retained statement authority requires block depth before"),
+        },
+        depth_after: match authority_value(CanonicalStatementEventField::BlockDepthAfter) {
+            Some(CanonicalStatementSealValue::Usize(value)) => *value,
+            _ => panic!("retained statement authority requires block depth after"),
+        },
+        owner: match authority_value(CanonicalStatementEventField::BlockOwner) {
+            Some(CanonicalStatementSealValue::Block(value)) => Some(value.clone()),
+            None => None,
+            _ => panic!("retained statement authority has malformed block owner"),
+        },
+        open_token: match authority_value(CanonicalStatementEventField::BlockOpenToken) {
+            Some(CanonicalStatementSealValue::Token(identity, range, spelling)) => {
+                Some((identity.clone(), range.clone(), spelling.clone()))
+            }
+            None => None,
+            _ => panic!("retained statement authority has malformed block opener"),
+        },
+        close_token: match authority_value(CanonicalStatementEventField::BlockCloseToken) {
+            Some(CanonicalStatementSealValue::Token(identity, range, spelling)) => {
+                Some((identity.clone(), range.clone(), spelling.clone()))
+            }
+            None => None,
+            _ => panic!("retained statement authority has malformed block closer"),
+        },
+    };
+    CanonicalStatementSeal {
+        projection,
+        schema_authority: CanonicalStatementSchemaAuthority {
+            kind,
+            fields: authority.iter().map(|fact| fact.field).collect(),
+        },
+        block_authority,
+        authority,
+    }
+}
+
+fn validate_statement_seal(seal: &CanonicalStatementSeal) -> Result<(), &'static str> {
+    if seal.projection.len() != seal.authority.len() {
+        return Err("canonical_statement_field_count_corrupt_v0");
+    }
+    if seal
+        .projection
+        .iter()
+        .zip(&seal.authority)
+        .any(|(projection, authority)| projection != authority)
+    {
+        return Err("canonical_statement_authority_mismatch_v0");
+    }
+    let fields = seal
+        .projection
+        .iter()
+        .map(|fact| fact.field)
+        .collect::<Vec<_>>();
+    let authority_fields = seal
+        .authority
+        .iter()
+        .map(|fact| fact.field)
+        .collect::<Vec<_>>();
+    if fields != seal.schema_authority.fields || authority_fields != seal.schema_authority.fields {
+        return Err("canonical_statement_closed_schema_corrupt_v0");
+    }
+    if !fields.starts_with(&[
+        CanonicalStatementEventField::Kind,
+        CanonicalStatementEventField::Section,
+        CanonicalStatementEventField::Line,
+        CanonicalStatementEventField::Statement,
+    ]) || !fields.contains(&CanonicalStatementEventField::OrderedRoots)
+        || !fields.contains(&CanonicalStatementEventField::BlockDepthBefore)
+        || !fields.contains(&CanonicalStatementEventField::BlockDepthAfter)
+    {
+        return Err("canonical_statement_shape_corrupt_v0");
+    }
+    for fact in &seal.projection {
+        match &fact.value {
+            CanonicalStatementSealValue::Token(_, range, spelling) => {
+                if range.byte_len != spelling.len()
+                    || !source_revision_contains_spelling(seal, range, spelling)
+                {
+                    return Err("canonical_statement_token_length_corrupt_v0");
+                }
+            }
+            CanonicalStatementSealValue::Tokens(values)
+                if values.iter().any(|(_, range, spelling)| {
+                    range.byte_len != spelling.len()
+                        || !source_revision_contains_spelling(seal, range, spelling)
+                }) =>
+            {
+                return Err("canonical_statement_token_length_corrupt_v0");
+            }
+            _ => {}
+        }
+    }
+    let value = |field| {
+        seal.projection
+            .iter()
+            .find(|fact| fact.field == field)
+            .map(|fact| &fact.value)
+    };
+    let kind = match value(CanonicalStatementEventField::Kind) {
+        Some(CanonicalStatementSealValue::Kind(kind)) => *kind,
+        _ => return Err("canonical_statement_kind_corrupt_v0"),
+    };
+    if kind != seal.schema_authority.kind {
+        return Err("canonical_statement_kind_authority_corrupt_v0");
+    }
+    let section = match value(CanonicalStatementEventField::Section) {
+        Some(CanonicalStatementSealValue::Section(section)) => section,
+        _ => return Err("canonical_statement_section_identity_corrupt_v0"),
+    };
+    let statement = match value(CanonicalStatementEventField::Statement) {
+        Some(CanonicalStatementSealValue::Statement(statement)) => statement,
+        _ => return Err("canonical_statement_owner_identity_corrupt_v0"),
+    };
+    if section.0.domain != 4
+        || statement.0.domain != 5
+        || section.0.revision != statement.0.revision
+        || !statement
+            .0
+            .traversal
+            .starts_with(section.0.traversal.as_ref())
+        || statement.0.traversal.len() != section.0.traversal.len() + 1
+    {
+        return Err("canonical_statement_owner_identity_corrupt_v0");
+    }
+    let token_is_owned = |identity: &CanonicalStatementTokenIdentity| {
+        identity.0.domain == 14
+            && identity.0.revision == statement.0.revision
+            && identity
+                .0
+                .traversal
+                .starts_with(statement.0.traversal.as_ref())
+            && identity.0.traversal.len() == statement.0.traversal.len() + 1
+    };
+    let root_is_owned = |identity: &CanonicalOccurrenceIdentity| {
+        identity.0.domain == 7
+            && identity.0.revision == statement.0.revision
+            && identity
+                .0
+                .traversal
+                .starts_with(statement.0.traversal.as_ref())
+            && identity.0.traversal.len() == statement.0.traversal.len() + 2
+    };
+    for fact in &seal.projection {
+        let owned = match &fact.value {
+            CanonicalStatementSealValue::Token(identity, _, _)
+            | CanonicalStatementSealValue::TokenReference(identity) => token_is_owned(identity),
+            CanonicalStatementSealValue::Tokens(values) => values
+                .iter()
+                .all(|(identity, _, _)| token_is_owned(identity)),
+            CanonicalStatementSealValue::Root(identity, _, _) => root_is_owned(identity),
+            CanonicalStatementSealValue::Roots(values) => values
+                .iter()
+                .all(|(identity, _, _)| root_is_owned(identity)),
+            CanonicalStatementSealValue::Block(identity) => {
+                identity.0.domain == 16 && identity.0.revision == statement.0.revision
+            }
+            _ => true,
+        };
+        if !owned {
+            return Err("canonical_statement_child_identity_corrupt_v0");
+        }
+    }
+    let keyword = match value(CanonicalStatementEventField::Keyword) {
+        Some(CanonicalStatementSealValue::Token(_, _, spelling)) => Some(spelling.as_str()),
+        None => None,
+        _ => return Err("canonical_statement_keyword_corrupt_v0"),
+    };
+    let expected_keyword = match kind {
+        CanonicalStatementKindEvent::NeedsPredicate => Some("needs"),
+        CanonicalStatementKindEvent::EnsuresPredicate => Some("ensures"),
+        CanonicalStatementKindEvent::Return => Some("return"),
+        CanonicalStatementKindEvent::ImmutableBinding => Some("let"),
+        CanonicalStatementKindEvent::MutableBinding => Some("change"),
+        CanonicalStatementKindEvent::Set => Some("set"),
+        CanonicalStatementKindEvent::Save => Some("save"),
+        CanonicalStatementKindEvent::Fail => Some("fail"),
+        CanonicalStatementKindEvent::Expect => Some("expect"),
+        CanonicalStatementKindEvent::If => Some("if"),
+        CanonicalStatementKindEvent::While => Some("while"),
+        CanonicalStatementKindEvent::ForEach
+        | CanonicalStatementKindEvent::ForIndexUntil
+        | CanonicalStatementKindEvent::ForIndexThrough => Some("for"),
+        CanonicalStatementKindEvent::UnconditionalLoop => Some("loop"),
+        CanonicalStatementKindEvent::BlockClose => Some("}"),
+        CanonicalStatementKindEvent::FreeExpression => None,
+    };
+    if keyword != expected_keyword {
+        return Err("canonical_statement_keyword_corrupt_v0");
+    }
+    if let Some(CanonicalStatementSealValue::Token(binder, _, _)) =
+        value(CanonicalStatementEventField::Binder)
+        && !matches!(
+            value(CanonicalStatementEventField::BinderRelationship),
+            Some(CanonicalStatementSealValue::TokenReference(reference)) if reference == binder
+        )
+    {
+        return Err("canonical_statement_binder_identity_corrupt_v0");
+    }
+    let roots = match value(CanonicalStatementEventField::OrderedRoots) {
+        Some(CanonicalStatementSealValue::Roots(roots)) => roots,
+        _ => return Err("canonical_statement_roots_corrupt_v0"),
+    };
+    if roots
+        .iter()
+        .enumerate()
+        .any(|(index, (_, ordinal, _))| index != *ordinal)
+    {
+        return Err("canonical_statement_root_order_corrupt_v0");
+    }
+    for field in [
+        CanonicalStatementEventField::TargetRoot,
+        CanonicalStatementEventField::ValueRoot,
+        CanonicalStatementEventField::StartRoot,
+        CanonicalStatementEventField::EndRoot,
+    ] {
+        let Some(CanonicalStatementSealValue::Root(identity, ordinal, node)) = value(field) else {
+            continue;
+        };
+        if roots.get(*ordinal) != Some(&(identity.clone(), *ordinal, node.clone())) {
+            return Err("canonical_statement_root_relationship_corrupt_v0");
+        }
+    }
+    let relationship_ordinal = |field| match value(field) {
+        Some(CanonicalStatementSealValue::Root(_, ordinal, _)) => Some(*ordinal),
+        None => None,
+        _ => None,
+    };
+    let roles_exact = match kind {
+        CanonicalStatementKindEvent::Set => {
+            relationship_ordinal(CanonicalStatementEventField::ValueRoot) == Some(0)
+                && relationship_ordinal(CanonicalStatementEventField::TargetRoot) == Some(1)
+        }
+        CanonicalStatementKindEvent::ForIndexUntil
+        | CanonicalStatementKindEvent::ForIndexThrough => {
+            relationship_ordinal(CanonicalStatementEventField::StartRoot) == Some(0)
+                && relationship_ordinal(CanonicalStatementEventField::EndRoot) == Some(1)
+        }
+        _ => true,
+    };
+    if !roles_exact {
+        return Err("canonical_statement_root_role_corrupt_v0");
+    }
+    let expected_roots = match kind {
+        CanonicalStatementKindEvent::ImmutableBinding
+        | CanonicalStatementKindEvent::MutableBinding
+        | CanonicalStatementKindEvent::FreeExpression => {
+            usize::from(value(CanonicalStatementEventField::ValueRoot).is_some())
+        }
+        CanonicalStatementKindEvent::Set
+        | CanonicalStatementKindEvent::ForIndexUntil
+        | CanonicalStatementKindEvent::ForIndexThrough => 2,
+        CanonicalStatementKindEvent::UnconditionalLoop
+        | CanonicalStatementKindEvent::BlockClose => 0,
+        _ => 1,
+    };
+    if roots.len() != expected_roots
+        || (expected_roots == 0)
+            != matches!(
+                value(CanonicalStatementEventField::ExpressionAbsent),
+                Some(CanonicalStatementSealValue::Bool(true))
+            )
+    {
+        return Err("canonical_statement_root_cardinality_corrupt_v0");
+    }
+    validate_statement_kind_schema(seal, kind, &fields, roots.len())?;
+    let relationship_spellings = seal
+        .projection
+        .iter()
+        .filter_map(|fact| {
+            (fact.field == CanonicalStatementEventField::RelationshipToken).then_some(&fact.value)
+        })
+        .map(|value| match value {
+            CanonicalStatementSealValue::Token(_, _, spelling) => Ok(spelling.as_str()),
+            _ => Err("canonical_statement_relationship_token_corrupt_v0"),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let expected_relationships: &[&str] = match kind {
+        CanonicalStatementKindEvent::NeedsPredicate
+        | CanonicalStatementKindEvent::EnsuresPredicate => &[":"],
+        CanonicalStatementKindEvent::Save | CanonicalStatementKindEvent::ForEach => &["in"],
+        CanonicalStatementKindEvent::ForIndexUntil => &["from", "until"],
+        CanonicalStatementKindEvent::ForIndexThrough => &["from", "through"],
+        _ => &[],
+    };
+    if relationship_spellings != expected_relationships {
+        return Err("canonical_statement_relationship_corrupt_v0");
+    }
+    let before = match value(CanonicalStatementEventField::BlockDepthBefore) {
+        Some(CanonicalStatementSealValue::Usize(value)) => *value,
+        _ => return Err("canonical_statement_block_depth_corrupt_v0"),
+    };
+    let after = match value(CanonicalStatementEventField::BlockDepthAfter) {
+        Some(CanonicalStatementSealValue::Usize(value)) => *value,
+        _ => return Err("canonical_statement_block_depth_corrupt_v0"),
+    };
+    let relationship = match value(CanonicalStatementEventField::BlockRelationship) {
+        Some(CanonicalStatementSealValue::BlockRelationship(value)) => *value,
+        _ => return Err("canonical_statement_block_relationship_corrupt_v0"),
+    };
+    let owner_present = matches!(
+        value(CanonicalStatementEventField::BlockOwner),
+        Some(CanonicalStatementSealValue::Block(_))
+    );
+    let open_present = value(CanonicalStatementEventField::BlockOpenToken).is_some();
+    let close_present = value(CanonicalStatementEventField::BlockCloseToken).is_some();
+    let block_exact = match relationship {
+        ParsedBlockRelationship::None => {
+            before == after && owner_present == (before > 0) && !open_present && !close_present
+        }
+        ParsedBlockRelationship::Opens => {
+            after == before + 1 && owner_present && open_present && !close_present
+        }
+        ParsedBlockRelationship::Closes => {
+            before == after + 1 && owner_present && !open_present && close_present
+        }
+    };
+    if !block_exact {
+        return Err("canonical_statement_block_topology_corrupt_v0");
+    }
+    let candidate_owner = match value(CanonicalStatementEventField::BlockOwner) {
+        Some(CanonicalStatementSealValue::Block(identity)) => Some(identity),
+        None => None,
+        _ => return Err("canonical_statement_block_owner_corrupt_v0"),
+    };
+    let candidate_token = |field| match value(field) {
+        Some(CanonicalStatementSealValue::Token(identity, range, spelling)) => {
+            Some((identity.clone(), range.clone(), spelling.clone()))
+        }
+        None => None,
+        _ => None,
+    };
+    if relationship != seal.block_authority.relationship
+        || before != seal.block_authority.depth_before
+        || after != seal.block_authority.depth_after
+        || candidate_owner != seal.block_authority.owner.as_ref()
+        || candidate_token(CanonicalStatementEventField::BlockOpenToken).as_ref()
+            != seal.block_authority.open_token.as_ref()
+        || candidate_token(CanonicalStatementEventField::BlockCloseToken).as_ref()
+            != seal.block_authority.close_token.as_ref()
+    {
+        return Err("canonical_statement_block_authority_corrupt_v0");
+    }
+    Ok(())
+}
+
+fn source_revision_contains_spelling(
+    seal: &CanonicalStatementSeal,
+    range: &ParsedSourceRange,
+    spelling: &str,
+) -> bool {
+    let revision = seal.projection.iter().find_map(|fact| match &fact.value {
+        CanonicalStatementSealValue::Statement(statement) => Some(&statement.0.revision),
+        _ => None,
+    });
+    let Some(revision) = revision else {
+        return false;
+    };
+    let Some(line) = revision
+        .as_ref()
+        .split(|byte| *byte == b'\n')
+        .nth(range.start.line - 1)
+    else {
+        return false;
+    };
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    let start = range.start.column.saturating_sub(1);
+    line.get(start..start + range.byte_len) == Some(spelling.as_bytes())
+}
+
+fn validate_statement_kind_schema(
+    seal: &CanonicalStatementSeal,
+    kind: CanonicalStatementKindEvent,
+    fields: &[CanonicalStatementEventField],
+    root_count: usize,
+) -> Result<(), &'static str> {
+    use CanonicalStatementEventField as F;
+    use CanonicalStatementKindEvent as K;
+    let common = [
+        F::Kind,
+        F::Section,
+        F::Line,
+        F::Statement,
+        F::OrderedRoots,
+        F::BlockDepthBefore,
+        F::BlockDepthAfter,
+        F::BlockRelationship,
+        F::BlockOwner,
+        F::BlockOpenToken,
+        F::BlockCloseToken,
+        F::ExpressionAbsent,
+    ];
+    let extras: &[F] = match kind {
+        K::NeedsPredicate | K::EnsuresPredicate => {
+            &[F::Keyword, F::RelationshipToken, F::ValueRoot]
+        }
+        K::Return | K::Fail | K::Expect | K::If | K::While => &[F::Keyword, F::ValueRoot],
+        K::ImmutableBinding | K::MutableBinding => &[
+            F::Keyword,
+            F::Binder,
+            F::BinderRelationship,
+            F::TypeBoundary,
+            F::AssignmentToken,
+            F::ValueRoot,
+        ],
+        K::Set => &[F::Keyword, F::AssignmentToken, F::TargetRoot, F::ValueRoot],
+        K::Save => &[
+            F::Keyword,
+            F::RelationshipToken,
+            F::ValueRoot,
+            F::DestinationToken,
+        ],
+        K::FreeExpression => &[F::ValueRoot],
+        K::ForEach => &[
+            F::Keyword,
+            F::PhraseTokens,
+            F::Binder,
+            F::BinderRelationship,
+            F::RelationshipToken,
+            F::ValueRoot,
+        ],
+        K::ForIndexUntil | K::ForIndexThrough => &[
+            F::Keyword,
+            F::PhraseTokens,
+            F::Binder,
+            F::BinderRelationship,
+            F::RelationshipToken,
+            F::StartRoot,
+            F::EndRoot,
+        ],
+        K::UnconditionalLoop | K::BlockClose => &[F::Keyword],
+    };
+    if fields
+        .iter()
+        .any(|field| !common.contains(field) && !extras.contains(field))
+    {
+        return Err("canonical_statement_forbidden_field_corrupt_v0");
+    }
+    let count = |field| {
+        fields
+            .iter()
+            .filter(|candidate| **candidate == field)
+            .count()
+    };
+    let require_once = |field| (count(field) == 1).then_some(()).ok_or(());
+    for field in [F::Kind, F::Section, F::Line, F::Statement, F::OrderedRoots] {
+        require_once(field).map_err(|()| "canonical_statement_required_field_corrupt_v0")?;
+    }
+    let required: &[F] = match kind {
+        K::NeedsPredicate | K::EnsuresPredicate => {
+            &[F::Keyword, F::RelationshipToken, F::ValueRoot]
+        }
+        K::Return | K::Fail | K::Expect | K::If | K::While => &[F::Keyword, F::ValueRoot],
+        K::ImmutableBinding | K::MutableBinding => &[F::Keyword, F::Binder, F::BinderRelationship],
+        K::Set => &[F::Keyword, F::AssignmentToken, F::TargetRoot, F::ValueRoot],
+        K::Save => &[
+            F::Keyword,
+            F::RelationshipToken,
+            F::ValueRoot,
+            F::DestinationToken,
+        ],
+        K::ForEach => &[
+            F::Keyword,
+            F::PhraseTokens,
+            F::Binder,
+            F::BinderRelationship,
+            F::RelationshipToken,
+            F::ValueRoot,
+        ],
+        K::ForIndexUntil | K::ForIndexThrough => &[
+            F::Keyword,
+            F::PhraseTokens,
+            F::Binder,
+            F::BinderRelationship,
+            F::StartRoot,
+            F::EndRoot,
+        ],
+        K::UnconditionalLoop | K::BlockClose => &[F::Keyword, F::ExpressionAbsent],
+        K::FreeExpression => &[],
+    };
+    for field in required {
+        require_once(*field).map_err(|()| "canonical_statement_required_field_corrupt_v0")?;
+    }
+    let expected_relationship_count = match kind {
+        K::ForIndexUntil | K::ForIndexThrough => 2,
+        K::NeedsPredicate | K::EnsuresPredicate | K::Save | K::ForEach => 1,
+        _ => 0,
+    };
+    if count(F::RelationshipToken) != expected_relationship_count {
+        return Err("canonical_statement_relationship_count_corrupt_v0");
+    }
+    if kind == K::FreeExpression {
+        if root_count == 0 {
+            let line =
+                statement_source_line(seal).ok_or("canonical_statement_source_line_corrupt_v0")?;
+            let label = line.strip_suffix(':').is_some_and(|label| {
+                !label.is_empty() && label.chars().all(|ch| ch.is_ascii_lowercase() || ch == ' ')
+            });
+            if !label || count(F::ExpressionAbsent) != 1 || count(F::ValueRoot) != 0 {
+                return Err("canonical_statement_rootless_label_corrupt_v0");
+            }
+        } else if root_count != 1 || count(F::ValueRoot) != 1 || count(F::ExpressionAbsent) != 0 {
+            return Err("canonical_statement_free_expression_root_corrupt_v0");
+        }
+    }
+    Ok(())
+}
+
+fn statement_source_line(seal: &CanonicalStatementSeal) -> Option<&str> {
+    let statement = seal.projection.iter().find_map(|fact| match &fact.value {
+        CanonicalStatementSealValue::Statement(statement) => Some(statement),
+        _ => None,
+    })?;
+    let range = seal
+        .projection
+        .iter()
+        .find_map(|fact| match (&fact.field, &fact.value) {
+            (CanonicalStatementEventField::Line, CanonicalStatementSealValue::Range(range)) => {
+                Some(range)
+            }
+            _ => None,
+        })?;
+    std::str::from_utf8(source_revision_slice(&statement.0.revision, range)?).ok()
+}
+
+fn source_revision_slice<'a>(revision: &'a [u8], range: &ParsedSourceRange) -> Option<&'a [u8]> {
+    let line = revision
+        .split(|byte| *byte == b'\n')
+        .nth(range.start.line.checked_sub(1)?)?;
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    let start = range.start.column.checked_sub(1)?;
+    line.get(start..start.checked_add(range.byte_len)?)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CanonicalOccurrenceSeal {
     projection: Vec<CanonicalSealFact>,
     authority: Vec<CanonicalSealFact>,
     payload_projection: Vec<CanonicalPayloadSealFact>,
     payload_authority: Vec<CanonicalPayloadSealFact>,
+    malformed_projection: Vec<CanonicalMalformedSealFact>,
+    malformed_authority: Vec<CanonicalMalformedSealFact>,
 }
 
 fn canonical_fact_matches(left: &CanonicalSealFact, right: &CanonicalSealFact) -> bool {
@@ -445,6 +1218,73 @@ fn validate_occurrence_seal_inner(
     {
         return Err("canonical_payload_authority_mismatch_v0");
     }
+    if seal.malformed_projection.len() != seal.malformed_authority.len() {
+        return Err("canonical_malformed_field_count_corrupt_v0");
+    }
+    if seal
+        .malformed_projection
+        .iter()
+        .zip(&seal.malformed_authority)
+        .any(|(left, right)| left != right)
+    {
+        return Err("canonical_malformed_authority_mismatch_v0");
+    }
+    if seal.malformed_projection.is_empty() {
+        if seal.projection.iter().any(|fact| {
+            matches!(
+                fact,
+                CanonicalSealFact::Kind(_, CanonicalCommonNodeKind::Unsupported)
+                    | CanonicalSealFact::LexicalStatus(
+                        _,
+                        CanonicalCommonLexicalStatus::Unsupported
+                    )
+            )
+        }) {
+            return Err("canonical_complete_contains_unsupported_v0");
+        }
+    } else {
+        if !seal.malformed_projection.len().is_multiple_of(8) {
+            return Err("canonical_malformed_shape_corrupt_v0");
+        }
+        for facts in seal.malformed_projection.chunks_exact(8) {
+            if !facts.iter().map(|fact| fact.field).eq([
+                CanonicalMalformedSealField::Status,
+                CanonicalMalformedSealField::Node,
+                CanonicalMalformedSealField::Cause,
+                CanonicalMalformedSealField::ProducingEvent,
+                CanonicalMalformedSealField::OffendingRange,
+                CanonicalMalformedSealField::ConsumedRange,
+                CanonicalMalformedSealField::ExpectedEvidence,
+                CanonicalMalformedSealField::ActualEvidence,
+            ]) || !matches!(facts[0].value, CanonicalMalformedSealValue::Unsupported)
+            {
+                return Err("canonical_malformed_shape_corrupt_v0");
+            }
+            validate_malformed_semantics(seal, facts)?;
+        }
+        let malformed_nodes = seal
+            .malformed_projection
+            .chunks_exact(8)
+            .filter_map(|facts| match &facts[1].value {
+                CanonicalMalformedSealValue::Node(node) => Some(node),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let unsupported_nodes = seal
+            .projection
+            .iter()
+            .filter_map(|fact| match fact {
+                CanonicalSealFact::LexicalStatus(
+                    node,
+                    CanonicalCommonLexicalStatus::Unsupported,
+                ) => Some(node),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if malformed_nodes != unsupported_nodes {
+            return Err("canonical_unsupported_node_evidence_incomplete_v0");
+        }
+    }
     for fact in &seal.projection {
         let CanonicalSealFact::Kind(node, kind) = fact else {
             continue;
@@ -473,6 +1313,234 @@ fn validate_occurrence_seal_inner(
         if actual != expected_payload_fields(*kind) {
             return Err("canonical_payload_field_shape_corrupt_v0");
         }
+    }
+    Ok(())
+}
+
+fn malformed_actual_range(actual: &CanonicalActualLexicalEvidence) -> Option<&ParsedSourceRange> {
+    match actual {
+        CanonicalActualLexicalEvidence::Token { range, .. } => Some(range),
+        CanonicalActualLexicalEvidence::EndOfInput
+        | CanonicalActualLexicalEvidence::DelimiterDepth(_) => None,
+    }
+}
+
+fn retained_source_completion(
+    seal: &CanonicalOccurrenceSeal,
+    node: &CanonicalNodeIdentity,
+) -> Option<CanonicalMalformedEvent> {
+    let revision = seal.projection.iter().find_map(|fact| match fact {
+        CanonicalSealFact::SourceRevision(revision) => Some(revision),
+        _ => None,
+    })?;
+    let kind = seal.projection.iter().find_map(|fact| match fact {
+        CanonicalSealFact::Kind(candidate, kind) if candidate == node => Some(*kind),
+        _ => None,
+    })?;
+    let range = seal.projection.iter().find_map(|fact| match fact {
+        CanonicalSealFact::NodeRange(candidate, range) if candidate == node => Some(range),
+        _ => None,
+    })?;
+    let source = std::str::from_utf8(source_revision_slice(&revision.0, range)?).ok()?;
+    let root = seal.projection.iter().any(|fact| {
+        matches!(fact, CanonicalSealFact::PreorderOrdinal(candidate, 0) if candidate == node)
+    });
+    let completion = root
+        .then(|| retained_predicate_list_completion(source, &range.start))
+        .flatten()
+        .unwrap_or_else(|| retained_completion_event(kind, source, &range.start));
+    match completion {
+        CanonicalCompletionEvent::Unsupported(event) => Some(*event),
+        CanonicalCompletionEvent::Complete => seal
+            .projection
+            .iter()
+            .find_map(|fact| match fact {
+                CanonicalSealFact::OrderedChildren(candidate, children) if candidate == node => {
+                    Some(children)
+                }
+                _ => None,
+            })?
+            .iter()
+            .find_map(|child| retained_source_completion(seal, child)),
+    }
+}
+
+fn validate_malformed_semantics(
+    seal: &CanonicalOccurrenceSeal,
+    facts: &[CanonicalMalformedSealFact],
+) -> Result<(), &'static str> {
+    let node = match &facts[1].value {
+        CanonicalMalformedSealValue::Node(value) => value,
+        _ => return Err("canonical_malformed_node_shape_corrupt_v0"),
+    };
+    let cause = match &facts[2].value {
+        CanonicalMalformedSealValue::Cause(value) => *value,
+        _ => return Err("canonical_malformed_cause_shape_corrupt_v0"),
+    };
+    let (producing_identity, producing) = match &facts[3].value {
+        CanonicalMalformedSealValue::ProducingEvent(identity, range) => (identity, range),
+        _ => return Err("canonical_malformed_producer_shape_corrupt_v0"),
+    };
+    let offending = match &facts[4].value {
+        CanonicalMalformedSealValue::Range(value) => value,
+        _ => return Err("canonical_malformed_offending_shape_corrupt_v0"),
+    };
+    let consumed = match &facts[5].value {
+        CanonicalMalformedSealValue::Range(value) => value,
+        _ => return Err("canonical_malformed_consumed_shape_corrupt_v0"),
+    };
+    let expected = match &facts[6].value {
+        CanonicalMalformedSealValue::Expected(value) => value,
+        _ => return Err("canonical_malformed_expected_shape_corrupt_v0"),
+    };
+    let actual = match &facts[7].value {
+        CanonicalMalformedSealValue::Actual(value) => value,
+        _ => return Err("canonical_malformed_actual_shape_corrupt_v0"),
+    };
+    if !range_contains(consumed, producing)
+        || !range_contains(consumed, offending)
+        || malformed_actual_range(actual).is_some_and(|range| !range_contains(consumed, range))
+    {
+        return Err("canonical_malformed_range_corrupt_v0");
+    }
+    let occurrence = seal.projection.iter().find_map(|fact| match fact {
+        CanonicalSealFact::Occurrence(identity) => Some(identity),
+        _ => None,
+    });
+    let Some(occurrence) = occurrence else {
+        return Err("canonical_malformed_occurrence_missing_v0");
+    };
+    let preorder = seal.projection.iter().find_map(|fact| match fact {
+        CanonicalSealFact::PreorderOrdinal(candidate, preorder) if candidate == node => {
+            Some(*preorder)
+        }
+        _ => None,
+    });
+    let Some(preorder) = preorder else {
+        return Err("canonical_malformed_node_missing_v0");
+    };
+    if producing_identity
+        != &CanonicalMalformedEventIdentity(source_owner_child_identity(
+            13,
+            &occurrence.0,
+            preorder,
+        ))
+    {
+        return Err("canonical_malformed_producer_identity_corrupt_v0");
+    }
+    let source_event = retained_source_completion(seal, node)
+        .ok_or("canonical_malformed_source_event_missing_v0")?;
+    if source_event.cause != cause
+        || source_event.producing_event != *producing
+        || source_event.offending != *offending
+        || source_event.consumed != *consumed
+        || source_event.expected != *expected
+        || source_event.actual != *actual
+    {
+        return Err("canonical_malformed_source_binding_corrupt_v0");
+    }
+    use CanonicalActualLexicalEvidence as A;
+    use CanonicalExpectedLexicalEvidence as E;
+    use CanonicalLexicalTokenKind as T;
+    use CanonicalMalformedCause as C;
+    let exact = match cause {
+        C::UnterminatedTextLiteral => {
+            matches!(expected, E::Token(T::TextQuote)) && matches!(actual, A::EndOfInput)
+        }
+        C::MissingDelimiter => {
+            matches!(
+                expected,
+                E::Token(T::ParenthesisClose | T::ListClose | T::RecordClose)
+            ) && matches!(actual, A::EndOfInput)
+        }
+        C::MismatchedDelimiter => matches!(
+            (expected, actual),
+            (
+                E::Token(T::ParenthesisClose | T::ListClose | T::RecordClose) | E::Operand,
+                A::Token {
+                    kind: T::ParenthesisClose | T::ListClose | T::RecordClose,
+                    ..
+                }
+            )
+        ),
+        C::DelimiterDepthExceeded => matches!(
+            (expected, actual),
+            (
+                E::MaximumDelimiterDepth(CANONICAL_MAX_DELIMITER_DEPTH),
+                A::DelimiterDepth(depth)
+            ) if *depth == CANONICAL_MAX_DELIMITER_DEPTH + 1
+        ),
+        C::MissingOperand => matches!(expected, E::Operand) && matches!(actual, A::EndOfInput),
+        C::InvalidComparisonOperator => matches!(
+            (expected, actual),
+            (
+                E::ComparisonOperator,
+                A::Token {
+                    kind: T::ComparisonOperator,
+                    spelling,
+                    ..
+                }
+            ) if !matches!(spelling.as_str(), "<" | "<=" | ">" | ">=" | "==" | "!=")
+        ),
+        C::InvalidOperandStarter => matches!((expected, actual), (E::Operand, A::Token { .. })),
+        C::MalformedFieldPlace => matches!(
+            (expected, actual),
+            (
+                E::Identifier,
+                A::Token {
+                    kind: T::Dot | T::Other,
+                    ..
+                }
+            )
+        ),
+        C::ListElementSeparator => matches!(
+            (expected, actual),
+            (E::ListSeparatorOrClose, A::Token { .. })
+        ),
+        C::ListTrailingComma => matches!(
+            (expected, actual),
+            (
+                E::TextListElement,
+                A::Token {
+                    kind: T::ListClose,
+                    ..
+                }
+            )
+        ),
+        C::ListNonTextElement => matches!(
+            (expected, actual),
+            (E::TextListElement, A::Token { kind, .. }) if *kind != T::TextQuote
+        ),
+        C::IntegerLiteralOutOfRange => matches!(
+            (expected, actual),
+            (
+                E::Int64Value,
+                A::Token {
+                    kind: T::IntegerLiteral,
+                    spelling,
+                    ..
+                }
+            ) if spelling.parse::<i64>().is_err()
+        ),
+    };
+    let same_range = |left: &ParsedSourceRange, right: &ParsedSourceRange| left == right;
+    let range_shape = match cause {
+        C::UnterminatedTextLiteral => producing.byte_len == 1 && offending.byte_len > 0,
+        C::MissingDelimiter | C::MissingOperand => offending.byte_len == 0,
+        C::MismatchedDelimiter
+        | C::InvalidComparisonOperator
+        | C::InvalidOperandStarter
+        | C::MalformedFieldPlace
+        | C::ListElementSeparator
+        | C::ListNonTextElement
+        | C::IntegerLiteralOutOfRange => malformed_actual_range(actual)
+            .is_some_and(|actual_range| same_range(actual_range, offending)),
+        C::DelimiterDepthExceeded => same_range(producing, offending),
+        C::ListTrailingComma => malformed_actual_range(actual)
+            .is_some_and(|actual_range| actual_range.start.column > offending.start.column),
+    };
+    if !exact || !range_shape {
+        return Err("canonical_malformed_evidence_corrupt_v0");
     }
     Ok(())
 }
@@ -650,6 +1718,8 @@ pub struct ParseOutput {
     source_owner_seals: Vec<CanonicalSourceOwnerSeal>,
     #[cfg_attr(not(test), allow(dead_code))]
     occurrence_seals: Vec<CanonicalOccurrenceSeal>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    statement_seals: Vec<CanonicalStatementSeal>,
 }
 
 #[derive(Debug, Clone)]
@@ -677,6 +1747,7 @@ struct Parser {
     diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
     source_owner_seals: Vec<CanonicalSourceOwnerSeal>,
     occurrence_seals: Vec<CanonicalOccurrenceSeal>,
+    statement_seals: Vec<CanonicalStatementSeal>,
 }
 
 #[cfg(test)]
@@ -718,6 +1789,7 @@ pub(crate) fn parse_source_at_index(
         diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet::default(),
         source_owner_seals: Vec::new(),
         occurrence_seals: Vec::new(),
+        statement_seals: Vec::new(),
     };
     let (module, items) = parser.parse_file_items();
     parser
@@ -735,6 +1807,7 @@ pub(crate) fn parse_source_at_index(
         diagnostic_occurrences: parser.diagnostic_occurrences,
         source_owner_seals: parser.source_owner_seals,
         occurrence_seals: parser.occurrence_seals,
+        statement_seals: parser.statement_seals,
     }
 }
 
@@ -1078,6 +2151,7 @@ impl Parser {
                 let owners = self.retain_source_owner_records(sections.len(), &lines);
                 self.retain_occurrence_records(
                     &name,
+                    &self.span(line.number),
                     &lines,
                     &body_syntax,
                     &owners,
@@ -1155,11 +2229,15 @@ impl Parser {
     fn retain_occurrence_records(
         &mut self,
         section_name: &str,
+        section_span: &Span,
         lines: &[SectionLine],
         body_syntax: &[Option<ParsedBodyStatement>],
         owners: &[Option<CanonicalSourceOwnerSeal>],
         semantic_node: &str,
     ) {
+        let mut projected_blocks = Vec::<CanonicalStatementBlockIdentity>::new();
+        let mut authority_blocks = Vec::<CanonicalStatementBlockIdentity>::new();
+        let mut authority_depth = 0usize;
         for (line_index, line) in lines.iter().enumerate() {
             let Some(owner) = owners.get(line_index).and_then(Option::as_ref) else {
                 continue;
@@ -1185,6 +2263,77 @@ impl Parser {
                         .expect("parser occurrence projection must match retained authority");
                     self.occurrence_seals.push(seal);
                 }
+                let projected_statement = match owner.projection.get(5) {
+                    Some(CanonicalSourceOwnerFact::Statement(statement)) => statement,
+                    _ => panic!("statement projection requires statement owner"),
+                };
+                let projected_open = CanonicalStatementBlockIdentity(source_owner_child_identity(
+                    16,
+                    &projected_statement.0,
+                    0,
+                ));
+                let authority_open = CanonicalStatementBlockIdentity(source_owner_child_identity(
+                    16,
+                    &owner.authority.statement.0,
+                    0,
+                ));
+                let authority_relationship =
+                    retained_parser_block_relationship(line.text.trim(), &line.span);
+                let authority_before = authority_depth;
+                authority_depth = match authority_relationship {
+                    ParsedBlockRelationship::Opens => authority_depth.saturating_add(1),
+                    ParsedBlockRelationship::Closes => authority_depth.saturating_sub(1),
+                    ParsedBlockRelationship::None => authority_depth,
+                };
+                let authority_context = StatementBlockContext {
+                    relationship: authority_relationship,
+                    depth_before: authority_before,
+                    depth_after: authority_depth,
+                };
+                let projected_block = match statement.block_relationship {
+                    ParsedBlockRelationship::Opens => Some(projected_open.clone()),
+                    ParsedBlockRelationship::Closes => projected_blocks
+                        .pop()
+                        .or_else(|| Some(projected_open.clone())),
+                    ParsedBlockRelationship::None => projected_blocks.last().cloned(),
+                };
+                let authority_block = match authority_relationship {
+                    ParsedBlockRelationship::Opens => Some(authority_open.clone()),
+                    ParsedBlockRelationship::Closes => authority_blocks
+                        .pop()
+                        .or_else(|| Some(authority_open.clone())),
+                    ParsedBlockRelationship::None => authority_blocks.last().cloned(),
+                };
+                let mut authority_events = statement.canonical_statement_authority.clone();
+                let expression_absent = authority_events
+                    .last()
+                    .is_some_and(|fact| {
+                        fact.field == CanonicalStatementEventField::ExpressionAbsent
+                    })
+                    .then(|| authority_events.pop().expect("checked statement fact"));
+                append_retained_block_events(
+                    &mut authority_events,
+                    line.text.trim(),
+                    &line.span,
+                    authority_context,
+                );
+                authority_events.extend(expression_absent);
+                let seal = build_statement_seal(
+                    &statement.canonical_statement_projection,
+                    &authority_events,
+                    owner,
+                    projected_block.as_ref(),
+                    authority_block.as_ref(),
+                );
+                validate_statement_seal(&seal)
+                    .expect("parser statement projection must match retained authority");
+                self.statement_seals.push(seal);
+                if statement.block_relationship == ParsedBlockRelationship::Opens {
+                    projected_blocks.push(projected_open);
+                }
+                if authority_relationship == ParsedBlockRelationship::Opens {
+                    authority_blocks.push(authority_open);
+                }
             } else if matches!(section_name, "needs" | "ensures") {
                 let role = if section_name == "needs" {
                     CanonicalExpressionRole::NeedsPredicate
@@ -1196,13 +2345,14 @@ impl Parser {
                 } else {
                     CanonicalExpressionIntent::EnsuresPredicate
                 };
-                let expression = parse_expression_syntax(
+                let mut expression = parse_expression_syntax(
                     line.text.trim(),
                     line.span.clone(),
                     ParserSyntaxNodeId::new(format!(
                         "parser-contract:{semantic_node}:{section_name}:{line_index}"
                     )),
                 );
+                apply_predicate_completion(&mut expression, line.text.trim(), &line.span);
                 let assignment = CanonicalOccurrenceAssignmentEvent {
                     expression_node_id: expression.canonical.node_id.clone(),
                     role: if section_name == "needs" {
@@ -1221,6 +2371,17 @@ impl Parser {
                 validate_occurrence_seal(&seal)
                     .expect("parser predicate occurrence must match retained authority");
                 self.occurrence_seals.push(seal);
+                let (projection, authority) = contract_statement_events(
+                    section_name,
+                    section_span,
+                    line,
+                    &expression,
+                    &assignment,
+                );
+                let seal = build_statement_seal(&projection, &authority, owner, None, None);
+                validate_statement_seal(&seal)
+                    .expect("parser contract relationship must match retained authority");
+                self.statement_seals.push(seal);
             }
         }
     }
@@ -1574,10 +2735,15 @@ fn projected_other_assignment(
     text: &str,
     index: usize,
 ) -> (CanonicalExpressionRole, CanonicalExpressionIntent) {
-    if projected_keyword(text, "set") {
+    if projected_keyword(text, "set") && index == 0 {
         (
             CanonicalExpressionRole::SetValue,
             CanonicalExpressionIntent::SetValue,
+        )
+    } else if projected_keyword(text, "set") {
+        (
+            CanonicalExpressionRole::Other,
+            CanonicalExpressionIntent::Other,
         )
     } else if projected_keyword(text, "save") {
         (
@@ -1729,6 +2895,7 @@ struct CanonicalNodeEvidence {
     delimiter_depth_before: usize,
     delimiter_depth_after: usize,
     lexical_status: CanonicalCommonLexicalStatus,
+    completion: CanonicalCompletionEvent,
     payload: Vec<CanonicalPayloadEvent>,
 }
 
@@ -1837,14 +3004,17 @@ fn append_projected_node_evidence(
         children: Vec::new(),
         delimiter_depth_before: delimiter_depth,
         delimiter_depth_after: delimiter_depth,
-        lexical_status: if matches!(expression.kind, CanonicalExpressionKind::Unsupported)
-            || (expression.payload.is_empty()
-                && !expected_payload_fields(common_node_kind(expression)).is_empty())
+        lexical_status: if matches!(
+            expression.completion,
+            CanonicalCompletionEvent::Unsupported(_)
+        ) || (expression.payload.is_empty()
+            && !expected_payload_fields(common_node_kind(expression)).is_empty())
         {
             CanonicalCommonLexicalStatus::Unsupported
         } else {
             CanonicalCommonLexicalStatus::Complete
         },
+        completion: expression.completion.clone(),
         payload: expression.payload.clone(),
     });
     let children = canonical_expression_children(expression)
@@ -1887,13 +3057,14 @@ fn append_retained_node_evidence(
         children: Vec::new(),
         delimiter_depth_before: event.delimiter_depth_before,
         delimiter_depth_after: event.delimiter_depth_after,
-        lexical_status: if event.payload.is_empty()
-            && !expected_payload_fields(event.kind).is_empty()
+        lexical_status: if matches!(event.completion, CanonicalCompletionEvent::Unsupported(_))
+            || (event.payload.is_empty() && !expected_payload_fields(event.kind).is_empty())
         {
             CanonicalCommonLexicalStatus::Unsupported
         } else {
             event.lexical_status
         },
+        completion: event.completion.clone(),
         payload: event.payload.clone(),
     });
     let children = event
@@ -3577,6 +4748,65 @@ fn range_contains(parent: &ParsedSourceRange, child: &ParsedSourceRange) -> bool
         && child.start.column + child.byte_len <= parent.start.column + parent.byte_len
 }
 
+fn malformed_event_facts(
+    occurrence: &CanonicalOccurrenceIdentity,
+    nodes: &[CanonicalNodeEvidence],
+) -> Vec<CanonicalMalformedSealFact> {
+    nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(preorder, node)| match &node.completion {
+            CanonicalCompletionEvent::Complete => None,
+            CanonicalCompletionEvent::Unsupported(event) => {
+                let node_identity = occurrence_node_identity(occurrence, preorder);
+                let identity = CanonicalMalformedEventIdentity(source_owner_child_identity(
+                    13,
+                    &occurrence.0,
+                    preorder,
+                ));
+                Some(vec![
+                    CanonicalMalformedSealFact {
+                        field: CanonicalMalformedSealField::Status,
+                        value: CanonicalMalformedSealValue::Unsupported,
+                    },
+                    CanonicalMalformedSealFact {
+                        field: CanonicalMalformedSealField::Node,
+                        value: CanonicalMalformedSealValue::Node(node_identity),
+                    },
+                    CanonicalMalformedSealFact {
+                        field: CanonicalMalformedSealField::Cause,
+                        value: CanonicalMalformedSealValue::Cause(event.cause),
+                    },
+                    CanonicalMalformedSealFact {
+                        field: CanonicalMalformedSealField::ProducingEvent,
+                        value: CanonicalMalformedSealValue::ProducingEvent(
+                            identity,
+                            event.producing_event.clone(),
+                        ),
+                    },
+                    CanonicalMalformedSealFact {
+                        field: CanonicalMalformedSealField::OffendingRange,
+                        value: CanonicalMalformedSealValue::Range(event.offending.clone()),
+                    },
+                    CanonicalMalformedSealFact {
+                        field: CanonicalMalformedSealField::ConsumedRange,
+                        value: CanonicalMalformedSealValue::Range(event.consumed.clone()),
+                    },
+                    CanonicalMalformedSealFact {
+                        field: CanonicalMalformedSealField::ExpectedEvidence,
+                        value: CanonicalMalformedSealValue::Expected(event.expected.clone()),
+                    },
+                    CanonicalMalformedSealFact {
+                        field: CanonicalMalformedSealField::ActualEvidence,
+                        value: CanonicalMalformedSealValue::Actual(event.actual.clone()),
+                    },
+                ])
+            }
+        })
+        .flatten()
+        .collect()
+}
+
 fn build_occurrence_seal(
     expression: &ParsedExpression,
     owner: &CanonicalSourceOwnerSeal,
@@ -3638,11 +4868,15 @@ fn build_occurrence_seal(
         &retained_nodes,
         &expression.canonical_tokens,
     );
+    let malformed_projection = malformed_event_facts(&projected_occurrence, &projected_nodes);
+    let malformed_authority = malformed_event_facts(&authority_occurrence, &retained_nodes);
     CanonicalOccurrenceSeal {
         projection,
         authority,
         payload_projection,
         payload_authority,
+        malformed_projection,
+        malformed_authority,
     }
 }
 
@@ -3742,6 +4976,17 @@ fn parser_block_relationship(text: &str) -> ParsedBlockRelationship {
     if text == "}" {
         ParsedBlockRelationship::Closes
     } else if unquoted_last_non_whitespace(text) == Some('{') {
+        ParsedBlockRelationship::Opens
+    } else {
+        ParsedBlockRelationship::None
+    }
+}
+
+fn retained_parser_block_relationship(text: &str, span: &Span) -> ParsedBlockRelationship {
+    let events = canonical_lexical_events(text, span);
+    if events.len() == 1 && events[0].spelling == "}" {
+        ParsedBlockRelationship::Closes
+    } else if events.last().is_some_and(|event| event.spelling == "{") {
         ParsedBlockRelationship::Opens
     } else {
         ParsedBlockRelationship::None
@@ -4041,12 +5286,33 @@ fn parsed_body_statement(
     block_depth_before: usize,
     block_depth_after: usize,
 ) -> ParsedBodyStatement {
+    let block = StatementBlockContext {
+        relationship: block_relationship,
+        depth_before: block_depth_before,
+        depth_after: block_depth_after,
+    };
     let (core_kind, core_status, core_expression_kind, core_reason) =
         parser_core_shape(line.text.trim(), &kind);
     let canonical_extra_occurrences =
-        parse_for_index_occurrence_expressions(line.text.trim(), &line.span, &source_node_id);
+        parse_statement_relationship_occurrences(line.text.trim(), &line.span, &source_node_id);
     let canonical_assignments =
         retained_statement_assignments(line.text.trim(), &kind, &canonical_extra_occurrences);
+    let canonical_statement_projection = projected_statement_events(
+        line.text.trim(),
+        &line.span,
+        &source_node_id,
+        &kind,
+        &canonical_extra_occurrences,
+        block,
+    );
+    let canonical_statement_authority = retained_statement_events(
+        line.text.trim(),
+        &line.span,
+        &source_node_id,
+        &kind,
+        &canonical_extra_occurrences,
+        &canonical_assignments,
+    );
     ParsedBodyStatement {
         kind,
         span: line.span.clone(),
@@ -4060,6 +5326,985 @@ fn parsed_body_statement(
         core_reason,
         canonical_extra_occurrences,
         canonical_assignments,
+        canonical_statement_projection,
+        canonical_statement_authority,
+    }
+}
+
+fn statement_fact(
+    field: CanonicalStatementEventField,
+    value: CanonicalStatementEventValue,
+) -> CanonicalStatementEventFact {
+    CanonicalStatementEventFact { field, value }
+}
+
+fn contract_statement_events(
+    section_name: &str,
+    section_span: &Span,
+    line: &SectionLine,
+    expression: &ParsedExpression,
+    assignment: &CanonicalOccurrenceAssignmentEvent,
+) -> (
+    Vec<CanonicalStatementEventFact>,
+    Vec<CanonicalStatementEventFact>,
+) {
+    let kind = if section_name == "needs" {
+        CanonicalStatementKindEvent::NeedsPredicate
+    } else {
+        CanonicalStatementKindEvent::EnsuresPredicate
+    };
+    let projected_root = expression.canonical.node_id.clone();
+    let authority_root = assignment.expression_node_id.clone();
+    let common_prefix = |root: ParserSyntaxNodeId,
+                         keyword: CanonicalStatementEventValue,
+                         relationship: CanonicalStatementEventValue| {
+        vec![
+            statement_fact(
+                CanonicalStatementEventField::Kind,
+                CanonicalStatementEventValue::Kind(kind),
+            ),
+            statement_fact(
+                CanonicalStatementEventField::Line,
+                CanonicalStatementEventValue::Range(ParsedSourceRange {
+                    start: line.span.clone(),
+                    byte_len: line.text.len(),
+                }),
+            ),
+            statement_fact(
+                CanonicalStatementEventField::Statement,
+                CanonicalStatementEventValue::Text(expression.canonical.node_id.as_str().into()),
+            ),
+            statement_fact(CanonicalStatementEventField::Keyword, keyword),
+            statement_fact(
+                CanonicalStatementEventField::RelationshipToken,
+                relationship,
+            ),
+            statement_fact(
+                CanonicalStatementEventField::ValueRoot,
+                CanonicalStatementEventValue::Root {
+                    ordinal: 0,
+                    node: root.clone(),
+                },
+            ),
+            statement_fact(
+                CanonicalStatementEventField::OrderedRoots,
+                CanonicalStatementEventValue::Roots(vec![(0, root)]),
+            ),
+            statement_fact(
+                CanonicalStatementEventField::BlockDepthBefore,
+                CanonicalStatementEventValue::Usize(0),
+            ),
+            statement_fact(
+                CanonicalStatementEventField::BlockDepthAfter,
+                CanonicalStatementEventValue::Usize(0),
+            ),
+            statement_fact(
+                CanonicalStatementEventField::BlockRelationship,
+                CanonicalStatementEventValue::BlockRelationship(ParsedBlockRelationship::None),
+            ),
+        ]
+    };
+    let projection = common_prefix(
+        projected_root,
+        CanonicalStatementEventValue::Token {
+            slot: 0,
+            range: source_range_at(section_span, 0, section_name.len()),
+            spelling: section_name.to_string(),
+        },
+        CanonicalStatementEventValue::Token {
+            slot: 1,
+            range: source_range_at(section_span, section_name.len(), 1),
+            spelling: ":".to_string(),
+        },
+    );
+    let header = format!("{section_name}:");
+    let retained_tokens = canonical_lexical_events(&header, section_span);
+    let retained_keyword = retained_tokens
+        .first()
+        .expect("contract section keyword token must exist");
+    let retained_colon = retained_tokens
+        .get(1)
+        .expect("contract section colon token must exist");
+    let authority = common_prefix(
+        authority_root,
+        CanonicalStatementEventValue::Token {
+            slot: 0,
+            range: retained_keyword.range.clone(),
+            spelling: retained_keyword.spelling.clone(),
+        },
+        CanonicalStatementEventValue::Token {
+            slot: 1,
+            range: retained_colon.range.clone(),
+            spelling: retained_colon.spelling.clone(),
+        },
+    );
+    (projection, authority)
+}
+
+fn statement_token_fact(
+    field: CanonicalStatementEventField,
+    slot: usize,
+    span: &Span,
+    start: usize,
+    spelling: &str,
+) -> CanonicalStatementEventFact {
+    statement_fact(
+        field,
+        CanonicalStatementEventValue::Token {
+            slot,
+            range: source_range_at(span, start, spelling.len()),
+            spelling: spelling.to_string(),
+        },
+    )
+}
+
+fn statement_roots_from_projection(
+    kind: &ParsedBodyStatementKind,
+    extra: &[ParsedExpression],
+) -> Vec<ParserSyntaxNodeId> {
+    if !extra.is_empty() {
+        return extra
+            .iter()
+            .map(|expression| expression.canonical.node_id.clone())
+            .collect();
+    }
+    match kind {
+        ParsedBodyStatementKind::Return(expression) => vec![expression.canonical.node_id.clone()],
+        ParsedBodyStatementKind::Binding {
+            value: Some(expression),
+            ..
+        } => vec![expression.canonical.node_id.clone()],
+        ParsedBodyStatementKind::Binding { value: None, .. } => Vec::new(),
+        ParsedBodyStatementKind::Other { expressions } => expressions
+            .iter()
+            .map(|expression| expression.canonical.node_id.clone())
+            .collect(),
+    }
+}
+
+fn projected_statement_kind(
+    text: &str,
+    kind: &ParsedBodyStatementKind,
+) -> CanonicalStatementKindEvent {
+    match kind {
+        ParsedBodyStatementKind::Return(_) => CanonicalStatementKindEvent::Return,
+        ParsedBodyStatementKind::Binding { mutable: false, .. } => {
+            CanonicalStatementKindEvent::ImmutableBinding
+        }
+        ParsedBodyStatementKind::Binding { mutable: true, .. } => {
+            CanonicalStatementKindEvent::MutableBinding
+        }
+        ParsedBodyStatementKind::Other { .. } => {
+            if projected_keyword(text, "set") {
+                CanonicalStatementKindEvent::Set
+            } else if projected_keyword(text, "save") {
+                CanonicalStatementKindEvent::Save
+            } else if projected_keyword(text, "fail") {
+                CanonicalStatementKindEvent::Fail
+            } else if projected_keyword(text, "expect") {
+                CanonicalStatementKindEvent::Expect
+            } else if projected_keyword(text, "if") {
+                CanonicalStatementKindEvent::If
+            } else if projected_keyword(text, "while") {
+                CanonicalStatementKindEvent::While
+            } else if projected_keyword(text, "for each") {
+                CanonicalStatementKindEvent::ForEach
+            } else if projected_keyword(text, "for index")
+                && find_top_level_phrase(text, " through ").is_some()
+            {
+                CanonicalStatementKindEvent::ForIndexThrough
+            } else if projected_keyword(text, "for index") {
+                CanonicalStatementKindEvent::ForIndexUntil
+            } else if text == "loop {" {
+                CanonicalStatementKindEvent::UnconditionalLoop
+            } else if text == "}" {
+                CanonicalStatementKindEvent::BlockClose
+            } else {
+                CanonicalStatementKindEvent::FreeExpression
+            }
+        }
+    }
+}
+
+fn retained_statement_kind(text: &str) -> CanonicalStatementKindEvent {
+    if keyword_rest(text, "return").is_some() || text == "return" {
+        CanonicalStatementKindEvent::Return
+    } else if keyword_rest(text, "let").is_some() {
+        CanonicalStatementKindEvent::ImmutableBinding
+    } else if keyword_rest(text, "change").is_some() {
+        CanonicalStatementKindEvent::MutableBinding
+    } else if keyword_rest(text, "set").is_some() {
+        CanonicalStatementKindEvent::Set
+    } else if keyword_rest(text, "save").is_some() {
+        CanonicalStatementKindEvent::Save
+    } else if keyword_rest(text, "fail").is_some() {
+        CanonicalStatementKindEvent::Fail
+    } else if keyword_rest(text, "expect").is_some() {
+        CanonicalStatementKindEvent::Expect
+    } else if keyword_rest(text, "if").is_some() {
+        CanonicalStatementKindEvent::If
+    } else if keyword_rest(text, "while").is_some() {
+        CanonicalStatementKindEvent::While
+    } else if keyword_rest(text, "for each").is_some() {
+        CanonicalStatementKindEvent::ForEach
+    } else if keyword_rest(text, "for index").is_some()
+        && find_top_level_phrase(text, " through ").is_some()
+    {
+        CanonicalStatementKindEvent::ForIndexThrough
+    } else if keyword_rest(text, "for index").is_some() {
+        CanonicalStatementKindEvent::ForIndexUntil
+    } else if text == "loop {" {
+        CanonicalStatementKindEvent::UnconditionalLoop
+    } else if text == "}" {
+        CanonicalStatementKindEvent::BlockClose
+    } else {
+        CanonicalStatementKindEvent::FreeExpression
+    }
+}
+
+fn append_projected_form_facts(
+    facts: &mut Vec<CanonicalStatementEventFact>,
+    form: CanonicalStatementKindEvent,
+    text: &str,
+    span: &Span,
+    roots: &[ParserSyntaxNodeId],
+) {
+    let keyword = match form {
+        CanonicalStatementKindEvent::Return => Some("return"),
+        CanonicalStatementKindEvent::ImmutableBinding => Some("let"),
+        CanonicalStatementKindEvent::MutableBinding => Some("change"),
+        CanonicalStatementKindEvent::Set => Some("set"),
+        CanonicalStatementKindEvent::Save => Some("save"),
+        CanonicalStatementKindEvent::Fail => Some("fail"),
+        CanonicalStatementKindEvent::Expect => Some("expect"),
+        CanonicalStatementKindEvent::If => Some("if"),
+        CanonicalStatementKindEvent::While => Some("while"),
+        CanonicalStatementKindEvent::ForEach
+        | CanonicalStatementKindEvent::ForIndexUntil
+        | CanonicalStatementKindEvent::ForIndexThrough => Some("for"),
+        CanonicalStatementKindEvent::UnconditionalLoop => Some("loop"),
+        CanonicalStatementKindEvent::BlockClose => Some("}"),
+        CanonicalStatementKindEvent::NeedsPredicate
+        | CanonicalStatementKindEvent::EnsuresPredicate
+        | CanonicalStatementKindEvent::FreeExpression => None,
+    };
+    if let Some(keyword) = keyword {
+        let start = text.find(keyword).unwrap_or_default();
+        facts.push(statement_token_fact(
+            CanonicalStatementEventField::Keyword,
+            0,
+            span,
+            start,
+            keyword,
+        ));
+    }
+    let root = |ordinal: usize| {
+        roots
+            .get(ordinal)
+            .cloned()
+            .map(|node| CanonicalStatementEventValue::Root { ordinal, node })
+    };
+    match form {
+        CanonicalStatementKindEvent::Return
+        | CanonicalStatementKindEvent::Fail
+        | CanonicalStatementKindEvent::Expect
+        | CanonicalStatementKindEvent::FreeExpression
+        | CanonicalStatementKindEvent::If
+        | CanonicalStatementKindEvent::While => {
+            if let Some(value) = root(0) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::ValueRoot,
+                    value,
+                ));
+            }
+        }
+        CanonicalStatementKindEvent::ImmutableBinding
+        | CanonicalStatementKindEvent::MutableBinding => {
+            let keyword = if form == CanonicalStatementKindEvent::ImmutableBinding {
+                "let"
+            } else {
+                "change"
+            };
+            let rest = text[keyword.len()..].trim_start();
+            let rest_start = text.len() - rest.len();
+            let binder = rest
+                .split(|ch: char| ch == ':' || ch == '=' || ch.is_whitespace())
+                .next()
+                .unwrap_or_default();
+            facts.push(statement_token_fact(
+                CanonicalStatementEventField::Binder,
+                1,
+                span,
+                rest_start,
+                binder,
+            ));
+            facts.push(statement_fact(
+                CanonicalStatementEventField::BinderRelationship,
+                CanonicalStatementEventValue::TokenReference(1),
+            ));
+            if let Some(colon) = find_top_level_char(text, ':') {
+                facts.push(statement_token_fact(
+                    CanonicalStatementEventField::TypeBoundary,
+                    2,
+                    span,
+                    colon,
+                    ":",
+                ));
+            }
+            if let Some(equals) = find_top_level_char(text, '=') {
+                facts.push(statement_token_fact(
+                    CanonicalStatementEventField::AssignmentToken,
+                    3,
+                    span,
+                    equals,
+                    "=",
+                ));
+            }
+            if let Some(value) = root(0) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::ValueRoot,
+                    value,
+                ));
+            }
+        }
+        CanonicalStatementKindEvent::Set => {
+            if let Some(equals) = find_top_level_char(text, '=') {
+                facts.push(statement_token_fact(
+                    CanonicalStatementEventField::AssignmentToken,
+                    1,
+                    span,
+                    equals,
+                    "=",
+                ));
+            }
+            if let Some(value) = root(1) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::TargetRoot,
+                    value,
+                ));
+            }
+            if let Some(value) = root(0) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::ValueRoot,
+                    value,
+                ));
+            }
+        }
+        CanonicalStatementKindEvent::Save => {
+            if let Some(value) = root(0) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::ValueRoot,
+                    value,
+                ));
+            }
+            if let Some(at) = find_top_level_phrase(text, " in ") {
+                facts.push(statement_token_fact(
+                    CanonicalStatementEventField::RelationshipToken,
+                    1,
+                    span,
+                    at + 1,
+                    "in",
+                ));
+                let destination = text[at + 4..].trim();
+                let start = text.len() - destination.len();
+                facts.push(statement_token_fact(
+                    CanonicalStatementEventField::DestinationToken,
+                    2,
+                    span,
+                    start,
+                    destination,
+                ));
+            }
+        }
+        CanonicalStatementKindEvent::ForEach => {
+            facts.push(statement_fact(
+                CanonicalStatementEventField::PhraseTokens,
+                CanonicalStatementEventValue::Tokens(vec![
+                    (0, source_range_at(span, 0, 3), "for".to_string()),
+                    (1, source_range_at(span, 4, 4), "each".to_string()),
+                ]),
+            ));
+            if let Some(at) = find_top_level_phrase(text, " in ") {
+                let binder = text["for each".len()..at].trim();
+                let binder_start = text[..at].rfind(binder).unwrap_or("for each".len());
+                facts.push(statement_token_fact(
+                    CanonicalStatementEventField::Binder,
+                    2,
+                    span,
+                    binder_start,
+                    binder,
+                ));
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::BinderRelationship,
+                    CanonicalStatementEventValue::TokenReference(2),
+                ));
+                facts.push(statement_token_fact(
+                    CanonicalStatementEventField::RelationshipToken,
+                    3,
+                    span,
+                    at + 1,
+                    "in",
+                ));
+            }
+            if let Some(value) = root(0) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::ValueRoot,
+                    value,
+                ));
+            }
+        }
+        CanonicalStatementKindEvent::ForIndexUntil
+        | CanonicalStatementKindEvent::ForIndexThrough => {
+            facts.push(statement_fact(
+                CanonicalStatementEventField::PhraseTokens,
+                CanonicalStatementEventValue::Tokens(vec![
+                    (0, source_range_at(span, 0, 3), "for".to_string()),
+                    (1, source_range_at(span, 4, 5), "index".to_string()),
+                ]),
+            ));
+            if let Some(from) = find_top_level_phrase(text, " from ") {
+                let binder = text["for index".len()..from].trim();
+                let binder_start = text[..from].rfind(binder).unwrap_or("for index".len());
+                facts.push(statement_token_fact(
+                    CanonicalStatementEventField::Binder,
+                    2,
+                    span,
+                    binder_start,
+                    binder,
+                ));
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::BinderRelationship,
+                    CanonicalStatementEventValue::TokenReference(2),
+                ));
+                facts.push(statement_token_fact(
+                    CanonicalStatementEventField::RelationshipToken,
+                    3,
+                    span,
+                    from + 1,
+                    "from",
+                ));
+            }
+            let bound_spelling = if form == CanonicalStatementKindEvent::ForIndexThrough {
+                "through"
+            } else {
+                "until"
+            };
+            if let Some(at) = find_top_level_phrase(text, &format!(" {bound_spelling} ")) {
+                facts.push(statement_token_fact(
+                    CanonicalStatementEventField::RelationshipToken,
+                    4,
+                    span,
+                    at + 1,
+                    bound_spelling,
+                ));
+            }
+            if let Some(value) = root(0) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::StartRoot,
+                    value,
+                ));
+            }
+            if let Some(value) = root(1) {
+                facts.push(statement_fact(CanonicalStatementEventField::EndRoot, value));
+            }
+        }
+        CanonicalStatementKindEvent::UnconditionalLoop
+        | CanonicalStatementKindEvent::BlockClose => {}
+        CanonicalStatementKindEvent::NeedsPredicate
+        | CanonicalStatementKindEvent::EnsuresPredicate => unreachable!(),
+    }
+}
+
+#[derive(Clone, Copy)]
+struct StatementBlockContext {
+    relationship: ParsedBlockRelationship,
+    depth_before: usize,
+    depth_after: usize,
+}
+
+fn projected_statement_events(
+    text: &str,
+    span: &Span,
+    source_node_id: &ParserSyntaxNodeId,
+    kind: &ParsedBodyStatementKind,
+    extra: &[ParsedExpression],
+    block: StatementBlockContext,
+) -> Vec<CanonicalStatementEventFact> {
+    let form = projected_statement_kind(text, kind);
+    let roots = statement_roots_from_projection(kind, extra);
+    let mut facts = vec![
+        statement_fact(
+            CanonicalStatementEventField::Kind,
+            CanonicalStatementEventValue::Kind(form),
+        ),
+        statement_fact(
+            CanonicalStatementEventField::Line,
+            CanonicalStatementEventValue::Range(source_range_at(span, 0, text.len())),
+        ),
+        statement_fact(
+            CanonicalStatementEventField::Statement,
+            CanonicalStatementEventValue::Text(source_node_id.as_str().to_string()),
+        ),
+    ];
+    append_projected_form_facts(&mut facts, form, text, span, &roots);
+    facts.push(statement_fact(
+        CanonicalStatementEventField::OrderedRoots,
+        CanonicalStatementEventValue::Roots(roots.iter().cloned().enumerate().collect()),
+    ));
+    facts.push(statement_fact(
+        CanonicalStatementEventField::BlockDepthBefore,
+        CanonicalStatementEventValue::Usize(block.depth_before),
+    ));
+    facts.push(statement_fact(
+        CanonicalStatementEventField::BlockDepthAfter,
+        CanonicalStatementEventValue::Usize(block.depth_after),
+    ));
+    facts.push(statement_fact(
+        CanonicalStatementEventField::BlockRelationship,
+        CanonicalStatementEventValue::BlockRelationship(block.relationship),
+    ));
+    if block.relationship == ParsedBlockRelationship::Opens {
+        let open = text.rfind('{').unwrap_or(text.len().saturating_sub(1));
+        facts.push(statement_token_fact(
+            CanonicalStatementEventField::BlockOpenToken,
+            31,
+            span,
+            open,
+            "{",
+        ));
+        facts.push(statement_fact(
+            CanonicalStatementEventField::BlockOwner,
+            CanonicalStatementEventValue::Bool(true),
+        ));
+    } else if block.relationship == ParsedBlockRelationship::Closes {
+        facts.push(statement_token_fact(
+            CanonicalStatementEventField::BlockCloseToken,
+            31,
+            span,
+            0,
+            "}",
+        ));
+        facts.push(statement_fact(
+            CanonicalStatementEventField::BlockOwner,
+            CanonicalStatementEventValue::Bool(true),
+        ));
+    } else if block.depth_before > 0 {
+        facts.push(statement_fact(
+            CanonicalStatementEventField::BlockOwner,
+            CanonicalStatementEventValue::Bool(true),
+        ));
+    }
+    if roots.is_empty() {
+        facts.push(statement_fact(
+            CanonicalStatementEventField::ExpressionAbsent,
+            CanonicalStatementEventValue::Bool(true),
+        ));
+    }
+    facts
+}
+
+fn retained_token_value(
+    events: &[CanonicalLexicalTokenEvent],
+    slot: usize,
+    spelling: &str,
+    skip: usize,
+) -> CanonicalStatementEventValue {
+    let event = events
+        .iter()
+        .filter(|event| event.spelling == spelling)
+        .nth(skip)
+        .unwrap_or_else(|| panic!("retained statement token `{spelling}` must exist"));
+    CanonicalStatementEventValue::Token {
+        slot,
+        range: event.range.clone(),
+        spelling: event.spelling.clone(),
+    }
+}
+
+fn retained_token_fact(
+    facts: &mut Vec<CanonicalStatementEventFact>,
+    field: CanonicalStatementEventField,
+    events: &[CanonicalLexicalTokenEvent],
+    slot: usize,
+    spelling: &str,
+    skip: usize,
+) {
+    facts.push(statement_fact(
+        field,
+        retained_token_value(events, slot, spelling, skip),
+    ));
+}
+
+fn append_retained_form_facts(
+    facts: &mut Vec<CanonicalStatementEventFact>,
+    form: CanonicalStatementKindEvent,
+    text: &str,
+    span: &Span,
+    roots: &[ParserSyntaxNodeId],
+) {
+    let events = canonical_lexical_events(text, span);
+    let keyword = match form {
+        CanonicalStatementKindEvent::Return => Some("return"),
+        CanonicalStatementKindEvent::ImmutableBinding => Some("let"),
+        CanonicalStatementKindEvent::MutableBinding => Some("change"),
+        CanonicalStatementKindEvent::Set => Some("set"),
+        CanonicalStatementKindEvent::Save => Some("save"),
+        CanonicalStatementKindEvent::Fail => Some("fail"),
+        CanonicalStatementKindEvent::Expect => Some("expect"),
+        CanonicalStatementKindEvent::If => Some("if"),
+        CanonicalStatementKindEvent::While => Some("while"),
+        CanonicalStatementKindEvent::ForEach
+        | CanonicalStatementKindEvent::ForIndexUntil
+        | CanonicalStatementKindEvent::ForIndexThrough => Some("for"),
+        CanonicalStatementKindEvent::UnconditionalLoop => Some("loop"),
+        CanonicalStatementKindEvent::BlockClose => Some("}"),
+        CanonicalStatementKindEvent::NeedsPredicate
+        | CanonicalStatementKindEvent::EnsuresPredicate
+        | CanonicalStatementKindEvent::FreeExpression => None,
+    };
+    if let Some(keyword) = keyword {
+        retained_token_fact(
+            facts,
+            CanonicalStatementEventField::Keyword,
+            &events,
+            0,
+            keyword,
+            0,
+        );
+    }
+    let root = |ordinal: usize| {
+        roots
+            .get(ordinal)
+            .cloned()
+            .map(|node| CanonicalStatementEventValue::Root { ordinal, node })
+    };
+    match form {
+        CanonicalStatementKindEvent::Return
+        | CanonicalStatementKindEvent::Fail
+        | CanonicalStatementKindEvent::Expect
+        | CanonicalStatementKindEvent::FreeExpression
+        | CanonicalStatementKindEvent::If
+        | CanonicalStatementKindEvent::While => {
+            if let Some(value) = root(0) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::ValueRoot,
+                    value,
+                ));
+            }
+        }
+        CanonicalStatementKindEvent::ImmutableBinding
+        | CanonicalStatementKindEvent::MutableBinding => {
+            let binder = events
+                .get(1)
+                .expect("binding retained binder event must exist");
+            facts.push(statement_fact(
+                CanonicalStatementEventField::Binder,
+                CanonicalStatementEventValue::Token {
+                    slot: 1,
+                    range: binder.range.clone(),
+                    spelling: binder.spelling.clone(),
+                },
+            ));
+            facts.push(statement_fact(
+                CanonicalStatementEventField::BinderRelationship,
+                CanonicalStatementEventValue::TokenReference(1),
+            ));
+            if events.iter().any(|event| event.spelling == ":") {
+                retained_token_fact(
+                    facts,
+                    CanonicalStatementEventField::TypeBoundary,
+                    &events,
+                    2,
+                    ":",
+                    0,
+                );
+            }
+            if events.iter().any(|event| event.spelling == "=") {
+                retained_token_fact(
+                    facts,
+                    CanonicalStatementEventField::AssignmentToken,
+                    &events,
+                    3,
+                    "=",
+                    0,
+                );
+            }
+            if let Some(value) = root(0) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::ValueRoot,
+                    value,
+                ));
+            }
+        }
+        CanonicalStatementKindEvent::Set => {
+            if events.iter().any(|event| event.spelling == "=") {
+                retained_token_fact(
+                    facts,
+                    CanonicalStatementEventField::AssignmentToken,
+                    &events,
+                    1,
+                    "=",
+                    0,
+                );
+            }
+            if let Some(value) = root(1) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::TargetRoot,
+                    value,
+                ));
+            }
+            if let Some(value) = root(0) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::ValueRoot,
+                    value,
+                ));
+            }
+        }
+        CanonicalStatementKindEvent::Save => {
+            if let Some(value) = root(0) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::ValueRoot,
+                    value,
+                ));
+            }
+            if let Some((in_index, relationship)) = events
+                .iter()
+                .enumerate()
+                .find(|(_, event)| event.spelling == "in")
+            {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::RelationshipToken,
+                    CanonicalStatementEventValue::Token {
+                        slot: 1,
+                        range: relationship.range.clone(),
+                        spelling: relationship.spelling.clone(),
+                    },
+                ));
+                if let Some(destination) = events.get(in_index + 1) {
+                    facts.push(statement_fact(
+                        CanonicalStatementEventField::DestinationToken,
+                        CanonicalStatementEventValue::Token {
+                            slot: 2,
+                            range: destination.range.clone(),
+                            spelling: destination.spelling.clone(),
+                        },
+                    ));
+                }
+            }
+        }
+        CanonicalStatementKindEvent::ForEach => {
+            let phrase = events
+                .iter()
+                .take(2)
+                .enumerate()
+                .map(|(slot, event)| (slot, event.range.clone(), event.spelling.clone()))
+                .collect();
+            facts.push(statement_fact(
+                CanonicalStatementEventField::PhraseTokens,
+                CanonicalStatementEventValue::Tokens(phrase),
+            ));
+            let binder = events.get(2).expect("for-each retained binder must exist");
+            facts.push(statement_fact(
+                CanonicalStatementEventField::Binder,
+                CanonicalStatementEventValue::Token {
+                    slot: 2,
+                    range: binder.range.clone(),
+                    spelling: binder.spelling.clone(),
+                },
+            ));
+            facts.push(statement_fact(
+                CanonicalStatementEventField::BinderRelationship,
+                CanonicalStatementEventValue::TokenReference(2),
+            ));
+            retained_token_fact(
+                facts,
+                CanonicalStatementEventField::RelationshipToken,
+                &events,
+                3,
+                "in",
+                0,
+            );
+            if let Some(value) = root(0) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::ValueRoot,
+                    value,
+                ));
+            }
+        }
+        CanonicalStatementKindEvent::ForIndexUntil
+        | CanonicalStatementKindEvent::ForIndexThrough => {
+            let phrase = events
+                .iter()
+                .take(2)
+                .enumerate()
+                .map(|(slot, event)| (slot, event.range.clone(), event.spelling.clone()))
+                .collect();
+            facts.push(statement_fact(
+                CanonicalStatementEventField::PhraseTokens,
+                CanonicalStatementEventValue::Tokens(phrase),
+            ));
+            let binder = events.get(2).expect("for-index retained binder must exist");
+            facts.push(statement_fact(
+                CanonicalStatementEventField::Binder,
+                CanonicalStatementEventValue::Token {
+                    slot: 2,
+                    range: binder.range.clone(),
+                    spelling: binder.spelling.clone(),
+                },
+            ));
+            facts.push(statement_fact(
+                CanonicalStatementEventField::BinderRelationship,
+                CanonicalStatementEventValue::TokenReference(2),
+            ));
+            retained_token_fact(
+                facts,
+                CanonicalStatementEventField::RelationshipToken,
+                &events,
+                3,
+                "from",
+                0,
+            );
+            let bound = if form == CanonicalStatementKindEvent::ForIndexThrough {
+                "through"
+            } else {
+                "until"
+            };
+            retained_token_fact(
+                facts,
+                CanonicalStatementEventField::RelationshipToken,
+                &events,
+                4,
+                bound,
+                0,
+            );
+            if let Some(value) = root(0) {
+                facts.push(statement_fact(
+                    CanonicalStatementEventField::StartRoot,
+                    value,
+                ));
+            }
+            if let Some(value) = root(1) {
+                facts.push(statement_fact(CanonicalStatementEventField::EndRoot, value));
+            }
+        }
+        CanonicalStatementKindEvent::UnconditionalLoop
+        | CanonicalStatementKindEvent::BlockClose => {}
+        CanonicalStatementKindEvent::NeedsPredicate
+        | CanonicalStatementKindEvent::EnsuresPredicate => unreachable!(),
+    }
+}
+
+fn retained_statement_events(
+    text: &str,
+    span: &Span,
+    source_node_id: &ParserSyntaxNodeId,
+    _kind: &ParsedBodyStatementKind,
+    _extra: &[ParsedExpression],
+    assignments: &[CanonicalOccurrenceAssignmentEvent],
+) -> Vec<CanonicalStatementEventFact> {
+    let form = retained_statement_kind(text);
+    let roots = assignments
+        .iter()
+        .map(|assignment| assignment.expression_node_id.clone())
+        .collect::<Vec<_>>();
+    let mut facts = vec![
+        statement_fact(
+            CanonicalStatementEventField::Kind,
+            CanonicalStatementEventValue::Kind(form),
+        ),
+        statement_fact(
+            CanonicalStatementEventField::Line,
+            CanonicalStatementEventValue::Range(ParsedSourceRange {
+                start: span.clone(),
+                byte_len: text.len(),
+            }),
+        ),
+        statement_fact(
+            CanonicalStatementEventField::Statement,
+            CanonicalStatementEventValue::Text(source_node_id.as_str().to_string()),
+        ),
+    ];
+    // The retained channel starts from the parser's token stream and assignment events,
+    // independently of the projected statement facts.
+    append_retained_form_facts(&mut facts, form, text, span, &roots);
+    facts.push(statement_fact(
+        CanonicalStatementEventField::OrderedRoots,
+        CanonicalStatementEventValue::Roots(roots.iter().cloned().enumerate().collect()),
+    ));
+    if roots.is_empty() {
+        facts.push(statement_fact(
+            CanonicalStatementEventField::ExpressionAbsent,
+            CanonicalStatementEventValue::Bool(true),
+        ));
+    }
+    facts
+}
+
+fn append_retained_block_events(
+    facts: &mut Vec<CanonicalStatementEventFact>,
+    text: &str,
+    span: &Span,
+    block: StatementBlockContext,
+) {
+    facts.extend([
+        statement_fact(
+            CanonicalStatementEventField::BlockDepthBefore,
+            CanonicalStatementEventValue::Usize(block.depth_before),
+        ),
+        statement_fact(
+            CanonicalStatementEventField::BlockDepthAfter,
+            CanonicalStatementEventValue::Usize(block.depth_after),
+        ),
+        statement_fact(
+            CanonicalStatementEventField::BlockRelationship,
+            CanonicalStatementEventValue::BlockRelationship(block.relationship),
+        ),
+    ]);
+    let lexical_events = canonical_lexical_events(text, span);
+    match block.relationship {
+        ParsedBlockRelationship::Opens => {
+            let open = lexical_events
+                .iter()
+                .rfind(|token| token.spelling == "{")
+                .expect("retained block opener token");
+            facts.push(statement_fact(
+                CanonicalStatementEventField::BlockOpenToken,
+                CanonicalStatementEventValue::Token {
+                    slot: 31,
+                    range: open.range.clone(),
+                    spelling: open.spelling.clone(),
+                },
+            ));
+            facts.push(statement_fact(
+                CanonicalStatementEventField::BlockOwner,
+                CanonicalStatementEventValue::Bool(true),
+            ));
+        }
+        ParsedBlockRelationship::Closes => {
+            let close = lexical_events
+                .iter()
+                .find(|token| token.spelling == "}")
+                .expect("retained block close token");
+            facts.push(statement_fact(
+                CanonicalStatementEventField::BlockCloseToken,
+                CanonicalStatementEventValue::Token {
+                    slot: 31,
+                    range: close.range.clone(),
+                    spelling: close.spelling.clone(),
+                },
+            ));
+            facts.push(statement_fact(
+                CanonicalStatementEventField::BlockOwner,
+                CanonicalStatementEventValue::Bool(true),
+            ));
+        }
+        ParsedBlockRelationship::None if block.depth_before > 0 => {
+            facts.push(statement_fact(
+                CanonicalStatementEventField::BlockOwner,
+                CanonicalStatementEventValue::Bool(true),
+            ));
+        }
+        ParsedBlockRelationship::None => {}
     }
 }
 
@@ -4128,10 +6373,16 @@ fn retained_other_assignment(
     CanonicalExpressionIntentEvent,
     bool,
 ) {
-    if keyword_rest(text, "set").is_some() {
+    if keyword_rest(text, "set").is_some() && index == 0 {
         (
             CanonicalExpressionRoleEvent::SetValue,
             CanonicalExpressionIntentEvent::SetValue,
+            false,
+        )
+    } else if keyword_rest(text, "set").is_some() {
+        (
+            CanonicalExpressionRoleEvent::Other,
+            CanonicalExpressionIntentEvent::Other,
             false,
         )
     } else if keyword_rest(text, "save").is_some() {
@@ -4527,7 +6778,7 @@ fn parse_other_statement_expressions(
                 text.len() - collection.len(),
             )
         })
-    } else if text != "}" && !text.ends_with(':') {
+    } else if text != "}" && text != "loop {" && !text.ends_with(':') {
         Some((text, 0))
     } else {
         None
@@ -4535,20 +6786,49 @@ fn parse_other_statement_expressions(
     candidate
         .filter(|(expression, _)| !expression.trim().is_empty())
         .map(|(expression, offset)| {
-            vec![parse_expression_syntax(
+            let mut parsed = parse_expression_syntax(
                 expression,
                 offset_span(span, offset),
                 source_node_id.child("expression-0"),
-            )]
+            );
+            if keyword_rest(text, "if").is_some() || keyword_rest(text, "while").is_some() {
+                apply_predicate_completion(&mut parsed, expression, &offset_span(span, offset));
+            }
+            vec![parsed]
         })
         .unwrap_or_default()
 }
 
-fn parse_for_index_occurrence_expressions(
+fn parse_statement_relationship_occurrences(
     text: &str,
     span: &Span,
     source_node_id: &ParserSyntaxNodeId,
 ) -> Vec<ParsedExpression> {
+    if let Some(rest) = keyword_rest(text, "set") {
+        let rest_offset = text.len() - rest.len();
+        if let Some(equals) = find_top_level_char(rest, '=') {
+            let target_raw = &rest[..equals];
+            let value_raw = &rest[equals + 1..];
+            let target = target_raw.trim();
+            let value = value_raw.trim();
+            if !target.is_empty() && !value.is_empty() {
+                let target_leading = target_raw.len() - target_raw.trim_start().len();
+                let value_leading = value_raw.len() - value_raw.trim_start().len();
+                return vec![
+                    parse_expression_syntax(
+                        value,
+                        offset_span(span, rest_offset + equals + 1 + value_leading),
+                        source_node_id.child("canonical-occurrence-expression-0"),
+                    ),
+                    parse_expression_syntax(
+                        target,
+                        offset_span(span, rest_offset + target_leading),
+                        source_node_id.child("canonical-occurrence-expression-1"),
+                    ),
+                ];
+            }
+        }
+    }
     if let Some(rest) = keyword_rest(text, "for index") {
         let rest_offset = text.len() - rest.len();
         if let Some(from) = rest.find(" from ") {
@@ -4711,6 +6991,930 @@ fn canonical_lexical_events(text: &str, span: &Span) -> Vec<CanonicalLexicalToke
         });
     }
     events
+}
+
+const CANONICAL_MAX_DELIMITER_DEPTH: usize = 16;
+
+fn completion_range(span: &Span, start: usize, byte_len: usize) -> ParsedSourceRange {
+    ParsedSourceRange {
+        start: offset_span(span, start),
+        byte_len,
+    }
+}
+
+fn completion_token_kind(ch: char) -> CanonicalLexicalTokenKind {
+    match ch {
+        '"' => CanonicalLexicalTokenKind::TextQuote,
+        '(' => CanonicalLexicalTokenKind::ParenthesisOpen,
+        ')' => CanonicalLexicalTokenKind::ParenthesisClose,
+        '[' => CanonicalLexicalTokenKind::ListOpen,
+        ']' => CanonicalLexicalTokenKind::ListClose,
+        '{' => CanonicalLexicalTokenKind::RecordOpen,
+        '}' => CanonicalLexicalTokenKind::RecordClose,
+        ',' => CanonicalLexicalTokenKind::Comma,
+        '.' => CanonicalLexicalTokenKind::Dot,
+        '<' | '>' | '=' | '!' => CanonicalLexicalTokenKind::ComparisonOperator,
+        value if value.is_ascii_digit() => CanonicalLexicalTokenKind::IntegerLiteral,
+        value if value.is_ascii_alphabetic() || value == '_' => {
+            CanonicalLexicalTokenKind::Identifier
+        }
+        _ => CanonicalLexicalTokenKind::Other,
+    }
+}
+
+fn completion_close_kind(open: char) -> CanonicalLexicalTokenKind {
+    match open {
+        '(' => CanonicalLexicalTokenKind::ParenthesisClose,
+        '[' => CanonicalLexicalTokenKind::ListClose,
+        '{' => CanonicalLexicalTokenKind::RecordClose,
+        _ => CanonicalLexicalTokenKind::Other,
+    }
+}
+
+fn completion_actual_token(
+    text: &str,
+    span: &Span,
+    start: usize,
+) -> CanonicalActualLexicalEvidence {
+    text.get(start..)
+        .and_then(|rest| rest.chars().next())
+        .map_or(CanonicalActualLexicalEvidence::EndOfInput, |ch| {
+            let byte_len = if ch.is_ascii_alphanumeric() || ch == '_' {
+                text[start..]
+                    .chars()
+                    .take_while(|next| next.is_ascii_alphanumeric() || *next == '_')
+                    .map(char::len_utf8)
+                    .sum()
+            } else {
+                ch.len_utf8()
+            };
+            CanonicalActualLexicalEvidence::Token {
+                kind: completion_token_kind(ch),
+                range: completion_range(span, start, byte_len),
+                spelling: text[start..start + byte_len].to_string(),
+            }
+        })
+}
+
+fn malformed_completion(
+    cause: CanonicalMalformedCause,
+    text: &str,
+    span: &Span,
+    offending: ParsedSourceRange,
+    expected: CanonicalExpectedLexicalEvidence,
+    actual: CanonicalActualLexicalEvidence,
+) -> CanonicalCompletionEvent {
+    malformed_completion_with_producer(
+        cause,
+        text,
+        span,
+        offending.clone(),
+        offending,
+        expected,
+        actual,
+    )
+}
+
+fn malformed_completion_with_producer(
+    cause: CanonicalMalformedCause,
+    text: &str,
+    span: &Span,
+    producing_event: ParsedSourceRange,
+    offending: ParsedSourceRange,
+    expected: CanonicalExpectedLexicalEvidence,
+    actual: CanonicalActualLexicalEvidence,
+) -> CanonicalCompletionEvent {
+    let actual_end = malformed_actual_range(&actual).map_or(0, |range| {
+        range.start.column.saturating_sub(span.column) + range.byte_len
+    });
+    let consumed_end = (offending.start.column.saturating_sub(span.column) + offending.byte_len)
+        .max(producing_event.start.column.saturating_sub(span.column) + producing_event.byte_len)
+        .max(actual_end)
+        .min(text.len());
+    CanonicalCompletionEvent::Unsupported(Box::new(CanonicalMalformedEvent {
+        cause,
+        producing_event,
+        offending,
+        consumed: completion_range(span, 0, consumed_end),
+        expected,
+        actual,
+    }))
+}
+
+fn projected_delimiter_completion(text: &str, span: &Span) -> Option<CanonicalCompletionEvent> {
+    let mut stack = Vec::new();
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut quote_start = 0usize;
+    for (index, ch) in text.char_indices() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => {
+                quoted = true;
+                quote_start = index;
+            }
+            '(' | '[' | '{' => {
+                stack.push((ch, index));
+                if stack.len() > CANONICAL_MAX_DELIMITER_DEPTH {
+                    let offending = completion_range(span, index, ch.len_utf8());
+                    return Some(malformed_completion(
+                        CanonicalMalformedCause::DelimiterDepthExceeded,
+                        text,
+                        span,
+                        offending,
+                        CanonicalExpectedLexicalEvidence::MaximumDelimiterDepth(
+                            CANONICAL_MAX_DELIMITER_DEPTH,
+                        ),
+                        CanonicalActualLexicalEvidence::DelimiterDepth(stack.len()),
+                    ));
+                }
+            }
+            ')' | ']' | '}' => {
+                let expected_open = match ch {
+                    ')' => '(',
+                    ']' => '[',
+                    '}' => '{',
+                    _ => unreachable!(),
+                };
+                if stack.last().map(|(open, _)| *open) == Some(expected_open) {
+                    stack.pop();
+                } else {
+                    let offending = completion_range(span, index, ch.len_utf8());
+                    let expected = stack.last().map_or(
+                        CanonicalExpectedLexicalEvidence::Operand,
+                        |(open, _)| {
+                            CanonicalExpectedLexicalEvidence::Token(completion_close_kind(*open))
+                        },
+                    );
+                    return Some(malformed_completion(
+                        CanonicalMalformedCause::MismatchedDelimiter,
+                        text,
+                        span,
+                        offending.clone(),
+                        expected,
+                        CanonicalActualLexicalEvidence::Token {
+                            kind: completion_token_kind(ch),
+                            range: offending,
+                            spelling: ch.to_string(),
+                        },
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    if quoted {
+        let offending = completion_range(span, quote_start, text.len() - quote_start);
+        return Some(malformed_completion_with_producer(
+            CanonicalMalformedCause::UnterminatedTextLiteral,
+            text,
+            span,
+            completion_range(span, quote_start, 1),
+            offending,
+            CanonicalExpectedLexicalEvidence::Token(CanonicalLexicalTokenKind::TextQuote),
+            CanonicalActualLexicalEvidence::EndOfInput,
+        ));
+    }
+    stack.last().map(|(open, open_index)| {
+        let offending = completion_range(span, text.len(), 0);
+        malformed_completion_with_producer(
+            CanonicalMalformedCause::MissingDelimiter,
+            text,
+            span,
+            completion_range(span, *open_index, 1),
+            offending,
+            CanonicalExpectedLexicalEvidence::Token(completion_close_kind(*open)),
+            CanonicalActualLexicalEvidence::EndOfInput,
+        )
+    })
+}
+
+fn retained_delimiter_completion(text: &str, span: &Span) -> Option<CanonicalCompletionEvent> {
+    let mut opens: Vec<(u8, usize)> = Vec::new();
+    let mut cursor = 0usize;
+    let bytes = text.as_bytes();
+    let mut text_open = None;
+    while cursor < bytes.len() {
+        if let Some(open) = text_open {
+            if bytes[cursor] == b'\\' {
+                cursor = (cursor + 2).min(bytes.len());
+                continue;
+            }
+            if bytes[cursor] == b'"' {
+                text_open = None;
+            }
+            cursor += 1;
+            if cursor == bytes.len() && text_open.is_some() {
+                let offending = completion_range(span, open, bytes.len() - open);
+                return Some(malformed_completion_with_producer(
+                    CanonicalMalformedCause::UnterminatedTextLiteral,
+                    text,
+                    span,
+                    completion_range(span, open, 1),
+                    offending,
+                    CanonicalExpectedLexicalEvidence::Token(CanonicalLexicalTokenKind::TextQuote),
+                    CanonicalActualLexicalEvidence::EndOfInput,
+                ));
+            }
+            continue;
+        }
+        match bytes[cursor] {
+            b'"' => text_open = Some(cursor),
+            b'(' | b'[' | b'{' => {
+                opens.push((bytes[cursor], cursor));
+                if opens.len() > CANONICAL_MAX_DELIMITER_DEPTH {
+                    let offending = completion_range(span, cursor, 1);
+                    return Some(malformed_completion(
+                        CanonicalMalformedCause::DelimiterDepthExceeded,
+                        text,
+                        span,
+                        offending,
+                        CanonicalExpectedLexicalEvidence::MaximumDelimiterDepth(
+                            CANONICAL_MAX_DELIMITER_DEPTH,
+                        ),
+                        CanonicalActualLexicalEvidence::DelimiterDepth(opens.len()),
+                    ));
+                }
+            }
+            b')' | b']' | b'}' => {
+                let wanted = match bytes[cursor] {
+                    b')' => b'(',
+                    b']' => b'[',
+                    b'}' => b'{',
+                    _ => unreachable!(),
+                };
+                if opens.last().map(|(open, _)| *open) == Some(wanted) {
+                    opens.pop();
+                } else {
+                    let spelling = (bytes[cursor] as char).to_string();
+                    let offending = completion_range(span, cursor, 1);
+                    let expected = opens.last().map_or(
+                        CanonicalExpectedLexicalEvidence::Operand,
+                        |(open, _)| {
+                            CanonicalExpectedLexicalEvidence::Token(completion_close_kind(
+                                *open as char,
+                            ))
+                        },
+                    );
+                    return Some(malformed_completion(
+                        CanonicalMalformedCause::MismatchedDelimiter,
+                        text,
+                        span,
+                        offending.clone(),
+                        expected,
+                        CanonicalActualLexicalEvidence::Token {
+                            kind: completion_token_kind(bytes[cursor] as char),
+                            range: offending,
+                            spelling,
+                        },
+                    ));
+                }
+            }
+            _ => {}
+        }
+        cursor += 1;
+    }
+    if let Some(open) = text_open {
+        let offending = completion_range(span, open, text.len() - open);
+        return Some(malformed_completion_with_producer(
+            CanonicalMalformedCause::UnterminatedTextLiteral,
+            text,
+            span,
+            completion_range(span, open, 1),
+            offending,
+            CanonicalExpectedLexicalEvidence::Token(CanonicalLexicalTokenKind::TextQuote),
+            CanonicalActualLexicalEvidence::EndOfInput,
+        ));
+    }
+    opens.last().map(|(open, open_index)| {
+        malformed_completion_with_producer(
+            CanonicalMalformedCause::MissingDelimiter,
+            text,
+            span,
+            completion_range(span, *open_index, 1),
+            completion_range(span, text.len(), 0),
+            CanonicalExpectedLexicalEvidence::Token(completion_close_kind(*open as char)),
+            CanonicalActualLexicalEvidence::EndOfInput,
+        )
+    })
+}
+
+fn projected_out_of_range_integer(text: &str) -> Option<(usize, usize)> {
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut index = 0usize;
+    while index < text.len() {
+        let ch = text[index..].chars().next()?;
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            index += ch.len_utf8();
+            continue;
+        }
+        if ch == '"' {
+            quoted = true;
+            index += 1;
+            continue;
+        }
+        let signed = ch == '-'
+            && text[index + ch.len_utf8()..]
+                .chars()
+                .next()
+                .is_some_and(|next| next.is_ascii_digit());
+        if ch.is_ascii_digit() || signed {
+            let start = index;
+            index += ch.len_utf8();
+            while text[index..]
+                .chars()
+                .next()
+                .is_some_and(|next| next.is_ascii_digit())
+            {
+                index += 1;
+            }
+            let before = text[..start].chars().next_back();
+            let after = text[index..].chars().next();
+            let identifier_continue = |value: char| value.is_ascii_alphanumeric() || value == '_';
+            let bounded = before.is_none_or(|value| !identifier_continue(value))
+                && after.is_none_or(|value| !identifier_continue(value));
+            if bounded && text[start..index].parse::<i64>().is_err() {
+                return Some((start, index - start));
+            }
+            continue;
+        }
+        index += ch.len_utf8();
+    }
+    None
+}
+
+fn retained_out_of_range_integer(text: &str, span: &Span) -> Option<(usize, usize)> {
+    let events = canonical_lexical_events(text, span);
+    for (index, event) in events.iter().enumerate() {
+        let (start, spelling) = if event.spelling == "-"
+            && events
+                .get(index + 1)
+                .is_some_and(|next| next.spelling.chars().all(|ch| ch.is_ascii_digit()))
+        {
+            let digits = &events[index + 1];
+            (
+                event.range.start.column.saturating_sub(span.column),
+                format!("-{}", digits.spelling),
+            )
+        } else if event.spelling.chars().all(|ch| ch.is_ascii_digit()) {
+            (
+                event.range.start.column.saturating_sub(span.column),
+                event.spelling.clone(),
+            )
+        } else {
+            continue;
+        };
+        if spelling.parse::<i64>().is_err() {
+            return Some((start, spelling.len()));
+        }
+    }
+    None
+}
+
+fn malformed_comparison_range(text: &str) -> Option<(usize, usize)> {
+    let mut quoted = false;
+    let mut escaped = false;
+    text.char_indices().find_map(|(index, ch)| {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            return None;
+        }
+        if ch == '"' {
+            quoted = true;
+            return None;
+        }
+        if matches!(ch, '<' | '>' | '=' | '!') {
+            if text[..index]
+                .chars()
+                .next_back()
+                .is_some_and(|previous| matches!(previous, '<' | '>' | '=' | '!'))
+            {
+                return None;
+            }
+            let len = text[index..]
+                .chars()
+                .take_while(|next| matches!(next, '<' | '>' | '=' | '!'))
+                .map(char::len_utf8)
+                .sum::<usize>();
+            (!matches!(
+                &text[index..index + len],
+                "<" | "<=" | ">" | ">=" | "==" | "!="
+            ))
+            .then_some((index, len))
+        } else {
+            None
+        }
+    })
+}
+
+fn retained_malformed_comparison_range(text: &str, span: &Span) -> Option<(usize, usize)> {
+    let events = canonical_lexical_events(text, span);
+    let mut index = 0usize;
+    while index < events.len() {
+        if !events[index]
+            .spelling
+            .chars()
+            .all(|ch| matches!(ch, '<' | '>' | '=' | '!'))
+        {
+            index += 1;
+            continue;
+        }
+        let start = events[index].range.start.column.saturating_sub(span.column);
+        let mut spelling = events[index].spelling.clone();
+        let mut end = start + events[index].range.byte_len;
+        index += 1;
+        while index < events.len()
+            && events[index].range.start.column.saturating_sub(span.column) == end
+            && events[index]
+                .spelling
+                .chars()
+                .all(|ch| matches!(ch, '<' | '>' | '=' | '!'))
+        {
+            spelling.push_str(&events[index].spelling);
+            end += events[index].range.byte_len;
+            index += 1;
+        }
+        if !matches!(spelling.as_str(), "<" | "<=" | ">" | ">=" | "==" | "!=") {
+            return Some((start, end - start));
+        }
+    }
+    None
+}
+
+fn projected_missing_operand(text: &str) -> Option<(usize, usize)> {
+    let trimmed = text.trim_end();
+    [
+        "fails with",
+        "returns",
+        "does",
+        "and",
+        "or",
+        "==",
+        "!=",
+        "<=",
+        ">=",
+        "<",
+        ">",
+        "+",
+        "-",
+        "*",
+        "/",
+        "is",
+    ]
+    .iter()
+    .find_map(|operator| {
+        let prefix = trimmed.strip_suffix(operator)?;
+        let start = prefix.len();
+        let bounded = !operator.chars().all(|ch| ch.is_ascii_alphabetic())
+            || start == 0
+            || prefix.chars().next_back().is_some_and(char::is_whitespace);
+        bounded.then_some((start, operator.len()))
+    })
+}
+
+fn retained_missing_operand(text: &str, span: &Span) -> Option<(usize, usize)> {
+    let events = canonical_lexical_events(text, span);
+    let last = events.last()?;
+    let operator = matches!(
+        last.spelling.as_str(),
+        "==" | "!="
+            | "<="
+            | ">="
+            | "<"
+            | ">"
+            | "+"
+            | "-"
+            | "*"
+            | "/"
+            | "is"
+            | "does"
+            | "returns"
+            | "and"
+            | "or"
+            | "with"
+    );
+    if !operator {
+        return None;
+    }
+    let start = if last.spelling == "with"
+        && events
+            .get(events.len().saturating_sub(2))
+            .is_some_and(|event| event.spelling == "fails")
+    {
+        events[events.len() - 2]
+            .range
+            .start
+            .column
+            .saturating_sub(span.column)
+    } else {
+        last.range.start.column.saturating_sub(span.column)
+    };
+    Some((start, text.trim_end().len() - start))
+}
+
+fn malformed_field_offset(text: &str) -> Option<usize> {
+    let mut quoted = false;
+    let mut escaped = false;
+    text.char_indices().find_map(|(index, ch)| {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            return None;
+        }
+        if ch == '"' {
+            quoted = true;
+            return None;
+        }
+        if ch != '.' {
+            return None;
+        }
+        text[index + 1..]
+            .chars()
+            .next()
+            .is_none_or(|next| !(next.is_ascii_lowercase() || next == '_'))
+            .then_some(index)
+    })
+}
+
+fn retained_malformed_field_offset(text: &str, span: &Span) -> Option<usize> {
+    let events = canonical_lexical_events(text, span);
+    events.iter().enumerate().find_map(|(index, event)| {
+        if event.spelling != "." {
+            return None;
+        }
+        let valid = events.get(index + 1).is_some_and(|next| {
+            next.spelling
+                .chars()
+                .next()
+                .is_some_and(|first| first.is_ascii_lowercase() || first == '_')
+                && next
+                    .spelling
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        });
+        (!valid).then_some(event.range.start.column.saturating_sub(span.column))
+    })
+}
+
+fn projected_completion_event(
+    kind: &CanonicalExpressionKind,
+    text: &str,
+    span: &Span,
+) -> CanonicalCompletionEvent {
+    if let Some(issue) = projected_delimiter_completion(text, span) {
+        return issue;
+    }
+    if let Some((start, len)) = projected_out_of_range_integer(text) {
+        let offending = completion_range(span, start, len);
+        return malformed_completion(
+            CanonicalMalformedCause::IntegerLiteralOutOfRange,
+            text,
+            span,
+            offending.clone(),
+            CanonicalExpectedLexicalEvidence::Int64Value,
+            CanonicalActualLexicalEvidence::Token {
+                kind: CanonicalLexicalTokenKind::IntegerLiteral,
+                range: offending,
+                spelling: text[start..start + len].to_string(),
+            },
+        );
+    }
+    if let Some((operator_start, operator_len)) = projected_missing_operand(text) {
+        return malformed_completion_with_producer(
+            CanonicalMalformedCause::MissingOperand,
+            text,
+            span,
+            completion_range(span, operator_start, operator_len),
+            completion_range(span, text.trim_end().len(), 0),
+            CanonicalExpectedLexicalEvidence::Operand,
+            CanonicalActualLexicalEvidence::EndOfInput,
+        );
+    }
+    if let Some((start, len)) = malformed_comparison_range(text) {
+        let offending = completion_range(span, start, len);
+        return malformed_completion(
+            CanonicalMalformedCause::InvalidComparisonOperator,
+            text,
+            span,
+            offending.clone(),
+            CanonicalExpectedLexicalEvidence::ComparisonOperator,
+            CanonicalActualLexicalEvidence::Token {
+                kind: CanonicalLexicalTokenKind::ComparisonOperator,
+                range: offending,
+                spelling: text[start..start + len].to_string(),
+            },
+        );
+    }
+    if let Some(start) = malformed_field_offset(text) {
+        return malformed_completion(
+            CanonicalMalformedCause::MalformedFieldPlace,
+            text,
+            span,
+            completion_range(span, start, 1),
+            CanonicalExpectedLexicalEvidence::Identifier,
+            completion_actual_token(text, span, start),
+        );
+    }
+    if matches!(kind, CanonicalExpressionKind::Unsupported) {
+        let leading = text.len() - text.trim_start().len();
+        let actual = completion_actual_token(text, span, leading);
+        let byte_len = malformed_actual_range(&actual).map_or(0, |range| range.byte_len);
+        return malformed_completion(
+            CanonicalMalformedCause::InvalidOperandStarter,
+            text,
+            span,
+            completion_range(span, leading, byte_len),
+            CanonicalExpectedLexicalEvidence::Operand,
+            actual,
+        );
+    }
+    CanonicalCompletionEvent::Complete
+}
+
+fn retained_completion_event(
+    kind: CanonicalCommonNodeKind,
+    text: &str,
+    span: &Span,
+) -> CanonicalCompletionEvent {
+    if let Some(issue) = retained_delimiter_completion(text, span) {
+        return issue;
+    }
+    if let Some((start, len)) = retained_out_of_range_integer(text, span) {
+        let offending = completion_range(span, start, len);
+        return malformed_completion(
+            CanonicalMalformedCause::IntegerLiteralOutOfRange,
+            text,
+            span,
+            offending.clone(),
+            CanonicalExpectedLexicalEvidence::Int64Value,
+            CanonicalActualLexicalEvidence::Token {
+                kind: CanonicalLexicalTokenKind::IntegerLiteral,
+                range: offending,
+                spelling: text[start..start + len].to_string(),
+            },
+        );
+    }
+    if let Some((operator_start, operator_len)) = retained_missing_operand(text, span) {
+        return malformed_completion_with_producer(
+            CanonicalMalformedCause::MissingOperand,
+            text,
+            span,
+            completion_range(span, operator_start, operator_len),
+            completion_range(span, text.trim_end().len(), 0),
+            CanonicalExpectedLexicalEvidence::Operand,
+            CanonicalActualLexicalEvidence::EndOfInput,
+        );
+    }
+    if let Some((start, len)) = retained_malformed_comparison_range(text, span) {
+        let offending = completion_range(span, start, len);
+        return malformed_completion(
+            CanonicalMalformedCause::InvalidComparisonOperator,
+            text,
+            span,
+            offending.clone(),
+            CanonicalExpectedLexicalEvidence::ComparisonOperator,
+            CanonicalActualLexicalEvidence::Token {
+                kind: CanonicalLexicalTokenKind::ComparisonOperator,
+                range: offending,
+                spelling: text[start..start + len].to_string(),
+            },
+        );
+    }
+    if let Some(start) = retained_malformed_field_offset(text, span) {
+        return malformed_completion(
+            CanonicalMalformedCause::MalformedFieldPlace,
+            text,
+            span,
+            completion_range(span, start, 1),
+            CanonicalExpectedLexicalEvidence::Identifier,
+            completion_actual_token(text, span, start),
+        );
+    }
+    if kind == CanonicalCommonNodeKind::Unsupported {
+        let start = text.len() - text.trim_start().len();
+        let actual = completion_actual_token(text, span, start);
+        let byte_len = malformed_actual_range(&actual).map_or(0, |range| range.byte_len);
+        return malformed_completion(
+            CanonicalMalformedCause::InvalidOperandStarter,
+            text,
+            span,
+            completion_range(span, start, byte_len),
+            CanonicalExpectedLexicalEvidence::Operand,
+            actual,
+        );
+    }
+    CanonicalCompletionEvent::Complete
+}
+
+fn projected_predicate_list_completion(
+    text: &str,
+    span: &Span,
+) -> Option<CanonicalCompletionEvent> {
+    let open = text
+        .char_indices()
+        .find_map(|(index, ch)| (ch == '[').then_some(index))?;
+    let close = matching_delimiter_quoted(text, open, '[', ']')?;
+    let inside = &text[open + 1..close];
+    if inside.trim_end().ends_with(',') {
+        let comma = open + 1 + inside.rfind(',')?;
+        return Some(malformed_completion(
+            CanonicalMalformedCause::ListTrailingComma,
+            text,
+            span,
+            completion_range(span, comma, 1),
+            CanonicalExpectedLexicalEvidence::TextListElement,
+            CanonicalActualLexicalEvidence::Token {
+                kind: CanonicalLexicalTokenKind::ListClose,
+                range: completion_range(span, close, 1),
+                spelling: "]".to_string(),
+            },
+        ));
+    }
+    for range in split_top_level_ranges_quoted(inside, ',') {
+        let raw = &inside[range.clone()];
+        let value = raw.trim();
+        let leading = raw.len() - raw.trim_start().len();
+        let absolute = open + 1 + range.start + leading;
+        if value.starts_with('"') {
+            let mut escaped = false;
+            let end = value.char_indices().skip(1).find_map(|(index, ch)| {
+                if escaped {
+                    escaped = false;
+                    None
+                } else if ch == '\\' {
+                    escaped = true;
+                    None
+                } else {
+                    (ch == '"').then_some(index)
+                }
+            });
+            let Some(end) = end else {
+                continue;
+            };
+            let trailing = value[end + 1..].trim_start();
+            if !trailing.is_empty() {
+                let offset = absolute + value.len() - trailing.len();
+                return Some(malformed_completion(
+                    CanonicalMalformedCause::ListElementSeparator,
+                    text,
+                    span,
+                    completion_range(span, offset, trailing.chars().next()?.len_utf8()),
+                    CanonicalExpectedLexicalEvidence::ListSeparatorOrClose,
+                    completion_actual_token(text, span, offset),
+                ));
+            }
+        } else if !value.is_empty() {
+            return Some(malformed_completion(
+                CanonicalMalformedCause::ListNonTextElement,
+                text,
+                span,
+                completion_range(span, absolute, value.chars().next()?.len_utf8()),
+                CanonicalExpectedLexicalEvidence::TextListElement,
+                completion_actual_token(text, span, absolute),
+            ));
+        }
+    }
+    None
+}
+
+fn retained_predicate_list_completion(text: &str, span: &Span) -> Option<CanonicalCompletionEvent> {
+    let bytes = text.as_bytes();
+    let mut open = None;
+    let mut index = 0usize;
+    let mut quoted = false;
+    let mut escaped = false;
+    while index < bytes.len() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if bytes[index] == b'\\' {
+                escaped = true;
+            } else if bytes[index] == b'"' {
+                quoted = false;
+            }
+            index += 1;
+            continue;
+        }
+        match bytes[index] {
+            b'"' => quoted = true,
+            b'[' => {
+                open = Some(index);
+                break;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    let open = open?;
+    let close = matching_delimiter_quoted(text, open, '[', ']')?;
+    let inside = &text[open + 1..close];
+    let trimmed = inside.trim_end();
+    if trimmed.as_bytes().last() == Some(&b',') {
+        let comma = open + 1 + trimmed.len() - 1;
+        return Some(malformed_completion(
+            CanonicalMalformedCause::ListTrailingComma,
+            text,
+            span,
+            completion_range(span, comma, 1),
+            CanonicalExpectedLexicalEvidence::TextListElement,
+            CanonicalActualLexicalEvidence::Token {
+                kind: CanonicalLexicalTokenKind::ListClose,
+                range: completion_range(span, close, 1),
+                spelling: "]".to_string(),
+            },
+        ));
+    }
+    for range in split_top_level_ranges_quoted(inside, ',') {
+        let raw = &inside[range.clone()];
+        let leading = raw.len() - raw.trim_start().len();
+        let value = raw.trim();
+        let absolute = open + 1 + range.start + leading;
+        if value.is_empty() {
+            continue;
+        }
+        if value.as_bytes().first() != Some(&b'"') {
+            return Some(malformed_completion(
+                CanonicalMalformedCause::ListNonTextElement,
+                text,
+                span,
+                completion_range(span, absolute, value.chars().next()?.len_utf8()),
+                CanonicalExpectedLexicalEvidence::TextListElement,
+                completion_actual_token(text, span, absolute),
+            ));
+        }
+        let mut cursor = 1usize;
+        let mut closed = None;
+        while cursor < value.len() {
+            if value.as_bytes()[cursor] == b'\\' {
+                cursor += 1;
+                if cursor < value.len() {
+                    let escaped = value[cursor..].chars().next()?;
+                    cursor += escaped.len_utf8();
+                }
+            } else if value.as_bytes()[cursor] == b'"' {
+                closed = Some(cursor);
+                break;
+            } else {
+                let ch = value[cursor..].chars().next()?;
+                cursor += ch.len_utf8();
+            }
+        }
+        if let Some(closed) = closed {
+            let after = value[closed + 1..].trim_start();
+            if !after.is_empty() {
+                let offset = absolute + value.len() - after.len();
+                return Some(malformed_completion(
+                    CanonicalMalformedCause::ListElementSeparator,
+                    text,
+                    span,
+                    completion_range(span, offset, after.chars().next()?.len_utf8()),
+                    CanonicalExpectedLexicalEvidence::ListSeparatorOrClose,
+                    completion_actual_token(text, span, offset),
+                ));
+            }
+        }
+    }
+    None
+}
+
+fn apply_predicate_completion(expression: &mut ParsedExpression, text: &str, span: &Span) {
+    if let Some(completion) = projected_predicate_list_completion(text, span) {
+        expression.canonical.completion = completion;
+        expression.canonical.payload.clear();
+    }
+    if let Some(completion) = retained_predicate_list_completion(text, span) {
+        expression.canonical_event.completion = completion;
+        expression.canonical_event.lexical_status = CanonicalCommonLexicalStatus::Unsupported;
+        expression.canonical_event.payload.clear();
+    }
 }
 
 fn parse_expression_syntax(
@@ -4904,14 +8108,45 @@ fn canonical_expression_build(
     delimiter_depth: usize,
     text: &str,
 ) -> CanonicalExpressionBuild {
-    let projected_payload = projected_payload_events(&kind, text, &range.start, children.len());
-    let retained_payload = retained_payload_events(event_kind, text, &range.start, children.len());
+    let own_projected_completion = projected_completion_event(&kind, text, &range.start);
+    let projected_completion =
+        if matches!(own_projected_completion, CanonicalCompletionEvent::Complete) {
+            projected_child_completion(&kind).unwrap_or(own_projected_completion)
+        } else {
+            own_projected_completion
+        };
+    let own_retained_completion = retained_completion_event(event_kind, text, &range.start);
+    let retained_completion =
+        if matches!(own_retained_completion, CanonicalCompletionEvent::Complete) {
+            children
+                .iter()
+                .find_map(|child| match &child.event.completion {
+                    CanonicalCompletionEvent::Unsupported(event) => {
+                        Some(CanonicalCompletionEvent::Unsupported(event.clone()))
+                    }
+                    CanonicalCompletionEvent::Complete => None,
+                })
+                .unwrap_or(own_retained_completion)
+        } else {
+            own_retained_completion
+        };
+    let projected_payload = if matches!(projected_completion, CanonicalCompletionEvent::Complete) {
+        projected_payload_events(&kind, text, &range.start, children.len())
+    } else {
+        Vec::new()
+    };
+    let retained_payload = if matches!(retained_completion, CanonicalCompletionEvent::Complete) {
+        retained_payload_events(event_kind, text, &range.start, children.len())
+    } else {
+        Vec::new()
+    };
     CanonicalExpressionBuild {
         expression: CanonicalExpression {
             node_id,
             range: range.clone(),
             kind,
             payload: projected_payload,
+            completion: projected_completion,
         },
         event: CanonicalReductionEvent {
             range,
@@ -4919,14 +8154,51 @@ fn canonical_expression_build(
             children,
             delimiter_depth_before: delimiter_depth,
             delimiter_depth_after: delimiter_depth,
-            lexical_status: if event_kind == CanonicalCommonNodeKind::Unsupported {
+            lexical_status: if matches!(
+                retained_completion,
+                CanonicalCompletionEvent::Unsupported(_)
+            ) {
                 CanonicalCommonLexicalStatus::Unsupported
             } else {
                 CanonicalCommonLexicalStatus::Complete
             },
             payload: retained_payload,
+            completion: retained_completion,
         },
     }
+}
+
+fn projected_child_completion(kind: &CanonicalExpressionKind) -> Option<CanonicalCompletionEvent> {
+    let children: Vec<&CanonicalExpression> = match kind {
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::ElementPlace { base, .. }
+        | CanonicalExpressionKind::Permission { value: base, .. }
+        | CanonicalExpressionKind::Try { value: base, .. }
+        | CanonicalExpressionKind::Group(base) => vec![base],
+        CanonicalExpressionKind::ListLiteral(values) => values.iter().collect(),
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            fields.iter().map(|(_, value)| value).collect()
+        }
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            std::iter::once(callee.as_ref()).chain(arguments).collect()
+        }
+        CanonicalExpressionKind::Binary { left, right, .. } => vec![left, right],
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => Vec::new(),
+    };
+    children
+        .into_iter()
+        .find_map(|child| match &child.completion {
+            CanonicalCompletionEvent::Unsupported(event) => {
+                Some(CanonicalCompletionEvent::Unsupported(event.clone()))
+            }
+            CanonicalCompletionEvent::Complete => projected_child_completion(&child.kind),
+        })
 }
 
 fn reduction_child(
@@ -6071,24 +9343,28 @@ fn is_section_header(trimmed: &str) -> bool {
 mod tests {
     use super::{
         CanonicalAssigningEvent, CanonicalAuthorityHandle, CanonicalExpressionIntent,
-        CanonicalExpressionRole, CanonicalItemOwner, CanonicalNodeIdentity,
+        CanonicalExpressionRole, CanonicalItemOwner, CanonicalMalformedSealFact,
+        CanonicalMalformedSealField, CanonicalMalformedSealValue, CanonicalNodeIdentity,
         CanonicalOccurrenceIdentity, CanonicalOccurrenceSeal, CanonicalPayloadSealFact,
         CanonicalPayloadValue, CanonicalPredicateRecognition, CanonicalReductionIdentity,
         CanonicalSealFact, CanonicalSectionOwner, CanonicalSemanticFile, CanonicalSourceBlob,
         CanonicalSourceOwnerFact, CanonicalSourceOwnerSeal, CanonicalSourceRevision,
-        CanonicalStatementOwner, CanonicalTokenIdentity, build_occurrence_seal,
-        executable_call_nodes, parse_source, parse_source_at_index, source_owner_fact_matches,
-        validate_canonical_expression, validate_occurrence_seal,
+        CanonicalStatementBlockIdentity, CanonicalStatementOwner, CanonicalStatementSeal,
+        CanonicalStatementSealFact, CanonicalStatementSealValue, CanonicalTokenIdentity,
+        build_occurrence_seal, executable_call_nodes, parse_source, parse_source_at_index,
+        source_owner_fact_matches, validate_canonical_expression, validate_occurrence_seal,
         validate_occurrence_seal_ignoring_one_fact,
         validate_occurrence_seal_ignoring_one_payload_fact, validate_retained_body_syntax,
-        validate_source_owner_seal,
+        validate_source_owner_seal, validate_statement_seal,
     };
     use crate::ast::{
-        CanonicalAssociativity, CanonicalCommonChildRole, CanonicalCommonLexicalStatus,
-        CanonicalCommonNodeKind, CanonicalDelimiterKind, CanonicalExpressionKind,
-        CanonicalPayloadField, CanonicalTryWrapperKind, Item, ParsedBinaryOperator,
-        ParsedBlockRelationship, ParsedBodyStatementKind, ParsedCallCloseStatus,
-        ParsedExpressionKind, ParsedSourceRange, ParserSyntaxNodeId, TypeSyntaxKind,
+        CanonicalActualLexicalEvidence, CanonicalAssociativity, CanonicalCommonChildRole,
+        CanonicalCommonLexicalStatus, CanonicalCommonNodeKind, CanonicalDelimiterKind,
+        CanonicalExpectedLexicalEvidence, CanonicalExpressionKind, CanonicalMalformedCause,
+        CanonicalPayloadField, CanonicalStatementEventField, CanonicalStatementKindEvent,
+        CanonicalTryWrapperKind, Item, ParsedBinaryOperator, ParsedBlockRelationship,
+        ParsedBodyStatementKind, ParsedCallCloseStatus, ParsedExpressionKind, ParsedSourceRange,
+        ParserSyntaxNodeId, TypeSyntaxKind,
     };
     use crate::diagnostic::{DiagnosticCode, Severity};
 
@@ -7138,13 +10414,10 @@ task seal(value: UInt) -> UInt {
             panic!("leaf return")
         };
         let mut corrupted_expression = expression.clone();
-        corrupted_expression.canonical_event.kind = CanonicalCommonNodeKind::Unsupported;
-        corrupted_expression.canonical_event.lexical_status =
-            CanonicalCommonLexicalStatus::Unsupported;
-        if matches!(sabotage, Some(F1Sabotage::ProducerArm)) {
-            corrupted_expression.canonical.kind = CanonicalExpressionKind::Unsupported;
-            corrupted_expression.canonical.payload.clear();
-            corrupted_expression.canonical_event.payload.clear();
+        if !matches!(sabotage, Some(F1Sabotage::ProducerArm)) {
+            corrupted_expression.canonical_event.kind = CanonicalCommonNodeKind::Unsupported;
+            corrupted_expression.canonical_event.lexical_status =
+                CanonicalCommonLexicalStatus::Unsupported;
         }
         let corrupted_seal = build_occurrence_seal(
             &corrupted_expression,
@@ -7310,8 +10583,10 @@ task seal(value: UInt) -> UInt {
             && evidence.role_count == 13
             && evidence.child_role_count == 11
             && evidence.lexical_status_count == 2
-            && evidence.node_count == 54
-            && evidence.token_count == 78
+            // F3 adds the independently owned `set` target occurrence while
+            // retaining every F1 identity and topology obligation.
+            && evidence.node_count == 55
+            && evidence.token_count == 79
             && evidence.single_rejections == 216
             && evidence.pair_rejections == 630
             && evidence.cross_occurrence_rejections == 16
@@ -8421,6 +11696,1083 @@ task payload(value: UInt, other: UInt) -> UInt {
                 .0,
         );
         assert!(validate_occurrence_seal(&retained_corruption).is_err());
+    }
+
+    const F3_MALFORMED_FIELDS: [CanonicalMalformedSealField; 8] = [
+        CanonicalMalformedSealField::Status,
+        CanonicalMalformedSealField::Node,
+        CanonicalMalformedSealField::Cause,
+        CanonicalMalformedSealField::ProducingEvent,
+        CanonicalMalformedSealField::OffendingRange,
+        CanonicalMalformedSealField::ConsumedRange,
+        CanonicalMalformedSealField::ExpectedEvidence,
+        CanonicalMalformedSealField::ActualEvidence,
+    ];
+
+    const F3_STATEMENT_FIELDS: [CanonicalStatementEventField; 24] = [
+        CanonicalStatementEventField::Kind,
+        CanonicalStatementEventField::Section,
+        CanonicalStatementEventField::Line,
+        CanonicalStatementEventField::Statement,
+        CanonicalStatementEventField::Keyword,
+        CanonicalStatementEventField::PhraseTokens,
+        CanonicalStatementEventField::Binder,
+        CanonicalStatementEventField::BinderRelationship,
+        CanonicalStatementEventField::TypeBoundary,
+        CanonicalStatementEventField::AssignmentToken,
+        CanonicalStatementEventField::RelationshipToken,
+        CanonicalStatementEventField::TargetRoot,
+        CanonicalStatementEventField::ValueRoot,
+        CanonicalStatementEventField::DestinationToken,
+        CanonicalStatementEventField::StartRoot,
+        CanonicalStatementEventField::EndRoot,
+        CanonicalStatementEventField::OrderedRoots,
+        CanonicalStatementEventField::BlockOwner,
+        CanonicalStatementEventField::BlockDepthBefore,
+        CanonicalStatementEventField::BlockDepthAfter,
+        CanonicalStatementEventField::BlockRelationship,
+        CanonicalStatementEventField::BlockOpenToken,
+        CanonicalStatementEventField::BlockCloseToken,
+        CanonicalStatementEventField::ExpressionAbsent,
+    ];
+
+    fn f3_malformed_source() -> String {
+        let deep = format!("{}value{}", "(".repeat(17), ")".repeat(17));
+        format!(
+            r#"task malformed(value: UInt) -> UInt {{
+  needs:
+    ["ok" "bad"]
+    ["ok",]
+    [7]
+  does:
+    return "oops
+    return call(value
+    return [value)
+    return {deep}
+    return value +
+    return value === other
+    return @value
+    return value.
+    return 9223372036854775808
+}}
+"#
+        )
+    }
+
+    const F3_STATEMENT_SOURCE: &str = r#"task relationships(value: UInt, other: UInt) -> UInt {
+  needs:
+    value
+  ensures:
+    value
+  does:
+    return value
+    let item: UInt = value
+    change mutable: UInt = other
+    set target = value
+    save value in items
+    fail value
+    expect value
+    free_call(value)
+    if value {
+      return value
+    }
+    while value {
+      set target = value
+    }
+    for each element in values {
+      return element
+    }
+    for index index_a from 0 until 4 {
+      return index_a
+    }
+    for index index_b from 0 through 4 {
+      return index_b
+    }
+    loop {
+      return value
+    }
+}
+"#;
+
+    fn corrupt_malformed_fact(fact: &CanonicalMalformedSealFact) -> CanonicalMalformedSealFact {
+        let mut fact = fact.clone();
+        fact.value = match &fact.value {
+            CanonicalMalformedSealValue::Unsupported => {
+                CanonicalMalformedSealValue::Cause(CanonicalMalformedCause::MissingOperand)
+            }
+            CanonicalMalformedSealValue::Node(identity) => CanonicalMalformedSealValue::Node(
+                CanonicalNodeIdentity(corrupt_owner_identity(&identity.0)),
+            ),
+            CanonicalMalformedSealValue::Cause(cause) => CanonicalMalformedSealValue::Cause(
+                if *cause == CanonicalMalformedCause::MissingOperand {
+                    CanonicalMalformedCause::InvalidOperandStarter
+                } else {
+                    CanonicalMalformedCause::MissingOperand
+                },
+            ),
+            CanonicalMalformedSealValue::ProducingEvent(identity, range) => {
+                CanonicalMalformedSealValue::ProducingEvent(
+                    super::CanonicalMalformedEventIdentity(corrupt_owner_identity(&identity.0)),
+                    range.clone(),
+                )
+            }
+            CanonicalMalformedSealValue::Range(range) => {
+                CanonicalMalformedSealValue::Range(corrupt_range(range))
+            }
+            CanonicalMalformedSealValue::Expected(value) => CanonicalMalformedSealValue::Expected(
+                if matches!(value, CanonicalExpectedLexicalEvidence::Operand) {
+                    CanonicalExpectedLexicalEvidence::Identifier
+                } else {
+                    CanonicalExpectedLexicalEvidence::Operand
+                },
+            ),
+            CanonicalMalformedSealValue::Actual(value) => CanonicalMalformedSealValue::Actual(
+                if matches!(value, CanonicalActualLexicalEvidence::EndOfInput) {
+                    CanonicalActualLexicalEvidence::DelimiterDepth(99)
+                } else {
+                    CanonicalActualLexicalEvidence::EndOfInput
+                },
+            ),
+        };
+        fact
+    }
+
+    fn corrupt_statement_fact(fact: &CanonicalStatementSealFact) -> CanonicalStatementSealFact {
+        let mut fact = fact.clone();
+        fact.value = match &fact.value {
+            CanonicalStatementSealValue::Kind(kind) => {
+                CanonicalStatementSealValue::Kind(if *kind == CanonicalStatementKindEvent::Return {
+                    CanonicalStatementKindEvent::UnconditionalLoop
+                } else {
+                    CanonicalStatementKindEvent::Return
+                })
+            }
+            CanonicalStatementSealValue::Section(section) => CanonicalStatementSealValue::Section(
+                CanonicalSectionOwner(corrupt_owner_identity(&section.0)),
+            ),
+            CanonicalStatementSealValue::Statement(statement) => {
+                CanonicalStatementSealValue::Statement(CanonicalStatementOwner(
+                    corrupt_owner_identity(&statement.0),
+                ))
+            }
+            CanonicalStatementSealValue::Range(range) => {
+                CanonicalStatementSealValue::Range(corrupt_range(range))
+            }
+            CanonicalStatementSealValue::Token(identity, range, spelling) => {
+                CanonicalStatementSealValue::Token(
+                    super::CanonicalStatementTokenIdentity(corrupt_owner_identity(&identity.0)),
+                    range.clone(),
+                    spelling.clone(),
+                )
+            }
+            CanonicalStatementSealValue::Tokens(values) => {
+                let mut values = values.clone();
+                if let Some((identity, _, _)) = values.first_mut() {
+                    identity.0 = corrupt_owner_identity(&identity.0);
+                }
+                CanonicalStatementSealValue::Tokens(values)
+            }
+            CanonicalStatementSealValue::TokenReference(identity) => {
+                CanonicalStatementSealValue::TokenReference(super::CanonicalStatementTokenIdentity(
+                    corrupt_owner_identity(&identity.0),
+                ))
+            }
+            CanonicalStatementSealValue::Root(identity, ordinal, node) => {
+                CanonicalStatementSealValue::Root(
+                    corrupt_occurrence(identity),
+                    *ordinal,
+                    node.clone(),
+                )
+            }
+            CanonicalStatementSealValue::Roots(values) => {
+                let mut values = values.clone();
+                if let Some((identity, _, _)) = values.first_mut() {
+                    *identity = corrupt_occurrence(identity);
+                }
+                CanonicalStatementSealValue::Roots(values)
+            }
+            CanonicalStatementSealValue::Block(identity) => CanonicalStatementSealValue::Block(
+                CanonicalStatementBlockIdentity(corrupt_owner_identity(&identity.0)),
+            ),
+            CanonicalStatementSealValue::Usize(value) => {
+                CanonicalStatementSealValue::Usize(value + 1)
+            }
+            CanonicalStatementSealValue::Bool(value) => CanonicalStatementSealValue::Bool(!value),
+            CanonicalStatementSealValue::BlockRelationship(value) => {
+                CanonicalStatementSealValue::BlockRelationship(match value {
+                    ParsedBlockRelationship::None => ParsedBlockRelationship::Opens,
+                    ParsedBlockRelationship::Opens => ParsedBlockRelationship::Closes,
+                    ParsedBlockRelationship::Closes => ParsedBlockRelationship::None,
+                })
+            }
+        };
+        fact
+    }
+
+    fn foreign_malformed_fact(
+        base: &CanonicalMalformedSealFact,
+        foreign: &[CanonicalOccurrenceSeal],
+    ) -> CanonicalMalformedSealFact {
+        foreign
+            .iter()
+            .flat_map(|seal| &seal.malformed_projection)
+            .find(|fact| fact.field == base.field && *fact != base)
+            .cloned()
+            .unwrap_or_else(|| corrupt_malformed_fact(base))
+    }
+
+    fn foreign_statement_fact(
+        base: &CanonicalStatementSealFact,
+        foreign: &[CanonicalStatementSeal],
+    ) -> CanonicalStatementSealFact {
+        foreign
+            .iter()
+            .flat_map(|seal| &seal.projection)
+            .find(|fact| fact.field == base.field && *fact != base)
+            .cloned()
+            .unwrap_or_else(|| corrupt_statement_fact(base))
+    }
+
+    fn mutate_malformed_projection(
+        seal: &CanonicalOccurrenceSeal,
+        foreign: &[CanonicalOccurrenceSeal],
+        index: usize,
+        mutation: ProjectionMutation,
+    ) -> CanonicalOccurrenceSeal {
+        let mut seal = seal.clone();
+        let replacement = foreign_malformed_fact(&seal.malformed_projection[index], foreign);
+        match mutation {
+            ProjectionMutation::Corrupt => {
+                seal.malformed_projection[index] =
+                    corrupt_malformed_fact(&seal.malformed_projection[index]);
+            }
+            ProjectionMutation::Missing => {
+                seal.malformed_projection.remove(index);
+            }
+            ProjectionMutation::Duplicate => {
+                seal.malformed_projection
+                    .insert(index, seal.malformed_projection[index].clone());
+            }
+            ProjectionMutation::Reordered => {
+                let other = if index + 1 == seal.malformed_projection.len() {
+                    index - 1
+                } else {
+                    index + 1
+                };
+                seal.malformed_projection.swap(index, other);
+            }
+            ProjectionMutation::Extra => seal.malformed_projection.push(replacement),
+            ProjectionMutation::Substituted => seal.malformed_projection[index] = replacement,
+        }
+        seal
+    }
+
+    fn mutate_statement_projection(
+        seal: &CanonicalStatementSeal,
+        foreign: &[CanonicalStatementSeal],
+        index: usize,
+        mutation: ProjectionMutation,
+    ) -> CanonicalStatementSeal {
+        let mut seal = seal.clone();
+        let replacement = foreign_statement_fact(&seal.projection[index], foreign);
+        match mutation {
+            ProjectionMutation::Corrupt => {
+                seal.projection[index] = corrupt_statement_fact(&seal.projection[index]);
+            }
+            ProjectionMutation::Missing => {
+                seal.projection.remove(index);
+            }
+            ProjectionMutation::Duplicate => {
+                seal.projection
+                    .insert(index, seal.projection[index].clone());
+            }
+            ProjectionMutation::Reordered => {
+                let other = if index + 1 == seal.projection.len() {
+                    index - 1
+                } else {
+                    index + 1
+                };
+                seal.projection.swap(index, other);
+            }
+            ProjectionMutation::Extra => seal.projection.push(replacement),
+            ProjectionMutation::Substituted => seal.projection[index] = replacement,
+        }
+        seal
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum F3CombinedLocation {
+        F1 {
+            seal: usize,
+            index: usize,
+            field: F1SealField,
+        },
+        F2 {
+            seal: usize,
+            index: usize,
+            field: F2SealField,
+        },
+        Malformed {
+            seal: usize,
+            index: usize,
+        },
+        Statement {
+            seal: usize,
+            index: usize,
+        },
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum F3Sabotage {
+        ProducerArm,
+        ValidatorArm,
+        CatalogueRow,
+        MutationOperator,
+        PairCase,
+        SubstitutionCase,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct F3Evidence {
+        deterministic: bool,
+        production_valid: bool,
+        complete_is_absence: bool,
+        malformed_cause_count: usize,
+        statement_kind_count: usize,
+        field_count: usize,
+        single_rejections: usize,
+        foreign_rejections: usize,
+        cumulative_pair_rejections: usize,
+        semantic_comutation_rejections: usize,
+    }
+
+    fn semantic_comutation_rejected(
+        result: Result<(), &'static str>,
+        label: &'static str,
+    ) -> usize {
+        assert!(result.is_err(), "{label} coherent co-mutation stayed green");
+        1
+    }
+
+    fn f3_evidence(sabotage: Option<F3Sabotage>) -> F3Evidence {
+        let malformed_source = f3_malformed_source();
+        let malformed = parse_source("f3-malformed.hum", &malformed_source);
+        let repeated = parse_source("f3-malformed.hum", &malformed_source);
+        let foreign_malformed_source = malformed_source.replacen("malformed", "malformex", 1);
+        let foreign_malformed = parse_source("f3-malformed.hum", &foreign_malformed_source);
+        let statements = parse_source("f3-statements.hum", F3_STATEMENT_SOURCE);
+        let foreign_statement_source =
+            F3_STATEMENT_SOURCE.replacen("relationships", "relationshixs", 1);
+        let foreign_statements = parse_source("f3-statements.hum", &foreign_statement_source);
+        let control_flow = parse_source(
+            "examples/control_flow.hum",
+            include_str!("../examples/control_flow.hum"),
+        );
+        let f2 = parse_source("f3-f2.hum", F2_SOURCE_A);
+        let foreign_f2 = parse_source("f3-f2.hum", F2_SOURCE_B);
+        let foreign_f1 = parse_source("f3-f1.hum", F1_SOURCE_B);
+
+        let mut malformed_locations = std::collections::BTreeMap::new();
+        for (seal, occurrence) in malformed.occurrence_seals.iter().enumerate() {
+            for (index, fact) in occurrence.malformed_projection.iter().enumerate() {
+                malformed_locations
+                    .entry(fact.field)
+                    .or_insert((seal, index));
+            }
+        }
+        let mut statement_locations = std::collections::BTreeMap::new();
+        for (seal, statement) in statements.statement_seals.iter().enumerate() {
+            for (index, fact) in statement.projection.iter().enumerate() {
+                statement_locations
+                    .entry(fact.field)
+                    .or_insert((seal, index));
+            }
+        }
+        let malformed_catalogue = if matches!(sabotage, Some(F3Sabotage::CatalogueRow)) {
+            &F3_MALFORMED_FIELDS[..F3_MALFORMED_FIELDS.len() - 1]
+        } else {
+            &F3_MALFORMED_FIELDS[..]
+        };
+        let statement_catalogue = &F3_STATEMENT_FIELDS[..];
+        let mutations = if matches!(sabotage, Some(F3Sabotage::MutationOperator)) {
+            &PROJECTION_MUTATIONS[..PROJECTION_MUTATIONS.len() - 1]
+        } else {
+            &PROJECTION_MUTATIONS[..]
+        };
+        let mut single_rejections = 0usize;
+        let mut foreign_rejections = 0usize;
+        for field in malformed_catalogue {
+            let (seal, index) = malformed_locations[field];
+            for mutation in mutations {
+                let rejected = validate_occurrence_seal(&mutate_malformed_projection(
+                    &malformed.occurrence_seals[seal],
+                    &foreign_malformed.occurrence_seals,
+                    index,
+                    *mutation,
+                ))
+                .is_err();
+                let credited = !(matches!(sabotage, Some(F3Sabotage::ValidatorArm))
+                    && *field == CanonicalMalformedSealField::Status
+                    && matches!(mutation, ProjectionMutation::Corrupt))
+                    && rejected;
+                single_rejections += usize::from(credited);
+                if matches!(mutation, ProjectionMutation::Substituted) {
+                    let credited = !(matches!(sabotage, Some(F3Sabotage::SubstitutionCase))
+                        && *field == CanonicalMalformedSealField::Status)
+                        && rejected;
+                    foreign_rejections += usize::from(credited);
+                }
+            }
+        }
+        for field in statement_catalogue {
+            let (seal, index) = statement_locations[field];
+            for mutation in mutations {
+                let rejected = validate_statement_seal(&mutate_statement_projection(
+                    &statements.statement_seals[seal],
+                    &foreign_statements.statement_seals,
+                    index,
+                    *mutation,
+                ))
+                .is_err();
+                single_rejections += usize::from(rejected);
+                if matches!(mutation, ProjectionMutation::Substituted) {
+                    foreign_rejections += usize::from(rejected);
+                }
+            }
+        }
+
+        let f1_base = f2
+            .occurrence_seals
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, seal)| seal.projection.len())
+            .map(|(index, _)| index)
+            .expect("F3 cumulative F1 occurrence");
+        let f1_representatives = f1_representatives(&f2.occurrence_seals[f1_base]);
+        let mut f2_locations = std::collections::BTreeMap::new();
+        for (seal, occurrence) in f2.occurrence_seals.iter().enumerate() {
+            for (index, fact) in occurrence.payload_projection.iter().enumerate() {
+                f2_locations
+                    .entry(f2_field(fact.field))
+                    .or_insert((seal, index));
+            }
+        }
+        let mut combined = F1_SEAL_FIELDS
+            .iter()
+            .map(|field| F3CombinedLocation::F1 {
+                seal: f1_base,
+                index: f1_representatives[field],
+                field: *field,
+            })
+            .collect::<Vec<_>>();
+        combined.extend(F2_SEAL_FIELDS.iter().map(|field| {
+            let (seal, index) = f2_locations[field];
+            F3CombinedLocation::F2 {
+                seal,
+                index,
+                field: *field,
+            }
+        }));
+        combined.extend(malformed_catalogue.iter().map(|field| {
+            let (seal, index) = malformed_locations[field];
+            F3CombinedLocation::Malformed { seal, index }
+        }));
+        combined.extend(statement_catalogue.iter().map(|field| {
+            let (seal, index) = statement_locations[field];
+            F3CombinedLocation::Statement { seal, index }
+        }));
+        let expected_pair_count = combined.len() * (combined.len() - 1) / 2;
+        let pair_limit = if matches!(sabotage, Some(F3Sabotage::PairCase)) {
+            expected_pair_count - 1
+        } else {
+            expected_pair_count
+        };
+        let mut cumulative_pair_rejections = 0usize;
+        'pairs: for left in 0..combined.len() {
+            for right in left + 1..combined.len() {
+                if cumulative_pair_rejections == pair_limit {
+                    break 'pairs;
+                }
+                let mut f2_seals = f2.occurrence_seals.clone();
+                let mut malformed_seals = malformed.occurrence_seals.clone();
+                let mut statement_seals = statements.statement_seals.clone();
+                for location in [combined[left], combined[right]] {
+                    match location {
+                        F3CombinedLocation::F1 { seal, index, field } => {
+                            f2_seals[seal].projection[index] = foreign_fact(
+                                field,
+                                &f2_seals[seal].projection[index],
+                                &foreign_f1.occurrence_seals,
+                            );
+                        }
+                        F3CombinedLocation::F2 { seal, index, field } => {
+                            f2_seals[seal].payload_projection[index] = foreign_payload_fact(
+                                field,
+                                &f2_seals[seal].payload_projection[index],
+                                &foreign_f2.occurrence_seals,
+                            );
+                        }
+                        F3CombinedLocation::Malformed { seal, index } => {
+                            malformed_seals[seal].malformed_projection[index] =
+                                foreign_malformed_fact(
+                                    &malformed_seals[seal].malformed_projection[index],
+                                    &foreign_malformed.occurrence_seals,
+                                );
+                        }
+                        F3CombinedLocation::Statement { seal, index } => {
+                            statement_seals[seal].projection[index] = foreign_statement_fact(
+                                &statement_seals[seal].projection[index],
+                                &foreign_statements.statement_seals,
+                            );
+                        }
+                    }
+                }
+                let rejected = f2_seals
+                    .iter()
+                    .any(|seal| validate_occurrence_seal(seal).is_err())
+                    || malformed_seals
+                        .iter()
+                        .any(|seal| validate_occurrence_seal(seal).is_err())
+                    || statement_seals
+                        .iter()
+                        .any(|seal| validate_statement_seal(seal).is_err());
+                cumulative_pair_rejections += usize::from(rejected);
+            }
+        }
+
+        let mut semantic_comutation_rejections = 0usize;
+        let semantic_seal = |cause| {
+            malformed
+                .occurrence_seals
+                .iter()
+                .find(|seal| {
+                    seal.malformed_projection.iter().any(|fact| {
+                        matches!(fact.value, CanonicalMalformedSealValue::Cause(actual) if actual == cause)
+                    })
+                })
+                .expect("F3 malformed semantic case")
+                .clone()
+        };
+        let mut cause = semantic_seal(CanonicalMalformedCause::InvalidComparisonOperator);
+        for facts in [
+            &mut cause.malformed_projection,
+            &mut cause.malformed_authority,
+        ] {
+            facts[2].value =
+                CanonicalMalformedSealValue::Cause(CanonicalMalformedCause::MissingOperand);
+            facts[6].value =
+                CanonicalMalformedSealValue::Expected(CanonicalExpectedLexicalEvidence::Operand);
+            facts[7].value =
+                CanonicalMalformedSealValue::Actual(CanonicalActualLexicalEvidence::EndOfInput);
+        }
+        semantic_comutation_rejections +=
+            semantic_comutation_rejected(validate_occurrence_seal(&cause), "cause/evidence");
+        let mut depth = semantic_seal(CanonicalMalformedCause::DelimiterDepthExceeded);
+        for facts in [
+            &mut depth.malformed_projection,
+            &mut depth.malformed_authority,
+        ] {
+            facts[6].value = CanonicalMalformedSealValue::Expected(
+                CanonicalExpectedLexicalEvidence::MaximumDelimiterDepth(17),
+            );
+            facts[7].value = CanonicalMalformedSealValue::Actual(
+                CanonicalActualLexicalEvidence::DelimiterDepth(18),
+            );
+        }
+        semantic_comutation_rejections +=
+            semantic_comutation_rejected(validate_occurrence_seal(&depth), "maximum depth");
+        let mut partial = semantic_seal(CanonicalMalformedCause::MissingOperand);
+        for facts in [
+            &mut partial.malformed_projection,
+            &mut partial.malformed_authority,
+        ] {
+            facts[3] = corrupt_malformed_fact(&facts[3]);
+        }
+        semantic_comutation_rejections +=
+            semantic_comutation_rejected(validate_occurrence_seal(&partial), "partial reduction");
+
+        let statement_with = |kind| {
+            statements
+                .statement_seals
+                .iter()
+                .find(|seal| {
+                    matches!(
+                        seal.projection.first().map(|fact| &fact.value),
+                        Some(CanonicalStatementSealValue::Kind(actual)) if *actual == kind
+                    )
+                })
+                .expect("F3 statement semantic case")
+                .clone()
+        };
+        let mut binder = statement_with(CanonicalStatementKindEvent::ForEach);
+        let binder_index = binder
+            .projection
+            .iter()
+            .position(|fact| fact.field == CanonicalStatementEventField::Binder)
+            .expect("binder fact");
+        let reference_index = binder
+            .projection
+            .iter()
+            .position(|fact| fact.field == CanonicalStatementEventField::BinderRelationship)
+            .expect("binder relationship");
+        for facts in [&mut binder.projection, &mut binder.authority] {
+            let corrupted_identity = {
+                let CanonicalStatementSealValue::Token(identity, _, _) =
+                    &mut facts[binder_index].value
+                else {
+                    unreachable!()
+                };
+                identity.0 = corrupt_owner_identity(&identity.0);
+                identity.0.clone()
+            };
+            let CanonicalStatementSealValue::TokenReference(reference) =
+                &mut facts[reference_index].value
+            else {
+                unreachable!()
+            };
+            reference.0 = corrupted_identity;
+        }
+        semantic_comutation_rejections +=
+            semantic_comutation_rejected(validate_statement_seal(&binder), "binder relationship");
+
+        let mut relation = statement_with(CanonicalStatementKindEvent::ForIndexUntil);
+        for facts in [&mut relation.projection, &mut relation.authority] {
+            let CanonicalStatementSealValue::Kind(kind) = &mut facts[0].value else {
+                unreachable!()
+            };
+            *kind = CanonicalStatementKindEvent::ForIndexThrough;
+            let fact = facts
+                .iter_mut()
+                .find(|fact| {
+                    fact.field == CanonicalStatementEventField::RelationshipToken
+                        && matches!(&fact.value, CanonicalStatementSealValue::Token(_, _, spelling) if spelling == "until")
+                })
+                .expect("until token");
+            let CanonicalStatementSealValue::Token(_, range, spelling) = &mut fact.value else {
+                unreachable!()
+            };
+            range.byte_len = "through".len();
+            *spelling = "through".to_string();
+        }
+        semantic_comutation_rejections +=
+            semantic_comutation_rejected(validate_statement_seal(&relation), "loop relationship");
+
+        let mut bounds = statement_with(CanonicalStatementKindEvent::ForIndexUntil);
+        for facts in [&mut bounds.projection, &mut bounds.authority] {
+            let start = facts
+                .iter()
+                .position(|fact| fact.field == CanonicalStatementEventField::StartRoot)
+                .unwrap();
+            let end = facts
+                .iter()
+                .position(|fact| fact.field == CanonicalStatementEventField::EndRoot)
+                .unwrap();
+            let start_value = facts[start].value.clone();
+            facts[start].value = facts[end].value.clone();
+            facts[end].value = start_value;
+        }
+        semantic_comutation_rejections +=
+            semantic_comutation_rejected(validate_statement_seal(&bounds), "loop bounds");
+
+        let mut block = statement_with(CanonicalStatementKindEvent::BlockClose);
+        for facts in [&mut block.projection, &mut block.authority] {
+            let fact = facts
+                .iter_mut()
+                .find(|fact| fact.field == CanonicalStatementEventField::BlockOwner)
+                .unwrap();
+            let CanonicalStatementSealValue::Block(identity) = &mut fact.value else {
+                unreachable!()
+            };
+            identity.0 = corrupt_owner_identity(&identity.0);
+        }
+        semantic_comutation_rejections +=
+            semantic_comutation_rejected(validate_statement_seal(&block), "block owner");
+
+        let mut producer_statements = statements.statement_seals.clone();
+        if matches!(sabotage, Some(F3Sabotage::ProducerArm)) {
+            producer_statements[0].authority[0] =
+                corrupt_statement_fact(&producer_statements[0].authority[0]);
+        }
+        let causes = malformed
+            .occurrence_seals
+            .iter()
+            .flat_map(|seal| &seal.malformed_projection)
+            .filter_map(|fact| match fact.value {
+                CanonicalMalformedSealValue::Cause(cause) => Some(cause),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        let kinds = statements
+            .statement_seals
+            .iter()
+            .filter_map(
+                |seal| match seal.projection.first().map(|fact| &fact.value) {
+                    Some(CanonicalStatementSealValue::Kind(kind)) => Some(*kind),
+                    _ => None,
+                },
+            )
+            .collect::<std::collections::BTreeSet<_>>();
+        F3Evidence {
+            deterministic: malformed.occurrence_seals == repeated.occurrence_seals,
+            production_valid: malformed
+                .occurrence_seals
+                .iter()
+                .all(|seal| validate_occurrence_seal(seal).is_ok())
+                && producer_statements
+                    .iter()
+                    .all(|seal| validate_statement_seal(seal).is_ok())
+                && control_flow
+                    .statement_seals
+                    .iter()
+                    .all(|seal| validate_statement_seal(seal).is_ok()),
+            complete_is_absence: f2.occurrence_seals.iter().all(|seal| {
+                seal.malformed_projection.is_empty() && seal.malformed_authority.is_empty()
+            }),
+            malformed_cause_count: causes.len(),
+            statement_kind_count: kinds.len(),
+            field_count: malformed_catalogue.len() + statement_catalogue.len(),
+            single_rejections,
+            foreign_rejections,
+            cumulative_pair_rejections,
+            semantic_comutation_rejections,
+        }
+    }
+
+    fn complete_f3_evidence(evidence: &F3Evidence) -> bool {
+        evidence.deterministic
+            && evidence.production_valid
+            && evidence.complete_is_absence
+            && evidence.malformed_cause_count == 12
+            && evidence.statement_kind_count == 17
+            && evidence.field_count == 32
+            && evidence.single_rejections == 192
+            && evidence.foreign_rejections == 32
+            && evidence.cumulative_pair_rejections == 8_646
+            && evidence.semantic_comutation_rejections == 7
+    }
+
+    fn f3_reviewer_regressions() -> usize {
+        let loop_program = parse_source(
+            "f3-loop-phrases.hum",
+            r#"task loop_phrases(value: UInt) -> UInt {
+  does:
+    for index quoted from 0 until parse(" through ") {
+      return quoted
+    }
+    for index actual from 0 through 4 {
+      return actual
+    }
+    return value
+}
+"#,
+        );
+        let loop_kinds = loop_program
+            .statement_seals
+            .iter()
+            .filter_map(|seal| {
+                let line = super::statement_source_line(seal)?;
+                line.starts_with("for index").then(|| {
+                    seal.projection.iter().find_map(|fact| match fact.value {
+                        CanonicalStatementSealValue::Kind(kind) => Some(kind),
+                        _ => None,
+                    })
+                })?
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            loop_kinds,
+            [
+                CanonicalStatementKindEvent::ForIndexUntil,
+                CanonicalStatementKindEvent::ForIndexThrough,
+            ],
+            "quoted through text must not select the through relationship"
+        );
+        assert!(
+            loop_program
+                .statement_seals
+                .iter()
+                .all(|seal| validate_statement_seal(seal).is_ok()),
+            "top-level loop phrase controls must remain valid"
+        );
+
+        let statements = parse_source("f3-statements.hum", F3_STATEMENT_SOURCE);
+        let mut free_root = statements
+            .statement_seals
+            .iter()
+            .find(|seal| {
+                super::statement_source_line(seal)
+                    .is_some_and(|line| line.trim() == "free_call(value)")
+            })
+            .expect("rooted free-expression statement")
+            .clone();
+        for facts in [&mut free_root.projection, &mut free_root.authority] {
+            facts.retain(|fact| fact.field != CanonicalStatementEventField::ValueRoot);
+            let ordered = facts
+                .iter_mut()
+                .find(|fact| fact.field == CanonicalStatementEventField::OrderedRoots)
+                .expect("free-expression ordered roots");
+            ordered.value = CanonicalStatementSealValue::Roots(Vec::new());
+        }
+        assert!(
+            validate_statement_seal(&free_root).is_err(),
+            "coherent rooted-free-expression erasure stayed green"
+        );
+
+        let mut for_each = statements
+            .statement_seals
+            .iter()
+            .find(|seal| {
+                super::statement_source_line(seal)
+                    .is_some_and(|line| line.starts_with("for each element"))
+            })
+            .expect("for-each statement")
+            .clone();
+        for facts in [&mut for_each.projection, &mut for_each.authority] {
+            facts.retain(|fact| {
+                !matches!(
+                    fact.field,
+                    CanonicalStatementEventField::Binder
+                        | CanonicalStatementEventField::BinderRelationship
+                )
+            });
+        }
+        assert!(
+            validate_statement_seal(&for_each).is_err(),
+            "coherent for-each binder erasure stayed green"
+        );
+
+        let blocks = parse_source(
+            "f3-block-authority.hum",
+            r#"task block_authority(value: UInt) -> UInt {
+  does:
+    if value {
+      return value
+    }
+    if value {
+      return value
+    }
+    return value
+}
+"#,
+        );
+        let nested = blocks
+            .statement_seals
+            .iter()
+            .find(|seal| {
+                super::statement_source_line(seal).is_some_and(|line| line.trim() == "return value")
+                    && seal.projection.iter().any(|fact| {
+                        fact.field == CanonicalStatementEventField::BlockDepthBefore
+                            && fact.value == CanonicalStatementSealValue::Usize(1)
+                    })
+            })
+            .expect("nested return statement")
+            .clone();
+        let mut depth = nested.clone();
+        for facts in [&mut depth.projection, &mut depth.authority] {
+            for fact in facts.iter_mut().filter(|fact| {
+                matches!(
+                    fact.field,
+                    CanonicalStatementEventField::BlockDepthBefore
+                        | CanonicalStatementEventField::BlockDepthAfter
+                )
+            }) {
+                let CanonicalStatementSealValue::Usize(value) = &mut fact.value else {
+                    unreachable!()
+                };
+                *value += 1;
+            }
+        }
+        assert!(
+            validate_statement_seal(&depth).is_err(),
+            "coherent nested block-depth rewrite stayed green"
+        );
+        let sibling = blocks
+            .statement_seals
+            .iter()
+            .filter(|seal| {
+                super::statement_source_line(seal).is_some_and(|line| line.trim() == "return value")
+                    && seal.projection.iter().any(|fact| {
+                        fact.field == CanonicalStatementEventField::BlockDepthBefore
+                            && fact.value == CanonicalStatementSealValue::Usize(1)
+                    })
+            })
+            .nth(1)
+            .expect("same-shaped sibling return statement");
+        let sibling_owner = sibling
+            .projection
+            .iter()
+            .find(|fact| fact.field == CanonicalStatementEventField::BlockOwner)
+            .expect("sibling block owner")
+            .value
+            .clone();
+        let mut owner = nested;
+        for facts in [&mut owner.projection, &mut owner.authority] {
+            facts
+                .iter_mut()
+                .find(|fact| fact.field == CanonicalStatementEventField::BlockOwner)
+                .expect("nested block owner")
+                .value = sibling_owner.clone();
+        }
+        assert!(
+            validate_statement_seal(&owner).is_err(),
+            "same-shaped sibling block-owner substitution stayed green"
+        );
+
+        let utf8 = parse_source(
+            "f3-utf8-malformed.hum",
+            "task malformed_utf8(value: UInt) -> UInt {\n  does:\n    return \"é\" === value\n}\n",
+        );
+        assert!(
+            utf8.occurrence_seals
+                .iter()
+                .all(|seal| validate_occurrence_seal(seal).is_ok()),
+            "UTF-8 byte ranges must bind malformed evidence to source"
+        );
+        let mut equal_length = utf8
+            .occurrence_seals
+            .iter()
+            .find(|seal| {
+                seal.malformed_projection.iter().any(|fact| {
+                    matches!(
+                        &fact.value,
+                        CanonicalMalformedSealValue::Actual(
+                            CanonicalActualLexicalEvidence::Token { spelling, .. }
+                        ) if spelling == "==="
+                    )
+                })
+            })
+            .expect("UTF-8 invalid comparison occurrence")
+            .clone();
+        for facts in [
+            &mut equal_length.malformed_projection,
+            &mut equal_length.malformed_authority,
+        ] {
+            for fact in facts {
+                if let CanonicalMalformedSealValue::Actual(CanonicalActualLexicalEvidence::Token {
+                    spelling,
+                    ..
+                }) = &mut fact.value
+                    && spelling == "==="
+                {
+                    *spelling = "!==".to_string();
+                }
+            }
+        }
+        assert!(
+            validate_occurrence_seal(&equal_length).is_err(),
+            "equal-length malformed token substitution stayed green"
+        );
+
+        let unsupported = parse_source(
+            "f3-unsupported-completion.hum",
+            "task unsupported_completion(value: UInt) -> UInt {\n  does:\n    return foo bar\n}\n",
+        );
+        let seal = unsupported
+            .occurrence_seals
+            .iter()
+            .find(|seal| {
+                seal.projection.iter().any(|fact| {
+                    matches!(
+                        fact,
+                        CanonicalSealFact::Kind(_, CanonicalCommonNodeKind::Unsupported)
+                    )
+                })
+            })
+            .expect("unsupported common node");
+        assert!(
+            !seal.malformed_projection.is_empty() && validate_occurrence_seal(seal).is_ok(),
+            "unsupported common nodes require exact malformed evidence"
+        );
+        let mut forced_complete = seal.clone();
+        forced_complete.malformed_projection.clear();
+        forced_complete.malformed_authority.clear();
+        for facts in [
+            &mut forced_complete.projection,
+            &mut forced_complete.authority,
+        ] {
+            for fact in facts {
+                if let CanonicalSealFact::LexicalStatus(_, status) = fact {
+                    *status = CanonicalCommonLexicalStatus::Complete;
+                }
+            }
+        }
+        assert!(
+            validate_occurrence_seal(&forced_complete).is_err(),
+            "Unsupported plus forced Complete stayed green"
+        );
+        6
+    }
+
+    #[test]
+    fn parser_completion_and_statement_relationships_are_complete_and_load_bearing() {
+        let first = f3_evidence(None);
+        let second = f3_evidence(None);
+        assert_eq!(first, second, "fresh F3 inventories must be deterministic");
+        assert!(complete_f3_evidence(&first), "{first:#?}");
+        assert_eq!(f3_reviewer_regressions(), 6);
+        for sabotage in [
+            F3Sabotage::ProducerArm,
+            F3Sabotage::ValidatorArm,
+            F3Sabotage::CatalogueRow,
+            F3Sabotage::MutationOperator,
+            F3Sabotage::PairCase,
+            F3Sabotage::SubstitutionCase,
+        ] {
+            assert!(
+                !complete_f3_evidence(&f3_evidence(Some(sabotage))),
+                "{sabotage:?} sabotage stayed green"
+            );
+        }
+    }
+
+    #[test]
+    fn f3_real_corpora_cover_completion_and_statement_domains() {
+        let malformed = parse_source("f3-malformed.hum", &f3_malformed_source());
+        assert!(
+            malformed
+                .occurrence_seals
+                .iter()
+                .all(|seal| validate_occurrence_seal(seal).is_ok())
+        );
+        let causes = malformed
+            .occurrence_seals
+            .iter()
+            .flat_map(|seal| &seal.malformed_projection)
+            .filter_map(|fact| match fact.value {
+                CanonicalMalformedSealValue::Cause(cause) => Some(cause),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(causes.len(), 12, "missing F3 malformed causes: {causes:#?}");
+
+        let statements = parse_source("f3-statements.hum", F3_STATEMENT_SOURCE);
+        assert!(
+            statements
+                .statement_seals
+                .iter()
+                .all(|seal| validate_statement_seal(seal).is_ok())
+        );
+        let kinds = statements
+            .statement_seals
+            .iter()
+            .flat_map(|seal| &seal.projection)
+            .filter_map(|fact| match fact.value {
+                CanonicalStatementSealValue::Kind(kind) => Some(kind),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(kinds.len(), 17, "missing F3 statement kinds: {kinds:#?}");
+        let fields = statements
+            .statement_seals
+            .iter()
+            .flat_map(|seal| &seal.projection)
+            .map(|fact| fact.field)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            fields,
+            F3_STATEMENT_FIELDS.into_iter().collect(),
+            "statement field catalogue is incomplete"
+        );
     }
 
     #[test]

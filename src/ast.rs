@@ -49,6 +49,7 @@ pub struct CanonicalExpression {
     pub range: ParsedSourceRange,
     pub kind: CanonicalExpressionKind,
     pub(crate) payload: Vec<CanonicalPayloadEvent>,
+    pub(crate) completion: CanonicalCompletionEvent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +136,78 @@ pub(crate) enum CanonicalCommonLexicalStatus {
     Unsupported,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum CanonicalLexicalTokenKind {
+    TextQuote,
+    ParenthesisOpen,
+    ParenthesisClose,
+    ListOpen,
+    ListClose,
+    RecordOpen,
+    RecordClose,
+    Identifier,
+    IntegerLiteral,
+    ComparisonOperator,
+    Comma,
+    Dot,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum CanonicalMalformedCause {
+    UnterminatedTextLiteral,
+    MissingDelimiter,
+    MismatchedDelimiter,
+    DelimiterDepthExceeded,
+    MissingOperand,
+    InvalidComparisonOperator,
+    InvalidOperandStarter,
+    MalformedFieldPlace,
+    ListElementSeparator,
+    ListTrailingComma,
+    ListNonTextElement,
+    IntegerLiteralOutOfRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CanonicalExpectedLexicalEvidence {
+    Token(CanonicalLexicalTokenKind),
+    Operand,
+    ComparisonOperator,
+    Identifier,
+    ListSeparatorOrClose,
+    TextListElement,
+    Int64Value,
+    MaximumDelimiterDepth(usize),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CanonicalActualLexicalEvidence {
+    EndOfInput,
+    Token {
+        kind: CanonicalLexicalTokenKind,
+        range: ParsedSourceRange,
+        spelling: String,
+    },
+    DelimiterDepth(usize),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalMalformedEvent {
+    pub(crate) cause: CanonicalMalformedCause,
+    pub(crate) producing_event: ParsedSourceRange,
+    pub(crate) offending: ParsedSourceRange,
+    pub(crate) consumed: ParsedSourceRange,
+    pub(crate) expected: CanonicalExpectedLexicalEvidence,
+    pub(crate) actual: CanonicalActualLexicalEvidence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CanonicalCompletionEvent {
+    Complete,
+    Unsupported(Box<CanonicalMalformedEvent>),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CanonicalReductionChildEvent {
     pub(crate) role: CanonicalCommonChildRole,
@@ -151,6 +224,7 @@ pub(crate) struct CanonicalReductionEvent {
     pub(crate) delimiter_depth_after: usize,
     pub(crate) lexical_status: CanonicalCommonLexicalStatus,
     pub(crate) payload: Vec<CanonicalPayloadEvent>,
+    pub(crate) completion: CanonicalCompletionEvent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -330,6 +404,83 @@ pub enum ParsedBlockRelationship {
     Closes,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum CanonicalStatementKindEvent {
+    NeedsPredicate,
+    EnsuresPredicate,
+    Return,
+    ImmutableBinding,
+    MutableBinding,
+    Set,
+    Save,
+    Fail,
+    Expect,
+    FreeExpression,
+    If,
+    While,
+    ForEach,
+    ForIndexUntil,
+    ForIndexThrough,
+    UnconditionalLoop,
+    BlockClose,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum CanonicalStatementEventField {
+    Kind,
+    Section,
+    Line,
+    Statement,
+    Keyword,
+    PhraseTokens,
+    Binder,
+    BinderRelationship,
+    TypeBoundary,
+    AssignmentToken,
+    RelationshipToken,
+    TargetRoot,
+    ValueRoot,
+    DestinationToken,
+    StartRoot,
+    EndRoot,
+    OrderedRoots,
+    BlockOwner,
+    BlockDepthBefore,
+    BlockDepthAfter,
+    BlockRelationship,
+    BlockOpenToken,
+    BlockCloseToken,
+    ExpressionAbsent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CanonicalStatementEventValue {
+    Kind(CanonicalStatementKindEvent),
+    Text(String),
+    Range(ParsedSourceRange),
+    Token {
+        slot: usize,
+        range: ParsedSourceRange,
+        spelling: String,
+    },
+    Tokens(Vec<(usize, ParsedSourceRange, String)>),
+    TokenReference(usize),
+    Root {
+        ordinal: usize,
+        node: ParserSyntaxNodeId,
+    },
+    Roots(Vec<(usize, ParserSyntaxNodeId)>),
+    Usize(usize),
+    Bool(bool),
+    BlockRelationship(ParsedBlockRelationship),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalStatementEventFact {
+    pub(crate) field: CanonicalStatementEventField,
+    pub(crate) value: CanonicalStatementEventValue,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Program {
     pub files: Vec<SourceFile>,
@@ -474,6 +625,8 @@ pub struct ParsedBodyStatement {
     pub core_reason: Option<&'static str>,
     pub(crate) canonical_extra_occurrences: Vec<ParsedExpression>,
     pub(crate) canonical_assignments: Vec<CanonicalOccurrenceAssignmentEvent>,
+    pub(crate) canonical_statement_projection: Vec<CanonicalStatementEventFact>,
+    pub(crate) canonical_statement_authority: Vec<CanonicalStatementEventFact>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

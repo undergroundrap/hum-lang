@@ -300,6 +300,7 @@ try {
   Invoke-ExactRustTest 'Increment 10B.1a.1.1 source/owner matrix: 7 fields, 21 pairs, named sabotage' $Cargo 'parser::tests::source_owner_authority_kernel_is_complete_and_load_bearing'
   Invoke-ExactRustTest 'Replacement F1 occurrence/common matrix: 36 fields, 16 kinds, 11 child roles, 27 variant mutations, 216 singles, 630 pairs, 16 cross-occurrence cases, named sabotage' $Cargo 'parser::tests::occurrence_authority_and_common_node_topology_are_complete_and_load_bearing'
   Invoke-ExactRustTest 'Replacement F2 successful payload matrix: 64 fields, 384 singles, 4950 cumulative pairs, 64 foreign substitutions, named sabotage' $Cargo 'parser::tests::successful_canonical_expression_payloads_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Replacement F3 parser completion/statement matrix: 32 fields, 192 singles, 8646 cumulative pairs, 32 foreign substitutions, 7 coherent co-mutations, six permanent rejection probes, named sabotage' $Cargo 'parser::tests::parser_completion_and_statement_relationships_are_complete_and_load_bearing'
   Invoke-ExactRustTest 'Replacement F2 UTF-8 Text escape boundary regression' $Cargo 'parser::tests::f2_utf8_text_escape_payload_is_boundary_safe'
   Invoke-ExactRustTest 'Replacement F2 malformed try fail-closed regression' $Cargo 'parser::tests::f2_malformed_try_is_unsupported_without_authority_mismatch'
   Invoke-ExactRustTest 'Replacement F2 grammar-exact topology channel regression' $Cargo 'parser::tests::f2_topology_channels_ignore_nested_and_quoted_tokens'
@@ -723,7 +724,7 @@ task malformed() -> UInt {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 79 -or $UniqueExactRustSelectorCredits.Count -ne 79) { throw "exact Rust selector inventory must credit 79 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 80 -or $UniqueExactRustSelectorCredits.Count -ne 80) { throw "exact Rust selector inventory must credit 80 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
