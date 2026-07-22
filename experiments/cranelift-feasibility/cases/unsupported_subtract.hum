@@ -1,0 +1,6 @@
+module experiments.cranelift.unsupported_subtract
+
+task subtract(a: Int, b: Int) -> Int {
+  does:
+    return a - b
+}
