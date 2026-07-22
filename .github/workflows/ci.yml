@@ -23,7 +23,7 @@ jobs:
   preflight:
     name: preflight (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -90,7 +90,13 @@ jobs:
       - name: Run Hum preflight
         if: steps.classify.outputs.mode != 'fast'
         shell: pwsh
-        run: ./tools/check_all.ps1
+        run: ./tools/check_all.ps1 -EvidenceTier Fast
+
+      - name: Run exhaustive canonical-seal evidence
+        if: steps.classify.outputs.mode != 'fast' && matrix.os == 'ubuntu-latest'
+        continue-on-error: false
+        shell: pwsh
+        run: ./tools/check_all.ps1 -EvidenceTier Exhaustive
 
       - name: Run status-only evidence
         if: steps.classify.outputs.mode == 'fast'

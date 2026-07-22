@@ -271,7 +271,7 @@ foreach ($required in @('hum.doctor.v0', 'hum doctor --format json', 'current_di
 }
 
 $ciWorkflow = Read-RepoText '.github/workflows/ci.yml'
-foreach ($required in @('workflow_dispatch:', 'branches:', '- main', 'tags:', "- 'v*'", 'concurrency:', 'cancel-in-progress: true', 'timeout-minutes: 30', 'actions/checkout@v7', 'actions/cache@v6', 'CARGO_HOME:', 'Cache Cargo artifacts', '.cargo-home/registry', '.cargo-home/git', 'target', 'restore-keys:', 'tools/check_all.ps1', 'windows-latest', 'ubuntu-latest')) {
+foreach ($required in @('workflow_dispatch:', 'branches:', '- main', 'tags:', "- 'v*'", 'concurrency:', 'cancel-in-progress: true', 'timeout-minutes: 60', 'actions/checkout@v7', 'actions/cache@v6', 'CARGO_HOME:', 'Cache Cargo artifacts', '.cargo-home/registry', '.cargo-home/git', 'target', 'restore-keys:', 'tools/check_all.ps1', 'Run exhaustive canonical-seal evidence', 'continue-on-error: false', '-EvidenceTier Exhaustive', 'windows-latest', 'ubuntu-latest')) {
   if (-not $ciWorkflow.Contains($required)) {
     Add-Failure ".github/workflows/ci.yml does not mention $required"
   }

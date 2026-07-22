@@ -1,3 +1,8 @@
+param(
+  [ValidateSet('Fast', 'Exhaustive')]
+  [string] $EvidenceTier = 'Fast'
+)
+
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -29,6 +34,38 @@ function Resolve-Tool {
 $Cargo = Resolve-Tool 'cargo' '.cargo\bin\cargo.exe' 'cargo was not found on PATH or in the standard user Cargo install directory'
 $Git = Resolve-Tool 'git' '' 'git was not found on PATH'
 . (Join-Path $PSScriptRoot 'test_exact_rust_selector.ps1')
+
+if ($EvidenceTier -eq 'Exhaustive') {
+  $PreviousEvidenceTier = $env:HUM_CANONICAL_SEAL_EVIDENCE_TIER
+  try {
+    $env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'exhaustive'
+    $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    Reset-ExactRustSelectorCredits
+    Invoke-ExactRustTest `
+      'exhaustive canonical-seal pair matrix: F1=630 F2=4950 F3/F4=8646 total=14226' `
+      $Cargo `
+      'parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero'
+    $Stopwatch.Stop()
+    Write-Host (
+      'exhaustive canonical-seal evidence passed: ' +
+      'seed=0x48554D5F5345414C;f1_pairs=630;f2_pairs=4950;f3_pairs=8646;' +
+      "total_pairs=14226;elapsed_seconds=$([math]::Round($Stopwatch.Elapsed.TotalSeconds, 3))"
+    )
+  } finally {
+    if ($null -eq $PreviousEvidenceTier) {
+      Remove-Item Env:HUM_CANONICAL_SEAL_EVIDENCE_TIER -ErrorAction SilentlyContinue
+    } else {
+      $env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = $PreviousEvidenceTier
+    }
+  }
+  return
+}
+
+if ($EvidenceTier -ne 'Fast') {
+  throw "unsupported evidence-tier fallthrough: $EvidenceTier"
+}
+
+$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'fast'
 
 function Invoke-Native {
   param(
@@ -253,6 +290,38 @@ try {
   $CheckAllSource = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'))
   $ExactFlag = '--' + 'exact'
   if ($CheckAllSource.Contains($ExactFlag)) { throw 'exact Rust tests must use the guarded selector helper' }
+  $CiSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot '.github/workflows/ci.yml'))
+  if ([regex]::Matches($CiSource, [regex]::Escape('timeout-minutes: 60')).Count -ne 1) {
+    throw 'canonical-seal CI timeout headroom drifted'
+  }
+  $ExhaustiveStepPattern = '(?m)^      - name: Run exhaustive canonical-seal evidence\r?\n        if: steps\.classify\.outputs\.mode != ''fast'' && matrix\.os == ''ubuntu-latest''\r?\n        continue-on-error: false\r?\n        shell: pwsh\r?\n        run: \./tools/check_all\.ps1 -EvidenceTier Exhaustive$'
+  if ([regex]::Matches($CiSource, $ExhaustiveStepPattern).Count -ne 1) {
+    throw 'canonical-seal exhaustive CI step or fail-closed outcome drifted'
+  }
+  foreach ($ExhaustiveDispatchArm in @(
+    'if ($EvidenceTier -eq ''Exhaustive'') {',
+    '$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = ''exhaustive''',
+    'if ($EvidenceTier -ne ''Fast'') {',
+    'throw "unsupported evidence-tier fallthrough: $EvidenceTier"',
+    '$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = ''fast'''
+  )) {
+    $ExhaustiveDispatchPattern = '(?m)^\s*' + [regex]::Escape($ExhaustiveDispatchArm) + '\s*$'
+    if ([regex]::Matches($CheckAllSource, $ExhaustiveDispatchPattern).Count -ne 1) {
+      throw "canonical-seal evidence-tier dispatch drifted: $ExhaustiveDispatchArm"
+    }
+  }
+  $ParserSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/parser.rs'))
+  foreach ($ExhaustiveHarnessArm in @(
+    'fn exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero()',
+    'assert_eq!(f1.pair_rejections, 630);',
+    'assert_eq!(f2.cumulative_pair_rejections, 4_950);',
+    'assert_eq!(f3.cumulative_pair_rejections, 8_646);',
+    'assert_eq!(630 + 4_950 + 8_646, 14_226);'
+  )) {
+    if ([regex]::Matches($ParserSource, [regex]::Escape($ExhaustiveHarnessArm)).Count -ne 1) {
+      throw "canonical-seal exhaustive selector/count pin drifted: $ExhaustiveHarnessArm"
+    }
+  }
   Invoke-ExactRustSelectorSelfTests $Cargo
   Reset-ExactRustSelectorCredits
   Invoke-Native 'cargo fmt --check' $Cargo @('fmt', '--check')
@@ -298,9 +367,10 @@ try {
     Invoke-ExactRustTest "Increment 10A evidence $EvidenceTest" $Cargo $EvidenceTest
   }
   Invoke-ExactRustTest 'Increment 10B.1a.1.1 source/owner matrix: 7 fields, 21 pairs, named sabotage' $Cargo 'parser::tests::source_owner_authority_kernel_is_complete_and_load_bearing'
-  Invoke-ExactRustTest 'Replacement F1 occurrence/common matrix: 36 fields, 16 kinds, 11 child roles, 27 variant mutations, 216 singles, 630 pairs, 16 cross-occurrence cases, named sabotage' $Cargo 'parser::tests::occurrence_authority_and_common_node_topology_are_complete_and_load_bearing'
-  Invoke-ExactRustTest 'Replacement F2 successful payload matrix: 64 fields, 384 singles, 4950 cumulative pairs, 64 foreign substitutions, named sabotage' $Cargo 'parser::tests::successful_canonical_expression_payloads_are_complete_and_load_bearing'
-  Invoke-ExactRustTest 'Replacement F3 parser completion/statement matrix: 32 fields, 192 singles, 8646 cumulative pairs, 32 foreign substitutions, 7 coherent co-mutations, six permanent rejection probes, named sabotage' $Cargo 'parser::tests::parser_completion_and_statement_relationships_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'canonical-seal seeded pair-tier sampler: deterministic, nonzero, and every field covered' $Cargo 'parser::tests::canonical_seal_pair_tiers_are_deterministic_nonzero_and_field_covering'
+  Invoke-ExactRustTest 'Replacement F1 fast matrix: 36 fields, 216 singles, 256 seeded pairs of 630, all named sabotage' $Cargo 'parser::tests::occurrence_authority_and_common_node_topology_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Replacement F2 fast matrix: 64 fields, 384 singles, 256 seeded cumulative pairs of 4950, all named sabotage' $Cargo 'parser::tests::successful_canonical_expression_payloads_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Replacement F3 fast matrix: 32 fields, 192 singles, 256 seeded cumulative pairs of 8646, all named sabotage' $Cargo 'parser::tests::parser_completion_and_statement_relationships_are_complete_and_load_bearing'
   Invoke-ExactRustTest 'Replacement F4 private Core boundary: 132 fields, 8646 pairs, retained authority, substitution and transport corruption' $Cargo 'parser::tests::complete_canonical_seal_reaches_private_core_and_rejects_transport_corruption'
   Invoke-ExactRustTest 'Replacement F4 real load_program and private Core inventory path' $Cargo 'tests::replacement_f4_complete_inventory_uses_real_load_and_private_core'
   $F4Fixture = 'fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum'
@@ -797,7 +867,7 @@ task malformed() -> UInt {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 82 -or $UniqueExactRustSelectorCredits.Count -ne 82) { throw "exact Rust selector inventory must credit 82 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 83 -or $UniqueExactRustSelectorCredits.Count -ne 83) { throw "exact Rust selector inventory must credit 83 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')

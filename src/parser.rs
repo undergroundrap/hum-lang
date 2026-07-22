@@ -10451,6 +10451,106 @@ task seal(value: UInt) -> UInt {
         ChildRoleRow,
     }
 
+    const CANONICAL_SEAL_PAIR_SAMPLE_SEED: u64 = 0x4855_4D5F_5345_414C;
+    const FAST_CANONICAL_SEAL_PAIR_TARGET: usize = 256;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum CanonicalSealPairTier {
+        Fast,
+        Exhaustive,
+    }
+
+    fn active_canonical_seal_pair_tier() -> CanonicalSealPairTier {
+        match std::env::var("HUM_CANONICAL_SEAL_EVIDENCE_TIER") {
+            Ok(value) if value == "fast" => CanonicalSealPairTier::Fast,
+            Ok(value) if value == "exhaustive" => CanonicalSealPairTier::Exhaustive,
+            Err(std::env::VarError::NotPresent) => CanonicalSealPairTier::Fast,
+            Ok(value) => panic!("unknown canonical-seal evidence tier `{value}`"),
+            Err(error) => panic!("canonical-seal evidence tier is not Unicode: {error}"),
+        }
+    }
+
+    fn canonical_seal_pair_score(left: usize, right: usize) -> u64 {
+        let mut value = CANONICAL_SEAL_PAIR_SAMPLE_SEED
+            ^ (left as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            ^ (right as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        value ^ (value >> 31)
+    }
+
+    fn canonical_seal_pairs_for_tier(
+        field_count: usize,
+        tier: CanonicalSealPairTier,
+    ) -> Vec<(usize, usize)> {
+        assert!(
+            field_count >= 2,
+            "pair evidence requires at least two fields"
+        );
+        let mut all_pairs = (0..field_count)
+            .flat_map(|left| ((left + 1)..field_count).map(move |right| (left, right)))
+            .collect::<Vec<_>>();
+        if tier == CanonicalSealPairTier::Exhaustive {
+            return all_pairs;
+        }
+
+        let target = FAST_CANONICAL_SEAL_PAIR_TARGET.min(all_pairs.len());
+        let mut field_order = (0..field_count).collect::<Vec<_>>();
+        field_order.sort_by_key(|field| canonical_seal_pair_score(*field, *field));
+        let mut selected = std::collections::BTreeSet::new();
+        for index in 0..field_order.len() {
+            let left = field_order[index];
+            let right = field_order[(index + 1) % field_order.len()];
+            selected.insert((left.min(right), left.max(right)));
+        }
+        all_pairs
+            .sort_by_key(|(left, right)| (canonical_seal_pair_score(*left, *right), *left, *right));
+        for pair in all_pairs {
+            if selected.len() == target {
+                break;
+            }
+            selected.insert(pair);
+        }
+        assert_eq!(selected.len(), target, "seeded pair sample size drifted");
+        assert!(
+            (0..field_count).all(|field| {
+                selected
+                    .iter()
+                    .any(|(left, right)| *left == field || *right == field)
+            }),
+            "seeded pair sample stopped covering every field"
+        );
+        selected.into_iter().collect()
+    }
+
+    fn active_canonical_seal_pairs(field_count: usize) -> Vec<(usize, usize)> {
+        canonical_seal_pairs_for_tier(field_count, active_canonical_seal_pair_tier())
+    }
+
+    fn active_canonical_seal_pair_count(field_count: usize) -> usize {
+        active_canonical_seal_pairs(field_count).len()
+    }
+
+    #[test]
+    fn canonical_seal_pair_tiers_are_deterministic_nonzero_and_field_covering() {
+        for field_count in [36, 100, 132] {
+            let first = canonical_seal_pairs_for_tier(field_count, CanonicalSealPairTier::Fast);
+            let second = canonical_seal_pairs_for_tier(field_count, CanonicalSealPairTier::Fast);
+            assert_eq!(first, second, "seeded pair selection must be repeatable");
+            assert_eq!(first.len(), FAST_CANONICAL_SEAL_PAIR_TARGET);
+            assert!(
+                (0..field_count).all(|field| first
+                    .iter()
+                    .any(|(left, right)| *left == field || *right == field)),
+                "fast evidence must touch every sealed field"
+            );
+            let exhaustive =
+                canonical_seal_pairs_for_tier(field_count, CanonicalSealPairTier::Exhaustive);
+            assert_eq!(exhaustive.len(), field_count * (field_count - 1) / 2);
+            assert!(!exhaustive.is_empty());
+        }
+    }
+
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct F1Evidence {
         deterministic: bool,
@@ -10578,25 +10678,19 @@ task seal(value: UInt) -> UInt {
                 single_rejections += usize::from(rejected);
             }
         }
+        let mut selected_pairs = active_canonical_seal_pairs(catalogue.len());
+        if matches!(sabotage, Some(F1Sabotage::PairCase)) {
+            selected_pairs.pop();
+        }
         let mut pair_rejections = 0usize;
-        let pair_limit = if matches!(sabotage, Some(F1Sabotage::PairCase)) {
-            629
-        } else {
-            630
-        };
-        'pairs: for left in 0..catalogue.len() {
-            for right in left + 1..catalogue.len() {
-                if pair_rejections == pair_limit {
-                    break 'pairs;
-                }
-                let mut pair = base.clone();
-                for field in [catalogue[left], catalogue[right]] {
-                    let index = representatives[&field];
-                    pair.projection[index] =
-                        foreign_fact(field, &pair.projection[index], &foreign.occurrence_seals);
-                }
-                pair_rejections += usize::from(validate_occurrence_seal(&pair).is_err());
+        for (left, right) in selected_pairs {
+            let mut pair = base.clone();
+            for field in [catalogue[left], catalogue[right]] {
+                let index = representatives[&field];
+                pair.projection[index] =
+                    foreign_fact(field, &pair.projection[index], &foreign.occurrence_seals);
             }
+            pair_rejections += usize::from(validate_occurrence_seal(&pair).is_err());
         }
         let same_shaped = parsed
             .occurrence_seals
@@ -10877,7 +10971,7 @@ task seal(value: UInt) -> UInt {
             && evidence.node_count == 55
             && evidence.token_count == 79
             && evidence.single_rejections == 216
-            && evidence.pair_rejections == 630
+            && evidence.pair_rejections == active_canonical_seal_pair_count(36)
             && evidence.cross_occurrence_rejections == 16
             && evidence.common_variant_rejections == 27
             && evidence.producer_event_rejected
@@ -11732,43 +11826,37 @@ task payload(value: UInt, other: UInt) -> UInt {
             }
         }));
         assert_eq!(combined.len(), 100);
+        let mut selected_pairs = active_canonical_seal_pairs(combined.len());
+        if matches!(sabotage, Some(F2Sabotage::PairMutation)) {
+            selected_pairs.pop();
+        }
         let mut cumulative_pair_rejections = 0usize;
-        let pair_limit = if matches!(sabotage, Some(F2Sabotage::PairMutation)) {
-            4_949
-        } else {
-            4_950
-        };
-        'pairs: for left in 0..combined.len() {
-            for right in left + 1..combined.len() {
-                if cumulative_pair_rejections == pair_limit {
-                    break 'pairs;
-                }
-                let mut seals = production_seals.clone();
-                for location in [combined[left], combined[right]] {
-                    match location.field {
-                        CombinedField::F1(field) => {
-                            seals[location.seal].projection[location.index] = foreign_fact(
+        for (left, right) in selected_pairs {
+            let mut seals = production_seals.clone();
+            for location in [combined[left], combined[right]] {
+                match location.field {
+                    CombinedField::F1(field) => {
+                        seals[location.seal].projection[location.index] = foreign_fact(
+                            field,
+                            &seals[location.seal].projection[location.index],
+                            &f1_foreign.occurrence_seals,
+                        );
+                    }
+                    CombinedField::F2(field) => {
+                        seals[location.seal].payload_projection[location.index] =
+                            foreign_payload_fact(
                                 field,
-                                &seals[location.seal].projection[location.index],
-                                &f1_foreign.occurrence_seals,
+                                &seals[location.seal].payload_projection[location.index],
+                                &foreign.occurrence_seals,
                             );
-                        }
-                        CombinedField::F2(field) => {
-                            seals[location.seal].payload_projection[location.index] =
-                                foreign_payload_fact(
-                                    field,
-                                    &seals[location.seal].payload_projection[location.index],
-                                    &foreign.occurrence_seals,
-                                );
-                        }
                     }
                 }
-                cumulative_pair_rejections += usize::from(
-                    seals
-                        .iter()
-                        .any(|seal| validate_occurrence_seal(seal).is_err()),
-                );
             }
+            cumulative_pair_rejections += usize::from(
+                seals
+                    .iter()
+                    .any(|seal| validate_occurrence_seal(seal).is_err()),
+            );
         }
         let producer_location = f2_locations[&F2SealField::IdentifierValue];
         let mut producer_corruption = parsed.occurrence_seals[producer_location.0].clone();
@@ -11806,7 +11894,10 @@ task payload(value: UInt, other: UInt) -> UInt {
         assert_eq!(first, second, "fresh F2 inventories must be deterministic");
         assert_eq!(first.field_count, 64);
         assert_eq!(first.single_rejections, 384);
-        assert_eq!(first.cumulative_pair_rejections, 4_950);
+        assert_eq!(
+            first.cumulative_pair_rejections,
+            active_canonical_seal_pair_count(100)
+        );
         assert_eq!(first.foreign_rejections, 64);
         assert!(first.deterministic);
         assert!(first.public_compatible);
@@ -12470,63 +12561,55 @@ task payload(value: UInt, other: UInt) -> UInt {
             let (seal, index) = statement_locations[field];
             F3CombinedLocation::Statement { seal, index }
         }));
-        let expected_pair_count = combined.len() * (combined.len() - 1) / 2;
-        let pair_limit = if matches!(sabotage, Some(F3Sabotage::PairCase)) {
-            expected_pair_count - 1
-        } else {
-            expected_pair_count
-        };
+        let mut selected_pairs = active_canonical_seal_pairs(combined.len());
+        if matches!(sabotage, Some(F3Sabotage::PairCase)) {
+            selected_pairs.pop();
+        }
         let mut cumulative_pair_rejections = 0usize;
-        'pairs: for left in 0..combined.len() {
-            for right in left + 1..combined.len() {
-                if cumulative_pair_rejections == pair_limit {
-                    break 'pairs;
-                }
-                let mut f2_seals = f2.occurrence_seals.clone();
-                let mut malformed_seals = malformed.occurrence_seals.clone();
-                let mut statement_seals = statements.statement_seals.clone();
-                for location in [combined[left], combined[right]] {
-                    match location {
-                        F3CombinedLocation::F1 { seal, index, field } => {
-                            f2_seals[seal].projection[index] = foreign_fact(
-                                field,
-                                &f2_seals[seal].projection[index],
-                                &foreign_f1.occurrence_seals,
-                            );
-                        }
-                        F3CombinedLocation::F2 { seal, index, field } => {
-                            f2_seals[seal].payload_projection[index] = foreign_payload_fact(
-                                field,
-                                &f2_seals[seal].payload_projection[index],
-                                &foreign_f2.occurrence_seals,
-                            );
-                        }
-                        F3CombinedLocation::Malformed { seal, index } => {
-                            malformed_seals[seal].malformed_projection[index] =
-                                foreign_malformed_fact(
-                                    &malformed_seals[seal].malformed_projection[index],
-                                    &foreign_malformed.occurrence_seals,
-                                );
-                        }
-                        F3CombinedLocation::Statement { seal, index } => {
-                            statement_seals[seal].projection[index] = foreign_statement_fact(
-                                &statement_seals[seal].projection[index],
-                                &foreign_statements.statement_seals,
-                            );
-                        }
+        for (left, right) in selected_pairs {
+            let mut f2_seals = f2.occurrence_seals.clone();
+            let mut malformed_seals = malformed.occurrence_seals.clone();
+            let mut statement_seals = statements.statement_seals.clone();
+            for location in [combined[left], combined[right]] {
+                match location {
+                    F3CombinedLocation::F1 { seal, index, field } => {
+                        f2_seals[seal].projection[index] = foreign_fact(
+                            field,
+                            &f2_seals[seal].projection[index],
+                            &foreign_f1.occurrence_seals,
+                        );
+                    }
+                    F3CombinedLocation::F2 { seal, index, field } => {
+                        f2_seals[seal].payload_projection[index] = foreign_payload_fact(
+                            field,
+                            &f2_seals[seal].payload_projection[index],
+                            &foreign_f2.occurrence_seals,
+                        );
+                    }
+                    F3CombinedLocation::Malformed { seal, index } => {
+                        malformed_seals[seal].malformed_projection[index] = foreign_malformed_fact(
+                            &malformed_seals[seal].malformed_projection[index],
+                            &foreign_malformed.occurrence_seals,
+                        );
+                    }
+                    F3CombinedLocation::Statement { seal, index } => {
+                        statement_seals[seal].projection[index] = foreign_statement_fact(
+                            &statement_seals[seal].projection[index],
+                            &foreign_statements.statement_seals,
+                        );
                     }
                 }
-                let rejected = f2_seals
+            }
+            let rejected = f2_seals
+                .iter()
+                .any(|seal| validate_occurrence_seal(seal).is_err())
+                || malformed_seals
                     .iter()
                     .any(|seal| validate_occurrence_seal(seal).is_err())
-                    || malformed_seals
-                        .iter()
-                        .any(|seal| validate_occurrence_seal(seal).is_err())
-                    || statement_seals
-                        .iter()
-                        .any(|seal| validate_statement_seal(seal).is_err());
-                cumulative_pair_rejections += usize::from(rejected);
-            }
+                || statement_seals
+                    .iter()
+                    .any(|seal| validate_statement_seal(seal).is_err());
+            cumulative_pair_rejections += usize::from(rejected);
         }
 
         let mut semantic_comutation_rejections = 0usize;
@@ -12736,7 +12819,7 @@ task payload(value: UInt, other: UInt) -> UInt {
             && evidence.field_count == 32
             && evidence.single_rejections == 192
             && evidence.foreign_rejections == 32
-            && evidence.cumulative_pair_rejections == 8_646
+            && evidence.cumulative_pair_rejections == active_canonical_seal_pair_count(132)
             && evidence.semantic_comutation_rejections == 7
     }
 
@@ -13012,6 +13095,31 @@ task payload(value: UInt, other: UInt) -> UInt {
                 "{sabotage:?} sabotage stayed green"
             );
         }
+    }
+
+    #[test]
+    fn exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero() {
+        if active_canonical_seal_pair_tier() != CanonicalSealPairTier::Exhaustive {
+            return;
+        }
+        let f1 = f1_evidence(None);
+        let f2 = f2_evidence(None);
+        let f3 = f3_evidence(None);
+        assert!(complete_f1_evidence(&f1), "{f1:#?}");
+        assert_eq!(f1.pair_rejections, 630);
+        assert_eq!(f2.field_count, 64);
+        assert_eq!(f2.single_rejections, 384);
+        assert_eq!(f2.foreign_rejections, 64);
+        assert!(f2.production_valid);
+        assert!(f2.semantics_exact);
+        assert_eq!(f2.cumulative_pair_rejections, 4_950);
+        assert!(complete_f3_evidence(&f3), "{f3:#?}");
+        assert_eq!(f3.cumulative_pair_rejections, 8_646);
+        assert_eq!(630 + 4_950 + 8_646, 14_226);
+        println!(
+            "canonical-seal-exhaustive seed=0x{CANONICAL_SEAL_PAIR_SAMPLE_SEED:016X} \
+             f1_pairs=630 f2_pairs=4950 f3_pairs=8646 total_pairs=14226"
+        );
     }
 
     #[test]
