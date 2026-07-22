@@ -249,6 +249,45 @@ implementation edit or correction cycle is authorized. Increment
 10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every later item
 remain unauthorized.
 
+Replacement F4's canonical-seal completion received final independent
+`ACCEPT` and was committed and published as
+`519873cd64c5df72c2ed2b006b2ac4a9e8a5e8ac`. The independently accepted CI
+timeout and evidence-tiering deliverable was committed and published on top
+of it as `bca90fd88c585dd939ea6f7f894773f937c2523d`. Required workflow
+`29955550711`, attempt 1, succeeded for that exact tiering head. Ubuntu job
+`89043582935` on `ubuntu-latest` succeeded in 20m 15s; Windows job
+`89043583041` on `windows-latest` succeeded in 26m 19s. Both selected
+`mode=full` with `reason=no_status_transition`; Cargo caching, Rust-toolchain
+preparation, and `Run Hum preflight` succeeded on both, and `Run status-only
+evidence` was skipped on both.
+
+The Ubuntu job then executed `Run exhaustive canonical-seal evidence` in 17s
+and asserted the complete 14,226-pair matrix: F1 630, F2 4,950, and F3/F4
+8,646. The Windows job skipped that step by design because the exhaustive
+matrix is platform-independent and Ubuntu owns the single required CI
+execution. The workflow timeout increased from 30 to 60 minutes; Windows
+completed in 26m 19s, leaving 3m 41s of former-ceiling headroom.
+
+For every subsequent Work Order 10 increment, the implementer runs the Fast
+tier. The independent reviewer also runs the Fast tier and independently
+verifies that the exhaustive tier went green on the exact accepted bytes,
+rather than re-running the deterministic exhaustive matrix locally. This
+preserves zero-trust review because the reviewer verifies the actual selector,
+complete count, exact bytes, and terminal result instead of trusting a report.
+The measured basis is 787.8s for the implementer's Fast preflight and 801.8s
+for the reviewer's Fast preflight on identical deterministic bytes; a second
+local exhaustive run would duplicate evidence without increasing coverage.
+
+Permanent anti-rot audits guard against zero-test, dispatch, count, and
+`continue-on-error` drift. A full-mode Ubuntu run whose exhaustive step is
+absent, skipped, incomplete, or zero-case is not acceptance evidence and must
+fail closed. Approximately 12m 46s of the remaining Fast-preflight cost is the
+fixture, CLI, and readiness corpus rather than the pair matrix, likely
+dominated by repeated process spawns across CLI invocations. That is a future
+optimization target only and is not authorized work. Increment 10B.1b is the
+next target but requires a separate explicit BDFL go signal; 10B.2, 10C,
+Session AR, and every later item remain unauthorized.
+
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
 authoring authorization and therefore disqualified from this document's
@@ -5599,6 +5638,41 @@ restart of the Increment 10B.1a.1.1 acceptance sequence. No additional
 implementation edit or correction cycle is authorized. Increment
 10B.1a.1.2, 10B.1a.2, 10B.1b, 10B.2, 10C, Session AR, and every later item
 remain unauthorized.
+
+Replacement F4's canonical-seal completion is independently accepted,
+committed, and published as
+`519873cd64c5df72c2ed2b006b2ac4a9e8a5e8ac`. Its independently accepted CI
+timeout and evidence-tiering successor is committed and published as
+`bca90fd88c585dd939ea6f7f894773f937c2523d`. Workflow `29955550711`, attempt
+1, succeeded for that exact head. Ubuntu job `89043582935` on
+`ubuntu-latest` succeeded in 20m 15s; Windows job `89043583041` on
+`windows-latest` succeeded in 26m 19s. Both selected `mode=full` with
+`reason=no_status_transition`; Cargo caching, Rust-toolchain preparation, and
+`Run Hum preflight` succeeded on both, while `Run status-only evidence` was
+skipped on both. Ubuntu's exhaustive tier executed in 17s and asserted all
+14,226 pairs: F1 630, F2 4,950, and F3/F4 8,646. Windows skipped that
+platform-independent tier by design. The timeout is now 60 minutes; the
+26m 19s Windows job retained 3m 41s of headroom against the former 30-minute
+ceiling.
+
+The operative evidence rule for every subsequent Work Order 10 increment is:
+the implementer runs the Fast tier; the independent reviewer runs the Fast
+tier and independently verifies that the exhaustive tier passed on the exact
+accepted bytes instead of redundantly re-running the deterministic exhaustive
+matrix locally. Reviewer verification must establish the exact bytes,
+selector execution, complete nonzero count, and terminal result. Anti-rot
+audits make zero selection, dispatch drift, count drift, and
+`continue-on-error` drift fail closed; a full-mode Ubuntu run with a missing,
+skipped, incomplete, or zero-case exhaustive step is not acceptance evidence.
+The 787.8s implementer and 801.8s reviewer Fast-preflight measurements on
+identical bytes establish the eliminated duplication.
+
+Approximately 12m 46s of the remaining Fast-preflight cost belongs to the
+fixture, CLI, and readiness corpus rather than the pair matrix and is likely
+dominated by repeated CLI process spawns. That future optimization target is
+recorded but unauthorized. Increment 10B.1b is the next target and remains
+unauthorized pending a separate explicit BDFL go signal. Increment 10B.2,
+10C, Session AR, and every later item remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
