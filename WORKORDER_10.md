@@ -4717,6 +4717,114 @@ BDFL rather than creating another process layer. Even `ACCEPT` authorizes only
 the later exact BDFL-scoped documentation commit; it does not authorize F4
 implementation, publication, or any later increment.
 
+## Increment 10B.1b entry-discrimination correction amendment (2026-07-23; proposed)
+
+### Authority and exact defect
+
+This bounded amendment corrects only the `Increment 10B.1b` discriminating
+entry evidence. It supersedes the requirement above that the parser-clean
+missing-entry control exit 1 and the associated statement that the two
+controls must not be distinguished by exit status. Every other 10B.1b
+requirement, envelope entry, allocation, seal fact, corruption gate,
+evidence-tier rule, and later-work prohibition remains unchanged.
+
+The stopped implementation independently reproduced the real production
+behavior for:
+
+```powershell
+hum run fixtures/foundation/pre_ar_comparison_conjunction_pass.hum --entry missing_h0010_entry
+```
+
+The result is exit 2, zero stdout, and exact stderr:
+
+```text
+runtime trap: entry task `missing_h0010_entry` was not found
+```
+
+The trailing line feed is part of the emitted stderr bytes. The outcome is
+owned by the existing missing-entry path in `src/run.rs` and the established
+`RunOutcome::Trap` rendering and exit mapping in `src/main.rs`. Both files are
+outside the 10B.1b envelope. Their behavior is accepted and correct; the
+published exit-1 acceptance requirement is the defect. This amendment does
+not authorize either file or any production exit-semantics change.
+
+### Corrected discriminating evidence
+
+The permanent evidence must use two real commands and pin all independently
+observable distinctions:
+
+1. The parser-clean `pre_ar_comparison_conjunction_pass.hum` fixture with the
+   exact nonexistent entry `missing_h0010_entry` exits 2, writes zero stdout,
+   and writes exactly the runtime-trap stderr above. It is an operational
+   runtime failure. It produces no H0010 source diagnostic, no H0010 human or
+   JSON projection, and no parser diagnostic count.
+2. A run command naming the exact existing task in each chained-comparison
+   fixture exits 1 during parser-first preflight, writes zero stdout, and
+   produces exactly one H0010 source diagnostic with its sealed code identity,
+   message, help, primary and related sites, count, and exact stderr bytes. It
+   is a parser-stage source rejection. It contains no `runtime trap:` prefix
+   and no missing-entry message.
+
+The harness must pin exit status, output channel, exact stderr bytes,
+diagnostic identity, and diagnostic count for both cases. It must fail if the
+complete result, stderr, diagnostic identity, message, projection, or count
+from either command is substituted for the other. Sabotages that replace the
+clean control with invalid source, ignore `--entry`, reuse either result,
+erase the exact message or channel distinction, accept H0010 in the
+missing-entry result, accept a runtime trap in the H0010 result, or assert
+only that both commands fail must turn the permanent evidence red.
+
+The stronger discrimination is therefore by failure channel, identity, exact
+bytes, and exit status together. H0010 remains one ordinary source diagnostic
+at exit 1. Missing-entry resolution remains an operational runtime trap at
+exit 2. Parser-first precedence, the H0010 allocation and meaning, diagnostic
+ordering, and every other public behavior remain unchanged.
+
+### Preserved partial implementation and scope lock
+
+The stopped partial 10B.1b implementation remains uncommitted and unaccepted
+with an empty real index. It consists only of modified
+`docs/DIAGNOSTICS.md`, `docs/LANGUAGE_REFERENCE.md`,
+`src/diagnostic_catalog.rs`, `src/diagnostics.rs`, and `src/parser.rs`, plus
+the five exact untracked foundation fixtures already authorized by 10B.1b.
+Their pinned fixture SHA-256 values remain:
+
+- `pre_ar_comparison_conjunction_pass.hum`:
+  `3081b3ba84045cb64bb8c049fde683cbfc64c91dae956e9a71d012b193951433`;
+- `pre_ar_condition_chained_comparison_fail.hum`:
+  `c49bc27b53c2fbbfa8012525c25e756eb8da4871fe83ea2b6caec94466bc9d41`;
+- `pre_ar_nested_chained_comparison_fail.hum`:
+  `15e0caed7466978b95c1867d9492b83844197b3dc59754cd7805949f8b5a5b50`;
+- `pre_ar_predicate_chained_comparison_fail.hum`:
+  `7376de1f01f018943174876886ea37da02e5a4458b032d24214f5ff4116e8d30`;
+  and
+- `pre_ar_return_chained_comparison_fail.hum`:
+  `6096390130a62ddc5a2128b936b188d05a0a63aa9036cad4ffd84c7b16207fb8`.
+
+This amendment changes no H0010 allocation, one-cause/multiple-occurrence
+model, seal inventory, evidence-tier mechanism, diagnostic wording,
+production code, fixture byte, or increment definition outside the corrected
+entry evidence. In particular, `src/main.rs` and `src/run.rs` remain outside
+the writable 10B.1b envelope. No implementation, resumption, acceptance,
+commit, push, 10B.2, or later work is authorized by these proposed bytes.
+
+### Review and resume gate
+
+Only `WORKORDER_10.md` may change during this authoring pass. The author runs
+`git diff --check`; the incomplete implementation is preserved and receives
+no implementation acceptance credit. One fresh independent pre-issuance
+reviewer must reproduce the exit-2 runtime-trap result from production,
+confirm the exact stderr and zero stdout, verify the source-diagnostic/runtime-
+trap distinction, confirm no production or envelope expansion is authorized,
+verify the ten preserved partial-deliverable paths and fixture hashes, and
+issue exactly one verdict: `ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT`.
+
+Even `ACCEPT` authorizes no implementation or publication. The amendment
+still requires BDFL acceptance, an exact scoped documentation commit,
+separately authorized publication, terminal required CI, and a separate
+corrective go signal before the same 10B.1b implementation may resume. No
+later increment may begin implicitly.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
