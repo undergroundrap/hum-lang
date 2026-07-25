@@ -318,11 +318,60 @@ mixed, and out-of-region changes still select `mode=full`; missing, malformed,
 conflicting, or ambiguous active-Work-Order evidence fails closed to
 `mode=full`.
 
-The preserved partial 10B.1b implementation remains uncommitted and unaccepted
-as exactly five modified tracked paths plus five untracked fixtures with an
-empty index. It remains paused pending a separate explicit BDFL corrective go
-signal against the corrected gate. Increment 10B.2, 10C, Session AR, and every
-later item remain unauthorized.
+Increment 10B.1b received final independent `ACCEPT` with no P0, P1, or P2
+findings. It was committed and durably published as
+`195d8886bcd15b3299783e58c0c91ba7b964db03`, with first parent
+`da21ce9c7972410942d0a4a8b8008c4544b4b8e4`. Its accepted 11-path scope is
+exactly:
+
+- `docs/DIAGNOSTICS.md`;
+- `docs/LANGUAGE_REFERENCE.md`;
+- `src/diagnostic_catalog.rs`;
+- `src/diagnostics.rs`;
+- `src/parser.rs`;
+- `tools/check_all.ps1`;
+- `fixtures/foundation/pre_ar_comparison_conjunction_pass.hum`;
+- `fixtures/foundation/pre_ar_condition_chained_comparison_fail.hum`;
+- `fixtures/foundation/pre_ar_nested_chained_comparison_fail.hum`;
+- `fixtures/foundation/pre_ar_predicate_chained_comparison_fail.hum`; and
+- `fixtures/foundation/pre_ar_return_chained_comparison_fail.hum`.
+
+The accepted commit contains 854 insertions and 18 deletions and has committed
+tree OID `672f312afec3eebcb68706979e541147734bec58`.
+
+H0010 remains one parser-owned code and one registered cause,
+`chained_comparison_not_supported_v0`. The active diagnostic catalogue now
+contains exactly 88 codes and 179 causes. Recursive chained comparisons,
+including nested chains, are rejected by the parser through the sealed
+canonical expression path and cannot reach a generic runtime trap. Independent
+comparisons joined by valid Boolean structure remain accepted.
+
+The entry controls retain the accepted distinction. A nonexistent entry exits
+2 through the runtime-trap channel with zero stdout, the exact existing
+stderr, and no H0010. A valid entry containing a chained comparison exits 1
+through the H0010 source-diagnostic channel with its exact sealed projection
+and no runtime trap.
+
+Required workflow `30179326310`, attempt 1, succeeded for that exact commit.
+Ubuntu job `89733174273` on `ubuntu-latest` succeeded in 11m 31s. Its Cargo
+cache and Rust-toolchain preparation succeeded, `Run Hum preflight` succeeded
+in 11m 01s, and `Run status-only evidence` was skipped. It selected
+`mode=full` with `reason=no_status_transition`. Ubuntu then genuinely executed
+the nonzero exhaustive canonical-seal selector in 13.485s and asserted all
+14,226 pairs: F1 630, F2 4,950, and F3/F4 8,646.
+
+Windows job `89733174274` on `windows-latest` succeeded in 22m 25s. Its Cargo
+cache and Rust-toolchain preparation succeeded, `Run Hum preflight` succeeded
+in 21m 44s, and `Run status-only evidence` was skipped. It selected
+`mode=full` with `reason=no_status_transition` and correctly skipped the
+platform-independent exhaustive duplicate owned by Ubuntu.
+
+Increment 10B.1b is complete and durably published. Increment 10B.2, resolver
+and callable convergence, is the next target but remains unauthorized pending
+independent acceptance, commit, publication, and terminal required CI for this
+status record plus a separate explicit BDFL go signal. Increment 10B.3, 10C,
+Session AR, production Cranelift integration, and every later item remain
+unauthorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -5846,11 +5895,60 @@ eligibility rules are unchanged and unwidened. Code, mixed, and out-of-region
 changes still select `mode=full`; missing, malformed, conflicting, or
 ambiguous active-Work-Order evidence fails closed to `mode=full`.
 
-The preserved partial 10B.1b implementation remains uncommitted and unaccepted
-as exactly five modified tracked paths plus five untracked fixtures with an
-empty index. Resumption requires a separate explicit BDFL corrective go signal
-against the corrected gate. Increment 10B.2, 10C, Session AR, and every later
-item remain unauthorized.
+Increment 10B.1b received final independent `ACCEPT` with no P0, P1, or P2
+findings. It was committed and durably published as
+`195d8886bcd15b3299783e58c0c91ba7b964db03`, with first parent
+`da21ce9c7972410942d0a4a8b8008c4544b4b8e4`. Its accepted 11-path scope is
+exactly:
+
+- `docs/DIAGNOSTICS.md`;
+- `docs/LANGUAGE_REFERENCE.md`;
+- `src/diagnostic_catalog.rs`;
+- `src/diagnostics.rs`;
+- `src/parser.rs`;
+- `tools/check_all.ps1`;
+- `fixtures/foundation/pre_ar_comparison_conjunction_pass.hum`;
+- `fixtures/foundation/pre_ar_condition_chained_comparison_fail.hum`;
+- `fixtures/foundation/pre_ar_nested_chained_comparison_fail.hum`;
+- `fixtures/foundation/pre_ar_predicate_chained_comparison_fail.hum`; and
+- `fixtures/foundation/pre_ar_return_chained_comparison_fail.hum`.
+
+The accepted commit contains 854 insertions and 18 deletions and has committed
+tree OID `672f312afec3eebcb68706979e541147734bec58`.
+
+H0010 remains one parser-owned code and one registered cause,
+`chained_comparison_not_supported_v0`. The active diagnostic catalogue now
+contains exactly 88 codes and 179 causes. Recursive chained comparisons,
+including nested chains, are rejected by the parser through the sealed
+canonical expression path and cannot reach a generic runtime trap. Independent
+comparisons joined by valid Boolean structure remain accepted.
+
+The entry controls retain the accepted distinction. A nonexistent entry exits
+2 through the runtime-trap channel with zero stdout, the exact existing
+stderr, and no H0010. A valid entry containing a chained comparison exits 1
+through the H0010 source-diagnostic channel with its exact sealed projection
+and no runtime trap.
+
+Required workflow `30179326310`, attempt 1, succeeded for that exact commit.
+Ubuntu job `89733174273` on `ubuntu-latest` succeeded in 11m 31s. Its Cargo
+cache and Rust-toolchain preparation succeeded, `Run Hum preflight` succeeded
+in 11m 01s, and `Run status-only evidence` was skipped. It selected
+`mode=full` with `reason=no_status_transition`. Ubuntu then genuinely executed
+the nonzero exhaustive canonical-seal selector in 13.485s and asserted all
+14,226 pairs: F1 630, F2 4,950, and F3/F4 8,646.
+
+Windows job `89733174274` on `windows-latest` succeeded in 22m 25s. Its Cargo
+cache and Rust-toolchain preparation succeeded, `Run Hum preflight` succeeded
+in 21m 44s, and `Run status-only evidence` was skipped. It selected
+`mode=full` with `reason=no_status_transition` and correctly skipped the
+platform-independent exhaustive duplicate owned by Ubuntu.
+
+Increment 10B.1b is complete and durably published. Increment 10B.2, resolver
+and callable convergence, is the next target but remains unauthorized pending
+independent acceptance, commit, publication, and terminal required CI for this
+status record plus a separate explicit BDFL go signal. Increment 10B.3, 10C,
+Session AR, production Cranelift integration, and every later item remain
+unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
