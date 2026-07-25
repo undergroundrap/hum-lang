@@ -1,0 +1,14 @@
+module fixtures.foundation.pre_ar_return_chained_comparison_fail
+
+task chained_return -> Bool {
+  why:
+    reject one return expression that compares an earlier comparison
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return 1 < 2 < 3
+}

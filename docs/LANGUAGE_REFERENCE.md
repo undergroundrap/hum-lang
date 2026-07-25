@@ -603,7 +603,14 @@ Contract sections assign responsibility:
 Current executable blame semantics are deliberately small and explicit:
 recognized `needs:` predicates run at task entry and blame the caller when
 false; recognized `ensures:` predicates run after successful return and blame
-the task when false. Predicate v2 remains one comparison and preserves v1
+the task when false. Comparisons are non-chainable in every expression
+position: `1 < 2 < 3` is rejected by parser-owned `H0010` at the later
+comparison operator, with the first operator retained as a related site. Write
+`1 < 2 and 2 < 3` when two independent comparisons are intended. Grouping,
+nesting the expression under another operator, or placing it inside a call,
+list, record, permission, or `try` wrapper does not make a chain valid;
+comparison-looking Text remains ordinary Text. Predicate v2 remains one
+comparison and preserves v1
 arithmetic, direct eligible places, `old(place)` entry capture in `ensures:`,
 and `list_len(place)`. It adds exact Text `==`/`!=`, exact ordered `List Text`
 `==`/`!=`, and contract-only `list_count(list_text, text) -> UInt`. It does not

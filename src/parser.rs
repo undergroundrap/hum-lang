@@ -1191,6 +1191,219 @@ fn validate_occurrence_seal(seal: &CanonicalOccurrenceSeal) -> Result<(), &'stat
     validate_occurrence_seal_inner(seal, None, None)
 }
 
+struct ValidatedCanonicalOccurrence<'a> {
+    retained_authority: &'a [CanonicalSealFact],
+    retained_payload_authority: &'a [CanonicalPayloadSealFact],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChainedComparisonSites {
+    primary: Span,
+    related: Span,
+}
+
+fn validated_canonical_occurrence(
+    seal: &CanonicalOccurrenceSeal,
+) -> Result<ValidatedCanonicalOccurrence<'_>, &'static str> {
+    validate_occurrence_seal(seal)?;
+    Ok(ValidatedCanonicalOccurrence {
+        retained_authority: &seal.authority,
+        retained_payload_authority: &seal.payload_authority,
+    })
+}
+
+fn comparison_operator(operator: ParsedBinaryOperator) -> bool {
+    matches!(
+        operator,
+        ParsedBinaryOperator::Equal
+            | ParsedBinaryOperator::NotEqual
+            | ParsedBinaryOperator::Less
+            | ParsedBinaryOperator::LessEqual
+            | ParsedBinaryOperator::Greater
+            | ParsedBinaryOperator::GreaterEqual
+            | ParsedBinaryOperator::Is
+            | ParsedBinaryOperator::Does
+            | ParsedBinaryOperator::Returns
+            | ParsedBinaryOperator::FailsWith
+    )
+}
+
+fn source_order(span: &Span) -> (&str, usize, usize) {
+    (&span.file, span.line, span.column)
+}
+
+fn retained_node_kind(
+    occurrence: &ValidatedCanonicalOccurrence<'_>,
+    node: &CanonicalNodeIdentity,
+) -> Result<CanonicalCommonNodeKind, &'static str> {
+    let mut matches = occurrence
+        .retained_authority
+        .iter()
+        .filter_map(|fact| match fact {
+            CanonicalSealFact::Kind(candidate, kind) if candidate == node => Some(*kind),
+            _ => None,
+        });
+    let kind = matches
+        .next()
+        .ok_or("canonical_h0010_node_kind_missing_v0")?;
+    if matches.next().is_some() {
+        return Err("canonical_h0010_node_kind_duplicate_v0");
+    }
+    Ok(kind)
+}
+
+fn retained_node_children<'a>(
+    occurrence: &'a ValidatedCanonicalOccurrence<'_>,
+    node: &CanonicalNodeIdentity,
+) -> Result<&'a [CanonicalNodeIdentity], &'static str> {
+    let mut matches = occurrence
+        .retained_authority
+        .iter()
+        .filter_map(|fact| match fact {
+            CanonicalSealFact::OrderedChildren(candidate, children) if candidate == node => {
+                Some(children.as_slice())
+            }
+            _ => None,
+        });
+    let children = matches
+        .next()
+        .ok_or("canonical_h0010_node_children_missing_v0")?;
+    if matches.next().is_some() {
+        return Err("canonical_h0010_node_children_duplicate_v0");
+    }
+    Ok(children)
+}
+
+fn retained_node_lexical_status(
+    occurrence: &ValidatedCanonicalOccurrence<'_>,
+    node: &CanonicalNodeIdentity,
+) -> Result<CanonicalCommonLexicalStatus, &'static str> {
+    let mut matches = occurrence
+        .retained_authority
+        .iter()
+        .filter_map(|fact| match fact {
+            CanonicalSealFact::LexicalStatus(candidate, status) if candidate == node => {
+                Some(*status)
+            }
+            _ => None,
+        });
+    let status = matches
+        .next()
+        .ok_or("canonical_h0010_lexical_status_missing_v0")?;
+    if matches.next().is_some() {
+        return Err("canonical_h0010_lexical_status_duplicate_v0");
+    }
+    Ok(status)
+}
+
+fn retained_binary_operator(
+    occurrence: &ValidatedCanonicalOccurrence<'_>,
+    node: &CanonicalNodeIdentity,
+) -> Result<(ParsedBinaryOperator, Span), &'static str> {
+    let mut operators = occurrence
+        .retained_payload_authority
+        .iter()
+        .filter_map(|fact| {
+            (fact.node == *node && fact.field == CanonicalPayloadField::BinaryOperator)
+                .then_some(&fact.value)
+        });
+    let operator = match operators
+        .next()
+        .ok_or("canonical_h0010_operator_missing_v0")?
+    {
+        CanonicalPayloadValue::Operator(operator) => *operator,
+        _ => return Err("canonical_h0010_operator_kind_corrupt_v0"),
+    };
+    if operators.next().is_some() {
+        return Err("canonical_h0010_operator_duplicate_v0");
+    }
+
+    let mut ranges = occurrence
+        .retained_payload_authority
+        .iter()
+        .filter_map(|fact| {
+            (fact.node == *node && fact.field == CanonicalPayloadField::BinaryOperatorRange)
+                .then_some(&fact.value)
+        });
+    let range = match ranges
+        .next()
+        .ok_or("canonical_h0010_operator_range_missing_v0")?
+    {
+        CanonicalPayloadValue::Range(range) if range.byte_len > 0 => range,
+        _ => return Err("canonical_h0010_operator_range_corrupt_v0"),
+    };
+    if ranges.next().is_some() {
+        return Err("canonical_h0010_operator_range_duplicate_v0");
+    }
+    Ok((operator, range.start.clone()))
+}
+
+fn visit_chained_comparisons(
+    occurrence: &ValidatedCanonicalOccurrence<'_>,
+    node: &CanonicalNodeIdentity,
+    active: &mut Vec<CanonicalNodeIdentity>,
+    found: &mut Vec<ChainedComparisonSites>,
+) -> Result<Vec<Span>, &'static str> {
+    if active.iter().any(|candidate| candidate == node) {
+        return Err("canonical_h0010_node_cycle_v0");
+    }
+    active.push(node.clone());
+    if retained_node_lexical_status(occurrence, node)? == CanonicalCommonLexicalStatus::Unsupported
+    {
+        active.pop();
+        return Ok(Vec::new());
+    }
+    let mut descendant_comparisons = Vec::new();
+    for child in retained_node_children(occurrence, node)? {
+        descendant_comparisons.extend(visit_chained_comparisons(occurrence, child, active, found)?);
+    }
+    active.pop();
+
+    if retained_node_kind(occurrence, node)? == CanonicalCommonNodeKind::Binary {
+        let (operator, operator_span) = retained_binary_operator(occurrence, node)?;
+        if comparison_operator(operator) {
+            if let Some(first_descendant) = descendant_comparisons
+                .iter()
+                .min_by(|left, right| source_order(left).cmp(&source_order(right)))
+                .cloned()
+            {
+                let (primary, related) =
+                    if source_order(&operator_span) > source_order(&first_descendant) {
+                        (operator_span.clone(), first_descendant)
+                    } else {
+                        (first_descendant, operator_span.clone())
+                    };
+                if !found.iter().any(|sites| sites.primary == primary) {
+                    found.push(ChainedComparisonSites { primary, related });
+                }
+            }
+            descendant_comparisons.push(operator_span);
+        }
+    }
+    Ok(descendant_comparisons)
+}
+
+fn chained_comparison_sites(
+    seal: &CanonicalOccurrenceSeal,
+) -> Result<Vec<ChainedComparisonSites>, &'static str> {
+    let occurrence = validated_canonical_occurrence(seal)?;
+    let mut roots = occurrence
+        .retained_authority
+        .iter()
+        .filter_map(|fact| match fact {
+            CanonicalSealFact::Root(root) => Some(root),
+            _ => None,
+        });
+    let root = roots.next().ok_or("canonical_h0010_root_missing_v0")?;
+    if roots.next().is_some() {
+        return Err("canonical_h0010_root_duplicate_v0");
+    }
+    let mut found = Vec::new();
+    visit_chained_comparisons(&occurrence, root, &mut Vec::new(), &mut found)?;
+    found.sort_by(|left, right| source_order(&left.primary).cmp(&source_order(&right.primary)));
+    Ok(found)
+}
+
 fn validate_occurrence_seal_inner(
     seal: &CanonicalOccurrenceSeal,
     ignored_index: Option<usize>,
@@ -2013,6 +2226,27 @@ pub(crate) fn parse_source_at_index(
 }
 
 impl Parser {
+    fn retain_validated_occurrence(&mut self, seal: CanonicalOccurrenceSeal) {
+        let chained = chained_comparison_sites(&seal)
+            .expect("parser H0010 visitor requires a valid sealed canonical occurrence");
+        for sites in chained {
+            self.emit(
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(179),
+                "chained-comparison",
+                Diagnostic::error(
+                    DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED,
+                    "comparison chaining is not supported",
+                    Some(sites.primary),
+                )
+                .with_related_span("comparison already being chained", sites.related)
+                .with_help(
+                    "Repeat the middle operand and join the independent comparisons, for example `1 < 2 and 2 < 3`.",
+                ),
+            );
+        }
+        self.occurrence_seals.push(seal);
+    }
+
     fn canonical_core_file_binding(&self) -> CanonicalCoreFileBinding {
         CanonicalCoreFileBinding {
             source_revision: self.source_revision.0.clone(),
@@ -2528,9 +2762,7 @@ impl Parser {
                 {
                     let seal =
                         build_occurrence_seal(expression, owner, role, intent, assignment, ordinal);
-                    validate_occurrence_seal(&seal)
-                        .expect("parser occurrence projection must match retained authority");
-                    self.occurrence_seals.push(seal);
+                    self.retain_validated_occurrence(seal);
                 }
                 let projected_statement = match owner.projection.get(5) {
                     Some(CanonicalSourceOwnerFact::Statement(statement)) => statement,
@@ -2637,9 +2869,7 @@ impl Parser {
                     predicate_recognized: true,
                 };
                 let seal = build_occurrence_seal(&expression, owner, role, intent, &assignment, 0);
-                validate_occurrence_seal(&seal)
-                    .expect("parser predicate occurrence must match retained authority");
-                self.occurrence_seals.push(seal);
+                self.retain_validated_occurrence(seal);
                 let (projection, authority) = contract_statement_events(
                     section_name,
                     section_span,
@@ -9620,9 +9850,9 @@ mod tests {
         CanonicalSourceOwnerFact, CanonicalSourceOwnerSeal, CanonicalSourceRevision,
         CanonicalStatementBlockIdentity, CanonicalStatementOwner, CanonicalStatementSeal,
         CanonicalStatementSealFact, CanonicalStatementSealValue, CanonicalTokenIdentity,
-        build_occurrence_seal, executable_call_nodes, parse_source, parse_source_at_index,
-        source_owner_fact_matches, validate_canonical_expression, validate_occurrence_seal,
-        validate_occurrence_seal_ignoring_one_fact,
+        build_occurrence_seal, chained_comparison_sites, executable_call_nodes, parse_source,
+        parse_source_at_index, source_owner_fact_matches, validate_canonical_expression,
+        validate_occurrence_seal, validate_occurrence_seal_ignoring_one_fact,
         validate_occurrence_seal_ignoring_one_payload_fact, validate_retained_body_syntax,
         validate_source_owner_seal, validate_statement_seal,
     };
@@ -14408,5 +14638,233 @@ task after() -> UInt {
                 .canonical_core_expectation(item, section)
                 .is_err()
         );
+    }
+
+    fn h0010_expression_source(expression: &str) -> String {
+        format!(
+            "task chained() -> Bool {{\n  why:\n    exercise recursive parser-owned comparison rejection\n\n  cost:\n    time: O(1)\n    space: O(1)\n    check: warn\n\n  does:\n    return {expression}\n}}\n"
+        )
+    }
+
+    #[test]
+    fn recursive_h0010_consumer_is_complete_and_load_bearing() {
+        let cases = [
+            ("top-level", "1 < 2 < 3"),
+            ("nested-left", "(1 < 2 < 3) and true"),
+            ("nested-right", "true and (1 < 2 < 3)"),
+            ("grouped", "((1 < 2 < 3))"),
+            ("call", "choose(1 < 2 < 3)"),
+            ("list", "[1 < 2 < 3]"),
+            ("record", "Pair { value: 1 < 2 < 3 }"),
+            ("permission", "borrow 1 < 2 < 3"),
+            ("try", "try choose(1 < 2 < 3)"),
+            ("arithmetic-left", "(1 < 2 < 3) + 1"),
+            ("arithmetic-right", "1 + (1 < 2 < 3)"),
+        ];
+        for (label, expression) in cases {
+            let parsed = parse_source(
+                format!("h0010-{label}.hum"),
+                &h0010_expression_source(expression),
+            );
+            let diagnostics = parsed
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    diagnostic.code == DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(diagnostics.len(), 1, "{label}: {:#?}", parsed.diagnostics);
+            let diagnostic = diagnostics[0];
+            assert_eq!(diagnostic.severity, Severity::Error);
+            assert_eq!(diagnostic.message, "comparison chaining is not supported");
+            assert_eq!(
+                diagnostic.help.as_deref(),
+                Some(
+                    "Repeat the middle operand and join the independent comparisons, for example `1 < 2 and 2 < 3`."
+                )
+            );
+            assert_eq!(diagnostic.related_spans.len(), 1);
+            assert_eq!(
+                diagnostic.related_spans[0].label,
+                "comparison already being chained"
+            );
+        }
+
+        for (label, expression) in [
+            ("independent", "1 < 2 and 2 < 3"),
+            ("grouped-independent", "(1 < 2) and (2 < 3)"),
+            ("comparison-text", "\"1 < 2 < 3\""),
+        ] {
+            let parsed = parse_source(
+                format!("h0010-control-{label}.hum"),
+                &h0010_expression_source(expression),
+            );
+            assert!(
+                parsed.diagnostics.iter().all(|diagnostic| diagnostic.code
+                    != DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED),
+                "{label}: {:#?}",
+                parsed.diagnostics
+            );
+        }
+
+        let exact = parse_source("h0010-exact.hum", &h0010_expression_source("1 < 2 < 3"));
+        let diagnostic = exact
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED)
+            .expect("H0010 exact diagnostic");
+        assert_eq!(diagnostic.span.as_ref().map(|span| span.column), Some(18));
+        assert_eq!(diagnostic.related_spans[0].span.column, 14);
+        assert_eq!(
+            exact
+                .diagnostic_occurrences
+                .normalized_occurrences()
+                .into_iter()
+                .filter(|occurrence| {
+                    occurrence.code == DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED
+                })
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn h0010_sealed_corruption_and_authority_substitution_fail_closed() {
+        let parsed = parse_source(
+            "h0010-corruption.hum",
+            &h0010_expression_source("(1 < 2 < 3) and true"),
+        );
+        let base = parsed
+            .occurrence_seals
+            .iter()
+            .find(|seal| chained_comparison_sites(seal).is_ok_and(|sites| !sites.is_empty()))
+            .expect("sealed chained-comparison occurrence");
+        assert_eq!(chained_comparison_sites(base).expect("valid seal").len(), 1);
+
+        let foreign = parse_source(
+            "h0010-foreign.hum",
+            &h0010_expression_source("(4 < 5 < 6) and true"),
+        );
+        let foreign = foreign
+            .occurrence_seals
+            .iter()
+            .find(|seal| chained_comparison_sites(seal).is_ok_and(|sites| !sites.is_empty()))
+            .expect("foreign chained-comparison occurrence");
+
+        let mut corruptions = Vec::new();
+
+        let mut nested_node = base.clone();
+        let nested_kind = nested_node
+            .projection
+            .iter_mut()
+            .filter_map(|fact| match fact {
+                CanonicalSealFact::Kind(_, kind) if *kind == CanonicalCommonNodeKind::Binary => {
+                    Some(kind)
+                }
+                _ => None,
+            })
+            .nth(1)
+            .expect("nested comparison kind");
+        *nested_kind = CanonicalCommonNodeKind::Unit;
+        corruptions.push(("nested comparison node", nested_node));
+
+        let mut operator = base.clone();
+        let operator_value = operator
+            .payload_projection
+            .iter_mut()
+            .find(|fact| fact.field == CanonicalPayloadField::BinaryOperator)
+            .expect("binary operator payload");
+        operator_value.value = CanonicalPayloadValue::Operator(ParsedBinaryOperator::Add);
+        corruptions.push(("operator", operator));
+
+        let mut token = base.clone();
+        let token_value = token
+            .payload_projection
+            .iter_mut()
+            .find(|fact| fact.field == CanonicalPayloadField::BinaryOperatorTokens)
+            .expect("binary operator token payload");
+        let CanonicalPayloadValue::Tokens(tokens) = &mut token_value.value else {
+            panic!("operator token payload kind")
+        };
+        tokens[0].2 = ">".to_string();
+        corruptions.push(("operator token", token));
+
+        let mut child_role = base.clone();
+        let role = child_role
+            .projection
+            .iter_mut()
+            .find_map(|fact| match fact {
+                CanonicalSealFact::ChildRole(_, role @ Some(_)) => Some(role),
+                _ => None,
+            })
+            .expect("child role");
+        *role = Some(CanonicalCommonChildRole::CallArgument);
+        corruptions.push(("child role", child_role));
+
+        let mut delimiter_depth = base.clone();
+        let depth = delimiter_depth
+            .projection
+            .iter_mut()
+            .find_map(|fact| match fact {
+                CanonicalSealFact::DelimiterDepthBefore(_, depth) if *depth > 0 => Some(depth),
+                _ => None,
+            })
+            .expect("nested delimiter depth");
+        *depth += 1;
+        corruptions.push(("delimiter depth", delimiter_depth));
+
+        let mut occurrence = base.clone();
+        let foreign_occurrence = foreign
+            .projection
+            .iter()
+            .find_map(|fact| match fact {
+                CanonicalSealFact::Occurrence(identity) => Some(identity.clone()),
+                _ => None,
+            })
+            .expect("foreign occurrence identity");
+        let identity = occurrence
+            .projection
+            .iter_mut()
+            .find_map(|fact| match fact {
+                CanonicalSealFact::Occurrence(identity) => Some(identity),
+                _ => None,
+            })
+            .expect("occurrence identity");
+        *identity = foreign_occurrence;
+        corruptions.push(("occurrence identity", occurrence));
+
+        let mut authority_route = base.clone();
+        let foreign_root = foreign
+            .authority
+            .iter()
+            .find_map(|fact| match fact {
+                CanonicalSealFact::Root(root) => Some(root.clone()),
+                _ => None,
+            })
+            .expect("foreign authority root");
+        let root = authority_route
+            .authority
+            .iter_mut()
+            .find_map(|fact| match fact {
+                CanonicalSealFact::Root(root) => Some(root),
+                _ => None,
+            })
+            .expect("authority root");
+        *root = foreign_root;
+        corruptions.push(("retained authority route", authority_route));
+
+        for (label, corruption) in corruptions {
+            assert!(
+                chained_comparison_sites(&corruption).is_err(),
+                "{label} corruption must fail before H0010 emission"
+            );
+        }
+
+        let repeated = parse_source(
+            "h0010-corruption.hum",
+            &h0010_expression_source("(1 < 2 < 3) and true"),
+        );
+        assert_eq!(parsed.diagnostics, repeated.diagnostics);
+        assert_eq!(parsed.occurrence_seals, repeated.occurrence_seals);
     }
 }
