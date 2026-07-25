@@ -1,6 +1,7 @@
 # Hum Work Order 10: Pre-AR Semantic Foundation Repair
 
 Date: 2026-07-15
+<!-- hum-active-workorder:v1 -->
 Status: issued. The initial Work Order and local-train amendment remain
 published as `49e6534a6cd3e4d567f924b69336c72563b1c95f` and
 `334a7416e1014232d1e47e7be49ceb730fca33b3`. Increment 10A's accepted
@@ -5791,3 +5792,4 @@ any AR planning.
 No dirty-tree cleanup, 10B subincrement, 10C, GitHub Issue mutation,
 `PRE-AQ-INTEGRITY`, dashboard, Session AR, Hum IR, standard-library, backend,
 cumulative closure, foundation-audit, or later work is authorized.
+<!-- workorder-current-authorization-gate:end -->

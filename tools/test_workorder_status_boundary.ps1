@@ -7,6 +7,9 @@ $ClassifierPath = Join-Path $PSScriptRoot 'check_workorder_status_boundary.ps1'
 
 $script:BoundaryTestCount = 0
 $script:BoundaryRepositorySerial = 0
+$script:ExpectedBoundaryTestCount = 123
+$script:BoundaryActiveWorkOrderPath = 'WORKORDER_10.md'
+$script:BoundaryInactiveWorkOrderPath = 'WORKORDER.md'
 
 function Assert-BoundaryTest {
   param(
@@ -64,13 +67,17 @@ function New-TestWorkOrderText {
     [string] $Status = ' baseline',
     [string] $Gate = "`nbaseline authorization`n",
     [string] $Mandate = "## Session AP mandate`nExecutable requirements stay frozen.`n",
-    [string] $Tail = "`n"
+    [string] $Tail = "`n",
+    [switch] $Inactive
   )
 
   return @(
     '# Test Work Order'
     ''
     'Date: 2026-07-14'
+    if (-not $Inactive) {
+      '<!-- hum-active-workorder:v1 -->'
+    }
     "Status:$Status"
     'Owner: BDFL (Ocean).'
     ''
@@ -102,7 +109,10 @@ function New-TestRepository {
   Invoke-TestGit $Path @('config', 'core.filemode', 'true') | Out-Null
 
   if (-not $WithoutWorkOrder) {
-    Write-TestText (Join-Path $Path 'WORKORDER.md') (New-TestWorkOrderText)
+    Write-TestText (Join-Path $Path $script:BoundaryInactiveWorkOrderPath) (
+      New-TestWorkOrderText -Inactive
+    )
+    Write-TestText (Join-Path $Path $script:BoundaryActiveWorkOrderPath) (New-TestWorkOrderText)
   }
   Write-TestText (Join-Path $Path 'src/main.rs') "fn main() {}`n"
   Write-TestText (Join-Path $Path '.github/workflows/ci.yml') "name: ci`n"
@@ -138,7 +148,7 @@ function Add-TestStatusCommit {
     [string] $Mandate = "## Session AP mandate`nExecutable requirements stay frozen.`n"
   )
 
-  Write-TestText (Join-Path $Repository.Path 'WORKORDER.md') (
+  Write-TestText (Join-Path $Repository.Path $script:BoundaryActiveWorkOrderPath) (
     New-TestWorkOrderText -Status $Status -Gate $Gate -Mandate $Mandate
   )
   return Commit-TestRepository $Repository 'status update'
@@ -314,7 +324,7 @@ function Invoke-BoundaryCase {
 
   Assert-BoundaryTest ($EvidenceRows[0] -ceq $EvidenceRows[1]) "$Name was not byte-identical across two fresh executions"
   $script:BoundaryTestCount += 1
-  Write-Host "ok $($script:BoundaryTestCount) - $Name"
+  Write-Host "ok $($script:BoundaryTestCount) - $Name => mode=$ExpectedMode;reason=$ExpectedReason"
 }
 
 function Set-BothSnapshots {
@@ -331,7 +341,8 @@ function Assert-ProductionSeamIsClosed {
   $Parameters = @((Get-Command $ClassifierPath).Parameters.Keys)
   foreach ($Forbidden in @(
     'Anchor', 'RunId', 'RunAttempt', 'JobId', 'Success', 'Evidence',
-    'EvidenceProvider', 'Snapshot', 'Response', 'Fixture', 'Cache', 'ResultPath'
+    'EvidenceProvider', 'Snapshot', 'Response', 'Fixture', 'Cache', 'ResultPath',
+    'WorkOrder', 'WorkOrderPath', 'ActiveWorkOrder', 'ActivePath'
   )) {
     Assert-BoundaryTest (-not ($Parameters -contains $Forbidden)) "production classifier exposes forbidden parameter $Forbidden"
   }
@@ -358,7 +369,15 @@ function Assert-ProductionSeamIsClosed {
   Assert-BoundaryTest ($Workflow.IndexOf('Classify CI evidence lane') -lt $Workflow.IndexOf('Cache Cargo artifacts')) 'classification must precede Cargo cache setup'
 
   $Classifier = [System.IO.File]::ReadAllText($ClassifierPath)
-  foreach ($RequiredText in @('--no-replace-objects', 'refs/replace/', 'info/grafts')) {
+  foreach ($RequiredText in @(
+    '--no-replace-objects',
+    'refs/replace/',
+    'info/grafts',
+    'Resolve-ActiveWorkOrderBlob',
+    '<!-- hum-active-workorder:v1 -->',
+    '^WORKORDER(?:_[1-9][0-9]*)?\.md$',
+    '^WORKORDER(?![A-Za-z]).*$'
+  )) {
     Assert-BoundaryTest $Classifier.Contains($RequiredText) "classifier is missing history-rewrite defense $RequiredText"
   }
 
@@ -368,6 +387,20 @@ function Assert-ProductionSeamIsClosed {
   Write-Host "ok $($script:BoundaryTestCount) - production evidence seam and workflow source contract"
 }
 
+function Assert-HistoricalAmendmentIsFull {
+  $Parent = '450a8b4bec36b2a92253df207a21b5e62e853e5d'
+  $Amendment = '505ce3095ca1d5ab6ada1eb375b8a0ca347812af'
+  $Evidence = New-Object System.Collections.Generic.List[string]
+  for ($Execution = 1; $Execution -le 2; $Execution += 1) {
+    $Transition = Test-StatusOnlyTransition $RepoRoot $Parent $Amendment
+    Assert-BoundaryTest (-not $Transition.IsValid) "505ce30 execution $Execution became status-only eligible"
+    $Evidence.Add("$($Transition.IsValid):$($Transition.Reason)")
+  }
+  Assert-BoundaryTest ($Evidence[0] -ceq $Evidence[1]) '505ce30 ineligibility was not deterministic'
+  $script:BoundaryTestCount += 1
+  Write-Host "ok $($script:BoundaryTestCount) - exact 505ce30 mandate amendment remains ineligible => mode=full;reason=no_status_transition"
+}
+
 $TempBase = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
 $TestRoot = [System.IO.Path]::GetFullPath((Join-Path $TempBase ("hum-workorder-boundary-{0}" -f [guid]::NewGuid().ToString('N'))))
 Assert-BoundaryTest $TestRoot.StartsWith($TempBase, [System.StringComparison]::OrdinalIgnoreCase) 'temporary test root escaped the system temp directory'
@@ -375,6 +408,7 @@ Assert-BoundaryTest $TestRoot.StartsWith($TempBase, [System.StringComparison]::O
 
 try {
   Assert-ProductionSeamIsClosed
+  Assert-HistoricalAmendmentIsFull
 
   $Valid = New-TestRepository $TestRoot
   $ValidHead = Add-TestStatusCommit $Valid ' accepted and published' "`nnext session remains unauthorized`n"
@@ -610,14 +644,120 @@ try {
   Invoke-BoundaryCase 'zero event base is full' $Valid ('0' * 40) $ValidHead $ValidFactory 'full' 'event_base_invalid'
   Invoke-BoundaryCase 'invalid event base is full' $Valid 'not-a-commit' $ValidHead $ValidFactory 'full' 'event_base_invalid'
   Invoke-BoundaryCase 'unavailable event base is full' $Valid ('f' * 40) $ValidHead $ValidFactory 'full' 'event_base_invalid'
-  $BlobBase = Invoke-TestGit $Valid.Path @('rev-parse', "$($Valid.Anchor):WORKORDER.md")
+  $BlobBase = Invoke-TestGit $Valid.Path @('rev-parse', "$($Valid.Anchor):$script:BoundaryActiveWorkOrderPath")
   Invoke-BoundaryCase 'non-commit event base is full' $Valid $BlobBase $ValidHead $ValidFactory 'full' 'event_base_invalid'
   Invoke-BoundaryCase 'invalid head is full' $Valid $Valid.Anchor 'not-a-head' $ValidFactory 'full' 'event_head_invalid'
   Invoke-BoundaryCase 'checkout and proposed head disagreement is full' $Valid $Valid.Anchor $Valid.Anchor $ValidFactory 'full' 'checkout_head_mismatch'
 
   $Unauthorized = New-TestRepository $TestRoot
   $UnauthorizedHead = Add-TestStatusCommit $Unauthorized ' changed status' "`nchanged gate`n" "## Session AP mandate`nExecutable requirements were weakened.`n"
-  Invoke-BoundaryCase 'unauthorized mandate edit is full' $Unauthorized $Unauthorized.Anchor $UnauthorizedHead (New-ValidPairFactory $Unauthorized.Anchor) 'full' 'no_status_transition'
+  Invoke-BoundaryCase 'current-amendment-shaped out-of-region edit is full' $Unauthorized $Unauthorized.Anchor $UnauthorizedHead (New-ValidPairFactory $Unauthorized.Anchor) 'full' 'no_status_transition'
+
+  $InactiveWorkOrder = New-TestRepository $TestRoot
+  Write-TestText (Join-Path $InactiveWorkOrder.Path $script:BoundaryInactiveWorkOrderPath) (
+    New-TestWorkOrderText -Status ' inactive changed' -Inactive
+  )
+  $InactiveWorkOrderHead = Commit-TestRepository $InactiveWorkOrder 'inactive work order change'
+  Invoke-BoundaryCase 'inactive Work Order change is full' $InactiveWorkOrder $InactiveWorkOrder.Anchor $InactiveWorkOrderHead (New-ValidPairFactory $InactiveWorkOrder.Anchor) 'full' 'no_status_transition'
+
+  $StatusPlusWorkOrder = New-TestRepository $TestRoot
+  Write-TestText (Join-Path $StatusPlusWorkOrder.Path $script:BoundaryActiveWorkOrderPath) (
+    New-TestWorkOrderText -Status ' active status changed'
+  )
+  Write-TestText (Join-Path $StatusPlusWorkOrder.Path $script:BoundaryInactiveWorkOrderPath) (
+    New-TestWorkOrderText -Status ' inactive status changed' -Inactive
+  )
+  $StatusPlusWorkOrderHead = Commit-TestRepository $StatusPlusWorkOrder 'status plus another work order'
+  Invoke-BoundaryCase 'status plus another Work Order is full' $StatusPlusWorkOrder $StatusPlusWorkOrder.Anchor $StatusPlusWorkOrderHead (New-ValidPairFactory $StatusPlusWorkOrder.Anchor) 'full' 'no_status_transition'
+
+  $MissingActiveMarker = New-TestRepository $TestRoot
+  $MissingMarkerText = (New-TestWorkOrderText -Status ' missing marker') -replace (
+    '(?m)^' + [regex]::Escape($script:WorkOrderBoundaryActiveMarker) + "`n"
+  ), ''
+  Write-TestText (Join-Path $MissingActiveMarker.Path $script:BoundaryActiveWorkOrderPath) $MissingMarkerText
+  $MissingActiveMarkerHead = Commit-TestRepository $MissingActiveMarker 'remove active marker'
+  Invoke-BoundaryCase 'missing active marker is full' $MissingActiveMarker $MissingActiveMarker.Anchor $MissingActiveMarkerHead (New-ValidPairFactory $MissingActiveMarker.Anchor) 'full' 'no_status_transition'
+
+  $AddedActiveMarker = New-TestRepository $TestRoot
+  Write-TestText (Join-Path $AddedActiveMarker.Path $script:BoundaryActiveWorkOrderPath) (
+    New-TestWorkOrderText -Status ' markerless parent' -Inactive
+  )
+  $MarkerlessParent = Commit-TestRepository $AddedActiveMarker 'remove marker before probe'
+  Write-TestText (Join-Path $AddedActiveMarker.Path $script:BoundaryActiveWorkOrderPath) (
+    New-TestWorkOrderText -Status ' marker added'
+  )
+  $AddedActiveMarkerHead = Commit-TestRepository $AddedActiveMarker 'add active marker'
+  Invoke-BoundaryCase 'active marker addition is full' $AddedActiveMarker $MarkerlessParent $AddedActiveMarkerHead (New-ValidPairFactory $MarkerlessParent) 'full' 'no_status_transition'
+
+  $DuplicateActiveMarker = New-TestRepository $TestRoot
+  $DuplicateMarkerText = (New-TestWorkOrderText -Status ' duplicate marker') -replace (
+    '(?m)^' + [regex]::Escape($script:WorkOrderBoundaryActiveMarker) + '$'
+  ), "$script:WorkOrderBoundaryActiveMarker`n$script:WorkOrderBoundaryActiveMarker"
+  Write-TestText (Join-Path $DuplicateActiveMarker.Path $script:BoundaryActiveWorkOrderPath) $DuplicateMarkerText
+  $DuplicateActiveMarkerHead = Commit-TestRepository $DuplicateActiveMarker 'duplicate active marker'
+  Invoke-BoundaryCase 'duplicate active marker is full' $DuplicateActiveMarker $DuplicateActiveMarker.Anchor $DuplicateActiveMarkerHead (New-ValidPairFactory $DuplicateActiveMarker.Anchor) 'full' 'no_status_transition'
+
+  $MovedActiveMarker = New-TestRepository $TestRoot
+  $MovedMarkerText = (New-TestWorkOrderText) -replace (
+    '(?m)^' + [regex]::Escape($script:WorkOrderBoundaryActiveMarker) + "`n"
+  ), ''
+  $MovedMarkerText = $MovedMarkerText -replace (
+    '(?m)^Status:.*$'
+  ), "Status: marker moved`n$script:WorkOrderBoundaryActiveMarker"
+  Write-TestText (Join-Path $MovedActiveMarker.Path $script:BoundaryActiveWorkOrderPath) $MovedMarkerText
+  $MovedActiveMarkerHead = Commit-TestRepository $MovedActiveMarker 'move marker into mutable status region'
+  Invoke-BoundaryCase 'active marker moved into mutable region is full' $MovedActiveMarker $MovedActiveMarker.Anchor $MovedActiveMarkerHead (New-ValidPairFactory $MovedActiveMarker.Anchor) 'full' 'no_status_transition'
+
+  $SubstitutedActiveMarker = New-TestRepository $TestRoot
+  $SubstitutedMarkerText = (New-TestWorkOrderText -Status ' marker substituted').Replace(
+    $script:WorkOrderBoundaryActiveMarker,
+    '<!-- hum-active-workorder:v2 -->'
+  )
+  Write-TestText (Join-Path $SubstitutedActiveMarker.Path $script:BoundaryActiveWorkOrderPath) $SubstitutedMarkerText
+  $SubstitutedActiveMarkerHead = Commit-TestRepository $SubstitutedActiveMarker 'substitute active marker'
+  Invoke-BoundaryCase 'substituted active marker is full' $SubstitutedActiveMarker $SubstitutedActiveMarker.Anchor $SubstitutedActiveMarkerHead (New-ValidPairFactory $SubstitutedActiveMarker.Anchor) 'full' 'no_status_transition'
+
+  $TransferredMarker = New-TestRepository $TestRoot
+  Write-TestText (Join-Path $TransferredMarker.Path $script:BoundaryInactiveWorkOrderPath) (
+    New-TestWorkOrderText -Status ' transferred marker copy'
+  )
+  $TransferredMarkerHead = Commit-TestRepository $TransferredMarker 'copy marker to another work order'
+  Invoke-BoundaryCase 'marker transfer creating multiple active Work Orders is full' $TransferredMarker $TransferredMarker.Anchor $TransferredMarkerHead (New-ValidPairFactory $TransferredMarker.Anchor) 'full' 'no_status_transition'
+
+  $ActivePathDisagreement = New-TestRepository $TestRoot
+  Write-TestText (Join-Path $ActivePathDisagreement.Path $script:BoundaryActiveWorkOrderPath) (
+    New-TestWorkOrderText -Status ' former active' -Inactive
+  )
+  Write-TestText (Join-Path $ActivePathDisagreement.Path $script:BoundaryInactiveWorkOrderPath) (
+    New-TestWorkOrderText -Status ' new active'
+  )
+  $ActivePathDisagreementHead = Commit-TestRepository $ActivePathDisagreement 'move active identity between work orders'
+  Invoke-BoundaryCase 'parent and child active-path disagreement is full' $ActivePathDisagreement $ActivePathDisagreement.Anchor $ActivePathDisagreementHead (New-ValidPairFactory $ActivePathDisagreement.Anchor) 'full' 'no_status_transition'
+
+  foreach ($InvalidWorkOrderPath in @(
+    'WORKORDER_latest.md',
+    'WORKORDER_11.md.bak',
+    'WORKORDER_11.MD',
+    'workorder_11.md',
+    'WORKORDER11.md',
+    'WORKORDER-11.md'
+  )) {
+    $MalformedWorkOrderPath = New-TestRepository $TestRoot
+    Write-TestText (Join-Path $MalformedWorkOrderPath.Path $InvalidWorkOrderPath) (
+      New-TestWorkOrderText -Status ' invalid candidate path'
+    )
+    $MalformedWorkOrderAnchor = Commit-TestRepository $MalformedWorkOrderPath "add malformed Work Order path $InvalidWorkOrderPath"
+    $MalformedWorkOrderHead = Add-TestStatusCommit $MalformedWorkOrderPath ' valid status beside malformed path' "`nnext session remains unauthorized`n"
+    Invoke-BoundaryCase "malformed Work Order path $InvalidWorkOrderPath is full" $MalformedWorkOrderPath $MalformedWorkOrderAnchor $MalformedWorkOrderHead (New-ValidPairFactory $MalformedWorkOrderAnchor) 'full' 'no_status_transition'
+  }
+
+  $AdjacentUnrelatedPath = New-TestRepository $TestRoot
+  Write-TestText (Join-Path $AdjacentUnrelatedPath.Path 'WORKORDERING.md') (
+    New-TestWorkOrderText -Status ' unrelated adjacent name'
+  )
+  $AdjacentUnrelatedAnchor = Commit-TestRepository $AdjacentUnrelatedPath 'add unrelated adjacent path'
+  $AdjacentUnrelatedHead = Add-TestStatusCommit $AdjacentUnrelatedPath ' valid status beside unrelated path' "`nnext session remains unauthorized`n"
+  Invoke-BoundaryCase 'unrelated adjacent WORKORDERING path remains fast' $AdjacentUnrelatedPath $AdjacentUnrelatedAnchor $AdjacentUnrelatedHead (New-ValidPairFactory $AdjacentUnrelatedAnchor) 'fast' 'eligible_status_chain' $AdjacentUnrelatedAnchor
 
   foreach ($PathCase in @(
     [pscustomobject]@{ Name = 'Rust source'; Path = 'src/main.rs'; Text = ('fn main() { println!("changed"); }' + "`n") },
@@ -625,6 +765,7 @@ try {
     [pscustomobject]@{ Name = 'Cargo'; Path = 'Cargo.toml'; Text = ('[package]' + "`n" + 'name = "changed"' + "`n" + 'version = "0.0.0"' + "`n") },
     [pscustomobject]@{ Name = 'tool'; Path = 'tools/check_all.ps1'; Text = "Write-Host changed`n" },
     [pscustomobject]@{ Name = 'workflow'; Path = '.github/workflows/ci.yml'; Text = "name: changed`n" },
+    [pscustomobject]@{ Name = 'schema'; Path = 'schemas/example.json'; Text = "{}`n" },
     [pscustomobject]@{ Name = 'generated output'; Path = 'generated/output.txt'; Text = "changed`n" }
   )) {
     $Repo = New-TestRepository $TestRoot
@@ -634,10 +775,10 @@ try {
   }
 
   $Multiple = New-TestRepository $TestRoot
-  Write-TestText (Join-Path $Multiple.Path 'WORKORDER.md') (New-TestWorkOrderText -Status ' status plus source')
+  Write-TestText (Join-Path $Multiple.Path $script:BoundaryActiveWorkOrderPath) (New-TestWorkOrderText -Status ' status plus source')
   Write-TestText (Join-Path $Multiple.Path 'src/main.rs') ('fn main() { println!("changed"); }' + "`n")
   $MultipleHead = Commit-TestRepository $Multiple 'multiple paths'
-  Invoke-BoundaryCase 'multiple-path change is full' $Multiple $Multiple.Anchor $MultipleHead (New-ValidPairFactory $Multiple.Anchor) 'full' 'no_status_transition'
+  Invoke-BoundaryCase 'status plus code change is full' $Multiple $Multiple.Anchor $MultipleHead (New-ValidPairFactory $Multiple.Anchor) 'full' 'no_status_transition'
 
   $ExecutableThenStatus = New-TestRepository $TestRoot
   Write-TestText (Join-Path $ExecutableThenStatus.Path 'src/main.rs') ('fn main() { println!("changed"); }' + "`n")
@@ -709,7 +850,7 @@ try {
   )
   Assert-BoundaryTest ($OriginalTransition -ceq "M`tsrc/main.rs") 'replacement probe did not begin with exactly one executable transition'
   Write-TestText (Join-Path $ReplacedHistory.Path 'src/main.rs') "fn main() {}`n"
-  Write-TestText (Join-Path $ReplacedHistory.Path 'WORKORDER.md') (
+  Write-TestText (Join-Path $ReplacedHistory.Path $script:BoundaryActiveWorkOrderPath) (
     New-TestWorkOrderText -Status ' replacement disguise' -Gate "`nreplacement disguise`n"
   )
   Invoke-TestGit $ReplacedHistory.Path @('add', '--all') | Out-Null
@@ -740,28 +881,31 @@ try {
   ) 'full' 'history_rewrite_metadata_present'
 
   $Deletion = New-TestRepository $TestRoot
-  Invoke-TestGit $Deletion.Path @('rm', '--quiet', 'WORKORDER.md') | Out-Null
+  Invoke-TestGit $Deletion.Path @('rm', '--quiet', $script:BoundaryActiveWorkOrderPath) | Out-Null
   $DeletionHead = Commit-TestRepository $Deletion 'delete work order'
   Invoke-BoundaryCase 'Work Order deletion is full' $Deletion $Deletion.Anchor $DeletionHead (New-ValidPairFactory $Deletion.Anchor) 'full' 'no_status_transition'
 
   $Addition = New-TestRepository $TestRoot -WithoutWorkOrder
-  Write-TestText (Join-Path $Addition.Path 'WORKORDER.md') (New-TestWorkOrderText)
+  Write-TestText (Join-Path $Addition.Path $script:BoundaryActiveWorkOrderPath) (New-TestWorkOrderText)
   $AdditionHead = Commit-TestRepository $Addition 'add work order'
   Invoke-BoundaryCase 'Work Order addition is full' $Addition $Addition.Anchor $AdditionHead (New-ValidPairFactory $Addition.Anchor) 'full' 'no_status_transition'
 
   $Rename = New-TestRepository $TestRoot
-  Invoke-TestGit $Rename.Path @('mv', 'WORKORDER.md', 'WORKORDER-renamed.md') | Out-Null
+  Invoke-TestGit $Rename.Path @('mv', $script:BoundaryActiveWorkOrderPath, 'WORKORDER_11.md') | Out-Null
   $RenameHead = Commit-TestRepository $Rename 'rename work order'
   Invoke-BoundaryCase 'Work Order rename is full' $Rename $Rename.Anchor $RenameHead (New-ValidPairFactory $Rename.Anchor) 'full' 'no_status_transition'
 
   $Copy = New-TestRepository $TestRoot
-  [System.IO.File]::Copy((Join-Path $Copy.Path 'WORKORDER.md'), (Join-Path $Copy.Path 'WORKORDER-copy.md'))
-  Write-TestText (Join-Path $Copy.Path 'WORKORDER.md') (New-TestWorkOrderText -Status ' copied and changed')
+  [System.IO.File]::Copy(
+    (Join-Path $Copy.Path $script:BoundaryActiveWorkOrderPath),
+    (Join-Path $Copy.Path 'WORKORDER_11.md')
+  )
+  Write-TestText (Join-Path $Copy.Path $script:BoundaryActiveWorkOrderPath) (New-TestWorkOrderText -Status ' copied and changed')
   $CopyHead = Commit-TestRepository $Copy 'copy work order'
   Invoke-BoundaryCase 'Work Order copy is full' $Copy $Copy.Anchor $CopyHead (New-ValidPairFactory $Copy.Anchor) 'full' 'no_status_transition'
 
   $Mode = New-TestRepository $TestRoot
-  Invoke-TestGit $Mode.Path @('update-index', '--chmod=+x', 'WORKORDER.md') | Out-Null
+  Invoke-TestGit $Mode.Path @('update-index', '--chmod=+x', $script:BoundaryActiveWorkOrderPath) | Out-Null
   Invoke-TestGit $Mode.Path @('commit', '--quiet', '-m', 'change mode') | Out-Null
   $ModeHead = Invoke-TestGit $Mode.Path @('rev-parse', 'HEAD')
   Invoke-BoundaryCase 'Work Order mode change is full' $Mode $Mode.Anchor $ModeHead (New-ValidPairFactory $Mode.Anchor) 'full' 'no_status_transition'
@@ -777,8 +921,11 @@ try {
     } else {
       $ObjectId = $Repo.Anchor
     }
-    Invoke-TestGit $Repo.Path @('rm', '--cached', '--quiet', 'WORKORDER.md') | Out-Null
-    Invoke-TestGit $Repo.Path @('update-index', '--add', '--cacheinfo', "$($TypeCase.Mode),$ObjectId,WORKORDER.md") | Out-Null
+    Invoke-TestGit $Repo.Path @('rm', '--cached', '--quiet', $script:BoundaryActiveWorkOrderPath) | Out-Null
+    Invoke-TestGit $Repo.Path @(
+      'update-index', '--add', '--cacheinfo',
+      "$($TypeCase.Mode),$ObjectId,$script:BoundaryActiveWorkOrderPath"
+    ) | Out-Null
     Invoke-TestGit $Repo.Path @('commit', '--quiet', '-m', "$($TypeCase.Name) replacement") | Out-Null
     $Head = Invoke-TestGit $Repo.Path @('rev-parse', 'HEAD')
     Invoke-BoundaryCase "Work Order $($TypeCase.Name) replacement is full" $Repo $Repo.Anchor $Head (New-ValidPairFactory $Repo.Anchor) 'full' 'no_status_transition'
@@ -798,7 +945,7 @@ try {
   foreach ($Malformed in $MalformedCases) {
     $Repo = New-TestRepository $TestRoot
     $Builder = $Malformed.Text
-    Write-TestText (Join-Path $Repo.Path 'WORKORDER.md') (& $Builder)
+    Write-TestText (Join-Path $Repo.Path $script:BoundaryActiveWorkOrderPath) (& $Builder)
     $Head = Commit-TestRepository $Repo $Malformed.Name
     Invoke-BoundaryCase "$($Malformed.Name) is full" $Repo $Repo.Anchor $Head (New-ValidPairFactory $Repo.Anchor) 'full' $Malformed.Reason
   }
@@ -809,12 +956,15 @@ try {
   $BomBytes = New-Object byte[] ($Utf8Bytes.Length + 3)
   $BomBytes[0] = 0xEF; $BomBytes[1] = 0xBB; $BomBytes[2] = 0xBF
   [System.Array]::Copy($Utf8Bytes, 0, $BomBytes, 3, $Utf8Bytes.Length)
-  [System.IO.File]::WriteAllBytes((Join-Path $Bom.Path 'WORKORDER.md'), $BomBytes)
+  [System.IO.File]::WriteAllBytes((Join-Path $Bom.Path $script:BoundaryActiveWorkOrderPath), $BomBytes)
   $BomHead = Commit-TestRepository $Bom 'BOM insertion'
   Invoke-BoundaryCase 'UTF-8 BOM insertion is full' $Bom $Bom.Anchor $BomHead (New-ValidPairFactory $Bom.Anchor) 'full' 'no_status_transition'
 
   $InvalidUtf8 = New-TestRepository $TestRoot
-  [System.IO.File]::WriteAllBytes((Join-Path $InvalidUtf8.Path 'WORKORDER.md'), [byte[]](0xFF, 0xFE, 0x00))
+  [System.IO.File]::WriteAllBytes(
+    (Join-Path $InvalidUtf8.Path $script:BoundaryActiveWorkOrderPath),
+    [byte[]](0xFF, 0xFE, 0x00)
+  )
   $InvalidUtf8Head = Commit-TestRepository $InvalidUtf8 'invalid UTF-8'
   Invoke-BoundaryCase 'malformed UTF-8 is full' $InvalidUtf8 $InvalidUtf8.Anchor $InvalidUtf8Head (New-ValidPairFactory $InvalidUtf8.Anchor) 'full' 'no_status_transition'
 
@@ -847,6 +997,10 @@ try {
   Invoke-TestGit $Reversed.Path @('update-ref', 'refs/heads/main', $Reversed.Anchor) | Out-Null
   Invoke-BoundaryCase 'reversed comparison range is full' $Reversed $ReversedDescendant $Reversed.Anchor (New-ValidPairFactory $Reversed.Anchor) 'full' 'event_range_not_linear'
 
+  Assert-BoundaryTest ($script:BoundaryTestCount -gt 0) 'Work Order status-boundary selector executed zero cases'
+  Assert-BoundaryTest (
+    $script:BoundaryTestCount -eq $script:ExpectedBoundaryTestCount
+  ) "Work Order status-boundary selector executed $script:BoundaryTestCount cases; expected $script:ExpectedBoundaryTestCount"
   Write-Host "All $script:BoundaryTestCount Work Order status-boundary classifier cases passed twice deterministically."
 } finally {
   $ResolvedTestRoot = [System.IO.Path]::GetFullPath($TestRoot)
