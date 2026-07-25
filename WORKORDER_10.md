@@ -289,6 +289,41 @@ optimization target only and is not authorized work. Increment 10B.1b is the
 next target but requires a separate explicit BDFL go signal; 10B.2, 10C,
 Session AR, and every later item remain unauthorized.
 
+The bounded 10B.1b entry-discrimination correction was independently accepted,
+BDFL-accepted, committed, and published as
+`505ce3095ca1d5ab6ada1eb375b8a0ca347812af`. The independently accepted
+status-boundary classifier fix was committed and published on top of it as
+`99173901f12378d77917f13e2f0cb917766adc76`. Required workflow
+`30173444515`, attempt 1, succeeded for that exact head. Ubuntu job
+`89718258830` on `ubuntu-latest` succeeded in 21m 38s; Windows job
+`89718258844` on `windows-latest` succeeded in 30m 18s. Both selected
+`mode=full` with `reason=no_status_transition`; Cargo caching, Rust-toolchain
+preparation, and `Run Hum preflight` succeeded on both, while
+`Run status-only evidence` was skipped on both. Ubuntu's
+`Run exhaustive canonical-seal evidence` step succeeded; Windows skipped that
+platform-independent step by design.
+
+The corrected 10B.1b gate preserves accepted exit semantics. A missing entry is
+an operational runtime trap at exit 2, with zero stdout and exact stderr
+``runtime trap: entry task `missing_h0010_entry` was not found`` followed by its
+trailing line feed. H0010 remains a parser-stage source diagnostic at exit 1
+with its exact sealed projection. Permanent evidence must discriminate them by
+failure channel, diagnostic identity, exact bytes, and exit status; neither
+result may substitute for the other.
+
+The status-boundary classifier now resolves the explicitly marked active Work
+Order rather than a hard-coded file name. The recognized status-only regions
+and every existing eligibility rule remain unchanged and unwidened. Code,
+mixed, and out-of-region changes still select `mode=full`; missing, malformed,
+conflicting, or ambiguous active-Work-Order evidence fails closed to
+`mode=full`.
+
+The preserved partial 10B.1b implementation remains uncommitted and unaccepted
+as exactly five modified tracked paths plus five untracked fixtures with an
+empty index. It remains paused pending a separate explicit BDFL corrective go
+signal against the corrected gate. Increment 10B.2, 10C, Session AR, and every
+later item remain unauthorized.
+
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
 authoring authorization and therefore disqualified from this document's
@@ -5782,6 +5817,40 @@ dominated by repeated CLI process spawns. That future optimization target is
 recorded but unauthorized. Increment 10B.1b is the next target and remains
 unauthorized pending a separate explicit BDFL go signal. Increment 10B.2,
 10C, Session AR, and every later item remain unauthorized.
+
+The bounded 10B.1b entry-discrimination correction was independently accepted,
+BDFL-accepted, committed, and published as
+`505ce3095ca1d5ab6ada1eb375b8a0ca347812af`. The independently accepted
+status-boundary classifier fix was committed and published as
+`99173901f12378d77917f13e2f0cb917766adc76`. Required workflow
+`30173444515`, attempt 1, succeeded for that exact head. Ubuntu job
+`89718258830` on `ubuntu-latest` succeeded in 21m 38s; Windows job
+`89718258844` on `windows-latest` succeeded in 30m 18s. Both selected
+`mode=full` with `reason=no_status_transition`; Cargo caching, Rust-toolchain
+preparation, and `Run Hum preflight` succeeded on both, and
+`Run status-only evidence` was skipped on both. Ubuntu's exhaustive
+canonical-seal step succeeded; Windows skipped that platform-independent step
+by design.
+
+The corrected gate retains the accepted distinction: a nonexistent entry is
+an operational runtime trap at exit 2 with zero stdout and exact stderr
+``runtime trap: entry task `missing_h0010_entry` was not found`` plus its trailing
+line feed, while H0010 is a parser-stage source diagnostic at exit 1 with its
+exact sealed projection. The permanent evidence discriminates the two by
+channel, identity, exact bytes, and exit status, and neither result may
+substitute for the other.
+
+The status-boundary classifier now resolves the explicitly marked active Work
+Order instead of a hard-coded file name. Existing status-only boundaries and
+eligibility rules are unchanged and unwidened. Code, mixed, and out-of-region
+changes still select `mode=full`; missing, malformed, conflicting, or
+ambiguous active-Work-Order evidence fails closed to `mode=full`.
+
+The preserved partial 10B.1b implementation remains uncommitted and unaccepted
+as exactly five modified tracked paths plus five untracked fixtures with an
+empty index. Resumption requires a separate explicit BDFL corrective go signal
+against the corrected gate. Increment 10B.2, 10C, Session AR, and every later
+item remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
