@@ -400,6 +400,31 @@ to approximately 1,078s across the recent consumer increments. The dominant
 remaining cost is the fixture/CLI/readiness corpus, not the pair matrix. This
 records a future optimization target only and authorizes no optimization work.
 
+The bounded corpus-optimization authorization stopped at its mandated stop
+condition. Measurement refuted the process-spawn hypothesis, so no optimization
+was implemented. The green Fast-tier profile completed in 1,016.801s and
+recorded 1,752 Hum invocations across 216 source paths and 1,003 stage/source
+pairs, with 790.087s of cumulative Hum runtime. OS process start averaged
+1.646ms and a minimal real Hum invocation averaged 12.454ms. Even treating the
+complete minimal invocation as startup and initialization bounds that share at
+no more than 21.8s, or 2.8%; substantive in-process analysis accounts for at
+least 768.3s, or 97.2%.
+
+The largest cumulative stages were: `run`, 252 calls in 157.072s;
+`ir-readiness`, 29 in 126.582s; `resource-check`, 122 in 101.074s;
+`ownership-check`, 158 in 76.774s; `profile-check`, 32 in 49.965s;
+`effect-check`, 149 in 49.374s; `full-type-check`, 165 in 38.876s; and
+`check`, 112 in 36.237s.
+
+The real cost is repeated front-end analysis in fresh processes, not process
+creation: approximately the same 216 source programs are repeatedly parsed,
+resolved, and analyzed across the 1,752 invocations. An honest correction
+requires an in-process corpus runner or reusable checked-program and stage
+artifacts, outside the authorized tools-only envelope. That work is recorded
+only as a future target and remains unauthorized. All profiling
+instrumentation was removed; no production, fixture, or harness change was
+retained.
+
 Increment 10B.2 is complete and durably published. Increment 10B.3 remains the
 next consumer-convergence target but is unauthorized pending independent
 acceptance, commit, publication, and terminal required CI for this status
@@ -6314,6 +6339,31 @@ the 60-minute ceiling, while the local Fast tier grew from approximately 898s
 to approximately 1,078s across the recent consumer increments. The dominant
 remaining cost is the fixture/CLI/readiness corpus, not the pair matrix. This
 records a future optimization target only and authorizes no optimization work.
+
+The bounded corpus-optimization authorization stopped at its mandated stop
+condition. Measurement refuted the process-spawn hypothesis, so no optimization
+was implemented. The green Fast-tier profile completed in 1,016.801s and
+recorded 1,752 Hum invocations across 216 source paths and 1,003 stage/source
+pairs, with 790.087s of cumulative Hum runtime. OS process start averaged
+1.646ms and a minimal real Hum invocation averaged 12.454ms. Even treating the
+complete minimal invocation as startup and initialization bounds that share at
+no more than 21.8s, or 2.8%; substantive in-process analysis accounts for at
+least 768.3s, or 97.2%.
+
+The largest cumulative stages were: `run`, 252 calls in 157.072s;
+`ir-readiness`, 29 in 126.582s; `resource-check`, 122 in 101.074s;
+`ownership-check`, 158 in 76.774s; `profile-check`, 32 in 49.965s;
+`effect-check`, 149 in 49.374s; `full-type-check`, 165 in 38.876s; and
+`check`, 112 in 36.237s.
+
+The real cost is repeated front-end analysis in fresh processes, not process
+creation: approximately the same 216 source programs are repeatedly parsed,
+resolved, and analyzed across the 1,752 invocations. An honest correction
+requires an in-process corpus runner or reusable checked-program and stage
+artifacts, outside the authorized tools-only envelope. That work is recorded
+only as a future target and remains unauthorized. All profiling
+instrumentation was removed; no production, fixture, or harness change was
+retained.
 
 Increment 10B.2 is complete and durably published. Increment 10B.3 remains the
 next consumer-convergence target but is unauthorized pending independent
