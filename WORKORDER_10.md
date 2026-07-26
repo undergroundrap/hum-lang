@@ -4910,6 +4910,311 @@ separately authorized publication, terminal required CI, and a separate
 corrective go signal before the same 10B.1b implementation may resume. No
 later increment may begin implicitly.
 
+## Consumer-convergence physical-evidence amendment (2026-07-26; proposed)
+
+### Authority, repeated rejection, and exact stopped state
+
+This amendment corrects the evidence method for the complete remaining
+consumer-convergence train, Increment 10B.2 through Increment 10B.12. It does
+not decompose any increment, change any accepted semantic requirement, or
+authorize implementation. It prospectively supersedes only evidence wording
+that permits an assertion, candidate-derived expectation, name-based source
+audit, upstream-only rejection, or inert sabotage to stand as proof that a
+consumer reads canonical authority.
+
+Increment 10B.2 received two same-shaped independent P1 rejections:
+
+1. The first review showed that the proposed evidence could remain green while
+   forbidden span and traversal-serial paths selected or minted semantic
+   identity. Its expected identities and source audit did not independently
+   detect the prohibited dataflow.
+2. The bounded correction replaced those production shortcuts, but the fresh
+   re-review showed that the evidence was still self-validating. Candidate
+   resolver helpers supplied the expectations against which their own results
+   were compared; shadowed owner and target sets could be cross-wired while
+   retaining set equality; the named serial and render/reparse sabotages changed
+   unused bookkeeping or source text rather than production behavior; and the
+   corruption cases either stopped at the already accepted F4 seal or
+   substituted different reference kinds while asserting only that some
+   diagnostic existed. Same-shaped, same-spelled, same-span consumer
+   substitutions remained unproven.
+
+These are the same defect shape: the evidence can establish internal
+consistency of the candidate implementation but cannot establish the negative
+property that semantic identity is obtained from canonical authority rather
+than a forbidden coincident projection. Under the `AGENTS.md`
+repeated-rejection rule, a third correction against that evidence
+specification is forbidden. The specification is wrong; the reviewer and
+implementer are not the defect.
+
+The preserved implementation remains uncommitted and unaccepted on:
+
+- branch `main`;
+- `HEAD == origin/main ==
+  df2b7ac15dee7826c693c90ab7f140de38e6a0f8`;
+- an empty real index and no untracked path;
+- exactly `src/callable.rs`, `src/resolve.rs`, and `tools/check_all.ps1`;
+- exact statistics:
+  - `src/callable.rs`: 1,289 insertions and 431 deletions;
+  - `src/resolve.rs`: 1,227 insertions and 376 deletions;
+  - `tools/check_all.ps1`: 5 insertions and 2 deletions; and
+  - total: 2,521 insertions and 809 deletions; and
+- exact three-path Git tree OID
+  `572da08e0d397a24c2242e52ac10db2b6c04fe07`, independently reproducible
+  through fresh empty temporary indexes in PowerShell and Git Bash.
+
+The stopped tree compiled and passed 444 Rust tests. Its implementer Fast tier
+passed in 1,044.847 seconds, its fresh-reviewer Fast tier passed in 1,063.9
+seconds, and the independently verified exhaustive transcript selected one
+nonzero test and passed all 14,226 cumulative seal pairs: F1 630, F2 4,950,
+and F3/F4 8,646. Those green results are compatibility and preservation
+evidence only. They neither overcome the two P1 rejections nor accept any
+implementation byte.
+
+### Satisfiability diagnosis and required physical property
+
+The remaining consumer mandates require proof of a negative dependency:
+canonical resolver or parser facts, rather than spans, traversal serials,
+display names, source text, a legacy projection, or a separately reconstructed
+graph, must determine the consumer result. Assertions over an unmodified
+candidate cannot prove that property. The same candidate identity helper can
+produce both the observed value and its expected value, and two independently
+wrong candidate-derived sets can still compare equal.
+
+The required proof is therefore a physical dependency:
+
+> Corrupt the exact canonical or resolver fact at the production boundary the
+> consumer is required to read, while holding the forbidden coincident
+> projections fixed. The real consumer's exact observable result must change
+> in the independently predicted way or fail closed with an independently
+> pinned consumer-owned rejection.
+
+A consumer that still derives its answer from spans, serials, display names,
+source text, rendered expressions, or a parallel graph is unaffected by the
+authoritative-fact corruption. It fails this gate mechanically, regardless of
+which helper a test calls, which names a source audit finds, or what a
+sabotage claims to represent.
+
+This is the established corruption discipline from the F1-F4 seal foundation,
+applied at each downstream consumer boundary. It does not reduce total
+evidence. Source/dataflow audit, real-path positive behavior, and corruption
+sensitivity remain three distinct permanent test identities; corruption is
+the load-bearing consumption proof.
+
+### Exact consumer-boundary corruption method
+
+Every Increment 10B.2-10B.11 consumer must provide a narrowly scoped test-only
+corruption seam with all of these properties:
+
+1. **Real input and real boundary.** The baseline begins with hand-authored Hum
+   source entering ordinary `load_program` or the real applicable CLI path.
+   The seam receives parser- or resolver-owned facts that passed every
+   previously accepted upstream validation and places one altered authoritative
+   fact immediately before the exact production consumer under review.
+2. **Consumer execution is mandatory.** The corrupted run traverses the same
+   production consumer entry point and owned validation branch as the clean
+   run. A direct test helper, fabricated answer carrier, mutation of the
+   consumer's output, or rejection by F4 or another earlier stage before the
+   consumer reads the fact earns no consumer-convergence credit.
+3. **One independently named fact per primary probe.** Each primary probe
+   changes one exact canonical node, child position, resolver definition,
+   reference, call occurrence, target, argument, place, wrapper, statement
+   relationship, or other fact owned by that increment. Source bytes, retained
+   line text, spans, display names, public root summaries, and still-present
+   legacy projections remain byte-identical unless the increment expressly
+   owns one of those as an output projection.
+4. **Exact observable consequence.** Each probe pins the exact owned output
+   before and after corruption: structured relationship tuple, owner/target
+   mapping, type/effect/ownership fact, Core relation, value, diagnostic
+   identity and bytes, or a named fail-closed reason at that consumer boundary.
+   `is_err`, `is_some`, set equality, a changed count, an arbitrary diagnostic,
+   or mere inequality without the exact independently predicted relationship
+   is insufficient.
+5. **Independent oracle.** Expected identities and relationships are supplied
+   independently from a hand-authored fixture inventory or literal test oracle.
+   They may not be generated by the candidate identity function, candidate
+   traversal, candidate output, the same source-to-ID helper, or a projection
+   under validation. This is the binding application of anti-ghost rule 4:
+   upstream authority and downstream expectation are independently supplied.
+6. **No coherent self-rescue.** Mutating the authoritative fact and then
+   refreshing, reconstructing, or co-mutating the expected authority,
+   consumer expectation, legacy projection, or output is a failed probe. Named
+   coherent multi-fact corruptions are additional fail-closed cases; they do
+   not replace the required singleton physical dependency.
+7. **Nondegenerate sabotage.** The implementer demonstrates that bypassing the
+   canonical read, substituting a forbidden coincident projection, or disabling
+   the consumer validation changes executable production behavior and turns
+   the exact selector red. Inserting an unused binding, comment, undefined
+   name, forbidden spelling, or dead helper tests only a textual audit and
+   receives no load-bearing sabotage credit.
+8. **Deterministic exact selection.** A dedicated selector must select a
+   deterministic nonzero case set and must fail closed on zero, missing,
+   ambiguous, skipped, or renamed cases. Two fresh clean runs must produce the
+   same ordered observation and two fresh corrupted runs must produce the same
+   exact rejection or changed observation.
+
+The seam exists only to make an otherwise unrepresentable corrupted authority
+reach the real defensive branch. It cannot become a production constructor,
+fallback, alternate consumer API, or route around prior validation. Production
+callers continue to receive only valid authority.
+
+### Same-shaped substitution is mandatory
+
+Every consumer increment must include a foreign-authority substitution that
+removes the ordinary projections as discriminators:
+
+- construct two independently parsed, byte-identical or deliberately
+  same-shaped sources whose relevant constructs have identical spelling,
+  public span coordinates, display text, arity, and public shape but distinct
+  canonical source/file/owner/occurrence identity;
+- pin the intended owner-to-target, parent-to-child, or occurrence-to-result
+  relationships through an independently authored oracle rather than candidate
+  IDs;
+- establish the exact clean result for each real consumer path;
+- substitute the foreign canonical or resolver fact while keeping those
+  coincident projections fixed; and
+- require the exact destination consumer to reject the foreign relationship or
+  produce the exact independently predicted distinct result.
+
+Where a single source also admits repeated same-text, same-line, nested,
+shadowed, or sibling constructs, the increment must additionally pin the exact
+ordered relationships rather than compare owner and target sets separately.
+Swapping two relationships while preserving both sets must turn the selector
+red. Different reference kinds, different arities, different text, different
+spans, a generic upstream seal rejection, or an assertion that merely finds
+some diagnostic cannot stand in for the same-shaped case.
+
+### Source audit is supporting evidence only
+
+The mechanical source/dataflow audit remains required, but it is not proof of
+consumption. It must enumerate prohibited semantic inputs and trace the
+consumer's production entry points, aliases, callbacks, closures, methods,
+macros, and helpers within the authorized envelope. A spelling-only search can
+support that inventory but cannot establish absence of a renamed or indirect
+authority path.
+
+An audit sabotage may prove that the audit rejects a prohibited spelling or
+flow, but it may not be counted as the production sabotage or corruption
+proof unless it also changes the executable consumer result through the real
+path. Passing the audit never compensates for an inert physical corruption
+probe.
+
+### Binding application to Increment 10B.2 through Increment 10B.12
+
+The following facts and observables specialize the common method. They do not
+change an increment's published envelope or semantics.
+
+| Increment | Required corrupted production input | Required exact consumer observation |
+| --- | --- | --- |
+| 10B.2 resolver and callable | canonical child position, definition/reference owner, call occurrence, target, or argument identity after upstream seal validation | exact ordered resolver owner-reference-target and callable receiver/application/substitution relationships, including independently pinned shadowed and sibling mappings; H1401/H1402 bytes remain compatibility output, not the identity oracle |
+| 10B.3 typed failure, Path, and return dependency | structured Try wrapper, resolver call occurrence, permission/place occurrence, or return root relationship | exact wrapper/call owner, Path dependency, return-view relationship, or exact consumer-owned H0630/H0901-H0907 rejection |
+| 10B.4 mutation, place, and writable alias | parser statement relationship, binding definition, canonical place root/edge, destination, or block owner | exact set/save/loop/binding/place/alias ownership relationship or exact existing source-diagnostic result |
+| 10B.5 Predicate overlay | canonical node/operator/operand/intent plus resolver place definition used by the overlay | exact eligibility, recognition, operand-type, place-join, owner, or H0630 overlay result; no second value tree may supply the observation |
+| 10B.6 type and full type | canonical operator/child/call/place occurrence or resolver binding used by inference | exact ordered inferred type/binding/call-shape/prior-blocker relationship or exact existing H060x/H070x/H090x/H140x result |
+| 10B.7 effect, ownership, and resource | canonical place/list/record root, resolver identifier use, permission, or parser statement relationship | exact effect, ownership, resource, allocation, invalidation, or prior-blocker fact and its existing public projection |
+| 10B.8 Core construction and lowering | canonical child order, operator, grouping, call/place occurrence, or resolver route presented to private Core | exact private Core relationship and preview/lowering projection, or an exact pre-construction Core-boundary rejection owned by this consumer |
+| 10B.9 Core verification and projection transport | separately supplied upstream Core/canonical authority, composition edge, or verified occurrence route | exact verifier acceptance/rejection and exact graph/JSON/profile/IR projection consequence; regenerating expected authority from the observed projection is forbidden |
+| 10B.10 runtime body evaluation | canonical operator, ordered child, call target/argument, place, permission, collection, or Try wrapper consumed by the evaluator | exact value or exact existing runtime trap for the named source and inputs; source text and rendered expression remain fixed |
+| 10B.11 runtime contract evaluation | canonical/Predicate occurrence, operator, ordered child, place, `old` context, or contract relationship | exact needs/ensures value or H0702/H0703 result, plus agreement or deliberate context distinction from the body evaluator |
+| 10B.12 authority retirement | restoration or rerouting of any retired legacy expression/call authority into one final production consumer | every retained 10B.2-10B.11 physical corruption selector remains nonzero and load-bearing; restoring a legacy authority cannot make canonical corruption inert, and the complete source/dataflow retirement audit must also fail red |
+
+No increment may substitute another consumer's corruption test for its own.
+10B.12 does not invent a new semantic consumer; it reruns the complete
+published physical-dependency matrix after legacy deletion and proves that
+reintroducing or rerouting one retired authority cannot bypass it.
+
+The Fast tier includes every increment's exact real-path, corruption,
+same-shaped substitution, and load-bearing sabotage selectors. The implementer
+and independent reviewer each run the Fast tier. The reviewer independently
+verifies that the exhaustive canonical-seal tier passed on the exact accepted
+bytes rather than re-running it locally, exactly as already published. The
+existing total F1-F4 corruption, co-mutation, and sabotage evidence is not
+reduced or differentially selected.
+
+### Exact 10B.2 salvage disposition
+
+The preserved 10B.2 tree should resume from its exact frozen OID with selective
+evidence replacement; it should not restart from the clean 10B.1b baseline.
+This recommendation is specific, provisional, and does not accept the tree:
+
+- Retain provisionally the canonical resolver traversal, resolver-owned
+  structural identities, callable consumer migration, public-compatibility
+  behavior, and in-envelope production dataflow that compiled, passed 444
+  tests, passed both Fast runs, and received no second-review production
+  correctness finding.
+- Treat the three 10B.2 selector bodies, every candidate-derived expected
+  identity, independent-set comparison, inert textual sabotage, upstream-only
+  F4 corruption, and different-kind generic-diagnostic substitution as
+  unaccepted claims to replace or strengthen under this amendment.
+- The exact frozen OID is the resumption baseline. Before any edit, the future
+  implementer must reproduce it in PowerShell and Git Bash and classify each
+  proposed change as physical evidence, supporting audit, or a production fix
+  exposed by the new physical evidence.
+- If a consumer-boundary corruption leaves the callable or resolver
+  observation unchanged, that is a newly exposed production defect, not a test
+  inconvenience. It may be corrected only within the already published
+  three-file 10B.2 envelope and semantics, then the complete acceptance
+  sequence restarts.
+- A fourth path, missing upstream fact, public or diagnostic semantic change,
+  altered envelope, or second same-shaped failure stops for the BDFL. It may
+  not be hidden by refreshing an oracle or restarting from clean code.
+
+Restarting would discard 2,521 lines that the available compilation,
+compatibility, exhaustive, and independent dataflow evidence does not condemn,
+while recreating the same missing proof method. Blanket preservation would be
+equally wrong because the evidence bodies were twice rejected. Selective
+resumption preserves the credible implementation investment and rebuilds the
+part proven unsound: its consumer-dependency evidence.
+
+### Unchanged mandates, publication boundary, and review
+
+This amendment does not change any 10B.2-10B.12 envelope, consumer ownership,
+diagnostic allocation, cause identity, message, precedence, schema, public
+byte, runtime behavior, H0010 meaning, F1-F4 seal requirement, evidence-tier
+count, compatibility lock, anti-ghost rule, ceremony-proportionality rule, or
+coherent-unit sizing rule. It does not authorize 10C, Session AR, production
+Cranelift integration, or any later work. It expressly forbids fractal
+decomposition as a response to this evidence defect: a smaller unit with the
+same self-validating oracle is still unsatisfied.
+
+Only `WORKORDER_10.md` may change in this planning pass. The full preflight is
+not run against the rejected implementation; its prior green results are
+recorded above without being promoted to acceptance. The real index remains
+empty, the exact three-path OID remains frozen, and no implementation check,
+edit, commit, push, cleanup, restart, or later increment is authorized.
+
+The amendment author is disqualified from its verdict. One fresh independent
+architect-reviewer must:
+
+- independently confirm that the two findings have the same self-validating,
+  non-load-bearing evidence shape and trigger the repeated-rejection rule;
+- verify that assertions and candidate-derived expectations cannot establish
+  the required negative dependency;
+- verify that the consumer-boundary seam reaches the real consumer after prior
+  validation and cannot receive credit for an upstream-only rejection;
+- verify independent exact oracles, ordered owner-target relationships, and
+  same-shaped/same-span foreign substitutions cannot be satisfied by the
+  candidate identity helpers under test;
+- verify inert source-text or bookkeeping sabotages receive no physical-proof
+  credit;
+- verify the specialization table covers every remaining consumer increment
+  without changing its envelope or semantics;
+- audit the selective-resumption recommendation against the exact frozen
+  10B.2 diff rather than blanket-preserving or blanket-discarding it;
+- reproduce the three-path OID, exact statistics, empty index, and absence of
+  untracked or later-work paths; and
+- verify every anti-ghost, tiering, compatibility, ceremony, sizing, and
+  later-work lock remains intact.
+
+The reviewer makes no edit and reports P0/P1/P2 findings plus exactly one
+verdict: `ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT`.
+
+Even `ACCEPT` authorizes no implementation, commit, or push. The exact
+amendment bytes still require BDFL acceptance, a separately authorized scoped
+documentation commit and publication, terminal required CI, and a separate
+corrective 10B.2 go signal before the frozen tree may resume. Increment 10B.3
+and every later item remain unauthorized.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
