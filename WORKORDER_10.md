@@ -366,12 +366,45 @@ in 21m 44s, and `Run status-only evidence` was skipped. It selected
 `mode=full` with `reason=no_status_transition` and correctly skipped the
 platform-independent exhaustive duplicate owned by Ubuntu.
 
-Increment 10B.1b is complete and durably published. Increment 10B.2, resolver
-and callable convergence, is the next target but remains unauthorized pending
-independent acceptance, commit, publication, and terminal required CI for this
-status record plus a separate explicit BDFL go signal. Increment 10B.3, 10C,
-Session AR, production Cranelift integration, and every later item remain
-unauthorized.
+Increment 10B.2, resolver and callable convergence onto canonical identity,
+received final independent `ACCEPT` after one bounded correction cycle under
+the published consumer-convergence corruption-gate evidence method. The
+preserved migration was resumed rather than restarted, and its rejected
+self-validating evidence was replaced by production-boundary corruption,
+independently supplied expected relationships, and same-shaped substitution
+evidence. It was committed and durably published as
+`2e591399f16ad7ad33540c680c748c6b4e5ecfec`, with first parent
+`3c5dabc68e354c3241e8e4e630357b2ea820a1b3`. Its accepted scope is exactly
+`src/callable.rs`, `src/resolve.rs`, and `tools/check_all.ps1`; the commit
+contains 2,915 insertions and 813 deletions, and its independently reproduced
+scoped tree OID is `70ff47feed0c4a5a2e555f6e53d9678b0ee5ccf6`.
+
+Required workflow `30194607600`, attempt 1, succeeded for that exact commit.
+Ubuntu job `89773760419` on `ubuntu-latest` succeeded in 25m 19s. Its Cargo
+cache and Rust-toolchain preparation succeeded, `Run Hum preflight` succeeded
+in 24m 40s, and `Run status-only evidence` was skipped. It selected
+`mode=full` with `reason=no_status_transition`. Ubuntu genuinely executed the
+nonzero exhaustive canonical-seal selector and asserted all 14,226 pairs:
+F1 630, F2 4,950, and F3/F4 8,646.
+
+Windows job `89773760437` on `windows-latest` succeeded in 35m 55s. Its Cargo
+cache and Rust-toolchain preparation succeeded, `Run Hum preflight` succeeded
+in 35m 01s, and `Run status-only evidence` was skipped. It selected
+`mode=full` with `reason=no_status_transition` and correctly skipped the
+platform-independent exhaustive duplicate owned by Ubuntu.
+
+The recorded validation-cost trend is now operationally significant. Windows
+full CI grew from 30m 03s to 35m 55s across recent full-lane history against
+the 60-minute ceiling, while the local Fast tier grew from approximately 898s
+to approximately 1,078s across the recent consumer increments. The dominant
+remaining cost is the fixture/CLI/readiness corpus, not the pair matrix. This
+records a future optimization target only and authorizes no optimization work.
+
+Increment 10B.2 is complete and durably published. Increment 10B.3 remains the
+next consumer-convergence target but is unauthorized pending independent
+acceptance, commit, publication, and terminal required CI for this status
+record plus a separate explicit BDFL go signal. Increment 10C, Session AR,
+production Cranelift integration, and every later item remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -6248,12 +6281,45 @@ in 21m 44s, and `Run status-only evidence` was skipped. It selected
 `mode=full` with `reason=no_status_transition` and correctly skipped the
 platform-independent exhaustive duplicate owned by Ubuntu.
 
-Increment 10B.1b is complete and durably published. Increment 10B.2, resolver
-and callable convergence, is the next target but remains unauthorized pending
-independent acceptance, commit, publication, and terminal required CI for this
-status record plus a separate explicit BDFL go signal. Increment 10B.3, 10C,
-Session AR, production Cranelift integration, and every later item remain
-unauthorized.
+Increment 10B.2, resolver and callable convergence onto canonical identity,
+received final independent `ACCEPT` after one bounded correction cycle under
+the published consumer-convergence corruption-gate evidence method. The
+preserved migration was resumed rather than restarted, and its rejected
+self-validating evidence was replaced by production-boundary corruption,
+independently supplied expected relationships, and same-shaped substitution
+evidence. It was committed and durably published as
+`2e591399f16ad7ad33540c680c748c6b4e5ecfec`, with first parent
+`3c5dabc68e354c3241e8e4e630357b2ea820a1b3`. Its accepted scope is exactly
+`src/callable.rs`, `src/resolve.rs`, and `tools/check_all.ps1`; the commit
+contains 2,915 insertions and 813 deletions, and its independently reproduced
+scoped tree OID is `70ff47feed0c4a5a2e555f6e53d9678b0ee5ccf6`.
+
+Required workflow `30194607600`, attempt 1, succeeded for that exact commit.
+Ubuntu job `89773760419` on `ubuntu-latest` succeeded in 25m 19s. Its Cargo
+cache and Rust-toolchain preparation succeeded, `Run Hum preflight` succeeded
+in 24m 40s, and `Run status-only evidence` was skipped. It selected
+`mode=full` with `reason=no_status_transition`. Ubuntu genuinely executed the
+nonzero exhaustive canonical-seal selector and asserted all 14,226 pairs:
+F1 630, F2 4,950, and F3/F4 8,646.
+
+Windows job `89773760437` on `windows-latest` succeeded in 35m 55s. Its Cargo
+cache and Rust-toolchain preparation succeeded, `Run Hum preflight` succeeded
+in 35m 01s, and `Run status-only evidence` was skipped. It selected
+`mode=full` with `reason=no_status_transition` and correctly skipped the
+platform-independent exhaustive duplicate owned by Ubuntu.
+
+The recorded validation-cost trend is now operationally significant. Windows
+full CI grew from 30m 03s to 35m 55s across recent full-lane history against
+the 60-minute ceiling, while the local Fast tier grew from approximately 898s
+to approximately 1,078s across the recent consumer increments. The dominant
+remaining cost is the fixture/CLI/readiness corpus, not the pair matrix. This
+records a future optimization target only and authorizes no optimization work.
+
+Increment 10B.2 is complete and durably published. Increment 10B.3 remains the
+next consumer-convergence target but is unauthorized pending independent
+acceptance, commit, publication, and terminal required CI for this status
+record plus a separate explicit BDFL go signal. Increment 10C, Session AR,
+production Cranelift integration, and every later item remain unauthorized.
 
 Session AR remains the next globally lettered session but is reserved for a
 future fresh Hum IR/minimal compiler-ready standard-library Work Order. It has
