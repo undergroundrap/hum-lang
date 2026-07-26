@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast::{
-    Item, Param, ParamPermission, ParsedBodyStatement, ParsedBodyStatementKind, ParsedExpression,
-    ParsedExpressionKind, Program, Section, Task, TypeSyntaxKind,
+    CanonicalExpression, CanonicalExpressionKind, CanonicalStatementEventField,
+    CanonicalStatementEventValue, CanonicalStatementKindEvent, Item, Param, ParamPermission,
+    ParsedBinaryOperator, ParsedBodyStatement, ParsedBodyStatementKind, Program, Section, Task,
+    TypeSyntaxKind,
 };
-use crate::core_body::{self, BodyStatement};
-use crate::core_expr::{self, CoreExpressionPreview};
+use crate::core_body;
 use crate::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceSet, Severity, Span,
 };
@@ -63,6 +64,7 @@ pub struct ResolveDefinitionSummary {
     pub state_kind: &'static str,
     pub source_span: Span,
     pub status: &'static str,
+    pub(crate) semantic_identity: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +75,8 @@ pub struct ResolveScopeSummary {
     pub owner_kind: &'static str,
     pub owner_name: String,
     pub source_span: Option<Span>,
+    pub(crate) semantic_identity: String,
+    pub(crate) owner_semantic_identity: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +90,11 @@ pub struct ResolveReferenceSummary {
     pub resolution_status: &'static str,
     pub resolved_definition_id: Option<String>,
     pub reason: Option<&'static str>,
+    pub(crate) canonical_node_id: Option<String>,
+    pub(crate) canonical_child_position: Option<String>,
+    pub(crate) scope_semantic_identity: String,
+    pub(crate) semantic_identity: String,
+    pub(crate) resolved_definition_semantic_identity: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -93,7 +102,7 @@ pub(crate) struct ResolverCallOccurrenceId {
     reference_id: String,
     owner_definition_id: String,
     target_definition_id: String,
-    position: crate::parser::ParsedCallPosition,
+    position: CanonicalExpressionPosition,
 }
 
 impl ResolverCallOccurrenceId {
@@ -135,6 +144,9 @@ pub(crate) struct ResolveCallOccurrenceSummary {
     resolver_occurrence_id: ResolverCallOccurrenceId,
     source: String,
     identifier_uses: Vec<ResolveCallIdentifierUse>,
+    canonical_call_node_id: String,
+    canonical_callee_node_id: String,
+    canonical_argument_node_ids: Vec<String>,
 }
 
 impl ResolveCallOccurrenceSummary {
@@ -143,7 +155,7 @@ impl ResolveCallOccurrenceSummary {
     }
 
     pub(crate) fn statement_index(&self) -> usize {
-        self.resolver_occurrence_id.position.statement_index()
+        self.resolver_occurrence_id.position.statement_index
     }
 
     pub(crate) fn source(&self) -> &str {
@@ -158,6 +170,10 @@ impl ResolveCallOccurrenceSummary {
         self.resolver_occurrence_id.stable_key()
     }
 
+    pub(crate) fn resolver_reference_identity(&self) -> &str {
+        &self.resolver_occurrence_id.reference_id
+    }
+
     pub(crate) fn relationship_route(&self) -> Vec<String> {
         vec![
             format!("resolver_call_occurrence={}", self.relationship_key()),
@@ -170,6 +186,98 @@ impl ResolveCallOccurrenceSummary {
             ),
         ]
     }
+
+    pub(crate) fn canonical_call_node_id(&self) -> &str {
+        &self.canonical_call_node_id
+    }
+
+    pub(crate) fn canonical_callee_node_id(&self) -> &str {
+        &self.canonical_callee_node_id
+    }
+
+    pub(crate) fn canonical_argument_node_ids(&self) -> &[String] {
+        &self.canonical_argument_node_ids
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_canonical_call_node_for_test(&mut self, replacement: &str) {
+        self.canonical_call_node_id = replacement.to_string();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_resolver_reference_identity_for_test(&mut self, replacement: &str) {
+        self.resolver_occurrence_id.reference_id = replacement.to_string();
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct CanonicalExpressionPosition {
+    statement_node_id: String,
+    statement_index: usize,
+    root_ordinal: usize,
+    child_path: Vec<usize>,
+    node_id: String,
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+struct TenB2ResolverBoundaryCorruption {
+    call_node_id: String,
+    replacement_child_path: Vec<usize>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEN_B2_RESOLVER_BOUNDARY_CORRUPTION:
+        std::cell::RefCell<Option<TenB2ResolverBoundaryCorruption>> =
+            const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn with_ten_b2_resolver_boundary_corruption<T>(
+    corruption: TenB2ResolverBoundaryCorruption,
+    run: impl FnOnce() -> T,
+) -> T {
+    TEN_B2_RESOLVER_BOUNDARY_CORRUPTION.with(|slot| {
+        assert!(
+            slot.replace(Some(corruption)).is_none(),
+            "10B.2 resolver boundary corruption must not nest"
+        );
+    });
+    let result = run();
+    TEN_B2_RESOLVER_BOUNDARY_CORRUPTION.with(|slot| {
+        assert!(
+            slot.replace(None).is_some(),
+            "10B.2 resolver boundary corruption must execute"
+        );
+    });
+    result
+}
+
+impl CanonicalExpressionPosition {
+    fn stable_component(&self) -> String {
+        let child_path = self
+            .child_path
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(".");
+        format!(
+            "statement-{}:{}:root-{}:path-{}:node-{}",
+            self.statement_index,
+            self.statement_node_id,
+            self.root_ordinal,
+            child_path,
+            self.node_id
+        )
+    }
+}
+
+struct CanonicalCallNode<'a> {
+    expression: &'a CanonicalExpression,
+    callee: &'a CanonicalExpression,
+    arguments: &'a [CanonicalExpression],
+    position: CanonicalExpressionPosition,
 }
 
 #[derive(Debug, Clone)]
@@ -180,6 +288,8 @@ struct ResolveScope {
     owner_kind: &'static str,
     owner_name: String,
     source_span: Option<Span>,
+    semantic_identity: String,
+    owner_semantic_identity: String,
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +304,7 @@ struct ResolveDefinition {
     source_span: Span,
     status: &'static str,
     duplicate_of: Option<String>,
+    semantic_identity: String,
 }
 
 #[derive(Debug, Clone)]
@@ -208,6 +319,11 @@ struct ResolveReference {
     resolution_status: &'static str,
     resolved_definition_id: Option<String>,
     reason: Option<&'static str>,
+    canonical_node_id: Option<String>,
+    canonical_child_position: Option<String>,
+    scope_semantic_identity: String,
+    semantic_identity: String,
+    resolved_definition_semantic_identity: Option<String>,
 }
 
 struct CallableResolveInput<'a> {
@@ -255,6 +371,18 @@ struct DefinitionInput<'a> {
     state_kind: &'static str,
     span: &'a Span,
     defer_duplicate_diagnostic: bool,
+    semantic_origin: String,
+    semantic_shape: Option<String>,
+}
+
+struct ScopeInput<'a> {
+    parent_scope_id: Option<&'a str>,
+    scope_kind: &'static str,
+    owner_kind: &'static str,
+    owner_name: &'a str,
+    span: Option<&'a Span>,
+    preferred_id: String,
+    semantic_origin: String,
 }
 
 struct ResolverContext<'program> {
@@ -265,6 +393,7 @@ struct ResolverContext<'program> {
     call_occurrences: Vec<ResolveCallOccurrenceSummary>,
     diagnostics: Vec<ResolverDiagnostic>,
     scope_parents: BTreeMap<String, Option<String>>,
+    scope_semantic_identities: BTreeMap<String, String>,
     definitions_by_scope_name: BTreeMap<(String, String), DefinitionRef>,
     scope_serial: usize,
     definition_serial: usize,
@@ -324,6 +453,7 @@ pub fn resolve_definition_summaries(
             state_kind: definition.state_kind,
             source_span: definition.source_span.clone(),
             status: definition.status,
+            semantic_identity: definition.semantic_identity.clone(),
         })
         .collect()
 }
@@ -342,6 +472,8 @@ pub fn resolve_scope_summaries(
             owner_kind: scope.owner_kind,
             owner_name: scope.owner_name.clone(),
             source_span: scope.source_span.clone(),
+            semantic_identity: scope.semantic_identity.clone(),
+            owner_semantic_identity: scope.owner_semantic_identity.clone(),
         })
         .collect()
 }
@@ -363,6 +495,13 @@ pub fn resolve_reference_summaries(
             resolution_status: reference.resolution_status,
             resolved_definition_id: reference.resolved_definition_id.clone(),
             reason: reference.reason,
+            canonical_node_id: reference.canonical_node_id.clone(),
+            canonical_child_position: reference.canonical_child_position.clone(),
+            scope_semantic_identity: reference.scope_semantic_identity.clone(),
+            semantic_identity: reference.semantic_identity.clone(),
+            resolved_definition_semantic_identity: reference
+                .resolved_definition_semantic_identity
+                .clone(),
         })
         .collect()
 }
@@ -377,7 +516,7 @@ pub(crate) fn resolve_call_occurrence_summaries(
 fn resolver_call_reference_identity(
     owner_definition_id: &str,
     target_definition_id: &str,
-    position: &crate::parser::ParsedCallPosition,
+    position: &CanonicalExpressionPosition,
 ) -> String {
     format!(
         "resolver-call-reference|owner={owner_definition_id}|target={target_definition_id}|{}",
@@ -388,7 +527,7 @@ fn resolver_call_reference_identity(
 fn unresolved_call_target_identity(
     owner_definition_id: &str,
     resolution_status: &str,
-    position: &crate::parser::ParsedCallPosition,
+    position: &CanonicalExpressionPosition,
 ) -> String {
     format!(
         "resolver-call-target|owner={owner_definition_id}|status={resolution_status}|{}",
@@ -397,11 +536,147 @@ fn unresolved_call_target_identity(
 }
 
 fn semantic_definition_identity(definition: &ResolveDefinition) -> String {
-    definition
-        .id
-        .strip_suffix(&format!("_{}", definition.normalized_name))
-        .unwrap_or(&definition.id)
-        .to_string()
+    definition.semantic_identity.clone()
+}
+
+fn item_definition_semantic_shape(item: &Item) -> String {
+    fn type_shape(syntax: &crate::ast::TypeSyntax) -> String {
+        match &syntax.kind {
+            TypeSyntaxKind::Named { name } => format!("named:{name}"),
+            TypeSyntaxKind::Result { value, .. } => format!("result({})", type_shape(value)),
+            TypeSyntaxKind::Callable(callable) => format!(
+                "callable({})->{}",
+                callable
+                    .inputs
+                    .iter()
+                    .map(type_shape)
+                    .collect::<Vec<_>>()
+                    .join(","),
+                type_shape(&callable.result)
+            ),
+            TypeSyntaxKind::CallableCandidate { .. } => "callable-candidate".to_string(),
+            TypeSyntaxKind::Other => "other".to_string(),
+        }
+    }
+
+    fn expression_shape(expression: &CanonicalExpression) -> String {
+        match &expression.kind {
+            CanonicalExpressionKind::Unit => "unit".to_string(),
+            CanonicalExpressionKind::Identifier(_) => "identifier".to_string(),
+            CanonicalExpressionKind::Field { base, .. } => {
+                format!("field({})", expression_shape(base))
+            }
+            CanonicalExpressionKind::ElementPlace { base, .. } => {
+                format!("element({})", expression_shape(base))
+            }
+            CanonicalExpressionKind::UIntLiteral(_) => "uint".to_string(),
+            CanonicalExpressionKind::IntLiteral(_) => "int".to_string(),
+            CanonicalExpressionKind::BoolLiteral(_) => "bool".to_string(),
+            CanonicalExpressionKind::TextLiteral(_) => "text".to_string(),
+            CanonicalExpressionKind::ListLiteral(values) => format!(
+                "list({})",
+                values
+                    .iter()
+                    .map(expression_shape)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            CanonicalExpressionKind::RecordLiteral { fields, .. } => format!(
+                "record({})",
+                fields
+                    .iter()
+                    .map(|(_, value)| expression_shape(value))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            CanonicalExpressionKind::Call { callee, arguments } => format!(
+                "call({};{})",
+                expression_shape(callee),
+                arguments
+                    .iter()
+                    .map(expression_shape)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            CanonicalExpressionKind::Binary {
+                operator,
+                left,
+                right,
+            } => format!(
+                "binary({operator:?};{};{})",
+                expression_shape(left),
+                expression_shape(right)
+            ),
+            CanonicalExpressionKind::Permission { permission, value } => {
+                format!("permission({permission:?};{})", expression_shape(value))
+            }
+            CanonicalExpressionKind::Try { value, .. } => {
+                format!("try({})", expression_shape(value))
+            }
+            CanonicalExpressionKind::Group(value) => {
+                format!("group({})", expression_shape(value))
+            }
+            CanonicalExpressionKind::Unsupported => "unsupported".to_string(),
+        }
+    }
+
+    fn statement_shape(statement: &ParsedBodyStatement) -> String {
+        let roots = parsed_statement_roots(statement)
+            .into_iter()
+            .map(expression_shape)
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(
+            "{}|{}|{}",
+            statement.core_kind, statement.block_depth_before, roots
+        )
+    }
+
+    match item {
+        Item::App(app) => format!(
+            "app|sections={}|children={}",
+            app.sections.len(),
+            app.items
+                .iter()
+                .map(Item::kind)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        Item::Type(item) => format!(
+            "type|fields={}|sections={}",
+            item.fields.len(),
+            item.sections.len()
+        ),
+        Item::Store(item) => format!("store|sections={}", item.sections.len()),
+        Item::Task(task) => format!(
+            "task|params={}|result={}|effects={}|body={}",
+            task.params
+                .iter()
+                .map(|param| format!("{:?}:{}", param.permission, type_shape(&param.type_syntax)))
+                .collect::<Vec<_>>()
+                .join(","),
+            task.result_syntax
+                .as_ref()
+                .map(type_shape)
+                .unwrap_or_else(|| "unit".to_string()),
+            task.effect_syntax.len(),
+            task.body_syntax
+                .iter()
+                .map(statement_shape)
+                .collect::<Vec<_>>()
+                .join(";")
+        ),
+        Item::Test(test) => format!(
+            "test|params={}|modifiers={}|sections={}",
+            test.params
+                .iter()
+                .map(|param| format!("{:?}:{}", param.permission, type_shape(&param.type_syntax)))
+                .collect::<Vec<_>>()
+                .join(","),
+            test.modifiers.len(),
+            test.sections.len()
+        ),
+    }
 }
 
 pub(crate) fn diagnostic_occurrence_set(
@@ -686,17 +961,19 @@ fn build_report_with_source(
     source_diagnostics: &[Diagnostic],
     source_occurrences: &DiagnosticOccurrenceSet,
 ) -> ResolveReport {
+    retain_legacy_call_projection_api_compatibility();
     let mut context = ResolverContext::new(program);
     let mut file_scopes = Vec::new();
     for (file_index, file) in program.files.iter().enumerate() {
-        let file_scope = context.add_scope(
-            None,
-            "file",
-            "file",
-            &file.path,
-            file.items.first().map(|item| item.span()),
-            format!("file_{file_index}_{}", id_fragment(&file.path)),
-        );
+        let file_scope = context.add_scope(ScopeInput {
+            parent_scope_id: None,
+            scope_kind: "file",
+            owner_kind: "file",
+            owner_name: &file.path,
+            span: file.items.first().map(|item| item.span()),
+            preferred_id: format!("file_{file_index}_{}", id_fragment(&file.path)),
+            semantic_origin: format!("semantic-file:{file_index}"),
+        });
         context.collect_item_definitions(&file.items, &file_scope, file_index, &[]);
         file_scopes.push(file_scope);
     }
@@ -769,6 +1046,15 @@ fn build_report_with_source(
     }
 }
 
+fn retain_legacy_call_projection_api_compatibility() {
+    let _projection: fn(&[ParsedBodyStatement]) -> Vec<crate::parser::ParsedExecutableCallNode> =
+        crate::parser::executable_call_nodes;
+    let _statement_index: fn(&crate::parser::ParsedCallPosition) -> usize =
+        crate::parser::ParsedCallPosition::statement_index;
+    let _stable_component: fn(&crate::parser::ParsedCallPosition) -> String =
+        crate::parser::ParsedCallPosition::stable_component;
+}
+
 impl<'program> ResolverContext<'program> {
     fn new(program: &'program Program) -> Self {
         Self {
@@ -779,6 +1065,7 @@ impl<'program> ResolverContext<'program> {
             call_occurrences: Vec::new(),
             diagnostics: Vec::new(),
             scope_parents: BTreeMap::new(),
+            scope_semantic_identities: BTreeMap::new(),
             definitions_by_scope_name: BTreeMap::new(),
             scope_serial: 0,
             definition_serial: 0,
@@ -790,15 +1077,16 @@ impl<'program> ResolverContext<'program> {
         }
     }
 
-    fn add_scope(
-        &mut self,
-        parent_scope_id: Option<&str>,
-        scope_kind: &'static str,
-        owner_kind: &'static str,
-        owner_name: &str,
-        span: Option<&Span>,
-        preferred_id: String,
-    ) -> String {
+    fn add_scope(&mut self, input: ScopeInput<'_>) -> String {
+        let ScopeInput {
+            parent_scope_id,
+            scope_kind,
+            owner_kind,
+            owner_name,
+            span,
+            preferred_id,
+            semantic_origin,
+        } = input;
         let current = self.scope_serial;
         self.scope_serial += 1;
         let base = if preferred_id.is_empty() {
@@ -819,7 +1107,17 @@ impl<'program> ResolverContext<'program> {
         );
         let id = format!("{base}_{source_identity}_{current}");
         let parent = parent_scope_id.map(str::to_string);
+        let parent_semantic_identity = parent_scope_id
+            .and_then(|parent| self.scope_semantic_identities.get(parent))
+            .cloned()
+            .unwrap_or_else(|| "resolver-root".to_string());
+        let owner_semantic_identity = semantic_origin;
+        let semantic_identity = format!(
+            "resolver-scope|parent={parent_semantic_identity}|owner={owner_semantic_identity}|kind={scope_kind}|owner-kind={owner_kind}"
+        );
         self.scope_parents.insert(id.clone(), parent.clone());
+        self.scope_semantic_identities
+            .insert(id.clone(), semantic_identity.clone());
         self.scopes.push(ResolveScope {
             id: id.clone(),
             parent_scope_id: parent,
@@ -827,6 +1125,8 @@ impl<'program> ResolverContext<'program> {
             owner_kind,
             owner_name: portable_path(owner_name.trim()),
             source_span: span.map(portable_span),
+            semantic_identity,
+            owner_semantic_identity,
         });
         id
     }
@@ -839,6 +1139,15 @@ impl<'program> ResolverContext<'program> {
         parent_path: &[usize],
     ) {
         for (item_index, item) in items.iter().enumerate() {
+            let mut path = parent_path.to_vec();
+            path.push(item_index);
+            let semantic_origin = format!(
+                "resolver-item:file-{file_index}:path-{}",
+                path.iter()
+                    .map(usize::to_string)
+                    .collect::<Vec<_>>()
+                    .join(".")
+            );
             let (definition_kind, mutable, state_kind) = match item {
                 Item::App(_) => ("app", false, "item"),
                 Item::Type(_) => ("type", false, "type"),
@@ -855,21 +1164,13 @@ impl<'program> ResolverContext<'program> {
                     state_kind,
                     span: item.span(),
                     defer_duplicate_diagnostic: false,
+                    semantic_origin: semantic_origin.clone(),
+                    semantic_shape: Some(item_definition_semantic_shape(item)),
                 },
             );
             if let Some(definition_id) = definition_id {
-                let mut path = parent_path.to_vec();
-                path.push(item_index);
-                self.item_node_by_definition_id.insert(
-                    definition_id.clone(),
-                    format!(
-                        "resolver-item:file-{file_index}:path-{}",
-                        path.iter()
-                            .map(usize::to_string)
-                            .collect::<Vec<_>>()
-                            .join(".")
-                    ),
-                );
+                self.item_node_by_definition_id
+                    .insert(definition_id.clone(), semantic_origin);
                 if let Item::Task(task) = item {
                     self.task_definition_ids_by_name
                         .entry(name_key(&task.name))
@@ -922,27 +1223,33 @@ impl<'program> ResolverContext<'program> {
             item_path.push(item_index);
             match item {
                 Item::App(app) => {
-                    let app_scope = self.add_scope(
-                        Some(scope_id),
-                        "app",
-                        "app",
-                        &app.name,
-                        Some(&app.span),
-                        format!("app_{}_scope", id_fragment(&app.name)),
-                    );
+                    let owner_semantic_identity =
+                        self.semantic_item_definition_identity(file_index, &item_path);
+                    let app_scope = self.add_scope(ScopeInput {
+                        parent_scope_id: Some(scope_id),
+                        scope_kind: "app",
+                        owner_kind: "app",
+                        owner_name: &app.name,
+                        span: Some(&app.span),
+                        preferred_id: format!("app_{}_scope", id_fragment(&app.name)),
+                        semantic_origin: owner_semantic_identity,
+                    });
                     self.collect_item_definitions(&app.items, &app_scope, file_index, &item_path);
                     self.resolve_items(&app.items, &app_scope, file_index, &item_path);
                 }
                 Item::Type(type_def) => {
-                    let type_scope = self.add_scope(
-                        Some(scope_id),
-                        "type",
-                        "type",
-                        &type_def.name,
-                        Some(&type_def.span),
-                        format!("type_{}_scope", id_fragment(&type_def.name)),
-                    );
-                    for field in &type_def.fields {
+                    let owner_semantic_identity =
+                        self.semantic_item_definition_identity(file_index, &item_path);
+                    let type_scope = self.add_scope(ScopeInput {
+                        parent_scope_id: Some(scope_id),
+                        scope_kind: "type",
+                        owner_kind: "type",
+                        owner_name: &type_def.name,
+                        span: Some(&type_def.span),
+                        preferred_id: format!("type_{}_scope", id_fragment(&type_def.name)),
+                        semantic_origin: owner_semantic_identity,
+                    });
+                    for (field_index, field) in type_def.fields.iter().enumerate() {
                         self.add_definition(
                             &type_scope,
                             DefinitionInput {
@@ -952,6 +1259,8 @@ impl<'program> ResolverContext<'program> {
                                 state_kind: "field",
                                 span: &field.span,
                                 defer_duplicate_diagnostic: false,
+                                semantic_origin: format!("field-position:{field_index}"),
+                                semantic_shape: Some(format!("field-position:{field_index}")),
                             },
                         );
                     }
@@ -1006,15 +1315,16 @@ impl<'program> ResolverContext<'program> {
             span,
             body_syntax,
         } = input;
-        let callable_scope = self.add_scope(
-            Some(parent_scope_id),
-            "callable",
+        let callable_scope = self.add_scope(ScopeInput {
+            parent_scope_id: Some(parent_scope_id),
+            scope_kind: "callable",
             owner_kind,
             owner_name,
-            Some(span),
-            format!("{}_{}_scope", owner_kind, id_fragment(owner_name)),
-        );
-        for param in params {
+            span: Some(span),
+            preferred_id: format!("{}_{}_scope", owner_kind, id_fragment(owner_name)),
+            semantic_origin: owner_definition_id.clone(),
+        });
+        for (param_index, param) in params.iter().enumerate() {
             let definition_id = self.add_definition(
                 &callable_scope,
                 DefinitionInput {
@@ -1024,6 +1334,8 @@ impl<'program> ResolverContext<'program> {
                     state_kind: parameter_state_kind(param),
                     span: &param.span,
                     defer_duplicate_diagnostic: false,
+                    semantic_origin: format!("parameter-position:{param_index}"),
+                    semantic_shape: Some(format!("parameter-position:{param_index}")),
                 },
             );
             if matches!(
@@ -1037,56 +1349,76 @@ impl<'program> ResolverContext<'program> {
 
         self.resolve_declared_sections(&callable_scope, sections);
 
-        if let Some(body_syntax) = body_syntax {
-            let parsed_calls = crate::parser::executable_call_nodes(body_syntax);
-            self.resolve_structured_call_occurrences(
-                &callable_scope,
-                &owner_definition_id,
-                &parsed_calls,
-            );
-        }
         if let Some(section) = find_section(sections, "does") {
-            self.resolve_does_section(&callable_scope, item, section);
-        }
-        if let Some(body_syntax) = body_syntax {
-            self.resolve_structured_callable_references(&callable_scope, body_syntax);
-        }
-    }
-
-    fn resolve_structured_callable_references(
-        &mut self,
-        scope_id: &str,
-        statements: &[ParsedBodyStatement],
-    ) {
-        for statement in statements {
-            match &statement.kind {
-                ParsedBodyStatementKind::Return(expression) => {
-                    self.resolve_structured_expression(scope_id, expression, false);
-                }
-                ParsedBodyStatementKind::Binding { value, .. } => {
-                    if let Some(expression) = value {
-                        self.resolve_structured_expression(scope_id, expression, false);
-                    }
-                }
-                ParsedBodyStatementKind::Other { expressions } => {
-                    for expression in expressions {
-                        self.resolve_structured_expression(scope_id, expression, false);
-                    }
-                }
+            let body = core_body::analyze_does_section(
+                self.program
+                    .canonical_core_expectation(item, section)
+                    .expect("live resolver item must have parser authority"),
+            );
+            let canonical_body = section
+                .body_syntax
+                .iter()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>();
+            if body_syntax.is_some() {
+                self.resolve_canonical_call_occurrences(
+                    &callable_scope,
+                    &owner_definition_id,
+                    &canonical_body,
+                );
+            }
+            let statement_scopes = self.resolve_does_section(&callable_scope, section, &body);
+            if body_syntax.is_some() {
+                self.resolve_canonical_callable_references(
+                    &callable_scope,
+                    &canonical_body,
+                    &statement_scopes,
+                );
             }
         }
     }
 
-    fn resolve_structured_expression(
+    fn resolve_canonical_callable_references(
+        &mut self,
+        root_scope_id: &str,
+        statements: &[ParsedBodyStatement],
+        statement_scopes: &[String],
+    ) {
+        for (statement_index, statement) in statements.iter().enumerate() {
+            let scope_id = statement_scopes
+                .get(statement_index)
+                .map_or(root_scope_id, String::as_str);
+            for (root_ordinal, expression) in
+                parsed_statement_roots(statement).into_iter().enumerate()
+            {
+                self.resolve_canonical_callable_expression(
+                    scope_id,
+                    expression,
+                    false,
+                    &CanonicalExpressionPosition {
+                        statement_node_id: statement.source_node_id.as_str().to_string(),
+                        statement_index,
+                        root_ordinal,
+                        child_path: vec![root_ordinal],
+                        node_id: expression.node_id.as_str().to_string(),
+                    },
+                );
+            }
+        }
+    }
+
+    fn resolve_canonical_callable_expression(
         &mut self,
         scope_id: &str,
-        expression: &ParsedExpression,
+        expression: &CanonicalExpression,
         argument_position: bool,
+        position: &CanonicalExpressionPosition,
     ) {
         match &expression.kind {
-            ParsedExpressionKind::Identifier(identifier) => {
+            CanonicalExpressionKind::Identifier(name) => {
                 let resolved = self
-                    .resolve_definition(scope_id, &name_key(&identifier.name), "callable_value_ref")
+                    .resolve_definition(scope_id, &name_key(name), "callable_value_ref")
                     .map(|definition| definition.id.clone());
                 if argument_position
                     || resolved.as_ref().is_some_and(|definition_id| {
@@ -1094,10 +1426,10 @@ impl<'program> ResolverContext<'program> {
                             .contains(definition_id)
                     })
                 {
-                    self.add_reference(
+                    self.add_canonical_reference(
                         scope_id,
                         PendingReferenceInput {
-                            name: &identifier.name,
+                            name,
                             reference_kind: if argument_position {
                                 "callable_argument_ref"
                             } else {
@@ -1105,15 +1437,18 @@ impl<'program> ResolverContext<'program> {
                             },
                             mutable_required: false,
                             external_if_unresolved: false,
-                            span: &identifier.span,
+                            span: &expression.range.start,
                         },
+                        expression,
+                        position,
                     );
                 }
             }
-            ParsedExpressionKind::Call(call) => {
+            CanonicalExpressionKind::Call { callee, arguments } => {
                 let mut callable_argument_positions = false;
-                if let ParsedExpressionKind::Identifier(identifier) = &call.callee.kind {
-                    let normalized = name_key(&identifier.name);
+                let callee_position = child_position(position, callee, 0);
+                if let CanonicalExpressionKind::Identifier(name) = &callee.kind {
+                    let normalized = name_key(name);
                     let target = self
                         .resolve_definition(scope_id, &normalized, "callable_callee_ref")
                         .map(|definition| definition.id.clone())
@@ -1128,38 +1463,226 @@ impl<'program> ResolverContext<'program> {
                         callable_argument_positions =
                             direct_callable_receiver || indirect_callable_parameter;
                         if direct_callable_receiver || indirect_callable_parameter {
-                            self.add_reference(
+                            self.add_canonical_reference(
                                 scope_id,
                                 PendingReferenceInput {
-                                    name: &identifier.name,
+                                    name,
                                     reference_kind: "callable_callee_ref",
                                     mutable_required: false,
                                     external_if_unresolved: false,
-                                    span: &identifier.span,
+                                    span: &callee.range.start,
                                 },
+                                callee,
+                                &callee_position,
                             );
                         }
                     }
                 }
-                for argument in &call.arguments {
-                    self.resolve_structured_expression(
+                for (argument_index, argument) in arguments.iter().enumerate() {
+                    self.resolve_canonical_callable_expression(
                         scope_id,
                         argument,
                         callable_argument_positions,
+                        &child_position(position, argument, argument_index + 1),
                     );
                 }
             }
-            ParsedExpressionKind::Permission { value, .. } => {
-                self.resolve_structured_expression(scope_id, value, argument_position);
+            CanonicalExpressionKind::Permission { value, .. }
+            | CanonicalExpressionKind::Group(value) => {
+                self.resolve_canonical_callable_expression(
+                    scope_id,
+                    value,
+                    argument_position,
+                    &child_position(position, value, 0),
+                );
             }
-            ParsedExpressionKind::Compound { operands } => {
-                for operand in operands {
-                    self.resolve_structured_expression(scope_id, operand, argument_position);
+            CanonicalExpressionKind::Try {
+                value,
+                failure_root,
+                failure_variant,
+            } => {
+                let value_position = child_position(position, value, 0);
+                let (semantic_value, semantic_position) = canonical_try_semantic_value(
+                    value,
+                    failure_root,
+                    failure_variant,
+                    &value_position,
+                );
+                self.resolve_canonical_callable_expression(
+                    scope_id,
+                    semantic_value,
+                    argument_position,
+                    &semantic_position,
+                );
+            }
+            CanonicalExpressionKind::Field { base, .. }
+            | CanonicalExpressionKind::ElementPlace { base, .. } => {
+                self.resolve_canonical_callable_expression(
+                    scope_id,
+                    base,
+                    argument_position,
+                    &child_position(position, base, 0),
+                );
+            }
+            CanonicalExpressionKind::ListLiteral(values) => {
+                for (index, value) in values.iter().enumerate() {
+                    self.resolve_canonical_callable_expression(
+                        scope_id,
+                        value,
+                        argument_position,
+                        &child_position(position, value, index),
+                    );
                 }
             }
-            ParsedExpressionKind::UIntLiteral(_)
-            | ParsedExpressionKind::Unsupported { .. }
-            | ParsedExpressionKind::Other => {}
+            CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+                for (index, (_name, value)) in fields.iter().enumerate() {
+                    self.resolve_canonical_callable_expression(
+                        scope_id,
+                        value,
+                        argument_position,
+                        &child_position(position, value, index),
+                    );
+                }
+            }
+            CanonicalExpressionKind::Binary { left, right, .. } => {
+                for (index, value) in [left.as_ref(), right.as_ref()].into_iter().enumerate() {
+                    self.resolve_canonical_callable_expression(
+                        scope_id,
+                        value,
+                        argument_position,
+                        &child_position(position, value, index),
+                    );
+                }
+            }
+            CanonicalExpressionKind::Unit
+            | CanonicalExpressionKind::UIntLiteral(_)
+            | CanonicalExpressionKind::IntLiteral(_)
+            | CanonicalExpressionKind::BoolLiteral(_)
+            | CanonicalExpressionKind::TextLiteral(_)
+            | CanonicalExpressionKind::Unsupported => {}
+        }
+    }
+
+    fn resolve_canonical_value_expression(
+        &mut self,
+        scope_id: &str,
+        expression: &CanonicalExpression,
+        position: &CanonicalExpressionPosition,
+        path_root: bool,
+    ) {
+        match &expression.kind {
+            CanonicalExpressionKind::Identifier(name) => {
+                self.add_canonical_reference(
+                    scope_id,
+                    PendingReferenceInput {
+                        name,
+                        reference_kind: if path_root {
+                            "path_root_ref"
+                        } else {
+                            "name_ref"
+                        },
+                        mutable_required: false,
+                        external_if_unresolved: path_root && is_external_root(name),
+                        span: &expression.range.start,
+                    },
+                    expression,
+                    position,
+                );
+            }
+            CanonicalExpressionKind::Field { base, .. }
+            | CanonicalExpressionKind::ElementPlace { base, .. } => {
+                self.resolve_canonical_value_expression(
+                    scope_id,
+                    base,
+                    &child_position(position, base, 0),
+                    true,
+                );
+            }
+            CanonicalExpressionKind::Call {
+                callee: _,
+                arguments,
+            } => {
+                for (index, argument) in arguments.iter().enumerate() {
+                    self.resolve_canonical_value_expression(
+                        scope_id,
+                        argument,
+                        &child_position(position, argument, index + 1),
+                        false,
+                    );
+                }
+            }
+            CanonicalExpressionKind::Permission { value, .. }
+            | CanonicalExpressionKind::Group(value) => self.resolve_canonical_value_expression(
+                scope_id,
+                value,
+                &child_position(position, value, 0),
+                path_root,
+            ),
+            CanonicalExpressionKind::Try {
+                value,
+                failure_root,
+                failure_variant,
+            } => {
+                let value_position = child_position(position, value, 0);
+                let (semantic_value, semantic_position) = canonical_try_semantic_value(
+                    value,
+                    failure_root,
+                    failure_variant,
+                    &value_position,
+                );
+                self.resolve_canonical_value_expression(
+                    scope_id,
+                    semantic_value,
+                    &semantic_position,
+                    path_root,
+                );
+            }
+            CanonicalExpressionKind::ListLiteral(values) => {
+                for (index, value) in values.iter().enumerate() {
+                    self.resolve_canonical_value_expression(
+                        scope_id,
+                        value,
+                        &child_position(position, value, index),
+                        false,
+                    );
+                }
+            }
+            CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+                for (index, (_field, value)) in fields.iter().enumerate() {
+                    self.resolve_canonical_value_expression(
+                        scope_id,
+                        value,
+                        &child_position(position, value, index),
+                        false,
+                    );
+                }
+            }
+            CanonicalExpressionKind::Binary {
+                operator,
+                left,
+                right,
+            } => {
+                self.resolve_canonical_value_expression(
+                    scope_id,
+                    left,
+                    &child_position(position, left, 0),
+                    false,
+                );
+                if *operator != ParsedBinaryOperator::Is {
+                    self.resolve_canonical_value_expression(
+                        scope_id,
+                        right,
+                        &child_position(position, right, 1),
+                        false,
+                    );
+                }
+            }
+            CanonicalExpressionKind::Unit
+            | CanonicalExpressionKind::UIntLiteral(_)
+            | CanonicalExpressionKind::IntLiteral(_)
+            | CanonicalExpressionKind::BoolLiteral(_)
+            | CanonicalExpressionKind::TextLiteral(_)
+            | CanonicalExpressionKind::Unsupported => {}
         }
     }
 
@@ -1215,7 +1738,7 @@ impl<'program> ResolverContext<'program> {
                 ),
                 _ => continue,
             };
-            for line in &section.lines {
+            for (line_index, line) in section.lines.iter().enumerate() {
                 if !is_meaningful_line_text(&line.text) {
                     continue;
                 }
@@ -1241,29 +1764,48 @@ impl<'program> ResolverContext<'program> {
                         state_kind,
                         span: &line.span,
                         defer_duplicate_diagnostic: false,
+                        semantic_origin: format!(
+                            "declared-section:{}:line-position:{line_index}",
+                            section.name
+                        ),
+                        semantic_shape: Some(format!(
+                            "declared-{definition_kind}-position:{line_index}"
+                        )),
                     },
                 );
             }
         }
     }
 
-    fn resolve_structured_call_occurrences(
+    fn resolve_canonical_call_occurrences(
         &mut self,
         scope_id: &str,
         owner_definition_id: &str,
-        parsed_calls: &[crate::parser::ParsedExecutableCallNode],
+        statements: &[ParsedBodyStatement],
     ) {
-        for call in parsed_calls {
-            self.add_executable_call(scope_id, owner_definition_id, call);
+        for call in canonical_call_nodes(statements) {
+            #[cfg(test)]
+            let call = {
+                let mut call = call;
+                TEN_B2_RESOLVER_BOUNDARY_CORRUPTION.with(|slot| {
+                    if let Some(corruption) = slot.borrow().as_ref()
+                        && call.expression.node_id.as_str() == corruption.call_node_id
+                    {
+                        call.position.child_path = corruption.replacement_child_path.clone();
+                    }
+                });
+                call
+            };
+            self.add_canonical_executable_call(scope_id, owner_definition_id, &call);
         }
     }
 
-    fn resolve_does_section(&mut self, root_scope_id: &str, item: &Item, section: &Section) {
-        let body = core_body::analyze_does_section(
-            self.program
-                .canonical_core_expectation(item, section)
-                .expect("live resolver item must have parser authority"),
-        );
+    fn resolve_does_section(
+        &mut self,
+        root_scope_id: &str,
+        section: &Section,
+        body: &core_body::BodyGrammarReport,
+    ) -> Vec<String> {
         let existing_names = self
             .definitions_by_scope_name
             .keys()
@@ -1273,14 +1815,26 @@ impl<'program> ResolverContext<'program> {
         let alias_analysis =
             writable_field_alias::analyze_with_existing_names(&body.statements, &existing_names);
         let mut active_scopes = vec![root_scope_id.to_string()];
+        let mut statement_scopes = Vec::with_capacity(body.statements.len());
         let mut record_literal_depth = 0usize;
-        for (statement_index, statement) in body.statements.iter().enumerate() {
+        for (statement_index, (statement, parsed_statement)) in body
+            .statements
+            .iter()
+            .zip(section.body_syntax.iter().flatten())
+            .enumerate()
+        {
             if statement.kind == "block_close" {
                 if record_literal_depth > 0 {
                     record_literal_depth -= 1;
                 } else if active_scopes.len() > 1 {
                     active_scopes.pop();
                 }
+                statement_scopes.push(
+                    active_scopes
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| root_scope_id.to_string()),
+                );
                 continue;
             }
 
@@ -1288,11 +1842,19 @@ impl<'program> ResolverContext<'program> {
                 .last()
                 .cloned()
                 .unwrap_or_else(|| root_scope_id.to_string());
-            self.resolve_statement_references(&current_scope, statement);
+            statement_scopes.push(current_scope.clone());
+            self.resolve_canonical_statement_references(
+                &current_scope,
+                parsed_statement,
+                statement_index,
+            );
 
-            match statement.kind {
-                "let_binding" => {
-                    if let Some(name) = binding_name(&statement.text, "let") {
+            match canonical_statement_kind(parsed_statement) {
+                Some(CanonicalStatementKindEvent::ImmutableBinding) => {
+                    if let Some((name, span)) = canonical_statement_token(
+                        parsed_statement,
+                        CanonicalStatementEventField::Binder,
+                    ) {
                         let writable_alias =
                             writable_field_alias::candidate_name(statement).is_some();
                         let alias_rebinding = alias_analysis.issues.iter().any(|issue| {
@@ -1308,7 +1870,7 @@ impl<'program> ResolverContext<'program> {
                         self.add_definition(
                             &current_scope,
                             DefinitionInput {
-                                name: &name,
+                                name,
                                 definition_kind: if writable_alias {
                                     "writable_field_alias"
                                 } else {
@@ -1320,78 +1882,129 @@ impl<'program> ResolverContext<'program> {
                                 } else {
                                     "immutable_value"
                                 },
-                                span: &statement.span,
+                                span,
                                 defer_duplicate_diagnostic: alias_rebinding,
+                                semantic_origin: format!(
+                                    "statement-node:{}",
+                                    parsed_statement.source_node_id.as_str()
+                                ),
+                                semantic_shape: Some(format!(
+                                    "statement-node:{}",
+                                    parsed_statement.source_node_id.as_str()
+                                )),
                             },
                         );
                     }
                 }
-                "mutable_binding" => {
-                    if let Some(name) = binding_name(&statement.text, "change") {
+                Some(CanonicalStatementKindEvent::MutableBinding) => {
+                    if let Some((name, span)) = canonical_statement_token(
+                        parsed_statement,
+                        CanonicalStatementEventField::Binder,
+                    ) {
                         self.add_definition(
                             &current_scope,
                             DefinitionInput {
-                                name: &name,
+                                name,
                                 definition_kind: "mutable_binding",
                                 mutable: true,
                                 state_kind: "mutable_local",
-                                span: &statement.span,
+                                span,
                                 defer_duplicate_diagnostic: false,
+                                semantic_origin: format!(
+                                    "statement-node:{}",
+                                    parsed_statement.source_node_id.as_str()
+                                ),
+                                semantic_shape: Some(format!(
+                                    "statement-node:{}",
+                                    parsed_statement.source_node_id.as_str()
+                                )),
                             },
                         );
                     }
                 }
-                "for_each_header" => {
+                Some(CanonicalStatementKindEvent::ForEach) => {
                     let block_scope = self.open_block_scope(
                         root_scope_id,
                         &current_scope,
                         "for_each",
                         statement_index,
                         &statement.span,
+                        parsed_statement.source_node_id.as_str(),
                     );
-                    if let Some(name) = for_each_binding(&statement.text) {
+                    if let Some((name, span)) = canonical_statement_token(
+                        parsed_statement,
+                        CanonicalStatementEventField::Binder,
+                    ) {
                         self.add_definition(
                             &block_scope,
                             DefinitionInput {
-                                name: &name,
+                                name,
                                 definition_kind: "for_each_binding",
                                 mutable: false,
                                 state_kind: "immutable_value",
-                                span: &statement.span,
+                                span,
                                 defer_duplicate_diagnostic: false,
+                                semantic_origin: format!(
+                                    "statement-node:{}",
+                                    parsed_statement.source_node_id.as_str()
+                                ),
+                                semantic_shape: Some(format!(
+                                    "statement-node:{}",
+                                    parsed_statement.source_node_id.as_str()
+                                )),
                             },
                         );
                     }
                     active_scopes.push(block_scope);
                 }
-                "for_index_header" => {
+                Some(
+                    CanonicalStatementKindEvent::ForIndexUntil
+                    | CanonicalStatementKindEvent::ForIndexThrough,
+                ) => {
                     let block_scope = self.open_block_scope(
                         root_scope_id,
                         &current_scope,
                         "for_index",
                         statement_index,
                         &statement.span,
+                        parsed_statement.source_node_id.as_str(),
                     );
-                    if let Some(name) = for_index_binding(&statement.text) {
+                    if let Some((name, span)) = canonical_statement_token(
+                        parsed_statement,
+                        CanonicalStatementEventField::Binder,
+                    ) {
                         self.add_definition(
                             &block_scope,
                             DefinitionInput {
-                                name: &name,
+                                name,
                                 definition_kind: "for_index_binding",
                                 mutable: false,
                                 state_kind: "immutable_value",
-                                span: &statement.span,
+                                span,
                                 defer_duplicate_diagnostic: false,
+                                semantic_origin: format!(
+                                    "statement-node:{}",
+                                    parsed_statement.source_node_id.as_str()
+                                ),
+                                semantic_shape: Some(format!(
+                                    "statement-node:{}",
+                                    parsed_statement.source_node_id.as_str()
+                                )),
                             },
                         );
                     }
                     active_scopes.push(block_scope);
                 }
-                "if_header" | "while_header" | "loop_header" => {
-                    let block_kind = match statement.kind {
-                        "if_header" => "if",
-                        "while_header" => "while",
-                        _ => "loop",
+                Some(
+                    kind @ (CanonicalStatementKindEvent::If
+                    | CanonicalStatementKindEvent::While
+                    | CanonicalStatementKindEvent::UnconditionalLoop),
+                ) => {
+                    let block_kind = match kind {
+                        CanonicalStatementKindEvent::If => "if",
+                        CanonicalStatementKindEvent::While => "while",
+                        CanonicalStatementKindEvent::UnconditionalLoop => "loop",
+                        _ => unreachable!("matched block kind"),
                     };
                     let block_scope = self.open_block_scope(
                         root_scope_id,
@@ -1399,6 +2012,7 @@ impl<'program> ResolverContext<'program> {
                         block_kind,
                         statement_index,
                         &statement.span,
+                        parsed_statement.source_node_id.as_str(),
                     );
                     active_scopes.push(block_scope);
                 }
@@ -1409,6 +2023,12 @@ impl<'program> ResolverContext<'program> {
                 record_literal_depth += 1;
             }
         }
+        assert_eq!(
+            body.statements.len(),
+            section.body_syntax.iter().flatten().count(),
+            "validated Core statements must preserve parser statement cardinality"
+        );
+        statement_scopes
     }
 
     fn open_block_scope(
@@ -1418,38 +2038,45 @@ impl<'program> ResolverContext<'program> {
         block_kind: &'static str,
         statement_index: usize,
         span: &Span,
+        statement_node_id: &str,
     ) -> String {
-        self.add_scope(
-            Some(parent_scope_id),
-            block_kind,
-            "block",
-            block_kind,
-            Some(span),
-            format!(
+        self.add_scope(ScopeInput {
+            parent_scope_id: Some(parent_scope_id),
+            scope_kind: block_kind,
+            owner_kind: "block",
+            owner_name: block_kind,
+            span: Some(span),
+            preferred_id: format!(
                 "{}_block_{}_{}_scope",
                 root_scope_id, statement_index, block_kind
             ),
-        )
+            semantic_origin: format!("statement-node:{statement_node_id}"),
+        })
     }
 
-    fn add_executable_call(
+    fn add_canonical_executable_call(
         &mut self,
         scope_id: &str,
         owner_definition_id: &str,
-        call: &crate::parser::ParsedExecutableCallNode,
+        call: &CanonicalCallNode<'_>,
     ) {
+        let CanonicalExpressionKind::Identifier(callee_name) = &call.callee.kind else {
+            unreachable!("canonical executable call has identifier callee")
+        };
         let public_reference_id = self
-            .add_reference(
+            .add_canonical_reference(
                 scope_id,
                 PendingReferenceInput {
-                    name: &call.callee,
+                    name: callee_name,
                     reference_kind: "callee_ref",
                     mutable_required: false,
                     external_if_unresolved: true,
-                    span: &call.span,
+                    span: &call.callee.range.start,
                 },
+                call.callee,
+                &child_position(&call.position, call.callee, 0),
             )
-            .expect("parsed executable call must produce a resolver reference");
+            .expect("canonical executable call must produce a resolver reference");
         let reference = self
             .references
             .iter()
@@ -1457,14 +2084,8 @@ impl<'program> ResolverContext<'program> {
             .cloned()
             .expect("new resolver call reference must be registered");
         let target_definition_id = reference
-            .resolved_definition_id
-            .as_ref()
-            .and_then(|definition_id| {
-                self.definitions
-                    .iter()
-                    .find(|definition| &definition.id == definition_id)
-                    .map(semantic_definition_identity)
-            })
+            .resolved_definition_semantic_identity
+            .clone()
             .unwrap_or_else(|| {
                 if reference.resolution_status == "builtin_reference_v0" {
                     format!("builtin_{}", reference.normalized_name)
@@ -1476,15 +2097,19 @@ impl<'program> ResolverContext<'program> {
                     )
                 }
             });
-        let identifier_uses = call
-            .identifier_uses
-            .iter()
-            .map(|identifier| ResolveCallIdentifierUse {
-                name: identifier.name.clone(),
+        let mut canonical_identifier_uses = Vec::new();
+        for argument in call.arguments {
+            collect_canonical_call_identifier_uses(argument, false, &mut canonical_identifier_uses);
+        }
+        let identifier_uses = canonical_identifier_uses
+            .into_iter()
+            .enumerate()
+            .map(|(ordinal, identifier)| ResolveCallIdentifierUse {
+                name: identifier.name.to_string(),
                 resolved_definition_id: self
-                    .resolve_definition(scope_id, &name_key(&identifier.name), "value_ref")
+                    .resolve_definition(scope_id, &name_key(identifier.name), "value_ref")
                     .map(semantic_definition_identity),
-                ordinal: identifier.ordinal,
+                ordinal,
                 consumed: identifier.consumed,
             })
             .collect();
@@ -1503,66 +2128,91 @@ impl<'program> ResolverContext<'program> {
             reference_id: call_reference_id,
             owner_definition_id: owner_definition_id.to_string(),
             target_definition_id,
-            exact_call_span: portable_span(&call.span),
+            exact_call_span: portable_span(&call.expression.range.start),
             resolver_occurrence_id,
-            source: call.source.clone(),
+            source: render_canonical_expression(call.expression),
             identifier_uses,
+            canonical_call_node_id: call.expression.node_id.as_str().to_string(),
+            canonical_callee_node_id: call.callee.node_id.as_str().to_string(),
+            canonical_argument_node_ids: call
+                .arguments
+                .iter()
+                .map(|argument| argument.node_id.as_str().to_string())
+                .collect(),
         });
     }
 
-    fn resolve_statement_references(&mut self, scope_id: &str, statement: &BodyStatement) {
-        if let Some(expression_text) = expression_text_for_statement(statement) {
-            let expression = core_expr::analyze_expression(expression_text);
-            for reference in expression_name_references(&expression) {
-                if reference.reference_kind != "callee_ref" {
+    fn resolve_canonical_statement_references(
+        &mut self,
+        scope_id: &str,
+        statement: &ParsedBodyStatement,
+        statement_index: usize,
+    ) {
+        for (root_ordinal, expression) in parsed_statement_roots(statement).into_iter().enumerate()
+        {
+            let position = CanonicalExpressionPosition {
+                statement_node_id: statement.source_node_id.as_str().to_string(),
+                statement_index,
+                root_ordinal,
+                child_path: vec![root_ordinal],
+                node_id: expression.node_id.as_str().to_string(),
+            };
+            self.resolve_canonical_value_expression(scope_id, expression, &position, false);
+        }
+
+        match canonical_statement_kind(statement) {
+            Some(CanonicalStatementKindEvent::Set) => {
+                if let Some(target) =
+                    canonical_statement_root(statement, CanonicalStatementEventField::TargetRoot)
+                {
+                    self.add_canonical_reference(
+                        scope_id,
+                        PendingReferenceInput {
+                            name: canonical_place_root_name(target),
+                            reference_kind: "mutation_target",
+                            mutable_required: true,
+                            external_if_unresolved: false,
+                            span: &target.range.start,
+                        },
+                        target,
+                        &canonical_root_position(statement, target, statement_index),
+                    );
+                }
+            }
+            Some(CanonicalStatementKindEvent::Save) => {
+                if let Some(value) =
+                    canonical_statement_root(statement, CanonicalStatementEventField::ValueRoot)
+                {
+                    self.add_canonical_reference(
+                        scope_id,
+                        PendingReferenceInput {
+                            name: canonical_place_root_name(value),
+                            reference_kind: "store_write_value",
+                            mutable_required: false,
+                            external_if_unresolved: false,
+                            span: &value.range.start,
+                        },
+                        value,
+                        &canonical_root_position(statement, value, statement_index),
+                    );
+                }
+                if let Some((destination, span)) = canonical_statement_token(
+                    statement,
+                    CanonicalStatementEventField::DestinationToken,
+                ) {
                     self.add_reference(
                         scope_id,
                         PendingReferenceInput {
-                            name: &reference.name,
-                            reference_kind: reference.reference_kind,
-                            mutable_required: false,
-                            external_if_unresolved: reference.external_if_unresolved,
-                            span: &statement.span,
+                            name: destination,
+                            reference_kind: "store_write_target",
+                            mutable_required: true,
+                            external_if_unresolved: false,
+                            span,
                         },
                     );
                 }
             }
-        }
-
-        if let Some(target) = set_target(&statement.text) {
-            self.add_reference(
-                scope_id,
-                PendingReferenceInput {
-                    name: &target,
-                    reference_kind: "mutation_target",
-                    mutable_required: true,
-                    external_if_unresolved: false,
-                    span: &statement.span,
-                },
-            );
-        }
-
-        if let Some((value, target)) = save_parts(&statement.text) {
-            self.add_reference(
-                scope_id,
-                PendingReferenceInput {
-                    name: &value,
-                    reference_kind: "store_write_value",
-                    mutable_required: false,
-                    external_if_unresolved: false,
-                    span: &statement.span,
-                },
-            );
-            self.add_reference(
-                scope_id,
-                PendingReferenceInput {
-                    name: &target,
-                    reference_kind: "store_write_target",
-                    mutable_required: true,
-                    external_if_unresolved: false,
-                    span: &statement.span,
-                },
-            );
+            _ => {}
         }
     }
 
@@ -1581,6 +2231,17 @@ impl<'program> ResolverContext<'program> {
             self.definition_serial, input.definition_kind, normalized_name
         );
         self.definition_serial += 1;
+        let scope_semantic_identity = self
+            .scope_semantic_identities
+            .get(scope_id)
+            .unwrap_or_else(|| panic!("definition scope `{scope_id}` lacks semantic authority"));
+        let semantic_shape = input
+            .semantic_shape
+            .unwrap_or_else(|| format!("definition-kind:{}", input.definition_kind));
+        let semantic_identity = format!(
+            "resolver-definition|scope={scope_semantic_identity}|kind={}|origin={}|shape={semantic_shape}",
+            input.definition_kind, input.semantic_origin,
+        );
         let status = if duplicate.is_some() && input.defer_duplicate_diagnostic {
             "duplicate_definition_deferred_to_ownership_v0"
         } else if duplicate.is_some() {
@@ -1600,6 +2261,7 @@ impl<'program> ResolverContext<'program> {
             source_span: portable_span(input.span),
             status,
             duplicate_of: duplicate_id.clone(),
+            semantic_identity,
         });
         if duplicate.is_none() {
             self.definitions_by_scope_name.insert(
@@ -1740,6 +2402,22 @@ impl<'program> ResolverContext<'program> {
         } else {
             ("unresolved_v0", None, Some("name_not_in_visible_scope"))
         };
+        let resolved_definition_semantic_identity = resolved_definition_id
+            .as_ref()
+            .and_then(|definition_id| {
+                self.definitions
+                    .iter()
+                    .find(|definition| &definition.id == definition_id)
+            })
+            .map(semantic_definition_identity);
+        let scope_semantic_identity = self
+            .scope_semantic_identities
+            .get(scope_id)
+            .unwrap_or_else(|| panic!("reference scope `{scope_id}` lacks semantic authority"));
+        let semantic_identity = format!(
+            "resolver-reference|scope={scope_semantic_identity}|kind={}|binding={normalized_name}|status={resolution_status}",
+            input.reference_kind
+        );
 
         self.references.push(ResolveReference {
             id: id.clone(),
@@ -1752,6 +2430,11 @@ impl<'program> ResolverContext<'program> {
             resolution_status,
             resolved_definition_id: resolved_definition_id.clone(),
             reason,
+            canonical_node_id: None,
+            canonical_child_position: None,
+            scope_semantic_identity: scope_semantic_identity.clone(),
+            semantic_identity,
+            resolved_definition_semantic_identity,
         });
 
         match resolution_status {
@@ -1770,6 +2453,35 @@ impl<'program> ResolverContext<'program> {
         }
 
         Some(id)
+    }
+
+    fn add_canonical_reference(
+        &mut self,
+        scope_id: &str,
+        input: PendingReferenceInput<'_>,
+        expression: &CanonicalExpression,
+        position: &CanonicalExpressionPosition,
+    ) -> Option<String> {
+        let reference_id = self.add_reference(scope_id, input)?;
+        let scope_semantic_identity = self
+            .scope_semantic_identities
+            .get(scope_id)
+            .expect("canonical reference scope semantic authority")
+            .clone();
+        let reference = self
+            .references
+            .iter_mut()
+            .find(|reference| reference.id == reference_id)
+            .expect("new canonical resolver reference must be registered");
+        reference.canonical_node_id = Some(expression.node_id.as_str().to_string());
+        reference.canonical_child_position = Some(position.stable_component());
+        reference.semantic_identity = format!(
+            "resolver-reference|scope={}|kind={}|position={}",
+            scope_semantic_identity,
+            reference.reference_kind,
+            position.stable_component()
+        );
+        Some(reference_id)
     }
 
     fn resolve_definition(
@@ -1986,123 +2698,375 @@ impl ResolveReport {
     }
 }
 
-struct PendingNameReference {
-    name: String,
-    reference_kind: &'static str,
-    external_if_unresolved: bool,
-}
-
-fn expression_name_references(expression: &CoreExpressionPreview) -> Vec<PendingNameReference> {
-    let mut references = Vec::new();
-    for (index, atom) in expression.atoms.iter().enumerate() {
-        if skips_predicate_atom(expression, index) {
-            continue;
-        }
-        match atom.kind {
-            "name" => references.push(PendingNameReference {
-                name: atom.text.clone(),
-                reference_kind: "name_ref",
-                external_if_unresolved: false,
-            }),
-            "path_or_field_read" => {
-                if let Some(root) = path_root(&atom.text) {
-                    references.push(PendingNameReference {
-                        external_if_unresolved: is_external_root(&root),
-                        name: root,
-                        reference_kind: "path_root_ref",
-                    });
-                }
-            }
-            "callee_name" => references.push(PendingNameReference {
-                name: atom.text.clone(),
-                reference_kind: "callee_ref",
-                external_if_unresolved: true,
-            }),
-            "call_like" => {
-                if let Some(callee) = call_callee(&atom.text) {
-                    references.push(PendingNameReference {
-                        name: callee,
-                        reference_kind: "callee_ref",
-                        external_if_unresolved: true,
-                    });
-                }
-            }
-            "surface_text" => {
-                if let Some(name) = permission_argument_name(&atom.text) {
-                    references.push(PendingNameReference {
-                        name,
-                        reference_kind: "name_ref",
-                        external_if_unresolved: false,
-                    });
-                }
-            }
-            _ => {}
-        }
+fn parsed_statement_roots(statement: &ParsedBodyStatement) -> Vec<&CanonicalExpression> {
+    if !statement.canonical_extra_occurrences.is_empty() {
+        return statement
+            .canonical_extra_occurrences
+            .iter()
+            .map(|expression| &expression.canonical)
+            .collect();
     }
-    references
-}
-
-fn skips_predicate_atom(expression: &CoreExpressionPreview, index: usize) -> bool {
-    expression.operators.len() == 1 && expression.operators[0] == "is" && index > 0
-}
-
-fn expression_text_for_statement(statement: &BodyStatement) -> Option<&str> {
-    match statement.kind {
-        "return" => strip_keyword(&statement.text, "return"),
-        "fail" => strip_keyword(&statement.text, "fail"),
-        "if_header" => header_body(&statement.text, "if"),
-        "while_header" => header_body(&statement.text, "while"),
-        "for_each_header" => for_each_collection(&statement.text),
-        "for_index_header" => header_body(&statement.text, "for index"),
-        "let_binding" | "mutable_binding" | "set_place" => statement
-            .text
-            .split_once('=')
-            .map(|(_left, expression)| expression.trim()),
-        "record_field_initializer" => statement
-            .text
-            .split_once(':')
-            .map(|(_field, expression)| expression.trim()),
-        "test_expectation" => strip_keyword(&statement.text, "expect"),
-        _ => None,
+    match &statement.kind {
+        ParsedBodyStatementKind::Return(expression) => vec![&expression.canonical],
+        ParsedBodyStatementKind::Binding { value, .. } => value
+            .iter()
+            .map(|expression| &expression.canonical)
+            .collect(),
+        ParsedBodyStatementKind::Other { expressions } => expressions
+            .iter()
+            .map(|expression| &expression.canonical)
+            .collect(),
     }
 }
 
-fn binding_name(text: &str, keyword: &str) -> Option<String> {
-    let rest = strip_keyword(text, keyword)?;
-    let (left, _right) = rest.split_once('=')?;
-    let name = left.split_once(':').map_or(left, |(name, _ty)| name).trim();
-    (!name.is_empty()).then(|| name.to_string())
+fn canonical_call_nodes(statements: &[ParsedBodyStatement]) -> Vec<CanonicalCallNode<'_>> {
+    let mut calls = Vec::new();
+    for (statement_index, statement) in statements.iter().enumerate() {
+        for (root_ordinal, expression) in parsed_statement_roots(statement).into_iter().enumerate()
+        {
+            let position = CanonicalExpressionPosition {
+                statement_node_id: statement.source_node_id.as_str().to_string(),
+                statement_index,
+                root_ordinal,
+                child_path: vec![root_ordinal],
+                node_id: expression.node_id.as_str().to_string(),
+            };
+            collect_canonical_calls(expression, position, &mut calls);
+        }
+    }
+    calls
 }
 
-fn for_each_binding(text: &str) -> Option<String> {
-    let body = header_body(text, "for each")?;
-    body.split_once(" in ")
-        .map(|(binding, _collection)| binding.trim().to_string())
-        .filter(|binding| !binding.is_empty())
+fn collect_canonical_calls<'a>(
+    expression: &'a CanonicalExpression,
+    position: CanonicalExpressionPosition,
+    calls: &mut Vec<CanonicalCallNode<'a>>,
+) {
+    match &expression.kind {
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            if matches!(&callee.kind, CanonicalExpressionKind::Identifier(name) if is_executable_callee(name))
+            {
+                calls.push(CanonicalCallNode {
+                    expression,
+                    callee,
+                    arguments,
+                    position: position.clone(),
+                });
+            }
+            collect_canonical_calls(callee, child_position(&position, callee, 0), calls);
+            for (index, argument) in arguments.iter().enumerate() {
+                collect_canonical_calls(
+                    argument,
+                    child_position(&position, argument, index + 1),
+                    calls,
+                );
+            }
+        }
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::ElementPlace { base, .. }
+        | CanonicalExpressionKind::Permission { value: base, .. }
+        | CanonicalExpressionKind::Try { value: base, .. }
+        | CanonicalExpressionKind::Group(base) => {
+            collect_canonical_calls(base, child_position(&position, base, 0), calls);
+        }
+        CanonicalExpressionKind::ListLiteral(values) => {
+            for (index, value) in values.iter().enumerate() {
+                collect_canonical_calls(value, child_position(&position, value, index), calls);
+            }
+        }
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            for (index, (_field, value)) in fields.iter().enumerate() {
+                collect_canonical_calls(value, child_position(&position, value, index), calls);
+            }
+        }
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            collect_canonical_calls(left, child_position(&position, left, 0), calls);
+            collect_canonical_calls(right, child_position(&position, right, 1), calls);
+        }
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => {}
+    }
 }
 
-fn for_each_collection(text: &str) -> Option<&str> {
-    let body = header_body(text, "for each")?;
-    body.split_once(" in ")
-        .map(|(_binding, collection)| collection.trim())
+fn child_position(
+    parent: &CanonicalExpressionPosition,
+    child: &CanonicalExpression,
+    ordinal: usize,
+) -> CanonicalExpressionPosition {
+    let mut child_path = parent.child_path.clone();
+    child_path.push(ordinal);
+    CanonicalExpressionPosition {
+        statement_node_id: parent.statement_node_id.clone(),
+        statement_index: parent.statement_index,
+        root_ordinal: parent.root_ordinal,
+        child_path,
+        node_id: child.node_id.as_str().to_string(),
+    }
 }
 
-fn for_index_binding(text: &str) -> Option<String> {
-    let body = header_body(text, "for index")?;
-    body.split_whitespace().next().map(str::to_string)
+fn canonical_try_semantic_value<'a>(
+    value: &'a CanonicalExpression,
+    failure_root: &Option<String>,
+    failure_variant: &Option<String>,
+    value_position: &CanonicalExpressionPosition,
+) -> (&'a CanonicalExpression, CanonicalExpressionPosition) {
+    if failure_root.is_none()
+        && failure_variant.is_none()
+        && let CanonicalExpressionKind::Binary {
+            operator: ParsedBinaryOperator::Or,
+            left,
+            right,
+        } = &value.kind
+        && matches!(&right.kind, CanonicalExpressionKind::Identifier(name) if name == "fail")
+    {
+        return (left, child_position(value_position, left, 0));
+    }
+    (value, value_position.clone())
 }
 
-fn set_target(text: &str) -> Option<String> {
-    let rest = strip_keyword(text, "set")?;
-    rest.split_once('=')
-        .map(|(target, _value)| place_root(target.trim()))
-        .filter(|target| !target.is_empty())
+fn canonical_root_position(
+    statement: &ParsedBodyStatement,
+    root: &CanonicalExpression,
+    statement_index: usize,
+) -> CanonicalExpressionPosition {
+    let root_ordinal = parsed_statement_roots(statement)
+        .iter()
+        .position(|candidate| candidate.node_id == root.node_id)
+        .expect("canonical statement root must be present");
+    CanonicalExpressionPosition {
+        statement_node_id: statement.source_node_id.as_str().to_string(),
+        statement_index,
+        root_ordinal,
+        child_path: vec![root_ordinal],
+        node_id: root.node_id.as_str().to_string(),
+    }
 }
 
-fn save_parts(text: &str) -> Option<(String, String)> {
-    let rest = strip_keyword(text, "save")?;
-    let (value, target) = rest.rsplit_once(" in ")?;
-    Some((value.trim().to_string(), target.trim().to_string()))
+fn canonical_statement_kind(
+    statement: &ParsedBodyStatement,
+) -> Option<CanonicalStatementKindEvent> {
+    statement
+        .canonical_statement_authority
+        .iter()
+        .find_map(|fact| match (&fact.field, &fact.value) {
+            (CanonicalStatementEventField::Kind, CanonicalStatementEventValue::Kind(kind)) => {
+                Some(*kind)
+            }
+            _ => None,
+        })
+}
+
+fn canonical_statement_token(
+    statement: &ParsedBodyStatement,
+    field: CanonicalStatementEventField,
+) -> Option<(&str, &Span)> {
+    statement
+        .canonical_statement_authority
+        .iter()
+        .find_map(|fact| match (&fact.field, &fact.value) {
+            (
+                candidate,
+                CanonicalStatementEventValue::Token {
+                    range, spelling, ..
+                },
+            ) if *candidate == field => Some((spelling.as_str(), &range.start)),
+            _ => None,
+        })
+}
+
+fn canonical_statement_root(
+    statement: &ParsedBodyStatement,
+    field: CanonicalStatementEventField,
+) -> Option<&CanonicalExpression> {
+    let node_id = statement
+        .canonical_statement_authority
+        .iter()
+        .find_map(|fact| match (&fact.field, &fact.value) {
+            (candidate, CanonicalStatementEventValue::Root { node, .. }) if *candidate == field => {
+                Some(node)
+            }
+            _ => None,
+        })?;
+    parsed_statement_roots(statement)
+        .into_iter()
+        .find(|expression| expression.node_id == *node_id)
+}
+
+fn canonical_place_root_name(expression: &CanonicalExpression) -> &str {
+    match &expression.kind {
+        CanonicalExpressionKind::Identifier(name) => name,
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::ElementPlace { base, .. }
+        | CanonicalExpressionKind::Permission { value: base, .. }
+        | CanonicalExpressionKind::Try { value: base, .. }
+        | CanonicalExpressionKind::Group(base) => canonical_place_root_name(base),
+        _ => "",
+    }
+}
+
+struct CanonicalCallIdentifierUse<'a> {
+    name: &'a str,
+    consumed: bool,
+}
+
+fn collect_canonical_call_identifier_uses<'a>(
+    expression: &'a CanonicalExpression,
+    consumed: bool,
+    uses: &mut Vec<CanonicalCallIdentifierUse<'a>>,
+) {
+    match &expression.kind {
+        CanonicalExpressionKind::Identifier(name) => {
+            uses.push(CanonicalCallIdentifierUse { name, consumed });
+        }
+        CanonicalExpressionKind::Permission { permission, value } => {
+            collect_canonical_call_identifier_uses(
+                value,
+                consumed || *permission == ParamPermission::Consume,
+                uses,
+            );
+        }
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::ElementPlace { base, .. }
+        | CanonicalExpressionKind::Try { value: base, .. }
+        | CanonicalExpressionKind::Group(base) => {
+            collect_canonical_call_identifier_uses(base, consumed, uses);
+        }
+        CanonicalExpressionKind::ListLiteral(values) => {
+            for value in values {
+                collect_canonical_call_identifier_uses(value, consumed, uses);
+            }
+        }
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            for (_field, value) in fields {
+                collect_canonical_call_identifier_uses(value, consumed, uses);
+            }
+        }
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            collect_canonical_call_identifier_uses(left, consumed, uses);
+            collect_canonical_call_identifier_uses(right, consumed, uses);
+        }
+        CanonicalExpressionKind::Call { .. }
+        | CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => {}
+    }
+}
+
+fn is_executable_callee(name: &str) -> bool {
+    !matches!(
+        name,
+        "borrow" | "change" | "consume" | "expect" | "fail" | "if" | "return" | "try" | "while"
+    )
+}
+
+fn render_canonical_expression(expression: &CanonicalExpression) -> String {
+    match &expression.kind {
+        CanonicalExpressionKind::Unit => "()".to_string(),
+        CanonicalExpressionKind::Identifier(name) => name.clone(),
+        CanonicalExpressionKind::Field { base, field } => {
+            format!("{}.{}", render_canonical_expression(base), field)
+        }
+        CanonicalExpressionKind::ElementPlace { base, index } => {
+            format!("{}[{index}]", render_canonical_expression(base))
+        }
+        CanonicalExpressionKind::UIntLiteral(value) => value.to_string(),
+        CanonicalExpressionKind::IntLiteral(value) => value.to_string(),
+        CanonicalExpressionKind::BoolLiteral(value) => value.to_string(),
+        CanonicalExpressionKind::TextLiteral(value) => format!("{value:?}"),
+        CanonicalExpressionKind::ListLiteral(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(render_canonical_expression)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        CanonicalExpressionKind::RecordLiteral { name, fields } => format!(
+            "{name} {{ {} }}",
+            fields
+                .iter()
+                .map(|(field, value)| format!("{field}: {}", render_canonical_expression(value)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        CanonicalExpressionKind::Call { callee, arguments } => format!(
+            "{}({})",
+            render_canonical_expression(callee),
+            arguments
+                .iter()
+                .map(render_canonical_expression)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        CanonicalExpressionKind::Permission { permission, value } => format!(
+            "{} {}",
+            match permission {
+                ParamPermission::Borrow => "borrow",
+                ParamPermission::Change => "change",
+                ParamPermission::Consume => "consume",
+            },
+            render_canonical_expression(value)
+        ),
+        CanonicalExpressionKind::Try {
+            value,
+            failure_root,
+            failure_variant,
+        } => {
+            let mut rendered = format!("try {}", render_canonical_expression(value));
+            if let Some(root) = failure_root {
+                rendered.push_str(" as ");
+                rendered.push_str(root);
+                if let Some(variant) = failure_variant {
+                    rendered.push('.');
+                    rendered.push_str(variant);
+                }
+            }
+            rendered
+        }
+        CanonicalExpressionKind::Binary {
+            operator,
+            left,
+            right,
+        } => format!(
+            "{} {} {}",
+            render_canonical_expression(left),
+            render_binary_operator(*operator),
+            render_canonical_expression(right)
+        ),
+        CanonicalExpressionKind::Group(value) => {
+            format!("({})", render_canonical_expression(value))
+        }
+        CanonicalExpressionKind::Unsupported => String::new(),
+    }
+}
+
+fn render_binary_operator(operator: ParsedBinaryOperator) -> &'static str {
+    match operator {
+        ParsedBinaryOperator::Multiply => "*",
+        ParsedBinaryOperator::Divide => "/",
+        ParsedBinaryOperator::Add => "+",
+        ParsedBinaryOperator::Subtract => "-",
+        ParsedBinaryOperator::Equal => "==",
+        ParsedBinaryOperator::NotEqual => "!=",
+        ParsedBinaryOperator::Less => "<",
+        ParsedBinaryOperator::LessEqual => "<=",
+        ParsedBinaryOperator::Greater => ">",
+        ParsedBinaryOperator::GreaterEqual => ">=",
+        ParsedBinaryOperator::Is => "is",
+        ParsedBinaryOperator::Does => "does",
+        ParsedBinaryOperator::Returns => "returns",
+        ParsedBinaryOperator::FailsWith => "fails with",
+        ParsedBinaryOperator::And => "and",
+        ParsedBinaryOperator::Or => "or",
+    }
 }
 
 fn declared_name_from_line(text: &str) -> Option<String> {
@@ -2124,20 +3088,6 @@ fn declared_name_from_line(text: &str) -> Option<String> {
     Some(text.to_string())
 }
 
-fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = strip_keyword(text, keyword)?;
-    rest.strip_suffix('{').map(str::trim)
-}
-
-fn strip_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
-    if text == keyword {
-        return Some("");
-    }
-    text.strip_prefix(keyword)
-        .and_then(|rest| rest.strip_prefix(char::is_whitespace))
-        .map(str::trim)
-}
-
 fn parameter_is_mutable(param: &Param) -> bool {
     matches!(
         param.permission,
@@ -2151,44 +3101,6 @@ fn parameter_state_kind(param: &Param) -> &'static str {
         ParamPermission::Change => "change_parameter",
         ParamPermission::Consume => "consume_parameter",
     }
-}
-
-fn permission_argument_name(text: &str) -> Option<String> {
-    let rest = ["borrow", "change", "consume"]
-        .iter()
-        .find_map(|keyword| strip_keyword(text.trim(), keyword))?;
-    let name = place_root(rest);
-    if name.is_empty() { None } else { Some(name) }
-}
-
-fn place_root(text: &str) -> String {
-    text.split(|ch: char| ch == '.' || ch == '[' || ch.is_whitespace() || ch == ',')
-        .find(|part| !part.is_empty())
-        .unwrap_or(text)
-        .trim()
-        .to_string()
-}
-
-fn path_root(text: &str) -> Option<String> {
-    let text = strip_permission_expression(text);
-    text.split(['.', '['])
-        .next()
-        .map(str::trim)
-        .filter(|root| !root.is_empty() && *root != text)
-        .map(str::to_string)
-}
-
-fn strip_permission_expression(text: &str) -> &str {
-    ["borrow", "change", "consume"]
-        .iter()
-        .find_map(|keyword| strip_keyword(text.trim(), keyword))
-        .unwrap_or(text)
-}
-
-fn call_callee(text: &str) -> Option<String> {
-    text.split_once('(')
-        .map(|(callee, _args)| callee.trim().to_string())
-        .filter(|callee| !callee.is_empty())
 }
 
 fn is_external_root(name: &str) -> bool {
@@ -2716,9 +3628,99 @@ mod tests {
     use crate::parser::parse_source;
 
     use super::{
-        diagnostic_occurrence_set_from_source, parser_precedence_relationships,
-        resolve_call_occurrence_summaries, resolve_json, resolve_text,
+        TenB2ResolverBoundaryCorruption, diagnostic_occurrence_set_from_source,
+        parser_precedence_relationships, resolve_call_occurrence_summaries, resolve_json,
+        resolve_text, with_ten_b2_resolver_boundary_corruption,
     };
+
+    fn ten_b2_resolver_boundary_observation(program: &Program) -> Vec<String> {
+        fn semantic_origin(identity: &str) -> &str {
+            identity
+                .rsplit("|origin=")
+                .next()
+                .and_then(|rest| rest.split("|shape=").next())
+                .expect("resolver identity carries one structural origin")
+        }
+        resolve_call_occurrence_summaries(program, &[])
+            .iter()
+            .map(|call| {
+                format!(
+                    "owner={}|reference={}|target={}|position={}",
+                    semantic_origin(&call.owner_definition_id),
+                    call.reference_id,
+                    semantic_origin(&call.target_definition_id),
+                    call.resolver_occurrence_id.position.stable_component(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ten_b2_resolver_consumer_boundary_corruption_is_load_bearing() {
+        const OWNER: &str = "resolver-item:file-0:path-1";
+        const TARGET: &str = "resolver-item:file-0:path-0";
+        const REFERENCE_PREFIX: &str = concat!(
+            "resolver-call-reference|owner=resolver-definition|scope=resolver-scope|",
+            "parent=resolver-root|owner=semantic-file:0|kind=file|owner-kind=file|",
+            "kind=task|origin=resolver-item:file-0:path-1|shape=task|",
+            "params=Borrow:named:UInt|result=named:UInt|effects=0|",
+            "body=return|0|binary(Add;binary(Add;call(identifier;identifier);",
+            "call(identifier;identifier));call(identifier;call(identifier;identifier)))|",
+            "target=resolver-definition|scope=resolver-scope|parent=resolver-root|",
+            "owner=semantic-file:0|kind=file|owner-kind=file|kind=task|",
+            "origin=resolver-item:file-0:path-0|shape=task|params=Borrow:named:UInt|",
+            "result=named:UInt|effects=0|body=return|0|identifier|",
+        );
+        fn expected_observation(position: &str) -> String {
+            format!(
+                "owner={OWNER}|reference={REFERENCE_PREFIX}{position}|target={TARGET}|position={position}"
+            )
+        }
+        let source = r#"task leaf(value: UInt) -> UInt {
+  does:
+    return value
+}
+
+task caller(value: UInt) -> UInt {
+  does:
+    return leaf(value) + leaf(value) + leaf(leaf(value))
+}
+"#;
+        let parsed = parse_source("ten-b2-resolver-boundary.hum", source);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let expected_clean = [
+            "statement-0:parser-body:resolver-item:file-0:path-1:statement-0:root-0:path-0.0.0:node-parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-left:binary-left",
+            "statement-0:parser-body:resolver-item:file-0:path-1:statement-0:root-0:path-0.0.1:node-parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-left:binary-right",
+            "statement-0:parser-body:resolver-item:file-0:path-1:statement-0:root-0:path-0.1:node-parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-right",
+            "statement-0:parser-body:resolver-item:file-0:path-1:statement-0:root-0:path-0.1.1:node-parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-right:call-argument-0",
+        ]
+        .map(expected_observation)
+        .to_vec();
+        let expected_corrupted = [
+            "statement-0:parser-body:resolver-item:file-0:path-1:statement-0:root-0:path-9:node-parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-left:binary-left",
+            "statement-0:parser-body:resolver-item:file-0:path-1:statement-0:root-0:path-0.0.1:node-parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-left:binary-right",
+            "statement-0:parser-body:resolver-item:file-0:path-1:statement-0:root-0:path-0.1:node-parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-right",
+            "statement-0:parser-body:resolver-item:file-0:path-1:statement-0:root-0:path-0.1.1:node-parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-right:call-argument-0",
+        ]
+        .map(expected_observation)
+        .to_vec();
+        for _ in 0..2 {
+            assert_eq!(
+                ten_b2_resolver_boundary_observation(&program),
+                expected_clean
+            );
+            let corrupted = with_ten_b2_resolver_boundary_corruption(
+                TenB2ResolverBoundaryCorruption {
+                    call_node_id: "parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-left:binary-left".to_string(),
+                    replacement_child_path: vec![9],
+                },
+                || ten_b2_resolver_boundary_observation(&program),
+            );
+            assert_eq!(corrupted, expected_corrupted);
+        }
+    }
 
     #[test]
     fn resolver_mints_distinct_repeated_sibling_and_nested_call_occurrences() {

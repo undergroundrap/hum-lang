@@ -375,6 +375,11 @@ try {
   Invoke-ExactRustTest 'Replacement F4 real load_program and private Core inventory path' $Cargo 'tests::replacement_f4_complete_inventory_uses_real_load_and_private_core'
   Invoke-ExactRustTest 'Increment 10B.1b recursive H0010 sealed-consumer matrix and controls' $Cargo 'parser::tests::recursive_h0010_consumer_is_complete_and_load_bearing'
   Invoke-ExactRustTest 'Increment 10B.1b canonical-tree and retained-authority corruption matrix' $Cargo 'parser::tests::h0010_sealed_corruption_and_authority_substitution_fail_closed'
+  Invoke-ExactRustTest 'Increment 10B.2 supporting resolver/callable production source and dataflow audit' $Cargo 'callable::tests::ten_b2_source_audit_rejects_semantic_reconstruction_and_span_selection'
+  Invoke-ExactRustTest 'Increment 10B.2 independent literal-oracle real parser/resolver/callable behavior' $Cargo 'callable::tests::ten_b2_real_parser_path_uses_exact_canonical_call_children_and_resolver_identity'
+  Invoke-ExactRustTest 'Increment 10B.2 resolver production-boundary physical corruption and load-bearing sabotage' $Cargo 'resolve::tests::ten_b2_resolver_consumer_boundary_corruption_is_load_bearing'
+  Invoke-ExactRustTest 'Increment 10B.2 callable production-boundary physical corruption sensitivity' $Cargo 'callable::tests::ten_b2_canonical_corruption_and_resolver_substitution_fail_closed'
+  Invoke-ExactRustTest 'Increment 10B.2 same-shaped foreign resolver authority substitution' $Cargo 'callable::tests::ten_b2_same_shaped_foreign_authority_substitution_fails_closed'
   $F4Fixture = 'fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum'
   $F4First = Read-NativeChannelsWithExit 'Replacement F4 complete inventory CLI proof' $Hum @('check', $F4Fixture)
   $F4Second = Read-NativeChannelsWithExit 'Replacement F4 complete inventory CLI repeatability proof' $Hum @('check', $F4Fixture)
@@ -1117,7 +1122,7 @@ task malformed() -> UInt {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 85 -or $UniqueExactRustSelectorCredits.Count -ne 85) { throw "exact Rust selector inventory must credit 85 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 90 -or $UniqueExactRustSelectorCredits.Count -ne 90) { throw "exact Rust selector inventory must credit 90 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
@@ -1127,14 +1132,23 @@ task malformed() -> UInt {
   $ApTypedFailureSource = Get-Content -Raw 'src/typed_failure.rs'
   if ([regex]::IsMatch($ApTypedFailureSource, 'diagnostic_cause_for_reason|diagnostic_cause\s*\(|registered_reason|default_emitter_cause')) { throw 'Session AP typed-failure producer must carry an opaque cause key rather than select from codes, reasons, or defaults' }
   if (-not $ApTypedFailureSource.Contains('fact.cause') -or -not $ApTypedFailureSource.Contains('cause.key()') -or -not $ApTypedFailureSource.Contains('diagnostic_cause_for_key(cause_key)')) { throw 'Session AP typed-failure producer-owned cause transport evidence is missing' }
-  $ApResolverProductionSource = [regex]::Replace((Get-Content -Raw 'src/resolve.rs'), '(?s)#\[cfg\(test\)\].*$', '')
+  $ApResolverProductionSource = [regex]::Replace((Get-Content -Raw 'src/resolve.rs'), '(?s)#\[cfg\(test\)\]\s*mod tests\s*\{.*$', '')
   $ApParserProductionSource = [regex]::Replace((Get-Content -Raw 'src/parser.rs'), '(?s)#\[cfg\(test\)\]\s*mod tests\s*\{.*$', '')
   $ApCapabilityProductionSource = [regex]::Replace((Get-Content -Raw 'src/capability_root.rs'), '(?s)#\[cfg\(test\)\].*$', '')
   $ApOwnershipProductionSource = [regex]::Replace((Get-Content -Raw 'src/ownership_check.rs'), '(?s)#\[cfg\(test\)\]\s*mod tests\s*\{.*$', '')
   $ApTypedProductionSource = [regex]::Replace($ApTypedFailureSource, '(?s)#\[cfg\(test\)\].*$', '')
   if ($ApResolverProductionSource.Contains('calls_in_expression') -or $ApCapabilityProductionSource.Contains('calls_in_expression')) { throw 'Session AP resolver/capability producers must not rescan source text to mint executable call identity' }
   if ($ApParserProductionSource.Contains('scan_raw_executable_calls') -or $ApParserProductionSource.Contains('scan_identifier_tokens') -or $ApParserProductionSource.Contains('executable_calls_in_statement')) { throw 'Session AP must remove the late retained-text executable-call scanner rather than rename its resolver entry point' }
-  if (-not $ApResolverProductionSource.Contains('executable_call_nodes(body_syntax)') -or $ApResolverProductionSource.Contains('executable_call_nodes(sections)')) { throw 'Session AP resolver call occurrences must come only from the parser-produced body syntax tree' }
+  $ApResolverUsesLegacyExecutableCallProjection = {
+    param([string] $Source)
+    return (
+      -not $Source.Contains('canonical_call_nodes(statements)') -or
+      [regex]::IsMatch($Source, 'executable_call_nodes\s*\(')
+    )
+  }
+  if (& $ApResolverUsesLegacyExecutableCallProjection $ApResolverProductionSource) { throw 'Session AP resolver call occurrences must come only from parser-produced canonical body syntax, never the legacy executable-call projection' }
+  $ApResolverLegacyProjectionSabotage = $ApResolverProductionSource + "`nfn production_regression() { executable_call_nodes(); }"
+  if (-not (& $ApResolverUsesLegacyExecutableCallProjection $ApResolverLegacyProjectionSabotage)) { throw 'Session AP resolver source audit must fail closed when legacy executable-call projection spelling enters production' }
   if ($ApResolverProductionSource.Contains('semantic_internal_reference_identity') -or -not $ApResolverProductionSource.Contains('resolver_call_reference_identity(') -or -not $ApResolverProductionSource.Contains('unresolved_call_target_identity(')) { throw 'Session AP private resolver-call identity must derive from owner, target status, and parser-owned call position rather than the global public reference serial' }
   $ApCallReferenceIdentity = [regex]::Match($ApResolverProductionSource, '(?s)fn resolver_call_reference_identity\(.*?\n\}')
   if (-not $ApCallReferenceIdentity.Success -or $ApCallReferenceIdentity.Value.Contains('reference_serial') -or $ApCallReferenceIdentity.Value.Contains('ResolveReference')) { throw 'Session AP private call-reference identity helper must not consume ordinary resolver reference allocation state' }

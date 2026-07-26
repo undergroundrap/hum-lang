@@ -3,16 +3,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use crate::ast::{
-    Item, Param, ParsedBodyStatement, ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus,
-    ParsedCallTrailingStatus, ParsedExpression, ParsedExpressionKind, Program, Task, TypeSyntax,
-    TypeSyntaxKind,
+    CanonicalCompletionEvent, CanonicalExpression, CanonicalExpressionKind,
+    CanonicalPayloadEventValue, CanonicalPayloadField, Item, Param, ParsedBodyStatement,
+    ParsedBodyStatementKind, Program, Task, TypeSyntax, TypeSyntaxKind,
 };
 use crate::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceCollector, Severity, Span,
 };
 use crate::node_id;
 use crate::resolve::{
-    self, ResolveDefinitionSummary, ResolveReferenceSummary, ResolveScopeSummary,
+    self, ResolveCallOccurrenceSummary, ResolveDefinitionSummary, ResolveReferenceSummary,
+    ResolveScopeSummary,
 };
 
 pub(crate) const CALLABLE_FACT_MODEL: &str = "canonical_callable_semantic_spine_am_v0";
@@ -173,10 +174,15 @@ pub(crate) struct CallableAnalysis {
     pub(crate) applications: Vec<CallableApplicationFact>,
     pub(crate) diagnostics: Vec<CallableDiagnosticFact>,
     definition_names: BTreeMap<String, String>,
-    definition_spans: BTreeMap<String, Span>,
+    task_definition_bindings: Vec<(usize, String, String)>,
+    parameter_definition_bindings: Vec<(usize, String)>,
+    task_scope_semantic_bindings: BTreeMap<String, String>,
+    definition_semantic_identities: BTreeMap<String, String>,
+    application_authorities: BTreeMap<String, CallableApplicationAuthority>,
     resolver_definitions: Vec<ResolveDefinitionSummary>,
     resolver_scopes: Vec<ResolveScopeSummary>,
     resolver_references: Vec<ResolveReferenceSummary>,
+    resolver_call_occurrences: Vec<ResolveCallOccurrenceSummary>,
     canonical_definitions: Vec<CallableDefinitionFact>,
     canonical_types: Vec<CallableTypeFact>,
     canonical_rows: Vec<LatentEffectRowFact>,
@@ -193,7 +199,11 @@ struct TaskEntry<'a> {
     task: &'a Task,
     file: &'a str,
     definition_id: String,
+    definition_semantic_identity: String,
     callable_scope_id: String,
+    callable_scope_semantic_identity: String,
+    parameter_definition_ids: Vec<String>,
+    parameter_definition_semantic_identities: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -201,17 +211,44 @@ struct ReceiverInfo<'a> {
     entry: TaskEntry<'a>,
     callable_param: &'a Param,
     callable_param_definition_id: String,
+    callable_param_definition_semantic_identity: String,
     ordinary_param: &'a Param,
     ordinary_param_definition_id: String,
+    ordinary_param_definition_semantic_identity: String,
     callable_type_id: String,
     row_id: String,
     indirect_span: Option<Span>,
     indirect_statement_span: Option<Span>,
+    indirect_resolver_occurrence_identity: Option<String>,
+    indirect_statement_node_id: Option<String>,
     valid: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CallableApplicationAuthority {
+    caller_definition_semantic_identity: String,
+    caller_scope_semantic_identity: String,
+    receiver_definition_semantic_identity: String,
+    receiver_scope_semantic_identity: String,
+    target_definition_semantic_identity: String,
+    callable_parameter_semantic_identity: String,
+    ordinary_parameter_semantic_identity: String,
+    direct_resolver_occurrence_identity: String,
+    indirect_resolver_occurrence_identity: String,
+    direct_call_node_id: String,
+    indirect_statement_node_id: String,
+}
+
+#[derive(Clone, Copy)]
+struct CanonicalCallView<'a> {
+    expression: &'a CanonicalExpression,
+    callee: &'a CanonicalExpression,
+    arguments: &'a [CanonicalExpression],
 }
 
 #[derive(Clone, PartialEq, Eq)]
 struct AnalysisKey {
+    program_identity: usize,
     program: Program,
     definitions: Vec<ResolveDefinitionSummary>,
     scopes: Vec<ResolveScopeSummary>,
@@ -234,7 +271,7 @@ pub(crate) fn analyze_program(program: &Program) -> Arc<CallableAnalysis> {
         {
             return Arc::clone(analysis);
         }
-        let analysis = Arc::new(CallableAnalysis::build(
+        let analysis = Arc::new(build_from_resolver_authority(
             program,
             definitions,
             scopes,
@@ -243,6 +280,27 @@ pub(crate) fn analyze_program(program: &Program) -> Arc<CallableAnalysis> {
         *cache = Some((key, Arc::clone(&analysis)));
         analysis
     })
+}
+
+fn build_from_resolver_authority(
+    program: &Program,
+    definitions: Vec<ResolveDefinitionSummary>,
+    scopes: Vec<ResolveScopeSummary>,
+    references: Vec<ResolveReferenceSummary>,
+) -> CallableAnalysis {
+    let call_occurrences = resolve::resolve_call_occurrence_summaries(program, &[]);
+    CallableAnalysis::build(program, definitions, scopes, references, call_occurrences)
+}
+
+#[cfg(test)]
+fn build_from_complete_resolver_authority_for_test(
+    program: &Program,
+    definitions: Vec<ResolveDefinitionSummary>,
+    scopes: Vec<ResolveScopeSummary>,
+    references: Vec<ResolveReferenceSummary>,
+    call_occurrences: Vec<ResolveCallOccurrenceSummary>,
+) -> CallableAnalysis {
+    CallableAnalysis::build(program, definitions, scopes, references, call_occurrences)
 }
 
 pub(crate) fn diagnostics(program: &Program, prior: &[Diagnostic]) -> Vec<Diagnostic> {
@@ -305,6 +363,7 @@ impl CallableAnalysis {
         definitions: Vec<ResolveDefinitionSummary>,
         scopes: Vec<ResolveScopeSummary>,
         references: Vec<ResolveReferenceSummary>,
+        call_occurrences: Vec<ResolveCallOccurrenceSummary>,
     ) -> Self {
         let tasks = task_entries(program, &definitions, &scopes);
         let known_types = known_type_names(program);
@@ -312,6 +371,7 @@ impl CallableAnalysis {
             resolver_definitions: definitions.clone(),
             resolver_scopes: scopes.clone(),
             resolver_references: references.clone(),
+            resolver_call_occurrences: call_occurrences.clone(),
             typed_failure_prior: crate::typed_failure::analyze_program(program)
                 .occurrences()
                 .into_iter()
@@ -323,8 +383,30 @@ impl CallableAnalysis {
                 .definition_names
                 .insert(definition.id.clone(), definition.name.clone());
             analysis
-                .definition_spans
-                .insert(definition.id.clone(), definition.source_span.clone());
+                .definition_semantic_identities
+                .insert(definition.id.clone(), definition.semantic_identity.clone());
+        }
+        for entry in &tasks {
+            analysis.task_definition_bindings.push((
+                std::ptr::from_ref(entry.task) as usize,
+                entry.definition_id.clone(),
+                entry.definition_semantic_identity.clone(),
+            ));
+            analysis.task_scope_semantic_bindings.insert(
+                entry.definition_semantic_identity.clone(),
+                entry.callable_scope_semantic_identity.clone(),
+            );
+            for (param, definition_id) in entry
+                .task
+                .params
+                .iter()
+                .zip(&entry.parameter_definition_ids)
+            {
+                analysis.parameter_definition_bindings.push((
+                    std::ptr::from_ref(&param.span) as usize,
+                    definition_id.clone(),
+                ));
+            }
         }
 
         let mut receivers = Vec::new();
@@ -335,7 +417,12 @@ impl CallableAnalysis {
                     TypeSyntaxKind::Callable(_) | TypeSyntaxKind::CallableCandidate { .. }
                 )
             }) {
-                receivers.push(analysis.analyze_receiver(entry.clone(), &definitions, &references));
+                receivers.push(analysis.analyze_receiver(
+                    entry.clone(),
+                    &definitions,
+                    &references,
+                    &call_occurrences,
+                ));
             }
         }
 
@@ -345,14 +432,22 @@ impl CallableAnalysis {
             .collect::<BTreeMap<_, _>>();
         let mut direct_relationship_spans: BTreeMap<String, Span> = BTreeMap::new();
         for caller in &tasks {
-            for statement in &caller.task.body_syntax {
-                visit_statement_calls(statement, &mut |statement_span, expression, call| {
-                    let Some(callee) = identifier(&call.callee) else {
+            for statement in canonical_task_body(caller.task) {
+                visit_statement_calls(statement, &mut |statement_span, call| {
+                    let Some(direct_occurrence) =
+                        resolver_call_for_canonical(&call_occurrences, call)
+                    else {
                         return;
                     };
-                    let Some(reference) =
-                        reference_at(&references, &callee.span, "callable_callee_ref")
+                    let Some((_callee_name, _callee_span)) = canonical_identifier(call.callee)
                     else {
+                        return;
+                    };
+                    let Some(reference) = reference_for_canonical_node(
+                        &references,
+                        call.callee.node_id.as_str(),
+                        "callable_callee_ref",
+                    ) else {
                         return;
                     };
                     let Some(receiver_id) = reference.resolved_definition_id.as_deref() else {
@@ -363,20 +458,22 @@ impl CallableAnalysis {
                     };
                     if let Some(first_span) = direct_relationship_spans.get(receiver_id) {
                         analysis.push_invalid(
-                            &expression.span,
+                            &call.expression.range.start,
                             "Session AM accepts exactly one direct callable relationship and application",
                             "multiple_direct_callable_applications_unsupported_v0",
                             vec![first_span.clone(), receiver.entry.task.span.clone()],
                         );
                         return;
                     }
-                    direct_relationship_spans
-                        .insert(receiver_id.to_string(), portable_span(&expression.span));
+                    direct_relationship_spans.insert(
+                        receiver_id.to_string(),
+                        portable_span(&call.expression.range.start),
+                    );
                     analysis.analyze_direct_application(
                         caller,
                         statement_span,
-                        expression,
                         call,
+                        direct_occurrence,
                         receiver,
                         &tasks,
                         &definitions,
@@ -409,8 +506,9 @@ impl CallableAnalysis {
     fn analyze_receiver<'a>(
         &mut self,
         entry: TaskEntry<'a>,
-        definitions: &[ResolveDefinitionSummary],
+        _definitions: &[ResolveDefinitionSummary],
         references: &[ResolveReferenceSummary],
+        call_occurrences: &[ResolveCallOccurrenceSummary],
     ) -> ReceiverInfo<'a> {
         let callable_params = entry
             .task
@@ -433,28 +531,51 @@ impl CallableAnalysis {
             .iter()
             .find(|param| !std::ptr::eq(*param, callable_param))
             .unwrap_or(callable_param);
-        let callable_param_definition_id = definition_for_span(
-            definitions,
-            &callable_param.span,
-            "parameter",
-            Some(&entry.callable_scope_id),
-        )
-        .map_or_else(
-            || missing_id("callable-parameter", &callable_param.span),
-            |definition| definition.id.clone(),
-        );
-        let ordinary_param_definition_id = definition_for_span(
-            definitions,
-            &ordinary_param.span,
-            "parameter",
-            Some(&entry.callable_scope_id),
-        )
-        .map_or_else(
-            || missing_id("ordinary-parameter", &ordinary_param.span),
-            |definition| definition.id.clone(),
-        );
-        let callable_type_id = semantic_id("callable-type", &callable_param.type_syntax.span);
-        let row_id = semantic_id("latent-row", &callable_param.type_syntax.span);
+        let callable_param_index = entry
+            .task
+            .params
+            .iter()
+            .position(|param| std::ptr::eq(param, callable_param))
+            .expect("callable parameter belongs to receiver");
+        let ordinary_param_index = entry
+            .task
+            .params
+            .iter()
+            .position(|param| std::ptr::eq(param, ordinary_param))
+            .expect("ordinary parameter belongs to receiver");
+        let callable_param_definition_id = entry
+            .parameter_definition_ids
+            .get(callable_param_index)
+            .cloned()
+            .unwrap_or_else(|| missing_projection_id("callable-parameter", &callable_param.span));
+        let callable_param_definition_semantic_identity = entry
+            .parameter_definition_semantic_identities
+            .get(callable_param_index)
+            .cloned()
+            .unwrap_or_else(|| {
+                format!(
+                    "missing-callable-parameter|owner={}",
+                    entry.definition_semantic_identity
+                )
+            });
+        let ordinary_param_definition_id = entry
+            .parameter_definition_ids
+            .get(ordinary_param_index)
+            .cloned()
+            .unwrap_or_else(|| missing_projection_id("ordinary-parameter", &ordinary_param.span));
+        let ordinary_param_definition_semantic_identity = entry
+            .parameter_definition_semantic_identities
+            .get(ordinary_param_index)
+            .cloned()
+            .unwrap_or_else(|| {
+                format!(
+                    "missing-ordinary-parameter|owner={}",
+                    entry.definition_semantic_identity
+                )
+            });
+        let callable_type_id =
+            projection_span_id("callable-type", &callable_param.type_syntax.span);
+        let row_id = projection_span_id("latent-row", &callable_param.type_syntax.span);
         let mut valid = true;
 
         if callable_params.len() != 1
@@ -532,63 +653,35 @@ impl CallableAnalysis {
 
         let mut indirect_calls = Vec::new();
         let mut retained_use = None;
-        for statement in &entry.task.body_syntax {
-            match &statement.kind {
-                ParsedBodyStatementKind::Return(expression) => {
-                    find_unsupported_callable_value_use(
-                        expression,
+        for statement in canonical_task_body(entry.task) {
+            let is_return = canonical_statement_is_return(statement);
+            for expression in callable_statement_roots(statement) {
+                find_unsupported_callable_value_use(
+                    expression,
+                    &callable_param_definition_id,
+                    references,
+                    false,
+                    &mut retained_use,
+                );
+                visit_expression_calls(expression, &mut |call| {
+                    let occurrence = resolver_call_for_canonical(call_occurrences, call);
+                    if call_callee_resolves_to(
+                        call,
+                        call.callee,
                         &callable_param_definition_id,
                         references,
-                        false,
-                        &mut retained_use,
-                    );
-                    visit_expression_calls(expression, &mut |candidate, call| {
-                        if call_callee_resolves_to(call, &callable_param_definition_id, references)
-                        {
-                            indirect_calls.push((candidate, call, true, &statement.span));
-                        }
-                    });
-                }
-                ParsedBodyStatementKind::Binding { value, .. } => {
-                    if let Some(expression) = value {
-                        find_unsupported_callable_value_use(
-                            expression,
-                            &callable_param_definition_id,
-                            references,
-                            false,
-                            &mut retained_use,
-                        );
-                        visit_expression_calls(expression, &mut |candidate, call| {
-                            if call_callee_resolves_to(
-                                call,
-                                &callable_param_definition_id,
-                                references,
-                            ) {
-                                indirect_calls.push((candidate, call, false, &statement.span));
-                            }
-                        });
+                        call_occurrences,
+                    ) && let Some(occurrence) = occurrence
+                    {
+                        indirect_calls.push((
+                            call,
+                            is_return,
+                            &statement.span,
+                            statement.source_node_id.as_str(),
+                            occurrence.relationship_key(),
+                        ));
                     }
-                }
-                ParsedBodyStatementKind::Other { expressions } => {
-                    for expression in expressions {
-                        find_unsupported_callable_value_use(
-                            expression,
-                            &callable_param_definition_id,
-                            references,
-                            false,
-                            &mut retained_use,
-                        );
-                        visit_expression_calls(expression, &mut |candidate, call| {
-                            if call_callee_resolves_to(
-                                call,
-                                &callable_param_definition_id,
-                                references,
-                            ) {
-                                indirect_calls.push((candidate, call, false, &statement.span));
-                            }
-                        });
-                    }
-                }
+                });
             }
         }
         if let Some(span) = retained_use {
@@ -611,59 +704,60 @@ impl CallableAnalysis {
         } else if indirect_calls.len() > 1 {
             valid = false;
             self.push_invalid(
-                &indirect_calls[1].0.span,
+                &indirect_calls[1].0.expression.range.start,
                 "the callable parameter may be applied exactly once in Session AL",
                 "multiple_callable_applications_unsupported_v0",
-                vec![indirect_calls[0].0.span.clone()],
+                vec![indirect_calls[0].0.expression.range.start.clone()],
             );
         }
 
-        let indirect_span = indirect_calls
-            .first()
-            .map(|(expression, call, is_return, _)| {
-                if indirect_calls.len() > 1 {
-                    return expression.span.clone();
-                }
-                if !*is_return
-                    || call.close_status != ParsedCallCloseStatus::Closed
-                    || call.trailing_status != ParsedCallTrailingStatus::Complete
-                {
-                    valid = false;
-                    self.push_invalid(
-                        &expression.span,
-                        "indirect application must be the complete return expression",
-                        "indirect_application_shape_outside_al_v0",
-                        vec![callable_param.span.clone()],
-                    );
-                } else if call.arguments.len() != 1 {
-                    valid = false;
-                    self.push_mismatch(
-                        &expression.span,
-                        "indirect application expects exactly one UInt argument",
-                        "indirect_argument_count_mismatch_v0",
-                        vec![callable_param.type_syntax.span.clone()],
-                    );
-                } else if !expression_resolves_to(
-                    &call.arguments[0],
-                    &ordinary_param_definition_id,
-                    references,
-                ) {
-                    valid = false;
-                    self.push_invalid(
-                        &call.arguments[0].span,
-                        "indirect application argument must be the receiver's UInt parameter",
-                        "indirect_argument_outside_al_v0",
-                        vec![ordinary_param.span.clone()],
-                    );
-                }
-                expression.span.clone()
-            });
+        let indirect_span = indirect_calls.first().map(|(call, is_return, _, _, _)| {
+            if indirect_calls.len() > 1 {
+                return call.expression.range.start.clone();
+            }
+            if !*is_return || !canonical_call_is_complete(call.expression) {
+                valid = false;
+                self.push_invalid(
+                    &call.expression.range.start,
+                    "indirect application must be the complete return expression",
+                    "indirect_application_shape_outside_al_v0",
+                    vec![callable_param.span.clone()],
+                );
+            } else if call.arguments.len() != 1 {
+                valid = false;
+                self.push_mismatch(
+                    &call.expression.range.start,
+                    "indirect application expects exactly one UInt argument",
+                    "indirect_argument_count_mismatch_v0",
+                    vec![callable_param.type_syntax.span.clone()],
+                );
+            } else if !expression_resolves_to(
+                &call.arguments[0],
+                &ordinary_param_definition_id,
+                references,
+            ) {
+                valid = false;
+                self.push_invalid(
+                    &call.arguments[0].range.start,
+                    "indirect application argument must be the receiver's UInt parameter",
+                    "indirect_argument_outside_al_v0",
+                    vec![ordinary_param.span.clone()],
+                );
+            }
+            call.expression.range.start.clone()
+        });
         let indirect_statement_span = indirect_calls
             .first()
-            .map(|(_, _, _, span)| portable_span(span));
+            .map(|(_, _, span, _, _)| portable_span(span));
+        let indirect_statement_node_id = indirect_calls
+            .first()
+            .map(|(_, _, _, node_id, _)| (*node_id).to_string());
+        let indirect_resolver_occurrence_identity = indirect_calls
+            .first()
+            .map(|(_, _, _, _, identity)| identity.clone());
 
         self.definitions.push(CallableDefinitionFact {
-            id: semantic_id("callable-definition", &entry.task.span),
+            id: projection_span_id("callable-definition", &entry.task.span),
             resolver_definition_id: entry.definition_id.clone(),
             lexical_scope_id: entry.callable_scope_id.clone(),
             source_span: portable_span(&entry.task.span),
@@ -711,12 +805,16 @@ impl CallableAnalysis {
             entry,
             callable_param,
             callable_param_definition_id,
+            callable_param_definition_semantic_identity,
             ordinary_param,
             ordinary_param_definition_id,
+            ordinary_param_definition_semantic_identity,
             callable_type_id,
             row_id,
             indirect_span,
             indirect_statement_span,
+            indirect_resolver_occurrence_identity,
+            indirect_statement_node_id,
             valid,
         }
     }
@@ -726,8 +824,8 @@ impl CallableAnalysis {
         &mut self,
         caller: &TaskEntry<'_>,
         direct_statement_span: &Span,
-        expression: &ParsedExpression,
-        call: &ParsedCall,
+        call: CanonicalCallView<'_>,
+        direct_occurrence: &ResolveCallOccurrenceSummary,
         receiver: &ReceiverInfo<'_>,
         tasks: &[TaskEntry<'_>],
         definitions: &[ResolveDefinitionSummary],
@@ -739,7 +837,7 @@ impl CallableAnalysis {
         }
         if caller.definition_id == receiver.entry.definition_id {
             self.push_invalid(
-                &expression.span,
+                &call.expression.range.start,
                 "recursive callable relationships are outside Session AL",
                 "recursive_callable_relationship_unsupported_v0",
                 vec![receiver.entry.task.span.clone()],
@@ -750,28 +848,25 @@ impl CallableAnalysis {
             != node_id::source_path_identity(receiver.entry.file)
         {
             self.push_invalid(
-                &expression.span,
+                &call.expression.range.start,
                 "cross-file callable relationships are outside Session AL",
                 "cross_file_callable_value_unsupported_v0",
                 vec![caller.task.span.clone(), receiver.entry.task.span.clone()],
             );
             return;
         }
-        if call.close_status != ParsedCallCloseStatus::Closed
-            || call.trailing_status != ParsedCallTrailingStatus::Complete
-            || call.arguments.len() != 2
-        {
+        if !canonical_call_is_complete(call.expression) || call.arguments.len() != 2 {
             self.push_invalid(
-                &expression.span,
+                &call.expression.range.start,
                 "the receiving task call must pass one task value and one UInt value",
                 "receiver_call_shape_outside_al_v0",
                 vec![receiver.entry.task.span.clone()],
             );
             return;
         }
-        if !call.argument_separators_hws_valid {
+        if !canonical_call_separator_hws_valid(call.expression) {
             self.push_invalid(
-                &expression.span,
+                &call.expression.range.start,
                 "the direct receiver call requires horizontal whitespace after its comma",
                 "direct_application_horizontal_whitespace_v0",
                 vec![receiver.entry.task.span.clone()],
@@ -780,28 +875,31 @@ impl CallableAnalysis {
         }
 
         let task_value = &call.arguments[0];
-        let Some(identifier) = identifier(task_value) else {
+        let Some((identifier_name, identifier_span)) = canonical_identifier(task_value) else {
             self.push_invalid(
-                &task_value.span,
+                &task_value.range.start,
                 "the callable argument must be one visible same-file task identifier",
                 "task_value_shape_outside_al_v0",
                 vec![receiver.callable_param.span.clone()],
             );
             return;
         };
-        let Some(reference) = reference_at(references, &identifier.span, "callable_argument_ref")
-        else {
+        let Some(reference) = reference_for_canonical_node(
+            references,
+            task_value.node_id.as_str(),
+            "callable_argument_ref",
+        ) else {
             self.push_unresolved(
-                &identifier.span,
-                &identifier.name,
+                identifier_span,
+                identifier_name,
                 vec![receiver.entry.task.span.clone()],
             );
             return;
         };
         let Some(target_definition_id) = reference.resolved_definition_id.as_deref() else {
             self.push_unresolved(
-                &identifier.span,
-                &identifier.name,
+                identifier_span,
+                identifier_name,
                 vec![receiver.entry.task.span.clone()],
             );
             return;
@@ -811,15 +909,15 @@ impl CallableAnalysis {
             .find(|definition| definition.id == target_definition_id)
         else {
             self.push_unresolved(
-                &identifier.span,
-                &identifier.name,
+                identifier_span,
+                identifier_name,
                 vec![receiver.entry.task.span.clone()],
             );
             return;
         };
         if target_definition.definition_kind != "task" {
             self.push_invalid(
-                &identifier.span,
+                identifier_span,
                 "the callable argument resolves to a non-task value",
                 "task_value_resolved_to_non_task_v0",
                 vec![target_definition.source_span.clone()],
@@ -831,7 +929,7 @@ impl CallableAnalysis {
             .find(|entry| entry.definition_id == target_definition_id)
         else {
             self.push_invalid(
-                &identifier.span,
+                identifier_span,
                 "cross-file callable values are outside Session AL",
                 "cross_file_callable_value_unsupported_v0",
                 vec![target_definition.source_span.clone()],
@@ -841,7 +939,7 @@ impl CallableAnalysis {
         if node_id::source_path_identity(target.file) != node_id::source_path_identity(caller.file)
         {
             self.push_invalid(
-                &identifier.span,
+                identifier_span,
                 "cross-file callable values are outside Session AL",
                 "cross_file_callable_value_unsupported_v0",
                 vec![target.task.span.clone()],
@@ -852,7 +950,7 @@ impl CallableAnalysis {
             || target.definition_id == caller.definition_id
         {
             self.push_invalid(
-                &identifier.span,
+                identifier_span,
                 "recursive callable relationships are outside Session AL",
                 "recursive_callable_relationship_unsupported_v0",
                 vec![
@@ -875,7 +973,7 @@ impl CallableAnalysis {
                 target_failure.unwrap_or("none")
             );
             self.push_mismatch(
-                &identifier.span,
+                identifier_span,
                 &format!("expected task(UInt) -> UInt with failure_root=none; actual {actual}"),
                 if target_failure.is_some() {
                     "callable_failure_root_mismatch_v0"
@@ -895,7 +993,7 @@ impl CallableAnalysis {
             task_change_origins(target, &self.resolver_references, &self.resolver_scopes);
         if !task_has_supported_am_latent_row(target.task, &change_origins) {
             self.push_mismatch(
-                &identifier.span,
+                identifier_span,
                 "the passed task has a latent effect outside the bounded empty/change row slice",
                 "callable_latent_row_outside_bounded_am_slice_v0",
                 vec![
@@ -910,17 +1008,17 @@ impl CallableAnalysis {
             ordinary_argument_fact(&call.arguments[1], definitions, references, tasks)
         else {
             self.push_mismatch(
-                &call.arguments[1].span,
+                &call.arguments[1].range.start,
                 "the receiver's ordinary argument must have exact type UInt",
                 "receiver_argument_type_mismatch_v0",
                 vec![receiver.ordinary_param.span.clone()],
             );
             return;
         };
-        let value_id = semantic_id("callable-value", &identifier.span);
+        let value_id = projection_span_id("callable-value", identifier_span);
         self.values.push(CallableValueFact {
             id: value_id.clone(),
-            source_span: portable_span(&identifier.span),
+            source_span: portable_span(identifier_span),
             resolver_reference_id: reference.id.clone(),
             referring_scope_id: reference.scope_id.clone(),
             resolved_task_definition_id: target_definition_id.to_string(),
@@ -930,12 +1028,13 @@ impl CallableAnalysis {
         let Some(indirect_span) = receiver.indirect_span.clone() else {
             return;
         };
-        let application_id = semantic_id("callable-application", &expression.span);
+        let application_id =
+            projection_span_id("callable-application", &call.expression.range.start);
         let mut output_row_id = receiver.row_id.clone();
         let mut application_status = "accepted_al_indirect_application_v0";
         let mut application_reason = "canonical_callable_relationship_checked_v0";
         if !change_origins.is_empty() {
-            let tail_id = semantic_id("row-tail", &receiver.callable_param.type_syntax.span);
+            let tail_id = projection_span_id("row-tail", &receiver.callable_param.type_syntax.span);
             if let Some(row) = self.rows.iter_mut().find(|row| row.id == receiver.row_id) {
                 row.tail_id = Some(tail_id.clone());
                 row.tail_alias = Some("row".to_string());
@@ -952,8 +1051,8 @@ impl CallableAnalysis {
             let mut occurrence_ids = Vec::new();
             let mut normalized_labels = Vec::new();
             for origin in change_origins {
-                let id = semantic_id("effect-label-change", &origin.source_span);
-                let alias_id = semantic_id("effect-alias-change", &origin.source_span);
+                let id = projection_span_id("effect-label-change", &origin.source_span);
+                let alias_id = projection_span_id("effect-alias-change", &origin.source_span);
                 occurrence_ids.push(id.clone());
                 normalized_labels.push("change".to_string());
                 if !self
@@ -968,17 +1067,16 @@ impl CallableAnalysis {
                         resolver_reference_id: origin.id.clone(),
                         source_span: portable_span(&origin.source_span),
                         owner_definition_id: target.definition_id.clone(),
-                        target_definition_id: origin
-                            .resolved_definition_id
-                            .clone()
-                            .unwrap_or_else(|| missing_id("mutation-target", &origin.source_span)),
+                        target_definition_id: origin.resolved_definition_id.clone().unwrap_or_else(
+                            || missing_projection_id("mutation-target", &origin.source_span),
+                        ),
                     });
                 }
             }
             occurrence_ids.sort();
             normalized_labels.sort();
-            output_row_id = semantic_id("latent-row-output", &expression.span);
-            let argument_row_id = semantic_id("latent-row-argument", &identifier.span);
+            output_row_id = projection_span_id("latent-row-output", &call.expression.range.start);
+            let argument_row_id = projection_span_id("latent-row-argument", identifier_span);
             self.rows.push(LatentEffectRowFact {
                 id: argument_row_id.clone(),
                 labels: occurrence_ids.clone(),
@@ -1000,7 +1098,7 @@ impl CallableAnalysis {
                 origin: "substituted_at_callable_application_v0",
             });
             self.substitutions.push(RowSubstitutionFact {
-                id: semantic_id("row-substitution", &expression.span),
+                id: projection_span_id("row-substitution", &call.expression.range.start),
                 application_id: application_id.clone(),
                 input_row_id: receiver.row_id.clone(),
                 tail_id,
@@ -1011,6 +1109,37 @@ impl CallableAnalysis {
             application_status = "accepted_am_indirect_application_v0";
             application_reason = "complete_latent_row_propagated_v0";
         }
+        let authority = CallableApplicationAuthority {
+            caller_definition_semantic_identity: caller.definition_semantic_identity.clone(),
+            caller_scope_semantic_identity: caller.callable_scope_semantic_identity.clone(),
+            receiver_definition_semantic_identity: receiver
+                .entry
+                .definition_semantic_identity
+                .clone(),
+            receiver_scope_semantic_identity: receiver
+                .entry
+                .callable_scope_semantic_identity
+                .clone(),
+            target_definition_semantic_identity: target.definition_semantic_identity.clone(),
+            callable_parameter_semantic_identity: receiver
+                .callable_param_definition_semantic_identity
+                .clone(),
+            ordinary_parameter_semantic_identity: receiver
+                .ordinary_param_definition_semantic_identity
+                .clone(),
+            direct_resolver_occurrence_identity: direct_occurrence.relationship_key(),
+            indirect_resolver_occurrence_identity: receiver
+                .indirect_resolver_occurrence_identity
+                .clone()
+                .expect("valid receiver has one resolver-owned indirect call"),
+            direct_call_node_id: call.expression.node_id.as_str().to_string(),
+            indirect_statement_node_id: receiver
+                .indirect_statement_node_id
+                .clone()
+                .expect("valid receiver has one canonical indirect statement"),
+        };
+        self.application_authorities
+            .insert(application_id.clone(), authority);
         self.applications.push(CallableApplicationFact {
             id: application_id,
             caller_definition_id: caller.definition_id.clone(),
@@ -1023,7 +1152,7 @@ impl CallableAnalysis {
             ordinary_parameter_name: receiver.ordinary_param.name.clone(),
             callable_value_id: value_id,
             target_definition_id: target_definition_id.to_string(),
-            direct_call_span: portable_span(&expression.span),
+            direct_call_span: portable_span(&call.expression.range.start),
             indirect_call_span: portable_span(&indirect_span),
             direct_statement_span: portable_span(direct_statement_span),
             indirect_statement_span: receiver
@@ -1082,7 +1211,7 @@ impl CallableAnalysis {
         related: Vec<Span>,
         help: &'static str,
     ) {
-        let id = semantic_id(
+        let id = projection_span_id(
             &format!("callable-diagnostic-{}-{detail_reason}", code.as_str()),
             span,
         );
@@ -1101,12 +1230,12 @@ impl CallableAnalysis {
                 let mut semantic_links = Vec::new();
                 for site in &relationship_sites {
                     for definition in &self.resolver_definitions {
-                        if same_span(&definition.source_span, site) {
+                        if same_public_span_projection(&definition.source_span, site) {
                             semantic_links.push(format!("definition={}", definition.id));
                         }
                     }
                     for reference in &self.resolver_references {
-                        if same_span(&reference.source_span, site) {
+                        if same_public_span_projection(&reference.source_span, site) {
                             semantic_links.push(format!("reference={}", reference.id));
                         }
                     }
@@ -1198,82 +1327,115 @@ impl CallableAnalysis {
     pub(crate) fn direct_application(
         &self,
         task: &Task,
-        span: &Span,
+        _span: &Span,
     ) -> Option<&CallableApplicationFact> {
-        let caller_id = self.definition_id_for_task(task)?;
-        self.applications.iter().find(|fact| {
-            fact.caller_definition_id == caller_id && same_span(&fact.direct_statement_span, span)
-        })
+        let caller_identity = self.semantic_definition_identity_for_task(task)?;
+        let mut candidates = self
+            .application_authorities
+            .iter()
+            .filter(|(_, authority)| {
+                authority.caller_definition_semantic_identity == caller_identity
+            });
+        let (projection_id, _) = candidates.next()?;
+        if candidates.next().is_some() {
+            return None;
+        }
+        self.applications
+            .iter()
+            .find(|fact| &fact.id == projection_id)
     }
 
     pub(crate) fn indirect_application(
         &self,
         task: &Task,
-        span: &Span,
+        _span: &Span,
     ) -> Option<&CallableApplicationFact> {
-        let receiver_id = self.definition_id_for_task(task)?;
-        self.applications.iter().find(|fact| {
-            fact.receiver_definition_id == receiver_id
-                && same_span(&fact.indirect_statement_span, span)
-        })
+        let receiver_identity = self.semantic_definition_identity_for_task(task)?;
+        let mut candidates = self
+            .application_authorities
+            .iter()
+            .filter(|(_, authority)| {
+                authority.receiver_definition_semantic_identity == receiver_identity
+            });
+        let (projection_id, _) = candidates.next()?;
+        if candidates.next().is_some() {
+            return None;
+        }
+        self.applications
+            .iter()
+            .find(|fact| &fact.id == projection_id)
     }
 
     pub(crate) fn indirect_application_with_id(
         &self,
         task: &Task,
-        span: &Span,
+        _span: &Span,
         id: &str,
     ) -> Option<&CallableApplicationFact> {
-        let receiver_id = self.definition_id_for_task(task)?;
-        self.applications.iter().find(|fact| {
-            fact.id == id
-                && fact.receiver_definition_id == receiver_id
-                && same_span(&fact.indirect_statement_span, span)
-        })
+        let receiver_identity = self.semantic_definition_identity_for_task(task)?;
+        self.application_authorities
+            .get(id)
+            .filter(|authority| {
+                authority.receiver_definition_semantic_identity == receiver_identity
+            })
+            .and_then(|_| self.applications.iter().find(|fact| fact.id == id))
     }
 
     pub(crate) fn definition_id_for_task(&self, task: &Task) -> Option<&str> {
-        self.definitions
+        let task_identity = std::ptr::from_ref(task) as usize;
+        self.task_definition_bindings
             .iter()
-            .find(|fact| same_span(&fact.source_span, &task.span))
-            .map(|fact| fact.resolver_definition_id.as_str())
-            .or_else(|| {
-                self.definition_spans
-                    .iter()
-                    .find(|(_id, span)| same_span(span, &task.span))
-                    .map(|(id, _span)| id.as_str())
-            })
+            .find(|(identity, _, _)| *identity == task_identity)
+            .map(|(_, definition_id, _)| definition_id.as_str())
+    }
+
+    fn semantic_definition_identity_for_task(&self, task: &Task) -> Option<&str> {
+        let task_identity = std::ptr::from_ref(task) as usize;
+        self.task_definition_bindings
+            .iter()
+            .find(|(identity, _, _)| *identity == task_identity)
+            .map(|(_, _, semantic_identity)| semantic_identity.as_str())
     }
 
     pub(crate) fn definition_id_for_span(&self, span: &Span) -> Option<&str> {
-        self.definition_spans
+        let span_identity = std::ptr::from_ref(span) as usize;
+        self.parameter_definition_bindings
             .iter()
-            .find(|(_id, definition_span)| same_span(definition_span, span))
-            .map(|(id, _span)| id.as_str())
+            .find(|(identity, _)| *identity == span_identity)
+            .map(|(_, definition_id)| definition_id.as_str())
     }
 
     pub(crate) fn callable_argument_target_definition_ids(&self, task: &Task) -> Vec<&str> {
-        let Some(scope) = self.resolver_scopes.iter().find(|scope| {
-            scope.scope_kind == "callable"
-                && scope.owner_kind == "task"
-                && scope
-                    .source_span
-                    .as_ref()
-                    .is_some_and(|span| same_span(span, &task.span))
-        }) else {
+        let Some(definition_id) = self.definition_id_for_task(task) else {
+            return Vec::new();
+        };
+        let Some(definition_semantic_identity) =
+            self.definition_semantic_identities.get(definition_id)
+        else {
+            return Vec::new();
+        };
+        let Some(scope_semantic_identity) = self
+            .task_scope_semantic_bindings
+            .get(definition_semantic_identity)
+        else {
             return Vec::new();
         };
         self.resolver_references
             .iter()
             .filter(|reference| {
-                reference.scope_id == scope.id
+                reference.scope_semantic_identity == *scope_semantic_identity
                     && reference.reference_kind == "callable_argument_ref"
             })
-            .filter_map(|reference| reference.resolved_definition_id.as_deref())
-            .filter(|definition_id| {
-                self.resolver_definitions.iter().any(|definition| {
-                    definition.id == *definition_id && definition.definition_kind == "task"
-                })
+            .filter_map(|reference| {
+                let semantic_identity =
+                    reference.resolved_definition_semantic_identity.as_deref()?;
+                self.resolver_definitions
+                    .iter()
+                    .find(|definition| {
+                        definition.semantic_identity == semantic_identity
+                            && definition.definition_kind == "task"
+                    })
+                    .map(|definition| definition.id.as_str())
             })
             .collect()
     }
@@ -1281,42 +1443,51 @@ impl CallableAnalysis {
     pub(crate) fn callable_callee_target_definition_ids(
         &self,
         task: &Task,
-        statement_span: &Span,
+        _statement_span: &Span,
     ) -> Vec<&str> {
-        let Some(scope) = self.resolver_scopes.iter().find(|scope| {
-            scope.scope_kind == "callable"
-                && scope.owner_kind == "task"
-                && scope
-                    .source_span
-                    .as_ref()
-                    .is_some_and(|span| same_span(span, &task.span))
-        }) else {
+        let Some(definition_id) = self.definition_id_for_task(task) else {
+            return Vec::new();
+        };
+        let Some(definition_semantic_identity) =
+            self.definition_semantic_identities.get(definition_id)
+        else {
+            return Vec::new();
+        };
+        let Some(scope_semantic_identity) = self
+            .task_scope_semantic_bindings
+            .get(definition_semantic_identity)
+        else {
             return Vec::new();
         };
         self.resolver_references
             .iter()
             .filter(|reference| {
-                reference.scope_id == scope.id
+                reference.scope_semantic_identity == *scope_semantic_identity
                     && reference.reference_kind == "callable_callee_ref"
-                    && same_line(&reference.source_span, statement_span)
             })
-            .filter_map(|reference| reference.resolved_definition_id.as_deref())
-            .filter(|definition_id| {
-                self.resolver_definitions.iter().any(|definition| {
-                    definition.id == *definition_id && definition.definition_kind == "task"
-                })
+            .filter_map(|reference| {
+                let semantic_identity =
+                    reference.resolved_definition_semantic_identity.as_deref()?;
+                self.resolver_definitions
+                    .iter()
+                    .find(|definition| {
+                        definition.semantic_identity == semantic_identity
+                            && definition.definition_kind == "task"
+                    })
+                    .map(|definition| definition.id.as_str())
             })
             .collect()
     }
 
     pub(crate) fn task_participates(&self, task: &Task) -> bool {
-        let Some(definition_id) = self.definition_id_for_task(task) else {
+        let Some(definition_semantic_identity) = self.semantic_definition_identity_for_task(task)
+        else {
             return false;
         };
-        self.applications.iter().any(|application| {
-            application.caller_definition_id == definition_id
-                || application.receiver_definition_id == definition_id
-                || application.target_definition_id == definition_id
+        self.application_authorities.values().any(|authority| {
+            authority.caller_definition_semantic_identity == definition_semantic_identity
+                || authority.receiver_definition_semantic_identity == definition_semantic_identity
+                || authority.target_definition_semantic_identity == definition_semantic_identity
         })
     }
 
@@ -1579,6 +1750,108 @@ impl CallableAnalysis {
 
     pub(crate) fn verify(&self) -> Vec<&'static str> {
         let mut failures = Vec::new();
+        for occurrence in &self.resolver_call_occurrences {
+            if occurrence.resolver_reference_identity() != occurrence.reference_id {
+                failures.push("callable_resolver_reference_authority_substituted");
+            }
+        }
+        if self.application_authorities.len() != self.applications.len() {
+            failures.push("callable_application_authority_cardinality_mismatch");
+        }
+        for application in &self.applications {
+            let Some(authority) = self.application_authorities.get(&application.id) else {
+                failures.push("callable_application_authority_missing");
+                continue;
+            };
+            for (projection_id, semantic_identity) in [
+                (
+                    application.caller_definition_id.as_str(),
+                    authority.caller_definition_semantic_identity.as_str(),
+                ),
+                (
+                    application.receiver_definition_id.as_str(),
+                    authority.receiver_definition_semantic_identity.as_str(),
+                ),
+                (
+                    application.target_definition_id.as_str(),
+                    authority.target_definition_semantic_identity.as_str(),
+                ),
+                (
+                    application.callable_parameter_definition_id.as_str(),
+                    authority.callable_parameter_semantic_identity.as_str(),
+                ),
+                (
+                    application.ordinary_parameter_definition_id.as_str(),
+                    authority.ordinary_parameter_semantic_identity.as_str(),
+                ),
+            ] {
+                if self
+                    .definition_semantic_identities
+                    .get(projection_id)
+                    .is_none_or(|retained| retained != semantic_identity)
+                {
+                    failures.push("callable_definition_authority_substituted");
+                }
+            }
+            for (scope_semantic_identity, owner_semantic_identity) in [
+                (
+                    authority.caller_scope_semantic_identity.as_str(),
+                    authority.caller_definition_semantic_identity.as_str(),
+                ),
+                (
+                    authority.receiver_scope_semantic_identity.as_str(),
+                    authority.receiver_definition_semantic_identity.as_str(),
+                ),
+            ] {
+                if !self.resolver_scopes.iter().any(|scope| {
+                    scope.semantic_identity == scope_semantic_identity
+                        && scope.owner_semantic_identity == owner_semantic_identity
+                }) {
+                    failures.push("callable_scope_authority_substituted");
+                }
+            }
+            let direct = self.resolver_call_occurrences.iter().find(|occurrence| {
+                occurrence.relationship_key() == authority.direct_resolver_occurrence_identity
+            });
+            if direct.is_none_or(|occurrence| {
+                occurrence.owner_definition_id != authority.caller_definition_semantic_identity
+                    || occurrence.target_definition_id
+                        != authority.receiver_definition_semantic_identity
+                    || occurrence.canonical_call_node_id() != authority.direct_call_node_id
+            }) {
+                failures.push("callable_direct_occurrence_authority_substituted");
+            }
+            let indirect = self.resolver_call_occurrences.iter().find(|occurrence| {
+                occurrence.relationship_key() == authority.indirect_resolver_occurrence_identity
+            });
+            if indirect.is_none_or(|occurrence| {
+                occurrence.owner_definition_id != authority.receiver_definition_semantic_identity
+                    || occurrence.target_definition_id
+                        != authority.callable_parameter_semantic_identity
+                    || !occurrence
+                        .relationship_key()
+                        .contains(&authority.indirect_statement_node_id)
+            }) {
+                failures.push("callable_indirect_occurrence_authority_substituted");
+            }
+            let value = self
+                .values
+                .iter()
+                .find(|value| value.id == application.callable_value_id);
+            if value.is_none_or(|value| {
+                self.resolver_references
+                    .iter()
+                    .find(|reference| reference.id == value.resolver_reference_id)
+                    .is_none_or(|reference| {
+                        reference.resolved_definition_semantic_identity.as_deref()
+                            != Some(authority.target_definition_semantic_identity.as_str())
+                            || reference.canonical_node_id.is_none()
+                            || reference.canonical_child_position.is_none()
+                    })
+            }) {
+                failures.push("callable_value_reference_authority_substituted");
+            }
+        }
         let definition_ids = self
             .definitions
             .iter()
@@ -1683,13 +1956,13 @@ impl CallableAnalysis {
             {
                 failures.push("callable_definition_signature_corrupt_v0");
             }
-            if fact.id != semantic_id("callable-definition", &fact.source_span) {
+            if fact.id != projection_span_id("callable-definition", &fact.source_span) {
                 failures.push("callable_definition_identity_corrupt_v0");
             }
             let exact_definition = self.resolver_definitions.iter().find(|definition| {
                 definition.id == fact.resolver_definition_id
                     && definition.definition_kind == "task"
-                    && same_span(&definition.source_span, &fact.source_span)
+                    && same_public_span_projection(&definition.source_span, &fact.source_span)
             });
             let exact_scope = self.resolver_scopes.iter().find(|scope| {
                 scope.id == fact.lexical_scope_id
@@ -1698,7 +1971,7 @@ impl CallableAnalysis {
                     && scope
                         .source_span
                         .as_ref()
-                        .is_some_and(|span| same_span(span, &fact.source_span))
+                        .is_some_and(|span| same_public_span_projection(span, &fact.source_span))
             });
             let expected_inputs = exact_scope.map(|scope| {
                 let mut inputs = self
@@ -1764,7 +2037,7 @@ impl CallableAnalysis {
             let exact_reference = self.resolver_references.iter().find(|reference| {
                 reference.id == fact.resolver_reference_id
                     && reference.reference_kind == "mutation_target"
-                    && same_span(&reference.source_span, &fact.source_span)
+                    && same_public_span_projection(&reference.source_span, &fact.source_span)
                     && reference.resolved_definition_id.as_deref()
                         == Some(fact.target_definition_id.as_str())
             });
@@ -1773,15 +2046,14 @@ impl CallableAnalysis {
                     && scope.owner_kind == "task"
                     && self.resolver_definitions.iter().any(|definition| {
                         definition.id == fact.owner_definition_id
-                            && scope
-                                .source_span
-                                .as_ref()
-                                .is_some_and(|span| same_span(span, &definition.source_span))
+                            && scope.source_span.as_ref().is_some_and(|span| {
+                                same_public_span_projection(span, &definition.source_span)
+                            })
                     })
             });
-            if fact.id != semantic_id("effect-label-change", &fact.source_span)
+            if fact.id != projection_span_id("effect-label-change", &fact.source_span)
                 || fact.label != "change"
-                || fact.alias_id != semantic_id("effect-alias-change", &fact.source_span)
+                || fact.alias_id != projection_span_id("effect-alias-change", &fact.source_span)
                 || exact_reference.is_none()
                 || owner_scope.is_none()
                 || !exact_reference.is_some_and(|reference| {
@@ -1843,14 +2115,14 @@ impl CallableAnalysis {
             {
                 failures.push("callable_value_fact_corrupt_v0");
             }
-            if fact.id != semantic_id("callable-value", &fact.source_span) {
+            if fact.id != projection_span_id("callable-value", &fact.source_span) {
                 failures.push("callable_value_identity_corrupt_v0");
             }
             let exact_reference = self.resolver_references.iter().find(|reference| {
                 reference.id == fact.resolver_reference_id
                     && reference.reference_kind == "callable_argument_ref"
                     && reference.scope_id == fact.referring_scope_id
-                    && same_span(&reference.source_span, &fact.source_span)
+                    && same_public_span_projection(&reference.source_span, &fact.source_span)
                     && reference.resolved_definition_id.as_deref()
                         == Some(fact.resolved_task_definition_id.as_str())
             });
@@ -1886,7 +2158,7 @@ impl CallableAnalysis {
             {
                 failures.push("callable_application_fact_corrupt_v0");
             }
-            if fact.id != semantic_id("callable-application", &fact.direct_call_span) {
+            if fact.id != projection_span_id("callable-application", &fact.direct_call_span) {
                 failures.push("callable_application_identity_corrupt_v0");
             }
             if [
@@ -1912,12 +2184,12 @@ impl CallableAnalysis {
             let exact_caller = self.resolver_definitions.iter().any(|definition| {
                 definition.id == fact.caller_definition_id
                     && definition.definition_kind == "task"
-                    && same_span(&definition.source_span, &fact.caller_span)
+                    && same_public_span_projection(&definition.source_span, &fact.caller_span)
             });
             let exact_receiver = self.resolver_definitions.iter().any(|definition| {
                 definition.id == fact.receiver_definition_id
                     && definition.definition_kind == "task"
-                    && same_span(&definition.source_span, &fact.receiver_span)
+                    && same_public_span_projection(&definition.source_span, &fact.receiver_span)
             });
             let exact_value = self.values.iter().any(|value| {
                 value.id == fact.callable_value_id
@@ -1935,7 +2207,7 @@ impl CallableAnalysis {
                     && scope
                         .source_span
                         .as_ref()
-                        .is_some_and(|span| same_span(span, &fact.receiver_span))
+                        .is_some_and(|span| same_public_span_projection(span, &fact.receiver_span))
             });
             let parameters_exact = receiver_scope.is_some_and(|scope| {
                 self.resolver_definitions.iter().any(|definition| {
@@ -1950,13 +2222,13 @@ impl CallableAnalysis {
             });
             let direct_reference_exact = self.resolver_references.iter().any(|reference| {
                 reference.reference_kind == "callable_callee_ref"
-                    && same_span(&reference.source_span, &fact.direct_call_span)
+                    && same_public_span_projection(&reference.source_span, &fact.direct_call_span)
                     && reference.resolved_definition_id.as_deref()
                         == Some(fact.receiver_definition_id.as_str())
             });
             let indirect_reference_exact = self.resolver_references.iter().any(|reference| {
                 reference.reference_kind == "callable_callee_ref"
-                    && same_span(&reference.source_span, &fact.indirect_call_span)
+                    && same_public_span_projection(&reference.source_span, &fact.indirect_call_span)
                     && reference.resolved_definition_id.as_deref()
                         == Some(fact.callable_parameter_definition_id.as_str())
             });
@@ -1988,7 +2260,7 @@ impl CallableAnalysis {
             expected_occurrence_ids.sort();
             if fact.id.is_empty()
                 || application.is_some_and(|application| {
-                    fact.id != semantic_id("row-substitution", &application.direct_call_span)
+                    fact.id != projection_span_id("row-substitution", &application.direct_call_span)
                         || fact.input_row_id != application.input_row_id
                         || fact.output_row_id != application.output_row_id
                 })
@@ -2011,7 +2283,7 @@ impl CallableAnalysis {
                 failures.push("callable_diagnostic_identity_corrupt_v0");
                 continue;
             };
-            let expected = semantic_id(
+            let expected = projection_span_id(
                 &format!(
                     "callable-diagnostic-{}-{}",
                     fact.diagnostic().code.as_str(),
@@ -2151,95 +2423,144 @@ fn task_entries<'a>(
     }
     raw.into_iter()
         .filter_map(|(task, file)| {
-            let definition = definition_for_span(definitions, &task.span, "task", None)?;
+            let definition_id = resolve::resolver_task_definition_id(program, task);
+            let definition = definitions
+                .iter()
+                .find(|definition| definition.id == definition_id)?;
             let scope = scopes.iter().find(|scope| {
                 scope.scope_kind == "callable"
                     && scope.owner_kind == "task"
-                    && scope
-                        .source_span
-                        .as_ref()
-                        .is_some_and(|span| same_span(span, &task.span))
+                    && scope.owner_semantic_identity == definition.semantic_identity
             })?;
+            let parameter_definitions = definitions
+                .iter()
+                .filter(|candidate| {
+                    candidate.definition_kind == "parameter" && candidate.scope_id == scope.id
+                })
+                .collect::<Vec<_>>();
+            if parameter_definitions.len() != task.params.len() {
+                return None;
+            }
             Some(TaskEntry {
                 task,
                 file,
                 definition_id: definition.id.clone(),
+                definition_semantic_identity: definition.semantic_identity.clone(),
                 callable_scope_id: scope.id.clone(),
+                callable_scope_semantic_identity: scope.semantic_identity.clone(),
+                parameter_definition_ids: parameter_definitions
+                    .iter()
+                    .map(|definition| definition.id.clone())
+                    .collect(),
+                parameter_definition_semantic_identities: parameter_definitions
+                    .iter()
+                    .map(|definition| definition.semantic_identity.clone())
+                    .collect(),
             })
         })
         .collect()
 }
 
-fn visit_statement_calls<'a>(
-    statement: &'a ParsedBodyStatement,
-    visitor: &mut impl FnMut(&'a Span, &'a ParsedExpression, &'a ParsedCall),
-) {
+fn callable_statement_roots(statement: &ParsedBodyStatement) -> Vec<&CanonicalExpression> {
+    if !statement.canonical_extra_occurrences.is_empty() {
+        return statement
+            .canonical_extra_occurrences
+            .iter()
+            .map(|expression| &expression.canonical)
+            .collect();
+    }
     match &statement.kind {
-        ParsedBodyStatementKind::Return(expression) => {
-            visit_expression_calls_with_statement(&statement.span, expression, visitor)
-        }
-        ParsedBodyStatementKind::Binding {
-            value: Some(expression),
-            ..
-        } => visit_expression_calls_with_statement(&statement.span, expression, visitor),
-        ParsedBodyStatementKind::Other { expressions } => {
-            for expression in expressions {
-                visit_expression_calls_with_statement(&statement.span, expression, visitor);
-            }
-        }
-        _ => {}
+        ParsedBodyStatementKind::Return(expression) => vec![&expression.canonical],
+        ParsedBodyStatementKind::Binding { value, .. } => value
+            .iter()
+            .map(|expression| &expression.canonical)
+            .collect(),
+        ParsedBodyStatementKind::Other { expressions } => expressions
+            .iter()
+            .map(|expression| &expression.canonical)
+            .collect(),
     }
 }
 
-fn visit_expression_calls_with_statement<'a>(
-    statement_span: &'a Span,
-    expression: &'a ParsedExpression,
-    visitor: &mut impl FnMut(&'a Span, &'a ParsedExpression, &'a ParsedCall),
+fn canonical_task_body(task: &Task) -> Vec<&ParsedBodyStatement> {
+    task.sections
+        .iter()
+        .find(|section| section.name == "does")
+        .into_iter()
+        .flat_map(|section| section.body_syntax.iter().flatten())
+        .collect()
+}
+
+fn canonical_statement_is_return(statement: &ParsedBodyStatement) -> bool {
+    statement.canonical_statement_authority.iter().any(|fact| {
+        matches!(
+            (&fact.field, &fact.value),
+            (
+                crate::ast::CanonicalStatementEventField::Kind,
+                crate::ast::CanonicalStatementEventValue::Kind(
+                    crate::ast::CanonicalStatementKindEvent::Return
+                )
+            )
+        )
+    })
+}
+
+fn visit_statement_calls<'a>(
+    statement: &'a ParsedBodyStatement,
+    visitor: &mut impl FnMut(&'a Span, CanonicalCallView<'a>),
 ) {
-    match &expression.kind {
-        ParsedExpressionKind::Call(call) => {
-            visitor(statement_span, expression, call);
-            visit_expression_calls_with_statement(statement_span, &call.callee, visitor);
-            for argument in &call.arguments {
-                visit_expression_calls_with_statement(statement_span, argument, visitor);
-            }
-        }
-        ParsedExpressionKind::Permission { value, .. } => {
-            visit_expression_calls_with_statement(statement_span, value, visitor)
-        }
-        ParsedExpressionKind::Compound { operands } => {
-            for operand in operands {
-                visit_expression_calls_with_statement(statement_span, operand, visitor);
-            }
-        }
-        _ => {}
+    for expression in callable_statement_roots(statement) {
+        visit_expression_calls(expression, &mut |call| visitor(&statement.span, call));
     }
 }
 
 fn visit_expression_calls<'a>(
-    expression: &'a ParsedExpression,
-    visitor: &mut impl FnMut(&'a ParsedExpression, &'a ParsedCall),
+    expression: &'a CanonicalExpression,
+    visitor: &mut impl FnMut(CanonicalCallView<'a>),
 ) {
     match &expression.kind {
-        ParsedExpressionKind::Call(call) => {
-            visitor(expression, call);
-            visit_expression_calls(&call.callee, visitor);
-            for argument in &call.arguments {
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            visitor(CanonicalCallView {
+                expression,
+                callee,
+                arguments,
+            });
+            visit_expression_calls(callee, visitor);
+            for argument in arguments {
                 visit_expression_calls(argument, visitor);
             }
         }
-        ParsedExpressionKind::Permission { value, .. } => visit_expression_calls(value, visitor),
-        ParsedExpressionKind::Compound { operands } => {
-            for operand in operands {
-                visit_expression_calls(operand, visitor);
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::ElementPlace { base, .. }
+        | CanonicalExpressionKind::Permission { value: base, .. }
+        | CanonicalExpressionKind::Try { value: base, .. }
+        | CanonicalExpressionKind::Group(base) => visit_expression_calls(base, visitor),
+        CanonicalExpressionKind::ListLiteral(values) => {
+            for value in values {
+                visit_expression_calls(value, visitor);
             }
         }
-        _ => {}
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            for (_field, value) in fields {
+                visit_expression_calls(value, visitor);
+            }
+        }
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            visit_expression_calls(left, visitor);
+            visit_expression_calls(right, visitor);
+        }
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => {}
     }
 }
 
 fn find_unsupported_callable_value_use(
-    expression: &ParsedExpression,
+    expression: &CanonicalExpression,
     definition_id: &str,
     references: &[ResolveReferenceSummary],
     callee_position: bool,
@@ -2249,20 +2570,14 @@ fn find_unsupported_callable_value_use(
         return;
     }
     match &expression.kind {
-        ParsedExpressionKind::Identifier(_) => {
+        CanonicalExpressionKind::Identifier(_) => {
             if !callee_position && expression_resolves_to(expression, definition_id, references) {
-                *found = Some(expression.span.clone());
+                *found = Some(expression.range.start.clone());
             }
         }
-        ParsedExpressionKind::Call(call) => {
-            find_unsupported_callable_value_use(
-                &call.callee,
-                definition_id,
-                references,
-                true,
-                found,
-            );
-            for argument in &call.arguments {
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            find_unsupported_callable_value_use(callee, definition_id, references, true, found);
+            for argument in arguments {
                 find_unsupported_callable_value_use(
                     argument,
                     definition_id,
@@ -2272,11 +2587,15 @@ fn find_unsupported_callable_value_use(
                 );
             }
         }
-        ParsedExpressionKind::Permission { value, .. } => {
+        CanonicalExpressionKind::Field { base: value, .. }
+        | CanonicalExpressionKind::ElementPlace { base: value, .. }
+        | CanonicalExpressionKind::Permission { value, .. }
+        | CanonicalExpressionKind::Try { value, .. }
+        | CanonicalExpressionKind::Group(value) => {
             find_unsupported_callable_value_use(value, definition_id, references, false, found);
         }
-        ParsedExpressionKind::Compound { operands } => {
-            for operand in operands {
+        CanonicalExpressionKind::ListLiteral(values) => {
+            for operand in values {
                 find_unsupported_callable_value_use(
                     operand,
                     definition_id,
@@ -2286,72 +2605,171 @@ fn find_unsupported_callable_value_use(
                 );
             }
         }
-        _ => {}
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            for (_field, value) in fields {
+                find_unsupported_callable_value_use(value, definition_id, references, false, found);
+            }
+        }
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            find_unsupported_callable_value_use(left, definition_id, references, false, found);
+            find_unsupported_callable_value_use(right, definition_id, references, false, found);
+        }
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => {}
     }
 }
 
-fn identifier(expression: &ParsedExpression) -> Option<&crate::ast::ParsedIdentifier> {
+fn canonical_identifier(expression: &CanonicalExpression) -> Option<(&str, &Span)> {
     match &expression.kind {
-        ParsedExpressionKind::Identifier(identifier) => Some(identifier),
+        CanonicalExpressionKind::Identifier(name) => Some((name, &expression.range.start)),
         _ => None,
     }
 }
 
-fn reference_at<'a>(
+fn canonical_call_is_complete(expression: &CanonicalExpression) -> bool {
+    matches!(expression.completion, CanonicalCompletionEvent::Complete)
+        && expression.payload.iter().any(|fact| {
+            matches!(
+                (&fact.field, &fact.value),
+                (
+                    CanonicalPayloadField::CallCloseState,
+                    CanonicalPayloadEventValue::Bool(true)
+                )
+            )
+        })
+        && expression.payload.iter().any(|fact| {
+            matches!(
+                (&fact.field, &fact.value),
+                (
+                    CanonicalPayloadField::CallTrailingState,
+                    CanonicalPayloadEventValue::Bool(true)
+                )
+            )
+        })
+}
+
+fn canonical_call_separator_hws_valid(expression: &CanonicalExpression) -> bool {
+    expression
+        .payload
+        .iter()
+        .find_map(|fact| match (&fact.field, &fact.value) {
+            (
+                CanonicalPayloadField::CallAdjacency,
+                CanonicalPayloadEventValue::Bools(adjacency),
+            ) => Some(
+                adjacency.len() < 4 || adjacency[2..adjacency.len() - 1].iter().all(|valid| *valid),
+            ),
+            _ => None,
+        })
+        == Some(true)
+}
+
+fn reference_for_canonical_node<'a>(
     references: &'a [ResolveReferenceSummary],
-    span: &Span,
+    node_id: &str,
     kind: &str,
 ) -> Option<&'a ResolveReferenceSummary> {
     references.iter().find(|reference| {
-        reference.reference_kind == kind && same_span(&reference.source_span, span)
+        reference.reference_kind == kind && reference.canonical_node_id.as_deref() == Some(node_id)
     })
 }
 
 fn call_callee_resolves_to(
-    call: &ParsedCall,
+    call: CanonicalCallView<'_>,
+    callee: &CanonicalExpression,
     definition_id: &str,
     references: &[ResolveReferenceSummary],
+    call_occurrences: &[ResolveCallOccurrenceSummary],
 ) -> bool {
-    identifier(&call.callee)
-        .and_then(|identifier| reference_at(references, &identifier.span, "callable_callee_ref"))
-        .and_then(|reference| reference.resolved_definition_id.as_deref())
-        == Some(definition_id)
+    resolver_call_for_canonical(call_occurrences, call).is_some()
+        && canonical_identifier(callee)
+            .and_then(|_| {
+                reference_for_canonical_node(
+                    references,
+                    callee.node_id.as_str(),
+                    "callable_callee_ref",
+                )
+            })
+            .and_then(|reference| reference.resolved_definition_id.as_deref())
+            == Some(definition_id)
+}
+
+fn resolver_call_for_canonical<'a>(
+    call_occurrences: &'a [ResolveCallOccurrenceSummary],
+    call: CanonicalCallView<'_>,
+) -> Option<&'a ResolveCallOccurrenceSummary> {
+    let argument_ids = call
+        .arguments
+        .iter()
+        .map(|argument| argument.node_id.as_str())
+        .collect::<Vec<_>>();
+    call_occurrences.iter().find(|occurrence| {
+        occurrence.canonical_call_node_id() == call.expression.node_id.as_str()
+            && occurrence.canonical_callee_node_id() == call.callee.node_id.as_str()
+            && occurrence
+                .canonical_argument_node_ids()
+                .iter()
+                .map(String::as_str)
+                .eq(argument_ids.iter().copied())
+    })
 }
 
 fn expression_resolves_to(
-    expression: &ParsedExpression,
+    expression: &CanonicalExpression,
     definition_id: &str,
     references: &[ResolveReferenceSummary],
 ) -> bool {
-    identifier(expression)
-        .and_then(|identifier| {
-            reference_at(references, &identifier.span, "callable_value_ref")
-                .or_else(|| reference_at(references, &identifier.span, "callable_argument_ref"))
+    canonical_identifier(expression)
+        .and_then(|_| {
+            reference_for_canonical_node(
+                references,
+                expression.node_id.as_str(),
+                "callable_value_ref",
+            )
+            .or_else(|| {
+                reference_for_canonical_node(
+                    references,
+                    expression.node_id.as_str(),
+                    "callable_argument_ref",
+                )
+            })
         })
         .and_then(|reference| reference.resolved_definition_id.as_deref())
         == Some(definition_id)
 }
 
 fn ordinary_argument_fact(
-    expression: &ParsedExpression,
+    expression: &CanonicalExpression,
     definitions: &[ResolveDefinitionSummary],
     references: &[ResolveReferenceSummary],
     tasks: &[TaskEntry<'_>],
 ) -> Option<OrdinaryArgumentFact> {
     match &expression.kind {
-        ParsedExpressionKind::UIntLiteral(value) => Some(OrdinaryArgumentFact::UIntLiteral(*value)),
-        ParsedExpressionKind::Identifier(identifier) => {
-            let reference = reference_at(references, &identifier.span, "callable_argument_ref")?;
+        CanonicalExpressionKind::UIntLiteral(value) => {
+            Some(OrdinaryArgumentFact::UIntLiteral(*value))
+        }
+        CanonicalExpressionKind::Identifier(_) => {
+            let reference = reference_for_canonical_node(
+                references,
+                expression.node_id.as_str(),
+                "callable_argument_ref",
+            )?;
             let definition_id = reference.resolved_definition_id.as_ref()?;
             let definition = definitions
                 .iter()
                 .find(|definition| &definition.id == definition_id)?;
             if definition.definition_kind == "parameter" {
                 let is_uint = tasks.iter().any(|entry| {
-                    entry.task.params.iter().any(|param| {
-                        same_span(&param.span, &definition.source_span)
-                            && is_named(&param.type_syntax, "UInt")
-                    })
+                    entry
+                        .parameter_definition_semantic_identities
+                        .iter()
+                        .position(|identity| identity == &definition.semantic_identity)
+                        .and_then(|index| entry.task.params.get(index))
+                        .is_some_and(|param| is_named(&param.type_syntax, "UInt"))
                 });
                 is_uint.then(|| OrdinaryArgumentFact::Definition {
                     definition_id: definition_id.clone(),
@@ -2445,16 +2863,15 @@ fn task_has_closed_empty_latent_row(task: &Task) -> bool {
         return false;
     }
     !task
-        .body_syntax
+        .sections
         .iter()
-        .any(|statement| match &statement.kind {
-            ParsedBodyStatementKind::Return(expression) => expression_contains_call(expression),
-            ParsedBodyStatementKind::Binding { value, .. } => {
-                value.as_ref().is_some_and(expression_contains_call)
-            }
-            ParsedBodyStatementKind::Other { expressions } => {
-                expressions.iter().any(expression_contains_call)
-            }
+        .find(|section| section.name == "does")
+        .into_iter()
+        .flat_map(|section| section.body_syntax.iter().flatten())
+        .any(|statement| {
+            callable_statement_roots(statement)
+                .into_iter()
+                .any(expression_contains_call)
         })
 }
 
@@ -2469,16 +2886,15 @@ fn task_has_supported_am_latent_row(
         return task_has_closed_empty_latent_row(task);
     }
     !task
-        .body_syntax
+        .sections
         .iter()
-        .any(|statement| match &statement.kind {
-            ParsedBodyStatementKind::Return(expression) => expression_contains_call(expression),
-            ParsedBodyStatementKind::Binding { value, .. } => {
-                value.as_ref().is_some_and(expression_contains_call)
-            }
-            ParsedBodyStatementKind::Other { expressions } => {
-                expressions.iter().any(expression_contains_call)
-            }
+        .find(|section| section.name == "does")
+        .into_iter()
+        .flat_map(|section| section.body_syntax.iter().flatten())
+        .any(|statement| {
+            callable_statement_roots(statement)
+                .into_iter()
+                .any(expression_contains_call)
         })
 }
 
@@ -2495,14 +2911,7 @@ fn task_change_origins(
         })
         .cloned()
         .collect::<Vec<_>>();
-    origins.sort_by_key(|reference| {
-        (
-            node_id::source_path_identity(&reference.source_span.file),
-            reference.source_span.line,
-            reference.source_span.column,
-            reference.id.clone(),
-        )
-    });
+    origins.sort_by(|left, right| left.semantic_identity.cmp(&right.semantic_identity));
     origins
 }
 
@@ -2524,17 +2933,28 @@ fn scope_is_within(scope_id: &str, ancestor_id: &str, scopes: &[ResolveScopeSumm
     false
 }
 
-fn expression_contains_call(expression: &ParsedExpression) -> bool {
+fn expression_contains_call(expression: &CanonicalExpression) -> bool {
     match &expression.kind {
-        ParsedExpressionKind::Call(_) => true,
-        ParsedExpressionKind::Permission { value, .. } => expression_contains_call(value),
-        ParsedExpressionKind::Compound { operands } => {
-            operands.iter().any(expression_contains_call)
+        CanonicalExpressionKind::Call { .. } => true,
+        CanonicalExpressionKind::Field { base: value, .. }
+        | CanonicalExpressionKind::ElementPlace { base: value, .. }
+        | CanonicalExpressionKind::Permission { value, .. }
+        | CanonicalExpressionKind::Try { value, .. }
+        | CanonicalExpressionKind::Group(value) => expression_contains_call(value),
+        CanonicalExpressionKind::ListLiteral(values) => values.iter().any(expression_contains_call),
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => fields
+            .iter()
+            .any(|(_field, value)| expression_contains_call(value)),
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            expression_contains_call(left) || expression_contains_call(right)
         }
-        ParsedExpressionKind::Identifier(_)
-        | ParsedExpressionKind::UIntLiteral(_)
-        | ParsedExpressionKind::Unsupported { .. }
-        | ParsedExpressionKind::Other => false,
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => false,
     }
 }
 
@@ -2554,24 +2974,11 @@ fn named_type(syntax: &TypeSyntax) -> Option<&str> {
     }
 }
 
-fn definition_for_span<'a>(
-    definitions: &'a [ResolveDefinitionSummary],
-    span: &Span,
-    kind: &str,
-    scope: Option<&str>,
-) -> Option<&'a ResolveDefinitionSummary> {
-    definitions.iter().find(|definition| {
-        definition.definition_kind == kind
-            && same_span(&definition.source_span, span)
-            && scope.is_none_or(|scope| definition.scope_id == scope)
-    })
-}
-
-fn semantic_id(kind: &str, span: &Span) -> String {
+fn projection_span_id(kind: &str, span: &Span) -> String {
     node_id::span(kind, &portable_span(span), kind)
 }
-fn missing_id(kind: &str, span: &Span) -> String {
-    semantic_id(&format!("missing-{kind}"), span)
+fn missing_projection_id(kind: &str, span: &Span) -> String {
+    projection_span_id(&format!("missing-{kind}"), span)
 }
 fn portable_span(span: &Span) -> Span {
     Span::new(
@@ -2580,16 +2987,11 @@ fn portable_span(span: &Span) -> Span {
         span.column,
     )
 }
-fn same_span(left: &Span, right: &Span) -> bool {
+fn same_public_span_projection(left: &Span, right: &Span) -> bool {
     node_id::source_path_identity(&left.file) == node_id::source_path_identity(&right.file)
         && left.line == right.line
         && left.column == right.column
 }
-fn same_line(left: &Span, right: &Span) -> bool {
-    node_id::source_path_identity(&left.file) == node_id::source_path_identity(&right.file)
-        && left.line == right.line
-}
-
 fn analysis_key(
     program: &Program,
     definitions: &[ResolveDefinitionSummary],
@@ -2597,6 +2999,7 @@ fn analysis_key(
     references: &[ResolveReferenceSummary],
 ) -> AnalysisKey {
     AnalysisKey {
+        program_identity: std::ptr::from_ref(program) as usize,
         program: program.clone(),
         definitions: definitions.to_vec(),
         scopes: scopes.to_vec(),
@@ -3089,7 +3492,7 @@ fn push_graph_edge(
     source_span: &Span,
 ) {
     edges.push(CallableGraphEdgeFact {
-        id: semantic_id(
+        id: projection_span_id(
             &format!("callable-graph-{kind}-{application_id}-{from}-{to}"),
             source_span,
         ),
@@ -3315,13 +3718,15 @@ fn push_json_diagnostics(out: &mut String, facts: &[CallableDiagnosticFact], com
 #[cfg(test)]
 mod tests {
     use super::{
-        CALLABLE_FACT_MODEL, OrdinaryArgumentFact, analyze_program, core_node_facts,
-        diagnostic_occurrences, graph_edge_facts, validate_diagnostic_occurrences,
-        verify_core_node_facts, verify_graph_edge_facts,
+        CALLABLE_FACT_MODEL, OrdinaryArgumentFact, analyze_program,
+        build_from_complete_resolver_authority_for_test, core_node_facts, diagnostic_occurrences,
+        graph_edge_facts, validate_diagnostic_occurrences, verify_core_node_facts,
+        verify_graph_edge_facts,
     };
     use crate::ast::{Item, ParsedExpressionKind};
     use crate::diagnostic::{Diagnostic, DiagnosticCode};
-    use crate::parser::parse_source;
+    use crate::parser::{parse_source, parse_source_at_index};
+    use crate::resolve;
     use std::sync::Arc;
 
     const SOURCE: &str = r#"module tests.callable
@@ -3341,6 +3746,111 @@ task run -> UInt {
     return apply_once(increment, 41)
 }
 "#;
+
+    fn analyze_at_resolver_consumer_boundary(
+        program: &crate::ast::Program,
+        references: Vec<resolve::ResolveReferenceSummary>,
+        call_occurrences: Vec<resolve::ResolveCallOccurrenceSummary>,
+    ) -> super::CallableAnalysis {
+        build_from_complete_resolver_authority_for_test(
+            program,
+            resolve::resolve_definition_summaries(program, &[]),
+            resolve::resolve_scope_summaries(program, &[]),
+            references,
+            call_occurrences,
+        )
+    }
+
+    fn ten_b2_resolver_observation(program: &crate::ast::Program) -> Vec<String> {
+        fn semantic_origin(identity: &str) -> &str {
+            identity
+                .rsplit("|origin=")
+                .next()
+                .and_then(|rest| rest.split("|shape=").next())
+                .expect("resolver identity carries one structural origin")
+        }
+        resolve::resolve_call_occurrence_summaries(program, &[])
+            .iter()
+            .map(|call| {
+                format!(
+                    "owner={}|target={}|call-node={}|callee-node={}|argument-nodes=[{}]",
+                    semantic_origin(&call.owner_definition_id),
+                    semantic_origin(&call.target_definition_id),
+                    call.canonical_call_node_id(),
+                    call.canonical_callee_node_id(),
+                    call.canonical_argument_node_ids().join(","),
+                )
+            })
+            .collect()
+    }
+
+    fn ten_b2_callable_observation(analysis: &super::CallableAnalysis) -> Vec<String> {
+        fn semantic_origin(identity: &str) -> &str {
+            identity
+                .rsplit("|origin=")
+                .next()
+                .and_then(|rest| rest.split("|shape=").next())
+                .expect("callable identity carries one structural origin")
+        }
+        fn resolver_reference_position(identity: &str) -> &str {
+            identity
+                .rsplit_once("|statement-")
+                .map(|(_, position)| position)
+                .expect("resolver reference identity carries one canonical position")
+        }
+        let mut observations = analysis
+            .applications
+            .iter()
+            .map(|application| {
+                let authority = analysis
+                    .application_authorities
+                    .get(&application.id)
+                    .expect("application retains resolver authority");
+                let direct = analysis
+                    .resolver_call_occurrences
+                    .iter()
+                    .find(|occurrence| {
+                        occurrence.relationship_key()
+                            == authority.direct_resolver_occurrence_identity
+                    })
+                    .expect("application retains its direct resolver occurrence");
+                let indirect = analysis
+                    .resolver_call_occurrences
+                    .iter()
+                    .find(|occurrence| {
+                        occurrence.relationship_key()
+                            == authority.indirect_resolver_occurrence_identity
+                    })
+                    .expect("application retains its indirect resolver occurrence");
+                format!(
+                    "application={}|caller={}|receiver={}|target={}|callable-parameter={}|ordinary-parameter={}|direct-reference=statement-{}|indirect-reference=statement-{}|direct-node={}|indirect-statement={}",
+                    application.id,
+                    semantic_origin(&authority.caller_definition_semantic_identity),
+                    semantic_origin(&authority.receiver_definition_semantic_identity),
+                    semantic_origin(&authority.target_definition_semantic_identity),
+                    semantic_origin(&authority.callable_parameter_semantic_identity),
+                    semantic_origin(&authority.ordinary_parameter_semantic_identity),
+                    resolver_reference_position(&direct.reference_id),
+                    resolver_reference_position(&indirect.reference_id),
+                    authority.direct_call_node_id,
+                    authority.indirect_statement_node_id,
+                )
+            })
+            .collect::<Vec<_>>();
+        observations.extend(analysis.substitutions.iter().map(|substitution| {
+            format!(
+                "substitution={}|application={}|input={}|tail={}|argument={}|output={}|status={}",
+                substitution.id,
+                substitution.application_id,
+                substitution.input_row_id,
+                substitution.tail_id,
+                substitution.argument_row_id,
+                substitution.output_row_id,
+                substitution.status,
+            )
+        }));
+        observations
+    }
 
     const AM_SOURCE: &str = r#"module tests.callable_row
 
@@ -3362,6 +3872,567 @@ task run -> UInt {
     return apply_once(bump, 40)
 }
 "#;
+
+    fn ten_b2_source_audit(resolve_source: &str, callable_source: &str) -> Result<(), String> {
+        fn production(source: &str) -> &str {
+            source
+                .split_once("#[cfg(test)]\nmod tests")
+                .or_else(|| source.split_once("#[cfg(test)]\r\nmod tests"))
+                .map_or(source, |(production, _)| production)
+        }
+        let resolve = production(resolve_source);
+        let callable = production(callable_source);
+        fn between<'a>(source: &'a str, start: &str, end: &str) -> Result<&'a str, String> {
+            let start_index = source
+                .find(start)
+                .ok_or_else(|| format!("missing audit start `{start}`"))?;
+            let rest = &source[start_index..];
+            let end_index = rest
+                .find(end)
+                .ok_or_else(|| format!("missing audit end `{end}`"))?;
+            Ok(&rest[..end_index])
+        }
+        for forbidden in [
+            "core_expr::analyze_expression",
+            "render_parsed_expression",
+            "parser_owned_top_level_call_ranges",
+            "ParsedExpressionKind::",
+            "reference_at(",
+            "definition_for_span",
+            "fn semantic_id(",
+            "fn same_line(",
+        ] {
+            if resolve.contains(forbidden) || callable.contains(forbidden) {
+                return Err(format!("forbidden semantic reconstruction `{forbidden}`"));
+            }
+        }
+        let task_join = between(callable, "fn task_entries", "fn callable_statement_roots")?;
+        for forbidden in [
+            "source_span",
+            "same_public_span_projection",
+            ".line",
+            ".column",
+        ] {
+            if task_join.contains(forbidden) {
+                return Err(format!(
+                    "resolver task join depends on public projection `{forbidden}`"
+                ));
+            }
+        }
+        let query_boundary = between(
+            callable,
+            "pub(crate) fn direct_application",
+            "pub(crate) fn bridge_status",
+        )?;
+        for forbidden in [
+            "source_span",
+            "same_public_span_projection",
+            ".line",
+            ".column",
+            "node_id::span",
+        ] {
+            if query_boundary.contains(forbidden) {
+                return Err(format!(
+                    "callable query depends on public projection `{forbidden}`"
+                ));
+            }
+        }
+        if query_boundary.matches("application_authorities").count() != 4 {
+            return Err(
+                "every callable query must select through retained application authority"
+                    .to_string(),
+            );
+        }
+        for required in [
+            "resolver_task_definition_id(program, task)",
+            "owner_semantic_identity == definition.semantic_identity",
+            "semantic_definition_identity_for_task",
+            "application_authorities",
+            "scope_semantic_identity",
+            "resolved_definition_semantic_identity",
+            "std::ptr::from_ref",
+        ] {
+            if !resolve.contains(required) && !callable.contains(required) {
+                return Err(format!("missing structural authority route `{required}`"));
+            }
+        }
+        let definition_identity = between(
+            resolve,
+            "let scope_semantic_identity = self",
+            "let status = if duplicate.is_some()",
+        )?;
+        for forbidden in [
+            "definition_serial",
+            "same_shape_ordinal",
+            "source_span",
+            ".line",
+        ] {
+            if definition_identity.contains(forbidden) {
+                return Err(format!(
+                    "definition authority depends on unstable projection `{forbidden}`"
+                ));
+            }
+        }
+        for required in [
+            "scope_semantic_identity",
+            "semantic_origin",
+            "semantic_shape",
+            "semantic_identity",
+        ] {
+            if !definition_identity.contains(required) {
+                return Err(format!(
+                    "definition authority omits structural component `{required}`"
+                ));
+            }
+        }
+        let compatibility_marker = "retain_legacy_call_projection_api_compatibility";
+        if resolve.matches("executable_call_nodes").count() != 1
+            || !resolve.contains(compatibility_marker)
+        {
+            return Err(
+                "legacy call projection must remain one non-executed compatibility API reference"
+                    .to_string(),
+            );
+        }
+        for required in [
+            "canonical_call_node_id",
+            "canonical_callee_node_id",
+            "canonical_argument_node_ids",
+            "reference_for_canonical_node",
+            "resolver_call_for_canonical",
+        ] {
+            if !resolve.contains(required) && !callable.contains(required) {
+                return Err(format!(
+                    "missing canonical resolver/callable route `{required}`"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn ten_b2_source_audit_rejects_semantic_reconstruction_and_span_selection() {
+        let resolve = include_str!("resolve.rs");
+        let callable = include_str!("callable.rs");
+        assert_eq!(ten_b2_source_audit(resolve, callable), Ok(()));
+        let sabotages = [
+            (
+                "span-selected resolver task",
+                callable.replacen(
+                    "let definition_id = resolve::resolver_task_definition_id(program, task);",
+                    "let definition_id = definitions.iter().find(|definition| same_public_span_projection(&definition.source_span, &task.span))?.id.clone();",
+                    1,
+                ),
+                resolve.to_string(),
+            ),
+            (
+                "public-fact application query",
+                callable.replacen(
+                    "let mut candidates = self\n            .application_authorities",
+                    "let mut candidates = self\n            .applications",
+                    1,
+                ),
+                resolve.to_string(),
+            ),
+        ];
+        for (label, corrupted_callable, corrupted_resolve) in sabotages {
+            assert!(
+                corrupted_callable != callable || corrupted_resolve != resolve,
+                "supporting audit substitution `{label}` did not alter the audited source"
+            );
+            assert!(
+                ten_b2_source_audit(&corrupted_resolve, &corrupted_callable).is_err(),
+                "supporting source audit accepted forbidden flow `{label}`"
+            );
+        }
+    }
+
+    #[test]
+    fn ten_b2_real_parser_path_uses_exact_canonical_call_children_and_resolver_identity() {
+        let source = r#"task leaf(value: UInt) -> UInt {
+  does:
+    return value
+}
+
+task caller(value: UInt) -> UInt {
+  does:
+    return leaf(value) + leaf(value) + leaf(leaf(value))
+}
+"#;
+        let parsed = parse_source("ten-b2-calls.hum", source);
+        let program = crate::ast::Program {
+            files: vec![parsed.file],
+        };
+        let expected_resolver = [
+            "owner=resolver-item:file-0:path-1|target=resolver-item:file-0:path-0|call-node=parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-left:binary-left|callee-node=parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-left:binary-left:call-callee|argument-nodes=[parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-left:binary-left:call-argument-0]",
+            "owner=resolver-item:file-0:path-1|target=resolver-item:file-0:path-0|call-node=parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-left:binary-right|callee-node=parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-left:binary-right:call-callee|argument-nodes=[parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-left:binary-right:call-argument-0]",
+            "owner=resolver-item:file-0:path-1|target=resolver-item:file-0:path-0|call-node=parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-right|callee-node=parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-right:call-callee|argument-nodes=[parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-right:call-argument-0]",
+            "owner=resolver-item:file-0:path-1|target=resolver-item:file-0:path-0|call-node=parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-right:call-argument-0|callee-node=parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-right:call-argument-0:call-callee|argument-nodes=[parser-body:resolver-item:file-0:path-1:statement-0:expression-0:binary-right:call-argument-0:call-argument-0]",
+        ]
+        .map(str::to_string)
+        .to_vec();
+        assert_eq!(ten_b2_resolver_observation(&program), expected_resolver);
+
+        let repeated = parse_source("ten-b2-calls.hum", source);
+        let repeated_program = crate::ast::Program {
+            files: vec![repeated.file],
+        };
+        assert_eq!(
+            ten_b2_resolver_observation(&repeated_program),
+            expected_resolver
+        );
+
+        let callable = parse_source("ten-b2-callable.hum", SOURCE);
+        let callable_program = crate::ast::Program {
+            files: vec![callable.file],
+        };
+        let analysis = analyze_program(&callable_program);
+        assert!(analysis.diagnostics.is_empty());
+        assert_eq!(
+            ten_b2_callable_observation(&analysis),
+            ["application=callable-application:ten-b2-callable.hum:15:12:callable-application|caller=resolver-item:file-0:path-2|receiver=resolver-item:file-0:path-1|target=resolver-item:file-0:path-0|callable-parameter=parameter-position:0|ordinary-parameter=parameter-position:1|direct-reference=statement-0:parser-body:resolver-item:file-0:path-2:statement-0:root-0:path-0:node-parser-body:resolver-item:file-0:path-2:statement-0:expression-0|indirect-reference=statement-0:parser-body:resolver-item:file-0:path-1:statement-0:root-0:path-0:node-parser-body:resolver-item:file-0:path-1:statement-0:expression-0|direct-node=parser-body:resolver-item:file-0:path-2:statement-0:expression-0|indirect-statement=parser-body:resolver-item:file-0:path-1:statement-0".to_string()]
+        );
+
+        let shadowed_source = r#"app left {
+  task leaf(value: UInt) -> UInt {
+    does:
+      return value
+  }
+
+  task caller(value: UInt) -> UInt {
+    does:
+      return leaf(value)
+  }
+}
+
+app right {
+  task leaf(value: UInt) -> UInt {
+    does:
+      return value
+  }
+
+  task caller(value: UInt) -> UInt {
+    does:
+      return leaf(value)
+  }
+}
+"#;
+        let shadowed = parse_source("ten-b2-shadowed.hum", shadowed_source);
+        let shadowed_program = crate::ast::Program {
+            files: vec![shadowed.file],
+        };
+        assert_eq!(
+            ten_b2_resolver_observation(&shadowed_program),
+            [
+                "owner=resolver-item:file-0:path-0.1|target=resolver-item:file-0:path-0.0|call-node=parser-body:resolver-item:file-0:path-0.1:statement-0:expression-0|callee-node=parser-body:resolver-item:file-0:path-0.1:statement-0:expression-0:call-callee|argument-nodes=[parser-body:resolver-item:file-0:path-0.1:statement-0:expression-0:call-argument-0]",
+                "owner=resolver-item:file-0:path-1.1|target=resolver-item:file-0:path-1.0|call-node=parser-body:resolver-item:file-0:path-1.1:statement-0:expression-0|callee-node=parser-body:resolver-item:file-0:path-1.1:statement-0:expression-0:call-callee|argument-nodes=[parser-body:resolver-item:file-0:path-1.1:statement-0:expression-0:call-argument-0]",
+            ]
+            .map(str::to_string)
+            .to_vec()
+        );
+
+        let am = parse_source("ten-b2-callable-am.hum", AM_SOURCE);
+        let am_program = crate::ast::Program {
+            files: vec![am.file],
+        };
+        assert_eq!(
+            ten_b2_callable_observation(&analyze_program(&am_program)),
+            [
+                "application=callable-application:ten-b2-callable-am.hum:18:12:callable-application|caller=resolver-item:file-0:path-2|receiver=resolver-item:file-0:path-1|target=resolver-item:file-0:path-0|callable-parameter=parameter-position:0|ordinary-parameter=parameter-position:1|direct-reference=statement-0:parser-body:resolver-item:file-0:path-2:statement-0:root-0:path-0:node-parser-body:resolver-item:file-0:path-2:statement-0:expression-0|indirect-reference=statement-0:parser-body:resolver-item:file-0:path-1:statement-0:root-0:path-0:node-parser-body:resolver-item:file-0:path-1:statement-0:expression-0|direct-node=parser-body:resolver-item:file-0:path-2:statement-0:expression-0|indirect-statement=parser-body:resolver-item:file-0:path-1:statement-0",
+                "substitution=row-substitution:ten-b2-callable-am.hum:18:12:row-substitution|application=callable-application:ten-b2-callable-am.hum:18:12:callable-application|input=latent-row:ten-b2-callable-am.hum:11:28:latent-row|tail=row-tail:ten-b2-callable-am.hum:11:28:row-tail|argument=latent-row-argument:ten-b2-callable-am.hum:18:23:latent-row-argument|output=latent-row-output:ten-b2-callable-am.hum:18:12:latent-row-output|status=accepted_single_structural_substitution_v0",
+            ]
+            .map(str::to_string)
+            .to_vec()
+        );
+    }
+
+    #[test]
+    fn ten_b2_canonical_corruption_and_resolver_substitution_fail_closed() {
+        let parsed = parse_source("ten-b2-corruption.hum", SOURCE);
+        let program = crate::ast::Program {
+            files: vec![parsed.file],
+        };
+        let expected = ["application=callable-application:ten-b2-corruption.hum:15:12:callable-application|caller=resolver-item:file-0:path-2|receiver=resolver-item:file-0:path-1|target=resolver-item:file-0:path-0|callable-parameter=parameter-position:0|ordinary-parameter=parameter-position:1|direct-reference=statement-0:parser-body:resolver-item:file-0:path-2:statement-0:root-0:path-0:node-parser-body:resolver-item:file-0:path-2:statement-0:expression-0|indirect-reference=statement-0:parser-body:resolver-item:file-0:path-1:statement-0:root-0:path-0:node-parser-body:resolver-item:file-0:path-1:statement-0:expression-0|direct-node=parser-body:resolver-item:file-0:path-2:statement-0:expression-0|indirect-statement=parser-body:resolver-item:file-0:path-1:statement-0".to_string()];
+        let references = resolve::resolve_reference_summaries(&program, &[]);
+        let call_occurrences = resolve::resolve_call_occurrence_summaries(&program, &[]);
+        for _ in 0..2 {
+            let clean = analyze_at_resolver_consumer_boundary(
+                &program,
+                references.clone(),
+                call_occurrences.clone(),
+            );
+            assert_eq!(ten_b2_callable_observation(&clean), expected);
+            assert_eq!(clean.verify(), Vec::<&'static str>::new());
+        }
+
+        for _ in 0..2 {
+            let mut wrong_resolver_reference = call_occurrences.clone();
+            wrong_resolver_reference
+                .iter_mut()
+                .find(|call| call.canonical_argument_node_ids().len() == 2)
+                .expect("direct callable occurrence")
+                .replace_resolver_reference_identity_for_test("foreign-private-resolver-reference");
+            let wrong_resolver_reference_analysis = analyze_at_resolver_consumer_boundary(
+                &program,
+                references.clone(),
+                wrong_resolver_reference,
+            );
+            assert_eq!(
+                ten_b2_callable_observation(&wrong_resolver_reference_analysis),
+                expected
+            );
+            assert_eq!(
+                wrong_resolver_reference_analysis.verify(),
+                vec!["callable_resolver_reference_authority_substituted"]
+            );
+        }
+
+        let indirect = call_occurrences
+            .iter()
+            .find(|call| call.canonical_argument_node_ids().len() == 1)
+            .expect("indirect callable occurrence")
+            .clone();
+        let foreign = references
+            .iter()
+            .find(|reference| reference.reference_kind == "callable_callee_ref")
+            .and_then(|reference| {
+                reference
+                    .resolved_definition_semantic_identity
+                    .as_ref()
+                    .cloned()
+            })
+            .expect("real resolver path must provide callable callee authority");
+        for _ in 0..2 {
+            let mut wrong_node = call_occurrences.clone();
+            wrong_node
+                .iter_mut()
+                .find(|call| call.canonical_argument_node_ids().len() == 2)
+                .expect("direct callable occurrence")
+                .replace_canonical_call_node_for_test("foreign-canonical-call-node");
+            let wrong_node_analysis =
+                analyze_at_resolver_consumer_boundary(&program, references.clone(), wrong_node);
+            assert_eq!(
+                ten_b2_callable_observation(&wrong_node_analysis),
+                Vec::<String>::new()
+            );
+
+            let mut wrong_owner = call_occurrences.clone();
+            wrong_owner
+                .iter_mut()
+                .find(|call| call.canonical_argument_node_ids().len() == 2)
+                .expect("direct callable occurrence")
+                .owner_definition_id = indirect.owner_definition_id.clone();
+            let wrong_owner_analysis =
+                analyze_at_resolver_consumer_boundary(&program, references.clone(), wrong_owner);
+            assert_eq!(ten_b2_callable_observation(&wrong_owner_analysis), expected);
+            assert_eq!(
+                wrong_owner_analysis.verify(),
+                vec!["callable_direct_occurrence_authority_substituted"]
+            );
+
+            let mut wrong_target = call_occurrences.clone();
+            wrong_target
+                .iter_mut()
+                .find(|call| call.canonical_argument_node_ids().len() == 2)
+                .expect("direct callable occurrence")
+                .target_definition_id = indirect.target_definition_id.clone();
+            let wrong_target_analysis =
+                analyze_at_resolver_consumer_boundary(&program, references.clone(), wrong_target);
+            assert_eq!(
+                ten_b2_callable_observation(&wrong_target_analysis),
+                expected
+            );
+            assert_eq!(
+                wrong_target_analysis.verify(),
+                vec!["callable_direct_occurrence_authority_substituted"]
+            );
+
+            let mut wrong_reference = references.clone();
+            wrong_reference
+                .iter_mut()
+                .find(|reference| {
+                    reference.reference_kind == "callable_argument_ref"
+                        && reference.normalized_name == "increment"
+                })
+                .expect("real resolver path must provide callable value reference")
+                .resolved_definition_semantic_identity = Some(foreign.clone());
+            let wrong_reference_analysis = analyze_at_resolver_consumer_boundary(
+                &program,
+                wrong_reference,
+                call_occurrences.clone(),
+            );
+            assert_eq!(
+                ten_b2_callable_observation(&wrong_reference_analysis),
+                expected
+            );
+            assert_eq!(
+                wrong_reference_analysis.verify(),
+                vec!["callable_value_reference_authority_substituted"]
+            );
+        }
+    }
+
+    #[test]
+    fn ten_b2_same_shaped_foreign_authority_substitution_fails_closed() {
+        let left = parse_source_at_index("ten-b2-same-shaped.hum", SOURCE, 0);
+        let left_program = crate::ast::Program {
+            files: vec![left.file],
+        };
+        let dummy = parse_source_at_index("ten-b2-dummy.hum", "module tests.dummy\n", 0);
+        let right = parse_source_at_index("ten-b2-same-shaped.hum", SOURCE, 1);
+        let right_program = crate::ast::Program {
+            files: vec![dummy.file, right.file],
+        };
+        let expected_left = ["application=callable-application:ten-b2-same-shaped.hum:15:12:callable-application|caller=resolver-item:file-0:path-2|receiver=resolver-item:file-0:path-1|target=resolver-item:file-0:path-0|callable-parameter=parameter-position:0|ordinary-parameter=parameter-position:1|direct-reference=statement-0:parser-body:resolver-item:file-0:path-2:statement-0:root-0:path-0:node-parser-body:resolver-item:file-0:path-2:statement-0:expression-0|indirect-reference=statement-0:parser-body:resolver-item:file-0:path-1:statement-0:root-0:path-0:node-parser-body:resolver-item:file-0:path-1:statement-0:expression-0|direct-node=parser-body:resolver-item:file-0:path-2:statement-0:expression-0|indirect-statement=parser-body:resolver-item:file-0:path-1:statement-0".to_string()];
+        let expected_right = ["application=callable-application:ten-b2-same-shaped.hum:15:12:callable-application|caller=resolver-item:file-1:path-2|receiver=resolver-item:file-1:path-1|target=resolver-item:file-1:path-0|callable-parameter=parameter-position:0|ordinary-parameter=parameter-position:1|direct-reference=statement-0:parser-body:resolver-item:file-1:path-2:statement-0:root-0:path-0:node-parser-body:resolver-item:file-1:path-2:statement-0:expression-0|indirect-reference=statement-0:parser-body:resolver-item:file-1:path-1:statement-0:root-0:path-0:node-parser-body:resolver-item:file-1:path-1:statement-0:expression-0|direct-node=parser-body:resolver-item:file-1:path-2:statement-0:expression-0|indirect-statement=parser-body:resolver-item:file-1:path-1:statement-0".to_string()];
+
+        let left_references = resolve::resolve_reference_summaries(&left_program, &[]);
+        let left_calls = resolve::resolve_call_occurrence_summaries(&left_program, &[]);
+        let right_references = resolve::resolve_reference_summaries(&right_program, &[]);
+        let right_calls = resolve::resolve_call_occurrence_summaries(&right_program, &[]);
+        assert_eq!(
+            ten_b2_callable_observation(&analyze_at_resolver_consumer_boundary(
+                &left_program,
+                left_references.clone(),
+                left_calls.clone(),
+            )),
+            expected_left
+        );
+        assert_eq!(
+            ten_b2_callable_observation(&analyze_at_resolver_consumer_boundary(
+                &right_program,
+                right_references.clone(),
+                right_calls.clone(),
+            )),
+            expected_right
+        );
+
+        let left_argument = left_references
+            .iter()
+            .find(|reference| {
+                reference.reference_kind == "callable_argument_ref"
+                    && reference.normalized_name == "increment"
+            })
+            .expect("left callable argument");
+        let right_argument = right_references
+            .iter()
+            .find(|reference| {
+                reference.reference_kind == "callable_argument_ref"
+                    && reference.normalized_name == "increment"
+            })
+            .expect("right callable argument");
+        assert_eq!(left_argument.name, right_argument.name);
+        assert_eq!(
+            left_argument.normalized_name,
+            right_argument.normalized_name
+        );
+        assert_eq!(left_argument.reference_kind, right_argument.reference_kind);
+        assert_eq!(left_argument.source_span, right_argument.source_span);
+        assert_eq!(
+            left_argument.resolution_status,
+            right_argument.resolution_status
+        );
+        assert_ne!(
+            left_argument.resolved_definition_semantic_identity,
+            right_argument.resolved_definition_semantic_identity
+        );
+
+        for _ in 0..2 {
+            let mut substituted_references = left_references.clone();
+            substituted_references
+                .iter_mut()
+                .find(|reference| {
+                    reference.reference_kind == "callable_argument_ref"
+                        && reference.normalized_name == "increment"
+                })
+                .expect("left callable argument")
+                .resolved_definition_semantic_identity =
+                right_argument.resolved_definition_semantic_identity.clone();
+            let substituted = analyze_at_resolver_consumer_boundary(
+                &left_program,
+                substituted_references,
+                left_calls.clone(),
+            );
+            assert_eq!(ten_b2_callable_observation(&substituted), expected_left);
+            assert_eq!(
+                substituted.verify(),
+                vec!["callable_value_reference_authority_substituted"]
+            );
+        }
+
+        let right_direct = right_calls
+            .iter()
+            .find(|call| call.canonical_argument_node_ids().len() == 2)
+            .expect("right direct callable occurrence");
+        for _ in 0..2 {
+            let mut foreign_calls = left_calls.clone();
+            let left_direct = foreign_calls
+                .iter_mut()
+                .find(|call| call.canonical_argument_node_ids().len() == 2)
+                .expect("left direct callable occurrence");
+            assert_eq!(left_direct.exact_call_span, right_direct.exact_call_span);
+            assert_eq!(left_direct.source(), right_direct.source());
+            assert_eq!(
+                left_direct.canonical_argument_node_ids().len(),
+                right_direct.canonical_argument_node_ids().len()
+            );
+            assert_ne!(
+                left_direct.canonical_call_node_id(),
+                right_direct.canonical_call_node_id()
+            );
+            assert_ne!(
+                left_direct.resolver_reference_identity(),
+                right_direct.resolver_reference_identity()
+            );
+            *left_direct = right_direct.clone();
+            let foreign = analyze_at_resolver_consumer_boundary(
+                &left_program,
+                left_references.clone(),
+                foreign_calls,
+            );
+            assert_eq!(ten_b2_callable_observation(&foreign), Vec::<String>::new());
+
+            let mut substituted_calls = left_calls.clone();
+            let left_direct = substituted_calls
+                .iter_mut()
+                .find(|call| call.canonical_argument_node_ids().len() == 2)
+                .expect("left direct callable occurrence");
+            left_direct.owner_definition_id = right_direct.owner_definition_id.clone();
+            left_direct.target_definition_id = right_direct.target_definition_id.clone();
+            let substituted = analyze_at_resolver_consumer_boundary(
+                &left_program,
+                left_references.clone(),
+                substituted_calls,
+            );
+            assert_eq!(ten_b2_callable_observation(&substituted), expected_left);
+            assert_eq!(
+                substituted.verify(),
+                vec!["callable_direct_occurrence_authority_substituted"]
+            );
+
+            let mut substituted_reference_calls = left_calls.clone();
+            let left_direct = substituted_reference_calls
+                .iter_mut()
+                .find(|call| call.canonical_argument_node_ids().len() == 2)
+                .expect("left direct callable occurrence");
+            left_direct.replace_resolver_reference_identity_for_test(
+                right_direct.resolver_reference_identity(),
+            );
+            let substituted_reference = analyze_at_resolver_consumer_boundary(
+                &left_program,
+                left_references.clone(),
+                substituted_reference_calls,
+            );
+            assert_eq!(
+                ten_b2_callable_observation(&substituted_reference),
+                expected_left
+            );
+            assert_eq!(
+                substituted_reference.verify(),
+                vec!["callable_resolver_reference_authority_substituted"]
+            );
+        }
+    }
 
     #[test]
     fn ao_callable_occurrences_keep_relationship_identity_and_precedence() {
@@ -4205,7 +5276,7 @@ task run_right -> UInt {
     }
 
     #[test]
-    fn memoization_identity_includes_semantic_ast_and_resolver_inputs() {
+    fn memoization_identity_includes_canonical_ast_and_resolver_inputs() {
         let parsed = parse_source("callable.hum", SOURCE);
         let mut program = crate::ast::Program {
             files: vec![parsed.file],
@@ -4214,15 +5285,30 @@ task run_right -> UInt {
         let Item::Task(receiver) = &mut program.files[0].items[1] else {
             panic!("receiver task")
         };
-        let crate::ast::ParsedBodyStatementKind::Return(expression) =
-            &mut receiver.body_syntax[0].kind
-        else {
+        let statement = receiver
+            .sections
+            .iter_mut()
+            .find(|section| section.name == "does")
+            .expect("receiver does")
+            .body_syntax[0]
+            .as_mut()
+            .expect("receiver statement");
+        let crate::ast::ParsedBodyStatementKind::Return(expression) = &mut statement.kind else {
             panic!("return")
         };
-        expression.kind = ParsedExpressionKind::UIntLiteral(0);
-        let second = analyze_program(&program);
-        assert!(!Arc::ptr_eq(&first, &second));
-        assert!(!second.diagnostics.is_empty());
+        let legacy_kind = expression.kind.clone();
+        expression.canonical.kind = crate::ast::CanonicalExpressionKind::UIntLiteral(0);
+        assert_eq!(
+            expression.kind, legacy_kind,
+            "canonical corruption must hold the compatibility projection fixed"
+        );
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| analyze_program(&program)));
+        assert!(
+            result.is_err(),
+            "canonical corruption must fail before callable fact construction"
+        );
+        assert!(first.diagnostics.is_empty());
     }
 
     #[test]
