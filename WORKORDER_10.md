@@ -5273,6 +5273,274 @@ documentation commit and publication, terminal required CI, and a separate
 corrective 10B.2 go signal before the frozen tree may resume. Increment 10B.3
 and every later item remain unauthorized.
 
+## Consumer-convergence dependency-closure amendment (2026-07-26; proposed)
+
+### Authority, rejection, and exact preserved state
+
+This proposed amendment responds to the independent `REJECT` of Increment
+10B.3 and the BDFL's bounded planning authorization. It is documentation
+authoring and pre-issuance review only. It authorizes no implementation edit,
+tree narrowing, commit, push, Increment 10B.3 resumption, or later work.
+
+The stopped Increment 10B.3 tree remains uncommitted and unaccepted on:
+
+- branch `main`;
+- `HEAD == origin/main ==
+  c42c0a8db50d964960a24c967b25337dc93555ef`;
+- an empty real index and no untracked path;
+- exactly `src/path_boundary.rs`, `src/return_dependency.rs`,
+  `src/typed_failure.rs`, and `tools/check_all.ps1`;
+- exact aggregate statistics of 1,607 insertions and 206 deletions; and
+- exact four-path scoped Git tree OID
+  `7f7f14c6c8dd7ba0918a1b4ac7d0a1f69a2ee630`, independently reproducible
+  through fresh empty temporary indexes in PowerShell and Git Bash.
+
+A separate temporary index seeded from `HEAD` and overlaid with those four
+paths produces prospective whole-repository tree OID
+`e3d9c13a6966445967e6ebd4facd0797bcb60f16`. The two OIDs have different
+meanings and neither accepts the bytes. The implementation's final Fast tier
+passed in 1,403.3 seconds, and two in-envelope regressions were corrected
+before that green run. Those results are preservation and compatibility
+evidence only.
+
+The independent review reported three P1 findings:
+
+1. `return_dependency::canonical_return_view_relationships` has no production
+   caller. Its only current caller is its own test. The semantic consumers
+   remain in `src/type_check.rs`, `src/full_type_check.rs`,
+   `src/ownership_check.rs`, and `src/run.rs`, all outside the published
+   Increment 10B.3 envelope. Therefore the proposed migration is unreachable
+   in production, and no corruption of its canonical input can change a real
+   consumer observation.
+2. `src/path_boundary.rs` still permits a resolver miss to fall back through
+   `resolved.or(structured)` to a task selected by `task.name`. Its existing
+   corruption evidence changes call-node identity but does not independently
+   prove the place/reference and permission/group authority it claims.
+3. The exhaustive evidence transcript records wrapper metadata but omits the
+   exact selector output and the F1/F2/F3-F4 pair counts. A reviewer cannot
+   verify from that transcript that the selector ran a nonzero test or covered
+   all 14,226 pairs.
+
+The first finding is an envelope defect, not an implementer defect. A
+test-only canonical API cannot satisfy the published consumer-boundary
+corruption method. The other two findings are required in-envelope corrections
+for any future resumed Increment 10B.3.
+
+### Dependency-closed consumer rule
+
+For Increment 10B.3 through Increment 10B.12, a coherent unit is now the
+smallest unit that is compilable, testable, and **provable through a real
+production consumer**. A provider API plus tests is not a consumer-convergence
+unit.
+
+Before implementation, the unit must inventory every direct call, imported or
+aliased call, function item, callback, closure, method/function pointer,
+macro-mediated use, re-export, and test-only reference of the authority being
+migrated. The inventory must distinguish:
+
+- the production consumer whose exact observable result supplies the
+  corruption proof;
+- existing read-only callers whose signatures and transport remain valid;
+- semantic callers deliberately assigned to a later named increment; and
+- declaration grammar, public projection, status constant, or compatibility
+  callers that do not select expression semantics.
+
+An envelope is closed only when every production caller that must change to
+make the unit's claimed observable depend on canonical authority is writable
+inside that unit. A caller may remain outside only when repository truth shows
+that it already traverses the migrated production entry point unchanged, is a
+read-only evidence endpoint, or is explicitly assigned to a later consumer
+increment. The current increment may not claim the later caller's convergence.
+
+Each new or migrated canonical API must have at least one non-test production
+call on the exact accepted bytes. The Fast-tier source audit must fail if that
+count becomes zero, if the only calls are under `#[cfg(test)]`, or if the real
+caller returns to a legacy text/span/display-name path. The required physical
+corruption must enter immediately before that production read and change the
+independently pinned consumer observation. A source audit supports this proof
+but cannot replace it.
+
+Discovering after implementation that a required caller must change outside
+the reviewed envelope remains a semantic envelope stop. It is not a mechanical
+fix and may not be worked around with a test-only call, compatibility shim,
+fallback, reconstructed authority, or a smaller subincrement.
+
+### Complete remaining-train consumer audit
+
+The audit searched module-qualified calls, imports and aliases, function-item
+and callback uses, closures, methods, re-exports, macros, tests, and the
+production CLI composition path. Its results are binding for this train:
+
+| Increment | Code-derived production-consumer result | Envelope verdict and correction |
+| --- | --- | --- |
+| 10B.4 mutation/place/writable alias | `field_place` is consumed by `writable_field_alias`, Predicate, full type, ownership, and runtime. `writable_field_alias` is consumed by check, resolver, full type, effect, ownership, and runtime. The published envelope contains the providers and check but omits resolver, the earliest resolver-definition/alias consumer that must change. | **Defective as published.** Add `src/resolve.rs` to 10B.4. Check and resolver provide the end-to-end 10B.4 observations. Predicate, full-type, effect/ownership/resource, and runtime callers are migrated and proved in 10B.5, 10B.6, 10B.7, and 10B.10 respectively; 10B.4 may not claim them early. |
+| 10B.5 Predicate overlay | `predicate::analyze_program(&Program)` is itself the production consumer entry point. It can replace its internal second parser with canonical nodes and resolver place definitions without changing its many downstream caller signatures. | **Closed.** The current `src/predicate.rs` plus harness envelope contains the semantic consumer. Downstream Core, type, Path, JSON, resolver, runtime, and CLI uses remain read-only callers here and prove their own dependence in their named increments. |
+| 10B.6 type/full type | `type_check` and `full_type_check` are the production inference consumers and are already in the envelope. They also own the first coherent semantic consumers of canonical return-view dependency. | **Closed only after the return-dependency reorder below.** Add `src/return_dependency.rs`; issue its canonical relationship API here with immediate non-test calls from both type consumers. Existing result-annotation grammar remains allowed and is not the oracle. |
+| 10B.7 effect/ownership/resource | Effect, ownership, and resource entry points are the production consumers and are all in the envelope. Ownership is the next semantic caller of the return-view relationship; effect and ownership are later writable-alias/place callers. | **Closed.** They consume the accepted shared APIs from 10B.4 and 10B.6. Any required change to those providers is an envelope stop rather than silent provider redesign. |
+| 10B.8 Core construction/lowering | `core_preview` and `core_lower` are real consumers of `core_expr`, but `core_body` is the private construction/transport boundary. It currently reduces a validated Section to `BodyStatement` data, after which preview/lowering call `core_expr::analyze_expression` on extracted text. | **Defective as published.** Add `src/core_body.rs`. The private body report must transport the validated canonical expression/relationship payload needed by preview and lowering; neither downstream consumer may reconstruct it from `BodyStatement.text`. |
+| 10B.9 Core verification/projection | `core_verify` and `main` own verification and top-level composition, while the required exact consequences are emitted by graph, JSON, profile, and IR-readiness production commands. The published mandate calls those files read-only but also requires their output as the observable. | **Defective as published.** Add `src/graph.rs`, `src/json.rs`, `src/profile_check.rs`, and `src/ir_readiness.rs` to remove the conditional surprise-file stop. Each remains unchanged unless the verified-result transport genuinely requires a migration; all four are inside the reviewed boundary for end-to-end corruption evidence. |
+| 10B.10 runtime body evaluation | `run::run_program` and its production adapters are the body evaluator. `main` is an unchanged CLI adapter; parser/resolver/Predicate/place/return APIs are accepted upstream inputs. | **Closed.** `src/run.rs` contains the production consumer and the fixture/CLI harness supplies the exact observation. The runtime return-dependency caller migrates here against the 10B.6 API. |
+| 10B.11 runtime contracts | Needs/ensures evaluation and the shared evaluator are both in `src/run.rs`; the accepted 10B.5 Predicate overlay is an upstream input. | **Closed.** The current envelope contains the production consumer and agreement boundary. It may not modify Predicate to rescue runtime evidence. |
+| 10B.12 authority retirement | This unit introduces no new semantic API. It deletes or makes unreachable the legacy producers only after every production consumer has migrated. | **Closed conditionally by absence.** Before any deletion, a complete repository symbol/dataflow inventory must show zero production semantic references outside the retirement envelope. Any survivor means its earlier owning increment is incomplete and 10B.12 stops; it may not absorb a late consumer migration. Compilation plus the full retained corruption matrix makes an omitted reference fail closed. |
+
+This audit does not treat every downstream formatter or schema/status reader as
+a semantic consumer. `src/json.rs` uses return-dependency declaration data for
+public projection, and `src/type_env.rs` removes return-dependency annotation
+grammar from declared result types. Those allowed declaration/projection uses
+must remain source-audited so their values cannot select expression identity
+or evaluation. They do not justify a second return-expression parser.
+
+### Corrected sequence and exact envelope changes
+
+Option (b), reordering return-dependency convergence with its real consumers,
+is selected. Widening 10B.3 to type, full type, ownership, and runtime would
+combine three later semantic stages, defeat the dependency order, and turn the
+smallest provable unit into a broad cross-train migration.
+
+The ordered train remains 10B.3 through 10B.12, with these exact supersessions:
+
+1. **10B.3 becomes typed-failure and Path convergence.** Its exact writable
+   envelope is `src/typed_failure.rs`, `src/path_boundary.rs`, and
+   `tools/check_all.ps1`. It owns H0630 and H0901-H0907 compatibility,
+   structured Try/call/wrapper ownership, and Path permission/place/group/call
+   consumption. It does not issue or claim return-dependency convergence.
+2. **10B.4 gains `src/resolve.rs`.** Its exact writable envelope becomes
+   `src/check.rs`, `src/field_place.rs`, `src/writable_field_alias.rs`,
+   `src/resolve.rs`, and `tools/check_all.ps1`. It must install at least one
+   real check/resolver call of the canonical place/alias relationship and pin
+   its exact source-diagnostic or resolver-owned result.
+3. **10B.6 gains `src/return_dependency.rs`.** Its exact writable envelope
+   becomes `src/type_check.rs`, `src/full_type_check.rs`,
+   `src/return_dependency.rs`, and `tools/check_all.ps1`. The provider and its
+   first type/full-type production consumers land together. The canonical API
+   must retain independently pinned return-root and resolver-definition
+   identity, while accepted result-annotation grammar remains separate.
+4. **10B.7 migrates ownership's return-dependency caller** against the accepted
+   10B.6 API in addition to its existing effect/ownership/resource mandate.
+   Its published file envelope is otherwise unchanged.
+5. **10B.8 gains `src/core_body.rs`.** Its exact writable envelope becomes
+   `src/core_body.rs`, `src/core_expr.rs`, `src/core_preview.rs`,
+   `src/core_lower.rs`, the three already listed Core documents, and
+   `tools/check_all.ps1`. Public Core schemas and bytes remain unchanged.
+6. **10B.9 gains the four required projection consumers.** Its exact writable
+   envelope becomes `src/core_verify.rs`, `src/main.rs`, `src/graph.rs`,
+   `src/json.rs`, `src/profile_check.rs`, `src/ir_readiness.rs`,
+   `docs/HUM_CORE_VERIFY_SCHEMA.md`, and `tools/check_all.ps1`.
+7. **10B.10 migrates runtime's return-dependency caller** against the accepted
+   10B.6 API in addition to its existing runtime-body mandate. Its published
+   file envelope is otherwise unchanged.
+8. **10B.5, 10B.7, 10B.10, and 10B.11 retain their existing production
+   consumers; 10B.12 retains its existing deletion envelope and gains the
+   zero-surviving-production-reference precondition above.**
+
+The dependency order is therefore: corrected 10B.3 typed-failure/Path;
+10B.4 canonical place/alias issuance plus check/resolver; 10B.5 Predicate;
+10B.6 type/full type plus canonical return-dependency issuance; 10B.7
+effect/ownership/resource including its return consumer; 10B.8 private
+Core/preview/lowering; 10B.9 verifier and projection transport; 10B.10 body
+runtime including its return consumer; 10B.11 contracts; and 10B.12
+retirement.
+
+No increment receives credit for a downstream caller assigned to a later
+unit. Every later caller must supply its own physical corruption, independent
+oracle, same-shaped substitution, and load-bearing sabotage through its real
+production entry point.
+
+### Exact 10B.3 salvage and resumed evidence
+
+Resume-with-narrowing is selected over restart. The Fast-tier pass and review
+found no general typed-failure or Path migration invalidity, so rewriting
+those paths would discard useful accepted-direction work. The tree is still
+unaccepted, and only independently re-proved bytes may survive:
+
+- Before any future resumption edit, reproduce scoped OID
+  `7f7f14c6c8dd7ba0918a1b4ac7d0a1f69a2ee630` in PowerShell and Git Bash.
+- Narrow exactly by replacing the uncommitted `src/return_dependency.rs`
+  worktree bytes with `HEAD:src/return_dependency.rs` and removing only the
+  three premature 10B.3 return-dependency selector arms from
+  `tools/check_all.ps1`. In the same narrowing change, update only the paired
+  exact-selector anti-rot inventory assertion and message from 99 to 96
+  credited unique tests; leaving the count at 99 would make the narrowed Fast
+  tier fail, while any other harness change is unauthorized. Record a new
+  cross-shell scoped OID before another implementation edit. This is selective
+  removal of unaccepted premature work, not acceptance evidence and not
+  permission to clean any other path.
+- Provisionally retain the typed-failure and Path migrations and their
+  harness arms. Re-derive every expectation independently under the published
+  corruption method; green prior assertions do not grandfather a claim.
+- Remove the `resolved.or(structured)` resolver-miss fallback. A missing
+  resolver target must fail closed through the exact existing Path-owned
+  result; `task.name`, display name, span, retained text, or a separately
+  scanned task list may not rescue the miss.
+- Independently corrupt the exact Path call occurrence, resolver
+  reference/definition, permission/group occurrence, and canonical
+  place/root/edge at the production boundary. Each probe must change the exact
+  independently supplied Path relationship or fail closed with the exact
+  existing H0630 result. Call-node-only corruption cannot cover the other
+  authorities.
+- Retain the typed-failure singleton corruption and same-shaped substitution
+  only if they enter immediately before the real production consumer and pin
+  exact wrapper/call ownership without candidate-derived expected identities.
+- Add load-bearing sabotages for the forbidden name fallback and each claimed
+  Path reference/place authority. An unused binding, textual spelling audit,
+  or output mutation earns no credit.
+
+The implementer runs the Fast tier. The reviewer runs the Fast tier and
+independently verifies, rather than reruns, the exhaustive transcript for the
+exact reviewed bytes. That transcript must retain the merged command output,
+not only timestamps or wrapper metadata, and must show:
+
+- command `.\tools\check_all.ps1 -EvidenceTier Exhaustive`;
+- exact selector
+  `parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero`;
+- exactly one selected and executed test with its pass result;
+- the final nonzero count assertion
+  `f1_pairs=630;f2_pairs=4950;f3_pairs=8646;total_pairs=14226`;
+- exit code zero, start/end timestamps, elapsed time, exact scoped OID, and a
+  transcript SHA-256 computed after the complete output is written.
+
+Missing selector output, a zero or ambiguous selection, a truncated stream,
+count drift, a transcript/OID mismatch, or unverifiable output is a rejection,
+not evidence that may be reconstructed from a summary.
+
+### Unchanged locks, publication boundary, and review
+
+The consumer-boundary corruption method, same-shaped substitution,
+independent-oracle rule, anti-ghost rules, evidence tiering, ceremony
+proportionality, coherent-unit sizing, public compatibility, diagnostics, and
+all 10C-and-later bans remain unchanged. This amendment changes only
+dependency closure, the exact named envelopes above, staged
+return-dependency ownership, the two remaining 10B.3 P1 corrections, and
+verifiable exhaustive transcript content.
+
+No current dirty byte is accepted. The BDFL must separately accept and publish
+this amendment, required Ubuntu and Windows CI must reach terminal success,
+and a separate corrective go signal must authorize exact tree narrowing and
+10B.3 resumption. No successor begins automatically.
+
+One fresh independent architect-reviewer, who did not issue the stopped
+10B.3 implementation verdict, must inspect these frozen amendment bytes and
+independently verify:
+
+- the preserved four-path statistics and cross-shell scoped OID;
+- the production-call diagnosis for `return_dependency`;
+- the complete 10B.4-10B.12 consumer audit, including aliases, callbacks,
+  read-only projection users, and the zero-survivor retirement rule;
+- the choice to reorder rather than widen 10B.3;
+- every revised exact envelope and dependency edge;
+- selective 10B.3 salvage without accepting prior bytes;
+- removal of the Path name fallback and independent place/reference
+  corruption requirements;
+- the exhaustive transcript's selector and 14,226-pair verification; and
+- unchanged public semantics, corruption method, later gates, and standing
+  bans.
+
+The reviewer makes no edit and reports P0/P1/P2 findings plus exactly one
+verdict: `ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT`. At most one bounded
+correction cycle is available for a wording or inventory omission within this
+same amendment. A new architecture, consumer, or envelope surprise stops
+directly for the BDFL; it does not create another procedural layer.
+
 ## Prerequisite Increment 10C: universal checked execution
 
 ### Scope and likely files
