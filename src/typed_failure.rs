@@ -2,7 +2,12 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::ast::{Item, Program, Task};
+use crate::ast::{
+    CanonicalActualLexicalEvidence, CanonicalCompletionEvent, CanonicalExpectedLexicalEvidence,
+    CanonicalExpression, CanonicalExpressionKind, CanonicalLexicalTokenKind,
+    CanonicalMalformedCause, CanonicalPayloadEventValue, CanonicalPayloadField,
+    CanonicalTryWrapperKind, Item, ParsedBodyStatement, ParsedBodyStatementKind, Program, Task,
+};
 use crate::core_body::BodyStatement;
 use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::graph::{hollow_contract_reason, is_meaningful_line_text};
@@ -29,6 +34,7 @@ pub(crate) struct DirectCall {
     pub callee: String,
     pub source: String,
     pub source_offset: usize,
+    canonical_node_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +78,9 @@ pub(crate) struct FailureFact {
     pub try_expression: Option<TryExpression>,
     pub occurrence: Option<DiagnosticOccurrence>,
     resolver_call: Option<crate::resolve::ResolveCallOccurrenceSummary>,
+    canonical_statement_node_id: Option<String>,
+    canonical_expression_node_id: Option<String>,
+    canonical_call_node_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,10 +135,65 @@ pub(crate) struct TaskFailureAnalysis {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TypedFailureBindingError {
+    BodySyntaxLengthMismatch,
+    InvalidDirectFailureAuthority,
     MissingResolverCall,
     DuplicateResolverCall,
     ResolverCallOwnerMismatch,
     ResolverCallTargetMismatch,
+    ResolverCallNodeMismatch,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+enum TenB3TypedFailureBoundaryCorruption {
+    WrapperRoot,
+    WrapperRelation,
+    DirectFailureMalformedCause,
+}
+
+#[cfg(test)]
+struct TenB3TypedFailureBoundaryCorruptionState {
+    task: &'static str,
+    corruption: TenB3TypedFailureBoundaryCorruption,
+    hits: usize,
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEN_B3_TYPED_FAILURE_BOUNDARY_CORRUPTION:
+        RefCell<Option<TenB3TypedFailureBoundaryCorruptionState>> =
+            const { RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn with_ten_b3_typed_failure_boundary_corruption<T>(
+    task: &'static str,
+    corruption: TenB3TypedFailureBoundaryCorruption,
+    run: impl FnOnce() -> T,
+) -> T {
+    TEN_B3_TYPED_FAILURE_BOUNDARY_CORRUPTION.with(|slot| {
+        assert!(
+            slot.replace(Some(TenB3TypedFailureBoundaryCorruptionState {
+                task,
+                corruption,
+                hits: 0,
+            }))
+            .is_none(),
+            "10B.3 typed-failure boundary corruption must not nest"
+        );
+    });
+    let result = run();
+    TEN_B3_TYPED_FAILURE_BOUNDARY_CORRUPTION.with(|slot| {
+        let state = slot
+            .replace(None)
+            .expect("10B.3 typed-failure boundary corruption must remain installed");
+        assert_eq!(
+            state.hits, 1,
+            "10B.3 typed-failure boundary corruption must alter exactly one production read"
+        );
+    });
+    result
 }
 
 #[derive(Debug, Clone, Default)]
@@ -151,22 +215,38 @@ pub(crate) fn analyze_program(program: &Program) -> Arc<ProgramFailureAnalysis> 
         {
             return Arc::clone(analysis);
         }
-        let global_catalog = FailureCatalog::from_program(program);
-        let resolver_calls = crate::resolve::resolve_call_occurrence_summaries(program, &[]);
-        let mut analysis = ProgramFailureAnalysis::default();
-        for file in &program.files {
-            collect_program_analysis(
-                program,
-                &file.items,
-                &global_catalog,
-                &resolver_calls,
-                &mut analysis.tasks,
-            );
-        }
-        let analysis = Arc::new(analysis);
+        let analysis = Arc::new(
+            build_program_analysis(program)
+                .expect("typed-failure canonical consumer authority must remain valid"),
+        );
         *cache = Some((program_address, program.clone(), Arc::clone(&analysis)));
         analysis
     })
+}
+
+fn build_program_analysis(
+    program: &Program,
+) -> Result<ProgramFailureAnalysis, TypedFailureBindingError> {
+    let resolver_calls = crate::resolve::resolve_call_occurrence_summaries(program, &[]);
+    build_program_analysis_at_boundary(program, &resolver_calls)
+}
+
+fn build_program_analysis_at_boundary(
+    program: &Program,
+    resolver_calls: &[crate::resolve::ResolveCallOccurrenceSummary],
+) -> Result<ProgramFailureAnalysis, TypedFailureBindingError> {
+    let global_catalog = FailureCatalog::from_program(program);
+    let mut analysis = ProgramFailureAnalysis::default();
+    for file in &program.files {
+        collect_program_analysis(
+            program,
+            &file.items,
+            &global_catalog,
+            resolver_calls,
+            &mut analysis.tasks,
+        )?;
+    }
+    Ok(analysis)
 }
 
 impl ProgramFailureAnalysis {
@@ -197,7 +277,7 @@ fn collect_program_analysis(
     catalog: &FailureCatalog,
     resolver_calls: &[crate::resolve::ResolveCallOccurrenceSummary],
     out: &mut Vec<(usize, TaskFailureAnalysis)>,
-) {
+) -> Result<(), TypedFailureBindingError> {
     for item in items {
         match item {
             Item::Task(task) => {
@@ -212,6 +292,9 @@ fn collect_program_analysis(
                     })
                     .map(|body| body.statements)
                     .unwrap_or_default();
+                if statements.len() != task.body_syntax.len() {
+                    return Err(TypedFailureBindingError::BodySyntaxLengthMismatch);
+                }
                 let owner_definition_id =
                     crate::resolve::semantic_task_definition_identity(program, task);
                 let task_resolver_calls = resolver_calls
@@ -219,24 +302,109 @@ fn collect_program_analysis(
                     .filter(|call| call.owner_definition_id == owner_definition_id)
                     .cloned()
                     .collect::<Vec<_>>();
+                #[cfg(test)]
+                let corrupted_body_syntax =
+                    ten_b3_typed_failure_statements_at_consumer_boundary(task);
+                #[cfg(test)]
+                let body_syntax = corrupted_body_syntax
+                    .as_deref()
+                    .unwrap_or(task.body_syntax.as_slice());
+                #[cfg(not(test))]
+                let body_syntax = task.body_syntax.as_slice();
                 let mut task_analysis = analyze_task_with_resolver_calls(
                     task,
                     &statements,
+                    body_syntax,
                     catalog,
                     &task_resolver_calls,
-                );
-                task_analysis
-                    .bind_producer_identity(program, task)
-                    .expect("typed-failure production facts must retain exact resolver calls");
+                )?;
+                task_analysis.bind_producer_identity(program, task)?;
                 out.push((std::ptr::from_ref(task) as usize, task_analysis));
             }
             Item::App(app) => {
                 let scoped_catalog = FailureCatalog::from_items(program, &app.items);
-                collect_program_analysis(program, &app.items, &scoped_catalog, resolver_calls, out);
+                collect_program_analysis(
+                    program,
+                    &app.items,
+                    &scoped_catalog,
+                    resolver_calls,
+                    out,
+                )?;
             }
             Item::Type(_) | Item::Store(_) | Item::Test(_) => {}
         }
     }
+    Ok(())
+}
+
+#[cfg(test)]
+fn ten_b3_typed_failure_statements_at_consumer_boundary(
+    task: &Task,
+) -> Option<Vec<ParsedBodyStatement>> {
+    TEN_B3_TYPED_FAILURE_BOUNDARY_CORRUPTION.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let state = slot.as_mut()?;
+        if state.task != task.name {
+            return None;
+        }
+        state.hits += 1;
+        let mut statements = task.body_syntax.clone();
+        let expression = statements
+            .first_mut()
+            .and_then(|statement| match &mut statement.kind {
+                ParsedBodyStatementKind::Binding {
+                    value: Some(value), ..
+                } => Some(&mut value.canonical),
+                ParsedBodyStatementKind::Other { expressions } => {
+                    expressions.first_mut().map(|value| &mut value.canonical)
+                }
+                ParsedBodyStatementKind::Return(_) | ParsedBodyStatementKind::Binding { .. } => {
+                    None
+                }
+            })
+            .expect("10B.3 typed-failure corruption target expression");
+        match state.corruption {
+            TenB3TypedFailureBoundaryCorruption::WrapperRoot => {
+                let CanonicalExpressionKind::Try { failure_root, .. } = &mut expression.kind else {
+                    panic!("10B.3 wrapper-root corruption requires Try");
+                };
+                *failure_root = Some("SourceError".to_string());
+                let payload = expression
+                    .payload
+                    .iter_mut()
+                    .find(|payload| payload.field == CanonicalPayloadField::TryFailureRootToken)
+                    .expect("10B.3 Try root payload");
+                let CanonicalPayloadEventValue::Tokens(tokens) = &mut payload.value else {
+                    panic!("10B.3 Try root payload must be tokens");
+                };
+                let [(_, spelling)] = tokens.as_mut_slice() else {
+                    panic!("10B.3 wrapped Try must retain one root token");
+                };
+                *spelling = "SourceError".to_string();
+            }
+            TenB3TypedFailureBoundaryCorruption::WrapperRelation => {
+                let payload = expression
+                    .payload
+                    .iter_mut()
+                    .find(|payload| payload.field == CanonicalPayloadField::TryWrapperRelation)
+                    .expect("10B.3 Try relation payload");
+                let CanonicalPayloadEventValue::Tokens(tokens) = &mut payload.value else {
+                    panic!("10B.3 Try relation payload must be tokens");
+                };
+                tokens[0].1 = "xor".to_string();
+            }
+            TenB3TypedFailureBoundaryCorruption::DirectFailureMalformedCause => {
+                let CanonicalExpressionKind::Field { base, .. } = &mut expression.kind else {
+                    panic!("10B.3 direct-failure corruption requires Field");
+                };
+                let CanonicalCompletionEvent::Unsupported(malformed) = &mut base.completion else {
+                    panic!("10B.3 direct-failure root must retain malformed evidence");
+                };
+                malformed.cause = CanonicalMalformedCause::MissingOperand;
+            }
+        }
+        Some(statements)
+    })
 }
 
 impl TaskFailureAnalysis {
@@ -248,21 +416,7 @@ impl TaskFailureAnalysis {
         let task_identity = crate::resolve::semantic_task_identity(program, task);
         let owner_definition_id = crate::resolve::semantic_task_definition_identity(program, task);
         for (statement_index, fact) in &mut self.facts {
-            let (Some(code), Some(typed_cause)) = (fact.diagnostic_code, fact.cause) else {
-                continue;
-            };
-            let cause_key = typed_cause.key();
-            let cause = crate::diagnostic_catalog::diagnostic_cause_for_key(cause_key)
-                .expect("typed-failure producer cause must remain registered");
             let resolver_call = fact.resolver_call.as_ref();
-            let call_identity_required = !matches!(
-                typed_cause,
-                TypedFailureCause::TryRequiresUnannotatedLetBinding
-                    | TypedFailureCause::UnsupportedTryExpressionShape
-            );
-            if fact.callee.is_some() && call_identity_required && resolver_call.is_none() {
-                return Err(TypedFailureBindingError::MissingResolverCall);
-            }
             if let Some(resolver_call) = resolver_call {
                 if resolver_call.owner_definition_id != owner_definition_id {
                     return Err(TypedFailureBindingError::ResolverCallOwnerMismatch);
@@ -274,7 +428,32 @@ impl TaskFailureAnalysis {
                 {
                     return Err(TypedFailureBindingError::ResolverCallTargetMismatch);
                 }
+                if fact
+                    .canonical_call_node_id
+                    .as_deref()
+                    .is_some_and(|node| resolver_call.canonical_call_node_id() != node)
+                {
+                    return Err(TypedFailureBindingError::ResolverCallNodeMismatch);
+                }
             }
+            let call_identity_required = fact.callee.is_some()
+                && fact.canonical_call_node_id.is_some()
+                && !matches!(
+                    fact.cause,
+                    Some(
+                        TypedFailureCause::TryRequiresUnannotatedLetBinding
+                            | TypedFailureCause::UnsupportedTryExpressionShape
+                    )
+                );
+            if call_identity_required && resolver_call.is_none() {
+                return Err(TypedFailureBindingError::MissingResolverCall);
+            }
+            let (Some(code), Some(typed_cause)) = (fact.diagnostic_code, fact.cause) else {
+                continue;
+            };
+            let cause_key = typed_cause.key();
+            let cause = crate::diagnostic_catalog::diagnostic_cause_for_key(cause_key)
+                .expect("typed-failure producer cause must remain registered");
             let mut identity = DiagnosticOccurrence::typed_failure_identity(
                 &task_identity,
                 *statement_index,
@@ -284,6 +463,19 @@ impl TaskFailureAnalysis {
             );
             if let Some(resolver_call) = resolver_call {
                 identity.extend_relationship_route(resolver_call.relationship_route());
+            }
+            if let Some(statement) = &fact.canonical_statement_node_id {
+                identity.extend_relationship_route(vec![format!(
+                    "typed_failure_statement_node={statement}"
+                )]);
+            }
+            if let Some(expression) = &fact.canonical_expression_node_id {
+                identity.extend_relationship_route(vec![format!(
+                    "typed_failure_expression_node={expression}"
+                )]);
+            }
+            if let Some(call) = &fact.canonical_call_node_id {
+                identity.extend_relationship_route(vec![format!("typed_failure_call_node={call}")]);
             }
             let mut diagnostic =
                 Diagnostic::error(code, diagnostic_message(fact), Some(fact.call_span.clone()));
@@ -404,24 +596,36 @@ pub(crate) fn analyze_task(
     statements: &[BodyStatement],
     catalog: &FailureCatalog,
 ) -> TaskFailureAnalysis {
-    analyze_task_core(task, statements, catalog, None)
+    analyze_task_core(task, statements, &task.body_syntax, catalog, None)
+        .expect("test task body syntax must align with validated Core statements")
 }
 
 fn analyze_task_with_resolver_calls(
     task: &Task,
     statements: &[BodyStatement],
+    parsed_statements: &[ParsedBodyStatement],
     catalog: &FailureCatalog,
     resolver_calls: &[crate::resolve::ResolveCallOccurrenceSummary],
-) -> TaskFailureAnalysis {
-    analyze_task_core(task, statements, catalog, Some(resolver_calls))
+) -> Result<TaskFailureAnalysis, TypedFailureBindingError> {
+    analyze_task_core(
+        task,
+        statements,
+        parsed_statements,
+        catalog,
+        Some(resolver_calls),
+    )
 }
 
 fn analyze_task_core(
     task: &Task,
     statements: &[BodyStatement],
+    parsed_statements: &[ParsedBodyStatement],
     catalog: &FailureCatalog,
     resolver_calls: Option<&[crate::resolve::ResolveCallOccurrenceSummary]>,
-) -> TaskFailureAnalysis {
+) -> Result<TaskFailureAnalysis, TypedFailureBindingError> {
+    if statements.len() != parsed_statements.len() {
+        return Err(TypedFailureBindingError::BodySyntaxLengthMismatch);
+    }
     let caller_root = task.result.as_deref().and_then(result_error_root);
     let has_failure_declaration = task.section("fails when").is_some_and(|section| {
         section
@@ -431,7 +635,9 @@ fn analyze_task_core(
     });
     let mut facts = BTreeMap::new();
 
-    for (index, statement) in statements.iter().enumerate() {
+    for (index, (statement, parsed_statement)) in
+        statements.iter().zip(parsed_statements).enumerate()
+    {
         let statement_resolver_calls = resolver_calls
             .map(|calls| {
                 calls
@@ -440,28 +646,46 @@ fn analyze_task_core(
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let expression = statement_expression(statement);
-        if statement.kind == "fail"
-            && let Some(variant) = expression.and_then(parse_failure_variant)
-        {
-            let fact = direct_fail_fact(
-                task,
-                statement,
-                index,
-                caller_root.as_deref(),
-                &variant,
-                has_failure_declaration,
-            );
-            facts.insert(index, fact);
-            continue;
+        let expression = canonical_statement_primary_expression(parsed_statement);
+        if statement.kind == "fail" {
+            if let Some(variant) = expression.and_then(canonical_failure_variant) {
+                let mut fact = direct_fail_fact(
+                    task,
+                    statement,
+                    index,
+                    caller_root.as_deref(),
+                    &variant,
+                    has_failure_declaration,
+                );
+                bind_canonical_statement_identity(&mut fact, parsed_statement, expression);
+                facts.insert(index, fact);
+                continue;
+            }
+            if expression.is_some_and(canonical_is_sealed_direct_failure_shape) {
+                return Err(TypedFailureBindingError::InvalidDirectFailureAuthority);
+            }
         }
 
         let Some(expression) = expression else {
             continue;
         };
-        if contains_keyword_token(expression, "try") {
-            let resolver_call =
-                (statement_resolver_calls.len() == 1).then(|| statement_resolver_calls[0]);
+        if canonical_contains_try(expression) {
+            let expected_call_node = canonical_direct_call_node_id(expression);
+            let matching_calls = expected_call_node
+                .as_deref()
+                .map(|expected| {
+                    statement_resolver_calls
+                        .iter()
+                        .filter(|call| call.canonical_call_node_id() == expected)
+                        .copied()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let resolver_call = match matching_calls.as_slice() {
+                [call] => Some(*call),
+                [] if statement_resolver_calls.len() == 1 => Some(statement_resolver_calls[0]),
+                _ => None,
+            };
             let mut fact = analyze_try_expression(
                 task,
                 statement,
@@ -473,31 +697,42 @@ fn analyze_task_core(
                 resolver_call,
                 resolver_calls.is_some(),
             );
+            bind_canonical_statement_identity(&mut fact, parsed_statement, Some(expression));
             if let Some(resolver_call) = resolver_call {
-                bind_failure_fact_to_resolver_call(&mut fact, resolver_call)
-                    .expect("one typed-failure fact must bind one resolver call");
+                bind_failure_fact_to_resolver_call(&mut fact, resolver_call)?;
             }
             facts.insert(index, fact);
             continue;
         }
 
-        let resolved_fallible = resolver_calls.and_then(|_| {
-            statement_resolver_calls.iter().find_map(|resolver_call| {
-                let callee =
-                    catalog.task_for_resolver_target(&resolver_call.target_definition_id)?;
-                let callee_root = callee.error_root.as_deref()?;
-                let call = DirectCall {
-                    callee: callee.name.clone(),
-                    source: resolver_call.source().to_string(),
-                    source_offset: 0,
+        let resolved_fallible = if resolver_calls.is_some() {
+            let mut resolved = None;
+            for resolver_call in &statement_resolver_calls {
+                let Some(callee) =
+                    catalog.task_for_resolver_target(&resolver_call.target_definition_id)
+                else {
+                    continue;
                 };
-                Some((call, callee, callee_root, *resolver_call))
-            })
-        });
+                let Some(callee_root) = callee.error_root.as_deref() else {
+                    continue;
+                };
+                let canonical_call =
+                    canonical_node_by_id(expression, resolver_call.canonical_call_node_id())
+                        .ok_or(TypedFailureBindingError::ResolverCallNodeMismatch)?;
+                let Some(call) = direct_call_from_resolver(resolver_call, canonical_call) else {
+                    continue;
+                };
+                resolved = Some((call, callee, callee_root, *resolver_call));
+                break;
+            }
+            resolved
+        } else {
+            None
+        };
         let legacy_fallible = resolver_calls
             .is_none()
             .then(|| {
-                calls_in_expression(expression)
+                canonical_direct_calls(expression)
                     .into_iter()
                     .find_map(|call| {
                         let callee = catalog.task(&call.callee)?;
@@ -531,15 +766,15 @@ fn analyze_task_core(
                     call.source,
                 )),
             );
+            bind_canonical_statement_identity(&mut fact, parsed_statement, Some(expression));
             if let Some(resolver_call) = resolver_call {
-                bind_failure_fact_to_resolver_call(&mut fact, resolver_call)
-                    .expect("one typed-failure fact must bind one resolver call");
+                bind_failure_fact_to_resolver_call(&mut fact, resolver_call)?;
             }
             facts.insert(index, fact);
         }
     }
 
-    TaskFailureAnalysis { facts }
+    Ok(TaskFailureAnalysis { facts })
 }
 
 fn bind_failure_fact_to_resolver_call(
@@ -550,8 +785,317 @@ fn bind_failure_fact_to_resolver_call(
         return Err(TypedFailureBindingError::DuplicateResolverCall);
     }
     fact.call_span = resolver_call.exact_call_span.clone();
+    if fact.canonical_call_node_id.is_none() {
+        fact.canonical_call_node_id = Some(resolver_call.canonical_call_node_id().to_string());
+    }
     fact.resolver_call = Some(resolver_call.clone());
     Ok(())
+}
+
+fn canonical_statement_primary_expression(
+    statement: &ParsedBodyStatement,
+) -> Option<&CanonicalExpression> {
+    match &statement.kind {
+        ParsedBodyStatementKind::Return(expression) => Some(&expression.canonical),
+        ParsedBodyStatementKind::Binding { value, .. } => {
+            value.as_ref().map(|expression| &expression.canonical)
+        }
+        ParsedBodyStatementKind::Other { expressions } => expressions
+            .first()
+            .map(|expression| &expression.canonical)
+            .or_else(|| {
+                statement
+                    .canonical_extra_occurrences
+                    .first()
+                    .map(|expression| &expression.canonical)
+            }),
+    }
+}
+
+fn bind_canonical_statement_identity(
+    fact: &mut FailureFact,
+    statement: &ParsedBodyStatement,
+    expression: Option<&CanonicalExpression>,
+) {
+    fact.canonical_statement_node_id = Some(statement.source_node_id.as_str().to_string());
+    fact.canonical_expression_node_id =
+        expression.map(|expression| expression.node_id.as_str().to_string());
+    if fact.canonical_call_node_id.is_none() {
+        fact.canonical_call_node_id = fact
+            .try_expression
+            .as_ref()
+            .and_then(|parsed| parsed.call.canonical_node_id.clone());
+    }
+}
+
+fn canonical_failure_variant(expression: &CanonicalExpression) -> Option<FailureVariant> {
+    let CanonicalExpressionKind::Field { base, field } = &expression.kind else {
+        return None;
+    };
+    let root = match &base.kind {
+        CanonicalExpressionKind::Identifier(root) => root,
+        CanonicalExpressionKind::Unsupported => {
+            let CanonicalCompletionEvent::Unsupported(malformed) = &base.completion else {
+                return None;
+            };
+            let CanonicalActualLexicalEvidence::Token {
+                kind: CanonicalLexicalTokenKind::Identifier,
+                range,
+                spelling,
+            } = &malformed.actual
+            else {
+                return None;
+            };
+            if malformed.cause != CanonicalMalformedCause::InvalidOperandStarter
+                || malformed.expected != CanonicalExpectedLexicalEvidence::Operand
+                || range != &base.range
+            {
+                return None;
+            }
+            spelling
+        }
+        _ => return None,
+    };
+    (is_type_ident(root) && is_value_ident(field)).then(|| FailureVariant {
+        root: root.clone(),
+        variant: field.clone(),
+    })
+}
+
+fn canonical_is_sealed_direct_failure_shape(expression: &CanonicalExpression) -> bool {
+    matches!(
+        &expression.kind,
+        CanonicalExpressionKind::Field { base, .. }
+            if matches!(base.kind, CanonicalExpressionKind::Unsupported)
+    )
+}
+
+fn canonical_try_expression(expression: &CanonicalExpression) -> Option<TryExpression> {
+    let CanonicalExpressionKind::Try {
+        value,
+        failure_root,
+        failure_variant,
+    } = &expression.kind
+    else {
+        return None;
+    };
+    let keyword = canonical_payload_value(expression, CanonicalPayloadField::TryKeyword)?;
+    let CanonicalPayloadEventValue::Token(keyword_range, keyword_spelling) = keyword else {
+        return None;
+    };
+    if keyword_spelling != "try"
+        || keyword_range.byte_len != 3
+        || keyword_range.start != expression.range.start
+    {
+        return None;
+    }
+    if canonical_payload_value(expression, CanonicalPayloadField::TryValueEdge)
+        != Some(&CanonicalPayloadEventValue::ChildOrdinal(0))
+    {
+        return None;
+    }
+    let relation = canonical_payload_tokens(expression, CanonicalPayloadField::TryWrapperRelation)?;
+    let roots = canonical_payload_tokens(expression, CanonicalPayloadField::TryFailureRootToken)?;
+    let dots = canonical_payload_tokens(expression, CanonicalPayloadField::TryDotToken)?;
+    let variants =
+        canonical_payload_tokens(expression, CanonicalPayloadField::TryFailureVariantToken)?;
+    let wrapper_kind = canonical_payload_value(expression, CanonicalPayloadField::TryWrapperKind)?;
+    let wrapper = match (failure_root, failure_variant) {
+        (Some(root), Some(variant))
+            if canonical_token_spellings(relation) == ["or", "fail"]
+                && canonical_token_spellings(roots) == [root.as_str()]
+                && canonical_token_spellings(dots) == ["."]
+                && canonical_token_spellings(variants) == [variant.as_str()]
+                && wrapper_kind
+                    == &CanonicalPayloadEventValue::WrapperKind(CanonicalTryWrapperKind::Wrap)
+                && [relation, roots, dots, variants].into_iter().flatten().all(
+                    |(range, spelling)| {
+                        range.byte_len == spelling.len()
+                            && range.start.file == expression.range.start.file
+                            && range.start.line == expression.range.start.line
+                    },
+                ) =>
+        {
+            Some(FailureVariant {
+                root: root.clone(),
+                variant: variant.clone(),
+            })
+        }
+        (None, None)
+            if relation.is_empty()
+                && roots.is_empty()
+                && dots.is_empty()
+                && variants.is_empty()
+                && wrapper_kind
+                    == &CanonicalPayloadEventValue::WrapperKind(
+                        CanonicalTryWrapperKind::Propagate,
+                    ) =>
+        {
+            None
+        }
+        _ => return None,
+    };
+    Some(TryExpression {
+        call: canonical_direct_call(value)?,
+        wrapper,
+    })
+}
+
+fn canonical_payload_value(
+    expression: &CanonicalExpression,
+    field: CanonicalPayloadField,
+) -> Option<&CanonicalPayloadEventValue> {
+    let mut matching = expression
+        .payload
+        .iter()
+        .filter(|payload| payload.field == field);
+    let value = &matching.next()?.value;
+    matching.next().is_none().then_some(value)
+}
+
+fn canonical_payload_tokens(
+    expression: &CanonicalExpression,
+    field: CanonicalPayloadField,
+) -> Option<&[(crate::ast::ParsedSourceRange, String)]> {
+    let CanonicalPayloadEventValue::Tokens(tokens) = canonical_payload_value(expression, field)?
+    else {
+        return None;
+    };
+    Some(tokens)
+}
+
+fn canonical_token_spellings(tokens: &[(crate::ast::ParsedSourceRange, String)]) -> Vec<&str> {
+    tokens
+        .iter()
+        .map(|(_, spelling)| spelling.as_str())
+        .collect()
+}
+
+fn canonical_direct_call_node_id(expression: &CanonicalExpression) -> Option<String> {
+    let CanonicalExpressionKind::Try { value, .. } = &expression.kind else {
+        return canonical_direct_call(expression).and_then(|call| call.canonical_node_id);
+    };
+    canonical_direct_call(value).and_then(|call| call.canonical_node_id)
+}
+
+fn canonical_direct_call(expression: &CanonicalExpression) -> Option<DirectCall> {
+    let CanonicalExpressionKind::Call { callee, arguments } = &expression.kind else {
+        return None;
+    };
+    let CanonicalExpressionKind::Identifier(callee) = &callee.kind else {
+        return None;
+    };
+    if !arguments.iter().all(canonical_ordinary_value_argument) {
+        return None;
+    }
+    Some(DirectCall {
+        callee: callee.clone(),
+        source: String::new(),
+        source_offset: 0,
+        canonical_node_id: Some(expression.node_id.as_str().to_string()),
+    })
+}
+
+fn direct_call_from_resolver(
+    resolver_call: &crate::resolve::ResolveCallOccurrenceSummary,
+    expression: &CanonicalExpression,
+) -> Option<DirectCall> {
+    let mut call = canonical_direct_call(expression)?;
+    call.source = resolver_call.source().to_string();
+    Some(call)
+}
+
+fn canonical_ordinary_value_argument(expression: &CanonicalExpression) -> bool {
+    match &expression.kind {
+        CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_) => true,
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::ElementPlace { base, .. }
+        | CanonicalExpressionKind::Group(base) => canonical_ordinary_value_argument(base),
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::ListLiteral(_)
+        | CanonicalExpressionKind::RecordLiteral { .. }
+        | CanonicalExpressionKind::Call { .. }
+        | CanonicalExpressionKind::Permission { .. }
+        | CanonicalExpressionKind::Try { .. }
+        | CanonicalExpressionKind::Binary { .. }
+        | CanonicalExpressionKind::Unsupported => false,
+    }
+}
+
+fn canonical_direct_calls(expression: &CanonicalExpression) -> Vec<DirectCall> {
+    let mut calls = Vec::new();
+    walk_canonical_expression(expression, &mut |node| {
+        if let Some(call) = canonical_direct_call(node) {
+            calls.push(call);
+        }
+    });
+    calls
+}
+
+fn canonical_contains_try(expression: &CanonicalExpression) -> bool {
+    let mut found = false;
+    walk_canonical_expression(expression, &mut |node| {
+        found |= matches!(node.kind, CanonicalExpressionKind::Try { .. });
+    });
+    found
+}
+
+fn canonical_node_by_id<'a>(
+    expression: &'a CanonicalExpression,
+    expected: &str,
+) -> Option<&'a CanonicalExpression> {
+    let mut found = None;
+    walk_canonical_expression(expression, &mut |node| {
+        if node.node_id.as_str() == expected {
+            found = Some(node);
+        }
+    });
+    found
+}
+
+fn walk_canonical_expression<'a>(
+    expression: &'a CanonicalExpression,
+    visit: &mut impl FnMut(&'a CanonicalExpression),
+) {
+    visit(expression);
+    match &expression.kind {
+        CanonicalExpressionKind::Field { base, .. }
+        | CanonicalExpressionKind::ElementPlace { base, .. }
+        | CanonicalExpressionKind::Permission { value: base, .. }
+        | CanonicalExpressionKind::Try { value: base, .. }
+        | CanonicalExpressionKind::Group(base) => walk_canonical_expression(base, visit),
+        CanonicalExpressionKind::ListLiteral(values) => {
+            for value in values {
+                walk_canonical_expression(value, visit);
+            }
+        }
+        CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            for (_, value) in fields {
+                walk_canonical_expression(value, visit);
+            }
+        }
+        CanonicalExpressionKind::Call { callee, arguments } => {
+            walk_canonical_expression(callee, visit);
+            for argument in arguments {
+                walk_canonical_expression(argument, visit);
+            }
+        }
+        CanonicalExpressionKind::Binary { left, right, .. } => {
+            walk_canonical_expression(left, visit);
+            walk_canonical_expression(right, visit);
+        }
+        CanonicalExpressionKind::Unit
+        | CanonicalExpressionKind::Identifier(_)
+        | CanonicalExpressionKind::UIntLiteral(_)
+        | CanonicalExpressionKind::IntLiteral(_)
+        | CanonicalExpressionKind::BoolLiteral(_)
+        | CanonicalExpressionKind::TextLiteral(_)
+        | CanonicalExpressionKind::Unsupported => {}
+    }
 }
 
 pub(crate) fn parse_try_expression(text: &str) -> Option<TryExpression> {
@@ -639,7 +1183,7 @@ fn analyze_try_expression(
     task: &Task,
     statement: &BodyStatement,
     index: usize,
-    expression: &str,
+    expression: &CanonicalExpression,
     caller_root: Option<&str>,
     catalog: &FailureCatalog,
     has_failure_declaration: bool,
@@ -656,16 +1200,31 @@ fn analyze_try_expression(
             caller_root,
         );
     }
-    let Some(parsed) = parse_try_expression(expression) else {
+    let Some(mut parsed) = canonical_try_expression(expression) else {
         return unsupported_try_fact(
             task,
             statement,
             index,
             TypedFailureCause::UnsupportedTryExpressionShape,
-            try_call_hint(expression).as_ref(),
+            resolver_call
+                .map(|call| DirectCall {
+                    callee: call
+                        .source()
+                        .split('(')
+                        .next()
+                        .unwrap_or_default()
+                        .to_string(),
+                    source: call.source().to_string(),
+                    source_offset: 0,
+                    canonical_node_id: Some(call.canonical_call_node_id().to_string()),
+                })
+                .as_ref(),
             caller_root,
         );
     };
+    if let Some(resolver_call) = resolver_call {
+        parsed.call.source = resolver_call.source().to_string();
+    }
     let callee = if resolver_owned {
         resolver_call.and_then(|call| catalog.task_for_resolver_target(&call.target_definition_id))
     } else {
@@ -810,6 +1369,9 @@ fn analyze_try_expression(
         try_expression: Some(parsed),
         occurrence: None,
         resolver_call: None,
+        canonical_statement_node_id: None,
+        canonical_expression_node_id: Some(expression.node_id.as_str().to_string()),
+        canonical_call_node_id: canonical_direct_call_node_id(expression),
     }
 }
 
@@ -885,6 +1447,9 @@ fn direct_fail_fact(
         try_expression: None,
         occurrence: None,
         resolver_call: None,
+        canonical_statement_node_id: None,
+        canonical_expression_node_id: None,
+        canonical_call_node_id: None,
     }
 }
 
@@ -955,6 +1520,9 @@ fn issue_fact(
         try_expression: None,
         occurrence: None,
         resolver_call: None,
+        canonical_statement_node_id: None,
+        canonical_expression_node_id: None,
+        canonical_call_node_id: call.and_then(|call| call.canonical_node_id.clone()),
     }
 }
 
@@ -1022,6 +1590,7 @@ fn parse_direct_call(text: &str) -> Option<DirectCall> {
         callee: callee.to_string(),
         source: text.to_string(),
         source_offset: 0,
+        canonical_node_id: None,
     })
 }
 
@@ -1077,6 +1646,7 @@ pub(crate) fn calls_in_expression(text: &str) -> Vec<DirectCall> {
             callee: callee.to_string(),
             source: text[start..=end].trim().to_string(),
             source_offset: start,
+            canonical_node_id: None,
         });
     }
 
@@ -1244,6 +1814,7 @@ fn matching_call_end(text: &str, open: usize) -> Option<usize> {
     None
 }
 
+#[cfg(test)]
 fn contains_keyword_token(text: &str, keyword: &str) -> bool {
     let bytes = text.as_bytes();
     let mut index = 0;
@@ -1304,17 +1875,6 @@ fn is_ordinary_value_argument(text: &str) -> bool {
         return true;
     }
     text.split('.').all(is_value_ident)
-}
-
-fn try_call_hint(text: &str) -> Option<DirectCall> {
-    let rest = strip_keyword(text.trim(), "try")?;
-    let call = rest.split_once(" or fail ").map_or(rest, |(call, _)| call);
-    let callee = call.split_once('(')?.0.trim();
-    is_value_ident(callee).then(|| DirectCall {
-        callee: callee.to_string(),
-        source: call.trim().to_string(),
-        source_offset: 0,
-    })
 }
 
 pub(crate) fn statement_expression(statement: &BodyStatement) -> Option<&str> {
@@ -1404,17 +1964,126 @@ fn portable_span(span: &Span) -> Span {
 #[cfg(test)]
 mod tests {
     use super::{
-        FailureCatalog, TypedFailureBindingError, TypedFailureCause, analyze_program, analyze_task,
-        analyze_task_with_resolver_calls, bind_failure_fact_to_resolver_call,
-        call_span_for_identifier_use, call_span_in_statement, calls_in_expression,
-        contains_keyword_token, is_meaningful_failure_declaration, is_try_candidate,
-        parse_failure_variant, parse_try_expression, result_error_root,
+        FailureCatalog, TenB3TypedFailureBoundaryCorruption, TypedFailureBindingError,
+        TypedFailureCause, analyze_program, analyze_task, analyze_task_with_resolver_calls,
+        bind_failure_fact_to_resolver_call, build_program_analysis,
+        build_program_analysis_at_boundary, call_span_for_identifier_use, call_span_in_statement,
+        calls_in_expression, contains_keyword_token, is_meaningful_failure_declaration,
+        is_try_candidate, parse_failure_variant, parse_try_expression, result_error_root,
+        with_ten_b3_typed_failure_boundary_corruption,
     };
-    use crate::ast::{Item, Program};
+    use crate::ast::{Item, Program, Task};
     use crate::core_body::BodyStatement;
     use crate::diagnostic::DiagnosticCode;
     use crate::diagnostic::Span;
     use crate::parser::parse_source;
+
+    const TEN_B3_TYPED_FAILURE_SOURCE: &str = r#"module tests.ten_b3.typed_failure
+
+type SourceError {
+  code: Text
+}
+
+type CallerError {
+  source: SourceError
+}
+
+task source() -> Result UInt, SourceError {
+  fails when:
+    source unavailable
+  does:
+    fail SourceError.origin
+}
+
+task wrong_root() -> Result UInt, CallerError {
+  fails when:
+    the wrong nominal root is rejected
+  does:
+    fail SourceError.origin
+}
+
+task propagate() -> Result UInt, SourceError {
+  fails when:
+    source unavailable
+  does:
+    let value = try source()
+    return value
+}
+
+task wrap() -> Result UInt, CallerError {
+  fails when:
+    wrapped source unavailable
+  does:
+    let value = try source() or fail CallerError.source
+    return value
+}
+
+task implicit() -> Result UInt, SourceError {
+  fails when:
+    source unavailable
+  does:
+    let value = source()
+    return value
+}
+"#;
+
+    fn ten_b3_program_at_index(index: usize) -> Program {
+        let parsed = crate::parser::parse_source_at_index(
+            "ten-b3-typed-failure.hum",
+            TEN_B3_TYPED_FAILURE_SOURCE,
+            index,
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:#?}", parsed.diagnostics);
+        if index == 0 {
+            Program {
+                files: vec![parsed.file],
+            }
+        } else {
+            let dummy =
+                crate::parser::parse_source_at_index("ten-b3-dummy.hum", "module tests.dummy\n", 0);
+            Program {
+                files: vec![dummy.file, parsed.file],
+            }
+        }
+    }
+
+    fn ten_b3_task<'a>(program: &'a Program, name: &str) -> &'a Task {
+        program
+            .files
+            .iter()
+            .flat_map(|file| &file.items)
+            .find_map(|item| match item {
+                Item::Task(task) if task.name == name => Some(task),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing task {name}"))
+    }
+
+    fn ten_b3_fact_observation(fact: &super::FailureFact) -> String {
+        format!(
+            "status={}|reason={}|code={}|form={}|callee={}|caller-root={}|wrapper-root={}|statement={}|expression={}|call={}|resolver-call={}",
+            fact.status,
+            fact.reason.unwrap_or("none"),
+            fact.diagnostic_code
+                .map(|code| code.as_str())
+                .unwrap_or("none"),
+            fact.form,
+            fact.callee.as_deref().unwrap_or("none"),
+            fact.caller_result_root.as_deref().unwrap_or("none"),
+            fact.wrapper_root.as_deref().unwrap_or("none"),
+            fact.canonical_statement_node_id
+                .as_deref()
+                .unwrap_or("none"),
+            fact.canonical_expression_node_id
+                .as_deref()
+                .unwrap_or("none"),
+            fact.canonical_call_node_id.as_deref().unwrap_or("none"),
+            fact.resolver_call
+                .as_ref()
+                .map(|call| call.canonical_call_node_id())
+                .unwrap_or("none"),
+        )
+    }
 
     #[test]
     fn typed_failure_cause_enum_is_closed_and_registry_exact() {
@@ -1712,36 +2381,67 @@ task caller() -> Result UInt, SourceError {
             .collect::<Vec<_>>();
         assert_eq!(resolver_calls.len(), 1);
 
-        let mut baseline =
-            analyze_task_with_resolver_calls(caller, &statements, &catalog, &resolver_calls);
+        let mut baseline = analyze_task_with_resolver_calls(
+            caller,
+            &statements,
+            &caller.body_syntax,
+            &catalog,
+            &resolver_calls,
+        )
+        .expect("baseline consumer binding");
         baseline
             .bind_producer_identity(&program, caller)
             .expect("exact resolver call binding");
 
-        let mut missing = analyze_task_with_resolver_calls(caller, &statements, &catalog, &[]);
+        let mut missing = analyze_task_with_resolver_calls(
+            caller,
+            &statements,
+            &caller.body_syntax,
+            &catalog,
+            &[],
+        )
+        .expect("missing call reaches consumer validation");
         assert_eq!(
             missing.bind_producer_identity(&program, caller),
             Err(TypedFailureBindingError::MissingResolverCall)
         );
 
         let ambiguous_calls = vec![resolver_calls[0].clone(), resolver_calls[0].clone()];
-        let mut ambiguous =
-            analyze_task_with_resolver_calls(caller, &statements, &catalog, &ambiguous_calls);
+        let mut ambiguous = analyze_task_with_resolver_calls(
+            caller,
+            &statements,
+            &caller.body_syntax,
+            &catalog,
+            &ambiguous_calls,
+        )
+        .expect("ambiguous calls reach consumer validation");
         assert_eq!(
             ambiguous.bind_producer_identity(&program, caller),
             Err(TypedFailureBindingError::MissingResolverCall)
         );
 
-        let mut duplicate =
-            analyze_task_with_resolver_calls(caller, &statements, &catalog, &resolver_calls);
+        let mut duplicate = analyze_task_with_resolver_calls(
+            caller,
+            &statements,
+            &caller.body_syntax,
+            &catalog,
+            &resolver_calls,
+        )
+        .expect("duplicate binding baseline");
         let fact = duplicate.facts.values_mut().next().expect("typed fact");
         assert_eq!(
             bind_failure_fact_to_resolver_call(fact, &resolver_calls[0]),
             Err(TypedFailureBindingError::DuplicateResolverCall)
         );
 
-        let mut wrong_owner =
-            analyze_task_with_resolver_calls(caller, &statements, &catalog, &resolver_calls);
+        let mut wrong_owner = analyze_task_with_resolver_calls(
+            caller,
+            &statements,
+            &caller.body_syntax,
+            &catalog,
+            &resolver_calls,
+        )
+        .expect("wrong owner baseline");
         wrong_owner
             .facts
             .values_mut()
@@ -1755,8 +2455,14 @@ task caller() -> Result UInt, SourceError {
             Err(TypedFailureBindingError::ResolverCallOwnerMismatch)
         );
 
-        let mut wrong_target =
-            analyze_task_with_resolver_calls(caller, &statements, &catalog, &resolver_calls);
+        let mut wrong_target = analyze_task_with_resolver_calls(
+            caller,
+            &statements,
+            &caller.body_syntax,
+            &catalog,
+            &resolver_calls,
+        )
+        .expect("wrong target baseline");
         wrong_target
             .facts
             .values_mut()
@@ -1808,5 +2514,174 @@ task caller() -> Result UInt, SourceError {
             occurrences[0].diagnostic().code,
             DiagnosticCode::MISSING_FAILURE_DECLARATION
         );
+    }
+
+    #[test]
+    fn ten_b3_typed_failure_real_path_uses_structured_wrapper_and_resolver_call() {
+        let program = ten_b3_program_at_index(0);
+        let analysis = build_program_analysis(&program).expect("real production analysis");
+        let source = ten_b3_task(&program, "source");
+        let source_analysis = analysis.task(source).expect("direct failure consumer");
+        let source_fact = source_analysis.facts.get(&0).expect("direct failure fact");
+
+        let wrong_root = ten_b3_task(&program, "wrong_root");
+        let wrong_root_analysis = analysis
+            .task(wrong_root)
+            .expect("wrong-root direct failure consumer");
+        let wrong_root_fact = wrong_root_analysis
+            .facts
+            .get(&0)
+            .expect("wrong-root direct failure fact");
+
+        let propagate = ten_b3_task(&program, "propagate");
+        let propagate_analysis = analysis.task(propagate).expect("propagation consumer");
+        let propagate_fact = propagate_analysis.facts.get(&0).expect("propagation fact");
+
+        let wrap = ten_b3_task(&program, "wrap");
+        let wrap_analysis = analysis.task(wrap).expect("wrapper consumer");
+        let wrap_fact = wrap_analysis.facts.get(&0).expect("wrapper fact");
+
+        let implicit = ten_b3_task(&program, "implicit");
+        let implicit_analysis = analysis.task(implicit).expect("implicit consumer");
+        let implicit_fact = implicit_analysis.facts.get(&0).expect("implicit fact");
+
+        let observations = [
+            ten_b3_fact_observation(source_fact),
+            ten_b3_fact_observation(wrong_root_fact),
+            ten_b3_fact_observation(propagate_fact),
+            ten_b3_fact_observation(wrap_fact),
+            ten_b3_fact_observation(implicit_fact),
+        ];
+        assert_eq!(
+            observations,
+            [
+                "status=accepted_nominal_direct_failure_v0|reason=none|code=none|form=direct_failure|callee=none|caller-root=SourceError|wrapper-root=SourceError|statement=parser-body:resolver-item:file-0:path-2:statement-0|expression=parser-body:resolver-item:file-0:path-2:statement-0:expression-0|call=none|resolver-call=none".to_string(),
+                "status=rejected_typed_failure_relationship_v0|reason=direct_failure_root_must_match_caller_v0|code=H0905|form=direct_failure|callee=none|caller-root=CallerError|wrapper-root=SourceError|statement=parser-body:resolver-item:file-0:path-3:statement-0|expression=parser-body:resolver-item:file-0:path-3:statement-0:expression-0|call=none|resolver-call=none".to_string(),
+                "status=accepted_same_root_failure_propagation_v0|reason=none|code=none|form=failure_propagation|callee=source|caller-root=SourceError|wrapper-root=none|statement=parser-body:resolver-item:file-0:path-4:statement-0|expression=parser-body:resolver-item:file-0:path-4:statement-0:expression-0|call=parser-body:resolver-item:file-0:path-4:statement-0:expression-0:try-value|resolver-call=parser-body:resolver-item:file-0:path-4:statement-0:expression-0:try-value".to_string(),
+                "status=accepted_causal_failure_wrap_v0|reason=none|code=none|form=failure_wrap|callee=source|caller-root=CallerError|wrapper-root=CallerError|statement=parser-body:resolver-item:file-0:path-5:statement-0|expression=parser-body:resolver-item:file-0:path-5:statement-0:expression-0|call=parser-body:resolver-item:file-0:path-5:statement-0:expression-0:try-value|resolver-call=parser-body:resolver-item:file-0:path-5:statement-0:expression-0:try-value".to_string(),
+                "status=rejected_typed_failure_relationship_v0|reason=fallible_call_requires_try_v0|code=H0901|form=implicit_fallible_call|callee=source|caller-root=SourceError|wrapper-root=none|statement=parser-body:resolver-item:file-0:path-6:statement-0|expression=parser-body:resolver-item:file-0:path-6:statement-0:expression-0|call=parser-body:resolver-item:file-0:path-6:statement-0:expression-0|resolver-call=parser-body:resolver-item:file-0:path-6:statement-0:expression-0".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn ten_b3_typed_failure_canonical_corruption_and_substitution_fail_closed() {
+        let program = ten_b3_program_at_index(0);
+        let wrap = ten_b3_task(&program, "wrap");
+        let clean = build_program_analysis(&program).expect("clean production consumer");
+        assert_eq!(
+            ten_b3_fact_observation(
+                clean
+                    .task(wrap)
+                    .expect("clean wrapper consumer")
+                    .facts
+                    .get(&0)
+                    .expect("clean wrapper fact")
+            ),
+            "status=accepted_causal_failure_wrap_v0|reason=none|code=none|form=failure_wrap|callee=source|caller-root=CallerError|wrapper-root=CallerError|statement=parser-body:resolver-item:file-0:path-5:statement-0|expression=parser-body:resolver-item:file-0:path-5:statement-0:expression-0|call=parser-body:resolver-item:file-0:path-5:statement-0:expression-0:try-value|resolver-call=parser-body:resolver-item:file-0:path-5:statement-0:expression-0:try-value"
+        );
+
+        for _ in 0..2 {
+            let corrupted = with_ten_b3_typed_failure_boundary_corruption(
+                "wrap",
+                TenB3TypedFailureBoundaryCorruption::WrapperRoot,
+                || build_program_analysis(&program),
+            );
+            assert_eq!(
+                ten_b3_fact_observation(
+                    corrupted
+                        .expect("wrapper-root corruption reaches production consumer")
+                        .task(wrap)
+                        .expect("corrupted wrapper consumer")
+                        .facts
+                        .get(&0)
+                        .expect("corrupted wrapper fact")
+                ),
+                "status=rejected_typed_failure_relationship_v0|reason=failure_wrapper_root_must_match_caller_v0|code=H0903|form=failure_wrap|callee=source|caller-root=CallerError|wrapper-root=SourceError|statement=parser-body:resolver-item:file-0:path-5:statement-0|expression=parser-body:resolver-item:file-0:path-5:statement-0:expression-0|call=parser-body:resolver-item:file-0:path-5:statement-0:expression-0:try-value|resolver-call=parser-body:resolver-item:file-0:path-5:statement-0:expression-0:try-value"
+            );
+
+            let relation = with_ten_b3_typed_failure_boundary_corruption(
+                "wrap",
+                TenB3TypedFailureBoundaryCorruption::WrapperRelation,
+                || build_program_analysis(&program),
+            )
+            .expect("wrapper-marker corruption reaches production consumer");
+            assert_eq!(
+                ten_b3_fact_observation(
+                    relation
+                        .task(wrap)
+                        .expect("marker-corrupted wrapper consumer")
+                        .facts
+                        .get(&0)
+                        .expect("marker-corrupted wrapper fact")
+                ),
+                "status=rejected_typed_failure_relationship_v0|reason=unsupported_try_expression_shape_v0|code=H0906|form=unsupported_try|callee=source|caller-root=CallerError|wrapper-root=none|statement=parser-body:resolver-item:file-0:path-5:statement-0|expression=parser-body:resolver-item:file-0:path-5:statement-0:expression-0|call=parser-body:resolver-item:file-0:path-5:statement-0:expression-0:try-value|resolver-call=parser-body:resolver-item:file-0:path-5:statement-0:expression-0:try-value"
+            );
+
+            assert_eq!(
+                with_ten_b3_typed_failure_boundary_corruption(
+                    "wrong_root",
+                    TenB3TypedFailureBoundaryCorruption::DirectFailureMalformedCause,
+                    || build_program_analysis(&program),
+                )
+                .unwrap_err(),
+                TypedFailureBindingError::InvalidDirectFailureAuthority
+            );
+        }
+
+        let right = ten_b3_program_at_index(1);
+        let right_call = crate::resolve::resolve_call_occurrence_summaries(&right, &[])
+            .into_iter()
+            .find(|call| call.source() == "source()")
+            .expect("same-shaped foreign source call");
+        let left_call = crate::resolve::resolve_call_occurrence_summaries(&program, &[])
+            .into_iter()
+            .find(|call| call.source() == "source()")
+            .expect("left source call");
+        assert_eq!(left_call.exact_call_span, right_call.exact_call_span);
+        assert_eq!(left_call.source(), right_call.source());
+        assert_ne!(
+            left_call.canonical_call_node_id(),
+            right_call.canonical_call_node_id()
+        );
+
+        for _ in 0..2 {
+            let mut substituted = crate::resolve::resolve_call_occurrence_summaries(&program, &[]);
+            substituted
+                .iter_mut()
+                .find(|call| call.source() == "source()")
+                .expect("destination source call")
+                .replace_canonical_call_node_for_test(right_call.canonical_call_node_id());
+            assert_eq!(
+                build_program_analysis_at_boundary(&program, &substituted).unwrap_err(),
+                TypedFailureBindingError::ResolverCallNodeMismatch
+            );
+        }
+    }
+
+    #[test]
+    fn ten_b3_typed_failure_source_audit_rejects_expression_text_authority() {
+        let source = include_str!("typed_failure.rs");
+        let start = source
+            .find("fn analyze_task_core(")
+            .expect("consumer start");
+        let end = source[start..]
+            .find("\nfn bind_failure_fact_to_resolver_call(")
+            .map(|offset| start + offset)
+            .expect("consumer end");
+        let consumer = &source[start..end];
+        for prohibited in [
+            "statement_expression(",
+            "calls_in_expression(",
+            "parse_try_expression(",
+            "render_canonical_expression(",
+        ] {
+            assert!(
+                !consumer.contains(prohibited),
+                "typed-failure production consumer restored prohibited authority: {prohibited}"
+            );
+        }
+        assert!(consumer.contains("canonical_statement_primary_expression("));
+        assert!(consumer.contains("resolver_call.canonical_call_node_id()"));
     }
 }

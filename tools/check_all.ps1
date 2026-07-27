@@ -380,6 +380,12 @@ try {
   Invoke-ExactRustTest 'Increment 10B.2 resolver production-boundary physical corruption and load-bearing sabotage' $Cargo 'resolve::tests::ten_b2_resolver_consumer_boundary_corruption_is_load_bearing'
   Invoke-ExactRustTest 'Increment 10B.2 callable production-boundary physical corruption sensitivity' $Cargo 'callable::tests::ten_b2_canonical_corruption_and_resolver_substitution_fail_closed'
   Invoke-ExactRustTest 'Increment 10B.2 same-shaped foreign resolver authority substitution' $Cargo 'callable::tests::ten_b2_same_shaped_foreign_authority_substitution_fails_closed'
+  Invoke-ExactRustTest 'Increment 10B.3 typed-failure structured real-path ownership' $Cargo 'typed_failure::tests::ten_b3_typed_failure_real_path_uses_structured_wrapper_and_resolver_call'
+  Invoke-ExactRustTest 'Increment 10B.3 typed-failure production-boundary corruption and same-shaped substitution' $Cargo 'typed_failure::tests::ten_b3_typed_failure_canonical_corruption_and_substitution_fail_closed'
+  Invoke-ExactRustTest 'Increment 10B.3 typed-failure supporting source/dataflow audit' $Cargo 'typed_failure::tests::ten_b3_typed_failure_source_audit_rejects_expression_text_authority'
+  Invoke-ExactRustTest 'Increment 10B.3 Path resolver-owned call/place real path' $Cargo 'path_boundary::tests::ten_b3_path_real_path_uses_resolver_owned_call_and_place_identity'
+  Invoke-ExactRustTest 'Increment 10B.3 Path production-boundary corruption and same-shaped substitution' $Cargo 'path_boundary::tests::ten_b3_path_canonical_corruption_and_substitution_fail_closed'
+  Invoke-ExactRustTest 'Increment 10B.3 Path supporting source/dataflow audit' $Cargo 'path_boundary::tests::ten_b3_path_source_audit_rejects_expression_text_authority'
   $F4Fixture = 'fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum'
   $F4First = Read-NativeChannelsWithExit 'Replacement F4 complete inventory CLI proof' $Hum @('check', $F4Fixture)
   $F4Second = Read-NativeChannelsWithExit 'Replacement F4 complete inventory CLI repeatability proof' $Hum @('check', $F4Fixture)
@@ -1122,7 +1128,7 @@ task malformed() -> UInt {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 90 -or $UniqueExactRustSelectorCredits.Count -ne 90) { throw "exact Rust selector inventory must credit 90 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 96 -or $UniqueExactRustSelectorCredits.Count -ne 96) { throw "exact Rust selector inventory must credit 96 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
