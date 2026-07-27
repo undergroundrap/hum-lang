@@ -425,11 +425,41 @@ only as a future target and remains unauthorized. All profiling
 instrumentation was removed; no production, fixture, or harness change was
 retained.
 
-Increment 10B.2 is complete and durably published. Increment 10B.3 remains the
-next consumer-convergence target but is unauthorized pending independent
-acceptance, commit, publication, and terminal required CI for this status
-record plus a separate explicit BDFL go signal. Increment 10C, Session AR,
-production Cranelift integration, and every later item remain unauthorized.
+Increment 10B.2 is complete and durably published. The independently reviewed
+contract-derived train amendment was BDFL-accepted, committed, and durably
+published as `1681f723ebea5c1ece9fe2f340d56efed2f3f003`. Required workflow
+`30296041621`, attempt 1, succeeded for that exact commit. Ubuntu job
+`90077223256` on `ubuntu-latest` succeeded in 25m 14s; Windows job
+`90077223309` on `windows-latest` succeeded in 36m 44s. Both selected
+`mode=full` with `reason=no_status_transition`. Ubuntu genuinely executed the
+nonzero exhaustive canonical-seal selector and asserted all 14,226 pairs;
+Windows correctly skipped that platform-independent duplicate.
+
+Under the subsequent explicit BDFL archive signal, the deferred Increment
+10B.3 tree was archived from parent
+`1681f723ebea5c1ece9fe2f340d56efed2f3f003` as exact commit
+`353127dc10f0d8863a9853222fd3b7d93ca22019` on the write-once local and live
+remote branch `archive/workorder-10b3-deferred-contract-2026-07-27`. The
+archive contains exactly `src/path_boundary.rs` (+764/-118),
+`src/typed_failure.rs` (+980/-105), and `tools/check_all.ps1` (+7/-1), for
+1,751 insertions and 224 deletions. Fresh empty indexes in PowerShell and Git
+Bash reproduce scoped OID
+`c8e6f4a04a91451c20c609e319d067e7ddaa4008`.
+
+Raw `git show "${ArchiveCommit}:<path>"` retrieval proved
+`src/path_boundary.rs` at 48,176 bytes with SHA-256
+`e3ece886727ec6ebdcbcd6ffd9b40b528400be769b4d649c0f7480f2a0ee6017`
+and `src/typed_failure.rs` at 99,300 bytes with SHA-256
+`b3a64283e8bec55d2d3b151bbbb2cd2ae98f9036ad5781684610f1891dce7f64`.
+Only after both retrievals passed did `git switch main` perform the sole
+clearing operation. Local and live `main` are clean and synchronized at
+`1681f723ebea5c1ece9fe2f340d56efed2f3f003`; the real index and untracked set
+are empty; and local and live archive refs remain exact.
+
+Increment 10B.C1 is now the first possible contract-derived target but remains
+unauthorized pending a separate explicit BDFL go signal. Increment 10B.C2,
+10B.C3, 10B.C4, deferred completeness work, Session AR, production Cranelift
+integration, and every later item remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -7304,16 +7334,36 @@ as `10a74bb88dda1888bbae75c77d5aec77bcb9d7bb`. Required workflow
 `mode=full` with `reason=no_status_transition`. The experiment is evidence, not
 production backend authority.
 
-The proposed backend-lowering contract critical-path amendment above is
-uncommitted and under independent pre-issuance review. It supersedes the
-remaining per-consumer execution plan only if independently accepted,
-BDFL-accepted, committed, published, and green in required CI.
+The independently reviewed backend-lowering contract critical-path amendment
+was BDFL-accepted, committed, and durably published as
+`1681f723ebea5c1ece9fe2f340d56efed2f3f003`. Required workflow
+`30296041621`, attempt 1, succeeded for that exact commit. Ubuntu job
+`90077223256` on `ubuntu-latest` succeeded in 25m 14s; Windows job
+`90077223309` on `windows-latest` succeeded in 36m 44s. Both selected
+`mode=full` with `reason=no_status_transition`. Ubuntu executed and asserted
+the full nonzero 14,226-pair exhaustive canonical-seal evidence; Windows
+correctly skipped the platform-independent duplicate.
 
-The deferred 10B.3 tree remains uncommitted and unaccepted at scoped OID
-`c8e6f4a04a91451c20c609e319d067e7ddaa4008` with the exact three paths and
-hashes recorded above. Archive creation, publication, retrieval proof, and
-clearing remain unauthorized. 10B.C1 is the first possible future target but
-remains unauthorized until the complete archival lifecycle and a separate
-BDFL go signal. 10B.C2, 10B.C3, 10B.C4, every deferred completeness item,
-Session AR, and all later work remain unauthorized.
+The deferred 10B.3 tree was archived as commit
+`353127dc10f0d8863a9853222fd3b7d93ca22019`, whose parent is exactly
+`1681f723ebea5c1ece9fe2f340d56efed2f3f003`, on local and live branch
+`archive/workorder-10b3-deferred-contract-2026-07-27`. Its exact inventory is
+`src/path_boundary.rs` (+764/-118), `src/typed_failure.rs` (+980/-105), and
+`tools/check_all.ps1` (+7/-1), totaling 1,751 insertions and 224 deletions and
+reproducing scoped OID
+`c8e6f4a04a91451c20c609e319d067e7ddaa4008` in PowerShell and Git Bash.
+
+Raw retrieval proved `src/path_boundary.rs` at 48,176 bytes with SHA-256
+`e3ece886727ec6ebdcbcd6ffd9b40b528400be769b4d649c0f7480f2a0ee6017`
+and `src/typed_failure.rs` at 99,300 bytes with SHA-256
+`b3a64283e8bec55d2d3b151bbbb2cd2ae98f9036ad5781684610f1891dce7f64`.
+`git switch main` alone cleared the deferred tree after both proofs passed.
+`HEAD`, local `main`, `origin/main`, and live remote `main` are clean and
+synchronized at `1681f723ebea5c1ece9fe2f340d56efed2f3f003`; the index and
+untracked set are empty; and local and live archive refs remain exact.
+
+Increment 10B.C1 is the first possible contract-derived target but remains
+unauthorized pending a separate explicit BDFL go signal. Increment 10B.C2,
+10B.C3, 10B.C4, every deferred completeness item, Session AR, and all later
+work remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
