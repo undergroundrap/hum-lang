@@ -6042,6 +6042,654 @@ An ACCEPT verdict authorizes only a BDFL-scoped documentation commit after
 explicit BDFL acceptance. Publication and implementation remain separately
 gated.
 
+## Backend-lowering contract critical-path amendment (2026-07-27; proposed)
+
+### Authority, published experiment, and supersession
+
+The BDFL authorized one contract-derivation pass after seven planning rounds
+failed to produce a stable target for the remaining per-consumer train. This
+amendment is derived from
+`experiments/cranelift-lowering-contract/CONTRACT.md`, not from the former
+10B.3-10B.12 ordering.
+
+The bounded experiment was committed and durably published as
+`10a74bb88dda1888bbae75c77d5aec77bcb9d7bb`, with parent
+`e745b5f2d1fec9a11b68c73d6f292ce1859880f1`. It contains exactly the isolated
+`experiments/cranelift-lowering-contract/` tree. Required workflow
+`30286228831`, attempt 1, succeeded for that exact commit:
+
+- Ubuntu job `90044580113` on `ubuntu-latest` succeeded in 23m 57s. It
+  selected `mode=full` with `reason=no_status_transition`, completed
+  `Run Hum preflight` in 23m 22s, and then executed the nonzero exhaustive
+  canonical-seal selector in 17.022s with F1 630, F2 4,950, F3/F4 8,646, and
+  14,226 total pairs.
+- Windows job `90044579917` on `windows-latest` succeeded in 36m 30s. It
+  selected `mode=full` with `reason=no_status_transition`, completed
+  `Run Hum preflight` in 35m 19s, and correctly skipped the
+  platform-independent exhaustive duplicate.
+
+The experiment reached Cranelift 0.133.1 host-ISA initialization and stopped
+before the first CLIF instruction at
+`verified_backend_input_artifact_absent_v0`. That NO-GO is the successful
+result: the current independent CLI reports cannot be combined into canonical
+backend authority.
+
+This proposed amendment supersedes, for execution order and authorization,
+the former 10B.3-10B.12 train, 10C-10F sequence, related remaining-train
+closure criteria, and standing bans that would prohibit the four narrow
+contract-derived units below. The old text remains historical evidence and
+retains every compatibility, diagnostic, honesty, and deferred-behavior
+obligation not expressly replaced here. It does not become an alternate route
+to implementation.
+
+This amendment authorizes no implementation, archive mutation, commit, push,
+Session AR, LLVM, MLIR, Wasm, general native backend, or unrelated repair.
+Even after publication, each contract-derived unit requires its predecessor,
+independent acceptance, scoped commit, publication, required green CI, status
+record where applicable, and a separate BDFL go signal.
+
+### Binding backend boundary
+
+The production boundary is:
+
+```text
+checked compiler state
+  -> deterministic UnverifiedHumIrArtifact bytes
+  -> ir_verify(exact bytes)
+  -> opaque VerifiedBackendInput<'a>
+  -> Cranelift adapter
+```
+
+The adapter accepts only `VerifiedBackendInput<'a>`. There is no adapter
+constructor from source text, expression text, spans, names, parameter order,
+public JSON projections, deserialized caller objects, independent checker
+reports, or caller-supplied IDs.
+
+`hum.backend_input.v0` is a deterministic UTF-8 artifact envelope containing
+`schema`, `artifact_id`, and `payload`. `artifact_id` is
+`sha256:<64-lowercase-hex-digits>` over the exact canonical payload bytes. The
+digest is an identity and substitution guard, not a signature. The JSON
+projection is transport and inspection data, never authority by itself.
+
+`ir_verify(&[u8])` is the sole constructor path for the success capability.
+The verifier may parse JSON internally, but no caller can construct the
+capability from a deserialized value or a `"verified": true` field. The
+capability is non-`Clone`, non-`Copy`, non-`Default`, non-serializable, and
+immutably borrows the exact bytes it verified. An out-of-process consumer must
+run the same production verifier inside its process. The first production
+Cranelift adapter remains in the Hum process and receives the capability
+directly; it does not invoke either disposable experiment as a subprocess.
+
+### Ten-field producer closure
+
+The contract requires exactly these ten top-level payload fields. This table
+is the binding producer inventory.
+
+| Field | Owning producer and current repository fact | Remaining contract work |
+| --- | --- | --- |
+| `compiler` | The compiler driver already owns `HUM_VERSION`, milestone/status constants, target facts, and the capability inventory. Those are observational projections, not one frozen backend feature set. | Bind compiler version, `hum.backend_input.v0`, target-independent integer/ABI version, and the exact supported feature set into the artifact payload. |
+| `source_revision` | The parser/F4 source owner already retains source-blob identity and semantic file ordinal inside `CanonicalCoreFileBinding`. `ValidatedCoreSection` does not expose those facts to a backend producer. | Carry them through a live, parser-authorized borrowed view; never reconstruct them from path, text, span, or a public report. |
+| `module` | `Program.files` preserves file order and `SourceFile.module` preserves display text, but there is no canonical module identity tied to source revision and ordered semantic files. | Parser authority supplies the module-token/source relationship; the artifact producer binds it to ordered live files and their source revisions. |
+| `functions` | Canonical expressions and ordered children exist; F4 validates the live Section; resolver call/use identities exist. `core_body` then drops canonical structure and `core_lower` renders and reparses statement text. Task parameter/result projections are mutable and are not independently sealed as a backend ABI signature. | Add a parser-owned signature authority, preserve live canonical function/expression/value structure through Core/Hum lowering, and emit ordered functions, blocks, operations, values, ABI, linkage identity, and checked-add failure edge without text inference. |
+| `types` | `full_type_check` can report a statement result as `Int`, but inference still consumes expression text and no canonical type-ID table is attached to producer node/result IDs. | Produce canonical signed-64-bit `Int` type IDs for both parameters, operand/result values, the add node, and function result; independently validate declaration authority and node binding. |
+| `definitions` | Accepted 10B.2 resolver summaries retain canonical node identity, semantic definition identity, and node-to-definition binding. | Expose a crate-private backend view and bind the existing facts into the artifact. Do not redesign resolution or substitute public span/name IDs. |
+| `effects` | Effect and ownership checks accept `minimal_add`, but expression analysis still reparses text and the accepted result is not bound to canonical function/node IDs. | Produce a pure/no-external-authority effect ID and accepted ownership result keyed to canonical identities. |
+| `resources` | Resource/profile passes own their outcomes, but current IDs are projection-oriented and `minimal_add.hum` omits required allocation intent, causing resource rejection and a profile blocker. | Add the existing accepted `allocates: nothing` intent to the example; bind accepted resource and profile outcomes to canonical function/source identity. Do not weaken the checker. |
+| `failure_edges` | Runtime already uses checked integer arithmetic, but no canonical typed-failure/trap table is bound to the add node. | For this slice, emit the checked-add overflow edge and internal status/trap convention. Broader typed-failure forms are explicit unsupported facts, not inferred or silently omitted. |
+| `unsupported` | Individual stages already produce blockers and unsupported statuses, but no deterministic artifact table binds them to the same source/function/node authority. | Every owning pass supplies an explicit accepted, rejected, weakened, or unsupported outcome. Missing or silent fallback is an artifact error. |
+
+Parser/source ownership and resolver identity are accepted foundations, but
+this table does not overclaim their backend transport. In particular, ordered
+task parameters, declared parameter/result types, module declaration identity,
+and linkage inputs require a new parser-issued **backend-signature authority**
+separate from the 132-field F1-F4 expression/statement seal. The parser remains
+the sole production issuer. The new authority has its own independently
+supplied catalogue and corruption gate; it does not alter or renumber the
+accepted 132-field/8,646-pair F3/F4 catalogue.
+
+### Contract-derived dependency order
+
+The active remaining train is exactly:
+
+```text
+archive deferred 10B.3 tree
+-> 10B.C1 canonical checked-add producer closure
+-> 10B.C2 hum.backend_input.v0 artifact emission
+-> 10B.C3 ir_verify and VerifiedBackendInput<'a>
+-> 10B.C4 first production Cranelift lowering
+-> stop for BDFL re-derivation of deferred completeness work
+```
+
+No unit may begin before its predecessor is independently accepted, committed,
+published, required Ubuntu/Windows CI is green, its durable state is recorded
+where required, and the BDFL issues a separate explicit go signal.
+
+The decomposition boundary is architectural:
+
+- 10B.C1 makes every required producer fact canonical and load-bearing through
+  a real production readiness consumer, but emits no backend artifact.
+- 10B.C2 serializes those accepted producer views into one deterministic
+  unverified artifact. It does not claim verification.
+- 10B.C3 verifies exact artifact bytes and issues the opaque capability. It
+  does not lower to Cranelift.
+- 10B.C4 consumes only that capability and performs the first native lowering.
+
+This avoids the previous contradiction where verification was requested
+before an artifact existed, and it avoids treating the minimal artifact as the
+complete Session AR Hum IR.
+
+### Archive and clear the deferred 10B.3 tree
+
+The preserved 10B.3 implementation is unaccepted completeness work and is not
+input to the contract-derived units. Its exact three-path state is:
+
+| Path | Diff | SHA-256 |
+| --- | ---: | --- |
+| `src/path_boundary.rs` | +764/-118 | `e3ece886727ec6ebdcbcd6ffd9b40b528400be769b4d649c0f7480f2a0ee6017` |
+| `src/typed_failure.rs` | +980/-105 | `b3a64283e8bec55d2d3b151bbbb2cd2ae98f9036ad5781684610f1891dce7f64` |
+| `tools/check_all.ps1` | +7/-1 | `99e1b5003c0b41ae2e3a3bb41ee895894ecb1990f818c76d230fa84a16e18628` |
+
+Fresh empty temporary Git indexes in PowerShell and Git Bash independently
+reproduce scoped tree OID
+`c8e6f4a04a91451c20c609e319d067e7ddaa4008`. The real index is empty. No
+untracked file belongs to the preserved tree.
+
+After this amendment is independently accepted, BDFL-accepted, committed,
+published, and green in required CI, a separate BDFL archival signal may
+execute exactly this established lifecycle:
+
+1. Set `ArchiveBase` to the published amendment commit.
+2. Create and switch to the single write-once branch
+   `archive/workorder-10b3-deferred-contract-2026-07-27`.
+3. Stage exactly the three paths above and commit them with
+   `chore(archive): preserve deferred increment 10B.3`.
+4. Verify `ArchiveCommit^ == ArchiveBase`, the exact three-path inventory and
+   statistics, the three hashes, and the scoped OID in fresh empty temporary
+   indexes in PowerShell and Git Bash.
+5. Push only
+   `refs/heads/archive/workorder-10b3-deferred-contract-2026-07-27` by
+   non-force update and verify the live ref equals `ArchiveCommit`.
+6. Retrieve `src/path_boundary.rs` and `src/typed_failure.rs` with
+   `git show "${ArchiveCommit}:<path>"` into raw temporary files, prove their
+   SHA-256 hashes match the table, and remove the temporary files.
+7. Only after publication and both retrieval proofs succeed, run
+   `git switch main` as the sole clearing mechanism and prove main is clean.
+
+No reset, clean, restore, checkout-path, stash, patch, manual deletion, merge,
+or cherry-pick may clear the tree. The archive is recoverability evidence, not
+acceptance evidence and not automatic salvage. 10B.C1 remains unauthorized
+until archive publication, retrieval, clean-main proof, its archival status
+record, and a separate BDFL go signal.
+
+### Increment 10B.C1: canonical checked-add producer closure
+
+#### Purpose and exact writable envelope
+
+10B.C1 is the first implementable contract-derived unit. It closes only the
+producer side for the real `examples/core/minimal_add.hum` slice. Its exact
+writable envelope is:
+
+- `examples/core/minimal_add.hum`: add only the existing accepted
+  allocation-free intent needed for resource/profile acceptance;
+- `src/ast.rs`: neutral private authority/view types and live borrowed access;
+- `src/parser.rs`: sole issuance of the backend-signature/module authority;
+- `src/core_body.rs`: preserve validated canonical statement/expression access
+  without changing the public body report;
+- `src/core_expr.rs`: remove text ownership from the checked-add backend path;
+- `src/core_lower.rs`: own ordered canonical function/block/op/value and
+  checked-overflow facts while preserving `hum.core_lower.v0` as an
+  observational projection;
+- `src/resolve.rs`: expose only the accepted 10B.2 semantic definition/use
+  view required by the backend path;
+- `src/full_type_check.rs`: own canonical node/value type IDs for the slice;
+- `src/effect_check.rs`: own the canonical pure/effect fact;
+- `src/ownership_check.rs`: own the canonical accepted ownership outcome;
+- `src/resource_check.rs`: own the canonical resource outcome without policy
+  weakening;
+- `src/profile_check.rs`: own the canonical profile outcome;
+- `src/ir_readiness.rs`: the first real production consumer of the joined
+  producer views and the observable fail-closed readiness result;
+- `docs/HUM_IR_READINESS_SCHEMA.md`: document only the new producer-closure
+  readiness facts and non-claims;
+- `docs/HUM_CORE_LOWER_SCHEMA.md`: document the private canonical producer
+  boundary while keeping the public projection non-authoritative; and
+- `tools/check_all.ps1`: exact selectors, real CLI evidence, corruption gates,
+  and anti-rot counts.
+
+No other path is writable. A listed path that does not require a byte remains
+clean. A need for a seventeenth path, new diagnostic, new source syntax beyond
+the existing `allocates: nothing` form, or different architecture is an
+envelope stop.
+
+#### Required private architecture
+
+`src/ast.rs` defines an opaque lifetime-bound view equivalent to
+`CanonicalBackendFunctionExpectation<'a>`. It:
+
+- is obtained only by fresh traversal of a live `Program` to the exact
+  `SourceFile`, task item, and `does` Section;
+- borrows all four for `'a`, is non-`Clone`, non-`Copy`, non-`Default`, and
+  non-serializable;
+- validates the existing F4 file/item/Section witnesses and seal before
+  exposing any canonical expression;
+- validates the separate parser-issued backend-signature authority containing
+  source revision, semantic file ordinal, module-token identity, item path and
+  kind, ordered parameter binder/type-token facts, result-type-token fact, and
+  section relationship;
+- cannot be constructed from a task name, module string, span, source text,
+  public ID, path, ordinal, or caller-supplied signature; and
+- prevents mutation, relocation, or signature replacement while live.
+
+The signature authority is not derived from the mutable `Task.params`,
+`Task.result`, `SourceFile.module`, or the candidate view under validation.
+Parser finalization supplies it independently from the real token/event stream.
+The existing F1-F4 authority and counts remain unchanged.
+
+The production checked-add path consumes this live expectation. It must expose
+one coherent private producer view containing:
+
+- canonical module/source/function/item identity;
+- separate display name and export/linkage identity;
+- two ordered parameter values and their parser-owned declaration facts;
+- the return statement, add node, ordered left/right operand nodes and result
+  value;
+- both resolver-owned operand-use to definition bindings from accepted 10B.2;
+- canonical signed-64-bit `Int` type IDs for parameters, operands, add result,
+  and function result;
+- pure/no-external-authority effect and accepted ownership facts;
+- accepted resource and profile outcomes;
+- checked-add overflow as a typed runtime-trap edge;
+- exact pass-set statuses; and
+- explicit unsupported/blocker facts for every unhandled shape.
+
+Existing full-type, effect, ownership, resource, profile, Core, human, JSON,
+and runtime surfaces remain observational projections. The supported
+`minimal_add` path must use the same production facts as those surfaces; a
+test-only parallel analyzer receives no credit.
+
+The new facts are dormant for every existing consumer except the explicit
+10B.C1 readiness join. Their introduction may not change resolver, type,
+effect, ownership, resource, profile, Core, graph, runtime, or diagnostic
+behavior for unchanged sources. A permanent isolation test corrupts each new
+fact and proves those unconverged outputs stay byte-identical while the
+10B.C1 readiness observation changes or fails closed. This is the required
+dormancy proof; it does not require or permit activation of the old
+per-consumer train.
+
+#### Resource/profile correction and outcome classes
+
+`examples/core/minimal_add.hum` must use the existing accepted source form for
+an explicit allocation-free claim, equivalent to `cost:` containing
+`allocates: nothing`. The source contains no visible allocation or call, so
+the existing resource policy must accept it conservatively and the default
+normal profile must pass. Weakening
+`task_body_requires_explicit_allocates_intent_v0`, special-casing the filename
+or task name, or fabricating an accepted resource row is forbidden.
+
+The exact outcome classes are:
+
+- the corrected real `minimal_add` source is accepted by source, resolver,
+  full-type, effect, ownership, resource, and profile checks;
+- its 10B.C1 producer-closure status is accepted, but IR readiness remains
+  blocked specifically by absent `hum.backend_input.v0` emission and
+  unimplemented `ir_verify`; it must not claim IR ready;
+- the same task without explicit allocation intent retains the canonical
+  resource blocker and profile blocker, not a new diagnostic;
+- source/resolver/type failures retain their existing owning diagnostics and
+  prevent producer closure;
+- a recognized but unsupported expression, type, effect, resource, profile,
+  ABI, or failure form receives an explicit canonical blocker/unsupported
+  status and cannot silently disappear; and
+- malformed source remains owned by the parser diagnostic path. 10B.C1 adds no
+  H-code and does not turn a canonical blocker into a source diagnostic.
+
+#### Acceptance and corruption gate
+
+The positive enters through real `load_program` and the real
+`ir-readiness` command in human and JSON modes. It proves the exact joined
+facts above, no resource/profile blocker, exact remaining missing passes, and
+two-run byte identity.
+
+Expected facts are independently supplied. No test may call the candidate
+identity, ordering, type, effect, resource, failure, digest, or renderer
+function to derive its oracle.
+
+Physical corruption at the production boundary independently covers:
+
+- source revision, semantic file ordinal, module token, module/file order,
+  item path/kind, parameter order, binder, declared type, and result type;
+- function, block, operation, node, child, result-value, and linkage identity;
+- left/right child order and same-spelled parameter substitution;
+- operand-use to resolver-definition binding;
+- node/value type, effect/authority, ownership, resource, profile, and failure
+  edge;
+- pass set and explicit unsupported status; and
+- coherent projection/signature/checker co-substitution against the live F4
+  file/item/Section authority.
+
+Every corruption changes or rejects the 10B.C1 readiness observation. An inert
+probe fails. Same-shaped source parsed at a different semantic file ordinal,
+same text under a foreign source revision, swapped equal-typed operands, and
+foreign but equal-spelled binders fail closed. Named producer, validator,
+catalogue, mutation, pair, join, dormancy, and selector sabotages must make the
+exact selector red.
+
+The published evidence-tier rule applies: the implementer runs Fast; the
+reviewer runs Fast and verifies the exhaustive tier transcript for the exact
+accepted bytes, including selector output and nonzero counts, instead of
+re-running it. Mechanical compile, rustfmt, Clippy, selector, and harness
+issues inside this envelope are corrected inline. No mechanical amendment is
+permitted.
+
+10B.C1 emits no `hum.backend_input.v0` bytes, constructs no
+`VerifiedBackendInput`, and emits no CLIF/object/executable.
+
+### Increment 10B.C2: deterministic `hum.backend_input.v0` artifact
+
+10B.C2 may begin only after 10B.C1 is durably complete. It consumes the stable
+crate-private producer views from 10B.C1 without modifying their owning files.
+Its exact writable envelope is:
+
+- `Cargo.toml` and `Cargo.lock`;
+- new `src/backend_input.rs`;
+- `src/main.rs`;
+- `src/ir_readiness.rs`;
+- `src/capabilities.rs`;
+- `src/version.rs`;
+- `src/core_contract.rs`;
+- `src/ir_contract.rs`;
+- `src/backend_contract.rs`;
+- `README.md`;
+- `docs/ARCHITECTURE.md`;
+- `docs/BACKEND_STRATEGY.md`;
+- `docs/BACKEND_CONTRACT_SCHEMA.md`;
+- `docs/CAPABILITIES_SCHEMA.md`;
+- new `docs/HUM_BACKEND_INPUT_SCHEMA.md`;
+- `docs/HUM_CORE_CONTRACT_SCHEMA.md`;
+- `docs/HUM_IR_CONTRACT_SCHEMA.md`;
+- `docs/HUM_IR_READINESS_SCHEMA.md`;
+- `docs/LANGUAGE_REFERENCE.md`; and
+- `tools/check_all.ps1`.
+
+Only exact pinned serialization and SHA-256 dependencies needed for canonical
+artifact bytes are authorized. No Cranelift dependency enters 10B.C2.
+
+The production encoder emits exactly one canonical
+`hum.backend_input.v0` artifact for the accepted checked-add slice. The
+payload contains all ten fields and the complete minimum function record from
+the binding contract. Canonical map order, semantic array order, number/string
+encoding, whitespace, final line-feed rule, payload digest, and rejection of
+duplicate/unknown fields are specified in
+`docs/HUM_BACKEND_INPUT_SCHEMA.md`. `hum backend-input --format json` writes
+the exact canonical artifact bytes; any human summary is observational and
+cannot be passed as artifact authority.
+
+The artifact is produced only after all required producer statuses are
+accepted and nonzero. A failed/missing pass produces the existing owning
+diagnostic or a structured artifact blocker and no partial success artifact.
+Unhandled language forms are explicit in `unsupported`; the checked-add
+positive has an empty unsupported set. `ir-readiness` may then report an
+unverified artifact present, but remains blocked only on `ir_verify`.
+
+Permanent evidence independently constructs the expected field inventory,
+checks the exact digest with a separate test oracle, proves two fresh encodes
+are byte-identical, and corrupts every top-level field and every identity edge.
+Removing, adding, duplicating, reordering, or substituting a semantic record,
+checker outcome, child, binding, pass, failure edge, or unsupported status
+must change bytes and be rejected by the independent artifact validator used
+for evidence. No expected digest or identity is derived from the candidate
+encoder.
+
+10B.C2 does not implement `ir_verify`, does not construct the opaque
+capability, and does not invoke Cranelift.
+
+### Increment 10B.C3: `ir_verify` and opaque verified capability
+
+10B.C3 may begin only after 10B.C2 is durably complete. Its exact writable
+envelope is:
+
+- `src/backend_input.rs`;
+- new `src/ir_verify.rs`;
+- `src/main.rs`;
+- `src/ir_readiness.rs`;
+- `src/capabilities.rs`;
+- `src/version.rs`;
+- `src/core_contract.rs`;
+- `src/ir_contract.rs`;
+- `src/backend_contract.rs`;
+- `README.md`;
+- `docs/ARCHITECTURE.md`;
+- `docs/BACKEND_STRATEGY.md`;
+- `docs/BACKEND_CONTRACT_SCHEMA.md`;
+- `docs/CAPABILITIES_SCHEMA.md`;
+- `docs/HUM_BACKEND_INPUT_SCHEMA.md`;
+- new `docs/HUM_IR_VERIFY_SCHEMA.md`;
+- `docs/HUM_CORE_CONTRACT_SCHEMA.md`;
+- `docs/HUM_IR_CONTRACT_SCHEMA.md`;
+- `docs/HUM_IR_READINESS_SCHEMA.md`;
+- `docs/LANGUAGE_REFERENCE.md`; and
+- `tools/check_all.ps1`.
+
+`ir_verify(exact_artifact_bytes)` parses and validates internally and returns
+either a structured rejection or `VerifiedBackendInput<'a>`. The capability:
+
+- borrows the exact verified bytes for `'a`;
+- is non-`Clone`, non-`Copy`, non-`Default`, and non-serializable;
+- exposes only checked read access required by a backend adapter;
+- has no public, crate-visible, test, default, deserialization, or fallback
+  constructor other than the production verifier; and
+- cannot be paired with different bytes, cached scalar traversal evidence, or
+  a separately supplied parsed payload.
+
+Verification fails for every condition in `CONTRACT.md`: noncanonical bytes;
+digest mismatch; missing, extra, duplicate, unknown, or out-of-order semantic
+records; any identity substitution; child reorder; wrong definition binding;
+foreign type/effect/resource/failure result; pass failure/skip/zero selection;
+silent unsupported fact; and any missing fact a backend would otherwise have
+to infer.
+
+An observational `hum ir-verify --format json` report may state acceptance or
+structured rejection, but it cannot serialize the capability or create an
+authority-bearing `"verified": true` value. `ir-readiness` becomes true only
+while a production verifier success exists for the exact artifact bytes.
+Changing one byte after verification cannot reuse the capability and must be
+prevented by borrowing or rejected before consumption.
+
+Compile-time evidence proves the capability traits and lifetime. Runtime
+corruption covers every expressible invalid artifact state. Source audit
+proves no constructor/bypass/JSON-to-capability path exists, but cannot replace
+the corruption gate. Moving verification after readiness or backend
+construction, restoring an unchecked artifact overload, or weakening any
+nonzero pass assertion turns permanent evidence red.
+
+10B.C3 emits no CLIF/object/executable and adds no Cranelift dependency.
+
+### Increment 10B.C4: first production Cranelift lowering
+
+10B.C4 may begin only after 10B.C3 is durably complete. Its exact writable
+envelope is:
+
+- `Cargo.toml` and `Cargo.lock`;
+- `src/backend_input.rs`;
+- `src/ir_verify.rs`;
+- new `src/cranelift_backend.rs`;
+- `src/main.rs`;
+- `src/ir_readiness.rs`;
+- `src/run.rs`;
+- `src/capabilities.rs`;
+- `src/version.rs`;
+- `src/ir_contract.rs`;
+- `src/backend_contract.rs`;
+- `README.md`;
+- `docs/ARCHITECTURE.md`;
+- `docs/BACKEND_STRATEGY.md`;
+- `docs/BACKEND_CONTRACT_SCHEMA.md`;
+- `docs/CAPABILITIES_SCHEMA.md`;
+- `docs/HUM_BACKEND_INPUT_SCHEMA.md`;
+- `docs/HUM_IR_VERIFY_SCHEMA.md`;
+- new `docs/HUM_CRANELIFT_BACKEND.md`;
+- `docs/HUM_IR_CONTRACT_SCHEMA.md`;
+- `docs/HUM_IR_READINESS_SCHEMA.md`;
+- `docs/LANGUAGE_REFERENCE.md`; and
+- `tools/check_all.ps1`.
+
+The root crate pins the exact reviewed Cranelift dependencies required for the
+adapter, JIT compilation/finalization, and object path. The root binary retains
+crate-wide `#![forbid(unsafe_code)]`; C4 authorizes no unsafe block, function,
+trait implementation, pointer-to-function conversion, raw function call,
+executable-memory call, or cleanup thunk in the main crate or another crate.
+No LLVM, MLIR, Wasm, C backend, optimizer, general ABI, or system-wide tool
+installation is authorized.
+
+The adapter accepts only `VerifiedBackendInput<'a>`. For the one supported
+function, it maps:
+
+- two ordered signed-64-bit `Int` parameters to two `I64` block parameters;
+- checked `add` to `sadd_overflow`;
+- the typed overflow edge to status 1;
+- the successful result to an `I64` result slot and status 0; and
+- the internal checked-call ABI to
+  `(i64, i64, *mut i64) -> i32`.
+
+It may not inspect source text, expression text, spans, display names,
+parameter declaration order outside the verified artifact, public checker
+JSON, or caller-supplied IDs. Unsupported verified operations are rejected
+before CLIF construction; there is no interpreter fallback hidden inside the
+backend.
+
+Required real evidence:
+
+- deterministic addition for multiple positive, zero, and negative inputs;
+- exact interpreter/native agreement;
+- exact parameter/result/status ABI;
+- overflow follows the accepted runtime-trap channel and exit 2 rather than
+  native wraparound;
+- changing ordered operands, resolver bindings, types, effects, resources,
+  failure edge, or artifact bytes prevents lowering;
+- a JIT compile-and-finalize proof on supported CI hosts, with no in-process
+  invocation claim;
+- object emission, host linking, and standalone native execution on required
+  Windows and Ubuntu CI, with exact commands and artifacts reported; and
+- two fresh native runs and two artifact/lowering runs are deterministic apart
+  from expressly observational timings and host paths.
+
+The linked object/executable path is the sole C4 native-execution proof. It
+executes outside the unsafe-free Hum process and returns through ordinary
+process status/stdout/stderr evidence. A compile/finalize-only JIT result may
+prove that verified Hum facts construct valid CLIF and finalize machine code,
+but it may not be reported as executed Hum code. Any later in-process JIT
+execution requires a separate reviewed unsafe-boundary architecture and is not
+part of this train.
+
+The first native command and its schema are documented in the authorized
+files. It is explicitly an experimental checked-add backend slice, not a
+stable public Hum ABI or a claim of complete compilation.
+
+After 10B.C4 is accepted and published green, the train stops. No deferred
+increment, Session AR, broader backend feature, or Work Order closure begins
+automatically. The BDFL uses the real lowering to re-derive the next work.
+
+### Deferred completeness work
+
+Everything not required by the ten-field checked-add contract is removed from
+the active train and retained as deferred completeness work:
+
+- former 10B.3 typed-failure, Path, and return-dependency convergence beyond
+  the checked-add overflow edge;
+- former 10B.4 mutation, place, and writable-alias convergence;
+- former 10B.5 Predicate v2 semantic-overlay convergence;
+- broad former 10B.6 type/full-type convergence beyond the exact artifact
+  slice;
+- broad former 10B.7 effect/ownership/resource convergence beyond the exact
+  artifact slice;
+- former 10B.8 public Core convergence beyond the private function facts the
+  artifact consumes;
+- former 10B.9 legacy projection-transport completeness beyond
+  `hum.backend_input.v0` and `ir_verify`;
+- former 10B.10 runtime body-expression convergence;
+- former 10B.11 runtime contract-expression convergence and body/contract
+  agreement;
+- former 10B.12 legacy expression/call authority retirement;
+- 10C universal checked execution;
+- 10D `change` parameter write-through;
+- 10E direct list-element assignment;
+- 10F linear-help honesty and the old cumulative foundation closure; and
+- the full Session AR Hum IR, compiler-ready standard library, LLVM, MLIR,
+  Wasm, C, self-hosting, optimization, and general backend work.
+
+These items retain their known defects, compatibility obligations, diagnostic
+ownership, and backlog value. They are not silently fixed, canceled as product
+goals, or permitted to leak into 10B.C1-C4. Their old envelopes and sequences
+are not presumed valid. They are re-derived only after a real verified native
+lowering exists.
+
+The disposable experiment source remains historical evidence for the
+`10a74bb` baseline. Its test that expects artifact absence is not part of the
+root workspace or `tools/check_all.ps1` and is not future production
+acceptance evidence. `CONTRACT.md` remains the planning asset; production
+tests replace the experiment once 10B.C2-C4 land.
+
+### Common evidence, compatibility, and stop rules
+
+Every contract-derived unit retains the published physical corruption-gate
+method:
+
+- corrupt the producer-owned fact at the exact production boundary consumed;
+- require a real observable consequence;
+- reject inert probes;
+- supply expected facts independently;
+- prove same-shaped substitution and coherent co-substitution fail closed;
+- use source audit only as support; and
+- make producer, validator, catalogue, mutation, pair, join, selector, and
+  bypass sabotage load-bearing.
+
+The Fast/exhaustive tier rule, complete nonzero transcript, anti-rot counts,
+ceremony proportionality, and sizing by the smallest coherent compilable,
+testable, and provable unit remain binding. A compile, format, Clippy,
+selector, or small in-envelope mechanical issue is corrected inline. A new
+semantic field, file outside the exact envelope, diagnostic, source syntax,
+public behavior outside the expressly authorized schemas/commands, dependency
+class, architecture, or missing upstream fact stops for the BDFL.
+
+Existing H-codes, causes, messages, precedence, source/runtime exit semantics,
+F1-F4 seals, H0010, resolver/callable identity, interpreter behavior, public
+Core projections, and all unaffected human/JSON bytes remain compatible.
+Changes to the expressly named backend-input, IR-verifier, IR-readiness,
+capability, version, contract, and native-command surfaces are authorized only
+in their owning unit.
+
+No unit may fake success by inferring from expression text, parameter order,
+spans, names, public node IDs, expected output, separately serialized reports,
+or a handwritten answer carrier. A precise fail-closed unsupported result is
+accepted evidence; a fabricated lowering is a rejection.
+
+### Amendment review and hard round budget
+
+This amendment receives one authoring pass, one fresh independent review, and
+at most one bounded correction cycle. A second review rejection stops directly
+for the BDFL.
+
+The reviewer independently inspects `CONTRACT.md`, the committed production
+code rather than the dirty 10B.3 tree, every ten-field producer classification,
+the four dependency boundaries, each exact envelope, the resource/profile
+correction, parser-owned signature authority, artifact/capability trust
+boundary, public claim updates, Cranelift handoff, archive lifecycle, and
+deferred list.
+
+The acceptance question is:
+
+> Can an implementer begin 10B.C1 from this specification without requiring
+> another amendment?
+
+The reviewer reports P0/P1/P2 findings and exactly one verdict: `ACCEPT`,
+`ACCEPT WITH REQUIRED FIX`, or `REJECT`. It makes no edit. It does not demand a
+complete design for deferred work.
+
+An ACCEPT verdict authorizes no commit, push, archive, clearing, 10B.C1, or
+later work. BDFL acceptance, scoped documentation commit, publication, green
+required CI, the exact archive lifecycle, its status record, and a separate
+10B.C1 go signal remain required.
+
 ## Current authorization gate
 
 Work Order 9 is closed and `WORKORDER.md` is frozen at baseline `38704ac`.
@@ -6648,4 +7296,24 @@ any AR planning.
 No dirty-tree cleanup, 10B subincrement, 10C, GitHub Issue mutation,
 `PRE-AQ-INTEGRITY`, dashboard, Session AR, Hum IR, standard-library, backend,
 cumulative closure, foundation-audit, or later work is authorized.
+
+The bounded lowering-contract experiment was committed and durably published
+as `10a74bb88dda1888bbae75c77d5aec77bcb9d7bb`. Required workflow
+`30286228831`, attempt 1, succeeded: Ubuntu job `90044580113` succeeded in
+23m 57s and Windows job `90044579917` succeeded in 36m 30s; both selected
+`mode=full` with `reason=no_status_transition`. The experiment is evidence, not
+production backend authority.
+
+The proposed backend-lowering contract critical-path amendment above is
+uncommitted and under independent pre-issuance review. It supersedes the
+remaining per-consumer execution plan only if independently accepted,
+BDFL-accepted, committed, published, and green in required CI.
+
+The deferred 10B.3 tree remains uncommitted and unaccepted at scoped OID
+`c8e6f4a04a91451c20c609e319d067e7ddaa4008` with the exact three paths and
+hashes recorded above. Archive creation, publication, retrieval proof, and
+clearing remain unauthorized. 10B.C1 is the first possible future target but
+remains unauthorized until the complete archival lifecycle and a separate
+BDFL go signal. 10B.C2, 10B.C3, 10B.C4, every deferred completeness item,
+Session AR, and all later work remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
