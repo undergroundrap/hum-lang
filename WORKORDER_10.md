@@ -6720,6 +6720,70 @@ later work. BDFL acceptance, scoped documentation commit, publication, green
 required CI, the exact archive lifecycle, its status record, and a separate
 10B.C1 go signal remain required.
 
+### 2026-07-27 bounded Increment 10B.C1 README synchronization envelope correction
+
+#### Stopped state and reproduced evidence
+
+The BDFL issued the separate Increment 10B.C1 go signal against clean,
+synchronized main at
+`e5939447a700f3910e0d84f7a0da196e1ac6f91d`. Implementation then stopped at
+the published seventeenth-path envelope boundary. The preserved implementation
+changes exactly the original sixteen authorized C1 paths, contains 2,047
+insertions and 51 deletions, and reproduces scoped tree OID
+`cab98f8eaed0ddb936b9db160d1a4855f05beb09` in fresh empty temporary indexes
+in both PowerShell and Git Bash. The real index and untracked set are empty.
+
+The real `examples/core/minimal_add.hum` source now uses the required existing
+`cost:` / `allocates: nothing` form. The complete Fast tier ran for 1,089.909
+seconds and stopped only because the existing marked `README.md` block no
+longer matched a contained substring of that source. All 450 Rust tests and
+the focused 63-corruption C1 evidence were green before that stop. No
+exhaustive run, independent implementation review, implementation commit,
+push, or 10B.C2 work occurred. These results are preserved implementation
+evidence only; they grant no acceptance credit and do not make the incomplete
+Fast tier green.
+
+The complete synchronization inventory is:
+
+- `README.md` contains the sole
+  `<!-- hum-example:start examples/core/minimal_add.hum -->` marked block;
+- `Assert-ReadmeHumExamplesMatch` in `tools/check_all.ps1` requires the code
+  inside that block to remain contained in the referenced source; and
+- no second marked `minimal_add` synchronization surface exists.
+
+The `Minimal form` heading and its surrounding teaching claim still describe
+the same checked-add example. Synchronizing the marked code with the already
+mandated explicit allocation-free source form requires no prose, heading, or
+claim change.
+
+#### Exact correction and activation sequence
+
+This correction extends the original C1 writable envelope by exactly one
+seventeenth path:
+
+- `README.md`: synchronize only the code between the existing marked
+  `examples/core/minimal_add.hum` start and end comments with the already
+  mandated `cost:` / `allocates: nothing` source form.
+
+The original sixteen-path envelope and every original C1 purpose,
+architecture, outcome class, corruption gate, dormancy requirement,
+compatibility rule, non-claim, and stop condition remain unchanged. This
+correction does not authorize changing README prose, headings, claims, the
+meaning of `Minimal form`, or any other example block. It does not authorize
+another source, fixture, schema, diagnostic, syntax form, dependency,
+producer, consumer, or evidence requirement. It does not weaken resource or
+profile policy, grant acceptance credit to the preserved implementation, or
+authorize 10B.C2 or any later work.
+
+The README synchronization remains unauthorized until these exact amendment
+bytes receive fresh independent pre-issuance `ACCEPT`, BDFL acceptance, a
+scoped Work Order commit, durable publication, and green required CI, followed
+by a separate explicit BDFL C1 corrective resume signal. Only after that
+signal may the implementer change the existing marked README block, reproduce
+the successor implementation OID in PowerShell and Git Bash, and restart the
+unchanged C1 acceptance sequence. Any need beyond this single README block
+stops for the BDFL.
+
 ## Current authorization gate
 
 Work Order 9 is closed and `WORKORDER.md` is frozen at baseline `38704ac`.
@@ -7362,8 +7426,33 @@ and `src/typed_failure.rs` at 99,300 bytes with SHA-256
 synchronized at `1681f723ebea5c1ece9fe2f340d56efed2f3f003`; the index and
 untracked set are empty; and local and live archive refs remain exact.
 
-Increment 10B.C1 is the first possible contract-derived target but remains
-unauthorized pending a separate explicit BDFL go signal. Increment 10B.C2,
-10B.C3, 10B.C4, every deferred completeness item, Session AR, and all later
-work remain unauthorized.
+The BDFL issued the Increment 10B.C1 go signal against synchronized main at
+`e5939447a700f3910e0d84f7a0da196e1ac6f91d`. The preserved C1 implementation
+changes exactly the original sixteen authorized paths, contains 2,047
+insertions and 51 deletions, and reproduces scoped tree OID
+`cab98f8eaed0ddb936b9db160d1a4855f05beb09` in fresh empty temporary indexes
+in both PowerShell and Git Bash. The real index and untracked set are empty.
+
+The source now contains the mandated existing `cost:` /
+`allocates: nothing` form. The complete Fast tier ran for 1,089.909 seconds
+and stopped only at the existing README synchronization check; all 450 Rust
+tests and the focused 63-corruption C1 evidence were green before that stop.
+No exhaustive run, independent implementation review, implementation commit,
+push, or 10B.C2 work occurred. The stopped results are preserved evidence, not
+acceptance, and C1 remains incomplete and unaccepted.
+
+`README.md` is the complete synchronization inventory: it contains the sole
+marked `examples/core/minimal_add.hum` block, and
+`Assert-ReadmeHumExamplesMatch` requires that block to remain contained in the
+source. No second marked synchronization surface exists, and no teaching
+prose or claim requires a change.
+
+The bounded 2026-07-27 C1 README synchronization correction above is
+uncommitted and under independent pre-issuance review. Editing `README.md`,
+resuming C1, or using any stopped evidence as acceptance remains unauthorized
+until the amendment is independently accepted, BDFL-accepted, committed,
+durably published, and green in required CI, followed by a separate explicit
+BDFL C1 corrective resume signal. Increment 10B.C2, 10B.C3, 10B.C4, every
+deferred completeness item, Session AR, and all later work remain
+unauthorized.
 <!-- workorder-current-authorization-gate:end -->
