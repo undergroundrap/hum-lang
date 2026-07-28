@@ -461,6 +461,27 @@ unauthorized pending a separate explicit BDFL go signal. Increment 10B.C2,
 10B.C3, 10B.C4, deferred completeness work, Session AR, production Cranelift
 integration, and every later item remain unauthorized.
 
+The former Increment 10B.C1 implementation and its one bounded correction were
+subsequently independently `REJECT`ed. That correction cycle is exhausted and
+the implementation remains unaccepted. Its exact rejected implementation
+subtree is preserved as 17 modified tracked paths, 3,053 insertions and 77
+deletions, with an empty real index and no untracked path. Fresh empty temporary
+indexes reproduce scoped tree OID
+`f126a2ef514bf8337917a4c12666f2781dee3657`; a temporary index seeded from
+`cf3c43d1b6ae90a5f5a9c712451cfc814b06a3ac` and overlaid with those same 17
+paths reproduces prospective complete tree OID
+`6b322843c12913f531f824e54fb5393040ff56b0`.
+
+The proposed 2026-07-28 architectural re-scope below is authoring-only. It
+records the former C1 as rejected, selects bounded selective salvage into a
+fresh replacement increment, and freezes the complete authority, producer,
+consumer, dormancy, and evidence closure. It is not a third correction and
+authorizes no implementation edit, acceptance, commit, push, cleanup, C2, or
+later work. The exact amendment bytes require fresh independent pre-issuance
+review, BDFL acceptance, a scoped documentation commit and publication,
+terminal required CI, and a separate explicit replacement-C1 implementation
+signal.
+
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
 authoring authorization and therefore disqualified from this document's
@@ -6784,6 +6805,626 @@ the successor implementation OID in PowerShell and Git Bash, and restart the
 unchanged C1 acceptance sequence. Any need beyond this single README block
 stops for the BDFL.
 
+## Increment 10B.C1 repeated-rejection architectural re-scope amendment (2026-07-28; proposed)
+
+### Authority, rejection, exact preservation, and supersession
+
+The BDFL authorized one bounded Work Order authoring pass to determine whether
+the twice-rejected Increment 10B.C1 is satisfiable and, only if it is, to
+replace its acceptance model. This section is planning authority only. It
+does not authorize implementation, correction, acceptance, staging, commit,
+push, cleanup, C2, or later work.
+
+The former C1 implementation and its one bounded correction each received an
+independent `REJECT`. The second verdict did not expose a compile, formatting,
+selector-plumbing, or small evidence-count defect. It exposed authority and
+dependency defects that the former mandate permitted:
+
+1. the C1 Core path reads mutable `Task.body_syntax` after validating only the
+   separately sealed `does` Section and then compares only statement
+   cardinality, so a same-cardinality foreign body can bypass the retained
+   Section authority;
+2. the parser issues a backend-signature capability unconditionally for every
+   task, outside any exact C1 eligibility selector, while a crate-visible
+   constructor and a count-only audit cannot mechanically exclude moved,
+   duplicated, decoy, or elsewhere issuance; and
+3. the dormancy test corrupts only one coherent operand case and compares only
+   seven JSON outputs. It does not prove every new C1 fact dormant across the
+   resolver, type, full-type, effect, ownership, resource, profile, Core,
+   graph, runtime, diagnostic, human, and JSON surfaces named by the mandate.
+
+The complete dependency audit also found two supporting closure defects that
+must be fixed in the replacement rather than left for another review:
+
+- `canonical_backend_checked_add_types` accepts a whole-program summary with
+  any accepted statement, then manufactures the slice's type IDs from the
+  task declaration. It does not select the exact C1 task and exact accepted
+  return statement from the production full-type report.
+- the private resource identity is derived from a debug rendering of a source
+  span. The resource outcome is found on the correct semantic item, but the
+  identity itself is not bound to canonical function/source/declaration
+  authority.
+
+These are one repeated architecture shape: the claimed producer closure can
+agree with a mutable, over-issued, incomplete, or coincident projection
+without proving that the exact parser-owned C1 authority determines the
+readiness result. The former correction cycle is therefore terminated. No
+third edit or review against the former C1 mandate is permitted.
+
+The rejected implementation remains preserved exactly on:
+
+- branch `main`;
+- `HEAD == main == origin/main ==
+  cf3c43d1b6ae90a5f5a9c712451cfc814b06a3ac`;
+- an empty real index and no untracked path;
+- exactly the following 17 implementation, documentation, example, and tool
+  paths:
+
+| Path | Insertions | Deletions |
+| --- | ---: | ---: |
+| `README.md` | 3 | 0 |
+| `docs/HUM_CORE_LOWER_SCHEMA.md` | 14 | 0 |
+| `docs/HUM_IR_READINESS_SCHEMA.md` | 36 | 1 |
+| `examples/core/minimal_add.hum` | 3 | 0 |
+| `src/ast.rs` | 238 | 10 |
+| `src/core_body.rs` | 28 | 1 |
+| `src/core_expr.rs` | 50 | 0 |
+| `src/core_lower.rs` | 181 | 0 |
+| `src/effect_check.rs` | 46 | 0 |
+| `src/full_type_check.rs` | 64 | 0 |
+| `src/ir_readiness.rs` | 1,847 | 39 |
+| `src/ownership_check.rs` | 40 | 0 |
+| `src/parser.rs` | 302 | 18 |
+| `src/profile_check.rs` | 72 | 6 |
+| `src/resolve.rs` | 63 | 0 |
+| `src/resource_check.rs` | 50 | 0 |
+| `tools/check_all.ps1` | 16 | 2 |
+| **Total** | **3,053** | **77** |
+
+Fresh empty temporary indexes loaded with exactly those paths reproduce scoped
+tree OID `f126a2ef514bf8337917a4c12666f2781dee3657`. A separate temporary index
+seeded from exact base
+`cf3c43d1b6ae90a5f5a9c712451cfc814b06a3ac` and overlaid with exactly those
+17 paths reproduces prospective whole-repository tree OID
+`6b322843c12913f531f824e54fb5393040ff56b0`. The scoped OID identifies only
+the rejected path inventory; the complete OID identifies the base repository
+plus those rejected bytes. This proposed Work Order amendment is deliberately
+outside both identities. Reproduction after authoring must seed the stated
+base and overlay only the frozen 17 paths, never stage `WORKORDER_10.md` into
+either identity.
+
+The earlier C1 mandate and the bounded README synchronization correction remain
+historical issuance evidence. For execution order, acceptance, correction
+budget, exact selector, body authority, producer closure, dormancy, evidence,
+and C2 dependency, they are prospectively superseded by this amendment. Every
+unchanged compatibility lock, no-new-H-code rule, no-artifact/non-claim, and
+later-work ban remains binding.
+
+### Satisfiability verdict and replacement boundary
+
+Replacement C1 is satisfiable. The production audit found a closed route from
+the accepted F4 Section seal and accepted 10B.2 resolver facts through the
+existing C1 producer functions to the real `ir-readiness` candidate builder.
+Every required authority repair, exact producer selection, public projection,
+and permanent evidence change fits inside the same 17-path envelope. The
+required dormant observations can call existing read-only production entry
+points without modifying their owning files. No new dependency, `cfg`,
+feature, target, source form, diagnostic, schema identifier, command, or
+platform branch is required.
+
+The replacement unit is **Increment 10B.C1R: canonical checked-add authority
+closure**. `C1R` is a Work-Order-local replacement label, not global Session R
+and not Session AR. It has a fresh implementation/review cycle only because
+this amendment materially changes the authority representation, issuance
+architecture, producer selection, and acceptance evidence. It is not a
+renamed continuation of the former correction. The former C1 receives no
+additional correction or acceptance credit.
+
+C1R retains the same bounded product outcome:
+
+```text
+real examples/core/minimal_add.hum
+-> exact parser-owned syntactic eligibility and signature authority
+-> one F4-sealed authoritative does-body representation
+-> exact resolver/full-type/effect/ownership/resource/profile producer outcomes
+-> one fail-closed C1R ir-readiness join
+-> still blocked by absent hum.backend_input.v0 and ir_verify
+```
+
+C1R emits no `hum.backend_input.v0`, constructs no
+`VerifiedBackendInput`, emits no CLIF/object/executable, and changes no
+interpreter behavior. Increment 10B.C2 may begin only after C1R is
+independently accepted, committed, published, green in required CI, durably
+recorded where required, and followed by a separate explicit BDFL C2 signal.
+
+### Selective-salvage decision
+
+Selective salvage from the exact rejected OIDs is chosen over a clean-baseline
+restart. This is a bounded architectural decision, not acceptance of any byte.
+
+The code audit supports provisional salvage of:
+
+- the real `ir-readiness` production call graph that invokes the C1 producers;
+- the private Core, resolver, full-type, effect, ownership, resource, and
+  profile view shapes where they survive the corrected authority rules;
+- the existing example/README synchronization and documentation non-claims;
+- individually useful corruption case ideas; and
+- the exact 17-path envelope, which already contains every required producer,
+  validator, consumer, document, example, and harness owner.
+
+The following parts are rejected claims to replace, not evidence to preserve:
+
+- `Task.body_syntax` as the C1 body source and the cardinality-only agreement
+  check;
+- unconditional task-wide signature issuance, the crate-visible mint route,
+  and count-only/source-range issuance audits;
+- the name-based `task`/`add` CLI selector as proof of parser eligibility;
+- the whole-program full-type acceptance shortcut;
+- the span-rendered private resource identity;
+- the current seven-entry accepted-pass list;
+- the 63-case catalogue as a claim of complete C1 fact coverage;
+- the one-corruption/seven-JSON dormancy vector; and
+- any candidate-derived oracle, mere output inequality, generic `is_err`,
+  inert source spelling, or bookkeeping sabotage.
+
+Restarting would discard a reachable, dependency-closed producer skeleton and
+then recreate the same 17 paths. Blanket resumption would be a forbidden third
+correction. C1R therefore starts from exact scoped OID
+`f126a2ef514bf8337917a4c12666f2781dee3657` only after the complete
+documentation gate below, but every surviving byte must satisfy the new
+authority and evidence model and receives a fresh independent implementation
+review. Before the first implementation edit, the implementer reproduces both
+frozen OIDs and the exact path statistics. After the completed C1R edit, the
+implementer records a new scoped OID; the old OIDs remain historical rejected
+identities.
+
+### Exact C1R writable envelope
+
+C1R may modify only these 17 paths:
+
+| Path | Replacement responsibility |
+| --- | --- |
+| `README.md` | Preserve only the already synchronized marked `minimal_add` block. |
+| `docs/HUM_CORE_LOWER_SCHEMA.md` | Describe the corrected private Section-owned C1 Core boundary and non-claims. |
+| `docs/HUM_IR_READINESS_SCHEMA.md` | Specify the exact C1R selector, producer facts, pass set, blockers, and non-claims. |
+| `examples/core/minimal_add.hum` | Preserve the accepted `cost:` / `allocates: nothing` positive. |
+| `src/ast.rs` | Store optional parser-issued C1 authority, expose only lifetime-bound validated access, and prevent legacy-body authority. |
+| `src/parser.rs` | Own the exact selector, the sole valid issuance path, independent token/event facts, and test-only invalid-authority corruption. |
+| `src/core_body.rs` | Transport only the validated sealed `does` Section body into C1. |
+| `src/core_expr.rs` | Select the exact checked-add expression from that Section-owned body. |
+| `src/core_lower.rs` | Produce and locally validate ordered private Core function/block/op/value/failure facts without text inference. |
+| `src/resolve.rs` | Expose the exact accepted resolver use/definition facts and remove any C1 semantic-identity dependence on the legacy task-body clone. |
+| `src/full_type_check.rs` | Select the exact C1 item and statement outcome and bind canonical type IDs. |
+| `src/effect_check.rs` | Select the exact function's accepted pure/no-authority outcome without changing public bytes. |
+| `src/ownership_check.rs` | Select the exact function's accepted ownership outcome without changing public bytes. |
+| `src/resource_check.rs` | Bind the exact accepted allocation outcome to canonical function/source/declaration identity without span authority. |
+| `src/profile_check.rs` | Bind the exact normal-profile outcome to the same canonical function identity without changing public bytes. |
+| `src/ir_readiness.rs` | Own the C1R join, exact fact catalogue, blockers, human/JSON projection, corruption seams, and complete dormancy matrix. |
+| `tools/check_all.ps1` | Own exact nonzero selectors, CLI positive/negative evidence, issuance inventory, sabotage, and anti-rot counts. |
+
+A listed path may remain byte-identical. No eighteenth implementation path is
+authorized. In particular, `src/type_env.rs`, `src/type_check.rs`,
+`src/core_preview.rs`, `src/core_verify.rs`, `src/graph.rs`, `src/json.rs`,
+`src/run.rs`, `src/diagnostic.rs`, `src/diagnostics.rs`, `src/main.rs`, and
+every fixture path are read-only evidence surfaces, not writable escape
+hatches. If a required observation cannot be made through their existing
+production APIs, or a production correction is required there, C1R stops for
+the BDFL. A test-only parallel consumer, new fixture, new document, or new
+helper file cannot close that gap.
+
+### One authoritative C1 body representation
+
+For C1R, the sole body authority is the `body_syntax` retained on the live
+`does` Section after successful F4 validation. That is the representation
+whose parser-owned Section capability snapshots the body, source-owner facts,
+occurrences, statement relationships, canonical nodes, and payload facts.
+
+`Task.body_syntax` remains a legacy public clone for already accepted
+consumers outside C1R. C1R may neither read it nor compare, zip, count, hash,
+render, reparse, or use it to select semantic identity. The field does not
+become a second C1 validator merely because its bytes happen to equal the
+Section. C1R must not remove or globally migrate the legacy field; doing so
+would pull `src/callable.rs` and other deferred consumers into this unit.
+
+The exact C1 route is:
+
+```text
+Program live traversal
+-> F4 file/item/Section validation
+-> ValidatedBackendFunction borrowing the exact live does Section
+-> Section.body_syntax.iter().flatten()
+-> exact one-statement checked-add selection
+-> private Core view
+```
+
+`ValidatedBackendFunction` and `CanonicalBackendBody` may expose a borrowed
+Section statement iterator or exact borrowed statement. They may not expose
+`task.body_syntax` as a C1 body. `core_expr` consumes the borrowed canonical
+statement and nodes directly. Resolver semantic identity used by C1 must be
+derived from its accepted Section/canonical authority or another already
+accepted resolver fact, not from the legacy task-body clone. Public resolver
+bytes must remain unchanged for ordinary unmutated programs.
+
+Permanent body-authority evidence includes all of:
+
+1. replace only `Task.body_syntax` with a same-cardinality, same-spelled,
+   same-position body parsed from a distinct source revision; C1R human and
+   JSON observations must remain byte-identical because the clone is not an
+   input;
+2. replace only the live `does` Section body with that foreign body while
+   retaining its original F4 capability; validation must fail before C1 Core
+   construction with the exact retained-Section rejection;
+3. co-substitute the Task clone and Section projection while retaining the
+   original source/file/item/Section authority; the same exact rejection must
+   remain;
+4. substitute a foreign parser-issued Section capability, whole Section, item,
+   file ordinal, item path, source revision, and equal-spelled binder
+   relationships one at a time and coherently; none may produce a C1R closure;
+5. swap equal-typed operand nodes and values while keeping text, spans, names,
+   and cardinality coincident; the exact ordered relationship must reject; and
+6. a complete source/dataflow audit must trace every C1R body alias and helper
+   and fail if `task.body_syntax`, `parse_task_body_syntax`, rendered
+   `BodyStatement.text`, or reparsed expression text enters the C1R selector,
+   Core producer, resolver binding, or join.
+
+The first case is the regression that distinguishes one authoritative body
+from two co-validating copies. A test that merely changes statement count,
+operator kind, spelling, or span does not cover the bypass.
+
+### Exact selector and sole parser issuance
+
+The C1R parser selector is syntactic eligibility, not semantic acceptance. It
+uses independently captured parser token/events plus the same retained Section
+body that F4 seals. It selects a task candidate only when:
+
+- a real module token and live task item/`does` relationship exist;
+- the task has exactly two ordered parameter binder events;
+- the `does` Section contains exactly one meaningful, complete canonical
+  statement;
+- that statement is `return` of one complete binary `add`;
+- the ordered left and right children are identifier occurrences of the first
+  and second ordered parameter binders respectively; and
+- there is no extra statement, extra expression root, unsupported completion,
+  malformed event, nested wrapper, or unowned relationship.
+
+The selector captures, but deliberately does not semantically accept, parameter
+permissions, declared parameter types, explicit/default result type,
+effects/authority declarations, allocation intent, or profile policy. Wrong
+types remain owned by full type, permission/transfer facts by ownership,
+effects by effect check, missing `allocates: nothing` by resource/profile, and
+malformed source by the parser. The selector is structural and may not
+special-case the path `examples/core/minimal_add.hum`, module display,
+function name `add`, expected CLI output, or a source hash.
+
+The sole valid capability constructor and the selector must live in one
+private parser-owned module. The only production operation exported from that
+module returns `Option<CanonicalBackendSignatureCapability>` after executing
+the exact selector. No crate-visible verifier trait, general
+`parser_issue(Arc<dyn ...>)`, default, deserializer, test constructor, AST
+constructor, or alternate parser helper may mint a valid capability. `Task`
+stores the returned option; non-selected tasks store `None`. Read-only binding
+access may be crate-private only after the capability exists.
+
+The issuance invariants are:
+
+- one selected task occurrence produces exactly one valid installed
+  capability;
+- one non-selected occurrence produces zero;
+- two independently selected occurrences produce distinct source/file/item
+  authority and cannot substitute for each other;
+- moving issuance before selection, after a default fallback, or into a
+  general task constructor fails;
+- duplicating issuance in the selected branch or installing it on another task
+  fails;
+- a dead/unused decoy issuer, constructor-shaped helper, test-only valid mint,
+  alternate file, or second call site fails; and
+- cloning or relocating an already parsed task cannot change the bound source
+  revision, semantic file ordinal, item path/kind, Section slot, or selector
+  relationship and therefore cannot make foreign installation valid.
+
+This property is enforced twice. Rust privacy and the private selector witness
+make outside minting unrepresentable in normal code. A complete production
+source inventory then asserts one constructor, one selector-contained
+construction expression, one installation route, and zero alternate valid
+routes across every `src/*.rs` file. Named audit sabotages for mint, pre-select
+move, post-select fallback, duplicate, decoy, elsewhere call, and foreign
+installation must each turn the exact selector red. A raw occurrence count
+without the selector-containment and installation relationships is
+insufficient.
+
+Permanent behavioral controls use the real parser:
+
+- the real `minimal_add` source selects exactly one C1R candidate;
+- a missing module, zero/one/three parameters, no `does`, two statements,
+  subtraction, literal return, reversed binders, repeated first binder,
+  permission wrapper, nested add, malformed expression, and test/store/app
+  item each select zero and retain the exact owning blocker;
+- a wrong declared type, non-default permission, missing allocation intent, or
+  non-normal profile on an otherwise exact syntactic candidate still receives
+  parser authority but is rejected by its owning downstream producer; and
+- same-shaped sources at distinct revisions, ordinals, paths, and item
+  positions independently select, but every cross-substitution fails closed.
+
+### Dependency-closed producer, validator, and consumer map
+
+Every C1R producer has one production call from
+`canonical_checked_add_producer_closure`, and that join has one production call
+from the exact selected `ir-readiness` lowering candidate. A declaration plus
+tests is not a producer closure.
+
+| Layer | Authoritative producer input | Required validator and consumer | Public/dormant boundary |
+| --- | --- | --- | --- |
+| Parser/source | raw source revision, normalized path, semantic file ordinal, module/task/signature/Section token events, exact structural selector | private parser selector issues one optional capability; live Program traversal plus F4 file/item/Section validation consumes it | no parser diagnostic or graph change; non-selected tasks receive no valid authority |
+| Body | validated live `does` Section and its sealed retained canonical body | `core_body` transports borrowed Section statements only; `core_expr` selects exact return/add/children | legacy `Task.body_syntax` and public body reports remain unchanged and non-authoritative to C1R |
+| Private Core | exact signature/selector witness and borrowed canonical statement/nodes | `core_lower` constructs and locally validates ordered function/block/op/value/overflow facts; readiness consumes the private view | public `core-preview`, `core-lower`, and `core-verify` human/JSON bytes remain dormant |
+| Resolver | accepted 10B.2 reference summaries keyed by exact canonical operand nodes and parameter definitions | private resolver view returns exact function definition, ordered operand uses, and ordered distinct targets; C1R join validates them against literal expected relationships | public resolver human/JSON remains byte-identical |
+| Type environment/declaration type | existing program/task declarations | read-only dormancy observations only; they are not C1R type producers | `type-env` and `type-check` human/JSON remain byte-identical |
+| Full type | exact semantic C1 task row, exact one accepted return statement, exact actual/expected `Int`, and exact Core nodes/values | private full-type view binds six signed-64 `Int` IDs and one status to the C1 function; global `accepted_statements > 0` cannot substitute | public full-type human/JSON remains byte-identical |
+| Effect | exact semantic C1 task row and accepted one-statement no-external-effect result | private effect view binds function, pure effect, no authority, and accepted status | public effect human/JSON remains byte-identical |
+| Ownership | exact semantic C1 task row and accepted no-transfer result | private ownership view binds function, outcome identity, and status | public ownership human/JSON remains byte-identical |
+| Resource | exact semantic C1 task row and exact accepted `allocates: nothing` declaration relationship | private resource view binds canonical function/source/declaration identity, allocation outcome, and status; debug/span identity is observational only | public resource human/JSON remains byte-identical except the already mandated source correction |
+| Profile | exact same canonical function identity, accepted resource result, and exact normal policy row | private profile view binds profile ID, policy status, and producer status | public profile human/JSON remains byte-identical except the already mandated source correction |
+| Readiness join | all validated views, exact ordered pass set, explicit unsupported set, absent artifact, and absent verifier | one private validated candidate becomes the C1R human/JSON readiness projection; any missing, zero, foreign, duplicate, reordered, or unsupported fact produces its exact blocker | this is the sole existing consumer allowed to observe new C1R facts |
+| Graph/runtime/diagnostics | the unchanged Program and source diagnostics | existing graph serializer, interpreter, source diagnostic renderer, check JSON, catalogue, and explain entry points are read-only matrix consumers | every output remains dormant; no new H-code, exit change, runtime action, graph row, or diagnostic byte |
+
+The full-type correction may add a private semantic identity or statement/node
+binding to its internal row, but that field must not enter existing public
+renderers. The resource correction must derive its private identity from
+canonical function/source/declaration authority; it may retain the span only
+as an observational projection. Resolver validation may consume accepted
+10B.2 identities but may not use the same candidate helper to generate both
+the observed and expected relationships.
+
+The exact ordered accepted-pass set for the positive is:
+
+1. `canonical_backend_c1_selector_selected_v0`;
+2. `canonical_backend_source_owner_checked_v0`;
+3. `canonical_backend_signature_checked_v0`;
+4. `canonical_backend_body_checked_v0`;
+5. `canonical_backend_core_checked_add_checked_v0`;
+6. `canonical_backend_resolver_checked_v0`;
+7. `accepted_canonical_checked_add_types_v0`;
+8. `accepted_canonical_pure_effect_v0`;
+9. `accepted_canonical_ownership_v0`;
+10. `canonical_backend_resource_checked_v0`;
+11. `accepted_conservative_allocation_free_claim_v0`;
+12. `canonical_backend_profile_checked_v0`; and
+13. `accepted_normal_profile_policy_v0`.
+
+The positive has an empty unsupported set, exact missing artifact
+`hum.backend_input.v0_absent_v0`, exact missing verifier
+`ir_verify_unimplemented_v0`, and closure status
+`canonical_checked_add_producer_closure_available_v0`. Missing, duplicate,
+reordered, foreign, zero-selected, or silently omitted pass facts fail closed.
+
+### Complete C1R fact catalogue
+
+The permanent catalogue contains exactly 111 corruption rows. A row is one
+authority value, ordered slot, or relationship the readiness consumer must
+actually read. A structured range row exercises file, line, column, and byte
+length subcases; an ordered-array row exercises each slot plus reordering. A
+producer status used again as an ordered pass-set member is two relationships
+and therefore has two rows.
+
+| Catalogue group | Exact facts | Rows |
+| --- | --- | ---: |
+| Parser selector and signature | selector decision; source revision, normalized path, semantic file ordinal; module token identity/spelling/range; item path/kind; function token identity/spelling/range; linkage identity; for each of two parameters, ordinal, binder identity/spelling/range, declared-type identity/spelling/range, and permission; result identity/spelling/range/explicitness; `does` slot, identity, spelling, and range | 37 |
+| Authoritative body and private Core | statement count, statement node, statement kind, block relationship/depth-before/depth-after; add node identity/kind/operator/completion; left and right node identity/kind/completion; ordered child relationship; block identity; return operation identity; two ordered operation-kind slots; left/right/result value identities; overflow edge and status | 26 |
+| Resolver | function definition identity; two ordered use identities; two ordered target-definition identities; use order; definition order; distinct-binding relationship | 8 |
+| Full type | function identity; two parameter type IDs; two operand type IDs; add-result type ID; function-result type ID; accepted status | 8 |
+| Effect | function identity, effect ID, authority ID, accepted status | 4 |
+| Ownership | function identity, ownership ID, accepted status | 3 |
+| Resource | function identity, canonical resource/declaration ID, allocation status, producer status | 4 |
+| Profile | function identity, profile ID, profile-policy status, producer status | 4 |
+| Join and outcomes | 13 ordered accepted-pass memberships; unsupported set; missing artifact; missing verifier; closure status | 17 |
+| **Total** |  | **111** |
+
+The implementation must encode this table as an independently authored literal
+catalogue with unique stable fact IDs, owning producer, exact corruption
+operation, exact expected C1R blocker or changed field, and dormant-surface
+membership. Candidate code may not enumerate itself to define the oracle.
+Every catalogue row executes exactly once; the selector fails on 110, 112,
+duplicate, missing, skipped, or renamed rows. Group-level mutation without
+per-slot and order cases is incomplete.
+
+### Complete dormancy and corruption matrix
+
+For every one of the 111 catalogue rows, a test-only physical corruption is
+applied immediately after the owning parser/producer fact is created and
+before its owning validator and the real C1R readiness join consume it. The
+same production consumer entry runs on clean and corrupted input. Corrupting
+the final readiness output, changing source text, changing public spans/names,
+or being rejected by an earlier unrelated stage earns no row.
+
+Each row must satisfy both active observations:
+
+- `ir_readiness_text` changes in the independently predicted field or names
+  the exact row's fail-closed blocker; and
+- `ir_readiness_json` changes in the same independently predicted relationship
+  or names the exact blocker.
+
+Mere inequality, `is_err`, missing closure, changed count, or an arbitrary
+blocker is insufficient. Two clean runs and two corrupted runs must be
+byte-identical within their respective states.
+
+While that same corruption seam is active, every applicable dormant
+observation below must remain exactly equal to its clean baseline:
+
+| Surface | Required dormant observations for every catalogue row |
+| --- | --- |
+| Resolver | `resolve_text` and `resolve_json` |
+| Declared types | `type_env_text`, `type_env_json`, `type_check_text`, and `type_check_json` |
+| Full type | `full_type_check_text` and `full_type_check_json` |
+| Effect | `effect_check_text` and `effect_check_json` |
+| Ownership | `ownership_check_text` and `ownership_check_json` |
+| Resource | `resource_check_text` and `resource_check_json` |
+| Profile | `profile_check_text` and `profile_check_json` |
+| Core | `core_preview_text/json`, `core_lower_text/json`, and `core_verify_text/json` |
+| Graph | exact `program_to_json` graph/program bytes, including diagnostic array |
+| Runtime | exact `RunReport`: outcome, diagnostics, authority events, and every rendered diagnostic; the real clean CLI positive separately pins stdout, stderr, and exit twice |
+| Source diagnostics | ordered diagnostic values, ordered human `Diagnostic::render` bytes, and `diagnostics::check_json` |
+| Diagnostic catalogue/explain | `diagnostics_text`, `diagnostics_json`, and one pinned existing-code `explain_text/json` control |
+
+The matrix literal names every observation and asserts its nonzero exact count;
+removing, aliasing, skipping, conditionally bypassing, or replacing one with
+the readiness output fails the exact selector. Human and JSON are separate
+columns, not one format inferred from the other.
+
+The matrix additionally includes:
+
+- the legacy Task-body-only mutation case, where both C1R readiness formats
+  and every dormant output remain byte-identical because the clone is not a
+  C1R fact;
+- the sealed Section-body and foreign-capability substitutions, where both
+  C1R formats fail at the exact authority boundary while dormant outputs are
+  not credited if an earlier F4 rejection prevents their normal production
+  path;
+- same-shaped foreign owner and operand substitutions with coincident text,
+  spans, names, arity, type spelling, and body cardinality;
+- ordered relation swaps that preserve the member sets;
+- coherent multi-fact substitutions after all singleton rows; and
+- load-bearing sabotages for producer bypass, validator bypass, catalogue
+  omission, mutation-seam bypass, pair/order bypass, join bypass, dormancy
+  observation omission, selector zero/rename/skip, and forbidden final-output
+  mutation.
+
+An inert sabotage is a failed test. Source audit remains supporting evidence
+only except for the parser constructor/selector placement property that Rust
+privacy plus the complete issuance inventory makes structural.
+
+### Positive, blocker, compatibility, and non-claim matrix
+
+The real `examples/core/minimal_add.hum` enters through ordinary program
+loading and the real `hum ir-readiness` command in human and JSON modes. It
+must:
+
+- select exactly one C1R candidate without a path/name/source-hash special
+  case;
+- retain exact ordered source/signature/body/Core/resolver/type/effect/
+  ownership/resource/profile facts;
+- contain all 13 accepted passes in the exact order above;
+- contain zero unsupported facts;
+- retain no resource or profile blocker;
+- remain `blocked_before_ir_verify`;
+- name exactly `hum.backend_input.v0_absent_v0` and
+  `ir_verify_unimplemented_v0`; and
+- produce byte-identical output on two fresh runs in each format.
+
+An otherwise exact task without `allocates: nothing` retains the existing
+resource and profile blockers. Wrong declaration types, permissions, effects,
+resource claims, and profile policies fail at their owning producer. An
+unsupported or malformed expression fails at the exact selector/parser
+boundary and cannot become a generic runtime trap. A source/resolver/type
+diagnostic retains its existing code, cause, span, message, help, precedence,
+human/JSON bytes, and exit behavior.
+
+C1R allocates no H-code and changes no existing diagnostic catalogue, cause,
+message, help, severity, primary/related site, precedence, count, ordering, or
+exit code. It changes no resolver, type-env, type-check, full-type, effect,
+ownership, resource, profile, public Core, graph, runtime, diagnostics, or
+explain bytes for an unchanged source. The only intended existing-source
+consumer change is the expressly documented C1R `ir-readiness` human/JSON
+projection. The only source-driven existing-output change remains the already
+mandated `minimal_add` allocation-intent correction and its synchronized
+README block.
+
+No source file, task name, module display, span, expected value, public node
+ID, rendered expression, parameter order inferred outside parser authority,
+separately serialized report, or handwritten success carrier may substitute
+for a catalogue fact. A precise fail-closed unsupported result is valid; a
+fabricated closure is not.
+
+### C1R implementation cycle and checks
+
+After every documentation gate below and a separate explicit BDFL C1R signal,
+the original C1 implementer or another designated implementer may selectively
+rework the preserved tree inside the exact envelope. The implementation cycle
+is fresh:
+
+1. reproduce the frozen 17-path statistics, scoped OID, complete OID, empty
+   real index, and no untracked path before editing;
+2. implement the complete replacement authority and evidence model in one
+   coherent pass;
+3. record a new exact scoped OID and complete path statistics;
+4. run the exact focused selectors, then the Fast tier;
+5. stop with the complete implementation uncommitted and the real index empty;
+6. one fresh independent implementation reviewer runs the focused selectors
+   and Fast tier and verifies the exhaustive transcript for the exact bytes;
+   and
+7. only an `ACCEPT` permits a separately authorized implementation commit.
+
+One bounded correction/re-review cycle is available only for a finding that
+remains inside the exact C1R envelope, authority, behavior, fact catalogue,
+dormancy matrix, and evidence meaning. A second non-accept verdict, a repeated
+authority/evidence finding, a 112th fact, a missing production caller, an
+eighteenth path, a new public behavior, or a changed architecture stops for
+the BDFL. It may not be called an inline fix, hidden by refreshing an oracle,
+or routed back through the former C1 correction budget.
+
+The implementer and reviewer each run the Fast tier. The reviewer
+independently verifies the existing exhaustive canonical-seal transcript for
+the exact reviewed bytes, including the exact nonzero selector and all 14,226
+pairs, rather than rerunning it locally. No C1R evidence may reduce, skip, or
+replace F1-F4 evidence. Required Ubuntu and Windows CI remains final
+cross-platform evidence after an authorized publication.
+
+### Independent pre-issuance review and publication gate
+
+This author is disqualified from the amendment verdict. One fresh independent
+architect-reviewer must cold-start from repository ground truth and:
+
+- reproduce `HEAD/main/origin/main`, the exact 17-path statistics, both OIDs,
+  empty real index, and no untracked path without staging the Work Order;
+- independently verify both former C1 verdicts exhausted the old cycle and
+  that C1R is an architectural re-scope rather than a third correction;
+- reproduce the mutable foreign-`body_syntax` bypass and verify the
+  Section-only authority rule and substitution controls close it without a
+  global body migration;
+- enumerate every valid-capability constructor, issuer, installer, call,
+  alias, re-export, macro, and test route and verify the private exact-selector
+  architecture can mechanically reject mint/move/duplicate/decoy/elsewhere
+  issuance;
+- inspect every production producer, local validator, real readiness caller,
+  public renderer, and read-only dormant surface in the dependency table;
+- verify the exact-task full-type correction and canonical resource identity
+  close the two supporting producer gaps;
+- independently recount the 111-row fact catalogue, the 13-pass positive, and
+  every dormant human/JSON/runtime/diagnostic observation;
+- verify every corruption reaches the owning real consumer and every required
+  same-shaped, order-preserving, coherent, and sabotage case is
+  nondegenerate;
+- audit selective salvage against the complete rejected diff, giving no
+  acceptance credit to old tests or green checks;
+- verify the exact 17-path envelope is dependency-closed and every named
+  read-only surface can be observed without an out-of-envelope edit;
+- verify all compatibility, no-new-diagnostic, no-artifact, no-C2, and
+  later-work locks; and
+- inspect only the Work Order amendment diff for this document verdict.
+
+For this planning review, the rejected implementation's Fast and Exhaustive
+tiers are not run and provide no acceptance credit. The reviewer runs only
+proportional Work Order document checks and `git diff --check`, reports P0/P1/
+P2 findings with exact lines, and returns exactly one verdict: `ACCEPT`,
+`ACCEPT WITH REQUIRED FIX`, or `REJECT`. It does not edit, implement, stage,
+commit, push, accept on behalf of the BDFL, or review its own work.
+
+An independent `ACCEPT` authorizes no later action. The required order is:
+
+```text
+fresh independent pre-issuance ACCEPT
+-> explicit BDFL acceptance of the exact amendment bytes
+-> separately authorized WORKORDER_10.md-only documentation commit
+-> separately authorized publication
+-> terminal required Ubuntu and Windows CI for that exact commit
+-> durable status recording where directed
+-> separate explicit BDFL C1R implementation signal
+```
+
+Any amendment byte changed after review invalidates that verdict. No
+implementation edit may occur while the amendment is under review or while
+any publication/CI gate remains incomplete. C1R completion authorizes no C2,
+C3, C4, deferred completeness work, Session AR, or other later action.
+
 ## Current authorization gate
 
 Work Order 9 is closed and `WORKORDER.md` is frozen at baseline `38704ac`.
@@ -7426,33 +8067,40 @@ and `src/typed_failure.rs` at 99,300 bytes with SHA-256
 synchronized at `1681f723ebea5c1ece9fe2f340d56efed2f3f003`; the index and
 untracked set are empty; and local and live archive refs remain exact.
 
-The BDFL issued the Increment 10B.C1 go signal against synchronized main at
-`e5939447a700f3910e0d84f7a0da196e1ac6f91d`. The preserved C1 implementation
-changes exactly the original sixteen authorized paths, contains 2,047
-insertions and 51 deletions, and reproduces scoped tree OID
-`cab98f8eaed0ddb936b9db160d1a4855f05beb09` in fresh empty temporary indexes
-in both PowerShell and Git Bash. The real index and untracked set are empty.
+The former Increment 10B.C1 implementation and its one bounded correction
+were each independently `REJECT`ed. The second verdict exposed the same
+authority/evidence architecture shape after the correction: a mutable
+foreign-`body_syntax` bypass, parser issuance outside an exact mechanically
+load-bearing selector, and incomplete dormancy proof. That cycle is exhausted.
+No third correction, review, or acceptance against the former C1 mandate is
+authorized.
 
-The source now contains the mandated existing `cost:` /
-`allocates: nothing` form. The complete Fast tier ran for 1,089.909 seconds
-and stopped only at the existing README synchronization check; all 450 Rust
-tests and the focused 63-corruption C1 evidence were green before that stop.
-No exhaustive run, independent implementation review, implementation commit,
-push, or 10B.C2 work occurred. The stopped results are preserved evidence, not
-acceptance, and C1 remains incomplete and unaccepted.
+The rejected implementation remains preserved, uncommitted, and unaccepted
+on `main`, with
+`HEAD == main == origin/main ==
+cf3c43d1b6ae90a5f5a9c712451cfc814b06a3ac`. Excluding this Work Order
+amendment, it changes exactly the 17 paths recorded in the proposed
+2026-07-28 re-scope amendment, totaling 3,053 insertions and 77 deletions.
+Fresh temporary indexes reproduce scoped tree OID
+`f126a2ef514bf8337917a4c12666f2781dee3657` and base-overlaid complete tree
+OID `6b322843c12913f531f824e54fb5393040ff56b0`. The real index and untracked
+set remain empty. `WORKORDER_10.md` is deliberately outside both rejected
+identities.
 
-`README.md` is the complete synchronization inventory: it contains the sole
-marked `examples/core/minimal_add.hum` block, and
-`Assert-ReadmeHumExamplesMatch` requires that block to remain contained in the
-source. No second marked synchronization surface exists, and no teaching
-prose or claim requires a change.
+The proposed 2026-07-28 amendment records that the problem is satisfiable only
+as fresh replacement Increment 10B.C1R, chooses selective salvage inside the
+same dependency-closed 17-path envelope, and replaces the former authority,
+issuance, producer-closure, fact-catalogue, and dormancy acceptance model. It
+is an architectural re-scope, not a third correction, and grants no
+acceptance credit to the rejected bytes or their stopped checks.
 
-The bounded 2026-07-27 C1 README synchronization correction above is
-uncommitted and under independent pre-issuance review. Editing `README.md`,
-resuming C1, or using any stopped evidence as acceptance remains unauthorized
-until the amendment is independently accepted, BDFL-accepted, committed,
-durably published, and green in required CI, followed by a separate explicit
-BDFL C1 corrective resume signal. Increment 10B.C2, 10B.C3, 10B.C4, every
-deferred completeness item, Session AR, and all later work remain
-unauthorized.
+The amendment is uncommitted and awaits a fresh independent pre-issuance
+architect review. No implementation edit, cleanup, staging, commit,
+publication, CI claim, C1R execution, or C2 work is authorized. Only an
+independent `ACCEPT`, explicit BDFL acceptance of the exact amendment bytes,
+a separately authorized `WORKORDER_10.md`-only commit and publication,
+terminal-green required Ubuntu and Windows CI, durable status recording where
+directed, and a separate explicit BDFL C1R implementation signal may begin the
+fresh replacement cycle. Increment 10B.C2, 10B.C3, 10B.C4, every deferred
+completeness item, Session AR, and all later work remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
