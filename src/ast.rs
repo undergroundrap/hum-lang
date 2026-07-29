@@ -1,4 +1,5 @@
 use crate::diagnostic::Span;
+use crate::parser::{CanonicalBackendSignatureBinding, CanonicalBackendSignatureCapability};
 use std::fmt;
 use std::sync::Arc;
 
@@ -543,6 +544,7 @@ pub struct Task {
     pub body_syntax: Vec<ParsedBodyStatement>,
     pub span: Span,
     canonical_core_owner_witness: Option<CanonicalCoreOwnerWitness>,
+    canonical_backend_signature: Option<CanonicalBackendSignatureCapability>,
 }
 
 #[derive(Clone)]
@@ -881,6 +883,42 @@ pub(crate) struct ValidatedCoreSection<'a> {
     section: &'a Section,
 }
 
+pub(crate) struct CanonicalBackendFunctionExpectation<'a> {
+    core: CanonicalCoreSectionExpectation<'a>,
+    file: &'a SourceFile,
+    item: &'a Item,
+    task: &'a Task,
+    does: &'a Section,
+    file_ordinal: usize,
+    item_path: Vec<usize>,
+    section_slot: usize,
+}
+
+pub(crate) struct ValidatedBackendFunction<'a> {
+    file: &'a SourceFile,
+    item: &'a Item,
+    does: &'a Section,
+    signature: &'a CanonicalBackendSignatureBinding,
+}
+
+impl<'a> ValidatedBackendFunction<'a> {
+    pub(crate) fn file(&self) -> &'a SourceFile {
+        self.file
+    }
+
+    pub(crate) fn item(&self) -> &'a Item {
+        self.item
+    }
+
+    pub(crate) fn does(&self) -> &'a Section {
+        self.does
+    }
+
+    pub(crate) fn signature(&self) -> &'a CanonicalBackendSignatureBinding {
+        self.signature
+    }
+}
+
 impl<'a> ValidatedCoreSection<'a> {
     pub(crate) fn section(&self) -> &'a Section {
         self.section
@@ -965,16 +1003,6 @@ impl_item_authority_constructor!(Store {
     sections: Vec<Section>,
     span: Span,
 });
-impl_item_authority_constructor!(Task {
-    name: String,
-    params: Vec<Param>,
-    result: Option<String>,
-    result_syntax: Option<TypeSyntax>,
-    sections: Vec<Section>,
-    effect_syntax: Vec<ParsedEffectDeclaration>,
-    body_syntax: Vec<ParsedBodyStatement>,
-    span: Span,
-});
 impl_item_authority_constructor!(Test {
     name: String,
     params: Vec<Param>,
@@ -982,6 +1010,53 @@ impl_item_authority_constructor!(Test {
     sections: Vec<Section>,
     span: Span,
 });
+
+impl Task {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn parser_new(
+        name: String,
+        params: Vec<Param>,
+        result: Option<String>,
+        result_syntax: Option<TypeSyntax>,
+        sections: Vec<Section>,
+        effect_syntax: Vec<ParsedEffectDeclaration>,
+        body_syntax: Vec<ParsedBodyStatement>,
+        span: Span,
+        canonical_core_owner_witness: CanonicalCoreOwnerWitness,
+        canonical_backend_signature: Option<CanonicalBackendSignatureCapability>,
+    ) -> Self {
+        Self {
+            name,
+            params,
+            result,
+            result_syntax,
+            sections,
+            effect_syntax,
+            body_syntax,
+            span,
+            canonical_core_owner_witness: Some(canonical_core_owner_witness),
+            canonical_backend_signature,
+        }
+    }
+
+    fn canonical_backend_signature(
+        &self,
+    ) -> Result<&CanonicalBackendSignatureCapability, &'static str> {
+        self.canonical_backend_signature
+            .as_ref()
+            .ok_or("canonical_backend_signature_capability_absent_v0")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn remove_canonical_backend_signature_for_test(&mut self) {
+        self.canonical_backend_signature = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn substitute_canonical_backend_signature_from_for_test(&mut self, foreign: &Task) {
+        self.canonical_backend_signature = foreign.canonical_backend_signature.clone();
+    }
+}
 
 impl Section {
     pub(crate) fn parser_new(
@@ -1123,6 +1198,101 @@ impl Program {
             }
         }
         Err("canonical_core_live_task_reference_mismatch_v0")
+    }
+
+    pub(crate) fn canonical_backend_function_expectation<'a>(
+        &'a self,
+        target: &'a Task,
+    ) -> Result<CanonicalBackendFunctionExpectation<'a>, &'static str> {
+        for (file_ordinal, file) in self.files.iter().enumerate() {
+            if let Some(item) = find_task_item(&file.items, target) {
+                let does = target
+                    .section("does")
+                    .ok_or("canonical_backend_does_section_absent_v0")?;
+                let (item_path, section_slot) = locate_item_section(&file.items, item, does)
+                    .ok_or("canonical_backend_live_function_reference_mismatch_v0")?;
+                let core = CanonicalCoreSectionExpectation::new(
+                    CanonicalCoreContainerRef::Program(self),
+                    file,
+                    item,
+                    does,
+                    file_ordinal,
+                    item_path.clone(),
+                    section_slot,
+                )?;
+                return Ok(CanonicalBackendFunctionExpectation {
+                    core,
+                    file,
+                    item,
+                    task: target,
+                    does,
+                    file_ordinal,
+                    item_path,
+                    section_slot,
+                });
+            }
+        }
+        Err("canonical_backend_live_task_reference_mismatch_v0")
+    }
+}
+
+impl<'a> CanonicalBackendFunctionExpectation<'a> {
+    pub(crate) fn validate(self) -> Result<ValidatedBackendFunction<'a>, &'static str> {
+        self.core.validate()?;
+        let file_witness = self.file.canonical_core_file_witness()?;
+        let binding = self.task.canonical_backend_signature()?.binding()?;
+        if &binding.file != file_witness.binding()
+            || binding.file.semantic_file_index != self.file_ordinal
+            || binding.item_path.as_ref() != self.item_path.as_slice()
+            || binding.item_kind != "task"
+            || binding.does_section_slot != self.section_slot
+            || binding.does_section.spelling.as_ref() != self.does.name
+            || binding.does_section.range.start != self.does.span
+            || binding.does_section.range.byte_len != self.does.name.len()
+            || binding.module.spelling.as_ref() != self.file.module.as_deref().unwrap_or_default()
+            || binding.function.spelling.as_ref() != self.task.name
+            || binding.function.range.start.file != self.task.span.file
+            || binding.function.range.start.line != self.task.span.line
+            || binding.function.range.start.column != self.task.span.column + "task ".len()
+            || binding.function.range.byte_len != self.task.name.len()
+            || binding.parameters.len() != self.task.params.len()
+            || binding
+                .parameters
+                .iter()
+                .zip(&self.task.params)
+                .enumerate()
+                .any(|(ordinal, (expected, actual))| {
+                    expected.ordinal != ordinal
+                        || expected.binder.spelling.as_ref() != actual.name
+                        || expected.binder.range.start.file != actual.span.file
+                        || expected.binder.range.start.line != actual.span.line
+                        || expected.binder.range.start.column
+                            != actual.span.column
+                                + usize::from(actual.permission_explicit)
+                                    * (actual.permission.as_str().len() + 1)
+                        || expected.binder.range.byte_len != actual.name.len()
+                        || expected.declared_type.spelling.as_ref() != actual.ty
+                        || expected.declared_type.range.start != actual.type_syntax.span
+                        || expected.declared_type.range.byte_len != actual.ty.len()
+                        || expected.permission != actual.permission
+                })
+            || binding.result_type_explicit != self.task.result.is_some()
+            || binding.result_type.spelling.as_ref()
+                != self.task.result.as_deref().unwrap_or("Unit")
+            || self.task.result_syntax.as_ref().is_some_and(|syntax| {
+                binding.result_type.range.start != syntax.span
+                    || binding.result_type.range.byte_len
+                        != self.task.result.as_deref().unwrap_or("Unit").len()
+            })
+        {
+            return Err("canonical_backend_signature_projection_mismatch_v0");
+        }
+        Ok(ValidatedBackendFunction {
+            file: self.file,
+            item: self.item,
+            does: self.does,
+            signature: binding,
+        })
     }
 }
 

@@ -1,3 +1,7 @@
+use crate::ast::{
+    CanonicalCompletionEvent, CanonicalExpression, CanonicalExpressionKind, ParsedBinaryOperator,
+    ParsedBlockRelationship, ParsedBodyStatement, ParsedBodyStatementKind,
+};
 use crate::element_place;
 use crate::typed_failure;
 
@@ -57,6 +61,61 @@ pub const CORE_PREDICATE_EXPRESSION_STATUS: &str = "typed_predicate_ast_v2";
 pub const CORE_PREDICATE_AST_STATUS: &str = "predicate_ast_v2";
 pub const CORE_PREDICATE_TYPE_STATUS: &str = "predicate_v2_typed_v0";
 pub const CORE_PREDICATE_EFFECT_STATUS: &str = "contract_only_pure_v0";
+
+pub(crate) struct CanonicalCheckedAddExpression<'a> {
+    pub(crate) statement: &'a ParsedBodyStatement,
+    pub(crate) add: &'a CanonicalExpression,
+    pub(crate) left: &'a CanonicalExpression,
+    pub(crate) right: &'a CanonicalExpression,
+    pub(crate) left_name: &'a str,
+    pub(crate) right_name: &'a str,
+}
+
+pub(crate) fn canonical_checked_add_expression(
+    statement: &ParsedBodyStatement,
+) -> Result<CanonicalCheckedAddExpression<'_>, &'static str> {
+    if statement.block_relationship != ParsedBlockRelationship::None
+        || statement.block_depth_before != 0
+        || statement.block_depth_after != 0
+        || statement.core_kind != "return"
+        || statement.core_status == "unsupported_v0"
+        || !statement.canonical_extra_occurrences.is_empty()
+    {
+        return Err("canonical_backend_statement_relationship_unsupported_v0");
+    }
+    let ParsedBodyStatementKind::Return(add) = &statement.kind else {
+        return Err("canonical_backend_statement_not_return_v0");
+    };
+    let add = &add.canonical;
+    let CanonicalExpressionKind::Binary {
+        operator: ParsedBinaryOperator::Add,
+        left,
+        right,
+    } = &add.kind
+    else {
+        return Err("canonical_backend_expression_unsupported_v0");
+    };
+    let CanonicalExpressionKind::Identifier(left_name) = &left.kind else {
+        return Err("canonical_backend_left_operand_unsupported_v0");
+    };
+    let CanonicalExpressionKind::Identifier(right_name) = &right.kind else {
+        return Err("canonical_backend_right_operand_unsupported_v0");
+    };
+    if !matches!(add.completion, CanonicalCompletionEvent::Complete)
+        || !matches!(left.completion, CanonicalCompletionEvent::Complete)
+        || !matches!(right.completion, CanonicalCompletionEvent::Complete)
+    {
+        return Err("canonical_backend_expression_incomplete_v0");
+    }
+    Ok(CanonicalCheckedAddExpression {
+        statement,
+        add,
+        left,
+        right,
+        left_name,
+        right_name,
+    })
+}
 
 const OPERATOR_PATTERNS: &[(&str, &str)] = &[
     (" fails with ", "fails_with"),

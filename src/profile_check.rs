@@ -120,6 +120,7 @@ struct ProfileCheckReport {
 
 struct ProfileItem {
     id: String,
+    semantic_identity: String,
     kind: &'static str,
     name: String,
     graph_node_id: String,
@@ -127,6 +128,61 @@ struct ProfileItem {
     status: &'static str,
     declarations: Vec<ProfileDeclaration>,
     checks: Vec<ProfileCheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalBackendProfileView {
+    pub(crate) function_identity: String,
+    pub(crate) profile_identity: &'static str,
+    pub(crate) profile_status: &'static str,
+    pub(crate) status: &'static str,
+}
+
+pub(crate) fn canonical_backend_checked_add_profile(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    task: &crate::ast::Task,
+    resource: &crate::resource_check::CanonicalBackendResourceView,
+) -> Result<CanonicalBackendProfileView, &'static str> {
+    let semantic_identity = crate::resolve::semantic_task_identity(program, task);
+    if resource.function_identity != semantic_identity
+        || resource.allocation_status != "accepted_conservative_allocation_free_claim_v0"
+        || resource.status != "canonical_backend_resource_checked_v0"
+    {
+        return Err("canonical_backend_profile_resource_join_mismatch_v0");
+    }
+    let report = build_report(program, diagnostics);
+    let item = report
+        .items
+        .iter()
+        .find(|item| item.semantic_identity == semantic_identity)
+        .ok_or("canonical_backend_profile_missing_item_v0")?;
+    if item.status != "recognized_profile_policy_checked_v0" {
+        return Err("canonical_backend_profile_item_blocked_v0");
+    }
+    let check = item
+        .checks
+        .iter()
+        .find(|check| check.status == "accepted_normal_profile_policy_v0")
+        .ok_or("canonical_backend_profile_missing_normal_policy_v0")?;
+    if check.profile_id.as_deref() != Some("normal") {
+        return Err("canonical_backend_profile_wrong_policy_v0");
+    }
+    let mut view = CanonicalBackendProfileView {
+        function_identity: semantic_identity.clone(),
+        profile_identity: "normal",
+        profile_status: "accepted_normal_profile_policy_v0",
+        status: "canonical_backend_profile_checked_v0",
+    };
+    crate::ir_readiness::apply_c1_profile_producer_corruption(&mut view);
+    if view.function_identity != semantic_identity
+        || view.profile_identity != "normal"
+        || view.profile_status != "accepted_normal_profile_policy_v0"
+        || view.status != "canonical_backend_profile_checked_v0"
+    {
+        return Err("canonical_backend_profile_producer_corruption_v0");
+    }
+    Ok(view)
 }
 
 struct ProfileDeclaration {
@@ -312,7 +368,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ProfileCheckRe
     let mut items = Vec::new();
     let mut tasks = 0;
     for file in &program.files {
-        collect_items(&file.items, blocked, &mut tasks, &mut items);
+        collect_items(program, &file.items, blocked, &mut tasks, &mut items);
     }
     let diagnostic_occurrences = resource_check::diagnostic_occurrence_set(program, diagnostics);
     let projection = diagnostic_projection_from_resource(&diagnostic_occurrences)
@@ -371,20 +427,33 @@ pub(crate) fn validate_prior_blocker_projection(
         .validate_prior_blockers(&report.prior_blockers)
 }
 
-fn collect_items(items: &[Item], blocked: bool, tasks: &mut usize, out: &mut Vec<ProfileItem>) {
+fn collect_items(
+    program: &Program,
+    items: &[Item],
+    blocked: bool,
+    tasks: &mut usize,
+    out: &mut Vec<ProfileItem>,
+) {
     for item in items {
         match item {
             Item::App(app) => {
-                if let Some(item) =
-                    profile_item("app", &app.name, &app.sections, &app.span, blocked, false)
-                {
+                if let Some(item) = profile_item(
+                    crate::resolve::semantic_item_identity_for(program, item),
+                    "app",
+                    &app.name,
+                    &app.sections,
+                    &app.span,
+                    blocked,
+                    false,
+                ) {
                     out.push(item);
                 }
-                collect_items(&app.items, blocked, tasks, out);
+                collect_items(program, &app.items, blocked, tasks, out);
             }
             Item::Task(task) => {
                 *tasks += 1;
                 if let Some(item) = profile_item(
+                    crate::resolve::semantic_item_identity_for(program, item),
                     "task",
                     &task.name,
                     &task.sections,
@@ -397,6 +466,7 @@ fn collect_items(items: &[Item], blocked: bool, tasks: &mut usize, out: &mut Vec
             }
             Item::Type(type_def) => {
                 if let Some(item) = profile_item(
+                    crate::resolve::semantic_item_identity_for(program, item),
                     "type",
                     &type_def.name,
                     &type_def.sections,
@@ -409,6 +479,7 @@ fn collect_items(items: &[Item], blocked: bool, tasks: &mut usize, out: &mut Vec
             }
             Item::Store(store) => {
                 if let Some(item) = profile_item(
+                    crate::resolve::semantic_item_identity_for(program, item),
                     "store",
                     &store.name,
                     &store.sections,
@@ -421,6 +492,7 @@ fn collect_items(items: &[Item], blocked: bool, tasks: &mut usize, out: &mut Vec
             }
             Item::Test(test) => {
                 if let Some(item) = profile_item(
+                    crate::resolve::semantic_item_identity_for(program, item),
                     "test",
                     &test.name,
                     &test.sections,
@@ -436,6 +508,7 @@ fn collect_items(items: &[Item], blocked: bool, tasks: &mut usize, out: &mut Vec
 }
 
 fn profile_item(
+    semantic_identity: String,
     kind: &'static str,
     name: &str,
     sections: &[Section],
@@ -455,6 +528,7 @@ fn profile_item(
     let status = item_status(&checks, blocked);
     Some(ProfileItem {
         id: prefixed_id("hum_profile_item", &format!("{kind}_{name}_{}", span.line)),
+        semantic_identity,
         kind,
         name: name.to_string(),
         graph_node_id: node_id::span("item", span, &format!("{kind} {name}")),

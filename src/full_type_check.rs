@@ -21,6 +21,91 @@ pub const FULL_TYPE_CHECK_SCHEMA: &str = "hum.full_type_check.v0";
 pub const FULL_TYPE_CHECK_MODE: &str = "recognized_core_body_type_gate_v0";
 pub const FULL_TYPE_CHECK_STATUS: &str = "recognized_core_body_type_gate_available_v0";
 
+pub(crate) const CANONICAL_BACKEND_INT_TYPE_ID: &str = "hum.type.int.s64.v0";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalBackendTypeView {
+    pub(crate) function_identity: String,
+    pub(crate) parameter_type_ids: [String; 2],
+    pub(crate) operand_type_ids: [String; 2],
+    pub(crate) add_result_type_id: String,
+    pub(crate) function_result_type_id: String,
+    pub(crate) status: &'static str,
+}
+
+pub(crate) fn canonical_backend_checked_add_types(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    task: &crate::ast::Task,
+    core: &crate::core_lower::CanonicalCheckedAddCoreView,
+) -> Result<CanonicalBackendTypeView, &'static str> {
+    let semantic_identity = crate::resolve::semantic_task_identity(program, task);
+    let report = build_report(program, diagnostics);
+    let item = report
+        .items
+        .iter()
+        .find(|item| item.semantic_identity == semantic_identity)
+        .ok_or("canonical_backend_full_type_item_absent_v0")?;
+    let [statement] = item.statements.as_slice() else {
+        return Err("canonical_backend_full_type_statement_count_unsupported_v0");
+    };
+    if item.status != "recognized_core_body_types_checked_v0"
+        || statement.status != "accepted_statement_type_v0"
+        || statement.statement_kind != "return"
+        || statement.expected_type.as_deref() != Some("Int")
+        || statement.actual_type.as_deref() != Some("Int")
+        || statement.canonical_statement_identity != core.statement_node_identity
+        || statement.canonical_root_identity.as_deref() != Some(core.add_node_identity.as_str())
+        || statement.canonical_child_identities
+            != [
+                Some(core.left_node_identity.clone()),
+                Some(core.right_node_identity.clone()),
+            ]
+    {
+        return Err("canonical_backend_full_type_exact_statement_not_accepted_v0");
+    }
+    if task.params.len() != 2
+        || task.params.iter().any(|parameter| {
+            !matches!(
+                &parameter.type_syntax.kind,
+                crate::ast::TypeSyntaxKind::Named { name } if name == "Int"
+            )
+        })
+        || !matches!(
+            task.result_syntax.as_ref().map(|syntax| &syntax.kind),
+            Some(crate::ast::TypeSyntaxKind::Named { name }) if name == "Int"
+        )
+    {
+        return Err("canonical_backend_checked_add_type_shape_unsupported_v0");
+    }
+    let type_id = CANONICAL_BACKEND_INT_TYPE_ID.to_string();
+    let mut view = CanonicalBackendTypeView {
+        function_identity: core.function_identity.clone(),
+        parameter_type_ids: [type_id.clone(), type_id.clone()],
+        operand_type_ids: [type_id.clone(), type_id.clone()],
+        add_result_type_id: type_id.clone(),
+        function_result_type_id: type_id,
+        status: "accepted_canonical_checked_add_types_v0",
+    };
+    crate::ir_readiness::apply_c1_type_producer_corruption(&mut view);
+    if view.function_identity != core.function_identity
+        || view
+            .parameter_type_ids
+            .iter()
+            .any(|value| value != CANONICAL_BACKEND_INT_TYPE_ID)
+        || view
+            .operand_type_ids
+            .iter()
+            .any(|value| value != CANONICAL_BACKEND_INT_TYPE_ID)
+        || view.add_result_type_id != CANONICAL_BACKEND_INT_TYPE_ID
+        || view.function_result_type_id != CANONICAL_BACKEND_INT_TYPE_ID
+        || view.status != "accepted_canonical_checked_add_types_v0"
+    {
+        return Err("canonical_backend_type_producer_corruption_v0");
+    }
+    Ok(view)
+}
+
 const NON_CLAIMS: &[&str] = &[
     "no executable semantics",
     "no Hum IR emission",
@@ -68,6 +153,7 @@ struct FullTypeCheckReport {
 
 struct FullTypeItem {
     id: String,
+    semantic_identity: String,
     kind: &'static str,
     name: String,
     span: Span,
@@ -97,6 +183,9 @@ struct TypedStatement {
     help: Option<String>,
     prior_blocker: Option<crate::diagnostic::PriorBlockerRef>,
     diagnostic_occurrence: Option<DiagnosticOccurrence>,
+    canonical_statement_identity: String,
+    canonical_root_identity: Option<String>,
+    canonical_child_identities: [Option<String>; 2],
 }
 
 #[derive(Debug, Clone)]
@@ -537,8 +626,14 @@ fn type_item(
     );
     let mut environment = initial_environment(item_params(item));
     let mut statements = Vec::new();
-    for (index, statement) in body.statements.iter().enumerate() {
-        let typed = type_statement(
+    let retained_statements = does.body_syntax.iter().flatten().collect::<Vec<_>>();
+    if retained_statements.len() != body.statements.len() {
+        return None;
+    }
+    for (index, (statement, retained)) in
+        body.statements.iter().zip(retained_statements).enumerate()
+    {
+        let mut typed = type_statement(
             &item_identity,
             item,
             index,
@@ -553,6 +648,18 @@ fn type_item(
             },
             callables,
         );
+        typed.canonical_statement_identity = retained.source_node_id.as_str().to_string();
+        if let crate::ast::ParsedBodyStatementKind::Return(expression) = &retained.kind {
+            typed.canonical_root_identity = Some(expression.canonical.node_id.as_str().to_string());
+            if let crate::ast::CanonicalExpressionKind::Binary { left, right, .. } =
+                &expression.canonical.kind
+            {
+                typed.canonical_child_identities = [
+                    Some(left.node_id.as_str().to_string()),
+                    Some(right.node_id.as_str().to_string()),
+                ];
+            }
+        }
         statements.push(typed);
     }
     let status = item_status(&statements, blocked);
@@ -561,6 +668,7 @@ fn type_item(
             "hum_full_type_item",
             &format!("{}_{}_{}", item.kind(), item.name(), item.span().line),
         ),
+        semantic_identity: item_identity,
         kind: item.kind(),
         name: item.name().to_string(),
         span: portable_span(item.span()),
@@ -1056,6 +1164,9 @@ fn typed_statement(
         help: None,
         prior_blocker: None,
         diagnostic_occurrence: None,
+        canonical_statement_identity: String::new(),
+        canonical_root_identity: None,
+        canonical_child_identities: [None, None],
     }
 }
 

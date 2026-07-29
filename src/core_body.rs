@@ -1,4 +1,7 @@
-use crate::ast::{CanonicalCoreSectionExpectation, ValidatedCoreSection};
+use crate::ast::{
+    CanonicalBackendFunctionExpectation, CanonicalCoreSectionExpectation, ParsedBodyStatement,
+    ValidatedBackendFunction, ValidatedCoreSection,
+};
 use crate::diagnostic::Span;
 
 pub const CORE_BODY_GRAMMAR_STATUS: &str = "partial_v0";
@@ -17,6 +20,26 @@ pub struct BodyGrammarReport {
 
 #[derive(Clone)]
 struct ValidatedBodyGrammarReportConstruction;
+
+pub(crate) struct CanonicalBackendBody<'a> {
+    function: ValidatedBackendFunction<'a>,
+}
+
+impl<'a> CanonicalBackendBody<'a> {
+    pub(crate) fn function(&self) -> &ValidatedBackendFunction<'a> {
+        &self.function
+    }
+
+    pub(crate) fn statement(&self) -> &'a ParsedBodyStatement {
+        self.function
+            .does()
+            .body_syntax
+            .iter()
+            .flatten()
+            .next()
+            .expect("validated C1 body has exactly one retained Section statement")
+    }
+}
 
 impl std::fmt::Debug for BodyGrammarReport {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -55,6 +78,16 @@ pub(crate) fn try_analyze_does_section(
 ) -> Result<BodyGrammarReport, &'static str> {
     let validated = expectation.validate()?;
     Ok(construct_body_grammar_report(validated))
+}
+
+pub(crate) fn try_analyze_backend_function(
+    expectation: CanonicalBackendFunctionExpectation<'_>,
+) -> Result<CanonicalBackendBody<'_>, &'static str> {
+    let function = expectation.validate()?;
+    if function.does().body_syntax.iter().flatten().count() != 1 {
+        return Err("canonical_backend_body_statement_count_unsupported_v0");
+    }
+    Ok(CanonicalBackendBody { function })
 }
 
 fn construct_body_grammar_report(validated: ValidatedCoreSection<'_>) -> BodyGrammarReport {

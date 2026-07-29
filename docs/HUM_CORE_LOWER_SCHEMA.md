@@ -207,6 +207,23 @@ The emitted non-goals include `no Hum IR emission`.
 It is the first durable source-to-Core artifact boundary future passes must
 verify before Hum can honestly run code.
 
+## Private Checked-Add View
+
+Increment 10B.C1R adds a crate-private checked-add view used only by the
+`hum ir-readiness` producer join. The view is constructed from a live,
+lifetime-bound parser-issued function expectation and exact canonical
+expression nodes borrowed from the F4-validated live `does` Section. The
+legacy `Task.body_syntax` clone is not read, compared, counted, hashed,
+rendered, or reparsed by this path. The view retains ordered signature token
+identities and ranges, statement/block relationships, operation and
+child/value identities, and the checked-overflow edge without rendering or
+reparsing source text.
+
+This private view does not alter the public `hum.core_lower.v0` schema or its
+serialized bytes. It is not `hum.backend_input.v0`, is not a verification
+certificate, and cannot be constructed from public Core rows, text, spans,
+names, or caller-supplied IDs.
+
 ## Session AL Callable Nodes
 
 The lowered report preserves the same callable type/value/application IDs,

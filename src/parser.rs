@@ -25,6 +25,68 @@ use crate::typed_failure;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalBackendTokenFact {
+    pub(crate) identity: Arc<str>,
+    pub(crate) spelling: Arc<str>,
+    pub(crate) range: ParsedSourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalBackendParameterFact {
+    pub(crate) ordinal: usize,
+    pub(crate) binder: CanonicalBackendTokenFact,
+    pub(crate) declared_type: CanonicalBackendTokenFact,
+    pub(crate) permission: ParamPermission,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalBackendSignatureBinding {
+    pub(crate) file: CanonicalCoreFileBinding,
+    pub(crate) module: CanonicalBackendTokenFact,
+    pub(crate) item_path: Arc<[usize]>,
+    pub(crate) item_kind: &'static str,
+    pub(crate) function: CanonicalBackendTokenFact,
+    pub(crate) export_linkage_identity: Arc<str>,
+    pub(crate) parameters: Arc<[CanonicalBackendParameterFact]>,
+    pub(crate) result_type: CanonicalBackendTokenFact,
+    pub(crate) result_type_explicit: bool,
+    pub(crate) does_section_slot: usize,
+    pub(crate) does_section: CanonicalBackendTokenFact,
+}
+
+#[derive(Clone)]
+pub(crate) struct CanonicalBackendSignatureCapability {
+    projection: Arc<CanonicalBackendSignatureBinding>,
+    retained: Arc<CanonicalBackendSignatureBinding>,
+}
+
+impl CanonicalBackendSignatureCapability {
+    fn from_selected(mut binding: CanonicalBackendSignatureBinding) -> Option<Self> {
+        let retained = Arc::new(binding.clone());
+        if !crate::ir_readiness::apply_c1_parser_producer_corruption(&mut binding) {
+            return None;
+        }
+        Some(Self {
+            projection: Arc::new(binding),
+            retained,
+        })
+    }
+
+    pub(crate) fn binding(&self) -> Result<&CanonicalBackendSignatureBinding, &'static str> {
+        if self.projection != self.retained {
+            return Err("canonical_backend_signature_authority_mismatch_v0");
+        }
+        Ok(&self.projection)
+    }
+}
+
+impl std::fmt::Debug for CanonicalBackendSignatureCapability {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("<private parser backend-signature authority>")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct CanonicalOwnerIdentity {
     domain: u8,
     revision: Arc<[u8]>,
@@ -1953,6 +2015,34 @@ struct ParserCanonicalCoreParseContext {
     binding: CanonicalCoreFileBinding,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParserBackendTokenEvent {
+    spelling: Arc<str>,
+    range: ParsedSourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParserBackendParameterEvent {
+    binder: ParserBackendTokenEvent,
+    declared_type: ParserBackendTokenEvent,
+    permission: ParamPermission,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParserBackendTaskHeaderEvents {
+    function: ParserBackendTokenEvent,
+    parameters: Vec<ParserBackendParameterEvent>,
+    result_type: ParserBackendTokenEvent,
+    result_type_explicit: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParserBackendSectionHeaderEvent {
+    item_path: Arc<[usize]>,
+    section_slot: usize,
+    token: ParserBackendTokenEvent,
+}
+
 impl CanonicalCoreParseContextVerifier for ParserCanonicalCoreParseContext {
     fn binding(&self) -> &CanonicalCoreFileBinding {
         &self.binding
@@ -2147,6 +2237,8 @@ struct Parser {
     source_revision: CanonicalSourceRevision,
     source_blob: CanonicalSourceBlob,
     semantic_file: CanonicalSemanticFile,
+    module_token: Option<ParserBackendTokenEvent>,
+    backend_section_headers: Vec<ParserBackendSectionHeaderEvent>,
     current_item_owner: Option<CanonicalItemOwner>,
     current_semantic_node: Option<String>,
     lines: Vec<SourceLine>,
@@ -2189,6 +2281,8 @@ pub(crate) fn parse_source_at_index(
         source_revision,
         source_blob,
         semantic_file,
+        module_token: None,
+        backend_section_headers: Vec::new(),
         current_item_owner: None,
         current_semantic_node: None,
         lines,
@@ -2302,6 +2396,17 @@ impl Parser {
                 if let Some(rest) = trimmed.strip_prefix("module ") {
                     let module_name = rest.trim().to_string();
                     self.validate_module_path(&module_name, line.number);
+                    self.module_token = Some(ParserBackendTokenEvent {
+                        spelling: module_name.as_str().into(),
+                        range: ParsedSourceRange {
+                            start: Span::new(
+                                self.path.clone(),
+                                line.number,
+                                first_visible_column(&line.text) + "module ".len(),
+                            ),
+                            byte_len: module_name.len(),
+                        },
+                    });
                     module = Some(module_name);
                     index += 1;
                     continue;
@@ -2493,10 +2598,16 @@ impl Parser {
             let witness = self.canonical_core_owner_witness(item_path, "store", &sections);
             Item::Store(Store::parser_new(name, ty, sections, span, witness))
         } else if header.starts_with("task ") {
+            let backend_header = self.capture_backend_task_header_events(header, line.number);
             let (name, params, result, result_syntax) = self.parse_task_header(header, line.number);
             let effect_syntax = parse_task_effect_syntax(&sections);
             let body_syntax = parse_task_body_syntax(&sections);
             let witness = self.canonical_core_owner_witness(item_path, "task", &sections);
+            let signature = self.select_and_issue_canonical_backend_signature(
+                item_path,
+                &sections,
+                backend_header,
+            );
             Item::Task(Task::parser_new(
                 name,
                 params,
@@ -2507,6 +2618,7 @@ impl Parser {
                 body_syntax,
                 span,
                 witness,
+                signature,
             ))
         } else if header.starts_with("test ") {
             let (name, params, modifiers) = self.parse_test_header(header, line.number);
@@ -2632,6 +2744,18 @@ impl Parser {
                 let occurrence_start = self.occurrence_seals.len();
                 let statement_start = self.statement_seals.len();
                 let section_slot = sections.len();
+                self.backend_section_headers
+                    .push(ParserBackendSectionHeaderEvent {
+                        item_path: item_path.into(),
+                        section_slot,
+                        token: ParserBackendTokenEvent {
+                            spelling: name.as_str().into(),
+                            range: ParsedSourceRange {
+                                start: self.span(line.number),
+                                byte_len: name.len(),
+                            },
+                        },
+                    });
                 let owners = self.retain_source_owner_records(section_slot, &lines);
                 self.retain_occurrence_records(
                     &name,
@@ -2945,6 +3069,232 @@ impl Parser {
             parse_type_syntax(result, Span::new(self.path.clone(), line_number, column))
         });
         (name, params, result, result_syntax)
+    }
+
+    fn capture_backend_task_header_events(
+        &self,
+        header: &str,
+        line_number: usize,
+    ) -> ParserBackendTaskHeaderEvents {
+        let item_column = self.span(line_number).column;
+        let token_event = |spelling: &str, byte_offset: usize| ParserBackendTokenEvent {
+            spelling: spelling.into(),
+            range: ParsedSourceRange {
+                start: Span::new(
+                    self.path.clone(),
+                    line_number,
+                    item_column + header[..byte_offset].chars().count(),
+                ),
+                byte_len: spelling.len(),
+            },
+        };
+        let rest_offset = "task ".len();
+        let rest = header.strip_prefix("task ").unwrap_or(header);
+        let (signature_raw, result_raw) = find_top_level_arrow(rest)
+            .map(|arrow| (&rest[..arrow], Some((arrow + 2, &rest[arrow + 2..]))))
+            .unwrap_or((rest, None));
+        let signature_leading = signature_raw.len() - signature_raw.trim_start().len();
+        let signature = signature_raw.trim();
+        let signature_offset = rest_offset + signature_leading;
+        let (function, parameters) = if let Some(open) = signature.find('(') {
+            let function_raw = &signature[..open];
+            let function_leading = function_raw.len() - function_raw.trim_start().len();
+            let function_spelling = function_raw.trim();
+            let function = token_event(function_spelling, signature_offset + function_leading);
+            let parameters = matching_delimiter(signature, open, '(', ')')
+                .map(|close| {
+                    let params_text = &signature[open + 1..close];
+                    split_top_level_ranges(params_text, ',')
+                        .into_iter()
+                        .filter_map(|range| {
+                            let raw_parameter = &params_text[range.clone()];
+                            let leading = raw_parameter.len() - raw_parameter.trim_start().len();
+                            let parameter = raw_parameter.trim();
+                            let colon = parameter.find(':')?;
+                            let raw_binder = &parameter[..colon];
+                            let binder_leading = raw_binder.len() - raw_binder.trim_start().len();
+                            let binder_with_permission = raw_binder.trim();
+                            let (permission, _, binder_spelling) =
+                                parse_param_permission(binder_with_permission);
+                            let binder_offset_in_name = binder_with_permission
+                                .rfind(binder_spelling)
+                                .unwrap_or_default();
+                            let raw_type = &parameter[colon + 1..];
+                            let type_leading = raw_type.len() - raw_type.trim_start().len();
+                            let type_spelling = raw_type.trim();
+                            let parameter_offset =
+                                signature_offset + open + 1 + range.start + leading;
+                            Some(ParserBackendParameterEvent {
+                                binder: token_event(
+                                    binder_spelling,
+                                    parameter_offset + binder_leading + binder_offset_in_name,
+                                ),
+                                declared_type: token_event(
+                                    type_spelling,
+                                    parameter_offset + colon + 1 + type_leading,
+                                ),
+                                permission,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            (function, parameters)
+        } else {
+            let function_leading = signature.len() - signature.trim_start().len();
+            let function_spelling = signature.trim();
+            (
+                token_event(function_spelling, signature_offset + function_leading),
+                Vec::new(),
+            )
+        };
+        let (result_type, result_type_explicit) = result_raw
+            .map(|(result_offset, raw_result)| {
+                let leading = raw_result.len() - raw_result.trim_start().len();
+                let spelling = raw_result.trim();
+                (
+                    token_event(spelling, rest_offset + result_offset + leading),
+                    true,
+                )
+            })
+            .unwrap_or_else(|| {
+                (
+                    ParserBackendTokenEvent {
+                        spelling: Arc::<str>::from("Unit"),
+                        range: ParsedSourceRange {
+                            start: Span::new(
+                                self.path.clone(),
+                                line_number,
+                                item_column + header.chars().count(),
+                            ),
+                            byte_len: 0,
+                        },
+                    },
+                    false,
+                )
+            });
+        ParserBackendTaskHeaderEvents {
+            function,
+            parameters,
+            result_type,
+            result_type_explicit,
+        }
+    }
+
+    fn select_and_issue_canonical_backend_signature(
+        &self,
+        item_path: &[usize],
+        sections: &[Section],
+        header: ParserBackendTaskHeaderEvents,
+    ) -> Option<CanonicalBackendSignatureCapability> {
+        let module_event = self.module_token.clone()?;
+        let does_section = self.backend_section_headers.iter().find(|event| {
+            event.item_path.as_ref() == item_path && event.token.spelling.as_ref() == "does"
+        })?;
+        let does = sections.get(does_section.section_slot)?;
+        if does.name != "does" || header.parameters.len() != 2 {
+            return None;
+        }
+        let mut statements = does.body_syntax.iter().flatten();
+        let statement = statements.next()?;
+        if statements.next().is_some()
+            || statement.block_relationship != ParsedBlockRelationship::None
+            || statement.block_depth_before != 0
+            || statement.block_depth_after != 0
+            || statement.core_kind != "return"
+            || statement.core_status == "unsupported_v0"
+            || !statement.canonical_extra_occurrences.is_empty()
+        {
+            return None;
+        }
+        let ParsedBodyStatementKind::Return(expression) = &statement.kind else {
+            return None;
+        };
+        let CanonicalExpressionKind::Binary {
+            operator: ParsedBinaryOperator::Add,
+            left,
+            right,
+        } = &expression.canonical.kind
+        else {
+            return None;
+        };
+        let (
+            CanonicalExpressionKind::Identifier(left_name),
+            CanonicalExpressionKind::Identifier(right_name),
+        ) = (&left.kind, &right.kind)
+        else {
+            return None;
+        };
+        if !matches!(
+            expression.canonical.completion,
+            CanonicalCompletionEvent::Complete
+        ) || !matches!(left.completion, CanonicalCompletionEvent::Complete)
+            || !matches!(right.completion, CanonicalCompletionEvent::Complete)
+            || left_name != header.parameters[0].binder.spelling.as_ref()
+            || right_name != header.parameters[1].binder.spelling.as_ref()
+        {
+            return None;
+        }
+        let item_component = item_path
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(".");
+        let token = |role: &str, ordinal: usize, event: ParserBackendTokenEvent| {
+            CanonicalBackendTokenFact {
+                identity: format!(
+                    "parser-backend-token:file-{}:item-{item_component}:{role}-{ordinal}",
+                    self.semantic_file_index
+                )
+                .into(),
+                spelling: event.spelling,
+                range: event.range,
+            }
+        };
+        let function = token("function", 0, header.function);
+        let parameters = header
+            .parameters
+            .iter()
+            .enumerate()
+            .map(|(ordinal, parameter)| CanonicalBackendParameterFact {
+                ordinal,
+                binder: token("parameter-binder", ordinal, parameter.binder.clone()),
+                declared_type: token("parameter-type", ordinal, parameter.declared_type.clone()),
+                permission: parameter.permission,
+            })
+            .collect::<Vec<_>>();
+        let result_type = token("result-type", 0, header.result_type);
+        let module = CanonicalBackendTokenFact {
+            identity: format!(
+                "parser-backend-token:file-{}:module",
+                self.semantic_file_index
+            )
+            .into(),
+            spelling: module_event.spelling,
+            range: module_event.range,
+        };
+        let binding = CanonicalBackendSignatureBinding {
+            file: self.canonical_core_file_binding(),
+            module,
+            item_path: item_path.into(),
+            item_kind: "task",
+            function,
+            export_linkage_identity: format!(
+                "hum-internal:file-{}:item-{item_component}",
+                self.semantic_file_index
+            )
+            .into(),
+            parameters: parameters.into(),
+            result_type,
+            result_type_explicit: header.result_type_explicit,
+            does_section_slot: does_section.section_slot,
+            does_section: token(
+                "section-header",
+                does_section.section_slot,
+                does_section.token.clone(),
+            ),
+        };
+        CanonicalBackendSignatureCapability::from_selected(binding)
     }
 
     fn parse_test_header(

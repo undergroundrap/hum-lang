@@ -380,6 +380,27 @@ try {
   Invoke-ExactRustTest 'Increment 10B.2 resolver production-boundary physical corruption and load-bearing sabotage' $Cargo 'resolve::tests::ten_b2_resolver_consumer_boundary_corruption_is_load_bearing'
   Invoke-ExactRustTest 'Increment 10B.2 callable production-boundary physical corruption sensitivity' $Cargo 'callable::tests::ten_b2_canonical_corruption_and_resolver_substitution_fail_closed'
   Invoke-ExactRustTest 'Increment 10B.2 same-shaped foreign resolver authority substitution' $Cargo 'callable::tests::ten_b2_same_shaped_foreign_authority_substitution_fails_closed'
+  Invoke-ExactRustTest 'Increment 10B.C1R complete 111-row canonical checked-add producer closure, exact blockers, and 34-surface dormancy matrix' $Cargo 'ir_readiness::tests::ten_bc1_canonical_checked_add_producer_closure_is_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Increment 10B.C1 same-shaped substitution, retained authority, and dormant existing outputs' $Cargo 'ir_readiness::tests::ten_bc1_same_shaped_substitution_authority_and_dormancy_fail_closed'
+  Invoke-ExactRustTest 'Increment 10B.C1 real production join and later-work source audit' $Cargo 'ir_readiness::tests::ten_bc1_source_audit_pins_real_join_and_forbids_later_work'
+  Invoke-ExactRustTest 'Increment 10B.C1 explicit unsupported and malformed outcome classes' $Cargo 'ir_readiness::tests::ten_bc1_unsupported_and_malformed_shapes_remain_explicit_blockers'
+  $C1HumanFirst = Read-NativeChannelsWithExit 'Increment 10B.C1R real minimal_add human readiness proof' $Hum @('ir-readiness', 'examples/core/minimal_add.hum')
+  $C1HumanSecond = Read-NativeChannelsWithExit 'Increment 10B.C1R minimal_add human repeatability proof' $Hum @('ir-readiness', 'examples/core/minimal_add.hum')
+  if ($C1HumanFirst.ExitCode -ne 0 -or $C1HumanFirst.ExitCode -ne $C1HumanSecond.ExitCode -or $C1HumanFirst.Stdout -cne $C1HumanSecond.Stdout -or $C1HumanFirst.Stderr -cne $C1HumanSecond.Stderr) { throw 'Increment 10B.C1R real minimal_add human readiness path is not successful and deterministic' }
+  foreach ($Expected in @('canonical_checked_add_producer_closure_available_v0', 'passes=[canonical_backend_c1_selector_selected_v0, canonical_backend_source_owner_checked_v0, canonical_backend_signature_checked_v0, canonical_backend_body_checked_v0, canonical_backend_core_checked_add_checked_v0, canonical_backend_resolver_checked_v0, accepted_canonical_checked_add_types_v0, accepted_canonical_pure_effect_v0, accepted_canonical_ownership_v0, canonical_backend_resource_checked_v0, accepted_conservative_allocation_free_claim_v0, canonical_backend_profile_checked_v0, accepted_normal_profile_policy_v0]', 'hum.backend_input.v0_absent_v0', 'ir_verify_unimplemented_v0')) {
+    if (-not $C1HumanFirst.Stdout.Contains($Expected)) { throw "Increment 10B.C1R human readiness is missing exact evidence: $Expected" }
+  }
+  $C1First = Read-NativeChannelsWithExit 'Increment 10B.C1 real minimal_add readiness proof' $Hum @('ir-readiness', '--format=json', 'examples/core/minimal_add.hum')
+  $C1Second = Read-NativeChannelsWithExit 'Increment 10B.C1 minimal_add readiness repeatability proof' $Hum @('ir-readiness', '--format=json', 'examples/core/minimal_add.hum')
+  if ($C1First.ExitCode -ne 0 -or $C1First.ExitCode -ne $C1Second.ExitCode -or $C1First.Stdout -cne $C1Second.Stdout -or $C1First.Stderr -cne $C1Second.Stderr) { throw 'Increment 10B.C1 real minimal_add readiness path is not successful and deterministic' }
+  Assert-Json 'Increment 10B.C1 minimal_add readiness JSON' $C1First.Stdout
+  $C1Readiness = $C1First.Stdout | ConvertFrom-Json
+  $C1Candidate = @($C1Readiness.lowering_candidates | Where-Object { $null -ne $_.checked_add_producer_closure -and $_.checked_add_producer_closure.status -ceq 'canonical_checked_add_producer_closure_available_v0' })
+  if ($C1Candidate.Count -ne 1) { throw "Increment 10B.C1 structural selector selected $($C1Candidate.Count) canonical checked-add candidates instead of exactly one" }
+  if ($C1Candidate[0].checked_add_producer_closure.status -cne 'canonical_checked_add_producer_closure_available_v0') { throw 'Increment 10B.C1 real producer closure did not become available' }
+  if ($C1Candidate[0].checked_add_producer_closure.missing_artifact -cne 'hum.backend_input.v0_absent_v0' -or $C1Candidate[0].checked_add_producer_closure.missing_verifier -cne 'ir_verify_unimplemented_v0') { throw 'Increment 10B.C1 readiness stopped naming the exact absent artifact or verifier' }
+  if (@($C1Candidate[0].checked_add_producer_closure.accepted_passes).Count -ne 13) { throw 'Increment 10B.C1R producer pass inventory silently selected the wrong count' }
+  if (@($C1Candidate[0].checked_add_producer_closure.unsupported_facts).Count -ne 0) { throw 'Increment 10B.C1R positive acquired unsupported facts' }
   $F4Fixture = 'fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum'
   $F4First = Read-NativeChannelsWithExit 'Replacement F4 complete inventory CLI proof' $Hum @('check', $F4Fixture)
   $F4Second = Read-NativeChannelsWithExit 'Replacement F4 complete inventory CLI repeatability proof' $Hum @('check', $F4Fixture)
@@ -941,7 +962,7 @@ task malformed() -> UInt {
     if ($Entry.Key -in @('src/ast.rs', 'src/parser.rs')) { continue }
     if ([regex]::IsMatch($Entry.Value, 'CanonicalCore(?:FileWitness|OwnerWitness|SealCapability|ParseContext)::parser_issue\s*\(') -or [regex]::IsMatch($Entry.Value, '(?:SourceFile|App|TypeDef|Store|Task|Test|Section)::parser_new\s*\(') -or [regex]::IsMatch($Entry.Value, 'CanonicalCore(?:FileWitness|OwnerWitness|SealCapability|ParseContext)\s*\(') -or [regex]::IsMatch($Entry.Value, 'canonical_core_(?:file_witness|owner_witness|seal_capability)\s*:\s*Some\s*\(')) { throw "Replacement F4 valid-authority issuer escaped ast/parser: $($Entry.Key)" }
   }
-  if ([regex]::Matches($F4AstProduction, 'pub\(crate\) fn parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, '::parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, 'SourceFile::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ParserProduction, 'Item::(?:App|Type|Store|Task|Test)\([^\r\n]*::parser_new\(').Count -ne 5 -or [regex]::Matches($F4ParserProduction, 'Section::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ProductionSources['src/app_entry.rs'], 'SourceFile::empty_non_authoritative\(').Count -ne 1) { throw 'Replacement F4 valid-authority issuer or installer inventory drifted' }
+  if ([regex]::Matches($F4AstProduction, 'pub\(crate\) fn parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, '::parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, 'CanonicalBackendSignatureCapability::from_selected\(').Count -ne 1 -or [regex]::Matches($F4ParserProduction, 'fn from_selected\(mut binding: CanonicalBackendSignatureBinding\)').Count -ne 1 -or [regex]::Matches($F4ParserProduction, 'SourceFile::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ParserProduction, 'Item::(?:App|Type|Store|Task|Test)\([^\r\n]*::parser_new\(').Count -ne 5 -or [regex]::Matches($F4ParserProduction, 'Section::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ProductionSources['src/app_entry.rs'], 'SourceFile::empty_non_authoritative\(').Count -ne 1) { throw 'Replacement F4 valid-authority issuer or installer inventory drifted' }
   $F4ConsumerCalls = [ordered]@{
     'src/check.rs' = 1
     'src/core_lower.rs' = 1
@@ -1122,7 +1143,7 @@ task malformed() -> UInt {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 90 -or $UniqueExactRustSelectorCredits.Count -ne 90) { throw "exact Rust selector inventory must credit 90 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 94 -or $UniqueExactRustSelectorCredits.Count -ne 94) { throw "exact Rust selector inventory must credit 94 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')

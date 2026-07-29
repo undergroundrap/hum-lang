@@ -1,4 +1,7 @@
-use crate::ast::{Item, Param, Program, Section, Task};
+use crate::ast::{
+    CanonicalCompletionEvent, CanonicalExpressionKind, Item, Param, ParsedBinaryOperator,
+    ParsedBlockRelationship, Program, Section, Task,
+};
 use crate::callable;
 use crate::core_body::{self, BodyGrammarReport, BodyStatement};
 use crate::core_contract;
@@ -17,6 +20,321 @@ use crate::version;
 
 pub const CORE_LOWER_SCHEMA: &str = "hum.core_lower.v0";
 pub const CORE_LOWER_STATUS: &str = "unverified_core_artifact_v0";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalCheckedAddCoreView {
+    pub(crate) source_revision: std::sync::Arc<[u8]>,
+    pub(crate) normalized_path: String,
+    pub(crate) semantic_file_index: usize,
+    pub(crate) module_token_identity: String,
+    pub(crate) module_identity: String,
+    pub(crate) module_display_name: String,
+    pub(crate) module_range: crate::ast::ParsedSourceRange,
+    pub(crate) item_path: Vec<usize>,
+    pub(crate) item_kind: &'static str,
+    pub(crate) function_identity: String,
+    pub(crate) function_display_name: String,
+    pub(crate) function_range: crate::ast::ParsedSourceRange,
+    pub(crate) linkage_identity: String,
+    pub(crate) parameter_ordinals: [usize; 2],
+    pub(crate) parameter_identities: [String; 2],
+    pub(crate) parameter_names: [String; 2],
+    pub(crate) parameter_ranges: [crate::ast::ParsedSourceRange; 2],
+    pub(crate) parameter_type_token_identities: [String; 2],
+    pub(crate) parameter_type_names: [String; 2],
+    pub(crate) parameter_type_ranges: [crate::ast::ParsedSourceRange; 2],
+    pub(crate) parameter_permissions: [&'static str; 2],
+    pub(crate) result_type_token_identity: String,
+    pub(crate) result_type_name: String,
+    pub(crate) result_type_range: crate::ast::ParsedSourceRange,
+    pub(crate) result_type_explicit: bool,
+    pub(crate) does_section_slot: usize,
+    pub(crate) does_section_identity: String,
+    pub(crate) does_section_name: String,
+    pub(crate) does_section_range: crate::ast::ParsedSourceRange,
+    pub(crate) statement_count: usize,
+    pub(crate) statement_node_identity: String,
+    pub(crate) statement_kind: &'static str,
+    pub(crate) block_relationship: &'static str,
+    pub(crate) block_depth_before: usize,
+    pub(crate) block_depth_after: usize,
+    pub(crate) block_identity: String,
+    pub(crate) operation_kinds: [&'static str; 2],
+    pub(crate) return_operation_identity: String,
+    pub(crate) add_node_identity: String,
+    pub(crate) add_kind: &'static str,
+    pub(crate) add_operator: &'static str,
+    pub(crate) add_completion: &'static str,
+    pub(crate) left_node_identity: String,
+    pub(crate) left_kind: &'static str,
+    pub(crate) left_completion: &'static str,
+    pub(crate) right_node_identity: String,
+    pub(crate) right_kind: &'static str,
+    pub(crate) right_completion: &'static str,
+    pub(crate) ordered_child_relationship: String,
+    pub(crate) left_value_identity: String,
+    pub(crate) right_value_identity: String,
+    pub(crate) result_value_identity: String,
+    pub(crate) overflow_edge_identity: String,
+    pub(crate) overflow_status: &'static str,
+}
+
+pub(crate) fn canonical_checked_add_core_view(
+    body: &core_body::CanonicalBackendBody<'_>,
+) -> Result<CanonicalCheckedAddCoreView, &'static str> {
+    let expression = core_expr::canonical_checked_add_expression(body.statement())?;
+    let signature = body.function().signature();
+    let [left_parameter, right_parameter] = signature.parameters.as_ref() else {
+        return Err("canonical_backend_parameter_count_unsupported_v0");
+    };
+    if expression.left_name != left_parameter.binder.spelling.as_ref()
+        || expression.right_name != right_parameter.binder.spelling.as_ref()
+    {
+        return Err("canonical_backend_operand_parameter_order_mismatch_v0");
+    }
+    let add_node_identity = expression.add.node_id.as_str().to_string();
+    let mut view = CanonicalCheckedAddCoreView {
+        source_revision: signature.file.source_revision.clone(),
+        normalized_path: signature.file.normalized_path.to_string(),
+        semantic_file_index: signature.file.semantic_file_index,
+        module_token_identity: signature.module.identity.to_string(),
+        module_identity: signature.module.identity.to_string(),
+        module_display_name: signature.module.spelling.to_string(),
+        module_range: signature.module.range.clone(),
+        item_path: signature.item_path.to_vec(),
+        item_kind: signature.item_kind,
+        function_identity: signature.function.identity.to_string(),
+        function_display_name: signature.function.spelling.to_string(),
+        function_range: signature.function.range.clone(),
+        linkage_identity: signature.export_linkage_identity.to_string(),
+        parameter_ordinals: [left_parameter.ordinal, right_parameter.ordinal],
+        parameter_identities: [
+            left_parameter.binder.identity.to_string(),
+            right_parameter.binder.identity.to_string(),
+        ],
+        parameter_names: [
+            left_parameter.binder.spelling.to_string(),
+            right_parameter.binder.spelling.to_string(),
+        ],
+        parameter_ranges: [
+            left_parameter.binder.range.clone(),
+            right_parameter.binder.range.clone(),
+        ],
+        parameter_type_token_identities: [
+            left_parameter.declared_type.identity.to_string(),
+            right_parameter.declared_type.identity.to_string(),
+        ],
+        parameter_type_names: [
+            left_parameter.declared_type.spelling.to_string(),
+            right_parameter.declared_type.spelling.to_string(),
+        ],
+        parameter_type_ranges: [
+            left_parameter.declared_type.range.clone(),
+            right_parameter.declared_type.range.clone(),
+        ],
+        parameter_permissions: [
+            left_parameter.permission.as_str(),
+            right_parameter.permission.as_str(),
+        ],
+        result_type_token_identity: signature.result_type.identity.to_string(),
+        result_type_name: signature.result_type.spelling.to_string(),
+        result_type_range: signature.result_type.range.clone(),
+        result_type_explicit: signature.result_type_explicit,
+        does_section_slot: signature.does_section_slot,
+        does_section_identity: signature.does_section.identity.to_string(),
+        does_section_name: signature.does_section.spelling.to_string(),
+        does_section_range: signature.does_section.range.clone(),
+        statement_count: 1,
+        statement_node_identity: expression.statement.source_node_id.as_str().to_string(),
+        statement_kind: "return",
+        block_relationship: "none",
+        block_depth_before: expression.statement.block_depth_before,
+        block_depth_after: expression.statement.block_depth_after,
+        block_identity: canonical_backend_block_identity(signature),
+        operation_kinds: ["return", "checked_add"],
+        return_operation_identity: expression.statement.source_node_id.as_str().to_string(),
+        add_node_identity: add_node_identity.clone(),
+        add_kind: "binary",
+        add_operator: "add",
+        add_completion: "complete",
+        left_node_identity: expression.left.node_id.as_str().to_string(),
+        left_kind: "identifier",
+        left_completion: "complete",
+        right_node_identity: expression.right.node_id.as_str().to_string(),
+        right_kind: "identifier",
+        right_completion: "complete",
+        ordered_child_relationship: format!(
+            "ordered-children:left={}:right={}",
+            expression.left.node_id.as_str(),
+            expression.right.node_id.as_str()
+        ),
+        left_value_identity: format!("canonical-value:{}", expression.left.node_id.as_str()),
+        right_value_identity: format!("canonical-value:{}", expression.right.node_id.as_str()),
+        result_value_identity: format!("canonical-value:{add_node_identity}"),
+        overflow_edge_identity: format!("canonical-overflow-edge:{add_node_identity}"),
+        overflow_status: "checked_add_runtime_trap_exit_2_v0",
+    };
+    crate::ir_readiness::apply_c1_core_producer_corruption(&mut view);
+    validate_canonical_checked_add_core_view(&view, signature, &expression)?;
+    Ok(view)
+}
+
+fn validate_canonical_checked_add_core_view(
+    view: &CanonicalCheckedAddCoreView,
+    signature: &crate::parser::CanonicalBackendSignatureBinding,
+    expression: &crate::core_expr::CanonicalCheckedAddExpression<'_>,
+) -> Result<(), &'static str> {
+    let [left_parameter, right_parameter] = signature.parameters.as_ref() else {
+        return Err("canonical_backend_parameter_count_unsupported_v0");
+    };
+    let add = expression.add.node_id.as_str();
+    if view.source_revision.as_ref() != signature.file.source_revision.as_ref()
+        || view.normalized_path != signature.file.normalized_path.as_ref()
+        || view.semantic_file_index != signature.file.semantic_file_index
+        || view.module_token_identity != signature.module.identity.as_ref()
+        || view.module_identity != signature.module.identity.as_ref()
+        || view.module_display_name != signature.module.spelling.as_ref()
+        || view.module_range != signature.module.range
+        || view.item_path != signature.item_path.as_ref()
+        || view.item_kind != signature.item_kind
+        || view.function_identity != signature.function.identity.as_ref()
+        || view.function_display_name != signature.function.spelling.as_ref()
+        || view.function_range != signature.function.range
+        || view.linkage_identity != signature.export_linkage_identity.as_ref()
+        || view.parameter_ordinals != [left_parameter.ordinal, right_parameter.ordinal]
+        || view.parameter_identities
+            != [
+                left_parameter.binder.identity.to_string(),
+                right_parameter.binder.identity.to_string(),
+            ]
+        || view.parameter_names
+            != [
+                left_parameter.binder.spelling.to_string(),
+                right_parameter.binder.spelling.to_string(),
+            ]
+        || view.parameter_ranges
+            != [
+                left_parameter.binder.range.clone(),
+                right_parameter.binder.range.clone(),
+            ]
+        || view.parameter_type_token_identities
+            != [
+                left_parameter.declared_type.identity.to_string(),
+                right_parameter.declared_type.identity.to_string(),
+            ]
+        || view.parameter_type_names
+            != [
+                left_parameter.declared_type.spelling.to_string(),
+                right_parameter.declared_type.spelling.to_string(),
+            ]
+        || view.parameter_type_ranges
+            != [
+                left_parameter.declared_type.range.clone(),
+                right_parameter.declared_type.range.clone(),
+            ]
+        || view.parameter_permissions
+            != [
+                left_parameter.permission.as_str(),
+                right_parameter.permission.as_str(),
+            ]
+        || view.result_type_token_identity != signature.result_type.identity.as_ref()
+        || view.result_type_name != signature.result_type.spelling.as_ref()
+        || view.result_type_range != signature.result_type.range
+        || view.result_type_explicit != signature.result_type_explicit
+        || view.does_section_slot != signature.does_section_slot
+        || view.does_section_identity != signature.does_section.identity.as_ref()
+        || view.does_section_name != signature.does_section.spelling.as_ref()
+        || view.does_section_range != signature.does_section.range
+        || view.statement_count != 1
+        || view.statement_node_identity != expression.statement.source_node_id.as_str()
+        || view.statement_kind != "return"
+        || view.block_relationship != "none"
+        || expression.statement.block_relationship != ParsedBlockRelationship::None
+        || view.block_depth_before != expression.statement.block_depth_before
+        || view.block_depth_after != expression.statement.block_depth_after
+        || view.block_depth_before != 0
+        || view.block_depth_after != 0
+        || view.block_identity != canonical_backend_block_identity(signature)
+        || view.operation_kinds != ["return", "checked_add"]
+        || view.return_operation_identity != expression.statement.source_node_id.as_str()
+        || view.add_node_identity != add
+        || view.add_kind != "binary"
+        || !matches!(
+            expression.add.kind,
+            CanonicalExpressionKind::Binary {
+                operator: ParsedBinaryOperator::Add,
+                ..
+            }
+        )
+        || view.add_operator != "add"
+        || view.add_completion != "complete"
+        || !matches!(
+            expression.add.completion,
+            CanonicalCompletionEvent::Complete
+        )
+        || view.left_node_identity != expression.left.node_id.as_str()
+        || view.left_kind != "identifier"
+        || !matches!(expression.left.kind, CanonicalExpressionKind::Identifier(_))
+        || view.left_completion != "complete"
+        || !matches!(
+            expression.left.completion,
+            CanonicalCompletionEvent::Complete
+        )
+        || view.right_node_identity != expression.right.node_id.as_str()
+        || view.right_kind != "identifier"
+        || !matches!(
+            expression.right.kind,
+            CanonicalExpressionKind::Identifier(_)
+        )
+        || view.right_completion != "complete"
+        || !matches!(
+            expression.right.completion,
+            CanonicalCompletionEvent::Complete
+        )
+        || view.ordered_child_relationship
+            != format!(
+                "ordered-children:left={}:right={}",
+                expression.left.node_id.as_str(),
+                expression.right.node_id.as_str()
+            )
+        || view.left_value_identity
+            != format!("canonical-value:{}", expression.left.node_id.as_str())
+        || view.right_value_identity
+            != format!("canonical-value:{}", expression.right.node_id.as_str())
+        || view.result_value_identity != format!("canonical-value:{add}")
+        || view.overflow_edge_identity != format!("canonical-overflow-edge:{add}")
+        || view.overflow_status != "checked_add_runtime_trap_exit_2_v0"
+    {
+        return Err("canonical_backend_core_producer_corruption_v0");
+    }
+    Ok(())
+}
+
+fn canonical_backend_block_identity(
+    signature: &crate::parser::CanonicalBackendSignatureBinding,
+) -> String {
+    use std::fmt::Write;
+
+    let mut revision = String::with_capacity(signature.file.source_revision.len() * 2);
+    for byte in signature.file.source_revision.iter() {
+        write!(&mut revision, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    let item_path = signature
+        .item_path
+        .iter()
+        .map(usize::to_string)
+        .collect::<Vec<_>>()
+        .join(".");
+    format!(
+        "canonical-block:revision-{revision}:file-{}:item-{item_path}:section-{}:token-{}:range-{}-{}-{}",
+        signature.file.semantic_file_index,
+        signature.does_section_slot,
+        signature.does_section.identity,
+        signature.does_section.range.start.line,
+        signature.does_section.range.start.column,
+        signature.does_section.range.byte_len,
+    )
+}
 
 const NON_GOALS: &[&str] = &[
     "no executable semantics",

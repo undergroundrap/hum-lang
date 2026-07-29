@@ -19,6 +19,54 @@ pub const OWNERSHIP_CHECK_SCHEMA: &str = "hum.ownership_check.v0";
 pub const OWNERSHIP_CHECK_MODE: &str = "recognized_core_ownership_gate_v0";
 pub const OWNERSHIP_CHECK_STATUS: &str = "recognized_core_ownership_gate_available_v0";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalBackendOwnershipView {
+    pub(crate) function_identity: String,
+    pub(crate) ownership_identity: String,
+    pub(crate) status: &'static str,
+}
+
+pub(crate) fn canonical_backend_checked_add_ownership(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    task: &crate::ast::Task,
+    _core: &crate::core_lower::CanonicalCheckedAddCoreView,
+) -> Result<CanonicalBackendOwnershipView, &'static str> {
+    if task
+        .params
+        .iter()
+        .any(|parameter| parameter.permission != ParamPermission::Borrow)
+    {
+        return Err("canonical_backend_ownership_not_accepted_v0");
+    }
+    let expected_identity = crate::resolve::semantic_task_identity(program, task);
+    let report = build_report(program, diagnostics);
+    let item = report
+        .items
+        .iter()
+        .find(|item| item.semantic_identity == expected_identity)
+        .ok_or("canonical_backend_ownership_item_absent_v0")?;
+    if item.status != "recognized_core_ownership_facts_checked_v0"
+        || item.statements.len() != 1
+        || item.statements[0].status != "accepted_no_ownership_transfer_v0"
+    {
+        return Err("canonical_backend_ownership_not_accepted_v0");
+    }
+    let mut view = CanonicalBackendOwnershipView {
+        function_identity: expected_identity.clone(),
+        ownership_identity: "hum.ownership.accepted.no_transfer.v0".to_string(),
+        status: "accepted_canonical_ownership_v0",
+    };
+    crate::ir_readiness::apply_c1_ownership_producer_corruption(&mut view);
+    if view.function_identity != expected_identity
+        || view.ownership_identity != "hum.ownership.accepted.no_transfer.v0"
+        || view.status != "accepted_canonical_ownership_v0"
+    {
+        return Err("canonical_backend_ownership_producer_corruption_v0");
+    }
+    Ok(view)
+}
+
 const NON_CLAIMS: &[&str] = &[
     "no executable semantics",
     "no Hum IR emission",

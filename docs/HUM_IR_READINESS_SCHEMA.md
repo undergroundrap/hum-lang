@@ -232,6 +232,53 @@ This summary checks only recognized V0 effect contexts and explicit boundary con
 
 This summary checks only recognized V0 local ownership facts and explicit blockers. It does not claim complete ownership safety, borrow checking, alias safety, memory safety, profile enforcement, optimization, execution, or IR emission.
 
+## Canonical Checked-Add Producer Closure
+
+For the real `examples/core/minimal_add.hum` path, a task candidate may contain
+`checked_add_producer_closure`. This is a readiness projection of private,
+producer-owned facts joined through the live parser-to-Core path. It is not a
+backend artifact and is not accepted from source text, display names, spans, or
+caller-supplied identifiers.
+
+The projection records:
+
+- source revision, semantic-file ordinal, module identity, and module display;
+- function identity/display, export linkage, ordered parameter binder/type
+  token identities, parameter permissions, and result-type token identity;
+- block, return, checked-add, ordered child, operand-value, and result-value
+  identities;
+- canonical resolver use-to-definition bindings for both operands;
+- independently checked parameter, operand, add-result, and function-result
+  type identities;
+- effect, authority, ownership, allocation-free resource, and profile facts;
+- the checked-overflow edge and its runtime-trap outcome;
+- accepted producer-pass statuses and explicit unsupported facts.
+
+The exact C1R positive carries thirteen ordered pass relationships, from
+`canonical_backend_c1_selector_selected_v0` through
+`accepted_normal_profile_policy_v0`. Its private validation catalogue contains
+111 independently named facts: 37 parser/signature, 26 Section-body/Core,
+8 resolver, 8 full-type, 4 effect, 3 ownership, 4 resource, 4 profile, and
+17 join/outcome rows. The test corruption boundary is immediately after each
+owning producer and before its local validator; every row must change both
+readiness formats while 34 separately enumerated existing observations remain
+byte-identical.
+
+The only successful C1R shape is the structurally selected checked two-parameter
+addition with one returned result and the existing `allocates: nothing` claim.
+The parser selector does not semantically accept types, permissions, resource
+claims, or profile policy; their owning producers do. Other shapes,
+malformed/special parser facts, missing producer authority, and failed
+type/effect/ownership/resource/profile gates retain an explicit
+`checked_add_producer_blocker`. Existing command outputs remain dormant: only
+`hum ir-readiness` exposes this C1 projection.
+
+Even when the closure is available, the candidate remains blocked. Its
+`missing_passes` includes `hum.backend_input.v0` and `ir_verify`, while the
+closure pins `hum.backend_input.v0_absent_v0` and
+`ir_verify_unimplemented_v0`. C1R does not emit `hum.backend_input.v0`, create a
+verified capability, lower to CLIF, emit an object, link, or execute code.
+
 ## Resource Check Summary Shape
 
 `resource_check` contains the summary fields from `hum.resource_check.v0` needed by IR readiness:

@@ -18,6 +18,112 @@ use crate::writable_field_alias;
 pub const RESOLVE_REPORT_SCHEMA: &str = "hum.resolve.v0";
 pub const RESOLVE_MODE: &str = "source_analysis_only_no_type_or_borrow_check";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalBackendResolverView {
+    pub(crate) function_definition_identity: String,
+    pub(crate) left_use_identity: String,
+    pub(crate) left_definition_identity: String,
+    pub(crate) right_use_identity: String,
+    pub(crate) right_definition_identity: String,
+    pub(crate) use_order_identity: String,
+    pub(crate) definition_order_identity: String,
+    pub(crate) distinct_binding_status: &'static str,
+}
+
+pub(crate) fn canonical_backend_resolver_view(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    task: &Task,
+    core: &crate::core_lower::CanonicalCheckedAddCoreView,
+) -> Result<CanonicalBackendResolverView, &'static str> {
+    let report = build_report(program, diagnostics);
+    let function_definition_identity = semantic_task_definition_identity(program, task);
+    let callable_scope = report
+        .scopes
+        .iter()
+        .find(|scope| {
+            scope.scope_kind == "callable"
+                && scope.owner_semantic_identity == function_definition_identity
+        })
+        .ok_or("canonical_backend_callable_scope_absent_v0")?;
+    let parameter_definition = |ordinal: usize| {
+        report
+            .definitions
+            .iter()
+            .find(|definition| {
+                definition.scope_id == callable_scope.id
+                    && definition.definition_kind == "parameter"
+                    && definition.semantic_origin == format!("parameter-position:{ordinal}")
+                    && definition.status == "defined_v0"
+            })
+            .map(semantic_definition_identity)
+            .ok_or("canonical_backend_parameter_definition_absent_v0")
+    };
+    let expected_left_definition = parameter_definition(0)?;
+    let expected_right_definition = parameter_definition(1)?;
+    let resolve_operand =
+        |node_identity: &str, expected_child_path: &[usize], expected_target: &str| {
+            report
+                .references
+                .iter()
+                .find(|reference| {
+                    reference.canonical_node_id.as_deref() == Some(node_identity)
+                        && reference.canonical_child_path.as_deref() == Some(expected_child_path)
+                        && reference.resolution_status == "resolved_v0"
+                        && reference.resolved_definition_semantic_identity.as_deref()
+                            == Some(expected_target)
+                })
+                .map(|reference| {
+                    (
+                        reference.semantic_identity.clone(),
+                        reference
+                            .resolved_definition_semantic_identity
+                            .clone()
+                            .expect("resolved canonical reference has a semantic target"),
+                    )
+                })
+                .ok_or("canonical_backend_operand_binding_absent_v0")
+        };
+    let (left_use_identity, left_definition_identity) =
+        resolve_operand(&core.left_node_identity, &[0, 0], &expected_left_definition)?;
+    let (right_use_identity, right_definition_identity) = resolve_operand(
+        &core.right_node_identity,
+        &[0, 1],
+        &expected_right_definition,
+    )?;
+    if left_definition_identity == right_definition_identity {
+        return Err("canonical_backend_operand_definitions_not_distinct_v0");
+    }
+    let use_order_identity =
+        format!("resolver-use-order:left={left_use_identity}|right={right_use_identity}");
+    let definition_order_identity = format!(
+        "resolver-definition-order:left={left_definition_identity}|right={right_definition_identity}"
+    );
+    let mut view = CanonicalBackendResolverView {
+        function_definition_identity: function_definition_identity.clone(),
+        left_use_identity: left_use_identity.clone(),
+        left_definition_identity: left_definition_identity.clone(),
+        right_use_identity: right_use_identity.clone(),
+        right_definition_identity: right_definition_identity.clone(),
+        use_order_identity: use_order_identity.clone(),
+        definition_order_identity: definition_order_identity.clone(),
+        distinct_binding_status: "distinct_parameter_bindings_v0",
+    };
+    crate::ir_readiness::apply_c1_resolver_producer_corruption(&mut view);
+    if view.function_definition_identity != function_definition_identity
+        || view.left_use_identity != left_use_identity
+        || view.left_definition_identity != left_definition_identity
+        || view.right_use_identity != right_use_identity
+        || view.right_definition_identity != right_definition_identity
+        || view.use_order_identity != use_order_identity
+        || view.definition_order_identity != definition_order_identity
+        || view.distinct_binding_status != "distinct_parameter_bindings_v0"
+    {
+        return Err("canonical_backend_resolver_producer_corruption_v0");
+    }
+    Ok(view)
+}
+
 struct ResolveReport {
     files: usize,
     items: usize,
@@ -65,6 +171,7 @@ pub struct ResolveDefinitionSummary {
     pub source_span: Span,
     pub status: &'static str,
     pub(crate) semantic_identity: String,
+    pub(crate) semantic_origin: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +199,7 @@ pub struct ResolveReferenceSummary {
     pub reason: Option<&'static str>,
     pub(crate) canonical_node_id: Option<String>,
     pub(crate) canonical_child_position: Option<String>,
+    pub(crate) canonical_child_path: Option<Vec<usize>>,
     pub(crate) scope_semantic_identity: String,
     pub(crate) semantic_identity: String,
     pub(crate) resolved_definition_semantic_identity: Option<String>,
@@ -305,6 +413,7 @@ struct ResolveDefinition {
     status: &'static str,
     duplicate_of: Option<String>,
     semantic_identity: String,
+    semantic_origin: String,
 }
 
 #[derive(Debug, Clone)]
@@ -321,6 +430,7 @@ struct ResolveReference {
     reason: Option<&'static str>,
     canonical_node_id: Option<String>,
     canonical_child_position: Option<String>,
+    canonical_child_path: Option<Vec<usize>>,
     scope_semantic_identity: String,
     semantic_identity: String,
     resolved_definition_semantic_identity: Option<String>,
@@ -334,7 +444,7 @@ struct CallableResolveInput<'a> {
     params: &'a [Param],
     sections: &'a [Section],
     span: &'a Span,
-    body_syntax: Option<&'a [ParsedBodyStatement]>,
+    resolve_canonical_body: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -454,6 +564,7 @@ pub fn resolve_definition_summaries(
             source_span: definition.source_span.clone(),
             status: definition.status,
             semantic_identity: definition.semantic_identity.clone(),
+            semantic_origin: definition.semantic_origin.clone(),
         })
         .collect()
 }
@@ -497,6 +608,7 @@ pub fn resolve_reference_summaries(
             reason: reference.reason,
             canonical_node_id: reference.canonical_node_id.clone(),
             canonical_child_position: reference.canonical_child_position.clone(),
+            canonical_child_path: reference.canonical_child_path.clone(),
             scope_semantic_identity: reference.scope_semantic_identity.clone(),
             semantic_identity: reference.semantic_identity.clone(),
             resolved_definition_semantic_identity: reference
@@ -660,8 +772,9 @@ fn item_definition_semantic_shape(item: &Item) -> String {
                 .map(type_shape)
                 .unwrap_or_else(|| "unit".to_string()),
             task.effect_syntax.len(),
-            task.body_syntax
-                .iter()
+            task.section("does")
+                .into_iter()
+                .flat_map(|section| section.body_syntax.iter().flatten())
                 .map(statement_shape)
                 .collect::<Vec<_>>()
                 .join(";")
@@ -1279,7 +1392,7 @@ impl<'program> ResolverContext<'program> {
                             params: &task.params,
                             sections: &task.sections,
                             span: &task.span,
-                            body_syntax: Some(task.body_syntax.as_slice()),
+                            resolve_canonical_body: true,
                         },
                     );
                 }
@@ -1296,7 +1409,7 @@ impl<'program> ResolverContext<'program> {
                             params: &test.params,
                             sections: &test.sections,
                             span: &test.span,
-                            body_syntax: None,
+                            resolve_canonical_body: false,
                         },
                     );
                 }
@@ -1313,7 +1426,7 @@ impl<'program> ResolverContext<'program> {
             params,
             sections,
             span,
-            body_syntax,
+            resolve_canonical_body,
         } = input;
         let callable_scope = self.add_scope(ScopeInput {
             parent_scope_id: Some(parent_scope_id),
@@ -1361,7 +1474,7 @@ impl<'program> ResolverContext<'program> {
                 .flatten()
                 .cloned()
                 .collect::<Vec<_>>();
-            if body_syntax.is_some() {
+            if resolve_canonical_body {
                 self.resolve_canonical_call_occurrences(
                     &callable_scope,
                     &owner_definition_id,
@@ -1369,7 +1482,7 @@ impl<'program> ResolverContext<'program> {
                 );
             }
             let statement_scopes = self.resolve_does_section(&callable_scope, section, &body);
-            if body_syntax.is_some() {
+            if resolve_canonical_body {
                 self.resolve_canonical_callable_references(
                     &callable_scope,
                     &canonical_body,
@@ -2238,9 +2351,10 @@ impl<'program> ResolverContext<'program> {
         let semantic_shape = input
             .semantic_shape
             .unwrap_or_else(|| format!("definition-kind:{}", input.definition_kind));
+        let semantic_origin = input.semantic_origin;
         let semantic_identity = format!(
             "resolver-definition|scope={scope_semantic_identity}|kind={}|origin={}|shape={semantic_shape}",
-            input.definition_kind, input.semantic_origin,
+            input.definition_kind, semantic_origin,
         );
         let status = if duplicate.is_some() && input.defer_duplicate_diagnostic {
             "duplicate_definition_deferred_to_ownership_v0"
@@ -2262,6 +2376,7 @@ impl<'program> ResolverContext<'program> {
             status,
             duplicate_of: duplicate_id.clone(),
             semantic_identity,
+            semantic_origin,
         });
         if duplicate.is_none() {
             self.definitions_by_scope_name.insert(
@@ -2432,6 +2547,7 @@ impl<'program> ResolverContext<'program> {
             reason,
             canonical_node_id: None,
             canonical_child_position: None,
+            canonical_child_path: None,
             scope_semantic_identity: scope_semantic_identity.clone(),
             semantic_identity,
             resolved_definition_semantic_identity,
@@ -2475,6 +2591,7 @@ impl<'program> ResolverContext<'program> {
             .expect("new canonical resolver reference must be registered");
         reference.canonical_node_id = Some(expression.node_id.as_str().to_string());
         reference.canonical_child_position = Some(position.stable_component());
+        reference.canonical_child_path = Some(position.child_path.clone());
         reference.semantic_identity = format!(
             "resolver-reference|scope={}|kind={}|position={}",
             scope_semantic_identity,

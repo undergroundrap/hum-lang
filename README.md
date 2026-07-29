@@ -14,6 +14,9 @@ Minimal form:
 <!-- hum-example:start examples/core/minimal_add.hum -->
 ```hum
 task add(a: Int, b: Int) -> Int {
+  cost:
+    allocates: nothing
+
   does:
     return a + b
 }

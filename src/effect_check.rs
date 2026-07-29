@@ -16,6 +16,53 @@ pub const EFFECT_CHECK_SCHEMA: &str = "hum.effect_check.v0";
 pub const EFFECT_CHECK_MODE: &str = "recognized_core_effect_gate_v0";
 pub const EFFECT_CHECK_STATUS: &str = "recognized_core_effect_gate_available_v0";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalBackendEffectView {
+    pub(crate) function_identity: String,
+    pub(crate) effect_identity: String,
+    pub(crate) authority_identity: String,
+    pub(crate) status: &'static str,
+}
+
+pub(crate) fn canonical_backend_checked_add_effect(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    task: &crate::ast::Task,
+    _core: &crate::core_lower::CanonicalCheckedAddCoreView,
+) -> Result<CanonicalBackendEffectView, &'static str> {
+    if !task.effect_syntax.is_empty() {
+        return Err("canonical_backend_effect_not_accepted_v0");
+    }
+    let expected_identity = crate::resolve::semantic_task_identity(program, task);
+    let report = build_report(program, diagnostics);
+    let item = report
+        .items
+        .iter()
+        .find(|item| item.semantic_identity == expected_identity)
+        .ok_or("canonical_backend_effect_item_absent_v0")?;
+    if item.status != "recognized_core_effects_checked_v0"
+        || item.statements.len() != 1
+        || item.statements[0].status != "accepted_no_external_effect_v0"
+    {
+        return Err("canonical_backend_effect_not_accepted_v0");
+    }
+    let mut view = CanonicalBackendEffectView {
+        function_identity: expected_identity.clone(),
+        effect_identity: "hum.effect.pure.v0".to_string(),
+        authority_identity: "hum.authority.none.v0".to_string(),
+        status: "accepted_canonical_pure_effect_v0",
+    };
+    crate::ir_readiness::apply_c1_effect_producer_corruption(&mut view);
+    if view.function_identity != expected_identity
+        || view.effect_identity != "hum.effect.pure.v0"
+        || view.authority_identity != "hum.authority.none.v0"
+        || view.status != "accepted_canonical_pure_effect_v0"
+    {
+        return Err("canonical_backend_effect_producer_corruption_v0");
+    }
+    Ok(view)
+}
+
 const NON_CLAIMS: &[&str] = &[
     "no executable semantics",
     "no Hum IR emission",
@@ -87,6 +134,7 @@ struct EffectCheckReport {
 
 struct EffectItem {
     id: String,
+    semantic_identity: String,
     kind: &'static str,
     name: String,
     span: Span,
@@ -519,6 +567,7 @@ fn check_item(
     blocked: bool,
     failure_analysis: &ProgramFailureAnalysis,
 ) -> Option<EffectItem> {
+    let semantic_identity = crate::resolve::semantic_item_identity_for(program, item);
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
@@ -567,6 +616,7 @@ fn check_item(
             "hum_effect_item",
             &format!("{}_{}_{}", item.kind(), item.name(), item.span().line),
         ),
+        semantic_identity,
         kind: item.kind(),
         name: item.name().to_string(),
         span: portable_span(item.span()),

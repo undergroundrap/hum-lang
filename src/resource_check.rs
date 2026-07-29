@@ -61,12 +61,83 @@ struct ResourceCheckReport {
 
 struct ResourceItem {
     id: String,
+    semantic_identity: String,
     name: String,
     graph_node_id: String,
     span: Span,
     status: &'static str,
     declarations: ResourceDeclarations,
     checks: Vec<ResourceCheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalBackendResourceView {
+    pub(crate) function_identity: String,
+    pub(crate) resource_identity: String,
+    pub(crate) allocation_status: &'static str,
+    pub(crate) status: &'static str,
+}
+
+pub(crate) fn canonical_backend_checked_add_resource(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    task: &Task,
+    core: &crate::core_lower::CanonicalCheckedAddCoreView,
+) -> Result<CanonicalBackendResourceView, &'static str> {
+    let semantic_identity = crate::resolve::semantic_task_identity(program, task);
+    let report = build_report(program, diagnostics);
+    let item = report
+        .items
+        .iter()
+        .find(|item| item.semantic_identity == semantic_identity)
+        .ok_or("canonical_backend_resource_missing_item_v0")?;
+    if item.status != "recognized_core_resource_facts_checked_v0" {
+        return Err("canonical_backend_resource_item_blocked_v0");
+    }
+    let check = item
+        .checks
+        .iter()
+        .find(|check| check.status == "accepted_conservative_allocation_free_claim_v0")
+        .ok_or("canonical_backend_resource_missing_allocation_free_claim_v0")?;
+    let [declaration] = item.declarations.allocations.as_slice() else {
+        return Err("canonical_backend_resource_declaration_count_unsupported_v0");
+    };
+    if check.declaration.as_deref() != Some("nothing")
+        || declaration.normalized != "nothing"
+        || declaration.section != "cost"
+    {
+        return Err("canonical_backend_resource_wrong_allocation_claim_v0");
+    }
+    let expected_resource_identity = format!(
+        "hum.resource.allocation_free|revision={}|file={}|function={semantic_identity}|declaration={}",
+        canonical_revision_hex(&core.source_revision),
+        core.semantic_file_index,
+        declaration.semantic_identity,
+    );
+    let mut view = CanonicalBackendResourceView {
+        function_identity: semantic_identity.clone(),
+        resource_identity: expected_resource_identity.clone(),
+        allocation_status: "accepted_conservative_allocation_free_claim_v0",
+        status: "canonical_backend_resource_checked_v0",
+    };
+    crate::ir_readiness::apply_c1_resource_producer_corruption(&mut view);
+    if view.function_identity != semantic_identity
+        || view.resource_identity != expected_resource_identity
+        || view.allocation_status != "accepted_conservative_allocation_free_claim_v0"
+        || view.status != "canonical_backend_resource_checked_v0"
+    {
+        return Err("canonical_backend_resource_producer_corruption_v0");
+    }
+    Ok(view)
+}
+
+fn canonical_revision_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(&mut out, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    out
 }
 
 #[derive(Default)]
@@ -76,6 +147,7 @@ struct ResourceDeclarations {
 }
 
 struct DeclaredResource {
+    semantic_identity: String,
     section: &'static str,
     text: String,
     normalized: String,
@@ -342,7 +414,8 @@ fn check_task(
             .canonical_core_expectation(item, does)
             .expect("live resource task must have parser authority"),
     );
-    let declarations = collect_resource_declarations(&task.sections);
+    let semantic_identity = crate::resolve::semantic_task_identity(program, task);
+    let declarations = collect_resource_declarations(&task.sections, &semantic_identity);
     let checks = task_resource_checks(
         task,
         &declarations,
@@ -358,6 +431,7 @@ fn check_task(
             "hum_resource_item",
             &format!("{}_{}", task.name, task.span.line),
         ),
+        semantic_identity,
         name: task.name.clone(),
         graph_node_id: node_id::span("item", &task.span, &format!("task {}", task.name)),
         span: portable_span(&task.span),
@@ -470,18 +544,27 @@ fn has_visible_allocation_risk(statement: &core_body::BodyStatement) -> bool {
         || statement.text.contains("{") && statement.kind != "if_header"
 }
 
-fn collect_resource_declarations(sections: &[Section]) -> ResourceDeclarations {
+fn collect_resource_declarations(
+    sections: &[Section],
+    owner_identity: &str,
+) -> ResourceDeclarations {
     let mut declarations = ResourceDeclarations::default();
-    for section in sections {
-        for line in meaningful_lines(section) {
+    for (section_slot, section) in sections.iter().enumerate() {
+        for (line_slot, line) in meaningful_lines(section).enumerate() {
             if section.name == "allocates" {
                 declarations.allocations.push(declared_resource(
+                    owner_identity,
+                    section_slot,
+                    line_slot,
                     "allocates",
                     &line.text,
                     &line.span,
                 ));
             } else if section.name == "cost" && normalized_starts_with(&line.text, "allocates:") {
                 declarations.allocations.push(declared_resource(
+                    owner_identity,
+                    section_slot,
+                    line_slot,
                     "cost",
                     line.text
                         .split_once(':')
@@ -492,6 +575,9 @@ fn collect_resource_declarations(sections: &[Section]) -> ResourceDeclarations {
             } else if section.name == "cost" && normalize_resource_text(&line.text) == "space: o(1)"
             {
                 declarations.constant_space = Some(declared_resource(
+                    owner_identity,
+                    section_slot,
+                    line_slot,
                     "cost",
                     line.text
                         .split_once(':')
@@ -505,8 +591,18 @@ fn collect_resource_declarations(sections: &[Section]) -> ResourceDeclarations {
     declarations
 }
 
-fn declared_resource(section: &'static str, text: &str, span: &Span) -> DeclaredResource {
+fn declared_resource(
+    owner_identity: &str,
+    section_slot: usize,
+    line_slot: usize,
+    section: &'static str,
+    text: &str,
+    span: &Span,
+) -> DeclaredResource {
     DeclaredResource {
+        semantic_identity: format!(
+            "resource-declaration|owner={owner_identity}|section-slot={section_slot}|line-slot={line_slot}|kind={section}"
+        ),
         section,
         text: text.trim().to_string(),
         normalized: normalize_resource_text(text),
