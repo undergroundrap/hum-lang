@@ -58,6 +58,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -191,8 +192,49 @@ fn run() -> Result<ExitCode, String> {
     }
 
     let loaded = load_program(&options.inputs)?;
+    let observation = observe_loaded_program(&loaded, &options)?;
+    write_command_observation(&observation)?;
+    Ok(ExitCode::from(observation.exit_code))
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct CommandObservation {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    exit_code: u8,
+}
+
+impl CommandObservation {
+    fn push_stdout(&mut self, text: impl AsRef<[u8]>) {
+        self.stdout.extend_from_slice(text.as_ref());
+    }
+
+    fn push_stderr(&mut self, text: impl AsRef<[u8]>) {
+        self.stderr.extend_from_slice(text.as_ref());
+    }
+
+    fn set_exit(&mut self, exit_code: u8) {
+        self.exit_code = exit_code;
+    }
+}
+
+fn write_command_observation(observation: &CommandObservation) -> Result<(), String> {
+    let mut stdout = run::StdoutOutputAdapter;
+    run::OutputAdapter::write(&mut stdout, &observation.stdout)
+        .map_err(|_| "failed to write stdout".to_string())?;
+    io::stderr()
+        .lock()
+        .write_all(&observation.stderr)
+        .map_err(|error| format!("failed to write stderr: {error}"))?;
+    Ok(())
+}
+
+fn observe_loaded_program(
+    loaded: &LoadedProgram,
+    options: &CliOptions,
+) -> Result<CommandObservation, String> {
     if options.command == "run" {
-        let mut output_adapter = run::StdoutOutputAdapter;
+        let mut output_adapter = ObservationOutputAdapter::default();
         let mut replay_adapter = run::RunnerReplayAdapter::new(options.run_replay_ticks.clone());
         let execution = execute_run_command(
             loaded,
@@ -213,19 +255,20 @@ fn run() -> Result<ExitCode, String> {
         )?;
         return Ok(render_run_command_execution(
             execution,
+            output_adapter.bytes,
             options.show_timings,
         ));
     }
-    let program = loaded.program;
-    let mut diagnostic_occurrences = loaded.diagnostic_occurrences;
-    let mut diagnostics = loaded.diagnostics;
+    let program = &loaded.program;
+    let mut diagnostic_occurrences = loaded.diagnostic_occurrences.clone();
+    let mut diagnostics = loaded.diagnostics.clone();
     if !diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
-        diagnostics.extend(path_boundary::diagnostics(&program));
+        diagnostics.extend(path_boundary::diagnostics(program));
         diagnostic_occurrences
-            .extend_owned(&path_boundary::diagnostic_occurrence_set(&program))
+            .extend_owned(&path_boundary::diagnostic_occurrence_set(program))
             .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
     }
     if options.command == "check"
@@ -233,33 +276,34 @@ fn run() -> Result<ExitCode, String> {
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
-        let callable_diagnostics = callable::diagnostics(&program, &diagnostics);
+        let callable_diagnostics = callable::diagnostics(program, &diagnostics);
         diagnostics.extend(callable_diagnostics);
     }
     if !diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
-        let capability_analysis = capability_root::analyze(&program);
+        let capability_analysis = capability_root::analyze(program);
         diagnostics.extend(capability_analysis.diagnostics);
         diagnostic_occurrences
             .extend_owned(&capability_analysis.diagnostic_occurrences)
             .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
     }
-    validate_aq_diagnostic_occurrences(&program, &diagnostics, &diagnostic_occurrences)?;
+    validate_aq_diagnostic_occurrences(program, &diagnostics, &diagnostic_occurrences)?;
     let has_errors = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
     let callable_stage = options.command.replace('-', "_");
     let has_callable_errors =
-        options.command != "run" && callable::stage_blockers(&program, &callable_stage) > 0;
-    let has_stage_type_errors = !stage_type_diagnostics(&program, &callable_stage).is_empty();
+        options.command != "run" && callable::stage_blockers(program, &callable_stage) > 0;
+    let has_stage_type_errors = !stage_type_diagnostics(program, &callable_stage).is_empty();
+    let mut observation = CommandObservation::default();
     match options.command.as_str() {
         "check" => {
             match options.check_format {
                 CheckFormat::Human => {
-                    print_diagnostics(&diagnostics);
-                    println!(
+                    append_diagnostics(&mut observation.stderr, &diagnostics);
+                    observation.push_stdout(format!(
                         "checked {} file(s): {} error(s), {} warning(s)",
                         program.files.len(),
                         diagnostics
@@ -270,23 +314,19 @@ fn run() -> Result<ExitCode, String> {
                             .iter()
                             .filter(|diagnostic| diagnostic.severity == Severity::Warning)
                             .count()
-                    );
+                    ));
+                    observation.push_stdout(b"\n");
                 }
-                CheckFormat::Json => print!("{}", diagnostics::check_json(&program, &diagnostics)),
+                CheckFormat::Json => {
+                    observation.push_stdout(diagnostics::check_json(program, &diagnostics))
+                }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(if has_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            observation.set_exit(u8::from(has_errors));
         }
         "run" => unreachable!("run command must use the shared command orchestration"),
         "graph" => {
             let transport = profile_check::diagnostic_transport_from_source(
-                &program,
+                program,
                 &diagnostics,
                 &diagnostic_occurrences,
             )
@@ -296,568 +336,380 @@ fn run() -> Result<ExitCode, String> {
                 transport.graph_projection(),
             )
             .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
-            println!(
-                "{}",
-                callable_json_report(
-                    json::program_to_json(&program, &diagnostics),
-                    &program,
-                    "graph"
-                )
-            );
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors || has_callable_errors || has_stage_type_errors {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+            observation.push_stdout(callable_json_report(
+                json::program_to_json(program, &diagnostics),
+                program,
+                "graph",
+            ));
+            observation.push_stdout(b"\n");
+            observation.set_exit(u8::from(
+                has_errors || has_callable_errors || has_stage_type_errors,
+            ));
         }
         "evidence" => {
             if options.evidence_format == EvidenceFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
             match options.evidence_format {
                 EvidenceFormat::Human => {
-                    print!("{}", evidence::evidence_text(&program, &diagnostics))
+                    observation.push_stdout(evidence::evidence_text(program, &diagnostics))
                 }
                 EvidenceFormat::Json => {
-                    print!("{}", evidence::evidence_json(&program, &diagnostics))
+                    observation.push_stdout(evidence::evidence_json(program, &diagnostics))
                 }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(if has_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            observation.set_exit(u8::from(has_errors));
         }
         "math-obligations" => {
             if options.math_obligations_format == MathObligationsFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
             if let Some(out_dir) = &options.math_obligations_out_dir {
                 if has_errors {
-                    eprintln!(
-                        "not writing math obligation files because source diagnostics include errors"
+                    observation.push_stderr(
+                        b"not writing math obligation files because source diagnostics include errors\n",
                     );
                 } else {
-                    let written = write_math_obligation_files(&program, out_dir)?;
-                    eprintln!(
+                    let written = write_math_obligation_files(program, out_dir)?;
+                    observation.push_stderr(format!(
                         "wrote {written} math obligation file(s) to {}",
                         out_dir.display()
-                    );
+                    ));
+                    observation.push_stderr(b"\n");
                 }
             }
             match options.math_obligations_format {
-                MathObligationsFormat::Human => print!(
-                    "{}",
-                    math_obligations::math_obligations_text(&program, &diagnostics)
+                MathObligationsFormat::Human => observation.push_stdout(
+                    math_obligations::math_obligations_text(program, &diagnostics),
                 ),
-                MathObligationsFormat::Json => print!(
-                    "{}",
-                    math_obligations::math_obligations_json(&program, &diagnostics)
+                MathObligationsFormat::Json => observation.push_stdout(
+                    math_obligations::math_obligations_json(program, &diagnostics),
                 ),
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors || has_callable_errors || has_stage_type_errors {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+            observation.set_exit(u8::from(
+                has_errors || has_callable_errors || has_stage_type_errors,
+            ));
         }
         "resource-report" => {
             if options.resource_report_format == ResourceReportFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
             match options.resource_report_format {
-                ResourceReportFormat::Human => print!(
-                    "{}",
-                    resource_report::resource_report_text(&program, &diagnostics)
-                ),
-                ResourceReportFormat::Json => print!(
-                    "{}",
-                    resource_report::resource_report_json(&program, &diagnostics)
-                ),
+                ResourceReportFormat::Human => observation
+                    .push_stdout(resource_report::resource_report_text(program, &diagnostics)),
+                ResourceReportFormat::Json => observation
+                    .push_stdout(resource_report::resource_report_json(program, &diagnostics)),
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors || has_callable_errors || has_stage_type_errors {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+            observation.set_exit(u8::from(
+                has_errors || has_callable_errors || has_stage_type_errors,
+            ));
         }
         "core-preview" => {
             if options.core_preview_format == CorePreviewFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
             match options.core_preview_format {
                 CorePreviewFormat::Human => {
-                    print!(
-                        "{}",
-                        callable_text_report(
-                            core_preview::core_preview_text(&program, &diagnostics),
-                            &program,
-                            "core_preview"
-                        )
-                    )
+                    observation.push_stdout(callable_text_report(
+                        core_preview::core_preview_text(program, &diagnostics),
+                        program,
+                        "core_preview",
+                    ));
                 }
                 CorePreviewFormat::Json => {
-                    print!(
-                        "{}",
-                        callable_json_report(
-                            core_preview::core_preview_json(&program, &diagnostics),
-                            &program,
-                            "core_preview"
-                        )
-                    )
+                    observation.push_stdout(callable_json_report(
+                        core_preview::core_preview_json(program, &diagnostics),
+                        program,
+                        "core_preview",
+                    ));
                 }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors || has_callable_errors || has_stage_type_errors {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+            observation.set_exit(u8::from(
+                has_errors || has_callable_errors || has_stage_type_errors,
+            ));
         }
         "core-lower" => {
             if options.core_lower_format == CoreLowerFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
             match options.core_lower_format {
                 CoreLowerFormat::Human => {
-                    print!(
-                        "{}",
-                        callable_text_report(
-                            core_lower::core_lower_text(&program, &diagnostics),
-                            &program,
-                            "core_lower"
-                        )
-                    )
+                    observation.push_stdout(callable_text_report(
+                        core_lower::core_lower_text(program, &diagnostics),
+                        program,
+                        "core_lower",
+                    ));
                 }
                 CoreLowerFormat::Json => {
-                    print!(
-                        "{}",
-                        callable_json_report(
-                            core_lower::core_lower_json(&program, &diagnostics),
-                            &program,
-                            "core_lower"
-                        )
-                    )
+                    observation.push_stdout(callable_json_report(
+                        core_lower::core_lower_json(program, &diagnostics),
+                        program,
+                        "core_lower",
+                    ));
                 }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors || has_callable_errors || has_stage_type_errors {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+            observation.set_exit(u8::from(
+                has_errors || has_callable_errors || has_stage_type_errors,
+            ));
         }
         "core-verify" => {
             if options.core_verify_format == CoreVerifyFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
-            let has_core_verify_errors =
-                core_verify::core_verify_has_errors(&program, &diagnostics)
-                    || !callable::analyze_program(&program).verify().is_empty();
+            let has_core_verify_errors = core_verify::core_verify_has_errors(program, &diagnostics)
+                || !callable::analyze_program(program).verify().is_empty();
             match options.core_verify_format {
                 CoreVerifyFormat::Human => {
-                    print!(
-                        "{}",
-                        callable_text_report(
-                            core_verify::core_verify_text(&program, &diagnostics),
-                            &program,
-                            "core_verify"
-                        )
-                    )
+                    observation.push_stdout(callable_text_report(
+                        core_verify::core_verify_text(program, &diagnostics),
+                        program,
+                        "core_verify",
+                    ));
                 }
                 CoreVerifyFormat::Json => {
-                    print!(
-                        "{}",
-                        callable_json_report(
-                            core_verify::core_verify_json(&program, &diagnostics),
-                            &program,
-                            "core_verify"
-                        )
-                    )
+                    observation.push_stdout(callable_json_report(
+                        core_verify::core_verify_json(program, &diagnostics),
+                        program,
+                        "core_verify",
+                    ));
                 }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors
+            observation.set_exit(u8::from(
+                has_errors
                     || has_callable_errors
                     || has_stage_type_errors
-                    || has_core_verify_errors
-                {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+                    || has_core_verify_errors,
+            ));
         }
         "resolve" => {
             if options.resolve_format == ResolveFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
-            let has_resolver_errors = resolve::resolve_has_errors(&program, &diagnostics);
+            let has_resolver_errors = resolve::resolve_has_errors(program, &diagnostics);
             match options.resolve_format {
                 ResolveFormat::Human => {
-                    print!(
-                        "{}",
-                        callable_text_report(
-                            resolve::resolve_text(&program, &diagnostics),
-                            &program,
-                            "resolve"
-                        )
-                    )
+                    observation.push_stdout(callable_text_report(
+                        resolve::resolve_text(program, &diagnostics),
+                        program,
+                        "resolve",
+                    ));
                 }
                 ResolveFormat::Json => {
-                    print!(
-                        "{}",
-                        callable_json_report(
-                            resolve::resolve_json(&program, &diagnostics),
-                            &program,
-                            "resolve"
-                        )
-                    )
+                    observation.push_stdout(callable_json_report(
+                        resolve::resolve_json(program, &diagnostics),
+                        program,
+                        "resolve",
+                    ));
                 }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors || has_callable_errors || has_resolver_errors {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+            observation.set_exit(u8::from(
+                has_errors || has_callable_errors || has_resolver_errors,
+            ));
         }
         "type-env" => {
             if options.type_env_format == TypeEnvFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
-            let has_type_env_errors = type_env::type_env_has_errors(&program, &diagnostics);
+            let has_type_env_errors = type_env::type_env_has_errors(program, &diagnostics);
             match options.type_env_format {
                 TypeEnvFormat::Human => {
-                    print!(
-                        "{}",
-                        callable_text_report(
-                            type_env::type_env_text(&program, &diagnostics),
-                            &program,
-                            "type_env"
-                        )
-                    )
+                    observation.push_stdout(callable_text_report(
+                        type_env::type_env_text(program, &diagnostics),
+                        program,
+                        "type_env",
+                    ));
                 }
                 TypeEnvFormat::Json => {
-                    print!(
-                        "{}",
-                        callable_json_report(
-                            type_env::type_env_json(&program, &diagnostics),
-                            &program,
-                            "type_env"
-                        )
-                    )
+                    observation.push_stdout(callable_json_report(
+                        type_env::type_env_json(program, &diagnostics),
+                        program,
+                        "type_env",
+                    ));
                 }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors || has_callable_errors || has_type_env_errors {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+            observation.set_exit(u8::from(
+                has_errors || has_callable_errors || has_type_env_errors,
+            ));
         }
         "type-check" => {
             if options.type_check_format == TypeCheckFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
-            let has_type_check_errors = type_check::type_check_has_errors(&program, &diagnostics);
+            let has_type_check_errors = type_check::type_check_has_errors(program, &diagnostics);
             match options.type_check_format {
                 TypeCheckFormat::Human => {
-                    print!(
-                        "{}",
-                        callable_text_report(
-                            type_check::type_check_text(&program, &diagnostics),
-                            &program,
-                            "type_check"
-                        )
-                    )
+                    observation.push_stdout(callable_text_report(
+                        type_check::type_check_text(program, &diagnostics),
+                        program,
+                        "type_check",
+                    ));
                 }
                 TypeCheckFormat::Json => {
-                    print!(
-                        "{}",
-                        callable_json_report(
-                            type_check::type_check_json(&program, &diagnostics),
-                            &program,
-                            "type_check"
-                        )
-                    )
+                    observation.push_stdout(callable_json_report(
+                        type_check::type_check_json(program, &diagnostics),
+                        program,
+                        "type_check",
+                    ));
                 }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors || has_callable_errors || has_type_check_errors {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+            observation.set_exit(u8::from(
+                has_errors || has_callable_errors || has_type_check_errors,
+            ));
         }
         "full-type-check" => {
             if options.type_check_format == TypeCheckFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
             let has_full_type_check_errors =
-                full_type_check::full_type_check_has_errors(&program, &diagnostics);
+                full_type_check::full_type_check_has_errors(program, &diagnostics);
             match options.type_check_format {
-                TypeCheckFormat::Human => print!(
-                    "{}",
-                    callable_text_report(
-                        full_type_check::full_type_check_text(&program, &diagnostics),
-                        &program,
-                        "full_type_check"
-                    )
-                ),
-                TypeCheckFormat::Json => print!(
-                    "{}",
-                    callable_json_report(
-                        full_type_check::full_type_check_json(&program, &diagnostics),
-                        &program,
-                        "full_type_check"
-                    )
-                ),
+                TypeCheckFormat::Human => observation.push_stdout(callable_text_report(
+                    full_type_check::full_type_check_text(program, &diagnostics),
+                    program,
+                    "full_type_check",
+                )),
+                TypeCheckFormat::Json => observation.push_stdout(callable_json_report(
+                    full_type_check::full_type_check_json(program, &diagnostics),
+                    program,
+                    "full_type_check",
+                )),
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors || has_callable_errors || has_full_type_check_errors {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+            observation.set_exit(u8::from(
+                has_errors || has_callable_errors || has_full_type_check_errors,
+            ));
         }
         "effect-check" => {
             if options.type_check_format == TypeCheckFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
             let has_effect_check_errors =
-                effect_check::effect_check_has_errors(&program, &diagnostics);
+                effect_check::effect_check_has_errors(program, &diagnostics);
             match options.type_check_format {
                 TypeCheckFormat::Human => {
-                    print!(
-                        "{}",
-                        callable_text_report(
-                            effect_check::effect_check_text(&program, &diagnostics),
-                            &program,
-                            "effect_check"
-                        )
-                    )
+                    observation.push_stdout(callable_text_report(
+                        effect_check::effect_check_text(program, &diagnostics),
+                        program,
+                        "effect_check",
+                    ));
                 }
                 TypeCheckFormat::Json => {
-                    print!(
-                        "{}",
-                        callable_json_report(
-                            effect_check::effect_check_json(&program, &diagnostics),
-                            &program,
-                            "effect_check"
-                        )
-                    )
+                    observation.push_stdout(callable_json_report(
+                        effect_check::effect_check_json(program, &diagnostics),
+                        program,
+                        "effect_check",
+                    ));
                 }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors || has_callable_errors || has_effect_check_errors {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+            observation.set_exit(u8::from(
+                has_errors || has_callable_errors || has_effect_check_errors,
+            ));
         }
         "ownership-check" => {
             if options.type_check_format == TypeCheckFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
             let has_ownership_check_errors =
-                ownership_check::ownership_check_has_errors(&program, &diagnostics);
+                ownership_check::ownership_check_has_errors(program, &diagnostics);
             match options.type_check_format {
                 TypeCheckFormat::Human => {
-                    print!(
-                        "{}",
-                        callable_text_report(
-                            ownership_check::ownership_check_text(&program, &diagnostics),
-                            &program,
-                            "ownership_check"
-                        )
-                    )
+                    observation.push_stdout(callable_text_report(
+                        ownership_check::ownership_check_text(program, &diagnostics),
+                        program,
+                        "ownership_check",
+                    ));
                 }
                 TypeCheckFormat::Json => {
-                    print!(
-                        "{}",
-                        callable_json_report(
-                            ownership_check::ownership_check_json(&program, &diagnostics),
-                            &program,
-                            "ownership_check"
-                        )
-                    )
+                    observation.push_stdout(callable_json_report(
+                        ownership_check::ownership_check_json(program, &diagnostics),
+                        program,
+                        "ownership_check",
+                    ));
                 }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors || has_callable_errors || has_ownership_check_errors {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+            observation.set_exit(u8::from(
+                has_errors || has_callable_errors || has_ownership_check_errors,
+            ));
         }
         "resource-check" => {
             if options.type_check_format == TypeCheckFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
             let has_resource_check_errors =
-                resource_check::resource_check_has_errors(&program, &diagnostics);
+                resource_check::resource_check_has_errors(program, &diagnostics);
             match options.type_check_format {
                 TypeCheckFormat::Human => {
-                    print!(
-                        "{}",
-                        callable_text_report(
-                            resource_check::resource_check_text(&program, &diagnostics),
-                            &program,
-                            "resource_check"
-                        )
-                    )
+                    observation.push_stdout(callable_text_report(
+                        resource_check::resource_check_text(program, &diagnostics),
+                        program,
+                        "resource_check",
+                    ));
                 }
                 TypeCheckFormat::Json => {
-                    print!(
-                        "{}",
-                        callable_json_report(
-                            resource_check::resource_check_json(&program, &diagnostics),
-                            &program,
-                            "resource_check"
-                        )
-                    )
+                    observation.push_stdout(callable_json_report(
+                        resource_check::resource_check_json(program, &diagnostics),
+                        program,
+                        "resource_check",
+                    ));
                 }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(
-                if has_errors || has_callable_errors || has_resource_check_errors {
-                    ExitCode::from(1)
-                } else {
-                    ExitCode::SUCCESS
-                },
-            )
+            observation.set_exit(u8::from(
+                has_errors || has_callable_errors || has_resource_check_errors,
+            ));
         }
         "profile-check" => {
             if options.type_check_format == TypeCheckFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
             let has_profile_check_errors =
-                profile_check::profile_check_has_errors(&program, &diagnostics);
+                profile_check::profile_check_has_errors(program, &diagnostics);
             match options.type_check_format {
                 TypeCheckFormat::Human => {
-                    print!(
-                        "{}",
-                        profile_check::profile_check_text(&program, &diagnostics)
-                    )
+                    observation
+                        .push_stdout(profile_check::profile_check_text(program, &diagnostics));
                 }
                 TypeCheckFormat::Json => {
-                    print!(
-                        "{}",
-                        profile_check::profile_check_json(&program, &diagnostics)
-                    )
+                    observation
+                        .push_stdout(profile_check::profile_check_json(program, &diagnostics));
                 }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(if has_errors || has_profile_check_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            observation.set_exit(u8::from(has_errors || has_profile_check_errors));
         }
         "ir-readiness" => {
             if options.ir_readiness_format == IrReadinessFormat::Human {
-                print_diagnostics(&diagnostics);
+                append_diagnostics(&mut observation.stderr, &diagnostics);
             }
             match options.ir_readiness_format {
-                IrReadinessFormat::Human => print!(
-                    "{}",
-                    ir_readiness::ir_readiness_text(&program, &diagnostics)
-                ),
-                IrReadinessFormat::Json => print!(
-                    "{}",
-                    ir_readiness::ir_readiness_json(&program, &diagnostics)
-                ),
-            }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(if has_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
-        }
-        "test-skeletons" => {
-            print_diagnostics(&diagnostics);
-            if !has_errors {
-                let skeletons = test_skeletons::program_to_test_skeletons(&program);
-                if skeletons.is_empty() {
-                    eprintln!("no unlinked test obligations");
-                } else {
-                    print!("{skeletons}");
+                IrReadinessFormat::Human => {
+                    observation.push_stdout(ir_readiness::ir_readiness_text(program, &diagnostics))
+                }
+                IrReadinessFormat::Json => {
+                    observation.push_stdout(ir_readiness::ir_readiness_json(program, &diagnostics))
                 }
             }
-            if options.show_timings {
-                print_timings(&loaded.timings, loaded.total);
-            }
-            Ok(if has_errors {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            })
+            observation.set_exit(u8::from(has_errors));
         }
-        other => Err(format!(
-            "unknown command `{other}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
-        )),
+        "test-skeletons" => {
+            append_diagnostics(&mut observation.stderr, &diagnostics);
+            if !has_errors {
+                let skeletons = test_skeletons::program_to_test_skeletons(program);
+                if skeletons.is_empty() {
+                    observation.push_stderr(b"no unlinked test obligations\n");
+                } else {
+                    observation.push_stdout(skeletons);
+                }
+            }
+            observation.set_exit(u8::from(has_errors));
+        }
+        other => {
+            return Err(format!(
+                "unknown command `{other}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            ));
+        }
     }
+    if options.show_timings {
+        append_timings(&mut observation.stderr, &loaded.timings, loaded.total);
+    }
+    Ok(observation)
 }
 
 fn validate_aq_diagnostic_occurrences(
@@ -901,8 +753,20 @@ struct RunCommandExecution {
     total: Duration,
 }
 
+#[derive(Default)]
+struct ObservationOutputAdapter {
+    bytes: Vec<u8>,
+}
+
+impl run::OutputAdapter for ObservationOutputAdapter {
+    fn write(&mut self, bytes: &[u8]) -> Result<(), run::OutputAdapterError> {
+        self.bytes.extend_from_slice(bytes);
+        Ok(())
+    }
+}
+
 fn execute_run_command<InvokeRunner>(
-    loaded: LoadedProgram,
+    loaded: &LoadedProgram,
     entry: Option<&str>,
     raw_args: &[OsString],
     grant_policy: &operator_grant::OperatorGrantPolicy,
@@ -917,27 +781,25 @@ where
         &operator_grant::OperatorGrantPolicy,
     ) -> run::RunReport,
 {
-    let LoadedProgram {
-        program,
-        mut diagnostics,
-        mut diagnostic_occurrences,
-        mut reanalyzable_projections,
-        timings,
-        total,
-    } = loaded;
+    let program = &loaded.program;
+    let mut diagnostics = loaded.diagnostics.clone();
+    let mut diagnostic_occurrences = loaded.diagnostic_occurrences.clone();
+    let mut reanalyzable_projections = loaded.reanalyzable_projections.clone();
+    let timings = loaded.timings.clone();
+    let total = loaded.total;
 
     if !diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
-        diagnostics.extend(path_boundary::diagnostics(&program));
+        diagnostics.extend(path_boundary::diagnostics(program));
         diagnostic_occurrences
-            .extend_owned(&path_boundary::diagnostic_occurrence_set(&program))
+            .extend_owned(&path_boundary::diagnostic_occurrence_set(program))
             .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
     }
 
-    let app_analysis = app_entry::analyze(&program);
-    let capability_analysis = capability_root::analyze(&program);
+    let app_analysis = app_entry::analyze(program);
+    let capability_analysis = capability_root::analyze(program);
     remove_loaded_app_projections(
         &mut diagnostics,
         &mut diagnostic_occurrences,
@@ -949,7 +811,7 @@ where
         .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
         if let Some(entry) = entry {
-            diagnostics.extend(capability_root::entry_diagnostics(&program, entry));
+            diagnostics.extend(capability_root::entry_diagnostics(program, entry));
         } else {
             match (
                 app_analysis.diagnostic.clone(),
@@ -983,7 +845,7 @@ where
         }
     }
 
-    validate_aq_diagnostic_occurrences(&program, &diagnostics, &diagnostic_occurrences)?;
+    validate_aq_diagnostic_occurrences(program, &diagnostics, &diagnostic_occurrences)?;
     let has_errors = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
@@ -1000,10 +862,10 @@ where
     }
 
     if entry.is_none() && app_analysis.entry.is_some() {
-        if resolve::resolve_has_errors(&program, &diagnostics) {
+        if resolve::resolve_has_errors(program, &diagnostics) {
             return Ok(RunCommandExecution {
                 disposition: RunCommandDisposition::Text {
-                    text: resolve::resolve_text(&program, &diagnostics),
+                    text: resolve::resolve_text(program, &diagnostics),
                     exit_code: 1,
                 },
                 diagnostics,
@@ -1014,10 +876,10 @@ where
                 total,
             });
         }
-        if type_check::type_check_has_errors(&program, &diagnostics) {
+        if type_check::type_check_has_errors(program, &diagnostics) {
             return Ok(RunCommandExecution {
                 disposition: RunCommandDisposition::Text {
-                    text: type_check::type_check_text(&program, &diagnostics),
+                    text: type_check::type_check_text(program, &diagnostics),
                     exit_code: 1,
                 },
                 diagnostics,
@@ -1028,12 +890,12 @@ where
                 total,
             });
         }
-        if full_type_check::full_type_check_has_errors(&program, &diagnostics) {
-            if full_type_check::full_type_check_has_only_predicate_errors(&program, &diagnostics)
+        if full_type_check::full_type_check_has_errors(program, &diagnostics) {
+            if full_type_check::full_type_check_has_only_predicate_errors(program, &diagnostics)
                 && let Some(app_entry) = app_analysis.entry.as_ref()
             {
-                let predicate_diagnostics = predicate::analyze_program(&program)
-                    .reachable_diagnostics(&program, app_entry.task, Some(app_entry.app));
+                let predicate_diagnostics = predicate::analyze_program(program)
+                    .reachable_diagnostics(program, app_entry.task, Some(app_entry.app));
                 if !predicate_diagnostics.is_empty() {
                     return Ok(RunCommandExecution {
                         disposition: RunCommandDisposition::SelectedDiagnostics {
@@ -1051,7 +913,7 @@ where
             }
             return Ok(RunCommandExecution {
                 disposition: RunCommandDisposition::Text {
-                    text: full_type_check::full_type_check_text(&program, &diagnostics),
+                    text: full_type_check::full_type_check_text(program, &diagnostics),
                     exit_code: 1,
                 },
                 diagnostics,
@@ -1065,14 +927,8 @@ where
     }
 
     let runtime_occurrences =
-        runtime_diagnostic_occurrences(&program, &diagnostics, &diagnostic_occurrences)?;
-    let report = invoke_runner(
-        &program,
-        &runtime_occurrences,
-        entry,
-        raw_args,
-        grant_policy,
-    );
+        runtime_diagnostic_occurrences(program, &diagnostics, &diagnostic_occurrences)?;
+    let report = invoke_runner(program, &runtime_occurrences, entry, raw_args, grant_policy);
     Ok(RunCommandExecution {
         disposition: RunCommandDisposition::Executed(report),
         diagnostics,
@@ -1084,7 +940,11 @@ where
     })
 }
 
-fn render_run_command_execution(execution: RunCommandExecution, show_timings: bool) -> ExitCode {
+fn render_run_command_execution(
+    execution: RunCommandExecution,
+    runtime_stdout: Vec<u8>,
+    show_timings: bool,
+) -> CommandObservation {
     let RunCommandExecution {
         disposition,
         diagnostics,
@@ -1099,51 +959,58 @@ fn render_run_command_execution(execution: RunCommandExecution, show_timings: bo
         reanalyzable_projections,
         runtime_diagnostic_occurrences,
     ));
-    let code = match disposition {
+    let mut observation = CommandObservation {
+        stdout: runtime_stdout,
+        ..CommandObservation::default()
+    };
+    match disposition {
         RunCommandDisposition::ComposedDiagnostics { exit_code } => {
-            print_diagnostics(&diagnostics);
-            ExitCode::from(exit_code)
+            append_diagnostics(&mut observation.stderr, &diagnostics);
+            observation.set_exit(exit_code);
         }
         RunCommandDisposition::SelectedDiagnostics {
             diagnostics,
             exit_code,
         } => {
-            print_diagnostics(&diagnostics);
-            ExitCode::from(exit_code)
+            append_diagnostics(&mut observation.stderr, &diagnostics);
+            observation.set_exit(exit_code);
         }
         RunCommandDisposition::Text { text, exit_code } => {
-            eprint!("{text}");
-            ExitCode::from(exit_code)
+            observation.push_stderr(text);
+            observation.set_exit(exit_code);
         }
         RunCommandDisposition::Executed(report) => {
-            print_diagnostics(&report.diagnostics);
+            append_diagnostics(&mut observation.stderr, &report.diagnostics);
             match report.outcome {
                 run::RunOutcome::Success(output) => {
-                    println!("{output}");
-                    ExitCode::SUCCESS
+                    observation.push_stdout(output);
+                    observation.push_stdout(b"\n");
+                    observation.set_exit(0);
                 }
-                run::RunOutcome::AppSuccess => ExitCode::SUCCESS,
+                run::RunOutcome::AppSuccess => observation.set_exit(0),
                 run::RunOutcome::Failure(output) => {
-                    println!("{output}");
-                    ExitCode::from(1)
+                    observation.push_stdout(output);
+                    observation.push_stdout(b"\n");
+                    observation.set_exit(1);
                 }
                 run::RunOutcome::AppFailure(output) => {
-                    eprintln!("{output}");
-                    ExitCode::from(1)
+                    observation.push_stderr(output);
+                    observation.push_stderr(b"\n");
+                    observation.set_exit(1);
                 }
-                run::RunOutcome::ContractViolation => ExitCode::from(1),
-                run::RunOutcome::PreflightRejected => ExitCode::from(2),
+                run::RunOutcome::ContractViolation => observation.set_exit(1),
+                run::RunOutcome::PreflightRejected => observation.set_exit(2),
                 run::RunOutcome::Trap(message) => {
-                    eprintln!("runtime trap: {message}");
-                    ExitCode::from(2)
+                    observation.push_stderr(format!("runtime trap: {message}\n"));
+                    observation.set_exit(2);
                 }
             }
         }
-    };
-    if show_timings {
-        print_timings(&timings, total);
     }
-    code
+    if show_timings {
+        append_timings(&mut observation.stderr, &timings, total);
+    }
+    observation
 }
 
 fn runtime_diagnostic_occurrences(
@@ -1602,6 +1469,15 @@ struct LoadedProgram {
     total: Duration,
 }
 
+#[derive(Debug, Clone)]
+struct LoadedSource {
+    path: PathBuf,
+    display_path: String,
+    bytes: Vec<u8>,
+    read: Duration,
+}
+
+#[derive(Clone)]
 struct FileTiming {
     path: String,
     read: Duration,
@@ -2996,21 +2872,56 @@ fn parse_ir_readiness_format(value: &str) -> Result<IrReadinessFormat, String> {
 
 fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
     let total_start = Instant::now();
+    let sources = read_program_sources(paths)?;
+    load_program_from_sources_started(&sources, total_start)
+}
+
+fn read_program_sources(paths: &[PathBuf]) -> Result<Vec<LoadedSource>, String> {
+    paths
+        .iter()
+        .map(|path| {
+            let read_start = Instant::now();
+            let source = fs::read_to_string(path)
+                .map_err(|error| format!("failed to read `{}`: {error}", path.display()))?;
+            Ok(LoadedSource {
+                path: path.clone(),
+                display_path: path.display().to_string(),
+                bytes: source.into_bytes(),
+                read: read_start.elapsed(),
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+fn load_program_from_sources(sources: &[LoadedSource]) -> Result<LoadedProgram, String> {
+    load_program_from_sources_started(sources, Instant::now())
+}
+
+fn load_program_from_sources_started(
+    sources: &[LoadedSource],
+    total_start: Instant,
+) -> Result<LoadedProgram, String> {
     let mut program = Program::default();
     let mut diagnostics = Vec::new();
     let mut diagnostic_occurrences = DiagnosticOccurrenceSet::default();
     let mut reanalyzable_projections = BTreeMap::new();
     let mut timings = Vec::new();
 
-    for (semantic_file_index, path) in paths.iter().enumerate() {
-        let read_start = Instant::now();
-        let source = fs::read_to_string(path)
-            .map_err(|error| format!("failed to read `{}`: {error}", path.display()))?;
-        let read = read_start.elapsed();
+    for (semantic_file_index, source) in sources.iter().enumerate() {
+        let source_text = std::str::from_utf8(&source.bytes).map_err(|error| {
+            format!(
+                "failed to read `{}`: stream did not contain valid UTF-8 ({error})",
+                source.path.display()
+            )
+        })?;
 
         let parse_start = Instant::now();
-        let parsed =
-            parser::parse_source_at_index(path.display().to_string(), &source, semantic_file_index);
+        let parsed = parser::parse_source_at_index(
+            source.display_path.clone(),
+            source_text,
+            semantic_file_index,
+        );
         let parse = parse_start.elapsed();
 
         let check_start = Instant::now();
@@ -3074,8 +2985,8 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
         diagnostics.extend(parsed.diagnostics);
         diagnostics.extend(file_diagnostics);
         timings.push(FileTiming {
-            path: path.display().to_string(),
-            read,
+            path: source.display_path.clone(),
+            read: source.read,
             parse,
             check,
         });
@@ -3160,9 +3071,10 @@ fn collect_hum_files(path: &Path, inputs: &mut Vec<PathBuf>) -> Result<(), Strin
     Ok(())
 }
 
-fn print_diagnostics(diagnostics: &[Diagnostic]) {
+fn append_diagnostics(output: &mut Vec<u8>, diagnostics: &[Diagnostic]) {
     for diagnostic in diagnostics {
-        eprintln!("{}", diagnostic.render());
+        output.extend_from_slice(diagnostic.render().as_bytes());
+        output.push(b'\n');
     }
 }
 
@@ -3200,18 +3112,22 @@ fn stage_type_diagnostics(program: &Program, stage: &str) -> Vec<Diagnostic> {
     }
 }
 
-fn print_timings(timings: &[FileTiming], total: Duration) {
-    eprintln!("timings:");
+fn append_timings(output: &mut Vec<u8>, timings: &[FileTiming], total: Duration) {
+    output.extend_from_slice(b"timings:\n");
     for timing in timings {
-        eprintln!(
-            "  {} read={} parse={} check={}",
-            timing.path,
-            format_duration(timing.read),
-            format_duration(timing.parse),
-            format_duration(timing.check)
+        output.extend_from_slice(
+            format!(
+                "  {} read={} parse={} check={}",
+                timing.path,
+                format_duration(timing.read),
+                format_duration(timing.parse),
+                format_duration(timing.check)
+            )
+            .as_bytes(),
         );
+        output.push(b'\n');
     }
-    eprintln!("  total={}", format_duration(total));
+    output.extend_from_slice(format!("  total={}\n", format_duration(total)).as_bytes());
 }
 
 fn format_duration(duration: Duration) -> String {
@@ -3313,6 +3229,10 @@ fn print_help() {
     println!("  --replay-tick  Add one ordered runner replay UInt; repeatable up to 1024 values");
     println!("  --args      Pass all remaining values to `hum run`");
 }
+#[cfg(test)]
+mod validation_corpus;
+#[cfg(test)]
+mod validation_session;
 #[cfg(test)]
 mod tests {
     use std::ffi::{OsStr, OsString};
@@ -3594,7 +3514,7 @@ mod tests {
         assert_eq!(old, recomputed);
         let mut runner_calls = 0;
         let execution = execute_run_command(
-            loaded,
+            &loaded,
             None,
             &[],
             &crate::operator_grant::OperatorGrantPolicy::default(),
@@ -3641,7 +3561,7 @@ mod tests {
         assert_ne!(old.id(), replacement.id());
         let mut runner_calls = 0;
         let execution = execute_run_command(
-            loaded,
+            &loaded,
             None,
             &[],
             &crate::operator_grant::OperatorGrantPolicy::default(),
@@ -3734,7 +3654,7 @@ mod tests {
         let mut file = PostAqCountingFileRead::default();
         let mut passed_authority = None;
         let execution = execute_run_command(
-            loaded,
+            &loaded,
             None,
             &[],
             &grant_policy,

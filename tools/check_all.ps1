@@ -1,9 +1,61 @@
 param(
   [ValidateSet('Fast', 'Exhaustive')]
-  [string] $EvidenceTier = 'Fast'
+  [string] $EvidenceTier = 'Fast',
+  [AllowEmptyString()]
+  [string] $Actor = ''
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Assert-Unit1ActorValue {
+  param([AllowEmptyString()][string] $Value)
+
+  if ($Value -cnotin @('implementer', 'reviewer')) {
+    throw "Unit 1 evidence actor must be explicit and exactly implementer or reviewer; found '$Value'"
+  }
+  return $Value
+}
+
+function Assert-Unit1ActorBinding {
+  param(
+    [AllowEmptyString()][string] $DeclaredActor,
+    [AllowEmptyString()][string] $BoundActor
+  )
+
+  $Declared = Assert-Unit1ActorValue $DeclaredActor
+  $Bound = Assert-Unit1ActorValue $BoundActor
+  if ($Declared -cne $Bound) {
+    throw "Unit 1 evidence actor binding is contradictory: argument=$Declared environment=$Bound"
+  }
+  return $Declared
+}
+
+function Assert-Unit1ActorThrows {
+  param([scriptblock] $Action)
+
+  $Threw = $false
+  try {
+    & $Action | Out-Null
+  } catch {
+    $Threw = $true
+  }
+  if (-not $Threw) {
+    throw 'Unit 1 actor authority sabotage stayed green'
+  }
+}
+
+function Invoke-Unit1ActorSelfTests {
+  if ((Assert-Unit1ActorBinding 'implementer' 'implementer') -cne 'implementer' -or
+      (Assert-Unit1ActorBinding 'reviewer' 'reviewer') -cne 'reviewer') {
+    throw 'Unit 1 valid actor authority self-test failed'
+  }
+  Assert-Unit1ActorThrows { Assert-Unit1ActorValue '' }
+  Assert-Unit1ActorThrows { Assert-Unit1ActorValue 'operator' }
+  Assert-Unit1ActorThrows { Assert-Unit1ActorBinding 'implementer' '' }
+  Assert-Unit1ActorThrows { Assert-Unit1ActorBinding 'implementer' 'reviewer' }
+}
+
+$Actor = Assert-Unit1ActorValue $Actor
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $GitRepoRoot = $RepoRoot.Replace([System.IO.Path]::DirectorySeparatorChar, '/')
@@ -21,7 +73,11 @@ function Resolve-Tool {
   }
 
   if ($FallbackRelativeToHome -ne '') {
-    $ProfileRoot = [Environment]::GetFolderPath('UserProfile')
+    $ProfileRoot = if ([string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+      [Environment]::GetFolderPath('UserProfile')
+    } else {
+      $env:USERPROFILE
+    }
     $Candidate = Join-Path $ProfileRoot $FallbackRelativeToHome
     if (Test-Path -LiteralPath $Candidate) {
       return $Candidate
@@ -35,37 +91,80 @@ $Cargo = Resolve-Tool 'cargo' '.cargo\bin\cargo.exe' 'cargo was not found on PAT
 $Git = Resolve-Tool 'git' '' 'git was not found on PATH'
 . (Join-Path $PSScriptRoot 'test_exact_rust_selector.ps1')
 
-if ($EvidenceTier -eq 'Exhaustive') {
-  $PreviousEvidenceTier = $env:HUM_CANONICAL_SEAL_EVIDENCE_TIER
-  try {
-    $env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'exhaustive'
-    $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    Reset-ExactRustSelectorCredits
-    Invoke-ExactRustTest `
-      'exhaustive canonical-seal pair matrix: F1=630 F2=4950 F3/F4=8646 total=14226' `
-      $Cargo `
-      'parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero'
-    $Stopwatch.Stop()
-    Write-Host (
-      'exhaustive canonical-seal evidence passed: ' +
-      'seed=0x48554D5F5345414C;f1_pairs=630;f2_pairs=4950;f3_pairs=8646;' +
-      "total_pairs=14226;elapsed_seconds=$([math]::Round($Stopwatch.Elapsed.TotalSeconds, 3))"
-    )
-  } finally {
-    if ($null -eq $PreviousEvidenceTier) {
-      Remove-Item Env:HUM_CANONICAL_SEAL_EVIDENCE_TIER -ErrorAction SilentlyContinue
-    } else {
-      $env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = $PreviousEvidenceTier
+$script:HumProductProcessExecutable = $null
+$script:HumProductProcessRecords = New-Object 'System.Collections.Generic.List[object]'
+
+function Enable-HumProductProcessLedger {
+  param([string] $Executable)
+
+  if ($null -ne $script:HumProductProcessExecutable) {
+    throw 'Hum product-process ledger is already enabled'
+  }
+  $script:HumProductProcessExecutable = (Resolve-Path -LiteralPath $Executable).Path
+  $script:HumProductProcessRecords.Clear()
+}
+
+function Test-IsHumProductProcess {
+  param([string] $FilePath)
+
+  if ($null -eq $script:HumProductProcessExecutable) {
+    return $false
+  }
+  $Candidate = [System.IO.Path]::GetFullPath($FilePath)
+  $Comparison = if ($env:OS -eq 'Windows_NT') {
+    [System.StringComparison]::OrdinalIgnoreCase
+  } else {
+    [System.StringComparison]::Ordinal
+  }
+  return $Candidate.Equals($script:HumProductProcessExecutable, $Comparison)
+}
+
+function Add-HumProductProcessRecord {
+  param(
+    [string] $Label,
+    [string] $FilePath,
+    [string[]] $Arguments,
+    [int] $ExitCode,
+    [int64] $StartTimestamp,
+    [int64] $EndTimestamp
+  )
+
+  if (-not (Test-IsHumProductProcess $FilePath)) {
+    return
+  }
+  if ($Arguments.Count -eq 0 -or $EndTimestamp -lt $StartTimestamp) {
+    throw "Hum product-process ledger rejected malformed invocation: $Label"
+  }
+  foreach ($Field in @($Label) + $Arguments) {
+    if ([string] $Field -match "[`t`r`n]") {
+      throw "Hum product-process ledger rejected a control separator: $Label"
     }
   }
-  return
+  $Sources = @(
+    $Arguments |
+      Where-Object {
+        $_ -match '(?i)\.hum$' -or
+        $_ -ceq 'examples' -or
+        $_ -ceq 'fixtures'
+      }
+  )
+  $script:HumProductProcessRecords.Add([pscustomobject] @{
+    Ordinal = $script:HumProductProcessRecords.Count + 1
+    Attribution = 'retained-powershell-product-corpus'
+    Phase = 'remaining-product-process-corpus'
+    Label = $Label
+    Stage = $Arguments[0]
+    Sources = if ($Sources.Count -eq 0) { '<none>' } else { $Sources -join ',' }
+    Arguments = $Arguments -join ' '
+    ExitCode = $ExitCode
+    StartTimestamp = $StartTimestamp
+    EndTimestamp = $EndTimestamp
+  })
 }
 
-if ($EvidenceTier -ne 'Fast') {
-  throw "unsupported evidence-tier fallthrough: $EvidenceTier"
+function Get-HumProductProcessRecords {
+  return $script:HumProductProcessRecords.ToArray()
 }
-
-$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'fast'
 
 function Invoke-Native {
   param(
@@ -75,9 +174,13 @@ function Invoke-Native {
   )
 
   Write-Host "==> $Label"
+  $StartTimestamp = [System.Diagnostics.Stopwatch]::GetTimestamp()
   & $FilePath @Arguments
-  if ($LASTEXITCODE -ne 0) {
-    throw "$Label failed with exit code $LASTEXITCODE"
+  $ExitCode = $LASTEXITCODE
+  $EndTimestamp = [System.Diagnostics.Stopwatch]::GetTimestamp()
+  Add-HumProductProcessRecord $Label $FilePath $Arguments $ExitCode $StartTimestamp $EndTimestamp
+  if ($ExitCode -ne 0) {
+    throw "$Label failed with exit code $ExitCode"
   }
 }
 
@@ -89,9 +192,13 @@ function Read-NativeOutput {
   )
 
   Write-Host "==> $Label"
+  $StartTimestamp = [System.Diagnostics.Stopwatch]::GetTimestamp()
   $Output = & $FilePath @Arguments
-  if ($LASTEXITCODE -ne 0) {
-    throw "$Label failed with exit code $LASTEXITCODE"
+  $ExitCode = $LASTEXITCODE
+  $EndTimestamp = [System.Diagnostics.Stopwatch]::GetTimestamp()
+  Add-HumProductProcessRecord $Label $FilePath $Arguments $ExitCode $StartTimestamp $EndTimestamp
+  if ($ExitCode -ne 0) {
+    throw "$Label failed with exit code $ExitCode"
   }
 
   return ($Output -join "`n")
@@ -107,11 +214,14 @@ function Read-NativeOutputWithExit {
   $PreviousErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
   try {
+    $StartTimestamp = [System.Diagnostics.Stopwatch]::GetTimestamp()
     $Output = & $FilePath @Arguments 2>&1
     $ExitCode = $LASTEXITCODE
+    $EndTimestamp = [System.Diagnostics.Stopwatch]::GetTimestamp()
   } finally {
     $ErrorActionPreference = $PreviousErrorActionPreference
   }
+  Add-HumProductProcessRecord $Label $FilePath $Arguments $ExitCode $StartTimestamp $EndTimestamp
   return [pscustomobject] @{
     Output = ($Output -join "`n")
     ExitCode = $ExitCode
@@ -138,12 +248,21 @@ function Read-NativeChannelsWithExit {
   $StartInfo.RedirectStandardError = $true
   $Process = New-Object System.Diagnostics.Process
   $Process.StartInfo = $StartInfo
+  $StartTimestamp = [System.Diagnostics.Stopwatch]::GetTimestamp()
   if (-not $Process.Start()) {
     throw "$Label could not start"
   }
   $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
   $StderrTask = $Process.StandardError.ReadToEndAsync()
   $Process.WaitForExit()
+  $EndTimestamp = [System.Diagnostics.Stopwatch]::GetTimestamp()
+  Add-HumProductProcessRecord `
+    $Label `
+    $FilePath `
+    $Arguments `
+    $Process.ExitCode `
+    $StartTimestamp `
+    $EndTimestamp
   return [pscustomobject] @{
     Stdout = $StdoutTask.Result
     Stderr = $StderrTask.Result
@@ -173,6 +292,2999 @@ function Assert-Json {
 
   Write-Host "==> parse $Label"
   $Text | ConvertFrom-Json | Out-Null
+}
+
+function Get-Sha256Hex {
+  param([byte[]] $Bytes)
+
+  $Hasher = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return ([System.BitConverter]::ToString($Hasher.ComputeHash($Bytes))).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $Hasher.Dispose()
+  }
+}
+
+function Get-FileSha256Hex {
+  param([string] $Path)
+  return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function Write-Utf8LfFile {
+  param(
+    [string] $Path,
+    [string] $Text
+  )
+
+  if ($Text.Contains("`r")) {
+    throw "canonical UTF-8/LF payload contains CR: $Path"
+  }
+  [System.IO.File]::WriteAllBytes(
+    $Path,
+    (New-Object System.Text.UTF8Encoding($false)).GetBytes($Text)
+  )
+}
+
+function Invoke-GitCapture {
+  param(
+    [string[]] $Arguments,
+    [int[]] $AllowedExitCodes = @(0)
+  )
+
+  $PreviousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $Output = @(& $Git -c "safe.directory=$GitRepoRoot" -C $RepoRoot @Arguments)
+    $ExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $PreviousErrorActionPreference
+  }
+  if ($AllowedExitCodes -notcontains $ExitCode) {
+    throw "git $($Arguments -join ' ') failed with exit code $ExitCode"
+  }
+  return [pscustomobject] @{
+    Output = @($Output | ForEach-Object { $_.ToString() })
+    ExitCode = $ExitCode
+  }
+}
+
+function Invoke-GitBinaryToFile {
+  param(
+    [string[]] $Arguments,
+    [string] $OutputPath
+  )
+
+  $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $StartInfo.FileName = $Git
+  $StartInfo.Arguments = (
+    @('-c', "safe.directory=$GitRepoRoot", '-C', $RepoRoot) + $Arguments |
+      ForEach-Object {
+        if ($_ -match '[\s"]') {
+          '"' + $_.Replace('\', '\\').Replace('"', '\"') + '"'
+        } else {
+          $_
+        }
+      }
+  ) -join ' '
+  $StartInfo.WorkingDirectory = $RepoRoot
+  $StartInfo.UseShellExecute = $false
+  $StartInfo.CreateNoWindow = $true
+  $StartInfo.RedirectStandardOutput = $true
+  $StartInfo.RedirectStandardError = $true
+  $Process = New-Object System.Diagnostics.Process
+  $Process.StartInfo = $StartInfo
+  if (-not $Process.Start()) {
+    throw "could not start git $($Arguments -join ' ')"
+  }
+  $OutputStream = [System.IO.File]::Open(
+    $OutputPath,
+    [System.IO.FileMode]::CreateNew,
+    [System.IO.FileAccess]::Write,
+    [System.IO.FileShare]::None
+  )
+  try {
+    $CopyTask = $Process.StandardOutput.BaseStream.CopyToAsync($OutputStream)
+    $StderrTask = $Process.StandardError.ReadToEndAsync()
+    $Process.WaitForExit()
+    [void] $CopyTask.GetAwaiter().GetResult()
+    $OutputStream.Flush()
+    if ($Process.ExitCode -ne 0) {
+      throw "git $($Arguments -join ' ') failed with exit code $($Process.ExitCode): $($StderrTask.Result)"
+    }
+  } finally {
+    $OutputStream.Dispose()
+    $Process.Dispose()
+  }
+}
+
+function Invoke-ProofGitCapture {
+  param(
+    [string] $ObjectDirectory,
+    [string] $AlternateObjectDirectory,
+    [string] $IndexPath,
+    [string[]] $Arguments,
+    [int[]] $AllowedExitCodes = @(0)
+  )
+
+  $PreviousObjectDirectory = $env:GIT_OBJECT_DIRECTORY
+  $PreviousAlternateObjectDirectories = $env:GIT_ALTERNATE_OBJECT_DIRECTORIES
+  $PreviousIndexFile = $env:GIT_INDEX_FILE
+  try {
+    $env:GIT_OBJECT_DIRECTORY = $ObjectDirectory
+    $env:GIT_ALTERNATE_OBJECT_DIRECTORIES = $AlternateObjectDirectory
+    $env:GIT_INDEX_FILE = $IndexPath
+    return Invoke-GitCapture $Arguments $AllowedExitCodes
+  } finally {
+    if ($null -eq $PreviousObjectDirectory) {
+      Remove-Item Env:GIT_OBJECT_DIRECTORY -ErrorAction SilentlyContinue
+    } else {
+      $env:GIT_OBJECT_DIRECTORY = $PreviousObjectDirectory
+    }
+    if ($null -eq $PreviousAlternateObjectDirectories) {
+      Remove-Item Env:GIT_ALTERNATE_OBJECT_DIRECTORIES -ErrorAction SilentlyContinue
+    } else {
+      $env:GIT_ALTERNATE_OBJECT_DIRECTORIES = $PreviousAlternateObjectDirectories
+    }
+    if ($null -eq $PreviousIndexFile) {
+      Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue
+    } else {
+      $env:GIT_INDEX_FILE = $PreviousIndexFile
+    }
+  }
+}
+
+function Test-FullyQualifiedPath {
+  param([string] $Path)
+
+  if ([string]::IsNullOrWhiteSpace($Path)) {
+    return $false
+  }
+  if ([System.IO.Path]::DirectorySeparatorChar -eq '\') {
+    return [bool](
+      $Path -match '^[A-Za-z]:[\\/]' -or
+      $Path -match '^[\\/]{2}[^\\/]+[\\/][^\\/]+(?:[\\/]|$)'
+    )
+  }
+  return $Path.StartsWith('/', [System.StringComparison]::Ordinal)
+}
+
+function Get-AbsoluteGitPath {
+  param([string] $GitPath)
+
+  if (Test-FullyQualifiedPath $GitPath) {
+    return (Resolve-Path -LiteralPath $GitPath).Path
+  }
+  return (Resolve-Path -LiteralPath (Join-Path $RepoRoot $GitPath)).Path
+}
+
+function Test-PathSameOrInside {
+  param(
+    [string] $Candidate,
+    [string] $Container
+  )
+
+  $CandidateFull = [System.IO.Path]::GetFullPath($Candidate).TrimEnd('\', '/')
+  $ContainerFull = [System.IO.Path]::GetFullPath($Container).TrimEnd('\', '/')
+  if ($CandidateFull.Equals($ContainerFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+    return $true
+  }
+  return $CandidateFull.StartsWith(
+    $ContainerFull + [System.IO.Path]::DirectorySeparatorChar,
+    [System.StringComparison]::OrdinalIgnoreCase
+  )
+}
+
+function Assert-ExternalProofPath {
+  param(
+    [string] $Path,
+    [string[]] $ProtectedPaths,
+    [bool] $MustExist
+  )
+
+  $FullPath = [System.IO.Path]::GetFullPath($Path)
+  if ($MustExist) {
+    $FullPath = (Resolve-Path -LiteralPath $FullPath).Path
+  } else {
+    $Parent = Split-Path -Parent $FullPath
+    if (-not (Test-Path -LiteralPath $Parent -PathType Container)) {
+      throw "external proof parent is unavailable: $Parent"
+    }
+    $Parent = (Resolve-Path -LiteralPath $Parent).Path
+    $FullPath = Join-Path $Parent (Split-Path -Leaf $FullPath)
+  }
+  foreach ($ProtectedPath in $ProtectedPaths) {
+    if ((Test-PathSameOrInside $FullPath $ProtectedPath) -or
+        (Test-PathSameOrInside $ProtectedPath $FullPath)) {
+      throw "external proof path overlaps protected repository state: $FullPath and $ProtectedPath"
+    }
+  }
+  $Cursor = if ($MustExist) { $FullPath } else { Split-Path -Parent $FullPath }
+  while (-not [string]::IsNullOrWhiteSpace($Cursor)) {
+    $Item = Get-Item -LiteralPath $Cursor -Force
+    if (($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "external proof path traverses a reparse point: $Cursor"
+    }
+    $Next = Split-Path -Parent $Cursor
+    if ($Next -eq $Cursor) {
+      break
+    }
+    $Cursor = $Next
+  }
+  return $FullPath
+}
+
+function Write-RealObjectInventory {
+  param(
+    [string] $RealObjectDirectory,
+    [string] $OutputPath
+  )
+
+  $Records = @{}
+  $RelativePaths = New-Object 'System.Collections.Generic.List[string]'
+  foreach ($Entry in Get-ChildItem -LiteralPath $RealObjectDirectory -Force -Recurse) {
+    $Relative = $Entry.FullName.Substring($RealObjectDirectory.Length).TrimStart('\', '/').Replace('\', '/')
+    if ([string]::IsNullOrWhiteSpace($Relative) -or $Records.ContainsKey($Relative)) {
+      throw "real object inventory has an invalid or duplicate path: $Relative"
+    }
+    if (($Entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "real object inventory rejects reparse entry: $Relative"
+    }
+    if ($Entry.PSIsContainer) {
+      $Record = "dir`t$Relative"
+    } elseif ($Entry -is [System.IO.FileInfo]) {
+      $Record = "file`t$Relative`t$($Entry.Length)`t$(Get-FileSha256Hex $Entry.FullName)"
+    } else {
+      throw "real object inventory rejects non-file entry: $Relative"
+    }
+    $Records[$Relative] = $Record
+    $RelativePaths.Add($Relative)
+  }
+  $RelativePaths.Sort([System.StringComparer]::Ordinal)
+  $Text = if ($RelativePaths.Count -eq 0) {
+    ''
+  } else {
+    (($RelativePaths | ForEach-Object { $Records[$_] }) -join "`n") + "`n"
+  }
+  Write-Utf8LfFile $OutputPath $Text
+  return [pscustomobject] @{
+    Path = $OutputPath
+    Sha256 = Get-FileSha256Hex $OutputPath
+    Length = (Get-Item -LiteralPath $OutputPath).Length
+  }
+}
+
+function Test-ByteFilesEqual {
+  param(
+    [string] $Left,
+    [string] $Right
+  )
+
+  $LeftBytes = [System.IO.File]::ReadAllBytes($Left)
+  $RightBytes = [System.IO.File]::ReadAllBytes($Right)
+  if ($LeftBytes.Length -ne $RightBytes.Length) {
+    return $false
+  }
+  for ($Index = 0; $Index -lt $LeftBytes.Length; $Index += 1) {
+    if ($LeftBytes[$Index] -ne $RightBytes[$Index]) {
+      return $false
+    }
+  }
+  return $true
+}
+
+function Get-Unit1CandidateRows {
+  param(
+    [string] $Base,
+    [string[]] $Scope,
+    [string] $ScratchRoot
+  )
+
+  $Head = (Invoke-GitCapture @('rev-parse', 'HEAD')).Output
+  if ($Head.Count -ne 1 -or $Head[0] -cne $Base) {
+    throw "Unit 1 manifest base drifted: expected $Base, found $($Head -join ',')"
+  }
+  [void] (Invoke-GitCapture @('diff', '--cached', '--quiet', $Base, '--') @(0))
+  $IndexLock = Join-Path (Get-AbsoluteGitPath ((Invoke-GitCapture @('rev-parse', '--absolute-git-dir')).Output[0])) 'index.lock'
+  if (Test-Path -LiteralPath $IndexLock) {
+    throw "Unit 1 manifest rejects an active real index lock: $IndexLock"
+  }
+
+  $ScopeSet = @{}
+  foreach ($Path in $Scope) {
+    if ($ScopeSet.ContainsKey($Path)) {
+      throw "Unit 1 manifest scope duplicates $Path"
+    }
+    $ScopeSet[$Path] = $true
+  }
+  $Statuses = @{}
+  $StatusLines = (Invoke-GitCapture @(
+    'status',
+    '--porcelain=v1',
+    '--untracked-files=all',
+    '--',
+    '.'
+  )).Output
+  foreach ($Line in $StatusLines) {
+    if ($Line.Length -lt 4) {
+      throw "Unit 1 manifest rejects malformed porcelain status: $Line"
+    }
+    $Code = $Line.Substring(0, 2)
+    $Path = $Line.Substring(3).Replace('\', '/')
+    if (-not $ScopeSet.ContainsKey($Path)) {
+      throw "Unit 1 manifest rejects out-of-scope worktree status: $Line"
+    }
+    if ($Statuses.ContainsKey($Path)) {
+      throw "Unit 1 manifest rejects duplicate worktree status: $Path"
+    }
+    if ($Code -cne ' M' -and $Code -cne '??') {
+      throw "Unit 1 manifest rejects staged, deleted, renamed, copied, or conflicted status: $Line"
+    }
+    $Statuses[$Path] = $Code
+  }
+
+  $Rows = New-Object 'System.Collections.Generic.List[object]'
+  $Ordinal = 0
+  foreach ($Path in $Scope) {
+    $Ordinal += 1
+    $AbsolutePath = Join-Path $RepoRoot ($Path.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+    if (-not (Test-Path -LiteralPath $AbsolutePath -PathType Leaf)) {
+      throw "Unit 1 manifest scope path is absent or non-regular: $Path"
+    }
+    $Item = Get-Item -LiteralPath $AbsolutePath -Force
+    if (($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Unit 1 manifest rejects a symlink or reparse point: $Path"
+    }
+
+    $Status = if ($Statuses.ContainsKey($Path)) { $Statuses[$Path] } else { '' }
+    $TreeLine = (Invoke-GitCapture @('ls-tree', $Base, '--', $Path)).Output
+    if ($Status -ceq '??') {
+      if ($TreeLine.Count -ne 0) {
+        throw "Unit 1 manifest cannot classify a base-tracked path as untracked: $Path"
+      }
+      $Mode = '100644'
+      $BaseBlobOid = $null
+      $Disposition = 'untracked-added'
+    } else {
+      if ($TreeLine.Count -ne 1 -or
+          $TreeLine[0] -notmatch '^(?<mode>[0-9]{6}) blob (?<oid>[0-9a-f]{40})\t') {
+        throw "Unit 1 manifest could not resolve one regular base blob: $Path"
+      }
+      $Mode = $Matches['mode']
+      $BaseBlobOid = $Matches['oid']
+      if ($Mode -cne '100644') {
+        throw "Unit 1 manifest rejects base mode drift for $Path`: $Mode"
+      }
+      $Disposition = if ($Status -ceq ' M') { 'tracked-modified' } else { 'tracked-clean' }
+    }
+
+    $Bytes = [System.IO.File]::ReadAllBytes($AbsolutePath)
+    $Sha256 = Get-Sha256Hex $Bytes
+    $BlobResult = Invoke-GitCapture @('hash-object', '--no-filters', '--', $Path)
+    if ($BlobResult.Output.Count -ne 1 -or $BlobResult.Output[0] -notmatch '^[0-9a-f]{40}$') {
+      throw "Unit 1 manifest could not compute a raw non-writing blob OID: $Path"
+    }
+    $BlobOid = $BlobResult.Output[0]
+
+    $BaseFile = Join-Path $ScratchRoot ("base-{0:D4}.raw" -f $Ordinal)
+    if ($null -eq $BaseBlobOid) {
+      [System.IO.File]::WriteAllBytes($BaseFile, [byte[]] @())
+    } else {
+      Invoke-GitBinaryToFile @('cat-file', 'blob', $BaseBlobOid) $BaseFile
+    }
+    $Numstat = Invoke-GitCapture @(
+      'diff',
+      '--no-index',
+      '--no-renames',
+      '--no-ext-diff',
+      '--no-textconv',
+      '--numstat',
+      '--',
+      $BaseFile,
+      $AbsolutePath
+    ) @(0, 1)
+    if ($Numstat.Output.Count -eq 0) {
+      $Added = 0
+      $Deleted = 0
+    } elseif ($Numstat.Output.Count -eq 1 -and
+            $Numstat.Output[0] -match '^(?<added>[0-9]+)\t(?<deleted>[0-9]+)\t') {
+      $Added = [int64] $Matches['added']
+      $Deleted = [int64] $Matches['deleted']
+    } else {
+      throw "Unit 1 manifest rejects binary or ambiguous raw numstat for $Path"
+    }
+
+    $Rows.Add([pscustomobject] @{
+      Ordinal = $Ordinal
+      Path = $Path
+      Mode = $Mode
+      Disposition = $Disposition
+      Length = [int64] $Bytes.Length
+      Sha256 = $Sha256
+      BlobOid = $BlobOid
+      Added = $Added
+      Deleted = $Deleted
+    })
+  }
+  if ($Statuses.Count -ne @($Rows | Where-Object { $_.Disposition -ne 'tracked-clean' }).Count) {
+    throw 'Unit 1 manifest status/disposition count does not reconcile'
+  }
+  return $Rows.ToArray()
+}
+
+function Invoke-PowerShellManifestConstruction {
+  param(
+    [string] $EvidenceRoot,
+    [string] $ArtifactStem,
+    [string] $Base,
+    [string[]] $Scope
+  )
+
+  foreach ($VariableName in @('GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_INDEX_FILE')) {
+    if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($VariableName))) {
+      throw "PowerShell manifest construction rejects inherited $VariableName"
+    }
+  }
+  $Worktree = (Resolve-Path -LiteralPath $RepoRoot).Path
+  $GitDirectory = Get-AbsoluteGitPath ((Invoke-GitCapture @('rev-parse', '--absolute-git-dir')).Output[0])
+  $RealObjectDirectory = Get-AbsoluteGitPath ((Invoke-GitCapture @('rev-parse', '--git-path', 'objects')).Output[0])
+  $RealIndexRaw = (Invoke-GitCapture @('rev-parse', '--git-path', 'index')).Output[0]
+  $RealIndexCandidate = if (Test-FullyQualifiedPath $RealIndexRaw) {
+    $RealIndexRaw
+  } else {
+    Join-Path $RepoRoot $RealIndexRaw
+  }
+  $RealIndex = [System.IO.Path]::GetFullPath($RealIndexCandidate)
+  $Protected = @($Worktree, $GitDirectory, $RealObjectDirectory, $RealIndex)
+  $ProofRootCandidate = Join-Path $EvidenceRoot ("powershell-proof-$([guid]::NewGuid().ToString('N'))")
+  $ProofRootCandidate = Assert-ExternalProofPath $ProofRootCandidate $Protected $false
+  if (Test-Path -LiteralPath $ProofRootCandidate) {
+    throw "PowerShell proof root was not newly absent: $ProofRootCandidate"
+  }
+  [System.IO.Directory]::CreateDirectory($ProofRootCandidate) | Out-Null
+  $ProofRoot = Assert-ExternalProofPath $ProofRootCandidate $Protected $true
+  $ObjectDirectory = Join-Path $ProofRoot 'objects'
+  $ScopedIndex = Join-Path $ProofRoot 'scoped.index'
+  $CompleteIndex = Join-Path $ProofRoot 'complete.index'
+  foreach ($Proposed in @($ObjectDirectory, $ScopedIndex, $CompleteIndex)) {
+    [void] (Assert-ExternalProofPath $Proposed $Protected $false)
+  }
+
+  $ManifestPath = Join-Path $EvidenceRoot "$ArtifactStem.manifest"
+  $BeforeInventoryPath = Join-Path $EvidenceRoot "$ArtifactStem.real-objects-before"
+  $AfterInventoryPath = Join-Path $EvidenceRoot "$ArtifactStem.real-objects-after"
+  $Cleanup = $false
+  try {
+    $BeforeInventory = Write-RealObjectInventory $RealObjectDirectory $BeforeInventoryPath
+    $Rows = @(Get-Unit1CandidateRows $Base $Scope $ProofRoot)
+    [System.IO.Directory]::CreateDirectory($ObjectDirectory) | Out-Null
+    $ObjectDirectory = Assert-ExternalProofPath $ObjectDirectory $Protected $true
+
+    foreach ($Row in $Rows) {
+      $Written = Invoke-ProofGitCapture $ObjectDirectory $RealObjectDirectory $ScopedIndex @(
+        'hash-object',
+        '-w',
+        '--no-filters',
+        '--',
+        $Row.Path
+      )
+      if ($Written.Output.Count -ne 1 -or $Written.Output[0] -cne $Row.BlobOid) {
+        throw "PowerShell external blob write disagrees for $($Row.Path)"
+      }
+    }
+
+    [void] (Invoke-ProofGitCapture $ObjectDirectory $RealObjectDirectory $ScopedIndex @('read-tree', '--empty'))
+    foreach ($Row in $Rows) {
+      [void] (Invoke-ProofGitCapture $ObjectDirectory $RealObjectDirectory $ScopedIndex @(
+        'update-index',
+        '--add',
+        '--cacheinfo',
+        "$($Row.Mode),$($Row.BlobOid),$($Row.Path)"
+      ))
+      $Readback = Invoke-ProofGitCapture $ObjectDirectory $RealObjectDirectory $ScopedIndex @(
+        'ls-files',
+        '--stage',
+        '--',
+        $Row.Path
+      )
+      $ReadbackPattern = '^{0} (?<oid>[0-9a-f]{{40}}) 0\t{1}$' -f
+        [regex]::Escape($Row.Mode),
+        [regex]::Escape($Row.Path)
+      if ($Readback.Output.Count -ne 1 -or
+          $Readback.Output[0] -notmatch $ReadbackPattern -or
+          $Matches['oid'] -cne $Row.BlobOid) {
+        throw "PowerShell scoped external index readback disagrees for $($Row.Path)"
+      }
+    }
+    $ScopedTreeResult = Invoke-ProofGitCapture $ObjectDirectory $RealObjectDirectory $ScopedIndex @('write-tree')
+    $ScopedTree = $ScopedTreeResult.Output[0]
+
+    [void] (Invoke-ProofGitCapture $ObjectDirectory $RealObjectDirectory $CompleteIndex @('read-tree', $Base))
+    foreach ($Row in $Rows) {
+      [void] (Invoke-ProofGitCapture $ObjectDirectory $RealObjectDirectory $CompleteIndex @(
+        'update-index',
+        '--add',
+        '--cacheinfo',
+        "$($Row.Mode),$($Row.BlobOid),$($Row.Path)"
+      ))
+      $Readback = Invoke-ProofGitCapture $ObjectDirectory $RealObjectDirectory $CompleteIndex @(
+        'ls-files',
+        '--stage',
+        '--',
+        $Row.Path
+      )
+      $ReadbackPattern = '^{0} (?<oid>[0-9a-f]{{40}}) 0\t{1}$' -f
+        [regex]::Escape($Row.Mode),
+        [regex]::Escape($Row.Path)
+      if ($Readback.Output.Count -ne 1 -or
+          $Readback.Output[0] -notmatch $ReadbackPattern -or
+          $Matches['oid'] -cne $Row.BlobOid) {
+        throw "PowerShell complete external index readback disagrees for $($Row.Path)"
+      }
+    }
+    $CompleteTreeResult = Invoke-ProofGitCapture $ObjectDirectory $RealObjectDirectory $CompleteIndex @('write-tree')
+    $CompleteTree = $CompleteTreeResult.Output[0]
+    if ($ScopedTree -notmatch '^[0-9a-f]{40}$' -or $CompleteTree -notmatch '^[0-9a-f]{40}$') {
+      throw 'PowerShell external tree construction returned an invalid OID'
+    }
+
+    $Changed = @($Rows | Where-Object { $_.Disposition -ne 'tracked-clean' }).Count
+    $TotalAdded = [int64] (($Rows | Measure-Object -Property Added -Sum).Sum)
+    $TotalDeleted = [int64] (($Rows | Measure-Object -Property Deleted -Sum).Sum)
+    $ManifestLines = New-Object 'System.Collections.Generic.List[string]'
+    $ManifestLines.Add('hum-implementation-manifest-v1')
+    $ManifestLines.Add("base`t$Base")
+    $ManifestLines.Add("unit`t1")
+    $ManifestLines.Add("scope_count`t$($Rows.Count)")
+    foreach ($Row in $Rows) {
+      $ManifestLine = "path`t{0:D4}`t{1}`t{2}`t{3}`t{4}`t{5}`t{6}`t{7}`t{8}" -f @(
+          $Row.Ordinal,
+          $Row.Path,
+          $Row.Mode,
+          $Row.Disposition,
+          $Row.Length,
+          $Row.Sha256,
+          $Row.BlobOid,
+          $Row.Added,
+          $Row.Deleted
+      )
+      $ManifestLines.Add($ManifestLine)
+    }
+    $ManifestLines.Add("diff_total`t$Changed`t$TotalAdded`t$TotalDeleted")
+    $ManifestLines.Add("scoped_tree`t$ScopedTree")
+    $ManifestLines.Add("complete_tree`t$CompleteTree")
+    Write-Utf8LfFile $ManifestPath (($ManifestLines -join "`n") + "`n")
+
+    $AfterInventory = Write-RealObjectInventory $RealObjectDirectory $AfterInventoryPath
+    if ($BeforeInventory.Sha256 -cne $AfterInventory.Sha256 -or
+        -not (Test-ByteFilesEqual $BeforeInventoryPath $AfterInventoryPath)) {
+      throw 'PowerShell manifest construction changed the real Git object store'
+    }
+    [void] (Invoke-GitCapture @('diff', '--cached', '--quiet', $Base, '--') @(0))
+  } finally {
+    if (Test-Path -LiteralPath $ProofRoot) {
+      Remove-Item -LiteralPath $ProofRoot -Recurse -Force
+    }
+    $Cleanup = -not (Test-Path -LiteralPath $ProofRoot)
+  }
+  if (-not $Cleanup) {
+    throw "PowerShell proof-object cleanup failed: $ProofRoot"
+  }
+  return [pscustomobject] @{
+    ManifestPath = $ManifestPath
+    ManifestSha256 = Get-FileSha256Hex $ManifestPath
+    ScopedTree = $ScopedTree
+    CompleteTree = $CompleteTree
+    RealObjectInventoryBefore = $BeforeInventory.Sha256
+    RealObjectInventoryAfter = $AfterInventory.Sha256
+    Cleanup = $Cleanup
+  }
+}
+
+function Resolve-GitBash {
+  $GitInstallRoot = Split-Path -Parent (Split-Path -Parent $Git)
+  $Candidate = Join-Path $GitInstallRoot 'bin\bash.exe'
+  if (-not (Test-Path -LiteralPath $Candidate -PathType Leaf)) {
+    throw "Git Bash is unavailable beside the resolved Git executable: $Candidate"
+  }
+  return (Resolve-Path -LiteralPath $Candidate).Path
+}
+
+function Invoke-GitBashManifestConstruction {
+  param(
+    [string] $EvidenceRoot,
+    [string] $ArtifactStem,
+    [string] $Base
+  )
+
+  $Bash = Resolve-GitBash
+  $ScriptPath = Join-Path $EvidenceRoot "$ArtifactStem.construct.sh"
+  $ProofRoot = Join-Path $EvidenceRoot ("git-bash-proof-$([guid]::NewGuid().ToString('N'))")
+  $ManifestPath = Join-Path $EvidenceRoot "$ArtifactStem.manifest"
+  $BeforeInventoryPath = Join-Path $EvidenceRoot "$ArtifactStem.real-objects-before"
+  $AfterInventoryPath = Join-Path $EvidenceRoot "$ArtifactStem.real-objects-after"
+  $MetaPath = Join-Path $EvidenceRoot "$ArtifactStem.meta"
+  $BashSource = @'
+#!/usr/bin/env bash
+set -euo pipefail
+export PATH='/usr/bin:/mingw64/bin'
+
+if [[ -n "${GIT_OBJECT_DIRECTORY+x}" || -n "${GIT_ALTERNATE_OBJECT_DIRECTORIES+x}" || -n "${GIT_INDEX_FILE+x}" ]]; then
+  echo "Git Bash manifest construction rejects inherited proof object variables" >&2
+  exit 91
+fi
+
+repo="$(cygpath -u "$1")"
+proof_candidate="$(cygpath -u "$2")"
+manifest="$(cygpath -u "$3")"
+inventory_before="$(cygpath -u "$4")"
+inventory_after="$(cygpath -u "$5")"
+meta="$(cygpath -u "$6")"
+base="$7"
+cd "$repo"
+
+canon_existing() {
+  local value="$1"
+  local parent leaf
+  if [[ -d "$value" ]]; then
+    (cd "$value" && pwd -P)
+  else
+    parent="$(dirname "$value")"
+    leaf="$(basename "$value")"
+    printf '%s/%s\n' "$(cd "$parent" && pwd -P)" "$leaf"
+  fi
+}
+
+canon_absent() {
+  local value="$1"
+  local parent leaf
+  parent="$(dirname "$value")"
+  leaf="$(basename "$value")"
+  [[ -d "$parent" && ! -L "$parent" ]]
+  printf '%s/%s\n' "$(cd "$parent" && pwd -P)" "$leaf"
+}
+
+lower_path() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+same_or_inside() {
+  local candidate container
+  candidate="$(lower_path "${1%/}")"
+  container="$(lower_path "${2%/}")"
+  [[ "$candidate" == "$container" || "$candidate" == "$container/"* ]]
+}
+
+assert_external() {
+  local candidate="$1"
+  shift
+  local protected
+  for protected in "$@"; do
+    if same_or_inside "$candidate" "$protected" || same_or_inside "$protected" "$candidate"; then
+      echo "external Git Bash proof path overlaps protected repository state: $candidate and $protected" >&2
+      exit 92
+    fi
+  done
+}
+
+inventory() {
+  local root="$1"
+  local output="$2"
+  local record rel remainder kind size digest hashed_rel
+  local digest_count=0
+  local file_count=0
+  declare -A file_digests=()
+  : > "$output"
+  while IFS= read -r -d '' record; do
+    digest="${record:0:64}"
+    [[ "$digest" =~ ^[0-9a-f]{64}$ && "${record:64:2}" == " *" ]]
+    hashed_rel="${record:66}"
+    hashed_rel="${hashed_rel#./}"
+    [[ -n "$hashed_rel" && "$hashed_rel" != *$'\t'* && "$hashed_rel" != *$'\n'* && "$hashed_rel" != *$'\r'* ]]
+    [[ -z "${file_digests[$hashed_rel]+x}" ]]
+    file_digests["$hashed_rel"]="$digest"
+    digest_count=$((digest_count + 1))
+  done < <(
+    cd "$root"
+    find . -type f -print0 |
+      LC_ALL=C sort -z |
+      xargs -0 -r sha256sum --binary --zero
+  )
+  while IFS= read -r -d '' record; do
+    rel="${record%%$'\t'*}"
+    remainder="${record#*$'\t'}"
+    kind="${remainder%%$'\t'*}"
+    size="${remainder#*$'\t'}"
+    [[ -n "$rel" && "$rel" != *$'\t'* && "$rel" != *$'\n'* && "$rel" != *$'\r'* ]]
+    if [[ "$kind" == "d" ]]; then
+      printf 'dir\t%s\n' "$rel" >> "$output"
+    elif [[ "$kind" == "f" ]]; then
+      [[ "$size" =~ ^[0-9]+$ && -n "${file_digests[$rel]+x}" ]]
+      printf 'file\t%s\t%s\t%s\n' "$rel" "$size" "${file_digests[$rel]}" >> "$output"
+      file_count=$((file_count + 1))
+    else
+      echo "real object inventory rejects non-file entry type '$kind': $rel" >&2
+      exit 94
+    fi
+  done < <(
+    cd "$root"
+    find . -mindepth 1 -printf '%P\t%y\t%s\0' |
+      LC_ALL=C sort -z
+  )
+  [[ "$file_count" -eq "$digest_count" ]]
+}
+
+proof_git() {
+  local index="$1"
+  shift
+  GIT_OBJECT_DIRECTORY="$objects" \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES="$real_objects" \
+  GIT_INDEX_FILE="$index" \
+    git -c "safe.directory=$repo" "$@"
+}
+
+worktree="$(canon_existing "$(git -c "safe.directory=$repo" rev-parse --show-toplevel)")"
+git_dir="$(canon_existing "$(git -c "safe.directory=$repo" rev-parse --absolute-git-dir)")"
+objects_raw="$(git -c "safe.directory=$repo" rev-parse --git-path objects)"
+if [[ "$objects_raw" = /* ]]; then
+  real_objects="$(canon_existing "$objects_raw")"
+else
+  real_objects="$(canon_existing "$repo/$objects_raw")"
+fi
+index_raw="$(git -c "safe.directory=$repo" rev-parse --git-path index)"
+if [[ "$index_raw" = /* ]]; then
+  real_index="$(canon_existing "$index_raw")"
+else
+  real_index="$(canon_existing "$repo/$index_raw")"
+fi
+
+proof_root="$(canon_absent "$proof_candidate")"
+assert_external "$proof_root" "$worktree" "$git_dir" "$real_objects" "$real_index"
+[[ ! -e "$proof_root" && ! -L "$proof_root" ]]
+mkdir "$proof_root"
+[[ -d "$proof_root" && ! -L "$proof_root" ]]
+objects="$proof_root/objects"
+scoped_index="$proof_root/scoped.index"
+complete_index="$proof_root/complete.index"
+for proposed in "$objects" "$scoped_index" "$complete_index"; do
+  assert_external "$proposed" "$worktree" "$git_dir" "$real_objects" "$real_index"
+  [[ ! -e "$proposed" && ! -L "$proposed" ]]
+done
+cleanup_failure() {
+  if [[ -d "$proof_root" && ! -L "$proof_root" ]]; then
+    rm -rf -- "$proof_root"
+  fi
+}
+trap cleanup_failure EXIT
+
+[[ "$(git -c "safe.directory=$repo" rev-parse HEAD)" == "$base" ]]
+git -c "safe.directory=$repo" diff --cached --quiet "$base" --
+[[ ! -e "$git_dir/index.lock" ]]
+inventory "$real_objects" "$inventory_before"
+
+paths=(
+  "src/main.rs"
+  "src/validation_session.rs"
+  "src/validation_corpus.rs"
+  "tools/check_all.ps1"
+  "tools/test_exact_rust_selector.ps1"
+)
+declare -A scope_set status_map
+for path in "${paths[@]}"; do scope_set["$path"]=1; done
+while IFS= read -r line; do
+  [[ ${#line} -ge 4 ]]
+  code="${line:0:2}"
+  path="${line:3}"
+  path="${path//\\//}"
+  [[ -n "${scope_set[$path]+x}" ]]
+  [[ -z "${status_map[$path]+x}" ]]
+  [[ "$code" == " M" || "$code" == "??" ]]
+  status_map["$path"]="$code"
+done < <(git -c "safe.directory=$repo" status --porcelain=v1 --untracked-files=all -- .)
+
+modes=()
+dispositions=()
+lengths=()
+digests=()
+oids=()
+added_lines=()
+deleted_lines=()
+changed=0
+total_added=0
+total_deleted=0
+ordinal=0
+for path in "${paths[@]}"; do
+  ordinal=$((ordinal + 1))
+  [[ -f "$path" && ! -L "$path" ]]
+  status="${status_map[$path]-}"
+  tree_line="$(git -c "safe.directory=$repo" ls-tree "$base" -- "$path")"
+  if [[ "$status" == "??" ]]; then
+    [[ -z "$tree_line" ]]
+    mode="100644"
+    base_oid=""
+    disposition="untracked-added"
+  else
+    [[ "$tree_line" =~ ^([0-9]{6})[[:space:]]blob[[:space:]]([0-9a-f]{40})$'\t' ]]
+    mode="${BASH_REMATCH[1]}"
+    base_oid="${BASH_REMATCH[2]}"
+    [[ "$mode" == "100644" ]]
+    if [[ "$status" == " M" ]]; then
+      disposition="tracked-modified"
+    else
+      disposition="tracked-clean"
+    fi
+  fi
+  length="$(wc -c < "$path" | tr -d '[:space:]')"
+  digest="$(sha256sum "$path" | awk '{print $1}')"
+  oid="$(git -c "safe.directory=$repo" hash-object --no-filters -- "$path")"
+  [[ "$oid" =~ ^[0-9a-f]{40}$ ]]
+
+  base_file="$proof_root/base-$(printf '%04d' "$ordinal").raw"
+  if [[ -z "$base_oid" ]]; then
+    : > "$base_file"
+  else
+    git -c "safe.directory=$repo" cat-file blob "$base_oid" > "$base_file"
+  fi
+  set +e
+  numstat="$(git -c "safe.directory=$repo" diff --no-index --no-renames --no-ext-diff --no-textconv --numstat -- "$base_file" "$path")"
+  numstat_exit=$?
+  set -e
+  [[ "$numstat_exit" -eq 0 || "$numstat_exit" -eq 1 ]]
+  if [[ -z "$numstat" ]]; then
+    added=0
+    deleted=0
+  else
+    [[ "$numstat" != *$'\n'* ]]
+    IFS=$'\t' read -r added deleted ignored_path <<< "$numstat"
+    [[ "$added" =~ ^[0-9]+$ && "$deleted" =~ ^[0-9]+$ ]]
+  fi
+  modes+=("$mode")
+  dispositions+=("$disposition")
+  lengths+=("$length")
+  digests+=("$digest")
+  oids+=("$oid")
+  added_lines+=("$added")
+  deleted_lines+=("$deleted")
+  total_added=$((total_added + added))
+  total_deleted=$((total_deleted + deleted))
+  if [[ "$disposition" != "tracked-clean" ]]; then changed=$((changed + 1)); fi
+done
+[[ "${#status_map[@]}" -eq "$changed" ]]
+
+mkdir "$objects"
+for i in "${!paths[@]}"; do
+  written="$(proof_git "$scoped_index" hash-object -w --no-filters -- "${paths[$i]}")"
+  [[ "$written" == "${oids[$i]}" ]]
+done
+
+proof_git "$scoped_index" read-tree --empty
+for i in "${!paths[@]}"; do
+  proof_git "$scoped_index" update-index --add --cacheinfo "${modes[$i]},${oids[$i]},${paths[$i]}"
+  readback="$(proof_git "$scoped_index" ls-files --stage -- "${paths[$i]}")"
+  [[ "$readback" == "${modes[$i]} ${oids[$i]} 0"$'\t'"${paths[$i]}" ]]
+done
+scoped_tree="$(proof_git "$scoped_index" write-tree)"
+[[ "$scoped_tree" =~ ^[0-9a-f]{40}$ ]]
+
+proof_git "$complete_index" read-tree "$base"
+for i in "${!paths[@]}"; do
+  proof_git "$complete_index" update-index --add --cacheinfo "${modes[$i]},${oids[$i]},${paths[$i]}"
+  readback="$(proof_git "$complete_index" ls-files --stage -- "${paths[$i]}")"
+  [[ "$readback" == "${modes[$i]} ${oids[$i]} 0"$'\t'"${paths[$i]}" ]]
+done
+complete_tree="$(proof_git "$complete_index" write-tree)"
+[[ "$complete_tree" =~ ^[0-9a-f]{40}$ ]]
+
+{
+  printf 'hum-implementation-manifest-v1\n'
+  printf 'base\t%s\n' "$base"
+  printf 'unit\t1\n'
+  printf 'scope_count\t%s\n' "${#paths[@]}"
+  for i in "${!paths[@]}"; do
+    printf 'path\t%04d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$((i + 1))" "${paths[$i]}" "${modes[$i]}" "${dispositions[$i]}" \
+      "${lengths[$i]}" "${digests[$i]}" "${oids[$i]}" \
+      "${added_lines[$i]}" "${deleted_lines[$i]}"
+  done
+  printf 'diff_total\t%s\t%s\t%s\n' "$changed" "$total_added" "$total_deleted"
+  printf 'scoped_tree\t%s\n' "$scoped_tree"
+  printf 'complete_tree\t%s\n' "$complete_tree"
+} > "$manifest"
+
+inventory "$real_objects" "$inventory_after"
+cmp -s "$inventory_before" "$inventory_after"
+inventory_before_sha="$(sha256sum "$inventory_before" | awk '{print $1}')"
+inventory_after_sha="$(sha256sum "$inventory_after" | awk '{print $1}')"
+[[ "$inventory_before_sha" == "$inventory_after_sha" ]]
+manifest_sha="$(sha256sum "$manifest" | awk '{print $1}')"
+git -c "safe.directory=$repo" diff --cached --quiet "$base" --
+[[ ! -e "$git_dir/index.lock" ]]
+
+rm -rf -- "$proof_root"
+[[ ! -e "$proof_root" && ! -L "$proof_root" ]]
+trap - EXIT
+{
+  printf 'manifest_sha256\t%s\n' "$manifest_sha"
+  printf 'scoped_tree\t%s\n' "$scoped_tree"
+  printf 'complete_tree\t%s\n' "$complete_tree"
+  printf 'real_objects_before\t%s\n' "$inventory_before_sha"
+  printf 'real_objects_after\t%s\n' "$inventory_after_sha"
+  printf 'cleanup\ttrue\n'
+} > "$meta"
+'@
+  $CarriageReturnLineFeed = [string] [char] 13 + [string] [char] 10
+  $LineFeed = [string] [char] 10
+  Write-Utf8LfFile $ScriptPath (
+    $BashSource.Replace($CarriageReturnLineFeed, $LineFeed) + $LineFeed
+  )
+  $GitBin = Split-Path -Parent $Bash
+  $GitUsrBin = Join-Path (Split-Path -Parent $GitBin) 'usr\bin'
+  if (-not (Test-Path -LiteralPath $GitUsrBin -PathType Container)) {
+    throw "Git Bash POSIX tool directory is unavailable: $GitUsrBin"
+  }
+  $PreviousPath = $env:PATH
+  $PreviousErrorActionPreference = $ErrorActionPreference
+  try {
+    $env:PATH = "$GitUsrBin;$GitBin;$PreviousPath"
+    $ErrorActionPreference = 'Continue'
+    $Output = @(& $Bash $ScriptPath $RepoRoot $ProofRoot $ManifestPath $BeforeInventoryPath $AfterInventoryPath $MetaPath $Base 2>&1)
+    $ExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $PreviousErrorActionPreference
+    $env:PATH = $PreviousPath
+  }
+  $Output | ForEach-Object { Write-Host $_ }
+  if ($ExitCode -ne 0) {
+    throw "Git Bash manifest construction failed with exit code $ExitCode"
+  }
+  if (-not (Test-Path -LiteralPath $MetaPath -PathType Leaf) -or
+      (Test-Path -LiteralPath $ProofRoot)) {
+    throw 'Git Bash manifest construction did not retain metadata or clean its proof root'
+  }
+  $Meta = @{}
+  foreach ($Line in [System.IO.File]::ReadAllLines($MetaPath)) {
+    $Fields = $Line.Split("`t")
+    if ($Fields.Count -ne 2 -or $Meta.ContainsKey($Fields[0])) {
+      throw "Git Bash manifest metadata is malformed: $Line"
+    }
+    $Meta[$Fields[0]] = $Fields[1]
+  }
+  foreach ($Required in @(
+    'manifest_sha256',
+    'scoped_tree',
+    'complete_tree',
+    'real_objects_before',
+    'real_objects_after',
+    'cleanup'
+  )) {
+    if (-not $Meta.ContainsKey($Required)) {
+      throw "Git Bash manifest metadata lost $Required"
+    }
+  }
+  if ($Meta['cleanup'] -cne 'true' -or
+      $Meta['manifest_sha256'] -cne (Get-FileSha256Hex $ManifestPath) -or
+      $Meta['real_objects_before'] -cne $Meta['real_objects_after'] -or
+      -not (Test-ByteFilesEqual $BeforeInventoryPath $AfterInventoryPath)) {
+    throw 'Git Bash manifest metadata, object inventory, or cleanup did not reconcile'
+  }
+  return [pscustomobject] @{
+    ManifestPath = $ManifestPath
+    ManifestSha256 = $Meta['manifest_sha256']
+    ScopedTree = $Meta['scoped_tree']
+    CompleteTree = $Meta['complete_tree']
+    RealObjectInventoryBefore = $Meta['real_objects_before']
+    RealObjectInventoryAfter = $Meta['real_objects_after']
+    Cleanup = $true
+  }
+}
+
+function Assert-MatchingManifestConstructions {
+  param(
+    [object] $PowerShellConstruction,
+    [object] $GitBashConstruction,
+    [string] $Label
+  )
+
+  if (-not (Test-ByteFilesEqual $PowerShellConstruction.ManifestPath $GitBashConstruction.ManifestPath) -or
+      $PowerShellConstruction.ManifestSha256 -cne $GitBashConstruction.ManifestSha256 -or
+      $PowerShellConstruction.ScopedTree -cne $GitBashConstruction.ScopedTree -or
+      $PowerShellConstruction.CompleteTree -cne $GitBashConstruction.CompleteTree -or
+      -not $PowerShellConstruction.Cleanup -or
+      -not $GitBashConstruction.Cleanup) {
+    throw "$Label PowerShell and Git Bash manifest constructions differ"
+  }
+}
+
+function ConvertTo-CanonicalEvidenceField {
+  param(
+    [object] $Value,
+    [string] $Label
+  )
+
+  if ($null -eq $Value) {
+    $Text = '<unset>'
+  } elseif ($Value -is [bool]) {
+    $Text = if ($Value) { 'true' } else { 'false' }
+  } elseif ($Value -is [System.IFormattable]) {
+    $Text = $Value.ToString($null, [System.Globalization.CultureInfo]::InvariantCulture)
+  } else {
+    $Text = $Value.ToString()
+  }
+  if ($Text.Contains("`t") -or $Text.Contains("`r") -or $Text.Contains("`n") -or
+      $Text.Contains([string][char]0)) {
+    throw "canonical evidence field contains a forbidden control character: $Label"
+  }
+  return $Text
+}
+
+function Add-CanonicalEvidenceRecord {
+  param(
+    [System.Collections.Generic.List[string]] $Lines,
+    [object[]] $Fields
+  )
+
+  $CanonicalFields = for ($Index = 0; $Index -lt $Fields.Count; $Index += 1) {
+    ConvertTo-CanonicalEvidenceField $Fields[$Index] "field $Index"
+  }
+  $Lines.Add(($CanonicalFields -join "`t"))
+}
+
+function Write-ExactRustSelectorLedger {
+  param(
+    [string] $Path,
+    [object] $RootProducer,
+    [int] $CreditedCount
+  )
+
+  if (Test-Path -LiteralPath $Path) {
+    throw "selector conclusion ledger was not newly absent: $Path"
+  }
+  $Configuration = Get-ExactRustEvidenceConfiguration
+  $Records = @(Get-ExactRustSelectorConclusions)
+  if ($null -eq $Configuration -or
+      $Records.Count -ne $RootProducer.DeclaredSelectors -or
+      $CreditedCount -ne $RootProducer.DeclaredSelectors) {
+    throw 'selector conclusion ledger cannot reconcile its tuple, producer, records, and credits'
+  }
+  $Lines = New-Object 'System.Collections.Generic.List[string]'
+  Add-CanonicalEvidenceRecord $Lines @('hum-workorder11-unit1-selector-conclusions-v1')
+  Add-CanonicalEvidenceRecord $Lines @('tuple', $Configuration.Identity)
+  $FieldNames = [string[]] @($Configuration.Fields.Keys)
+  for ($Index = 0; $Index -lt $FieldNames.Count; $Index += 1) {
+    $Name = $FieldNames[$Index]
+    Add-CanonicalEvidenceRecord $Lines @(
+      'tuple_field',
+      ('{0:D4}' -f ($Index + 1)),
+      $Name,
+      $Configuration.Fields[$Name]
+    )
+  }
+  for ($Index = 0; $Index -lt $Records.Count; $Index += 1) {
+    $Record = $Records[$Index]
+    Add-CanonicalEvidenceRecord $Lines @(
+      'selector',
+      ('{0:D4}' -f ($Index + 1)),
+      $Record.ConclusionId,
+      $Record.Selector,
+      $Record.ConfigurationId,
+      $Record.Assertions,
+      $Record.RequiredAbsences,
+      $Record.OutputChannelExitRelationship,
+      $Record.RetainedProducer,
+      $Record.RetainedTranscript,
+      $Record.ExecutionMode
+    )
+  }
+  Add-CanonicalEvidenceRecord $Lines @(
+    'summary',
+    $RootProducer.DeclaredSelectors,
+    $RootProducer.ListedSelectors,
+    $RootProducer.ExecutedSelectors,
+    $CreditedCount
+  )
+  Write-Utf8LfFile $Path (($Lines -join "`n") + "`n")
+}
+
+function Read-And-ValidateExactRustSelectorLedger {
+  param(
+    [string] $Path,
+    [int] $ExpectedCount,
+    [string] $ExpectedManifestSha256
+  )
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "selector conclusion ledger is absent: $Path"
+  }
+  $Lines = [System.IO.File]::ReadAllLines($Path)
+  if ($Lines.Count -lt 4 -or
+      $Lines[0] -cne 'hum-workorder11-unit1-selector-conclusions-v1') {
+    throw 'selector conclusion ledger identity is invalid'
+  }
+  $TupleRows = New-Object 'System.Collections.Generic.List[object]'
+  $SelectorRows = New-Object 'System.Collections.Generic.List[object]'
+  $TupleId = $null
+  $Summary = $null
+  foreach ($Line in $Lines[1..($Lines.Count - 1)]) {
+    $Fields = [string[]] $Line.Split("`t")
+    switch -CaseSensitive ($Fields[0]) {
+      'tuple' {
+        if ($Fields.Count -ne 2 -or $null -ne $TupleId) {
+          throw 'selector conclusion ledger has a malformed or duplicate tuple identity'
+        }
+        $TupleId = $Fields[1]
+      }
+      'tuple_field' {
+        if ($Fields.Count -ne 4) {
+          throw 'selector conclusion ledger has a malformed tuple field'
+        }
+        $TupleRows.Add([pscustomobject] @{
+          Ordinal = $Fields[1]
+          Name = $Fields[2]
+          Value = $Fields[3]
+        })
+      }
+      'selector' {
+        if ($Fields.Count -ne 11) {
+          throw 'selector conclusion ledger has a malformed selector record'
+        }
+        $SelectorRows.Add([pscustomobject] @{
+          Ordinal = $Fields[1]
+          ConclusionId = $Fields[2]
+          Selector = $Fields[3]
+          ConfigurationId = $Fields[4]
+          Assertions = $Fields[5]
+          RequiredAbsences = $Fields[6]
+          ChannelExit = $Fields[7]
+          Producer = $Fields[8]
+          Transcript = $Fields[9]
+          Mode = $Fields[10]
+        })
+      }
+      'summary' {
+        if ($Fields.Count -ne 5 -or $null -ne $Summary) {
+          throw 'selector conclusion ledger has a malformed or duplicate summary'
+        }
+        $Summary = $Fields
+      }
+      default {
+        throw "selector conclusion ledger has an unknown row: $($Fields[0])"
+      }
+    }
+  }
+  if ($TupleRows.Count -ne 20 -or
+      $SelectorRows.Count -ne $ExpectedCount -or
+      $null -eq $TupleId -or
+      $TupleId -notmatch '^[0-9a-f]{64}$' -or
+      $null -eq $Summary -or
+      @($Summary[1..4] | Where-Object { [int] $_ -ne $ExpectedCount }).Count -ne 0) {
+    throw 'selector conclusion ledger tuple, selector, or summary counts do not reconcile'
+  }
+  $TupleCanonical = New-Object 'System.Collections.Generic.List[string]'
+  $TupleNames = @{}
+  for ($Index = 0; $Index -lt $TupleRows.Count; $Index += 1) {
+    $Row = $TupleRows[$Index]
+    if ($Row.Ordinal -cne ('{0:D4}' -f ($Index + 1)) -or
+        $TupleNames.ContainsKey($Row.Name)) {
+      throw 'selector conclusion ledger tuple ordering or uniqueness drifted'
+    }
+    $TupleNames[$Row.Name] = $Row.Value
+    $TupleCanonical.Add("$($Row.Name)`t$($Row.Value)")
+  }
+  $ComputedTupleId = Get-Sha256Hex (
+    (New-Object System.Text.UTF8Encoding($false)).GetBytes(
+      (($TupleCanonical -join "`n") + "`n")
+    )
+  )
+  if ($ComputedTupleId -cne $TupleId -or
+      $TupleNames['DirtyManifestSha256'] -cne $ExpectedManifestSha256) {
+    throw 'selector conclusion ledger tuple digest or candidate manifest binding drifted'
+  }
+  $Selectors = @{}
+  $Conclusions = @{}
+  for ($Index = 0; $Index -lt $SelectorRows.Count; $Index += 1) {
+    $Row = $SelectorRows[$Index]
+    if ($Row.Ordinal -cne ('{0:D4}' -f ($Index + 1)) -or
+        $Row.ConclusionId -cne "rust-selector::$($Row.Selector)" -or
+        $Row.ConfigurationId -cne $TupleId -or
+        $Row.ChannelExit -notmatch 'exit.*0' -or
+        $Row.Mode -cne 'credited-from-root' -or
+        $Selectors.ContainsKey($Row.Selector) -or
+        $Conclusions.ContainsKey($Row.ConclusionId) -or
+        [string]::IsNullOrWhiteSpace($Row.Assertions) -or
+        [string]::IsNullOrWhiteSpace($Row.RequiredAbsences) -or
+        [string]::IsNullOrWhiteSpace($Row.Producer) -or
+        [string]::IsNullOrWhiteSpace($Row.Transcript)) {
+      throw "selector conclusion ledger has a missing, conflicting, duplicated, or unmapped selector at $Index"
+    }
+    $Selectors[$Row.Selector] = $true
+    $Conclusions[$Row.ConclusionId] = $true
+  }
+  return [pscustomobject] @{
+    TupleId = $TupleId
+    Count = $SelectorRows.Count
+    Length = [int64] (Get-Item -LiteralPath $Path).Length
+    Sha256 = Get-FileSha256Hex $Path
+  }
+}
+
+function Read-Unit1SliceProductProcessLedger {
+  param(
+    [string] $Path,
+    [object] $SliceMetrics
+  )
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "slice product-process ledger is absent: $Path"
+  }
+  $Lines = [System.IO.File]::ReadAllLines($Path)
+  if ($Lines.Count -lt 2 -or
+      $Lines[0] -cne 'hum-workorder11-unit1-slice-product-processes-v1') {
+    throw 'slice product-process ledger identity is invalid'
+  }
+  $Records = New-Object 'System.Collections.Generic.List[object]'
+  $Summary = $null
+  foreach ($Line in $Lines[1..($Lines.Count - 1)]) {
+    $Fields = [string[]] $Line.Split("`t")
+    if ($Fields[0] -ceq 'process') {
+      if ($Fields.Count -ne 9) {
+        throw 'slice product-process ledger has a malformed process row'
+      }
+      $Records.Add([pscustomobject] @{
+        Ordinal = $Fields[1]
+        Policy = $Fields[2]
+        Attribution = $Fields[3]
+        ConclusionId = $Fields[4]
+        Stage = $Fields[5]
+        Sources = $Fields[6]
+        Command = $Fields[7]
+        ExitCode = [int] $Fields[8]
+      })
+    } elseif ($Fields[0] -ceq 'summary') {
+      if ($Fields.Count -ne 5 -or $null -ne $Summary) {
+        throw 'slice product-process ledger has a malformed or duplicate summary'
+      }
+      $Summary = $Fields
+    } else {
+      throw "slice product-process ledger has an unknown row: $($Fields[0])"
+    }
+  }
+  $ExpectedTotal =
+    [int64] $SliceMetrics.reference.product_invocations +
+    [int64] $SliceMetrics.optimized.product_invocations
+  if ($null -eq $Summary -or
+      [int64] $Summary[1] -ne $ExpectedTotal -or
+      [int64] $Summary[2] -ne [int64] $SliceMetrics.reference.product_invocations -or
+      [int64] $Summary[3] -ne [int64] $SliceMetrics.optimized.product_invocations -or
+      [int64] $Summary[4] -ne [int64] $SliceMetrics.reference.migrated_product_invocations -or
+      $Records.Count -ne $ExpectedTotal) {
+    throw 'slice product-process ledger does not reconcile with fixed-slice metrics'
+  }
+  $Keys = @{}
+  for ($Index = 0; $Index -lt $Records.Count; $Index += 1) {
+    $Record = $Records[$Index]
+    $Key = "$($Record.Policy)|$($Record.Attribution)|$($Record.ConclusionId)|$($Record.Command)"
+    if ($Record.Ordinal -cne ('{0:D4}' -f ($Index + 1)) -or
+        $Record.Policy -cnotin @('reference', 'optimized') -or
+        [string]::IsNullOrWhiteSpace($Record.Attribution) -or
+        [string]::IsNullOrWhiteSpace($Record.ConclusionId) -or
+        [string]::IsNullOrWhiteSpace($Record.Stage) -or
+        [string]::IsNullOrWhiteSpace($Record.Sources) -or
+        [string]::IsNullOrWhiteSpace($Record.Command) -or
+        $Keys.ContainsKey($Key)) {
+      throw "slice product-process ledger has an invalid or duplicate row at $Index"
+    }
+    $Keys[$Key] = $true
+  }
+  return $Records.ToArray()
+}
+
+function Add-Unit1Count {
+  param(
+    [hashtable] $Counts,
+    [string] $Name
+  )
+
+  if (-not $Counts.ContainsKey($Name)) {
+    $Counts[$Name] = 0
+  }
+  $Counts[$Name] += 1
+}
+
+function Write-FullFastProductProcessLedger {
+  param(
+    [string] $Path,
+    [string] $SlicePath,
+    [object] $SliceMetrics,
+    [object[]] $PowerShellRecords,
+    [int64] $FastOriginTimestamp,
+    [int64] $RemainingPhaseStartUs,
+    [int64] $RemainingPhaseEndUs
+  )
+
+  if (Test-Path -LiteralPath $Path) {
+    throw "full-Fast product-process ledger was not newly absent: $Path"
+  }
+  $SliceRecords = @(Read-Unit1SliceProductProcessLedger $SlicePath $SliceMetrics)
+  $Lines = New-Object 'System.Collections.Generic.List[string]'
+  Add-CanonicalEvidenceRecord $Lines @('hum-workorder11-unit1-full-fast-product-processes-v1')
+  $Ordinal = 0
+  $PhaseCounts = @{}
+  $StageCounts = @{}
+  $SourceCounts = @{}
+  $AttributionCounts = @{}
+  foreach ($Record in $SliceRecords) {
+    $Ordinal += 1
+    $Phase = 'root-suite-execution/fixed-slice-product-processes'
+    Add-CanonicalEvidenceRecord $Lines @(
+      'process',
+      ('{0:D4}' -f $Ordinal),
+      'rust-fixed-slice',
+      $Phase,
+      $Record.Policy,
+      $Record.Attribution,
+      $Record.ConclusionId,
+      $Record.ConclusionId,
+      $Record.Stage,
+      $Record.Sources,
+      $Record.Command,
+      $Record.ExitCode
+    )
+    Add-Unit1Count $PhaseCounts $Phase
+    Add-Unit1Count $StageCounts $Record.Stage
+    Add-Unit1Count $SourceCounts $Record.Sources
+    Add-Unit1Count $AttributionCounts $Record.Attribution
+  }
+  for ($Index = 0; $Index -lt $PowerShellRecords.Count; $Index += 1) {
+    $Record = $PowerShellRecords[$Index]
+    $StartUs = Convert-StopwatchTimestampToMicroseconds $Record.StartTimestamp $FastOriginTimestamp
+    $EndUs = Convert-StopwatchTimestampToMicroseconds $Record.EndTimestamp $FastOriginTimestamp
+    if ($Record.Ordinal -ne ($Index + 1) -or
+        $Record.Phase -cne 'remaining-product-process-corpus' -or
+        $StartUs -lt $RemainingPhaseStartUs -or
+        $EndUs -gt $RemainingPhaseEndUs -or
+        $EndUs -lt $StartUs) {
+      throw "retained PowerShell Hum process attribution drifted at $Index"
+    }
+    $Ordinal += 1
+    Add-CanonicalEvidenceRecord $Lines @(
+      'process',
+      ('{0:D4}' -f $Ordinal),
+      'powershell-retained-corpus',
+      $Record.Phase,
+      'optimized-fast',
+      $Record.Attribution,
+      "powershell-hum-$('{0:D4}' -f $Record.Ordinal)",
+      $Record.Label,
+      $Record.Stage,
+      $Record.Sources,
+      $Record.Arguments,
+      $Record.ExitCode
+    )
+    Add-Unit1Count $PhaseCounts $Record.Phase
+    Add-Unit1Count $StageCounts $Record.Stage
+    Add-Unit1Count $SourceCounts $Record.Sources
+    Add-Unit1Count $AttributionCounts $Record.Attribution
+  }
+  foreach ($GroupName in @('phase', 'stage', 'source', 'attribution')) {
+    $Counts = switch ($GroupName) {
+      'phase' { $PhaseCounts }
+      'stage' { $StageCounts }
+      'source' { $SourceCounts }
+      'attribution' { $AttributionCounts }
+    }
+    foreach ($Name in @($Counts.Keys | Sort-Object)) {
+      Add-CanonicalEvidenceRecord $Lines @('count', $GroupName, $Name, $Counts[$Name])
+    }
+  }
+  Add-CanonicalEvidenceRecord $Lines @(
+    'traceability_reconciliation',
+    [int64] $SliceMetrics.reference.migrated_product_invocations,
+    [int64] $SliceMetrics.reference.traceability_rows,
+    $(if ($env:OS -eq 'Windows_NT') { 1 } else { 0 })
+  )
+  Add-CanonicalEvidenceRecord $Lines @(
+    'summary',
+    $Ordinal,
+    $SliceRecords.Count,
+    $PowerShellRecords.Count
+  )
+  $ExpectedTraceability =
+    [int64] $SliceMetrics.reference.migrated_product_invocations +
+    $(if ($env:OS -eq 'Windows_NT') { 1 } else { 0 })
+  if ([int64] $SliceMetrics.reference.traceability_rows -ne $ExpectedTraceability) {
+    throw 'full-Fast process ledger does not reconcile migrated processes with traceability rows'
+  }
+  Write-Utf8LfFile $Path (($Lines -join "`n") + "`n")
+  return [pscustomobject] @{
+    Total = $Ordinal
+    Slice = $SliceRecords.Count
+    PowerShell = $PowerShellRecords.Count
+    Length = [int64] (Get-Item -LiteralPath $Path).Length
+    Sha256 = Get-FileSha256Hex $Path
+    PhaseCounts = $PhaseCounts
+  }
+}
+
+function Read-And-ValidateFullFastProductProcessLedger {
+  param([string] $Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "full-Fast product-process ledger is absent: $Path"
+  }
+  $Lines = [System.IO.File]::ReadAllLines($Path)
+  if ($Lines.Count -lt 4 -or
+      $Lines[0] -cne 'hum-workorder11-unit1-full-fast-product-processes-v1') {
+    throw 'full-Fast product-process ledger identity is invalid'
+  }
+  $Processes = New-Object 'System.Collections.Generic.List[string]'
+  $CountRows = @{}
+  $Reconciliation = $null
+  $Summary = $null
+  $State = 'process'
+  for ($LineIndex = 1; $LineIndex -lt $Lines.Count; $LineIndex += 1) {
+    $Line = $Lines[$LineIndex]
+    $Fields = [string[]] $Line.Split("`t")
+    switch -CaseSensitive ($Fields[0]) {
+      'process' {
+        if ($State -cne 'process') {
+          throw 'full-Fast product-process rows are not deterministically ordered'
+        }
+        $Processes.Add($Line)
+      }
+      'count' {
+        if ($State -cnotin @('process', 'count') -or
+            $Fields.Count -ne 4 -or
+            $Fields[1] -cnotin @('phase', 'stage', 'source', 'attribution') -or
+            [string]::IsNullOrWhiteSpace($Fields[2])) {
+          throw 'full-Fast product-process ledger has a malformed count row'
+        }
+        $State = 'count'
+        $Key = "$($Fields[1])`t$($Fields[2])"
+        if ($CountRows.ContainsKey($Key) -or [int64] $Fields[3] -lt 1) {
+          throw 'full-Fast product-process ledger has a duplicate or invalid count row'
+        }
+        $CountRows[$Key] = [int64] $Fields[3]
+      }
+      'traceability_reconciliation' {
+        if ($State -cne 'count' -or $Fields.Count -ne 4 -or
+            $null -ne $Reconciliation) {
+          throw 'full-Fast process traceability reconciliation is malformed or misplaced'
+        }
+        $State = 'traceability'
+        $Reconciliation = $Fields
+      }
+      'summary' {
+        if ($State -cne 'traceability' -or $Fields.Count -ne 4 -or
+            $null -ne $Summary -or $LineIndex -ne ($Lines.Count - 1)) {
+          throw 'full-Fast product-process summary is malformed or misplaced'
+        }
+        $State = 'summary'
+        $Summary = $Fields
+      }
+      default {
+        throw "full-Fast product-process ledger has an unknown row: $($Fields[0])"
+      }
+    }
+  }
+  if ($Processes.Count -eq 0 -or $null -eq $Reconciliation -or $null -eq $Summary) {
+    throw 'full-Fast product-process ledger lost processes, reconciliation, or summary'
+  }
+  if ($Summary.Count -ne 4 -or
+      [int64] $Summary[1] -ne $Processes.Count -or
+      [int64] $Summary[1] -ne ([int64] $Summary[2] + [int64] $Summary[3])) {
+    throw 'full-Fast product-process totals do not reconcile'
+  }
+  $ExpectedCounts = @{
+    phase = @{}
+    stage = @{}
+    source = @{}
+    attribution = @{}
+  }
+  $ProcessKeys = @{}
+  for ($Index = 0; $Index -lt $Processes.Count; $Index += 1) {
+    $Fields = [string[]] $Processes[$Index].Split("`t")
+    if ($Fields.Count -ne 12 -or
+        $Fields[1] -cne ('{0:D4}' -f ($Index + 1)) -or
+        $Fields[2] -cnotin @('rust-fixed-slice', 'powershell-retained-corpus') -or
+        [string]::IsNullOrWhiteSpace($Fields[3]) -or
+        [string]::IsNullOrWhiteSpace($Fields[5]) -or
+        [string]::IsNullOrWhiteSpace($Fields[6]) -or
+        [string]::IsNullOrWhiteSpace($Fields[7]) -or
+        [string]::IsNullOrWhiteSpace($Fields[8]) -or
+        [string]::IsNullOrWhiteSpace($Fields[9]) -or
+        [string]::IsNullOrWhiteSpace($Fields[10])) {
+      throw "full-Fast product-process row is malformed at $Index"
+    }
+    [void] ([int] $Fields[11])
+    if ($Fields[2] -ceq 'rust-fixed-slice') {
+      if ($Fields[3] -cne 'root-suite-execution/fixed-slice-product-processes' -or
+          $Fields[4] -cnotin @('reference', 'optimized')) {
+        throw "full-Fast Rust product-process attribution drifted at $Index"
+      }
+    } elseif ($Fields[3] -cne 'remaining-product-process-corpus' -or
+        $Fields[4] -cne 'optimized-fast') {
+      throw "full-Fast PowerShell product-process attribution drifted at $Index"
+    }
+    $ProcessKey = "$($Fields[2])|$($Fields[4])|$($Fields[5])|$($Fields[6])|$($Fields[10])"
+    if ($ProcessKeys.ContainsKey($ProcessKey)) {
+      throw "full-Fast product-process ledger duplicates an exact invocation at $Index"
+    }
+    $ProcessKeys[$ProcessKey] = $true
+    Add-Unit1Count $ExpectedCounts.phase $Fields[3]
+    Add-Unit1Count $ExpectedCounts.stage $Fields[8]
+    Add-Unit1Count $ExpectedCounts.source $Fields[9]
+    Add-Unit1Count $ExpectedCounts.attribution $Fields[5]
+  }
+  $ExpectedCountRows = 0
+  foreach ($GroupName in @('phase', 'stage', 'source', 'attribution')) {
+    foreach ($Name in $ExpectedCounts[$GroupName].Keys) {
+      $ExpectedCountRows += 1
+      $Key = "$GroupName`t$Name"
+      if (-not $CountRows.ContainsKey($Key) -or
+          $CountRows[$Key] -ne $ExpectedCounts[$GroupName][$Name]) {
+        throw "full-Fast product-process count disagrees for $Key"
+      }
+    }
+  }
+  if ($CountRows.Count -ne $ExpectedCountRows) {
+    throw 'full-Fast product-process ledger has an unmapped count row'
+  }
+  $ExpectedWindowsTraceability = if ($env:OS -eq 'Windows_NT') { 1 } else { 0 }
+  if ([int64] $Reconciliation[1] -lt 1 -or
+      [int64] $Reconciliation[2] -ne
+        ([int64] $Reconciliation[1] + $ExpectedWindowsTraceability) -or
+      [int64] $Reconciliation[3] -ne $ExpectedWindowsTraceability) {
+    throw 'full-Fast process totals do not reconcile with the traceability ledger'
+  }
+  return [pscustomobject] @{
+    Total = [int64] $Summary[1]
+    Slice = [int64] $Summary[2]
+    PowerShell = [int64] $Summary[3]
+    Length = [int64] (Get-Item -LiteralPath $Path).Length
+    Sha256 = Get-FileSha256Hex $Path
+  }
+}
+
+function ConvertTo-ProcessArgument {
+  param([string] $Argument)
+
+  if ($Argument.Length -gt 0 -and $Argument -notmatch '[\s"]') {
+    return $Argument
+  }
+  $Builder = New-Object System.Text.StringBuilder
+  [void] $Builder.Append('"')
+  $Backslashes = 0
+  foreach ($Character in $Argument.ToCharArray()) {
+    if ($Character -eq [char] '\') {
+      $Backslashes += 1
+      continue
+    }
+    if ($Character -eq [char] '"') {
+      for ($Index = 0; $Index -lt (2 * $Backslashes + 1); $Index += 1) {
+        [void] $Builder.Append('\')
+      }
+      [void] $Builder.Append('"')
+      $Backslashes = 0
+      continue
+    }
+    for ($Index = 0; $Index -lt $Backslashes; $Index += 1) {
+      [void] $Builder.Append('\')
+    }
+    $Backslashes = 0
+    [void] $Builder.Append($Character)
+  }
+  for ($Index = 0; $Index -lt (2 * $Backslashes); $Index += 1) {
+    [void] $Builder.Append('\')
+  }
+  [void] $Builder.Append('"')
+  return $Builder.ToString()
+}
+
+function Invoke-RawProcessCapture {
+  param(
+    [string] $FilePath,
+    [string[]] $Arguments,
+    [string] $WorkingDirectory,
+    [hashtable] $Environment,
+    [string] $StdoutPath,
+    [string] $StderrPath
+  )
+
+  foreach ($ArtifactPath in @($StdoutPath, $StderrPath)) {
+    if (Test-Path -LiteralPath $ArtifactPath) {
+      throw "raw process artifact was not newly absent: $ArtifactPath"
+    }
+  }
+  $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $StartInfo.FileName = $FilePath
+  $StartInfo.Arguments = (($Arguments | ForEach-Object {
+    ConvertTo-ProcessArgument $_
+  }) -join ' ')
+  $StartInfo.WorkingDirectory = $WorkingDirectory
+  $StartInfo.UseShellExecute = $false
+  $StartInfo.CreateNoWindow = $true
+  $StartInfo.RedirectStandardOutput = $true
+  $StartInfo.RedirectStandardError = $true
+
+  $StdoutStream = [System.IO.File]::Open(
+    $StdoutPath,
+    [System.IO.FileMode]::CreateNew,
+    [System.IO.FileAccess]::Write,
+    [System.IO.FileShare]::Read
+  )
+  $StderrStream = [System.IO.File]::Open(
+    $StderrPath,
+    [System.IO.FileMode]::CreateNew,
+    [System.IO.FileAccess]::Write,
+    [System.IO.FileShare]::Read
+  )
+  $Process = New-Object System.Diagnostics.Process
+  $Process.StartInfo = $StartInfo
+  $StartedUtc = [System.DateTimeOffset]::UtcNow
+  $Clock = [System.Diagnostics.Stopwatch]::StartNew()
+  $PreviousEnvironment = @{}
+  $EnvironmentRestored = $false
+  try {
+    foreach ($Name in $Environment.Keys) {
+      $PreviousEnvironment[$Name] = [System.Environment]::GetEnvironmentVariable(
+        $Name,
+        [System.EnvironmentVariableTarget]::Process
+      )
+      [System.Environment]::SetEnvironmentVariable(
+        $Name,
+        [string] $Environment[$Name],
+        [System.EnvironmentVariableTarget]::Process
+      )
+    }
+    try {
+      if (-not $Process.Start()) {
+        throw "could not start raw producer process: $FilePath"
+      }
+    } finally {
+      foreach ($Name in $Environment.Keys) {
+        [System.Environment]::SetEnvironmentVariable(
+          $Name,
+          $PreviousEnvironment[$Name],
+          [System.EnvironmentVariableTarget]::Process
+        )
+      }
+      $EnvironmentRestored = $true
+    }
+    $StdoutCopy = $Process.StandardOutput.BaseStream.CopyToAsync($StdoutStream)
+    $StderrCopy = $Process.StandardError.BaseStream.CopyToAsync($StderrStream)
+    $Process.WaitForExit()
+    [void] $StdoutCopy.GetAwaiter().GetResult()
+    [void] $StderrCopy.GetAwaiter().GetResult()
+    $StdoutStream.Flush()
+    $StderrStream.Flush()
+    $ExitCode = $Process.ExitCode
+  } finally {
+    if (-not $EnvironmentRestored) {
+      foreach ($Name in $PreviousEnvironment.Keys) {
+        [System.Environment]::SetEnvironmentVariable(
+          $Name,
+          $PreviousEnvironment[$Name],
+          [System.EnvironmentVariableTarget]::Process
+        )
+      }
+    }
+    $Clock.Stop()
+    $CompletedUtc = [System.DateTimeOffset]::UtcNow
+    $StdoutStream.Dispose()
+    $StderrStream.Dispose()
+    $Process.Dispose()
+  }
+  return [pscustomobject] @{
+    StartedUtc = $StartedUtc
+    CompletedUtc = $CompletedUtc
+    ElapsedMicroseconds = [int64] [math]::Round(
+      $Clock.ElapsedTicks * 1000000.0 / [System.Diagnostics.Stopwatch]::Frequency
+    )
+    ExitCode = [int] $ExitCode
+    StdoutPath = $StdoutPath
+    StderrPath = $StderrPath
+    StdoutLength = [int64] (Get-Item -LiteralPath $StdoutPath).Length
+    StderrLength = [int64] (Get-Item -LiteralPath $StderrPath).Length
+    StdoutSha256 = Get-FileSha256Hex $StdoutPath
+    StderrSha256 = Get-FileSha256Hex $StderrPath
+  }
+}
+
+function Copy-RawArtifactToConsole {
+  param(
+    [string] $Path,
+    [bool] $ErrorChannel
+  )
+
+  $Input = [System.IO.File]::OpenRead($Path)
+  $Output = if ($ErrorChannel) {
+    [System.Console]::OpenStandardError()
+  } else {
+    [System.Console]::OpenStandardOutput()
+  }
+  try {
+    $Input.CopyTo($Output)
+    $Output.Flush()
+  } finally {
+    $Input.Dispose()
+  }
+}
+
+function Read-NativeVersion {
+  param(
+    [string] $Label,
+    [string] $FilePath,
+    [string[]] $Arguments
+  )
+
+  $PreviousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $Output = @(& $FilePath @Arguments 2>&1 | ForEach-Object { $_.ToString() })
+    $ExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $PreviousErrorActionPreference
+  }
+  if ($ExitCode -ne 0 -or $Output.Count -eq 0) {
+    throw "$Label version probe failed with exit code $ExitCode"
+  }
+  return [regex]::Replace(($Output -join ' ').Trim(), '\s+', ' ')
+}
+
+function Resolve-CurrentPowerShellExecutable {
+  $Current = Get-Process -Id $PID
+  if ($null -ne $Current.Path -and (Test-Path -LiteralPath $Current.Path -PathType Leaf)) {
+    return (Resolve-Path -LiteralPath $Current.Path).Path
+  }
+  $Name = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh' } else { 'powershell' }
+  $Command = Get-Command $Name -ErrorAction SilentlyContinue
+  if ($null -eq $Command) {
+    throw 'could not resolve the current PowerShell executable'
+  }
+  return $Command.Source
+}
+
+function Get-Unit1PlatformMetadata {
+  $OsDescription = try {
+    [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+  } catch {
+    [System.Environment]::OSVersion.VersionString
+  }
+  $OsArchitecture = try {
+    [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+  } catch {
+    [System.Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE')
+  }
+  $ProcessArchitecture = try {
+    [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
+  } catch {
+    [System.Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE')
+  }
+  $Cpu = [System.Environment]::GetEnvironmentVariable('PROCESSOR_IDENTIFIER')
+  if ([string]::IsNullOrWhiteSpace($Cpu) -and (Test-Path -LiteralPath '/proc/cpuinfo')) {
+    $CpuLine = Get-Content -LiteralPath '/proc/cpuinfo' |
+      Where-Object { $_ -match '^model name\s*:' } |
+      Select-Object -First 1
+    if ($null -ne $CpuLine) {
+      $Cpu = ($CpuLine -split ':', 2)[1].Trim()
+    }
+  }
+  if ([string]::IsNullOrWhiteSpace($Cpu)) {
+    $Cpu = 'unavailable'
+  }
+
+  $PowerCondition = 'sensor-unavailable'
+  if ($env:OS -eq 'Windows_NT') {
+    $Cim = Get-Command Get-CimInstance -ErrorAction SilentlyContinue
+    if ($null -ne $Cim) {
+      try {
+        $Battery = @(Get-CimInstance -ClassName Win32_Battery -ErrorAction Stop)
+        $PowerCondition = if ($Battery.Count -eq 0) {
+          'no-battery-detected'
+        } else {
+          'battery-status=' + (($Battery | ForEach-Object { $_.BatteryStatus }) -join ',')
+        }
+      } catch {
+        $PowerCondition = 'battery-sensor-unavailable'
+      }
+    }
+  } elseif (Test-Path -LiteralPath '/sys/class/power_supply') {
+    $Statuses = @(
+      Get-ChildItem -LiteralPath '/sys/class/power_supply' -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object {
+          $StatusPath = Join-Path $_.FullName 'status'
+          if (Test-Path -LiteralPath $StatusPath -PathType Leaf) {
+            (Get-Content -LiteralPath $StatusPath -Raw).Trim()
+          }
+        }
+    )
+    $PowerCondition = if ($Statuses.Count -eq 0) {
+      'no-battery-status'
+    } else {
+      'battery-status=' + ($Statuses -join ',')
+    }
+  }
+  return [pscustomobject] @{
+    OsDescription = [regex]::Replace($OsDescription.Trim(), '\s+', ' ')
+    OsArchitecture = $OsArchitecture
+    ProcessArchitecture = $ProcessArchitecture
+    Cpu = [regex]::Replace($Cpu.Trim(), '\s+', ' ')
+    LogicalProcessors = [System.Environment]::ProcessorCount
+    PowerCondition = $PowerCondition
+  }
+}
+
+function Read-And-ValidateUnit1SliceMetrics {
+  param([string] $Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Unit 1 slice metrics artifact is absent: $Path"
+  }
+  $Metrics = [System.IO.File]::ReadAllText($Path) | ConvertFrom-Json
+  if ($Metrics.record -cne 'hum-workorder11-unit1-metrics-v1' -or
+      $Metrics.reference.policy -cne 'reference' -or
+      $Metrics.optimized.policy -cne 'optimized') {
+    throw 'Unit 1 slice metrics identity or policy pair is invalid'
+  }
+  foreach ($Mode in @($Metrics.reference, $Metrics.optimized)) {
+    if ([int64] $Mode.static_requests -ne
+          ([int64] $Mode.substantive_computations + [int64] $Mode.cache_hits) -or
+        [int64] $Mode.static_requests -ne
+          ([int64] $Mode.cacheable_requests + [int64] $Mode.non_cacheable_requests) -or
+        [int64] $Mode.cacheable_requests -ne [int64] $Mode.cache_lookups -or
+        [int64] $Mode.cache_lookups -ne
+          ([int64] $Mode.cache_hits + [int64] $Mode.cache_misses) -or
+        [int64] $Mode.substantive_computations -ne
+          ([int64] $Mode.cache_misses + [int64] $Mode.non_cacheable_requests) -or
+        [int64] $Mode.cache_misses -ne [int64] $Mode.cache_entries_constructed -or
+        [int64] $Mode.cache_hits -ne [int64] $Mode.cache_reuses -or
+        [int64] $Mode.runtime_requests -ne [int64] $Mode.runtime_executions -or
+        [int64] $Mode.runtime_result_cache_hits -ne 0 -or
+        [int64] $Mode.stdout_parity -ne [int64] $Mode.sentinels -or
+        [int64] $Mode.stderr_parity -ne [int64] $Mode.sentinels -or
+        [int64] $Mode.exit_parity -ne [int64] $Mode.sentinels) {
+      throw "Unit 1 $($Mode.policy) slice count equations do not reconcile"
+    }
+  }
+  $ConclusionIds = @($Metrics.conclusions.ids)
+  $ComputedRatio =
+    [double] $Metrics.optimized.wall_us / [double] $Metrics.reference.wall_us
+  if ([int64] $Metrics.conclusions.expected -ne [int64] $Metrics.conclusions.reference_produced -or
+      [int64] $Metrics.conclusions.expected -ne [int64] $Metrics.conclusions.optimized_produced -or
+      [int64] $Metrics.conclusions.expected -ne [int64] $Metrics.conclusions.passed -or
+      [int64] $Metrics.conclusions.failed -ne 0 -or
+      $ConclusionIds.Count -ne [int64] $Metrics.conclusions.expected -or
+      @($ConclusionIds | Sort-Object -Unique).Count -ne $ConclusionIds.Count -or
+      [int64] $Metrics.reference.cache_hits -ne 0 -or
+      [int64] $Metrics.reference.cache_reuses -ne 0 -or
+      [int64] $Metrics.optimized.cache_hits -lt 1 -or
+      [int64] $Metrics.optimized.cache_reuses -lt 1 -or
+      [int64] $Metrics.optimized.wall_us -ge [int64] $Metrics.reference.wall_us -or
+      [double] $Metrics.ratio -ge 0.95 -or
+      [math]::Abs([double] $Metrics.ratio - $ComputedRatio) -gt 0.000001) {
+    throw 'Unit 1 slice acceleration or complete conclusion ledger is invalid'
+  }
+  $Timeline = $Metrics.timeline
+  if ($null -eq $Timeline -or
+      [int64] $Timeline.test_started_unix_us -le 0 -or
+      [int64] $Timeline.reference_start_us -lt 0 -or
+      [int64] $Timeline.reference_end_us -le [int64] $Timeline.reference_start_us -or
+      [int64] $Timeline.optimized_start_us -lt [int64] $Timeline.reference_end_us -or
+      [int64] $Timeline.optimized_end_us -le [int64] $Timeline.optimized_start_us) {
+    throw 'Unit 1 slice monotonic timeline is invalid'
+  }
+  foreach ($PolicyName in @('reference', 'optimized')) {
+    $TimelineElapsed = if ($PolicyName -ceq 'reference') {
+      [int64] $Timeline.reference_end_us - [int64] $Timeline.reference_start_us
+    } else {
+      [int64] $Timeline.optimized_end_us - [int64] $Timeline.optimized_start_us
+    }
+    $ReportedWall = [int64] $Metrics.$PolicyName.wall_us
+    $Tolerance = [int64] [math]::Max(10000.0, $ReportedWall * 0.0001)
+    if ([math]::Abs($TimelineElapsed - $ReportedWall) -gt $Tolerance) {
+      throw "Unit 1 $PolicyName slice wall disagrees with its monotonic timeline"
+    }
+  }
+  return $Metrics
+}
+
+function Read-And-ValidateUnit1InnerMetrics {
+  param(
+    [string] $Path,
+    [string] $SliceMetricsPath,
+    [string] $SelectorLedgerPath,
+    [string] $FullProcessLedgerPath,
+    [string] $ExpectedManifestSha256
+  )
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Unit 1 inner Fast metrics artifact is absent: $Path"
+  }
+  $RawLines = [System.IO.File]::ReadAllLines($Path)
+  if ($RawLines.Count -lt 2 -or
+      $RawLines[0] -cne 'hum-workorder11-unit1-fast-metrics-v1') {
+    throw 'Unit 1 inner Fast metrics record identity is invalid'
+  }
+  $Scalars = @{}
+  $Phases = New-Object 'System.Collections.Generic.List[object]'
+  for ($LineIndex = 1; $LineIndex -lt $RawLines.Count; $LineIndex += 1) {
+    $Fields = [string[]] $RawLines[$LineIndex].Split("`t")
+    if ($Fields.Count -lt 2) {
+      throw "Unit 1 inner Fast metrics line is malformed: $($RawLines[$LineIndex])"
+    }
+    if ($Fields[0] -ceq 'phase') {
+      if ($Fields.Count -ne 10) {
+        throw "Unit 1 inner Fast phase line has $($Fields.Count) fields"
+      }
+      $Phase = [pscustomobject] @{
+        Ordinal = $Fields[1]
+        Id = $Fields[2]
+        Parent = $Fields[3]
+        Invocations = [int64]::Parse(
+          $Fields[4],
+          [System.Globalization.CultureInfo]::InvariantCulture
+        )
+        StartUs = [int64]::Parse(
+          $Fields[5],
+          [System.Globalization.CultureInfo]::InvariantCulture
+        )
+        EndUs = [int64]::Parse(
+          $Fields[6],
+          [System.Globalization.CultureInfo]::InvariantCulture
+        )
+        InclusiveUs = [int64]::Parse(
+          $Fields[7],
+          [System.Globalization.CultureInfo]::InvariantCulture
+        )
+        ExclusiveUs = [int64]::Parse(
+          $Fields[8],
+          [System.Globalization.CultureInfo]::InvariantCulture
+        )
+        Status = $Fields[9]
+      }
+      $Phases.Add($Phase)
+      continue
+    }
+    if ($Scalars.ContainsKey($Fields[0])) {
+      throw "Unit 1 inner Fast metrics duplicates $($Fields[0])"
+    }
+    $Scalars[$Fields[0]] = $Fields
+  }
+  foreach ($Required in @(
+    'mode',
+    'evidence_tier',
+    'full_fast_wall_us',
+    'inner_clock',
+    'guarded_selectors',
+    'selector_ledger',
+    'full_fast_product_processes',
+    'root_suite_us',
+    'slice_metrics',
+    'slice_wall_us',
+    'slice_ratio',
+    'conclusions',
+    'orchestration_overhead_us',
+    'unattributed_us',
+    'reconciliation_error_us',
+    'required_phase_categories',
+    'slice_timeline',
+    'phase_count'
+  )) {
+    if (-not $Scalars.ContainsKey($Required)) {
+      throw "Unit 1 inner Fast metrics lost $Required"
+    }
+  }
+  $SliceMetrics = Read-And-ValidateUnit1SliceMetrics $SliceMetricsPath
+  $SliceCountNames = @(
+    'product_invocations',
+    'migrated_product_invocations',
+    'source_identities',
+    'source_reads',
+    'parses',
+    'initial_checks',
+    'static_requests',
+    'cacheable_requests',
+    'non_cacheable_requests',
+    'substantive_computations',
+    'cache_lookups',
+    'cache_hits',
+    'cache_misses',
+    'cache_entries_constructed',
+    'cache_reuses',
+    'runtime_requests',
+    'runtime_executions',
+    'runtime_result_cache_hits',
+    'sentinels',
+    'stdout_parity',
+    'stderr_parity',
+    'exit_parity',
+    'human_parity',
+    'json_parity',
+    'mutation_controls',
+    'traceability_rows'
+  )
+  $SlicePhaseNames = @(
+    'readiness_setup_us',
+    'manifest_binding_us',
+    'build_prebuild_us',
+    'root_listing_us',
+    'root_execution_us',
+    'package_manifest_tests_us',
+    'selector_verification_us',
+    'document_readiness_us',
+    'remaining_product_process_corpus_us',
+    'reusable_corpus_construction_us',
+    'source_reads_us',
+    'parse_us',
+    'initial_check_us',
+    'substantive_static_analysis_us',
+    'cache_lookup_us',
+    'cache_hit_us',
+    'cache_miss_us',
+    'cache_entry_construction_us',
+    'cache_reuse_us',
+    'fresh_runtime_execution_us',
+    'parity_corruption_isolation_us',
+    'transcript_finalization_us',
+    'cleanup_us',
+    'orchestration_overhead_us'
+  )
+  foreach ($PolicyName in @('reference', 'optimized')) {
+    foreach ($MetricName in $SliceCountNames) {
+      $Key = "metric.$PolicyName.$MetricName"
+      $Expected = ([int64] $SliceMetrics.$PolicyName.$MetricName).ToString(
+        [System.Globalization.CultureInfo]::InvariantCulture
+      )
+      if (-not $Scalars.ContainsKey($Key) -or
+          $Scalars[$Key].Count -ne 2 -or
+          $Scalars[$Key][1] -cne $Expected) {
+        throw "Unit 1 inner Fast metrics disagrees with slice count $Key"
+      }
+    }
+    foreach ($PhaseName in $SlicePhaseNames) {
+      $Key = "slice_phase.$PolicyName.$PhaseName"
+      $Expected = ([int64] $SliceMetrics.$PolicyName.phases.$PhaseName).ToString(
+        [System.Globalization.CultureInfo]::InvariantCulture
+      )
+      if (-not $Scalars.ContainsKey($Key) -or
+          $Scalars[$Key].Count -ne 2 -or
+          $Scalars[$Key][1] -cne $Expected) {
+        throw "Unit 1 inner Fast metrics disagrees with slice phase $Key"
+      }
+    }
+  }
+  foreach ($DeltaName in @(
+    'equivalent_product_process_deduplication',
+    'source_read_parse_initial_check',
+    'substantive_static_reuse',
+    'assertion_manifest_orchestration'
+  )) {
+    $Key = "delta_attribution_us.$DeltaName"
+    $Expected = ([int64] $SliceMetrics.delta_attribution_us.$DeltaName).ToString(
+      [System.Globalization.CultureInfo]::InvariantCulture
+    )
+    if (-not $Scalars.ContainsKey($Key) -or
+        $Scalars[$Key].Count -ne 2 -or
+        $Scalars[$Key][1] -cne $Expected) {
+      throw "Unit 1 inner Fast metrics disagrees with slice delta $Key"
+    }
+  }
+  if ($Scalars['mode'].Count -ne 2 -or $Scalars['mode'][1] -cne 'optimized' -or
+      $Scalars['evidence_tier'].Count -ne 2 -or
+      $Scalars['evidence_tier'][1] -cne 'fast' -or
+      $Scalars['guarded_selectors'].Count -ne 5 -or
+      @($Scalars['guarded_selectors'][1..4] | Where-Object { $_ -cne '91' }).Count -ne 0 -or
+      $Scalars['conclusions'].Count -ne 6 -or
+      $Scalars['conclusions'][1] -cne $Scalars['conclusions'][2] -or
+      $Scalars['conclusions'][1] -cne $Scalars['conclusions'][3] -or
+      $Scalars['conclusions'][1] -cne $Scalars['conclusions'][4] -or
+      $Scalars['conclusions'][5] -cne '0') {
+    throw 'Unit 1 inner Fast selector or conclusion equations do not reconcile'
+  }
+  $ExpectedPhaseCount = [int64]::Parse(
+    $Scalars['phase_count'][1],
+    [System.Globalization.CultureInfo]::InvariantCulture
+  )
+  if ($ExpectedPhaseCount -ne $Phases.Count -or $Phases.Count -lt 20) {
+    throw "Unit 1 inner Fast phase count drifted: expected $ExpectedPhaseCount, found $($Phases.Count)"
+  }
+  if ($Scalars['inner_clock'].Count -ne 4) {
+    throw 'Unit 1 inner Fast clock binding is malformed'
+  }
+  $InnerStartedUnixUs = [int64] $Scalars['inner_clock'][1]
+  $InnerCompletedUnixUs = [int64] $Scalars['inner_clock'][2]
+  $InnerClockWallUs = [int64] $Scalars['inner_clock'][3]
+  $InnerClockToleranceUs = [int64] [math]::Max(
+    10000.0,
+    $InnerClockWallUs * 0.0001
+  )
+  if ($InnerStartedUnixUs -le 0 -or
+      $InnerCompletedUnixUs -le $InnerStartedUnixUs -or
+      $InnerClockWallUs -ne [int64] $Scalars['full_fast_wall_us'][1] -or
+      [math]::Abs(
+        ($InnerCompletedUnixUs - $InnerStartedUnixUs) - $InnerClockWallUs
+      ) -gt $InnerClockToleranceUs) {
+    throw 'Unit 1 inner Fast UTC and monotonic clocks do not reconcile'
+  }
+  $ById = @{}
+  for ($Index = 0; $Index -lt $Phases.Count; $Index += 1) {
+    $Phase = $Phases[$Index]
+    if ($Phase.Ordinal -cne ('{0:D4}' -f ($Index + 1)) -or
+        $ById.ContainsKey($Phase.Id) -or
+        $Phase.Invocations -lt 1 -or
+        $Phase.StartUs -lt 0 -or
+        $Phase.EndUs -lt $Phase.StartUs -or
+        $Phase.InclusiveUs -ne ($Phase.EndUs - $Phase.StartUs) -or
+        $Phase.ExclusiveUs -lt 0 -or
+        $Phase.ExclusiveUs -gt $Phase.InclusiveUs -or
+        $Phase.Status -cne 'passed') {
+      throw "Unit 1 inner Fast phase is invalid: $($Phase.Id)"
+    }
+    $ById[$Phase.Id] = $Phase
+  }
+  foreach ($Phase in $Phases) {
+    if ($Phase.Parent -cne 'root' -and -not $ById.ContainsKey($Phase.Parent)) {
+      throw "Unit 1 inner Fast phase has an unknown parent: $($Phase.Id)"
+    }
+    if ($Phase.Parent -cne 'root') {
+      $Parent = $ById[$Phase.Parent]
+      if ($Phase.StartUs -lt $Parent.StartUs -or $Phase.EndUs -gt $Parent.EndUs) {
+        throw "Unit 1 inner Fast phase escapes its parent: $($Phase.Id)"
+      }
+    }
+  }
+  $Root = $ById['fast-inner']
+  if ($null -eq $Root -or $Root.Parent -cne 'root' -or $Root.StartUs -ne 0 -or
+      $Root.EndUs -ne [int64] $Scalars['full_fast_wall_us'][1]) {
+    throw 'Unit 1 inner Fast root phase does not bind full wall time'
+  }
+  foreach ($Parent in $Phases) {
+    $ParentId = $Parent.Id
+    $Children = @(
+      $Phases |
+        Where-Object { $_.Parent -ceq $ParentId } |
+        Sort-Object StartUs, EndUs, Id
+    )
+    if ($Children.Count -eq 0) {
+      if ($Parent.ExclusiveUs -ne $Parent.InclusiveUs) {
+        throw "Unit 1 inner Fast leaf phase does not reconcile for $ParentId"
+      }
+      continue
+    }
+    $Union = 0L
+    $PreviousEnd = $Parent.StartUs
+    foreach ($Child in $Children) {
+      if ($Child.StartUs -lt $PreviousEnd) {
+        throw "Unit 1 inner Fast phases overlap under $ParentId"
+      }
+      $Union += $Child.InclusiveUs
+      $PreviousEnd = $Child.EndUs
+    }
+    if ($Parent.ExclusiveUs -ne ($Parent.InclusiveUs - $Union)) {
+      throw "Unit 1 inner Fast inclusive/exclusive equation fails for $ParentId"
+    }
+  }
+  if ([int64] $Scalars['orchestration_overhead_us'][1] -ne $Root.ExclusiveUs) {
+    throw 'Unit 1 inner Fast orchestration overhead does not equal root exclusive time'
+  }
+  if ($Scalars['slice_timeline'].Count -ne 6 -or
+      [int64] $Scalars['slice_timeline'][1] -ne
+        $ById['fixed-slice-reference-reusable-corpus'].StartUs -or
+      [int64] $Scalars['slice_timeline'][2] -ne
+        $ById['fixed-slice-reference-reusable-corpus'].EndUs -or
+      [int64] $Scalars['slice_timeline'][3] -ne
+        $ById['fixed-slice-optimized-reusable-corpus'].StartUs -or
+      [int64] $Scalars['slice_timeline'][4] -ne
+        $ById['fixed-slice-optimized-reusable-corpus'].EndUs -or
+      $Scalars['slice_timeline'][5] -cne
+        'UTC-anchored-monotonic-workload-windows-with-measured-component-attribution') {
+    throw 'Unit 1 inner Fast slice timeline lost its phase binding'
+  }
+  if ($Scalars['unattributed_us'].Count -ne 3 -or
+      [int64] $Scalars['unattributed_us'][1] -lt 0 -or
+      [int64] $Scalars['unattributed_us'][1] -gt [int64] $Scalars['unattributed_us'][2] -or
+      [int64] $Scalars['unattributed_us'][2] -gt
+        [int64] [math]::Floor($Root.InclusiveUs * 0.01) -or
+      $Scalars['reconciliation_error_us'].Count -ne 3 -or
+      [int64] $Scalars['reconciliation_error_us'][1] -lt 0 -or
+      [int64] $Scalars['reconciliation_error_us'][1] -gt
+        [int64] $Scalars['reconciliation_error_us'][2] -or
+      [int64] $Scalars['reconciliation_error_us'][2] -ne
+        [int64] [math]::Max(10000.0, $Root.InclusiveUs * 0.0001) -or
+      $Scalars['required_phase_categories'].Count -ne 3 -or
+      $Scalars['required_phase_categories'][1] -cne '20' -or
+      $Scalars['required_phase_categories'][2] -cne 'full-envelope-and-inner-ledgers') {
+    throw 'Unit 1 inner Fast unattributed or reconciliation tolerance accounting is invalid'
+  }
+  foreach ($RequiredPhasePattern in @(
+    '^dependency-toolchain-readiness$',
+    '^manifest-mode-configuration-binding$',
+    '^build-and-prebuild$',
+    '^root-suite-listing$',
+    '^root-suite-execution$',
+    '^special-package-and-alternate-manifest-tests$',
+    '^guarded-selector-verification$',
+    '^text-public-release-readiness$',
+    '^remaining-product-process-corpus$',
+    '^fixed-slice-(?:reference|optimized)-reusable-corpus$',
+    '\.source-reads$',
+    '\.parse$',
+    '\.initial-static-check$',
+    '\.substantive-static-analysis$',
+    '\.cache-activity\.lookup$',
+    '\.cache-activity\.lookup\.miss$',
+    '\.cache-activity\.hit$',
+    '\.cache-activity\.hit\.reuse$',
+    '\.cache-activity\.entry-construction$',
+    '\.fresh-runtime-execution$',
+    '\.product-parity-and-corruption-isolation$',
+    '^transcript-metrics-finalization$',
+    '^measurement-and-orchestration-overhead$'
+  )) {
+    if (@($Phases | Where-Object { $_.Id -match $RequiredPhasePattern }).Count -lt 1) {
+      throw "Unit 1 inner Fast lost required phase category $RequiredPhasePattern"
+    }
+  }
+  if ($Scalars['slice_metrics'].Count -ne 3 -or
+      [int64] $Scalars['slice_metrics'][1] -ne
+        [int64] (Get-Item -LiteralPath $SliceMetricsPath).Length -or
+      $Scalars['slice_metrics'][2] -cne (Get-FileSha256Hex $SliceMetricsPath)) {
+    throw 'Unit 1 inner Fast metrics lost its exact slice-metrics binding'
+  }
+  $SelectorLedger = Read-And-ValidateExactRustSelectorLedger `
+    $SelectorLedgerPath `
+    91 `
+    $ExpectedManifestSha256
+  if ($Scalars['selector_ledger'].Count -ne 5 -or
+      [int64] $Scalars['selector_ledger'][1] -ne $SelectorLedger.Count -or
+      [int64] $Scalars['selector_ledger'][2] -ne $SelectorLedger.Length -or
+      $Scalars['selector_ledger'][3] -cne $SelectorLedger.Sha256 -or
+      $Scalars['selector_ledger'][4] -cne $SelectorLedger.TupleId) {
+    throw 'Unit 1 inner Fast metrics lost its exact selector-ledger binding'
+  }
+  $FullProcessLedger = Read-And-ValidateFullFastProductProcessLedger $FullProcessLedgerPath
+  if ($Scalars['full_fast_product_processes'].Count -ne 6 -or
+      [int64] $Scalars['full_fast_product_processes'][1] -ne $FullProcessLedger.Total -or
+      [int64] $Scalars['full_fast_product_processes'][2] -ne $FullProcessLedger.Slice -or
+      [int64] $Scalars['full_fast_product_processes'][3] -ne $FullProcessLedger.PowerShell -or
+      [int64] $Scalars['full_fast_product_processes'][4] -ne $FullProcessLedger.Length -or
+      $Scalars['full_fast_product_processes'][5] -cne $FullProcessLedger.Sha256) {
+    throw 'Unit 1 inner Fast metrics lost its exact full-process-ledger binding'
+  }
+  return [pscustomobject] @{
+    FullFastWallUs = [int64] $Scalars['full_fast_wall_us'][1]
+    StartedUnixUs = $InnerStartedUnixUs
+    CompletedUnixUs = $InnerCompletedUnixUs
+    DeclaredSelectors = [int64] $Scalars['guarded_selectors'][1]
+    ListedSelectors = [int64] $Scalars['guarded_selectors'][2]
+    ExecutedSelectors = [int64] $Scalars['guarded_selectors'][3]
+    CreditedSelectors = [int64] $Scalars['guarded_selectors'][4]
+    ListingUs = [int64] $Scalars['root_suite_us'][1]
+    ExecutionUs = [int64] $Scalars['root_suite_us'][2]
+    OrchestrationOverheadUs = [int64] $Scalars['orchestration_overhead_us'][1]
+    PhaseCount = $Phases.Count
+    ProductProcesses = $FullProcessLedger.Total
+    SliceProductProcesses = $FullProcessLedger.Slice
+    PowerShellProductProcesses = $FullProcessLedger.PowerShell
+    ProcessLedgerLength = $FullProcessLedger.Length
+    ProcessLedgerSha256 = $FullProcessLedger.Sha256
+    SelectorLedgerLength = $SelectorLedger.Length
+    SelectorLedgerSha256 = $SelectorLedger.Sha256
+    SelectorTupleId = $SelectorLedger.TupleId
+    Phases = $Phases.ToArray()
+  }
+}
+
+function Invoke-Unit1FastProducerEnvelope {
+  param([string] $BoundActor)
+
+  Invoke-Unit1ActorSelfTests
+  $BoundActor = Assert-Unit1ActorValue $BoundActor
+  $Scope = @(
+    'src/main.rs',
+    'src/validation_session.rs',
+    'src/validation_corpus.rs',
+    'tools/check_all.ps1',
+    'tools/test_exact_rust_selector.ps1'
+  )
+  foreach ($VariableName in @(
+    'GIT_OBJECT_DIRECTORY',
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_INDEX_FILE',
+    'HUM_UNIT1_ACTOR'
+  )) {
+    if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($VariableName))) {
+      throw "Fast envelope rejects inherited $VariableName"
+    }
+  }
+
+  $Base = (Invoke-GitCapture @('rev-parse', 'HEAD')).Output
+  if ($Base.Count -ne 1 -or $Base[0] -notmatch '^[0-9a-f]{40}$') {
+    throw 'Fast envelope could not resolve one accepted base commit'
+  }
+  $Base = $Base[0]
+  if ($Base -cne '15d502ecd95b563b44db9c3c7c3a5b5034fbe61f') {
+    throw "Fast envelope requires the published Unit 1 base; found $Base"
+  }
+  $GitDirectory = Get-AbsoluteGitPath ((Invoke-GitCapture @('rev-parse', '--absolute-git-dir')).Output[0])
+  $RealObjectDirectory = Get-AbsoluteGitPath ((Invoke-GitCapture @('rev-parse', '--git-path', 'objects')).Output[0])
+  $RealIndexRaw = (Invoke-GitCapture @('rev-parse', '--git-path', 'index')).Output[0]
+  $RealIndex = if (Test-FullyQualifiedPath $RealIndexRaw) {
+    [System.IO.Path]::GetFullPath($RealIndexRaw)
+  } else {
+    [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $RealIndexRaw))
+  }
+  $Protected = @($RepoRoot, $GitDirectory, $RealObjectDirectory, $RealIndex)
+
+  $EvidenceParent = if ([string]::IsNullOrWhiteSpace($env:HUM_UNIT1_EVIDENCE_PARENT)) {
+    [System.IO.Path]::GetTempPath()
+  } else {
+    $env:HUM_UNIT1_EVIDENCE_PARENT
+  }
+  if (-not (Test-FullyQualifiedPath $EvidenceParent) -or
+      -not (Test-Path -LiteralPath $EvidenceParent -PathType Container)) {
+    throw "Fast envelope requires an existing absolute evidence parent: $EvidenceParent"
+  }
+  $EvidenceParent = Assert-ExternalProofPath $EvidenceParent $Protected $true
+  $EvidenceRootCandidate = Join-Path $EvidenceParent (
+    "hum-unit1-fast-$([guid]::NewGuid().ToString('N'))"
+  )
+  [void] (Assert-ExternalProofPath $EvidenceRootCandidate $Protected $false)
+  if (Test-Path -LiteralPath $EvidenceRootCandidate) {
+    throw "Fast evidence root was not newly absent: $EvidenceRootCandidate"
+  }
+  [System.IO.Directory]::CreateDirectory($EvidenceRootCandidate) | Out-Null
+  $EvidenceRoot = Assert-ExternalProofPath $EvidenceRootCandidate $Protected $true
+
+  $OuterClock = [System.Diagnostics.Stopwatch]::StartNew()
+  $ReadinessStartUs = 0L
+  $PowerShellExecutable = Resolve-CurrentPowerShellExecutable
+  $ScriptPath = (Resolve-Path -LiteralPath $PSCommandPath).Path
+  $RustcCommand = Get-Command rustc -ErrorAction SilentlyContinue
+  if ($null -eq $RustcCommand) {
+    $RustcName = if ($env:OS -eq 'Windows_NT') { 'rustc.exe' } else { 'rustc' }
+    $RustcCandidate = Join-Path (Split-Path -Parent $Cargo) $RustcName
+    if (-not (Test-Path -LiteralPath $RustcCandidate -PathType Leaf)) {
+      throw 'rustc was not found beside cargo or on PATH'
+    }
+    $Rustc = (Resolve-Path -LiteralPath $RustcCandidate).Path
+  } else {
+    $Rustc = $RustcCommand.Source
+  }
+  $CargoVersion = Read-NativeVersion 'cargo' $Cargo @('--version', '--verbose')
+  $RustcVersion = Read-NativeVersion 'rustc' $Rustc @('--version', '--verbose')
+  $GitVersion = Read-NativeVersion 'git' $Git @('--version')
+  $PowerShellVersion = (
+    "$($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion.ToString()) " +
+    "CLR $($PSVersionTable.CLRVersion)"
+  ).Trim()
+  $Platform = Get-Unit1PlatformMetadata
+  $ReadinessEndUs = [int64] [math]::Round(
+    $OuterClock.ElapsedTicks * 1000000.0 / [System.Diagnostics.Stopwatch]::Frequency
+  )
+
+  Write-Host "==> Unit 1 Fast pre-producer PowerShell/Git Bash candidate construction"
+  $PreManifestStartUs = $ReadinessEndUs
+  $PrePowerShell = Invoke-PowerShellManifestConstruction $EvidenceRoot 'pre-powershell' $Base $Scope
+  $PreGitBash = Invoke-GitBashManifestConstruction $EvidenceRoot 'pre-git-bash' $Base
+  Assert-MatchingManifestConstructions $PrePowerShell $PreGitBash 'pre-producer'
+  $PreManifestEndUs = [int64] [math]::Round(
+    $OuterClock.ElapsedTicks * 1000000.0 / [System.Diagnostics.Stopwatch]::Frequency
+  )
+
+  $SliceMetricsPath = Join-Path $EvidenceRoot 'slice-metrics.json'
+  $SliceProcessLedgerPath = Join-Path $EvidenceRoot 'slice-product-process-ledger.tsv'
+  $SelectorLedgerPath = Join-Path $EvidenceRoot 'selector-conclusions.tsv'
+  $FullProcessLedgerPath = Join-Path $EvidenceRoot 'full-fast-product-process-ledger.tsv'
+  $InnerMetricsPath = Join-Path $EvidenceRoot 'inner-fast-metrics.tsv'
+  $StdoutPath = Join-Path $EvidenceRoot 'producer.stdout.raw'
+  $StderrPath = Join-Path $EvidenceRoot 'producer.stderr.raw'
+  $TranscriptPath = Join-Path $EvidenceRoot 'producer.transcript'
+  $TranscriptDigestPath = Join-Path $EvidenceRoot 'producer.transcript.sha256'
+  foreach ($ArtifactPath in @(
+    $SliceMetricsPath,
+    $SliceProcessLedgerPath,
+    $SelectorLedgerPath,
+    $FullProcessLedgerPath,
+    $InnerMetricsPath,
+    $StdoutPath,
+    $StderrPath,
+    $TranscriptPath,
+    $TranscriptDigestPath
+  )) {
+    if (Test-Path -LiteralPath $ArtifactPath) {
+      throw "Fast evidence artifact was not newly absent: $ArtifactPath"
+    }
+  }
+
+  $Arguments = @(
+    '-NoLogo',
+    '-NoProfile',
+    '-NonInteractive',
+    '-File',
+    $ScriptPath,
+    '-EvidenceTier',
+    'Fast',
+    '-Actor',
+    $BoundActor
+  )
+  $TargetDirectory = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
+    Join-Path $RepoRoot 'target'
+  } else {
+    [System.IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)
+  }
+  $ToolchainIdentity = "cargo=$CargoVersion;rustc=$RustcVersion"
+  $ConclusionEnvironmentText = (
+    @(
+      "actor=$BoundActor",
+      'evidence_tier=fast',
+      'mode=optimized',
+      "CARGO_BUILD_TARGET=$([Environment]::GetEnvironmentVariable('CARGO_BUILD_TARGET'))",
+      "CARGO_INCREMENTAL=$([Environment]::GetEnvironmentVariable('CARGO_INCREMENTAL'))",
+      "CARGO_TARGET_DIR=$TargetDirectory",
+      "RUSTFLAGS=$([Environment]::GetEnvironmentVariable('RUSTFLAGS'))",
+      "RUST_TEST_THREADS=$([Environment]::GetEnvironmentVariable('RUST_TEST_THREADS'))",
+      "RUSTUP_TOOLCHAIN=$([Environment]::GetEnvironmentVariable('RUSTUP_TOOLCHAIN'))"
+    ) -join "`n"
+  ) + "`n"
+  $ConclusionEnvironmentIdentity = 'sha256:' + (
+    Get-Sha256Hex ((New-Object System.Text.UTF8Encoding($false)).GetBytes(
+      $ConclusionEnvironmentText
+    ))
+  )
+  $ChildEnvironment = @{
+    'HUM_CANONICAL_SEAL_EVIDENCE_TIER' = 'fast'
+    'HUM_UNIT1_ACTOR' = $BoundActor
+    'HUM_UNIT1_BASE' = $Base
+    'HUM_UNIT1_COMPLETE_TREE' = $PrePowerShell.CompleteTree
+    'HUM_UNIT1_ENVIRONMENT_IDENTITY' = $ConclusionEnvironmentIdentity
+    'HUM_UNIT1_EVIDENCE_MODE' = 'optimized'
+    'HUM_UNIT1_FAST_INNER' = '1'
+    'HUM_UNIT1_FAST_EVIDENCE_ROOT' = $EvidenceRoot
+    'HUM_UNIT1_FAST_METRICS_PATH' = $InnerMetricsPath
+    'HUM_UNIT1_FULL_PROCESS_LEDGER_PATH' = $FullProcessLedgerPath
+    'HUM_UNIT1_MANIFEST_SHA256' = $PrePowerShell.ManifestSha256
+    'HUM_UNIT1_METRICS_PATH' = $SliceMetricsPath
+    'HUM_UNIT1_SCOPED_TREE' = $PrePowerShell.ScopedTree
+    'HUM_UNIT1_SELECTOR_LEDGER_PATH' = $SelectorLedgerPath
+    'HUM_UNIT1_SLICE_PROCESS_LEDGER_PATH' = $SliceProcessLedgerPath
+    'HUM_UNIT1_TARGET_DIRECTORY' = $TargetDirectory
+    'HUM_UNIT1_TOOLCHAIN_IDENTITY' = $ToolchainIdentity
+  }
+
+  $ProducerStartUs = $PreManifestEndUs
+  Write-Host "==> Unit 1 terminal Optimized Fast producer (raw channels captured externally)"
+  $Producer = Invoke-RawProcessCapture `
+    $PowerShellExecutable `
+    $Arguments `
+    $RepoRoot `
+    $ChildEnvironment `
+    $StdoutPath `
+    $StderrPath
+  $ProducerEndUs = [int64] [math]::Round(
+    $OuterClock.ElapsedTicks * 1000000.0 / [System.Diagnostics.Stopwatch]::Frequency
+  )
+
+  Write-Host "==> Unit 1 Fast post-producer PowerShell/Git Bash candidate construction"
+  $PostManifestStartUs = $ProducerEndUs
+  $PostPowerShell = Invoke-PowerShellManifestConstruction $EvidenceRoot 'post-powershell' $Base $Scope
+  $PostGitBash = Invoke-GitBashManifestConstruction $EvidenceRoot 'post-git-bash' $Base
+  Assert-MatchingManifestConstructions $PostPowerShell $PostGitBash 'post-producer'
+  $PostManifestEndUs = [int64] [math]::Round(
+    $OuterClock.ElapsedTicks * 1000000.0 / [System.Diagnostics.Stopwatch]::Frequency
+  )
+  if (-not (Test-ByteFilesEqual $PrePowerShell.ManifestPath $PostPowerShell.ManifestPath) -or
+      $PrePowerShell.ManifestSha256 -cne $PostPowerShell.ManifestSha256 -or
+      $PrePowerShell.ScopedTree -cne $PostPowerShell.ScopedTree -or
+      $PrePowerShell.CompleteTree -cne $PostPowerShell.CompleteTree) {
+    throw 'Fast producer changed the candidate manifest or tree identity'
+  }
+  $ObjectInventoryArtifacts = @(
+    $PrePowerShell.RealObjectInventoryBefore,
+    $PrePowerShell.RealObjectInventoryAfter,
+    $PreGitBash.RealObjectInventoryBefore,
+    $PreGitBash.RealObjectInventoryAfter,
+    $PostPowerShell.RealObjectInventoryBefore,
+    $PostPowerShell.RealObjectInventoryAfter,
+    $PostGitBash.RealObjectInventoryBefore,
+    $PostGitBash.RealObjectInventoryAfter
+  )
+  if (@($ObjectInventoryArtifacts | Sort-Object -Unique).Count -ne 1 -or
+      -not (Test-ByteFilesEqual `
+        (Join-Path $EvidenceRoot 'pre-powershell.real-objects-after') `
+        (Join-Path $EvidenceRoot 'post-powershell.real-objects-before'))) {
+    throw 'Fast producer changed the real Git object store'
+  }
+  if (-not $PrePowerShell.Cleanup -or -not $PreGitBash.Cleanup -or
+      -not $PostPowerShell.Cleanup -or -not $PostGitBash.Cleanup) {
+    throw 'Fast producer proof-object cleanup did not reconcile'
+  }
+
+  $FinalizationStartUs = $PostManifestEndUs
+  $MetricsStatus = 'absent'
+  $MetricsError = '<none>'
+  $SliceMetrics = $null
+  try {
+    $SliceMetrics = Read-And-ValidateUnit1SliceMetrics $SliceMetricsPath
+    $MetricsStatus = 'valid'
+  } catch {
+    $MetricsStatus = 'invalid'
+    $MetricsError = [regex]::Replace($_.Exception.Message.Trim(), '\s+', ' ')
+  }
+  $InnerMetricsStatus = 'absent'
+  $InnerMetricsError = '<none>'
+  $InnerMetrics = $null
+  if (Test-Path -LiteralPath $InnerMetricsPath -PathType Leaf) {
+    try {
+      $InnerMetrics = Read-And-ValidateUnit1InnerMetrics `
+        $InnerMetricsPath `
+        $SliceMetricsPath `
+        $SelectorLedgerPath `
+        $FullProcessLedgerPath `
+        $PrePowerShell.ManifestSha256
+      $InnerMetricsStatus = 'valid'
+    } catch {
+      $InnerMetricsStatus = 'invalid'
+      $InnerMetricsError = [regex]::Replace($_.Exception.Message.Trim(), '\s+', ' ')
+    }
+  }
+  $MetricsLength = if (Test-Path -LiteralPath $SliceMetricsPath -PathType Leaf) {
+    [int64] (Get-Item -LiteralPath $SliceMetricsPath).Length
+  } else {
+    0L
+  }
+  $MetricsSha256 = if ($MetricsLength -gt 0) {
+    Get-FileSha256Hex $SliceMetricsPath
+  } else {
+    '<absent>'
+  }
+  $InnerMetricsLength = if ($InnerMetricsStatus -ceq 'valid') {
+    [int64] (Get-Item -LiteralPath $InnerMetricsPath).Length
+  } else {
+    0L
+  }
+  $InnerMetricsSha256 = if ($InnerMetricsLength -gt 0) {
+    Get-FileSha256Hex $InnerMetricsPath
+  } else {
+    '<absent>'
+  }
+
+  $EnvironmentValues = @{}
+  foreach ($Name in @(
+    'CARGO_BUILD_TARGET',
+    'CARGO_HOME',
+    'CARGO_INCREMENTAL',
+    'CARGO_NET_OFFLINE',
+    'CARGO_TARGET_DIR',
+    'CARGO_TERM_COLOR',
+    'CI',
+    'HOME',
+    'NO_COLOR',
+    'PATH',
+    'RUST_BACKTRACE',
+    'RUSTFLAGS',
+    'RUSTUP_HOME',
+    'RUSTUP_TOOLCHAIN',
+    'RUST_TEST_THREADS',
+    'SOURCE_DATE_EPOCH',
+    'TEMP',
+    'TERM',
+    'TMP',
+    'USERPROFILE'
+  )) {
+    $EnvironmentValues[$Name] = [Environment]::GetEnvironmentVariable($Name)
+  }
+  foreach ($Name in $ChildEnvironment.Keys) {
+    $EnvironmentValues[$Name] = $ChildEnvironment[$Name]
+  }
+  $EnvironmentNames = [string[]] @($EnvironmentValues.Keys)
+  [array]::Sort($EnvironmentNames, [System.StringComparer]::Ordinal)
+
+  $FinalizationEndUs = [int64] [math]::Round(
+    $OuterClock.ElapsedTicks * 1000000.0 / [System.Diagnostics.Stopwatch]::Frequency
+  )
+  $OuterClock.Stop()
+  $Lines = New-Object 'System.Collections.Generic.List[string]'
+  Add-CanonicalEvidenceRecord $Lines @('hum-producer-transcript-v1')
+  Add-CanonicalEvidenceRecord $Lines @('actor', $BoundActor)
+  Add-CanonicalEvidenceRecord $Lines @('unit', 1)
+  Add-CanonicalEvidenceRecord $Lines @('mode', 'Optimized')
+  Add-CanonicalEvidenceRecord $Lines @('evidence_tier', 'Fast')
+  Add-CanonicalEvidenceRecord $Lines @('base', $Base)
+  Add-CanonicalEvidenceRecord $Lines @('manifest_pre_sha256', $PrePowerShell.ManifestSha256)
+  Add-CanonicalEvidenceRecord $Lines @('manifest_post_sha256', $PostPowerShell.ManifestSha256)
+  Add-CanonicalEvidenceRecord $Lines @('scoped_tree_pre', $PrePowerShell.ScopedTree)
+  Add-CanonicalEvidenceRecord $Lines @('scoped_tree_post', $PostPowerShell.ScopedTree)
+  Add-CanonicalEvidenceRecord $Lines @('complete_tree_pre', $PrePowerShell.CompleteTree)
+  Add-CanonicalEvidenceRecord $Lines @('complete_tree_post', $PostPowerShell.CompleteTree)
+  Add-CanonicalEvidenceRecord $Lines @('executable', $PowerShellExecutable)
+  Add-CanonicalEvidenceRecord $Lines @('argument_count', $Arguments.Count)
+  for ($Index = 0; $Index -lt $Arguments.Count; $Index += 1) {
+    Add-CanonicalEvidenceRecord $Lines @(
+      'argument',
+      ('{0:D4}' -f ($Index + 1)),
+      $Arguments[$Index]
+    )
+  }
+  Add-CanonicalEvidenceRecord $Lines @('working_directory', $RepoRoot)
+  Add-CanonicalEvidenceRecord $Lines @('environment_count', $EnvironmentNames.Count)
+  for ($Index = 0; $Index -lt $EnvironmentNames.Count; $Index += 1) {
+    $Name = $EnvironmentNames[$Index]
+    Add-CanonicalEvidenceRecord $Lines @(
+      'environment',
+      ('{0:D4}' -f ($Index + 1)),
+      $Name,
+      $EnvironmentValues[$Name]
+    )
+  }
+  Add-CanonicalEvidenceRecord $Lines @('tool', 'cargo', $Cargo, $CargoVersion)
+  Add-CanonicalEvidenceRecord $Lines @('tool', 'rustc', $Rustc, $RustcVersion)
+  Add-CanonicalEvidenceRecord $Lines @('tool', 'git', $Git, $GitVersion)
+  Add-CanonicalEvidenceRecord $Lines @(
+    'tool',
+    'powershell',
+    $PowerShellExecutable,
+    $PowerShellVersion
+  )
+  Add-CanonicalEvidenceRecord $Lines @('platform_os', $Platform.OsDescription)
+  Add-CanonicalEvidenceRecord $Lines @('platform_os_architecture', $Platform.OsArchitecture)
+  Add-CanonicalEvidenceRecord $Lines @('platform_process_architecture', $Platform.ProcessArchitecture)
+  Add-CanonicalEvidenceRecord $Lines @('platform_cpu', $Platform.Cpu)
+  Add-CanonicalEvidenceRecord $Lines @('platform_logical_processors', $Platform.LogicalProcessors)
+  Add-CanonicalEvidenceRecord $Lines @('power_condition', $Platform.PowerCondition)
+  Add-CanonicalEvidenceRecord $Lines @('package', 'hum-lang')
+  Add-CanonicalEvidenceRecord $Lines @('cargo_manifest', (Join-Path $RepoRoot 'Cargo.toml'))
+  Add-CanonicalEvidenceRecord $Lines @('features', 'default')
+  Add-CanonicalEvidenceRecord $Lines @('default_features', 'enabled')
+  Add-CanonicalEvidenceRecord $Lines @('profile', 'test-and-dev')
+  Add-CanonicalEvidenceRecord $Lines @('target_directory', $TargetDirectory)
+  Add-CanonicalEvidenceRecord $Lines @('cargo_cache_policy', 'existing-local-registry-and-source-cache')
+  Add-CanonicalEvidenceRecord $Lines @('network_policy', 'producer-does-not-request-network')
+  Add-CanonicalEvidenceRecord $Lines @('build_readiness', 'cargo-build-inside-producer-before-root-suite')
+  Add-CanonicalEvidenceRecord $Lines @(
+    'real_object_inventory_sha256',
+    $ObjectInventoryArtifacts[0]
+  )
+  Add-CanonicalEvidenceRecord $Lines @('real_object_inventory_equal', 'true')
+  Add-CanonicalEvidenceRecord $Lines @('proof_cleanup_pre_powershell', $PrePowerShell.Cleanup)
+  Add-CanonicalEvidenceRecord $Lines @('proof_cleanup_pre_git_bash', $PreGitBash.Cleanup)
+  Add-CanonicalEvidenceRecord $Lines @('proof_cleanup_post_powershell', $PostPowerShell.Cleanup)
+  Add-CanonicalEvidenceRecord $Lines @('proof_cleanup_post_git_bash', $PostGitBash.Cleanup)
+  Add-CanonicalEvidenceRecord $Lines @(
+    'utc_start',
+    $Producer.StartedUtc.ToString('O', [System.Globalization.CultureInfo]::InvariantCulture)
+  )
+  Add-CanonicalEvidenceRecord $Lines @(
+    'utc_end',
+    $Producer.CompletedUtc.ToString('O', [System.Globalization.CultureInfo]::InvariantCulture)
+  )
+  Add-CanonicalEvidenceRecord $Lines @('producer_elapsed_microseconds', $Producer.ElapsedMicroseconds)
+  Add-CanonicalEvidenceRecord $Lines @('envelope_elapsed_microseconds', $FinalizationEndUs)
+  Add-CanonicalEvidenceRecord $Lines @('exit_code', $Producer.ExitCode)
+  Add-CanonicalEvidenceRecord $Lines @('stdout_length', $Producer.StdoutLength)
+  Add-CanonicalEvidenceRecord $Lines @('stdout_sha256', $Producer.StdoutSha256)
+  Add-CanonicalEvidenceRecord $Lines @('stderr_length', $Producer.StderrLength)
+  Add-CanonicalEvidenceRecord $Lines @('stderr_sha256', $Producer.StderrSha256)
+  Add-CanonicalEvidenceRecord $Lines @('slice_metrics_status', $MetricsStatus)
+  Add-CanonicalEvidenceRecord $Lines @('slice_metrics_error', $MetricsError)
+  Add-CanonicalEvidenceRecord $Lines @('slice_metrics_path', $SliceMetricsPath)
+  Add-CanonicalEvidenceRecord $Lines @('slice_metrics_length', $MetricsLength)
+  Add-CanonicalEvidenceRecord $Lines @('slice_metrics_sha256', $MetricsSha256)
+  Add-CanonicalEvidenceRecord $Lines @('inner_metrics_status', $InnerMetricsStatus)
+  Add-CanonicalEvidenceRecord $Lines @('inner_metrics_error', $InnerMetricsError)
+  Add-CanonicalEvidenceRecord $Lines @('inner_metrics_path', $InnerMetricsPath)
+  Add-CanonicalEvidenceRecord $Lines @('inner_metrics_length', $InnerMetricsLength)
+  Add-CanonicalEvidenceRecord $Lines @('inner_metrics_sha256', $InnerMetricsSha256)
+  if ($null -ne $SliceMetrics) {
+    Add-CanonicalEvidenceRecord $Lines @(
+      'slice_wall_microseconds',
+      'reference',
+      [int64] $SliceMetrics.reference.wall_us
+    )
+    Add-CanonicalEvidenceRecord $Lines @(
+      'slice_wall_microseconds',
+      'optimized',
+      [int64] $SliceMetrics.optimized.wall_us
+    )
+    Add-CanonicalEvidenceRecord $Lines @('slice_ratio', ([double] $SliceMetrics.ratio).ToString(
+      '0.000000',
+      [System.Globalization.CultureInfo]::InvariantCulture
+    ))
+    Add-CanonicalEvidenceRecord $Lines @(
+      'slice_product_invocations',
+      'reference',
+      [int64] $SliceMetrics.reference.product_invocations
+    )
+    Add-CanonicalEvidenceRecord $Lines @(
+      'slice_product_invocations',
+      'optimized',
+      [int64] $SliceMetrics.optimized.product_invocations
+    )
+    Add-CanonicalEvidenceRecord $Lines @(
+      'slice_conclusions',
+      [int64] $SliceMetrics.conclusions.expected,
+      [int64] $SliceMetrics.conclusions.reference_produced,
+      [int64] $SliceMetrics.conclusions.optimized_produced,
+      [int64] $SliceMetrics.conclusions.passed,
+      [int64] $SliceMetrics.conclusions.failed
+    )
+  }
+  if ($null -ne $InnerMetrics) {
+    Add-CanonicalEvidenceRecord $Lines @(
+      'guarded_selectors',
+      $InnerMetrics.DeclaredSelectors,
+      $InnerMetrics.ListedSelectors,
+      $InnerMetrics.ExecutedSelectors,
+      $InnerMetrics.CreditedSelectors
+    )
+    Add-CanonicalEvidenceRecord $Lines @(
+      'root_suite_microseconds',
+      $InnerMetrics.ListingUs,
+      $InnerMetrics.ExecutionUs
+    )
+    Add-CanonicalEvidenceRecord $Lines @(
+      'inner_full_fast_wall_microseconds',
+      $InnerMetrics.FullFastWallUs
+    )
+    Add-CanonicalEvidenceRecord $Lines @(
+      'inner_orchestration_overhead_microseconds',
+      $InnerMetrics.OrchestrationOverheadUs
+    )
+    Add-CanonicalEvidenceRecord $Lines @('inner_phase_count', $InnerMetrics.PhaseCount)
+    Add-CanonicalEvidenceRecord $Lines @(
+      'full_fast_product_processes',
+      $InnerMetrics.ProductProcesses,
+      $InnerMetrics.SliceProductProcesses,
+      $InnerMetrics.PowerShellProductProcesses
+    )
+    Add-CanonicalEvidenceRecord $Lines @(
+      'full_fast_product_process_ledger',
+      $FullProcessLedgerPath,
+      $InnerMetrics.ProcessLedgerLength,
+      $InnerMetrics.ProcessLedgerSha256
+    )
+    Add-CanonicalEvidenceRecord $Lines @(
+      'selector_conclusion_ledger',
+      $SelectorLedgerPath,
+      91,
+      $InnerMetrics.SelectorLedgerLength,
+      $InnerMetrics.SelectorLedgerSha256,
+      $InnerMetrics.SelectorTupleId
+    )
+  }
+
+  $EnvelopeStatus = if ($Producer.ExitCode -eq 0 -and
+      $MetricsStatus -ceq 'valid' -and
+      $InnerMetricsStatus -ceq 'valid') {
+    'passed'
+  } else {
+    'failed'
+  }
+  $PhaseObjects = New-Object 'System.Collections.Generic.List[object]'
+  Add-Unit1Phase $PhaseObjects 'fast-envelope' 'root' 1 0L $FinalizationEndUs 0L $EnvelopeStatus
+  Add-Unit1Phase `
+    $PhaseObjects `
+    'readiness-and-toolchain' `
+    'fast-envelope' `
+    1 `
+    $ReadinessStartUs `
+    $ReadinessEndUs `
+    ($ReadinessEndUs - $ReadinessStartUs)
+  Add-Unit1Phase `
+    $PhaseObjects `
+    'manifest-precheck-and-binding' `
+    'fast-envelope' `
+    1 `
+    $PreManifestStartUs `
+    $PreManifestEndUs `
+    ($PreManifestEndUs - $PreManifestStartUs)
+
+  $InnerMappedStartUs = $ProducerStartUs
+  $InnerMappedEndUs = $ProducerStartUs
+  if ($null -ne $InnerMetrics) {
+    $ProducerStartedUnixUs = [int64] (
+      ($Producer.StartedUtc.UtcDateTime.Ticks - [DateTime]::UnixEpoch.Ticks) / 10
+    )
+    $ProducerCompletedUnixUs = [int64] (
+      ($Producer.CompletedUtc.UtcDateTime.Ticks - [DateTime]::UnixEpoch.Ticks) / 10
+    )
+    $InnerMappedStartUs =
+      $ProducerStartUs + ($InnerMetrics.StartedUnixUs - $ProducerStartedUnixUs)
+    $InnerMappedEndUs = $InnerMappedStartUs + $InnerMetrics.FullFastWallUs
+    $InnerMapToleranceUs = [int64] [math]::Max(
+      10000.0,
+      $InnerMetrics.FullFastWallUs * 0.0001
+    )
+    if ($InnerMetrics.StartedUnixUs -lt $ProducerStartedUnixUs -or
+        $InnerMetrics.CompletedUnixUs -gt $ProducerCompletedUnixUs -or
+        $InnerMappedStartUs -lt $ProducerStartUs -or
+        $InnerMappedEndUs -gt $ProducerEndUs -or
+        [math]::Abs(
+          ($InnerMetrics.CompletedUnixUs - $InnerMetrics.StartedUnixUs) -
+            $InnerMetrics.FullFastWallUs
+        ) -gt $InnerMapToleranceUs) {
+      throw 'inner Fast clock cannot be nested in the captured producer process'
+    }
+  }
+  $ProducerInclusiveUs = $ProducerEndUs - $ProducerStartUs
+  $ProducerInnerUs = $InnerMappedEndUs - $InnerMappedStartUs
+  $ProducerPhaseStatus = if ($Producer.ExitCode -eq 0 -and
+      $InnerMetricsStatus -ceq 'valid') {
+    'passed'
+  } else {
+    'failed'
+  }
+  Add-Unit1Phase `
+    $PhaseObjects `
+    'optimized-fast-producer' `
+    'fast-envelope' `
+    1 `
+    $ProducerStartUs `
+    $ProducerEndUs `
+    ($ProducerInclusiveUs - $ProducerInnerUs) `
+    $ProducerPhaseStatus
+  if ($null -ne $InnerMetrics) {
+    foreach ($InnerPhase in $InnerMetrics.Phases) {
+      $MappedId = "optimized-fast-producer.$($InnerPhase.Id)"
+      $MappedParent = if ($InnerPhase.Parent -ceq 'root') {
+        'optimized-fast-producer'
+      } else {
+        "optimized-fast-producer.$($InnerPhase.Parent)"
+      }
+      Add-Unit1Phase `
+        $PhaseObjects `
+        $MappedId `
+        $MappedParent `
+        $InnerPhase.Invocations `
+        ($InnerMappedStartUs + $InnerPhase.StartUs) `
+        ($InnerMappedStartUs + $InnerPhase.EndUs) `
+        $InnerPhase.ExclusiveUs `
+        $InnerPhase.Status
+    }
+  }
+  Add-Unit1Phase `
+    $PhaseObjects `
+    'manifest-postcheck-and-cleanup' `
+    'fast-envelope' `
+    1 `
+    $PostManifestStartUs `
+    $PostManifestEndUs `
+    ($PostManifestEndUs - $PostManifestStartUs)
+  $FinalizationStatus = if ($MetricsStatus -ceq 'valid' -and
+      $InnerMetricsStatus -ceq 'valid') {
+    'passed'
+  } else {
+    'failed'
+  }
+  Add-Unit1Phase `
+    $PhaseObjects `
+    'transcript-finalization' `
+    'fast-envelope' `
+    1 `
+    $FinalizationStartUs `
+    $FinalizationEndUs `
+    ($FinalizationEndUs - $FinalizationStartUs) `
+    $FinalizationStatus
+
+  $EnvelopeChildrenUs =
+    ($ReadinessEndUs - $ReadinessStartUs) +
+    ($PreManifestEndUs - $PreManifestStartUs) +
+    ($ProducerEndUs - $ProducerStartUs) +
+    ($PostManifestEndUs - $PostManifestStartUs) +
+    ($FinalizationEndUs - $FinalizationStartUs)
+  if ($EnvelopeChildrenUs -ne $FinalizationEndUs) {
+    throw 'Fast envelope phase ledger does not reconcile exactly'
+  }
+  $PhaseById = @{}
+  foreach ($Phase in $PhaseObjects) {
+    if ($PhaseById.ContainsKey($Phase.Id)) {
+      throw "Fast envelope phase ledger duplicates $($Phase.Id)"
+    }
+    $PhaseById[$Phase.Id] = $Phase
+  }
+  foreach ($Phase in $PhaseObjects) {
+    if ($Phase.Parent -cne 'root' -and -not $PhaseById.ContainsKey($Phase.Parent)) {
+      throw "Fast envelope phase has an unknown parent: $($Phase.Id)"
+    }
+    $Children = @(
+      $PhaseObjects |
+        Where-Object { $_.Parent -ceq $Phase.Id } |
+        Sort-Object StartUs, EndUs, Id
+    )
+    if ($Children.Count -eq 0) {
+      if ($Phase.ExclusiveUs -ne $Phase.InclusiveUs) {
+        throw "Fast envelope leaf phase does not reconcile: $($Phase.Id)"
+      }
+      continue
+    }
+    $ChildTotalUs = 0L
+    $PreviousEndUs = $Phase.StartUs
+    foreach ($Child in $Children) {
+      if ($Child.StartUs -lt $Phase.StartUs -or
+          $Child.EndUs -gt $Phase.EndUs -or
+          $Child.StartUs -lt $PreviousEndUs) {
+        throw "Fast envelope child phases overlap or escape $($Phase.Id)"
+      }
+      $ChildTotalUs += $Child.InclusiveUs
+      $PreviousEndUs = $Child.EndUs
+    }
+    if ($Phase.ExclusiveUs -ne ($Phase.InclusiveUs - $ChildTotalUs)) {
+      throw "Fast envelope inclusive/exclusive equation fails for $($Phase.Id)"
+    }
+  }
+  $PhaseRows = New-Object 'System.Collections.Generic.List[object]'
+  for ($Index = 0; $Index -lt $PhaseObjects.Count; $Index += 1) {
+    $Phase = $PhaseObjects[$Index]
+    $PhaseRows.Add(@(
+      ('{0:D4}' -f ($Index + 1)),
+      $Phase.Id,
+      $Phase.Parent,
+      $Phase.Invocations,
+      $Phase.StartUs,
+      $Phase.EndUs,
+      $Phase.InclusiveUs,
+      $Phase.ExclusiveUs,
+      $Phase.Status
+    ))
+  }
+  $FullReconciliationToleranceUs = [int64] [math]::Max(
+    10000.0,
+    $FinalizationEndUs * 0.0001
+  )
+  $FullUnattributedMaximumUs = [int64] [math]::Floor(
+    $FinalizationEndUs * 0.01
+  )
+  Add-CanonicalEvidenceRecord $Lines @(
+    'full_phase_reconciliation_error_us',
+    0,
+    $FullReconciliationToleranceUs
+  )
+  Add-CanonicalEvidenceRecord $Lines @(
+    'full_unattributed_us',
+    0,
+    $FullUnattributedMaximumUs
+  )
+  Add-CanonicalEvidenceRecord $Lines @(
+    'required_phase_categories',
+    20,
+    'complete-fast-envelope-and-inner-workload'
+  )
+  Add-CanonicalEvidenceRecord $Lines @(
+    'phase_accounting_boundary',
+    'outer-monotonic-clock-through-pre-serialization-transcript-finalization'
+  )
+  Add-CanonicalEvidenceRecord $Lines @('phase_count', $PhaseRows.Count)
+  foreach ($Phase in $PhaseRows) {
+    Add-CanonicalEvidenceRecord $Lines (@('phase') + $Phase)
+  }
+  Write-Utf8LfFile $TranscriptPath (($Lines -join "`n") + "`n")
+  $TranscriptSha256 = Get-FileSha256Hex $TranscriptPath
+  Write-Utf8LfFile $TranscriptDigestPath ("$TranscriptSha256`tproducer.transcript`n")
+
+  Copy-RawArtifactToConsole $StdoutPath $false
+  Copy-RawArtifactToConsole $StderrPath $true
+  Write-Host "Unit 1 Fast evidence root: $EvidenceRoot"
+  Write-Host "Unit 1 candidate manifest SHA-256: $($PrePowerShell.ManifestSha256)"
+  Write-Host "Unit 1 scoped tree: $($PrePowerShell.ScopedTree)"
+  Write-Host "Unit 1 complete tree: $($PrePowerShell.CompleteTree)"
+  Write-Host "Unit 1 producer transcript SHA-256: $TranscriptSha256"
+  if ($null -ne $SliceMetrics) {
+    Write-Host (
+      'Unit 1 fixed-slice acceleration: ' +
+      "reference_us=$($SliceMetrics.reference.wall_us) " +
+      "optimized_us=$($SliceMetrics.optimized.wall_us) " +
+      "ratio=$(([double] $SliceMetrics.ratio).ToString('0.000000', [System.Globalization.CultureInfo]::InvariantCulture))"
+    )
+  }
+  if ($Producer.ExitCode -ne 0) {
+    throw "Unit 1 terminal Optimized Fast producer failed with exit code $($Producer.ExitCode)"
+  }
+  if ($MetricsStatus -cne 'valid' -or $InnerMetricsStatus -cne 'valid') {
+    throw (
+      "Unit 1 terminal Optimized Fast metrics failed: " +
+      "slice=$MetricsStatus inner=$InnerMetricsStatus " +
+      "slice_error=$MetricsError inner_error=$InnerMetricsError"
+    )
+  }
 }
 
 function Get-GraphItems {
@@ -284,6 +3396,698 @@ function Assert-SessionASurfaceRules {
   }
 }
 
+function Convert-StopwatchTimestampToMicroseconds {
+  param(
+    [int64] $Timestamp,
+    [int64] $OriginTimestamp
+  )
+
+  if ($Timestamp -lt $OriginTimestamp) {
+    throw "monotonic timestamp preceded its origin: $Timestamp < $OriginTimestamp"
+  }
+  return [int64] [math]::Round(
+    ($Timestamp - $OriginTimestamp) * 1000000.0 /
+      [System.Diagnostics.Stopwatch]::Frequency
+  )
+}
+
+function Get-ElapsedMicroseconds {
+  param([System.Diagnostics.Stopwatch] $Stopwatch)
+
+  return [int64] [math]::Round(
+    $Stopwatch.ElapsedTicks * 1000000.0 /
+      [System.Diagnostics.Stopwatch]::Frequency
+  )
+}
+
+function Add-Unit1Phase {
+  param(
+    [System.Collections.Generic.List[object]] $Phases,
+    [string] $Id,
+    [string] $Parent,
+    [int64] $Invocations,
+    [int64] $StartUs,
+    [int64] $EndUs,
+    [int64] $ExclusiveUs,
+    [string] $Status = 'passed'
+  )
+
+  if ($Invocations -lt 1 -or
+      $StartUs -lt 0 -or
+      $EndUs -lt $StartUs -or
+      $ExclusiveUs -lt 0 -or
+      $ExclusiveUs -gt ($EndUs - $StartUs)) {
+    throw "cannot add invalid Unit 1 phase $Id"
+  }
+  $Phases.Add([pscustomobject] @{
+    Id = $Id
+    Parent = $Parent
+    Invocations = $Invocations
+    StartUs = $StartUs
+    EndUs = $EndUs
+    InclusiveUs = $EndUs - $StartUs
+    ExclusiveUs = $ExclusiveUs
+    Status = $Status
+  })
+}
+
+function Add-Unit1SlicePolicyPhases {
+  param(
+    [System.Collections.Generic.List[object]] $Phases,
+    [string] $Policy,
+    [object] $Metrics,
+    [int64] $StartUs,
+    [int64] $EndUs
+  )
+
+  $ParentId = "fixed-slice-$Policy-reusable-corpus"
+  $Components = [ordered] @{
+    'source-reads' = [int64] $Metrics.phases.source_reads_us
+    'parse' = [int64] $Metrics.phases.parse_us
+    'initial-static-check' = [int64] $Metrics.phases.initial_check_us
+    'substantive-static-analysis' = [int64] $Metrics.phases.substantive_static_analysis_us
+    'cache-activity' = (
+      [int64] $Metrics.phases.cache_lookup_us +
+      [int64] $Metrics.phases.cache_hit_us +
+      [int64] $Metrics.phases.cache_entry_construction_us
+    )
+    'fresh-runtime-execution' = [int64] $Metrics.phases.fresh_runtime_execution_us
+    'product-process-corpus' = [int64] $Metrics.phases.remaining_product_process_corpus_us
+    'product-parity-and-corruption-isolation' = [int64] $Metrics.phases.parity_corruption_isolation_us
+  }
+  $ComponentTotal = [int64] (($Components.Values | Measure-Object -Sum).Sum)
+  $InclusiveUs = $EndUs - $StartUs
+  if ($ComponentTotal -gt $InclusiveUs) {
+    throw "$Policy fixed-slice measured component time exceeds its monotonic workload wall"
+  }
+  Add-Unit1Phase `
+    $Phases `
+    $ParentId `
+    'root-suite-execution' `
+    1 `
+    $StartUs `
+    $EndUs `
+    ($InclusiveUs - $ComponentTotal)
+  $Cursor = $StartUs
+  foreach ($Name in $Components.Keys) {
+    $DurationUs = [int64] $Components[$Name]
+    $Count = switch ($Name) {
+      'source-reads' { [int64] $Metrics.source_reads }
+      'parse' { [int64] $Metrics.parses }
+      'initial-static-check' { [int64] $Metrics.initial_checks }
+      'substantive-static-analysis' { [int64] $Metrics.substantive_computations }
+      'cache-activity' { [int64] [math]::Max(1, [int64] $Metrics.cache_lookups) }
+      'fresh-runtime-execution' { [int64] $Metrics.runtime_executions }
+      'product-process-corpus' { [int64] $Metrics.product_invocations }
+      'product-parity-and-corruption-isolation' {
+        [int64] $Metrics.sentinels + [int64] $Metrics.mutation_controls
+      }
+    }
+    if ($Count -lt 1) {
+      if ($DurationUs -ne 0) {
+        throw "$Policy fixed-slice phase $Name has time without an invocation"
+      }
+      continue
+    }
+    $ChildId = "$ParentId.$Name"
+    $ChildEndUs = $Cursor + $DurationUs
+    if ($Name -ceq 'cache-activity') {
+      $LookupUs = [int64] $Metrics.phases.cache_lookup_us
+      $HitUs = [int64] $Metrics.phases.cache_hit_us
+      $EntryUs = [int64] $Metrics.phases.cache_entry_construction_us
+      Add-Unit1Phase $Phases $ChildId $ParentId $Count $Cursor $ChildEndUs 0
+      $LookupEndUs = $Cursor + $LookupUs
+      if ([int64] $Metrics.cache_lookups -gt 0) {
+        $MissUs = [int64] $Metrics.phases.cache_miss_us
+        Add-Unit1Phase `
+          $Phases `
+          "$ChildId.lookup" `
+          $ChildId `
+          ([int64] $Metrics.cache_lookups) `
+          $Cursor `
+          $LookupEndUs `
+          ($LookupUs - $MissUs)
+        if ([int64] $Metrics.cache_misses -gt 0) {
+          Add-Unit1Phase `
+            $Phases `
+            "$ChildId.lookup.miss" `
+            "$ChildId.lookup" `
+            ([int64] $Metrics.cache_misses) `
+            $Cursor `
+            ($Cursor + $MissUs) `
+            $MissUs
+        }
+      }
+      $HitEndUs = $LookupEndUs + $HitUs
+      if ([int64] $Metrics.cache_hits -gt 0) {
+        $ReuseUs = [int64] $Metrics.phases.cache_reuse_us
+        Add-Unit1Phase `
+          $Phases `
+          "$ChildId.hit" `
+          $ChildId `
+          ([int64] $Metrics.cache_hits) `
+          $LookupEndUs `
+          $HitEndUs `
+          ($HitUs - $ReuseUs)
+        Add-Unit1Phase `
+          $Phases `
+          "$ChildId.hit.reuse" `
+          "$ChildId.hit" `
+          ([int64] $Metrics.cache_reuses) `
+          $LookupEndUs `
+          ($LookupEndUs + $ReuseUs) `
+          $ReuseUs
+      }
+      if ([int64] $Metrics.cache_entries_constructed -gt 0) {
+        Add-Unit1Phase `
+          $Phases `
+          "$ChildId.entry-construction" `
+          $ChildId `
+          ([int64] $Metrics.cache_entries_constructed) `
+          $HitEndUs `
+          ($HitEndUs + $EntryUs) `
+          $EntryUs
+      }
+    } else {
+      Add-Unit1Phase $Phases $ChildId $ParentId $Count $Cursor $ChildEndUs $DurationUs
+    }
+    $Cursor = $ChildEndUs
+  }
+}
+
+function Read-And-ValidateUnit1ExhaustiveMetrics {
+  param(
+    [string] $Path,
+    [string] $ExpectedActor,
+    [string] $ExpectedManifestSha256,
+    [string] $ExpectedScopedTree,
+    [string] $ExpectedCompleteTree
+  )
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Exhaustive metrics artifact is absent: $Path"
+  }
+  $Lines = [System.IO.File]::ReadAllLines($Path)
+  if ($Lines.Count -lt 2 -or
+      $Lines[0] -cne 'hum-workorder11-unit1-exhaustive-metrics-v1') {
+    throw 'Exhaustive metrics identity is invalid'
+  }
+  $Rows = @{}
+  foreach ($Line in $Lines[1..($Lines.Count - 1)]) {
+    $Fields = [string[]] $Line.Split("`t")
+    if ($Fields.Count -lt 2 -or $Rows.ContainsKey($Fields[0])) {
+      throw "Exhaustive metrics has a malformed or duplicate row: $Line"
+    }
+    $Rows[$Fields[0]] = $Fields
+  }
+  foreach ($Required in @(
+    'actor',
+    'selector',
+    'selected_passed',
+    'pair_counts',
+    'manifest_sha256',
+    'scoped_tree',
+    'complete_tree',
+    'configuration_id',
+    'conclusion',
+    'utc_start',
+    'utc_end',
+    'elapsed_microseconds',
+    'exit_code'
+  )) {
+    if (-not $Rows.ContainsKey($Required)) {
+      throw "Exhaustive metrics lost $Required"
+    }
+  }
+  $Selector = 'parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero'
+  if ($Rows['actor'].Count -ne 2 -or $Rows['actor'][1] -cne $ExpectedActor -or
+      $Rows['selector'].Count -ne 2 -or $Rows['selector'][1] -cne $Selector -or
+      $Rows['selected_passed'].Count -ne 3 -or
+      $Rows['selected_passed'][1] -cne '1' -or $Rows['selected_passed'][2] -cne '1' -or
+      $Rows['pair_counts'].Count -ne 5 -or
+      $Rows['pair_counts'][1] -cne '630' -or
+      $Rows['pair_counts'][2] -cne '4950' -or
+      $Rows['pair_counts'][3] -cne '8646' -or
+      $Rows['pair_counts'][4] -cne '14226' -or
+      $Rows['manifest_sha256'].Count -ne 2 -or
+      $Rows['manifest_sha256'][1] -cne $ExpectedManifestSha256 -or
+      $Rows['scoped_tree'].Count -ne 2 -or
+      $Rows['scoped_tree'][1] -cne $ExpectedScopedTree -or
+      $Rows['complete_tree'].Count -ne 2 -or
+      $Rows['complete_tree'][1] -cne $ExpectedCompleteTree -or
+      $Rows['configuration_id'].Count -ne 2 -or
+      $Rows['configuration_id'][1] -notmatch '^[0-9a-f]{64}$' -or
+      $Rows['conclusion'].Count -ne 8 -or
+      $Rows['conclusion'][1] -cne "rust-selector::$Selector" -or
+      $Rows['conclusion'][2] -cne $Selector -or
+      $Rows['conclusion'][3] -cne $Rows['configuration_id'][1] -or
+      $Rows['conclusion'][4] -cne 'executed-exactly-once' -or
+      $Rows['conclusion'][5] -notmatch 'exit.*0' -or
+      [string]::IsNullOrWhiteSpace($Rows['conclusion'][6]) -or
+      [string]::IsNullOrWhiteSpace($Rows['conclusion'][7]) -or
+      $Rows['utc_start'].Count -ne 2 -or
+      $Rows['utc_end'].Count -ne 2 -or
+      $Rows['elapsed_microseconds'].Count -ne 2 -or
+      $Rows['exit_code'].Count -ne 2 -or
+      $Rows['exit_code'][1] -cne '0' -or
+      [int64] $Rows['elapsed_microseconds'][1] -le 0) {
+    throw 'Exhaustive metrics selector, tuple, pair, actor, identity, or outcome binding is invalid'
+  }
+  $StartedUtc = [DateTimeOffset]::Parse(
+    $Rows['utc_start'][1],
+    [System.Globalization.CultureInfo]::InvariantCulture
+  )
+  $CompletedUtc = [DateTimeOffset]::Parse(
+    $Rows['utc_end'][1],
+    [System.Globalization.CultureInfo]::InvariantCulture
+  )
+  $ElapsedMicroseconds = [int64] $Rows['elapsed_microseconds'][1]
+  $UtcElapsedMicroseconds = [int64] [math]::Round(
+    ($CompletedUtc - $StartedUtc).TotalMilliseconds * 1000.0
+  )
+  $ClockToleranceMicroseconds = [int64] [math]::Max(
+    10000.0,
+    $ElapsedMicroseconds * 0.0001
+  )
+  if ($CompletedUtc -le $StartedUtc -or
+      [math]::Abs($UtcElapsedMicroseconds - $ElapsedMicroseconds) -gt
+        $ClockToleranceMicroseconds) {
+    throw 'Exhaustive UTC and monotonic elapsed clocks do not reconcile'
+  }
+  return [pscustomobject] @{
+    Selector = $Selector
+    ConfigurationId = $Rows['configuration_id'][1]
+    ElapsedMicroseconds = $ElapsedMicroseconds
+    Length = [int64] (Get-Item -LiteralPath $Path).Length
+    Sha256 = Get-FileSha256Hex $Path
+  }
+}
+
+function Invoke-Unit1ExhaustiveInnerProducer {
+  param([string] $BoundActor)
+
+  $BoundActor = Assert-Unit1ActorBinding $BoundActor $env:HUM_UNIT1_ACTOR
+  if ($env:HUM_UNIT1_EXHAUSTIVE_INNER -cne '1' -or
+      $env:HUM_UNIT1_EVIDENCE_MODE -cne 'exhaustive' -or
+      [string]::IsNullOrWhiteSpace($env:HUM_UNIT1_EXHAUSTIVE_METRICS_PATH) -or
+      (Test-Path -LiteralPath $env:HUM_UNIT1_EXHAUSTIVE_METRICS_PATH)) {
+    throw 'inner Exhaustive requires its exact newly absent external evidence binding'
+  }
+  foreach ($BindingName in @(
+    'HUM_UNIT1_BASE',
+    'HUM_UNIT1_COMPLETE_TREE',
+    'HUM_UNIT1_ENVIRONMENT_IDENTITY',
+    'HUM_UNIT1_MANIFEST_SHA256',
+    'HUM_UNIT1_SCOPED_TREE',
+    'HUM_UNIT1_TARGET_DIRECTORY',
+    'HUM_UNIT1_TOOLCHAIN_IDENTITY'
+  )) {
+    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($BindingName))) {
+      throw "inner Exhaustive lost required binding $BindingName"
+    }
+  }
+  $env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'exhaustive'
+  $Selector = 'parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero'
+  $ExactFlag = '--' + 'exact'
+  Clear-ExactRustEvidenceConfiguration
+  Reset-ExactRustSelectorCredits
+  Set-ExactRustEvidenceConfiguration ([ordered] @{
+    Executable = (Resolve-Path -LiteralPath $Cargo).Path
+    Toolchain = $env:HUM_UNIT1_TOOLCHAIN_IDENTITY
+    RepositoryCommit = $env:HUM_UNIT1_BASE
+    DirtyManifestSha256 = $env:HUM_UNIT1_MANIFEST_SHA256
+    WorkingDirectory = (Resolve-Path -LiteralPath $RepoRoot).Path
+    Package = 'hum-lang'
+    Manifest = (Resolve-Path -LiteralPath (Join-Path $RepoRoot 'Cargo.toml')).Path
+    Target = 'default package test target containing exhaustive parser selector'
+    TargetDirectory = $env:HUM_UNIT1_TARGET_DIRECTORY
+    Features = 'default'
+    DefaultFeatures = 'enabled'
+    Profile = 'test'
+    Environment = "$($env:HUM_UNIT1_ENVIRONMENT_IDENTITY);actor=$BoundActor"
+    EvidenceTier = 'exhaustive'
+    TestFilter = "exact selector: $Selector"
+    IgnoredState = "not ignored; $ExactFlag required"
+    Harness = "cargo test <selector> -- $ExactFlag --list followed by $ExactFlag"
+    SourcesAndOrder = "complete_tree=$($env:HUM_UNIT1_COMPLETE_TREE);Cargo.toml,Cargo.lock,src/parser.rs in Cargo discovery order"
+    Platform = "os=$([System.Environment]::OSVersion.VersionString);architecture=$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)"
+    AdaptersAndAuthority = 'none'
+  })
+  $StartedUtc = [DateTimeOffset]::UtcNow
+  $Clock = [System.Diagnostics.Stopwatch]::StartNew()
+  Invoke-ExactRustTest `
+    'exhaustive canonical-seal pair matrix: F1=630 F2=4950 F3/F4=8646 total=14226' `
+    $Cargo `
+    'parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero'
+  $Clock.Stop()
+  $CompletedUtc = [DateTimeOffset]::UtcNow
+  $Credits = @(Get-ExactRustSelectorCredits)
+  $Conclusions = @(Get-ExactRustSelectorConclusions)
+  $Configuration = Get-ExactRustEvidenceConfiguration
+  Assert-ExactRustSelectorConclusionCoverage `
+    @($Selector) `
+    $Conclusions `
+    $Credits `
+    $Configuration.Identity
+  $Conclusion = $Conclusions[0]
+  $MetricLines = New-Object 'System.Collections.Generic.List[string]'
+  Add-CanonicalEvidenceRecord $MetricLines @('hum-workorder11-unit1-exhaustive-metrics-v1')
+  Add-CanonicalEvidenceRecord $MetricLines @('actor', $BoundActor)
+  Add-CanonicalEvidenceRecord $MetricLines @('selector', $Selector)
+  Add-CanonicalEvidenceRecord $MetricLines @('selected_passed', 1, 1)
+  Add-CanonicalEvidenceRecord $MetricLines @('pair_counts', 630, 4950, 8646, 14226)
+  Add-CanonicalEvidenceRecord $MetricLines @('manifest_sha256', $env:HUM_UNIT1_MANIFEST_SHA256)
+  Add-CanonicalEvidenceRecord $MetricLines @('scoped_tree', $env:HUM_UNIT1_SCOPED_TREE)
+  Add-CanonicalEvidenceRecord $MetricLines @('complete_tree', $env:HUM_UNIT1_COMPLETE_TREE)
+  Add-CanonicalEvidenceRecord $MetricLines @('configuration_id', $Configuration.Identity)
+  Add-CanonicalEvidenceRecord $MetricLines @(
+    'conclusion',
+    $Conclusion.ConclusionId,
+    $Conclusion.Selector,
+    $Conclusion.ConfigurationId,
+    $Conclusion.ExecutionMode,
+    $Conclusion.OutputChannelExitRelationship,
+    $Conclusion.Assertions,
+    $Conclusion.RequiredAbsences
+  )
+  Add-CanonicalEvidenceRecord $MetricLines @(
+    'utc_start',
+    $StartedUtc.ToString('O', [System.Globalization.CultureInfo]::InvariantCulture)
+  )
+  Add-CanonicalEvidenceRecord $MetricLines @(
+    'utc_end',
+    $CompletedUtc.ToString('O', [System.Globalization.CultureInfo]::InvariantCulture)
+  )
+  Add-CanonicalEvidenceRecord $MetricLines @(
+    'elapsed_microseconds',
+    [int64] [math]::Round(
+      $Clock.ElapsedTicks * 1000000.0 / [System.Diagnostics.Stopwatch]::Frequency
+    )
+  )
+  Add-CanonicalEvidenceRecord $MetricLines @('exit_code', 0)
+  Write-Utf8LfFile $env:HUM_UNIT1_EXHAUSTIVE_METRICS_PATH (
+    ($MetricLines -join "`n") + "`n"
+  )
+  Write-Host (
+    'exhaustive canonical-seal evidence passed: ' +
+    'seed=0x48554D5F5345414C;f1_pairs=630;f2_pairs=4950;f3_pairs=8646;' +
+    "total_pairs=14226;elapsed_seconds=$([math]::Round($Clock.Elapsed.TotalSeconds, 3))"
+  )
+}
+
+function Invoke-Unit1ExhaustiveProducerEnvelope {
+  param([string] $BoundActor)
+
+  Invoke-Unit1ActorSelfTests
+  $BoundActor = Assert-Unit1ActorValue $BoundActor
+  $Scope = @(
+    'src/main.rs',
+    'src/validation_session.rs',
+    'src/validation_corpus.rs',
+    'tools/check_all.ps1',
+    'tools/test_exact_rust_selector.ps1'
+  )
+  foreach ($VariableName in @(
+    'GIT_OBJECT_DIRECTORY',
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_INDEX_FILE',
+    'HUM_UNIT1_ACTOR'
+  )) {
+    if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($VariableName))) {
+      throw "Exhaustive envelope rejects inherited $VariableName"
+    }
+  }
+  $BaseRows = (Invoke-GitCapture @('rev-parse', 'HEAD')).Output
+  if ($BaseRows.Count -ne 1 -or
+      $BaseRows[0] -cne '15d502ecd95b563b44db9c3c7c3a5b5034fbe61f') {
+    throw 'Exhaustive envelope requires the one published Unit 1 base'
+  }
+  $Base = $BaseRows[0]
+  $GitDirectory = Get-AbsoluteGitPath ((Invoke-GitCapture @('rev-parse', '--absolute-git-dir')).Output[0])
+  $RealObjectDirectory = Get-AbsoluteGitPath ((Invoke-GitCapture @('rev-parse', '--git-path', 'objects')).Output[0])
+  $RealIndexRaw = (Invoke-GitCapture @('rev-parse', '--git-path', 'index')).Output[0]
+  $RealIndex = if (Test-FullyQualifiedPath $RealIndexRaw) {
+    [System.IO.Path]::GetFullPath($RealIndexRaw)
+  } else {
+    [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $RealIndexRaw))
+  }
+  $Protected = @($RepoRoot, $GitDirectory, $RealObjectDirectory, $RealIndex)
+  $EvidenceParent = if ([string]::IsNullOrWhiteSpace($env:HUM_UNIT1_EVIDENCE_PARENT)) {
+    [System.IO.Path]::GetTempPath()
+  } else {
+    $env:HUM_UNIT1_EVIDENCE_PARENT
+  }
+  if (-not (Test-FullyQualifiedPath $EvidenceParent) -or
+      -not (Test-Path -LiteralPath $EvidenceParent -PathType Container)) {
+    throw "Exhaustive envelope requires an existing absolute evidence parent: $EvidenceParent"
+  }
+  $EvidenceParent = Assert-ExternalProofPath $EvidenceParent $Protected $true
+  $EvidenceRootCandidate = Join-Path $EvidenceParent (
+    "hum-unit1-exhaustive-$([guid]::NewGuid().ToString('N'))"
+  )
+  [void] (Assert-ExternalProofPath $EvidenceRootCandidate $Protected $false)
+  if (Test-Path -LiteralPath $EvidenceRootCandidate) {
+    throw "Exhaustive evidence root was not newly absent: $EvidenceRootCandidate"
+  }
+  [System.IO.Directory]::CreateDirectory($EvidenceRootCandidate) | Out-Null
+  $EvidenceRoot = Assert-ExternalProofPath $EvidenceRootCandidate $Protected $true
+
+  $PowerShellExecutable = Resolve-CurrentPowerShellExecutable
+  $ScriptPath = (Resolve-Path -LiteralPath $PSCommandPath).Path
+  $RustcCommand = Get-Command rustc -ErrorAction SilentlyContinue
+  $Rustc = if ($null -ne $RustcCommand) {
+    $RustcCommand.Source
+  } else {
+    $RustcName = if ($env:OS -eq 'Windows_NT') { 'rustc.exe' } else { 'rustc' }
+    (Resolve-Path -LiteralPath (Join-Path (Split-Path -Parent $Cargo) $RustcName)).Path
+  }
+  $CargoVersion = Read-NativeVersion 'cargo' $Cargo @('--version', '--verbose')
+  $RustcVersion = Read-NativeVersion 'rustc' $Rustc @('--version', '--verbose')
+  $GitVersion = Read-NativeVersion 'git' $Git @('--version')
+  $PowerShellVersion = (
+    "$($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion.ToString()) " +
+    "CLR $($PSVersionTable.CLRVersion)"
+  ).Trim()
+  $Platform = Get-Unit1PlatformMetadata
+
+  Write-Host '==> Unit 1 Exhaustive pre-producer PowerShell/Git Bash candidate construction'
+  $PrePowerShell = Invoke-PowerShellManifestConstruction $EvidenceRoot 'pre-powershell' $Base $Scope
+  $PreGitBash = Invoke-GitBashManifestConstruction $EvidenceRoot 'pre-git-bash' $Base
+  Assert-MatchingManifestConstructions $PrePowerShell $PreGitBash 'Exhaustive pre-producer'
+  $MetricsPath = Join-Path $EvidenceRoot 'exhaustive-metrics.tsv'
+  $StdoutPath = Join-Path $EvidenceRoot 'producer.stdout.raw'
+  $StderrPath = Join-Path $EvidenceRoot 'producer.stderr.raw'
+  $TranscriptPath = Join-Path $EvidenceRoot 'producer.transcript'
+  $TranscriptDigestPath = Join-Path $EvidenceRoot 'producer.transcript.sha256'
+  foreach ($ArtifactPath in @(
+    $MetricsPath,
+    $StdoutPath,
+    $StderrPath,
+    $TranscriptPath,
+    $TranscriptDigestPath
+  )) {
+    if (Test-Path -LiteralPath $ArtifactPath) {
+      throw "Exhaustive evidence artifact was not newly absent: $ArtifactPath"
+    }
+  }
+  $TargetDirectory = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
+    Join-Path $RepoRoot 'target'
+  } else {
+    [System.IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)
+  }
+  $ToolchainIdentity = "cargo=$CargoVersion;rustc=$RustcVersion"
+  $EnvironmentText = (
+    @(
+      "actor=$BoundActor",
+      'evidence_tier=exhaustive',
+      'mode=exhaustive',
+      "CARGO_TARGET_DIR=$TargetDirectory",
+      "RUSTFLAGS=$([Environment]::GetEnvironmentVariable('RUSTFLAGS'))",
+      "RUST_TEST_THREADS=$([Environment]::GetEnvironmentVariable('RUST_TEST_THREADS'))",
+      "RUSTUP_TOOLCHAIN=$([Environment]::GetEnvironmentVariable('RUSTUP_TOOLCHAIN'))"
+    ) -join "`n"
+  ) + "`n"
+  $EnvironmentIdentity = 'sha256:' + (
+    Get-Sha256Hex ((New-Object System.Text.UTF8Encoding($false)).GetBytes($EnvironmentText))
+  )
+  $Arguments = @(
+    '-NoLogo',
+    '-NoProfile',
+    '-NonInteractive',
+    '-File',
+    $ScriptPath,
+    '-EvidenceTier',
+    'Exhaustive',
+    '-Actor',
+    $BoundActor
+  )
+  $ChildEnvironment = @{
+    'HUM_CANONICAL_SEAL_EVIDENCE_TIER' = 'exhaustive'
+    'HUM_UNIT1_ACTOR' = $BoundActor
+    'HUM_UNIT1_BASE' = $Base
+    'HUM_UNIT1_COMPLETE_TREE' = $PrePowerShell.CompleteTree
+    'HUM_UNIT1_ENVIRONMENT_IDENTITY' = $EnvironmentIdentity
+    'HUM_UNIT1_EVIDENCE_MODE' = 'exhaustive'
+    'HUM_UNIT1_EXHAUSTIVE_INNER' = '1'
+    'HUM_UNIT1_EXHAUSTIVE_METRICS_PATH' = $MetricsPath
+    'HUM_UNIT1_MANIFEST_SHA256' = $PrePowerShell.ManifestSha256
+    'HUM_UNIT1_SCOPED_TREE' = $PrePowerShell.ScopedTree
+    'HUM_UNIT1_TARGET_DIRECTORY' = $TargetDirectory
+    'HUM_UNIT1_TOOLCHAIN_IDENTITY' = $ToolchainIdentity
+  }
+  Write-Host '==> Unit 1 terminal Exhaustive producer (raw channels captured externally)'
+  $Producer = Invoke-RawProcessCapture `
+    $PowerShellExecutable `
+    $Arguments `
+    $RepoRoot `
+    $ChildEnvironment `
+    $StdoutPath `
+    $StderrPath
+
+  Write-Host '==> Unit 1 Exhaustive post-producer PowerShell/Git Bash candidate construction'
+  $PostPowerShell = Invoke-PowerShellManifestConstruction $EvidenceRoot 'post-powershell' $Base $Scope
+  $PostGitBash = Invoke-GitBashManifestConstruction $EvidenceRoot 'post-git-bash' $Base
+  Assert-MatchingManifestConstructions $PostPowerShell $PostGitBash 'Exhaustive post-producer'
+  if (-not (Test-ByteFilesEqual $PrePowerShell.ManifestPath $PostPowerShell.ManifestPath) -or
+      $PrePowerShell.ManifestSha256 -cne $PostPowerShell.ManifestSha256 -or
+      $PrePowerShell.ScopedTree -cne $PostPowerShell.ScopedTree -or
+      $PrePowerShell.CompleteTree -cne $PostPowerShell.CompleteTree) {
+    throw 'Exhaustive producer changed the candidate manifest or tree identity'
+  }
+  $ObjectInventories = @(
+    $PrePowerShell.RealObjectInventoryBefore,
+    $PrePowerShell.RealObjectInventoryAfter,
+    $PreGitBash.RealObjectInventoryBefore,
+    $PreGitBash.RealObjectInventoryAfter,
+    $PostPowerShell.RealObjectInventoryBefore,
+    $PostPowerShell.RealObjectInventoryAfter,
+    $PostGitBash.RealObjectInventoryBefore,
+    $PostGitBash.RealObjectInventoryAfter
+  )
+  if (@($ObjectInventories | Sort-Object -Unique).Count -ne 1 -or
+      -not (Test-ByteFilesEqual `
+        (Join-Path $EvidenceRoot 'pre-powershell.real-objects-after') `
+        (Join-Path $EvidenceRoot 'post-powershell.real-objects-before')) -or
+      -not $PrePowerShell.Cleanup -or -not $PreGitBash.Cleanup -or
+      -not $PostPowerShell.Cleanup -or -not $PostGitBash.Cleanup) {
+    throw 'Exhaustive object-store inventory or external proof cleanup did not reconcile'
+  }
+  $Metrics = Read-And-ValidateUnit1ExhaustiveMetrics `
+    $MetricsPath `
+    $BoundActor `
+    $PrePowerShell.ManifestSha256 `
+    $PrePowerShell.ScopedTree `
+    $PrePowerShell.CompleteTree
+
+  $Lines = New-Object 'System.Collections.Generic.List[string]'
+  Add-CanonicalEvidenceRecord $Lines @('hum-producer-transcript-v1')
+  Add-CanonicalEvidenceRecord $Lines @('actor', $BoundActor)
+  Add-CanonicalEvidenceRecord $Lines @('unit', 1)
+  Add-CanonicalEvidenceRecord $Lines @('mode', 'Exhaustive')
+  Add-CanonicalEvidenceRecord $Lines @('evidence_tier', 'Exhaustive')
+  Add-CanonicalEvidenceRecord $Lines @('base', $Base)
+  Add-CanonicalEvidenceRecord $Lines @('manifest_pre_sha256', $PrePowerShell.ManifestSha256)
+  Add-CanonicalEvidenceRecord $Lines @('manifest_post_sha256', $PostPowerShell.ManifestSha256)
+  Add-CanonicalEvidenceRecord $Lines @('scoped_tree_pre', $PrePowerShell.ScopedTree)
+  Add-CanonicalEvidenceRecord $Lines @('scoped_tree_post', $PostPowerShell.ScopedTree)
+  Add-CanonicalEvidenceRecord $Lines @('complete_tree_pre', $PrePowerShell.CompleteTree)
+  Add-CanonicalEvidenceRecord $Lines @('complete_tree_post', $PostPowerShell.CompleteTree)
+  Add-CanonicalEvidenceRecord $Lines @('executable', $PowerShellExecutable)
+  Add-CanonicalEvidenceRecord $Lines @(
+    'exact_command',
+    "$PowerShellExecutable $($Arguments -join ' ')"
+  )
+  Add-CanonicalEvidenceRecord $Lines @('argument_count', $Arguments.Count)
+  for ($Index = 0; $Index -lt $Arguments.Count; $Index += 1) {
+    Add-CanonicalEvidenceRecord $Lines @('argument', ('{0:D4}' -f ($Index + 1)), $Arguments[$Index])
+  }
+  Add-CanonicalEvidenceRecord $Lines @('working_directory', $RepoRoot)
+  Add-CanonicalEvidenceRecord $Lines @('tool', 'cargo', $Cargo, $CargoVersion)
+  Add-CanonicalEvidenceRecord $Lines @('tool', 'rustc', $Rustc, $RustcVersion)
+  Add-CanonicalEvidenceRecord $Lines @('tool', 'git', $Git, $GitVersion)
+  Add-CanonicalEvidenceRecord $Lines @('tool', 'powershell', $PowerShellExecutable, $PowerShellVersion)
+  Add-CanonicalEvidenceRecord $Lines @('platform_os', $Platform.OsDescription)
+  Add-CanonicalEvidenceRecord $Lines @('platform_architecture', $Platform.ProcessArchitecture)
+  Add-CanonicalEvidenceRecord $Lines @('target_directory', $TargetDirectory)
+  Add-CanonicalEvidenceRecord $Lines @('selector', $Metrics.Selector)
+  Add-CanonicalEvidenceRecord $Lines @('selected_passed', 1, 1)
+  Add-CanonicalEvidenceRecord $Lines @('pair_counts', 630, 4950, 8646, 14226)
+  Add-CanonicalEvidenceRecord $Lines @('configuration_id', $Metrics.ConfigurationId)
+  Add-CanonicalEvidenceRecord $Lines @(
+    'utc_start',
+    $Producer.StartedUtc.ToString('O', [System.Globalization.CultureInfo]::InvariantCulture)
+  )
+  Add-CanonicalEvidenceRecord $Lines @(
+    'utc_end',
+    $Producer.CompletedUtc.ToString('O', [System.Globalization.CultureInfo]::InvariantCulture)
+  )
+  Add-CanonicalEvidenceRecord $Lines @('producer_elapsed_microseconds', $Producer.ElapsedMicroseconds)
+  Add-CanonicalEvidenceRecord $Lines @('exit_code', $Producer.ExitCode)
+  Add-CanonicalEvidenceRecord $Lines @('stdout_length', $Producer.StdoutLength)
+  Add-CanonicalEvidenceRecord $Lines @('stdout_sha256', $Producer.StdoutSha256)
+  Add-CanonicalEvidenceRecord $Lines @('stderr_length', $Producer.StderrLength)
+  Add-CanonicalEvidenceRecord $Lines @('stderr_sha256', $Producer.StderrSha256)
+  Add-CanonicalEvidenceRecord $Lines @('metrics', $MetricsPath, $Metrics.Length, $Metrics.Sha256)
+  Add-CanonicalEvidenceRecord $Lines @('real_object_inventory_sha256', $ObjectInventories[0])
+  Add-CanonicalEvidenceRecord $Lines @('real_object_inventory_equal', 'true')
+  Add-CanonicalEvidenceRecord $Lines @('proof_cleanup', 'true')
+  Write-Utf8LfFile $TranscriptPath (($Lines -join "`n") + "`n")
+  $TranscriptSha256 = Get-FileSha256Hex $TranscriptPath
+  Write-Utf8LfFile $TranscriptDigestPath ("$TranscriptSha256`tproducer.transcript`n")
+  Copy-RawArtifactToConsole $StdoutPath $false
+  Copy-RawArtifactToConsole $StderrPath $true
+  Write-Host "Unit 1 Exhaustive evidence root: $EvidenceRoot"
+  Write-Host "Unit 1 Exhaustive candidate manifest SHA-256: $($PrePowerShell.ManifestSha256)"
+  Write-Host "Unit 1 Exhaustive scoped tree: $($PrePowerShell.ScopedTree)"
+  Write-Host "Unit 1 Exhaustive complete tree: $($PrePowerShell.CompleteTree)"
+  Write-Host "Unit 1 Exhaustive producer transcript SHA-256: $TranscriptSha256"
+  if ($Producer.ExitCode -ne 0) {
+    throw "Unit 1 terminal Exhaustive producer failed with exit code $($Producer.ExitCode)"
+  }
+}
+
+if ($EvidenceTier -eq 'Exhaustive') {
+  if ($env:HUM_UNIT1_EXHAUSTIVE_INNER -ceq '1') {
+    Invoke-Unit1ExhaustiveInnerProducer $Actor
+  } else {
+    Invoke-Unit1ExhaustiveProducerEnvelope $Actor
+  }
+  return
+}
+if ($EvidenceTier -cne 'Fast') {
+  throw "unsupported evidence-tier fallthrough: $EvidenceTier"
+}
+if ($env:HUM_UNIT1_FAST_INNER -cne '1') {
+  Invoke-Unit1FastProducerEnvelope $Actor
+  return
+}
+$Actor = Assert-Unit1ActorBinding $Actor $env:HUM_UNIT1_ACTOR
+$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'fast'
+if ($env:HUM_UNIT1_EVIDENCE_MODE -cne 'optimized') {
+  throw 'inner Fast requires HUM_UNIT1_EVIDENCE_MODE=optimized'
+}
+if ([string]::IsNullOrWhiteSpace($env:HUM_UNIT1_FAST_EVIDENCE_ROOT) -or
+    -not (Test-FullyQualifiedPath $env:HUM_UNIT1_FAST_EVIDENCE_ROOT) -or
+    -not (Test-Path -LiteralPath $env:HUM_UNIT1_FAST_EVIDENCE_ROOT -PathType Container)) {
+  throw 'inner Fast requires an existing absolute external evidence root'
+}
+$FastInnerEvidenceRoot = (Resolve-Path -LiteralPath $env:HUM_UNIT1_FAST_EVIDENCE_ROOT).Path
+if ((Test-PathSameOrInside $FastInnerEvidenceRoot $RepoRoot) -or
+    (Test-PathSameOrInside $RepoRoot $FastInnerEvidenceRoot)) {
+  throw 'inner Fast evidence root overlaps the repository'
+}
+if ([string]::IsNullOrWhiteSpace($env:HUM_UNIT1_FAST_METRICS_PATH) -or
+    -not (Test-FullyQualifiedPath $env:HUM_UNIT1_FAST_METRICS_PATH) -or
+    (Split-Path -Parent ([System.IO.Path]::GetFullPath($env:HUM_UNIT1_FAST_METRICS_PATH))) -cne
+      $FastInnerEvidenceRoot -or
+    (Test-Path -LiteralPath $env:HUM_UNIT1_FAST_METRICS_PATH)) {
+  throw 'inner Fast metrics path must be newly absent directly inside the external evidence root'
+}
+$FastInnerStartedUtc = [DateTimeOffset]::UtcNow
+$FastInnerOriginTimestamp = [System.Diagnostics.Stopwatch]::GetTimestamp()
+$FastInnerClock = [System.Diagnostics.Stopwatch]::StartNew()
+$FastReadinessStartUs = 0L
+
 Push-Location $RepoRoot
 try {
   Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
@@ -301,7 +4105,7 @@ try {
   foreach ($ExhaustiveDispatchArm in @(
     'if ($EvidenceTier -eq ''Exhaustive'') {',
     '$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = ''exhaustive''',
-    'if ($EvidenceTier -ne ''Fast'') {',
+    'if ($EvidenceTier -cne ''Fast'') {',
     'throw "unsupported evidence-tier fallthrough: $EvidenceTier"',
     '$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = ''fast'''
   )) {
@@ -323,15 +4127,105 @@ try {
     }
   }
   Invoke-ExactRustSelectorSelfTests $Cargo
+  Disable-RootRustTestCredit
   Reset-ExactRustSelectorCredits
   Invoke-Native 'cargo fmt --check' $Cargo @('fmt', '--check')
-  Invoke-Native 'cargo test' $Cargo @('test')
+  $FastReadinessEndUs = Get-ElapsedMicroseconds $FastInnerClock
+  $FastBuildStartUs = $FastReadinessEndUs
+  Invoke-Native 'cargo build before the default root test producer' $Cargo @('build')
+  $FastBuildEndUs = Get-ElapsedMicroseconds $FastInnerClock
+  $FastConfigurationStartUs = $FastBuildEndUs
+
+  $HumName = if ($env:OS -eq 'Windows_NT') { 'hum.exe' } else { 'hum' }
+  $Hum = Join-Path (Join-Path $env:HUM_UNIT1_TARGET_DIRECTORY 'debug') $HumName
+  if (-not (Test-Path -LiteralPath $Hum -PathType Leaf)) {
+    throw "built Hum candidate is unavailable: $Hum"
+  }
+  if ([string]::IsNullOrWhiteSpace($env:HUM_UNIT1_METRICS_PATH) -or
+      -not (Test-FullyQualifiedPath $env:HUM_UNIT1_METRICS_PATH)) {
+    throw 'Fast requires an absolute external HUM_UNIT1_METRICS_PATH'
+  }
+  $MetricsParent = Split-Path -Parent $env:HUM_UNIT1_METRICS_PATH
+  if (-not (Test-Path -LiteralPath $MetricsParent -PathType Container) -or
+      $env:HUM_UNIT1_METRICS_PATH.StartsWith($RepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Fast metrics parent must already exist outside the repository'
+  }
+  $env:HUM_UNIT1_PRODUCT_EXE = (Resolve-Path -LiteralPath $Hum).Path
+  Enable-HumProductProcessLedger $Hum
+  foreach ($BindingName in @(
+    'HUM_UNIT1_ACTOR',
+    'HUM_UNIT1_BASE',
+    'HUM_UNIT1_COMPLETE_TREE',
+    'HUM_UNIT1_ENVIRONMENT_IDENTITY',
+    'HUM_UNIT1_FULL_PROCESS_LEDGER_PATH',
+    'HUM_UNIT1_MANIFEST_SHA256',
+    'HUM_UNIT1_SCOPED_TREE',
+    'HUM_UNIT1_SELECTOR_LEDGER_PATH',
+    'HUM_UNIT1_SLICE_PROCESS_LEDGER_PATH',
+    'HUM_UNIT1_TARGET_DIRECTORY',
+    'HUM_UNIT1_TOOLCHAIN_IDENTITY'
+  )) {
+    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($BindingName))) {
+      throw "Fast lost required manifest-qualified evidence binding $BindingName"
+    }
+  }
+
+  $Unit1Selector = 'validation_corpus::tests::work_order_11_unit_1_fixed_slice_reference_optimized_pair_is_load_bearing'
+  $ExhaustiveSelector = 'parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero'
+  $FastRootSelectors = @(
+    Get-GuardedFastSelectorInventory (Join-Path $PSScriptRoot 'check_all.ps1') $ExhaustiveSelector
+  )
+  $BaseFastRootSelectors = @($FastRootSelectors | Where-Object { $_ -cne $Unit1Selector })
+  $BaseInventoryBytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes(
+    ($BaseFastRootSelectors -join "`n") + "`n"
+  )
+  $BaseInventorySha256 = Get-Sha256Hex $BaseInventoryBytes
+  if ($FastRootSelectors.Count -ne 91 -or
+      @($FastRootSelectors | Sort-Object -Unique).Count -ne 91 -or
+      @($FastRootSelectors | Where-Object { $_ -ceq $Unit1Selector }).Count -ne 1 -or
+      $BaseFastRootSelectors.Count -ne 90 -or
+      $BaseInventorySha256 -cne 'a343dead604e3fd12af1840a6ec002c5ff53131362b39990cd613047b1a62fd7') {
+    throw "guarded Fast selector inventory is not clean main's ordered 90-name set plus the one reviewed Unit 1 selector"
+  }
+  Set-ExactRustEvidenceConfiguration ([ordered] @{
+    Executable = (Resolve-Path -LiteralPath $Cargo).Path
+    Toolchain = $env:HUM_UNIT1_TOOLCHAIN_IDENTITY
+    RepositoryCommit = $env:HUM_UNIT1_BASE
+    DirtyManifestSha256 = $env:HUM_UNIT1_MANIFEST_SHA256
+    WorkingDirectory = (Resolve-Path -LiteralPath $RepoRoot).Path
+    Package = 'hum-lang'
+    Manifest = (Resolve-Path -LiteralPath (Join-Path $RepoRoot 'Cargo.toml')).Path
+    Target = 'default package test targets'
+    TargetDirectory = $env:HUM_UNIT1_TARGET_DIRECTORY
+    Features = 'default'
+    DefaultFeatures = 'enabled'
+    Profile = 'test'
+    Environment = "$($env:HUM_UNIT1_ENVIRONMENT_IDENTITY);actor=$Actor"
+    EvidenceTier = 'fast'
+    TestFilter = 'none (full default root suite)'
+    IgnoredState = 'default: ignored tests do not execute'
+    Harness = 'cargo test -- --list followed by cargo test'
+    SourcesAndOrder = "complete_tree=$($env:HUM_UNIT1_COMPLETE_TREE);Cargo.toml,Cargo.lock,src/**,fixtures/**,examples/** in Cargo discovery order"
+    Platform = "os=$([System.Environment]::OSVersion.VersionString);architecture=$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)"
+    AdaptersAndAuthority = 'test-owned adapters; fixed-corpus runtime uses fresh output/replay/file/locality/grant state'
+  })
+  Enable-RootRustTestCredit $FastRootSelectors
+  $FastConfigurationEndUs = Get-ElapsedMicroseconds $FastInnerClock
+  $FastRootSuiteStartUs = Get-ElapsedMicroseconds $FastInnerClock
+  $RootRustProducer = Invoke-RootRustTestProducer 'one default root Rust suite' $Cargo
+  $FastRootSuiteEndUs = Get-ElapsedMicroseconds $FastInnerClock
+
   Invoke-ExactRustTest 'canonical diagnostic registry/projection test' $Cargo 'diagnostic_catalog::tests::canonical_registry_and_checked_projections_are_valid'
+  Invoke-ExactRustTest 'Work Order 11 Unit 1 paired Reference/Optimized fixed corpus' $Cargo 'validation_corpus::tests::work_order_11_unit_1_fixed_slice_reference_optimized_pair_is_load_bearing'
+  $FastSpecialTestsStartUs = Get-ElapsedMicroseconds $FastInnerClock
   Invoke-Native 'Windows drive locality adapter tests' $Cargo @('test', '-p', 'windows-drive-locality')
   Invoke-Native 'effect bake-off corpus harness tests' $Cargo @('test', '--manifest-path', 'experiments/effect-bakeoff/Cargo.toml', '--target-dir', 'target/effect-bakeoff')
+  $FastSpecialTestsEndUs = Get-ElapsedMicroseconds $FastInnerClock
+  $FastClippyStartUs = $FastSpecialTestsEndUs
   Invoke-Native 'cargo clippy' $Cargo @('clippy', '--all-targets', '--', '-D', 'warnings')
   Invoke-Native 'Windows drive locality adapter clippy' $Cargo @('clippy', '-p', 'windows-drive-locality', '--all-targets', '--', '-D', 'warnings')
-  Invoke-Native 'cargo build' $Cargo @('build')
+  $FastClippyEndUs = Get-ElapsedMicroseconds $FastInnerClock
+  $FastRemainingCorpusStartUs = $FastClippyEndUs
 
   $MainSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/main.rs'))
   if (-not $MainSource.StartsWith('#![forbid(unsafe_code)]')) { throw 'Session AC main crate must retain forbid(unsafe_code)' }
@@ -346,9 +4240,6 @@ try {
   foreach ($Forbidden in @('std::fs', 'File::open', 'OpenOptions', 'canonicalize(', 'metadata(', 'read_to_', 'std::process', 'std::env', 'Command::', 'RegOpenKey', 'WMI', 'CoCreateInstance', 'SetupDi', 'LoadLibrary', 'GetProcAddress', 'WinHttp', 'WinSock', 'VendorIdOffset', 'ProductIdOffset')) {
     if ($LocalitySource.Contains($Forbidden)) { throw "Session AC locality adapter contains forbidden host surface: $Forbidden" }
   }
-
-  $HumName = if ($env:OS -eq 'Windows_NT') { 'hum.exe' } else { 'hum' }
-  $Hum = Join-Path (Join-Path (Join-Path $RepoRoot 'target') 'debug') $HumName
 
   Write-Host '==> Increment 10A canonical syntax and string-aware scope matrix'
   foreach ($EvidenceTest in @(
@@ -1122,8 +5013,20 @@ task malformed() -> UInt {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 90 -or $UniqueExactRustSelectorCredits.Count -ne 90) { throw "exact Rust selector inventory must credit 90 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  Assert-RootRustTestCreditsComplete
+  if ($ExactRustSelectorCredits.Count -ne 91 -or
+      $UniqueExactRustSelectorCredits.Count -ne 91 -or
+      $RootRustProducer.DeclaredSelectors -ne 91 -or
+      $RootRustProducer.ListedSelectors -ne 91 -or
+      $RootRustProducer.ExecutedSelectors -ne 91) {
+    throw "exact Rust selector inventory must declare, list, execute, and credit 91 unique tests; credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests"
+  }
+  if ($ExactRustSelectorCredits -notcontains $Unit1Selector) { throw 'exact Rust selector inventory lost the Work Order 11 Unit 1 fixed-corpus test' }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
+  Write-ExactRustSelectorLedger `
+    $env:HUM_UNIT1_SELECTOR_LEDGER_PATH `
+    $RootRustProducer `
+    $ExactRustSelectorCredits.Count
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
   if ($ApForbiddenFallbacks.Count -ne 0) { throw 'Session AP production source must not reconstruct occurrences from codes or public diagnostics' }
@@ -1227,20 +5130,6 @@ task malformed() -> UInt {
     }
   }
 
-  $ApTypeChain = 'fixtures/diagnostics/session_ap_prior_blocker_chain_fail.hum'
-  foreach ($Stage in @('type-check', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'profile-check')) {
-    foreach ($Format in @('human', 'json')) {
-      $Args = @($Stage, $ApTypeChain)
-      if ($Format -eq 'json') { $Args = @($Stage, '--format', 'json', $ApTypeChain) }
-      $Projection = Read-NativeOutputWithExit "Session AP H0605 blocker chain $Stage $Format" $Hum $Args
-      if ($Projection.ExitCode -ne 1) { throw "Session AP H0605 prior blocker must keep $Stage blocked in $Format" }
-      if ($Format -eq 'json') { Assert-Json "Session AP H0605 blocker chain $Stage JSON" $Projection.Output }
-      foreach ($PrivateField in @('occurrence_id', 'cause_key', 'semantic_owner', 'owning_stage', 'semantic_origin', 'relationship_route')) {
-        if ($Projection.Output.Contains($PrivateField)) { throw "Session AP internal field leaked publicly: $PrivateField" }
-      }
-    }
-  }
-
   $ApEffectOwnershipFixture = 'fixtures/diagnostics/session_ap_effect_ownership_precedence_fail.hum'
   $ApEffectOwnership = Read-NativeOutputWithExit 'Session AP effect/ownership owner' $Hum @('effect-check', $ApEffectOwnershipFixture)
   if ($ApEffectOwnership.ExitCode -ne 1 -or [regex]::Matches($ApEffectOwnership.Output, 'H0907').Count -ne 1 -or $ApEffectOwnership.Output.Contains('H0801')) { throw 'Session AP H0907 must own the effect/ownership combined cause' }
@@ -1252,7 +5141,7 @@ task malformed() -> UInt {
     if ($Projection.ExitCode -ne 1 -or -not $Projection.Output.Contains('blocked_by_')) { throw "Session AP ownership blocker must propagate through $Stage" }
   }
 
-  foreach ($GraphFixture in @($ApParser, $ApSameLine, $ApTypeChain, $ApEffectOwnershipFixture, $ApOwnership)) {
+  foreach ($GraphFixture in @($ApParser, $ApSameLine, $ApEffectOwnershipFixture, $ApOwnership)) {
     $Projection = Read-NativeOutputWithExit "Session AP authoritative graph projection $GraphFixture" $Hum @('graph', $GraphFixture)
     Assert-Json "Session AP authoritative graph projection $GraphFixture" $Projection.Output
     if ($Projection.Output.Contains('occurrence_id') -or $Projection.Output.Contains('cause_key')) { throw 'Session AP graph projection leaked private diagnostic identity' }
@@ -2433,23 +6322,9 @@ task malformed() -> UInt {
   if ($RunSessionYPureEntry.ExitCode -ne 0 -or $RunSessionYPureEntry.Output.Trim() -ne '()') { throw 'Session Y must preserve pure direct --entry behavior' }
 
   $SessionZPositive = 'examples/probes/bounded_stdout.hum'
-  foreach ($Command in @('resolve', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
-    $Surface = Read-NativeOutput "Session Z $Command positive" $Hum @($Command, '--format', 'json', $SessionZPositive)
-    Assert-Json "Session Z $Command positive" $Surface
-  }
-  $SessionZGraph = Read-NativeOutput 'Session Z graph positive' $Hum @('graph', $SessionZPositive)
-  Assert-Json 'Session Z graph positive' $SessionZGraph
-  $SessionZAllow = Read-NativeChannelsWithExit 'run Session Z exact allow' $Hum @('run', $SessionZPositive, '--allow', 'stdout.write', '--args', 'hello')
-  if ($SessionZAllow.ExitCode -ne 0 -or $SessionZAllow.Stdout -ne 'hello' -or $SessionZAllow.Stderr -ne '') { throw 'Session Z exact allow must write only exact bytes with no newline or diagnostic channel output' }
-  if ($IsWindows) {
-    $SessionZWindowsPath = 'examples\probes\bounded_stdout.hum'
-    $SessionZWindowsAllow = Read-NativeChannelsWithExit 'run Session Z Windows separator identity' $Hum @('run', $SessionZWindowsPath, '--allow', 'stdout.write', '--args', 'hello')
-    if ($SessionZWindowsAllow.ExitCode -ne $SessionZAllow.ExitCode -or $SessionZWindowsAllow.Stdout -ne $SessionZAllow.Stdout -or $SessionZWindowsAllow.Stderr -ne $SessionZAllow.Stderr) { throw 'Session Z forward-slash and backslash source paths must select the same output policy and channels' }
-  }
   $SessionZDuplicateAllow = Read-NativeChannelsWithExit 'run Session Z duplicate allow' $Hum @('run', $SessionZPositive, '--allow', 'stdout.write', '--allow=stdout.write', '--args', 'hello')
   if ($SessionZDuplicateAllow.ExitCode -ne 0 -or $SessionZDuplicateAllow.Stdout -ne 'hello' -or $SessionZDuplicateAllow.Stderr -ne '') { throw 'Session Z duplicate exact allows must be idempotent' }
   foreach ($Denied in @(
-    @{ Name = 'default deny'; Args = @('run', $SessionZPositive, '--args', 'blocked') },
     @{ Name = 'explicit deny'; Args = @('run', $SessionZPositive, '--deny', 'stdout.write', '--args', 'blocked') },
     @{ Name = 'deny overrides allow'; Args = @('run', $SessionZPositive, '--allow', 'stdout.write', '--deny', 'stdout.write', '--args', 'blocked') }
   )) {
@@ -3774,9 +7649,313 @@ task malformed() -> UInt {
   if (-not $LegendsResearchText.Contains('portability-boundary')) { throw 'Systems legends research note is missing portability boundary consequence' }
   if (-not $ResearchMapText.Contains('Systems Legends And Durable Taste')) { throw 'research map is missing systems legends cluster' }
 
+  $FastRemainingCorpusEndUs = Get-ElapsedMicroseconds $FastInnerClock
+  $FastDocumentReadinessStartUs = $FastRemainingCorpusEndUs
   Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
   Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'
   Invoke-RepoScript 'release readiness' 'check_release_readiness.ps1'
+  $FastDocumentReadinessEndUs = Get-ElapsedMicroseconds $FastInnerClock
+  $FastMetricsFinalizationStartUs = $FastDocumentReadinessEndUs
+
+  $InnerSliceMetrics = Read-And-ValidateUnit1SliceMetrics $env:HUM_UNIT1_METRICS_PATH
+  $InnerSliceMetricsSha256 = Get-FileSha256Hex $env:HUM_UNIT1_METRICS_PATH
+  $InnerSelectorLedger = Read-And-ValidateExactRustSelectorLedger `
+    $env:HUM_UNIT1_SELECTOR_LEDGER_PATH `
+    91 `
+    $env:HUM_UNIT1_MANIFEST_SHA256
+  $InnerFullProcessLedger = Write-FullFastProductProcessLedger `
+    $env:HUM_UNIT1_FULL_PROCESS_LEDGER_PATH `
+    $env:HUM_UNIT1_SLICE_PROCESS_LEDGER_PATH `
+    $InnerSliceMetrics `
+    @(Get-HumProductProcessRecords) `
+    $FastInnerOriginTimestamp `
+    $FastRemainingCorpusStartUs `
+    $FastRemainingCorpusEndUs
+  $RootListingStartUs = Convert-StopwatchTimestampToMicroseconds `
+    $RootRustProducer.ListingStartTimestamp `
+    $FastInnerOriginTimestamp
+  $RootListingEndUs = Convert-StopwatchTimestampToMicroseconds `
+    $RootRustProducer.ListingEndTimestamp `
+    $FastInnerOriginTimestamp
+  $RootExecutionStartUs = Convert-StopwatchTimestampToMicroseconds `
+    $RootRustProducer.ExecutionStartTimestamp `
+    $FastInnerOriginTimestamp
+  $RootExecutionEndUs = Convert-StopwatchTimestampToMicroseconds `
+    $RootRustProducer.ExecutionEndTimestamp `
+    $FastInnerOriginTimestamp
+  $RootVerificationStartUs = Convert-StopwatchTimestampToMicroseconds `
+    $RootRustProducer.VerificationStartTimestamp `
+    $FastInnerOriginTimestamp
+  $RootVerificationEndUs = Convert-StopwatchTimestampToMicroseconds `
+    $RootRustProducer.VerificationEndTimestamp `
+    $FastInnerOriginTimestamp
+  if ($RootListingStartUs -lt $FastRootSuiteStartUs -or
+      $RootListingEndUs -gt $FastRootSuiteEndUs -or
+      $RootExecutionStartUs -lt $RootListingEndUs -or
+      $RootExecutionEndUs -gt $RootVerificationStartUs -or
+      $RootVerificationEndUs -gt $FastRootSuiteEndUs) {
+    throw 'inner Fast root listing/execution/selector-verification offsets do not nest'
+  }
+  $FastMetricsFinalizationEndUs = Get-ElapsedMicroseconds $FastInnerClock
+  $FastInnerClock.Stop()
+  $FastInnerCompletedUtc = [DateTimeOffset]::UtcNow
+  $RootSuiteInclusiveUs = $FastRootSuiteEndUs - $FastRootSuiteStartUs
+  $RootSuiteChildrenUs =
+    ($RootListingEndUs - $RootListingStartUs) +
+    ($RootExecutionEndUs - $RootExecutionStartUs) +
+    ($RootVerificationEndUs - $RootVerificationStartUs)
+  $RootSuiteExclusiveUs = $RootSuiteInclusiveUs - $RootSuiteChildrenUs
+  $TopLevelInclusiveUs =
+    ($FastReadinessEndUs - $FastReadinessStartUs) +
+    ($FastBuildEndUs - $FastBuildStartUs) +
+    ($FastConfigurationEndUs - $FastConfigurationStartUs) +
+    $RootSuiteInclusiveUs +
+    ($FastSpecialTestsEndUs - $FastSpecialTestsStartUs) +
+    ($FastClippyEndUs - $FastClippyStartUs) +
+    ($FastRemainingCorpusEndUs - $FastRemainingCorpusStartUs) +
+    ($FastDocumentReadinessEndUs - $FastDocumentReadinessStartUs) +
+    ($FastMetricsFinalizationEndUs - $FastMetricsFinalizationStartUs)
+  $FastInnerExclusiveUs = $FastMetricsFinalizationEndUs - $TopLevelInclusiveUs
+  if ($RootSuiteExclusiveUs -lt 0 -or $FastInnerExclusiveUs -lt 0) {
+    throw 'inner Fast phase exclusive time became negative'
+  }
+  $ExecutionStartedUnixUs = [int64] (
+    ($RootRustProducer.ExecutionStartedUtc.UtcDateTime.Ticks -
+      [DateTime]::UnixEpoch.Ticks) / 10
+  )
+  $SliceTestStartUs =
+    $RootExecutionStartUs +
+    ([int64] $InnerSliceMetrics.timeline.test_started_unix_us - $ExecutionStartedUnixUs)
+  $ReferenceStartUs =
+    $SliceTestStartUs + [int64] $InnerSliceMetrics.timeline.reference_start_us
+  $ReferenceEndUs =
+    $SliceTestStartUs + [int64] $InnerSliceMetrics.timeline.reference_end_us
+  $OptimizedStartUs =
+    $SliceTestStartUs + [int64] $InnerSliceMetrics.timeline.optimized_start_us
+  $OptimizedEndUs =
+    $SliceTestStartUs + [int64] $InnerSliceMetrics.timeline.optimized_end_us
+  if ($ReferenceStartUs -lt $RootExecutionStartUs -or
+      $ReferenceEndUs -gt $OptimizedStartUs -or
+      $OptimizedEndUs -gt $RootExecutionEndUs) {
+    throw 'fixed-slice UTC/monotonic timeline does not nest in the captured root execution'
+  }
+
+  $PhaseObjects = New-Object 'System.Collections.Generic.List[object]'
+  Add-Unit1Phase $PhaseObjects 'fast-inner' 'root' 1 0L $FastMetricsFinalizationEndUs $FastInnerExclusiveUs
+  Add-Unit1Phase $PhaseObjects 'dependency-toolchain-readiness' 'fast-inner' 1 $FastReadinessStartUs $FastReadinessEndUs ($FastReadinessEndUs - $FastReadinessStartUs)
+  Add-Unit1Phase $PhaseObjects 'build-and-prebuild' 'fast-inner' 1 $FastBuildStartUs $FastBuildEndUs ($FastBuildEndUs - $FastBuildStartUs)
+  Add-Unit1Phase $PhaseObjects 'manifest-mode-configuration-binding' 'fast-inner' 1 $FastConfigurationStartUs $FastConfigurationEndUs ($FastConfigurationEndUs - $FastConfigurationStartUs)
+  Add-Unit1Phase $PhaseObjects 'root-suite' 'fast-inner' 1 $FastRootSuiteStartUs $FastRootSuiteEndUs $RootSuiteExclusiveUs
+  Add-Unit1Phase $PhaseObjects 'root-suite-listing' 'root-suite' 1 $RootListingStartUs $RootListingEndUs ($RootListingEndUs - $RootListingStartUs)
+  $RootExecutionChildrenUs =
+    ($ReferenceEndUs - $ReferenceStartUs) +
+    ($OptimizedEndUs - $OptimizedStartUs)
+  Add-Unit1Phase $PhaseObjects 'root-suite-execution' 'root-suite' 1 $RootExecutionStartUs $RootExecutionEndUs (($RootExecutionEndUs - $RootExecutionStartUs) - $RootExecutionChildrenUs)
+  Add-Unit1SlicePolicyPhases $PhaseObjects 'reference' $InnerSliceMetrics.reference $ReferenceStartUs $ReferenceEndUs
+  Add-Unit1SlicePolicyPhases $PhaseObjects 'optimized' $InnerSliceMetrics.optimized $OptimizedStartUs $OptimizedEndUs
+  Add-Unit1Phase $PhaseObjects 'guarded-selector-verification' 'root-suite' 91 $RootVerificationStartUs $RootVerificationEndUs ($RootVerificationEndUs - $RootVerificationStartUs)
+  Add-Unit1Phase $PhaseObjects 'special-package-and-alternate-manifest-tests' 'fast-inner' 2 $FastSpecialTestsStartUs $FastSpecialTestsEndUs ($FastSpecialTestsEndUs - $FastSpecialTestsStartUs)
+  Add-Unit1Phase $PhaseObjects 'clippy-all-targets' 'fast-inner' 2 $FastClippyStartUs $FastClippyEndUs ($FastClippyEndUs - $FastClippyStartUs)
+  Add-Unit1Phase $PhaseObjects 'remaining-product-process-corpus' 'fast-inner' 1 $FastRemainingCorpusStartUs $FastRemainingCorpusEndUs ($FastRemainingCorpusEndUs - $FastRemainingCorpusStartUs)
+  Add-Unit1Phase $PhaseObjects 'text-public-release-readiness' 'fast-inner' 3 $FastDocumentReadinessStartUs $FastDocumentReadinessEndUs ($FastDocumentReadinessEndUs - $FastDocumentReadinessStartUs)
+  Add-Unit1Phase $PhaseObjects 'transcript-metrics-finalization' 'fast-inner' 1 $FastMetricsFinalizationStartUs $FastMetricsFinalizationEndUs 0
+  Add-Unit1Phase $PhaseObjects 'measurement-and-orchestration-overhead' 'transcript-metrics-finalization' 1 $FastMetricsFinalizationStartUs $FastMetricsFinalizationEndUs ($FastMetricsFinalizationEndUs - $FastMetricsFinalizationStartUs)
+  $InnerPhaseRows = New-Object 'System.Collections.Generic.List[object]'
+  for ($Index = 0; $Index -lt $PhaseObjects.Count; $Index += 1) {
+    $Phase = $PhaseObjects[$Index]
+    $InnerPhaseRows.Add(@(
+      ('{0:D4}' -f ($Index + 1)),
+      $Phase.Id,
+      $Phase.Parent,
+      $Phase.Invocations,
+      $Phase.StartUs,
+      $Phase.EndUs,
+      $Phase.InclusiveUs,
+      $Phase.ExclusiveUs,
+      $Phase.Status
+    ))
+  }
+  $InnerMetricLines = New-Object 'System.Collections.Generic.List[string]'
+  Add-CanonicalEvidenceRecord $InnerMetricLines @('hum-workorder11-unit1-fast-metrics-v1')
+  Add-CanonicalEvidenceRecord $InnerMetricLines @('mode', 'optimized')
+  Add-CanonicalEvidenceRecord $InnerMetricLines @('evidence_tier', 'fast')
+  Add-CanonicalEvidenceRecord $InnerMetricLines @('full_fast_wall_us', $FastMetricsFinalizationEndUs)
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'inner_clock',
+    [int64] (
+      ($FastInnerStartedUtc.UtcDateTime.Ticks - [DateTime]::UnixEpoch.Ticks) / 10
+    ),
+    [int64] (
+      ($FastInnerCompletedUtc.UtcDateTime.Ticks - [DateTime]::UnixEpoch.Ticks) / 10
+    ),
+    $FastMetricsFinalizationEndUs
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'guarded_selectors',
+    $RootRustProducer.DeclaredSelectors,
+    $RootRustProducer.ListedSelectors,
+    $RootRustProducer.ExecutedSelectors,
+    $ExactRustSelectorCredits.Count
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'root_suite_us',
+    $RootRustProducer.ListingMicroseconds,
+    $RootRustProducer.ExecutionMicroseconds
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'selector_ledger',
+    $InnerSelectorLedger.Count,
+    $InnerSelectorLedger.Length,
+    $InnerSelectorLedger.Sha256,
+    $InnerSelectorLedger.TupleId
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'full_fast_product_processes',
+    $InnerFullProcessLedger.Total,
+    $InnerFullProcessLedger.Slice,
+    $InnerFullProcessLedger.PowerShell,
+    $InnerFullProcessLedger.Length,
+    $InnerFullProcessLedger.Sha256
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'slice_metrics',
+    (Get-Item -LiteralPath $env:HUM_UNIT1_METRICS_PATH).Length,
+    $InnerSliceMetricsSha256
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'slice_wall_us',
+    [int64] $InnerSliceMetrics.reference.wall_us,
+    [int64] $InnerSliceMetrics.optimized.wall_us
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'slice_ratio',
+    ([double] $InnerSliceMetrics.ratio).ToString(
+      '0.000000',
+      [System.Globalization.CultureInfo]::InvariantCulture
+    )
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'conclusions',
+    [int64] $InnerSliceMetrics.conclusions.expected,
+    [int64] $InnerSliceMetrics.conclusions.reference_produced,
+    [int64] $InnerSliceMetrics.conclusions.optimized_produced,
+    [int64] $InnerSliceMetrics.conclusions.passed,
+    [int64] $InnerSliceMetrics.conclusions.failed
+  )
+  $SliceCountNames = @(
+    'product_invocations',
+    'migrated_product_invocations',
+    'source_identities',
+    'source_reads',
+    'parses',
+    'initial_checks',
+    'static_requests',
+    'cacheable_requests',
+    'non_cacheable_requests',
+    'substantive_computations',
+    'cache_lookups',
+    'cache_hits',
+    'cache_misses',
+    'cache_entries_constructed',
+    'cache_reuses',
+    'runtime_requests',
+    'runtime_executions',
+    'runtime_result_cache_hits',
+    'sentinels',
+    'stdout_parity',
+    'stderr_parity',
+    'exit_parity',
+    'human_parity',
+    'json_parity',
+    'mutation_controls',
+    'traceability_rows'
+  )
+  $SlicePhaseNames = @(
+    'readiness_setup_us',
+    'manifest_binding_us',
+    'build_prebuild_us',
+    'root_listing_us',
+    'root_execution_us',
+    'package_manifest_tests_us',
+    'selector_verification_us',
+    'document_readiness_us',
+    'remaining_product_process_corpus_us',
+    'reusable_corpus_construction_us',
+    'source_reads_us',
+    'parse_us',
+    'initial_check_us',
+    'substantive_static_analysis_us',
+    'cache_lookup_us',
+    'cache_hit_us',
+    'cache_miss_us',
+    'cache_entry_construction_us',
+    'cache_reuse_us',
+    'fresh_runtime_execution_us',
+    'parity_corruption_isolation_us',
+    'transcript_finalization_us',
+    'cleanup_us',
+    'orchestration_overhead_us'
+  )
+  foreach ($PolicyName in @('reference', 'optimized')) {
+    $PolicyMetrics = $InnerSliceMetrics.$PolicyName
+    foreach ($MetricName in $SliceCountNames) {
+      Add-CanonicalEvidenceRecord $InnerMetricLines @(
+        "metric.$PolicyName.$MetricName",
+        [int64] $PolicyMetrics.$MetricName
+      )
+    }
+    foreach ($PhaseName in $SlicePhaseNames) {
+      Add-CanonicalEvidenceRecord $InnerMetricLines @(
+        "slice_phase.$PolicyName.$PhaseName",
+        [int64] $PolicyMetrics.phases.$PhaseName
+      )
+    }
+  }
+  foreach ($DeltaName in @(
+    'equivalent_product_process_deduplication',
+    'source_read_parse_initial_check',
+    'substantive_static_reuse',
+    'assertion_manifest_orchestration'
+  )) {
+    Add-CanonicalEvidenceRecord $InnerMetricLines @(
+      "delta_attribution_us.$DeltaName",
+      [int64] $InnerSliceMetrics.delta_attribution_us.$DeltaName
+    )
+  }
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'orchestration_overhead_us',
+    $FastInnerExclusiveUs
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'unattributed_us',
+    0,
+    [int64] [math]::Floor($FastMetricsFinalizationEndUs * 0.01)
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'reconciliation_error_us',
+    0,
+    [int64] [math]::Max(10000.0, $FastMetricsFinalizationEndUs * 0.0001)
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'required_phase_categories',
+    20,
+    'full-envelope-and-inner-ledgers'
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @(
+    'slice_timeline',
+    $ReferenceStartUs,
+    $ReferenceEndUs,
+    $OptimizedStartUs,
+    $OptimizedEndUs,
+    'UTC-anchored-monotonic-workload-windows-with-measured-component-attribution'
+  )
+  Add-CanonicalEvidenceRecord $InnerMetricLines @('phase_count', $InnerPhaseRows.Count)
+  foreach ($Phase in $InnerPhaseRows) {
+    Add-CanonicalEvidenceRecord $InnerMetricLines (@('phase') + $Phase)
+  }
+  Write-Utf8LfFile $env:HUM_UNIT1_FAST_METRICS_PATH (
+    ($InnerMetricLines -join "`n") + "`n"
+  )
 
   Write-Host 'All Hum preflight checks passed.'
 } finally {
