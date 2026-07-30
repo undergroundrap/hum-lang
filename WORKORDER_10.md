@@ -1,35 +1,41 @@
 # Hum Work Order 10: Pre-AR Semantic Foundation Repair
 
 Date: 2026-07-15
-<!-- hum-active-workorder:v1 -->
-Status: issued. The proposed 2026-07-28 Increment 10B.C1R architectural
-re-scope amendment received final independent `ACCEPT` with no P0, P1, or P2
-findings and was BDFL-accepted on its exact reviewed bytes. It was committed
-and durably published as `732b816bd8250115a4a424f50ae0400372d3e814`,
-with parent `cf3c43d1b6ae90a5f5a9c712451cfc814b06a3ac`. The commit
-changes only `WORKORDER_10.md`, with 677 insertions and 29 deletions,
-and exact blob `a83e072e9b1308e2494b9c3be1f1856bc93f17ab`.
+Status: closed and frozen. Increment 10B.C1 and its bounded correction ended
+in terminal rejection after two independent `REJECT` verdicts. Its
+architectural replacement, Increment 10B.C1R, likewise ended in a terminal
+final `REJECT`. Neither rejected implementation was accepted, promoted into
+production, superseded into an accepted implementation, or made available for
+reuse.
 
-Required workflow `30389538404`, attempt 1, completed successfully for that
-exact commit. Ubuntu job `90377304241` succeeded in 23m49s; its Cargo cache
-hit and restored, Rust-toolchain preparation succeeded, and full Hum
-preflight succeeded in 23m20s. Ubuntu then executed the exhaustive canonical-
-seal evidence in 16.999s and asserted exactly 14,226 pairs: F1 630, F2 4,950,
-and F3/F4 8,646. Windows job `90377304075` succeeded in 35m06s; its Cargo
-cache hit and restored, Rust-toolchain preparation succeeded, and full Hum
-preflight succeeded in 34m23s. Windows correctly skipped the
-platform-independent exhaustive duplicate. Both jobs selected `mode=full`
-with `reason=no_status_transition` and skipped `Run status-only evidence`.
+The exact rejected C1R state was preserved from base
+`16d375888e151d7e849b2202c902ec46f9cf462c` as 17 modified tracked paths,
+7,416 insertions and 1,579 deletions, with empty index, no untracked path,
+scoped tree OID `52e84a7439f7e6e9d785a1e995ecab894d55f694`, and
+base-overlaid complete tree OID
+`77ef6495a7f802cd7db2d128059f9063703245a3`. The write-once archive branch
+`archive/workorder-10-c1r-rejected-2026-07-29` was published at commit
+`5624ccca16620097919a5b0c354c3d9d65046d37`, with parent
+`16d375888e151d7e849b2202c902ec46f9cf462c`, tree
+`77ef6495a7f802cd7db2d128059f9063703245a3`, and subject
+`chore(archive): preserve rejected C1R tree`. Its local, origin-tracking, and
+live refs agreed; all 17 archived blobs and the 17-row, 2,304-byte manifest
+with SHA-256
+`ca5e18728e7d9b2c02e310ad9090700a7e521e19e57c99a95653abcc7c13c4c4`
+were verified and read back before `git switch main` alone cleared the
+rejected tree. The resulting `main` was clean, and the before/after remote-ref
+comparison showed exactly the one authorized archive branch addition.
 
-Local and live `main` now name exact amendment commit
-`732b816bd8250115a4a424f50ae0400372d3e814`. The rejected C1 implementation
-remains preserved, uncommitted, and unaccepted as exactly 17 unstaged paths,
-3,053 insertions and 77 deletions, scoped tree OID
-`f126a2ef514bf8337917a4c12666f2781dee3657`, and base-overlaid complete tree
-OID `6b322843c12913f531f824e54fb5393040ff56b0`, with an empty real index and
-no untracked path. Increment 10B.C1R is the next possible target but remains
-unauthorized pending a separate explicit BDFL implementation signal.
-Increment 10B.C2 and every later item remain unauthorized.
+The independently accepted and explicitly BDFL-accepted Work Order 11
+document was committed and durably published as
+`8b1788d2c5325f95eb41d8b696d0446ba85fe112`. Required workflow
+`30501525217`, attempt 1, completed successfully for that exact commit on both
+Ubuntu and Windows.
+
+Work Order 10 is closed and frozen. Its historical mandates, rejection
+evidence, archive dispositions and locks, and prohibitions remain
+authoritative. No C1R2, third C1 or C1R repair/review, Increment 10B.C2, or
+later Work Order 10 implementation remains authorized.
 
 Owner: BDFL (Ocean).
 Author: architect-reviewer acting only under the bounded Work Order 10
@@ -6976,32 +6982,13 @@ C3, C4, deferred completeness work, Session AR, or other later action.
 
 ## Current authorization gate
 
-The proposed 2026-07-28 Increment 10B.C1R architectural re-scope amendment
-received final independent `ACCEPT` with no P0, P1, or P2 findings and was
-BDFL-accepted on its exact reviewed bytes. It was committed and durably
-published as `732b816bd8250115a4a424f50ae0400372d3e814`, with parent
-`cf3c43d1b6ae90a5f5a9c712451cfc814b06a3ac`. The commit changes only
-`WORKORDER_10.md`, with 677 insertions and 29 deletions, and exact blob
-`a83e072e9b1308e2494b9c3be1f1856bc93f17ab`.
+Work Order 10 is closed and frozen. No C1R2, third C1 or C1R repair/review,
+Increment 10B.C2, or later Work Order 10 implementation remains authorized.
+The rejected archives are preservation evidence only; archive salvage,
+promotion, or reuse remains unauthorized.
 
-Required workflow `30389538404`, attempt 1, completed successfully for that
-exact commit. Ubuntu job `90377304241` succeeded in 23m49s; its Cargo cache
-hit and restored, Rust-toolchain preparation succeeded, and full Hum
-preflight succeeded in 23m20s. Ubuntu executed the exhaustive canonical-seal
-evidence in 16.999s and asserted exactly 14,226 pairs: F1 630, F2 4,950, and
-F3/F4 8,646. Windows job `90377304075` succeeded in 35m06s; its Cargo cache
-hit and restored, Rust-toolchain preparation succeeded, and full Hum
-preflight succeeded in 34m23s. Windows correctly skipped the
-platform-independent exhaustive duplicate. Both jobs selected `mode=full`
-with `reason=no_status_transition` and skipped `Run status-only evidence`.
-
-Local and live `main` name exact amendment commit
-`732b816bd8250115a4a424f50ae0400372d3e814`. The rejected C1 implementation
-remains preserved, uncommitted, and unaccepted as exactly 17 unstaged paths,
-3,053 insertions and 77 deletions, scoped tree OID
-`f126a2ef514bf8337917a4c12666f2781dee3657`, and base-overlaid complete tree
-OID `6b322843c12913f531f824e54fb5393040ff56b0`, with an empty real index and
-no untracked path. Increment 10B.C1R is the next possible target but remains
-unauthorized pending a separate explicit BDFL implementation signal.
-Increment 10B.C2 and every later item remain unauthorized.
+The unique active-Work-Order marker has moved to `WORKORDER_11.md`. Work Order
+10's history, terminal-rejection evidence, archive dispositions and locks, and
+prohibitions remain authoritative. This closure implies no implementation,
+commit, push, repair, archive mutation, or later transition.
 <!-- workorder-current-authorization-gate:end -->

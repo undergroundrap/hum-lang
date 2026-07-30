@@ -1,13 +1,28 @@
 # Hum Work Order 11: Validation Throughput and Compiler-Work Recovery
 
 Date: 2026-07-29
-Status: proposed and not issued. This exact document requires independent
-pre-issuance architect review, explicit BDFL acceptance, a separately
-authorized documentation commit and publication, and a later explicit BDFL
-implementation signal before any executable path below may change. This
-proposal itself authorizes no throughput implementation, compiler recovery,
-C1 replacement, C1R salvage, C2 work, commit, push, pull request, release, or
-remote mutation.
+<!-- hum-active-workorder:v1 -->
+Status: issued and active. This exact Work Order 11 document received final
+independent `ACCEPT` with no P0, P1, or P2 findings and was explicitly
+BDFL-accepted on its reviewed bytes. It was committed and durably published
+as `8b1788d2c5325f95eb41d8b696d0446ba85fe112`, with exact
+`WORKORDER_11.md` blob `331a15e87efc176799846ca55b4a90e6c1eb1abd`.
+
+Required workflow `30501525217`, attempt 1, completed successfully for that
+exact commit. Ubuntu job `90742024284` succeeded in 25m30s; Cargo caching and
+Rust-toolchain preparation succeeded, full Hum preflight succeeded in 24m50s,
+and the exhaustive canonical-seal evidence succeeded in 16.132s with exactly
+14,226 pairs: F1 630, F2 4,950, and F3/F4 8,646. Windows job
+`90742024251` succeeded in 27m55s; Cargo caching and Rust-toolchain preparation
+succeeded, full Hum preflight succeeded in 26m48s, and the
+platform-independent Exhaustive duplicate correctly skipped. Both jobs
+selected `mode=full` with `reason=no_status_transition` and skipped
+`Run status-only evidence`.
+
+Work Order 11 is issued and is now the unique active Work Order. The reviewed
+proposal language below is preserved as issuance history. Throughput
+implementation, compiler recovery, C1/C1R salvage, C2 work, commit, push,
+repair, and every later transition remain separately gated.
 
 Owner: BDFL (Ocean).
 Author: post-rejection recovery architect acting only under the bounded Work
@@ -1322,3 +1337,29 @@ Even after a future `ACCEPT`, Work Order 11 remains unissued and uncommitted
 until the BDFL accepts the exact reviewed bytes and separately authorizes
 documentation commit/publication. Throughput implementation still requires
 its own later signal.
+
+## Current authorization gate
+
+Work Order 11 is independently accepted, explicitly BDFL-accepted, published
+at `8b1788d2c5325f95eb41d8b696d0446ba85fe112`, terminal-green in required
+workflow `30501525217`, and active as the unique marked Work Order.
+
+Unit 1 is the next possible implementation unit, but it remains unauthorized
+pending a separate explicit BDFL signal. Unit 2 remains unauthorized. C1,
+C1R, C2, archive salvage, and compiler work remain unauthorized.
+
+Publication of this activation transition must use full CI because the active
+Work Order path changes. The activation commit is substantive planning, not a
+status-only transition; the production classifier is expected to select
+`mode=full` with `reason=no_status_transition` or another fail-closed full
+reason it actually reports.
+
+Only after that exact activation commit is published and terminal-green may a
+later exact `WORKORDER_11.md` status-only change become a candidate for
+`mode=fast` with `reason=eligible_status_chain`. Eligibility remains
+conditional on every existing trust-envelope and status-boundary requirement
+and is not promised unconditionally.
+
+No implementation, commit, push, repair, archive mutation, or later transition
+is implied.
+<!-- workorder-current-authorization-gate:end -->
