@@ -5,8 +5,9 @@ This repo is the Hum language design seed and Milestone 0 Rust bootstrap.
 ## Operating Rules (BDFL-accepted 2026-07-08)
 
 These rules override any older habit in this file or in session memory. The
-active work order is `WORKORDER.md` at the repo root; execute it top to bottom
-before proposing new work.
+active Work Order is the sole root `WORKORDER*.md` file carrying
+`<!-- hum-active-workorder:v1 -->`; execute it top to bottom before proposing
+new work.
 
 Roles and mandates are codified in `docs/GOVERNANCE.md` under "Agent Roles
 And Mandates": one BDFL (Ocean), an architect-reviewer agent that holds
@@ -24,17 +25,20 @@ authority; any model-side memory is a cache, never the source of truth.
 ### Assuming the architect-reviewer role
 
 Cold-start read order: this file; `docs/GOVERNANCE.md` (roles, delegated
-ruling, reserved BDFL matters); `WORKORDER.md` (active sessions, bans,
-acceptance criteria, backlog); `git log --oneline -25` (state);
+ruling, reserved BDFL matters); the root Work Order carrying the sole active
+marker (active sessions, bans, acceptance criteria, backlog);
+`git log --oneline -25` (state);
 `docs/decisions/README.md`; the newest `docs/research/` snapshots. Current
-state is always derivable from git log plus WORKORDER.md; if a prior
+state is always derivable from git log plus that active Work Order; if a prior
 reviewer left mid-review, re-verify from scratch — verification is cheap.
 
 Session review protocol:
 
-1. Never accept a report on its word. Re-run the acceptance commands
-   yourself: the fixtures, the misuse cases, `cargo test`,
-   `.\tools\check_all.ps1`.
+1. Never accept a report on its word. Inspect the complete diff and the real
+   production path, run independent focused positive and adversarial probes,
+   and repeat any disputed or high-risk command. Independence is independent
+   evaluation, not automatic duplication of the implementer's root suite,
+   full Fast run, or `tools/check_all.ps1`.
 2. Check scope against the session's bans: no new docs/schemas/gates
    without work-order mandate, no banned features smuggled in.
 3. Check diagnostic quality: stable code, blame-style help that names the
@@ -64,14 +68,14 @@ in one sitting.
 
 Pre-issuance review (distilled 2026-07-09 from the Work Order 6
 authoring audit): work orders and decision records get an independent
-review pass before they are issued or committed — by another agent, or
-at minimum a separate adversarial pass by the author against these three
-gates: authority validity (the sequence respects accepted decisions and
-governance; no honesty lock is overstated), session sizing (every
-session is review-sized when tightly pinned; split any that are not),
-and evidence linkage (every mandate traces to a ledger record, corpus
-requirement, or accepted strategy — not to momentum). Sessions get
-verdicts; the documents that steer ten sessions deserve no less.
+review pass before they are issued or committed by another capable actor who
+did not author or edit the deliverable. The reviewer checks three gates:
+authority validity (the sequence respects accepted decisions and governance;
+no honesty lock is overstated), session sizing (every session is review-sized
+when tightly pinned; split any that are not), and evidence linkage (every
+mandate traces to production code, a focused observation, or accepted
+strategy, not to momentum). Sessions get verdicts; the documents that steer
+them deserve no less.
 
 Working with the BDFL: decisive recommendations with reasoning, never
 option menus; paste-ready messages for the other agent; guard the
@@ -187,6 +191,34 @@ terminal required CI remain mandatory where the active Work Order requires
 them. It decides whether a correction is ordinary implementation work or a
 substantive change that must return to the Work Order boundary.
 
+For a normal bounded compiler increment, the implementer runs focused
+positive selectors, targeted misuse and regression selectors, `cargo fmt
+--all -- --check`, `cargo check --all-targets`, applicable warnings-denied
+Clippy, and any package- or configuration-specific check the changed path
+requires. If the root Rust suite is affected, run it once locally on the exact
+candidate. Do not require an identical root-suite run from both implementer
+and reviewer without a concrete dispute or risk.
+
+The reviewer inspects the complete diff and producer/validator/consumer path,
+runs independent focused and adversarial probes, and repeats disputed or
+high-risk checks. Ordinary review needs the exact base commit, exact changed-path inventory,
+per-path non-writing Git blob OIDs for every changed or untracked candidate
+file, the complete tracked diff plus the raw untracked bytes, worktree and
+index state, and commands/results. An uncommitted candidate has no candidate
+commit SHA. It does
+not require dual-shell runs, actor transcripts, complete ledgers, process
+accounting, or content manifests unless acceptance depends on those facts.
+
+The full `tools/check_all.ps1` preflight normally belongs to required
+post-publication CI. Run it locally when validation tooling or CI
+classification changes, when parser/checker/runtime impact cannot be bounded,
+for a release or tag candidate, when the active Work Order explicitly assigns
+that risk, or when the BDFL directly requires it. The 14,226-pair Exhaustive
+producer is required only when its parser, matrix, selector, environment,
+output contract, or execution path materially changes, or for a release. Run
+it once per exact candidate unless a platform-specific reason requires
+another producer.
+
 A correction is implementer-inline when all of these are true:
 
 - every changed path is already inside the active accepted envelope;
@@ -250,7 +282,7 @@ acceptance, commit, push, publication, or later-work authority.
 ### Assuming the implementer role
 
 Cold-start read order: same as above. Then: execute exactly the next
-session in WORKORDER.md, top to bottom. Stop at the acceptance criteria
+session in the active Work Order, top to bottom. Stop at the acceptance criteria
 and report results honestly, including failures. Leave the tree
 uncommitted for review unless instructed to commit. Push back before
 building anything you believe is wrong — that pushback carries extra
@@ -299,7 +331,7 @@ session, then closed. When its authorized session sequence completes, close it
 preserves the full history; the working file does not need to.
 
 Start new work as a fresh Work Order file, never as more amendments to a
-completed one. Over a long Work Order, `WORKORDER.md` accumulates the full
+completed one. Over a long Work Order, its root file accumulates the full
 spec, every session record, CI job logs, and layered amendments; left
 unbounded, that mass becomes a cold-start tax — every agent must read it to
 act, and the signal-to-noise degrades. That degradation is context rot, and it
@@ -322,8 +354,8 @@ closure may omit separate independent architect review only when every one of
 these conditions is proven:
 
 - `main` is clean and synchronized with `origin/main` before editing;
-- exactly the active root `WORKORDER.md` is modified, the index is empty, and
-  there is no unrelated or untracked work;
+- exactly the root Work Order carrying the sole active marker is modified, the
+  index is empty, and there is no unrelated or untracked work;
 - every changed byte is inside the status-boundary classifier's recognized
   `Status:` body or `## Current authorization gate` body;
 - no path is added, deleted, copied, renamed, mode- or type-changed, symlinked,
@@ -351,10 +383,11 @@ acceptance-criterion, fingerprint, scope, or implementation-contract change;
 source, fixture, workflow, tool, schema, decision, governance, generated-
 output, or implementation work; ambiguous or disputed evidence; history,
 merge, replacement, graft, mode, rename, symlink, submodule, or trust-envelope
-anomalies; or an amendment to this exception. Those cases retain independent
-review and full local preflight. The production classifier remains fail-closed
-and authoritative for CI lane selection. This exception grants no publication,
-repair, later-session, GitHub-mutation, decision, or other authority.
+anomalies; or an amendment to this exception. Those cases return to
+independent review and the proportional validation rules above. The production
+classifier remains fail-closed and authoritative for CI lane selection. This
+exception grants no publication, repair, later-session, GitHub-mutation,
+decision, or other authority.
 
 Review independence attaches to the deliverable. An agent that authored,
 edited, generated, or directly directed any part of a deliverable cannot issue
@@ -376,7 +409,7 @@ rather than phrasing the action as approved. This routing assistance creates
 no manager or coordinator role and carries no decision, governance,
 publishing, or implementation authority.
 
-Git history, `WORKORDER.md`, accepted decisions, fixtures, diagnostics, and
+Git history, the active Work Order, accepted decisions, fixtures, diagnostics, and
 check evidence are the durable handoff. Chats and model memory are
 replaceable; do not create a separate handoff document or require giant chat
 transcripts. Essential state that exists only in conversation is a
@@ -402,7 +435,9 @@ on their own initiative. One exception: when CI is red on `main`, the
 implementer may commit and push a minimal hotfix without pre-review, with
 mandatory post-hoc review at the next report. Fix the class, not the
 symptom (the 2026-07-08 quoting fix is the model: remove the fragile
-dependency rather than escaping around it).
+dependency rather than escaping around it). If the minimal repair cannot
+restore the required lane or would widen scope, stop fail-closed for the BDFL;
+red-main authority does not authorize feature work or a repair cascade.
 
 ### Session rhythm
 
@@ -418,8 +453,8 @@ the next one without the explicit go signal.
 
 ### Handoff
 
-There is no handoff document to maintain: state lives in git history,
-WORKORDER.md, the decisions index, and CHANGELOG-visible artifacts. A new
+There is no handoff document to maintain: state lives in git history, the
+active Work Order, the decisions index, and CHANGELOG-visible artifacts. A new
 agent in either role starts from the cold-start read order and re-derives
 everything. If something feels only-in-someone's-head, that is a defect:
 write it into the repo.
@@ -431,7 +466,7 @@ write it into the repo.
 2. Doc discipline: the original moratorium expired when `hum run` shipped
    (2026-07-08). The durable rule: new `docs/*.md` files, `hum.*.v0`
    schemas, CLI subcommands, and pipeline gates require an explicit mandate
-   in the active WORKORDER.md. Research snapshots in `docs/research/` and
+   in the active Work Order. Research snapshots in `docs/research/` and
    decision records in `docs/decisions/` are always allowed. Editing
    existing docs to stay honest is allowed and required.
 3. Decisions over deferrals: when design options exist, pick one, write the
@@ -484,16 +519,17 @@ For implementation details, see `docs/TEXT_HYGIENE_WORKFLOW.md`.
 ```powershell
 .\tools\check_public_readiness.ps1
 ```
-- Before a local commit, public snapshot, release-style handoff, or tag
-  decision, prefer the full preflight, except for an eligible exact routine
-  Work Order status-only closure defined above:
+- Apply the proportional validation rules under "Ceremony proportionality and
+  anti-pathology tripwire." Accepted work is committed only at the exact
+  reviewed scope. A separately authorized push must be followed through
+  terminal required Ubuntu and Windows CI; CI runs the full preflight, which
+  wraps Rust checks, fixture coverage, JSON parsing, generated grammar drift
+  detection, text hygiene, public readiness, and release readiness.
+- Before a release-style handoff or tag decision, also run:
 
 ```powershell
-.\tools\check_all.ps1
+.\tools\check_release_readiness.ps1
 ```
-
-It wraps Rust checks, fixture coverage, JSON parsing, generated grammar drift
-detection, text hygiene, public readiness, and release readiness.
 
 For an eligible exact routine Work Order status-only closure, do not run Cargo,
 Clippy, formatting, or `tools/check_all.ps1`. Run exactly the local status-

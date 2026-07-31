@@ -1,37 +1,21 @@
 # Hum Work Order 11: Validation Throughput and Compiler-Work Recovery
 
 Date: 2026-07-29
-<!-- hum-active-workorder:v1 -->
-Status: issued and uniquely active. This exact Work Order 11 document received
-final independent `ACCEPT` with no P0, P1, or P2 findings and was explicitly
-BDFL-accepted on its reviewed bytes. It was committed and durably published
-as `8b1788d2c5325f95eb41d8b696d0446ba85fe112`, with exact
-`WORKORDER_11.md` blob `331a15e87efc176799846ca55b4a90e6c1eb1abd`.
-Required workflow `30501525217`, attempt 1, completed successfully for that
-exact document commit.
+Status: closed and frozen after Unit 1 failed its declared sustainability
+boundary. The historical requirements below remain unchanged and do not make
+the failed attempt compliant.
 
-The active-Work-Order transition was independently accepted and explicitly
-BDFL-accepted. It was committed and durably published as
-`0282633d027194840c3ea45a3f8781552ddae2cf`, with parent
-`8b1788d2c5325f95eb41d8b696d0446ba85fe112`. The transition changed exactly
-`WORKORDER_10.md` and `WORKORDER_11.md`, with 92 insertions and 64 deletions.
+Work Order 11 was issued at
+`8b1788d2c5325f95eb41d8b696d0446ba85fe112` and activated at
+`0282633d027194840c3ea45a3f8781552ddae2cf`; its activation workflow
+`30507275403`, attempt 1, completed successfully. That publication history
+does not supply missing Unit 1 implementation evidence or authorize Unit 2.
 
-Required workflow `30507275403`, attempt 1, succeeded for the exact activation
-commit. Ubuntu job `90759650959` succeeded in 23m43s; Cargo caching and
-Rust-toolchain preparation succeeded, full Hum preflight succeeded in 23m07s,
-and the exhaustive canonical-seal evidence selected and passed exactly one
-test in 16.926s with exactly 14,226 pairs: F1 630, F2 4,950, and F3/F4 8,646.
-Windows job `90759650963` succeeded in 26m36s; Cargo caching and Rust-toolchain
-preparation succeeded, full Hum preflight succeeded in 25m44s, and the
-platform-independent Exhaustive duplicate correctly skipped. Both jobs
-selected `mode=full` with `reason=no_status_transition` and skipped
-`Run status-only evidence`.
-
-The activation transition is durably complete. Work Order 11 remains the
-unique active Work Order. The reviewed proposal language below is preserved
-as issuance history. Unit 1 remains unauthorized pending a separate explicit
-BDFL signal. Unit 2, compiler recovery, C1/C1R salvage, C2 work, repair, and
-every later transition remain separately gated.
+The exact failed bytes are preserved only as rejection evidence at published
+ref `archive/workorder-11-unit1-sustainability-failure-2026-07-30`, commit
+`a40fc65876a9224adecc492b18617ec60684136c`, complete tree
+`3c7a0f54d65b1c2bcb456bf6dc6d78fdc9b54f7e`, and scoped OID
+`7aea7530bd77c924b806926454d4fed1ff52e4fe`.
 
 Owner: BDFL (Ocean).
 Author: post-rejection recovery architect acting only under the bounded Work
@@ -1262,106 +1246,31 @@ must be re-derived from clean accepted source into review-sized
 authority/producer/consumer units. Nothing in this Work Order ranks, defines,
 or starts those units.
 
-## Current planning disposition
+## Terminal Work Order 11 disposition
 
-The first bounded correction closed the original architectural P1 findings:
-the independent reviewer must run Fast, and performance uses same-candidate,
-workload-equivalent Reference/Optimized pairs rather than historical C1R.
-The next fresh independent review rejected only real-object-store mutation in
-the proof mechanics, the incorrect Hum timing flag, and the missing untracked
-whitespace check. The BDFL then authorized this narrow second correction of
-`WORKORDER_11.md` only.
+Unit 1 received an initial independent `REJECT`. Its single bounded correction
+was consumed. The corrected Fast run exited 1 because `tools/check_all.ps1`
+replaced the selector helper's script-scoped
+`System.Collections.Generic.List[string]` backing store with an array, so the
+later `.ToArray()` call failed on `System.String`.
 
-The author runs only:
+No passing terminal implementer Fast transcript exists. The required complete
+process, selector, and hierarchical ledgers were not produced, and the
+mandatory fresh Exhaustive evidence was never run. The corrected fixed-slice
+attempt reported an Optimized/Reference ratio of `0.893786`, approximately
+10.6% acceleration, but that incomplete attempt earns no acceptance.
 
-```powershell
-git diff --check
-
-$workOrderCheck = @(
-    & git -c core.autocrlf=false -c core.safecrlf=false diff `
-        --no-index --check -- NUL WORKORDER_11.md 2>&1
-)
-$workOrderCheckExit = $LASTEXITCODE
-
-if ($workOrderCheckExit -ne 1 -or $workOrderCheck.Count -ne 0) {
-    throw "WORKORDER_11.md no-index whitespace check failed"
-}
-
-.\tools\check_text_hygiene.ps1
-.\tools\check_public_readiness.ps1
-.\tools\check_release_readiness.ps1
-```
-
-Ordinary `git diff --check` remains required for tracked changes, but Git does
-not include an untracked planning file in that comparison. The no-index check
-therefore compares the raw `WORKORDER_11.md` bytes with Windows `NUL`.
-Command-local `core.autocrlf=false` and `core.safecrlf=false` prevent newline
-conversion and its non-error warning from obscuring the zero-output contract;
-they do not modify repository or global configuration. A clean nonempty file
-must return exactly exit 1 because the files differ and must emit zero output.
-Any other exit, any output, an absent file, or a command failure fails closed.
-
-No Cargo command, focused Rust selector, Fast, or Exhaustive is a planning
-check. The document remains uncommitted and unstaged with an empty index. The
-author reports its exact byte length, SHA-256, non-writing
-`git hash-object --no-filters` blob OID, line count, and diff inventory.
-
-One fresh independent pre-issuance architect reviewer then verifies:
-
-- the archive facts and clean-main state;
-- that the order attacks repeated parsing and substantive analysis rather
-  than disproven process-start tuning;
-- dependency closure of both exact writable envelopes;
-- one shared product/in-process observation path;
-- exact CLI bytes, channels, diagnostic order, and exit parity;
-- cache identity, mutation isolation, and fresh runtime/adapters;
-- no evidence weakening and exact-equivalence justification for every
-  skipped duplicate;
-- deterministic cross-shell candidate manifests, externally isolated proof
-  objects, unchanged real-object-store inventories, scoped and complete trees,
-  pre/post producer binding, and canonical transcript hashes;
-- the mandatory independent reviewer Optimized Fast for each unit;
-- same-candidate Reference/Optimized workload identity, opposite-order Unit 2
-  pairs, both independent ratios at or below 0.5, and no historical absolute
-  denominator;
-- hierarchical phase/count reconciliation, complete conclusion ledgers, and
-  causal delta attribution;
-- final Ubuntu and Windows coverage;
-- the two-unit maximum and all stop conditions; and
-- continued prohibition of C1, archived C1R salvage, C2, and language
-  semantics.
-
-The reviewer runs document checks only, makes no edit, reports P0/P1/P2, and
-returns exactly one verdict:
-
-- `ACCEPT`
-- `ACCEPT WITH REQUIRED FIX`
-- `REJECT`
-
-These exact candidate bytes embody only the BDFL-authorized narrow second
-correction. They imply no third correction, review verdict, acceptance,
-issuance, commit, publication, or implementation. This author performs no
-self-review or further correction absent a new explicit BDFL instruction.
-Even after a future `ACCEPT`, Work Order 11 remains unissued and uncommitted
-until the BDFL accepts the exact reviewed bytes and separately authorizes
-documentation commit/publication. Throughput implementation still requires
-its own later signal.
+Unit 1 therefore failed the declared sustainability boundary. Unit 2 is
+permanently unauthorized under this Work Order. No further Work Order 11
+correction, review, repair, amendment, archive salvage, merge, or cherry-pick
+is authorized.
 
 ## Current authorization gate
 
-Work Order 11 is the unique active Work Order. Activation commit
-`0282633d027194840c3ea45a3f8781552ddae2cf` is durably published and
-terminal-green in required workflow `30507275403`, attempt 1. The active
-marker is now durably established in `WORKORDER_11.md`.
+Work Order 11 is closed, frozen, and no longer active. Its active marker has
+been removed. The failed archive identities in the status record are
+content-addressed rejection evidence, not a source for implementation.
 
-Unit 1 is the next possible implementation unit, but it remains unauthorized
-pending a separate explicit BDFL signal. Unit 2 remains unauthorized. C1,
-C1R, C2, archive salvage, and compiler work remain unauthorized.
-
-This status record grants no implementation, repair, commit beyond itself,
-push, archive mutation, or later authority. After its local commit is
-separately authorized for push, Ubuntu and Windows must independently select
-`mode=fast` with `reason=eligible_status_chain` before Unit 1 may be signaled.
-Eligibility remains conditional on every existing trust-envelope and
-status-boundary requirement.
+This closure grants no implementation, repair, commit, push, archive mutation,
+compiler increment, or later-work authority.
 <!-- workorder-current-authorization-gate:end -->
