@@ -2,10 +2,24 @@
 
 Date: 2026-07-30
 <!-- hum-active-workorder:v1 -->
-Status: proposed for independent pre-issuance review.
+Status: issued, uniquely active, published, and terminal-green.
 
-These exact bytes are not issued, accepted, committed, published, or
-implementation-authorizing.
+The three-document compiler-restart transition received final independent
+`ACCEPT` with no P0, P1, or P2 findings after its one bounded wording
+correction. Ocean explicitly accepted the exact reviewed bytes. The transition
+was committed and published as
+`4534eb7d1ec614d771dcb8b27763bf4cd4e2a335`.
+
+Required workflow `30597472291`, attempt 1, completed successfully. Ubuntu job
+`91052890184` succeeded in 24m53s: full preflight succeeded in 24m21s, and one
+Exhaustive test passed all 14,226 pairs in 16.136s. Windows job `91052890113`
+succeeded in 34m53s: full preflight succeeded in 34m26s, and the
+platform-independent Exhaustive duplicate correctly skipped. Both jobs
+selected `mode=full` with `reason=no_status_transition`; status-only evidence
+correctly skipped.
+
+Work Order 12 is issued and uniquely active. Unit 1 remains unauthorized
+pending a separate explicit BDFL signal.
 
 Owner: BDFL (Ocean).
 Author: fresh recovery architect acting only under the bounded Work Order 12
@@ -234,14 +248,13 @@ pre-issuance check.
 
 ## Current authorization gate
 
-The marker above is the sole proposed active-Work-Order marker. Work Order 12
-becomes the intended unique active Work Order only after a fresh independent
-pre-issuance `ACCEPT`, explicit BDFL acceptance of the exact reviewed bytes, a
-separately authorized scoped commit and publication, and terminal success of
-all required CI for that publication.
+Work Order 12 is the unique active Work Order. Its activation and recovery
+publication is terminal-green at commit
+`4534eb7d1ec614d771dcb8b27763bf4cd4e2a335` and required workflow
+`30597472291`, attempt 1.
 
-Unit 1 remains unauthorized pending a separate later explicit BDFL
-implementation signal. No correction, commit, push, implementation, archive
-mutation, or later-work authority is implied by this proposal or its review.
-The next actor is a fresh independent pre-issuance architect-reviewer.
+Unit 1 is the next possible implementation work but remains unauthorized
+pending a separate explicit BDFL signal. No implementation, correction,
+commit beyond this status record, push beyond its separately authorized
+publication, archive mutation, or later compiler work is implied.
 <!-- workorder-current-authorization-gate:end -->
