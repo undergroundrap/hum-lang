@@ -4,24 +4,27 @@ Date: 2026-07-30
 <!-- hum-active-workorder:v1 -->
 Status: issued, uniquely active, published, and terminal-green.
 
-The three-document compiler-restart transition received final independent
-`ACCEPT` with no P0, P1, or P2 findings after its one bounded wording
-correction. Ocean explicitly accepted the exact reviewed bytes. The transition
-was committed and published as
-`4534eb7d1ec614d771dcb8b27763bf4cd4e2a335`.
+The bounded Unit 1 satisfiability amendment received final independent
+`ACCEPT` with no P0, P1, or P2 findings. Ocean explicitly accepted its exact
+reviewed bytes. It was committed as
+`0b30d3117f8473ce4aa48f890c6645775e6544e2`, with sole committed
+`WORKORDER_12.md` blob `5dfbda05dc87d58ef6874a1b5af28aa8081bc913`,
+and published by normal fast-forward.
 
-Required workflow `30597472291`, attempt 1, completed successfully. Ubuntu job
-`91052890184` succeeded in 24m53s: full preflight succeeded in 24m21s, and one
-Exhaustive test passed all 14,226 pairs in 16.136s. Windows job `91052890113`
-succeeded in 34m53s: full preflight succeeded in 34m26s, and the
-platform-independent Exhaustive duplicate correctly skipped. Both jobs
+Required workflow `30609785097`, attempt 1, completed successfully. Ubuntu job
+`91089805165` succeeded in 23m48s, with full preflight succeeding in 23m14s.
+Its one exact Exhaustive test passed all 14,226 pairs in 17.008s: F1 630, F2
+4,950, and F3/F4 8,646, under seed `0x48554D5F5345414C`. Windows job
+`91089805143` succeeded in 36m10s, with full preflight succeeding in 35m18s;
+the platform-independent Exhaustive duplicate correctly skipped. Both jobs
 selected `mode=full` with `reason=no_status_transition`; status-only evidence
 correctly skipped.
 
-Work Order 12 is issued and uniquely active. Unit 1 implementation is paused at
-the pre-review architecture gate. The bounded satisfiability amendment below
-remains unissued pending fresh independent pre-issuance review and exact BDFL
-acceptance.
+The amendment's ordered gates 1 through 4 are complete. Gate 5 remains
+outstanding: a separate explicit BDFL signal is required before the original
+implementer may resume Unit 1. The preserved five-path implementation remains
+unaccepted and uncommitted, receives zero acceptance credit, and Unit 1 remains
+paused. No later work is authorized.
 
 Owner: BDFL (Ocean).
 Author: fresh recovery architect acting only under the bounded Work Order 12
@@ -305,15 +308,16 @@ pre-issuance check.
 
 ## Current authorization gate
 
-Work Order 12 is the unique active Work Order. Its activation and recovery
-publication is terminal-green at commit
-`4534eb7d1ec614d771dcb8b27763bf4cd4e2a335` and required workflow
-`30597472291`, attempt 1.
+Work Order 12 is the unique active Work Order. The bounded Unit 1
+satisfiability amendment is accepted, published as
+`0b30d3117f8473ce4aa48f890c6645775e6544e2`, and terminal-green in required
+workflow `30609785097`, attempt 1. Its ordered gates 1 through 4 are complete.
 
-Unit 1 was separately authorized, and its initial implementer then stopped
-before review at the mandatory architecture gate. The five-path candidate is
-preserved and implementation remains paused. It may resume only after all five
-ordered gates in "Unit 1 pre-review satisfiability amendment" complete. No
-implementation, correction, commit, push, archive mutation, or later compiler
-work is implied by the preserved candidate or this unissued amendment.
+Gate 5 remains outstanding. Unit 1 is paused, and only a separate explicit
+BDFL signal may authorize the original implementer to resume the preserved
+five-path candidate. That candidate remains unaccepted and uncommitted and
+receives zero acceptance credit. No implementation repair, implementation
+commit, push, archive mutation, later compiler unit, or other later work is
+authorized by the amendment's acceptance, publication, CI result, or this
+status record.
 <!-- workorder-current-authorization-gate:end -->
