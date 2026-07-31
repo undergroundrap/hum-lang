@@ -18,8 +18,10 @@ platform-independent Exhaustive duplicate correctly skipped. Both jobs
 selected `mode=full` with `reason=no_status_transition`; status-only evidence
 correctly skipped.
 
-Work Order 12 is issued and uniquely active. Unit 1 remains unauthorized
-pending a separate explicit BDFL signal.
+Work Order 12 is issued and uniquely active. Unit 1 implementation is paused at
+the pre-review architecture gate. The bounded satisfiability amendment below
+remains unissued pending fresh independent pre-issuance review and exact BDFL
+acceptance.
 
 Owner: BDFL (Ocean).
 Author: fresh recovery architect acting only under the bounded Work Order 12
@@ -28,6 +30,29 @@ independent verdict.
 Planning baseline: clean `main`, with `HEAD`, local `main`, cached
 `origin/main`, and live remote `main` all equal to
 `15d502ecd95b563b44db9c3c7c3a5b5034fbe61f`.
+
+## Unit 1 pre-review satisfiability amendment
+
+The initial Unit 1 implementer stopped before review at the mandatory
+architecture gate and preserved the five-path candidate without a workaround.
+The prerequisite claiming an existing checked `Int` expression annotation was
+a Work Order satisfiability defect. The BDFL chose structural-only transport
+instead of expanding `type-check` or redesigning producer ordering. No
+implementation evidence or acceptance credit was earned before the stop.
+
+This is the only pre-review satisfiability amendment available for Work Order
+12 Unit 1. Another architecture stop, indispensable sixth path, or
+contradictory producer requirement stops Work Order 12. The existing allowance
+of at most one bounded correction after the first independent implementation
+verdict remains unchanged.
+
+Implementation remains paused until all of these gates complete in order:
+
+1. this amendment receives a fresh independent pre-issuance `ACCEPT`;
+2. the BDFL accepts its exact bytes;
+3. it is committed and published under separate authority;
+4. required CI is terminal-green; and
+5. the BDFL separately authorizes the original implementer to resume.
 
 ## Purpose and accepted rails
 
@@ -67,16 +92,30 @@ examples/core/minimal_add.hum
 
 `cargo run -- core-lower --format json examples/core/minimal_add.hum` must
 emit, inside the existing return operation, a deterministic structured
-canonical expression whose provenance is parser-owned and whose exact shape
-is:
+canonical expression. Its `structured_expression` contains only these
+parser-owned structural facts:
 
-- one binary root with the parser node identity, source range, `add` operator,
-  and existing checked trivial-return `Int` annotation;
-- exactly two ordered children;
-- child 0 is role `left`, an identifier named `a`, with its own parser node
-  identity and source range; and
-- child 1 is role `right`, an identifier named `b`, with a distinct parser node
-  identity and source range.
+- parser-owned provenance;
+- one root with its parser node identity, source range, kind `binary`, and
+  operator `add`;
+- exactly two ordered children with indexes 0 and 1;
+- child 0 has role `left`, its own parser node identity and source range, and
+  identifier spelling `a` taken from the parser-owned node; and
+- child 1 has role `right`, a distinct parser node identity and source range,
+  and identifier spelling `b` taken from the parser-owned node.
+
+The existing outer Core-lower expression type fields remain authoritative. For
+the current `minimal_add` program they must honestly remain:
+
+- `type_status: not_type_checked_v0`;
+- `type_text: null`; and
+- `type_source: null`.
+
+The task's declared `Int` result is an expected annotation, not proof that the
+`a + b` expression was checked as `Int`. The structured-expression object must
+not add or require `checked_type_status`, `checked_type`, an inferred `Int`,
+another expression-type field, or any parallel type conclusion. Type
+information must not be duplicated inside the structured tree.
 
 Do not hard-code the example path, task name, parameter names, or node
 identities. The production mapping may transport parser-owned return
@@ -87,23 +126,36 @@ the existing `hum.core_lower.v0` and `hum.core_verify.v0` schema identifiers;
 do not add a command, schema family, report, ledger, cache, or validation
 surface.
 
+Operator expression typing and the correct producer ordering between
+expression typing and Core lowering remain explicitly deferred to a future
+independently reviewed compiler unit. Unit 1 must not solve that dependency
+architecture incidentally.
+
 `cargo run -- core-verify --format json examples/core/minimal_add.hum` must
 consume the in-memory Core-lower artifact, not source text and not a
-reconstructed preview. It must verify at least:
+reconstructed preview. It verifies the transported structural facts and the
+honesty of the existing outer type state. It must verify at least:
 
 - parser-owned provenance;
 - nonempty and pairwise-distinct root and child identities;
 - exactly one root and two children;
 - exact child indexes and `left`/`right` roles;
-- binary/add/root and identifier-child shape;
+- binary/add/root and identifier-child shape, including parser-owned identifier
+  spellings;
 - sane, same-file source ranges with children contained by the root range; and
-- consistency with the existing checked trivial-return `Int` annotation.
+- the absence of a nested checked-type claim and the authoritative outer
+  `not_type_checked_v0`/null/null type state.
 
-The verifier must fail closed when a test-only corruption seam independently
-reorders the children, duplicates one child identity, or substitutes a foreign
-child identity. Each mutation must traverse the real Core-lower artifact and
-the real Core verifier. A source reparse, string search, parallel validator, or
-test-only reconstruction does not satisfy the unit.
+The verifier must accept the clean parser-owned structure while its type
+remains explicitly unchecked. It must reject reordered children, duplicate
+child identity, a genuinely foreign parser-owned child identity, and any
+structural overclaim. It must never infer `Int`, convert the task result
+annotation into expression-type proof, or claim typed Core, Hum IR, backend
+readiness, or execution. A test-only corruption seam independently exercises
+the three required child mutations. Each mutation must traverse the real
+Core-lower artifact and the real Core verifier. A source reparse, string
+search, parallel validator, or test-only reconstruction does not satisfy the
+unit.
 
 The observable result is a compiler artifact fact consumed by its next
 validator. It is not evidence that the program executes, emits Hum IR, forms a
@@ -118,8 +170,8 @@ Implementation may modify exactly these five paths:
 | `src/core_body.rs` | Preserve the parser-owned canonical return expression when constructing the validated Core-body statement. |
 | `src/core_lower.rs` | Consume that preserved expression, emit the bounded ordered add tree in the existing artifact, serialize it deterministically, and host focused producer tests. |
 | `src/core_verify.rs` | Consume and verify the emitted tree, expose only test-gated corruption access, and host focused success and fail-closed tests. |
-| `docs/HUM_CORE_LOWER_SCHEMA.md` | Document the additive structured expression fields and their bounded non-executing meaning. |
-| `docs/HUM_CORE_VERIFY_SCHEMA.md` | Document the structural checks, corruption failures, and unchanged honesty limits. |
+| `docs/HUM_CORE_LOWER_SCHEMA.md` | Document the additive structural fields, the authoritative unchecked outer type state, the absence of nested type claims, and their bounded non-executing meaning. |
+| `docs/HUM_CORE_VERIFY_SCHEMA.md` | Document the structural checks, corruption failures, acceptance of the honest unchecked state, ban on inferred type claims, and unchanged honesty limits. |
 
 This envelope is dependency-coherent:
 
@@ -146,11 +198,13 @@ select nonzero tests and prove:
    observes the parser root and ordered child identities after validated
    Core-body construction;
 2. `core_lower::tests::json_emits_ordered_parser_owned_minimal_add_tree`
-   observes the required existing-command JSON result and proves it is not
-   derived from sabotaged statement text; and
+   observes the required existing-command JSON structure, its authoritative
+   outer `not_type_checked_v0`/null/null state, and the absence of a nested
+   type claim, and proves it is not derived from sabotaged statement text; and
 3. `core_verify::tests::verifier_rejects_minimal_add_tree_corruption` proves a
-   clean success plus independent reorder, duplicate-identity, and
-   foreign-identity rejection through the production verifier.
+   clean success with the expression explicitly unchecked plus independent
+   reorder, duplicate-identity, and foreign-identity rejection through the
+   production verifier without manufacturing a type conclusion.
 
 The implementer runs:
 
@@ -215,6 +269,9 @@ This order does not authorize:
   verified backend input, interpreter, Cranelift lowering, or execution;
 - a new schema family, report, command, validation abstraction, cache, or
   profiling surface;
+- operator expression inference, a fabricated `Int`, edits to
+  `src/type_check.rs` or `docs/HUM_TYPE_CHECK_SCHEMA.md`, or a producer-ordering
+  redesign;
 - subunits, sub-sub-units, or deferred compile, formatting, lint, fixture, or
   test-selection work needed to make Unit 1 coherent; or
 - any later compiler unit.
@@ -253,8 +310,10 @@ publication is terminal-green at commit
 `4534eb7d1ec614d771dcb8b27763bf4cd4e2a335` and required workflow
 `30597472291`, attempt 1.
 
-Unit 1 is the next possible implementation work but remains unauthorized
-pending a separate explicit BDFL signal. No implementation, correction,
-commit beyond this status record, push beyond its separately authorized
-publication, archive mutation, or later compiler work is implied.
+Unit 1 was separately authorized, and its initial implementer then stopped
+before review at the mandatory architecture gate. The five-path candidate is
+preserved and implementation remains paused. It may resume only after all five
+ordered gates in "Unit 1 pre-review satisfiability amendment" complete. No
+implementation, correction, commit, push, archive mutation, or later compiler
+work is implied by the preserved candidate or this unissued amendment.
 <!-- workorder-current-authorization-gate:end -->
