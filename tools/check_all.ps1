@@ -924,11 +924,25 @@ task malformed() -> UInt {
   $F4ParserProduction = Get-AqRustProductionSource 'src/parser.rs'
   $F4ParserTestSource = [System.IO.File]::ReadAllText((Resolve-Path 'src/parser.rs'))
   if (-not [regex]::IsMatch($F4CoreProduction, 'pub\(crate\) fn analyze_does_section\s*\(\s*expectation:\s*CanonicalCoreSectionExpectation')) { throw 'Replacement F4 Core entry must accept only the lifetime-bound expectation' }
-  if ([regex]::IsMatch($F4CoreProduction, 'analyze_does_section\s*\([^)]*&\s*Section') -or $F4CoreProduction.Contains('analyze_does_section_raw')) { throw 'Replacement F4 raw-Section Core bypass was restored' }
-  if ([regex]::Matches($F4CoreProduction, '(?m)^    BodyGrammarReport\s*\{').Count -ne 1 -or -not $F4CoreProduction.Contains('fn construct_body_grammar_report(validated: ValidatedCoreSection') -or [regex]::Matches($F4CoreProduction, '_validated_construction:\s*ValidatedBodyGrammarReportConstruction').Count -ne 2 -or [regex]::Matches($F4CoreProduction, '(?m)^struct ValidatedBodyGrammarReportConstruction;').Count -ne 1) { throw 'Replacement F4 BodyGrammarReport construction escaped the private validated marker' }
-  $F4ValidateIndex = $F4CoreProduction.IndexOf('let validated = expectation.validate()?;')
-  $F4ConstructIndex = $F4CoreProduction.IndexOf('construct_body_grammar_report(validated)')
-  if ($F4ValidateIndex -lt 0 -or $F4ConstructIndex -le $F4ValidateIndex) { throw 'Replacement F4 validation must remain before private Core construction' }
+  if (-not [regex]::IsMatch($F4CoreProduction, 'pub\(crate\) fn analyze_does_section_for_lowering\s*\(\s*expectation:\s*CanonicalCoreSectionExpectation')) { throw 'Replacement F4 private lowering entry must accept only the lifetime-bound expectation' }
+  if ([regex]::IsMatch($F4CoreProduction, 'analyze_does_section(?:_for_lowering)?\s*\([^)]*&\s*Section') -or $F4CoreProduction.Contains('analyze_does_section_raw')) { throw 'Replacement F4 raw-Section Core bypass was restored' }
+  $F4BodyReportShape = [regex]::Match($F4CoreProduction, '(?s)pub struct BodyGrammarReport\s*\{(.*?)\n\}')
+  $F4CanonicalReportShape = [regex]::Match($F4CoreProduction, '(?s)pub\(crate\) struct CanonicalBodyGrammarReport\s*\{(.*?)\n\}')
+  $F4CanonicalStatementShape = [regex]::Match($F4CoreProduction, '(?s)pub\(crate\) struct CanonicalBodyStatement\s*\{(.*?)\n\}')
+  if (-not $F4BodyReportShape.Success -or $F4BodyReportShape.Groups[1].Value.Contains('CanonicalExpression') -or -not $F4BodyReportShape.Groups[1].Value.Contains('statements: Vec<BodyStatement>')) { throw 'Replacement F4 public BodyGrammarReport must remain authority-dropping ordinary statement transport' }
+  if (-not $F4CanonicalReportShape.Success -or -not $F4CanonicalReportShape.Groups[1].Value.Contains('statements: Vec<CanonicalBodyStatement>')) { throw 'Replacement F4 private canonical report lost direct bound-statement ownership' }
+  if (-not $F4CanonicalStatementShape.Success -or -not [regex]::IsMatch($F4CanonicalStatementShape.Groups[1].Value, '^\s*statement:\s*BodyStatement,\s*canonical_expression:\s*Option<CanonicalExpression>,\s*$', [System.Text.RegularExpressions.RegexOptions]::Singleline)) { throw 'Replacement F4 canonical statement must directly own one statement and its optional parser expression' }
+  if ($F4CoreProduction.Contains('canonical_expressions')) { throw 'Replacement F4 positional canonical-expression side vector was restored' }
+  if ([regex]::Matches($F4CoreProduction, '(?m)^\s*BodyGrammarReport\s*\{').Count -ne 1 -or [regex]::Matches($F4CoreProduction, '(?m)^\s*CanonicalBodyGrammarReport\s*\{').Count -ne 1 -or [regex]::Matches($F4CoreProduction, '\.push\(\s*CanonicalBodyStatement\s*\{').Count -ne 1 -or -not $F4CoreProduction.Contains('fn construct_canonical_body_grammar_report(') -or -not [regex]::IsMatch($F4CoreProduction, 'fn construct_canonical_body_grammar_report\s*\(\s*validated:\s*ValidatedCoreSection') -or [regex]::Matches($F4CoreProduction, '_validated_construction:\s*ValidatedBodyGrammarReportConstruction').Count -ne 2 -or [regex]::Matches($F4CoreProduction, '(?m)^struct ValidatedBodyGrammarReportConstruction;').Count -ne 1) { throw 'Replacement F4 BodyGrammarReport construction escaped the private validated marker' }
+  $F4PublicValidateIndex = $F4CoreProduction.IndexOf('let validated = expectation.validate()?;')
+  $F4PublicConstructIndex = $F4CoreProduction.IndexOf('construct_canonical_body_grammar_report(validated).into_public_report()')
+  $F4LoweringEntryIndex = $F4CoreProduction.IndexOf('pub(crate) fn analyze_does_section_for_lowering')
+  $F4LoweringValidateIndex = $F4CoreProduction.IndexOf('.validate()', $F4LoweringEntryIndex)
+  $F4LoweringConstructIndex = $F4CoreProduction.IndexOf('construct_canonical_body_grammar_report(validated)', $F4LoweringEntryIndex)
+  $F4CanonicalConstructorIndex = $F4CoreProduction.IndexOf('fn construct_canonical_body_grammar_report(')
+  if ($F4PublicValidateIndex -lt 0 -or $F4PublicConstructIndex -le $F4PublicValidateIndex -or $F4LoweringEntryIndex -lt 0 -or $F4LoweringValidateIndex -le $F4LoweringEntryIndex -or $F4LoweringConstructIndex -le $F4LoweringValidateIndex -or $F4CanonicalConstructorIndex -le $F4LoweringConstructIndex) { throw 'Replacement F4 validation must remain before private Core construction' }
+  $F4PublicConversion = [regex]::Match($F4CoreProduction, '(?s)impl CanonicalBodyGrammarReport\s*\{(.*?)\n\}')
+  if (-not $F4PublicConversion.Success -or -not $F4PublicConversion.Groups[1].Value.Contains('.map(|statement| statement.statement)') -or $F4PublicConversion.Groups[1].Value.Contains('canonical_expression') -or $F4PublicConversion.Groups[1].Value.Contains('CanonicalExpression')) { throw 'Replacement F4 public BodyGrammarReport conversion must drop and never manufacture parser authority' }
   if ([regex]::IsMatch($F4AstProduction, '#\[derive\([^\]]*(?:Clone|Copy|Default)[^\]]*\)\]\s*pub\(crate\) struct CanonicalCoreSectionExpectation') -or $F4AstProduction.Contains('impl Clone for CanonicalCoreSectionExpectation') -or $F4AstProduction.Contains('impl Copy for CanonicalCoreSectionExpectation') -or $F4AstProduction.Contains('impl Default for CanonicalCoreSectionExpectation')) { throw 'Replacement F4 expectation must remain a non-cloneable lifetime-bound borrow' }
   $F4ExpectationShape = [regex]::Match($F4AstProduction, '(?s)pub\(crate\) struct CanonicalCoreSectionExpectation<''a>\s*\{(.*?)\n\}')
   $F4ProgramLocator = [regex]::Match($F4AstProduction, '(?s)pub\(crate\) fn canonical_core_expectation<''a>\(\s*&''a self,\s*item: &''a Item,\s*section: &''a Section,')
@@ -940,11 +954,13 @@ task malformed() -> UInt {
   foreach ($Entry in $F4ProductionSources.GetEnumerator()) {
     if ($Entry.Key -in @('src/ast.rs', 'src/parser.rs')) { continue }
     if ([regex]::IsMatch($Entry.Value, 'CanonicalCore(?:FileWitness|OwnerWitness|SealCapability|ParseContext)::parser_issue\s*\(') -or [regex]::IsMatch($Entry.Value, '(?:SourceFile|App|TypeDef|Store|Task|Test|Section)::parser_new\s*\(') -or [regex]::IsMatch($Entry.Value, 'CanonicalCore(?:FileWitness|OwnerWitness|SealCapability|ParseContext)\s*\(') -or [regex]::IsMatch($Entry.Value, 'canonical_core_(?:file_witness|owner_witness|seal_capability)\s*:\s*Some\s*\(')) { throw "Replacement F4 valid-authority issuer escaped ast/parser: $($Entry.Key)" }
+    if ($Entry.Key -ne 'src/core_body.rs' -and [regex]::IsMatch($Entry.Value, '\bBodyGrammarReport\s*\{')) { throw "Replacement F4 public BodyGrammarReport construction escaped core_body: $($Entry.Key)" }
+    if ($Entry.Key -ne 'src/core_body.rs' -and [regex]::IsMatch($Entry.Value, 'CanonicalBody(?:GrammarReport|Statement)\s*\{')) { throw "Replacement F4 private canonical body construction escaped core_body: $($Entry.Key)" }
   }
   if ([regex]::Matches($F4AstProduction, 'pub\(crate\) fn parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, '::parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, 'SourceFile::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ParserProduction, 'Item::(?:App|Type|Store|Task|Test)\([^\r\n]*::parser_new\(').Count -ne 5 -or [regex]::Matches($F4ParserProduction, 'Section::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ProductionSources['src/app_entry.rs'], 'SourceFile::empty_non_authoritative\(').Count -ne 1) { throw 'Replacement F4 valid-authority issuer or installer inventory drifted' }
   $F4ConsumerCalls = [ordered]@{
     'src/check.rs' = 1
-    'src/core_lower.rs' = 1
+    'src/core_lower.rs' = 0
     'src/core_preview.rs' = 1
     'src/effect_check.rs' = 1
     'src/full_type_check.rs' = 1
@@ -959,14 +975,28 @@ task malformed() -> UInt {
     'src/typed_failure.rs' = 1
   }
   $F4ProductionCallCount = 0
+  $F4PrivateLoweringCallCount = 0
+  foreach ($Entry in $F4ProductionSources.GetEnumerator()) {
+    if ($Entry.Key -eq 'src/core_body.rs') { continue }
+    $PublicCount = [regex]::Matches($Entry.Value, '\banalyze_does_section\s*\(').Count
+    $PrivateCount = [regex]::Matches($Entry.Value, '\banalyze_does_section_for_lowering\s*\(').Count
+    if (($PublicCount + $PrivateCount) -gt 0 -and -not $F4ConsumerCalls.Contains($Entry.Key)) { throw "Replacement F4 unregistered Core consumer escaped the exact inventory: $($Entry.Key)" }
+    if ([regex]::IsMatch($Entry.Value, '(?:map|and_then|filter_map)\s*\(\s*(?:crate::)?core_body::analyze_does_section(?:_for_lowering)?') -or [regex]::IsMatch($Entry.Value, '=\s*(?:crate::)?core_body::analyze_does_section(?:_for_lowering)?\s*[;,]')) { throw "Replacement F4 production callback bypassed fresh expectation location in $($Entry.Key)" }
+  }
   foreach ($Entry in $F4ConsumerCalls.GetEnumerator()) {
     $Production = Get-AqRustProductionSource $Entry.Key
     $Count = [regex]::Matches($Production, '\banalyze_does_section\s*\(').Count
     if ($Count -ne $Entry.Value) { throw "Replacement F4 Core caller inventory drifted for $($Entry.Key): expected $($Entry.Value), found $Count" }
-    if ([regex]::IsMatch($Production, '(?:map|and_then|filter_map)\s*\(\s*(?:crate::)?core_body::analyze_does_section') -or [regex]::IsMatch($Production, '=\s*(?:crate::)?core_body::analyze_does_section\s*[;,]')) { throw "Replacement F4 production callback bypassed fresh expectation location in $($Entry.Key)" }
+    $PrivateCount = [regex]::Matches($Production, '\banalyze_does_section_for_lowering\s*\(').Count
+    $ExpectedPrivateCount = if ($Entry.Key -eq 'src/core_lower.rs') { 1 } else { 0 }
+    if ($PrivateCount -ne $ExpectedPrivateCount) { throw "Replacement F4 private lowering caller inventory drifted for $($Entry.Key): expected $ExpectedPrivateCount, found $PrivateCount" }
     $F4ProductionCallCount += $Count
+    $F4PrivateLoweringCallCount += $PrivateCount
   }
-  if ($F4ConsumerCalls.Count -ne 14 -or $F4ProductionCallCount -ne 18) { throw "Replacement F4 must retain exactly 18 production Core uses across 14 consumer files, found $F4ProductionCallCount across $($F4ConsumerCalls.Count)" }
+  $F4CoreLowerProduction = $F4ProductionSources['src/core_lower.rs']
+  if ($F4CoreLowerProduction.Contains('canonical_expressions') -or -not $F4CoreLowerProduction.Contains('bound_statement: &CanonicalBodyStatement') -or -not $F4CoreLowerProduction.Contains('let statement = bound_statement.statement();') -or -not $F4CoreLowerProduction.Contains('let canonical_expression = bound_statement.canonical_expression();') -or [regex]::IsMatch($F4CoreLowerProduction, 'canonical_expression[^\r\n]*\.get\s*\(\s*index\s*\)')) { throw 'Replacement F4 Core lowering must consume parser authority directly from the current bound statement' }
+  $F4CombinedProductionCallCount = $F4ProductionCallCount + $F4PrivateLoweringCallCount
+  if ($F4ConsumerCalls.Count -ne 14 -or $F4ProductionCallCount -ne 17 -or $F4PrivateLoweringCallCount -ne 1 -or $F4CombinedProductionCallCount -ne 18) { throw "Replacement F4 must retain exactly 17 public plus one private lowering use across 14 consumer files, found $F4ProductionCallCount public and $F4PrivateLoweringCallCount private across $($F4ConsumerCalls.Count)" }
   if (-not $F4ParserProduction.Contains('CanonicalCoreFileWitness::parser_issue') -or -not $F4ParserProduction.Contains('CanonicalCoreOwnerWitness::parser_issue') -or -not $F4ParserProduction.Contains('CanonicalCoreSealCapability::parser_issue') -or -not $F4ParserProduction.Contains('CanonicalCoreParseContext::parser_issue')) { throw 'Replacement F4 independent file, item, Section, and pre-Program authority issuance is incomplete' }
   if (-not $F4ParserTestSource.Contains('assert_eq!(catalogue_count, 132)') -or -not $F4ParserTestSource.Contains('assert_eq!(pairs.len(), 8_646)')) { throw 'Replacement F4 independently supplied 132-field/8646-pair pins are missing' }
   $F4AuditPin = [regex]::Match($F4ParserTestSource, '(?s)const REQUIRED_SOURCE_AUDIT_ARMS: \[&str; 13\] = \[(.*?)\];')
