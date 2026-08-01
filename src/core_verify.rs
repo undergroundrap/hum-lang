@@ -1,8 +1,13 @@
-use crate::ast::Program;
+use crate::ast::{
+    CanonicalExpression, CanonicalExpressionKind, ParsedBinaryOperator, ParsedSourceRange, Program,
+};
 use crate::callable;
 use crate::core_contract;
 use crate::core_expr;
-use crate::core_lower::{self, CoreLowerItem, CoreLowerOperation, CoreLowerReport};
+use crate::core_lower::{
+    self, CoreLowerExpression, CoreLowerItem, CoreLowerOperation, CoreLowerReport,
+    CoreLowerSourceRange, CoreLowerStructuredExpression,
+};
 use crate::core_preview;
 use crate::diagnostic::{Diagnostic, DiagnosticOccurrenceSet, Span};
 use crate::ir_contract;
@@ -586,6 +591,21 @@ fn verify_operation(
                 "effect_claim_honesty",
                 "expression effects remain not checked",
             );
+            match (&expression.structured, expression.structured_authority()) {
+                (Some(structured), _) => {
+                    verify_structured_expression(operation, expression, structured, checks);
+                }
+                (None, Some(_)) => push_check(
+                    checks,
+                    "structured_expression",
+                    &operation.id,
+                    Some(&operation.span),
+                    false,
+                    "structured_expression_projection_present",
+                    "retained parser authority requires its structured projection",
+                ),
+                (None, None) => {}
+            }
         }
         None => {
             push_check(
@@ -601,6 +621,292 @@ fn verify_operation(
             );
         }
     }
+}
+
+fn verify_structured_expression(
+    operation: &CoreLowerOperation,
+    expression: &CoreLowerExpression,
+    structured: &CoreLowerStructuredExpression,
+    checks: &mut Vec<CoreVerifyCheck>,
+) {
+    let scope = "structured_expression";
+    let scope_id = &operation.id;
+    let span = Some(&operation.span);
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        structured.provenance == "parser_owned_canonical_expression_v0",
+        "structured_expression_parser_provenance",
+        "structured expression provenance is parser-owned",
+    );
+
+    let authority = expression
+        .structured_authority()
+        .and_then(minimal_add_authority);
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        authority.is_some(),
+        "structured_expression_parser_authority_present",
+        "structured expression retains the bounded parser-owned add authority",
+    );
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        !structured.parser_node_id.trim().is_empty()
+            && structured
+                .children
+                .iter()
+                .all(|child| !child.parser_node_id.trim().is_empty()),
+        "structured_expression_identity_present",
+        "root and child parser identities are present",
+    );
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        structured.kind == "binary"
+            && structured.operator == "add"
+            && expression.operator == Some("add"),
+        "structured_expression_binary_add_shape",
+        "structured expression is the bounded binary add shape",
+    );
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        structured.children.len() == 2,
+        "structured_expression_child_count",
+        format!(
+            "structured binary expression has {} children",
+            structured.children.len()
+        ),
+    );
+
+    let child_order_valid = structured
+        .children
+        .iter()
+        .enumerate()
+        .all(|(expected, child)| child.index == expected);
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        child_order_valid,
+        "structured_expression_child_order",
+        "structured child indexes are exactly 0 then 1",
+    );
+    let child_roles_valid = structured.children.len() == 2
+        && structured.children[0].role == "left"
+        && structured.children[1].role == "right";
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        child_roles_valid,
+        "structured_expression_child_roles",
+        "structured child roles are exactly left then right",
+    );
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        structured.children.len() == 2
+            && structured
+                .children
+                .iter()
+                .all(|child| child.kind == "identifier" && !child.identifier.is_empty()),
+        "structured_expression_identifier_children",
+        "structured children are named identifier nodes",
+    );
+
+    let mut identities = std::collections::BTreeSet::new();
+    let identities_distinct = identities.insert(structured.parser_node_id.as_str())
+        && structured
+            .children
+            .iter()
+            .all(|child| identities.insert(child.parser_node_id.as_str()));
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        identities_distinct,
+        "structured_expression_identity_distinct",
+        "root and child parser identities are pairwise distinct",
+    );
+
+    let root_authority_matches = authority.as_ref().is_some_and(|authority| {
+        structured.parser_node_id == authority.root.node_id.as_str()
+            && structured.kind == "binary"
+            && structured.operator == "add"
+    });
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        root_authority_matches,
+        "structured_expression_root_authority",
+        "structured root identity, kind, and operator match retained parser authority",
+    );
+
+    let child_authority_matches = authority.as_ref().is_some_and(|authority| {
+        structured.children.len() == 2
+            && structured.children[0].index == 0
+            && structured.children[0].role == "left"
+            && structured.children[0].parser_node_id == authority.left.node_id.as_str()
+            && structured.children[0].kind == "identifier"
+            && structured.children[0].identifier == authority.left_name
+            && structured.children[1].index == 1
+            && structured.children[1].role == "right"
+            && structured.children[1].parser_node_id == authority.right.node_id.as_str()
+            && structured.children[1].kind == "identifier"
+            && structured.children[1].identifier == authority.right_name
+    });
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        child_authority_matches,
+        "structured_expression_child_authority",
+        "ordered child identities, roles, kinds, and spellings match retained parser authority",
+    );
+
+    let range_authority_matches = authority.as_ref().is_some_and(|authority| {
+        source_range_matches_authority(&structured.source_range, &authority.root.range)
+            && structured.children.len() == 2
+            && source_range_matches_authority(
+                &structured.children[0].source_range,
+                &authority.left.range,
+            )
+            && source_range_matches_authority(
+                &structured.children[1].source_range,
+                &authority.right.range,
+            )
+    });
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        range_authority_matches,
+        "structured_expression_range_authority",
+        "root and child ranges match retained parser authority exactly",
+    );
+
+    let ranges_valid = source_range_is_sane(&structured.source_range)
+        && structured.children.len() == 2
+        && structured.children.iter().all(|child| {
+            source_range_is_sane(&child.source_range)
+                && source_range_contains(&structured.source_range, &child.source_range)
+        })
+        && source_range_precedes(
+            &structured.children[0].source_range,
+            &structured.children[1].source_range,
+        );
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        ranges_valid,
+        "structured_expression_source_ranges",
+        "child ranges are sane, same-file, ordered, and contained by the root",
+    );
+
+    let outer_type_unchecked = expression.type_status == core_expr::CORE_EXPRESSION_TYPE_STATUS
+        && expression.type_text.is_none()
+        && expression.type_source.is_none();
+    push_check(
+        checks,
+        scope,
+        scope_id,
+        span,
+        outer_type_unchecked,
+        "structured_expression_outer_type_unchecked",
+        "structured add preserves the authoritative unchecked outer type state",
+    );
+}
+
+struct MinimalAddAuthority<'a> {
+    root: &'a CanonicalExpression,
+    left: &'a CanonicalExpression,
+    right: &'a CanonicalExpression,
+    left_name: &'a str,
+    right_name: &'a str,
+}
+
+fn minimal_add_authority(expression: &CanonicalExpression) -> Option<MinimalAddAuthority<'_>> {
+    let CanonicalExpressionKind::Binary {
+        operator: ParsedBinaryOperator::Add,
+        left,
+        right,
+    } = &expression.kind
+    else {
+        return None;
+    };
+    let CanonicalExpressionKind::Identifier(left_name) = &left.kind else {
+        return None;
+    };
+    let CanonicalExpressionKind::Identifier(right_name) = &right.kind else {
+        return None;
+    };
+    Some(MinimalAddAuthority {
+        root: expression,
+        left,
+        right,
+        left_name,
+        right_name,
+    })
+}
+
+fn source_range_is_sane(range: &CoreLowerSourceRange) -> bool {
+    span_is_sane(&range.start)
+        && range.byte_len > 0
+        && range.start.column.checked_add(range.byte_len).is_some()
+}
+
+fn source_range_contains(parent: &CoreLowerSourceRange, child: &CoreLowerSourceRange) -> bool {
+    let Some(parent_end) = parent.start.column.checked_add(parent.byte_len) else {
+        return false;
+    };
+    let Some(child_end) = child.start.column.checked_add(child.byte_len) else {
+        return false;
+    };
+    parent.start.file == child.start.file
+        && parent.start.line == child.start.line
+        && child.start.column >= parent.start.column
+        && child_end <= parent_end
+}
+
+fn source_range_precedes(left: &CoreLowerSourceRange, right: &CoreLowerSourceRange) -> bool {
+    left.start
+        .column
+        .checked_add(left.byte_len)
+        .is_some_and(|left_end| left_end <= right.start.column)
+}
+
+fn source_range_matches_authority(
+    projected: &CoreLowerSourceRange,
+    authority: &ParsedSourceRange,
+) -> bool {
+    projected.start.file == authority.start.file.replace('\\', "/")
+        && projected.start.line == authority.start.line
+        && projected.start.column == authority.start.column
+        && projected.byte_len == authority.byte_len
 }
 
 fn push_span_check(
@@ -1143,7 +1449,169 @@ mod tests {
     use crate::ast::Program;
     use crate::parser::parse_source;
 
-    use super::{core_verify_json, core_verify_text, validate_diagnostic_projection_from_source};
+    use super::{
+        build_report, core_verify_json, core_verify_text,
+        validate_diagnostic_projection_from_source, verify_lower_report,
+    };
+
+    #[test]
+    fn verifier_rejects_minimal_add_tree_corruption() {
+        fn minimal_add() -> (Program, Vec<crate::diagnostic::Diagnostic>) {
+            let parsed = parse_source(
+                "examples/core/minimal_add.hum",
+                include_str!("../examples/core/minimal_add.hum"),
+            );
+            (
+                Program {
+                    files: vec![parsed.file],
+                },
+                parsed.diagnostics,
+            )
+        }
+
+        fn failed_rule(report: &crate::core_lower::CoreLowerReport, rule: &str) -> bool {
+            verify_lower_report(report)
+                .iter()
+                .any(|check| check.status == "failed_v0" && check.rule == rule)
+        }
+
+        let (program, diagnostics) = minimal_add();
+        let clean = build_report(&program, &diagnostics);
+        assert_eq!(clean.failed_checks(), 0, "clean artifact must verify");
+        assert!(
+            clean.checks.iter().any(|check| check.rule
+                == "structured_expression_outer_type_unchecked"
+                && check.status == "passed_v0"),
+            "the production verifier must consume the structured tree"
+        );
+
+        let mut reordered = crate::core_lower::build_core_lower_report(&program, &diagnostics);
+        crate::core_lower::corrupt_first_structured_expression_for_test(
+            &mut reordered,
+            crate::core_lower::CoreLowerTreeCorruption::ReorderChildren,
+        )
+        .expect("reorder seam");
+        assert!(failed_rule(&reordered, "structured_expression_child_order"));
+
+        let mut duplicate = crate::core_lower::build_core_lower_report(&program, &diagnostics);
+        crate::core_lower::corrupt_first_structured_expression_for_test(
+            &mut duplicate,
+            crate::core_lower::CoreLowerTreeCorruption::DuplicateChildIdentity,
+        )
+        .expect("duplicate seam");
+        assert!(failed_rule(
+            &duplicate,
+            "structured_expression_identity_distinct"
+        ));
+
+        let foreign_source = r#"task foreign_add(x: Int, y: Int) -> Int {
+  does:
+    return x
+    return x + y
+}
+"#;
+        let foreign_parsed = parse_source("foreign/minimal-add.hum", foreign_source);
+        let foreign_diagnostics = foreign_parsed.diagnostics;
+        let foreign_program = Program {
+            files: vec![foreign_parsed.file],
+        };
+        let foreign =
+            crate::core_lower::build_core_lower_report(&foreign_program, &foreign_diagnostics);
+        let foreign_projection = foreign.core_items[0]
+            .operations
+            .iter()
+            .filter_map(|operation| operation.expression.as_ref())
+            .find_map(|expression| expression.structured.as_ref())
+            .expect("foreign parser-owned tree")
+            .clone();
+        let foreign_identity = foreign_projection.children[1].parser_node_id.clone();
+        let foreign_range = foreign_projection.children[1].source_range.clone();
+
+        let mut substituted = crate::core_lower::build_core_lower_report(&program, &diagnostics);
+        crate::core_lower::corrupt_first_structured_expression_for_test(
+            &mut substituted,
+            crate::core_lower::CoreLowerTreeCorruption::ForeignChildIdentity(foreign_identity),
+        )
+        .expect("foreign seam");
+        assert!(failed_rule(
+            &substituted,
+            "structured_expression_child_authority"
+        ));
+
+        let mut foreign_ranged = crate::core_lower::build_core_lower_report(&program, &diagnostics);
+        crate::core_lower::corrupt_first_structured_expression_for_test(
+            &mut foreign_ranged,
+            crate::core_lower::CoreLowerTreeCorruption::ForeignChildRange(foreign_range),
+        )
+        .expect("foreign range seam");
+        assert!(failed_rule(
+            &foreign_ranged,
+            "structured_expression_range_authority"
+        ));
+
+        let mut misspelled = crate::core_lower::build_core_lower_report(&program, &diagnostics);
+        crate::core_lower::corrupt_first_structured_expression_for_test(
+            &mut misspelled,
+            crate::core_lower::CoreLowerTreeCorruption::IncorrectIdentifierSpelling(
+                "same_shape_wrong_name".to_string(),
+            ),
+        )
+        .expect("identifier spelling seam");
+        assert!(failed_rule(
+            &misspelled,
+            "structured_expression_child_authority"
+        ));
+
+        let mut foreign_tree = crate::core_lower::build_core_lower_report(&program, &diagnostics);
+        crate::core_lower::corrupt_first_structured_expression_for_test(
+            &mut foreign_tree,
+            crate::core_lower::CoreLowerTreeCorruption::CoherentForeignProjection(
+                foreign_projection,
+            ),
+        )
+        .expect("coherent foreign projection seam");
+        assert!(failed_rule(
+            &foreign_tree,
+            "structured_expression_root_authority"
+        ));
+
+        let mut relocated = crate::core_lower::build_core_lower_report(&program, &diagnostics);
+        crate::core_lower::corrupt_first_structured_expression_for_test(
+            &mut relocated,
+            crate::core_lower::CoreLowerTreeCorruption::CoherentRangeRelocation {
+                file: "relocated/minimal-add.hum".to_string(),
+                line_offset: 10,
+                column_offset: 40,
+            },
+        )
+        .expect("coherent range relocation seam");
+        assert!(failed_rule(
+            &relocated,
+            "structured_expression_range_authority"
+        ));
+
+        let mut overflowing = crate::core_lower::build_core_lower_report(&program, &diagnostics);
+        crate::core_lower::corrupt_first_structured_expression_for_test(
+            &mut overflowing,
+            crate::core_lower::CoreLowerTreeCorruption::OverflowSizedRange,
+        )
+        .expect("overflow-sized range seam");
+        assert!(failed_rule(
+            &overflowing,
+            "structured_expression_source_ranges"
+        ));
+
+        let mut overclaimed = crate::core_lower::build_core_lower_report(&program, &diagnostics);
+        crate::core_lower::corrupt_first_structured_expression_for_test(
+            &mut overclaimed,
+            crate::core_lower::CoreLowerTreeCorruption::StructuralOverclaim,
+        )
+        .expect("structural overclaim seam");
+        assert!(failed_rule(
+            &overclaimed,
+            "structured_expression_binary_add_shape"
+        ));
+    }
 
     #[test]
     fn core_transport_rejects_projection_regenerated_or_corrupted_downstream() {

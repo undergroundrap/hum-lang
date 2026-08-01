@@ -172,6 +172,47 @@ needed by future type/effect/lowering work:
 Type slots may be populated only from checked trivial return facts already
 reported by `hum.type_check.v0`. They are not broad expression inference.
 
+### Bounded Structured Expression
+
+For a validated parser-owned `Binary(Add, Identifier, Identifier)` return,
+`structured_expression` is an additive object inside the existing expression
+row. The validated Core-body transport associates the canonical expression
+directly with its owning statement; it does not use an index-correlated side
+vector. Structural transport does not depend on a checked expression type.
+Other expression shapes retain the existing flat preview and emit
+`structured_expression: null`.
+
+The bounded object contains:
+
+- `provenance`: `parser_owned_canonical_expression_v0`;
+- `parser_node_id`: the original parser-owned binary-root identity;
+- `source_range`: the original file, one-based line and column, and
+  `byte_length` of that parser node;
+- `kind`: `binary`;
+- `operator`: `add`;
+- `children`: exactly two ordered child rows.
+
+Each child row contains its zero-based `index`, semantic `role`, original
+`parser_node_id`, parser-owned `source_range`, `kind`, and identifier spelling.
+Index 0 is role `left`; index 1 is role `right`. The public object is a
+projection of the retained parser tree, not independent authority. The
+in-memory Core-lower expression privately retains an immutable copy of the
+parser-owned canonical expression for Core verification. That private
+authority is absent from human and JSON output. Identities and ordering are
+not inferred from names, source-range adjacency, or rendered `surface_text`.
+
+The range records identify source bytes; they are not bytecode ranges or
+backend offsets. Core verification compares the projected root and child
+ranges exactly with private parser authority. Same-file containment and
+left-to-right order remain additional sanity checks. Coherent foreign or
+relocated projections fail even when internally consistent, and candidate
+range arithmetic fails closed on overflow.
+
+The structured object contains no type field. The existing outer expression
+type fields remain authoritative. For `examples/core/minimal_add.hum` they are
+`type_status: not_type_checked_v0`, `type_text: null`, and `type_source: null`.
+The task's declared `Int` result is not expression-type proof.
+
 ## Honesty Rules
 
 - `hum core-lower` must not execute code.
@@ -179,8 +220,8 @@ reported by `hum.type_check.v0`. They are not broad expression inference.
 - It must not claim independent type checking, effect checking, ownership
   checking, optimization, memory safety, or profile enforcement.
 - It may emit unverified Core Hum operation rows, source spans, signature facts,
-  compact expression preview roots, selected checked return-expression type
-  slots, and explicit blockers.
+  compact expression preview roots, the bounded parser-owned ordered add tree,
+  selected checked return-expression type slots, and explicit blockers.
 - It must block future execution or IR claims when source, resolver, type, body,
   or brace blockers exist.
 - It must stay in sync with `hum.core_contract.v0`, `hum.core_preview.v0`,

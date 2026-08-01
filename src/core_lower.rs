@@ -1,6 +1,9 @@
-use crate::ast::{Item, Param, Program, Section, Task};
+use crate::ast::{
+    CanonicalExpression, CanonicalExpressionKind, Item, Param, ParsedBinaryOperator,
+    ParsedSourceRange, Program, Section, Task,
+};
 use crate::callable;
-use crate::core_body::{self, BodyGrammarReport, BodyStatement};
+use crate::core_body::{self, BodyStatement, CanonicalBodyGrammarReport, CanonicalBodyStatement};
 use crate::core_contract;
 use crate::core_expr::{self, CoreExpressionPreview};
 use crate::core_preview;
@@ -105,11 +108,45 @@ pub(crate) struct CoreLowerExpression {
     pub(crate) root_form: &'static str,
     pub(crate) operator: Option<&'static str>,
     pub(crate) node_count: usize,
+    pub(crate) structured: Option<CoreLowerStructuredExpression>,
+    structured_authority: Option<CanonicalExpression>,
     pub(crate) type_status: &'static str,
     pub(crate) type_text: Option<String>,
     pub(crate) type_source: Option<&'static str>,
     pub(crate) effect_status: &'static str,
     pub(crate) reason: Option<&'static str>,
+}
+
+impl CoreLowerExpression {
+    pub(crate) fn structured_authority(&self) -> Option<&CanonicalExpression> {
+        self.structured_authority.as_ref()
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct CoreLowerStructuredExpression {
+    pub(crate) provenance: &'static str,
+    pub(crate) parser_node_id: String,
+    pub(crate) source_range: CoreLowerSourceRange,
+    pub(crate) kind: &'static str,
+    pub(crate) operator: &'static str,
+    pub(crate) children: Vec<CoreLowerStructuredChild>,
+}
+
+#[derive(Clone)]
+pub(crate) struct CoreLowerStructuredChild {
+    pub(crate) index: usize,
+    pub(crate) role: &'static str,
+    pub(crate) parser_node_id: String,
+    pub(crate) source_range: CoreLowerSourceRange,
+    pub(crate) kind: &'static str,
+    pub(crate) identifier: String,
+}
+
+#[derive(Clone)]
+pub(crate) struct CoreLowerSourceRange {
+    pub(crate) start: Span,
+    pub(crate) byte_len: usize,
 }
 
 pub(crate) struct CoreLowerBlocker {
@@ -296,6 +333,89 @@ pub(crate) fn build_core_lower_report(
         .expect("Core lower must carry one producer-supplied preview projection")
 }
 
+#[cfg(test)]
+pub(crate) enum CoreLowerTreeCorruption {
+    ReorderChildren,
+    DuplicateChildIdentity,
+    ForeignChildIdentity(String),
+    ForeignChildRange(CoreLowerSourceRange),
+    IncorrectIdentifierSpelling(String),
+    CoherentForeignProjection(CoreLowerStructuredExpression),
+    CoherentRangeRelocation {
+        file: String,
+        line_offset: usize,
+        column_offset: usize,
+    },
+    OverflowSizedRange,
+    StructuralOverclaim,
+}
+
+#[cfg(test)]
+pub(crate) fn corrupt_first_structured_expression_for_test(
+    report: &mut CoreLowerReport,
+    corruption: CoreLowerTreeCorruption,
+) -> Result<(), &'static str> {
+    let structured = report
+        .core_items
+        .iter_mut()
+        .flat_map(|item| &mut item.operations)
+        .filter_map(|operation| operation.expression.as_mut())
+        .find_map(|expression| expression.structured.as_mut())
+        .ok_or("structured_expression_absent_v0")?;
+    if structured.children.len() != 2 {
+        return Err("structured_expression_child_count_unexpected_v0");
+    }
+    match corruption {
+        CoreLowerTreeCorruption::ReorderChildren => structured.children.swap(0, 1),
+        CoreLowerTreeCorruption::DuplicateChildIdentity => {
+            structured.children[1].parser_node_id = structured.children[0].parser_node_id.clone();
+        }
+        CoreLowerTreeCorruption::ForeignChildIdentity(identity) => {
+            structured.children[1].parser_node_id = identity;
+        }
+        CoreLowerTreeCorruption::ForeignChildRange(range) => {
+            structured.children[1].source_range = range;
+        }
+        CoreLowerTreeCorruption::IncorrectIdentifierSpelling(identifier) => {
+            structured.children[0].identifier = identifier;
+        }
+        CoreLowerTreeCorruption::CoherentForeignProjection(foreign) => {
+            *structured = foreign;
+        }
+        CoreLowerTreeCorruption::CoherentRangeRelocation {
+            file,
+            line_offset,
+            column_offset,
+        } => {
+            let ranges = std::iter::once(&mut structured.source_range).chain(
+                structured
+                    .children
+                    .iter_mut()
+                    .map(|child| &mut child.source_range),
+            );
+            for range in ranges {
+                range.start.file = file.clone();
+                range.start.line = range
+                    .start
+                    .line
+                    .checked_add(line_offset)
+                    .ok_or("structured_expression_relocation_overflow_v0")?;
+                range.start.column = range
+                    .start
+                    .column
+                    .checked_add(column_offset)
+                    .ok_or("structured_expression_relocation_overflow_v0")?;
+            }
+        }
+        CoreLowerTreeCorruption::OverflowSizedRange => {
+            structured.source_range.start.column = usize::MAX;
+            structured.source_range.byte_len = usize::MAX;
+        }
+        CoreLowerTreeCorruption::StructuralOverclaim => structured.kind = "call",
+    }
+    Ok(())
+}
+
 pub(crate) fn build_core_lower_report_from_preview(
     program: &Program,
     diagnostics: &[Diagnostic],
@@ -415,7 +535,7 @@ fn core_item(
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
-    let body = core_body::analyze_does_section(
+    let body = core_body::analyze_does_section_for_lowering(
         program
             .canonical_core_expectation(item, does)
             .expect("live Core item must have parser authority"),
@@ -473,7 +593,7 @@ fn core_item(
 
 fn lower_operations(
     item: &Item,
-    body: &BodyGrammarReport,
+    body: &CanonicalBodyGrammarReport,
     checked_returns: &[CheckedReturnSummary],
     failure_facts: &std::collections::BTreeMap<usize, FailureFact>,
     predicate_facts: &[PredicateFact],
@@ -543,10 +663,12 @@ fn lower_predicate_operation(index: usize, fact: &PredicateFact) -> CoreLowerOpe
 fn lower_operation(
     item: &Item,
     index: usize,
-    statement: &BodyStatement,
+    bound_statement: &CanonicalBodyStatement,
     checked_returns: &[CheckedReturnSummary],
     failure_fact: Option<&FailureFact>,
 ) -> CoreLowerOperation {
+    let statement = bound_statement.statement();
+    let canonical_expression = bound_statement.canonical_expression();
     if let Some(fact) = failure_fact
         && fact.diagnostic_code
             == Some(crate::diagnostic::DiagnosticCode::UNSUPPORTED_TRY_EXPRESSION)
@@ -569,12 +691,9 @@ fn lower_operation(
         };
     }
     let (core_operation, status, fallback_reason) = core_operation_for(statement);
-    let mut expression = expression_text_for_statement(statement).map(|text| {
-        lower_expression(
-            text,
-            checked_return_for_statement(item, statement, checked_returns),
-        )
-    });
+    let checked_return = checked_return_for_statement(item, statement, checked_returns);
+    let mut expression = expression_text_for_statement(statement)
+        .map(|text| lower_expression(text, checked_return, canonical_expression));
     if statement.status == "unsupported_v0" {
         expression = None;
     }
@@ -645,6 +764,7 @@ fn core_operation_for(
 fn lower_expression(
     text: &str,
     checked_return: Option<&CheckedReturnSummary>,
+    canonical_expression: Option<&CanonicalExpression>,
 ) -> CoreLowerExpression {
     let mut preview = core_expr::analyze_expression(text);
     if let Some(checked_return) = checked_return {
@@ -660,7 +780,14 @@ fn lower_expression(
             checked_return.type_source,
         );
     }
-    expression_from_preview(&preview)
+    let mut expression = expression_from_preview(&preview);
+    if let Some(canonical_expression) = canonical_expression
+        && let Some(structured) = structured_minimal_add_expression(canonical_expression)
+    {
+        expression.structured = Some(structured);
+        expression.structured_authority = Some(canonical_expression.clone());
+    }
+    expression
 }
 
 fn expression_from_preview(preview: &CoreExpressionPreview) -> CoreLowerExpression {
@@ -672,11 +799,65 @@ fn expression_from_preview(preview: &CoreExpressionPreview) -> CoreLowerExpressi
         root_form: preview.ast.root.form,
         operator: preview.ast.root.operator,
         node_count: preview.ast.node_count,
+        structured: None,
+        structured_authority: None,
         type_status: preview.ast.type_status,
         type_text: preview.ast.type_text.clone(),
         type_source: preview.ast.type_source,
         effect_status: preview.ast.effect_status,
         reason: preview.reason.or(preview.ast.root.reason),
+    }
+}
+
+fn structured_minimal_add_expression(
+    expression: &CanonicalExpression,
+) -> Option<CoreLowerStructuredExpression> {
+    let CanonicalExpressionKind::Binary {
+        operator: ParsedBinaryOperator::Add,
+        left,
+        right,
+    } = &expression.kind
+    else {
+        return None;
+    };
+    let CanonicalExpressionKind::Identifier(left_name) = &left.kind else {
+        return None;
+    };
+    let CanonicalExpressionKind::Identifier(right_name) = &right.kind else {
+        return None;
+    };
+
+    Some(CoreLowerStructuredExpression {
+        provenance: "parser_owned_canonical_expression_v0",
+        parser_node_id: expression.node_id.as_str().to_string(),
+        source_range: lower_source_range(&expression.range),
+        kind: "binary",
+        operator: "add",
+        children: vec![
+            CoreLowerStructuredChild {
+                index: 0,
+                role: "left",
+                parser_node_id: left.node_id.as_str().to_string(),
+                source_range: lower_source_range(&left.range),
+                kind: "identifier",
+                identifier: left_name.clone(),
+            },
+            CoreLowerStructuredChild {
+                index: 1,
+                role: "right",
+                parser_node_id: right.node_id.as_str().to_string(),
+                source_range: lower_source_range(&right.range),
+                kind: "identifier",
+                identifier: right_name.clone(),
+            },
+        ],
+    })
+}
+
+fn lower_source_range(range: &ParsedSourceRange) -> CoreLowerSourceRange {
+    CoreLowerSourceRange {
+        start: portable_span(&range.start),
+        byte_len: range.byte_len,
     }
 }
 
@@ -701,7 +882,7 @@ fn checked_return_for_statement<'a>(
 
 fn item_blockers(
     item: &Item,
-    body: &BodyGrammarReport,
+    body: &CanonicalBodyGrammarReport,
     operations: &[CoreLowerOperation],
     source_errors: usize,
     resolver_errors: usize,
@@ -786,7 +967,7 @@ fn opens_block(core_operation: &str) -> bool {
 }
 
 fn item_status(
-    body: &BodyGrammarReport,
+    body: &CanonicalBodyGrammarReport,
     source_errors: usize,
     resolver_errors: usize,
     type_errors: usize,
@@ -1111,6 +1292,7 @@ fn push_expression(
         push_string_field(out, indent + 2, "root_form", expression.root_form, true);
         push_optional_string_field(out, indent + 2, "operator", expression.operator, true);
         push_usize_field(out, indent + 2, "node_count", expression.node_count, true);
+        push_structured_expression(out, expression.structured.as_ref(), indent + 2, true);
         push_string_field(out, indent + 2, "type_status", expression.type_status, true);
         push_optional_string_field(
             out,
@@ -1133,6 +1315,84 @@ fn push_expression(
     } else {
         out.push_str("null");
     }
+    push_comma_newline(out, comma);
+}
+
+fn push_structured_expression(
+    out: &mut String,
+    expression: Option<&CoreLowerStructuredExpression>,
+    indent: usize,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    out.push_str("\"structured_expression\": ");
+    if let Some(expression) = expression {
+        out.push_str("{\n");
+        push_string_field(out, indent + 2, "provenance", expression.provenance, true);
+        push_string_field(
+            out,
+            indent + 2,
+            "parser_node_id",
+            &expression.parser_node_id,
+            true,
+        );
+        push_source_range_field(
+            out,
+            indent + 2,
+            "source_range",
+            &expression.source_range,
+            true,
+        );
+        push_string_field(out, indent + 2, "kind", expression.kind, true);
+        push_string_field(out, indent + 2, "operator", expression.operator, true);
+        push_indent(out, indent + 2);
+        out.push_str("\"children\": [\n");
+        for (index, child) in expression.children.iter().enumerate() {
+            push_indent(out, indent + 4);
+            out.push_str("{\n");
+            push_usize_field(out, indent + 6, "index", child.index, true);
+            push_string_field(out, indent + 6, "role", child.role, true);
+            push_string_field(
+                out,
+                indent + 6,
+                "parser_node_id",
+                &child.parser_node_id,
+                true,
+            );
+            push_source_range_field(out, indent + 6, "source_range", &child.source_range, true);
+            push_string_field(out, indent + 6, "kind", child.kind, true);
+            push_string_field(out, indent + 6, "identifier", &child.identifier, false);
+            push_indent(out, indent + 4);
+            out.push('}');
+            push_comma_newline(out, index + 1 < expression.children.len());
+        }
+        push_indent(out, indent + 2);
+        out.push_str("]\n");
+        push_indent(out, indent);
+        out.push('}');
+    } else {
+        out.push_str("null");
+    }
+    push_comma_newline(out, comma);
+}
+
+fn push_source_range_field(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    range: &CoreLowerSourceRange,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    out.push('"');
+    out.push_str(key);
+    out.push_str("\": {\"file\": ");
+    push_json_string(out, &range.start.file);
+    out.push_str(&format!(
+        ", \"line\": {}, \"column\": {}, \"byte_length\": {}",
+        range.start.line, range.start.column, range.byte_len
+    ));
+    out.push('}');
     push_comma_newline(out, comma);
 }
 
@@ -1272,9 +1532,69 @@ fn push_comma_newline(out: &mut String, comma: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{core_lower_json, core_lower_text};
+    use super::{core_lower_json, core_lower_text, lower_operation};
     use crate::ast::Program;
     use crate::parser::parse_source;
+
+    #[test]
+    fn json_emits_ordered_parser_owned_minimal_add_tree() {
+        let source = include_str!("../examples/core/minimal_add.hum");
+        let parsed = parse_source("examples/core/minimal_add.hum", source);
+        let diagnostics = parsed.diagnostics;
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let json = core_lower_json(&program, &diagnostics);
+
+        assert!(json.contains("\"structured_expression\": {"));
+        assert!(json.contains("\"provenance\": \"parser_owned_canonical_expression_v0\""));
+        assert!(json.contains("\"kind\": \"binary\""));
+        assert!(json.contains("\"operator\": \"add\""));
+        assert!(json.contains("\"type_status\": \"not_type_checked_v0\""));
+        assert!(json.contains("\"type_text\": null"));
+        assert!(json.contains("\"type_source\": null"));
+        assert!(!json.contains("\"checked_type_status\""));
+        assert!(!json.contains("\"checked_type\""));
+        assert!(json.contains("\"index\": 0"));
+        assert!(json.contains("\"role\": \"left\""));
+        assert!(json.contains("\"identifier\": \"a\""));
+        assert!(json.contains("\"index\": 1"));
+        assert!(json.contains("\"role\": \"right\""));
+        assert!(json.contains("\"identifier\": \"b\""));
+        assert!(json.contains("\"byte_length\": 5"));
+
+        let item = &program.files[0].items[0];
+        let crate::ast::Item::Task(task) = item else {
+            panic!("task")
+        };
+        let does = task.section("does").expect("does");
+        let mut body = crate::core_body::analyze_does_section_for_lowering(
+            program
+                .canonical_core_expectation(item, does)
+                .expect("canonical expectation"),
+        );
+        let original = body.statements[0]
+            .canonical_expression()
+            .expect("canonical expression");
+        let crate::ast::CanonicalExpressionKind::Binary { left, right, .. } = &original.kind else {
+            panic!("binary")
+        };
+        let expected_left = left.node_id.as_str().to_string();
+        let expected_right = right.node_id.as_str().to_string();
+
+        body.statements[0].statement_mut_for_test().text = "return fabricated + names".to_string();
+        let checked_returns = crate::type_check::checked_return_summaries(&program, &diagnostics);
+        let lowered = lower_operation(item, 0, &body.statements[0], &checked_returns, None);
+        let structured = lowered
+            .expression
+            .expect("expression")
+            .structured
+            .expect("structured expression survives text sabotage");
+        assert_eq!(structured.children[0].parser_node_id, expected_left);
+        assert_eq!(structured.children[1].parser_node_id, expected_right);
+        assert_eq!(structured.children[0].identifier, "a");
+        assert_eq!(structured.children[1].identifier, "b");
+    }
 
     #[test]
     fn json_lowers_tiny_task_without_execution_claims() {

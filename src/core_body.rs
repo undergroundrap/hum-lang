@@ -1,4 +1,7 @@
-use crate::ast::{CanonicalCoreSectionExpectation, ValidatedCoreSection};
+use crate::ast::{
+    CanonicalCoreSectionExpectation, CanonicalExpression, ParsedBodyStatementKind,
+    ValidatedCoreSection,
+};
 use crate::diagnostic::Span;
 
 pub const CORE_BODY_GRAMMAR_STATUS: &str = "partial_v0";
@@ -13,6 +16,38 @@ pub struct BodyGrammarReport {
     pub unsupported_lines: usize,
     pub statements: Vec<BodyStatement>,
     _validated_construction: ValidatedBodyGrammarReportConstruction,
+}
+
+#[derive(Clone)]
+pub(crate) struct CanonicalBodyGrammarReport {
+    pub(crate) status: &'static str,
+    pub(crate) grammar_status: &'static str,
+    total_lines: usize,
+    pub(crate) meaningful_lines: usize,
+    recognized_lines: usize,
+    unsupported_lines: usize,
+    pub(crate) statements: Vec<CanonicalBodyStatement>,
+}
+
+#[derive(Clone)]
+pub(crate) struct CanonicalBodyStatement {
+    statement: BodyStatement,
+    canonical_expression: Option<CanonicalExpression>,
+}
+
+impl CanonicalBodyStatement {
+    pub(crate) fn statement(&self) -> &BodyStatement {
+        &self.statement
+    }
+
+    pub(crate) fn canonical_expression(&self) -> Option<&CanonicalExpression> {
+        self.canonical_expression.as_ref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn statement_mut_for_test(&mut self) -> &mut BodyStatement {
+        &mut self.statement
+    }
 }
 
 #[derive(Clone)]
@@ -54,10 +89,21 @@ pub(crate) fn try_analyze_does_section(
     expectation: CanonicalCoreSectionExpectation<'_>,
 ) -> Result<BodyGrammarReport, &'static str> {
     let validated = expectation.validate()?;
-    Ok(construct_body_grammar_report(validated))
+    Ok(construct_canonical_body_grammar_report(validated).into_public_report())
 }
 
-fn construct_body_grammar_report(validated: ValidatedCoreSection<'_>) -> BodyGrammarReport {
+pub(crate) fn analyze_does_section_for_lowering(
+    expectation: CanonicalCoreSectionExpectation<'_>,
+) -> CanonicalBodyGrammarReport {
+    let validated = expectation
+        .validate()
+        .expect("canonical Core section authority invariant failed before construction");
+    construct_canonical_body_grammar_report(validated)
+}
+
+fn construct_canonical_body_grammar_report(
+    validated: ValidatedCoreSection<'_>,
+) -> CanonicalBodyGrammarReport {
     let section = validated.section();
     let mut statements = Vec::new();
     let mut meaningful_lines = 0usize;
@@ -70,6 +116,10 @@ fn construct_body_grammar_report(validated: ValidatedCoreSection<'_>) -> BodyGra
         };
 
         meaningful_lines += 1;
+        let canonical_expression = match &parsed.kind {
+            ParsedBodyStatementKind::Return(expression) => Some(expression.canonical.clone()),
+            ParsedBodyStatementKind::Binding { .. } | ParsedBodyStatementKind::Other { .. } => None,
+        };
         let statement = BodyStatement {
             span: Span {
                 file: line.span.file.replace('\\', "/"),
@@ -87,7 +137,10 @@ fn construct_body_grammar_report(validated: ValidatedCoreSection<'_>) -> BodyGra
         } else {
             recognized_lines += 1;
         }
-        statements.push(statement);
+        statements.push(CanonicalBodyStatement {
+            statement,
+            canonical_expression,
+        });
     }
 
     let status = if meaningful_lines == 0 {
@@ -100,7 +153,7 @@ fn construct_body_grammar_report(validated: ValidatedCoreSection<'_>) -> BodyGra
         "unsupported_v0"
     };
 
-    BodyGrammarReport {
+    CanonicalBodyGrammarReport {
         status,
         grammar_status: CORE_BODY_GRAMMAR_STATUS,
         total_lines: section.lines.len(),
@@ -108,7 +161,26 @@ fn construct_body_grammar_report(validated: ValidatedCoreSection<'_>) -> BodyGra
         recognized_lines,
         unsupported_lines,
         statements,
-        _validated_construction: ValidatedBodyGrammarReportConstruction,
+    }
+}
+
+impl CanonicalBodyGrammarReport {
+    fn into_public_report(self) -> BodyGrammarReport {
+        let statements = self
+            .statements
+            .into_iter()
+            .map(|statement| statement.statement)
+            .collect::<Vec<_>>();
+        BodyGrammarReport {
+            status: self.status,
+            grammar_status: self.grammar_status,
+            total_lines: self.total_lines,
+            meaningful_lines: self.meaningful_lines,
+            recognized_lines: self.recognized_lines,
+            unsupported_lines: self.unsupported_lines,
+            statements,
+            _validated_construction: ValidatedBodyGrammarReportConstruction,
+        }
     }
 }
 
@@ -116,7 +188,128 @@ fn construct_body_grammar_report(validated: ValidatedCoreSection<'_>) -> BodyGra
 mod tests {
     use crate::parser::parse_source;
 
-    use super::{analyze_does_section, try_analyze_does_section};
+    use super::{
+        analyze_does_section, analyze_does_section_for_lowering, try_analyze_does_section,
+    };
+
+    #[test]
+    fn validated_body_transports_parser_owned_minimal_add_tree() {
+        let parsed = parse_source(
+            "minimal-add.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+        );
+        let item = &parsed.file.items[0];
+        let crate::ast::Item::Task(task) = item else {
+            panic!("task")
+        };
+        let section = task.section("does").expect("does");
+        let crate::ast::ParsedBodyStatementKind::Return(original) = &task.body_syntax[0].kind
+        else {
+            panic!("return")
+        };
+        let report = analyze_does_section_for_lowering(
+            parsed
+                .canonical_core_expectation(item, section)
+                .expect("parser-owned expectation"),
+        );
+        let transported = report.statements[0]
+            .canonical_expression()
+            .expect("transported canonical expression");
+
+        assert_eq!(transported.node_id, original.canonical.node_id);
+        assert_eq!(transported.range, original.canonical.range);
+        let crate::ast::CanonicalExpressionKind::Binary {
+            operator,
+            left,
+            right,
+        } = &transported.kind
+        else {
+            panic!("binary")
+        };
+        let crate::ast::CanonicalExpressionKind::Binary {
+            left: original_left,
+            right: original_right,
+            ..
+        } = &original.canonical.kind
+        else {
+            panic!("original binary")
+        };
+        assert_eq!(*operator, crate::ast::ParsedBinaryOperator::Add);
+        assert_eq!(left.node_id, original_left.node_id);
+        assert_eq!(right.node_id, original_right.node_id);
+        assert_eq!(left.range, original_left.range);
+        assert_eq!(right.range, original_right.range);
+        assert_ne!(left.node_id, right.node_id);
+        assert!(matches!(
+            &left.kind,
+            crate::ast::CanonicalExpressionKind::Identifier(name) if name == "a"
+        ));
+        assert!(matches!(
+            &right.kind,
+            crate::ast::CanonicalExpressionKind::Identifier(name) if name == "b"
+        ));
+
+        let mixed = parse_source(
+            "mixed-body.hum",
+            r#"task mixed(a: Int, b: Int) -> Int {
+  does:
+    let sum = a + b
+    save sum in scratch
+    return a + b
+    return b + a
+}
+"#,
+        );
+        let mixed_item = &mixed.file.items[0];
+        let crate::ast::Item::Task(mixed_task) = mixed_item else {
+            panic!("mixed task")
+        };
+        let mixed_section = mixed_task.section("does").expect("mixed does");
+        let mixed_report = analyze_does_section_for_lowering(
+            mixed
+                .canonical_core_expectation(mixed_item, mixed_section)
+                .expect("mixed parser-owned expectation"),
+        );
+        assert_eq!(mixed_report.statements.len(), mixed_task.body_syntax.len());
+
+        let mut bindings = 0usize;
+        let mut other_or_unsupported = 0usize;
+        let mut returns = 0usize;
+        for (transported, parsed_statement) in
+            mixed_report.statements.iter().zip(&mixed_task.body_syntax)
+        {
+            assert_eq!(transported.statement().kind, parsed_statement.core_kind);
+            assert_eq!(transported.statement().status, parsed_statement.core_status);
+            match &parsed_statement.kind {
+                crate::ast::ParsedBodyStatementKind::Return(expression) => {
+                    returns += 1;
+                    assert_eq!(
+                        transported
+                            .canonical_expression()
+                            .expect("return authority"),
+                        &expression.canonical
+                    );
+                }
+                crate::ast::ParsedBodyStatementKind::Binding { .. } => {
+                    bindings += 1;
+                    assert!(transported.canonical_expression().is_none());
+                }
+                crate::ast::ParsedBodyStatementKind::Other { .. } => {
+                    other_or_unsupported += 1;
+                    assert!(transported.canonical_expression().is_none());
+                }
+            }
+        }
+        assert_eq!(bindings, 1);
+        assert!(other_or_unsupported >= 1);
+        assert!(
+            mixed_report
+                .statements
+                .iter()
+                .any(|statement| statement.statement().status == "unsupported_v0")
+        );
+        assert_eq!(returns, 2);
+    }
 
     #[test]
     fn recognizes_first_core_body_shapes_without_lowering() {

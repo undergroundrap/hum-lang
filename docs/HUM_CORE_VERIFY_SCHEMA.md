@@ -128,8 +128,8 @@ Each `core_items` row has:
 Each `checks` row has:
 
 - `id`: check row id
-- `scope`: `summary`, `core_item`, `operation`, `operation_expression`, or
-  `blocker`
+- `scope`: `summary`, `callable_semantic_spine`, `core_item`, `operation`,
+  `operation_expression`, `structured_expression`, or `blocker`
 - `scope_id`: source-derived item or operation id being checked
 - `source_span`: optional source file, line, and column
 - `status`: `passed_v0` or `failed_v0`
@@ -158,6 +158,37 @@ Current rule families include:
   return provenance
 - `effect_claim_honesty`: expression effects remain `not_effect_checked_v0`
 - `claim_honesty`: summary readiness stays non-executing and non-IR
+- `structured_expression_parser_provenance`: the bounded structured row names
+  its parser-owned provenance
+- `structured_expression_identity_present` and
+  `structured_expression_identity_distinct`: root and child parser identities
+  are nonempty and pairwise distinct
+- `structured_expression_parser_authority_present`: the in-memory artifact
+  retains the parser-owned canonical add expression that authorizes the public
+  projection
+- `structured_expression_binary_add_shape`,
+  `structured_expression_child_count`, `structured_expression_child_order`,
+  `structured_expression_child_roles`, and
+  `structured_expression_identifier_children`: the bounded row is exactly one
+  binary/add root with ordered left and right identifier children
+- `structured_expression_root_authority` and
+  `structured_expression_child_authority`: projected root identity, kind,
+  operator, child count and order, child identities, roles, node kinds, and
+  exact identifier spellings match the retained parser authority
+- `structured_expression_range_authority`: projected root and child ranges
+  match retained parser authority exactly
+- `structured_expression_source_ranges`: candidate ranges are sane,
+  same-file, source ordered, and contained by the root range, with checked
+  arithmetic that fails verification instead of overflowing
+- `structured_expression_outer_type_unchecked`: the structured root preserves
+  the authoritative outer `not_type_checked_v0` / null / null type state
+
+These checks consume the actual in-memory `CoreLowerReport` artifact. The
+public structure is a projection. Its in-memory expression privately retains
+immutable parser authority that is not serialized. The verifier compares the
+projection to that authority; it does not parse the JSON form, reparse source,
+search statement text, reconstruct parser identities, or derive expected child
+identities from the projected root.
 
 ## Honesty Rules
 
@@ -171,6 +202,14 @@ Current rule families include:
 - It may verify source span sanity, known operation families, status/blocker
   consistency, expression-preview provenance, and non-claim fields on the
   current `hum.core_lower.v0` artifact.
+- For the bounded parser-owned add tree, it may additionally verify exact
+  ordered identity, range, shape, and honest unchecked outer type state. The
+  tree carries no nested type conclusion. Test-only reorder,
+  duplicate-identity, real foreign-identity, incorrect-spelling, coherent
+  foreign-projection, coherent relocation, foreign-range, overflow-range, and
+  structural-overclaim substitutions mutate only the public projection, retain
+  the original private authority, and must reach this production verifier and
+  fail their owning structural rules.
 - It may verify blocked lowering rows as honest blockers.
 - For Session W H0906 rows, verification requires the
   `blocked_unsupported_try_expression` operation, absent expression semantics,
@@ -206,6 +245,11 @@ adapter input, proof artifacts, optimized code, executable behavior, broad type
 inference, effect facts, ownership facts, profile enforcement, or safety claims.
 It verifies the shape and honesty of the non-executing artifact boundary so the
 next compiler blockers are visible and compiler-checkable.
+
+The structured add row does not make the artifact Hum IR, backend-ready,
+executable, an opaque verified backend input, or Cranelift-lowerable.
+It does not infer `Int` or treat the task's declared result annotation as proof
+of the return expression's type.
 
 ## Session AL Callable Verification
 
