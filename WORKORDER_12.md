@@ -2,29 +2,63 @@
 
 Date: 2026-07-30
 <!-- hum-active-workorder:v1 -->
-Status: issued, uniquely active, published, and terminal-green.
+Status: Unit 1 accepted, committed, published, terminal-green, and closed.
 
-The bounded Unit 1 satisfiability amendment received final independent
-`ACCEPT` with no P0, P1, or P2 findings. Ocean explicitly accepted its exact
-reviewed bytes. It was committed as
-`0b30d3117f8473ce4aa48f890c6645775e6544e2`, with sole committed
-`WORKORDER_12.md` blob `5dfbda05dc87d58ef6874a1b5af28aa8081bc913`,
-and published by normal fast-forward.
+The initial Unit 1 implementation review returned `REJECT`, and its sole
+bounded correction cycle was consumed. The corrected-tree reviewer reported
+no P0 or P1 findings, one P2 documentation mismatch, and `ACCEPT WITH REQUIRED
+FIX`; the independent reviewer did not issue an unconditional `ACCEPT`. The P2
+concerned the closed public list of emitted Core-verify `checks[].scope`
+values. Direct production inspection established exactly seven: `summary`,
+`callable_semantic_spine`, `core_item`, `operation`, `operation_expression`,
+`structured_expression`, and `blocker`. No eighth emitted scope exists. Ocean
+accepted the reviewer's finding, applied a proportionality ruling, directly
+inspected the exact documentation-only closure, and accepted the resulting
+five-path candidate.
 
-Required workflow `30609785097`, attempt 1, completed successfully. Ubuntu job
-`91089805165` succeeded in 23m48s, with full preflight succeeding in 23m14s.
-Its one exact Exhaustive test passed all 14,226 pairs in 17.008s: F1 630, F2
-4,950, and F3/F4 8,646, under seed `0x48554D5F5345414C`. Windows job
-`91089805143` succeeded in 36m10s, with full preflight succeeding in 35m18s;
-the platform-independent Exhaustive duplicate correctly skipped. Both jobs
-selected `mode=full` with `reason=no_status_transition`; status-only evidence
-correctly skipped.
+The BDFL explicitly authorized and completed Gate 5. The accepted Unit 1
+implementation was committed as
+`92cc5042903c4afe3c738acee9cd7a0ea4afd72b`, subject
+`feat(core): transport parser-owned add tree`, with exactly five paths and
+1,095 insertions / 29 deletions:
 
-The amendment's ordered gates 1 through 4 are complete. Gate 5 remains
-outstanding: a separate explicit BDFL signal is required before the original
-implementer may resume Unit 1. The preserved five-path implementation remains
-unaccepted and uncommitted, receives zero acceptance credit, and Unit 1 remains
-paused. No later work is authorized.
+- `src/core_body.rs` blob `18b7ea4bf16809a83c0e4a1e41dd33bc0e50ff0f`;
+- `src/core_lower.rs` blob `e884fa045aa83e2295a3664eef855d7ed255282a`;
+- `src/core_verify.rs` blob `c0a338eabab12dd4d6e42178e0078e03a6bd6ccd`;
+- `docs/HUM_CORE_LOWER_SCHEMA.md` blob
+  `6242388582bdbafaed0e9abd52728bb04a63a817`; and
+- `docs/HUM_CORE_VERIFY_SCHEMA.md` blob
+  `860ea637ce8586db43eb1a660c7bad9a800f20b6`.
+
+Its first publication workflow, `30684770486`, attempt 1, failed only because
+the Replacement F4 textual source audit in `tools/check_all.ps1` still modeled
+the former body-grammar construction topology. Production behavior and the
+root suites were otherwise green. Ubuntu job `91328314467` and Windows job
+`91328314422` both selected `mode=full` with
+`reason=no_status_transition` and stopped at that same obsolete audit.
+
+The bounded red-main repair was committed and published as
+`e3f0f1720867c24dcf13f295cf3ee592e1b38737`, parent
+`92cc5042903c4afe3c738acee9cd7a0ea4afd72b`. It changed only
+`tools/check_all.ps1`, with 38 insertions / 8 deletions and blob
+`bc068ee91f642f01bd89ff1dc7c3faa4c94572de`. The final local Fast run passed
+with exit 0 in 1,056.3 seconds. Three earlier directly related audit-repair
+attempts stopped after 180.7, 180.0, and 458.0 seconds; they were neither
+unrelated failures nor scope expansion. No local Exhaustive run occurred.
+
+Repair publication workflow `30687216168`, attempt 1, completed successfully.
+Ubuntu job `91335325626` succeeded in 22m27s, with full preflight succeeding
+in 21m50s. Its one exact Exhaustive test passed all 14,226 pairs in 18.086s:
+F1 630, F2 4,950, and F3/F4 8,646, under seed
+`0x48554D5F5345414C`. Windows job `91335325633` succeeded in 33m53s, with
+full preflight succeeding in 33m15s; the platform-independent Exhaustive
+duplicate correctly skipped. The repaired Replacement F4 audit passed on both
+platforms. Both selected `mode=full` with `reason=no_status_transition`, and
+status-only evidence correctly skipped.
+
+Work Order 12's sole compiler-facing unit is complete. No later compiler unit,
+new Work Order, implementation work, archive mutation, or other later work is
+authorized.
 
 Owner: BDFL (Ocean).
 Author: fresh recovery architect acting only under the bounded Work Order 12
@@ -308,16 +342,15 @@ pre-issuance check.
 
 ## Current authorization gate
 
-Work Order 12 is the unique active Work Order. The bounded Unit 1
-satisfiability amendment is accepted, published as
-`0b30d3117f8473ce4aa48f890c6645775e6544e2`, and terminal-green in required
-workflow `30609785097`, attempt 1. Its ordered gates 1 through 4 are complete.
+Work Order 12 remains the unique active Work Order for this closeout. Gate 5
+was explicitly authorized and completed. Unit 1 is accepted, committed as
+`92cc5042903c4afe3c738acee9cd7a0ea4afd72b`, published, repaired by
+`e3f0f1720867c24dcf13f295cf3ee592e1b38737` after the obsolete F4 source
+audit made the first publication workflow red, terminal-green in repair
+workflow `30687216168`, attempt 1, and closed.
 
-Gate 5 remains outstanding. Unit 1 is paused, and only a separate explicit
-BDFL signal may authorize the original implementer to resume the preserved
-five-path candidate. That candidate remains unaccepted and uncommitted and
-receives zero acceptance credit. No implementation repair, implementation
-commit, push, archive mutation, later compiler unit, or other later work is
-authorized by the amendment's acceptance, publication, CI result, or this
-status record.
+Work Order 12's sole compiler-facing unit is complete. No later compiler unit,
+new Work Order, implementation work, archive mutation, or other later work is
+authorized by Unit 1 acceptance, either publication, terminal-green CI, or
+this status record.
 <!-- workorder-current-authorization-gate:end -->
