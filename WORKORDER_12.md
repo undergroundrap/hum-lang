@@ -1,7 +1,6 @@
 # Hum Work Order 12: Compiler Restart After Validation-Throughput Failure
 
 Date: 2026-07-30
-<!-- hum-active-workorder:v1 -->
 Status: Unit 1 accepted, committed, published, terminal-green, and closed.
 
 The initial Unit 1 implementation review returned `REJECT`, and its sole
