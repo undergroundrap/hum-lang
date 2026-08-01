@@ -2,8 +2,24 @@
 
 Date: 2026-08-01
 <!-- hum-active-workorder:v1 -->
-Status: Fresh re-scoped pre-issuance draft; the rejected predecessor is
-superseded, implementation is not authorized, and independent review is next.
+Status: Issued, uniquely active, published, and terminal-green. The fresh
+re-scoped replacement received independent pre-issuance `ACCEPT` with no P0,
+P1, or P2 findings, and the BDFL accepted the exact reviewed bytes. The exact
+two-document package was committed and published as
+`ec2c3e02d1e1a02ad7e5c83331454b8f534e3490` with parent
+`63b7ca45a67aa0ed3e5c0c5f639592d2dc666612`, paths `WORKORDER_12.md` and
+`WORKORDER_13.md`, and statistics `+767/-1`.
+
+Workflow `30715057713`, attempt 1, completed successfully. Ubuntu job
+`91409140530` succeeded in 25m24s; its full preflight succeeded in 24m52s and
+its one selected and passing Exhaustive test proved F1 630, F2 4,950, F3/F4
+8,646, and total 14,226 pairs in 16.159s. Windows job `91409140499` succeeded
+in 36m03s; its full preflight succeeded in 35m17s and it correctly skipped the
+platform-independent Exhaustive duplicate. Both jobs selected `mode=full` with
+`reason=no_status_transition` and correctly skipped status-only evidence.
+
+No implementation, repair, archive mutation, or later work occurred. Unit 1
+remains explicitly unauthorized pending a separate BDFL implementation signal.
 
 Owner: BDFL (Ocean).
 Author: Work Order 13 re-scope architect. The author may report facts but is
@@ -757,11 +773,8 @@ validation, or performance measurement is an authoring check.
 
 ## Current authorization gate
 
-Work Order 13 is the sole active marker only for this fresh re-scoped
-pre-issuance draft and its next independent review. The superseded draft has
-no authority. Acceptance, issuance, implementation, staging, commit, push,
-archive mutation, remote mutation, and later work are not authorized.
-`WORKORDER_12.md` and this `WORKORDER_13.md` must remain the exact unstaged,
-uncommitted two-document package until the BDFL provides the next explicit
-signal.
+Work Order 13 is issued, uniquely active, published, and terminal-green at
+`ec2c3e02d1e1a02ad7e5c83331454b8f534e3490`. Unit 1 remains explicitly
+unauthorized pending a separate BDFL implementation signal. No implementation,
+repair, archive mutation, or later work is authorized by this status record.
 <!-- workorder-current-authorization-gate:end -->
