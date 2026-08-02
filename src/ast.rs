@@ -742,12 +742,839 @@ pub(crate) struct CanonicalCoreFileBinding {
     pub(crate) normalized_path: Arc<str>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalTaskSignatureSegmentKind {
+    Token,
+    HorizontalSpace,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalTaskSignatureSegment {
+    pub(crate) kind: CanonicalTaskSignatureSegmentKind,
+    pub(crate) spelling: Arc<str>,
+    pub(crate) range: ParsedSourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalTaskSignatureSlice {
+    pub(crate) spelling: Arc<str>,
+    pub(crate) range: ParsedSourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalTaskSignatureParameterFacts {
+    pub(crate) permission: Option<CanonicalTaskSignatureSlice>,
+    pub(crate) name: CanonicalTaskSignatureSlice,
+    pub(crate) colon: CanonicalTaskSignatureSlice,
+    pub(crate) type_syntax: CanonicalTaskSignatureSlice,
+    pub(crate) comma: Option<CanonicalTaskSignatureSlice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalTaskSignatureSyntaxFacts {
+    pub(crate) task_keyword: CanonicalTaskSignatureSlice,
+    pub(crate) task_name: CanonicalTaskSignatureSlice,
+    pub(crate) open_params: Option<CanonicalTaskSignatureSlice>,
+    pub(crate) params: Vec<CanonicalTaskSignatureParameterFacts>,
+    pub(crate) close_params: Option<CanonicalTaskSignatureSlice>,
+    pub(crate) result_arrow: Option<CanonicalTaskSignatureSlice>,
+    pub(crate) result_type: Option<CanonicalTaskSignatureSlice>,
+}
+
+pub(crate) struct CanonicalTaskSignatureParserFacts {
+    pub(crate) file: CanonicalCoreFileBinding,
+    pub(crate) item_path: Arc<[usize]>,
+    pub(crate) raw_header: Arc<str>,
+    pub(crate) header_range: ParsedSourceRange,
+    pub(crate) segments: Vec<CanonicalTaskSignatureSegment>,
+    pub(crate) syntax: Option<CanonicalTaskSignatureSyntaxFacts>,
+    pub(crate) task_name: String,
+    pub(crate) task_span: Span,
+    pub(crate) params: Vec<Param>,
+    pub(crate) result: Option<String>,
+    pub(crate) result_syntax: Option<TypeSyntax>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalTaskSignatureSnapshot {
+    file: CanonicalCoreFileBinding,
+    item_path: Arc<[usize]>,
+    raw_header: Arc<str>,
+    header_range: ParsedSourceRange,
+    segments: Arc<[CanonicalTaskSignatureSegment]>,
+    syntax: Option<CanonicalTaskSignatureSyntaxFacts>,
+    task_name: Arc<str>,
+    task_span: Span,
+    params: Arc<[Param]>,
+    result: Option<Arc<str>>,
+    result_syntax: Option<TypeSyntax>,
+}
+
+impl fmt::Debug for CanonicalTaskSignatureSnapshot {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("<private parser task-signature authority>")
+    }
+}
+
+fn canonical_source_revision_slice<'a>(
+    source_revision: &'a [u8],
+    range: &ParsedSourceRange,
+) -> Result<&'a [u8], &'static str> {
+    let target_line = range
+        .start
+        .line
+        .checked_sub(1)
+        .ok_or("canonical_task_signature_source_line_underflow_v0")?;
+    let target_column = range
+        .start
+        .column
+        .checked_sub(1)
+        .ok_or("canonical_task_signature_source_column_underflow_v0")?;
+    let source = std::str::from_utf8(source_revision)
+        .map_err(|_| "canonical_task_signature_source_utf8_invalid_v0")?;
+    let line = source
+        .split('\n')
+        .nth(target_line)
+        .ok_or("canonical_task_signature_source_line_absent_v0")?;
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    let char_count = line.chars().count();
+    if target_column > char_count {
+        return Err("canonical_task_signature_source_column_outside_line_v0");
+    }
+    let byte_column = if target_column == char_count {
+        line.len()
+    } else {
+        line.char_indices()
+            .nth(target_column)
+            .map(|(offset, _)| offset)
+            .ok_or("canonical_task_signature_source_column_absent_v0")?
+    };
+    let byte_end = byte_column
+        .checked_add(range.byte_len)
+        .ok_or("canonical_task_signature_source_range_overflow_v0")?;
+    line.as_bytes()
+        .get(byte_column..byte_end)
+        .ok_or("canonical_task_signature_source_range_outside_line_v0")
+}
+
+impl CanonicalTaskSignatureSnapshot {
+    pub(crate) fn from_parser_facts(
+        _issuance: &crate::parser::CanonicalCoreParserIssuance,
+        facts: CanonicalTaskSignatureParserFacts,
+    ) -> Self {
+        Self {
+            file: facts.file,
+            item_path: facts.item_path,
+            raw_header: facts.raw_header,
+            header_range: facts.header_range,
+            segments: facts.segments.into(),
+            syntax: facts.syntax,
+            task_name: facts.task_name.into(),
+            task_span: facts.task_span,
+            params: facts.params.into(),
+            result: facts.result.map(Into::into),
+            result_syntax: facts.result_syntax,
+        }
+    }
+
+    fn validate_retained_facts(
+        &self,
+        file: &CanonicalCoreFileBinding,
+        item_path: &[usize],
+    ) -> Result<(), &'static str> {
+        if &self.file != file || self.item_path.as_ref() != item_path {
+            return Err("canonical_task_signature_owner_binding_mismatch_v0");
+        }
+        if self.raw_header.is_empty() || !self.raw_header.is_ascii() {
+            return Err("canonical_task_signature_header_bytes_invalid_v0");
+        }
+        if self.header_range.start.file != file.normalized_path.as_ref()
+            && self.header_range.start.file.replace('\\', "/") != file.normalized_path.as_ref()
+        {
+            return Err("canonical_task_signature_header_file_mismatch_v0");
+        }
+        if self.header_range.byte_len != self.raw_header.len() {
+            return Err("canonical_task_signature_header_length_mismatch_v0");
+        }
+        if canonical_source_revision_slice(file.source_revision.as_ref(), &self.header_range)?
+            != self.raw_header.as_bytes()
+        {
+            return Err("canonical_task_signature_header_source_mismatch_v0");
+        }
+        let header_end = self
+            .header_range
+            .start
+            .column
+            .checked_add(self.header_range.byte_len)
+            .ok_or("canonical_task_signature_header_range_overflow_v0")?;
+        let mut rebuilt = String::with_capacity(self.raw_header.len());
+        let mut expected_column = self.header_range.start.column;
+        for segment in self.segments.iter() {
+            if segment.range.start.file != self.header_range.start.file
+                || segment.range.start.line != self.header_range.start.line
+                || segment.range.start.column != expected_column
+                || segment.range.byte_len != segment.spelling.len()
+                || !segment.spelling.is_ascii()
+            {
+                return Err("canonical_task_signature_segment_range_mismatch_v0");
+            }
+            if canonical_source_revision_slice(file.source_revision.as_ref(), &segment.range)?
+                != segment.spelling.as_bytes()
+            {
+                return Err("canonical_task_signature_segment_source_mismatch_v0");
+            }
+            match segment.kind {
+                CanonicalTaskSignatureSegmentKind::Token => {
+                    if segment
+                        .spelling
+                        .bytes()
+                        .any(|byte| matches!(byte, b' ' | b'\t'))
+                    {
+                        return Err("canonical_task_signature_token_contains_gap_v0");
+                    }
+                }
+                CanonicalTaskSignatureSegmentKind::HorizontalSpace => {
+                    if segment.spelling.is_empty()
+                        || segment
+                            .spelling
+                            .bytes()
+                            .any(|byte| !matches!(byte, b' ' | b'\t'))
+                    {
+                        return Err("canonical_task_signature_gap_invalid_v0");
+                    }
+                }
+            }
+            expected_column = expected_column
+                .checked_add(segment.range.byte_len)
+                .ok_or("canonical_task_signature_segment_end_overflow_v0")?;
+            if expected_column > header_end {
+                return Err("canonical_task_signature_segment_outside_header_v0");
+            }
+            rebuilt.push_str(&segment.spelling);
+        }
+        if expected_column != header_end || rebuilt.as_bytes() != self.raw_header.as_bytes() {
+            return Err("canonical_task_signature_segment_inventory_mismatch_v0");
+        }
+
+        let syntax = self
+            .syntax
+            .as_ref()
+            .ok_or("canonical_task_signature_syntax_unavailable_v0")?;
+        if syntax.task_keyword.spelling.as_ref() != "task"
+            || syntax.task_name.spelling.as_ref() != self.task_name.as_ref()
+            || syntax.params.len() != self.params.len()
+            || syntax.open_params.is_some() != syntax.close_params.is_some()
+            || (!self.params.is_empty() && syntax.open_params.is_none())
+            || syntax.result_arrow.is_some() != self.result.is_some()
+            || syntax.result_type.is_some() != self.result.is_some()
+            || self.result_syntax.is_some() != self.result.is_some()
+        {
+            return Err("canonical_task_signature_syntax_projection_mismatch_v0");
+        }
+        if syntax
+            .open_params
+            .as_ref()
+            .is_some_and(|value| value.spelling.as_ref() != "(")
+            || syntax
+                .close_params
+                .as_ref()
+                .is_some_and(|value| value.spelling.as_ref() != ")")
+        {
+            return Err("canonical_task_signature_delimiter_projection_mismatch_v0");
+        }
+        if self.task_span != self.header_range.start {
+            return Err("canonical_task_signature_task_span_mismatch_v0");
+        }
+
+        let mut slices = Vec::new();
+        slices.push(&syntax.task_keyword);
+        slices.push(&syntax.task_name);
+        if let Some(open) = &syntax.open_params {
+            slices.push(open);
+        }
+        for (ordinal, (retained, projected)) in
+            syntax.params.iter().zip(self.params.iter()).enumerate()
+        {
+            if retained.permission.is_some() != projected.permission_explicit
+                || retained.name.spelling.as_ref() != projected.name
+                || retained.colon.spelling.as_ref() != ":"
+                || retained.type_syntax.spelling.as_ref() != projected.ty
+                || retained.comma.is_some() != (ordinal + 1 < self.params.len())
+            {
+                return Err("canonical_task_signature_parameter_projection_mismatch_v0");
+            }
+            let first = retained.permission.as_ref().unwrap_or(&retained.name);
+            if projected.span != first.range.start
+                || projected.type_syntax.span != retained.type_syntax.range.start
+            {
+                return Err("canonical_task_signature_parameter_range_mismatch_v0");
+            }
+            let (_, colon_end) = self.slice_offsets(&retained.colon)?;
+            let (type_start, _) = self.slice_offsets(&retained.type_syntax)?;
+            if projected.type_hws_valid != (type_start > colon_end) {
+                return Err("canonical_task_signature_type_gap_mismatch_v0");
+            }
+            if ordinal > 0 {
+                let previous_comma = syntax.params[ordinal - 1]
+                    .comma
+                    .as_ref()
+                    .ok_or("canonical_task_signature_separator_missing_v0")?;
+                let (_, comma_end) = self.slice_offsets(previous_comma)?;
+                let (parameter_start, _) = self.slice_offsets(first)?;
+                if projected.separator_hws_valid != (parameter_start > comma_end) {
+                    return Err("canonical_task_signature_separator_gap_mismatch_v0");
+                }
+            } else if !projected.separator_hws_valid {
+                return Err("canonical_task_signature_first_separator_mismatch_v0");
+            }
+            if let Some(permission) = &retained.permission {
+                if permission.spelling.as_ref() != projected.permission.as_str() {
+                    return Err("canonical_task_signature_permission_projection_mismatch_v0");
+                }
+                slices.push(permission);
+            }
+            slices.push(&retained.name);
+            slices.push(&retained.colon);
+            slices.push(&retained.type_syntax);
+            if let Some(comma) = &retained.comma {
+                if comma.spelling.as_ref() != "," {
+                    return Err("canonical_task_signature_comma_projection_mismatch_v0");
+                }
+                slices.push(comma);
+            }
+        }
+        if let Some(close) = &syntax.close_params {
+            slices.push(close);
+        }
+        if let Some(arrow) = &syntax.result_arrow {
+            if arrow.spelling.as_ref() != "->" {
+                return Err("canonical_task_signature_arrow_projection_mismatch_v0");
+            }
+            slices.push(arrow);
+        }
+        if let Some(result_type) = &syntax.result_type {
+            if self.result.as_deref() != Some(result_type.spelling.as_ref()) {
+                return Err("canonical_task_signature_result_projection_mismatch_v0");
+            }
+            if self.result_syntax.as_ref().map(|syntax| &syntax.span)
+                != Some(&result_type.range.start)
+            {
+                return Err("canonical_task_signature_result_range_mismatch_v0");
+            }
+            slices.push(result_type);
+        }
+
+        let mut prior_end = 0usize;
+        for (ordinal, slice) in slices.iter().enumerate() {
+            let (start, end) = self.slice_offsets(slice)?;
+            if (ordinal == 0 && start != 0) || start < prior_end {
+                return Err("canonical_task_signature_slice_order_mismatch_v0");
+            }
+            if self.raw_header.get(start..end) != Some(slice.spelling.as_ref()) {
+                return Err("canonical_task_signature_slice_spelling_mismatch_v0");
+            }
+            if canonical_source_revision_slice(file.source_revision.as_ref(), &slice.range)?
+                != slice.spelling.as_bytes()
+            {
+                return Err("canonical_task_signature_slice_source_mismatch_v0");
+            }
+            prior_end = end;
+        }
+        if prior_end != self.raw_header.len() {
+            return Err("canonical_task_signature_trailing_token_mismatch_v0");
+        }
+
+        for segment in self
+            .segments
+            .iter()
+            .filter(|segment| segment.kind == CanonicalTaskSignatureSegmentKind::Token)
+        {
+            let segment_start = segment
+                .range
+                .start
+                .column
+                .checked_sub(self.header_range.start.column)
+                .ok_or("canonical_task_signature_segment_start_underflow_v0")?;
+            let segment_end = segment_start
+                .checked_add(segment.range.byte_len)
+                .ok_or("canonical_task_signature_segment_end_overflow_v0")?;
+            let covered = slices.iter().any(|slice| {
+                self.slice_offsets(slice)
+                    .is_ok_and(|(start, end)| start <= segment_start && segment_end <= end)
+            });
+            if !covered {
+                return Err("canonical_task_signature_extra_token_v0");
+            }
+        }
+        Ok(())
+    }
+
+    fn slice_offsets(
+        &self,
+        slice: &CanonicalTaskSignatureSlice,
+    ) -> Result<(usize, usize), &'static str> {
+        if slice.range.start.file != self.header_range.start.file
+            || slice.range.start.line != self.header_range.start.line
+            || slice.range.byte_len != slice.spelling.len()
+            || !slice.spelling.is_ascii()
+        {
+            return Err("canonical_task_signature_slice_range_mismatch_v0");
+        }
+        let start = slice
+            .range
+            .start
+            .column
+            .checked_sub(self.header_range.start.column)
+            .ok_or("canonical_task_signature_slice_start_underflow_v0")?;
+        let end = start
+            .checked_add(slice.range.byte_len)
+            .ok_or("canonical_task_signature_slice_end_overflow_v0")?;
+        if end > self.header_range.byte_len {
+            return Err("canonical_task_signature_slice_outside_header_v0");
+        }
+        Ok((start, end))
+    }
+
+    fn matches_live_task(&self, task: &Task) -> Result<(), &'static str> {
+        if self.task_name.as_ref() != task.name
+            || self.task_span != task.span
+            || self.params.as_ref() != task.params.as_slice()
+            || self.result.as_deref() != task.result.as_deref()
+            || self.result_syntax != task.result_syntax
+        {
+            return Err("canonical_task_signature_live_projection_mismatch_v0");
+        }
+        Ok(())
+    }
+
+    fn matches_lowered_candidate(
+        &self,
+        kind: &str,
+        name: &str,
+        span: &Span,
+        params: &[Param],
+        result: Option<&str>,
+    ) -> bool {
+        kind == "task"
+            && self
+                .validate_retained_facts(&self.file, &self.item_path)
+                .is_ok()
+            && self.task_name.as_ref() == name
+            && self.task_span.file.replace('\\', "/") == span.file.replace('\\', "/")
+            && self.task_span.line == span.line
+            && self.task_span.column == span.column
+            && self.params.as_ref() == params
+            && self.result.as_deref() == result
+    }
+}
+
+pub(crate) struct AuthenticatedCanonicalTaskSignature {
+    snapshot: CanonicalTaskSignatureSnapshot,
+}
+
+impl AuthenticatedCanonicalTaskSignature {
+    pub(crate) fn matches_lowered_candidate(
+        &self,
+        kind: &str,
+        name: &str,
+        span: &Span,
+        params: &[Param],
+        result: Option<&str>,
+    ) -> bool {
+        self.snapshot
+            .matches_lowered_candidate(kind, name, span, params, result)
+    }
+}
+
+pub(crate) struct CanonicalTaskSignatureRejection(&'static str);
+
+impl CanonicalTaskSignatureRejection {
+    fn new(reason: &'static str) -> Self {
+        Self(reason)
+    }
+
+    pub(crate) fn reason(&self) -> &'static str {
+        self.0
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum CanonicalTaskSignatureCorruption {
+    Missing,
+    ResultRangeRelocated,
+    SameSpelledBodyRelocation,
+    CoherentRangeRelocation,
+    CoherentTaskNameSubstitution,
+    CoherentParameterNameSubstitution,
+    CoherentParameterTypeSubstitution,
+    CoherentResultSubstitution,
+    ParameterOmission,
+    ParameterDuplication,
+    ParameterReorder,
+    PermissionSubstitution,
+    NameSubstitution,
+    TypeSubstitution,
+    ResultOrderSubstitution,
+    ForeignTask,
+    ForeignRevision,
+    OverlappingRanges,
+    DuplicatedRange,
+    AbsentRange,
+    ExtraRange,
+    ImpossibleEnd,
+    Overflow,
+    Underflow,
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct CanonicalCoreOwnerBinding {
     pub(crate) file: CanonicalCoreFileBinding,
     pub(crate) item_path: Arc<[usize]>,
     pub(crate) item_kind: &'static str,
     pub(crate) section_slots: Arc<[Arc<str>]>,
+    task_signature: Option<CanonicalTaskSignatureSnapshot>,
+}
+
+impl fmt::Debug for CanonicalCoreOwnerBinding {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CanonicalCoreOwnerBinding")
+            .field("file", &self.file)
+            .field("item_path", &self.item_path)
+            .field("item_kind", &self.item_kind)
+            .field("section_slots", &self.section_slots)
+            .field(
+                "task_signature",
+                &self.task_signature.as_ref().map(|_| "<private>"),
+            )
+            .finish()
+    }
+}
+
+impl CanonicalCoreOwnerBinding {
+    pub(crate) fn from_parser_parts(
+        _issuance: &crate::parser::CanonicalCoreParserIssuance,
+        file: CanonicalCoreFileBinding,
+        item_path: Arc<[usize]>,
+        item_kind: &'static str,
+        section_slots: Arc<[Arc<str>]>,
+        task_signature: Option<CanonicalTaskSignatureSnapshot>,
+    ) -> Self {
+        Self {
+            file,
+            item_path,
+            item_kind,
+            section_slots,
+            task_signature,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn corrupt_task_signature_for_test(
+        &self,
+        corruption: CanonicalTaskSignatureCorruption,
+    ) -> Self {
+        let mut corrupted = self.clone();
+        if matches!(corruption, CanonicalTaskSignatureCorruption::Missing) {
+            corrupted.task_signature = None;
+            return corrupted;
+        }
+        let snapshot = corrupted
+            .task_signature
+            .as_mut()
+            .expect("task-signature corruption requires a task snapshot");
+        match corruption {
+            CanonicalTaskSignatureCorruption::Missing => unreachable!(),
+            CanonicalTaskSignatureCorruption::ResultRangeRelocated => {
+                let result = snapshot
+                    .syntax
+                    .as_mut()
+                    .and_then(|syntax| syntax.result_type.as_mut())
+                    .expect("result range");
+                result.range.start.line = result.range.start.line.saturating_add(3);
+            }
+            CanonicalTaskSignatureCorruption::SameSpelledBodyRelocation => {
+                let result_spelling = snapshot
+                    .syntax
+                    .as_ref()
+                    .and_then(|syntax| syntax.result_type.as_ref())
+                    .expect("result range")
+                    .spelling
+                    .clone();
+                let relocated = matching_body_text_span(snapshot, &result_spelling);
+                snapshot
+                    .syntax
+                    .as_mut()
+                    .and_then(|syntax| syntax.result_type.as_mut())
+                    .expect("result range")
+                    .range
+                    .start = relocated;
+            }
+            CanonicalTaskSignatureCorruption::CoherentRangeRelocation => {
+                shift_task_signature_snapshot(snapshot, 0, 1);
+            }
+            CanonicalTaskSignatureCorruption::CoherentTaskNameSubstitution => {
+                let range = snapshot
+                    .syntax
+                    .as_ref()
+                    .expect("task syntax")
+                    .task_name
+                    .range
+                    .clone();
+                coherently_replace_task_signature_slice(snapshot, &range, "foreign_auth");
+                snapshot
+                    .syntax
+                    .as_mut()
+                    .expect("task syntax")
+                    .task_name
+                    .spelling = Arc::from("foreign_auth");
+                snapshot.task_name = Arc::from("foreign_auth");
+            }
+            CanonicalTaskSignatureCorruption::CoherentParameterNameSubstitution => {
+                let range = snapshot.syntax.as_ref().expect("task syntax").params[0]
+                    .name
+                    .range
+                    .clone();
+                coherently_replace_task_signature_slice(snapshot, &range, "west");
+                snapshot.syntax.as_mut().expect("task syntax").params[0]
+                    .name
+                    .spelling = Arc::from("west");
+                let params = Arc::make_mut(&mut snapshot.params);
+                params[0].name = "west".to_string();
+            }
+            CanonicalTaskSignatureCorruption::CoherentParameterTypeSubstitution => {
+                let range = snapshot.syntax.as_ref().expect("task syntax").params[0]
+                    .type_syntax
+                    .range
+                    .clone();
+                coherently_replace_task_signature_slice(snapshot, &range, "Txt");
+                snapshot.syntax.as_mut().expect("task syntax").params[0]
+                    .type_syntax
+                    .spelling = Arc::from("Txt");
+                let params = Arc::make_mut(&mut snapshot.params);
+                params[0].ty = "Txt".to_string();
+                let TypeSyntaxKind::Named { name } = &mut params[0].type_syntax.kind else {
+                    panic!("coherent parameter-type probe requires a named type")
+                };
+                *name = "Txt".to_string();
+            }
+            CanonicalTaskSignatureCorruption::CoherentResultSubstitution => {
+                let range = snapshot
+                    .syntax
+                    .as_ref()
+                    .and_then(|syntax| syntax.result_type.as_ref())
+                    .expect("result syntax")
+                    .range
+                    .clone();
+                coherently_replace_task_signature_slice(snapshot, &range, "Txt");
+                snapshot
+                    .syntax
+                    .as_mut()
+                    .and_then(|syntax| syntax.result_type.as_mut())
+                    .expect("result syntax")
+                    .spelling = Arc::from("Txt");
+                snapshot.result = Some(Arc::from("Txt"));
+                let TypeSyntaxKind::Named { name } = &mut snapshot
+                    .result_syntax
+                    .as_mut()
+                    .expect("result type syntax")
+                    .kind
+                else {
+                    panic!("coherent result probe requires a named type")
+                };
+                *name = "Txt".to_string();
+            }
+            CanonicalTaskSignatureCorruption::ParameterOmission => {
+                let mut params = snapshot.params.to_vec();
+                params.pop();
+                snapshot.params = params.into();
+                snapshot.syntax.as_mut().expect("task syntax").params.pop();
+            }
+            CanonicalTaskSignatureCorruption::ParameterDuplication => {
+                let mut params = snapshot.params.to_vec();
+                params.push(params[0].clone());
+                snapshot.params = params.into();
+                let syntax = snapshot.syntax.as_mut().expect("task syntax");
+                syntax.params.push(syntax.params[0].clone());
+            }
+            CanonicalTaskSignatureCorruption::ParameterReorder => {
+                let mut params = snapshot.params.to_vec();
+                params.swap(0, 1);
+                snapshot.params = params.into();
+                snapshot
+                    .syntax
+                    .as_mut()
+                    .expect("task syntax")
+                    .params
+                    .swap(0, 1);
+            }
+            CanonicalTaskSignatureCorruption::PermissionSubstitution => {
+                let mut params = snapshot.params.to_vec();
+                params[0].permission = if params[0].permission == ParamPermission::Borrow {
+                    ParamPermission::Change
+                } else {
+                    ParamPermission::Borrow
+                };
+                snapshot.params = params.into();
+            }
+            CanonicalTaskSignatureCorruption::NameSubstitution => {
+                let mut params = snapshot.params.to_vec();
+                params[0].name.push_str("_foreign");
+                snapshot.params = params.into();
+            }
+            CanonicalTaskSignatureCorruption::TypeSubstitution => {
+                let mut params = snapshot.params.to_vec();
+                params[0].ty = "ForeignType".to_string();
+                snapshot.params = params.into();
+            }
+            CanonicalTaskSignatureCorruption::ResultOrderSubstitution => {
+                let syntax = snapshot.syntax.as_mut().expect("task syntax");
+                std::mem::swap(&mut syntax.result_arrow, &mut syntax.result_type);
+            }
+            CanonicalTaskSignatureCorruption::ForeignTask => {
+                snapshot.task_name = Arc::from("foreign_task");
+            }
+            CanonicalTaskSignatureCorruption::ForeignRevision => {
+                snapshot.file.source_revision = Arc::from(&b"foreign-revision"[..]);
+            }
+            CanonicalTaskSignatureCorruption::OverlappingRanges => {
+                let segments = Arc::make_mut(&mut snapshot.segments);
+                segments[1].range.start.column = segments[0].range.start.column;
+            }
+            CanonicalTaskSignatureCorruption::DuplicatedRange => {
+                let segments = Arc::make_mut(&mut snapshot.segments);
+                segments[1].range = segments[0].range.clone();
+            }
+            CanonicalTaskSignatureCorruption::AbsentRange => {
+                let mut segments = snapshot.segments.to_vec();
+                segments.remove(1);
+                snapshot.segments = segments.into();
+            }
+            CanonicalTaskSignatureCorruption::ExtraRange => {
+                let mut segments = snapshot.segments.to_vec();
+                segments.push(segments[0].clone());
+                snapshot.segments = segments.into();
+            }
+            CanonicalTaskSignatureCorruption::ImpossibleEnd => {
+                let segments = Arc::make_mut(&mut snapshot.segments);
+                segments[0].range.byte_len = segments[0]
+                    .range
+                    .byte_len
+                    .saturating_add(snapshot.raw_header.len());
+            }
+            CanonicalTaskSignatureCorruption::Overflow => {
+                snapshot.header_range.start.column = usize::MAX;
+            }
+            CanonicalTaskSignatureCorruption::Underflow => {
+                snapshot.header_range.start.column = snapshot
+                    .segments
+                    .first()
+                    .expect("signature segment")
+                    .range
+                    .start
+                    .column
+                    .saturating_add(1);
+            }
+        }
+        corrupted
+    }
+}
+
+#[cfg(test)]
+fn matching_body_text_span(snapshot: &CanonicalTaskSignatureSnapshot, spelling: &str) -> Span {
+    let source = std::str::from_utf8(snapshot.file.source_revision.as_ref())
+        .expect("test source revision is UTF-8");
+    source
+        .split('\n')
+        .enumerate()
+        .skip(snapshot.header_range.start.line)
+        .find_map(|(line_index, line)| {
+            let byte_column = line.find(spelling)?;
+            Some(Span::new(
+                snapshot.header_range.start.file.clone(),
+                line_index
+                    .checked_add(1)
+                    .expect("test line does not overflow"),
+                line[..byte_column]
+                    .chars()
+                    .count()
+                    .checked_add(1)
+                    .expect("test column does not overflow"),
+            ))
+        })
+        .expect("test source contains same-spelled body text")
+}
+
+#[cfg(test)]
+fn coherently_replace_task_signature_slice(
+    snapshot: &mut CanonicalTaskSignatureSnapshot,
+    range: &ParsedSourceRange,
+    replacement: &str,
+) {
+    let start = range
+        .start
+        .column
+        .checked_sub(snapshot.header_range.start.column)
+        .expect("coherent substitution range starts inside the header");
+    let end = start
+        .checked_add(range.byte_len)
+        .expect("coherent substitution range does not overflow");
+    assert_eq!(range.byte_len, replacement.len());
+    let mut raw_header = snapshot.raw_header.to_string();
+    raw_header.replace_range(start..end, replacement);
+    snapshot.raw_header = Arc::from(raw_header);
+
+    let segment = Arc::make_mut(&mut snapshot.segments)
+        .iter_mut()
+        .find(|segment| segment.range == *range)
+        .expect("coherent substitution targets one retained token segment");
+    segment.spelling = Arc::from(replacement);
+}
+
+#[cfg(test)]
+fn shift_task_signature_snapshot(
+    snapshot: &mut CanonicalTaskSignatureSnapshot,
+    line_delta: usize,
+    column_delta: usize,
+) {
+    fn shift_range(range: &mut ParsedSourceRange, line_delta: usize, column_delta: usize) {
+        range.start.line = range.start.line.saturating_add(line_delta);
+        range.start.column = range.start.column.saturating_add(column_delta);
+    }
+    shift_range(&mut snapshot.header_range, line_delta, column_delta);
+    for segment in Arc::make_mut(&mut snapshot.segments) {
+        shift_range(&mut segment.range, line_delta, column_delta);
+    }
+    let Some(syntax) = snapshot.syntax.as_mut() else {
+        return;
+    };
+    for slice in [&mut syntax.task_keyword, &mut syntax.task_name] {
+        shift_range(&mut slice.range, line_delta, column_delta);
+    }
+    if let Some(open) = &mut syntax.open_params {
+        shift_range(&mut open.range, line_delta, column_delta);
+    }
+    if let Some(close) = &mut syntax.close_params {
+        shift_range(&mut close.range, line_delta, column_delta);
+    }
+    for parameter in &mut syntax.params {
+        if let Some(permission) = &mut parameter.permission {
+            shift_range(&mut permission.range, line_delta, column_delta);
+        }
+        shift_range(&mut parameter.name.range, line_delta, column_delta);
+        shift_range(&mut parameter.colon.range, line_delta, column_delta);
+        shift_range(&mut parameter.type_syntax.range, line_delta, column_delta);
+        if let Some(comma) = &mut parameter.comma {
+            shift_range(&mut comma.range, line_delta, column_delta);
+        }
+    }
+    if let Some(arrow) = &mut syntax.result_arrow {
+        shift_range(&mut arrow.range, line_delta, column_delta);
+    }
+    if let Some(result_type) = &mut syntax.result_type {
+        shift_range(&mut result_type.range, line_delta, column_delta);
+    }
 }
 
 pub(crate) trait CanonicalCoreFileVerifier: Send + Sync {
@@ -756,6 +1583,12 @@ pub(crate) trait CanonicalCoreFileVerifier: Send + Sync {
 
 pub(crate) trait CanonicalCoreOwnerVerifier: Send + Sync {
     fn binding(&self) -> &CanonicalCoreOwnerBinding;
+
+    #[cfg(test)]
+    fn corrupt_task_signature_for_test(
+        &self,
+        corruption: CanonicalTaskSignatureCorruption,
+    ) -> Arc<dyn CanonicalCoreOwnerVerifier>;
 }
 
 pub(crate) trait CanonicalCoreSectionVerifier: Send + Sync {
@@ -799,7 +1632,10 @@ pub(crate) struct CanonicalCoreSealCapability(Arc<dyn CanonicalCoreSectionVerifi
 pub(crate) struct CanonicalCoreParseContext(Arc<dyn CanonicalCoreParseContextVerifier>);
 
 impl CanonicalCoreFileWitness {
-    pub(crate) fn parser_issue(verifier: Arc<dyn CanonicalCoreFileVerifier>) -> Self {
+    pub(crate) fn parser_issue(
+        _issuance: &crate::parser::CanonicalCoreParserIssuance,
+        verifier: Arc<dyn CanonicalCoreFileVerifier>,
+    ) -> Self {
         Self(verifier)
     }
 
@@ -809,7 +1645,10 @@ impl CanonicalCoreFileWitness {
 }
 
 impl CanonicalCoreOwnerWitness {
-    pub(crate) fn parser_issue(verifier: Arc<dyn CanonicalCoreOwnerVerifier>) -> Self {
+    pub(crate) fn parser_issue(
+        _issuance: &crate::parser::CanonicalCoreParserIssuance,
+        verifier: Arc<dyn CanonicalCoreOwnerVerifier>,
+    ) -> Self {
         Self(verifier)
     }
 
@@ -819,18 +1658,32 @@ impl CanonicalCoreOwnerWitness {
 }
 
 impl CanonicalCoreSealCapability {
-    pub(crate) fn parser_issue(verifier: Arc<dyn CanonicalCoreSectionVerifier>) -> Self {
+    pub(crate) fn parser_issue(
+        _issuance: &crate::parser::CanonicalCoreParserIssuance,
+        verifier: Arc<dyn CanonicalCoreSectionVerifier>,
+    ) -> Self {
         Self(verifier)
     }
 }
 
 impl CanonicalCoreParseContext {
-    pub(crate) fn parser_issue(verifier: Arc<dyn CanonicalCoreParseContextVerifier>) -> Self {
+    pub(crate) fn parser_issue(
+        _issuance: &crate::parser::CanonicalCoreParserIssuance,
+        verifier: Arc<dyn CanonicalCoreParseContextVerifier>,
+    ) -> Self {
         Self(verifier)
     }
 
     pub(crate) fn binding(&self) -> &CanonicalCoreFileBinding {
         self.0.binding()
+    }
+}
+
+#[allow(unexpected_cfgs)]
+mod canonical_core_owner_foreign_issue_compile_proof {
+    #[cfg(hum_compile_fail_canonical_core_owner_foreign_issue)]
+    fn canonical_core_owner_foreign_issue_must_not_compile() {
+        let _ = crate::parser::CanonicalCoreParserIssuance::new(); // canonical_core_owner_foreign_issue_must_not_compile
     }
 }
 
@@ -1087,6 +1940,25 @@ impl Item {
             Item::Test(item) => item.canonical_core_owner_witness = None,
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn corrupt_canonical_task_signature(
+        &mut self,
+        corruption: CanonicalTaskSignatureCorruption,
+    ) {
+        let witness = self
+            .canonical_core_owner_witness()
+            .expect("parser-produced item witness");
+        let corrupted =
+            CanonicalCoreOwnerWitness(witness.0.corrupt_task_signature_for_test(corruption));
+        match self {
+            Item::App(item) => item.canonical_core_owner_witness = Some(corrupted),
+            Item::Type(item) => item.canonical_core_owner_witness = Some(corrupted),
+            Item::Store(item) => item.canonical_core_owner_witness = Some(corrupted),
+            Item::Task(item) => item.canonical_core_owner_witness = Some(corrupted),
+            Item::Test(item) => item.canonical_core_owner_witness = Some(corrupted),
+        }
+    }
 }
 
 impl Program {
@@ -1123,6 +1995,63 @@ impl Program {
             }
         }
         Err("canonical_core_live_task_reference_mismatch_v0")
+    }
+
+    pub(crate) fn authenticate_canonical_task_signature(
+        &self,
+        task: &Task,
+    ) -> Result<AuthenticatedCanonicalTaskSignature, CanonicalTaskSignatureRejection> {
+        for (file_ordinal, file) in self.files.iter().enumerate() {
+            let mut item_path = Vec::new();
+            if let Some(item) = find_task_item_with_path(&file.items, task, &mut item_path) {
+                let file_witness = file
+                    .canonical_core_file_witness()
+                    .map_err(CanonicalTaskSignatureRejection::new)?;
+                let file_binding = file_witness.binding();
+                if file_binding.semantic_file_index != file_ordinal
+                    || file_binding.normalized_path.as_ref() != file.path.replace('\\', "/")
+                {
+                    return Err(CanonicalTaskSignatureRejection::new(
+                        "canonical_core_file_witness_mismatch_v0",
+                    ));
+                }
+                let owner = item
+                    .canonical_core_owner_witness()
+                    .map_err(CanonicalTaskSignatureRejection::new)?
+                    .binding();
+                if &owner.file != file_binding
+                    || owner.item_path.as_ref() != item_path.as_slice()
+                    || owner.item_kind != "task"
+                    || owner.section_slots.len() != task.sections.len()
+                    || owner
+                        .section_slots
+                        .iter()
+                        .zip(&task.sections)
+                        .any(|(expected, actual)| expected.as_ref() != actual.name)
+                {
+                    return Err(CanonicalTaskSignatureRejection::new(
+                        "canonical_core_item_witness_mismatch_v0",
+                    ));
+                }
+                let snapshot = owner.task_signature.as_ref().ok_or_else(|| {
+                    CanonicalTaskSignatureRejection::new(
+                        "canonical_task_signature_snapshot_absent_v0",
+                    )
+                })?;
+                snapshot
+                    .validate_retained_facts(file_binding, &item_path)
+                    .map_err(CanonicalTaskSignatureRejection::new)?;
+                snapshot
+                    .matches_live_task(task)
+                    .map_err(CanonicalTaskSignatureRejection::new)?;
+                return Ok(AuthenticatedCanonicalTaskSignature {
+                    snapshot: snapshot.clone(),
+                });
+            }
+        }
+        Err(CanonicalTaskSignatureRejection::new(
+            "canonical_core_live_task_reference_mismatch_v0",
+        ))
     }
 }
 
@@ -1184,6 +2113,24 @@ fn find_task_item<'a>(items: &'a [Item], target: &Task) -> Option<&'a Item> {
         if let Some(found) = find_task_item(item.nested_items(), target) {
             return Some(found);
         }
+    }
+    None
+}
+
+fn find_task_item_with_path<'a>(
+    items: &'a [Item],
+    target: &Task,
+    path: &mut Vec<usize>,
+) -> Option<&'a Item> {
+    for (ordinal, item) in items.iter().enumerate() {
+        path.push(ordinal);
+        if matches!(item, Item::Task(task) if std::ptr::eq(task, target)) {
+            return Some(item);
+        }
+        if let Some(found) = find_task_item_with_path(item.nested_items(), target, path) {
+            return Some(found);
+        }
+        path.pop();
     }
     None
 }

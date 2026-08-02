@@ -11,8 +11,11 @@ use crate::ast::{
     CanonicalMalformedEvent, CanonicalOccurrenceAssignmentEvent, CanonicalPayloadEvent,
     CanonicalPayloadEventValue, CanonicalPayloadField, CanonicalReductionChildEvent,
     CanonicalReductionEvent, CanonicalStatementEventFact, CanonicalStatementEventField,
-    CanonicalStatementEventValue, CanonicalStatementKindEvent, CanonicalTryWrapperKind, Field,
-    Item, Param, ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship,
+    CanonicalStatementEventValue, CanonicalStatementKindEvent,
+    CanonicalTaskSignatureParameterFacts, CanonicalTaskSignatureParserFacts,
+    CanonicalTaskSignatureSegment, CanonicalTaskSignatureSegmentKind, CanonicalTaskSignatureSlice,
+    CanonicalTaskSignatureSnapshot, CanonicalTaskSignatureSyntaxFacts, CanonicalTryWrapperKind,
+    Field, Item, Param, ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship,
     ParsedBodyStatement, ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus,
     ParsedCallTrailingStatus, ParsedEffectDeclaration, ParsedEffectDeclarationKind,
     ParsedExpression, ParsedExpressionKind, ParsedIdentifier, ParsedSourceRange,
@@ -1931,6 +1934,16 @@ struct ParserCanonicalCoreFileWitness {
     binding: CanonicalCoreFileBinding,
 }
 
+pub(crate) struct CanonicalCoreParserIssuance {
+    _private: (),
+}
+
+impl CanonicalCoreParserIssuance {
+    fn new() -> Self {
+        Self { _private: () }
+    }
+}
+
 impl CanonicalCoreFileVerifier for ParserCanonicalCoreFileWitness {
     fn binding(&self) -> &CanonicalCoreFileBinding {
         &self.binding
@@ -1945,6 +1958,16 @@ struct ParserCanonicalCoreOwnerWitness {
 impl CanonicalCoreOwnerVerifier for ParserCanonicalCoreOwnerWitness {
     fn binding(&self) -> &CanonicalCoreOwnerBinding {
         &self.binding
+    }
+
+    #[cfg(test)]
+    fn corrupt_task_signature_for_test(
+        &self,
+        corruption: crate::ast::CanonicalTaskSignatureCorruption,
+    ) -> Arc<dyn CanonicalCoreOwnerVerifier> {
+        Arc::new(Self {
+            binding: self.binding.corrupt_task_signature_for_test(corruption),
+        })
     }
 }
 
@@ -2142,6 +2165,7 @@ enum IdentifierKind {
 }
 
 struct Parser {
+    canonical_core_issuance: CanonicalCoreParserIssuance,
     path: String,
     semantic_file_index: usize,
     source_revision: CanonicalSourceRevision,
@@ -2184,6 +2208,7 @@ pub(crate) fn parse_source_at_index(
         .collect();
 
     let mut parser = Parser {
+        canonical_core_issuance: CanonicalCoreParserIssuance::new(),
         path: path.clone(),
         semantic_file_index,
         source_revision,
@@ -2205,14 +2230,18 @@ pub(crate) fn parse_source_at_index(
         .expect("parser diagnostics must use registered parser causes");
 
     let file_binding = parser.canonical_core_file_binding();
-    let file_witness =
-        CanonicalCoreFileWitness::parser_issue(Arc::new(ParserCanonicalCoreFileWitness {
+    let file_witness = CanonicalCoreFileWitness::parser_issue(
+        &parser.canonical_core_issuance,
+        Arc::new(ParserCanonicalCoreFileWitness {
             binding: file_binding.clone(),
-        }));
-    let canonical_core_parse_context =
-        CanonicalCoreParseContext::parser_issue(Arc::new(ParserCanonicalCoreParseContext {
+        }),
+    );
+    let canonical_core_parse_context = CanonicalCoreParseContext::parser_issue(
+        &parser.canonical_core_issuance,
+        Arc::new(ParserCanonicalCoreParseContext {
             binding: parser.canonical_core_file_binding(),
-        }));
+        }),
+    );
 
     ParseOutput {
         file: SourceFile::parser_new(path, module, items, file_witness),
@@ -2260,17 +2289,20 @@ impl Parser {
         item_path: &[usize],
         item_kind: &'static str,
         sections: &[Section],
+        task_signature: Option<CanonicalTaskSignatureSnapshot>,
     ) -> CanonicalCoreOwnerBinding {
-        CanonicalCoreOwnerBinding {
-            file: self.canonical_core_file_binding(),
-            item_path: item_path.into(),
+        CanonicalCoreOwnerBinding::from_parser_parts(
+            &self.canonical_core_issuance,
+            self.canonical_core_file_binding(),
+            item_path.into(),
             item_kind,
-            section_slots: sections
+            sections
                 .iter()
                 .map(|section| Arc::<str>::from(section.name.as_str()))
                 .collect::<Vec<_>>()
                 .into(),
-        }
+            task_signature,
+        )
     }
 
     fn canonical_core_owner_witness(
@@ -2278,10 +2310,19 @@ impl Parser {
         item_path: &[usize],
         item_kind: &'static str,
         sections: &[Section],
+        task_signature: Option<CanonicalTaskSignatureSnapshot>,
     ) -> CanonicalCoreOwnerWitness {
-        CanonicalCoreOwnerWitness::parser_issue(Arc::new(ParserCanonicalCoreOwnerWitness {
-            binding: self.canonical_core_owner_binding(item_path, item_kind, sections),
-        }))
+        CanonicalCoreOwnerWitness::parser_issue(
+            &self.canonical_core_issuance,
+            Arc::new(ParserCanonicalCoreOwnerWitness {
+                binding: self.canonical_core_owner_binding(
+                    item_path,
+                    item_kind,
+                    sections,
+                    task_signature,
+                ),
+            }),
+        )
     }
 
     fn parse_file_items(&mut self) -> (Option<String>, Vec<Item>) {
@@ -2479,24 +2520,30 @@ impl Parser {
             self.validate_identifier("app name", &name, IdentifierKind::Value, line.number);
             let nested_items =
                 self.parse_items_in_range(body_start, body_end, item_indent + 2, item_path);
-            let witness = self.canonical_core_owner_witness(item_path, "app", &sections);
+            let witness = self.canonical_core_owner_witness(item_path, "app", &sections, None);
             Item::App(App::parser_new(name, sections, nested_items, span, witness))
         } else if header.starts_with("type ") {
             let name = header.trim_start_matches("type ").trim().to_string();
             self.validate_identifier("type name", &name, IdentifierKind::Type, line.number);
             let fields = self.parse_fields(body_start, body_end, item_indent + 2);
-            let witness = self.canonical_core_owner_witness(item_path, "type", &sections);
+            let witness = self.canonical_core_owner_witness(item_path, "type", &sections, None);
             Item::Type(TypeDef::parser_new(name, fields, sections, span, witness))
         } else if header.starts_with("store ") {
             let (name, ty) = parse_store_header(header);
             self.validate_identifier("store name", &name, IdentifierKind::Value, line.number);
-            let witness = self.canonical_core_owner_witness(item_path, "store", &sections);
+            let witness = self.canonical_core_owner_witness(item_path, "store", &sections, None);
             Item::Store(Store::parser_new(name, ty, sections, span, witness))
         } else if header.starts_with("task ") {
-            let (name, params, result, result_syntax) = self.parse_task_header(header, line.number);
+            let (name, params, result, result_syntax, task_signature) =
+                self.parse_task_header(header, line.number, item_path);
             let effect_syntax = parse_task_effect_syntax(&sections);
             let body_syntax = parse_task_body_syntax(&sections);
-            let witness = self.canonical_core_owner_witness(item_path, "task", &sections);
+            let witness = self.canonical_core_owner_witness(
+                item_path,
+                "task",
+                &sections,
+                Some(task_signature),
+            );
             Item::Task(Task::parser_new(
                 name,
                 params,
@@ -2510,7 +2557,7 @@ impl Parser {
             ))
         } else if header.starts_with("test ") {
             let (name, params, modifiers) = self.parse_test_header(header, line.number);
-            let witness = self.canonical_core_owner_witness(item_path, "test", &sections);
+            let witness = self.canonical_core_owner_witness(item_path, "test", &sections, None);
             Item::Test(Test::parser_new(
                 name, params, modifiers, sections, span, witness,
             ))
@@ -2642,8 +2689,9 @@ impl Parser {
                     &semantic_node,
                 );
                 let span = self.span(line.number);
-                let capability = CanonicalCoreSealCapability::parser_issue(Arc::new(
-                    ParserCanonicalCoreSectionCapability {
+                let capability = CanonicalCoreSealCapability::parser_issue(
+                    &self.canonical_core_issuance,
+                    Arc::new(ParserCanonicalCoreSectionCapability {
                         file: self.canonical_core_file_binding(),
                         item_path: item_path.into(),
                         item_kind,
@@ -2657,8 +2705,8 @@ impl Parser {
                         source_owner_seals: self.source_owner_seals[source_owner_start..].to_vec(),
                         occurrence_seals: self.occurrence_seals[occurrence_start..].to_vec(),
                         statement_seals: self.statement_seals[statement_start..].to_vec(),
-                    },
-                ));
+                    }),
+                );
                 sections.push(Section::parser_new(
                     name,
                     lines,
@@ -2913,8 +2961,18 @@ impl Parser {
         &mut self,
         header: &str,
         line_number: usize,
-    ) -> (String, Vec<Param>, Option<String>, Option<TypeSyntax>) {
-        let rest = header.trim_start_matches("task ").trim();
+        item_path: &[usize],
+    ) -> (
+        String,
+        Vec<Param>,
+        Option<String>,
+        Option<TypeSyntax>,
+        CanonicalTaskSignatureSnapshot,
+    ) {
+        let after_keyword = header.strip_prefix("task").unwrap_or(header);
+        let keyword_gap = after_keyword.len() - after_keyword.trim_start().len();
+        let rest_start = "task".len().saturating_add(keyword_gap);
+        let rest = after_keyword.trim();
         let (signature, result, result_offset) = match find_top_level_arrow(rest) {
             Some(index) => (
                 rest[..index].trim(),
@@ -2924,7 +2982,11 @@ impl Parser {
             None => (rest, None, None),
         };
 
-        let signature_column = self.span(line_number).column + "task ".len();
+        let signature_column = self
+            .span(line_number)
+            .column
+            .checked_add(rest_start)
+            .unwrap_or(0);
         let (name, params, trailing) =
             self.parse_callable_signature(signature, line_number, signature_column);
         self.validate_identifier("task name", &name, IdentifierKind::Value, line_number);
@@ -2940,11 +3002,57 @@ impl Parser {
             );
         }
         let result_syntax = result.as_ref().map(|result| {
-            let column =
-                self.span(line_number).column + "task ".len() + result_offset.unwrap_or_default();
+            let column = self
+                .span(line_number)
+                .column
+                .checked_add(rest_start)
+                .and_then(|column| column.checked_add(result_offset.unwrap_or_default()))
+                .unwrap_or(0);
             parse_type_syntax(result, Span::new(self.path.clone(), line_number, column))
         });
-        (name, params, result, result_syntax)
+        let task_signature = self.issue_task_signature_snapshot(
+            header,
+            line_number,
+            item_path,
+            &name,
+            &params,
+            result.as_deref(),
+            result_syntax.as_ref(),
+        );
+        (name, params, result, result_syntax, task_signature)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn issue_task_signature_snapshot(
+        &self,
+        header: &str,
+        line_number: usize,
+        item_path: &[usize],
+        task_name: &str,
+        params: &[Param],
+        result: Option<&str>,
+        result_syntax: Option<&TypeSyntax>,
+    ) -> CanonicalTaskSignatureSnapshot {
+        let header_span = self.span(line_number);
+        CanonicalTaskSignatureSnapshot::from_parser_facts(
+            &self.canonical_core_issuance,
+            CanonicalTaskSignatureParserFacts {
+                file: self.canonical_core_file_binding(),
+                item_path: item_path.into(),
+                raw_header: Arc::from(header),
+                header_range: ParsedSourceRange {
+                    start: header_span.clone(),
+                    byte_len: header.len(),
+                },
+                segments: canonical_task_signature_segments(header, &header_span),
+                syntax: canonical_task_signature_syntax(header, &header_span),
+                task_name: task_name.to_string(),
+                task_span: header_span,
+                params: params.to_vec(),
+                result: result.map(str::to_string),
+                result_syntax: result_syntax.cloned(),
+            },
+        )
     }
 
     fn parse_test_header(
@@ -9627,6 +9735,286 @@ fn matching_delimiter_quoted(
     None
 }
 
+fn canonical_task_signature_segments(
+    header: &str,
+    header_span: &Span,
+) -> Vec<CanonicalTaskSignatureSegment> {
+    let mut segments = Vec::new();
+    let bytes = header.as_bytes();
+    let mut start = 0usize;
+    while start < bytes.len() {
+        let horizontal = matches!(bytes[start], b' ' | b'\t');
+        let mut end = start + 1;
+        if horizontal {
+            while end < bytes.len() && matches!(bytes[end], b' ' | b'\t') {
+                end += 1;
+            }
+        } else if bytes[start] == b'-' && bytes.get(start + 1) == Some(&b'>') {
+            end = start + 2;
+        } else if matches!(
+            bytes[start],
+            b'(' | b')' | b'[' | b']' | b'{' | b'}' | b':' | b','
+        ) {
+            // Single-byte punctuation is one exact token.
+        } else {
+            while end < bytes.len()
+                && !matches!(
+                    bytes[end],
+                    b' ' | b'\t' | b'(' | b')' | b'[' | b']' | b'{' | b'}' | b':' | b','
+                )
+                && !(bytes[end] == b'-' && bytes.get(end + 1) == Some(&b'>'))
+            {
+                end += 1;
+            }
+        }
+        let spelling = &header[start..end];
+        let column = header_span
+            .column
+            .checked_add(header[..start].chars().count())
+            .unwrap_or(0);
+        segments.push(CanonicalTaskSignatureSegment {
+            kind: if horizontal {
+                CanonicalTaskSignatureSegmentKind::HorizontalSpace
+            } else {
+                CanonicalTaskSignatureSegmentKind::Token
+            },
+            spelling: Arc::from(spelling),
+            range: ParsedSourceRange {
+                start: Span::new(header_span.file.clone(), header_span.line, column),
+                byte_len: spelling.len(),
+            },
+        });
+        start = end;
+    }
+    segments
+}
+
+fn canonical_task_signature_syntax(
+    header: &str,
+    header_span: &Span,
+) -> Option<CanonicalTaskSignatureSyntaxFacts> {
+    if !header.is_ascii() || !header.starts_with("task") {
+        return None;
+    }
+    let bytes = header.as_bytes();
+    if !matches!(bytes.get(4), Some(b' ' | b'\t')) {
+        return None;
+    }
+    let task_keyword = canonical_task_signature_slice(header, header_span, 0, 4)?;
+    let mut cursor = 4usize;
+    while matches!(bytes.get(cursor), Some(b' ' | b'\t')) {
+        cursor = cursor.checked_add(1)?;
+    }
+    let name_start = cursor;
+    while let Some(byte) = bytes.get(cursor) {
+        if matches!(byte, b' ' | b'\t' | b'(') {
+            break;
+        }
+        cursor = cursor.checked_add(1)?;
+    }
+    if cursor == name_start {
+        return None;
+    }
+    let task_name = canonical_task_signature_slice(header, header_span, name_start, cursor)?;
+    while matches!(bytes.get(cursor), Some(b' ' | b'\t')) {
+        cursor = cursor.checked_add(1)?;
+    }
+    let mut open_params = None;
+    let mut close_params = None;
+    let mut params = Vec::new();
+    if bytes.get(cursor) == Some(&b'(') {
+        let open_index = cursor;
+        let close_index = matching_delimiter(header, open_index, '(', ')')?;
+        open_params = Some(canonical_task_signature_slice(
+            header,
+            header_span,
+            open_index,
+            open_index.checked_add(1)?,
+        )?);
+        close_params = Some(canonical_task_signature_slice(
+            header,
+            header_span,
+            close_index,
+            close_index.checked_add(1)?,
+        )?);
+        let params_start = open_index.checked_add(1)?;
+        let params_text = header.get(params_start..close_index)?;
+        let param_ranges = if params_text.trim().is_empty() {
+            Vec::new()
+        } else {
+            split_top_level_ranges(params_text, ',')
+        };
+        params.reserve(param_ranges.len());
+        for (ordinal, range) in param_ranges.iter().enumerate() {
+            let raw = params_text.get(range.clone())?;
+            let leading = raw.len().checked_sub(raw.trim_start().len())?;
+            let trailing = raw.len().checked_sub(raw.trim_end().len())?;
+            let param_start = params_start
+                .checked_add(range.start)?
+                .checked_add(leading)?;
+            let param_end = params_start.checked_add(range.end)?.checked_sub(trailing)?;
+            let param = header.get(param_start..param_end)?;
+            let colon_local = param.find(':')?;
+            let colon_index = param_start.checked_add(colon_local)?;
+            let left = param.get(..colon_local)?;
+            let left_leading = left.len().checked_sub(left.trim_start().len())?;
+            let left_trimmed = left.trim();
+            let left_start = param_start.checked_add(left_leading)?;
+            let permission_and_name = canonical_task_permission_and_name(left_trimmed, left_start)?;
+            let type_raw = param.get(colon_local.checked_add(1)?..)?;
+            let type_leading = type_raw.len().checked_sub(type_raw.trim_start().len())?;
+            let type_trailing = type_raw.len().checked_sub(type_raw.trim_end().len())?;
+            let type_start = colon_index.checked_add(1)?.checked_add(type_leading)?;
+            let type_end = param_end.checked_sub(type_trailing)?;
+            if type_start >= type_end {
+                return None;
+            }
+            let comma = if ordinal.checked_add(1)? < param_ranges.len() {
+                let comma_index = params_start.checked_add(range.end)?;
+                Some(canonical_task_signature_slice(
+                    header,
+                    header_span,
+                    comma_index,
+                    comma_index.checked_add(1)?,
+                )?)
+            } else {
+                None
+            };
+            params.push(CanonicalTaskSignatureParameterFacts {
+                permission: match permission_and_name.permission {
+                    Some((start, end)) => Some(canonical_task_signature_slice(
+                        header,
+                        header_span,
+                        start,
+                        end,
+                    )?),
+                    None => None,
+                },
+                name: canonical_task_signature_slice(
+                    header,
+                    header_span,
+                    permission_and_name.name_start,
+                    permission_and_name.name_end,
+                )?,
+                colon: canonical_task_signature_slice(
+                    header,
+                    header_span,
+                    colon_index,
+                    colon_index.checked_add(1)?,
+                )?,
+                type_syntax: canonical_task_signature_slice(
+                    header,
+                    header_span,
+                    type_start,
+                    type_end,
+                )?,
+                comma,
+            });
+        }
+        cursor = close_index.checked_add(1)?;
+    }
+    while matches!(bytes.get(cursor), Some(b' ' | b'\t')) {
+        cursor = cursor.checked_add(1)?;
+    }
+    let (result_arrow, result_type) = if cursor == bytes.len() {
+        (None, None)
+    } else {
+        if header.get(cursor..cursor.checked_add(2)?)? != "->" {
+            return None;
+        }
+        let arrow =
+            canonical_task_signature_slice(header, header_span, cursor, cursor.checked_add(2)?)?;
+        cursor = cursor.checked_add(2)?;
+        while matches!(bytes.get(cursor), Some(b' ' | b'\t')) {
+            cursor = cursor.checked_add(1)?;
+        }
+        if cursor >= bytes.len() {
+            return None;
+        }
+        let result = canonical_task_signature_slice(header, header_span, cursor, bytes.len())?;
+        (Some(arrow), Some(result))
+    };
+
+    Some(CanonicalTaskSignatureSyntaxFacts {
+        task_keyword,
+        task_name,
+        open_params,
+        params,
+        close_params,
+        result_arrow,
+        result_type,
+    })
+}
+
+struct CanonicalTaskPermissionAndName {
+    permission: Option<(usize, usize)>,
+    name_start: usize,
+    name_end: usize,
+}
+
+fn canonical_task_permission_and_name(
+    left: &str,
+    left_start: usize,
+) -> Option<CanonicalTaskPermissionAndName> {
+    if left.is_empty() {
+        return None;
+    }
+    for permission in ["borrow", "change", "consume"] {
+        if let Some(rest) = left.strip_prefix(permission)
+            && rest
+                .as_bytes()
+                .first()
+                .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+        {
+            let gap = rest.len().checked_sub(rest.trim_start().len())?;
+            let name_start = left_start.checked_add(permission.len())?.checked_add(gap)?;
+            let name = rest.trim();
+            if name.is_empty() || name.bytes().any(|byte| matches!(byte, b' ' | b'\t')) {
+                return None;
+            }
+            return Some(CanonicalTaskPermissionAndName {
+                permission: Some((left_start, left_start.checked_add(permission.len())?)),
+                name_start,
+                name_end: name_start.checked_add(name.len())?,
+            });
+        }
+    }
+    if left.bytes().any(|byte| matches!(byte, b' ' | b'\t')) {
+        return None;
+    }
+    Some(CanonicalTaskPermissionAndName {
+        permission: None,
+        name_start: left_start,
+        name_end: left_start.checked_add(left.len())?,
+    })
+}
+
+fn canonical_task_signature_slice(
+    header: &str,
+    header_span: &Span,
+    start: usize,
+    end: usize,
+) -> Option<CanonicalTaskSignatureSlice> {
+    if start >= end
+        || end > header.len()
+        || !header.is_char_boundary(start)
+        || !header.is_char_boundary(end)
+    {
+        return None;
+    }
+    let spelling = header.get(start..end)?;
+    let column = header_span
+        .column
+        .checked_add(header.get(..start)?.chars().count())?;
+    Some(CanonicalTaskSignatureSlice {
+        spelling: Arc::from(spelling),
+        range: ParsedSourceRange {
+            start: Span::new(header_span.file.clone(), header_span.line, column),
+            byte_len: spelling.len(),
+        },
+    })
+}
+
 fn split_top_level_ranges(text: &str, delimiter: char) -> Vec<std::ops::Range<usize>> {
     split_top_level_ranges_quoted(text, delimiter)
 }
@@ -9863,10 +10251,10 @@ mod tests {
         CanonicalDelimiterKind, CanonicalExpectedLexicalEvidence, CanonicalExpression,
         CanonicalExpressionKind, CanonicalMalformedCause, CanonicalPayloadField,
         CanonicalStatementEventField, CanonicalStatementEventValue, CanonicalStatementKindEvent,
-        CanonicalTryWrapperKind, Item, ParamPermission, ParsedBinaryOperator,
-        ParsedBlockRelationship, ParsedBodyStatement, ParsedBodyStatementKind,
-        ParsedCallCloseStatus, ParsedExpression, ParsedExpressionKind, ParsedSourceRange,
-        ParserSyntaxNodeId, TypeSyntaxKind,
+        CanonicalTaskSignatureCorruption, CanonicalTryWrapperKind, Item, ParamPermission,
+        ParsedBinaryOperator, ParsedBlockRelationship, ParsedBodyStatement,
+        ParsedBodyStatementKind, ParsedCallCloseStatus, ParsedExpression, ParsedExpressionKind,
+        ParsedSourceRange, ParserSyntaxNodeId, Program, TypeSyntaxKind,
     };
     use crate::diagnostic::{DiagnosticCode, Severity};
 
@@ -9890,6 +10278,192 @@ mod tests {
         CanonicalSealField::Statement,
         CanonicalSealField::AuthorityHandle,
     ];
+
+    #[test]
+    fn canonical_task_signature_authority_rejects_substitution() {
+        const SOURCE: &str = "task authenticate(change left: Int, right: UInt) -> Result Int, HeaderError {\n  does:\n    return left\n    return HeaderError\n    # Result Int, HeaderError\n}\n";
+        const SPACED_SOURCE: &str = "task   authenticate ( change left :   Int ,   right: UInt )   ->   Result Int, HeaderError {\n  does:\n    return left\n}\n";
+
+        fn program(path: &str, source: &str) -> Program {
+            let parsed = parse_source(path, source);
+            Program {
+                files: vec![parsed.file],
+            }
+        }
+
+        fn authenticates(program: &Program) -> bool {
+            let Item::Task(task) = &program.files[0].items[0] else {
+                panic!("task")
+            };
+            program.authenticate_canonical_task_signature(task).is_ok()
+        }
+
+        fn rejects_through_core(program: &Program, probe: &str) {
+            assert!(!authenticates(program), "{probe}: Program authentication");
+            assert!(
+                crate::core_verify::core_verify_has_errors(program, &[]),
+                "{probe}: Core verification must fail"
+            );
+            let json = crate::core_verify::core_verify_json(program, &[]);
+            assert!(
+                json.contains("\"status\": \"failed_v0\"")
+                    && json.contains("\"rule\": \"task_signature_authority_matches_parser_owner\"")
+                    && json.contains(
+                        "\"detail\": \"task signature does not match retained parser authority\""
+                    ),
+                "{probe}: frozen verifier replacement row"
+            );
+        }
+
+        let windows_separator = char::from(92);
+        for path in [
+            "relative/authenticated.hum".to_string(),
+            format!("relative{windows_separator}authenticated.hum"),
+            format!("C:{windows_separator}arbitrary{windows_separator}authenticated.hum"),
+            "outside-corpus/renamed-input.hum".to_string(),
+        ] {
+            assert!(authenticates(&program(&path, SOURCE)), "{path}");
+        }
+        assert!(authenticates(&program("spaced.hum", SPACED_SOURCE)));
+        assert!(authenticates(&program(
+            "crlf.hum",
+            &SOURCE.replace('\n', "\r\n"),
+        )));
+        assert!(authenticates(&program(
+            "utf8-prefix.hum",
+            &format!("# π retained as UTF-8 before the task\n{SOURCE}"),
+        )));
+        assert!(authenticates(&program(
+            "uint.hum",
+            "task add(left: UInt, right: UInt) -> UInt {\n  does:\n    return left\n}\n",
+        )));
+        assert!(authenticates(&program(
+            "parameterless.hum",
+            "task caller -> Text {\n  does:\n    return \"ok\"\n}\n",
+        )));
+
+        for corruption in [
+            CanonicalTaskSignatureCorruption::Missing,
+            CanonicalTaskSignatureCorruption::ResultRangeRelocated,
+            CanonicalTaskSignatureCorruption::CoherentRangeRelocation,
+            CanonicalTaskSignatureCorruption::ParameterOmission,
+            CanonicalTaskSignatureCorruption::ParameterDuplication,
+            CanonicalTaskSignatureCorruption::ParameterReorder,
+            CanonicalTaskSignatureCorruption::PermissionSubstitution,
+            CanonicalTaskSignatureCorruption::NameSubstitution,
+            CanonicalTaskSignatureCorruption::TypeSubstitution,
+            CanonicalTaskSignatureCorruption::ResultOrderSubstitution,
+            CanonicalTaskSignatureCorruption::ForeignTask,
+            CanonicalTaskSignatureCorruption::ForeignRevision,
+            CanonicalTaskSignatureCorruption::OverlappingRanges,
+            CanonicalTaskSignatureCorruption::DuplicatedRange,
+            CanonicalTaskSignatureCorruption::AbsentRange,
+            CanonicalTaskSignatureCorruption::ExtraRange,
+            CanonicalTaskSignatureCorruption::ImpossibleEnd,
+            CanonicalTaskSignatureCorruption::Overflow,
+            CanonicalTaskSignatureCorruption::Underflow,
+        ] {
+            let mut corrupted = program("authority.hum", SOURCE);
+            corrupted.files[0].items[0].corrupt_canonical_task_signature(corruption);
+            assert!(
+                !authenticates(&corrupted),
+                "retained corruption {corruption:?} must reject"
+            );
+        }
+
+        let mut relocated_result = program("authority.hum", SOURCE);
+        relocated_result.files[0].items[0].corrupt_canonical_task_signature(
+            CanonicalTaskSignatureCorruption::SameSpelledBodyRelocation,
+        );
+        rejects_through_core(&relocated_result, "same-spelled body relocation");
+
+        let mut live_parameter = program("authority.hum", SOURCE);
+        let Item::Task(task) = &mut live_parameter.files[0].items[0] else {
+            panic!("task")
+        };
+        task.params[0].name = "substituted".to_string();
+        assert!(!authenticates(&live_parameter));
+
+        let mut live_result = program("authority.hum", SOURCE);
+        let Item::Task(task) = &mut live_result.files[0].items[0] else {
+            panic!("task")
+        };
+        task.result = Some("UInt".to_string());
+        assert!(!authenticates(&live_result));
+
+        let mut coherent_task = program("authority.hum", SOURCE);
+        coherent_task.files[0].items[0].corrupt_canonical_task_signature(
+            CanonicalTaskSignatureCorruption::CoherentTaskNameSubstitution,
+        );
+        let Item::Task(task) = &mut coherent_task.files[0].items[0] else {
+            panic!("task")
+        };
+        task.name = "foreign_auth".to_string();
+        rejects_through_core(&coherent_task, "coherent task-name substitution");
+
+        let mut coherent_parameter_name = program("authority.hum", SOURCE);
+        coherent_parameter_name.files[0].items[0].corrupt_canonical_task_signature(
+            CanonicalTaskSignatureCorruption::CoherentParameterNameSubstitution,
+        );
+        let Item::Task(task) = &mut coherent_parameter_name.files[0].items[0] else {
+            panic!("task")
+        };
+        task.params[0].name = "west".to_string();
+        rejects_through_core(
+            &coherent_parameter_name,
+            "coherent parameter-name substitution",
+        );
+
+        let mut coherent_parameter_type = program("authority.hum", SOURCE);
+        coherent_parameter_type.files[0].items[0].corrupt_canonical_task_signature(
+            CanonicalTaskSignatureCorruption::CoherentParameterTypeSubstitution,
+        );
+        let Item::Task(task) = &mut coherent_parameter_type.files[0].items[0] else {
+            panic!("task")
+        };
+        task.params[0].ty = "Txt".to_string();
+        let TypeSyntaxKind::Named { name } = &mut task.params[0].type_syntax.kind else {
+            panic!("named parameter type")
+        };
+        *name = "Txt".to_string();
+        rejects_through_core(
+            &coherent_parameter_type,
+            "coherent parameter-type substitution",
+        );
+
+        let mut coherent_result = program(
+            "authority.hum",
+            "task result(value: Int) -> Int {\n  does:\n    return value\n}\n",
+        );
+        coherent_result.files[0].items[0].corrupt_canonical_task_signature(
+            CanonicalTaskSignatureCorruption::CoherentResultSubstitution,
+        );
+        let Item::Task(task) = &mut coherent_result.files[0].items[0] else {
+            panic!("task")
+        };
+        task.result = Some("Txt".to_string());
+        let TypeSyntaxKind::Named { name } = &mut task
+            .result_syntax
+            .as_mut()
+            .expect("result type syntax")
+            .kind
+        else {
+            panic!("named result type")
+        };
+        *name = "Txt".to_string();
+        rejects_through_core(&coherent_result, "coherent result substitution");
+
+        let source = include_str!("parser.rs");
+        for family in [
+            "CanonicalCoreFileWitness",
+            "CanonicalCoreOwnerWitness",
+            "CanonicalCoreSealCapability",
+            "CanonicalCoreParseContext",
+        ] {
+            let needle = [family, "::", "parser_issue("].concat();
+            assert_eq!(source.matches(&needle).count(), 1, "{family}");
+        }
+    }
 
     macro_rules! assert_not_impl {
         ($type:ty, $trait:path) => {

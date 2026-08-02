@@ -1,6 +1,6 @@
 use crate::ast::{
-    CanonicalExpression, CanonicalExpressionKind, Item, Param, ParsedBinaryOperator,
-    ParsedSourceRange, Program, Section, Task,
+    AuthenticatedCanonicalTaskSignature, CanonicalExpression, CanonicalExpressionKind, Item, Param,
+    ParsedBinaryOperator, ParsedSourceRange, Program, Section, Task,
 };
 use crate::callable;
 use crate::core_body::{self, BodyStatement, CanonicalBodyGrammarReport, CanonicalBodyStatement};
@@ -85,6 +85,45 @@ pub(crate) struct CoreLowerItem {
     pub(crate) source_sections: Vec<String>,
     pub(crate) operations: Vec<CoreLowerOperation>,
     pub(crate) blockers: Vec<CoreLowerBlocker>,
+    task_signature: CoreLowerTaskSignature,
+}
+
+enum CoreLowerTaskSignature {
+    NotATask,
+    Authenticated(Box<AuthenticatedCanonicalTaskSignature>),
+    Rejected(crate::ast::CanonicalTaskSignatureRejection),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CoreLowerTaskSignatureVerdict {
+    NotATask,
+    Passed,
+    Failed,
+}
+
+impl CoreLowerItem {
+    pub(crate) fn task_signature_verdict(&self) -> CoreLowerTaskSignatureVerdict {
+        match &self.task_signature {
+            CoreLowerTaskSignature::NotATask => CoreLowerTaskSignatureVerdict::NotATask,
+            CoreLowerTaskSignature::Authenticated(authority) => {
+                if authority.matches_lowered_candidate(
+                    self.kind,
+                    &self.name,
+                    &self.span,
+                    &self.params,
+                    self.result.as_deref(),
+                ) {
+                    CoreLowerTaskSignatureVerdict::Passed
+                } else {
+                    CoreLowerTaskSignatureVerdict::Failed
+                }
+            }
+            CoreLowerTaskSignature::Rejected(rejection) => {
+                let _private_reason = rejection.reason();
+                CoreLowerTaskSignatureVerdict::Failed
+            }
+        }
+    }
 }
 
 pub(crate) struct CoreLowerOperation {
@@ -567,6 +606,13 @@ fn core_item(
         type_errors,
         &blockers,
     );
+    let task_signature = match item {
+        Item::Task(task) => match program.authenticate_canonical_task_signature(task) {
+            Ok(authority) => CoreLowerTaskSignature::Authenticated(Box::new(authority)),
+            Err(rejection) => CoreLowerTaskSignature::Rejected(rejection),
+        },
+        _ => CoreLowerTaskSignature::NotATask,
+    };
     Some(CoreLowerItem {
         id: node_id::span(
             "core-item",
@@ -588,6 +634,7 @@ fn core_item(
             .collect(),
         operations,
         blockers,
+        task_signature,
     })
 }
 
@@ -1532,9 +1579,88 @@ fn push_comma_newline(out: &mut String, comma: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{core_lower_json, core_lower_text, lower_operation};
-    use crate::ast::Program;
+    use super::{
+        CoreLowerTaskSignatureVerdict, build_core_lower_report, core_lower_json, core_lower_text,
+        lower_operation,
+    };
+    use crate::ast::{CanonicalTaskSignatureCorruption, Item, ParamPermission, Program};
     use crate::parser::parse_source;
+
+    #[test]
+    fn task_signature_authority_is_owned_one_to_one() {
+        const SOURCE: &str = "task add(left: Int, right: Int) -> Int {\n  does:\n    return left + right\n}\n\ntest add is stable unit {\n  does:\n    expect add(1, 2) returns 3\n}\n";
+
+        fn program(source: &str) -> (Program, Vec<crate::diagnostic::Diagnostic>) {
+            let parsed = parse_source("owned/signature.hum", source);
+            (
+                Program {
+                    files: vec![parsed.file],
+                },
+                parsed.diagnostics,
+            )
+        }
+
+        let (program, diagnostics) = program(SOURCE);
+        let report = build_core_lower_report(&program, &diagnostics);
+        assert_eq!(report.core_items.len(), 2);
+        assert_eq!(
+            report.core_items[0].task_signature_verdict(),
+            CoreLowerTaskSignatureVerdict::Passed
+        );
+        assert_eq!(
+            report.core_items[1].task_signature_verdict(),
+            CoreLowerTaskSignatureVerdict::NotATask
+        );
+
+        let uint = parse_source(
+            "arbitrary\\uint.hum",
+            "task add(left: UInt, right: UInt) -> UInt {\n  does:\n    return left\n}\n",
+        );
+        let uint_program = Program {
+            files: vec![uint.file],
+        };
+        let uint_report = build_core_lower_report(&uint_program, &uint.diagnostics);
+        assert_eq!(
+            uint_report.core_items[0].task_signature_verdict(),
+            CoreLowerTaskSignatureVerdict::Passed,
+            "signature authority is type-agnostic"
+        );
+
+        let mut missing_program = program.clone();
+        missing_program.files[0].items[0]
+            .corrupt_canonical_task_signature(CanonicalTaskSignatureCorruption::Missing);
+        let missing = build_core_lower_report(&missing_program, &diagnostics);
+        assert_eq!(
+            missing.core_items[0].task_signature_verdict(),
+            CoreLowerTaskSignatureVerdict::Failed
+        );
+
+        let mut substituted = build_core_lower_report(&program, &diagnostics);
+        let task = &mut substituted.core_items[0];
+        task.name = "foreign".to_string();
+        task.span.file = "foreign/signature.hum".to_string();
+        task.params[0].name = "foreign_left".to_string();
+        task.params[0].permission = ParamPermission::Consume;
+        task.params[0].ty = "UInt".to_string();
+        task.params[1].name = "foreign_right".to_string();
+        task.params[1].ty = "UInt".to_string();
+        task.result = Some("UInt".to_string());
+        assert_eq!(
+            task.task_signature_verdict(),
+            CoreLowerTaskSignatureVerdict::Failed,
+            "coherent public substitution cannot alter untouched parser authority"
+        );
+
+        let Item::Task(live_task) = &program.files[0].items[0] else {
+            panic!("task")
+        };
+        assert_eq!(live_task.name, "add");
+        let source = include_str!("core_lower.rs");
+        let owned_field = ["task_signature:", " CoreLowerTaskSignature"].concat();
+        assert_eq!(source.matches(&owned_field).count(), 1);
+        let batch = ["Vec", "<CanonicalTaskSignature"].concat();
+        assert!(!source.contains(&batch));
+    }
 
     #[test]
     fn json_emits_ordered_parser_owned_minimal_add_tree() {

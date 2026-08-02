@@ -405,15 +405,27 @@ fn verify_item(item: &CoreLowerItem, checks: &mut Vec<CoreVerifyCheck>) {
         "claim_honesty",
         "core-lower item remains unverified before core-verify",
     );
-    push_check(
-        checks,
-        "core_item",
-        &item.id,
-        Some(&item.span),
-        item.grammar_status == crate::core_body::CORE_BODY_GRAMMAR_STATUS,
-        "body_grammar_consistency",
-        "item keeps partial body grammar provenance",
-    );
+    match item.task_signature_verdict() {
+        crate::core_lower::CoreLowerTaskSignatureVerdict::Failed => push_check(
+            checks,
+            "core_item",
+            &item.id,
+            Some(&item.span),
+            false,
+            "task_signature_authority_matches_parser_owner",
+            "task signature does not match retained parser authority",
+        ),
+        crate::core_lower::CoreLowerTaskSignatureVerdict::NotATask
+        | crate::core_lower::CoreLowerTaskSignatureVerdict::Passed => push_check(
+            checks,
+            "core_item",
+            &item.id,
+            Some(&item.span),
+            item.grammar_status == crate::core_body::CORE_BODY_GRAMMAR_STATUS,
+            "body_grammar_consistency",
+            "item keeps partial body grammar provenance",
+        ),
+    }
     push_check(
         checks,
         "core_item",
@@ -1446,13 +1458,101 @@ fn push_comma_newline(out: &mut String, comma: bool) {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::Program;
+    use crate::ast::{CanonicalTaskSignatureCorruption, ParamPermission, Program};
     use crate::parser::parse_source;
 
     use super::{
         build_report, core_verify_json, core_verify_text,
         validate_diagnostic_projection_from_source, verify_lower_report,
     };
+
+    #[test]
+    fn task_signature_authority_is_load_bearing() {
+        const SOURCE: &str =
+            "task add(left: Int, right: Int) -> Int {\n  does:\n    return left + right\n}\n";
+
+        fn test_program() -> (Program, Vec<crate::diagnostic::Diagnostic>) {
+            let parsed = parse_source("authority/load-bearing.hum", SOURCE);
+            (
+                Program {
+                    files: vec![parsed.file],
+                },
+                parsed.diagnostics,
+            )
+        }
+
+        fn signature_check(checks: &[super::CoreVerifyCheck]) -> Option<&super::CoreVerifyCheck> {
+            checks.iter().find(|check| {
+                check.rule == "body_grammar_consistency"
+                    || check.rule == "task_signature_authority_matches_parser_owner"
+            })
+        }
+
+        let (program, diagnostics) = test_program();
+        let clean_lower = crate::core_lower::build_core_lower_report(&program, &diagnostics);
+        let clean_checks = verify_lower_report(&clean_lower);
+        let clean = signature_check(&clean_checks).expect("existing item check");
+        assert_eq!(clean.status, "passed_v0");
+        assert_eq!(clean.rule, "body_grammar_consistency");
+        assert_eq!(clean.detail, "item keeps partial body grammar provenance");
+        let clean_count = clean_checks.len();
+
+        for corruption in [
+            CanonicalTaskSignatureCorruption::Missing,
+            CanonicalTaskSignatureCorruption::ResultRangeRelocated,
+            CanonicalTaskSignatureCorruption::ForeignTask,
+            CanonicalTaskSignatureCorruption::ForeignRevision,
+            CanonicalTaskSignatureCorruption::Overflow,
+            CanonicalTaskSignatureCorruption::Underflow,
+        ] {
+            let (mut corrupted_program, diagnostics) = test_program();
+            corrupted_program.files[0].items[0].corrupt_canonical_task_signature(corruption);
+            let lower =
+                crate::core_lower::build_core_lower_report(&corrupted_program, &diagnostics);
+            let checks = verify_lower_report(&lower);
+            assert_eq!(checks.len(), clean_count, "{corruption:?}");
+            let rejected = signature_check(&checks).expect("replacement item check");
+            assert_eq!(rejected.status, "failed_v0", "{corruption:?}");
+            assert_eq!(
+                rejected.rule,
+                "task_signature_authority_matches_parser_owner"
+            );
+            assert_eq!(
+                rejected.detail,
+                "task signature does not match retained parser authority"
+            );
+            assert_eq!(rejected.scope, "core_item");
+            assert!(rejected.span.is_some());
+        }
+
+        let mut public = crate::core_lower::build_core_lower_report(&program, &diagnostics);
+        let task = &mut public.core_items[0];
+        task.name = "foreign".to_string();
+        task.params[0].name = "other_left".to_string();
+        task.params[0].permission = ParamPermission::Change;
+        task.params[0].ty = "UInt".to_string();
+        task.params[1].name = "other_right".to_string();
+        task.params[1].ty = "UInt".to_string();
+        task.result = Some("UInt".to_string());
+        let checks = verify_lower_report(&public);
+        let rejected = signature_check(&checks).expect("public substitution check");
+        assert_eq!(rejected.status, "failed_v0");
+        assert_eq!(
+            rejected.rule,
+            "task_signature_authority_matches_parser_owner"
+        );
+
+        let mut precedence = crate::core_lower::build_core_lower_report(&program, &diagnostics);
+        precedence.core_items[0].grammar_status = "corrupted_body_grammar_v0";
+        precedence.core_items[0].name = "foreign".to_string();
+        let checks = verify_lower_report(&precedence);
+        let rejected = signature_check(&checks).expect("precedence check");
+        assert_eq!(
+            rejected.rule, "task_signature_authority_matches_parser_owner",
+            "signature rejection owns the existing ordinal"
+        );
+        assert_eq!(checks.len(), clean_count);
+    }
 
     #[test]
     fn verifier_rejects_minimal_add_tree_corruption() {

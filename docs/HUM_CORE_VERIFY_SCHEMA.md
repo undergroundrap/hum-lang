@@ -141,6 +141,14 @@ Current rule families include:
 - `source_span_sane`: source file, line, and column are present and nonzero
 - `row_identity`: item and operation row ids are present
 - `body_grammar_consistency`: item rows preserve partial body grammar provenance
+- `task_signature_authority_matches_parser_owner`: conditionally replaces
+  `body_grammar_consistency` at that same item-check ordinal when a task's
+  retained parser-issued signature authority is missing, foreign, substituted,
+  reordered, relocated, inconsistent, or arithmetically invalid. The row keeps
+  `scope = core_item`, the existing item ID and source span, reports
+  `status = failed_v0`, and uses the exact detail
+  `task signature does not match retained parser authority`. Valid tasks and
+  non-task items retain the existing `body_grammar_consistency` row unchanged.
 - `item_status_known`: item status is one the verifier understands
 - `item_status_consistent`: item status agrees with blockers and operation rows
 - `operation_index_consistent`: operation indices match source order
@@ -189,6 +197,16 @@ immutable parser authority that is not serialized. The verifier compares the
 projection to that authority; it does not parse the JSON form, reparse source,
 search statement text, reconstruct parser identities, or derive expected child
 identities from the projected root.
+
+Task headers use the same private-authority boundary. The parser privately
+issues an immutable signature snapshot from the raw header tokens, ranges,
+ordering, separators, horizontal-space gaps, and source revision. The exact
+lowered item owns only a closed private authentication state, and the verifier
+compares the public task signature fields with that separately retained
+authority. Neither the issuance capability, snapshot, authenticated handle,
+rejection reason, nor any private authority field appears in human or JSON
+output. Successful authentication therefore leaves every valid output byte
+unchanged and makes no semantic type claim.
 
 ## Honesty Rules
 
