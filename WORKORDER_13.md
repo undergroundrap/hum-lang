@@ -1,25 +1,12 @@
 # Hum Work Order 13: Canonical Minimal-Add Type Authority Before Core
 
 Date: 2026-08-01
-<!-- hum-active-workorder:v1 -->
-Status: Issued, uniquely active, published, and terminal-green. The fresh
-re-scoped replacement received independent pre-issuance `ACCEPT` with no P0,
-P1, or P2 findings, and the BDFL accepted the exact reviewed bytes. The exact
-two-document package was committed and published as
-`ec2c3e02d1e1a02ad7e5c83331454b8f534e3490` with parent
-`63b7ca45a67aa0ed3e5c0c5f639592d2dc666612`, paths `WORKORDER_12.md` and
-`WORKORDER_13.md`, and statistics `+767/-1`.
-
-Workflow `30715057713`, attempt 1, completed successfully. Ubuntu job
-`91409140530` succeeded in 25m24s; its full preflight succeeded in 24m52s and
-its one selected and passing Exhaustive test proved F1 630, F2 4,950, F3/F4
-8,646, and total 14,226 pairs in 16.159s. Windows job `91409140499` succeeded
-in 36m03s; its full preflight succeeded in 35m17s and it correctly skipped the
-platform-independent Exhaustive duplicate. Both jobs selected `mode=full` with
-`reason=no_status_transition` and correctly skipped status-only evidence.
-
-No implementation, repair, archive mutation, or later work occurred. Unit 1
-remains explicitly unauthorized pending a separate BDFL implementation signal.
+Status: Unit 1 terminally rejected, archived, and closed. The issued planning
+document remains part of repository history, but no Work Order 13
+implementation was accepted or published on `main`. Its implementation review
+and correction lifecycle is exhausted. Work Order 13 grants no further repair,
+review, implementation, commit, push, reuse, merge, cherry-pick, or patch
+authority.
 
 Owner: BDFL (Ocean).
 Author: Work Order 13 re-scope architect. The author may report facts but is
@@ -34,9 +21,43 @@ and its final status commit is the planning baseline above. Its frozen working
 file is 18,052 bytes and 355 lines, with SHA-256
 `cd0cbea7596f8f546b33097a0340fde0efc06c6ca42387f2c59fc516c831a260` and
 non-writing Git blob OID `802b4bfbba20fd72b291edb05b5eea436c06fded`.
-The archived rejected implementation remains read-only at
+The earlier Work Order 11 rejected implementation remains read-only at
 `refs/heads/archive/workorder-11-unit1-sustainability-failure-2026-07-30`,
 commit `a40fc65876a9224adecc492b18617ec60684136c`.
+
+## Terminal Unit 1 closeout
+
+The first independent implementation review found three P1 defects: parser
+authority was forgeable and incompletely authenticated, failed structural
+checks could still issue a verified view, and duplicate or extra classification
+records were accepted. The sole bounded correction remained non-`ACCEPT`.
+A direct BDFL technique-pinned terminal remediation was then attempted without
+reopening the exhausted correction cycle. Its terminal independent review still
+found one P1 and returned `REJECT`.
+
+The terminal defect was exact: `canonical_minimal_add_batch_matches` compared
+49 valid classification records with only 47 ordinal-bearing operations because
+two legitimate blocked `try` operations had no classification ordinal. That
+global cardinality mismatch falsely changed the established `UInt` Core
+verification result from 766 of 766 checks passing with exit 0 to 766 checks
+passing plus three failing canonical checks with exit 1. No Work Order 13
+implementation was accepted or published on `main`.
+
+The rejected candidate is preserved as evidence at branch
+`archive/workorder-13-unit1-terminal-rejection-2026-08-02`, commit
+`f19c85748426867f0d4b3d5556ec5ed494a81e4c`, parent
+`1561a0fbb71cc9a51db0baf1beaf46842d5c736c`, subject
+`chore(archive): preserve rejected work order 13 unit 1`, complete tree
+`09cdd585f73a20a58c2a1acec670d94fcc0fc954`, and scoped ten-path OID
+`58cce756824f04c629ef5550a8f16d3ffdabb1f1`. It contains exactly ten paths at
+`+4,005/-145`. Local, origin-tracking, and live remote archive refs all resolve
+to that commit, and its publication triggered no workflow.
+
+The archive is rejection evidence only. It grants no authority to repair Work
+Order 13, revive its correction allowance, merge or cherry-pick the archive,
+apply its patch, bulk-copy its files, reuse its tests or implementation, treat
+its evidence as accepted, or claim that any archived behavior shipped on
+`main`.
 
 ## Fresh scope boundary and superseded predecessor
 
@@ -773,8 +794,10 @@ validation, or performance measurement is an authoring check.
 
 ## Current authorization gate
 
-Work Order 13 is issued, uniquely active, published, and terminal-green at
-`ec2c3e02d1e1a02ad7e5c83331454b8f534e3490`. Unit 1 remains explicitly
-unauthorized pending a separate BDFL implementation signal. No implementation,
-repair, archive mutation, or later work is authorized by this status record.
+Work Order 13 Unit 1 is terminally rejected, archived, and closed. No Work
+Order 13 implementation was accepted or published on `main`. The archive is
+immutable rejection evidence and grants no repair, review, implementation,
+commit, push, reuse, merge, cherry-pick, patch-application, or later-work
+authority. Any future type-authority work requires a separately reviewed and
+issued Work Order; it cannot inherit authority from this document or archive.
 <!-- workorder-current-authorization-gate:end -->
