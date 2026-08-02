@@ -2,12 +2,11 @@
 
 Date: 2026-08-02
 <!-- hum-active-workorder:v1 -->
-Status: Independently accepted, BDFL-accepted, committed, published, and
-terminal-green. Work Order 13 remains terminally rejected, archived, and
-closed. Work Order 14 Unit 1 is the next possible work and remains explicitly
-unauthorized pending a separate BDFL signal. This publication record authorizes
-no implementation, correction, archive mutation, status expansion, or later
-work.
+Status: Work Order 14 Unit 1 is independently accepted, BDFL-accepted,
+committed, published, terminal-green, and complete. The next gate is
+publication of the local status-only closeout commit, pending separate BDFL
+authorization. No later unit, implementation, planning transition, archive
+action, new Work Order, repair, or unrelated work is authorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 14 architect-author. The author is permanently disqualified
@@ -457,52 +456,51 @@ self-validating candidate, or inability to preserve valid output bytes appears.
 
 ## Current authorization gate
 
-This gate records only the accepted Work Order 14 documentation publication
-and its terminal-green required CI.
+This gate records only the final independent acceptance, accepted implementation
+commit, publication, and terminal-green required CI for Work Order 14 Unit 1.
 
-Accepted documentation commit:
+Final independent review returned `ACCEPT` with no P0, P1, or P2 findings.
 
-- commit: `31643e351e0f2b3d8d45630b65cc9ba122de2751`;
-- parent: `1561a0fbb71cc9a51db0baf1beaf46842d5c736c`;
-- subject: `docs(workorder): authenticate task signatures through core`;
-- committed package: `WORKORDER_13.md` and `WORKORDER_14.md`; and
-- statistics: `+510/-24`.
+Accepted implementation commit:
 
-Publication was the normal fast-forward `1561a0f..31643e3`; only `main` was
-pushed.
+- commit: `e6c38b70b97a3dcc205c9c1b0533352603541f95`;
+- parent: `ce2909a87d48c4c05403ed6810a812089f684482`;
+- subject: `feat(core): authenticate task signatures through core`;
+- committed scope: exactly five paths; and
+- statistics: `+1,819/-54`.
+
+Publication was the normal non-force fast-forward `ce2909a..e6c38b7`; only
+`main` was pushed.
 
 Required CI completed successfully for exact tested commit
-`31643e351e0f2b3d8d45630b65cc9ba122de2751` in workflow `ci`, run
-`30737913991`, attempt `1`, with overall conclusion `success`.
+`e6c38b70b97a3dcc205c9c1b0533352603541f95` in workflow `ci`, run
+`30763812498`, attempt `1`, with overall conclusion `success`. Both platforms
+selected `mode=full`, `reason=no_status_transition`.
 
 Ubuntu evidence:
 
-- job `91469974115` on `ubuntu-latest` concluded `success` in `25m26s`;
-- the classifier selected `mode=full`, `reason=no_status_transition`;
-- Cargo cache preparation succeeded and restored the Linux cache;
-- Rust toolchain preparation succeeded;
-- full Hum preflight succeeded in `24m50s`;
+- job `91538922265` on `ubuntu-latest` concluded `success` in `25m50s`;
+- full Hum preflight succeeded in `25m10s`;
 - Exhaustive selected and passed exactly one test,
   `parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero`;
-- Exhaustive reported F1 `630`, F2 `4,950`, F3/F4 `8,646`, total `14,226`,
-  producer elapsed `16.242s`, and seed `0x48554D5F5345414C`; and
+- Exhaustive reported selected/passed/failed `1/1/0`, F1 `630`, F2 `4,950`,
+  F3/F4 `8,646`, total `14,226`, producer elapsed `16.297s`, and seed
+  `0x48554D5F5345414C`; and
 - status-only evidence correctly skipped.
 
 Windows evidence:
 
-- job `91469974136` on `windows-latest` concluded `success` in `37m40s`;
-- the classifier selected `mode=full`, `reason=no_status_transition`;
-- Cargo cache preparation succeeded and restored the Windows cache;
-- Rust toolchain preparation succeeded;
-- full Hum preflight succeeded in `37m04s`;
+- job `91538922222` on `windows-latest` concluded `success` in `36m06s`;
+- full Hum preflight succeeded in `35m26s`;
 - Exhaustive correctly skipped because Ubuntu owned the platform-independent
   producer; and
 - status-only evidence correctly skipped.
 
-Work Order 14 is independently accepted, BDFL-accepted, committed, published,
-and terminal-green. Work Order 13 remains terminally rejected, archived, and
-closed. Work Order 14 Unit 1 is the next possible work and remains explicitly
-unauthorized pending a separate BDFL signal. No implementation, correction,
-archive mutation, status expansion, or later work is authorized by this
-record.
+Both platforms passed text hygiene and public readiness for `517` files, alpha
+claims, and release readiness for version `0.0.1`.
+
+Work Order 14 Unit 1 is complete. No later unit, implementation, planning
+transition, archive action, new Work Order, repair, or unrelated work is
+authorized. The next gate is publication of this status-only closeout commit,
+pending a separate BDFL signal.
 <!-- workorder-current-authorization-gate:end -->
