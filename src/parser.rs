@@ -11,8 +11,9 @@ use crate::ast::{
     CanonicalMalformedEvent, CanonicalOccurrenceAssignmentEvent, CanonicalPayloadEvent,
     CanonicalPayloadEventValue, CanonicalPayloadField, CanonicalReductionChildEvent,
     CanonicalReductionEvent, CanonicalStatementEventFact, CanonicalStatementEventField,
-    CanonicalStatementEventValue, CanonicalStatementKindEvent, CanonicalTryWrapperKind, Field,
-    Item, Param, ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship,
+    CanonicalStatementEventValue, CanonicalStatementKindEvent, CanonicalTaskParameterSnapshot,
+    CanonicalTaskSignatureSnapshot, CanonicalTaskSignatureTokenSnapshot, CanonicalTryWrapperKind,
+    Field, Item, Param, ParamPermission, ParsedBinaryOperator, ParsedBlockRelationship,
     ParsedBodyStatement, ParsedBodyStatementKind, ParsedCall, ParsedCallCloseStatus,
     ParsedCallTrailingStatus, ParsedEffectDeclaration, ParsedEffectDeclarationKind,
     ParsedExpression, ParsedExpressionKind, ParsedIdentifier, ParsedSourceRange,
@@ -1988,9 +1989,9 @@ impl CanonicalCoreSectionVerifier for ParserCanonicalCoreSectionCapability {
         section: &Section,
     ) -> Result<(), &'static str> {
         if file != &self.file
-            || owner.file != self.file
-            || owner.item_path != self.item_path
-            || owner.item_kind != self.item_kind
+            || owner.file() != &self.file
+            || owner.item_path() != self.item_path.as_ref()
+            || owner.item_kind() != self.item_kind
             || section_slot != self.section_slot
         {
             return Err("canonical_core_section_binding_mismatch_v0");
@@ -2135,6 +2136,40 @@ struct SourceLine {
     text: String,
 }
 
+/// Unforgeable outside the parser module; every canonical Core witness issuer
+/// requires this capability at the issuance call site.
+pub(crate) struct CanonicalCoreParserIssuance {
+    _parser_owned: (),
+}
+
+impl CanonicalCoreParserIssuance {
+    fn new() -> Self {
+        Self { _parser_owned: () }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static CANONICAL_TASK_SIGNATURE_RESULT_RANGE_RELOCATION:
+        std::cell::Cell<Option<(usize, usize)>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn with_canonical_task_signature_result_range_relocation<T>(
+    line: usize,
+    column: usize,
+    run: impl FnOnce() -> T,
+) -> T {
+    CANONICAL_TASK_SIGNATURE_RESULT_RANGE_RELOCATION.with(|slot| {
+        assert_eq!(slot.replace(Some((line, column))), None);
+    });
+    let result = run();
+    CANONICAL_TASK_SIGNATURE_RESULT_RANGE_RELOCATION.with(|slot| {
+        assert_eq!(slot.replace(None), Some((line, column)));
+    });
+    result
+}
+
 #[derive(Debug, Clone, Copy)]
 enum IdentifierKind {
     Value,
@@ -2205,14 +2240,19 @@ pub(crate) fn parse_source_at_index(
         .expect("parser diagnostics must use registered parser causes");
 
     let file_binding = parser.canonical_core_file_binding();
-    let file_witness =
-        CanonicalCoreFileWitness::parser_issue(Arc::new(ParserCanonicalCoreFileWitness {
+    let issuance = CanonicalCoreParserIssuance::new();
+    let file_witness = CanonicalCoreFileWitness::parser_issue(
+        &issuance,
+        Arc::new(ParserCanonicalCoreFileWitness {
             binding: file_binding.clone(),
-        }));
-    let canonical_core_parse_context =
-        CanonicalCoreParseContext::parser_issue(Arc::new(ParserCanonicalCoreParseContext {
+        }),
+    );
+    let canonical_core_parse_context = CanonicalCoreParseContext::parser_issue(
+        &issuance,
+        Arc::new(ParserCanonicalCoreParseContext {
             binding: parser.canonical_core_file_binding(),
-        }));
+        }),
+    );
 
     ParseOutput {
         file: SourceFile::parser_new(path, module, items, file_witness),
@@ -2260,17 +2300,20 @@ impl Parser {
         item_path: &[usize],
         item_kind: &'static str,
         sections: &[Section],
+        task_signature: Option<CanonicalTaskSignatureSnapshot>,
     ) -> CanonicalCoreOwnerBinding {
-        CanonicalCoreOwnerBinding {
-            file: self.canonical_core_file_binding(),
-            item_path: item_path.into(),
+        CanonicalCoreOwnerBinding::parser_new(
+            &CanonicalCoreParserIssuance::new(),
+            self.canonical_core_file_binding(),
+            item_path.into(),
             item_kind,
-            section_slots: sections
+            sections
                 .iter()
                 .map(|section| Arc::<str>::from(section.name.as_str()))
                 .collect::<Vec<_>>()
                 .into(),
-        }
+            task_signature,
+        )
     }
 
     fn canonical_core_owner_witness(
@@ -2278,10 +2321,19 @@ impl Parser {
         item_path: &[usize],
         item_kind: &'static str,
         sections: &[Section],
+        task_signature: Option<CanonicalTaskSignatureSnapshot>,
     ) -> CanonicalCoreOwnerWitness {
-        CanonicalCoreOwnerWitness::parser_issue(Arc::new(ParserCanonicalCoreOwnerWitness {
-            binding: self.canonical_core_owner_binding(item_path, item_kind, sections),
-        }))
+        CanonicalCoreOwnerWitness::parser_issue(
+            &CanonicalCoreParserIssuance::new(),
+            Arc::new(ParserCanonicalCoreOwnerWitness {
+                binding: self.canonical_core_owner_binding(
+                    item_path,
+                    item_kind,
+                    sections,
+                    task_signature,
+                ),
+            }),
+        )
     }
 
     fn parse_file_items(&mut self) -> (Option<String>, Vec<Item>) {
@@ -2479,24 +2531,26 @@ impl Parser {
             self.validate_identifier("app name", &name, IdentifierKind::Value, line.number);
             let nested_items =
                 self.parse_items_in_range(body_start, body_end, item_indent + 2, item_path);
-            let witness = self.canonical_core_owner_witness(item_path, "app", &sections);
+            let witness = self.canonical_core_owner_witness(item_path, "app", &sections, None);
             Item::App(App::parser_new(name, sections, nested_items, span, witness))
         } else if header.starts_with("type ") {
             let name = header.trim_start_matches("type ").trim().to_string();
             self.validate_identifier("type name", &name, IdentifierKind::Type, line.number);
             let fields = self.parse_fields(body_start, body_end, item_indent + 2);
-            let witness = self.canonical_core_owner_witness(item_path, "type", &sections);
+            let witness = self.canonical_core_owner_witness(item_path, "type", &sections, None);
             Item::Type(TypeDef::parser_new(name, fields, sections, span, witness))
         } else if header.starts_with("store ") {
             let (name, ty) = parse_store_header(header);
             self.validate_identifier("store name", &name, IdentifierKind::Value, line.number);
-            let witness = self.canonical_core_owner_witness(item_path, "store", &sections);
+            let witness = self.canonical_core_owner_witness(item_path, "store", &sections, None);
             Item::Store(Store::parser_new(name, ty, sections, span, witness))
         } else if header.starts_with("task ") {
-            let (name, params, result, result_syntax) = self.parse_task_header(header, line.number);
+            let (name, params, result, result_syntax, signature) =
+                self.parse_task_header(header, line.number, item_path);
             let effect_syntax = parse_task_effect_syntax(&sections);
             let body_syntax = parse_task_body_syntax(&sections);
-            let witness = self.canonical_core_owner_witness(item_path, "task", &sections);
+            let witness =
+                self.canonical_core_owner_witness(item_path, "task", &sections, Some(signature));
             Item::Task(Task::parser_new(
                 name,
                 params,
@@ -2510,7 +2564,7 @@ impl Parser {
             ))
         } else if header.starts_with("test ") {
             let (name, params, modifiers) = self.parse_test_header(header, line.number);
-            let witness = self.canonical_core_owner_witness(item_path, "test", &sections);
+            let witness = self.canonical_core_owner_witness(item_path, "test", &sections, None);
             Item::Test(Test::parser_new(
                 name, params, modifiers, sections, span, witness,
             ))
@@ -2642,8 +2696,9 @@ impl Parser {
                     &semantic_node,
                 );
                 let span = self.span(line.number);
-                let capability = CanonicalCoreSealCapability::parser_issue(Arc::new(
-                    ParserCanonicalCoreSectionCapability {
+                let capability = CanonicalCoreSealCapability::parser_issue(
+                    &CanonicalCoreParserIssuance::new(),
+                    Arc::new(ParserCanonicalCoreSectionCapability {
                         file: self.canonical_core_file_binding(),
                         item_path: item_path.into(),
                         item_kind,
@@ -2657,8 +2712,8 @@ impl Parser {
                         source_owner_seals: self.source_owner_seals[source_owner_start..].to_vec(),
                         occurrence_seals: self.occurrence_seals[occurrence_start..].to_vec(),
                         statement_seals: self.statement_seals[statement_start..].to_vec(),
-                    },
-                ));
+                    }),
+                );
                 sections.push(Section::parser_new(
                     name,
                     lines,
@@ -2913,18 +2968,41 @@ impl Parser {
         &mut self,
         header: &str,
         line_number: usize,
-    ) -> (String, Vec<Param>, Option<String>, Option<TypeSyntax>) {
-        let rest = header.trim_start_matches("task ").trim();
+        item_path: &[usize],
+    ) -> (
+        String,
+        Vec<Param>,
+        Option<String>,
+        Option<TypeSyntax>,
+        CanonicalTaskSignatureSnapshot,
+    ) {
+        let keyword_end = "task".len();
+        let horizontal_space = header
+            .get(keyword_end..)
+            .unwrap_or_default()
+            .bytes()
+            .take_while(|byte| matches!(byte, b' ' | b'\t'))
+            .count();
+        let rest_offset = checked_source_offset(keyword_end, horizontal_space);
+        let rest = header.get(rest_offset..).unwrap_or_default().trim_end();
         let (signature, result, result_offset) = match find_top_level_arrow(rest) {
-            Some(index) => (
-                rest[..index].trim(),
-                Some(rest[index + 2..].trim().to_string()),
-                Some(index + 2 + rest[index + 2..].len() - rest[index + 2..].trim_start().len()),
-            ),
+            Some(index) => {
+                let after_arrow = checked_source_offset(index, 2);
+                let result_tail = rest.get(after_arrow..).unwrap_or_default();
+                let leading = result_tail
+                    .len()
+                    .saturating_sub(result_tail.trim_start().len());
+                (
+                    rest.get(..index).unwrap_or_default().trim(),
+                    Some(result_tail.trim().to_string()),
+                    Some(checked_source_offset(after_arrow, leading)),
+                )
+            }
             None => (rest, None, None),
         };
 
-        let signature_column = self.span(line_number).column + "task ".len();
+        let header_span = self.span(line_number);
+        let signature_column = checked_source_offset(header_span.column, rest_offset);
         let (name, params, trailing) =
             self.parse_callable_signature(signature, line_number, signature_column);
         self.validate_identifier("task name", &name, IdentifierKind::Value, line_number);
@@ -2940,11 +3018,218 @@ impl Parser {
             );
         }
         let result_syntax = result.as_ref().map(|result| {
-            let column =
-                self.span(line_number).column + "task ".len() + result_offset.unwrap_or_default();
+            let column = checked_source_offset(signature_column, result_offset.unwrap_or_default());
             parse_type_syntax(result, Span::new(self.path.clone(), line_number, column))
         });
-        (name, params, result, result_syntax)
+        let params_text = signature
+            .find('(')
+            .and_then(|open| {
+                matching_delimiter(signature, open, '(', ')').and_then(|close| {
+                    open.checked_add(1)
+                        .and_then(|start| signature.get(start..close))
+                })
+            })
+            .unwrap_or("");
+        let param_ranges = split_top_level_ranges(params_text, ',');
+        let params_column = signature.find('(').map_or(signature_column, |open| {
+            checked_source_offset(signature_column, checked_source_offset(open, 1))
+        });
+        let parameter_snapshots = params
+            .iter()
+            .zip(param_ranges.iter().cloned())
+            .enumerate()
+            .map(|(ordinal, (param, range))| {
+                let raw = &params_text[range.clone()];
+                let spelling = raw.trim();
+                let leading = raw.len() - raw.trim_start().len();
+                let raw_column = params_column
+                    .checked_add(range.start)
+                    .and_then(|column| column.checked_add(leading))
+                    .unwrap_or(usize::MAX);
+                let raw_range = ParsedSourceRange {
+                    start: Span::new(self.path.clone(), line_number, raw_column),
+                    byte_len: spelling.len(),
+                };
+                let name_offset = spelling
+                    .split_once(':')
+                    .and_then(|(prefix, _)| prefix.rfind(param.name.as_str()))
+                    .unwrap_or(usize::MAX);
+                CanonicalTaskParameterSnapshot::parser_new(
+                    &CanonicalCoreParserIssuance::new(),
+                    ordinal,
+                    Arc::from(spelling),
+                    raw_range,
+                    Arc::from(param.name.as_str()),
+                    ParsedSourceRange {
+                        start: Span::new(
+                            self.path.clone(),
+                            line_number,
+                            checked_source_offset(raw_column, name_offset),
+                        ),
+                        byte_len: param.name.len(),
+                    },
+                    param.permission,
+                    param
+                        .permission_explicit
+                        .then(|| Arc::from(param.permission.as_str())),
+                    param.permission_explicit,
+                    param.separator_hws_valid,
+                    param.type_hws_valid,
+                    Arc::from(param.ty.as_str()),
+                    param.type_syntax.clone(),
+                    ParsedSourceRange {
+                        start: param.type_syntax.span.clone(),
+                        byte_len: param.ty.len(),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let result_arrow_range = result_offset.map(|_| ParsedSourceRange {
+            start: Span::new(
+                self.path.clone(),
+                line_number,
+                checked_source_offset(
+                    signature_column,
+                    find_top_level_arrow(rest).unwrap_or_default(),
+                ),
+            ),
+            byte_len: 2,
+        });
+        let result_range = result_syntax
+            .as_ref()
+            .zip(result.as_ref())
+            .map(|(syntax, text)| ParsedSourceRange {
+                start: syntax.span.clone(),
+                byte_len: text.len(),
+            });
+        let mut token_ranges = Vec::new();
+        let mut retain_token =
+            |role: &'static str, ordinal: Option<usize>, spelling: &str, column: usize| {
+                token_ranges.push(CanonicalTaskSignatureTokenSnapshot::parser_new(
+                    &CanonicalCoreParserIssuance::new(),
+                    role,
+                    ordinal,
+                    Arc::from(spelling),
+                    ParsedSourceRange {
+                        start: Span::new(self.path.clone(), line_number, column),
+                        byte_len: spelling.len(),
+                    },
+                ));
+            };
+        retain_token("task_keyword", None, "task", header_span.column);
+        let name_column = signature
+            .find(name.as_str())
+            .and_then(|offset| signature_column.checked_add(offset))
+            .unwrap_or(usize::MAX);
+        retain_token("task_name", None, &name, name_column);
+        if let Some(open) = signature.find('(') {
+            retain_token(
+                "parameter_open_delimiter",
+                None,
+                "(",
+                checked_source_offset(signature_column, open),
+            );
+            if let Some(close) = matching_delimiter(signature, open, '(', ')') {
+                retain_token(
+                    "parameter_close_delimiter",
+                    None,
+                    ")",
+                    checked_source_offset(signature_column, close),
+                );
+            }
+        }
+        for (ordinal, (param, range)) in params.iter().zip(param_ranges.iter()).enumerate() {
+            let raw = &params_text[range.clone()];
+            let spelling = raw.trim();
+            let leading = raw.len() - raw.trim_start().len();
+            let raw_column = params_column
+                .checked_add(range.start)
+                .and_then(|column| column.checked_add(leading))
+                .unwrap_or(usize::MAX);
+            if param.permission_explicit
+                && let Some(offset) = spelling.find(param.permission.as_str())
+            {
+                retain_token(
+                    "parameter_permission",
+                    Some(ordinal),
+                    param.permission.as_str(),
+                    checked_source_offset(raw_column, offset),
+                );
+            }
+            if let Some(offset) = spelling
+                .split_once(':')
+                .and_then(|(prefix, _)| prefix.rfind(param.name.as_str()))
+            {
+                retain_token(
+                    "parameter_name",
+                    Some(ordinal),
+                    &param.name,
+                    checked_source_offset(raw_column, offset),
+                );
+            }
+            if let Some(offset) = spelling.find(':') {
+                retain_token(
+                    "parameter_type_separator",
+                    Some(ordinal),
+                    ":",
+                    checked_source_offset(raw_column, offset),
+                );
+            }
+            retain_token(
+                "parameter_type",
+                Some(ordinal),
+                &param.ty,
+                param.type_syntax.span.column,
+            );
+        }
+        for (ordinal, offset) in retained_separator_offsets(params_text, ',')
+            .into_iter()
+            .enumerate()
+        {
+            retain_token(
+                "parameter_separator",
+                Some(ordinal),
+                ",",
+                checked_source_offset(params_column, offset),
+            );
+        }
+        if let Some(arrow) = result_arrow_range.as_ref() {
+            retain_token("result_arrow", None, "->", arrow.start.column);
+        }
+        if let (Some(result), Some(range)) = (result.as_deref(), result_range.as_ref()) {
+            retain_token("result_type", None, result, range.start.column);
+        }
+        token_ranges.sort_by_key(CanonicalTaskSignatureTokenSnapshot::start_column);
+        let snapshot = CanonicalTaskSignatureSnapshot::parser_new(
+            &CanonicalCoreParserIssuance::new(),
+            self.source_revision.0.clone(),
+            self.semantic_file_index,
+            Arc::from(self.path.replace('\\', "/")),
+            item_path.into(),
+            Arc::from(name.as_str()),
+            Arc::from(header),
+            ParsedSourceRange {
+                start: header_span,
+                byte_len: header.len(),
+            },
+            token_ranges.into(),
+            parameter_snapshots.into(),
+            result_arrow_range,
+            result.as_deref().map(Arc::from),
+            result_syntax.clone(),
+            result_range,
+        );
+        #[cfg(test)]
+        let snapshot = {
+            let mut snapshot = snapshot;
+            CANONICAL_TASK_SIGNATURE_RESULT_RANGE_RELOCATION.with(|slot| {
+                if let Some((line, column)) = slot.get() {
+                    snapshot.relocate_result_range_for_test(line, column);
+                }
+            });
+            snapshot
+        };
+        (name, params, result, result_syntax, snapshot)
     }
 
     fn parse_test_header(
@@ -9830,6 +10115,13 @@ fn is_ignorable(trimmed: &str) -> bool {
     trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//")
 }
 
+fn checked_source_offset(base: usize, offset: usize) -> usize {
+    match base.checked_add(offset) {
+        Some(value) => value,
+        None => usize::MAX,
+    }
+}
+
 fn is_section_header(trimmed: &str) -> bool {
     if !trimmed.ends_with(':') || trimmed.len() <= 1 {
         return false;
@@ -9855,6 +10147,7 @@ mod tests {
         validate_occurrence_seal, validate_occurrence_seal_ignoring_one_fact,
         validate_occurrence_seal_ignoring_one_payload_fact, validate_retained_body_syntax,
         validate_source_owner_seal, validate_statement_seal,
+        with_canonical_task_signature_result_range_relocation,
     };
     use crate::ast::{
         CanonicalActualLexicalEvidence, CanonicalAssociativity, CanonicalCommonChildRole,
@@ -9879,6 +10172,165 @@ mod tests {
         Section,
         Statement,
         AuthorityHandle,
+    }
+
+    #[test]
+    fn canonical_task_signature_authority_rejects_substitution() {
+        fn assert_signature_substitution_rejected(
+            original: &crate::ast::Program,
+            mutate: impl FnOnce(&mut crate::ast::Task),
+        ) {
+            let mut candidate = original.clone();
+            let Item::Task(task) = &mut candidate.files[0].items[0] else {
+                panic!("task")
+            };
+            mutate(task);
+            let Item::Task(task) = &candidate.files[0].items[0] else {
+                unreachable!()
+            };
+            assert!(candidate.canonical_task_signature_for_task(task).is_err());
+            let does = task.section("does").unwrap();
+            assert!(
+                crate::core_body::try_analyze_does_section(
+                    candidate
+                        .canonical_core_expectation_for_task(task, does)
+                        .unwrap()
+                )
+                .is_ok(),
+                "signature substitution must reach the classifier rather than breaking Core body authority"
+            );
+        }
+
+        let source = "task add(change a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n";
+        let parsed = parse_source("signature-authority.hum", source);
+        let program = crate::ast::Program {
+            files: vec![parsed.file],
+        };
+        let Item::Task(task) = &program.files[0].items[0] else {
+            panic!("task")
+        };
+        let signature = program
+            .canonical_task_signature_for_task(task)
+            .expect("parser-issued signature authority");
+        assert_eq!(signature.params().len(), 2);
+        assert_eq!(signature.params()[0].raw_spelling(), "change a: Int");
+        assert_eq!(signature.params()[0].permission_token(), Some("change"));
+        assert_eq!(signature.params()[1].permission_token(), None);
+        assert_eq!(signature.result_spelling(), Some("Int"));
+        assert_eq!(signature.result_arrow_range().unwrap().byte_len, 2);
+
+        assert_signature_substitution_rejected(&program, |task| task.name.push_str("_foreign"));
+        assert_signature_substitution_rejected(&program, |task| task.params.swap(0, 1));
+        assert_signature_substitution_rejected(&program, |task| {
+            task.params[0].permission = ParamPermission::Borrow;
+        });
+        assert_signature_substitution_rejected(&program, |task| {
+            task.params[0].permission_explicit = false;
+        });
+        assert_signature_substitution_rejected(&program, |task| {
+            task.params[1].separator_hws_valid = false;
+        });
+        assert_signature_substitution_rejected(&program, |task| {
+            task.params[0].type_hws_valid = false;
+        });
+        assert_signature_substitution_rejected(&program, |task| {
+            task.params[0].name = "foreign".to_string();
+        });
+        assert_signature_substitution_rejected(&program, |task| {
+            task.params[0].ty = "UInt".to_string();
+        });
+        assert_signature_substitution_rejected(&program, |task| {
+            task.params[0].type_syntax.span.column += 1;
+        });
+        assert_signature_substitution_rejected(&program, |task| {
+            task.result = Some("UInt".to_string());
+        });
+        assert_signature_substitution_rejected(&program, |task| {
+            task.result_syntax.as_mut().unwrap().span.column += 1;
+        });
+        assert_signature_substitution_rejected(&program, |task| task.span.column += 1);
+
+        let spaced = parse_source(
+            "signature-authority-spaced.hum",
+            "task   add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+        );
+        let spaced_program = crate::ast::Program {
+            files: vec![spaced.file],
+        };
+        let Item::Task(spaced_task) = &spaced_program.files[0].items[0] else {
+            panic!("task")
+        };
+        assert!(
+            spaced_program
+                .canonical_task_signature_for_task(spaced_task)
+                .is_ok()
+        );
+
+        let repeated_result_token = parse_source(
+            "signature-authority-relocated.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b # Int\n}\n",
+        );
+        let repeated_program = crate::ast::Program {
+            files: vec![repeated_result_token.file],
+        };
+        assert_signature_substitution_rejected(&repeated_program, |task| {
+            task.result_syntax.as_mut().unwrap().span.line = 3;
+            task.result_syntax.as_mut().unwrap().span.column = 20;
+        });
+
+        let relocated_private_result =
+            with_canonical_task_signature_result_range_relocation(3, 7, || {
+                parse_source(
+                    "signature-authority-private-result-range.hum",
+                    "task add(a: Int, b: Int) -> Int {\n  does:\n    # Int\n    return a + b\n}\n",
+                )
+            });
+        let relocated_diagnostics = relocated_private_result.diagnostics;
+        let relocated_program = crate::ast::Program {
+            files: vec![relocated_private_result.file],
+        };
+        let Item::Task(relocated_task) = &relocated_program.files[0].items[0] else {
+            panic!("task")
+        };
+        assert_eq!(
+            relocated_task.result_syntax.as_ref().unwrap().span.line,
+            1,
+            "the live result syntax must remain on the authenticated header",
+        );
+        assert!(
+            relocated_program
+                .canonical_task_signature_for_task(relocated_task)
+                .is_err(),
+            "a private result range relocated to an identical body token must fail validation",
+        );
+        let relocated_classifications =
+            crate::type_check::canonical_minimal_add_type_classifications(
+                &relocated_program,
+                &relocated_diagnostics,
+            );
+        assert!(matches!(
+            relocated_classifications.records()[0].classification(),
+            crate::type_check::CanonicalMinimalAddTypeClassification::IntegrityFailure(_)
+        ));
+
+        let ast_source = include_str!("ast.rs");
+        assert_eq!(ast_source.matches("fn parser_issue(").count(), 4);
+        let parser_source = include_str!("parser.rs");
+        for issuer in [
+            "CanonicalCoreFileWitness",
+            "CanonicalCoreParseContext",
+            "CanonicalCoreOwnerWitness",
+            "CanonicalCoreSealCapability",
+        ] {
+            assert_eq!(
+                parser_source
+                    .matches(&format!("{issuer}::parser_issue("))
+                    .count(),
+                1,
+                "{issuer} must have exactly one legitimate parser call site",
+            );
+        }
+        assert!(!include_str!("type_check.rs").contains("CanonicalCoreOwnerWitness::parser_issue"));
     }
 
     const CANONICAL_SEAL_FIELDS: [CanonicalSealField; 7] = [

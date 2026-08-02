@@ -180,8 +180,20 @@ Current rule families include:
 - `structured_expression_source_ranges`: candidate ranges are sane,
   same-file, source ordered, and contained by the root range, with checked
   arithmetic that fails verification instead of overflowing
-- `structured_expression_outer_type_unchecked`: the structured root preserves
-  the authoritative outer `not_type_checked_v0` / null / null type state
+- `structured_expression_outer_type_unchecked`: an authenticated out-of-scope
+  or noncanonical structured root preserves its previous authoritative outer
+  type state
+- `structured_expression_outer_type_matches_canonical_minimal_add_classification`:
+  a supported or integrity-failure root has exactly the outer typed or
+  unavailable state selected by the untouched private classification
+- `canonical_minimal_add_public_projection_matches_authority`: every supported
+  public root, child binder, and checked-declaration projection matches the
+  untouched private producer authority
+- `canonical_minimal_add_private_claim_matches_authority`: the distinct
+  non-authoritative candidate claim matches the untouched producer authority
+- `canonical_minimal_add_verified_view_issued`: a lifetime-bound verified view
+  is issued only after every structural, public, private, and authority check
+  passes
 
 These checks consume the actual in-memory `CoreLowerReport` artifact. The
 public structure is a projection. Its in-memory expression privately retains
@@ -189,6 +201,35 @@ immutable parser authority that is not serialized. The verifier compares the
 projection to that authority; it does not parse the JSON form, reparse source,
 search statement text, reconstruct parser identities, or derive expected child
 identities from the projected root.
+
+For a supported or integrity-failure canonical minimal-add target, the final
+structured outer-type check is replaced in place by
+`structured_expression_outer_type_matches_canonical_minimal_add_classification`
+with detail `structured expression outer type state matches canonical
+minimal-add classification`. Exactly three consecutive operation-scope checks
+then follow, in this order:
+
+1. `canonical_minimal_add_public_projection_matches_authority`;
+2. `canonical_minimal_add_private_claim_matches_authority`;
+3. `canonical_minimal_add_verified_view_issued`.
+
+Their success details are, respectively, `canonical minimal-add public
+projection matches untouched producer authority`, `canonical minimal-add
+private claim matches untouched producer authority`, and `canonical minimal-add
+verified view issued from successful checks`. Their failure details replace
+`matches` with `does not match` for the first two, and use `canonical minimal-add
+verified view withheld after failed or missing authority check` for the third.
+Each check uses the existing operation ID and non-null operation span. An
+integrity classification has no supported authority, so all three fail and no
+view is issued. Public-only, private-only, or coherent public/private candidate
+substitution still fails against the separately retained untouched producer
+authority.
+
+Authenticated out-of-scope and noncanonical roots receive none of these new
+checks and retain the prior `structured_expression_outer_type_unchecked` row,
+including its existing detail and ordinal behavior. The private classification,
+authority, claim, and verified view never serialize. A failed new row uses the
+existing item/root failure propagation and CLI exit-1 behavior.
 
 ## Honesty Rules
 
@@ -203,8 +244,8 @@ identities from the projected root.
   consistency, expression-preview provenance, and non-claim fields on the
   current `hum.core_lower.v0` artifact.
 - For the bounded parser-owned add tree, it may additionally verify exact
-  ordered identity, range, shape, and honest unchecked outer type state. The
-  tree carries no nested type conclusion. Test-only reorder,
+  ordered identity, range, shape, and the conditional canonical minimal-add
+  outer type projection. The tree carries no nested type conclusion. Test-only reorder,
   duplicate-identity, real foreign-identity, incorrect-spelling, coherent
   foreign-projection, coherent relocation, foreign-range, overflow-range, and
   structural-overclaim substitutions mutate only the public projection, retain

@@ -1,15 +1,29 @@
+#![allow(unexpected_cfgs)]
+
 use std::collections::BTreeMap;
 
-use crate::ast::{Item, Program, Task, TypeSyntaxKind};
+use crate::ast::{
+    CanonicalExpression, CanonicalExpressionKind, CanonicalTaskSignatureSnapshot, Item,
+    ParsedBinaryOperator, ParsedSourceRange, Program, Task, TypeSyntaxKind,
+};
 use crate::callable;
 use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceSet, Severity, Span,
 };
 use crate::predicate;
+use crate::resolve::{
+    self, ResolveDefinitionSummary, ResolveReferenceSummary, ResolveScopeSummary,
+};
 use crate::return_dependency;
 use crate::type_env::{self, TypeDeclaration, TypeEnvReport};
 use crate::version;
+
+#[allow(unexpected_cfgs)]
+#[cfg(hum_compile_fail_canonical_core_owner_foreign_issue)]
+fn canonical_core_owner_foreign_issue_must_not_compile() {
+    let _ = crate::parser::CanonicalCoreParserIssuance::new();
+}
 
 pub const TYPE_CHECK_SCHEMA: &str = "hum.type_check.v0";
 pub const TYPE_CHECK_MODE: &str = "declaration_annotation_and_trivial_return_check_v0";
@@ -109,6 +123,387 @@ struct CheckedReturn {
     type_source: Option<&'static str>,
     status: &'static str,
     reason: Option<&'static str>,
+}
+
+pub(crate) struct CanonicalMinimalAddTypeClassifications {
+    records: Vec<CanonicalMinimalAddTypeRecord>,
+}
+
+pub(crate) struct CanonicalMinimalAddTypeRecord {
+    key: CanonicalMinimalAddTargetKey,
+    classification: CanonicalMinimalAddTypeClassification,
+}
+
+// The Work Order freezes these variants as the private closed classification;
+// boxing the supported authority would change that load-bearing ownership model.
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum CanonicalMinimalAddTypeClassification {
+    Supported(CanonicalMinimalAddTypeAuthority),
+    AuthenticatedOutOfScope(CanonicalMinimalAddOutOfScope),
+    IntegrityFailure(CanonicalMinimalAddIntegrityFailure),
+    Noncanonical,
+}
+
+impl CanonicalMinimalAddTypeClassification {
+    pub(crate) fn key(&self) -> Option<&CanonicalMinimalAddTargetKey> {
+        match self {
+            Self::Supported(value) => Some(value.key()),
+            Self::AuthenticatedOutOfScope(value) => Some(value.key()),
+            Self::IntegrityFailure(value) => Some(value.key()),
+            Self::Noncanonical => None,
+        }
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanonicalMinimalAddProducerCorruption {
+    MissingFirstReference,
+    DuplicateFirstReference,
+    SwappedReferenceTarget,
+    ForeignSameSpelledDefinition,
+    WrongDefinitionKind,
+    MissingFirstTypeDeclaration,
+    DuplicateFirstCheckedDeclaration,
+    RejectedFirstCheckedDeclaration,
+    SubstituteFirstCheckedType,
+    MissingResultDeclaration,
+    IncompleteFirstTypeDeclaration,
+}
+
+#[cfg(test)]
+thread_local! {
+    static CANONICAL_MINIMAL_ADD_PRODUCER_CORRUPTION:
+        std::cell::Cell<Option<CanonicalMinimalAddProducerCorruption>> = const {
+            std::cell::Cell::new(None)
+        };
+}
+
+#[cfg(test)]
+fn with_canonical_minimal_add_producer_corruption<T>(
+    corruption: CanonicalMinimalAddProducerCorruption,
+    run: impl FnOnce() -> T,
+) -> T {
+    CANONICAL_MINIMAL_ADD_PRODUCER_CORRUPTION.with(|slot| {
+        assert!(slot.replace(Some(corruption)).is_none());
+    });
+    let result = run();
+    CANONICAL_MINIMAL_ADD_PRODUCER_CORRUPTION.with(|slot| {
+        assert_eq!(slot.replace(None), Some(corruption));
+    });
+    result
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalMinimalAddTargetKey {
+    source_revision: Option<std::sync::Arc<[u8]>>,
+    item_path: Option<Vec<usize>>,
+    task_name: String,
+    item_identity: String,
+    statement_index: usize,
+    statement_span: Span,
+    root_node_id: Option<String>,
+}
+
+pub(crate) struct CanonicalMinimalAddTypeAuthority {
+    key: CanonicalMinimalAddTargetKey,
+    source_revision: std::sync::Arc<[u8]>,
+    item_path: Vec<usize>,
+    task_name: String,
+    task_span: Span,
+    root_range: ParsedSourceRange,
+    operands: [CanonicalMinimalAddOperandAuthority; 2],
+    declared_result_type: String,
+    expression_type: &'static str,
+}
+
+pub(crate) struct CanonicalMinimalAddOutOfScope {
+    key: CanonicalMinimalAddTargetKey,
+    operand_types: [String; 2],
+}
+
+pub(crate) struct CanonicalMinimalAddIntegrityFailure {
+    key: CanonicalMinimalAddTargetKey,
+    reason: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalMinimalAddOperandAuthority {
+    index: usize,
+    role: &'static str,
+    parser_node_id: String,
+    source_range: ParsedSourceRange,
+    identifier: String,
+    resolver_reference_id: String,
+    resolved_definition_id: String,
+    checked_declaration_id: String,
+    checked_type: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum CanonicalMinimalAddTypeClaim {
+    Complete(CanonicalMinimalAddCompleteClaim),
+    Incomplete(CanonicalMinimalAddIncompleteClaim),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct CanonicalMinimalAddCompleteClaim {
+    source_revision: std::sync::Arc<[u8]>,
+    item_identity: String,
+    statement_index: usize,
+    root_node_id: String,
+    root_range: ParsedSourceRange,
+    operands: [CanonicalMinimalAddOperandAuthority; 2],
+    declared_result_type: String,
+    expression_type: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct CanonicalMinimalAddIncompleteClaim {
+    item_identity: String,
+    statement_index: usize,
+    root_node_id: String,
+    root_range: ParsedSourceRange,
+    reason: &'static str,
+}
+
+impl CanonicalMinimalAddTypeClassifications {
+    pub(crate) fn records(&self) -> &[CanonicalMinimalAddTypeRecord] {
+        &self.records
+    }
+
+    pub(crate) fn for_statement(
+        &self,
+        item_identity: &str,
+        statement_index: usize,
+    ) -> Option<(usize, &CanonicalMinimalAddTypeRecord)> {
+        let mut matches = self.records.iter().enumerate().filter(|(_, record)| {
+            record.key.item_identity == item_identity
+                && record.key.statement_index == statement_index
+        });
+        let found = matches.next()?;
+        matches.next().is_none().then_some(found)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn append_records_for_test(&mut self, mut other: Self) {
+        self.records.append(&mut other.records);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn remove_record_for_test(&mut self, ordinal: usize) {
+        self.records.remove(ordinal);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn swap_records_for_test(&mut self, left: usize, right: usize) {
+        self.records.swap(left, right);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn force_first_integrity_failure_for_test(&mut self) {
+        let record = self.records.first_mut().expect("test classification");
+        record.classification =
+            integrity_failure(record.key.clone(), "test_forced_integrity_failure_v0");
+    }
+
+    pub(crate) fn record_at(&self, ordinal: usize) -> Option<&CanonicalMinimalAddTypeRecord> {
+        self.records.get(ordinal)
+    }
+}
+
+impl CanonicalMinimalAddTypeRecord {
+    pub(crate) fn key(&self) -> &CanonicalMinimalAddTargetKey {
+        &self.key
+    }
+
+    pub(crate) fn classification(&self) -> &CanonicalMinimalAddTypeClassification {
+        &self.classification
+    }
+}
+
+impl CanonicalMinimalAddTargetKey {
+    pub(crate) fn source_revision(&self) -> Option<&[u8]> {
+        self.source_revision.as_deref()
+    }
+
+    pub(crate) fn item_path(&self) -> Option<&[usize]> {
+        self.item_path.as_deref()
+    }
+
+    pub(crate) fn task_name(&self) -> &str {
+        &self.task_name
+    }
+
+    pub(crate) fn item_identity(&self) -> &str {
+        &self.item_identity
+    }
+
+    pub(crate) fn statement_index(&self) -> usize {
+        self.statement_index
+    }
+
+    pub(crate) fn statement_span(&self) -> &Span {
+        &self.statement_span
+    }
+
+    pub(crate) fn root_node_id(&self) -> Option<&str> {
+        self.root_node_id.as_deref()
+    }
+}
+
+impl CanonicalMinimalAddTypeAuthority {
+    pub(crate) fn key(&self) -> &CanonicalMinimalAddTargetKey {
+        &self.key
+    }
+
+    pub(crate) fn source_revision(&self) -> &[u8] {
+        &self.source_revision
+    }
+
+    pub(crate) fn item_path(&self) -> &[usize] {
+        &self.item_path
+    }
+
+    pub(crate) fn task_name(&self) -> &str {
+        &self.task_name
+    }
+
+    pub(crate) fn task_span(&self) -> &Span {
+        &self.task_span
+    }
+
+    pub(crate) fn root_range(&self) -> &ParsedSourceRange {
+        &self.root_range
+    }
+
+    pub(crate) fn declared_result_type(&self) -> &str {
+        &self.declared_result_type
+    }
+
+    pub(crate) fn expression_type(&self) -> &'static str {
+        self.expression_type
+    }
+
+    pub(crate) fn operand_projection(&self, index: usize) -> Option<(&str, &str, &str, &str)> {
+        self.operands.get(index).map(|operand| {
+            (
+                operand.resolver_reference_id.as_str(),
+                operand.resolved_definition_id.as_str(),
+                operand.checked_declaration_id.as_str(),
+                operand.checked_type.as_str(),
+            )
+        })
+    }
+
+    pub(crate) fn operand_identity(
+        &self,
+        index: usize,
+    ) -> Option<(usize, &'static str, &str, &ParsedSourceRange, &str)> {
+        self.operands.get(index).map(|operand| {
+            (
+                operand.index,
+                operand.role,
+                operand.parser_node_id.as_str(),
+                &operand.source_range,
+                operand.identifier.as_str(),
+            )
+        })
+    }
+
+    pub(crate) fn claim(&self) -> CanonicalMinimalAddTypeClaim {
+        CanonicalMinimalAddTypeClaim::Complete(CanonicalMinimalAddCompleteClaim {
+            source_revision: self.source_revision.clone(),
+            item_identity: self.key.item_identity.clone(),
+            statement_index: self.key.statement_index,
+            root_node_id: self
+                .key
+                .root_node_id
+                .clone()
+                .expect("supported minimal-add authority has a root identity"),
+            root_range: self.root_range.clone(),
+            operands: self.operands.clone(),
+            declared_result_type: self.declared_result_type.clone(),
+            expression_type: self.expression_type,
+        })
+    }
+
+    pub(crate) fn public_identity_matches(
+        &self,
+        item_identity: &str,
+        statement_index: usize,
+        root_node_id: &str,
+    ) -> bool {
+        self.key.item_identity() == item_identity
+            && self.key.statement_index() == statement_index
+            && self.key.root_node_id() == Some(root_node_id)
+    }
+}
+
+impl CanonicalMinimalAddOutOfScope {
+    pub(crate) fn key(&self) -> &CanonicalMinimalAddTargetKey {
+        &self.key
+    }
+
+    pub(crate) fn operand_types(&self) -> [&str; 2] {
+        [&self.operand_types[0], &self.operand_types[1]]
+    }
+}
+
+impl CanonicalMinimalAddIntegrityFailure {
+    pub(crate) fn key(&self) -> &CanonicalMinimalAddTargetKey {
+        &self.key
+    }
+
+    pub(crate) fn reason(&self) -> &'static str {
+        self.reason
+    }
+}
+
+impl CanonicalMinimalAddTypeClaim {
+    pub(crate) fn matches(&self, authority: &CanonicalMinimalAddTypeAuthority) -> bool {
+        let Self::Complete(claim) = self else {
+            return false;
+        };
+        claim.source_revision.as_ref() == authority.source_revision()
+            && claim.item_identity == authority.key.item_identity
+            && claim.statement_index == authority.key.statement_index
+            && Some(claim.root_node_id.as_str()) == authority.key.root_node_id.as_deref()
+            && claim.root_range == authority.root_range
+            && claim.operands == authority.operands
+            && claim.declared_result_type == authority.declared_result_type
+            && claim.expression_type == authority.expression_type
+    }
+
+    pub(crate) fn root_node_id(&self) -> &str {
+        match self {
+            Self::Complete(claim) => &claim.root_node_id,
+            Self::Incomplete(claim) => &claim.root_node_id,
+        }
+    }
+
+    pub(crate) fn incomplete(
+        key: &CanonicalMinimalAddTargetKey,
+        expression: &CanonicalExpression,
+        reason: &'static str,
+    ) -> Self {
+        Self::Incomplete(CanonicalMinimalAddIncompleteClaim {
+            item_identity: key.item_identity.clone(),
+            statement_index: key.statement_index,
+            root_node_id: expression.node_id.as_str().to_string(),
+            root_range: expression.range.clone(),
+            reason,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn corrupt_checked_type_for_test(&mut self, replacement: &str) {
+        if let Self::Complete(claim) = self {
+            claim.operands[0].checked_type = replacement.to_string();
+            claim.expression_type = "UInt";
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -514,6 +909,539 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeCheckRepor
         checked_returns,
         diagnostics,
         diagnostic_occurrences,
+    }
+}
+
+pub(crate) fn canonical_minimal_add_type_classifications(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> CanonicalMinimalAddTypeClassifications {
+    let report = build_report(program, diagnostics);
+    let references = resolve::resolve_reference_summaries(program, diagnostics);
+    let definitions = resolve::resolve_definition_summaries(program, diagnostics);
+    let scopes = resolve::resolve_scope_summaries(program, diagnostics);
+    #[cfg(test)]
+    let (mut report, mut references, mut definitions) = (report, references, definitions);
+    #[cfg(test)]
+    CANONICAL_MINIMAL_ADD_PRODUCER_CORRUPTION.with(|slot| {
+        if let Some(corruption) = slot.get() {
+            corrupt_canonical_minimal_add_producer_boundary_for_test(
+                corruption,
+                &mut report,
+                &mut references,
+                &mut definitions,
+            );
+        }
+    });
+    let mut records = Vec::new();
+    for file in &program.files {
+        collect_canonical_minimal_add_classifications(
+            program,
+            &file.items,
+            &report,
+            &references,
+            &definitions,
+            &scopes,
+            &mut records,
+        );
+    }
+    CanonicalMinimalAddTypeClassifications { records }
+}
+
+#[cfg(test)]
+fn corrupt_canonical_minimal_add_producer_boundary_for_test(
+    corruption: CanonicalMinimalAddProducerCorruption,
+    report: &mut TypeCheckReport,
+    references: &mut Vec<ResolveReferenceSummary>,
+    definitions: &mut [ResolveDefinitionSummary],
+) {
+    let first_reference = references
+        .iter()
+        .position(|reference| reference.canonical_child_position.is_some())
+        .expect("canonical add resolver reference");
+    let first_definition_id = references[first_reference]
+        .resolved_definition_id
+        .clone()
+        .expect("resolved canonical add reference");
+    let first_declaration_id = report
+        .type_env
+        .declarations
+        .iter()
+        .find(|declaration| {
+            declaration.resolver_definition_id.as_deref() == Some(&first_definition_id)
+        })
+        .map(|declaration| declaration.id.clone())
+        .expect("canonical add type declaration");
+    match corruption {
+        CanonicalMinimalAddProducerCorruption::MissingFirstReference => {
+            references.remove(first_reference);
+        }
+        CanonicalMinimalAddProducerCorruption::DuplicateFirstReference => {
+            references.push(references[first_reference].clone());
+        }
+        CanonicalMinimalAddProducerCorruption::SwappedReferenceTarget => {
+            let replacement = references
+                .iter()
+                .skip(first_reference + 1)
+                .find_map(|reference| {
+                    reference
+                        .resolved_definition_id
+                        .as_ref()
+                        .zip(reference.resolved_definition_semantic_identity.as_ref())
+                        .map(|(id, semantic)| (id.clone(), semantic.clone()))
+                })
+                .expect("second canonical add definition");
+            references[first_reference].resolved_definition_id = Some(replacement.0);
+            references[first_reference].resolved_definition_semantic_identity = Some(replacement.1);
+        }
+        CanonicalMinimalAddProducerCorruption::ForeignSameSpelledDefinition => {
+            let name = references[first_reference].name.clone();
+            let replacement = definitions
+                .iter()
+                .find(|definition| {
+                    definition.id != first_definition_id
+                        && definition.name == name
+                        && definition.definition_kind == "parameter"
+                })
+                .expect("same-spelled foreign definition");
+            references[first_reference].resolved_definition_id = Some(replacement.id.clone());
+            references[first_reference].resolved_definition_semantic_identity =
+                Some(replacement.semantic_identity.clone());
+        }
+        CanonicalMinimalAddProducerCorruption::WrongDefinitionKind => {
+            definitions
+                .iter_mut()
+                .find(|definition| definition.id == first_definition_id)
+                .expect("canonical add definition")
+                .definition_kind = "local_binding";
+        }
+        CanonicalMinimalAddProducerCorruption::MissingFirstTypeDeclaration => {
+            report
+                .type_env
+                .declarations
+                .retain(|declaration| declaration.id != first_declaration_id);
+        }
+        CanonicalMinimalAddProducerCorruption::DuplicateFirstCheckedDeclaration => {
+            let duplicate = report
+                .checked_declarations
+                .iter()
+                .find(|checked| checked.declaration_id == first_declaration_id)
+                .expect("canonical add checked declaration")
+                .clone();
+            report.checked_declarations.push(duplicate);
+        }
+        CanonicalMinimalAddProducerCorruption::RejectedFirstCheckedDeclaration => {
+            report
+                .checked_declarations
+                .iter_mut()
+                .find(|checked| checked.declaration_id == first_declaration_id)
+                .expect("canonical add checked declaration")
+                .status = "rejected_declaration_annotation_v0";
+        }
+        CanonicalMinimalAddProducerCorruption::SubstituteFirstCheckedType => {
+            let checked = report
+                .checked_declarations
+                .iter_mut()
+                .find(|checked| checked.declaration_id == first_declaration_id)
+                .expect("canonical add checked declaration");
+            checked.type_text = "UInt".to_string();
+            for reference in &mut checked.type_references {
+                reference.text = "UInt".to_string();
+                reference.normalized_name = "uint".to_string();
+            }
+        }
+        CanonicalMinimalAddProducerCorruption::MissingResultDeclaration => {
+            let result_id = report
+                .type_env
+                .declarations
+                .iter()
+                .find(|declaration| declaration.declaration_kind == "result")
+                .map(|declaration| declaration.id.clone())
+                .expect("canonical add result declaration");
+            report
+                .type_env
+                .declarations
+                .retain(|declaration| declaration.id != result_id);
+        }
+        CanonicalMinimalAddProducerCorruption::IncompleteFirstTypeDeclaration => {
+            report
+                .type_env
+                .declarations
+                .iter_mut()
+                .find(|declaration| declaration.id == first_declaration_id)
+                .expect("canonical add type declaration")
+                .status = "unknown_type_annotation_v0";
+        }
+    }
+}
+
+fn collect_canonical_minimal_add_classifications(
+    program: &Program,
+    items: &[Item],
+    report: &TypeCheckReport,
+    references: &[ResolveReferenceSummary],
+    definitions: &[ResolveDefinitionSummary],
+    scopes: &[ResolveScopeSummary],
+    records: &mut Vec<CanonicalMinimalAddTypeRecord>,
+) {
+    for item in items {
+        if let Item::Task(task) = item
+            && let Some(does) = task.section("does")
+        {
+            let item_identity = resolve::semantic_item_identity_for(program, item);
+            let owner_definition_identity =
+                resolve::semantic_item_definition_identity_for(program, item);
+            let body = core_body::analyze_does_section_for_lowering(
+                program
+                    .canonical_core_expectation(item, does)
+                    .expect("live type-authority item must have parser authority"),
+            );
+            let signature = program.canonical_task_signature_for_task(task);
+            for (statement_index, statement) in body.statements.iter().enumerate() {
+                if statement.statement().kind != "return" {
+                    continue;
+                }
+                let expression = statement.canonical_expression();
+                let key = CanonicalMinimalAddTargetKey {
+                    source_revision: signature
+                        .as_ref()
+                        .ok()
+                        .map(|signature| signature.source_revision().clone()),
+                    item_path: signature
+                        .as_ref()
+                        .ok()
+                        .map(|signature| signature.item_path().to_vec()),
+                    task_name: signature.as_ref().ok().map_or_else(
+                        || task.name.clone(),
+                        |signature| signature.task_name().to_string(),
+                    ),
+                    item_identity: item_identity.clone(),
+                    statement_index,
+                    statement_span: statement.statement().span.clone(),
+                    root_node_id: expression
+                        .map(|expression| expression.node_id.as_str().to_string()),
+                };
+                let classification = expression.and_then(canonical_minimal_add_operands).map_or(
+                    CanonicalMinimalAddTypeClassification::Noncanonical,
+                    |operands| {
+                        classify_canonical_minimal_add(
+                            task,
+                            signature,
+                            key.clone(),
+                            expression.expect("recognized expression"),
+                            operands,
+                            &owner_definition_identity,
+                            report,
+                            references,
+                            definitions,
+                            scopes,
+                        )
+                    },
+                );
+                records.push(CanonicalMinimalAddTypeRecord {
+                    key,
+                    classification,
+                });
+            }
+        }
+        if let Item::App(app) = item {
+            collect_canonical_minimal_add_classifications(
+                program,
+                &app.items,
+                report,
+                references,
+                definitions,
+                scopes,
+                records,
+            );
+        }
+    }
+}
+
+fn canonical_minimal_add_operands(
+    expression: &CanonicalExpression,
+) -> Option<[(&CanonicalExpression, &str, &'static str); 2]> {
+    let CanonicalExpressionKind::Binary {
+        operator: ParsedBinaryOperator::Add,
+        left,
+        right,
+    } = &expression.kind
+    else {
+        return None;
+    };
+    let CanonicalExpressionKind::Identifier(left_name) = &left.kind else {
+        return None;
+    };
+    let CanonicalExpressionKind::Identifier(right_name) = &right.kind else {
+        return None;
+    };
+    Some([
+        (left.as_ref(), left_name.as_str(), "left"),
+        (right.as_ref(), right_name.as_str(), "right"),
+    ])
+}
+
+#[allow(clippy::too_many_arguments)]
+fn classify_canonical_minimal_add(
+    task: &Task,
+    signature: Result<&CanonicalTaskSignatureSnapshot, &'static str>,
+    key: CanonicalMinimalAddTargetKey,
+    expression: &CanonicalExpression,
+    operands: [(&CanonicalExpression, &str, &'static str); 2],
+    owner_definition_identity: &str,
+    report: &TypeCheckReport,
+    references: &[ResolveReferenceSummary],
+    definitions: &[ResolveDefinitionSummary],
+    scopes: &[ResolveScopeSummary],
+) -> CanonicalMinimalAddTypeClassification {
+    let signature = match signature {
+        Ok(signature) => signature,
+        Err(_) => return integrity_failure(key, "parser_signature_authority_invalid_v0"),
+    };
+    if signature.result_arrow_range().is_none()
+        || signature.result_spelling().is_none()
+        || signature.result_syntax().is_none()
+        || signature.result_range().is_none()
+    {
+        return integrity_failure(key, "declared_result_authority_missing_v0");
+    }
+    let task_scope = scopes.iter().filter(|scope| {
+        scope.scope_kind == "callable"
+            && scope.owner_kind == "task"
+            && scope.owner_semantic_identity == owner_definition_identity
+    });
+    let task_scopes = task_scope.collect::<Vec<_>>();
+    if task_scopes.len() != 1 {
+        return integrity_failure(key, "resolver_task_scope_ambiguous_v0");
+    }
+    let task_scope = task_scopes[0];
+
+    let mut operand_authorities = Vec::new();
+    let mut authenticated_types = Vec::new();
+    for (index, (operand, identifier, role)) in operands.iter().enumerate() {
+        let expected_position_suffix = format!(":path-0.{index}:node-{}", operand.node_id.as_str());
+        let matching_references = references
+            .iter()
+            .filter(|reference| {
+                reference.canonical_node_id.as_deref() == Some(operand.node_id.as_str())
+                    && reference
+                        .canonical_child_position
+                        .as_deref()
+                        .is_some_and(|position| position.ends_with(&expected_position_suffix))
+                    && reference.scope_id == task_scope.id
+                    && reference.scope_semantic_identity == task_scope.semantic_identity
+            })
+            .collect::<Vec<_>>();
+        if matching_references.len() != 1 {
+            return integrity_failure(key, "resolver_operand_relationship_ambiguous_v0");
+        }
+        let reference = matching_references[0];
+        if reference.reference_kind != "name_ref"
+            || reference.name != *identifier
+            || !source_spans_match(&reference.source_span, &operand.range.start)
+            || reference.resolution_status != "resolved_v0"
+        {
+            return integrity_failure(key, "resolver_operand_relationship_mismatch_v0");
+        }
+        let Some(definition_id) = reference.resolved_definition_id.as_deref() else {
+            return integrity_failure(key, "resolver_operand_definition_missing_v0");
+        };
+        let matching_definitions = definitions
+            .iter()
+            .filter(|definition| definition.id == definition_id)
+            .collect::<Vec<_>>();
+        if matching_definitions.len() != 1 {
+            return integrity_failure(key, "resolver_operand_definition_ambiguous_v0");
+        }
+        let definition = matching_definitions[0];
+        if definition.definition_kind != "parameter"
+            || definition.scope_id != task_scope.id
+            || definition.name != *identifier
+            || definition.status != "defined_v0"
+            || reference.resolved_definition_semantic_identity.as_deref()
+                != Some(definition.semantic_identity.as_str())
+        {
+            return integrity_failure(key, "resolver_operand_definition_mismatch_v0");
+        }
+        let matching_params = signature
+            .params()
+            .iter()
+            .filter(|param| {
+                param.name() == *identifier
+                    && source_spans_match(&param.raw_range().start, &definition.source_span)
+            })
+            .collect::<Vec<_>>();
+        if matching_params.len() != 1 {
+            return integrity_failure(key, "parser_parameter_authority_ambiguous_v0");
+        }
+        let parameter = matching_params[0];
+        let declarations = report
+            .type_env
+            .declarations
+            .iter()
+            .filter(|declaration| {
+                declaration.declaration_kind == "parameter"
+                    && declaration.owner_kind == "task"
+                    && declaration.owner_name == task.name
+                    && declaration.name == *identifier
+                    && declaration.resolver_definition_id.as_deref() == Some(definition_id)
+                    && source_spans_match(&declaration.source_span, &definition.source_span)
+            })
+            .collect::<Vec<_>>();
+        if declarations.len() != 1 {
+            return integrity_failure(key, "type_declaration_operand_ambiguous_v0");
+        }
+        let declaration = declarations[0];
+        if declaration.type_text != parameter.type_spelling()
+            || !locally_complete_type_declaration(declaration)
+        {
+            return integrity_failure(key, "type_declaration_operand_mismatch_v0");
+        }
+        let checked = report
+            .checked_declarations
+            .iter()
+            .filter(|checked| checked.declaration_id == declaration.id)
+            .collect::<Vec<_>>();
+        if checked.len() != 1 {
+            return integrity_failure(key, "checked_declaration_operand_ambiguous_v0");
+        }
+        let checked = checked[0];
+        if checked.resolver_definition_id.as_deref() != Some(definition_id)
+            || checked.declaration_kind != "parameter"
+            || checked.owner_kind != "task"
+            || checked.owner_name != task.name
+            || checked.name != *identifier
+            || !source_spans_match(&checked.source_span, &definition.source_span)
+            || checked.type_text != parameter.type_spelling()
+        {
+            return integrity_failure(key, "checked_declaration_operand_mismatch_v0");
+        }
+        authenticated_types.push(parameter.type_spelling().to_string());
+        operand_authorities.push(CanonicalMinimalAddOperandAuthority {
+            index,
+            role,
+            parser_node_id: operand.node_id.as_str().to_string(),
+            source_range: operand.range.clone(),
+            identifier: identifier.to_string(),
+            resolver_reference_id: reference.id.clone(),
+            resolved_definition_id: definition.id.clone(),
+            checked_declaration_id: checked.id.clone(),
+            checked_type: checked.type_text.clone(),
+        });
+    }
+
+    let result_declarations = report
+        .type_env
+        .declarations
+        .iter()
+        .filter(|declaration| {
+            declaration.declaration_kind == "result"
+                && declaration.owner_kind == "task"
+                && declaration.owner_name == task.name
+                && source_spans_match(&declaration.source_span, &task.span)
+                && declaration.resolver_definition_id.is_none()
+        })
+        .collect::<Vec<_>>();
+    if result_declarations.len() != 1 {
+        return integrity_failure(key, "result_declaration_ambiguous_v0");
+    }
+    let result_declaration = result_declarations[0];
+    if result_declaration.type_text != signature.result_spelling().unwrap_or_default()
+        || !locally_complete_type_declaration(result_declaration)
+    {
+        return integrity_failure(key, "result_declaration_mismatch_v0");
+    }
+    let checked_results = report
+        .checked_declarations
+        .iter()
+        .filter(|checked| checked.declaration_id == result_declaration.id)
+        .collect::<Vec<_>>();
+    if checked_results.len() != 1 {
+        return integrity_failure(key, "checked_result_declaration_ambiguous_v0");
+    }
+    let checked_result = checked_results[0];
+    if checked_result.type_text != result_declaration.type_text
+        || checked_result.declaration_kind != "result"
+    {
+        return integrity_failure(key, "checked_result_declaration_mismatch_v0");
+    }
+
+    let exact_int_signature = authenticated_types.iter().all(|ty| ty == "Int");
+    if exact_int_signature {
+        let checked_operands_are_int = operand_authorities.iter().all(|operand| {
+            operand.checked_type == "Int"
+                && report.checked_declarations.iter().any(|checked| {
+                    checked.id == operand.checked_declaration_id
+                        && checked.status == "accepted_declaration_annotation_v0"
+                        && checked
+                            .type_references
+                            .iter()
+                            .all(|reference| reference.check_status == "accepted_type_reference_v0")
+                })
+        });
+        if !checked_operands_are_int
+            || checked_result.status != "accepted_declaration_annotation_v0"
+            || checked_result
+                .type_references
+                .iter()
+                .any(|reference| reference.check_status != "accepted_type_reference_v0")
+        {
+            return integrity_failure(key, "checked_int_authority_rejected_v0");
+        }
+        let operands: [CanonicalMinimalAddOperandAuthority; 2] = operand_authorities
+            .try_into()
+            .expect("canonical minimal-add always has two operands");
+        return CanonicalMinimalAddTypeClassification::Supported(
+            CanonicalMinimalAddTypeAuthority {
+                key,
+                source_revision: signature.source_revision().clone(),
+                item_path: signature.item_path().to_vec(),
+                task_name: signature.task_name().to_string(),
+                task_span: signature.task_header_range().start.clone(),
+                root_range: expression.range.clone(),
+                operands,
+                declared_result_type: result_declaration.type_text.clone(),
+                expression_type: "Int",
+            },
+        );
+    }
+
+    CanonicalMinimalAddTypeClassification::AuthenticatedOutOfScope(CanonicalMinimalAddOutOfScope {
+        key,
+        operand_types: authenticated_types
+            .try_into()
+            .expect("canonical minimal-add always has two operand types"),
+    })
+}
+
+fn integrity_failure(
+    key: CanonicalMinimalAddTargetKey,
+    reason: &'static str,
+) -> CanonicalMinimalAddTypeClassification {
+    CanonicalMinimalAddTypeClassification::IntegrityFailure(CanonicalMinimalAddIntegrityFailure {
+        key,
+        reason,
+    })
+}
+
+fn source_spans_match(left: &Span, right: &Span) -> bool {
+    crate::node_id::source_path_identity(&left.file)
+        == crate::node_id::source_path_identity(&right.file)
+        && left.line == right.line
+        && left.column == right.column
+}
+
+fn locally_complete_type_declaration(declaration: &TypeDeclaration) -> bool {
+    match declaration.status {
+        "reserved_type_annotation_v0" => declaration
+            .type_references
+            .iter()
+            .all(|reference| reference.status == "reserved_type_v0"),
+        "references_declared_type_v0" => declaration
+            .type_references
+            .iter()
+            .all(|reference| reference.status == "declared_type_v0"),
+        _ => false,
     }
 }
 
@@ -1679,10 +2607,146 @@ mod tests {
     use crate::parser::parse_source;
 
     use super::{
-        build_report, diagnostic_occurrence_set_from_source, resolver_precedence_relationships,
-        type_check_has_errors, type_check_json, type_check_text, type_diagnostic_occurrence,
-        type_diagnostics,
+        CanonicalMinimalAddProducerCorruption, CanonicalMinimalAddTypeClassification, build_report,
+        canonical_minimal_add_type_classifications, diagnostic_occurrence_set_from_source,
+        resolver_precedence_relationships, type_check_has_errors, type_check_json, type_check_text,
+        type_diagnostic_occurrence, type_diagnostics,
+        with_canonical_minimal_add_producer_corruption,
     };
+
+    #[test]
+    fn canonical_minimal_add_type_authority_is_unique_and_bound() {
+        let parsed = parse_source(
+            "minimal-add-authority.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+        );
+        let diagnostics = parsed.diagnostics;
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let classifications = canonical_minimal_add_type_classifications(&program, &diagnostics);
+        assert_eq!(classifications.records.len(), 1);
+        match &classifications.records[0].classification {
+            CanonicalMinimalAddTypeClassification::Supported(authority) => {
+                assert_eq!(authority.expression_type(), "Int");
+                assert_eq!(authority.operand_projection(0).unwrap().3, "Int");
+                assert_eq!(authority.operand_projection(1).unwrap().3, "Int");
+                assert!(authority.claim().matches(authority));
+            }
+            CanonicalMinimalAddTypeClassification::IntegrityFailure(failure) => {
+                panic!("unexpected integrity failure: {}", failure.reason())
+            }
+            _ => panic!("minimal add must be supported"),
+        }
+
+        for corruption in [
+            CanonicalMinimalAddProducerCorruption::MissingFirstReference,
+            CanonicalMinimalAddProducerCorruption::DuplicateFirstReference,
+            CanonicalMinimalAddProducerCorruption::SwappedReferenceTarget,
+            CanonicalMinimalAddProducerCorruption::WrongDefinitionKind,
+            CanonicalMinimalAddProducerCorruption::MissingFirstTypeDeclaration,
+            CanonicalMinimalAddProducerCorruption::DuplicateFirstCheckedDeclaration,
+            CanonicalMinimalAddProducerCorruption::RejectedFirstCheckedDeclaration,
+            CanonicalMinimalAddProducerCorruption::SubstituteFirstCheckedType,
+            CanonicalMinimalAddProducerCorruption::MissingResultDeclaration,
+        ] {
+            let corrupted = with_canonical_minimal_add_producer_corruption(corruption, || {
+                canonical_minimal_add_type_classifications(&program, &diagnostics)
+            });
+            assert!(matches!(
+                corrupted.records[0].classification,
+                CanonicalMinimalAddTypeClassification::IntegrityFailure(_)
+            ));
+        }
+
+        let parsed = parse_source(
+            "same-spelled-foreign.hum",
+            "task first(value: Int, other: Int) -> Int {\n  does:\n    return value + other\n}\n\ntask second(value: Int, other: Int) -> Int {\n  does:\n    return value + other\n}\n",
+        );
+        let foreign_diagnostics = parsed.diagnostics;
+        let foreign_program = Program {
+            files: vec![parsed.file],
+        };
+        let foreign = with_canonical_minimal_add_producer_corruption(
+            CanonicalMinimalAddProducerCorruption::ForeignSameSpelledDefinition,
+            || canonical_minimal_add_type_classifications(&foreign_program, &foreign_diagnostics),
+        );
+        assert!(matches!(
+            foreign.records[0].classification,
+            CanonicalMinimalAddTypeClassification::IntegrityFailure(_)
+        ));
+
+        let parsed = parse_source(
+            "incomplete-uint.hum",
+            "task add(a: UInt, b: UInt) -> UInt {\n  does:\n    return a + b\n}\n",
+        );
+        let uint_diagnostics = parsed.diagnostics;
+        let uint_program = Program {
+            files: vec![parsed.file],
+        };
+        let honest_uint =
+            canonical_minimal_add_type_classifications(&uint_program, &uint_diagnostics);
+        assert!(matches!(
+            honest_uint.records[0].classification,
+            CanonicalMinimalAddTypeClassification::AuthenticatedOutOfScope(_)
+        ));
+        let incomplete_uint = with_canonical_minimal_add_producer_corruption(
+            CanonicalMinimalAddProducerCorruption::IncompleteFirstTypeDeclaration,
+            || canonical_minimal_add_type_classifications(&uint_program, &uint_diagnostics),
+        );
+        assert!(matches!(
+            incomplete_uint.records[0].classification,
+            CanonicalMinimalAddTypeClassification::IntegrityFailure(_)
+        ));
+
+        let mut downgraded_program = program.clone();
+        let crate::ast::Item::Task(task) = &mut downgraded_program.files[0].items[0] else {
+            panic!("task")
+        };
+        task.params[0].ty = "UInt".to_string();
+        let downgraded =
+            canonical_minimal_add_type_classifications(&downgraded_program, &diagnostics);
+        assert!(matches!(
+            downgraded.records[0].classification,
+            CanonicalMinimalAddTypeClassification::IntegrityFailure(_)
+        ));
+
+        assert_eq!(
+            type_check_json(&program, &diagnostics),
+            type_check_json(&program, &diagnostics),
+            "the private producer must not perturb the public type-check report"
+        );
+
+        let native_separator = char::from(92);
+        let path_spellings = vec![
+            "nested/minimal-add-authority.hum".to_string(),
+            format!("nested{native_separator}minimal-add-authority.hum"),
+            format!(
+                "C:{native_separator}unrelated-root{native_separator}minimal-add-authority.hum"
+            ),
+            format!(
+                "D:{native_separator}arbitrary{native_separator}elsewhere{native_separator}same-source.hum"
+            ),
+        ];
+        for path in path_spellings {
+            let parsed = parse_source(
+                &path,
+                "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+            );
+            let diagnostics = parsed.diagnostics;
+            let program = Program {
+                files: vec![parsed.file],
+            };
+            let classified = canonical_minimal_add_type_classifications(&program, &diagnostics);
+            assert!(
+                matches!(
+                    classified.records[0].classification,
+                    CanonicalMinimalAddTypeClassification::Supported(_)
+                ),
+                "valid source path spelling `{path}` must retain authority"
+            );
+        }
+    }
 
     #[test]
     fn resolver_precedence_is_consumed_for_a_genuine_blocked_type_relationship() {

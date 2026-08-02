@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 use crate::ast::{
     CanonicalExpression, CanonicalExpressionKind, ParsedBinaryOperator, ParsedSourceRange, Program,
 };
@@ -5,15 +7,18 @@ use crate::callable;
 use crate::core_contract;
 use crate::core_expr;
 use crate::core_lower::{
-    self, CoreLowerExpression, CoreLowerItem, CoreLowerOperation, CoreLowerReport,
-    CoreLowerSourceRange, CoreLowerStructuredExpression,
+    self, CanonicalMinimalAddLowering, CoreLowerExpression, CoreLowerItem, CoreLowerOperation,
+    CoreLowerReport, CoreLowerSourceRange, CoreLowerStructuredExpression,
 };
 use crate::core_preview;
 use crate::diagnostic::{Diagnostic, DiagnosticOccurrenceSet, Span};
 use crate::ir_contract;
 use crate::predicate;
 use crate::resolve;
-use crate::type_check;
+use crate::type_check::{
+    self, CanonicalMinimalAddTypeAuthority, CanonicalMinimalAddTypeClassification,
+    CanonicalMinimalAddTypeClassifications, CanonicalMinimalAddTypeRecord,
+};
 use crate::version;
 
 pub const CORE_VERIFY_SCHEMA: &str = "hum.core_verify.v0";
@@ -61,7 +66,7 @@ pub struct CoreVerifyReadinessSummary {
 }
 
 struct CoreVerifyReport {
-    lower: CoreLowerReport,
+    lower: CanonicalMinimalAddLowering,
     checks: Vec<CoreVerifyCheck>,
 }
 
@@ -73,6 +78,37 @@ struct CoreVerifyCheck {
     status: &'static str,
     rule: &'static str,
     detail: String,
+}
+
+pub(crate) struct VerifiedCanonicalMinimalAddType<'artifact, 'authority> {
+    item: &'artifact CoreLowerItem,
+    operation: &'artifact CoreLowerOperation,
+    authority: &'authority CanonicalMinimalAddTypeAuthority,
+}
+
+impl VerifiedCanonicalMinimalAddType<'_, '_> {
+    pub(crate) fn item_identity(&self) -> &str {
+        &self.item.semantic_identity
+    }
+
+    pub(crate) fn statement_index(&self) -> usize {
+        self.operation.index
+    }
+
+    pub(crate) fn root_node_id(&self) -> &str {
+        self.authority
+            .key()
+            .root_node_id()
+            .expect("verified canonical minimal-add has a root identity")
+    }
+
+    pub(crate) fn expected_type(&self) -> &str {
+        self.authority.declared_result_type()
+    }
+
+    pub(crate) fn actual_type(&self) -> &'static str {
+        self.authority.expression_type()
+    }
 }
 
 pub fn core_verify_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
@@ -282,18 +318,26 @@ pub fn core_verify_readiness_summary(
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreVerifyReport {
     let preview_authority = core_preview::diagnostic_occurrence_set(program, diagnostics);
-    let lower =
-        core_lower::build_core_lower_report_from_preview(program, diagnostics, &preview_authority)
-            .expect("Core lower must preserve one sealed preview occurrence projection");
+    let lower = core_lower::build_canonical_minimal_add_lowering_from_preview(
+        program,
+        diagnostics,
+        &preview_authority,
+    )
+    .expect("Core lower must preserve one sealed preview occurrence projection");
     lower
         .diagnostic_projection
         .validate_against("core_lower", &preview_authority)
         .expect("Core verify must compare lower projection with preview authority");
-    let mut checks = verify_lower_report(&lower);
+    let (mut checks, _) = verify_canonical_minimal_add_lowering(&lower);
+    append_callable_checks(program, &mut checks);
+    CoreVerifyReport { lower, checks }
+}
+
+fn append_callable_checks(program: &Program, checks: &mut Vec<CoreVerifyCheck>) {
     let callable_failures = callable::analyze_program(program).verify();
     if callable_failures.is_empty() {
         push_check(
-            &mut checks,
+            checks,
             "callable_semantic_spine",
             "session-al-callable-facts",
             None,
@@ -304,7 +348,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreVerifyRepo
     } else {
         for failure in callable_failures {
             push_check(
-                &mut checks,
+                checks,
                 "callable_semantic_spine",
                 "session-al-callable-facts",
                 None,
@@ -314,7 +358,107 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreVerifyRepo
             );
         }
     }
-    CoreVerifyReport { lower, checks }
+}
+
+pub(crate) fn with_verified_canonical_minimal_add_types<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    consume: impl for<'artifact, 'authority> FnOnce(
+        &[VerifiedCanonicalMinimalAddType<'artifact, 'authority>],
+    ) -> R,
+) -> (CoreVerifyReadinessSummary, R) {
+    let preview_authority = core_preview::diagnostic_occurrence_set(program, diagnostics);
+    let lower = core_lower::build_canonical_minimal_add_lowering_from_preview(
+        program,
+        diagnostics,
+        &preview_authority,
+    )
+    .expect("Core lower must preserve one sealed preview occurrence projection");
+    lower
+        .diagnostic_projection
+        .validate_against("core_lower", &preview_authority)
+        .expect("Core verify must compare lower projection with preview authority");
+    let (mut checks, views) = verify_canonical_minimal_add_lowering(&lower);
+    append_callable_checks(program, &mut checks);
+    let summary = readiness_summary(&lower, &checks);
+    let consumed = consume(&views);
+    (summary, consumed)
+}
+
+#[cfg(test)]
+pub(crate) fn with_verified_canonical_minimal_add_types_from_owner_for_test<R>(
+    lower: &CanonicalMinimalAddLowering,
+    consume: impl for<'artifact, 'authority> FnOnce(
+        &[VerifiedCanonicalMinimalAddType<'artifact, 'authority>],
+    ) -> R,
+) -> R {
+    let (_, views) = verify_canonical_minimal_add_lowering(lower);
+    consume(&views)
+}
+
+fn readiness_summary(
+    lower: &CoreLowerReport,
+    checks: &[CoreVerifyCheck],
+) -> CoreVerifyReadinessSummary {
+    let failed_checks = checks
+        .iter()
+        .filter(|check| check.status == "failed_v0")
+        .count();
+    let passed_checks = checks.len().saturating_sub(failed_checks);
+    let item_failed = |item: &CoreLowerItem| {
+        checks.iter().any(|check| {
+            check.status == "failed_v0"
+                && (check.scope_id == item.id
+                    || item
+                        .operations
+                        .iter()
+                        .any(|operation| operation.id == check.scope_id))
+        })
+    };
+    let verified_items = lower
+        .core_items
+        .iter()
+        .filter(|item| !item_failed(item))
+        .count();
+    let verified_operations = lower
+        .core_items
+        .iter()
+        .flat_map(|item| &item.operations)
+        .filter(|operation| {
+            !checks
+                .iter()
+                .any(|check| check.status == "failed_v0" && check.scope_id == operation.id)
+        })
+        .count();
+    CoreVerifyReadinessSummary {
+        schema: CORE_VERIFY_SCHEMA,
+        status: if failed_checks == 0 {
+            CORE_VERIFY_STATUS
+        } else {
+            CORE_VERIFY_FAILED_STATUS
+        },
+        mode: CORE_VERIFY_MODE,
+        files: lower.files,
+        items: lower.items,
+        tasks: lower.tasks,
+        tests: lower.tests,
+        core_items: lower.core_items.len(),
+        verified_items,
+        lower_blocked_items: lower.blocked_items(),
+        operations: lower.lowered_operations() + lower.blocked_operations(),
+        verified_operations,
+        lower_blocked_operations: lower.blocked_operations(),
+        checks: checks.len(),
+        passed_checks,
+        failed_checks,
+        execution_ready: 0,
+        ir_ready: 0,
+        errors: lower.errors,
+        warnings: lower.warnings,
+        resolver_errors: lower.resolver_errors,
+        type_errors: lower.type_errors,
+        preview_blocked_statements: lower.preview_blocked_statements,
+    }
 }
 
 pub(crate) fn diagnostic_occurrence_set(
@@ -324,6 +468,7 @@ pub(crate) fn diagnostic_occurrence_set(
     build_report(program, diagnostics)
         .lower
         .diagnostic_occurrences
+        .clone()
 }
 
 pub(crate) fn validate_diagnostic_projection_from_source(
@@ -348,8 +493,35 @@ pub(crate) fn validate_diagnostic_projection_from_source(
     Ok(lower.diagnostic_occurrences)
 }
 
+#[cfg(test)]
 fn verify_lower_report(lower: &CoreLowerReport) -> Vec<CoreVerifyCheck> {
+    let mut views = Vec::new();
+    verify_lower_report_with_classifications(lower, None, &mut views)
+}
+
+fn verify_canonical_minimal_add_lowering<'lowering>(
+    lower: &'lowering CanonicalMinimalAddLowering,
+) -> (
+    Vec<CoreVerifyCheck>,
+    Vec<VerifiedCanonicalMinimalAddType<'lowering, 'lowering>>,
+) {
+    let mut views = Vec::new();
+    let checks = verify_lower_report_with_classifications(
+        lower.report(),
+        Some(lower.classifications()),
+        &mut views,
+    );
+    (checks, views)
+}
+
+fn verify_lower_report_with_classifications<'artifact, 'authority>(
+    lower: &'artifact CoreLowerReport,
+    classifications: Option<&'authority CanonicalMinimalAddTypeClassifications>,
+    views: &mut Vec<VerifiedCanonicalMinimalAddType<'artifact, 'authority>>,
+) -> Vec<CoreVerifyCheck> {
     let mut checks = Vec::new();
+    let classification_batch_valid = classifications
+        .is_none_or(|classifications| canonical_minimal_add_batch_matches(lower, classifications));
     push_check(
         &mut checks,
         "summary",
@@ -379,13 +551,173 @@ fn verify_lower_report(lower: &CoreLowerReport) -> Vec<CoreVerifyCheck> {
     );
 
     for item in &lower.core_items {
-        verify_item(item, &mut checks);
+        verify_item(
+            item,
+            classifications,
+            classification_batch_valid,
+            &mut checks,
+            views,
+        );
+    }
+    if !classification_batch_valid
+        && !checks.iter().any(|check| {
+            check.status == "failed_v0" && check.rule.starts_with("canonical_minimal_add_")
+        })
+    {
+        push_canonical_minimal_add_batch_failure(
+            &mut checks,
+            lower
+                .core_items
+                .iter()
+                .flat_map(|item| &item.operations)
+                .next(),
+        );
     }
 
     checks
 }
 
-fn verify_item(item: &CoreLowerItem, checks: &mut Vec<CoreVerifyCheck>) {
+fn push_canonical_minimal_add_batch_failure(
+    checks: &mut Vec<CoreVerifyCheck>,
+    operation: Option<&CoreLowerOperation>,
+) {
+    let (scope, scope_id, span) = operation
+        .map_or(("summary", "core-lower-summary", None), |operation| {
+            ("operation", operation.id.as_str(), Some(&operation.span))
+        });
+    for (rule, detail) in [
+        (
+            "canonical_minimal_add_public_projection_matches_authority",
+            "canonical minimal-add public projection does not match untouched producer authority",
+        ),
+        (
+            "canonical_minimal_add_private_claim_matches_authority",
+            "canonical minimal-add private claim does not match untouched producer authority",
+        ),
+        (
+            "canonical_minimal_add_verified_view_issued",
+            "canonical minimal-add verified view withheld after failed or missing authority check",
+        ),
+    ] {
+        push_check(checks, scope, scope_id, span, false, rule, detail);
+    }
+}
+
+fn canonical_minimal_add_batch_matches(
+    lower: &CoreLowerReport,
+    classifications: &CanonicalMinimalAddTypeClassifications,
+) -> bool {
+    let operations = lower
+        .core_items
+        .iter()
+        .flat_map(|item| {
+            item.operations.iter().filter_map(move |operation| {
+                operation
+                    .canonical_minimal_add_classification_ordinal()
+                    .map(|ordinal| (item, operation, ordinal))
+            })
+        })
+        .collect::<Vec<_>>();
+    let records = classifications.records();
+    if operations.len() != records.len() {
+        return false;
+    }
+    let mut identities = std::collections::BTreeSet::new();
+    operations.iter().zip(records).enumerate().all(
+        |(expected_ordinal, ((item, operation, ordinal), record))| {
+            let key = record.key();
+            let root_node_id = operation
+                .expression
+                .as_ref()
+                .and_then(CoreLowerExpression::structured_authority)
+                .map(|authority| authority.node_id.as_str());
+            let root_identity_matches = match record.classification() {
+                CanonicalMinimalAddTypeClassification::Noncanonical => root_node_id.is_none(),
+                _ => key.root_node_id() == root_node_id,
+            };
+            let identity = (
+                key.source_revision().map(<[u8]>::to_vec),
+                key.item_path().map(<[usize]>::to_vec),
+                key.task_name().to_string(),
+                key.item_identity().to_string(),
+                key.statement_index(),
+                crate::node_id::source_path_identity(&key.statement_span().file),
+                key.statement_span().line,
+                key.statement_span().column,
+                key.root_node_id().map(str::to_string),
+            );
+            let ordinal_matches = *ordinal == expected_ordinal;
+            let task_matches = key.task_name() == item.name;
+            let item_path_matches = key.item_path().map_or_else(
+                || {
+                    matches!(
+                        record.classification(),
+                        CanonicalMinimalAddTypeClassification::Noncanonical
+                    )
+                },
+                |path| {
+                    item.semantic_identity.ends_with(&format!(
+                        "path-{}",
+                        path.iter()
+                            .map(usize::to_string)
+                            .collect::<Vec<_>>()
+                            .join(".")
+                    ))
+                },
+            );
+            let item_identity_matches = key.item_identity() == item.semantic_identity;
+            let statement_index_matches = key.statement_index() == operation.index;
+            let statement_path_matches =
+                crate::node_id::source_path_identity(&key.statement_span().file)
+                    == crate::node_id::source_path_identity(&operation.span.file);
+            let statement_line_matches = key.statement_span().line == operation.span.line;
+            let statement_column_matches = key.statement_span().column == operation.span.column;
+            let classification_key_matches = record
+                .classification()
+                .key()
+                .is_none_or(|classification_key| classification_key == key);
+            let identity_unique = identities.insert(identity);
+            ordinal_matches
+                && task_matches
+                && item_path_matches
+                && item_identity_matches
+                && statement_index_matches
+                && statement_path_matches
+                && statement_line_matches
+                && statement_column_matches
+                && root_identity_matches
+                && classification_key_matches
+                && identity_unique
+        },
+    )
+}
+
+fn relevant_structural_checks_passed(
+    checks: &[CoreVerifyCheck],
+    item_check_start: usize,
+    operation_check_start: usize,
+    item_id: &str,
+    operation_id: &str,
+) -> bool {
+    checks[item_check_start..operation_check_start]
+        .iter()
+        .filter(|check| check.scope_id == item_id)
+        .chain(
+            checks[operation_check_start..]
+                .iter()
+                .filter(|check| check.scope_id == operation_id),
+        )
+        .all(|check| check.status == "passed_v0")
+}
+
+fn verify_item<'artifact, 'authority>(
+    item: &'artifact CoreLowerItem,
+    classifications: Option<&'authority CanonicalMinimalAddTypeClassifications>,
+    classification_batch_valid: bool,
+    checks: &mut Vec<CoreVerifyCheck>,
+    views: &mut Vec<VerifiedCanonicalMinimalAddType<'artifact, 'authority>>,
+) {
+    let item_check_start = checks.len();
     push_span_check(checks, "core_item", &item.id, &item.span);
     push_check(
         checks,
@@ -437,7 +769,16 @@ fn verify_item(item: &CoreLowerItem, checks: &mut Vec<CoreVerifyCheck>) {
     );
 
     for (expected_index, operation) in item.operations.iter().enumerate() {
-        verify_operation(item, operation, expected_index, checks);
+        verify_operation(
+            item,
+            operation,
+            expected_index,
+            classifications,
+            classification_batch_valid,
+            item_check_start,
+            checks,
+            views,
+        );
     }
     for blocker in &item.blockers {
         push_span_check(checks, "blocker", &item.id, &blocker.span);
@@ -456,12 +797,18 @@ fn verify_item(item: &CoreLowerItem, checks: &mut Vec<CoreVerifyCheck>) {
     }
 }
 
-fn verify_operation(
-    item: &CoreLowerItem,
-    operation: &CoreLowerOperation,
+#[allow(clippy::too_many_arguments)]
+fn verify_operation<'artifact, 'authority>(
+    item: &'artifact CoreLowerItem,
+    operation: &'artifact CoreLowerOperation,
     expected_index: usize,
+    classifications: Option<&'authority CanonicalMinimalAddTypeClassifications>,
+    classification_batch_valid: bool,
+    item_check_start: usize,
     checks: &mut Vec<CoreVerifyCheck>,
+    views: &mut Vec<VerifiedCanonicalMinimalAddType<'artifact, 'authority>>,
 ) {
+    let operation_check_start = checks.len();
     push_span_check(checks, "operation", &operation.id, &operation.span);
     push_check(
         checks,
@@ -530,6 +877,11 @@ fn verify_operation(
 
     match &operation.expression {
         Some(expression) => {
+            let classification = classifications.and_then(|classifications| {
+                operation
+                    .canonical_minimal_add_classification_ordinal()
+                    .and_then(|ordinal| classifications.record_at(ordinal))
+            });
             push_check(
                 checks,
                 "operation_expression",
@@ -593,17 +945,49 @@ fn verify_operation(
             );
             match (&expression.structured, expression.structured_authority()) {
                 (Some(structured), _) => {
-                    verify_structured_expression(operation, expression, structured, checks);
+                    verify_structured_expression(
+                        operation,
+                        expression,
+                        structured,
+                        classification,
+                        checks,
+                    );
+                    verify_canonical_minimal_add_classification(
+                        item,
+                        operation,
+                        classification,
+                        classification_batch_valid,
+                        relevant_structural_checks_passed(
+                            checks,
+                            item_check_start,
+                            operation_check_start,
+                            &item.id,
+                            &operation.id,
+                        ),
+                        checks,
+                        views,
+                    );
                 }
-                (None, Some(_)) => push_check(
-                    checks,
-                    "structured_expression",
-                    &operation.id,
-                    Some(&operation.span),
-                    false,
-                    "structured_expression_projection_present",
-                    "retained parser authority requires its structured projection",
-                ),
+                (None, Some(_)) => {
+                    push_check(
+                        checks,
+                        "structured_expression",
+                        &operation.id,
+                        Some(&operation.span),
+                        false,
+                        "structured_expression_projection_present",
+                        "retained parser authority requires its structured projection",
+                    );
+                    verify_canonical_minimal_add_classification(
+                        item,
+                        operation,
+                        classification,
+                        classification_batch_valid,
+                        false,
+                        checks,
+                        views,
+                    );
+                }
                 (None, None) => {}
             }
         }
@@ -627,6 +1011,7 @@ fn verify_structured_expression(
     operation: &CoreLowerOperation,
     expression: &CoreLowerExpression,
     structured: &CoreLowerStructuredExpression,
+    classification: Option<&CanonicalMinimalAddTypeRecord>,
     checks: &mut Vec<CoreVerifyCheck>,
 ) {
     let scope = "structured_expression";
@@ -827,18 +1212,256 @@ fn verify_structured_expression(
         "child ranges are sane, same-file, ordered, and contained by the root",
     );
 
-    let outer_type_unchecked = expression.type_status == core_expr::CORE_EXPRESSION_TYPE_STATUS
-        && expression.type_text.is_none()
-        && expression.type_source.is_none();
+    match classification.map(CanonicalMinimalAddTypeRecord::classification) {
+        Some(CanonicalMinimalAddTypeClassification::Supported(_)) => push_check(
+            checks,
+            scope,
+            scope_id,
+            span,
+            expression.type_status
+                == core_expr::CORE_EXPRESSION_CHECKED_CANONICAL_MINIMAL_ADD_TYPE_STATUS
+                && expression.type_text.as_deref() == Some("Int")
+                && expression.type_source
+                    == Some(core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_SOURCE),
+            "structured_expression_outer_type_matches_canonical_minimal_add_classification",
+            "structured expression outer type state matches canonical minimal-add classification",
+        ),
+        Some(CanonicalMinimalAddTypeClassification::IntegrityFailure(_)) => push_check(
+            checks,
+            scope,
+            scope_id,
+            span,
+            expression.type_status
+                == core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_UNAVAILABLE_STATUS
+                && expression.type_text.is_none()
+                && expression.type_source.is_none(),
+            "structured_expression_outer_type_matches_canonical_minimal_add_classification",
+            "structured expression outer type state matches canonical minimal-add classification",
+        ),
+        _ => push_check(
+            checks,
+            scope,
+            scope_id,
+            span,
+            expression.type_status == core_expr::CORE_EXPRESSION_TYPE_STATUS
+                && expression.type_text.is_none()
+                && expression.type_source.is_none(),
+            "structured_expression_outer_type_unchecked",
+            "structured add preserves the authoritative unchecked outer type state",
+        ),
+    }
+}
+
+fn verify_canonical_minimal_add_classification<'artifact, 'authority>(
+    item: &'artifact CoreLowerItem,
+    operation: &'artifact CoreLowerOperation,
+    classification: Option<&'authority CanonicalMinimalAddTypeRecord>,
+    classification_batch_valid: bool,
+    structural_checks_passed: bool,
+    checks: &mut Vec<CoreVerifyCheck>,
+    views: &mut Vec<VerifiedCanonicalMinimalAddType<'artifact, 'authority>>,
+) {
+    match classification.map(CanonicalMinimalAddTypeRecord::classification) {
+        Some(CanonicalMinimalAddTypeClassification::Supported(authority)) => {
+            if let Some(view) = verify_canonical_minimal_add_type(
+                item,
+                operation,
+                authority,
+                classification_batch_valid,
+                structural_checks_passed,
+                checks,
+            ) {
+                views.push(view);
+            }
+        }
+        Some(CanonicalMinimalAddTypeClassification::IntegrityFailure(_)) => {
+            push_check(
+                checks,
+                "operation",
+                &operation.id,
+                Some(&operation.span),
+                false,
+                "canonical_minimal_add_public_projection_matches_authority",
+                "canonical minimal-add public projection does not match untouched producer authority",
+            );
+            push_check(
+                checks,
+                "operation",
+                &operation.id,
+                Some(&operation.span),
+                false,
+                "canonical_minimal_add_private_claim_matches_authority",
+                "canonical minimal-add private claim does not match untouched producer authority",
+            );
+            push_check(
+                checks,
+                "operation",
+                &operation.id,
+                Some(&operation.span),
+                false,
+                "canonical_minimal_add_verified_view_issued",
+                "canonical minimal-add verified view withheld after failed or missing authority check",
+            );
+        }
+        Some(CanonicalMinimalAddTypeClassification::AuthenticatedOutOfScope(_))
+        | Some(CanonicalMinimalAddTypeClassification::Noncanonical)
+        | None => {}
+    }
+}
+
+fn verify_canonical_minimal_add_type<'artifact, 'authority>(
+    item: &'artifact CoreLowerItem,
+    operation: &'artifact CoreLowerOperation,
+    authority: &'authority CanonicalMinimalAddTypeAuthority,
+    classification_batch_valid: bool,
+    structural_checks_passed: bool,
+    checks: &mut Vec<CoreVerifyCheck>,
+) -> Option<VerifiedCanonicalMinimalAddType<'artifact, 'authority>> {
+    let public_matches = classification_batch_valid
+        && canonical_minimal_add_public_projection_matches(item, operation, authority);
+    let private_matches = classification_batch_valid
+        && operation
+            .canonical_minimal_add_claim()
+            .is_some_and(|claim| {
+                Some(claim.root_node_id()) == authority.key().root_node_id()
+                    && claim.matches(authority)
+            });
     push_check(
         checks,
-        scope,
-        scope_id,
-        span,
-        outer_type_unchecked,
-        "structured_expression_outer_type_unchecked",
-        "structured add preserves the authoritative unchecked outer type state",
+        "operation",
+        &operation.id,
+        Some(&operation.span),
+        public_matches,
+        "canonical_minimal_add_public_projection_matches_authority",
+        if public_matches {
+            "canonical minimal-add public projection matches untouched producer authority"
+        } else {
+            "canonical minimal-add public projection does not match untouched producer authority"
+        },
     );
+    push_check(
+        checks,
+        "operation",
+        &operation.id,
+        Some(&operation.span),
+        private_matches,
+        "canonical_minimal_add_private_claim_matches_authority",
+        if private_matches {
+            "canonical minimal-add private claim matches untouched producer authority"
+        } else {
+            "canonical minimal-add private claim does not match untouched producer authority"
+        },
+    );
+    let issued = public_matches && private_matches && structural_checks_passed;
+    push_check(
+        checks,
+        "operation",
+        &operation.id,
+        Some(&operation.span),
+        issued,
+        "canonical_minimal_add_verified_view_issued",
+        if issued {
+            "canonical minimal-add verified view issued from successful checks"
+        } else {
+            "canonical minimal-add verified view withheld after failed or missing authority check"
+        },
+    );
+    issued.then_some(VerifiedCanonicalMinimalAddType {
+        item,
+        operation,
+        authority,
+    })
+}
+
+fn canonical_minimal_add_public_projection_matches(
+    item: &CoreLowerItem,
+    operation: &CoreLowerOperation,
+    authority: &CanonicalMinimalAddTypeAuthority,
+) -> bool {
+    let Some(expression) = operation.expression.as_ref() else {
+        return false;
+    };
+    let Some(structured) = expression.structured.as_ref() else {
+        return false;
+    };
+    let item_path = authority
+        .item_path()
+        .iter()
+        .map(usize::to_string)
+        .collect::<Vec<_>>()
+        .join(".");
+    if !authority.public_identity_matches(
+        &item.semantic_identity,
+        operation.index,
+        &structured.parser_node_id,
+    ) || !item
+        .semantic_identity
+        .ends_with(&format!("path-{item_path}"))
+        || item.name != authority.task_name()
+        || item.span != *authority.task_span()
+        || operation.span != *authority.key().statement_span()
+        || structured.children.len() != 2
+        || !source_range_matches_authority(&structured.source_range, authority.root_range())
+        || expression.type_status
+            != core_expr::CORE_EXPRESSION_CHECKED_CANONICAL_MINIMAL_ADD_TYPE_STATUS
+        || expression.type_text.as_deref() != Some(authority.expression_type())
+        || expression.type_source
+            != Some(core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_SOURCE)
+    {
+        return false;
+    }
+    structured
+        .children
+        .iter()
+        .enumerate()
+        .all(|(index, child)| {
+            let Some((expected_index, role, node_id, range, identifier)) =
+                authority.operand_identity(index)
+            else {
+                return false;
+            };
+            let Some((reference, definition, declaration, checked_type)) =
+                authority.operand_projection(index)
+            else {
+                return false;
+            };
+            let Some(projected) = child.canonical_type.as_ref() else {
+                return false;
+            };
+            child.index == expected_index
+                && child.role == role
+                && child.parser_node_id == node_id
+                && source_range_matches_authority(&child.source_range, range)
+                && child.identifier == identifier
+                && projected.resolver_reference_id.as_deref() == Some(reference)
+                && projected.resolved_definition_id.as_deref() == Some(definition)
+                && projected.checked_declaration_id.as_deref() == Some(declaration)
+                && projected.checked_type.as_deref() == Some(checked_type)
+        })
+}
+
+#[allow(unexpected_cfgs)]
+#[cfg(hum_compile_fail_verified_canonical_minimal_add_escape)]
+fn verified_canonical_minimal_add_cannot_outlive_lower_artifact<'artifact, 'authority>(
+    view: VerifiedCanonicalMinimalAddType<'artifact, 'authority>,
+) -> VerifiedCanonicalMinimalAddType<'static, 'authority> {
+    view
+}
+
+#[allow(unexpected_cfgs)]
+#[cfg(hum_compile_fail_verified_canonical_minimal_add_escape)]
+fn verified_canonical_minimal_add_cannot_outlive_producer_authority<'artifact, 'authority>(
+    view: VerifiedCanonicalMinimalAddType<'artifact, 'authority>,
+) -> VerifiedCanonicalMinimalAddType<'artifact, 'static> {
+    view
+}
+
+#[allow(unexpected_cfgs)]
+#[cfg(hum_compile_fail_verified_canonical_minimal_add_escape)]
+fn verified_canonical_minimal_add_cannot_become_owned_static_authority<'artifact, 'authority>(
+    view: VerifiedCanonicalMinimalAddType<'artifact, 'authority>,
+) -> VerifiedCanonicalMinimalAddType<'static, 'static> {
+    view
 }
 
 struct MinimalAddAuthority<'a> {
@@ -1093,6 +1716,8 @@ fn valid_type_status(status: &str) -> bool {
         core_expr::CORE_EXPRESSION_TYPE_STATUS
             | core_expr::CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_TYPE_STATUS
             | core_expr::CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_MISMATCH_STATUS
+            | core_expr::CORE_EXPRESSION_CHECKED_CANONICAL_MINIMAL_ADD_TYPE_STATUS
+            | core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_UNAVAILABLE_STATUS
             | core_expr::CORE_PREDICATE_TYPE_STATUS
     )
 }
@@ -1450,9 +2075,417 @@ mod tests {
     use crate::parser::parse_source;
 
     use super::{
-        build_report, core_verify_json, core_verify_text,
-        validate_diagnostic_projection_from_source, verify_lower_report,
+        build_report, canonical_minimal_add_batch_matches, core_verify_json, core_verify_text,
+        validate_diagnostic_projection_from_source, verify_canonical_minimal_add_lowering,
+        verify_lower_report, verify_lower_report_with_classifications,
     };
+    use crate::type_check::CanonicalMinimalAddTypeClassification;
+
+    #[test]
+    fn typed_minimal_add_verifier_rejects_authority_corruption() {
+        fn owner_from(path: &str, source: &str) -> crate::core_lower::CanonicalMinimalAddLowering {
+            let parsed = parse_source(path, source);
+            let diagnostics = parsed.diagnostics;
+            let program = Program {
+                files: vec![parsed.file],
+            };
+            crate::core_lower::build_canonical_minimal_add_lowering(&program, &diagnostics)
+        }
+
+        fn owner() -> crate::core_lower::CanonicalMinimalAddLowering {
+            owner_from(
+                "minimal-add-verifier.hum",
+                "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+            )
+        }
+
+        fn results(
+            owner: &crate::core_lower::CanonicalMinimalAddLowering,
+        ) -> (Vec<(&'static str, &'static str)>, usize) {
+            let (checks, views) = verify_canonical_minimal_add_lowering(owner);
+            (
+                checks
+                    .into_iter()
+                    .filter(|check| check.rule.starts_with("canonical_minimal_add_"))
+                    .map(|check| (check.rule, check.status))
+                    .collect(),
+                views.len(),
+            )
+        }
+
+        fn assert_clean_claimless(owner: &crate::core_lower::CanonicalMinimalAddLowering) {
+            let operation_ordinals = owner
+                .report()
+                .core_items
+                .iter()
+                .flat_map(|item| &item.operations)
+                .map(|operation| operation.canonical_minimal_add_classification_ordinal())
+                .collect::<Vec<_>>();
+            let classification_kinds = owner
+                .classifications()
+                .records()
+                .iter()
+                .map(|record| match record.classification() {
+                    CanonicalMinimalAddTypeClassification::Supported(_) => "supported",
+                    CanonicalMinimalAddTypeClassification::AuthenticatedOutOfScope(_) => {
+                        "out_of_scope"
+                    }
+                    CanonicalMinimalAddTypeClassification::IntegrityFailure(_) => "integrity",
+                    CanonicalMinimalAddTypeClassification::Noncanonical => "noncanonical",
+                })
+                .collect::<Vec<_>>();
+            assert!(
+                canonical_minimal_add_batch_matches(owner.report(), owner.classifications()),
+                "valid claimless batch mismatch: ordinals={operation_ordinals:?} classifications={classification_kinds:?}",
+            );
+            assert!(
+                owner
+                    .report()
+                    .core_items
+                    .iter()
+                    .flat_map(|item| &item.operations)
+                    .all(|operation| operation.canonical_minimal_add_claim().is_none()),
+                "claimless classifications must not fabricate candidate claims",
+            );
+            let (checks, views) = verify_canonical_minimal_add_lowering(owner);
+            assert!(views.is_empty());
+            let failed = checks
+                .iter()
+                .filter(|check| check.status == "failed_v0")
+                .map(|check| (check.rule, check.detail.as_str()))
+                .collect::<Vec<_>>();
+            assert!(failed.is_empty(), "valid claimless failures: {failed:?}");
+            assert!(
+                checks
+                    .iter()
+                    .all(|check| !check.rule.starts_with("canonical_minimal_add_")),
+                "a valid claimless batch must receive no canonical authority rows",
+            );
+        }
+
+        fn assert_claimless_batch_failure(owner: crate::core_lower::CanonicalMinimalAddLowering) {
+            assert!(
+                owner
+                    .report()
+                    .core_items
+                    .iter()
+                    .flat_map(|item| &item.operations)
+                    .all(|operation| operation.canonical_minimal_add_claim().is_none()),
+                "batch corruption must remain independent of candidate claims",
+            );
+            let (checks, views) = verify_canonical_minimal_add_lowering(&owner);
+            assert!(views.is_empty(), "an invalid batch must issue no view");
+            assert!(checks.iter().any(|check| {
+                check.status == "failed_v0" && check.rule.starts_with("canonical_minimal_add_")
+            }));
+            drop(views);
+            let report = super::CoreVerifyReport {
+                lower: owner,
+                checks,
+            };
+            assert!(
+                report.failed_checks() > 0,
+                "the existing CLI error predicate must reject the malformed batch",
+            );
+            assert_eq!(
+                report.verification_status(),
+                super::CORE_VERIFY_FAILED_STATUS,
+            );
+        }
+
+        let clean = owner();
+        assert_eq!(
+            results(&clean),
+            (
+                vec![
+                    (
+                        "canonical_minimal_add_public_projection_matches_authority",
+                        "passed_v0",
+                    ),
+                    (
+                        "canonical_minimal_add_private_claim_matches_authority",
+                        "passed_v0",
+                    ),
+                    ("canonical_minimal_add_verified_view_issued", "passed_v0"),
+                ],
+                1,
+            )
+        );
+
+        let mut public = owner();
+        public.report_mut_for_test().core_items[0].operations[0]
+            .expression
+            .as_mut()
+            .unwrap()
+            .structured
+            .as_mut()
+            .unwrap()
+            .children[0]
+            .canonical_type
+            .as_mut()
+            .unwrap()
+            .checked_type = Some("UInt".to_string());
+        assert_eq!(results(&public).1, 0);
+        assert!(results(&public).0.contains(&(
+            "canonical_minimal_add_public_projection_matches_authority",
+            "failed_v0"
+        )));
+
+        let mut private = owner();
+        private.report_mut_for_test().core_items[0].operations[0]
+            .canonical_minimal_add_claim_mut_for_test()
+            .unwrap()
+            .corrupt_checked_type_for_test("UInt");
+        assert_eq!(results(&private).1, 0);
+        assert!(results(&private).0.contains(&(
+            "canonical_minimal_add_private_claim_matches_authority",
+            "failed_v0"
+        )));
+
+        let mut coherent = owner();
+        let operation = &mut coherent.report_mut_for_test().core_items[0].operations[0];
+        operation
+            .expression
+            .as_mut()
+            .unwrap()
+            .structured
+            .as_mut()
+            .unwrap()
+            .children[0]
+            .canonical_type
+            .as_mut()
+            .unwrap()
+            .checked_type = Some("UInt".to_string());
+        operation
+            .canonical_minimal_add_claim_mut_for_test()
+            .unwrap()
+            .corrupt_checked_type_for_test("UInt");
+        let (checks, views) = results(&coherent);
+        assert_eq!(views, 0);
+        assert!(checks.iter().all(|(_, status)| *status == "failed_v0"));
+
+        let mut missing = owner();
+        missing.report_mut_for_test().core_items[0].operations[0]
+            .remove_canonical_minimal_add_claim_for_test();
+        let (checks, views) = results(&missing);
+        assert_eq!(views, 0);
+        assert!(checks.contains(&(
+            "canonical_minimal_add_private_claim_matches_authority",
+            "failed_v0"
+        )));
+
+        let mut partial_public = owner();
+        partial_public.report_mut_for_test().core_items[0].operations[0]
+            .expression
+            .as_mut()
+            .unwrap()
+            .structured
+            .as_mut()
+            .unwrap()
+            .children[1]
+            .canonical_type
+            .as_mut()
+            .unwrap()
+            .resolved_definition_id = None;
+        assert_eq!(results(&partial_public).1, 0);
+
+        let mut relocated_identity = owner();
+        relocated_identity.report_mut_for_test().core_items[0].operations[0]
+            .expression
+            .as_mut()
+            .unwrap()
+            .structured
+            .as_mut()
+            .unwrap()
+            .parser_node_id
+            .push_str("-foreign");
+        let (checks, views) = results(&relocated_identity);
+        assert_eq!(views, 0);
+        assert_eq!(
+            checks.len(),
+            3,
+            "dispatch must not trust the public root id"
+        );
+        assert_eq!(
+            checks,
+            vec![
+                (
+                    "canonical_minimal_add_public_projection_matches_authority",
+                    "failed_v0",
+                ),
+                (
+                    "canonical_minimal_add_private_claim_matches_authority",
+                    "passed_v0",
+                ),
+                ("canonical_minimal_add_verified_view_issued", "failed_v0"),
+            ]
+        );
+
+        let candidate = owner();
+        let parsed = parse_source(
+            "minimal-add-verifier.hum",
+            "task foreign(x: Int, y: Int) -> Int {\n  does:\n    return x + y\n}\n",
+        );
+        let foreign_diagnostics = parsed.diagnostics;
+        let foreign_program = Program {
+            files: vec![parsed.file],
+        };
+        let foreign = crate::core_lower::build_canonical_minimal_add_lowering(
+            &foreign_program,
+            &foreign_diagnostics,
+        );
+        let mut foreign_views = Vec::new();
+        let foreign_checks = verify_lower_report_with_classifications(
+            candidate.report(),
+            Some(foreign.classifications()),
+            &mut foreign_views,
+        );
+        assert!(foreign_views.is_empty());
+        let foreign_authority_checks = foreign_checks
+            .iter()
+            .filter(|check| check.rule.starts_with("canonical_minimal_add_"))
+            .collect::<Vec<_>>();
+        assert_eq!(foreign_authority_checks.len(), 3);
+        assert!(
+            foreign_authority_checks
+                .iter()
+                .all(|check| check.status == "failed_v0")
+        );
+
+        let mut duplicate = owner();
+        duplicate.append_classifications_for_test(owner());
+        let (checks, views) = results(&duplicate);
+        assert_eq!(
+            views, 0,
+            "duplicate classification batch must issue no view"
+        );
+        assert!(checks.iter().all(|(_, status)| *status == "failed_v0"));
+
+        let mut absent = owner();
+        absent.remove_classification_for_test(0);
+        let (checks, views) = results(&absent);
+        assert_eq!(views, 0, "missing classification must issue no view");
+        assert!(checks.iter().all(|(_, status)| *status == "failed_v0"));
+
+        let mut duplicate_integrity = owner();
+        duplicate_integrity.force_first_integrity_failure_for_test();
+        let mut second_integrity = owner();
+        second_integrity.force_first_integrity_failure_for_test();
+        duplicate_integrity.append_classifications_for_test(second_integrity);
+        let (checks, views) = results(&duplicate_integrity);
+        assert_eq!(views, 0, "duplicate integrity rows must issue no view");
+        assert!(checks.iter().all(|(_, status)| *status == "failed_v0"));
+
+        let out_of_scope_source =
+            "task add(a: UInt, b: UInt) -> UInt {\n  does:\n    return a + b\n}\n";
+        let out_of_scope = owner_from("claimless-out-of-scope.hum", out_of_scope_source);
+        assert_clean_claimless(&out_of_scope);
+
+        let mut duplicate_out_of_scope =
+            owner_from("claimless-out-of-scope.hum", out_of_scope_source);
+        duplicate_out_of_scope.append_classifications_for_test(owner_from(
+            "claimless-out-of-scope.hum",
+            out_of_scope_source,
+        ));
+        assert_claimless_batch_failure(duplicate_out_of_scope);
+
+        let mut missing_out_of_scope =
+            owner_from("claimless-out-of-scope.hum", out_of_scope_source);
+        missing_out_of_scope.remove_classification_for_test(0);
+        assert_claimless_batch_failure(missing_out_of_scope);
+
+        let noncanonical_source =
+            "task identity(value: Int) -> Int {\n  does:\n    return value\n}\n";
+        let noncanonical = owner_from("claimless-noncanonical.hum", noncanonical_source);
+        assert_clean_claimless(&noncanonical);
+
+        let mut duplicate_noncanonical =
+            owner_from("claimless-noncanonical.hum", noncanonical_source);
+        duplicate_noncanonical.append_classifications_for_test(owner_from(
+            "claimless-noncanonical.hum",
+            noncanonical_source,
+        ));
+        assert_claimless_batch_failure(duplicate_noncanonical);
+
+        let mut missing_noncanonical =
+            owner_from("claimless-noncanonical.hum", noncanonical_source);
+        missing_noncanonical.remove_classification_for_test(0);
+        assert_claimless_batch_failure(missing_noncanonical);
+
+        let mut extra_foreign_claimless =
+            owner_from("claimless-out-of-scope.hum", out_of_scope_source);
+        extra_foreign_claimless.append_classifications_for_test(owner_from(
+            "foreign-claimless-noncanonical.hum",
+            noncanonical_source,
+        ));
+        assert_claimless_batch_failure(extra_foreign_claimless);
+
+        let mut reordered = owner_from(
+            "two-minimal-adds.hum",
+            "task first(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n\ntask second(x: Int, y: Int) -> Int {\n  does:\n    return x + y\n}\n",
+        );
+        reordered.swap_classifications_for_test(0, 1);
+        let (_, views) = results(&reordered);
+        assert_eq!(views, 0, "reordered batch must issue no view");
+
+        let same_visible_foreign = owner_from(
+            "minimal-add-verifier.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b   \n}\n",
+        );
+        let mut same_visible_views = Vec::new();
+        let same_visible_checks = verify_lower_report_with_classifications(
+            candidate.report(),
+            Some(same_visible_foreign.classifications()),
+            &mut same_visible_views,
+        );
+        assert!(same_visible_views.is_empty());
+        let same_visible_authority_checks = same_visible_checks
+            .iter()
+            .filter(|check| check.rule.starts_with("canonical_minimal_add_"))
+            .collect::<Vec<_>>();
+        assert!(
+            same_visible_authority_checks
+                .iter()
+                .any(|check| check.status == "failed_v0")
+        );
+        assert!(same_visible_authority_checks.iter().any(|check| {
+            check.rule == "canonical_minimal_add_verified_view_issued"
+                && check.status == "failed_v0"
+        }));
+
+        for corruption in [
+            crate::core_lower::CoreLowerTreeCorruption::MissingStructuredTree,
+            crate::core_lower::CoreLowerTreeCorruption::WrongOperationKind,
+            crate::core_lower::CoreLowerTreeCorruption::WrongOperator,
+            crate::core_lower::CoreLowerTreeCorruption::ForeignRootIdentity(
+                "foreign-root".to_string(),
+            ),
+            crate::core_lower::CoreLowerTreeCorruption::WrongChildMetadata,
+            crate::core_lower::CoreLowerTreeCorruption::MissingChild,
+            crate::core_lower::CoreLowerTreeCorruption::ReorderChildren,
+            crate::core_lower::CoreLowerTreeCorruption::DuplicateChildIdentity,
+            crate::core_lower::CoreLowerTreeCorruption::IncorrectIdentifierSpelling(
+                "foreign".to_string(),
+            ),
+            crate::core_lower::CoreLowerTreeCorruption::CoherentRangeRelocation {
+                file: "foreign/minimal-add.hum".to_string(),
+                line_offset: 1,
+                column_offset: 1,
+            },
+            crate::core_lower::CoreLowerTreeCorruption::OverflowSizedRange,
+            crate::core_lower::CoreLowerTreeCorruption::StructuralOverclaim,
+        ] {
+            let mut structurally_corrupt = owner();
+            crate::core_lower::corrupt_first_structured_expression_for_test(
+                structurally_corrupt.report_mut_for_test(),
+                corruption,
+            )
+            .expect("structural corruption seam");
+            let (checks, views) = results(&structurally_corrupt);
+            assert_eq!(views, 0, "failed structure must issue no view");
+            assert!(checks.contains(&("canonical_minimal_add_verified_view_issued", "failed_v0",)));
+        }
+    }
 
     #[test]
     fn verifier_rejects_minimal_add_tree_corruption() {
@@ -1478,12 +2511,11 @@ mod tests {
         let (program, diagnostics) = minimal_add();
         let clean = build_report(&program, &diagnostics);
         assert_eq!(clean.failed_checks(), 0, "clean artifact must verify");
-        assert!(
-            clean.checks.iter().any(|check| check.rule
-                == "structured_expression_outer_type_unchecked"
-                && check.status == "passed_v0"),
-            "the production verifier must consume the structured tree"
-        );
+        assert!(clean.checks.iter().any(|check| {
+            check.rule
+                == "structured_expression_outer_type_matches_canonical_minimal_add_classification"
+                && check.status == "passed_v0"
+        }), "the production verifier must consume the typed structured tree");
 
         let mut reordered = crate::core_lower::build_core_lower_report(&program, &diagnostics);
         crate::core_lower::corrupt_first_structured_expression_for_test(

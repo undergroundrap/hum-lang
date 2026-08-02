@@ -744,10 +744,236 @@ pub(crate) struct CanonicalCoreFileBinding {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CanonicalCoreOwnerBinding {
-    pub(crate) file: CanonicalCoreFileBinding,
-    pub(crate) item_path: Arc<[usize]>,
-    pub(crate) item_kind: &'static str,
-    pub(crate) section_slots: Arc<[Arc<str>]>,
+    file: CanonicalCoreFileBinding,
+    item_path: Arc<[usize]>,
+    item_kind: &'static str,
+    section_slots: Arc<[Arc<str>]>,
+    task_signature: Option<CanonicalTaskSignatureSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalTaskSignatureSnapshot {
+    source_revision: Arc<[u8]>,
+    semantic_file_index: usize,
+    normalized_path: Arc<str>,
+    item_path: Arc<[usize]>,
+    task_name: Arc<str>,
+    task_header: Arc<str>,
+    task_header_range: ParsedSourceRange,
+    token_ranges: Arc<[CanonicalTaskSignatureTokenSnapshot]>,
+    params: Arc<[CanonicalTaskParameterSnapshot]>,
+    result_arrow_range: Option<ParsedSourceRange>,
+    result_spelling: Option<Arc<str>>,
+    result_syntax: Option<TypeSyntax>,
+    result_range: Option<ParsedSourceRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalTaskSignatureTokenSnapshot {
+    role: &'static str,
+    ordinal: Option<usize>,
+    spelling: Arc<str>,
+    range: ParsedSourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalTaskParameterSnapshot {
+    ordinal: usize,
+    raw_spelling: Arc<str>,
+    raw_range: ParsedSourceRange,
+    name: Arc<str>,
+    name_range: ParsedSourceRange,
+    permission: ParamPermission,
+    permission_token: Option<Arc<str>>,
+    permission_explicit: bool,
+    separator_hws_valid: bool,
+    type_hws_valid: bool,
+    type_spelling: Arc<str>,
+    type_syntax: TypeSyntax,
+    type_range: ParsedSourceRange,
+}
+
+impl CanonicalCoreOwnerBinding {
+    pub(crate) fn parser_new(
+        _: &crate::parser::CanonicalCoreParserIssuance,
+        file: CanonicalCoreFileBinding,
+        item_path: Arc<[usize]>,
+        item_kind: &'static str,
+        section_slots: Arc<[Arc<str>]>,
+        task_signature: Option<CanonicalTaskSignatureSnapshot>,
+    ) -> Self {
+        Self {
+            file,
+            item_path,
+            item_kind,
+            section_slots,
+            task_signature,
+        }
+    }
+
+    pub(crate) fn file(&self) -> &CanonicalCoreFileBinding {
+        &self.file
+    }
+    pub(crate) fn item_path(&self) -> &[usize] {
+        &self.item_path
+    }
+    pub(crate) fn item_kind(&self) -> &'static str {
+        self.item_kind
+    }
+}
+
+impl CanonicalTaskSignatureSnapshot {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn parser_new(
+        _: &crate::parser::CanonicalCoreParserIssuance,
+        source_revision: Arc<[u8]>,
+        semantic_file_index: usize,
+        normalized_path: Arc<str>,
+        item_path: Arc<[usize]>,
+        task_name: Arc<str>,
+        task_header: Arc<str>,
+        task_header_range: ParsedSourceRange,
+        token_ranges: Arc<[CanonicalTaskSignatureTokenSnapshot]>,
+        params: Arc<[CanonicalTaskParameterSnapshot]>,
+        result_arrow_range: Option<ParsedSourceRange>,
+        result_spelling: Option<Arc<str>>,
+        result_syntax: Option<TypeSyntax>,
+        result_range: Option<ParsedSourceRange>,
+    ) -> Self {
+        Self {
+            source_revision,
+            semantic_file_index,
+            normalized_path,
+            item_path,
+            task_name,
+            task_header,
+            task_header_range,
+            token_ranges,
+            params,
+            result_arrow_range,
+            result_spelling,
+            result_syntax,
+            result_range,
+        }
+    }
+
+    pub(crate) fn source_revision(&self) -> &Arc<[u8]> {
+        &self.source_revision
+    }
+    pub(crate) fn item_path(&self) -> &[usize] {
+        &self.item_path
+    }
+    pub(crate) fn task_name(&self) -> &str {
+        &self.task_name
+    }
+    pub(crate) fn task_header_range(&self) -> &ParsedSourceRange {
+        &self.task_header_range
+    }
+    pub(crate) fn params(&self) -> &[CanonicalTaskParameterSnapshot] {
+        &self.params
+    }
+    pub(crate) fn result_arrow_range(&self) -> Option<&ParsedSourceRange> {
+        self.result_arrow_range.as_ref()
+    }
+    pub(crate) fn result_spelling(&self) -> Option<&str> {
+        self.result_spelling.as_deref()
+    }
+    pub(crate) fn result_syntax(&self) -> Option<&TypeSyntax> {
+        self.result_syntax.as_ref()
+    }
+    pub(crate) fn result_range(&self) -> Option<&ParsedSourceRange> {
+        self.result_range.as_ref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn relocate_result_range_for_test(&mut self, line: usize, column: usize) {
+        let range = self
+            .result_range
+            .as_mut()
+            .expect("test task signature has a retained result range");
+        range.start.line = line;
+        range.start.column = column;
+        assert_ne!(
+            Some(&range.start),
+            self.result_syntax.as_ref().map(|syntax| &syntax.span),
+            "test corruption must relocate only the private retained result range",
+        );
+    }
+}
+
+impl CanonicalTaskSignatureTokenSnapshot {
+    pub(crate) fn parser_new(
+        _: &crate::parser::CanonicalCoreParserIssuance,
+        role: &'static str,
+        ordinal: Option<usize>,
+        spelling: Arc<str>,
+        range: ParsedSourceRange,
+    ) -> Self {
+        Self {
+            role,
+            ordinal,
+            spelling,
+            range,
+        }
+    }
+
+    pub(crate) fn start_column(&self) -> usize {
+        self.range.start.column
+    }
+}
+
+impl CanonicalTaskParameterSnapshot {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn parser_new(
+        _: &crate::parser::CanonicalCoreParserIssuance,
+        ordinal: usize,
+        raw_spelling: Arc<str>,
+        raw_range: ParsedSourceRange,
+        name: Arc<str>,
+        name_range: ParsedSourceRange,
+        permission: ParamPermission,
+        permission_token: Option<Arc<str>>,
+        permission_explicit: bool,
+        separator_hws_valid: bool,
+        type_hws_valid: bool,
+        type_spelling: Arc<str>,
+        type_syntax: TypeSyntax,
+        type_range: ParsedSourceRange,
+    ) -> Self {
+        Self {
+            ordinal,
+            raw_spelling,
+            raw_range,
+            name,
+            name_range,
+            permission,
+            permission_token,
+            permission_explicit,
+            separator_hws_valid,
+            type_hws_valid,
+            type_spelling,
+            type_syntax,
+            type_range,
+        }
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+    #[cfg(test)]
+    pub(crate) fn raw_spelling(&self) -> &str {
+        &self.raw_spelling
+    }
+    #[cfg(test)]
+    pub(crate) fn permission_token(&self) -> Option<&str> {
+        self.permission_token.as_deref()
+    }
+    pub(crate) fn raw_range(&self) -> &ParsedSourceRange {
+        &self.raw_range
+    }
+    pub(crate) fn type_spelling(&self) -> &str {
+        &self.type_spelling
+    }
 }
 
 pub(crate) trait CanonicalCoreFileVerifier: Send + Sync {
@@ -799,7 +1025,10 @@ pub(crate) struct CanonicalCoreSealCapability(Arc<dyn CanonicalCoreSectionVerifi
 pub(crate) struct CanonicalCoreParseContext(Arc<dyn CanonicalCoreParseContextVerifier>);
 
 impl CanonicalCoreFileWitness {
-    pub(crate) fn parser_issue(verifier: Arc<dyn CanonicalCoreFileVerifier>) -> Self {
+    pub(crate) fn parser_issue(
+        _: &crate::parser::CanonicalCoreParserIssuance,
+        verifier: Arc<dyn CanonicalCoreFileVerifier>,
+    ) -> Self {
         Self(verifier)
     }
 
@@ -809,7 +1038,10 @@ impl CanonicalCoreFileWitness {
 }
 
 impl CanonicalCoreOwnerWitness {
-    pub(crate) fn parser_issue(verifier: Arc<dyn CanonicalCoreOwnerVerifier>) -> Self {
+    pub(crate) fn parser_issue(
+        _: &crate::parser::CanonicalCoreParserIssuance,
+        verifier: Arc<dyn CanonicalCoreOwnerVerifier>,
+    ) -> Self {
         Self(verifier)
     }
 
@@ -819,13 +1051,19 @@ impl CanonicalCoreOwnerWitness {
 }
 
 impl CanonicalCoreSealCapability {
-    pub(crate) fn parser_issue(verifier: Arc<dyn CanonicalCoreSectionVerifier>) -> Self {
+    pub(crate) fn parser_issue(
+        _: &crate::parser::CanonicalCoreParserIssuance,
+        verifier: Arc<dyn CanonicalCoreSectionVerifier>,
+    ) -> Self {
         Self(verifier)
     }
 }
 
 impl CanonicalCoreParseContext {
-    pub(crate) fn parser_issue(verifier: Arc<dyn CanonicalCoreParseContextVerifier>) -> Self {
+    pub(crate) fn parser_issue(
+        _: &crate::parser::CanonicalCoreParserIssuance,
+        verifier: Arc<dyn CanonicalCoreParseContextVerifier>,
+    ) -> Self {
         Self(verifier)
     }
 
@@ -1124,6 +1362,322 @@ impl Program {
         }
         Err("canonical_core_live_task_reference_mismatch_v0")
     }
+
+    pub(crate) fn canonical_task_signature_for_task<'a>(
+        &'a self,
+        task: &'a Task,
+    ) -> Result<&'a CanonicalTaskSignatureSnapshot, &'static str> {
+        for (file_ordinal, file) in self.files.iter().enumerate() {
+            let Some((item, item_path)) = locate_task_item(&file.items, task) else {
+                continue;
+            };
+            let file_binding = file.canonical_core_file_witness()?.binding();
+            if file_binding.semantic_file_index != file_ordinal
+                || file_binding.normalized_path.as_ref() != file.path.replace('\\', "/")
+            {
+                return Err("canonical_task_signature_file_witness_mismatch_v0");
+            }
+            let owner = item.canonical_core_owner_witness()?.binding();
+            if &owner.file != file_binding
+                || owner.item_path.as_ref() != item_path.as_slice()
+                || owner.item_kind != "task"
+                || owner.section_slots.len() != task.sections.len()
+                || owner
+                    .section_slots
+                    .iter()
+                    .zip(&task.sections)
+                    .any(|(expected, actual)| expected.as_ref() != actual.name)
+            {
+                return Err("canonical_task_signature_owner_witness_mismatch_v0");
+            }
+            let snapshot = owner
+                .task_signature
+                .as_ref()
+                .ok_or("canonical_task_signature_snapshot_absent_v0")?;
+            if snapshot.source_revision != file_binding.source_revision
+                || snapshot.semantic_file_index != file_ordinal
+                || snapshot.normalized_path != file_binding.normalized_path
+                || snapshot.item_path.as_ref() != item_path.as_slice()
+                || snapshot.task_name.as_ref() != task.name
+                || snapshot.task_header_range.start != task.span
+                || snapshot.params.len() != task.params.len()
+                || snapshot.result_spelling.as_deref() != task.result.as_deref()
+                || snapshot.result_syntax != task.result_syntax
+            {
+                return Err("canonical_task_signature_live_projection_mismatch_v0");
+            }
+            if !source_revision_contains_exact(
+                &snapshot.source_revision,
+                &snapshot.task_header_range,
+                &snapshot.task_header,
+            ) {
+                return Err("canonical_task_signature_header_token_mismatch_v0");
+            }
+            let header_start = snapshot.task_header_range.start.column;
+            let header_end = header_start
+                .checked_add(snapshot.task_header_range.byte_len)
+                .ok_or("canonical_task_signature_header_range_overflow_v0")?;
+            let mut prior_end = None;
+            for token in snapshot.token_ranges.iter() {
+                if !source_revision_contains_exact(
+                    &snapshot.source_revision,
+                    &token.range,
+                    &token.spelling,
+                ) || token.range.start.line != snapshot.task_header_range.start.line
+                    || token.range.start.file.replace('\\', "/")
+                        != snapshot.task_header_range.start.file.replace('\\', "/")
+                    || token.range.start.column < header_start
+                {
+                    return Err("canonical_task_signature_retained_token_mismatch_v0");
+                }
+                let token_end = token
+                    .range
+                    .start
+                    .column
+                    .checked_add(token.range.byte_len)
+                    .ok_or("canonical_task_signature_retained_token_overflow_v0")?;
+                if token_end > header_end
+                    || prior_end.is_some_and(|end| token.range.start.column < end)
+                {
+                    return Err("canonical_task_signature_retained_token_order_mismatch_v0");
+                }
+                prior_end = Some(token_end);
+            }
+            let count_role = |role| {
+                snapshot
+                    .token_ranges
+                    .iter()
+                    .filter(|token| token.role == role)
+                    .count()
+            };
+            if count_role("task_keyword") != 1
+                || count_role("task_name") != 1
+                || count_role("parameter_open_delimiter") != 1
+                || count_role("parameter_close_delimiter") != 1
+                || count_role("parameter_name") != snapshot.params.len()
+                || count_role("parameter_type_separator") != snapshot.params.len()
+                || count_role("parameter_type") != snapshot.params.len()
+                || count_role("parameter_permission")
+                    != snapshot
+                        .params
+                        .iter()
+                        .filter(|param| param.permission_explicit)
+                        .count()
+                || count_role("parameter_separator") != snapshot.params.len().saturating_sub(1)
+                || count_role("result_arrow") != usize::from(snapshot.result_arrow_range.is_some())
+                || count_role("result_type") != usize::from(snapshot.result_range.is_some())
+                || snapshot.token_ranges.iter().any(|token| {
+                    !matches!(
+                        token.role,
+                        "task_keyword"
+                            | "task_name"
+                            | "parameter_open_delimiter"
+                            | "parameter_close_delimiter"
+                            | "parameter_permission"
+                            | "parameter_name"
+                            | "parameter_type_separator"
+                            | "parameter_type"
+                            | "parameter_separator"
+                            | "result_arrow"
+                            | "result_type"
+                    ) || token
+                        .ordinal
+                        .is_some_and(|ordinal| ordinal >= snapshot.params.len())
+                })
+            {
+                return Err("canonical_task_signature_retained_token_inventory_mismatch_v0");
+            }
+            let token_is_unique = |role: &str, ordinal: Option<usize>, spelling: &str| {
+                snapshot
+                    .token_ranges
+                    .iter()
+                    .filter(|token| {
+                        token.role == role
+                            && token.ordinal == ordinal
+                            && token.spelling.as_ref() == spelling
+                    })
+                    .count()
+                    == 1
+            };
+            if !token_is_unique("task_keyword", None, "task")
+                || !token_is_unique("task_name", None, &task.name)
+                || !token_is_unique("parameter_open_delimiter", None, "(")
+                || !token_is_unique("parameter_close_delimiter", None, ")")
+                || snapshot.params.iter().any(|param| {
+                    !token_is_unique("parameter_name", Some(param.ordinal), &param.name)
+                        || !token_is_unique("parameter_type_separator", Some(param.ordinal), ":")
+                        || !token_is_unique(
+                            "parameter_type",
+                            Some(param.ordinal),
+                            &param.type_spelling,
+                        )
+                        || (param.permission_explicit
+                            && !token_is_unique(
+                                "parameter_permission",
+                                Some(param.ordinal),
+                                param.permission.as_str(),
+                            ))
+                })
+                || (0..snapshot.params.len().saturating_sub(1))
+                    .any(|ordinal| !token_is_unique("parameter_separator", Some(ordinal), ","))
+                || snapshot.result_arrow_range.is_some()
+                    && !token_is_unique("result_arrow", None, "->")
+                || snapshot
+                    .result_spelling
+                    .as_deref()
+                    .is_some_and(|result| !token_is_unique("result_type", None, result))
+            {
+                return Err("canonical_task_signature_retained_token_role_mismatch_v0");
+            }
+            for (ordinal, (expected, actual)) in
+                snapshot.params.iter().zip(&task.params).enumerate()
+            {
+                if expected.ordinal != ordinal
+                    || expected.name.as_ref() != actual.name
+                    || expected.raw_range.start != actual.span
+                    || expected.permission != actual.permission
+                    || expected.permission_explicit != actual.permission_explicit
+                    || expected.separator_hws_valid != actual.separator_hws_valid
+                    || expected.type_hws_valid != actual.type_hws_valid
+                    || expected.type_spelling.as_ref() != actual.ty
+                    || expected.type_syntax != actual.type_syntax
+                    || expected.type_range.start != actual.type_syntax.span
+                {
+                    return Err("canonical_task_signature_parameter_mismatch_v0");
+                }
+                let expected_permission = expected
+                    .permission_explicit
+                    .then(|| Arc::<str>::from(actual.permission.as_str()));
+                if expected.permission_token != expected_permission {
+                    return Err("canonical_task_signature_permission_token_mismatch_v0");
+                }
+                if !source_revision_contains_exact(
+                    &snapshot.source_revision,
+                    &expected.raw_range,
+                    &expected.raw_spelling,
+                ) || !source_revision_contains_exact(
+                    &snapshot.source_revision,
+                    &expected.name_range,
+                    &expected.name,
+                ) || !source_revision_contains_exact(
+                    &snapshot.source_revision,
+                    &expected.type_range,
+                    &expected.type_spelling,
+                ) {
+                    return Err("canonical_task_signature_parameter_token_mismatch_v0");
+                }
+                for range in [
+                    &expected.raw_range,
+                    &expected.name_range,
+                    &expected.type_range,
+                ] {
+                    let range_end = range
+                        .start
+                        .column
+                        .checked_add(range.byte_len)
+                        .ok_or("canonical_task_signature_parameter_range_overflow_v0")?;
+                    if range.start.file != snapshot.task_header_range.start.file
+                        || range.start.line != snapshot.task_header_range.start.line
+                        || range.start.column < header_start
+                        || range_end > header_end
+                    {
+                        return Err("canonical_task_signature_parameter_range_mismatch_v0");
+                    }
+                }
+            }
+            let retained_result_arrow_token = snapshot
+                .token_ranges
+                .iter()
+                .find(|token| token.role == "result_arrow");
+            let retained_result_type_token = snapshot
+                .token_ranges
+                .iter()
+                .find(|token| token.role == "result_type");
+            match (
+                snapshot.result_arrow_range.as_ref(),
+                snapshot.result_spelling.as_deref(),
+                snapshot.result_syntax.as_ref(),
+                snapshot.result_range.as_ref(),
+                retained_result_arrow_token,
+                retained_result_type_token,
+            ) {
+                (
+                    Some(arrow),
+                    Some(result),
+                    Some(result_syntax),
+                    Some(result_range),
+                    Some(arrow_token),
+                    Some(result_token),
+                ) => {
+                    let arrow_end = arrow
+                        .start
+                        .column
+                        .checked_add(arrow.byte_len)
+                        .ok_or("canonical_task_signature_result_arrow_overflow_v0")?;
+                    let result_end = result_range
+                        .start
+                        .column
+                        .checked_add(result_range.byte_len)
+                        .ok_or("canonical_task_signature_result_range_overflow_v0")?;
+                    let live_result_syntax = task
+                        .result_syntax
+                        .as_ref()
+                        .ok_or("canonical_task_signature_live_result_syntax_absent_v0")?;
+                    if result_range.start != result_syntax.span
+                        || result_range.start != live_result_syntax.span
+                        || result_range.byte_len != result.len()
+                        || arrow_token.spelling.as_ref() != "->"
+                        || arrow_token.range != *arrow
+                        || result_token.spelling.as_ref() != result
+                        || result_token.range != *result_range
+                        || arrow.start.file != snapshot.task_header_range.start.file
+                        || result_range.start.file != snapshot.task_header_range.start.file
+                        || arrow.start.line != snapshot.task_header_range.start.line
+                        || result_range.start.line != snapshot.task_header_range.start.line
+                        || arrow.start.column < header_start
+                        || result_range.start.column < header_start
+                        || arrow_end > header_end
+                        || result_end > header_end
+                        || arrow_end > result_range.start.column
+                        || !source_revision_contains_exact(&snapshot.source_revision, arrow, "->")
+                        || !source_revision_contains_exact(
+                            &snapshot.source_revision,
+                            result_range,
+                            result,
+                        )
+                    {
+                        return Err("canonical_task_signature_result_token_mismatch_v0");
+                    }
+                }
+                (None, None, None, None, None, None) => {}
+                _ => return Err("canonical_task_signature_result_token_mismatch_v0"),
+            }
+            return Ok(snapshot);
+        }
+        Err("canonical_task_signature_live_task_reference_mismatch_v0")
+    }
+}
+
+fn source_revision_contains_exact(
+    revision: &[u8],
+    range: &ParsedSourceRange,
+    expected: &str,
+) -> bool {
+    if range.byte_len != expected.len() || range.start.line == 0 || range.start.column == 0 {
+        return false;
+    }
+    let Some(line) = revision
+        .split(|byte| *byte == b'\n')
+        .nth(range.start.line - 1)
+    else {
+        return false;
+    };
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    let start = range.start.column - 1;
+    let Some(end) = start.checked_add(range.byte_len) else {
+        return false;
+    };
+    line.get(start..end) == Some(expected.as_bytes())
 }
 
 pub(crate) fn canonical_core_parse_expectation<'a>(
@@ -1186,6 +1740,28 @@ fn find_task_item<'a>(items: &'a [Item], target: &Task) -> Option<&'a Item> {
         }
     }
     None
+}
+
+fn locate_task_item<'a>(items: &'a [Item], target: &Task) -> Option<(&'a Item, Vec<usize>)> {
+    fn walk<'a>(
+        items: &'a [Item],
+        target: &Task,
+        prefix: &mut Vec<usize>,
+    ) -> Option<(&'a Item, Vec<usize>)> {
+        for (ordinal, item) in items.iter().enumerate() {
+            prefix.push(ordinal);
+            if matches!(item, Item::Task(task) if std::ptr::eq(task, target)) {
+                return Some((item, prefix.clone()));
+            }
+            if let Some(found) = walk(item.nested_items(), target, prefix) {
+                return Some(found);
+            }
+            prefix.pop();
+        }
+        None
+    }
+
+    walk(items, target, &mut Vec::new())
 }
 
 impl<'a> CanonicalCoreSectionExpectation<'a> {

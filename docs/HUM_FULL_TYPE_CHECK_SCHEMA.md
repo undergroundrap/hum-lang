@@ -84,6 +84,27 @@ The V0 gate checks only conservative statement contexts:
 
 - `return`: expression must match the task result value type, including
   `Result T, E` success value extraction.
+- a parser-authenticated task return whose exact root is
+  `Binary(Add, Identifier, Identifier)` and whose exact resolver-bound
+  parameters have locally accepted checked `Int` declarations consumes only a
+  lifetime-bound Core-verified canonical minimal-add view. Its existing
+  statement row has authenticated `expected_type`, `actual_type: "Int"`, and
+  `type_source: verified_canonical_minimal_add_type_v0`; it is accepted when
+  compatible or uses the existing `rejected_statement_type_mismatch_v0` /
+  `statement_expression_type_mismatch` outcome when the independently produced
+  `Int` is incompatible with the declared result. The declared result is not
+  expression-type authority.
+- the same parser-owned shape with an integrity failure receives no verified
+  view and uses the existing prior-error row: `expression_text`,
+  `expected_type`, `actual_type`, and `type_source` are null, `status` is
+  `not_checked_blocked_by_prior_errors_v0`, and `reason` is
+  `source_resolver_type_or_core_verify_errors`. It cannot reach additive text,
+  name, or declared-result inference.
+- an independently authenticated, resolver-coherent, locally complete non-`Int`
+  target and every noncanonical expression retain the previous full-type branch
+  and serialized behavior. In particular, the established `UInt + UInt`
+  foundation witness retains its existing additive fallback and unrelated
+  prior-error behavior.
 - `fail`: expression must match the `Result T, E` error type.
 - `if_header` and `while_header`: condition must be recognized as `Bool`.
 - `let_binding` and `mutable_binding`: explicit annotations are checked when

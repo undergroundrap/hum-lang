@@ -97,6 +97,7 @@ struct TypedStatement {
     help: Option<String>,
     prior_blocker: Option<crate::diagnostic::PriorBlockerRef>,
     diagnostic_occurrence: Option<DiagnosticOccurrence>,
+    deferred_canonical_minimal_add_environment: Option<BTreeMap<String, TypeFact>>,
 }
 
 #[derive(Debug, Clone)]
@@ -395,30 +396,46 @@ pub fn full_type_check_json(program: &Program, diagnostics: &[Diagnostic]) -> St
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckReport {
     let type_check_summary = type_check::type_check_summary(program, diagnostics);
-    let core_verify_summary = core_verify::core_verify_readiness_summary(program, diagnostics);
-    let callables = callable::analyze_program(program);
     let source_errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
         .count();
-    let blocked = source_errors > 0
+    let blocked_before_core_verify = source_errors > 0
         || type_check_summary.resolver_errors > 0
-        || type_check_summary.type_errors > 0
-        || core_verify_summary.failed_checks > 0;
+        || type_check_summary.type_errors > 0;
+    let callables = callable::analyze_program(program);
     let task_returns = task_return_types(program);
     let failure_analysis = typed_failure::analyze_program(program);
     let field_types = field_place::collect_field_types(program);
     let predicates = predicate::analyze_program(program);
-    let mut items = Vec::new();
-    let context = FullTypeCollectionContext {
+    let (core_verify_summary, mut items) = core_verify::with_verified_canonical_minimal_add_types(
         program,
-        blocked,
-        failure_analysis: &failure_analysis,
-        field_types: &field_types,
-        callables: &callables,
-    };
-    for file in &program.files {
-        collect_items(&context, &file.items, &task_returns, &mut items);
+        diagnostics,
+        |verified_views| {
+            let mut items = Vec::new();
+            let context = FullTypeCollectionContext {
+                program,
+                blocked: blocked_before_core_verify,
+                failure_analysis: &failure_analysis,
+                field_types: &field_types,
+                callables: &callables,
+            };
+            for file in &program.files {
+                collect_items(
+                    &context,
+                    &file.items,
+                    &task_returns,
+                    verified_views,
+                    &mut items,
+                );
+            }
+            items
+        },
+    );
+    if core_verify_summary.failed_checks > 0 {
+        block_items_after_core_verify_failure(&mut items);
+    } else if !blocked_before_core_verify {
+        finalize_canonical_minimal_add_fallbacks(&mut items, &task_returns, &field_types);
     }
 
     let mut diagnostic_occurrences = core_verify::diagnostic_occurrence_set(program, diagnostics);
@@ -433,6 +450,63 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
         source_errors,
         predicates: predicates.facts().to_vec(),
         diagnostic_occurrences,
+    }
+}
+
+fn finalize_canonical_minimal_add_fallbacks(
+    items: &mut [FullTypeItem],
+    task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+) {
+    for item in items {
+        let mut finalized = false;
+        for statement in &mut item.statements {
+            let Some(environment) = statement.deferred_canonical_minimal_add_environment.take()
+            else {
+                continue;
+            };
+            let actual = statement.expression_text.as_deref().and_then(|expression| {
+                infer_expression_type(expression, &environment, task_returns, field_types)
+            });
+            debug_assert_eq!(statement.statement_kind, "return");
+            let (status, reason) =
+                typed_expression_status(statement.expected_type.as_deref(), actual.as_ref());
+            statement.actual_type = actual.as_ref().map(|fact| fact.type_text.clone());
+            statement.type_source = actual.map(|fact| fact.source);
+            statement.status = status;
+            statement.reason = reason;
+            finalized = true;
+        }
+        if finalized {
+            item.status = item_status(&item.statements, false);
+        }
+    }
+}
+
+fn block_items_after_core_verify_failure(items: &mut [FullTypeItem]) {
+    for item in items {
+        for statement in &mut item.statements {
+            statement.expression_text = None;
+            statement.expected_type = None;
+            statement.actual_type = None;
+            statement.type_source = None;
+            statement.status = "not_checked_blocked_by_prior_errors_v0";
+            statement.reason = Some("source_resolver_type_or_core_verify_errors");
+            statement.failure_form = None;
+            statement.callee = None;
+            statement.callee_result_root = None;
+            statement.caller_result_root = None;
+            statement.wrapper_root = None;
+            statement.call_span = None;
+            statement.callee_span = None;
+            statement.caller_span = None;
+            statement.diagnostic_code = None;
+            statement.help = None;
+            statement.prior_blocker = None;
+            statement.diagnostic_occurrence = None;
+            statement.deferred_canonical_minimal_add_environment = None;
+        }
+        item.status = "blocked_by_prior_errors";
     }
 }
 
@@ -496,6 +570,7 @@ fn collect_items(
     context: &FullTypeCollectionContext<'_>,
     items: &[Item],
     task_returns: &BTreeMap<String, TypeFact>,
+    verified_views: &[core_verify::VerifiedCanonicalMinimalAddType<'_, '_>],
     out: &mut Vec<FullTypeItem>,
 ) {
     for item in items {
@@ -507,16 +582,18 @@ fn collect_items(
             context.failure_analysis,
             context.field_types,
             context.callables,
+            verified_views,
         ) {
             out.push(typed_item);
         }
         if let Item::App(app) = item {
             let app_task_returns = task_return_types_from_items(&app.items);
-            collect_items(context, &app.items, &app_task_returns, out);
+            collect_items(context, &app.items, &app_task_returns, verified_views, out);
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn type_item(
     program: &Program,
     item: &Item,
@@ -525,19 +602,33 @@ fn type_item(
     failure_analysis: &ProgramFailureAnalysis,
     field_types: &FieldTypeMap,
     callables: &CallableAnalysis,
+    verified_views: &[core_verify::VerifiedCanonicalMinimalAddType<'_, '_>],
 ) -> Option<FullTypeItem> {
     let item_identity = crate::resolve::semantic_item_identity_for(program, item);
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
-    let body = core_body::analyze_does_section(
+    let body = core_body::analyze_does_section_for_lowering(
         program
             .canonical_core_expectation(item, does)
             .expect("live typed item must have parser authority"),
     );
     let mut environment = initial_environment(item_params(item));
     let mut statements = Vec::new();
-    for (index, statement) in body.statements.iter().enumerate() {
+    for (index, canonical_statement) in body.statements.iter().enumerate() {
+        let statement = canonical_statement.statement();
+        let canonical_minimal_add_target = canonical_statement
+            .canonical_expression()
+            .is_some_and(is_canonical_minimal_add_target);
+        let verified_type = canonical_statement
+            .canonical_expression()
+            .and_then(|expression| {
+                verified_views.iter().find(|view| {
+                    view.item_identity() == item_identity
+                        && view.statement_index() == index
+                        && view.root_node_id() == expression.node_id.as_str()
+                })
+            });
         let typed = type_statement(
             &item_identity,
             item,
@@ -552,6 +643,8 @@ fn type_item(
                 _ => None,
             },
             callables,
+            verified_type,
+            canonical_minimal_add_target,
         );
         statements.push(typed);
     }
@@ -581,6 +674,8 @@ fn type_statement(
     blocked: bool,
     failure_fact: Option<&FailureFact>,
     callables: &CallableAnalysis,
+    verified_canonical_minimal_add: Option<&core_verify::VerifiedCanonicalMinimalAddType<'_, '_>>,
+    canonical_minimal_add_target: bool,
 ) -> TypedStatement {
     if blocked {
         return typed_statement(
@@ -740,7 +835,22 @@ fn type_statement(
     }
 
     let expression_text = expression_text_for_statement(statement).map(str::to_string);
-    let expected_type = expected_type_for_statement(item, statement, environment, field_types);
+    let expected_type = verified_canonical_minimal_add
+        .map(|view| view.expected_type().to_string())
+        .or_else(|| expected_type_for_statement(item, statement, environment, field_types));
+    if canonical_minimal_add_target && verified_canonical_minimal_add.is_none() {
+        let mut deferred = typed_statement(
+            statement,
+            index,
+            expression_text,
+            expected_type,
+            None,
+            "unchecked_statement_type_v0",
+            Some("expression_type_unknown_v0"),
+        );
+        deferred.deferred_canonical_minimal_add_environment = Some(environment.clone());
+        return deferred;
+    }
     let callable_actual = match item {
         Item::Task(task) => callables
             .indirect_application(task, &statement.span)
@@ -752,11 +862,19 @@ fn type_statement(
             }),
         _ => None,
     };
-    let actual = callable_actual.or_else(|| {
-        expression_text.as_deref().and_then(|expression| {
-            infer_expression_type(expression, environment, task_returns, field_types)
+    let actual = verified_canonical_minimal_add
+        .map(|view| {
+            type_fact(
+                view.actual_type(),
+                crate::core_expr::CORE_EXPRESSION_VERIFIED_CANONICAL_MINIMAL_ADD_TYPE_SOURCE,
+            )
         })
-    });
+        .or(callable_actual)
+        .or_else(|| {
+            expression_text.as_deref().and_then(|expression| {
+                infer_expression_type(expression, environment, task_returns, field_types)
+            })
+        });
     let (status, reason) = statement_status(statement, expected_type.as_deref(), actual.as_ref());
 
     if matches!(statement.kind, "let_binding" | "mutable_binding")
@@ -1056,7 +1174,20 @@ fn typed_statement(
         help: None,
         prior_blocker: None,
         diagnostic_occurrence: None,
+        deferred_canonical_minimal_add_environment: None,
     }
+}
+
+fn is_canonical_minimal_add_target(expression: &crate::ast::CanonicalExpression) -> bool {
+    matches!(
+        &expression.kind,
+        crate::ast::CanonicalExpressionKind::Binary {
+            operator: crate::ast::ParsedBinaryOperator::Add,
+            left,
+            right,
+        } if matches!(left.kind, crate::ast::CanonicalExpressionKind::Identifier(_))
+            && matches!(right.kind, crate::ast::CanonicalExpressionKind::Identifier(_))
+    )
 }
 
 fn attach_builtin_occurrence(
@@ -1328,6 +1459,8 @@ fn infer_additive_expression_type(
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<TypeFact> {
+    #[cfg(test)]
+    CANONICAL_MINIMAL_ADD_FALLBACK_CALLS.with(|calls| calls.set(calls.get() + 1));
     let (left, right) = text.split_once(" + ")?;
     let left = infer_expression_type(left, environment, task_returns, field_types)?;
     let right = infer_expression_type(right, environment, task_returns, field_types)?;
@@ -1339,6 +1472,23 @@ fn infer_additive_expression_type(
     } else {
         None
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static CANONICAL_MINIMAL_ADD_FALLBACK_CALLS: std::cell::Cell<usize> = const {
+        std::cell::Cell::new(0)
+    };
+}
+
+#[cfg(test)]
+fn with_canonical_minimal_add_fallback_count<T>(run: impl FnOnce() -> T) -> (T, usize) {
+    CANONICAL_MINIMAL_ADD_FALLBACK_CALLS.with(|calls| {
+        assert_eq!(calls.replace(0), 0);
+    });
+    let result = run();
+    let calls = CANONICAL_MINIMAL_ADD_FALLBACK_CALLS.with(|calls| calls.replace(0));
+    (result, calls)
 }
 
 fn infer_multiplicative_expression_type(
@@ -2314,8 +2464,102 @@ mod tests {
 
     use super::{
         build_report, full_type_check_has_errors, full_type_check_json, full_type_check_text,
+        with_canonical_minimal_add_fallback_count,
     };
     use crate::diagnostic::DiagnosticCode;
+
+    #[test]
+    fn minimal_add_consumes_only_verified_canonical_type() {
+        fn json(source: &str) -> String {
+            let parsed = parse_source("verified-minimal-add.hum", source);
+            let diagnostics = parsed.diagnostics;
+            let program = Program {
+                files: vec![parsed.file],
+            };
+            full_type_check_json(&program, &diagnostics)
+        }
+
+        let (accepted, accepted_fallbacks) = with_canonical_minimal_add_fallback_count(|| {
+            json("task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n")
+        });
+        assert_eq!(accepted_fallbacks, 0);
+        assert!(accepted.contains("\"actual_type\": \"Int\""));
+        assert!(accepted.contains("\"type_source\": \"verified_canonical_minimal_add_type_v0\""));
+        assert!(!accepted.contains("\"type_source\": \"additive_expression_v0\""));
+
+        let (mismatch, mismatch_fallbacks) = with_canonical_minimal_add_fallback_count(|| {
+            json("task add(a: Int, b: Int) -> UInt {\n  does:\n    return a + b\n}\n")
+        });
+        assert_eq!(mismatch_fallbacks, 0);
+        assert!(mismatch.contains("\"expected_type\": \"UInt\""));
+        assert!(mismatch.contains("\"actual_type\": \"Int\""));
+        assert!(mismatch.contains("\"status\": \"rejected_statement_type_mismatch_v0\""));
+        assert!(mismatch.contains("\"reason\": \"statement_expression_type_mismatch\""));
+
+        let (out_of_scope, out_of_scope_fallbacks) =
+            with_canonical_minimal_add_fallback_count(|| {
+                json("task add(a: UInt, b: UInt) -> UInt {\n  does:\n    return a + b\n}\n")
+            });
+        assert_eq!(out_of_scope_fallbacks, 1);
+        assert!(out_of_scope.contains("\"actual_type\": \"UInt\""));
+        assert!(out_of_scope.contains("\"type_source\": \"additive_expression_v0\""));
+
+        let parsed = parse_source(
+            "verified-minimal-add.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+        );
+        let diagnostics = parsed.diagnostics;
+        let mut program = Program {
+            files: vec![parsed.file],
+        };
+        let crate::ast::Item::Task(task) = &mut program.files[0].items[0] else {
+            panic!("task")
+        };
+        task.params[0].ty = "UInt".to_string();
+        let (blocked, blocked_fallbacks) = with_canonical_minimal_add_fallback_count(|| {
+            full_type_check_json(&program, &diagnostics)
+        });
+        assert_eq!(blocked_fallbacks, 0);
+        assert!(blocked.contains("\"status\": \"not_checked_blocked_by_prior_errors_v0\""));
+        assert!(blocked.contains("\"reason\": \"source_resolver_type_or_core_verify_errors\""));
+        assert!(!blocked.contains("\"type_source\": \"additive_expression_v0\""));
+
+        let parsed = parse_source(
+            "verified-minimal-add-structural.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+        );
+        let diagnostics = parsed.diagnostics;
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let mut structurally_corrupt =
+            crate::core_lower::build_canonical_minimal_add_lowering(&program, &diagnostics);
+        crate::core_lower::corrupt_first_structured_expression_for_test(
+            structurally_corrupt.report_mut_for_test(),
+            crate::core_lower::CoreLowerTreeCorruption::StructuralOverclaim,
+        )
+        .expect("structural corruption seam");
+        assert!(
+            crate::core_verify::with_verified_canonical_minimal_add_types_from_owner_for_test(
+                &structurally_corrupt,
+                |views| views.is_empty(),
+            ),
+            "full type must receive no view after structural verification failure",
+        );
+
+        let mut duplicate_batch =
+            crate::core_lower::build_canonical_minimal_add_lowering(&program, &diagnostics);
+        let duplicate =
+            crate::core_lower::build_canonical_minimal_add_lowering(&program, &diagnostics);
+        duplicate_batch.append_classifications_for_test(duplicate);
+        assert!(
+            crate::core_verify::with_verified_canonical_minimal_add_types_from_owner_for_test(
+                &duplicate_batch,
+                |views| views.is_empty(),
+            ),
+            "full type must receive no view from an invalid classification batch",
+        );
+    }
 
     #[test]
     fn json_accepts_recognized_task_body_types_without_execution_claims() {

@@ -208,10 +208,33 @@ left-to-right order remain additional sanity checks. Coherent foreign or
 relocated projections fail even when internally consistent, and candidate
 range arithmetic fails closed on overflow.
 
-The structured object contains no type field. The existing outer expression
-type fields remain authoritative. For `examples/core/minimal_add.hum` they are
-`type_status: not_type_checked_v0`, `type_text: null`, and `type_source: null`.
-The task's declared `Int` result is not expression-type proof.
+The structured root contains no nested result-type field. For the bounded
+task-return shape, the existing outer expression type slots are conditionally
+projected from the private four-way canonical minimal-add classification:
+
+- a supported, parser-authenticated, resolver-bound pair of parameters whose
+  locally accepted checked types are both exactly `Int` has
+  `type_status: checked_canonical_minimal_add_v0`, `type_text: "Int"`, and
+  `type_source: canonical_minimal_add_type_authority_v0`;
+- an integrity failure has
+  `type_status: canonical_minimal_add_type_unavailable_v0`, with `type_text`
+  and `type_source` present as null; and
+- an authenticated, locally complete non-`Int` target and every noncanonical
+  expression retain their previous outer slots and behavior.
+
+Each supported child conditionally appends, after `identifier` and in this
+exact order, `resolver_reference_id`, `resolved_definition_id`,
+`checked_declaration_id`, and `checked_type`. The first three are the exact
+private resolver/definition/accepted-declaration row identities; `checked_type`
+is `Int`. An integrity-failure child contains all four fields as null. These
+fields are complete or all null; partial projection is forbidden. For an
+authenticated out-of-scope or noncanonical expression, the four fields are
+absent rather than null, preserving the previous serialized branch.
+
+The private classification, supported authority, and candidate claim never
+serialize. The task's declared result remains only a later compatibility
+check; it is not proof of either operand or expression type. Human Core-lower
+rendering is unchanged.
 
 ## Honesty Rules
 
@@ -221,7 +244,8 @@ The task's declared `Int` result is not expression-type proof.
   checking, optimization, memory safety, or profile enforcement.
 - It may emit unverified Core Hum operation rows, source spans, signature facts,
   compact expression preview roots, the bounded parser-owned ordered add tree,
-  selected checked return-expression type slots, and explicit blockers.
+  the bounded canonical minimal-add type projection described above, selected
+  existing checked return-expression type slots, and explicit blockers.
 - It must block future execution or IR claims when source, resolver, type, body,
   or brace blockers exist.
 - It must stay in sync with `hum.core_contract.v0`, `hum.core_preview.v0`,
