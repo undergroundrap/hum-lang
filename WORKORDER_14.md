@@ -1,12 +1,10 @@
 # Hum Work Order 14: Authenticate Task Signatures Through Core
 
 Date: 2026-08-02
-<!-- hum-active-workorder:v1 -->
 Status: Work Order 14 Unit 1 is independently accepted, BDFL-accepted,
-committed, published, terminal-green, and complete. The next gate is
-publication of the local status-only closeout commit, pending separate BDFL
-authorization. No later unit, implementation, planning transition, archive
-action, new Work Order, repair, or unrelated work is authorized.
+committed, published, terminal-green, status-closed, and complete. Its
+requirements and evidence are frozen. No Work Order 14 implementation, repair,
+status update, archive action, or later unit remains authorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 14 architect-author. The author is permanently disqualified
@@ -499,8 +497,14 @@ Windows evidence:
 Both platforms passed text hygiene and public readiness for `517` files, alpha
 claims, and release readiness for version `0.0.1`.
 
-Work Order 14 Unit 1 is complete. No later unit, implementation, planning
-transition, archive action, new Work Order, repair, or unrelated work is
-authorized. The next gate is publication of this status-only closeout commit,
-pending a separate BDFL signal.
+The status-only closeout commit is
+`88447ab178f372139fb8411d198b267b4d24e01f`, subject
+`docs(workorder): record unit 1 completion`, with sole path
+`WORKORDER_14.md`. Its required workflow `30768159757`, attempt `1`, concluded
+`success`; Ubuntu job `91550488214` and Windows job `91550488249` both
+concluded `success` through `mode=fast`, `reason=eligible_status_chain`.
+
+Work Order 14 Unit 1 and its closeout are complete. This document is frozen.
+No later Work Order 14 unit, implementation, repair, status update, archive
+action, or unrelated work is authorized by this closeout.
 <!-- workorder-current-authorization-gate:end -->
