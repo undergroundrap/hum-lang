@@ -2,11 +2,21 @@
 
 Date: 2026-08-02
 <!-- hum-active-workorder:v1 -->
-Status: Corrected after first independent pre-issuance review; awaiting final
-independent review and possible activation.
-Implementation is unauthorized. Document acceptance, a scoped documentation
-commit, publication through the full CI lane, a publication status record, and
-a separate BDFL Unit 1 signal are all required later and remain distinct gates.
+Status: Issued, active, published, mechanically projectable, independently
+accepted with no P0/P1/P2 findings, and based on terminal-green current `main`.
+The accepted document package was published as
+`6d859113ccd6a4a9f3af4ab4f2d38d972ae1f28e`; required workflow `30781480361`
+attempt `1` succeeded. The status-boundary anchor repair was published as
+`3b2edb116253364efb0191ca6442f85276ae87d5`. The final foundation package was
+independently accepted and published as
+`aa3fd134c18115d2e1d786f9412313b65a609333`; workflow `30793820652` attempt `1`
+succeeded on both platforms, and foundation research is closed with GO.
+Checked type authority on each Core operation is the next unit. Unit 1 remains
+explicitly unauthorized. This status record is the authorized local-commit
+gate; committing it satisfies only that first prerequisite. Separate
+publication authorization, terminal-green status-only CI, and a separate BDFL
+Unit 1 go signal remain required. No implementation or later work is implicitly
+authorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 15 architect-author. The author may explain this draft but
@@ -889,27 +899,47 @@ explicit signal even if document CI is green.
 
 ## Current authorization gate
 
-The author runs only:
+Work Order 15 received final independent `ACCEPT` with no P0, P1, or P2
+findings. Its two-document package was committed as
+`6d859113ccd6a4a9f3af4ab4f2d38d972ae1f28e` with subject
+`docs(workorder): define direct minimal add type authority`, scope
+`WORKORDER_14.md` and `WORKORDER_15.md`, and statistics `+928/-9`. Publication
+workflow `30781480361` attempt `1` concluded `success`: Ubuntu job
+`91586859299` and Windows job `91586859347` both succeeded with `mode=full`,
+`reason=no_status_transition`; Ubuntu Exhaustive passed all `14,226` pairs.
 
-```powershell
-git diff --check
-git -c core.autocrlf=false -c core.safecrlf=false diff --no-index --check -- NUL WORKORDER_15.md
-.\tools\test_workorder_status_boundary.ps1
-.\tools\test_workorder_status_boundary.ps1
-.\tools\check_text_hygiene.ps1
-.\tools\check_public_readiness.ps1
-.\tools\check_alpha_claims.ps1
-.\tools\check_release_readiness.ps1
-```
+The unique production status-boundary anchor was restored and published in
+commit `3b2edb116253364efb0191ca6442f85276ae87d5`, parent
+`6d859113ccd6a4a9f3af4ab4f2d38d972ae1f28e`, subject
+`fix(workorder): restore status boundary anchor`, with sole path
+`WORKORDER_15.md` and statistics `+1/-1`. The active Work Order is mechanically
+projectable by the production status classifier.
 
-The no-index command must exit exactly `1` with zero output. Each classifier
-run must cover all 123 cases with zero failures, and their complete outputs
-must be byte-identical. No Cargo command, selector, Fast, `check_all`, full
-preflight, Exhaustive, performance evidence, or publication CI is an authoring
-check.
+The final BDFL foundation package was independently accepted with verdict
+`ACCEPT — GO` and no P0, P1, or P2 findings, then published by normal
+fast-forward to `main` only as
+`aa3fd134c18115d2e1d786f9412313b65a609333`, parent
+`3b2edb116253364efb0191ca6442f85276ae87d5`, tree
+`3c7fc6c5b7d618f6dafe360a5dc18b9006130148`, subject
+`docs(decisions): adopt termination measures and algorithmic foundations
+charter`, exactly nine paths, statistics `+4,113/-1`. Foundation research is
+closed with GO.
 
-Work Order 15 is corrected but remains drafted only. Unit 1 is not issued or
-authorized. The next receiving role is the fresh independent corrected-document
-architect-reviewer.
-Anything beyond read-only review requires a later explicit BDFL signal.
+Foundation workflow `ci` run `30793820652` attempt `1` tested exact SHA
+`aa3fd134c18115d2e1d786f9412313b65a609333` and concluded `success` with
+`mode=full`, `reason=no_status_transition`. Ubuntu job `91622829209` succeeded
+in `25m24s`; full preflight succeeded in `24m46s`, Exhaustive succeeded, and
+status-only evidence was skipped. Windows job `91622829261` succeeded in
+`37m20s`; full preflight succeeded in `36m41s`, the platform-independent
+Exhaustive duplicate was correctly skipped, and status-only evidence was
+skipped. Cargo caching and Rust-toolchain preparation succeeded on both
+platforms.
+
+Work Order 15 is issued, active, published, mechanically projectable, and based
+on terminal-green current `main`. Checked type authority on each Core operation
+is the next unit, but Unit 1 remains explicitly unauthorized. The local commit
+of this status record satisfies only the first prerequisite. Its next gate is a
+separate authorization to publish this status-only commit, followed by
+terminal-green status-only CI and then a separate BDFL Unit 1 go signal. No
+implementation or later work is implicitly authorized.
 <!-- workorder-current-authorization-gate:end -->
