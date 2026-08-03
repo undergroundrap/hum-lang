@@ -279,6 +279,42 @@ BDFL ruling--never another status layer, exception gate, tripwire amendment,
 or process about the process. This stop rule grants no implementation,
 acceptance, commit, push, publication, or later-work authority.
 
+### Validation cost discipline (measured 2026-07-30, recorded 2026-08-03)
+
+The governing rule: **cut cost that produces no evidence; never cut evidence.**
+Iteration speed matters, but no guardrail is removed to buy it. Evidence is the
+product; execution is an implementation detail.
+
+The guardrails are not the cost. The exhaustive canonical-seal corruption
+matrix -- 14,226 pairs, the strongest single guarantee in the repository --
+runs in about 16 seconds. Mutation tests, corruption gates, and docs-as-CI
+checks are cheap. Do not trade them away.
+
+The cost is the fixture and CLI corpus execution model. Measured profile: about
+1,752 Hum invocations over 216 source paths and 1,003 stage/source pairs, with
+process startup at roughly 2.8 percent and substantive front-end analysis at
+roughly 97.2 percent. The same small corpus is fully re-parsed and re-analyzed
+about 1,752 times, sequentially, in fresh processes. That growth is
+`fixtures x stages`, not exponential, but both factors grow with the project.
+
+Levers that reduce cost without reducing evidence, none yet attempted:
+
+- run the independent fixture invocations in parallel rather than serially; the
+  workload is embarrassingly parallel and the existing byte-identical
+  repeatability requirement already guarantees the needed isolation;
+- skip a fixture whose bytes and compiler binary are both unchanged, keyed by
+  content hash;
+- tier the corpus the way the pair matrix is already tiered: representative
+  subset on every run, complete corpus at the acceptance gate.
+
+Work Order 11 attempted the hardest option first, in-process artifact reuse,
+and failed its declared sustainability gate. The simpler levers above remain
+untried.
+
+Tripwire: this is deferred while it stays survivable. If required Windows CI
+crosses roughly 50 minutes, it becomes blocking work, because at that point one
+increment of growth reaches the 60-minute job ceiling.
+
 ### Assuming the implementer role
 
 Cold-start read order: same as above. Then: execute exactly the next

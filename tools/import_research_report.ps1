@@ -34,13 +34,68 @@ function Get-LineNumber {
 function Convert-ToRepoText {
   param([string] $Text)
 
+  # Zero-width and invisible formatting characters are deleted outright later,
+  # so they must be removed before citation context is examined. Otherwise a
+  # marker adjacent to one of them sees a non-word character, is removed
+  # without a separator, and the invisible character then disappears too,
+  # silently fusing the surrounding words. Deleting them first lets the
+  # citation logic observe the real word boundaries.
+  $invisible = @(0x200B, 0x200C, 0x200D, 0xFEFF)
+  foreach ($code in $invisible) {
+    $Text = $Text.Replace([string] [char] $code, '')
+  }
+
   $citationStart = [regex]::Escape([string] [char] 0xE200)
   $citationEnd = [regex]::Escape([string] [char] 0xE201)
-  $Text = [regex]::Replace($Text, ($citationStart + 'cite.*?' + $citationEnd), '')
+  # Deep Research citation markers are delimited by U+E200 and U+E201. The
+  # inner text varies by export ('cite...', 'filecite...', and separators such
+  # as U+E202), so strip the whole delimited span rather than one spelling.
+  # The span must not cross a second opening marker: a malformed or
+  # unterminated marker would otherwise swallow every character up to a later
+  # terminator, deleting legitimate content. An unterminated marker is left in
+  # place so the ASCII gate fails closed rather than silently losing text.
+  # A citation marker is always inline. The body therefore excludes both a
+  # second opening marker and any line break, so a malformed or unterminated
+  # marker can never consume text across a line or paragraph boundary. Such
+  # input keeps its markers and fails closed at the ASCII gate instead of
+  # silently deleting the intervening content.
+  $citationBody = '[^' + $citationStart + '\r\n]*?'
+  $citationSpan = $citationStart + $citationBody + $citationEnd
+  # Markers frequently appear in adjacent runs. The whole run is treated as one
+  # unit, because testing spans individually would leave neither span of a pair
+  # with word characters on both sides and would then fuse the surrounding
+  # words. A run sitting between two word characters becomes a single space;
+  # every other position - beside whitespace, punctuation, or a line boundary -
+  # is removed outright so ordinary trailing citations leave no stray gap.
+  $citationRun = '(?:' + $citationSpan + ')+'
+  $Text = [regex]::Replace($Text, ('(?<=\w)' + $citationRun + '(?=\w)'), ' ')
+  $Text = [regex]::Replace($Text, $citationRun, '')
+
+  # Research reports cite mathematicians by name. Decompose accented Latin
+  # letters and drop the combining marks so names such as Erdos, Poincare, and
+  # Mobius survive as ASCII instead of failing the repository ASCII gate.
+  $decomposed = $Text.Normalize([Text.NormalizationForm]::FormD)
+  $builder = New-Object System.Text.StringBuilder
+  foreach ($character in $decomposed.ToCharArray()) {
+    $category = [System.Globalization.CharUnicodeInfo]::GetUnicodeCategory($character)
+    if ($category -ne [System.Globalization.UnicodeCategory]::NonSpacingMark) {
+      [void] $builder.Append($character)
+    }
+  }
+  $Text = $builder.ToString()
 
   $apostrophe = [string] [char] 39
   $quote = [string] [char] 34
   $replacements = @(
+    @{ Code = 0x00F8; Value = 'o' },
+    @{ Code = 0x00D8; Value = 'O' },
+    @{ Code = 0x00DF; Value = 'ss' },
+    @{ Code = 0x00E6; Value = 'ae' },
+    @{ Code = 0x00C6; Value = 'AE' },
+    @{ Code = 0x0142; Value = 'l' },
+    @{ Code = 0x0141; Value = 'L' },
+    @{ Code = 0x0111; Value = 'd' },
+    @{ Code = 0x0110; Value = 'D' },
     @{ Code = 0x2018; Value = $apostrophe },
     @{ Code = 0x2019; Value = $apostrophe },
     @{ Code = 0x201A; Value = $apostrophe },

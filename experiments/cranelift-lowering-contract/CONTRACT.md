@@ -189,3 +189,54 @@ The next production design target is therefore finite: emit and verify one
 backend input containing the facts above for `minimal_add.hum`. Consumer
 convergence unrelated to this artifact is not on the native-lowering critical
 path.
+
+## Post-spike review amendments (2026-08-03)
+
+An independent pre-backend semantic-closure audit of this contract returned GO
+with no P0 or P1 findings. It added four refinements, recorded here as
+acceptance criteria for the increment that implements `ir_verify`, not as new
+research.
+
+**Anti-forgery and semantic completeness are separate properties.** The opaque
+capability proves that this exact artifact passed the authorized verification
+route. It does not prove the route was sufficient. Completeness is established
+separately by this contract's required fact inventory and its fail-closed
+corruption tests. Neither property substitutes for the other, and the
+`VerifiedBackendInput` documentation should say so.
+
+**Soundness rests on private construction, not on `Clone` discipline.** The
+essential properties are private construction, immutable binding to one
+artifact, no rebinding to different bytes or projections, no unchecked
+deserialization, and no post-verification mutation. Keeping the capability
+non-`Clone` in V0 is reasonable API discipline because nothing needs to
+duplicate it, but it is not what makes verification sound.
+
+**Staleness rule.** A persisted backend-input artifact carries no live
+verification authority. Deserialization produces unverified bytes; only the
+current `ir_verify` route may reconstruct the capability. Verification must
+therefore bind at least the schema version, canonical artifact bytes and
+digest, source revision, required verification-pass set, semantic contract
+version, and target or profile context where semantically relevant. Because
+the capability is non-serializable and lifetime-bound, it does not need to
+survive compiler upgrades, and no durable authority token is designed.
+
+**Checked-empty is not absent.** For the minimal-add artifact many fact sets
+are legitimately empty: effects, failure edges, allocation effects, external
+authority, ownership transfers. These must appear as authenticated empty
+conclusions, never as omitted fields. The boundary distinguishes three states
+-- checked and empty, unsupported and blocked, not checked -- and only the
+first may enter the backend. The schema and its corruption tests must keep
+that distinction visible.
+
+**Restrict the adapter entry point mechanically.** The lowering entry accepts
+only the verified capability:
+
+```text
+lower(input: &VerifiedBackendInput) -> Result<BackendArtifact, BackendError>
+```
+
+It must not also receive the program, a Core artifact, a type environment, a
+source file, raw text, or a JSON value, unless those are authenticated
+projections borrowed through the capability. Convenience access to unverified
+Core from inside the same process is exactly the hole this boundary exists to
+close.
