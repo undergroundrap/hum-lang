@@ -887,7 +887,7 @@ transition must use `mode=full`, `reason=no_status_transition`; it is not a
 status-only transition. Implementation remains unauthorized until the later
 explicit signal even if document CI is green.
 
-## Authoring checks and current gate
+## Current authorization gate
 
 The author runs only:
 
