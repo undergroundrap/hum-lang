@@ -1,29 +1,73 @@
 # Hum Work Order 15: Bind Canonical Minimal-Add Type Authority Per Operation
 
 Date: 2026-08-02
-<!-- hum-active-workorder:v1 -->
-Status: Issued, active, published, mechanically projectable, independently
-accepted with no P0/P1/P2 findings, and based on terminal-green current `main`.
-The accepted document package was published as
-`6d859113ccd6a4a9f3af4ab4f2d38d972ae1f28e`; required workflow `30781480361`
-attempt `1` succeeded. The status-boundary anchor repair was published as
-`3b2edb116253364efb0191ca6442f85276ae87d5`. The final foundation package was
-independently accepted and published as
-`aa3fd134c18115d2e1d786f9412313b65a609333`; workflow `30793820652` attempt `1`
-succeeded on both platforms, and foundation research is closed with GO.
-Checked type authority on each Core operation is the next unit. Unit 1 remains
-explicitly unauthorized. This status record is the authorized local-commit
-gate; committing it satisfies only that first prerequisite. Separate
-publication authorization, terminal-green status-only CI, and a separate BDFL
-Unit 1 go signal remain required. No implementation or later work is implicitly
-authorized.
+Status: Terminally rejected, archived, closed, and inactive. Unit 1 produced no
+accepted implementation and no implementation commit or publication on
+`main`. The rejected candidate is preserved only as failure evidence on the
+dedicated archive branch identified below. All Work Order 15 implementation,
+correction, review, commit, push, repair, reuse, merge, cherry-pick, and patch-
+application authority is closed. Checked minimal-add type authority remains
+deferred and receives no authority from this closeout.
 
 Owner: BDFL (Ocean).
 Author: Work Order 15 architect-author. The author may explain this draft but
 is permanently disqualified from independently reviewing these bytes or an
 implementation produced under them.
-Planning baseline: `HEAD`, local `main`, cached `origin/main`, and live remote
-`main` are all `88447ab178f372139fb8411d198b267b4d24e01f`.
+Original planning baseline: `88447ab178f372139fb8411d198b267b4d24e01f`.
+Terminal closeout baseline: `HEAD`, local `main`, cached `origin/main`, and live
+remote `main` are all `39d373dea56a15a5f97b76e701305bcd4d3e1f02`.
+
+## Terminal Unit 1 closeout
+
+Work Order 15 was issued and published, and its separate publication status
+record reached terminal-green CI. A first implementation candidate was then
+reviewed independently. That review returned `ACCEPT WITH REQUIRED FIX` with
+no P0 or P2 finding and these three P1 findings:
+
+1. the resolver/declaration association still began from public-ID-shaped
+   material instead of a complete private source-owned join;
+2. a public `view_issued` report row could pass while the private accessor
+   withheld the verified view; and
+3. the permanent corruption matrix did not cover all load-bearing authority
+   and disposition combinations.
+
+The BDFL authorized the sole bounded in-envelope implementation correction.
+The corrected candidate remained exactly within the issued nine-path source
+and schema envelope and was submitted to a fresh final independent review.
+That final review returned `REJECT`. It reported no P0 finding, three terminal
+P1 findings, and one P2 finding:
+
+1. swapping complete Core operations and coherently rewriting their public
+   indices was still accepted because the private identity traveled with each
+   candidate record;
+2. the required borrow-only
+   `ExpectedCanonicalMinimalAddOperation<'program>` was replaced with an owned
+   candidate-identity representation, so verification did not compare against
+   independently retained Program-owned expected authority; and
+3. the permanent anti-downgrade matrix did not prove `Supported` against every
+   lower disposition.
+
+The P2 finding was a schema defect: the phrase "unchecked outer type state"
+was not an exact statement of the affected public state and could mislead a
+future implementer or reviewer.
+
+The terminally rejected candidate is preserved only at:
+
+- branch:
+  `archive/workorder-15-unit1-terminal-rejection-2026-08-08`;
+- commit: `f47ec6f3b7586cd59077f90ffb66307af7d045ee`;
+- parent: `39d373dea56a15a5f97b76e701305bcd4d3e1f02`;
+- complete tree: `cb70a481879e9434d8b8be598f671c125ead9839`;
+- scoped nine-path tree: `d8356acb28e8a5441999ff550b5c0551c46f1723`;
+- inventory: exactly nine paths, `+3,021/-124`; and
+- archive CI: none; publishing the archive branch triggered no workflow.
+
+The local archive ref, cached origin-tracking ref, and live remote archive ref
+all resolve to the exact archive commit. The archive is non-authoritative
+failure evidence. No archived source, test, patch, assertion, or result may be
+copied, restored, adapted, cherry-picked, merged, applied, or used as an
+implementation base. No Work Order 15 implementation was accepted, committed,
+or published on `main`.
 
 ## Closed predecessor and accepted foundations
 
@@ -899,8 +943,24 @@ explicit signal even if document CI is green.
 
 ## Current authorization gate
 
-Work Order 15 received final independent `ACCEPT` with no P0, P1, or P2
-findings. Its two-document package was committed as
+Work Order 15 is terminally rejected, archived, closed, inactive, and frozen.
+The sole implementation correction was consumed before the terminal verdict.
+No further Work Order 15 implementation, correction, review, commit,
+publication, status update, repair, workaround, archive mutation, reuse,
+cherry-pick, merge, patch application, or later work is authorized.
+
+The archive branch is failure evidence only. Its existence authorizes no
+source recovery and makes no rejected implementation fact authoritative.
+Checked minimal-add type authority did not ship and remains deferred.
+
+The only proposed next action is independent pre-issuance review of the fresh
+Work Order 16 document package under its own authorization gates. This closeout
+does not accept that draft, authorize its documentation commit or publication,
+or authorize Work Order 16 Unit 1.
+
+Historical publication evidence follows. The Work Order 15 two-document
+package received final independent `ACCEPT` with no P0, P1, or P2 findings and
+was committed as
 `6d859113ccd6a4a9f3af4ab4f2d38d972ae1f28e` with subject
 `docs(workorder): define direct minimal add type authority`, scope
 `WORKORDER_14.md` and `WORKORDER_15.md`, and statistics `+928/-9`. Publication
@@ -935,11 +995,6 @@ Exhaustive duplicate was correctly skipped, and status-only evidence was
 skipped. Cargo caching and Rust-toolchain preparation succeeded on both
 platforms.
 
-Work Order 15 is issued, active, published, mechanically projectable, and based
-on terminal-green current `main`. Checked type authority on each Core operation
-is the next unit, but Unit 1 remains explicitly unauthorized. The local commit
-of this status record satisfies only the first prerequisite. Its next gate is a
-separate authorization to publish this status-only commit, followed by
-terminal-green status-only CI and then a separate BDFL Unit 1 go signal. No
-implementation or later work is implicitly authorized.
+Those publication facts do not survive as implementation authority after the
+terminal rejection recorded above.
 <!-- workorder-current-authorization-gate:end -->
