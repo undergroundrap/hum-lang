@@ -1,6 +1,8 @@
 use crate::ast::{
-    AuthenticatedCanonicalTaskSignature, CanonicalExpression, CanonicalExpressionKind, Item, Param,
-    ParsedBinaryOperator, ParsedSourceRange, Program, Section, Task,
+    AuthenticatedCanonicalTaskSignature, CanonicalCoreOperationOwnerExpectation,
+    CanonicalExpression, CanonicalExpressionKind, Item, Param, ParsedBinaryOperator,
+    ParsedBodyStatement, ParsedBodyStatementKind, ParsedSourceRange, Program, Section, SectionLine,
+    Task,
 };
 use crate::callable;
 use crate::core_body::{self, BodyStatement, CanonicalBodyGrammarReport, CanonicalBodyStatement};
@@ -86,12 +88,60 @@ pub(crate) struct CoreLowerItem {
     pub(crate) operations: Vec<CoreLowerOperation>,
     pub(crate) blockers: Vec<CoreLowerBlocker>,
     task_signature: CoreLowerTaskSignature,
+    candidate_origin: CoreItemCandidateOrigin,
 }
 
 enum CoreLowerTaskSignature {
     NotATask,
     Authenticated(Box<AuthenticatedCanonicalTaskSignature>),
     Rejected(crate::ast::CanonicalTaskSignatureRejection),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CoreOperationExpectationError {
+    OwnerRejected(&'static str),
+    Missing(usize),
+    Ambiguous(usize),
+    Foreign(usize),
+    Ordering(usize),
+    SlotOverflow,
+    SlotUnderflow,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CoreItemCandidateOriginFacts(
+    usize,
+    usize,
+    crate::ast::CanonicalCoreOwnerBinding,
+    usize,
+    Span,
+    usize,
+    Span,
+);
+
+impl CoreItemCandidateOriginFacts {
+    fn from_expected(owner: &CanonicalCoreOperationOwnerExpectation<'_>) -> Self {
+        let (program, file, binding, ordinal) = owner.candidate_facts();
+        Self(
+            program,
+            file,
+            binding.clone(),
+            ordinal,
+            portable_span(owner.item().span()),
+            owner.section_slot(),
+            portable_span(&owner.section().span),
+        )
+    }
+
+    fn matches(&self, owner: &CanonicalCoreOperationOwnerExpectation<'_>) -> bool {
+        self == &Self::from_expected(owner)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CoreItemCandidateOrigin {
+    Authenticated(Box<CoreItemCandidateOriginFacts>),
+    Rejected(CoreOperationExpectationError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +176,7 @@ impl CoreLowerItem {
     }
 }
 
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct CoreLowerOperation {
     pub(crate) id: String,
     pub(crate) index: usize,
@@ -137,8 +188,147 @@ pub(crate) struct CoreLowerOperation {
     pub(crate) status: &'static str,
     pub(crate) expression: Option<CoreLowerExpression>,
     pub(crate) reason: Option<&'static str>,
+    candidate_origin: CoreOperationCandidateOrigin,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CoreOperationCandidateSourceFacts {
+    Body(String),
+    Predicate(String, String, String, RecognitionStatus),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CoreOperationCandidateOriginFacts {
+    owner: CoreItemCandidateOriginFacts,
+    slot: usize,
+    source: CoreOperationCandidateSourceFacts,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CoreOperationCandidateOrigin {
+    Authenticated(Box<CoreOperationCandidateOriginFacts>),
+    Rejected(CoreOperationExpectationError),
+}
+
+enum ExpectedCoreOperationSource<'program, 'invocation> {
+    Body {
+        line: &'program SectionLine,
+        parsed: &'program ParsedBodyStatement,
+        artifact: Result<&'invocation CanonicalBodyStatement, CoreOperationExpectationError>,
+    },
+    Predicate {
+        section: &'program Section,
+        line: &'program SectionLine,
+        artifact: Result<&'invocation PredicateFact, CoreOperationExpectationError>,
+    },
+}
+
+pub(crate) struct ExpectedCoreOperation<'program, 'invocation> {
+    owner: &'invocation CanonicalCoreOperationOwnerExpectation<'program>,
+    slot: usize,
+    source: ExpectedCoreOperationSource<'program, 'invocation>,
+}
+
+#[allow(unexpected_cfgs)]
+mod expected_core_operation_escape_compile_proof {
+    #[cfg(hum_compile_fail_expected_core_operation_escape)]
+    use super::{ExpectedCoreOperation, with_expected_core_operations_for_item};
+    #[cfg(hum_compile_fail_expected_core_operation_escape)]
+    use crate::{
+        ast::CanonicalCoreOperationOwnerExpectation, core_body::CanonicalBodyGrammarReport,
+        predicate::PredicateFact,
+    };
+
+    #[cfg(hum_compile_fail_expected_core_operation_escape)]
+    fn expected_core_operation_artifact_escape_must_not_compile<'program>(
+        owner: CanonicalCoreOperationOwnerExpectation<'program>,
+        body: &CanonicalBodyGrammarReport,
+        predicate_facts: &[PredicateFact],
+    ) -> ExpectedCoreOperation<'program, 'program> {
+        let mut expected_core_operation_artifact_escape_must_not_compile = None;
+        let _result =
+            with_expected_core_operations_for_item(owner, body, predicate_facts, |expected| {
+                expected_core_operation_artifact_escape_must_not_compile = Some(expected)
+            });
+        expected_core_operation_artifact_escape_must_not_compile.expect("artifact escape")
+    }
+
+    #[cfg(hum_compile_fail_expected_core_operation_escape)]
+    fn expected_core_operation_program_escape_must_not_compile()
+    -> ExpectedCoreOperation<'static, 'static> {
+        let parsed = crate::parser::parse_source_at_index(
+            "compile-fail/program-escape.hum",
+            "task escape() {\n  does:\n    return 1\n}\n",
+            0,
+        );
+        let program = crate::ast::Program {
+            files: vec![parsed.file],
+        };
+        let item = &program.files[0].items[0];
+        let does = item
+            .sections()
+            .iter()
+            .find(|section| section.name == "does")
+            .expect("does");
+        let owner = program
+            .canonical_core_operation_owner_expectation(item, does)
+            .expect("owner");
+        let predicates = crate::predicate::PredicateAnalysis::build(&program);
+        let mut escaped = None;
+        let _result = super::with_fresh_expected_core_operations_for_item(
+            &program,
+            item,
+            does,
+            owner,
+            predicates.facts(),
+            |expected| escaped = Some(expected),
+        );
+        escaped.expect("expected_core_operation_program_escape_must_not_compile")
+    }
+
+    #[cfg(hum_compile_fail_expected_core_operation_escape)]
+    fn expected_core_operation_static_escape_must_not_compile<'program>(
+        owner: CanonicalCoreOperationOwnerExpectation<'program>,
+        body: &CanonicalBodyGrammarReport,
+        predicate_facts: &[PredicateFact],
+    ) {
+        let _result =
+            with_expected_core_operations_for_item(owner, body, predicate_facts, |expected| {
+                let _escaped: &'static ExpectedCoreOperation<'static, 'static> = &expected;
+            });
+    }
+
+    #[cfg(hum_compile_fail_expected_core_operation_escape)]
+    fn expected_core_operation_collection_escape_must_not_compile<'program>(
+        owner: CanonicalCoreOperationOwnerExpectation<'program>,
+        body: &CanonicalBodyGrammarReport,
+        predicate_facts: &[PredicateFact],
+    ) {
+        let mut expected_core_operation_collection_escape_must_not_compile = Vec::new();
+        let _result =
+            with_expected_core_operations_for_item(owner, body, predicate_facts, |expected| {
+                expected_core_operation_collection_escape_must_not_compile.push(expected)
+            });
+        drop(expected_core_operation_collection_escape_must_not_compile);
+    }
+}
+
+impl ExpectedCoreOperation<'_, '_> {
+    pub(crate) fn slot(&self) -> usize {
+        self.slot
+    }
+}
+
+pub(crate) fn expected_core_operation_source_span<'a>(
+    expected: &'a ExpectedCoreOperation<'_, '_>,
+) -> &'a Span {
+    match &expected.source {
+        ExpectedCoreOperationSource::Body { line, .. } => &line.span,
+        ExpectedCoreOperationSource::Predicate { line, .. } => &line.span,
+    }
+}
+
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct CoreLowerExpression {
     pub(crate) text: String,
     pub(crate) kind: &'static str,
@@ -455,6 +645,57 @@ pub(crate) fn corrupt_first_structured_expression_for_test(
     Ok(())
 }
 
+#[cfg(test)]
+pub(crate) fn swap_operation_origins_for_test(
+    report: &mut CoreLowerReport,
+    item_index: usize,
+    left: usize,
+    right: usize,
+) {
+    let operations = &mut report.core_items[item_index].operations;
+    let origin = operations[left].candidate_origin.clone();
+    operations[left].candidate_origin = operations[right].candidate_origin.clone();
+    operations[right].candidate_origin = origin;
+}
+
+#[cfg(test)]
+pub(crate) fn copy_item_origin_for_test(
+    target: &mut CoreLowerReport,
+    target_index: usize,
+    source: &CoreLowerReport,
+    source_index: usize,
+) {
+    target.core_items[target_index].candidate_origin =
+        source.core_items[source_index].candidate_origin.clone();
+}
+
+#[cfg(test)]
+pub(crate) fn copy_operation_origin_for_test(
+    target: &mut CoreLowerReport,
+    target_item: usize,
+    target_operation: usize,
+    source: &CoreLowerReport,
+    source_item: usize,
+    source_operation: usize,
+) {
+    target.core_items[target_item].operations[target_operation].candidate_origin =
+        source.core_items[source_item].operations[source_operation]
+            .candidate_origin
+            .clone();
+}
+
+#[cfg(test)]
+pub(crate) fn reject_operation_origin_for_test(
+    report: &mut CoreLowerReport,
+    item_index: usize,
+    operation_index: usize,
+) {
+    report.core_items[item_index].operations[operation_index].candidate_origin =
+        CoreOperationCandidateOrigin::Rejected(CoreOperationExpectationError::Ordering(
+            operation_index,
+        ));
+}
+
 pub(crate) fn build_core_lower_report_from_preview(
     program: &Program,
     diagnostics: &[Diagnostic],
@@ -519,6 +760,376 @@ pub(crate) fn diagnostic_projection_from_preview(
     DiagnosticProjection::from_upstream("core_lower", preview_authority)
 }
 
+pub(crate) fn core_item_occupies_expected_slot(
+    expected: &CanonicalCoreOperationOwnerExpectation<'_>,
+    candidate: &CoreLowerItem,
+) -> bool {
+    match &candidate.candidate_origin {
+        CoreItemCandidateOrigin::Authenticated(origin) => origin.matches(expected),
+        CoreItemCandidateOrigin::Rejected(error) => {
+            let _private_reason = error;
+            false
+        }
+    }
+}
+
+pub(crate) fn core_operation_occupies_expected_slot(
+    expected: &ExpectedCoreOperation<'_, '_>,
+    candidate: &CoreLowerOperation,
+) -> bool {
+    match &candidate.candidate_origin {
+        CoreOperationCandidateOrigin::Authenticated(origin) => {
+            CoreOperationCandidateOriginFacts::from_expected(expected)
+                .is_ok_and(|expected| origin.as_ref() == &expected)
+        }
+        CoreOperationCandidateOrigin::Rejected(error) => {
+            let _private_reason = error;
+            false
+        }
+    }
+}
+
+impl CoreOperationCandidateOriginFacts {
+    fn from_expected(
+        expected: &ExpectedCoreOperation<'_, '_>,
+    ) -> Result<Self, CoreOperationExpectationError> {
+        let source = match &expected.source {
+            ExpectedCoreOperationSource::Body {
+                parsed, artifact, ..
+            } => {
+                artifact.as_ref().map_err(|error| error.clone())?;
+                CoreOperationCandidateSourceFacts::Body(parsed.source_node_id.as_str().to_string())
+            }
+            ExpectedCoreOperationSource::Predicate {
+                section,
+                line: _,
+                artifact,
+            } => {
+                let artifact = artifact.as_ref().map_err(|error| error.clone())?;
+                CoreOperationCandidateSourceFacts::Predicate(
+                    artifact.semantic_task_identity().to_string(),
+                    artifact.semantic_line_identity().to_string(),
+                    section.name.clone(),
+                    artifact.status,
+                )
+            }
+        };
+        Ok(Self {
+            owner: CoreItemCandidateOriginFacts::from_expected(expected.owner),
+            slot: expected.slot,
+            source,
+        })
+    }
+}
+
+fn require_local_slot(actual: usize, expected: usize) -> Result<(), CoreOperationExpectationError> {
+    match actual
+        .checked_sub(expected)
+        .ok_or(CoreOperationExpectationError::SlotUnderflow)?
+    {
+        0 => Ok(()),
+        _ => Err(CoreOperationExpectationError::Ordering(expected)),
+    }
+}
+
+fn unique_artifact<'a, T>(
+    artifacts: impl Iterator<Item = (usize, &'a T)>,
+    source_slot: usize,
+    mut matches: impl FnMut(&T) -> bool,
+) -> Result<(usize, &'a T), CoreOperationExpectationError> {
+    let mut matched = None;
+    for (index, artifact) in artifacts.filter(|(_, artifact)| matches(artifact)) {
+        if matched.replace((index, artifact)).is_some() {
+            return Err(CoreOperationExpectationError::Ambiguous(source_slot));
+        }
+    }
+    matched.ok_or(CoreOperationExpectationError::Missing(source_slot))
+}
+
+fn matching_body_artifact<'invocation>(
+    line: &SectionLine,
+    parsed: &ParsedBodyStatement,
+    body: &'invocation CanonicalBodyGrammarReport,
+    source_slot: usize,
+) -> Result<&'invocation CanonicalBodyStatement, CoreOperationExpectationError> {
+    let (index, artifact) = unique_artifact(
+        body.statements.iter().enumerate(),
+        source_slot,
+        |artifact| {
+            let statement = artifact.statement();
+            let expression = match &parsed.kind {
+                ParsedBodyStatementKind::Return(expression) => Some(&expression.canonical),
+                ParsedBodyStatementKind::Binding { .. } | ParsedBodyStatementKind::Other { .. } => {
+                    None
+                }
+            };
+            statement.span == portable_span(&line.span)
+                && statement.text == line.text.trim()
+                && (
+                    statement.kind,
+                    statement.status,
+                    statement.expression_kind,
+                    statement.reason,
+                ) == (
+                    parsed.core_kind,
+                    parsed.core_status,
+                    parsed.core_expression_kind,
+                    parsed.core_reason,
+                )
+                && artifact.canonical_expression() == expression
+        },
+    )?;
+    require_local_slot(index, source_slot)?;
+    Ok(artifact)
+}
+
+fn predicate_local_ordinal(
+    task: &Task,
+    artifact: &PredicateFact,
+    predicate_facts: &[PredicateFact],
+) -> Result<usize, CoreOperationExpectationError> {
+    let mut ordinal = 0usize;
+    for candidate in predicate_facts {
+        if candidate.task_span != task.span
+            || candidate.status == RecognitionStatus::NonExecutableProse
+        {
+            continue;
+        }
+        if std::ptr::eq(candidate, artifact) {
+            return Ok(ordinal);
+        }
+        ordinal = ordinal
+            .checked_add(1)
+            .ok_or(CoreOperationExpectationError::SlotOverflow)?;
+    }
+    Err(CoreOperationExpectationError::Foreign(ordinal))
+}
+
+fn matching_predicate_artifact<'invocation>(
+    task: &Task,
+    section: &Section,
+    line: &SectionLine,
+    predicate_facts: &'invocation [PredicateFact],
+    predicate_slot: usize,
+) -> Result<&'invocation PredicateFact, CoreOperationExpectationError> {
+    let (_, artifact) = unique_artifact(
+        predicate_facts.iter().enumerate(),
+        predicate_slot,
+        |artifact| {
+            (artifact.task_span == task.span)
+                && artifact.section == section.name
+                && artifact.line_span == line.span
+                && artifact.text == line.text.trim()
+        },
+    )?;
+    if artifact.status != RecognitionStatus::NonExecutableProse {
+        require_local_slot(
+            predicate_local_ordinal(task, artifact, predicate_facts)?,
+            predicate_slot,
+        )?;
+    }
+    Ok(artifact)
+}
+
+fn with_expected_core_operation_sources<'program>(
+    owner: &CanonicalCoreOperationOwnerExpectation<'program>,
+    body: &CanonicalBodyGrammarReport,
+    predicate_facts: &[PredicateFact],
+    mut operation_slot: usize,
+    mut visit: impl for<'invocation> FnMut(usize, ExpectedCoreOperationSource<'program, 'invocation>),
+) -> Result<(), CoreOperationExpectationError> {
+    fn retain(
+        current: &mut Option<CoreOperationExpectationError>,
+        error: CoreOperationExpectationError,
+    ) {
+        if current.is_none()
+            || matches!(
+                error,
+                CoreOperationExpectationError::SlotOverflow
+                    | CoreOperationExpectationError::SlotUnderflow
+            )
+        {
+            *current = Some(error);
+        }
+    }
+    let mut rejection = None;
+    let mut body_slot = 0usize;
+    for (line, parsed) in owner
+        .section()
+        .lines
+        .iter()
+        .zip(&owner.section().body_syntax)
+    {
+        let Some(parsed) = parsed.as_ref() else {
+            continue;
+        };
+        let artifact = matching_body_artifact(line, parsed, body, body_slot);
+        if let Err(error) = &artifact {
+            retain(&mut rejection, error.clone());
+        }
+        visit(
+            operation_slot,
+            ExpectedCoreOperationSource::Body {
+                line,
+                parsed,
+                artifact,
+            },
+        );
+        body_slot = body_slot
+            .checked_add(1)
+            .ok_or(CoreOperationExpectationError::SlotOverflow)?;
+        operation_slot = operation_slot
+            .checked_add(1)
+            .ok_or(CoreOperationExpectationError::SlotOverflow)?;
+    }
+    if body.statements.get(body_slot).is_some() {
+        retain(
+            &mut rejection,
+            CoreOperationExpectationError::Foreign(body_slot),
+        );
+    }
+    if let Item::Task(task) = owner.item() {
+        let mut predicate_slot = 0usize;
+        for section_name in ["needs", "ensures"] {
+            let Some(section) = task.section(section_name) else {
+                continue;
+            };
+            for line in &section.lines {
+                if !crate::graph::is_meaningful_line_text(&line.text) {
+                    continue;
+                }
+                let artifact = matching_predicate_artifact(
+                    task,
+                    section,
+                    line,
+                    predicate_facts,
+                    predicate_slot,
+                );
+                if artifact
+                    .as_ref()
+                    .is_ok_and(|fact| fact.status == RecognitionStatus::NonExecutableProse)
+                {
+                    continue;
+                }
+                if let Err(error) = &artifact {
+                    retain(&mut rejection, error.clone());
+                }
+                visit(
+                    operation_slot,
+                    ExpectedCoreOperationSource::Predicate {
+                        section,
+                        line,
+                        artifact,
+                    },
+                );
+                predicate_slot = predicate_slot
+                    .checked_add(1)
+                    .ok_or(CoreOperationExpectationError::SlotOverflow)?;
+                operation_slot = operation_slot
+                    .checked_add(1)
+                    .ok_or(CoreOperationExpectationError::SlotOverflow)?;
+            }
+        }
+        if predicate_facts.iter().any(|fact| {
+            fact.task_span == task.span
+                && fact.status != RecognitionStatus::NonExecutableProse
+                && predicate_local_ordinal(task, fact, predicate_facts)
+                    .is_ok_and(|slot| slot >= predicate_slot)
+        }) {
+            retain(
+                &mut rejection,
+                CoreOperationExpectationError::Foreign(predicate_slot),
+            );
+        }
+    }
+    rejection.map_or(Ok(()), Err)
+}
+
+pub(crate) fn with_expected_core_operations_for_item<'program>(
+    owner: CanonicalCoreOperationOwnerExpectation<'program>,
+    body: &CanonicalBodyGrammarReport,
+    predicate_facts: &[PredicateFact],
+    visit: impl for<'invocation> FnMut(ExpectedCoreOperation<'program, 'invocation>),
+) -> Result<(), CoreOperationExpectationError> {
+    stream_expected_core_operations_for_item(owner, body, predicate_facts, 0, visit)
+}
+
+fn stream_expected_core_operations_for_item<'program>(
+    owner: CanonicalCoreOperationOwnerExpectation<'program>,
+    body: &CanonicalBodyGrammarReport,
+    predicate_facts: &[PredicateFact],
+    operation_slot: usize,
+    mut visit: impl for<'invocation> FnMut(ExpectedCoreOperation<'program, 'invocation>),
+) -> Result<(), CoreOperationExpectationError> {
+    let validation = with_expected_core_operation_sources(
+        &owner,
+        body,
+        predicate_facts,
+        operation_slot,
+        |_, _| {},
+    );
+    let streamed = with_expected_core_operation_sources(
+        &owner,
+        body,
+        predicate_facts,
+        operation_slot,
+        |slot, mut source| {
+            if let Err(error) = &validation {
+                match &mut source {
+                    ExpectedCoreOperationSource::Body { artifact, .. } => {
+                        *artifact = Err(error.clone())
+                    }
+                    ExpectedCoreOperationSource::Predicate { artifact, .. } => {
+                        *artifact = Err(error.clone())
+                    }
+                }
+            }
+            visit(ExpectedCoreOperation {
+                owner: &owner,
+                slot,
+                source,
+            });
+        },
+    );
+    debug_assert_eq!(streamed, validation);
+    validation
+}
+
+#[cfg(test)]
+pub(crate) fn with_expected_core_operations_from_slot_for_test<'program>(
+    owner: CanonicalCoreOperationOwnerExpectation<'program>,
+    body: &CanonicalBodyGrammarReport,
+    predicate_facts: &[PredicateFact],
+    operation_slot: usize,
+    visit: impl for<'invocation> FnMut(ExpectedCoreOperation<'program, 'invocation>),
+) -> Result<(), CoreOperationExpectationError> {
+    stream_expected_core_operations_for_item(owner, body, predicate_facts, operation_slot, visit)
+}
+
+fn fresh_canonical_body_for_item<'program>(
+    program: &'program Program,
+    item: &'program Item,
+    does: &'program Section,
+) -> CanonicalBodyGrammarReport {
+    core_body::analyze_does_section_for_lowering(
+        program
+            .canonical_core_expectation(item, does)
+            .expect("live Core item must have parser authority"),
+    )
+}
+
+pub(crate) fn with_fresh_expected_core_operations_for_item<'program>(
+    program: &'program Program,
+    item: &'program Item,
+    does: &'program Section,
+    owner: CanonicalCoreOperationOwnerExpectation<'program>,
+    predicate_facts: &[PredicateFact],
+    visit: impl for<'invocation> FnMut(ExpectedCoreOperation<'program, 'invocation>),
+) -> Result<(), CoreOperationExpectationError> {
+    let body = fresh_canonical_body_for_item(program, item, does);
+    with_expected_core_operations_for_item(owner, &body, predicate_facts, visit)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn collect_items(
     program: &Program,
@@ -574,17 +1185,23 @@ fn core_item(
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
-    let body = core_body::analyze_does_section_for_lowering(
-        program
-            .canonical_core_expectation(item, does)
-            .expect("live Core item must have parser authority"),
-    );
+    let body = fresh_canonical_body_for_item(program, item, does);
     let failure_analysis = match item {
         Item::Task(task) => failure_analysis.task(task).cloned().unwrap_or_default(),
         _ => Default::default(),
     };
+    let operation_owner = program
+        .canonical_core_operation_owner_expectation(item, does)
+        .map_err(CoreOperationExpectationError::OwnerRejected);
+    let candidate_origin = match &operation_owner {
+        Ok(owner) => CoreItemCandidateOrigin::Authenticated(Box::new(
+            CoreItemCandidateOriginFacts::from_expected(owner),
+        )),
+        Err(error) => CoreItemCandidateOrigin::Rejected(error.clone()),
+    };
     let operations = lower_operations(
         item,
+        operation_owner,
         &body,
         checked_returns,
         &failure_analysis.facts,
@@ -635,16 +1252,22 @@ fn core_item(
         operations,
         blockers,
         task_signature,
+        candidate_origin,
     })
 }
 
-fn lower_operations(
+fn lower_operations<'program>(
     item: &Item,
+    owner: Result<CanonicalCoreOperationOwnerExpectation<'program>, CoreOperationExpectationError>,
     body: &CanonicalBodyGrammarReport,
     checked_returns: &[CheckedReturnSummary],
     failure_facts: &std::collections::BTreeMap<usize, FailureFact>,
     predicate_facts: &[PredicateFact],
 ) -> Vec<CoreLowerOperation> {
+    let pending = match &owner {
+        Ok(_) => CoreOperationExpectationError::Ordering(0),
+        Err(error) => error.clone(),
+    };
     let mut operations = body
         .statements
         .iter()
@@ -656,26 +1279,46 @@ fn lower_operations(
                 statement,
                 checked_returns,
                 failure_facts.get(&index),
+                CoreOperationCandidateOrigin::Rejected(pending.clone()),
             )
         })
         .collect::<Vec<_>>();
     if let Item::Task(task) = item {
-        let first_predicate_index = operations.len();
-        operations.extend(
-            predicate_facts
-                .iter()
-                .filter(|fact| fact.task_span == task.span)
-                .filter(|fact| fact.status != RecognitionStatus::NonExecutableProse)
-                .enumerate()
-                .map(|(offset, fact)| {
-                    lower_predicate_operation(first_predicate_index + offset, fact)
-                }),
-        );
+        for fact in predicate_facts.iter().filter(|fact| {
+            fact.task_span == task.span && fact.status != RecognitionStatus::NonExecutableProse
+        }) {
+            let index = operations.len();
+            operations.push(lower_predicate_operation(
+                index,
+                fact,
+                CoreOperationCandidateOrigin::Rejected(pending.clone()),
+            ));
+        }
+    }
+    if let Ok(owner) = owner {
+        let result =
+            with_expected_core_operations_for_item(owner, body, predicate_facts, |expected| {
+                if let Ok(origin) = CoreOperationCandidateOriginFacts::from_expected(&expected)
+                    && let Some(candidate) = operations.get_mut(expected.slot)
+                {
+                    candidate.candidate_origin =
+                        CoreOperationCandidateOrigin::Authenticated(Box::new(origin));
+                }
+            });
+        if let Err(error) = result {
+            for candidate in &mut operations {
+                candidate.candidate_origin = CoreOperationCandidateOrigin::Rejected(error.clone());
+            }
+        }
     }
     operations
 }
 
-fn lower_predicate_operation(index: usize, fact: &PredicateFact) -> CoreLowerOperation {
+fn lower_predicate_operation(
+    index: usize,
+    fact: &PredicateFact,
+    candidate_origin: CoreOperationCandidateOrigin,
+) -> CoreLowerOperation {
     let accepted = fact.status == RecognitionStatus::RecognizedTyped;
     let expression = accepted.then(|| {
         let preview = core_preview::predicate_expression_preview_for_lowering(fact);
@@ -704,6 +1347,7 @@ fn lower_predicate_operation(index: usize, fact: &PredicateFact) -> CoreLowerOpe
         },
         expression,
         reason: Some(fact.reason),
+        candidate_origin,
     }
 }
 
@@ -713,6 +1357,7 @@ fn lower_operation(
     bound_statement: &CanonicalBodyStatement,
     checked_returns: &[CheckedReturnSummary],
     failure_fact: Option<&FailureFact>,
+    candidate_origin: CoreOperationCandidateOrigin,
 ) -> CoreLowerOperation {
     let statement = bound_statement.statement();
     let canonical_expression = bound_statement.canonical_expression();
@@ -735,6 +1380,7 @@ fn lower_operation(
             status: "blocked_operation_v0",
             expression: None,
             reason: fact.reason.or(Some("unsupported_try_expression_shape_v0")),
+            candidate_origin,
         };
     }
     let (core_operation, status, fallback_reason) = core_operation_for(statement);
@@ -759,6 +1405,7 @@ fn lower_operation(
         status,
         expression,
         reason: statement.reason.or(fallback_reason),
+        candidate_origin,
     }
 }
 
@@ -1580,11 +2227,58 @@ fn push_comma_newline(out: &mut String, comma: bool) {
 #[cfg(test)]
 mod tests {
     use super::{
-        CoreLowerTaskSignatureVerdict, build_core_lower_report, core_lower_json, core_lower_text,
-        lower_operation,
+        CoreLowerTaskSignatureVerdict, CoreOperationCandidateOrigin, CoreOperationExpectationError,
+        build_core_lower_report, core_lower_json, core_lower_text, lower_operation,
     };
     use crate::ast::{CanonicalTaskSignatureCorruption, Item, ParamPermission, Program};
     use crate::parser::parse_source;
+
+    #[test]
+    fn core_operation_candidate_origin_is_attached_once() {
+        fn lower(
+            path: &str,
+            source: &str,
+        ) -> (
+            Program,
+            Vec<crate::diagnostic::Diagnostic>,
+            super::CoreLowerReport,
+        ) {
+            let parsed = parse_source(path, source);
+            let program = Program {
+                files: vec![parsed.file],
+            };
+            let report = build_core_lower_report(&program, &parsed.diagnostics);
+            (program, parsed.diagnostics, report)
+        }
+        let (program, diagnostics, report) = lower(
+            "fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum",
+            include_str!("../fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum"),
+        );
+        assert!(report.core_items.iter().all(|item| matches!(
+            item.candidate_origin,
+            super::CoreItemCandidateOrigin::Authenticated(_)
+        )));
+        let mut ops = report.core_items.iter().flat_map(|item| &item.operations);
+        assert!(ops.clone().any(|op| op.status == "blocked_operation_v0"));
+        assert!(ops.all(|operation| matches!(
+            operation.candidate_origin,
+            super::CoreOperationCandidateOrigin::Authenticated(_)
+        )));
+        let json = core_lower_json(&program, &diagnostics);
+        assert!(!json.contains("candidate_origin"));
+        let (_, _, add_report) = lower(
+            "examples/core/add.hum",
+            include_str!("../examples/core/add.hum"),
+        );
+        assert!(add_report.core_items.iter().any(|item| item.kind != "task"));
+        assert!(
+            add_report
+                .core_items
+                .iter()
+                .flat_map(|item| &item.operations)
+                .any(|op| op.source_kind == "contract_predicate")
+        );
+    }
 
     #[test]
     fn task_signature_authority_is_owned_one_to_one() {
@@ -1710,7 +2404,17 @@ mod tests {
 
         body.statements[0].statement_mut_for_test().text = "return fabricated + names".to_string();
         let checked_returns = crate::type_check::checked_return_summaries(&program, &diagnostics);
-        let lowered = lower_operation(item, 0, &body.statements[0], &checked_returns, None);
+        let rejected = CoreOperationCandidateOrigin::Rejected(
+            CoreOperationExpectationError::OwnerRejected("test_only_v0"),
+        );
+        let lowered = lower_operation(
+            item,
+            0,
+            &body.statements[0],
+            &checked_returns,
+            None,
+            rejected,
+        );
         let structured = lowered
             .expression
             .expect("expression")

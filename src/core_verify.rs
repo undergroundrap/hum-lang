@@ -1,5 +1,6 @@
 use crate::ast::{
-    CanonicalExpression, CanonicalExpressionKind, ParsedBinaryOperator, ParsedSourceRange, Program,
+    CanonicalExpression, CanonicalExpressionKind, Item, ParsedBinaryOperator, ParsedSourceRange,
+    Program,
 };
 use crate::callable;
 use crate::core_contract;
@@ -289,7 +290,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreVerifyRepo
         .diagnostic_projection
         .validate_against("core_lower", &preview_authority)
         .expect("Core verify must compare lower projection with preview authority");
-    let mut checks = verify_lower_report(&lower);
+    let mut checks = verify_lower_report(program, &lower);
     let callable_failures = callable::analyze_program(program).verify();
     if callable_failures.is_empty() {
         push_check(
@@ -348,7 +349,7 @@ pub(crate) fn validate_diagnostic_projection_from_source(
     Ok(lower.diagnostic_occurrences)
 }
 
-fn verify_lower_report(lower: &CoreLowerReport) -> Vec<CoreVerifyCheck> {
+fn verify_lower_report(program: &Program, lower: &CoreLowerReport) -> Vec<CoreVerifyCheck> {
     let mut checks = Vec::new();
     push_check(
         &mut checks,
@@ -378,23 +379,147 @@ fn verify_lower_report(lower: &CoreLowerReport) -> Vec<CoreVerifyCheck> {
         "core-lower status is explicitly unverified",
     );
 
-    for item in &lower.core_items {
-        verify_item(item, &mut checks);
+    let predicate_analysis = predicate::PredicateAnalysis::build(program);
+    let mut candidate_item_cursor = 0usize;
+    for file in &program.files {
+        verify_program_items(
+            program,
+            &file.items,
+            lower,
+            predicate_analysis.facts(),
+            &mut candidate_item_cursor,
+            &mut checks,
+        );
+    }
+    while let Some(item) = lower.core_items.get(candidate_item_cursor) {
+        verify_item(
+            item,
+            false,
+            |checks| {
+                for (index, operation) in item.operations.iter().enumerate() {
+                    verify_operation(item, operation, index, None, checks);
+                }
+            },
+            &mut checks,
+        );
+        let Some(next) = candidate_item_cursor.checked_add(1) else {
+            break;
+        };
+        candidate_item_cursor = next;
     }
 
     checks
 }
 
-fn verify_item(item: &CoreLowerItem, checks: &mut Vec<CoreVerifyCheck>) {
+fn verify_program_items(
+    program: &Program,
+    items: &[Item],
+    lower: &CoreLowerReport,
+    predicate_facts: &[crate::predicate::PredicateFact],
+    candidate_item_cursor: &mut usize,
+    checks: &mut Vec<CoreVerifyCheck>,
+) {
+    for item in items {
+        if let Some(does) = item
+            .sections()
+            .iter()
+            .find(|section| section.name == "does")
+        {
+            let expected = program.canonical_core_operation_owner_expectation(item, does);
+            let candidate = lower.core_items.get(*candidate_item_cursor);
+            match (expected, candidate) {
+                (Ok(expected), Some(candidate))
+                    if core_lower::core_item_occupies_expected_slot(&expected, candidate) =>
+                {
+                    verify_item(
+                        candidate,
+                        true,
+                        |checks| {
+                            let mut expected_slots = Some(0usize);
+                            let _streamed =
+                                core_lower::with_fresh_expected_core_operations_for_item(
+                                    program,
+                                    item,
+                                    does,
+                                    expected,
+                                    predicate_facts,
+                                    |slot| {
+                                        verify_expected_operation(
+                                            candidate,
+                                            &mut expected_slots,
+                                            slot,
+                                            checks,
+                                        )
+                                    },
+                                );
+                            verify_remaining_operations(candidate, expected_slots, checks);
+                        },
+                        checks,
+                    );
+                    if let Some(next) = candidate_item_cursor.checked_add(1) {
+                        *candidate_item_cursor = next;
+                    } else {
+                        push_check(
+                            checks,
+                            "core_item",
+                            &candidate.id,
+                            Some(&candidate.span),
+                            false,
+                            "row_identity",
+                            "core item has no exact Program-owned source-slot association",
+                        );
+                    }
+                }
+                _ => push_missing_item_check(item, checks),
+            }
+        }
+        verify_program_items(
+            program,
+            item.nested_items(),
+            lower,
+            predicate_facts,
+            candidate_item_cursor,
+            checks,
+        );
+    }
+}
+
+fn push_missing_item_check(item: &Item, checks: &mut Vec<CoreVerifyCheck>) {
+    let id = crate::node_id::span(
+        "core-item",
+        item.span(),
+        &format!("{} {}", item.kind(), item.name()),
+    );
+    push_check(
+        checks,
+        "core_item",
+        &id,
+        Some(item.span()),
+        false,
+        "expected_core_item_present",
+        "parser-owned Core item has one exact lowered candidate",
+    );
+}
+
+fn verify_item(
+    item: &CoreLowerItem,
+    associated: bool,
+    operations: impl FnOnce(&mut Vec<CoreVerifyCheck>),
+    checks: &mut Vec<CoreVerifyCheck>,
+) {
     push_span_check(checks, "core_item", &item.id, &item.span);
     push_check(
         checks,
         "core_item",
         &item.id,
         Some(&item.span),
-        !item.id.trim().is_empty(),
+        associated && !item.id.trim().is_empty(),
         "row_identity",
-        "core item id is present",
+        if associated {
+            "core item id is present"
+        } else {
+            "core item has no exact Program-owned source-slot association"
+        },
     );
     push_check(
         checks,
@@ -447,10 +572,7 @@ fn verify_item(item: &CoreLowerItem, checks: &mut Vec<CoreVerifyCheck>) {
             item.status
         ),
     );
-
-    for (expected_index, operation) in item.operations.iter().enumerate() {
-        verify_operation(item, operation, expected_index, checks);
-    }
+    operations(checks);
     for blocker in &item.blockers {
         push_span_check(checks, "blocker", &item.id, &blocker.span);
         push_check(
@@ -468,10 +590,71 @@ fn verify_item(item: &CoreLowerItem, checks: &mut Vec<CoreVerifyCheck>) {
     }
 }
 
+#[cfg(test)]
+fn verify_expected_operations(
+    expected_owner: crate::ast::CanonicalCoreOperationOwnerExpectation<'_>,
+    item: &CoreLowerItem,
+    body: &crate::core_body::CanonicalBodyGrammarReport,
+    predicate_facts: &[crate::predicate::PredicateFact],
+    operation_slot: usize,
+    checks: &mut Vec<CoreVerifyCheck>,
+) -> Result<(), crate::core_lower::CoreOperationExpectationError> {
+    let mut expected_slots = Some(operation_slot);
+    let streamed = core_lower::with_expected_core_operations_from_slot_for_test(
+        expected_owner,
+        body,
+        predicate_facts,
+        operation_slot,
+        |expected| verify_expected_operation(item, &mut expected_slots, expected, checks),
+    );
+    verify_remaining_operations(item, expected_slots, checks);
+    streamed
+}
+
+fn verify_expected_operation(
+    item: &CoreLowerItem,
+    expected_slots: &mut Option<usize>,
+    expected: crate::core_lower::ExpectedCoreOperation<'_, '_>,
+    checks: &mut Vec<CoreVerifyCheck>,
+) {
+    let slot = expected.slot();
+    *expected_slots = slot.checked_add(1);
+    if let Some(operation) = item.operations.get(slot) {
+        verify_operation(item, operation, slot, Some(&expected), checks);
+    } else {
+        push_check(
+            checks,
+            "core_item",
+            &item.id,
+            Some(core_lower::expected_core_operation_source_span(&expected)),
+            false,
+            "expected_core_operation_present",
+            "parser-owned Core operation slot has one lowered candidate",
+        );
+    }
+}
+
+fn verify_remaining_operations(
+    item: &CoreLowerItem,
+    expected_slots: Option<usize>,
+    checks: &mut Vec<CoreVerifyCheck>,
+) {
+    let Some(expected_slots) = expected_slots else {
+        for (index, operation) in item.operations.iter().enumerate() {
+            verify_operation(item, operation, index, None, checks);
+        }
+        return;
+    };
+    for (index, operation) in item.operations.iter().enumerate().skip(expected_slots) {
+        verify_operation(item, operation, index, None, checks);
+    }
+}
+
 fn verify_operation(
     item: &CoreLowerItem,
     operation: &CoreLowerOperation,
     expected_index: usize,
+    expected: Option<&crate::core_lower::ExpectedCoreOperation<'_, '_>>,
     checks: &mut Vec<CoreVerifyCheck>,
 ) {
     push_span_check(checks, "operation", &operation.id, &operation.span);
@@ -489,7 +672,10 @@ fn verify_operation(
         "operation",
         &operation.id,
         Some(&operation.span),
-        operation.index == expected_index,
+        operation.index == expected_index
+            && expected.is_some_and(|expected| {
+                core_lower::core_operation_occupies_expected_slot(expected, operation)
+            }),
         "operation_index_consistent",
         format!("operation index is {}", operation.index),
     );
@@ -1459,12 +1645,178 @@ fn push_comma_newline(out: &mut String, comma: bool) {
 #[cfg(test)]
 mod tests {
     use crate::ast::{CanonicalTaskSignatureCorruption, ParamPermission, Program};
+    use crate::core_body::CanonicalBodyGrammarReport;
+    use crate::core_lower::{self, CoreLowerReport, CoreOperationExpectationError};
+    use crate::diagnostic::Diagnostic;
     use crate::parser::parse_source;
+    use crate::predicate::{PredicateAnalysis, PredicateFact};
 
     use super::{
         build_report, core_verify_json, core_verify_text,
         validate_diagnostic_projection_from_source, verify_lower_report,
     };
+
+    #[rustfmt::skip]
+    #[test]
+    fn borrowed_core_operation_expectation_is_load_bearing() {
+        const SOURCE: &str = "task first(value: Int) -> Int {\n  needs:\n    value < 100\n  ensures:\n    value < 100\n  does:\n    let next = value + 1\n    return next\n}\ntask empty() {\n  does:\n}\ntask last() -> Int {\n  does:\n    return 1\n}\ntest order remains stable unit {\n  does:\n    expect first(1) returns 2\n}\n";
+        fn subject(source: &str) -> (Program, Vec<Diagnostic>) {
+            let parsed = parse_source("order-bound.hum", source);
+            (Program { files: vec![parsed.file] }, parsed.diagnostics)
+        }
+        fn lower(p: &Program, d: &[Diagnostic]) -> CoreLowerReport { core_lower::build_core_lower_report(p, d) }
+        fn failures(p: &Program, r: &CoreLowerReport, rule: &str) -> usize {
+            verify_lower_report(p, r).iter().filter(|c| c.rule == rule && c.status == "failed_v0").count()
+        }
+        fn reindex(r: &mut CoreLowerReport, item: usize) {
+            for (index, operation) in r.core_items[item].operations.iter_mut().enumerate() { operation.index = index; }
+        }
+        fn artifacts(p: &Program) -> (CanonicalBodyGrammarReport, Vec<PredicateFact>) {
+            let item = &p.files[0].items[0];
+            let does = item.sections().iter().find(|s| s.name == "does").unwrap();
+            let body = crate::core_body::analyze_does_section_for_lowering(p.canonical_core_expectation(item, does).unwrap());
+            (body, PredicateAnalysis::build(p).facts().to_vec())
+        }
+        fn injected(p: &Program, r: &CoreLowerReport, body: &CanonicalBodyGrammarReport, facts: &[PredicateFact])
+            -> (Result<(), CoreOperationExpectationError>, Vec<super::CoreVerifyCheck>) {
+            let item = &p.files[0].items[0];
+            let does = item.sections().iter().find(|s| s.name == "does").unwrap();
+            let owner = p.canonical_core_operation_owner_expectation(item, does).unwrap();
+            let mut checks = Vec::new();
+            let result = super::verify_expected_operations(owner, &r.core_items[0], body, facts, 0, &mut checks);
+            (result, checks)
+        }
+        fn fails(p: &Program, r: &CoreLowerReport, rule: &str, count: usize) { assert_eq!(failures(p, r, rule), count, "{rule}"); }
+        fn rejected_local(p: &Program, r: &CoreLowerReport, body: &CanonicalBodyGrammarReport, facts: &[PredicateFact]) -> bool {
+            let (result, checks) = injected(p, r, body, facts);
+            result.is_err() && checks.iter().any(|c| c.rule == "operation_index_consistent" && c.status == "failed_v0")
+        }
+        fn fixture(path: &str, source: &str, checks: usize) -> super::CoreVerifyReport {
+            let parsed = parse_source(path, source);
+            let program = Program { files: vec![parsed.file] };
+            let report = super::build_report(&program, &parsed.diagnostics);
+            assert_eq!((report.checks.len(), report.failed_checks()), (checks, 0));
+            report
+        }
+        let (program, diagnostics) = subject(SOURCE);
+        let clean = lower(&program, &diagnostics);
+        assert!(verify_lower_report(&program, &clean).iter().all(|c| c.status == "passed_v0"));
+        assert_eq!((clean.core_items.len(), clean.core_items[0].operations.len()), (4, 4));
+        assert!(clean.core_items[1].operations.is_empty());
+        assert!(clean.core_items[0].operations[2..].iter().all(|op| op.source_kind == "contract_predicate"));
+        assert_ne!(clean.core_items[3].kind, "task");
+        let (foreign_program, foreign_diagnostics) = subject(SOURCE);
+        let foreign = lower(&foreign_program, &foreign_diagnostics);
+        let (revised_program, revised_diagnostics) = subject(&format!("{SOURCE}\n"));
+        let revised = lower(&revised_program, &revised_diagnostics);
+        let (sole_program, sole_diagnostics) =
+            subject("task only() -> Int {\n  does:\n    return 1\n}\n");
+        let mut sole = lower(&sole_program, &sole_diagnostics); sole.core_items[0].operations.clear();
+        fails(&sole_program, &sole, "expected_core_operation_present", 1);
+        let mut sole_item = lower(&sole_program, &sole_diagnostics); sole_item.core_items.clear();
+        fails(&sole_program, &sole_item, "expected_core_item_present", 1);
+        for (kind, a, b, rule, expected) in [
+            ("di", 0, 0, "expected_core_item_present", 1), ("di", 1, 0, "expected_core_item_present", 1),
+            ("di", 3, 0, "expected_core_item_present", 1),
+            ("ii", 1, 0, "row_identity", 0), ("ii", 4, 0, "row_identity", 0),
+            ("si", 0, 2, "expected_core_item_present", 0),
+            ("do", 1, 0, "expected_core_operation_present", 1), ("do", 3, 0, "expected_core_operation_present", 1),
+            ("io", 1, 0, "operation_index_consistent", 0), ("io", 4, 0, "operation_index_consistent", 0),
+            ("so", 0, 1, "operation_index_consistent", 2), ("so", 0, 2, "operation_index_consistent", 2),
+            ("so", 2, 3, "operation_index_consistent", 2),
+            ("sr", 0, 1, "operation_index_consistent", 2), ("sr", 0, 2, "operation_index_consistent", 2),
+            ("sr", 2, 3, "operation_index_consistent", 2),
+            ("po", 2, 3, "operation_index_consistent", 2),
+        ] {
+            let mut changed = lower(&program, &diagnostics);
+            match kind {
+                "di" => { changed.core_items.remove(a); }
+                "ii" => { let extra = lower(&program, &diagnostics).core_items.remove(0); changed.core_items.insert(a, extra); }
+                "si" => changed.core_items.swap(a, b),
+                "do" => { changed.core_items[0].operations.remove(a); reindex(&mut changed, 0); }
+                "io" => { let extra = changed.core_items[0].operations[0].clone(); changed.core_items[0].operations.insert(a, extra); reindex(&mut changed, 0); }
+                "so" | "sr" => { changed.core_items[0].operations.swap(a, b); if kind == "sr" { reindex(&mut changed, 0); } }
+                "po" => core_lower::swap_operation_origins_for_test(&mut changed, 0, a, b),
+                _ => unreachable!(),
+            }
+            let count = failures(&program, &changed, rule);
+            assert!(if expected == 0 { count > 0 } else { count == expected });
+            if kind == "sr" {
+                assert!(verify_lower_report(&program, &changed).iter().filter(|c| c.status == "failed_v0").all(|c| c.rule == rule));
+            }
+        }
+        let mut middle = lower(&program, &diagnostics); middle.core_items[0].operations.remove(1);
+        reindex(&mut middle, 0);
+        assert!(failures(&program, &middle, "operation_index_consistent") > 0);
+        for (source, source_item) in [(&foreign, 0usize), (&foreign, 2), (&revised, 0)] {
+            let mut changed = lower(&program, &diagnostics);
+            core_lower::copy_item_origin_for_test(&mut changed, 0, source, source_item);
+            assert!(failures(&program, &changed, "expected_core_item_present") > 0);
+            assert!(failures(&program, &changed, "row_identity") > 0);
+        }
+        for source in [&foreign, &revised] {
+            let mut changed = lower(&program, &diagnostics);
+            core_lower::copy_operation_origin_for_test(&mut changed, 0, 0, source, 0, 0);
+            fails(&program, &changed, "operation_index_consistent", 1);
+        }
+        let mut changed = lower(&program, &diagnostics);
+        core_lower::reject_operation_origin_for_test(&mut changed, 0, 0);
+        fails(&program, &changed, "operation_index_consistent", 1);
+        let (body, facts) = artifacts(&program);
+        for duplicate in [false, true] {
+            let mut changed = body.clone();
+            if duplicate { changed.statements.insert(0, body.statements[0].clone()); } else { changed.statements.remove(0); }
+            assert!(rejected_local(&program, &clean, &changed, &facts));
+        }
+        for duplicate in [false, true] {
+            let mut changed = facts.clone();
+            if duplicate { changed.insert(0, facts[0].clone()); } else { changed.remove(0); }
+            assert!(rejected_local(&program, &clean, &body, &changed));
+        }
+        let (mut sole_body, sole_facts) = artifacts(&sole_program); sole_body.statements.clear();
+        let (result, sole_checks) = injected(&sole_program, &sole, &sole_body, &sole_facts);
+        assert_eq!(result, Err(CoreOperationExpectationError::Missing(0)));
+        let missing = sole_checks.first().expect("sole missing row");
+        assert_eq!(missing.scope, "core_item");
+        assert_eq!(missing.scope_id, sole.core_items[0].id);
+        assert_eq!(missing.status, "failed_v0");
+        assert_eq!(missing.rule, "expected_core_operation_present");
+        assert_eq!(missing.detail, "parser-owned Core operation slot has one lowered candidate");
+        assert_eq!(missing.span.as_ref(), Some(&sole_program.files[0].items[0].sections()[0].lines[0].span));
+        let report = super::CoreVerifyReport { lower: sole, checks: sole_checks };
+        assert_eq!(report.verification_status(), super::CORE_VERIFY_FAILED_STATUS);
+        assert_eq!(report.verified_operations(), 0);
+
+        let mut middle_lower = lower(&program, &diagnostics); middle_lower.core_items[0].operations.remove(1);
+        reindex(&mut middle_lower, 0);
+        let mut middle_body = body.clone(); middle_body.statements.remove(1);
+        let (_, middle_checks) = injected(&program, &middle_lower, &middle_body, &facts);
+        assert_eq!(middle_checks.iter().filter(|c| c.rule == "expected_core_operation_present").count(), 1);
+        let mut final_lower = lower(&program, &diagnostics); final_lower.core_items[0].operations.pop();
+        let mut final_facts = facts.clone(); final_facts.pop();
+        let (_, final_checks) = injected(&program, &final_lower, &body, &final_facts);
+        assert_eq!(final_checks.last().unwrap().rule, "expected_core_operation_present");
+
+        let mut underflow_body = body.clone();
+        underflow_body.statements.remove(0);
+        assert_eq!(injected(&program, &clean, &underflow_body, &facts).0, Err(CoreOperationExpectationError::SlotUnderflow));
+        let mut impossible_body = body.clone();
+        let mut foreign_artifact = body.statements[0].clone();
+        foreign_artifact.statement_mut_for_test().span.file = "foreign/order.hum".to_string();
+        impossible_body.statements.insert(0, foreign_artifact);
+        assert_eq!(injected(&program, &clean, &impossible_body, &facts).0, Err(CoreOperationExpectationError::Ordering(0)));
+        let item = &program.files[0].items[0];
+        let does = item.sections().iter().find(|s| s.name == "does").unwrap();
+        let owner = program.canonical_core_operation_owner_expectation(item, does).unwrap();
+        let mut overflow_checks = Vec::new();
+        let overflow = super::verify_expected_operations(owner, &clean.core_items[0], &body, &facts, usize::MAX, &mut overflow_checks);
+        assert_eq!(overflow, Err(CoreOperationExpectationError::SlotOverflow));
+        assert!(overflow_checks.iter().any(|c| c.status == "failed_v0"));
+
+        fixture("examples/core/minimal_add.hum", include_str!("../examples/core/minimal_add.hum"), 35);
+        let uint_report = fixture("fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum", include_str!("../fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum"), 766);
+        assert!(uint_report.lower.core_items.iter().flat_map(|i| &i.operations).any(|op| op.core_operation == "blocked_unsupported_try_expression"));
+    }
 
     #[test]
     fn task_signature_authority_is_load_bearing() {
@@ -1490,7 +1842,7 @@ mod tests {
 
         let (program, diagnostics) = test_program();
         let clean_lower = crate::core_lower::build_core_lower_report(&program, &diagnostics);
-        let clean_checks = verify_lower_report(&clean_lower);
+        let clean_checks = verify_lower_report(&program, &clean_lower);
         let clean = signature_check(&clean_checks).expect("existing item check");
         assert_eq!(clean.status, "passed_v0");
         assert_eq!(clean.rule, "body_grammar_consistency");
@@ -1509,8 +1861,12 @@ mod tests {
             corrupted_program.files[0].items[0].corrupt_canonical_task_signature(corruption);
             let lower =
                 crate::core_lower::build_core_lower_report(&corrupted_program, &diagnostics);
-            let checks = verify_lower_report(&lower);
-            assert_eq!(checks.len(), clean_count, "{corruption:?}");
+            let checks = verify_lower_report(&corrupted_program, &lower);
+            assert_eq!(
+                checks.len(),
+                clean_count.checked_add(1).unwrap(),
+                "{corruption:?}"
+            );
             let rejected = signature_check(&checks).expect("replacement item check");
             assert_eq!(rejected.status, "failed_v0", "{corruption:?}");
             assert_eq!(
@@ -1534,7 +1890,7 @@ mod tests {
         task.params[1].name = "other_right".to_string();
         task.params[1].ty = "UInt".to_string();
         task.result = Some("UInt".to_string());
-        let checks = verify_lower_report(&public);
+        let checks = verify_lower_report(&program, &public);
         let rejected = signature_check(&checks).expect("public substitution check");
         assert_eq!(rejected.status, "failed_v0");
         assert_eq!(
@@ -1545,7 +1901,7 @@ mod tests {
         let mut precedence = crate::core_lower::build_core_lower_report(&program, &diagnostics);
         precedence.core_items[0].grammar_status = "corrupted_body_grammar_v0";
         precedence.core_items[0].name = "foreign".to_string();
-        let checks = verify_lower_report(&precedence);
+        let checks = verify_lower_report(&program, &precedence);
         let rejected = signature_check(&checks).expect("precedence check");
         assert_eq!(
             rejected.rule, "task_signature_authority_matches_parser_owner",
@@ -1569,8 +1925,12 @@ mod tests {
             )
         }
 
-        fn failed_rule(report: &crate::core_lower::CoreLowerReport, rule: &str) -> bool {
-            verify_lower_report(report)
+        fn failed_rule(
+            program: &Program,
+            report: &crate::core_lower::CoreLowerReport,
+            rule: &str,
+        ) -> bool {
+            verify_lower_report(program, report)
                 .iter()
                 .any(|check| check.status == "failed_v0" && check.rule == rule)
         }
@@ -1591,7 +1951,11 @@ mod tests {
             crate::core_lower::CoreLowerTreeCorruption::ReorderChildren,
         )
         .expect("reorder seam");
-        assert!(failed_rule(&reordered, "structured_expression_child_order"));
+        assert!(failed_rule(
+            &program,
+            &reordered,
+            "structured_expression_child_order"
+        ));
 
         let mut duplicate = crate::core_lower::build_core_lower_report(&program, &diagnostics);
         crate::core_lower::corrupt_first_structured_expression_for_test(
@@ -1600,6 +1964,7 @@ mod tests {
         )
         .expect("duplicate seam");
         assert!(failed_rule(
+            &program,
             &duplicate,
             "structured_expression_identity_distinct"
         ));
@@ -1634,6 +1999,7 @@ mod tests {
         )
         .expect("foreign seam");
         assert!(failed_rule(
+            &program,
             &substituted,
             "structured_expression_child_authority"
         ));
@@ -1645,6 +2011,7 @@ mod tests {
         )
         .expect("foreign range seam");
         assert!(failed_rule(
+            &program,
             &foreign_ranged,
             "structured_expression_range_authority"
         ));
@@ -1658,6 +2025,7 @@ mod tests {
         )
         .expect("identifier spelling seam");
         assert!(failed_rule(
+            &program,
             &misspelled,
             "structured_expression_child_authority"
         ));
@@ -1671,6 +2039,7 @@ mod tests {
         )
         .expect("coherent foreign projection seam");
         assert!(failed_rule(
+            &program,
             &foreign_tree,
             "structured_expression_root_authority"
         ));
@@ -1686,6 +2055,7 @@ mod tests {
         )
         .expect("coherent range relocation seam");
         assert!(failed_rule(
+            &program,
             &relocated,
             "structured_expression_range_authority"
         ));
@@ -1697,6 +2067,7 @@ mod tests {
         )
         .expect("overflow-sized range seam");
         assert!(failed_rule(
+            &program,
             &overflowing,
             "structured_expression_source_ranges"
         ));
@@ -1708,6 +2079,7 @@ mod tests {
         )
         .expect("structural overclaim seam");
         assert!(failed_rule(
+            &program,
             &overclaimed,
             "structured_expression_binary_add_shape"
         ));

@@ -139,7 +139,7 @@ Each `checks` row has:
 Current rule families include:
 
 - `source_span_sane`: source file, line, and column are present and nonzero
-- `row_identity`: item and operation row ids are present
+- `row_identity`: item and operation row ids are present. An unassociated duplicate, extra, reordered, or foreign item candidate keeps its existing `scope = core_item`, candidate item ID and span, but fails with exact detail `core item has no exact Program-owned source-slot association`.
 - `body_grammar_consistency`: item rows preserve partial body grammar provenance
 - `task_signature_authority_matches_parser_owner`: conditionally replaces
   `body_grammar_consistency` at that same item-check ordinal when a task's
@@ -151,7 +151,10 @@ Current rule families include:
   non-task items retain the existing `body_grammar_consistency` row unchanged.
 - `item_status_known`: item status is one the verifier understands
 - `item_status_consistent`: item status agrees with blockers and operation rows
-- `operation_index_consistent`: operation indices match source order
+- `operation_index_consistent`: at its existing operation-row ordinal, the public index and private nonserialized candidate origin must both match the exact borrowed Program slot. It keeps the existing operation scope, ID, span, and `operation index is {index}` detail; either mismatch is `failed_v0`.
+- `expected_core_item_present`: failure-only `core_item` row emitted at the missing Program-item boundary, after the three summary rows and every row for preceding associated items. Its reporting ID is the ordinary `core-item` node ID projected from the Program item, its span is that item, and its exact detail is `parser-owned Core item has one exact lowered candidate`. No synthetic item row is created.
+- `expected_core_operation_present`: failure-only `core_item` row emitted at the exact independently traversed source-operation slot when that candidate is absent. It uses the associated candidate item ID, the Program-owned operation span, exact detail `parser-owned Core operation slot has one lowered candidate`, and appears after preceding operation rows and before later slots. Missing, duplicate, ambiguous, foreign, reordered, or rejected body/predicate artifacts cannot suppress this source-slot row; a retained candidate instead fails `operation_index_consistent`.
+- Both failure-only rows use `failed_v0`, increment existing failed-check counts, make the root `core_artifact_verification_failed_v0`, reduce the report-wide verified-item and verified-operation counts to zero, and cause the existing `core-verify` command to exit nonzero. They are absent for valid artifacts, so valid row counts, order, human output, and JSON bytes are unchanged.
 - `operation_family_status_consistent`: operation family and status agree
 - `source_status_consistent`: unsupported source rows remain blocked
 - `blocked_operation_has_reason`: blocked operations carry an honesty reason
@@ -249,6 +252,8 @@ unchanged and makes no semantic type claim.
 
 The command is local-first:
 
+- Program-owned expected items and operations are private, borrowed, nonserialized authority. Candidate item/operation origins are private owned comparison material and are never authority by themselves.
+- No order check produces a checked-type conclusion or changes any Core-lower, full-type, IR-readiness, execution, effect, ownership, or resource meaning.
 - no network
 - no cloud
 - no telemetry

@@ -1731,12 +1731,53 @@ pub(crate) struct CanonicalCoreSectionExpectation<'a> {
 }
 
 pub(crate) struct ValidatedCoreSection<'a> {
+    container: CanonicalCoreContainerRef<'a>,
+    file: &'a SourceFile,
+    item: &'a Item,
     section: &'a Section,
+    file_ordinal: usize,
+    section_slot: usize,
 }
 
 impl<'a> ValidatedCoreSection<'a> {
     pub(crate) fn section(&self) -> &'a Section {
         self.section
+    }
+}
+
+pub(crate) struct CanonicalCoreOperationOwnerExpectation<'program> {
+    program: &'program Program,
+    validated: ValidatedCoreSection<'program>,
+}
+
+impl<'program> CanonicalCoreOperationOwnerExpectation<'program> {
+    pub(crate) fn candidate_facts(
+        &self,
+    ) -> (usize, usize, &'program CanonicalCoreOwnerBinding, usize) {
+        let owner = self
+            .validated
+            .item
+            .canonical_core_owner_witness()
+            .expect("validated owner")
+            .binding();
+        (
+            std::ptr::from_ref(self.program).addr(),
+            std::ptr::from_ref(self.validated.file).addr(),
+            owner,
+            self.validated.file_ordinal,
+        )
+    }
+
+    pub(crate) fn item(&self) -> &'program Item {
+        self.validated.item
+    }
+
+    pub(crate) fn section(&self) -> &'program Section {
+        self.validated.section
+    }
+
+    pub(crate) fn section_slot(&self) -> usize {
+        self.validated.section_slot
     }
 }
 
@@ -1898,7 +1939,7 @@ impl Item {
             .ok_or("canonical_core_item_witness_absent_v0")
     }
 
-    fn sections(&self) -> &[Section] {
+    pub(crate) fn sections(&self) -> &[Section] {
         match self {
             Item::App(item) => &item.sections,
             Item::Type(item) => &item.sections,
@@ -1908,7 +1949,7 @@ impl Item {
         }
     }
 
-    fn nested_items(&self) -> &[Item] {
+    pub(crate) fn nested_items(&self) -> &[Item] {
         match self {
             Item::App(item) => &item.items,
             _ => &[],
@@ -1995,6 +2036,31 @@ impl Program {
             }
         }
         Err("canonical_core_live_task_reference_mismatch_v0")
+    }
+
+    pub(crate) fn canonical_core_operation_owner_expectation<'program>(
+        &'program self,
+        item: &'program Item,
+        section: &'program Section,
+    ) -> Result<CanonicalCoreOperationOwnerExpectation<'program>, &'static str> {
+        let validated = self.canonical_core_expectation(item, section)?.validate()?;
+        let CanonicalCoreContainerRef::Program(program) = validated.container else {
+            return Err("canonical_core_operation_owner_requires_program_v0");
+        };
+        if !std::ptr::eq(program, self) {
+            return Err("canonical_core_operation_owner_program_mismatch_v0");
+        }
+        let file_binding = validated.file.canonical_core_file_witness()?.binding();
+        let owner_binding = validated.item.canonical_core_owner_witness()?.binding();
+        if let Item::Task(task) = validated.item {
+            let snapshot = owner_binding
+                .task_signature
+                .as_ref()
+                .ok_or("canonical_task_signature_snapshot_absent_v0")?;
+            snapshot.validate_retained_facts(file_binding, owner_binding.item_path.as_ref())?;
+            snapshot.matches_live_task(task)?;
+        }
+        Ok(CanonicalCoreOperationOwnerExpectation { program, validated })
     }
 
     pub(crate) fn authenticate_canonical_task_signature(
@@ -2222,7 +2288,12 @@ impl<'a> CanonicalCoreSectionExpectation<'a> {
             self.section,
         )?;
         Ok(ValidatedCoreSection {
+            container: self.container,
+            file: self.file,
+            item: self.item,
             section: self.section,
+            file_ordinal: self.file_ordinal,
+            section_slot: self.section_slot,
         })
     }
 }
