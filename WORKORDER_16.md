@@ -2,13 +2,13 @@
 
 Date: 2026-08-08
 <!-- hum-active-workorder:v1 -->
-Status: Drafted as a fresh, unissued architectural foundation. The first
-independent pre-issuance review returned `ACCEPT WITH REQUIRED FIX` with three
-P1 findings. This document records the sole BDFL-authorized bounded correction;
-that correction cycle is consumed. The corrected bytes have not been
-independently reviewed, accepted, committed, or published. Unit 1 is explicitly
-unauthorized. Authoring or correcting this document grants no implementation,
-staging, commit, push, archive mutation, or later-work authority.
+Status: Independently accepted, issued, active, committed, and published on
+`main`. The accepted Work Order 15 closeout and corrected Work Order 16 package
+was committed as `8f12bc91554a84c6b5cd949c001bd62506b2e120` and published by
+normal fast-forward. Required publication CI passed in `ci` workflow
+`31246383282`, attempt 1, on Ubuntu and Windows in the full lane. Unit 1 is next
+but remains explicitly unauthorized pending a separate BDFL go signal. Checked
+type authority and every later unit remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 16 architect-author. The author may explain this draft but
@@ -1121,16 +1121,25 @@ substitute for the required publication workflow.
 
 ## Current authorization gate
 
-This Work Order remains a fresh planning draft only. Work Order 15 is
-terminally rejected, archived, closed, inactive, and non-authoritative. The
-first independent review and its three P1 findings are recorded above; the
-sole bounded document correction is consumed. The next authorization may
-permit only fresh independent corrected-document review of the exact Work
-Order 15 closeout and corrected Work Order 16 draft package.
+Work Order 16 is independently accepted, issued, active, and published. Its
+exact two-document package was committed as
+`8f12bc91554a84c6b5cd949c001bd62506b2e120` and published to `main` by normal
+fast-forward. Required `ci` workflow `31246383282`, attempt 1, completed
+successfully. Ubuntu job `93075579389` passed in 26m01s, including the full Hum
+preflight in 25m20s. Windows job `93075579446` passed in 36m29s, including the
+full Hum preflight in 36m03s. Both publication jobs selected `mode=full` with
+`reason=no_status_transition`.
 
-Implementation, further correction, staging, commit, push, publication, archive
-mutation, status transition, checked type work, and later planning are
-unauthorized. Document acceptance, if granted, will still require a separate
-BDFL local-commit signal and a later publication signal. Unit 1 requires its
-own separate signal after published terminal-green document and status gates.
+Ubuntu-owned Exhaustive evidence passed selector
+`parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero`
+with selected/passed/failed counts `1/1/0`: F1 630, F2 4,950, F3/F4 8,646,
+14,226 total pairs, producer elapsed time 16.073s, and seed
+`0x48554D5F5345414C`. Windows correctly skipped the platform-independent
+duplicate.
+
+Unit 1 is the next eligible work but remains explicitly unauthorized pending a
+separate BDFL go signal. This status record grants no implementation, further
+edit, push, archive mutation, checked type authority, later unit, or later
+planning authority. Checked type authority and every later unit remain
+unauthorized.
 <!-- workorder-current-authorization-gate:end -->
