@@ -163,7 +163,7 @@ Current rule families include:
   status values are known to the verifier
 - `expression_ast_present`: expression previews include an AST root count
 - `type_claim_honesty`: type slots are absent or limited to checked trivial
-  return provenance
+  return or direct canonical minimal-add provenance
 - `effect_claim_honesty`: expression effects remain `not_effect_checked_v0`
 - `claim_honesty`: summary readiness stays non-executing and non-IR
 - `structured_expression_parser_provenance`: the bounded structured row names
@@ -188,8 +188,24 @@ Current rule families include:
 - `structured_expression_source_ranges`: candidate ranges are sane,
   same-file, source ordered, and contained by the root range, with checked
   arithmetic that fails verification instead of overflowing
-- `structured_expression_outer_type_unchecked`: the structured root preserves
-  the authoritative outer `not_type_checked_v0` / null / null type state
+- `canonical_minimal_add_direct_operation_identity_unique`: a failure-only
+  `core_item` row emitted when no unique lowered operation matches an
+  independently borrowed parser-owned additive task-return identity
+- `canonical_minimal_add_type_state_consistent`,
+  `canonical_minimal_add_public_projection_matches_authority`,
+  `canonical_minimal_add_private_claim_matches_authority`, and
+  `canonical_minimal_add_verified_view_issued`: four ordered
+  `structured_expression` rows replacing the old outer-type row for supported
+  and integrity-failure canonical targets. They bind the closed operation
+  state, public candidate, private claim, structural checks, and report-bound
+  view to untouched producer authority.
+- `canonical_minimal_add_unsupported_target_like_rejected`: a failed
+  `operation_expression` replacement for the existing type-honesty row when an
+  authenticated additive root is neither the supported identifier pair nor
+  the legacy-compatible `Identifier + UIntLiteral` shape
+- `structured_expression_outer_type_unchecked`: a coherent authenticated
+  non-`Int` identifier pair preserves the authoritative outer
+  `not_type_checked_v0` / null / null type state
 
 These checks consume the actual in-memory `CoreLowerReport` artifact. The
 public structure is a projection. Its in-memory expression privately retains
@@ -207,6 +223,16 @@ authority. Neither the issuance capability, snapshot, authenticated handle,
 rejection reason, nor any private authority field appears in human or JSON
 output. Successful authentication therefore leaves every valid output byte
 unchanged and makes no semantic type claim.
+
+For direct canonical minimal-add typing, verification also derives each
+expected operation identity independently from the authenticated Program and
+body. The lookup is a closed `NoMatch | One | Ambiguous` state machine; it does
+not infer cardinality from candidate iteration. Only a uniquely matched
+Supported operation whose complete item, operation, expression, structured,
+projection, claim, and authority interval passed may yield a borrowed
+`VerifiedCanonicalMinimalAddType`. The complete report is built before access,
+and the view cannot outlive that report or its operation-owned authority.
+Private join keys, claims, authority, and views never appear in this schema.
 
 ## Honesty Rules
 

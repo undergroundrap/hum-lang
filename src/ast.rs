@@ -1172,7 +1172,67 @@ pub(crate) struct AuthenticatedCanonicalTaskSignature {
     snapshot: CanonicalTaskSignatureSnapshot,
 }
 
+pub(crate) struct CanonicalTaskSignatureJoinKey {
+    source_revision: Arc<[u8]>,
+    semantic_file_index: usize,
+    normalized_path: Arc<str>,
+    item_path: Arc<[usize]>,
+    task_name: Arc<str>,
+    task_span: Span,
+    raw_header: Arc<str>,
+}
+
+impl fmt::Debug for CanonicalTaskSignatureJoinKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("<private canonical task-signature join key>")
+    }
+}
+
+impl CanonicalTaskSignatureJoinKey {
+    pub(crate) fn matches(&self, other: &Self) -> bool {
+        self.source_revision.as_ref() == other.source_revision.as_ref()
+            && self.semantic_file_index == other.semantic_file_index
+            && self.normalized_path == other.normalized_path
+            && self.item_path == other.item_path
+            && self.task_name == other.task_name
+            && self.task_span == other.task_span
+            && self.raw_header == other.raw_header
+    }
+}
+
 impl AuthenticatedCanonicalTaskSignature {
+    pub(crate) fn join_key(&self) -> CanonicalTaskSignatureJoinKey {
+        CanonicalTaskSignatureJoinKey {
+            source_revision: self.snapshot.file.source_revision.clone(),
+            semantic_file_index: self.snapshot.file.semantic_file_index,
+            normalized_path: self.snapshot.file.normalized_path.clone(),
+            item_path: self.snapshot.item_path.clone(),
+            task_name: self.snapshot.task_name.clone(),
+            task_span: self.snapshot.task_span.clone(),
+            raw_header: self.snapshot.raw_header.clone(),
+        }
+    }
+
+    pub(crate) fn matches_join_key(&self, key: &CanonicalTaskSignatureJoinKey) -> bool {
+        self.snapshot
+            .validate_retained_facts(&self.snapshot.file, &self.snapshot.item_path)
+            .is_ok()
+            && self.join_key().matches(key)
+    }
+
+    pub(crate) fn matches_parameter_annotation(
+        &self,
+        name: &str,
+        span: &Span,
+        type_text: &str,
+    ) -> bool {
+        self.snapshot.params.iter().any(|parameter| {
+            parameter.name == name
+                && parameter.span == *span
+                && parameter.ty.trim() == type_text.trim()
+        })
+    }
+
     pub(crate) fn matches_lowered_candidate(
         &self,
         kind: &str,

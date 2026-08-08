@@ -1,6 +1,7 @@
 use crate::ast::{
-    AuthenticatedCanonicalTaskSignature, CanonicalExpression, CanonicalExpressionKind, Item, Param,
-    ParsedBinaryOperator, ParsedSourceRange, Program, Section, Task,
+    AuthenticatedCanonicalTaskSignature, CanonicalExpression, CanonicalExpressionKind,
+    CanonicalTaskSignatureJoinKey, Item, Param, ParsedBinaryOperator, ParsedSourceRange, Program,
+    Section, Task,
 };
 use crate::callable;
 use crate::core_body::{self, BodyStatement, CanonicalBodyGrammarReport, CanonicalBodyStatement};
@@ -14,7 +15,9 @@ use crate::ir_contract;
 use crate::node_id;
 use crate::predicate::{self, PredicateFact, RecognitionStatus};
 use crate::resolve;
-use crate::type_check::{self, CheckedReturnSummary};
+use crate::type_check::{
+    self, CanonicalMinimalAddTypeAuthority, CanonicalMinimalAddTypeDecision, CheckedReturnSummary,
+};
 use crate::typed_failure::{self, FailureFact, ProgramFailureAnalysis};
 use crate::version;
 
@@ -137,6 +140,64 @@ pub(crate) struct CoreLowerOperation {
     pub(crate) status: &'static str,
     pub(crate) expression: Option<CoreLowerExpression>,
     pub(crate) reason: Option<&'static str>,
+    canonical_minimal_add_type: CoreLowerCanonicalMinimalAddType,
+    canonical_minimal_add_identity: Option<CanonicalMinimalAddOperationIdentity>,
+}
+
+pub(crate) enum CoreLowerCanonicalMinimalAddType {
+    Noncanonical,
+    AuthenticatedOutOfScope,
+    LegacyCompatibleAdditive,
+    UnsupportedTargetLike,
+    IntegrityFailure,
+    Supported {
+        authority: Box<CanonicalMinimalAddTypeAuthority>,
+        claim: CanonicalMinimalAddTypeClaim,
+    },
+}
+
+pub(crate) struct CanonicalMinimalAddTypeClaim {
+    statement_index: usize,
+    root_node_id: String,
+    type_text: &'static str,
+}
+
+pub(crate) struct CanonicalMinimalAddOperationIdentity {
+    task_join_key: CanonicalTaskSignatureJoinKey,
+    statement_index: usize,
+    statement_span: Span,
+    parser_root_node_id: String,
+    parser_root_range: ParsedSourceRange,
+    operation_id: String,
+}
+
+impl CanonicalMinimalAddOperationIdentity {
+    pub(crate) fn matches(&self, expected: &Self) -> bool {
+        self.task_join_key.matches(&expected.task_join_key)
+            && self.statement_index == expected.statement_index
+            && self.statement_span == expected.statement_span
+            && self.parser_root_node_id == expected.parser_root_node_id
+            && self.parser_root_range == expected.parser_root_range
+            && self.operation_id == expected.operation_id
+    }
+}
+
+impl CoreLowerOperation {
+    pub(crate) fn canonical_minimal_add_type(&self) -> &CoreLowerCanonicalMinimalAddType {
+        &self.canonical_minimal_add_type
+    }
+
+    pub(crate) fn canonical_minimal_add_identity(
+        &self,
+    ) -> Option<&CanonicalMinimalAddOperationIdentity> {
+        self.canonical_minimal_add_identity.as_ref()
+    }
+}
+
+impl CanonicalMinimalAddTypeClaim {
+    pub(crate) fn matches_authority(&self, authority: &CanonicalMinimalAddTypeAuthority) -> bool {
+        authority.matches_claim(self.statement_index, &self.root_node_id, self.type_text)
+    }
 }
 
 pub(crate) struct CoreLowerExpression {
@@ -455,6 +516,107 @@ pub(crate) fn corrupt_first_structured_expression_for_test(
     Ok(())
 }
 
+#[cfg(test)]
+pub(crate) fn corrupt_first_canonical_minimal_add_claim_for_test(
+    report: &mut CoreLowerReport,
+) -> Result<(), &'static str> {
+    let claim = report
+        .core_items
+        .iter_mut()
+        .flat_map(|item| &mut item.operations)
+        .find_map(
+            |operation| match &mut operation.canonical_minimal_add_type {
+                CoreLowerCanonicalMinimalAddType::Supported { claim, .. } => Some(claim),
+                _ => None,
+            },
+        )
+        .ok_or("canonical_minimal_add_claim_absent_v0")?;
+    claim.type_text = "UInt";
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn corrupt_first_canonical_minimal_add_public_and_claim_for_test(
+    report: &mut CoreLowerReport,
+) -> Result<(), &'static str> {
+    let operation = report
+        .core_items
+        .iter_mut()
+        .flat_map(|item| &mut item.operations)
+        .find(|operation| {
+            matches!(
+                operation.canonical_minimal_add_type,
+                CoreLowerCanonicalMinimalAddType::Supported { .. }
+            )
+        })
+        .ok_or("canonical_minimal_add_supported_operation_absent_v0")?;
+    let expression = operation
+        .expression
+        .as_mut()
+        .ok_or("canonical_minimal_add_expression_absent_v0")?;
+    expression.type_text = Some("UInt".to_string());
+    let CoreLowerCanonicalMinimalAddType::Supported { claim, .. } =
+        &mut operation.canonical_minimal_add_type
+    else {
+        unreachable!("selected supported operation")
+    };
+    claim.type_text = "UInt";
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn substitute_first_canonical_minimal_add_state_for_test(
+    target: &mut CoreLowerReport,
+    donor: &mut CoreLowerReport,
+) -> Result<(), &'static str> {
+    fn supported_state(
+        report: &mut CoreLowerReport,
+    ) -> Option<&mut CoreLowerCanonicalMinimalAddType> {
+        report
+            .core_items
+            .iter_mut()
+            .flat_map(|item| &mut item.operations)
+            .find_map(|operation| {
+                matches!(
+                    operation.canonical_minimal_add_type,
+                    CoreLowerCanonicalMinimalAddType::Supported { .. }
+                )
+                .then_some(&mut operation.canonical_minimal_add_type)
+            })
+    }
+    let donor = supported_state(donor).ok_or("canonical_minimal_add_donor_state_absent_v0")?;
+    let donor = std::mem::replace(donor, CoreLowerCanonicalMinimalAddType::IntegrityFailure);
+    let target = supported_state(target).ok_or("canonical_minimal_add_target_state_absent_v0")?;
+    *target = donor;
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn substitute_first_canonical_minimal_add_identity_for_test(
+    target: &mut CoreLowerReport,
+    donor: &mut CoreLowerReport,
+) -> Result<(), &'static str> {
+    fn supported_operation(report: &mut CoreLowerReport) -> Option<&mut CoreLowerOperation> {
+        report
+            .core_items
+            .iter_mut()
+            .flat_map(|item| &mut item.operations)
+            .find(|operation| {
+                matches!(
+                    operation.canonical_minimal_add_type,
+                    CoreLowerCanonicalMinimalAddType::Supported { .. }
+                )
+            })
+    }
+    let donor = supported_operation(donor)
+        .and_then(|operation| operation.canonical_minimal_add_identity.take())
+        .ok_or("canonical_minimal_add_donor_identity_absent_v0")?;
+    let target =
+        supported_operation(target).ok_or("canonical_minimal_add_target_identity_absent_v0")?;
+    target.canonical_minimal_add_identity = Some(donor);
+    Ok(())
+}
+
 pub(crate) fn build_core_lower_report_from_preview(
     program: &Program,
     diagnostics: &[Diagnostic],
@@ -476,6 +638,7 @@ pub(crate) fn build_core_lower_report_from_preview(
     for file in &program.files {
         collect_items(
             program,
+            diagnostics,
             &file.items,
             &checked_returns,
             errors,
@@ -522,6 +685,7 @@ pub(crate) fn diagnostic_projection_from_preview(
 #[allow(clippy::too_many_arguments)]
 fn collect_items(
     program: &Program,
+    diagnostics: &[Diagnostic],
     items: &[Item],
     checked_returns: &[CheckedReturnSummary],
     source_errors: usize,
@@ -534,6 +698,7 @@ fn collect_items(
     for item in items {
         if let Some(core_item) = core_item(
             program,
+            diagnostics,
             item,
             checked_returns,
             source_errors,
@@ -547,6 +712,7 @@ fn collect_items(
         if let Item::App(app) = item {
             collect_items(
                 program,
+                diagnostics,
                 &app.items,
                 checked_returns,
                 source_errors,
@@ -563,6 +729,7 @@ fn collect_items(
 #[allow(clippy::too_many_arguments)]
 fn core_item(
     program: &Program,
+    diagnostics: &[Diagnostic],
     item: &Item,
     checked_returns: &[CheckedReturnSummary],
     source_errors: usize,
@@ -583,13 +750,26 @@ fn core_item(
         Item::Task(task) => failure_analysis.task(task).cloned().unwrap_or_default(),
         _ => Default::default(),
     };
-    let operations = lower_operations(
+    let task_signature = match item {
+        Item::Task(task) => match program.authenticate_canonical_task_signature(task) {
+            Ok(authority) => CoreLowerTaskSignature::Authenticated(Box::new(authority)),
+            Err(rejection) => CoreLowerTaskSignature::Rejected(rejection),
+        },
+        _ => CoreLowerTaskSignature::NotATask,
+    };
+    let authenticated_task_signature = match &task_signature {
+        CoreLowerTaskSignature::Authenticated(authority) => Some(authority.as_ref()),
+        CoreLowerTaskSignature::NotATask | CoreLowerTaskSignature::Rejected(_) => None,
+    };
+    let operation_context = CoreLowerOperationContext {
+        program,
+        diagnostics,
         item,
-        &body,
+        task_signature: authenticated_task_signature,
         checked_returns,
-        &failure_analysis.facts,
-        predicate_facts,
-    );
+        failure_facts: &failure_analysis.facts,
+    };
+    let operations = lower_operations(&operation_context, &body, predicate_facts);
     let mut blockers = item_blockers(
         item,
         &body,
@@ -606,13 +786,6 @@ fn core_item(
         type_errors,
         &blockers,
     );
-    let task_signature = match item {
-        Item::Task(task) => match program.authenticate_canonical_task_signature(task) {
-            Ok(authority) => CoreLowerTaskSignature::Authenticated(Box::new(authority)),
-            Err(rejection) => CoreLowerTaskSignature::Rejected(rejection),
-        },
-        _ => CoreLowerTaskSignature::NotATask,
-    };
     Some(CoreLowerItem {
         id: node_id::span(
             "core-item",
@@ -638,28 +811,27 @@ fn core_item(
     })
 }
 
+struct CoreLowerOperationContext<'a> {
+    program: &'a Program,
+    diagnostics: &'a [Diagnostic],
+    item: &'a Item,
+    task_signature: Option<&'a AuthenticatedCanonicalTaskSignature>,
+    checked_returns: &'a [CheckedReturnSummary],
+    failure_facts: &'a std::collections::BTreeMap<usize, FailureFact>,
+}
+
 fn lower_operations(
-    item: &Item,
+    context: &CoreLowerOperationContext<'_>,
     body: &CanonicalBodyGrammarReport,
-    checked_returns: &[CheckedReturnSummary],
-    failure_facts: &std::collections::BTreeMap<usize, FailureFact>,
     predicate_facts: &[PredicateFact],
 ) -> Vec<CoreLowerOperation> {
     let mut operations = body
         .statements
         .iter()
         .enumerate()
-        .map(|(index, statement)| {
-            lower_operation(
-                item,
-                index,
-                statement,
-                checked_returns,
-                failure_facts.get(&index),
-            )
-        })
+        .map(|(index, statement)| lower_operation(context, index, statement))
         .collect::<Vec<_>>();
-    if let Item::Task(task) = item {
+    if let Item::Task(task) = context.item {
         let first_predicate_index = operations.len();
         operations.extend(
             predicate_facts
@@ -704,18 +876,35 @@ fn lower_predicate_operation(index: usize, fact: &PredicateFact) -> CoreLowerOpe
         },
         expression,
         reason: Some(fact.reason),
+        canonical_minimal_add_type: CoreLowerCanonicalMinimalAddType::Noncanonical,
+        canonical_minimal_add_identity: None,
     }
 }
 
 fn lower_operation(
-    item: &Item,
+    context: &CoreLowerOperationContext<'_>,
     index: usize,
     bound_statement: &CanonicalBodyStatement,
-    checked_returns: &[CheckedReturnSummary],
-    failure_fact: Option<&FailureFact>,
 ) -> CoreLowerOperation {
+    let program = context.program;
+    let diagnostics = context.diagnostics;
+    let item = context.item;
+    let task_signature = context.task_signature;
+    let checked_returns = context.checked_returns;
+    let failure_fact = context.failure_facts.get(&index);
     let statement = bound_statement.statement();
     let canonical_expression = bound_statement.canonical_expression();
+    let type_decision = type_check::canonical_minimal_add_type_for_operation(
+        program,
+        diagnostics,
+        item,
+        task_signature,
+        index,
+        bound_statement,
+    );
+    let canonical_minimal_add_identity = task_signature.and_then(|authority| {
+        canonical_minimal_add_operation_identity(authority, index, bound_statement)
+    });
     if let Some(fact) = failure_fact
         && fact.diagnostic_code
             == Some(crate::diagnostic::DiagnosticCode::UNSUPPORTED_TRY_EXPRESSION)
@@ -735,6 +924,8 @@ fn lower_operation(
             status: "blocked_operation_v0",
             expression: None,
             reason: fact.reason.or(Some("unsupported_try_expression_shape_v0")),
+            canonical_minimal_add_type: lower_canonical_minimal_add_type(type_decision, None),
+            canonical_minimal_add_identity,
         };
     }
     let (core_operation, status, fallback_reason) = core_operation_for(statement);
@@ -744,6 +935,8 @@ fn lower_operation(
     if statement.status == "unsupported_v0" {
         expression = None;
     }
+    let canonical_minimal_add_type =
+        lower_canonical_minimal_add_type(type_decision, expression.as_mut());
     CoreLowerOperation {
         id: node_id::span(
             "core-op",
@@ -759,6 +952,58 @@ fn lower_operation(
         status,
         expression,
         reason: statement.reason.or(fallback_reason),
+        canonical_minimal_add_type,
+        canonical_minimal_add_identity,
+    }
+}
+
+fn lower_canonical_minimal_add_type(
+    decision: CanonicalMinimalAddTypeDecision,
+    expression: Option<&mut CoreLowerExpression>,
+) -> CoreLowerCanonicalMinimalAddType {
+    match decision {
+        CanonicalMinimalAddTypeDecision::Supported(authority) => {
+            if let Some(expression) = expression {
+                expression.type_status =
+                    core_expr::CORE_EXPRESSION_CHECKED_CANONICAL_MINIMAL_ADD_TYPE_STATUS;
+                expression.type_text = Some(authority.produced_type().to_string());
+                expression.type_source =
+                    Some(core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_SOURCE);
+            }
+            let claim = CanonicalMinimalAddTypeClaim {
+                statement_index: authority.statement_index(),
+                root_node_id: authority.root_node_id().to_string(),
+                type_text: authority.produced_type(),
+            };
+            CoreLowerCanonicalMinimalAddType::Supported { authority, claim }
+        }
+        CanonicalMinimalAddTypeDecision::AuthenticatedOutOfScope => {
+            CoreLowerCanonicalMinimalAddType::AuthenticatedOutOfScope
+        }
+        CanonicalMinimalAddTypeDecision::LegacyCompatibleAdditive => {
+            CoreLowerCanonicalMinimalAddType::LegacyCompatibleAdditive
+        }
+        CanonicalMinimalAddTypeDecision::UnsupportedTargetLike => {
+            if let Some(expression) = expression {
+                expression.type_status =
+                    core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_UNAVAILABLE_STATUS;
+                expression.type_text = None;
+                expression.type_source = None;
+            }
+            CoreLowerCanonicalMinimalAddType::UnsupportedTargetLike
+        }
+        CanonicalMinimalAddTypeDecision::IntegrityFailure => {
+            if let Some(expression) = expression {
+                expression.type_status =
+                    core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_UNAVAILABLE_STATUS;
+                expression.type_text = None;
+                expression.type_source = None;
+            }
+            CoreLowerCanonicalMinimalAddType::IntegrityFailure
+        }
+        CanonicalMinimalAddTypeDecision::Noncanonical => {
+            CoreLowerCanonicalMinimalAddType::Noncanonical
+        }
     }
 }
 
@@ -906,6 +1151,37 @@ fn lower_source_range(range: &ParsedSourceRange) -> CoreLowerSourceRange {
         start: portable_span(&range.start),
         byte_len: range.byte_len,
     }
+}
+
+pub(crate) fn canonical_minimal_add_operation_identity(
+    task_signature: &AuthenticatedCanonicalTaskSignature,
+    statement_index: usize,
+    statement: &CanonicalBodyStatement,
+) -> Option<CanonicalMinimalAddOperationIdentity> {
+    let root = statement.canonical_expression()?;
+    if !matches!(
+        root.kind,
+        CanonicalExpressionKind::Binary {
+            operator: ParsedBinaryOperator::Add,
+            ..
+        }
+    ) {
+        return None;
+    }
+    let (core_operation, _, _) = core_operation_for(statement.statement());
+    let operation_id = node_id::span(
+        "core-op",
+        &statement.statement().span,
+        &format!("{} {}", statement_index, core_operation),
+    );
+    Some(CanonicalMinimalAddOperationIdentity {
+        task_join_key: task_signature.join_key(),
+        statement_index,
+        statement_span: statement.statement().span.clone(),
+        parser_root_node_id: root.node_id.as_str().to_string(),
+        parser_root_range: root.range.clone(),
+        operation_id,
+    })
 }
 
 fn checked_return_for_statement<'a>(
@@ -1580,11 +1856,179 @@ fn push_comma_newline(out: &mut String, comma: bool) {
 #[cfg(test)]
 mod tests {
     use super::{
-        CoreLowerTaskSignatureVerdict, build_core_lower_report, core_lower_json, core_lower_text,
-        lower_operation,
+        CoreLowerCanonicalMinimalAddType, CoreLowerOperationContext, CoreLowerTaskSignatureVerdict,
+        build_core_lower_report, canonical_minimal_add_operation_identity, core_lower_json,
+        core_lower_text, corrupt_first_canonical_minimal_add_public_and_claim_for_test,
+        lower_operation, substitute_first_canonical_minimal_add_identity_for_test,
+        substitute_first_canonical_minimal_add_state_for_test,
     };
     use crate::ast::{CanonicalTaskSignatureCorruption, Item, ParamPermission, Program};
     use crate::parser::parse_source;
+
+    #[test]
+    fn canonical_minimal_add_type_authority_is_owned_by_exact_operation() {
+        let parsed = parse_source(
+            "owned/direct-minimal-add.hum",
+            "task add(left: Int, right: Int) -> Int {\n  does:\n    return left + right\n}\n",
+        );
+        let diagnostics = parsed.diagnostics;
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let item = &program.files[0].items[0];
+        let Item::Task(task) = item else {
+            panic!("task")
+        };
+        let signature = match program.authenticate_canonical_task_signature(task) {
+            Ok(authority) => authority,
+            Err(_) => panic!("signature"),
+        };
+        let body = crate::core_body::analyze_does_section_for_lowering(
+            program
+                .canonical_core_expectation(item, task.section("does").expect("does"))
+                .expect("expectation"),
+        );
+        let expected = canonical_minimal_add_operation_identity(&signature, 0, &body.statements[0])
+            .expect("expected direct identity");
+        let report = build_core_lower_report(&program, &diagnostics);
+        let operation = &report.core_items[0].operations[0];
+        assert!(
+            operation
+                .canonical_minimal_add_identity()
+                .is_some_and(|identity| identity.matches(&expected))
+        );
+        let CoreLowerCanonicalMinimalAddType::Supported { authority, claim } =
+            operation.canonical_minimal_add_type()
+        else {
+            panic!("supported operation-owned authority")
+        };
+        assert!(authority.matches_operation(&signature, item, 0, &body.statements[0]));
+        assert!(claim.matches_authority(authority));
+        let expression = operation.expression.as_ref().expect("expression");
+        assert_eq!(
+            expression.type_status,
+            crate::core_expr::CORE_EXPRESSION_CHECKED_CANONICAL_MINIMAL_ADD_TYPE_STATUS
+        );
+        assert_eq!(expression.type_text.as_deref(), Some("Int"));
+        assert_eq!(
+            expression.type_source,
+            Some(crate::core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_SOURCE)
+        );
+
+        let foreign = parse_source(
+            "foreign/direct-minimal-add.hum",
+            "task add(left: Int, right: Int) -> Int {\n  does:\n    return left + right\n}\n",
+        );
+        let foreign_program = Program {
+            files: vec![foreign.file],
+        };
+        let mut substituted_state = build_core_lower_report(&program, &diagnostics);
+        let mut foreign_state = build_core_lower_report(&foreign_program, &foreign.diagnostics);
+        substitute_first_canonical_minimal_add_state_for_test(
+            &mut substituted_state,
+            &mut foreign_state,
+        )
+        .expect("foreign state substitution");
+        let substituted_operation = &substituted_state.core_items[0].operations[0];
+        let CoreLowerCanonicalMinimalAddType::Supported { authority, claim } =
+            substituted_operation.canonical_minimal_add_type()
+        else {
+            panic!("substituted supported state")
+        };
+        assert!(authority.semantic_facts_are_complete());
+        assert!(claim.matches_authority(authority));
+        assert!(
+            authority.matches_public_projection(
+                substituted_operation
+                    .expression
+                    .as_ref()
+                    .expect("expression")
+                    .type_status,
+                substituted_operation
+                    .expression
+                    .as_ref()
+                    .and_then(|expression| expression.type_text.as_deref()),
+                substituted_operation
+                    .expression
+                    .as_ref()
+                    .and_then(|expression| expression.type_source),
+            )
+        );
+        assert!(
+            !authority.matches_operation(&signature, item, 0, &body.statements[0]),
+            "internally complete foreign authority cannot own the original operation"
+        );
+
+        let mut substituted_identity = build_core_lower_report(&program, &diagnostics);
+        let mut foreign_identity = build_core_lower_report(&foreign_program, &foreign.diagnostics);
+        substitute_first_canonical_minimal_add_identity_for_test(
+            &mut substituted_identity,
+            &mut foreign_identity,
+        )
+        .expect("foreign identity substitution");
+        assert!(
+            !substituted_identity.core_items[0].operations[0]
+                .canonical_minimal_add_identity()
+                .is_some_and(|identity| identity.matches(&expected))
+        );
+
+        let mut coherent_candidate = build_core_lower_report(&program, &diagnostics);
+        corrupt_first_canonical_minimal_add_public_and_claim_for_test(&mut coherent_candidate)
+            .expect("coherent candidate corruption");
+        let operation = &coherent_candidate.core_items[0].operations[0];
+        let CoreLowerCanonicalMinimalAddType::Supported { authority, claim } =
+            operation.canonical_minimal_add_type()
+        else {
+            panic!("supported coherent candidate")
+        };
+        assert!(!claim.matches_authority(authority));
+        assert!(
+            !authority.matches_public_projection(
+                operation
+                    .expression
+                    .as_ref()
+                    .expect("expression")
+                    .type_status,
+                operation
+                    .expression
+                    .as_ref()
+                    .and_then(|expression| expression.type_text.as_deref()),
+                operation
+                    .expression
+                    .as_ref()
+                    .and_then(|expression| expression.type_source),
+            )
+        );
+
+        let mut sabotaged_body = body.clone();
+        sabotaged_body.statements[0].statement_mut_for_test().text =
+            "return fabricated + spellings".to_string();
+        let checked_returns = crate::type_check::checked_return_summaries(&program, &diagnostics);
+        let failure_facts = std::collections::BTreeMap::new();
+        let context = CoreLowerOperationContext {
+            program: &program,
+            diagnostics: &diagnostics,
+            item,
+            task_signature: Some(&signature),
+            checked_returns: &checked_returns,
+            failure_facts: &failure_facts,
+        };
+        let sabotaged = lower_operation(&context, 0, &sabotaged_body.statements[0]);
+        let CoreLowerCanonicalMinimalAddType::Supported { authority, claim } =
+            sabotaged.canonical_minimal_add_type()
+        else {
+            panic!("statement text cannot change parser-owned classification")
+        };
+        assert!(authority.matches_operation(&signature, item, 0, &sabotaged_body.statements[0]));
+        assert!(claim.matches_authority(authority));
+        let structured = sabotaged
+            .expression
+            .as_ref()
+            .and_then(|expression| expression.structured.as_ref())
+            .expect("parser-owned structured expression");
+        assert_eq!(structured.children[0].identifier, "left");
+        assert_eq!(structured.children[1].identifier, "right");
+    }
 
     #[test]
     fn task_signature_authority_is_owned_one_to_one() {
@@ -1676,9 +2120,9 @@ mod tests {
         assert!(json.contains("\"provenance\": \"parser_owned_canonical_expression_v0\""));
         assert!(json.contains("\"kind\": \"binary\""));
         assert!(json.contains("\"operator\": \"add\""));
-        assert!(json.contains("\"type_status\": \"not_type_checked_v0\""));
-        assert!(json.contains("\"type_text\": null"));
-        assert!(json.contains("\"type_source\": null"));
+        assert!(json.contains("\"type_status\": \"checked_canonical_minimal_add_v0\""));
+        assert!(json.contains("\"type_text\": \"Int\""));
+        assert!(json.contains("\"type_source\": \"canonical_minimal_add_type_authority_v0\""));
         assert!(!json.contains("\"checked_type_status\""));
         assert!(!json.contains("\"checked_type\""));
         assert!(json.contains("\"index\": 0"));
@@ -1710,7 +2154,20 @@ mod tests {
 
         body.statements[0].statement_mut_for_test().text = "return fabricated + names".to_string();
         let checked_returns = crate::type_check::checked_return_summaries(&program, &diagnostics);
-        let lowered = lower_operation(item, 0, &body.statements[0], &checked_returns, None);
+        let task_signature = match program.authenticate_canonical_task_signature(task) {
+            Ok(authority) => authority,
+            Err(_) => panic!("authenticated task signature"),
+        };
+        let failure_facts = std::collections::BTreeMap::new();
+        let context = CoreLowerOperationContext {
+            program: &program,
+            diagnostics: &diagnostics,
+            item,
+            task_signature: Some(&task_signature),
+            checked_returns: &checked_returns,
+            failure_facts: &failure_facts,
+        };
+        let lowered = lower_operation(&context, 0, &body.statements[0]);
         let structured = lowered
             .expression
             .expect("expression")

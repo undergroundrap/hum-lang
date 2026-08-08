@@ -1,8 +1,12 @@
 use std::collections::BTreeMap;
 
-use crate::ast::{Item, Program, Task, TypeSyntaxKind};
+use crate::ast::{
+    AuthenticatedCanonicalTaskSignature, CanonicalExpression, CanonicalExpressionKind,
+    CanonicalTaskSignatureJoinKey, Item, ParsedBinaryOperator, ParsedBodyStatementKind,
+    ParsedSourceRange, Program, Task, TypeSyntaxKind,
+};
 use crate::callable;
-use crate::core_body::{self, BodyStatement};
+use crate::core_body::{self, BodyStatement, CanonicalBodyStatement};
 use crate::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceSet, Severity, Span,
 };
@@ -70,6 +74,193 @@ pub struct CheckedReturnSummary {
     pub type_source: Option<&'static str>,
     pub status: &'static str,
     pub reason: Option<&'static str>,
+}
+
+pub(crate) enum CanonicalMinimalAddTypeDecision {
+    Supported(Box<CanonicalMinimalAddTypeAuthority>),
+    AuthenticatedOutOfScope,
+    LegacyCompatibleAdditive,
+    UnsupportedTargetLike,
+    IntegrityFailure,
+    Noncanonical,
+}
+
+struct CanonicalMinimalAddOperandAuthority {
+    parser_node_id: String,
+    parser_range: ParsedSourceRange,
+    spelling: String,
+    resolver_reference_identity: String,
+    resolver_definition_identity: String,
+    declaration_identity: String,
+    declaration_type: String,
+}
+
+struct CanonicalMinimalAddRelationshipInputs {
+    references: Vec<crate::resolve::ResolveReferenceSummary>,
+    authoritative_reference_ids: BTreeMap<String, (String, Option<String>)>,
+    authoritative_definitions: Vec<crate::resolve::ResolveDefinitionSummary>,
+    type_env: TypeEnvReport,
+    checked_declarations: Vec<CheckedDeclaration>,
+    scopes: Vec<crate::resolve::ResolveScopeSummary>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum CanonicalMinimalAddRelationshipCorruption {
+    WrongLeftChildPosition,
+    WrongRightChildPosition,
+    ReorderedChildPositions,
+    WrongReferenceKind,
+    ForeignTaskScope,
+    ResolvedSemanticTarget,
+    SameSpelledForeignDefinition,
+    CoherentPublicIds,
+    MissingReference,
+    DuplicateReference,
+    AmbiguousReference,
+    MissingDefinition,
+    DuplicateDefinition,
+    MissingDeclaration,
+    DuplicateDeclaration,
+    MissingCheckedDeclaration,
+    DuplicateCheckedDeclaration,
+    RejectedDeclaration,
+    ForeignDefinition,
+}
+
+#[cfg(test)]
+thread_local! {
+    static CANONICAL_MINIMAL_ADD_RELATIONSHIP_CORRUPTION:
+        std::cell::Cell<Option<CanonicalMinimalAddRelationshipCorruption>> =
+            const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn with_canonical_minimal_add_relationship_corruption<R>(
+    corruption: CanonicalMinimalAddRelationshipCorruption,
+    run: impl FnOnce() -> R,
+) -> R {
+    CANONICAL_MINIMAL_ADD_RELATIONSHIP_CORRUPTION.with(|slot| {
+        assert!(
+            slot.replace(Some(corruption)).is_none(),
+            "canonical minimal-add relationship corruption must not nest"
+        );
+    });
+    let result = run();
+    CANONICAL_MINIMAL_ADD_RELATIONSHIP_CORRUPTION.with(|slot| {
+        assert!(
+            slot.replace(None).is_some(),
+            "canonical minimal-add relationship corruption must execute"
+        );
+    });
+    result
+}
+
+pub(crate) struct CanonicalMinimalAddTypeAuthority {
+    task_join_key: CanonicalTaskSignatureJoinKey,
+    item_kind: &'static str,
+    item_name: String,
+    item_span: Span,
+    statement_index: usize,
+    statement_span: Span,
+    root_node_id: String,
+    root_range: ParsedSourceRange,
+    left: CanonicalMinimalAddOperandAuthority,
+    right: CanonicalMinimalAddOperandAuthority,
+    produced_type: &'static str,
+}
+
+impl std::fmt::Debug for CanonicalMinimalAddTypeAuthority {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("<private canonical minimal-add type authority>")
+    }
+}
+
+impl CanonicalMinimalAddTypeAuthority {
+    pub(crate) fn produced_type(&self) -> &'static str {
+        self.produced_type
+    }
+
+    pub(crate) fn statement_index(&self) -> usize {
+        self.statement_index
+    }
+
+    pub(crate) fn root_node_id(&self) -> &str {
+        &self.root_node_id
+    }
+
+    pub(crate) fn matches_operation(
+        &self,
+        task_signature: &AuthenticatedCanonicalTaskSignature,
+        item: &Item,
+        statement_index: usize,
+        statement: &CanonicalBodyStatement,
+    ) -> bool {
+        let Some(root) = statement.canonical_expression() else {
+            return false;
+        };
+        let CanonicalExpressionKind::Binary {
+            operator: ParsedBinaryOperator::Add,
+            left,
+            right,
+        } = &root.kind
+        else {
+            return false;
+        };
+        let (
+            CanonicalExpressionKind::Identifier(left_name),
+            CanonicalExpressionKind::Identifier(right_name),
+        ) = (&left.kind, &right.kind)
+        else {
+            return false;
+        };
+        task_signature.matches_join_key(&self.task_join_key)
+            && self.item_kind == item.kind()
+            && self.item_name == item.name()
+            && self.item_span == *item.span()
+            && self.statement_index == statement_index
+            && self.statement_span == statement.statement().span
+            && self.root_node_id == root.node_id.as_str()
+            && self.root_range == root.range
+            && self.left.parser_node_id == left.node_id.as_str()
+            && self.left.parser_range == left.range
+            && self.left.spelling == *left_name
+            && self.right.parser_node_id == right.node_id.as_str()
+            && self.right.parser_range == right.range
+            && self.right.spelling == *right_name
+    }
+
+    pub(crate) fn matches_claim(
+        &self,
+        statement_index: usize,
+        root_node_id: &str,
+        type_text: &str,
+    ) -> bool {
+        self.statement_index == statement_index
+            && self.root_node_id == root_node_id
+            && self.produced_type == type_text
+    }
+
+    pub(crate) fn semantic_facts_are_complete(&self) -> bool {
+        [&self.left, &self.right].iter().all(|operand| {
+            !operand.resolver_reference_identity.is_empty()
+                && !operand.resolver_definition_identity.is_empty()
+                && !operand.declaration_identity.is_empty()
+                && operand.declaration_type == "Int"
+        })
+    }
+
+    pub(crate) fn matches_public_projection(
+        &self,
+        type_status: &str,
+        type_text: Option<&str>,
+        type_source: Option<&str>,
+    ) -> bool {
+        type_status == crate::core_expr::CORE_EXPRESSION_CHECKED_CANONICAL_MINIMAL_ADD_TYPE_STATUS
+            && type_text == Some(self.produced_type)
+            && type_source
+                == Some(crate::core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_SOURCE)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -515,6 +706,662 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeCheckRepor
         diagnostics,
         diagnostic_occurrences,
     }
+}
+
+pub(crate) fn canonical_minimal_add_type_for_operation(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    item: &Item,
+    task_signature: Option<&AuthenticatedCanonicalTaskSignature>,
+    statement_index: usize,
+    statement: &CanonicalBodyStatement,
+) -> CanonicalMinimalAddTypeDecision {
+    if item.kind() != "task" || statement.statement().kind != "return" {
+        return CanonicalMinimalAddTypeDecision::Noncanonical;
+    }
+    let Some(root) = statement.canonical_expression() else {
+        return CanonicalMinimalAddTypeDecision::Noncanonical;
+    };
+    let CanonicalExpressionKind::Binary {
+        operator: ParsedBinaryOperator::Add,
+        left,
+        right,
+    } = &root.kind
+    else {
+        return CanonicalMinimalAddTypeDecision::Noncanonical;
+    };
+    let Some(task_signature) = task_signature else {
+        return CanonicalMinimalAddTypeDecision::IntegrityFailure;
+    };
+    let Item::Task(task) = item else {
+        return CanonicalMinimalAddTypeDecision::IntegrityFailure;
+    };
+    if !task_signature.matches_lowered_candidate(
+        item.kind(),
+        item.name(),
+        item.span(),
+        &task.params,
+        task.result.as_deref(),
+    ) {
+        return CanonicalMinimalAddTypeDecision::IntegrityFailure;
+    }
+
+    match (&left.kind, &right.kind) {
+        (CanonicalExpressionKind::Identifier(_), CanonicalExpressionKind::UIntLiteral(_)) => {
+            return CanonicalMinimalAddTypeDecision::LegacyCompatibleAdditive;
+        }
+        (CanonicalExpressionKind::Identifier(_), CanonicalExpressionKind::Identifier(_)) => {}
+        _ => return CanonicalMinimalAddTypeDecision::UnsupportedTargetLike,
+    }
+
+    let CanonicalExpressionKind::Identifier(left_name) = &left.kind else {
+        unreachable!()
+    };
+    let CanonicalExpressionKind::Identifier(right_name) = &right.kind else {
+        unreachable!()
+    };
+    let relationship_inputs = canonical_minimal_add_relationship_inputs(
+        program,
+        diagnostics,
+        left.node_id.as_str(),
+        right.node_id.as_str(),
+    );
+    let Some(task_scope) =
+        canonical_minimal_add_task_scope(program, task, &relationship_inputs.scopes)
+    else {
+        return CanonicalMinimalAddTypeDecision::IntegrityFailure;
+    };
+    let Some(left_position) =
+        canonical_minimal_add_child_position(task, statement_index, root, left, 0)
+    else {
+        return CanonicalMinimalAddTypeDecision::IntegrityFailure;
+    };
+    let Some(right_position) =
+        canonical_minimal_add_child_position(task, statement_index, root, right, 1)
+    else {
+        return CanonicalMinimalAddTypeDecision::IntegrityFailure;
+    };
+
+    let Some(left_operand) = canonical_minimal_add_operand_authority(
+        task_signature,
+        task,
+        task_scope,
+        left,
+        left_name,
+        &left_position,
+        &relationship_inputs,
+    ) else {
+        return CanonicalMinimalAddTypeDecision::IntegrityFailure;
+    };
+    let Some(right_operand) = canonical_minimal_add_operand_authority(
+        task_signature,
+        task,
+        task_scope,
+        right,
+        right_name,
+        &right_position,
+        &relationship_inputs,
+    ) else {
+        return CanonicalMinimalAddTypeDecision::IntegrityFailure;
+    };
+
+    let operand_types_are_int =
+        left_operand.declaration_type == "Int" && right_operand.declaration_type == "Int";
+    if !operand_types_are_int {
+        return CanonicalMinimalAddTypeDecision::AuthenticatedOutOfScope;
+    }
+    let accepted_int_declarations = [&left_operand, &right_operand].iter().all(|operand| {
+        relationship_inputs
+            .checked_declarations
+            .iter()
+            .any(|declaration| {
+                declaration.declaration_id == operand.declaration_identity
+                    && declaration.status == "accepted_declaration_annotation_v0"
+                    && declaration.type_text == "Int"
+                    && !declaration.type_references.is_empty()
+                    && declaration
+                        .type_references
+                        .iter()
+                        .all(|reference| reference.check_status == "accepted_type_reference_v0")
+            })
+    });
+    if !accepted_int_declarations {
+        return CanonicalMinimalAddTypeDecision::IntegrityFailure;
+    }
+
+    CanonicalMinimalAddTypeDecision::Supported(Box::new(CanonicalMinimalAddTypeAuthority {
+        task_join_key: task_signature.join_key(),
+        item_kind: item.kind(),
+        item_name: item.name().to_string(),
+        item_span: item.span().clone(),
+        statement_index,
+        statement_span: statement.statement().span.clone(),
+        root_node_id: root.node_id.as_str().to_string(),
+        root_range: root.range.clone(),
+        left: left_operand,
+        right: right_operand,
+        produced_type: "Int",
+    }))
+}
+
+fn canonical_minimal_add_relationship_inputs(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    left_node_id: &str,
+    right_node_id: &str,
+) -> CanonicalMinimalAddRelationshipInputs {
+    let references = crate::resolve::resolve_reference_summaries(program, diagnostics);
+    let authoritative_reference_ids = references
+        .iter()
+        .map(|reference| {
+            (
+                reference.semantic_identity.clone(),
+                (
+                    reference.id.clone(),
+                    reference.resolved_definition_id.clone(),
+                ),
+            )
+        })
+        .collect();
+    let authoritative_definitions =
+        crate::resolve::resolve_definition_summaries(program, diagnostics);
+    let scopes = crate::resolve::resolve_scope_summaries(program, diagnostics);
+    let type_env = type_env::type_env_report(program, diagnostics);
+    let checked_declarations = build_report(program, diagnostics).checked_declarations;
+    let inputs = CanonicalMinimalAddRelationshipInputs {
+        references,
+        authoritative_reference_ids,
+        authoritative_definitions,
+        type_env,
+        checked_declarations,
+        scopes,
+    };
+    #[cfg(test)]
+    let inputs = {
+        let mut inputs = inputs;
+        CANONICAL_MINIMAL_ADD_RELATIONSHIP_CORRUPTION.with(|slot| {
+            if let Some(corruption) = slot.get() {
+                corrupt_canonical_minimal_add_relationship_inputs(
+                    &mut inputs,
+                    left_node_id,
+                    right_node_id,
+                    corruption,
+                );
+            }
+        });
+        inputs
+    };
+    #[cfg(not(test))]
+    let _ = (left_node_id, right_node_id);
+    inputs
+}
+
+fn canonical_minimal_add_task_scope<'a>(
+    program: &Program,
+    task: &Task,
+    scopes: &'a [crate::resolve::ResolveScopeSummary],
+) -> Option<&'a crate::resolve::ResolveScopeSummary> {
+    let expected_owner = crate::resolve::semantic_task_definition_identity(program, task);
+    let matches = scopes
+        .iter()
+        .filter(|scope| {
+            scope.scope_kind == "callable"
+                && scope.owner_kind == "task"
+                && scope.owner_name == task.name
+                && scope
+                    .source_span
+                    .as_ref()
+                    .is_some_and(|span| canonical_minimal_add_span_matches(span, &task.span))
+                && scope.owner_semantic_identity == expected_owner
+        })
+        .collect::<Vec<_>>();
+    let [scope] = matches.as_slice() else {
+        return None;
+    };
+    Some(*scope)
+}
+
+fn canonical_minimal_add_child_position(
+    task: &Task,
+    statement_index: usize,
+    root: &CanonicalExpression,
+    child: &CanonicalExpression,
+    child_index: usize,
+) -> Option<String> {
+    let statement = task.body_syntax.get(statement_index)?;
+    let ParsedBodyStatementKind::Return(parsed) = &statement.kind else {
+        return None;
+    };
+    if parsed.canonical.node_id != root.node_id || child_index > 1 {
+        return None;
+    }
+    Some(format!(
+        "statement-{statement_index}:{}:root-0:path-0.{child_index}:node-{}",
+        statement.source_node_id.as_str(),
+        child.node_id.as_str(),
+    ))
+}
+
+fn canonical_minimal_add_span_matches(left: &Span, right: &Span) -> bool {
+    left.file.replace('\\', "/") == right.file.replace('\\', "/")
+        && left.line == right.line
+        && left.column == right.column
+}
+
+#[cfg(test)]
+fn corrupt_canonical_minimal_add_relationship_inputs(
+    inputs: &mut CanonicalMinimalAddRelationshipInputs,
+    left_node_id: &str,
+    right_node_id: &str,
+    corruption: CanonicalMinimalAddRelationshipCorruption,
+) {
+    fn reference_for_node<'a>(
+        references: &'a mut [crate::resolve::ResolveReferenceSummary],
+        node_id: &str,
+    ) -> &'a mut crate::resolve::ResolveReferenceSummary {
+        references
+            .iter_mut()
+            .find(|reference| reference.canonical_node_id.as_deref() == Some(node_id))
+            .expect("canonical minimal-add reference")
+    }
+
+    match corruption {
+        CanonicalMinimalAddRelationshipCorruption::WrongLeftChildPosition => {
+            reference_for_node(&mut inputs.references, left_node_id).canonical_child_position =
+                Some("foreign-child-position".to_string());
+        }
+        CanonicalMinimalAddRelationshipCorruption::WrongRightChildPosition => {
+            reference_for_node(&mut inputs.references, right_node_id).canonical_child_position =
+                Some("foreign-child-position".to_string());
+        }
+        CanonicalMinimalAddRelationshipCorruption::ReorderedChildPositions => {
+            let left_index = inputs
+                .references
+                .iter()
+                .position(|reference| reference.canonical_node_id.as_deref() == Some(left_node_id))
+                .expect("left reference");
+            let right_index = inputs
+                .references
+                .iter()
+                .position(|reference| reference.canonical_node_id.as_deref() == Some(right_node_id))
+                .expect("right reference");
+            let left = inputs.references[left_index]
+                .canonical_child_position
+                .clone();
+            let right = inputs.references[right_index]
+                .canonical_child_position
+                .clone();
+            inputs.references[left_index].canonical_child_position = right;
+            inputs.references[right_index].canonical_child_position = left;
+        }
+        CanonicalMinimalAddRelationshipCorruption::WrongReferenceKind => {
+            reference_for_node(&mut inputs.references, left_node_id).reference_kind =
+                "path_root_ref";
+        }
+        CanonicalMinimalAddRelationshipCorruption::ForeignTaskScope => {
+            let reference = reference_for_node(&mut inputs.references, left_node_id);
+            reference.scope_id = "foreign-task-scope".to_string();
+            reference.scope_semantic_identity = "foreign-task-scope-semantic".to_string();
+        }
+        CanonicalMinimalAddRelationshipCorruption::ResolvedSemanticTarget => {
+            reference_for_node(&mut inputs.references, left_node_id)
+                .resolved_definition_semantic_identity =
+                Some("foreign-definition-semantic".to_string());
+        }
+        CanonicalMinimalAddRelationshipCorruption::SameSpelledForeignDefinition => {
+            let authoritative = inputs
+                .authoritative_definitions
+                .iter()
+                .find(|definition| {
+                    definition.name == reference_for_node(&mut inputs.references, left_node_id).name
+                })
+                .expect("authoritative parameter definition")
+                .clone();
+            let mut foreign = authoritative;
+            foreign.id = "def_foreign_parameter_same_spelling".to_string();
+            foreign.scope_id = "foreign-task-scope".to_string();
+            foreign.semantic_identity = "foreign-definition-semantic".to_string();
+            let reference = reference_for_node(&mut inputs.references, left_node_id);
+            reference.resolved_definition_id = Some(foreign.id.clone());
+            reference.resolved_definition_semantic_identity =
+                Some(foreign.semantic_identity.clone());
+            inputs.type_env.resolver_definitions.push(foreign);
+        }
+        CanonicalMinimalAddRelationshipCorruption::CoherentPublicIds => {
+            let original_definition_id = reference_for_node(&mut inputs.references, left_node_id)
+                .resolved_definition_id
+                .clone()
+                .expect("resolved definition id");
+            let foreign_definition_id = "def_coherent_public_substitution".to_string();
+            let reference = reference_for_node(&mut inputs.references, left_node_id);
+            reference.id = "ref_coherent_public_substitution".to_string();
+            reference.resolved_definition_id = Some(foreign_definition_id.clone());
+            for definition in &mut inputs.type_env.resolver_definitions {
+                if definition.id == original_definition_id {
+                    definition.id = foreign_definition_id.clone();
+                }
+            }
+            for declaration in &mut inputs.type_env.declarations {
+                if declaration.resolver_definition_id.as_deref()
+                    == Some(original_definition_id.as_str())
+                {
+                    declaration.id = "hum_type_decl_coherent_public_substitution".to_string();
+                    declaration.resolver_definition_id = Some(foreign_definition_id.clone());
+                }
+            }
+            for checked in &mut inputs.checked_declarations {
+                if checked.resolver_definition_id.as_deref()
+                    == Some(original_definition_id.as_str())
+                {
+                    checked.id = "hum_type_check_decl_coherent_public_substitution".to_string();
+                    checked.declaration_id =
+                        "hum_type_decl_coherent_public_substitution".to_string();
+                    checked.resolver_definition_id = Some(foreign_definition_id.clone());
+                }
+            }
+        }
+        CanonicalMinimalAddRelationshipCorruption::MissingReference => {
+            inputs
+                .references
+                .retain(|reference| reference.canonical_node_id.as_deref() != Some(left_node_id));
+        }
+        CanonicalMinimalAddRelationshipCorruption::DuplicateReference => {
+            let duplicate = inputs
+                .references
+                .iter()
+                .find(|reference| reference.canonical_node_id.as_deref() == Some(left_node_id))
+                .expect("left reference")
+                .clone();
+            inputs.references.push(duplicate);
+        }
+        CanonicalMinimalAddRelationshipCorruption::AmbiguousReference => {
+            let mut ambiguous = inputs
+                .references
+                .iter()
+                .find(|reference| reference.canonical_node_id.as_deref() == Some(left_node_id))
+                .expect("left reference")
+                .clone();
+            ambiguous.id.push_str("_ambiguous");
+            inputs.references.push(ambiguous);
+        }
+        CanonicalMinimalAddRelationshipCorruption::MissingDefinition => {
+            let definition_id = reference_for_node(&mut inputs.references, left_node_id)
+                .resolved_definition_id
+                .clone()
+                .expect("resolved definition id");
+            inputs
+                .type_env
+                .resolver_definitions
+                .retain(|definition| definition.id != definition_id);
+        }
+        CanonicalMinimalAddRelationshipCorruption::DuplicateDefinition => {
+            let definition_id = reference_for_node(&mut inputs.references, left_node_id)
+                .resolved_definition_id
+                .clone()
+                .expect("resolved definition id");
+            let duplicate = inputs
+                .type_env
+                .resolver_definitions
+                .iter()
+                .find(|definition| definition.id == definition_id)
+                .expect("type-environment parameter definition")
+                .clone();
+            inputs.type_env.resolver_definitions.push(duplicate);
+        }
+        CanonicalMinimalAddRelationshipCorruption::MissingDeclaration => {
+            let definition_id = reference_for_node(&mut inputs.references, left_node_id)
+                .resolved_definition_id
+                .clone()
+                .expect("resolved definition id");
+            inputs.type_env.declarations.retain(|declaration| {
+                declaration.resolver_definition_id.as_deref() != Some(definition_id.as_str())
+            });
+        }
+        CanonicalMinimalAddRelationshipCorruption::DuplicateDeclaration => {
+            let definition_id = reference_for_node(&mut inputs.references, left_node_id)
+                .resolved_definition_id
+                .clone()
+                .expect("resolved definition id");
+            let duplicate = inputs
+                .type_env
+                .declarations
+                .iter()
+                .find(|declaration| {
+                    declaration.resolver_definition_id.as_deref() == Some(definition_id.as_str())
+                })
+                .expect("type-environment parameter declaration")
+                .clone();
+            inputs.type_env.declarations.push(duplicate);
+        }
+        CanonicalMinimalAddRelationshipCorruption::MissingCheckedDeclaration => {
+            let definition_id = reference_for_node(&mut inputs.references, left_node_id)
+                .resolved_definition_id
+                .clone()
+                .expect("resolved definition id");
+            inputs.checked_declarations.retain(|declaration| {
+                declaration.resolver_definition_id.as_deref() != Some(definition_id.as_str())
+            });
+        }
+        CanonicalMinimalAddRelationshipCorruption::DuplicateCheckedDeclaration => {
+            let definition_id = reference_for_node(&mut inputs.references, left_node_id)
+                .resolved_definition_id
+                .clone()
+                .expect("resolved definition id");
+            let duplicate = inputs
+                .checked_declarations
+                .iter()
+                .find(|declaration| {
+                    declaration.resolver_definition_id.as_deref() == Some(definition_id.as_str())
+                })
+                .expect("checked parameter declaration")
+                .clone();
+            inputs.checked_declarations.push(duplicate);
+        }
+        CanonicalMinimalAddRelationshipCorruption::RejectedDeclaration => {
+            let definition_id = reference_for_node(&mut inputs.references, left_node_id)
+                .resolved_definition_id
+                .clone()
+                .expect("resolved definition id");
+            inputs
+                .checked_declarations
+                .iter_mut()
+                .find(|declaration| {
+                    declaration.resolver_definition_id.as_deref() == Some(definition_id.as_str())
+                })
+                .expect("checked parameter declaration")
+                .status = "rejected_unknown_type_name_v0";
+        }
+        CanonicalMinimalAddRelationshipCorruption::ForeignDefinition => {
+            let definition_id = reference_for_node(&mut inputs.references, left_node_id)
+                .resolved_definition_id
+                .clone()
+                .expect("resolved definition id");
+            inputs
+                .type_env
+                .resolver_definitions
+                .iter_mut()
+                .find(|definition| definition.id == definition_id)
+                .expect("type-environment parameter definition")
+                .semantic_identity = "foreign-definition-semantic".to_string();
+        }
+    }
+}
+
+fn canonical_minimal_add_operand_authority(
+    task_signature: &AuthenticatedCanonicalTaskSignature,
+    task: &Task,
+    task_scope: &crate::resolve::ResolveScopeSummary,
+    expression: &CanonicalExpression,
+    spelling: &str,
+    expected_position: &str,
+    inputs: &CanonicalMinimalAddRelationshipInputs,
+) -> Option<CanonicalMinimalAddOperandAuthority> {
+    let matching_parameters = task
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(_, parameter)| {
+            parameter.name == spelling
+                && task_signature.matches_parameter_annotation(
+                    &parameter.name,
+                    &parameter.span,
+                    &parameter.ty,
+                )
+        })
+        .collect::<Vec<_>>();
+    let [(parameter_index, parameter)] = matching_parameters.as_slice() else {
+        return None;
+    };
+    let expected_definition_semantic_identity = format!(
+        "resolver-definition|scope={}|kind=parameter|origin=parameter-position:{parameter_index}|shape=parameter-position:{parameter_index}",
+        task_scope.semantic_identity,
+    );
+    let authoritative_definitions = inputs
+        .authoritative_definitions
+        .iter()
+        .filter(|definition| {
+            definition.semantic_identity == expected_definition_semantic_identity
+                && definition.name == spelling
+                && definition.definition_kind == "parameter"
+                && definition.scope_id == task_scope.id
+                && canonical_minimal_add_span_matches(&definition.source_span, &parameter.span)
+                && definition.status == "defined_v0"
+        })
+        .collect::<Vec<_>>();
+    let [authoritative_definition] = authoritative_definitions.as_slice() else {
+        return None;
+    };
+    let expected_reference_semantic_identity = format!(
+        "resolver-reference|scope={}|kind=name_ref|position={expected_position}",
+        task_scope.semantic_identity,
+    );
+    let matching_references = inputs
+        .references
+        .iter()
+        .filter(|reference| {
+            reference.canonical_node_id.as_deref() == Some(expression.node_id.as_str())
+                && reference.canonical_child_position.as_deref() == Some(expected_position)
+                && reference.name == spelling
+                && reference.normalized_name == name_key(spelling)
+                && reference.reference_kind == "name_ref"
+                && reference.scope_id == task_scope.id
+                && reference.scope_semantic_identity == task_scope.semantic_identity
+                && reference.semantic_identity == expected_reference_semantic_identity
+                && canonical_minimal_add_span_matches(
+                    &reference.source_span,
+                    &expression.range.start,
+                )
+                && reference.resolution_status == "resolved_v0"
+                && reference.reason.is_none()
+                && reference.resolved_definition_semantic_identity.as_deref()
+                    == Some(expected_definition_semantic_identity.as_str())
+        })
+        .collect::<Vec<_>>();
+    let [reference] = matching_references.as_slice() else {
+        return None;
+    };
+    let (authoritative_reference_id, authoritative_definition_id) = inputs
+        .authoritative_reference_ids
+        .get(&expected_reference_semantic_identity)?;
+    if reference.id != *authoritative_reference_id
+        || reference.resolved_definition_id != *authoritative_definition_id
+        || reference.resolved_definition_id.as_deref() != Some(authoritative_definition.id.as_str())
+    {
+        return None;
+    }
+    let definition_id = authoritative_definition.id.as_str();
+    let matching_definitions = inputs
+        .type_env
+        .resolver_definitions
+        .iter()
+        .filter(|definition| {
+            definition.semantic_identity == expected_definition_semantic_identity
+                && definition.id == definition_id
+                && definition.name == spelling
+                && definition.definition_kind == "parameter"
+                && definition.scope_id == task_scope.id
+                && canonical_minimal_add_span_matches(&definition.source_span, &parameter.span)
+                && definition.status == "defined_v0"
+        })
+        .collect::<Vec<_>>();
+    let [definition] = matching_definitions.as_slice() else {
+        return None;
+    };
+    if !canonical_minimal_add_span_matches(&parameter.span, &definition.source_span) {
+        return None;
+    }
+    let expected_declaration_id = prefixed_id(
+        "hum_type_decl",
+        &format!(
+            "parameter_task_{}_{}_{}",
+            task.name, parameter.name, parameter.span.line
+        ),
+    );
+    let matching_declarations = inputs
+        .type_env
+        .declarations
+        .iter()
+        .filter(|declaration| {
+            declaration.id == expected_declaration_id
+                && declaration.declaration_kind == "parameter"
+                && declaration.owner_kind == "task"
+                && declaration.owner_name == task.name
+                && declaration.name == spelling
+                && declaration.resolver_definition_id.as_deref() == Some(definition_id)
+                && canonical_minimal_add_span_matches(&declaration.source_span, &parameter.span)
+                && declaration.type_text == parameter.ty.trim()
+                && declaration.status != "missing_type_annotation_v0"
+                && !declaration
+                    .type_references
+                    .iter()
+                    .any(|reference| reference.status == "unknown_type_name_v0")
+        })
+        .collect::<Vec<_>>();
+    let [declaration] = matching_declarations.as_slice() else {
+        return None;
+    };
+    let expected_checked_id = prefixed_id("hum_type_check_decl", &expected_declaration_id);
+    let checked_matches = inputs
+        .checked_declarations
+        .iter()
+        .filter(|checked| {
+            checked.id == expected_checked_id
+                && checked.declaration_id == declaration.id
+                && checked.declaration_kind == "parameter"
+                && checked.owner_kind == "task"
+                && checked.owner_name == task.name
+                && checked.resolver_definition_id.as_deref() == Some(definition_id)
+                && canonical_minimal_add_span_matches(
+                    &checked.source_span,
+                    &declaration.source_span,
+                )
+                && checked.name == declaration.name
+                && checked.type_text == declaration.type_text
+                && matches!(
+                    checked.status,
+                    "accepted_declaration_annotation_v0" | "not_checked_blocked_by_prior_errors_v0"
+                )
+                && !checked.type_references.is_empty()
+                && checked.type_references.iter().all(|reference| {
+                    matches!(
+                        reference.check_status,
+                        "accepted_type_reference_v0" | "not_checked_prior_errors_v0"
+                    ) && reference.type_env_status != "unknown_type_name_v0"
+                })
+        })
+        .count();
+    if checked_matches != 1 {
+        return None;
+    }
+    Some(CanonicalMinimalAddOperandAuthority {
+        parser_node_id: expression.node_id.as_str().to_string(),
+        parser_range: expression.range.clone(),
+        spelling: spelling.to_string(),
+        resolver_reference_identity: reference.semantic_identity.clone(),
+        resolver_definition_identity: expected_definition_semantic_identity,
+        declaration_identity: declaration.id.clone(),
+        declaration_type: declaration.type_text.clone(),
+    })
 }
 
 fn public_type_diagnostic(diagnostic: &TypeCheckDiagnostic) -> Diagnostic {
@@ -1679,10 +2526,283 @@ mod tests {
     use crate::parser::parse_source;
 
     use super::{
-        build_report, diagnostic_occurrence_set_from_source, resolver_precedence_relationships,
-        type_check_has_errors, type_check_json, type_check_text, type_diagnostic_occurrence,
-        type_diagnostics,
+        CanonicalMinimalAddRelationshipCorruption, CanonicalMinimalAddTypeDecision, build_report,
+        canonical_minimal_add_type_for_operation, diagnostic_occurrence_set_from_source,
+        resolver_precedence_relationships, type_check_has_errors, type_check_json, type_check_text,
+        type_diagnostic_occurrence, type_diagnostics,
+        with_canonical_minimal_add_relationship_corruption,
     };
+
+    fn assert_canonical_minimal_add_corpus_inventory() {
+        fn hum_files(root: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(root).expect("corpus directory") {
+                let path = entry.expect("corpus entry").path();
+                if path.is_dir() {
+                    hum_files(&path, out);
+                } else if path.extension().and_then(|value| value.to_str()) == Some("hum") {
+                    out.push(path);
+                }
+            }
+        }
+
+        #[derive(Default)]
+        struct CorpusCounts {
+            supported: usize,
+            out_of_scope: usize,
+            legacy: usize,
+            unsupported: usize,
+            integrity: usize,
+        }
+
+        fn classify_items(
+            program: &Program,
+            diagnostics: &[crate::diagnostic::Diagnostic],
+            items: &[crate::ast::Item],
+            counts: &mut CorpusCounts,
+        ) {
+            for item in items {
+                if let crate::ast::Item::Task(task) = item
+                    && let Some(does) = task.section("does")
+                {
+                    let signature = program.authenticate_canonical_task_signature(task).ok();
+                    let body = crate::core_body::analyze_does_section_for_lowering(
+                        program
+                            .canonical_core_expectation(item, does)
+                            .expect("corpus canonical expectation"),
+                    );
+                    for (statement_index, statement) in body.statements.iter().enumerate() {
+                        match canonical_minimal_add_type_for_operation(
+                            program,
+                            diagnostics,
+                            item,
+                            signature.as_ref(),
+                            statement_index,
+                            statement,
+                        ) {
+                            CanonicalMinimalAddTypeDecision::Supported(_) => counts.supported += 1,
+                            CanonicalMinimalAddTypeDecision::AuthenticatedOutOfScope => {
+                                counts.out_of_scope += 1
+                            }
+                            CanonicalMinimalAddTypeDecision::LegacyCompatibleAdditive => {
+                                counts.legacy += 1
+                            }
+                            CanonicalMinimalAddTypeDecision::UnsupportedTargetLike => {
+                                counts.unsupported += 1
+                            }
+                            CanonicalMinimalAddTypeDecision::IntegrityFailure => {
+                                counts.integrity += 1
+                            }
+                            CanonicalMinimalAddTypeDecision::Noncanonical => {}
+                        }
+                    }
+                }
+                if let crate::ast::Item::App(app) = item {
+                    classify_items(program, diagnostics, &app.items, counts);
+                }
+            }
+        }
+
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut files = Vec::new();
+        for directory in ["examples", "fixtures", "experiments"] {
+            hum_files(&manifest.join(directory), &mut files);
+        }
+        files.sort();
+        assert_eq!(files.len(), 229, "structured Hum corpus inventory");
+        let mut counts = CorpusCounts::default();
+        for path in files {
+            let relative = path
+                .strip_prefix(manifest)
+                .expect("corpus path under manifest")
+                .to_string_lossy()
+                .replace('\\', "/");
+            let source = std::fs::read_to_string(&path).expect("UTF-8 Hum corpus file");
+            let parsed = parse_source(&relative, &source);
+            let diagnostics = parsed.diagnostics;
+            let program = Program {
+                files: vec![parsed.file],
+            };
+            classify_items(&program, &diagnostics, &program.files[0].items, &mut counts);
+        }
+        assert_eq!(counts.supported, 2);
+        assert_eq!(counts.out_of_scope, 1);
+        assert_eq!(counts.legacy, 12);
+        assert_eq!(counts.unsupported, 0);
+        assert_eq!(counts.integrity, 0);
+    }
+
+    #[test]
+    fn canonical_minimal_add_type_authority_is_direct_and_bound() {
+        fn parsed_program(
+            path: &str,
+            source: &str,
+        ) -> (Program, Vec<crate::diagnostic::Diagnostic>) {
+            let parsed = parse_source(path, source);
+            (
+                Program {
+                    files: vec![parsed.file],
+                },
+                parsed.diagnostics,
+            )
+        }
+
+        let source =
+            "task add(left: Int, right: Int) -> Int {\n  does:\n    return left + right\n}\n";
+        let (program, diagnostics) = parsed_program("direct/minimal_add.hum", source);
+        let item = &program.files[0].items[0];
+        let crate::ast::Item::Task(task) = item else {
+            panic!("task")
+        };
+        let signature = match program.authenticate_canonical_task_signature(task) {
+            Ok(authority) => authority,
+            Err(_) => panic!("signature"),
+        };
+        let body = crate::core_body::analyze_does_section_for_lowering(
+            program
+                .canonical_core_expectation(item, task.section("does").expect("does"))
+                .expect("expectation"),
+        );
+        let decision = canonical_minimal_add_type_for_operation(
+            &program,
+            &diagnostics,
+            item,
+            Some(&signature),
+            0,
+            &body.statements[0],
+        );
+        let CanonicalMinimalAddTypeDecision::Supported(authority) = decision else {
+            panic!("expected supported direct authority")
+        };
+        assert_eq!(authority.produced_type(), "Int");
+        assert!(authority.matches_operation(&signature, item, 0, &body.statements[0]));
+        assert!(authority.semantic_facts_are_complete());
+
+        for corruption in [
+            CanonicalMinimalAddRelationshipCorruption::WrongLeftChildPosition,
+            CanonicalMinimalAddRelationshipCorruption::WrongRightChildPosition,
+            CanonicalMinimalAddRelationshipCorruption::ReorderedChildPositions,
+            CanonicalMinimalAddRelationshipCorruption::WrongReferenceKind,
+            CanonicalMinimalAddRelationshipCorruption::ForeignTaskScope,
+            CanonicalMinimalAddRelationshipCorruption::ResolvedSemanticTarget,
+            CanonicalMinimalAddRelationshipCorruption::SameSpelledForeignDefinition,
+            CanonicalMinimalAddRelationshipCorruption::CoherentPublicIds,
+            CanonicalMinimalAddRelationshipCorruption::MissingReference,
+            CanonicalMinimalAddRelationshipCorruption::DuplicateReference,
+            CanonicalMinimalAddRelationshipCorruption::AmbiguousReference,
+            CanonicalMinimalAddRelationshipCorruption::MissingDefinition,
+            CanonicalMinimalAddRelationshipCorruption::DuplicateDefinition,
+            CanonicalMinimalAddRelationshipCorruption::MissingDeclaration,
+            CanonicalMinimalAddRelationshipCorruption::DuplicateDeclaration,
+            CanonicalMinimalAddRelationshipCorruption::MissingCheckedDeclaration,
+            CanonicalMinimalAddRelationshipCorruption::DuplicateCheckedDeclaration,
+            CanonicalMinimalAddRelationshipCorruption::RejectedDeclaration,
+            CanonicalMinimalAddRelationshipCorruption::ForeignDefinition,
+        ] {
+            let corrupted = with_canonical_minimal_add_relationship_corruption(corruption, || {
+                canonical_minimal_add_type_for_operation(
+                    &program,
+                    &diagnostics,
+                    item,
+                    Some(&signature),
+                    0,
+                    &body.statements[0],
+                )
+            });
+            assert!(
+                matches!(corrupted, CanonicalMinimalAddTypeDecision::IntegrityFailure),
+                "{corruption:?} must fail closed instead of downgrading"
+            );
+        }
+
+        assert!(matches!(
+            canonical_minimal_add_type_for_operation(
+                &program,
+                &diagnostics,
+                item,
+                None,
+                0,
+                &body.statements[0],
+            ),
+            CanonicalMinimalAddTypeDecision::IntegrityFailure
+        ));
+
+        let (uint_program, uint_diagnostics) = parsed_program(
+            "direct/uint.hum",
+            "task add(left: UInt, right: UInt) -> UInt {\n  does:\n    return left + right\n}\n",
+        );
+        let uint_item = &uint_program.files[0].items[0];
+        let crate::ast::Item::Task(uint_task) = uint_item else {
+            panic!("uint task")
+        };
+        let uint_signature = match uint_program.authenticate_canonical_task_signature(uint_task) {
+            Ok(authority) => authority,
+            Err(_) => panic!("uint signature"),
+        };
+        let uint_body = crate::core_body::analyze_does_section_for_lowering(
+            uint_program
+                .canonical_core_expectation(
+                    uint_item,
+                    uint_task.section("does").expect("uint does"),
+                )
+                .expect("uint expectation"),
+        );
+        assert!(matches!(
+            canonical_minimal_add_type_for_operation(
+                &uint_program,
+                &uint_diagnostics,
+                uint_item,
+                Some(&uint_signature),
+                0,
+                &uint_body.statements[0],
+            ),
+            CanonicalMinimalAddTypeDecision::AuthenticatedOutOfScope
+        ));
+
+        for (expression, expected) in [("left + 1", "legacy"), ("1 + left", "unsupported")] {
+            let source =
+                format!("task add(left: UInt) -> UInt {{\n  does:\n    return {expression}\n}}\n");
+            let (candidate, candidate_diagnostics) = parsed_program("direct/shape.hum", &source);
+            let candidate_item = &candidate.files[0].items[0];
+            let crate::ast::Item::Task(candidate_task) = candidate_item else {
+                panic!("shape task")
+            };
+            let candidate_signature =
+                match candidate.authenticate_canonical_task_signature(candidate_task) {
+                    Ok(authority) => authority,
+                    Err(_) => panic!("shape signature"),
+                };
+            let candidate_body = crate::core_body::analyze_does_section_for_lowering(
+                candidate
+                    .canonical_core_expectation(
+                        candidate_item,
+                        candidate_task.section("does").expect("shape does"),
+                    )
+                    .expect("shape expectation"),
+            );
+            let actual = canonical_minimal_add_type_for_operation(
+                &candidate,
+                &candidate_diagnostics,
+                candidate_item,
+                Some(&candidate_signature),
+                0,
+                &candidate_body.statements[0],
+            );
+            assert!(
+                matches!(
+                    (expected, actual),
+                    (
+                        "legacy",
+                        CanonicalMinimalAddTypeDecision::LegacyCompatibleAdditive
+                    ) | (
+                        "unsupported",
+                        CanonicalMinimalAddTypeDecision::UnsupportedTargetLike
+                    )
+                ),
+                "{expression}"
+            );
+        }
+        assert_canonical_minimal_add_corpus_inventory();
+    }
 
     #[test]
     fn resolver_precedence_is_consumed_for_a_genuine_blocked_type_relationship() {

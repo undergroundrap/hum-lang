@@ -137,6 +137,36 @@ The V0 gate checks only conservative statement contexts:
 - `block_close` and `loop_header`: accepted as statements with no expression
   type obligation.
 
+### Direct Canonical Minimal Add
+
+For an authenticated task return whose parser root is exactly
+`Binary(Add, Identifier, Identifier)`, full type does not infer the operand or
+result type from text, names, a declared result, or the public Core candidate.
+It requests the exact operation through the complete Core-verification report.
+Only the report-bound Supported outcome carries a borrowed verified view.
+
+That view produces `actual_type: Int` with
+`type_source: verified_canonical_minimal_add_type_v0`. A compatible declared
+result retains `accepted_statement_type_v0`; an incompatible declared result
+retains `rejected_statement_type_mismatch_v0` and
+`statement_expression_type_mismatch` while the independently produced actual
+type remains `Int`.
+
+Integrity failures and unsupported additive target-like shapes receive no
+view. Their required Core-verification failure preserves the existing
+`not_checked_blocked_by_prior_errors_v0` row with null expression, expected,
+actual, and source fields and reason
+`source_resolver_type_or_core_verify_errors`. They cannot reach textual
+additive inference. A coherent authenticated non-`Int` identifier pair, the
+exact legacy-compatible `Identifier + UIntLiteral` shape, and genuine
+non-target expressions preserve their prior inference routes and output; in
+particular legacy-compatible accepted rows retain
+`type_source: additive_expression_v0`.
+
+The verified handoff is total and borrowed: one complete report is built, each
+requested operation receives exactly one closed outcome, and no authority,
+claim, view, or report can be retained or serialized by full type.
+
 ## Current Blockers
 
 V0 intentionally blocks or leaves unchecked:

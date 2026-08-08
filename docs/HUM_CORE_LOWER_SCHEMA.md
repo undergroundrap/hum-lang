@@ -170,7 +170,8 @@ needed by future type/effect/lowering work:
 - `reason`
 
 Type slots may be populated only from checked trivial return facts already
-reported by `hum.type_check.v0`. They are not broad expression inference.
+reported by `hum.type_check.v0` or from the private direct minimal-add authority
+owned by the exact operation. They are not broad expression inference.
 
 ### Bounded Structured Expression
 
@@ -209,9 +210,27 @@ relocated projections fail even when internally consistent, and candidate
 range arithmetic fails closed on overflow.
 
 The structured object contains no type field. The existing outer expression
-type fields remain authoritative. For `examples/core/minimal_add.hum` they are
-`type_status: not_type_checked_v0`, `type_text: null`, and `type_source: null`.
-The task's declared `Int` result is not expression-type proof.
+type fields remain the public projection. For a supported authenticated
+`Binary(Add, Identifier, Identifier)` whose exact resolver relationships and
+checked parameter declarations are both `Int`, they are:
+
+- `type_status: checked_canonical_minimal_add_v0`;
+- `type_text: Int`;
+- `type_source: canonical_minimal_add_type_authority_v0`.
+
+The exact operation privately owns the untouched authority and a separate
+non-authoritative claim. Neither serializes. The declared task result is not
+expression-type proof and is considered only later for compatibility. A
+canonical integrity failure or authenticated unsupported additive shape uses
+`canonical_minimal_add_type_unavailable_v0`, `null`, and `null`. A coherent
+authenticated non-`Int` identifier pair, the legacy-compatible exact
+`Identifier + UIntLiteral` shape, and unrelated expressions preserve their
+prior type fields and output bytes.
+
+The six private per-operation dispositions are Supported,
+AuthenticatedOutOfScope, LegacyCompatibleAdditive, UnsupportedTargetLike,
+IntegrityFailure, and Noncanonical. There is no program-wide classification
+collection, positional join, or serialized private identity.
 
 ## Honesty Rules
 

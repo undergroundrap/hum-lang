@@ -52,6 +52,12 @@ pub const CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_TYPE_STATUS: &str =
     "checked_trivial_return_type_v0";
 pub const CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_MISMATCH_STATUS: &str =
     "checked_trivial_return_type_mismatch_v0";
+pub const CORE_EXPRESSION_CHECKED_CANONICAL_MINIMAL_ADD_TYPE_STATUS: &str =
+    "checked_canonical_minimal_add_v0";
+pub const CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_UNAVAILABLE_STATUS: &str =
+    "canonical_minimal_add_type_unavailable_v0";
+pub const CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_SOURCE: &str =
+    "canonical_minimal_add_type_authority_v0";
 pub const CORE_EXPRESSION_EFFECT_STATUS: &str = "not_effect_checked_v0";
 pub const CORE_PREDICATE_EXPRESSION_STATUS: &str = "typed_predicate_ast_v2";
 pub const CORE_PREDICATE_AST_STATUS: &str = "predicate_ast_v2";

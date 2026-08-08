@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::ast::{Item, Param, Program, Section};
 use crate::callable::{self, CallableAnalysis};
-use crate::core_body::{self, BodyStatement};
+use crate::core_body::{self, BodyStatement, CanonicalBodyStatement};
 use crate::core_contract;
 use crate::core_verify;
 use crate::diagnostic::{
@@ -394,8 +394,18 @@ pub fn full_type_check_json(program: &Program, diagnostics: &[Diagnostic]) -> St
 }
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckReport {
+    core_verify::with_canonical_minimal_add_verification(program, diagnostics, |verification| {
+        build_report_with_verification(program, diagnostics, &verification)
+    })
+}
+
+fn build_report_with_verification(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    verification: &core_verify::CanonicalMinimalAddVerification<'_>,
+) -> FullTypeCheckReport {
     let type_check_summary = type_check::type_check_summary(program, diagnostics);
-    let core_verify_summary = core_verify::core_verify_readiness_summary(program, diagnostics);
+    let core_verify_summary = verification.readiness_summary();
     let callables = callable::analyze_program(program);
     let source_errors = diagnostics
         .iter()
@@ -416,12 +426,13 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
         failure_analysis: &failure_analysis,
         field_types: &field_types,
         callables: &callables,
+        verification,
     };
     for file in &program.files {
         collect_items(&context, &file.items, &task_returns, &mut items);
     }
 
-    let mut diagnostic_occurrences = core_verify::diagnostic_occurrence_set(program, diagnostics);
+    let mut diagnostic_occurrences = verification.diagnostic_occurrence_set();
     extend_full_type_occurrences(&failure_analysis, &items, &mut diagnostic_occurrences);
 
     FullTypeCheckReport {
@@ -484,30 +495,23 @@ pub(crate) fn diagnostic_occurrence_set_from_source(
     Ok(occurrences)
 }
 
-struct FullTypeCollectionContext<'a> {
+struct FullTypeCollectionContext<'a, 'report> {
     program: &'a Program,
     blocked: bool,
     failure_analysis: &'a ProgramFailureAnalysis,
     field_types: &'a FieldTypeMap,
     callables: &'a CallableAnalysis,
+    verification: &'a core_verify::CanonicalMinimalAddVerification<'report>,
 }
 
 fn collect_items(
-    context: &FullTypeCollectionContext<'_>,
+    context: &FullTypeCollectionContext<'_, '_>,
     items: &[Item],
     task_returns: &BTreeMap<String, TypeFact>,
     out: &mut Vec<FullTypeItem>,
 ) {
     for item in items {
-        if let Some(typed_item) = type_item(
-            context.program,
-            item,
-            context.blocked,
-            task_returns,
-            context.failure_analysis,
-            context.field_types,
-            context.callables,
-        ) {
+        if let Some(typed_item) = type_item(context, item, task_returns) {
             out.push(typed_item);
         }
         if let Item::App(app) = item {
@@ -518,19 +522,21 @@ fn collect_items(
 }
 
 fn type_item(
-    program: &Program,
+    context: &FullTypeCollectionContext<'_, '_>,
     item: &Item,
-    blocked: bool,
     task_returns: &BTreeMap<String, TypeFact>,
-    failure_analysis: &ProgramFailureAnalysis,
-    field_types: &FieldTypeMap,
-    callables: &CallableAnalysis,
 ) -> Option<FullTypeItem> {
+    let program = context.program;
+    let blocked = context.blocked;
+    let failure_analysis = context.failure_analysis;
+    let field_types = context.field_types;
+    let callables = context.callables;
+    let verification = context.verification;
     let item_identity = crate::resolve::semantic_item_identity_for(program, item);
     let does = item_sections(item)
         .iter()
         .find(|section| section.name == "does")?;
-    let body = core_body::analyze_does_section(
+    let body = core_body::analyze_does_section_for_lowering(
         program
             .canonical_core_expectation(item, does)
             .expect("live typed item must have parser authority"),
@@ -552,6 +558,7 @@ fn type_item(
                 _ => None,
             },
             callables,
+            verification,
         );
         statements.push(typed);
     }
@@ -574,6 +581,43 @@ fn type_statement(
     item_identity: &str,
     item: &Item,
     index: usize,
+    bound_statement: &CanonicalBodyStatement,
+    environment: &mut BTreeMap<String, TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+    blocked: bool,
+    failure_fact: Option<&FailureFact>,
+    callables: &CallableAnalysis,
+    verification: &core_verify::CanonicalMinimalAddVerification<'_>,
+) -> TypedStatement {
+    core_verify::with_canonical_minimal_add_operation(
+        verification,
+        item,
+        index,
+        bound_statement,
+        |outcome| {
+            type_statement_with_canonical_outcome(
+                item_identity,
+                item,
+                index,
+                bound_statement.statement(),
+                environment,
+                task_returns,
+                field_types,
+                blocked,
+                failure_fact,
+                callables,
+                outcome,
+            )
+        },
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn type_statement_with_canonical_outcome(
+    item_identity: &str,
+    item: &Item,
+    index: usize,
     statement: &BodyStatement,
     environment: &mut BTreeMap<String, TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
@@ -581,6 +625,7 @@ fn type_statement(
     blocked: bool,
     failure_fact: Option<&FailureFact>,
     callables: &CallableAnalysis,
+    canonical_outcome: core_verify::CanonicalMinimalAddVerificationOutcome<'_>,
 ) -> TypedStatement {
     if blocked {
         return typed_statement(
@@ -752,10 +797,28 @@ fn type_statement(
             }),
         _ => None,
     };
-    let actual = callable_actual.or_else(|| {
-        expression_text.as_deref().and_then(|expression| {
-            infer_expression_type(expression, environment, task_returns, field_types)
-        })
+    let (canonical_actual, legacy_fallback_allowed) = match canonical_outcome {
+        core_verify::CanonicalMinimalAddVerificationOutcome::Supported(view) => {
+            let _verified_operation_identity = view.operation_id();
+            (
+                Some(type_fact(view.actual_type(), view.provenance())),
+                false,
+            )
+        }
+        core_verify::CanonicalMinimalAddVerificationOutcome::AuthenticatedOutOfScope
+        | core_verify::CanonicalMinimalAddVerificationOutcome::LegacyCompatibleAdditive
+        | core_verify::CanonicalMinimalAddVerificationOutcome::NonTarget => (None, true),
+        core_verify::CanonicalMinimalAddVerificationOutcome::UnsupportedTargetLike
+        | core_verify::CanonicalMinimalAddVerificationOutcome::IntegrityFailure => (None, false),
+    };
+    let actual = canonical_actual.or_else(|| {
+        legacy_fallback_allowed.then(|| {
+            callable_actual.or_else(|| {
+                expression_text.as_deref().and_then(|expression| {
+                    infer_expression_type(expression, environment, task_returns, field_types)
+                })
+            })
+        })?
     });
     let (status, reason) = statement_status(statement, expected_type.as_deref(), actual.as_ref());
 
@@ -2309,13 +2372,231 @@ fn push_comma_newline(out: &mut String, comma: bool) {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::Program;
+    use crate::ast::{CanonicalTaskSignatureCorruption, Program};
     use crate::parser::parse_source;
 
     use super::{
         build_report, full_type_check_has_errors, full_type_check_json, full_type_check_text,
     };
     use crate::diagnostic::DiagnosticCode;
+
+    #[test]
+    fn minimal_add_consumes_only_verified_canonical_type() {
+        fn json(path: &str, source: &str) -> String {
+            let parsed = parse_source(path, source);
+            let program = Program {
+                files: vec![parsed.file],
+            };
+            full_type_check_json(&program, &parsed.diagnostics)
+        }
+
+        fn callback_outcome(
+            path: &str,
+            source: &str,
+            corruption: Option<CanonicalTaskSignatureCorruption>,
+        ) -> (&'static str, usize, usize) {
+            let parsed = parse_source(path, source);
+            let diagnostics = parsed.diagnostics;
+            let mut program = Program {
+                files: vec![parsed.file],
+            };
+            if let Some(corruption) = corruption {
+                program.files[0].items[0].corrupt_canonical_task_signature(corruption);
+            }
+            let item = &program.files[0].items[0];
+            let crate::ast::Item::Task(task) = item else {
+                panic!("task")
+            };
+            let body = crate::core_body::analyze_does_section_for_lowering(
+                program
+                    .canonical_core_expectation(item, task.section("does").expect("does"))
+                    .expect("expectation"),
+            );
+            let outer_calls = std::cell::Cell::new(0usize);
+            let operation_calls = std::cell::Cell::new(0usize);
+            let result = crate::core_verify::with_canonical_minimal_add_verification(
+                &program,
+                &diagnostics,
+                |verification| {
+                    outer_calls.set(outer_calls.get() + 1);
+                    crate::core_verify::with_canonical_minimal_add_operation(
+                        &verification,
+                        item,
+                        0,
+                        &body.statements[0],
+                        |outcome| {
+                            operation_calls.set(operation_calls.get() + 1);
+                            match outcome {
+                                crate::core_verify::CanonicalMinimalAddVerificationOutcome::Supported(view) => {
+                                    assert_eq!(view.actual_type(), "Int");
+                                    "Supported"
+                                }
+                                crate::core_verify::CanonicalMinimalAddVerificationOutcome::AuthenticatedOutOfScope => "AuthenticatedOutOfScope",
+                                crate::core_verify::CanonicalMinimalAddVerificationOutcome::LegacyCompatibleAdditive => "LegacyCompatibleAdditive",
+                                crate::core_verify::CanonicalMinimalAddVerificationOutcome::UnsupportedTargetLike => "UnsupportedTargetLike",
+                                crate::core_verify::CanonicalMinimalAddVerificationOutcome::IntegrityFailure => "IntegrityFailure",
+                                crate::core_verify::CanonicalMinimalAddVerificationOutcome::NonTarget => "NonTarget",
+                            }
+                        },
+                    )
+                },
+            );
+            (result, outer_calls.get(), operation_calls.get())
+        }
+
+        let callback_cases = [
+            (
+                "Supported",
+                "callback/supported.hum",
+                "task add(left: Int, right: Int) -> Int {\n  does:\n    return left + right\n}\n",
+                None,
+            ),
+            (
+                "AuthenticatedOutOfScope",
+                "callback/out-of-scope.hum",
+                "task add(left: UInt, right: UInt) -> UInt {\n  does:\n    return left + right\n}\n",
+                None,
+            ),
+            (
+                "LegacyCompatibleAdditive",
+                "callback/legacy.hum",
+                "task add(value: UInt) -> UInt {\n  does:\n    return value + 1\n}\n",
+                None,
+            ),
+            (
+                "UnsupportedTargetLike",
+                "callback/unsupported.hum",
+                "task add(value: UInt) -> UInt {\n  does:\n    return 1 + value\n}\n",
+                None,
+            ),
+            (
+                "IntegrityFailure",
+                "callback/integrity.hum",
+                "task add(left: Int, right: Int) -> Int {\n  does:\n    return left + right\n}\n",
+                Some(CanonicalTaskSignatureCorruption::Missing),
+            ),
+            (
+                "NonTarget",
+                "callback/non-target.hum",
+                "task identity(value: Int) -> Int {\n  does:\n    return value\n}\n",
+                None,
+            ),
+        ];
+        for (expected, path, source, corruption) in callback_cases {
+            let (actual, outer_calls, operation_calls) = callback_outcome(path, source, corruption);
+            assert_eq!(actual, expected);
+            assert_eq!(outer_calls, 1, "{expected} outer callback");
+            assert_eq!(operation_calls, 1, "{expected} operation callback");
+        }
+
+        let supported = json(
+            "full-type/direct-minimal-add.hum",
+            "task add(left: Int, right: Int) -> Int {\n  does:\n    return left + right\n}\n",
+        );
+        assert!(supported.contains("\"actual_type\": \"Int\""));
+        assert!(supported.contains("\"type_source\": \"verified_canonical_minimal_add_type_v0\""));
+        assert!(supported.contains("\"status\": \"accepted_statement_type_v0\""));
+
+        let unrelated_report_failure = json(
+            "full-type/target-local-view-report-global-blocker.hum",
+            "task add(left: Int, right: Int) -> Int {\n  does:\n    return left + right\n}\n\ntask unsupported(value: UInt) -> UInt {\n  does:\n    return 1 + value\n}\n",
+        );
+        assert!(
+            unrelated_report_failure
+                .contains("\"status\": \"not_checked_blocked_by_prior_errors_v0\""),
+            "full type retains report-global blocker precedence"
+        );
+        assert!(
+            unrelated_report_failure
+                .contains("\"reason\": \"source_resolver_type_or_core_verify_errors\"")
+        );
+        assert!(
+            !unrelated_report_failure
+                .contains("\"type_source\": \"verified_canonical_minimal_add_type_v0\"")
+        );
+
+        for corruption in [
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::WrongLeftChildPosition,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::WrongRightChildPosition,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::ReorderedChildPositions,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::WrongReferenceKind,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::ForeignTaskScope,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::ResolvedSemanticTarget,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::SameSpelledForeignDefinition,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::CoherentPublicIds,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::MissingReference,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::DuplicateReference,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::AmbiguousReference,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::MissingDefinition,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::DuplicateDefinition,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::MissingDeclaration,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::DuplicateDeclaration,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::MissingCheckedDeclaration,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::DuplicateCheckedDeclaration,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::RejectedDeclaration,
+            crate::type_check::CanonicalMinimalAddRelationshipCorruption::ForeignDefinition,
+        ] {
+            let integrity = crate::type_check::with_canonical_minimal_add_relationship_corruption(
+                corruption,
+                || {
+                    json(
+                        "full-type/corrupted-direct-minimal-add.hum",
+                        "task add(left: Int, right: Int) -> Int {\n  does:\n    return left + right\n}\n",
+                    )
+                },
+            );
+            assert!(
+                integrity.contains("\"status\": \"not_checked_blocked_by_prior_errors_v0\""),
+                "{corruption:?}"
+            );
+            assert!(
+                integrity.contains("\"reason\": \"source_resolver_type_or_core_verify_errors\""),
+                "{corruption:?}"
+            );
+            assert!(integrity.contains("\"actual_type\": null"), "{corruption:?}");
+            assert!(
+                !integrity.contains("\"type_source\": \"additive_expression_v0\""),
+                "{corruption:?}: integrity failure must suppress the legacy fallback"
+            );
+            assert!(
+                !integrity.contains("\"type_source\": \"verified_canonical_minimal_add_type_v0\""),
+                "{corruption:?}: integrity failure must expose no verified view"
+            );
+        }
+
+        let mismatch = json(
+            "full-type/direct-minimal-add-mismatch.hum",
+            "task add(left: Int, right: Int) -> Text {\n  does:\n    return left + right\n}\n",
+        );
+        assert!(mismatch.contains("\"actual_type\": \"Int\""));
+        assert!(mismatch.contains("\"status\": \"rejected_statement_type_mismatch_v0\""));
+        assert!(mismatch.contains("\"reason\": \"statement_expression_type_mismatch\""));
+
+        let legacy = json(
+            "full-type/legacy-add.hum",
+            "task add(value: UInt) -> UInt {\n  does:\n    return value + 1\n}\n",
+        );
+        assert!(legacy.contains("\"actual_type\": \"UInt\""));
+        assert!(legacy.contains("\"type_source\": \"additive_expression_v0\""));
+        assert!(legacy.contains("\"status\": \"accepted_statement_type_v0\""));
+
+        let out_of_scope = json(
+            "full-type/uint-add.hum",
+            "task add(left: UInt, right: UInt) -> UInt {\n  does:\n    return left + right\n}\n",
+        );
+        assert!(out_of_scope.contains("\"actual_type\": \"UInt\""));
+        assert!(out_of_scope.contains("\"type_source\": \"additive_expression_v0\""));
+
+        let unsupported = json(
+            "full-type/unsupported-add.hum",
+            "task add(value: UInt) -> UInt {\n  does:\n    return 1 + value\n}\n",
+        );
+        assert!(unsupported.contains("\"status\": \"not_checked_blocked_by_prior_errors_v0\""));
+        assert!(unsupported.contains("\"reason\": \"source_resolver_type_or_core_verify_errors\""));
+        assert!(unsupported.contains("\"expression_text\": null"));
+        assert!(unsupported.contains("\"actual_type\": null"));
+        assert!(!unsupported.contains("\"type_source\": \"additive_expression_v0\""));
+    }
 
     #[test]
     fn json_accepts_recognized_task_body_types_without_execution_claims() {
