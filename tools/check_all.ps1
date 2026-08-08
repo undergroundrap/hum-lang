@@ -918,6 +918,38 @@ task malformed() -> UInt {
     if ($TerminalTestModules.Count -eq 0) { return $Source }
     return $Source.Substring(0, $TerminalTestModules[0].Index)
   }
+  function Test-AqRustStructLiteralConstruction([string]$Source, [string]$TypePattern) {
+    foreach ($Match in [regex]::Matches($Source, "\b(?:$TypePattern)\s*\{")) {
+      $Prefix = $Source.Substring(0, $Match.Index)
+      if ([regex]::IsMatch($Prefix, '(?s)\btype\b[^;{}=]*=\s*$')) { continue }
+      if ([regex]::IsMatch($Prefix, '(?s)(?:^|[=(,\[;{]|=>|::|\breturn\b)\s*$')) { return $true }
+    }
+    return $false
+  }
+  Write-Host '==> Replacement F4 Rust construction predicate self-test'
+  $F4ConstructionPredicateCases = @(
+    @{ Name = 'line-start construction'; Source = 'CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $true },
+    @{ Name = 'assignment construction'; Source = 'let report = CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $true },
+    @{ Name = 'callback construction'; Source = 'consume(CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $true },
+    @{ Name = 'push construction'; Source = 'statements.push(CanonicalBodyStatement {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $true },
+    @{ Name = 'return construction'; Source = 'return CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $true },
+    @{ Name = 'match-arm construction'; Source = 'SomeCase => CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $true },
+    @{ Name = 'public construction'; Source = 'BodyGrammarReport {'; Type = 'BodyGrammarReport'; Expected = $true },
+    @{ Name = 'function return type'; Source = 'fn f() -> CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
+    @{ Name = 'multiline function return type'; Source = "fn f(`n) ->`n    CanonicalBodyGrammarReport`n{"; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
+    @{ Name = 'struct declaration'; Source = 'struct CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
+    @{ Name = 'public struct declaration'; Source = 'pub struct BodyGrammarReport {'; Type = 'BodyGrammarReport'; Expected = $false },
+    @{ Name = 'impl header'; Source = 'impl CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
+    @{ Name = 'trait bound'; Source = 'fn f<T: CanonicalBodyGrammarReport>() {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
+    @{ Name = 'function parameter'; Source = 'fn f(report: CanonicalBodyGrammarReport) {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
+    @{ Name = 'local type annotation'; Source = 'let report: CanonicalBodyGrammarReport = value;'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
+    @{ Name = 'generic argument'; Source = 'let reports: Vec<CanonicalBodyGrammarReport> = Vec::new();'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
+    @{ Name = 'type alias'; Source = 'type Report = CanonicalBodyGrammarReport;'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false }
+  )
+  foreach ($Case in $F4ConstructionPredicateCases) {
+    $Actual = Test-AqRustStructLiteralConstruction $Case.Source $Case.Type
+    if ($Actual -ne $Case.Expected) { throw "Replacement F4 Rust construction predicate failed $($Case.Name): expected $($Case.Expected), found $Actual" }
+  }
   Write-Host '==> Replacement F4 mandatory private Core boundary source audit'
   $F4CoreProduction = Get-AqRustProductionSource 'src/core_body.rs'
   $F4AstProduction = Get-AqRustProductionSource 'src/ast.rs'
@@ -954,8 +986,8 @@ task malformed() -> UInt {
   foreach ($Entry in $F4ProductionSources.GetEnumerator()) {
     if ($Entry.Key -in @('src/ast.rs', 'src/parser.rs')) { continue }
     if ([regex]::IsMatch($Entry.Value, 'CanonicalCore(?:FileWitness|OwnerWitness|SealCapability|ParseContext)::parser_issue\s*\(') -or [regex]::IsMatch($Entry.Value, '(?:SourceFile|App|TypeDef|Store|Task|Test|Section)::parser_new\s*\(') -or [regex]::IsMatch($Entry.Value, 'CanonicalCore(?:FileWitness|OwnerWitness|SealCapability|ParseContext)\s*\(') -or [regex]::IsMatch($Entry.Value, 'canonical_core_(?:file_witness|owner_witness|seal_capability)\s*:\s*Some\s*\(')) { throw "Replacement F4 valid-authority issuer escaped ast/parser: $($Entry.Key)" }
-    if ($Entry.Key -ne 'src/core_body.rs' -and [regex]::IsMatch($Entry.Value, '\bBodyGrammarReport\s*\{')) { throw "Replacement F4 public BodyGrammarReport construction escaped core_body: $($Entry.Key)" }
-    if ($Entry.Key -ne 'src/core_body.rs' -and [regex]::IsMatch($Entry.Value, 'CanonicalBody(?:GrammarReport|Statement)\s*\{')) { throw "Replacement F4 private canonical body construction escaped core_body: $($Entry.Key)" }
+    if ($Entry.Key -ne 'src/core_body.rs' -and (Test-AqRustStructLiteralConstruction $Entry.Value 'BodyGrammarReport')) { throw "Replacement F4 public BodyGrammarReport construction escaped core_body: $($Entry.Key)" }
+    if ($Entry.Key -ne 'src/core_body.rs' -and (Test-AqRustStructLiteralConstruction $Entry.Value 'CanonicalBody(?:GrammarReport|Statement)')) { throw "Replacement F4 private canonical body construction escaped core_body: $($Entry.Key)" }
   }
   if ([regex]::Matches($F4AstProduction, 'pub\(crate\) fn parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, '::parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, 'SourceFile::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ParserProduction, 'Item::(?:App|Type|Store|Task|Test)\([^\r\n]*::parser_new\(').Count -ne 5 -or [regex]::Matches($F4ParserProduction, 'Section::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ProductionSources['src/app_entry.rs'], 'SourceFile::empty_non_authoritative\(').Count -ne 1) { throw 'Replacement F4 valid-authority issuer or installer inventory drifted' }
   $F4ConsumerCalls = [ordered]@{
