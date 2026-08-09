@@ -1,72 +1,191 @@
-use crate::ast::{
-    CanonicalCoreSectionExpectation, CanonicalExpression, ParsedBodyStatementKind,
-    ValidatedCoreSection,
-};
+use crate::ast::CanonicalCoreSectionExpectation;
 use crate::diagnostic::Span;
 
 pub const CORE_BODY_GRAMMAR_STATUS: &str = "partial_v0";
 
-#[derive(Clone)]
-pub struct BodyGrammarReport {
-    pub status: &'static str,
-    pub grammar_status: &'static str,
-    pub total_lines: usize,
-    pub meaningful_lines: usize,
-    pub recognized_lines: usize,
-    pub unsupported_lines: usize,
-    pub statements: Vec<BodyStatement>,
-    _validated_construction: ValidatedBodyGrammarReportConstruction,
-}
+mod validated_construction {
+    use super::{BodyStatement, CORE_BODY_GRAMMAR_STATUS};
+    use crate::ast::{CanonicalExpression, ParsedBodyStatementKind, ValidatedCoreSection};
+    use crate::diagnostic::Span;
 
-#[derive(Clone)]
-pub(crate) struct CanonicalBodyGrammarReport {
-    pub(crate) status: &'static str,
-    pub(crate) grammar_status: &'static str,
-    total_lines: usize,
-    pub(crate) meaningful_lines: usize,
-    recognized_lines: usize,
-    unsupported_lines: usize,
-    pub(crate) statements: Vec<CanonicalBodyStatement>,
-}
-
-#[derive(Clone)]
-pub(crate) struct CanonicalBodyStatement {
-    statement: BodyStatement,
-    canonical_expression: Option<CanonicalExpression>,
-}
-
-impl CanonicalBodyStatement {
-    pub(crate) fn statement(&self) -> &BodyStatement {
-        &self.statement
+    #[derive(Clone)]
+    pub struct BodyGrammarReport {
+        pub status: &'static str,
+        pub grammar_status: &'static str,
+        pub total_lines: usize,
+        pub meaningful_lines: usize,
+        pub recognized_lines: usize,
+        pub unsupported_lines: usize,
+        pub statements: Vec<BodyStatement>,
+        _validated_lineage: ValidatedBodyGrammarLineage,
     }
 
-    pub(crate) fn canonical_expression(&self) -> Option<&CanonicalExpression> {
-        self.canonical_expression.as_ref()
+    #[derive(Clone)]
+    pub(crate) struct CanonicalBodyGrammarReport {
+        pub(crate) status: &'static str,
+        pub(crate) grammar_status: &'static str,
+        total_lines: usize,
+        pub(crate) meaningful_lines: usize,
+        recognized_lines: usize,
+        unsupported_lines: usize,
+        pub(crate) statements: Vec<CanonicalBodyStatement>,
+        _validated_lineage: ValidatedBodyGrammarLineage,
     }
 
-    #[cfg(test)]
-    pub(crate) fn statement_mut_for_test(&mut self) -> &mut BodyStatement {
-        &mut self.statement
+    #[derive(Clone)]
+    pub(crate) struct CanonicalBodyStatement {
+        statement: BodyStatement,
+        canonical_expression: Option<CanonicalExpression>,
+        _validated_lineage: ValidatedBodyGrammarLineage,
+    }
+
+    impl CanonicalBodyStatement {
+        pub(crate) fn statement(&self) -> &BodyStatement {
+            &self.statement
+        }
+
+        pub(crate) fn canonical_expression(&self) -> Option<&CanonicalExpression> {
+            self.canonical_expression.as_ref()
+        }
+
+        fn into_public_statement(self) -> BodyStatement {
+            self.statement
+        }
+
+        #[cfg(test)]
+        pub(crate) fn statement_mut_for_test(&mut self) -> &mut BodyStatement {
+            &mut self.statement
+        }
+    }
+
+    #[derive(Clone)]
+    struct ValidatedBodyGrammarLineage;
+
+    struct ValidatedBodyGrammarConstruction<'validated> {
+        validated: ValidatedCoreSection<'validated>,
+    }
+
+    impl<'validated> ValidatedBodyGrammarConstruction<'validated> {
+        fn new(validated: ValidatedCoreSection<'validated>) -> Self {
+            Self { validated }
+        }
+
+        fn section(&self) -> &'validated crate::ast::Section {
+            self.validated.section()
+        }
+
+        fn issue_lineage(&self) -> ValidatedBodyGrammarLineage {
+            let _validated_capability = &self.validated;
+            ValidatedBodyGrammarLineage
+        }
+    }
+
+    impl std::fmt::Debug for BodyGrammarReport {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("BodyGrammarReport")
+                .field("status", &self.status)
+                .field("grammar_status", &self.grammar_status)
+                .field("total_lines", &self.total_lines)
+                .field("meaningful_lines", &self.meaningful_lines)
+                .field("recognized_lines", &self.recognized_lines)
+                .field("unsupported_lines", &self.unsupported_lines)
+                .field("statements", &self.statements)
+                .finish()
+        }
+    }
+
+    pub(super) fn build_body_grammar(
+        validated: ValidatedCoreSection<'_>,
+    ) -> CanonicalBodyGrammarReport {
+        let construction = ValidatedBodyGrammarConstruction::new(validated);
+        let section = construction.section();
+        let mut statements = Vec::new();
+        let mut meaningful_lines = 0usize;
+        let mut recognized_lines = 0usize;
+        let mut unsupported_lines = 0usize;
+
+        for (line, retained) in section.lines.iter().zip(&section.body_syntax) {
+            let Some(parsed) = retained.as_ref() else {
+                continue;
+            };
+
+            meaningful_lines += 1;
+            let canonical_expression = match &parsed.kind {
+                ParsedBodyStatementKind::Return(expression) => Some(expression.canonical.clone()),
+                ParsedBodyStatementKind::Binding { .. } | ParsedBodyStatementKind::Other { .. } => {
+                    None
+                }
+            };
+            let statement = BodyStatement {
+                span: Span {
+                    file: line.span.file.replace('\\', "/"),
+                    line: line.span.line,
+                    column: line.span.column,
+                },
+                text: line.text.trim().to_string(),
+                kind: parsed.core_kind,
+                status: parsed.core_status,
+                expression_kind: parsed.core_expression_kind,
+                reason: parsed.core_reason,
+            };
+            if statement.status == "unsupported_v0" {
+                unsupported_lines += 1;
+            } else {
+                recognized_lines += 1;
+            }
+            statements.push(CanonicalBodyStatement {
+                statement,
+                canonical_expression,
+                _validated_lineage: construction.issue_lineage(),
+            });
+        }
+
+        let status = if meaningful_lines == 0 {
+            "empty_body"
+        } else if unsupported_lines == 0 {
+            "partial_v0_all_lines_recognized"
+        } else if recognized_lines > 0 {
+            "partial_v0_with_unsupported_lines"
+        } else {
+            "unsupported_v0"
+        };
+
+        CanonicalBodyGrammarReport {
+            status,
+            grammar_status: CORE_BODY_GRAMMAR_STATUS,
+            total_lines: section.lines.len(),
+            meaningful_lines,
+            recognized_lines,
+            unsupported_lines,
+            statements,
+            _validated_lineage: construction.issue_lineage(),
+        }
+    }
+
+    impl CanonicalBodyGrammarReport {
+        pub(super) fn into_public_report(self) -> BodyGrammarReport {
+            let statements = self
+                .statements
+                .into_iter()
+                .map(CanonicalBodyStatement::into_public_statement)
+                .collect::<Vec<_>>();
+            BodyGrammarReport {
+                status: self.status,
+                grammar_status: self.grammar_status,
+                total_lines: self.total_lines,
+                meaningful_lines: self.meaningful_lines,
+                recognized_lines: self.recognized_lines,
+                unsupported_lines: self.unsupported_lines,
+                statements,
+                _validated_lineage: self._validated_lineage,
+            }
+        }
     }
 }
 
-#[derive(Clone)]
-struct ValidatedBodyGrammarReportConstruction;
-
-impl std::fmt::Debug for BodyGrammarReport {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("BodyGrammarReport")
-            .field("status", &self.status)
-            .field("grammar_status", &self.grammar_status)
-            .field("total_lines", &self.total_lines)
-            .field("meaningful_lines", &self.meaningful_lines)
-            .field("recognized_lines", &self.recognized_lines)
-            .field("unsupported_lines", &self.unsupported_lines)
-            .field("statements", &self.statements)
-            .finish()
-    }
-}
+pub use validated_construction::BodyGrammarReport;
+pub(crate) use validated_construction::{CanonicalBodyGrammarReport, CanonicalBodyStatement};
 
 #[derive(Debug, Clone)]
 pub struct BodyStatement {
@@ -89,7 +208,7 @@ pub(crate) fn try_analyze_does_section(
     expectation: CanonicalCoreSectionExpectation<'_>,
 ) -> Result<BodyGrammarReport, &'static str> {
     let validated = expectation.validate()?;
-    Ok(construct_canonical_body_grammar_report(validated).into_public_report())
+    Ok(validated_construction::build_body_grammar(validated).into_public_report())
 }
 
 pub(crate) fn analyze_does_section_for_lowering(
@@ -98,99 +217,185 @@ pub(crate) fn analyze_does_section_for_lowering(
     let validated = expectation
         .validate()
         .expect("canonical Core section authority invariant failed before construction");
-    construct_canonical_body_grammar_report(validated)
+    validated_construction::build_body_grammar(validated)
 }
 
-fn construct_canonical_body_grammar_report(
-    validated: ValidatedCoreSection<'_>,
-) -> CanonicalBodyGrammarReport {
-    let section = validated.section();
-    let mut statements = Vec::new();
-    let mut meaningful_lines = 0usize;
-    let mut recognized_lines = 0usize;
-    let mut unsupported_lines = 0usize;
-
-    for (line, retained) in section.lines.iter().zip(&section.body_syntax) {
-        let Some(parsed) = retained.as_ref() else {
-            continue;
-        };
-
-        meaningful_lines += 1;
-        let canonical_expression = match &parsed.kind {
-            ParsedBodyStatementKind::Return(expression) => Some(expression.canonical.clone()),
-            ParsedBodyStatementKind::Binding { .. } | ParsedBodyStatementKind::Other { .. } => None,
-        };
-        let statement = BodyStatement {
-            span: Span {
-                file: line.span.file.replace('\\', "/"),
-                line: line.span.line,
-                column: line.span.column,
-            },
-            text: line.text.trim().to_string(),
-            kind: parsed.core_kind,
-            status: parsed.core_status,
-            expression_kind: parsed.core_expression_kind,
-            reason: parsed.core_reason,
-        };
-        if statement.status == "unsupported_v0" {
-            unsupported_lines += 1;
-        } else {
-            recognized_lines += 1;
-        }
-        statements.push(CanonicalBodyStatement {
-            statement,
-            canonical_expression,
-        });
-    }
-
-    let status = if meaningful_lines == 0 {
-        "empty_body"
-    } else if unsupported_lines == 0 {
-        "partial_v0_all_lines_recognized"
-    } else if recognized_lines > 0 {
-        "partial_v0_with_unsupported_lines"
-    } else {
-        "unsupported_v0"
+#[allow(unexpected_cfgs)]
+mod validated_body_grammar_construction_compile_proof {
+    #[cfg(hum_compile_fail_validated_body_grammar_construction)]
+    use super::{
+        BodyGrammarReport, BodyStatement, CORE_BODY_GRAMMAR_STATUS, CanonicalBodyGrammarReport,
+        CanonicalBodyStatement, validated_construction,
     };
+    #[cfg(hum_compile_fail_validated_body_grammar_construction)]
+    use crate::diagnostic::Span;
 
-    CanonicalBodyGrammarReport {
-        status,
-        grammar_status: CORE_BODY_GRAMMAR_STATUS,
-        total_lines: section.lines.len(),
-        meaningful_lines,
-        recognized_lines,
-        unsupported_lines,
-        statements,
+    #[cfg(hum_compile_fail_validated_body_grammar_construction)]
+    fn body_grammar_report_foreign_literal_must_not_compile() -> BodyGrammarReport {
+        let body_grammar_report_foreign_literal_must_not_compile = BodyGrammarReport {
+            status: "body_grammar_report_foreign_literal_must_not_compile",
+            grammar_status: CORE_BODY_GRAMMAR_STATUS,
+            total_lines: 0,
+            meaningful_lines: 0,
+            recognized_lines: 0,
+            unsupported_lines: 0,
+            statements: Vec::new(),
+        };
+        body_grammar_report_foreign_literal_must_not_compile
     }
-}
 
-impl CanonicalBodyGrammarReport {
-    fn into_public_report(self) -> BodyGrammarReport {
-        let statements = self
-            .statements
-            .into_iter()
-            .map(|statement| statement.statement)
-            .collect::<Vec<_>>();
-        BodyGrammarReport {
-            status: self.status,
-            grammar_status: self.grammar_status,
-            total_lines: self.total_lines,
-            meaningful_lines: self.meaningful_lines,
-            recognized_lines: self.recognized_lines,
-            unsupported_lines: self.unsupported_lines,
-            statements,
-            _validated_construction: ValidatedBodyGrammarReportConstruction,
+    #[cfg(hum_compile_fail_validated_body_grammar_construction)]
+    fn canonical_body_grammar_report_foreign_literal_must_not_compile() -> CanonicalBodyGrammarReport
+    {
+        let canonical_body_grammar_report_foreign_literal_must_not_compile = 0usize;
+        let canonical_body_grammar_report_foreign_literal_must_not_compile =
+            CanonicalBodyGrammarReport {
+                status: "canonical_body_grammar_report_foreign_literal_must_not_compile",
+                grammar_status: CORE_BODY_GRAMMAR_STATUS,
+                total_lines: canonical_body_grammar_report_foreign_literal_must_not_compile,
+                meaningful_lines: 0,
+                recognized_lines: 0,
+                unsupported_lines: 0,
+                statements: Vec::new(),
+            };
+        canonical_body_grammar_report_foreign_literal_must_not_compile
+    }
+
+    #[cfg(hum_compile_fail_validated_body_grammar_construction)]
+    fn canonical_body_statement_foreign_literal_must_not_compile() -> CanonicalBodyStatement {
+        let canonical_body_statement_foreign_literal_must_not_compile = BodyStatement {
+            span: Span {
+                file: String::new(),
+                line: 0,
+                column: 0,
+            },
+            text: String::new(),
+            kind: "compile_fail",
+            status: "compile_fail",
+            expression_kind: None,
+            reason: None,
+        };
+        CanonicalBodyStatement {
+            // canonical_body_statement_foreign_literal_must_not_compile
+            statement: canonical_body_statement_foreign_literal_must_not_compile,
+            canonical_expression: None,
         }
+    }
+
+    #[cfg(hum_compile_fail_validated_body_grammar_construction)]
+    fn validated_body_grammar_permit_from_raw_section_must_not_compile(
+        section: &crate::ast::Section,
+    ) -> CanonicalBodyGrammarReport {
+        let validated_body_grammar_permit_from_raw_section_must_not_compile = section;
+        validated_construction::build_body_grammar(
+            validated_body_grammar_permit_from_raw_section_must_not_compile,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::parse_source;
+    use crate::{ast::Program, parser::parse_source};
 
     use super::{
-        analyze_does_section, analyze_does_section_for_lowering, try_analyze_does_section,
+        BodyGrammarReport, CanonicalBodyGrammarReport, analyze_does_section,
+        analyze_does_section_for_lowering, try_analyze_does_section,
     };
+    use crate::core_lower::{
+        CoreOperationExpectationError, with_expected_core_operations_for_item,
+    };
+
+    #[test]
+    fn validated_body_grammar_construction_is_compiler_sealed() {
+        fn forward_canonical(report: CanonicalBodyGrammarReport) -> CanonicalBodyGrammarReport {
+            report
+        }
+
+        fn forward_public(report: BodyGrammarReport) -> BodyGrammarReport {
+            report
+        }
+
+        let parsed = parse_source(
+            "sealed-body.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+        );
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let item = &program.files[0].items[0];
+        let crate::ast::Item::Task(task) = item else {
+            panic!("task")
+        };
+        let section = task.section("does").expect("does");
+
+        let canonical = analyze_does_section_for_lowering(
+            program
+                .canonical_core_expectation(item, section)
+                .expect("parser-owned expectation"),
+        );
+        assert!(
+            canonical.statements[0].canonical_expression().is_some(),
+            "the validated lowering entry retains parser-owned expression authority"
+        );
+
+        let mut forwarded = forward_canonical(canonical.clone());
+        assert!(forwarded.statements[0].canonical_expression().is_some());
+        forwarded.status = "mutated_after_first_construction";
+        forwarded.statements[0].statement_mut_for_test().text = "mutated candidate".to_string();
+        assert_ne!(forwarded.status, canonical.status);
+        assert_ne!(
+            forwarded.statements[0].statement().text,
+            canonical.statements[0].statement().text
+        );
+        let owner = program
+            .canonical_core_operation_owner_expectation(item, section)
+            .expect("parser-owned operation owner");
+        let mut visited_mutated_operation = false;
+        assert_eq!(
+            with_expected_core_operations_for_item(owner, &forwarded, &[], |_| {
+                visited_mutated_operation = true;
+            }),
+            Err(CoreOperationExpectationError::Missing(0)),
+            "opaque lineage must not let mutated current fields bypass production validation"
+        );
+        assert!(
+            visited_mutated_operation,
+            "the real production stream must inspect the mutated lineage-bearing artifact"
+        );
+
+        let public = canonical.into_public_report();
+        assert_eq!(public.statements.len(), 1);
+        assert!(!format!("{public:?}").contains("canonical_expression"));
+        let mut public_clone = forward_public(public.clone());
+        public_clone.status = "mutated_after_first_construction";
+        assert_ne!(public_clone.status, public.status);
+
+        let mut corrupted = parse_source(
+            "sealed-body-invalid.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+        );
+        let crate::ast::Item::Task(task) = &mut corrupted.file.items[0] else {
+            panic!("task")
+        };
+        task.sections
+            .iter_mut()
+            .find(|section| section.name == "does")
+            .expect("does")
+            .lines[0]
+            .text = "return b + a".to_string();
+        let item = &corrupted.file.items[0];
+        let crate::ast::Item::Task(task) = item else {
+            panic!("task")
+        };
+        let section = task.section("does").expect("does");
+        let expectation = corrupted
+            .canonical_core_expectation(item, section)
+            .expect("live expectation remains locatable");
+        assert!(matches!(
+            try_analyze_does_section(expectation),
+            Err("canonical_core_section_projection_mismatch_v0")
+        ));
+    }
 
     #[test]
     fn validated_body_transports_parser_owned_minimal_add_tree() {

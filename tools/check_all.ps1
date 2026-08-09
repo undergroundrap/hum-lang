@@ -918,38 +918,6 @@ task malformed() -> UInt {
     if ($TerminalTestModules.Count -eq 0) { return $Source }
     return $Source.Substring(0, $TerminalTestModules[0].Index)
   }
-  function Test-AqRustStructLiteralConstruction([string]$Source, [string]$TypePattern) {
-    foreach ($Match in [regex]::Matches($Source, "\b(?:$TypePattern)\s*\{")) {
-      $Prefix = $Source.Substring(0, $Match.Index)
-      if ([regex]::IsMatch($Prefix, '(?s)\btype\b[^;{}=]*=\s*$')) { continue }
-      if ([regex]::IsMatch($Prefix, '(?s)(?:^|[=(,\[;{]|=>|::|\breturn\b)\s*$')) { return $true }
-    }
-    return $false
-  }
-  Write-Host '==> Replacement F4 Rust construction predicate self-test'
-  $F4ConstructionPredicateCases = @(
-    @{ Name = 'line-start construction'; Source = 'CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $true },
-    @{ Name = 'assignment construction'; Source = 'let report = CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $true },
-    @{ Name = 'callback construction'; Source = 'consume(CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $true },
-    @{ Name = 'push construction'; Source = 'statements.push(CanonicalBodyStatement {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $true },
-    @{ Name = 'return construction'; Source = 'return CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $true },
-    @{ Name = 'match-arm construction'; Source = 'SomeCase => CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $true },
-    @{ Name = 'public construction'; Source = 'BodyGrammarReport {'; Type = 'BodyGrammarReport'; Expected = $true },
-    @{ Name = 'function return type'; Source = 'fn f() -> CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
-    @{ Name = 'multiline function return type'; Source = "fn f(`n) ->`n    CanonicalBodyGrammarReport`n{"; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
-    @{ Name = 'struct declaration'; Source = 'struct CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
-    @{ Name = 'public struct declaration'; Source = 'pub struct BodyGrammarReport {'; Type = 'BodyGrammarReport'; Expected = $false },
-    @{ Name = 'impl header'; Source = 'impl CanonicalBodyGrammarReport {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
-    @{ Name = 'trait bound'; Source = 'fn f<T: CanonicalBodyGrammarReport>() {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
-    @{ Name = 'function parameter'; Source = 'fn f(report: CanonicalBodyGrammarReport) {'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
-    @{ Name = 'local type annotation'; Source = 'let report: CanonicalBodyGrammarReport = value;'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
-    @{ Name = 'generic argument'; Source = 'let reports: Vec<CanonicalBodyGrammarReport> = Vec::new();'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false },
-    @{ Name = 'type alias'; Source = 'type Report = CanonicalBodyGrammarReport;'; Type = 'CanonicalBody(?:GrammarReport|Statement)'; Expected = $false }
-  )
-  foreach ($Case in $F4ConstructionPredicateCases) {
-    $Actual = Test-AqRustStructLiteralConstruction $Case.Source $Case.Type
-    if ($Actual -ne $Case.Expected) { throw "Replacement F4 Rust construction predicate failed $($Case.Name): expected $($Case.Expected), found $Actual" }
-  }
   Write-Host '==> Replacement F4 mandatory private Core boundary source audit'
   $F4CoreProduction = Get-AqRustProductionSource 'src/core_body.rs'
   $F4AstProduction = Get-AqRustProductionSource 'src/ast.rs'
@@ -958,23 +926,24 @@ task malformed() -> UInt {
   if (-not [regex]::IsMatch($F4CoreProduction, 'pub\(crate\) fn analyze_does_section\s*\(\s*expectation:\s*CanonicalCoreSectionExpectation')) { throw 'Replacement F4 Core entry must accept only the lifetime-bound expectation' }
   if (-not [regex]::IsMatch($F4CoreProduction, 'pub\(crate\) fn analyze_does_section_for_lowering\s*\(\s*expectation:\s*CanonicalCoreSectionExpectation')) { throw 'Replacement F4 private lowering entry must accept only the lifetime-bound expectation' }
   if ([regex]::IsMatch($F4CoreProduction, 'analyze_does_section(?:_for_lowering)?\s*\([^)]*&\s*Section') -or $F4CoreProduction.Contains('analyze_does_section_raw')) { throw 'Replacement F4 raw-Section Core bypass was restored' }
-  $F4BodyReportShape = [regex]::Match($F4CoreProduction, '(?s)pub struct BodyGrammarReport\s*\{(.*?)\n\}')
-  $F4CanonicalReportShape = [regex]::Match($F4CoreProduction, '(?s)pub\(crate\) struct CanonicalBodyGrammarReport\s*\{(.*?)\n\}')
-  $F4CanonicalStatementShape = [regex]::Match($F4CoreProduction, '(?s)pub\(crate\) struct CanonicalBodyStatement\s*\{(.*?)\n\}')
-  if (-not $F4BodyReportShape.Success -or $F4BodyReportShape.Groups[1].Value.Contains('CanonicalExpression') -or -not $F4BodyReportShape.Groups[1].Value.Contains('statements: Vec<BodyStatement>')) { throw 'Replacement F4 public BodyGrammarReport must remain authority-dropping ordinary statement transport' }
-  if (-not $F4CanonicalReportShape.Success -or -not $F4CanonicalReportShape.Groups[1].Value.Contains('statements: Vec<CanonicalBodyStatement>')) { throw 'Replacement F4 private canonical report lost direct bound-statement ownership' }
-  if (-not $F4CanonicalStatementShape.Success -or -not [regex]::IsMatch($F4CanonicalStatementShape.Groups[1].Value, '^\s*statement:\s*BodyStatement,\s*canonical_expression:\s*Option<CanonicalExpression>,\s*$', [System.Text.RegularExpressions.RegexOptions]::Singleline)) { throw 'Replacement F4 canonical statement must directly own one statement and its optional parser expression' }
+  $F4BodyReportShape = [regex]::Match($F4CoreProduction, '(?ms)^(?<indent>[ \t]*)pub struct BodyGrammarReport\s*\{(?<body>.*?)^\k<indent>\}')
+  $F4CanonicalReportShape = [regex]::Match($F4CoreProduction, '(?ms)^(?<indent>[ \t]*)pub\(crate\) struct CanonicalBodyGrammarReport\s*\{(?<body>.*?)^\k<indent>\}')
+  $F4CanonicalStatementShape = [regex]::Match($F4CoreProduction, '(?ms)^(?<indent>[ \t]*)pub\(crate\) struct CanonicalBodyStatement\s*\{(?<body>.*?)^\k<indent>\}')
+  if (-not $F4BodyReportShape.Success -or $F4BodyReportShape.Groups['body'].Value.Contains('CanonicalExpression') -or -not $F4BodyReportShape.Groups['body'].Value.Contains('statements: Vec<BodyStatement>')) { throw 'Replacement F4 public BodyGrammarReport must remain authority-dropping ordinary statement transport' }
+  if (-not $F4CanonicalReportShape.Success -or -not $F4CanonicalReportShape.Groups['body'].Value.Contains('statements: Vec<CanonicalBodyStatement>')) { throw 'Replacement F4 private canonical report lost direct bound-statement ownership' }
+  if (-not $F4CanonicalStatementShape.Success -or -not $F4CanonicalStatementShape.Groups['body'].Value.Contains('statement: BodyStatement') -or -not $F4CanonicalStatementShape.Groups['body'].Value.Contains('canonical_expression: Option<CanonicalExpression>') -or -not $F4CanonicalStatementShape.Groups['body'].Value.Contains('_validated_lineage: ValidatedBodyGrammarLineage')) { throw 'Replacement F4 canonical statement must directly own one statement and its optional parser expression' }
   if ($F4CoreProduction.Contains('canonical_expressions')) { throw 'Replacement F4 positional canonical-expression side vector was restored' }
-  if ([regex]::Matches($F4CoreProduction, '(?m)^\s*BodyGrammarReport\s*\{').Count -ne 1 -or [regex]::Matches($F4CoreProduction, '(?m)^\s*CanonicalBodyGrammarReport\s*\{').Count -ne 1 -or [regex]::Matches($F4CoreProduction, '\.push\(\s*CanonicalBodyStatement\s*\{').Count -ne 1 -or -not $F4CoreProduction.Contains('fn construct_canonical_body_grammar_report(') -or -not [regex]::IsMatch($F4CoreProduction, 'fn construct_canonical_body_grammar_report\s*\(\s*validated:\s*ValidatedCoreSection') -or [regex]::Matches($F4CoreProduction, '_validated_construction:\s*ValidatedBodyGrammarReportConstruction').Count -ne 2 -or [regex]::Matches($F4CoreProduction, '(?m)^struct ValidatedBodyGrammarReportConstruction;').Count -ne 1) { throw 'Replacement F4 BodyGrammarReport construction escaped the private validated marker' }
+  $F4ValidatedConstructionShape = [regex]::Match($F4CoreProduction, '(?ms)^(?<indent>[ \t]*)struct ValidatedBodyGrammarConstruction<''validated>\s*\{(?<body>.*?)^\k<indent>\}')
+  if (-not $F4CoreProduction.Contains('mod validated_construction {') -or -not $F4BodyReportShape.Groups['body'].Value.Contains('_validated_lineage: ValidatedBodyGrammarLineage') -or -not $F4CanonicalReportShape.Groups['body'].Value.Contains('_validated_lineage: ValidatedBodyGrammarLineage') -or -not $F4ValidatedConstructionShape.Success -or -not $F4ValidatedConstructionShape.Groups['body'].Value.Contains("validated: ValidatedCoreSection<'validated>") -or -not [regex]::IsMatch($F4CoreProduction, 'pub\(super\) fn build_body_grammar\s*\(\s*validated:\s*ValidatedCoreSection<''_>,\s*\)\s*->\s*CanonicalBodyGrammarReport') -or -not $F4CoreProduction.Contains('pub use validated_construction::BodyGrammarReport;') -or -not $F4CoreProduction.Contains('pub(crate) use validated_construction::{CanonicalBodyGrammarReport, CanonicalBodyStatement};')) { throw 'Replacement F4 BodyGrammarReport construction escaped the private validated marker' }
   $F4PublicValidateIndex = $F4CoreProduction.IndexOf('let validated = expectation.validate()?;')
-  $F4PublicConstructIndex = $F4CoreProduction.IndexOf('construct_canonical_body_grammar_report(validated).into_public_report()')
+  $F4PublicConstructIndex = $F4CoreProduction.IndexOf('validated_construction::build_body_grammar(validated).into_public_report()')
   $F4LoweringEntryIndex = $F4CoreProduction.IndexOf('pub(crate) fn analyze_does_section_for_lowering')
   $F4LoweringValidateIndex = $F4CoreProduction.IndexOf('.validate()', $F4LoweringEntryIndex)
-  $F4LoweringConstructIndex = $F4CoreProduction.IndexOf('construct_canonical_body_grammar_report(validated)', $F4LoweringEntryIndex)
-  $F4CanonicalConstructorIndex = $F4CoreProduction.IndexOf('fn construct_canonical_body_grammar_report(')
-  if ($F4PublicValidateIndex -lt 0 -or $F4PublicConstructIndex -le $F4PublicValidateIndex -or $F4LoweringEntryIndex -lt 0 -or $F4LoweringValidateIndex -le $F4LoweringEntryIndex -or $F4LoweringConstructIndex -le $F4LoweringValidateIndex -or $F4CanonicalConstructorIndex -le $F4LoweringConstructIndex) { throw 'Replacement F4 validation must remain before private Core construction' }
-  $F4PublicConversion = [regex]::Match($F4CoreProduction, '(?s)impl CanonicalBodyGrammarReport\s*\{(.*?)\n\}')
-  if (-not $F4PublicConversion.Success -or -not $F4PublicConversion.Groups[1].Value.Contains('.map(|statement| statement.statement)') -or $F4PublicConversion.Groups[1].Value.Contains('canonical_expression') -or $F4PublicConversion.Groups[1].Value.Contains('CanonicalExpression')) { throw 'Replacement F4 public BodyGrammarReport conversion must drop and never manufacture parser authority' }
+  $F4LoweringConstructIndex = $F4CoreProduction.IndexOf('validated_construction::build_body_grammar(validated)', $F4LoweringEntryIndex)
+  if ($F4PublicValidateIndex -lt 0 -or $F4PublicConstructIndex -le $F4PublicValidateIndex -or $F4PublicConstructIndex -ge $F4LoweringEntryIndex -or $F4LoweringEntryIndex -lt 0 -or $F4LoweringValidateIndex -le $F4LoweringEntryIndex -or $F4LoweringConstructIndex -le $F4LoweringValidateIndex) { throw 'Replacement F4 validation must remain before private Core construction' }
+  $F4PublicConversion = [regex]::Match($F4CoreProduction, '(?ms)^(?<indent>[ \t]*)impl CanonicalBodyGrammarReport\s*\{(?<body>.*?)^\k<indent>\}')
+  $F4StatementConversion = [regex]::Match($F4CoreProduction, '(?s)fn into_public_statement\(self\) -> BodyStatement\s*\{(.*?)\n\s*\}')
+  if (-not $F4PublicConversion.Success -or -not $F4PublicConversion.Groups['body'].Value.Contains('.map(CanonicalBodyStatement::into_public_statement)') -or -not $F4PublicConversion.Groups['body'].Value.Contains('_validated_lineage: self._validated_lineage') -or $F4PublicConversion.Groups['body'].Value.Contains('canonical_expression') -or $F4PublicConversion.Groups['body'].Value.Contains('CanonicalExpression') -or -not $F4StatementConversion.Success -or $F4StatementConversion.Groups[1].Value.Trim() -cne 'self.statement') { throw 'Replacement F4 public BodyGrammarReport conversion must drop and never manufacture parser authority' }
   if ([regex]::IsMatch($F4AstProduction, '#\[derive\([^\]]*(?:Clone|Copy|Default)[^\]]*\)\]\s*pub\(crate\) struct CanonicalCoreSectionExpectation') -or $F4AstProduction.Contains('impl Clone for CanonicalCoreSectionExpectation') -or $F4AstProduction.Contains('impl Copy for CanonicalCoreSectionExpectation') -or $F4AstProduction.Contains('impl Default for CanonicalCoreSectionExpectation')) { throw 'Replacement F4 expectation must remain a non-cloneable lifetime-bound borrow' }
   $F4ExpectationShape = [regex]::Match($F4AstProduction, '(?s)pub\(crate\) struct CanonicalCoreSectionExpectation<''a>\s*\{(.*?)\n\}')
   $F4ProgramLocator = [regex]::Match($F4AstProduction, '(?s)pub\(crate\) fn canonical_core_expectation<''a>\(\s*&''a self,\s*item: &''a Item,\s*section: &''a Section,')
@@ -986,8 +955,6 @@ task malformed() -> UInt {
   foreach ($Entry in $F4ProductionSources.GetEnumerator()) {
     if ($Entry.Key -in @('src/ast.rs', 'src/parser.rs')) { continue }
     if ([regex]::IsMatch($Entry.Value, 'CanonicalCore(?:FileWitness|OwnerWitness|SealCapability|ParseContext)::parser_issue\s*\(') -or [regex]::IsMatch($Entry.Value, '(?:SourceFile|App|TypeDef|Store|Task|Test|Section)::parser_new\s*\(') -or [regex]::IsMatch($Entry.Value, 'CanonicalCore(?:FileWitness|OwnerWitness|SealCapability|ParseContext)\s*\(') -or [regex]::IsMatch($Entry.Value, 'canonical_core_(?:file_witness|owner_witness|seal_capability)\s*:\s*Some\s*\(')) { throw "Replacement F4 valid-authority issuer escaped ast/parser: $($Entry.Key)" }
-    if ($Entry.Key -ne 'src/core_body.rs' -and (Test-AqRustStructLiteralConstruction $Entry.Value 'BodyGrammarReport')) { throw "Replacement F4 public BodyGrammarReport construction escaped core_body: $($Entry.Key)" }
-    if ($Entry.Key -ne 'src/core_body.rs' -and (Test-AqRustStructLiteralConstruction $Entry.Value 'CanonicalBody(?:GrammarReport|Statement)')) { throw "Replacement F4 private canonical body construction escaped core_body: $($Entry.Key)" }
   }
   if ([regex]::Matches($F4AstProduction, 'pub\(crate\) fn parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, '::parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, 'SourceFile::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ParserProduction, 'Item::(?:App|Type|Store|Task|Test)\([^\r\n]*::parser_new\(').Count -ne 5 -or [regex]::Matches($F4ParserProduction, 'Section::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ProductionSources['src/app_entry.rs'], 'SourceFile::empty_non_authoritative\(').Count -ne 1) { throw 'Replacement F4 valid-authority issuer or installer inventory drifted' }
   $F4ConsumerCalls = [ordered]@{
@@ -1033,6 +1000,36 @@ task malformed() -> UInt {
   if (-not $F4ParserTestSource.Contains('assert_eq!(catalogue_count, 132)') -or -not $F4ParserTestSource.Contains('assert_eq!(pairs.len(), 8_646)')) { throw 'Replacement F4 independently supplied 132-field/8646-pair pins are missing' }
   $F4AuditPin = [regex]::Match($F4ParserTestSource, '(?s)const REQUIRED_SOURCE_AUDIT_ARMS: \[&str; 13\] = \[(.*?)\];')
   if (-not $F4AuditPin.Success -or [regex]::Matches($F4AuditPin.Groups[1].Value, '"Replacement F4 [^"]+"').Count -ne 13 -or -not $F4ParserTestSource.Contains('for arm in REQUIRED_SOURCE_AUDIT_ARMS')) { throw 'Replacement F4 F4-selector audit-arm pinning drifted' }
+
+  Write-Host '==> Replacement F4 compiler-enforced validated body construction proof'
+  Invoke-Native 'Replacement F4 normal compiler check before construction proof' $Cargo @('check', '--all-targets')
+  $F4PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_validated_body_grammar_construction'
+    $F4CompileFailure = Read-NativeOutputWithExit 'Replacement F4 forbidden construction compiler proof' $Cargo @('check', '--all-targets')
+  } finally {
+    if ($null -eq $F4PriorRustFlags) {
+      Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
+    } else {
+      $env:RUSTFLAGS = $F4PriorRustFlags
+    }
+  }
+  if ($F4CompileFailure.ExitCode -ne 101) { throw "Replacement F4 forbidden construction compiler proof must exit 101, found $($F4CompileFailure.ExitCode)" }
+  foreach ($F4CompileFunction in @(
+    'body_grammar_report_foreign_literal_must_not_compile',
+    'canonical_body_grammar_report_foreign_literal_must_not_compile',
+    'canonical_body_statement_foreign_literal_must_not_compile',
+    'validated_body_grammar_permit_from_raw_section_must_not_compile'
+  )) {
+    if (-not $F4CompileFailure.Output.Contains($F4CompileFunction)) { throw "Replacement F4 forbidden construction compiler proof did not identify $F4CompileFunction" }
+  }
+  foreach ($F4PrivateType in @('BodyGrammarReport', 'CanonicalBodyGrammarReport', 'CanonicalBodyStatement')) {
+    if (-not $F4CompileFailure.Output.Contains("cannot construct ``$F4PrivateType`` with struct literal syntax due to private fields")) { throw "Replacement F4 compiler proof did not reject foreign $F4PrivateType construction through Rust privacy" }
+  }
+  if (-not $F4CompileFailure.Output.Contains('error[E0308]') -or -not $F4CompileFailure.Output.Contains("expected ``ValidatedCoreSection<'_>``") -or -not $F4CompileFailure.Output.Contains("found ``&Section``")) { throw 'Replacement F4 compiler proof did not reject raw Section substitution for the validated capability' }
+  if ([regex]::IsMatch($F4CompileFailure.Output, 'error\[E(?:0412|0422|0432|0433)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|expected item, found')) { throw 'Replacement F4 forbidden construction proof failed for an unrelated symbol, cfg, import, or syntax reason' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $F4PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Replacement F4 compiler proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Replacement F4 normal compiler check after construction proof' $Cargo @('check', '--all-targets')
 
   Write-Host '==> Increment 10B.1b audit_h0010_production_dataflow (bounded defense-in-depth source audit)'
   if (
