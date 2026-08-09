@@ -2,14 +2,20 @@
 
 Date: 2026-08-08
 <!-- hum-active-workorder:v1 -->
-Status: Independently accepted, issued, active, and amended in draft. Unit 1
+Status: Independently accepted, issued, active, and remedially amended. Unit 1
 implementation commit `1a03d000e11fe82f4e2a83e5dd3563d4c21785ff` is accepted and
 published, and CI repair commit `046c1ad58757d90565263d848090dd46b3aebfc3`
-is terminal-green. Work Order 16 closeout is paused because retrospective
-review proved that the published Replacement F4 source audit cannot establish
-its claimed closed Rust construction inventory. The bounded remedial amendment
-below is unreviewed, unaccepted, uncommitted, unpublished, and grants no
-implementation authority. Checked type authority and every later unit remain
+is terminal-green. The remedial amendment was BDFL-accepted as exact bytes,
+committed as `cc8ad29f1cace01adf27546289991945bdbef558`, and published by
+normal fast-forward. Required full-lane `ci` workflow `31293649212`, attempt 1,
+passed with Ubuntu job `93195114868` and Windows job `93195114842` both
+selecting `mode=full` with `reason=no_status_transition` and succeeding.
+Ubuntu passed the platform-independent Exhaustive producer with 14,226 pairs
+and seed `0x48554D5F5345414C`; Windows correctly skipped the duplicate. The exact
+two-path remedial implementation is the next eligible activity but remains
+unauthorized pending a separate BDFL signal. Work Order 16 closeout remains
+paused. Publication of this status record, checked-type authority,
+open-skeleton integration, archive mutation, and every later activity remain
 unauthorized.
 
 Owner: BDFL (Ocean).
@@ -1591,20 +1597,20 @@ integration, another Work Order, or later compiler work.
 
 ## Current authorization gate
 
-Published `main` is clean and terminal-green at CI repair commit
-`046c1ad58757d90565263d848090dd46b3aebfc3`. Accepted Unit 1 implementation
-commit `1a03d000e11fe82f4e2a83e5dd3563d4c21785ff` remains in its ancestry and is
-not reverted. The current tool repair corrected the publication false positive
-but does not honestly prove a closed semantic Rust factory inventory.
+Published `main` is clean and terminal-green at the BDFL-accepted remedial
+amendment commit `cc8ad29f1cace01adf27546289991945bdbef558`, published by
+normal fast-forward. Required full-lane `ci` workflow `31293649212`, attempt 1,
+completed successfully. Ubuntu job `93195114868` and Windows job `93195114842`
+both selected `mode=full` with `reason=no_status_transition` and succeeded.
+Ubuntu passed the platform-independent Exhaustive producer with 14,226 pairs
+and seed `0x48554D5F5345414C`; Windows correctly skipped the duplicate.
 
-This remedial amendment selects the compiler-enforced capability model and the
-exact two-path envelope above. It is drafted only. It is not independently
-reviewed, accepted, committed, published, status-recorded, or authorized for
-implementation. The next receiving role is a fresh independent pre-issuance
-architect-reviewer who did not author or edit these bytes.
+The exact two-path remedial implementation in `src/core_body.rs` and
+`tools/check_all.ps1` is the next eligible activity, but it remains explicitly
+unauthorized pending a separate BDFL implementation signal. This local status
+record is not authorized for publication in this task.
 
-Work Order 16 closeout remains paused. This draft grants no edit beyond its own
-completed authorship, no implementation, commit, push, archive mutation,
-status change, checked type authority, open-skeleton integration, later unit,
-or later planning authority.
+Work Order 16 closeout remains paused. Checked-type authority, open-skeleton
+integration, status publication, archive mutation, and every later activity
+remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
