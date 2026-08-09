@@ -2,21 +2,29 @@
 
 Date: 2026-08-08
 <!-- hum-active-workorder:v1 -->
-Status: Independently accepted, issued, active, and remedially amended. Unit 1
-implementation commit `1a03d000e11fe82f4e2a83e5dd3563d4c21785ff` is accepted and
-published, and CI repair commit `046c1ad58757d90565263d848090dd46b3aebfc3`
-is terminal-green. The remedial amendment was BDFL-accepted as exact bytes,
-committed as `cc8ad29f1cace01adf27546289991945bdbef558`, and published by
-normal fast-forward. Required full-lane `ci` workflow `31293649212`, attempt 1,
-passed with Ubuntu job `93195114868` and Windows job `93195114842` both
-selecting `mode=full` with `reason=no_status_transition` and succeeding.
-Ubuntu passed the platform-independent Exhaustive producer with 14,226 pairs
-and seed `0x48554D5F5345414C`; Windows correctly skipped the duplicate. The exact
-two-path remedial implementation is the next eligible activity but remains
-unauthorized pending a separate BDFL signal. Work Order 16 closeout remains
-paused. Publication of this status record, checked-type authority,
-open-skeleton integration, archive mutation, and every later activity remain
-unauthorized.
+Status: Complete, closed, and frozen. The remedial amendment, exact two-path
+implementation, bounded correction, independent acceptance, publication, and
+post-publication selector-evidence repair are complete. The accepted remedial
+implementation is `3cf2eb80f457e23f834bad827260e9d9058ea500`; the complete final
+published state is `b009fd670521cdf1ace15092ebf71adc00016095`. Initial publication
+workflow `31323907395`, attempt 1, was GitHub-green but lacked the required
+isolated exact-selector-helper invocation for
+`core_body::tests::validated_body_grammar_construction_is_compiler_sealed` and
+therefore did not independently complete the final closeout evidence. Repair
+commit `b009fd670521cdf1ace15092ebf71adc00016095` closed that evidence gap.
+Required full-lane `ci` workflow `31330908514`, attempt 1, is the terminal-green
+final publication evidence. Ubuntu job `93288877738` and Windows job
+`93288877777` both selected `mode=full` with `reason=no_status_transition`,
+independently passed the isolated selector and 91/91 exact-selector inventory,
+and passed the compiler-enforced first-lineage proof and narrow F4 inventories.
+Ubuntu passed all 14,226 Exhaustive pairs with seed `0x48554D5F5345414C`;
+Windows correctly skipped the platform-independent duplicate. The active marker
+remains temporarily until a separately authorized planning transition
+establishes the next active Work Order. Checked-type authority is the next
+compiler objective but remains unauthorized. Open-skeleton integration, the
+contract-hierarchy/intent-first design advisory, status publication, archive
+mutation, and every later activity remain queued and unauthorized. No later
+work is implicitly authorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 16 architect-author. The author may explain this draft but
@@ -1597,20 +1605,31 @@ integration, another Work Order, or later compiler work.
 
 ## Current authorization gate
 
-Published `main` is clean and terminal-green at the BDFL-accepted remedial
-amendment commit `cc8ad29f1cace01adf27546289991945bdbef558`, published by
-normal fast-forward. Required full-lane `ci` workflow `31293649212`, attempt 1,
-completed successfully. Ubuntu job `93195114868` and Windows job `93195114842`
-both selected `mode=full` with `reason=no_status_transition` and succeeded.
-Ubuntu passed the platform-independent Exhaustive producer with 14,226 pairs
-and seed `0x48554D5F5345414C`; Windows correctly skipped the duplicate.
+Work Order 16 is complete, closed, and frozen. Its remedial amendment, exact
+two-path implementation, bounded correction, independent acceptance,
+publication, and post-publication selector-evidence repair are complete. The
+accepted remedial implementation is
+`3cf2eb80f457e23f834bad827260e9d9058ea500`; complete published `main` is
+`b009fd670521cdf1ace15092ebf71adc00016095`.
 
-The exact two-path remedial implementation in `src/core_body.rs` and
-`tools/check_all.ps1` is the next eligible activity, but it remains explicitly
-unauthorized pending a separate BDFL implementation signal. This local status
-record is not authorized for publication in this task.
+Initial publication workflow `31323907395`, attempt 1, was GitHub-green but
+lacked the required isolated exact-selector-helper invocation for
+`core_body::tests::validated_body_grammar_construction_is_compiler_sealed` and
+did not independently complete the final closeout evidence. Accepted repair
+commit `b009fd670521cdf1ace15092ebf71adc00016095` closed that gap. Required
+full-lane `ci` workflow `31330908514`, attempt 1, is the terminal-green final
+publication evidence. Ubuntu job `93288877738` and Windows job `93288877777`
+both selected `mode=full` with `reason=no_status_transition`, independently ran
+and passed the exact isolated Work Order 16 selector, passed the 91/91
+exact-selector inventory and named membership, and passed the compiler-enforced
+first-lineage proof and narrow F4 inventories. Ubuntu passed all 14,226
+Exhaustive pairs with seed `0x48554D5F5345414C`; Windows correctly skipped the
+platform-independent duplicate.
 
-Work Order 16 closeout remains paused. Checked-type authority, open-skeleton
-integration, status publication, archive mutation, and every later activity
-remain unauthorized.
+The active marker remains temporarily until a separately authorized planning
+transition establishes the next active Work Order. Checked-type authority is
+the next compiler objective but remains unauthorized. Open-skeleton
+integration, the contract-hierarchy/intent-first design advisory, publication
+of this status record, archive mutation, and every later activity remain queued
+and unauthorized. No later work is implicitly authorized.
 <!-- workorder-current-authorization-gate:end -->
