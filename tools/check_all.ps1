@@ -373,6 +373,10 @@ try {
   Invoke-ExactRustTest 'Replacement F3 fast matrix: 32 fields, 192 singles, 256 seeded cumulative pairs of 8646, all named sabotage' $Cargo 'parser::tests::parser_completion_and_statement_relationships_are_complete_and_load_bearing'
   Invoke-ExactRustTest 'Replacement F4 private Core boundary: 132 fields, 8646 pairs, retained authority, substitution and transport corruption' $Cargo 'parser::tests::complete_canonical_seal_reaches_private_core_and_rejects_transport_corruption'
   Invoke-ExactRustTest 'Replacement F4 real load_program and private Core inventory path' $Cargo 'tests::replacement_f4_complete_inventory_uses_real_load_and_private_core'
+  Invoke-ExactRustTest `
+    'Replacement F4 compiler-sealed validated body grammar construction' `
+    $Cargo `
+    'core_body::tests::validated_body_grammar_construction_is_compiler_sealed'
   Invoke-ExactRustTest 'Increment 10B.1b recursive H0010 sealed-consumer matrix and controls' $Cargo 'parser::tests::recursive_h0010_consumer_is_complete_and_load_bearing'
   Invoke-ExactRustTest 'Increment 10B.1b canonical-tree and retained-authority corruption matrix' $Cargo 'parser::tests::h0010_sealed_corruption_and_authority_substitution_fail_closed'
   Invoke-ExactRustTest 'Increment 10B.2 supporting resolver/callable production source and dataflow audit' $Cargo 'callable::tests::ten_b2_source_audit_rejects_semantic_reconstruction_and_span_selection'
@@ -1181,8 +1185,9 @@ task malformed() -> UInt {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 90 -or $UniqueExactRustSelectorCredits.Count -ne 90) { throw "exact Rust selector inventory must credit 90 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 91 -or $UniqueExactRustSelectorCredits.Count -ne 91) { throw "exact Rust selector inventory must credit 91 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
+  if ($ExactRustSelectorCredits -notcontains 'core_body::tests::validated_body_grammar_construction_is_compiler_sealed') { throw 'exact Rust selector inventory lost the compiler-sealed validated body grammar construction test' }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
   if ($ApForbiddenFallbacks.Count -ne 0) { throw 'Session AP production source must not reconstruct occurrences from codes or public diagnostics' }
