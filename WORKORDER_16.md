@@ -2,20 +2,22 @@
 
 Date: 2026-08-08
 <!-- hum-active-workorder:v1 -->
-Status: Independently accepted, issued, active, committed, and published on
-`main`. The accepted Work Order 15 closeout and corrected Work Order 16 package
-was committed as `8f12bc91554a84c6b5cd949c001bd62506b2e120` and published by
-normal fast-forward. Required publication CI passed in `ci` workflow
-`31246383282`, attempt 1, on Ubuntu and Windows in the full lane. Unit 1 is next
-but remains explicitly unauthorized pending a separate BDFL go signal. Checked
-type authority and every later unit remain unauthorized.
+Status: Independently accepted, issued, active, and amended in draft. Unit 1
+implementation commit `1a03d000e11fe82f4e2a83e5dd3563d4c21785ff` is accepted and
+published, and CI repair commit `046c1ad58757d90565263d848090dd46b3aebfc3`
+is terminal-green. Work Order 16 closeout is paused because retrospective
+review proved that the published Replacement F4 source audit cannot establish
+its claimed closed Rust construction inventory. The bounded remedial amendment
+below is unreviewed, unaccepted, uncommitted, unpublished, and grants no
+implementation authority. Checked type authority and every later unit remain
+unauthorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 16 architect-author. The author may explain this draft but
 is permanently disqualified from independently reviewing these bytes or any
 implementation produced under them.
 Planning baseline: `HEAD`, local `main`, cached `origin/main`, and live remote
-`main` are all `39d373dea56a15a5f97b76e701305bcd4d3e1f02`.
+`main` are all `046c1ad58757d90565263d848090dd46b3aebfc3`.
 
 ## Closed predecessor and reason for this foundation
 
@@ -1080,7 +1082,7 @@ Stop without workaround if:
 Do not invent an adapter, broaden the envelope, recover archive code, update a
 golden, special-case a fixture, or weaken the result after a stop.
 
-## Independent review, correction, commit, and publication gates
+## Original issuance and Unit 1 gate record
 
 The first independent pre-issuance reviewer returned
 `ACCEPT WITH REQUIRED FIX` with three P1 findings: the callback lifetime was
@@ -1089,57 +1091,520 @@ the next checked-type consumer obligation was implicit. The BDFL authorized
 this one bounded correction to `WORKORDER_16.md`; that correction cycle is now
 consumed.
 
-The exact corrected two-document draft requires one fresh independent
-corrected-document architect-reviewer who did not author or edit either
-document or perform this correction. Review must trace current-main Program
-item traversal, all body and predicate operation families, the generative
-callback and candidate lifetimes, direct item association, same-slot operation
-verification, missing and extra handling, the future checked-type reuse
-obligation, schema compatibility, the two selectors, all four compile-fail
-probes, four-path closure, and sustainability.
+The corrected document received unconditional independent acceptance. The
+BDFL separately accepted its exact bytes, authorized local commit
+`8f12bc91554a84c6b5cd949c001bd62506b2e120`, authorized publication, and later
+authorized status commit `29b4e81dd47404064ef5655073f2992b8c0a018e` and its
+publication. Required activation and status CI completed terminal-green before
+the separate Unit 1 implementation signal.
 
-The corrected-document reviewer returns `ACCEPT`,
-`ACCEPT WITH REQUIRED FIX`, or `REJECT` with P0/P1/P2 findings. No verdict
-authorizes an edit. Only unconditional `ACCEPT` advances; any other verdict
-stops this draft at the BDFL. No second document correction, wording repair,
-envelope amendment, or workaround is authorized.
+The first independent Unit 1 implementation review returned a non-accepting
+verdict with three in-envelope defects. The BDFL authorized the sole bounded
+implementation correction. A fresh corrected-tree reviewer then accepted the
+exact four-path candidate unconditionally. The BDFL separately authorized
+local implementation commit `1a03d000e11fe82f4e2a83e5dd3563d4c21785ff` and
+its publication. No original issuance or Unit 1 correction allowance remains.
 
-Only explicit BDFL acceptance of exact bytes may authorize a local
-documentation commit. Publication requires a separate signal and normal
-fast-forward push. Activation is not a status-only transition and must receive
-terminal-green full CI. A separate status record and its publication are then
-required. Only after all of those gates may the BDFL separately authorize Unit
-1 implementation.
+The red publication and green CI repair are recorded below. Post-publication
+CI owns full preflight; local Fast and Exhaustive were never substitutes for
+that workflow. The new remedial cycle is governed only by its later explicit
+gate section and does not rewrite this completed history.
 
-An implementation candidate receives a fresh independent review. Work Order
-16 permits at most one separately authorized bounded in-envelope
-implementation correction after the first implementation verdict. Independent
-acceptance authorizes no commit or push; each remains a separate BDFL gate.
+## Post-publication F4 audit failure and retrospective stop
 
-Post-publication CI owns full preflight. Local Fast and Exhaustive are never a
-substitute for the required publication workflow.
+The accepted Unit 1 implementation was committed as
+`1a03d000e11fe82f4e2a83e5dd3563d4c21785ff` with subject
+`feat(core): bind operations to source order` and published to `main` by normal
+fast-forward. Its first required full-lane publication workflow
+`31276928509`, attempt 1, failed on both Ubuntu job `93151911235` and Windows
+job `93151911166`. Both failures had the same sole cause: the Replacement F4
+source predicate interpreted the return type of the accepted private lowering
+consumer in `src/core_lower.rs` as a struct-literal construction and raised:
+
+```text
+Replacement F4 private canonical body construction escaped core_body:
+src/core_lower.rs
+```
+
+The compiler implementation, focused evidence, and earlier portions of full
+preflight passed before that deterministic false positive. The failure did not
+show a semantic escape from the private Core boundary.
+
+The bounded CI repair was committed as
+`046c1ad58757d90565263d848090dd46b3aebfc3` with subject
+`fix(ci): distinguish body types from construction`. Required full-lane `ci`
+workflow `31279318362`, attempt 1, completed successfully. Ubuntu job
+`93157964876` and Windows job `93157964891` both passed full preflight. Ubuntu
+also passed the platform-independent Exhaustive producer with F1 630, F2
+4,950, F3/F4 8,646, 14,226 total pairs, and seed
+`0x48554D5F5345414C`; Windows correctly skipped the duplicate.
+
+Terminal-green CI did not close the design question. Retrospective independent
+review proved that the repaired predicate was not a Rust parser and could not
+support its claim of complete construction discovery. The BDFL therefore
+paused Unit 1 closeout and authorized two bounded, uncommitted experiments.
+Neither experiment changed published `main`:
+
+1. A 343-line PowerShell lexer/parser replacement was independently rejected.
+   It produced both false positives for valid Rust patterns and false negatives
+   for valid Rust expressions, and mishandled valid lexical forms. Its own
+   finite syntax matrix passing did not establish general Rust correctness.
+2. A privacy-plus-regex factory inventory replacement was independently
+   rejected. Qualified return types, aliases, associated `Self` construction,
+   trait factories, builders, constants, macros, struct update, and other
+   semantically equivalent routes escaped its claimed closed inventory while
+   valid Rust still compiled.
+
+Both candidates were cleared without commit, archive, or publication. These
+failures are permanent architectural evidence: Work Order 16 must not require
+PowerShell to parse Rust, and a source-spelling inventory must not be presented
+as proof that all semantic construction routes are closed.
+
+## Remedial architectural ruling: compiler-enforced construction capability
+
+This amendment explicitly selects **Model B: compiler-enforced construction
+capability**. It does not select Model A, in which all of `src/core_body.rs`
+would be declared the trusted construction authority.
+
+Rust privacy already proves that foreign modules cannot construct the current
+`BodyGrammarReport`, `CanonicalBodyGrammarReport`, or
+`CanonicalBodyStatement` by ordinary struct literal: real compiler probes fail
+with E0451 because required fields are private. `#![forbid(unsafe_code)]`
+also rejects zeroed, `MaybeUninit`, and equivalent unsafe fabrication.
+Those facts make Model A technically possible if Replacement F4 were narrowed
+to trust every construction anywhere inside `core_body`.
+
+Model A is nevertheless rejected for this Work Order. The controlling
+Replacement F4 contract in Work Order 10 does more than forbid foreign
+literals: validation is mandatory before first private Core lineage issuance,
+and the first canonical report construction that mints that lineage is
+structurally required to consume a `ValidatedCoreSection`. Treating the
+entire, growing `core_body` module as trusted would retire that stronger
+accepted invariant precisely where sibling functions can currently access
+private fields. That reinterpretation would be a BDFL policy change, not a
+faithful remedial implementation.
+
+Model B is proportionate on current `main`. `src/ast.rs` already owns the
+non-`Clone`, non-`Copy`, non-`Default`, lifetime-bound
+`ValidatedCoreSection<'a>`. Its fields are private, and its only safe literal
+construction occurs inside `CanonicalCoreSectionExpectation::validate` after
+the retained parser authority is rechecked. The public and lowering paths in
+`src/core_body.rs` already validate before constructing. No new validator,
+parser, dependency, registry, or cross-operation protocol is needed.
+
+The correction therefore shrinks the trusted construction code to one sealed
+private child module inside `src/core_body.rs` and makes Rust privacy enforce
+the capability boundary between that child and every parent, sibling, and
+downstream module. The child module is the minimal trusted computing base. A
+future edit inside that child remains an ordinary security-sensitive Rust
+change requiring review; no finite harness can reject every possible edit to
+its own trusted implementation. Outside that explicit child, the compiler—not
+a spelling audit—must make first lineage issuance without validation
+impossible.
+
+## Exact sealed construction contract
+
+`src/core_body.rs` must contain one private child module named
+`validated_construction`. The exact public and crate-visible type paths remain
+available through re-exports from `core_body`, so existing consumers and
+manual output code do not require another path:
+
+- `BodyGrammarReport` remains publicly nameable as
+  `crate::core_body::BodyGrammarReport`;
+- `CanonicalBodyGrammarReport` remains crate-visible at its existing path; and
+- `CanonicalBodyStatement` remains crate-visible at its existing path.
+
+The child module owns all fields and all first construction of those three
+types. Required fields keep their current visibility to existing consumers,
+but every type also owns a private, nonserialized
+`ValidatedBodyGrammarLineage` field whose constructor is private to the child.
+Code outside `validated_construction` cannot satisfy a struct literal, a
+builder, a trait conversion, a constant, a macro expansion, a struct-update
+expression, or an associated factory without that private field.
+
+Only a real `ValidatedCoreSection` supplied to `build_body_grammar` may mint
+the first lineage carried by the canonical report and its statements. The
+public report is first constructed only by consuming that canonical report and
+transferring its already-issued opaque lineage; public conversion does not
+mint another lineage.
+
+The child module also owns
+`ValidatedBodyGrammarConstruction<'validated>`. It contains the real
+`ValidatedCoreSection<'validated>` as a private field. Its only issuance path
+accepts that exact production token. There is no constructor from `&Section`,
+`CanonicalCoreSectionExpectation`, public report fields, rendered text, JSON,
+an alias, an ID, or any owned reconstruction.
+
+The sole parent-visible entry that may consume a fresh
+`ValidatedCoreSection` and mint first lineage is exactly:
+
+```rust
+pub(super) fn build_body_grammar(
+    validated: ValidatedCoreSection<'_>,
+) -> CanonicalBodyGrammarReport
+```
+
+It immediately seals the supplied token into one private transient permit and
+performs the complete statement/report construction inside the child. The
+only other parent-visible child operation is the consuming
+`CanonicalBodyGrammarReport::into_public_report` conversion specified below;
+it may construct the public report by consuming the canonical report and
+transferring its already-issued lineage, but it cannot consume a fresh
+`ValidatedCoreSection`, mint first lineage, or reissue lineage independently.
+No other child constructor, conversion, trait implementation, or macro is
+visible to the parent.
+
+The two existing production entries retain their current order:
+
+1. receive `CanonicalCoreSectionExpectation<'_>`;
+2. call its real `validate` method;
+3. pass the resulting `ValidatedCoreSection<'_>` into the sealed child;
+4. issue one transient `ValidatedBodyGrammarConstruction<'_>`;
+5. build the canonical statements and report while the permit is live; and
+6. return the canonical report or consume it into the public report.
+
+No raw `Section` overload or alternate entry is permitted. The sealed builder
+must use `ValidatedCoreSection::section()` only after it owns the capability.
+The transient construction permit must not be `Clone`, `Copy`, `Default`,
+serializable, converted into a borrow-free owned form, widened to `'static`,
+stored in either report, returned to callers, or exposed outside the child.
+
+Each `CanonicalBodyStatement` receives the same private owned lineage kind as
+the canonical report that contains it. `CanonicalBodyGrammarReport` owns the
+lineage for the complete report. Converting it to `BodyGrammarReport` consumes
+the canonical report, maps only the ordinary `BodyStatement` values, drops
+every `CanonicalExpression` and parser-authority borrow, and transfers only an
+opaque owned lineage marker. The marker has no semantic fields and never
+serializes.
+
+`Clone` on an already-issued statement or report remains allowed where current
+production consumers require it. Clone and forwarding of an already-issued
+report or statement preserve only the provenance that its first construction
+passed through the sealed builder. They consume no fresh
+`ValidatedCoreSection`, cannot mint first lineage, and cannot produce a
+construction permit.
+
+Any report or statement fields that remain public or crate-visible for
+compatibility remain mutable after issuance. Private lineage is not an
+integrity seal, immutable snapshot, hash, or authentication of current field
+values. Mutating those fields cannot mint first lineage, but it can make the
+current contents diverge from the Section used during original validation. No
+consumer may accept current field values solely because lineage is present.
+Existing downstream structural and authority verification remains responsible
+for validating current field correctness independently.
+
+Debug output and every public human and JSON byte remain unchanged. No new
+public or crate-visible constructor or accessor exposes or issues the permit,
+lineage, validated section, canonical expression, or parser authority.
+
+The trusted child may contain the minimum private constructors required to
+implement this flow. It may not contain a second validator, a raw-section
+constructor, a generic public factory surface, test-only minting,
+deserialization, `Default`, or unsafe fabrication. Any future change inside
+the child is a
+reviewed change to the explicit trusted computing base, not something the
+PowerShell harness claims to understand semantically.
+
+## Exact two-path remedial implementation envelope
+
+The smallest necessary and sufficient implementation envelope is exactly:
+
+1. `src/core_body.rs`
+   - introduce the private `validated_construction` child module;
+   - move the three report/statement definitions and their first construction
+     into that child;
+   - define the transient permit and owned opaque lineage;
+   - preserve existing re-exported paths, field access needed by production,
+     validation order, conversion behavior, cloning behavior, Debug meaning,
+     and all public bytes;
+   - add the exact focused test and cfg-selected actual-type misuse functions.
+2. `tools/check_all.ps1`
+   - remove the PowerShell construction predicate and its syntax matrix;
+   - remove cross-module regex claims of complete literal, factory, alias,
+     function-name, or semantic construction discovery;
+   - invoke the production compile-fail proof with process-local environment
+     restoration;
+   - retain only narrow topology, validation-order, authority-dropping,
+     consumer, issuer, and no-unsafe checks that state exactly what their
+     source anchors prove.
+
+Both paths are necessary. Rust must change because the current parent module
+can still construct its own private fields without carrying validated evidence.
+The tool must change because the published semantic-inventory claim is false
+and full preflight presently runs it.
+
+No third Rust path is required. The actual misuse probes live in the parent
+`core_body` module, outside its private child; Rust privacy therefore gives the
+same-file probe a real foreign boundary while retaining access to the actual
+production type names. An external generated crate or permanent fixture would
+add no stronger fact. `src/ast.rs` remains unchanged because its existing
+`ValidatedCoreSection` construction boundary is already sufficient.
+
+A third implementation path is a mandatory stop unless a later independent
+pre-issuance review proves this same-file privacy fact false. A fourth path is
+an unconditional stop and BDFL re-scope. Test-only bytes in an otherwise
+unchanged Rust file still count as a changed implementation path.
+
+Explicitly excluded and byte-frozen are:
+
+- `src/ast.rs`, `src/parser.rs`, `src/core_lower.rs`, `src/core_verify.rs`,
+  `src/core_expr.rs`, `src/core_preview.rs`, `src/ir_readiness.rs`,
+  `src/full_type_check.rs`, `src/main.rs`, and every other Rust path;
+- every schema, Work Order during implementation, decision, research file,
+  fixture, example, snapshot, generated file, workflow, Cargo file, and
+  dependency declaration; and
+- all checked-type, full-type, operation-order, predicate, IR, backend,
+  runtime, execution, effects, ownership, resource, profile, optimization,
+  open-skeleton, and later-planning work.
+
+## Evidence layers and exact permanent proof
+
+The remedial result separates four evidence layers.
+
+### Production enforcement
+
+Rust module privacy and the sealed construction types are the semantic proof
+for authorized first construction. Every first issuance of canonical report
+and statement lineage begins with the real `ValidatedCoreSection` and passes
+through the private child. Construction of the public report transfers that
+already-issued lineage by consuming the canonical report. Clone-derived and
+forwarded values consume no fresh token and preserve only first-construction
+provenance; they do not prove current-field integrity. Parent, sibling, and
+downstream code cannot fabricate the permit or mint first lineage. The crate
+remains `#![forbid(unsafe_code)]`.
+
+### Permanent regression evidence
+
+`src/core_body.rs` must provide one focused selector named exactly:
+
+```text
+core_body::tests::validated_body_grammar_construction_is_compiler_sealed
+```
+
+The existing exact-selector helper must list exactly one test, run exactly one
+test, pass, and award exactly one unique selector credit. Through production
+entries it must prove successful public and lowering construction after real
+validation, canonical-expression retention only in the private report, public
+conversion dropping that authority, clone and forwarding preservation of only
+first-construction provenance without fresh issuance, continued independent
+validation of mutable current fields, and rejection before construction when
+section authority is invalid.
+
+Beside the actual production types, and outside the sealed child module,
+cfg-selected functions must attempt all of these forbidden operations:
+
+```text
+body_grammar_report_foreign_literal_must_not_compile
+canonical_body_grammar_report_foreign_literal_must_not_compile
+canonical_body_statement_foreign_literal_must_not_compile
+validated_body_grammar_permit_from_raw_section_must_not_compile
+```
+
+They are selected only by:
+
+```text
+hum_compile_fail_validated_body_grammar_construction
+```
+
+The prescribed proof is:
+
+1. normal `cargo check --all-targets` succeeds;
+2. set `RUSTFLAGS=--cfg hum_compile_fail_validated_body_grammar_construction`
+   process-locally;
+3. run `cargo check --all-targets` and require exit 101;
+4. require all four actual production function names in diagnostics;
+5. require the three report/statement attempts to fail because their private
+   lineage or fields cannot be supplied from the parent module;
+6. require the raw `&Section` attempt to fail because it is not a
+   `ValidatedCoreSection` and cannot construct the private permit;
+7. reject success or failure caused first by privacy of the type name,
+   unresolved imports, missing types, unexpected cfg, syntax errors, an
+   unrelated target, or a toy stand-in;
+8. restore the prior environment even after expected failure, prove
+   `RUSTFLAGS` absent or restored, and run a second normal
+   `cargo check --all-targets` successfully.
+
+`tools/check_all.ps1` must run that proof in full preflight without persisting
+the environment or a repository artifact. The proof uses actual production
+types and the actual module boundary. It is not a source-text assertion.
+
+The tool may retain narrow source checks only for the following current
+topology facts:
+
+- both production entries accept `CanonicalCoreSectionExpectation`;
+- both call real validation before the sealed construction entry;
+- public conversion consumes the canonical report and does not expose
+  `CanonicalExpression` or parser authority;
+- no raw-section compatibility entry or unsafe code is present;
+- the current F4 consumer inventory remains 14 registered files, 17 public
+  analyzer calls, one private lowering call in `src/core_lower.rs`, 18 combined
+  calls, zero private calls in `src/core_verify.rs`, and zero unregistered
+  consumers; and
+- the current parser issuer inventory remains exactly four definitions and
+  four calls for the four established issuer families.
+
+Those checks are regression pins for named production entry points and current
+call topology. They must not claim to discover all Rust constructors,
+factories, aliases, traits, macros, constants, or semantic equivalents. The
+existing status classifier, lane selection, and Ubuntu/Windows Exhaustive
+ownership logic remain unchanged.
+
+Permanent compatibility evidence must capture the existing valid public and
+lowering paths before and after the change and require identical exit codes,
+stdout/stderr byte counts, and SHA-256 values for representative task, test,
+predicate, minimal Int, established UInt, and non-task inputs. Every required
+JSON surface runs twice and is byte-identical. No private permit, lineage,
+validated section, or canonical expression may serialize.
+
+### Temporary independent-review probes
+
+A fresh implementation reviewer may use disposable external probes to attempt
+qualified and aliased literals, associated `Self`, trait conversions,
+`Default`, `From`, `TryFrom`, builders, constants, statics, closures, macros,
+struct update, clone-based forwarding, and raw-section substitution. The
+review question is whether any route can mint first lineage or a construction
+permit outside the sealed child. Forwarding or cloning an already validated
+artifact is not new issuance and must be reported separately from fabrication.
+Mutated clone and forwarding probes must also confirm that retained lineage is
+only provenance and never substitutes for independent validation of current
+fields.
+
+These probes supplement the compiler boundary. They do not become a finite
+Rust-syntax matrix, a production selection rule, or a claimed complete list of
+future language spellings. Temporary files and targets remain outside the
+repository and must be removed before the reviewer reports.
+
+### Post-publication CI evidence
+
+The implementation publication is a normal code/tool transition and must
+select `mode=full` with `reason=no_status_transition` on Ubuntu and Windows.
+Both platforms must pass Cargo preparation, Rust-toolchain preparation, full
+Hum/Fast preflight, the exact focused selector, normal builds with the cfg
+inactive, the cfg-selected compile-fail proof, validation-order checks, public
+output preservation, text hygiene, public readiness, alpha claims, and release
+readiness for `0.0.1`.
+
+Ubuntu remains the sole platform-independent Exhaustive producer. It must run
+the existing exact selector with selected/passed/failed counts `1/1/0`, F1
+630, F2 4,950, F3/F4 8,646, 14,226 total pairs, and seed
+`0x48554D5F5345414C`. Windows must skip only that duplicate. The remediation
+must not change selector ownership, pair counts, seed, or status-only
+classifier behavior.
+
+## Mandatory bans for the remediation
+
+The remedial implementation must not:
+
+- add or extend a PowerShell Rust lexer or parser;
+- claim that regex, token spelling, aliases, function names, source locations,
+  corpus counts, or finite syntax cases completely discover Rust factories;
+- add `syn`, tree-sitter, rust-analyzer internals, compiler-internal AST output,
+  or another parsing dependency for the audit;
+- use source spelling as semantic construction proof;
+- add a registry, global inventory, construction counter, side vector, cache,
+  manifest, generated source, or runtime secret;
+- use unsafe code, `MaybeUninit`, zeroing, transmute, or unchecked fabrication;
+- weaken or reorder `CanonicalCoreSectionExpectation::validate` relative to
+  either public or lowering construction;
+- change a valid human or JSON byte, schema, check count, exit status,
+  diagnostic, capability, version, or readiness conclusion;
+- expose the construction permit, lineage, validated section, canonical
+  expression, or parser authority publicly;
+- reopen accepted operation-order semantics or change any WO16 operation
+  expectation, verifier rule, missing-row behavior, or lifetime handoff;
+- begin checked-type, full-type, IR, backend, runtime, execution, effects,
+  ownership, resources, profiles, performance, open-skeleton, or later work;
+  or
+- recover either rejected uncommitted audit candidate.
+
+## Remedial sustainability and stop conditions
+
+The expected implementation is approximately 160 to 300 insertions and 60 to
+140 deletions across exactly two paths. It should be reviewable by one fresh
+architect in approximately one and a half to two and a half focused hours.
+This is materially smaller than accepted Unit 1 (`+1,200/-48`) and creates no
+new validation subsystem.
+
+Stop without workaround if:
+
+- a third path appears necessary and same-file parent/child privacy has not
+  been independently disproved;
+- any fourth path is required;
+- the real `ValidatedCoreSection` cannot issue the transient permit directly;
+- any parent, sibling, or downstream code can construct first lineage;
+- public field compatibility requires exposing the lineage or permit;
+- cloning can mint first lineage instead of preserving only existing
+  first-construction provenance;
+- any consumer treats lineage presence as current-field integrity or skips
+  existing structural or authority verification because lineage is present;
+- public conversion retains canonical expression or parser authority;
+- the compile-fail proof succeeds or fails for an unrelated reason;
+- a source-text inventory remains necessary to claim semantic closure;
+- a new parser, dependency, registry, validator, schema, fixture, route, or
+  command is required;
+- any accepted valid output byte or current inventory count drifts;
+- unsafe code or unchecked construction is required;
+- implementation exceeds either size bound or the focused review-time bound;
+  or
+- operation-order, checked-type, open-skeleton, or later semantics enter the
+  candidate.
+
+After a stop, do not widen, special-case, add a syntax matrix, change a golden,
+or reinterpret failure as success. Return the exact dependency or policy
+question to the BDFL.
+
+## Remedial review, correction, commit, and publication gates
+
+This amendment is a fresh BDFL-authorized remedial planning cycle. It does not
+reopen the consumed Work Order 16 Unit 1 document or implementation correction
+cycles, and it does not retroactively accept either rejected tool experiment.
+
+The exact amended `WORKORDER_16.md` receives one fresh independent
+pre-issuance architect review by a reviewer who did not author or edit these
+bytes. That reviewer must inspect the real Rust privacy direction, existing
+`ValidatedCoreSection` issuer, proposed nested-module visibility, cloning and
+conversion behavior, same-file compile-fail feasibility, exact two-path
+closure, removal of false semantic-audit claims, compatibility evidence, and
+sustainability. The reviewer returns `ACCEPT`,
+`ACCEPT WITH REQUIRED FIX`, or `REJECT`; no verdict authorizes an edit.
+
+At most one separately authorized bounded correction to this remedial
+amendment is available after its first review. A second non-`ACCEPT` verdict
+stops the remediation at the BDFL. The author may not independently review the
+amendment or its implementation.
+
+Only explicit BDFL acceptance of exact amended bytes may authorize a local
+documentation commit. Document publication requires a separate normal
+fast-forward authorization and terminal-green full CI because this is not a
+status-region-only transition. A separately authorized publication-status
+record may follow. None of those gates authorizes remediation implementation.
+
+Only after accepted amendment publication and any required status record may
+the BDFL issue a separate implementation signal for the exact two-path
+remediation. Its frozen candidate receives one fresh independent implementation
+review and at most one separately authorized bounded in-envelope correction.
+Implementation acceptance, local commit, publication, terminal-green full CI,
+and final Work Order 16 status closeout are separate later gates.
+
+No gate in this section authorizes checked type authority, open-skeleton
+integration, another Work Order, or later compiler work.
 
 ## Current authorization gate
 
-Work Order 16 is independently accepted, issued, active, and published. Its
-exact two-document package was committed as
-`8f12bc91554a84c6b5cd949c001bd62506b2e120` and published to `main` by normal
-fast-forward. Required `ci` workflow `31246383282`, attempt 1, completed
-successfully. Ubuntu job `93075579389` passed in 26m01s, including the full Hum
-preflight in 25m20s. Windows job `93075579446` passed in 36m29s, including the
-full Hum preflight in 36m03s. Both publication jobs selected `mode=full` with
-`reason=no_status_transition`.
+Published `main` is clean and terminal-green at CI repair commit
+`046c1ad58757d90565263d848090dd46b3aebfc3`. Accepted Unit 1 implementation
+commit `1a03d000e11fe82f4e2a83e5dd3563d4c21785ff` remains in its ancestry and is
+not reverted. The current tool repair corrected the publication false positive
+but does not honestly prove a closed semantic Rust factory inventory.
 
-Ubuntu-owned Exhaustive evidence passed selector
-`parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero`
-with selected/passed/failed counts `1/1/0`: F1 630, F2 4,950, F3/F4 8,646,
-14,226 total pairs, producer elapsed time 16.073s, and seed
-`0x48554D5F5345414C`. Windows correctly skipped the platform-independent
-duplicate.
+This remedial amendment selects the compiler-enforced capability model and the
+exact two-path envelope above. It is drafted only. It is not independently
+reviewed, accepted, committed, published, status-recorded, or authorized for
+implementation. The next receiving role is a fresh independent pre-issuance
+architect-reviewer who did not author or edit these bytes.
 
-Unit 1 is the next eligible work but remains explicitly unauthorized pending a
-separate BDFL go signal. This status record grants no implementation, further
-edit, push, archive mutation, checked type authority, later unit, or later
-planning authority. Checked type authority and every later unit remain
-unauthorized.
+Work Order 16 closeout remains paused. This draft grants no edit beyond its own
+completed authorship, no implementation, commit, push, archive mutation,
+status change, checked type authority, open-skeleton integration, later unit,
+or later planning authority.
 <!-- workorder-current-authorization-gate:end -->
