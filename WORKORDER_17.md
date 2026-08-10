@@ -2,21 +2,37 @@
 
 Date: 2026-08-09
 <!-- hum-active-workorder:v1 -->
-Status: Accepted and published as documentation commit
-`5aca6eeab4ac427142e420f67e13d9a00ee9c706`
-(`docs(workorder): verify checked type authority on exact core operations`).
-Required full-lane `ci` workflow `31359574604`, attempt 1, completed
-successfully for that exact commit. Ubuntu job `93365605477` completed in
-26m55s with a 26m15s full preflight, and Windows job `93365605449` completed
-in 31m15s with a 30m47s full preflight. Both selected `mode=full` with
-`reason=no_status_transition`, passed text hygiene and public readiness for
-525 files, passed alpha claims, and passed release readiness for version
-`0.0.1`. Ubuntu passed all 14,226 Exhaustive pairs with seed
-`0x48554D5F5345414C`; Windows correctly skipped the platform-independent
-duplicate. Published `main` is synchronized at
-`5aca6eeab4ac427142e420f67e13d9a00ee9c706`. Work Order 17 Unit 1 remains
-unauthorized pending a separate BDFL go signal. Open-skeleton work and every
-later activity remain unauthorized.
+Status: Closed. Work Order 17 Unit 1 is accepted, implemented, published, and
+terminal-green. The accepted documentation package is commit
+`5aca6eeab4ac427142e420f67e13d9a00ee9c706`; its publication status is commit
+`1b35b43a07c536834e25564c473c0ce40cbe0e3c`. The accepted implementation is
+commit `212e692f7db40b428e7857917dc04147b6776452` with subject
+`feat(core): verify checked type authority on exact operations`, exactly nine
+paths, and statistics `+1,857/-86`.
+
+Unit 1 received one rejected initial implementation review, one bounded
+correction, terminal confirmation that all findings were closed, and an
+evidence-only `ACCEPT` after native Cargo stderr capture prevented two earlier
+reviewers from completing Fast. The evidence-only Fast run exited 0 in
+796.422 seconds with the root suite at 459/459, exact selectors at 95/95, and
+all four isolated Work Order 17 selectors passing.
+
+Required publication `ci` workflow `31424834716`, attempt 1, tested exact SHA
+`212e692f7db40b428e7857917dc04147b6776452` and concluded success. Both
+platforms selected `mode=full` with `reason=no_status_transition`, passed the
+95/95 selector inventory and all four Work Order 17 selectors, passed task-
+signature evidence, the sole-producer E0624 proof, the lifetime 0/101/0 proof
+without E0382, F4/source inventories, text hygiene and public readiness for
+525 files, alpha claims, and release readiness for version `0.0.1`.
+
+Ubuntu job `93573945728` succeeded in 1,081 seconds with a 1,047-second full
+preflight and the platform-filtered root suite at 444/444. Its Exhaustive
+producer selected `parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero`
+once and passed once with zero failures: F1 630, F2 4,950, F3/F4 8,646,
+14,226 total pairs, 16.169 seconds, seed `0x48554D5F5345414C`. Windows job
+`93573945837` succeeded in 1,577 seconds with a 1,543-second full preflight and
+the root suite at 459/459; it correctly skipped only the duplicate Exhaustive
+producer.
 
 Owner: BDFL (Ocean).
 Author: Work Order 17 architect-author. The author is permanently disqualified
@@ -1497,21 +1513,20 @@ evidence, or CI is authorized during document authoring.
 
 ## Current authorization gate
 
-The exact Work Order 17 documentation package is accepted, committed as
-`5aca6eeab4ac427142e420f67e13d9a00ee9c706`, published to `main`, and
-terminal-green in full-lane `ci` workflow `31359574604`, attempt 1. Ubuntu job
-`93365605477` and Windows job `93365605449` both succeeded with
-`mode=full` and `reason=no_status_transition`. Ubuntu passed the 14,226-pair
-Exhaustive producer with seed `0x48554D5F5345414C`; Windows correctly skipped
-the platform-independent duplicate. Local, cached, and live published `main`
-are synchronized at `5aca6eeab4ac427142e420f67e13d9a00ee9c706`.
+Work Order 17 and Unit 1 are closed as accepted, implemented, published, and
+terminal-green. Checked canonical minimal-add type authority now reaches exact
+authenticated Core operations, Core verification, and full type. Supported
+full type consumes `verified_canonical_minimal_add_type_v0`.
 
-The next eligible activity is Work Order 17 Unit 1, but it remains explicitly
-unauthorized pending a separate BDFL go signal. This status record grants no
-source, schema, tool, fixture, workflow, Cargo, archive, implementation,
-closeout, push, or later-work authority.
+This bounded result does not implement a backend artifact, types table, IR
+verifier, `VerifiedBackendInput`, execution, general expression typing, or
+later lowering work. Native Cargo stderr and PowerShell capture remain a
+deferred tooling defect; this closeout neither repairs nor authorizes repair of
+that harness fragility.
 
-Open-skeleton tooling, contract-hierarchy/intent-first work, backend/IR work,
-termination, archive mutation, and every later planning or implementation
-track remain deferred and unauthorized.
+Backend/IR work, types-table production, open-skeleton integration, harness
+repair, a replacement or new Work Order, archive mutation, and every later
+activity remain unauthorized pending a separate BDFL signal. The active marker
+remains in this file until a separately reviewed planning transition installs
+a successor.
 <!-- workorder-current-authorization-gate:end -->
