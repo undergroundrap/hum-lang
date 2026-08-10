@@ -1,7 +1,6 @@
 # Hum Work Order 16: Borrowed, Order-Bound Core Operation Expectations
 
 Date: 2026-08-08
-<!-- hum-active-workorder:v1 -->
 Status: Complete, closed, and frozen. The remedial amendment, exact two-path
 implementation, bounded correction, independent acceptance, publication, and
 post-publication selector-evidence repair are complete. The accepted remedial
@@ -19,12 +18,13 @@ independently passed the isolated selector and 91/91 exact-selector inventory,
 and passed the compiler-enforced first-lineage proof and narrow F4 inventories.
 Ubuntu passed all 14,226 Exhaustive pairs with seed `0x48554D5F5345414C`;
 Windows correctly skipped the platform-independent duplicate. The active marker
-remains temporarily until a separately authorized planning transition
-establishes the next active Work Order. Checked-type authority is the next
-compiler objective but remains unauthorized. Open-skeleton integration, the
-contract-hierarchy/intent-first design advisory, status publication, archive
-mutation, and every later activity remain queued and unauthorized. No later
-work is implicitly authorized.
+moved to drafted Work Order 17 under a separately authorized planning
+transition. Work Order 17 implementation remains unauthorized pending its own
+independent pre-issuance review, BDFL acceptance, documentation commit,
+publication, status record, and explicit Unit 1 go signal. Open-skeleton
+integration, the contract-hierarchy/intent-first design advisory, archive
+mutation, and every other later activity remain queued and unauthorized. No
+later work is implicitly authorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 16 architect-author. The author may explain this draft but
@@ -1626,10 +1626,12 @@ first-lineage proof and narrow F4 inventories. Ubuntu passed all 14,226
 Exhaustive pairs with seed `0x48554D5F5345414C`; Windows correctly skipped the
 platform-independent duplicate.
 
-The active marker remains temporarily until a separately authorized planning
-transition establishes the next active Work Order. Checked-type authority is
-the next compiler objective but remains unauthorized. Open-skeleton
-integration, the contract-hierarchy/intent-first design advisory, publication
-of this status record, archive mutation, and every later activity remain queued
+The active marker has moved to drafted Work Order 17 under a separately
+authorized planning transition. That draft specifies the checked-type-authority
+consumer required by this Work Order, but its implementation remains
+unauthorized pending independent pre-issuance review, BDFL acceptance,
+documentation commit, publication, status recording, and a later explicit Unit
+1 go signal. Open-skeleton integration, the contract-hierarchy/intent-first
+design advisory, archive mutation, and every other later activity remain queued
 and unauthorized. No later work is implicitly authorized.
 <!-- workorder-current-authorization-gate:end -->
