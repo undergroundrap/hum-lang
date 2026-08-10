@@ -2,9 +2,21 @@
 
 Date: 2026-08-09
 <!-- hum-active-workorder:v1 -->
-Status: Fresh replacement drafted for independent pre-issuance review.
-Unissued, unpublished, and unauthorized for implementation. This document
-records a planning result only.
+Status: Accepted and published as documentation commit
+`5aca6eeab4ac427142e420f67e13d9a00ee9c706`
+(`docs(workorder): verify checked type authority on exact core operations`).
+Required full-lane `ci` workflow `31359574604`, attempt 1, completed
+successfully for that exact commit. Ubuntu job `93365605477` completed in
+26m55s with a 26m15s full preflight, and Windows job `93365605449` completed
+in 31m15s with a 30m47s full preflight. Both selected `mode=full` with
+`reason=no_status_transition`, passed text hygiene and public readiness for
+525 files, passed alpha claims, and passed release readiness for version
+`0.0.1`. Ubuntu passed all 14,226 Exhaustive pairs with seed
+`0x48554D5F5345414C`; Windows correctly skipped the platform-independent
+duplicate. Published `main` is synchronized at
+`5aca6eeab4ac427142e420f67e13d9a00ee9c706`. Work Order 17 Unit 1 remains
+unauthorized pending a separate BDFL go signal. Open-skeleton work and every
+later activity remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 17 architect-author. The author is permanently disqualified
@@ -1485,21 +1497,21 @@ evidence, or CI is authorized during document authoring.
 
 ## Current authorization gate
 
-The corrected fresh replacement Work Order 17 is drafted, unissued,
-unpublished, and unauthorized for implementation. The prior packages remain
-terminally rejected and non-authoritative. The sole bounded document
-correction has been consumed. This planning task authorizes no source, schema,
-tool, fixture, workflow, Cargo, archive, commit, push, status, or later-work
-mutation.
+The exact Work Order 17 documentation package is accepted, committed as
+`5aca6eeab4ac427142e420f67e13d9a00ee9c706`, published to `main`, and
+terminal-green in full-lane `ci` workflow `31359574604`, attempt 1. Ubuntu job
+`93365605477` and Windows job `93365605449` both succeeded with
+`mode=full` and `reason=no_status_transition`. Ubuntu passed the 14,226-pair
+Exhaustive producer with seed `0x48554D5F5345414C`; Windows correctly skipped
+the platform-independent duplicate. Local, cached, and live published `main`
+are synchronized at `5aca6eeab4ac427142e420f67e13d9a00ee9c706`.
 
-The next eligible role is one fresh independent corrected-document
-architect-reviewer. Only an unqualified `ACCEPT` advances; any other verdict
-stops the package and returns it directly to the BDFL without another
-correction. Only after that `ACCEPT` and explicit BDFL acceptance may the exact
-two-document package be committed and published. Unit 1 still requires its own
-later BDFL go signal.
+The next eligible activity is Work Order 17 Unit 1, but it remains explicitly
+unauthorized pending a separate BDFL go signal. This status record grants no
+source, schema, tool, fixture, workflow, Cargo, archive, implementation,
+closeout, push, or later-work authority.
 
 Open-skeleton tooling, contract-hierarchy/intent-first work, backend/IR work,
-termination, archive mutation, and every other planning or implementation track
-remain deferred and unauthorized.
+termination, archive mutation, and every later planning or implementation
+track remain deferred and unauthorized.
 <!-- workorder-current-authorization-gate:end -->
