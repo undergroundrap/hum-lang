@@ -194,6 +194,33 @@ Current rule families include:
 - `structured_expression_outer_type_unchecked`: the structured root preserves
   the authoritative outer `not_type_checked_v0` / null / null type state
 
+For immutable source disposition `Supported`, the verifier omits
+`structured_expression_outer_type_unchecked` and follows the other thirteen
+structured rows with four ordered `operation_expression` rules:
+`canonical_minimal_add_type_authority_matches_exact_operation`,
+`canonical_minimal_add_type_claim_matches_untouched_authority`,
+`canonical_minimal_add_result_value_matches_checked_type`, and
+`canonical_minimal_add_type_access_locally_eligible`; they bind exact authority,
+independent claim, public checked result, and local eligibility respectively.
+
+Healthy `Some/Some` is 38/38. Post-issuance Supported corruption preserves its
+disposition/authority: `Some/Some`, `Some/None`, `None/Some`, and `None/None`
+have 38, 38, 26, and 25 rows. Applicable rows fail without a synthesized
+integrity row, view, or fallback. Missing, duplicate, ambiguous, foreign,
+reordered, swapped, or reindexed associations use existing ownership rows.
+
+Producer `IntegrityFailure` adds failed rule
+`canonical_minimal_add_integrity_failure_rejected` after applicable rows;
+structured/unstructured totals are 38/24. `UnsupportedTargetLike` similarly
+adds `canonical_minimal_add_unsupported_target_like_rejected` at 36/22.
+Out-of-scope, legacy, and non-target add no row; six generic rows keep order.
+
+Lookup is local and report-global: local failure returns no view; unrelated
+report failure returns `ReportBlocked`. A lifetime callback supplies readiness,
+diagnostics, blocker, lookup, and access from one report. Private authority,
+claim, origin, expectation, identity, lookup, and access neither serialize nor
+escape. Failed rows propagate to root failure and nonzero exit.
+
 These checks consume the actual in-memory `CoreLowerReport` artifact. The
 public structure is a projection. Its in-memory expression privately retains
 immutable parser authority that is not serialized. The verifier compares the
@@ -208,8 +235,9 @@ lowered item owns only a closed private authentication state, and the verifier
 compares the public task signature fields with that separately retained
 authority. Neither the issuance capability, snapshot, authenticated handle,
 rejection reason, nor any private authority field appears in human or JSON
-output. Successful authentication therefore leaves every valid output byte
-unchanged and makes no semantic type claim.
+output. Signature authentication itself adds no row or semantic type claim;
+the separately authenticated Supported minimal-add disposition is the bounded
+type exception documented above.
 
 ## Honesty Rules
 
@@ -224,8 +252,9 @@ unchanged and makes no semantic type claim.
   consistency, expression-preview provenance, and non-claim fields on the
   current `hum.core_lower.v0` artifact.
 - For the bounded parser-owned add tree, it may additionally verify exact
-  ordered identity, range, shape, and honest unchecked outer type state. The
-  tree carries no nested type conclusion. Test-only reorder,
+  ordered identity, range, shape, and either honest unchecked outer type state
+  or the Supported operation-owned checked outer type exception. The tree
+  carries no independent nested type conclusion. Test-only reorder,
   duplicate-identity, real foreign-identity, incorrect-spelling, coherent
   foreign-projection, coherent relocation, foreign-range, overflow-range, and
   structural-overclaim substitutions mutate only the public projection, retain
@@ -270,9 +299,9 @@ It verifies the shape and honesty of the non-executing artifact boundary so the
 next compiler blockers are visible and compiler-checkable.
 
 The structured add row does not make the artifact Hum IR, backend-ready,
-executable, an opaque verified backend input, or Cranelift-lowerable.
-It does not infer `Int` or treat the task's declared result annotation as proof
-of the return expression's type.
+executable, an opaque verified backend input, or Cranelift-lowerable. The
+bounded Supported type conclusion is derived from authenticated operand
+definitions and declarations, never from the task's declared result annotation.
 
 ## Session AL Callable Verification
 

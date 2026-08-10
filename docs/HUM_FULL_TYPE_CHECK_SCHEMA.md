@@ -137,6 +137,23 @@ The V0 gate checks only conservative statement contexts:
 - `block_close` and `loop_header`: accepted as statements with no expression
   type obligation.
 
+## Verified canonical minimal-add type
+
+For one parser-authenticated `Int + Int` Core return, full type accepts
+`actual_type: Int` / `type_source: verified_canonical_minimal_add_type_v0` only
+through lifetime-bound access to the same report supplying readiness and
+diagnostics. Authority, claims, expectations, identity, and views do not persist.
+
+Declared-result compatibility is independent. A mismatch retains actual `Int`
+but reports `rejected_statement_type_mismatch_v0` /
+`statement_expression_type_mismatch`. Any local, association, or report-global
+failure withholds the view and preserves the prior-error/null path.
+
+`UInt + UInt` stays out of scope, identifier-plus-UInt-literal keeps
+`additive_expression_v0`, and non-target behavior is unchanged. Target-like or
+integrity failure cannot reach fallback. Each internal build makes one verifier
+report; separate status/rendering builds remain uncached.
+
 ## Current Blockers
 
 V0 intentionally blocks or leaves unchecked:

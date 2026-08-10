@@ -208,10 +208,19 @@ left-to-right order remain additional sanity checks. Coherent foreign or
 relocated projections fail even when internally consistent, and candidate
 range arithmetic fails closed on overflow.
 
-The structured object contains no type field. The existing outer expression
-type fields remain authoritative. For `examples/core/minimal_add.hum` they are
-`type_status: not_type_checked_v0`, `type_text: null`, and `type_source: null`.
-The task's declared `Int` result is not expression-type proof.
+The structured object has no nested type field. Authenticated canonical
+`Int + Int` is the bounded outer exception: `type_status` is
+`checked_canonical_minimal_add_type_v0`, `type_text` is `Int`, and `type_source`
+is `canonical_minimal_add_type_authority_v0`. The following `result_value` has
+ordered `id`, `type_id`, `type_status`, `type_text`, and `provenance`; its IDs
+are `core-value:<parser-node-id>` and `hum-type:builtin:Int`. This projection
+comes from private operation authority, never the declared result.
+
+Producer-time integrity failure uses `canonical_minimal_add_type_integrity_failure_v0`,
+null type text/source, and
+an explicit null `result_value`. Other dispositions preserve prior outer type
+fields and omit `result_value`. Human output is unchanged; private disposition,
+authority, claim, resolver/declaration facts, and failure reason never serialize.
 
 ## Honesty Rules
 

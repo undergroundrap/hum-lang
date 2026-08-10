@@ -48,6 +48,12 @@ pub const CORE_EXPRESSION_AST_STATUS: &str = "ast_preview_v0";
 pub const CORE_EXPRESSION_CONTEXTUAL_AST_STATUS: &str = "contextual_ast_preview_v0";
 pub const CORE_EXPRESSION_SURFACE_AST_STATUS: &str = "surface_ast_preview_v0";
 pub const CORE_EXPRESSION_TYPE_STATUS: &str = "not_type_checked_v0";
+pub const CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_STATUS: &str =
+    "checked_canonical_minimal_add_type_v0";
+pub const CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_SOURCE: &str =
+    "canonical_minimal_add_type_authority_v0";
+pub const CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_INTEGRITY_FAILURE_STATUS: &str =
+    "canonical_minimal_add_type_integrity_failure_v0";
 pub const CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_TYPE_STATUS: &str =
     "checked_trivial_return_type_v0";
 pub const CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_MISMATCH_STATUS: &str =

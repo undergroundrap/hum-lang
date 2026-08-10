@@ -377,6 +377,10 @@ try {
     'Replacement F4 compiler-sealed validated body grammar construction' `
     $Cargo `
     'core_body::tests::validated_body_grammar_construction_is_compiler_sealed'
+  Invoke-ExactRustTest 'Work Order 17 exact operation-bound checked type producer' $Cargo 'type_check::tests::canonical_minimal_add_type_authority_is_operation_bound'
+  Invoke-ExactRustTest 'Work Order 17 exact Core operation type ownership' $Cargo 'core_lower::tests::canonical_minimal_add_type_authority_is_owned_by_exact_operation'
+  Invoke-ExactRustTest 'Work Order 17 verified access is withheld after corruption' $Cargo 'core_verify::tests::canonical_minimal_add_type_verification_withholds_invalid_access'
+  Invoke-ExactRustTest 'Work Order 17 full type consumes only verified canonical type' $Cargo 'full_type_check::tests::minimal_add_consumes_only_verified_canonical_type'
   Invoke-ExactRustTest 'Increment 10B.1b recursive H0010 sealed-consumer matrix and controls' $Cargo 'parser::tests::recursive_h0010_consumer_is_complete_and_load_bearing'
   Invoke-ExactRustTest 'Increment 10B.1b canonical-tree and retained-authority corruption matrix' $Cargo 'parser::tests::h0010_sealed_corruption_and_authority_substitution_fail_closed'
   Invoke-ExactRustTest 'Increment 10B.2 supporting resolver/callable production source and dataflow audit' $Cargo 'callable::tests::ten_b2_source_audit_rejects_semantic_reconstruction_and_span_selection'
@@ -1035,6 +1039,44 @@ task malformed() -> UInt {
   if (-not [string]::Equals($env:RUSTFLAGS, $F4PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Replacement F4 compiler proof did not restore RUSTFLAGS' }
   Invoke-Native 'Replacement F4 normal compiler check after construction proof' $Cargo @('check', '--all-targets')
 
+  Write-Host '==> Work Order 17 lifetime-bound verified canonical type proof'
+  Invoke-Native 'Work Order 17 normal compiler check before lifetime proof' $Cargo @('check', '--all-targets')
+  $Wo17PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_canonical_minimal_add_type_escape'
+    $Wo17CompileFailure = Read-NativeOutputWithExit 'Work Order 17 forbidden verified-type escape proof' $Cargo @('check', '--all-targets')
+  } finally {
+    if ($null -eq $Wo17PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo17PriorRustFlags }
+  }
+  if ($Wo17CompileFailure.ExitCode -ne 101) { throw "Work Order 17 lifetime proof must exit 101, found $($Wo17CompileFailure.ExitCode)" }
+  foreach ($Wo17CompileFunction in @(
+    'verified_canonical_minimal_add_access_cannot_outlive_verify_artifact',
+    'verified_canonical_minimal_add_result_cannot_be_collected',
+    'verified_canonical_minimal_add_result_cannot_become_static',
+    'core_verify_full_type_report_access_cannot_escape',
+    'core_verify_diagnostic_occurrence_access_cannot_escape'
+  )) {
+    if (-not $Wo17CompileFailure.Output.Contains($Wo17CompileFunction)) { throw "Work Order 17 lifetime proof did not identify $Wo17CompileFunction" }
+  }
+  if (-not [regex]::IsMatch($Wo17CompileFailure.Output, 'lifetime may not live long enough|error\[E05(?:15|21)\]')) { throw 'Work Order 17 lifetime proof did not fail for a borrow-check lifetime reason' }
+  if ([regex]::IsMatch($Wo17CompileFailure.Output, 'error\[E(?:0412|0422|0432|0433|0603)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|private (?:struct|field|function)')) { throw 'Work Order 17 lifetime proof failed for an unrelated privacy, symbol, cfg, or import reason' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo17PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 17 lifetime proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 17 normal compiler check after lifetime proof' $Cargo @('check', '--all-targets')
+
+  Write-Host '==> Work Order 17 sole minimal-add outcome producer proof'
+  $Wo17OutcomePriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_canonical_minimal_add_type_outcome_foreign_issue'
+    $Wo17OutcomeFailure = Read-NativeOutputWithExit 'Work Order 17 foreign outcome issuance compiler proof' $Cargo @('check', '--all-targets')
+  } finally {
+    if ($null -eq $Wo17OutcomePriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo17OutcomePriorRustFlags }
+  }
+  if ($Wo17OutcomeFailure.ExitCode -ne 101) { throw "Work Order 17 foreign outcome issuance proof must exit 101, found $($Wo17OutcomeFailure.ExitCode)" }
+  if (-not $Wo17OutcomeFailure.Output.Contains('canonical_minimal_add_type_outcome_foreign_issue_must_not_compile') -or -not $Wo17OutcomeFailure.Output.Contains('error[E0624]') -or -not $Wo17OutcomeFailure.Output.Contains('associated function `non_target` is private')) { throw 'Work Order 17 foreign outcome issuance proof did not fail at the private sole-producer constructor' }
+  if ([regex]::IsMatch($Wo17OutcomeFailure.Output, 'error\[E(?:0412|0422|0432|0433|0603)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|expected item, found')) { throw 'Work Order 17 foreign outcome issuance proof failed for an unrelated symbol, cfg, import, privacy-type, or syntax reason' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo17OutcomePriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 17 foreign outcome issuance proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 17 normal compiler check after sole-producer proof' $Cargo @('check', '--all-targets')
+
   Write-Host '==> Increment 10B.1b audit_h0010_production_dataflow (bounded defense-in-depth source audit)'
   if (
     [regex]::Matches($F4ParserProduction, 'DiagnosticCode::CHAINED_COMPARISON_NOT_SUPPORTED').Count -ne 1 -or
@@ -1185,9 +1227,17 @@ task malformed() -> UInt {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 91 -or $UniqueExactRustSelectorCredits.Count -ne 91) { throw "exact Rust selector inventory must credit 91 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 95 -or $UniqueExactRustSelectorCredits.Count -ne 95) { throw "exact Rust selector inventory must credit 95 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
   if ($ExactRustSelectorCredits -notcontains 'core_body::tests::validated_body_grammar_construction_is_compiler_sealed') { throw 'exact Rust selector inventory lost the compiler-sealed validated body grammar construction test' }
+  foreach ($WorkOrder17Selector in @(
+    'type_check::tests::canonical_minimal_add_type_authority_is_operation_bound',
+    'core_lower::tests::canonical_minimal_add_type_authority_is_owned_by_exact_operation',
+    'core_verify::tests::canonical_minimal_add_type_verification_withholds_invalid_access',
+    'full_type_check::tests::minimal_add_consumes_only_verified_canonical_type'
+  )) {
+    if ($ExactRustSelectorCredits -notcontains $WorkOrder17Selector) { throw "exact Rust selector inventory lost Work Order 17 selector $WorkOrder17Selector" }
+  }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
   if ($ApForbiddenFallbacks.Count -ne 0) { throw 'Session AP production source must not reconstruct occurrences from codes or public diagnostics' }

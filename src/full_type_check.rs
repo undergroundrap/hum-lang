@@ -395,33 +395,56 @@ pub fn full_type_check_json(program: &Program, diagnostics: &[Diagnostic]) -> St
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckReport {
     let type_check_summary = type_check::type_check_summary(program, diagnostics);
-    let core_verify_summary = core_verify::core_verify_readiness_summary(program, diagnostics);
     let callables = callable::analyze_program(program);
     let source_errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
         .count();
-    let blocked = source_errors > 0
-        || type_check_summary.resolver_errors > 0
-        || type_check_summary.type_errors > 0
-        || core_verify_summary.failed_checks > 0;
     let task_returns = task_return_types(program);
     let failure_analysis = typed_failure::analyze_program(program);
     let field_types = field_place::collect_field_types(program);
     let predicates = predicate::analyze_program(program);
-    let mut items = Vec::new();
-    let context = FullTypeCollectionContext {
-        program,
-        blocked,
-        failure_analysis: &failure_analysis,
-        field_types: &field_types,
-        callables: &callables,
-    };
-    for file in &program.files {
-        collect_items(&context, &file.items, &task_returns, &mut items);
-    }
-
-    let mut diagnostic_occurrences = core_verify::diagnostic_occurrence_set(program, diagnostics);
+    #[cfg(test)]
+    let mut core_verify_report_identity = 0;
+    let (handoff, items) =
+        core_verify::with_core_verify_for_full_type(program, diagnostics, |core_verify_access| {
+            #[cfg(test)]
+            {
+                core_verify_report_identity = core_verify_access.report_identity_for_test();
+                assert_eq!(
+                    core_verify_report_identity,
+                    core_verify_access
+                        .diagnostic_occurrences()
+                        .report_identity_for_test()
+                );
+            }
+            let core_verify_summary = core_verify_access.readiness_summary();
+            let blocked = source_errors > 0
+                || type_check_summary.resolver_errors > 0
+                || type_check_summary.type_errors > 0
+                || core_verify_summary.failed_checks > 0;
+            let diagnostic_access = core_verify_access.diagnostic_occurrences();
+            let _ = diagnostic_access.occurrences().count();
+            let mut items = Vec::new();
+            let context = FullTypeCollectionContext {
+                program,
+                blocked,
+                failure_analysis: &failure_analysis,
+                field_types: &field_types,
+                callables: &callables,
+                core_verify_access: &core_verify_access,
+            };
+            for file in &program.files {
+                collect_items(&context, &file.items, &task_returns, &mut items);
+            }
+            items
+        });
+    #[cfg(test)]
+    assert_eq!(
+        core_verify_report_identity,
+        handoff.report_identity_for_test()
+    );
+    let (core_verify_summary, mut diagnostic_occurrences) = handoff.into_parts();
     extend_full_type_occurrences(&failure_analysis, &items, &mut diagnostic_occurrences);
 
     FullTypeCheckReport {
@@ -484,16 +507,17 @@ pub(crate) fn diagnostic_occurrence_set_from_source(
     Ok(occurrences)
 }
 
-struct FullTypeCollectionContext<'a> {
+struct FullTypeCollectionContext<'a, 'report> {
     program: &'a Program,
     blocked: bool,
     failure_analysis: &'a ProgramFailureAnalysis,
     field_types: &'a FieldTypeMap,
     callables: &'a CallableAnalysis,
+    core_verify_access: &'a core_verify::CoreVerifyFullTypeReportAccess<'report>,
 }
 
 fn collect_items(
-    context: &FullTypeCollectionContext<'_>,
+    context: &FullTypeCollectionContext<'_, '_>,
     items: &[Item],
     task_returns: &BTreeMap<String, TypeFact>,
     out: &mut Vec<FullTypeItem>,
@@ -507,6 +531,7 @@ fn collect_items(
             context.failure_analysis,
             context.field_types,
             context.callables,
+            context.core_verify_access,
         ) {
             out.push(typed_item);
         }
@@ -517,6 +542,7 @@ fn collect_items(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn type_item(
     program: &Program,
     item: &Item,
@@ -525,6 +551,7 @@ fn type_item(
     failure_analysis: &ProgramFailureAnalysis,
     field_types: &FieldTypeMap,
     callables: &CallableAnalysis,
+    core_verify_access: &core_verify::CoreVerifyFullTypeReportAccess<'_>,
 ) -> Option<FullTypeItem> {
     let item_identity = crate::resolve::semantic_item_identity_for(program, item);
     let does = item_sections(item)
@@ -537,7 +564,12 @@ fn type_item(
     );
     let mut environment = initial_environment(item_params(item));
     let mut statements = Vec::new();
-    for (index, statement) in body.statements.iter().enumerate() {
+    for (index, (statement, parsed)) in body
+        .statements
+        .iter()
+        .zip(does.body_syntax.iter().flatten())
+        .enumerate()
+    {
         let typed = type_statement(
             &item_identity,
             item,
@@ -552,6 +584,8 @@ fn type_item(
                 _ => None,
             },
             callables,
+            core_verify_access,
+            parsed,
         );
         statements.push(typed);
     }
@@ -581,6 +615,8 @@ fn type_statement(
     blocked: bool,
     failure_fact: Option<&FailureFact>,
     callables: &CallableAnalysis,
+    core_verify_access: &core_verify::CoreVerifyFullTypeReportAccess<'_>,
+    parsed: &crate::ast::ParsedBodyStatement,
 ) -> TypedStatement {
     if blocked {
         return typed_statement(
@@ -741,6 +777,20 @@ fn type_statement(
 
     let expression_text = expression_text_for_statement(statement).map(str::to_string);
     let expected_type = expected_type_for_statement(item, statement, environment, field_types);
+    let verified_actual = if let core_verify::CanonicalMinimalAddTypeLookup::Delivered(result) =
+        core_verify_access.canonical_minimal_add_type_for(item, parsed)
+    {
+        let (_, _, type_text, _, provenance, declared_result_compatible) = result.facts();
+        debug_assert_eq!(
+            declared_result_compatible,
+            expected_type
+                .as_deref()
+                .map(|expected| expected == type_text)
+        );
+        Some(type_fact(type_text, provenance))
+    } else {
+        None
+    };
     let callable_actual = match item {
         Item::Task(task) => callables
             .indirect_application(task, &statement.span)
@@ -752,7 +802,7 @@ fn type_statement(
             }),
         _ => None,
     };
-    let actual = callable_actual.or_else(|| {
+    let actual = verified_actual.or(callable_actual).or_else(|| {
         expression_text.as_deref().and_then(|expression| {
             infer_expression_type(expression, environment, task_returns, field_types)
         })
@@ -2310,12 +2360,16 @@ fn push_comma_newline(out: &mut String, comma: bool) {
 #[cfg(test)]
 mod tests {
     use crate::ast::Program;
+    use crate::core_verify::{
+        core_verify_report_build_count_for_test as verify_builds,
+        reset_core_verify_report_build_count_for_test as reset_verify_builds,
+    };
     use crate::parser::parse_source;
 
     use super::{
         build_report, full_type_check_has_errors, full_type_check_json, full_type_check_text,
     };
-    use crate::diagnostic::DiagnosticCode;
+    use crate::diagnostic::{Diagnostic, DiagnosticCode};
 
     #[test]
     fn json_accepts_recognized_task_body_types_without_execution_claims() {
@@ -2594,5 +2648,138 @@ task remember(title: Text) -> Result WorkItem, WorkError {
                 .file,
             ],
         }
+    }
+
+    #[test]
+    fn minimal_add_consumes_only_verified_canonical_type() {
+        fn subject(path: &str, source: &str) -> (Program, Vec<Diagnostic>) {
+            let parsed = parse_source(path, source);
+            let mut diagnostics = crate::check::check_file(&parsed);
+            diagnostics.extend(parsed.diagnostics);
+            let program = Program {
+                files: vec![parsed.file],
+            };
+            (program, diagnostics)
+        }
+        fn one_verify_report<R>(build: impl FnOnce() -> R) -> R {
+            reset_verify_builds();
+            let result = build();
+            assert_eq!(verify_builds(), 1);
+            result
+        }
+        fn assert_verified(
+            report: &super::FullTypeCheckReport,
+            expected: Option<&str>,
+            status: &str,
+        ) {
+            let statement = &report.items[0].statements[0];
+            assert_eq!(statement.expected_type.as_deref(), expected);
+            assert_eq!(statement.actual_type.as_deref(), Some("Int"));
+            assert_eq!(
+                statement.type_source,
+                Some("verified_canonical_minimal_add_type_v0")
+            );
+            assert_eq!(statement.status, status);
+        }
+        let (program, diagnostics) = subject(
+            "verified-full-type.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+        );
+        let report = one_verify_report(|| build_report(&program, &diagnostics));
+        assert_verified(&report, Some("Int"), "accepted_statement_type_v0");
+
+        crate::core_verify::set_core_verify_corruption_for_test("type-text");
+        let corrupted = one_verify_report(|| build_report(&program, &diagnostics));
+        let statement = &corrupted.items[0].statements[0];
+        assert!(statement.actual_type.is_none() && statement.type_source.is_none());
+        assert_eq!(statement.status, "not_checked_blocked_by_prior_errors_v0");
+
+        let (wrapped_program, wrapped_diagnostics) = subject(
+            "verified-result-full-type.hum",
+            "task add(a: Int, b: Int) -> Result Int, Text {\n  does:\n    return a + b\n}\n",
+        );
+        let wrapped_report =
+            one_verify_report(|| build_report(&wrapped_program, &wrapped_diagnostics));
+        assert_verified(&wrapped_report, Some("Int"), "accepted_statement_type_v0");
+        assert_eq!(
+            [
+                crate::type_check::type_check_has_errors(&wrapped_program, &wrapped_diagnostics),
+                crate::core_verify::core_verify_has_errors(&wrapped_program, &wrapped_diagnostics),
+                super::full_type_check_has_errors(&wrapped_program, &wrapped_diagnostics),
+            ],
+            [false; 3]
+        );
+        for rendered in [
+            crate::type_check::type_check_text(&wrapped_program, &wrapped_diagnostics),
+            crate::type_check::type_check_json(&wrapped_program, &wrapped_diagnostics),
+            crate::core_lower::core_lower_text(&wrapped_program, &wrapped_diagnostics),
+            crate::core_lower::core_lower_json(&wrapped_program, &wrapped_diagnostics),
+            crate::core_verify::core_verify_text(&wrapped_program, &wrapped_diagnostics),
+            crate::core_verify::core_verify_json(&wrapped_program, &wrapped_diagnostics),
+            super::full_type_check_text(&wrapped_program, &wrapped_diagnostics),
+            super::full_type_check_json(&wrapped_program, &wrapped_diagnostics),
+        ] {
+            assert!(!rendered.is_empty());
+        }
+
+        for (path, result, expected, status) in [
+            (
+                "verified-no-result.hum",
+                "",
+                None,
+                "unchecked_statement_type_v0",
+            ),
+            (
+                "verified-mismatch.hum",
+                " -> UInt",
+                Some("UInt"),
+                "rejected_statement_type_mismatch_v0",
+            ),
+        ] {
+            let source =
+                format!("task add(a: Int, b: Int){result} {{\n  does:\n    return a + b\n}}\n");
+            let (program, diagnostics) = subject(path, &source);
+            let report = one_verify_report(|| build_report(&program, &diagnostics));
+            assert_verified(&report, expected, status);
+            if expected == Some("UInt") {
+                assert_eq!(
+                    report.items[0].statements[0].reason,
+                    Some("statement_expression_type_mismatch")
+                );
+            }
+        }
+
+        let (uint_program, uint_diagnostics) = subject(
+            "legacy-full-type.hum",
+            "task add(a: UInt) -> UInt {\n  does:\n    return a + 1\n}\n",
+        );
+        let uint_report = one_verify_report(|| build_report(&uint_program, &uint_diagnostics));
+        assert_eq!(
+            uint_report.items[0].statements[0].type_source,
+            Some("additive_expression_v0")
+        );
+
+        let (blocked_program, blocked_diagnostics) = subject(
+            "verified-blocked.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\ntask unsupported(a: Int) -> Int {\n  does:\n    return 1 + a\n}\n",
+        );
+        let blocked_report =
+            one_verify_report(|| build_report(&blocked_program, &blocked_diagnostics));
+        let blocked_statement = &blocked_report.items[0].statements[0];
+        assert_eq!(
+            (
+                blocked_statement.actual_type.as_deref(),
+                blocked_statement.type_source,
+                blocked_statement.status
+            ),
+            (None, None, "not_checked_blocked_by_prior_errors_v0")
+        );
+
+        assert!(!one_verify_report(|| super::full_type_check_has_errors(
+            &program,
+            &diagnostics
+        )));
+        one_verify_report(|| super::full_type_check_text(&program, &diagnostics));
+        one_verify_report(|| super::full_type_check_json(&program, &diagnostics));
     }
 }

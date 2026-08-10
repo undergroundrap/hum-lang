@@ -1,12 +1,19 @@
 use std::collections::BTreeMap;
 
-use crate::ast::{Item, Program, Task, TypeSyntaxKind};
+use crate::ast::{
+    CanonicalCoreOwnerBinding, CanonicalExpression, CanonicalExpressionKind, Item,
+    ParsedBinaryOperator, ParsedBodyStatement, ParsedBodyStatementKind, Program, Task,
+    TypeSyntaxKind,
+};
 use crate::callable;
 use crate::core_body::{self, BodyStatement};
 use crate::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceSet, Severity, Span,
 };
 use crate::predicate;
+use crate::resolve::{
+    ResolveDefinitionSummary as Definition, ResolveReferenceSummary as Reference,
+};
 use crate::return_dependency;
 use crate::type_env::{self, TypeDeclaration, TypeEnvReport};
 use crate::version;
@@ -115,6 +122,380 @@ struct CheckedReturn {
 struct TypeFact {
     type_text: String,
     source: &'static str,
+}
+
+pub(crate) const CANONICAL_MINIMAL_ADD_TYPE_ID: &str = "hum-type:builtin:Int";
+pub(crate) const CANONICAL_MINIMAL_ADD_TYPE_TEXT: &str = "Int";
+#[derive(Debug)]
+struct OperandAuthority(Reference, Definition, CheckedDeclaration);
+
+#[derive(Debug)]
+pub(crate) struct CanonicalMinimalAddTypeAuthority {
+    program_identity: usize,
+    owner: CanonicalCoreOwnerBinding,
+    source_identities: [String; 3],
+    root: CanonicalExpression,
+    operands: [OperandAuthority; 2],
+    declared_result: Option<(String, &'static str, bool)>,
+    checked_type: (&'static str, &'static str),
+}
+
+enum Disposition {
+    Supported(Box<CanonicalMinimalAddTypeAuthority>),
+    AuthenticatedOutOfScope,
+    LegacyCompatibleAdditive,
+    IntegrityFailure(&'static str),
+    UnsupportedTargetLike,
+    NonTarget,
+}
+
+pub(crate) struct CanonicalMinimalAddTypeOutcome(Disposition);
+
+pub(crate) struct CanonicalMinimalAddTypeProducer {
+    definitions: Vec<Definition>,
+    references: Vec<Reference>,
+    checked_declarations: Vec<CheckedDeclaration>,
+}
+
+impl CanonicalMinimalAddTypeProducer {
+    pub(crate) fn new(program: &Program, diagnostics: &[Diagnostic]) -> Self {
+        let declarations = type_env::type_env_report(program, diagnostics);
+        Self {
+            definitions: crate::resolve::resolve_definition_summaries(program, diagnostics),
+            references: crate::resolve::resolve_reference_summaries(program, diagnostics),
+            checked_declarations: declarations
+                .declarations
+                .iter()
+                .map(|declaration| checked_declaration(declaration, false))
+                .collect(),
+        }
+    }
+
+    pub(crate) fn classify(
+        &self,
+        program: &Program,
+        owner: &CanonicalCoreOwnerBinding,
+        item: &Item,
+        parsed: Option<&ParsedBodyStatement>,
+        expression: Option<&CanonicalExpression>,
+        source_artifact_authenticated: bool,
+    ) -> CanonicalMinimalAddTypeOutcome {
+        let Some(parsed) = parsed else {
+            return CanonicalMinimalAddTypeOutcome::non_target();
+        };
+        let (expression, task) = match (expression, &parsed.kind, item) {
+            (Some(expression), ParsedBodyStatementKind::Return(_), Item::Task(task)) => {
+                (expression, task)
+            }
+            _ => return CanonicalMinimalAddTypeOutcome::non_target(),
+        };
+        let (left, right) = match &expression.kind {
+            CanonicalExpressionKind::Binary {
+                operator: ParsedBinaryOperator::Add,
+                left,
+                right,
+            } => (left, right),
+            _ => return CanonicalMinimalAddTypeOutcome::non_target(),
+        };
+        if !source_artifact_authenticated {
+            return integrity_failure("canonical_body_artifact_authority_missing_v0");
+        }
+        if program.authenticate_canonical_task_signature(task).is_err() {
+            return integrity_failure("task_or_program_authority_mismatch_v0");
+        }
+        let mut results = self.checked_declarations.iter().filter(|declaration| {
+            declaration.declaration_kind == "result"
+                && declaration.owner_kind == "task"
+                && declaration.owner_name == task.name
+                && same_span(&declaration.source_span, &task.span)
+        });
+        let result = results.next();
+        if results.next().is_some() {
+            return integrity_failure("result_declaration_ambiguous_v0");
+        }
+        if result.is_some_and(|result| result.status != "accepted_declaration_annotation_v0") {
+            return integrity_failure("result_declaration_not_accepted_v0");
+        }
+
+        let single = |operand, name, position, disposition, reason| {
+            let [param] = task.params.as_slice() else {
+                return issue(Disposition::UnsupportedTargetLike);
+            };
+            if self
+                .operand_facts(task, param, operand, name, position)
+                .is_some()
+            {
+                issue(disposition)
+            } else {
+                integrity_failure(reason)
+            }
+        };
+        match (&left.kind, &right.kind) {
+            (
+                CanonicalExpressionKind::Identifier(left_name),
+                CanonicalExpressionKind::Identifier(right_name),
+            ) => self.classify_identifier_add(
+                program, owner, item, task, parsed, expression, left, left_name, right, right_name,
+                result,
+            ),
+            (
+                CanonicalExpressionKind::Identifier(left_name),
+                CanonicalExpressionKind::UIntLiteral(_),
+            ) => single(
+                left,
+                left_name.as_str(),
+                0usize,
+                Disposition::LegacyCompatibleAdditive,
+                "legacy_operand_authority_incomplete_v0",
+            ),
+            (
+                CanonicalExpressionKind::UIntLiteral(_),
+                CanonicalExpressionKind::Identifier(right_name),
+            ) => single(
+                right,
+                right_name.as_str(),
+                1usize,
+                Disposition::UnsupportedTargetLike,
+                "target_like_operand_authority_incomplete_v0",
+            ),
+            _ => issue(Disposition::UnsupportedTargetLike),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn classify_identifier_add(
+        &self,
+        program: &Program,
+        owner: &CanonicalCoreOwnerBinding,
+        item: &Item,
+        task: &Task,
+        parsed: &ParsedBodyStatement,
+        root: &CanonicalExpression,
+        left: &CanonicalExpression,
+        left_name: &str,
+        right: &CanonicalExpression,
+        right_name: &str,
+        result: Option<&CheckedDeclaration>,
+    ) -> CanonicalMinimalAddTypeOutcome {
+        let [left_param, right_param] = task.params.as_slice() else {
+            return issue(Disposition::UnsupportedTargetLike);
+        };
+        if left.node_id == right.node_id {
+            return integrity_failure("operand_node_identity_duplicated_v0");
+        }
+        let Some(left_facts) = self.operand_facts(task, left_param, left, left_name, 0) else {
+            return integrity_failure("left_operand_authority_incomplete_v0");
+        };
+        let Some(right_facts) = self.operand_facts(task, right_param, right, right_name, 1) else {
+            return integrity_failure("right_operand_authority_incomplete_v0");
+        };
+        if left_facts.1.semantic_identity == right_facts.1.semantic_identity
+            || left_facts.2.id == right_facts.2.id
+        {
+            return integrity_failure("operand_definition_identity_duplicated_v0");
+        }
+        if left_facts.2.type_text == "Int" && right_facts.2.type_text == "Int" {
+            return issue(Disposition::Supported(Box::new(
+                CanonicalMinimalAddTypeAuthority {
+                    program_identity: std::ptr::from_ref(program).addr(),
+                    owner: owner.clone(),
+                    source_identities: [
+                        crate::resolve::semantic_item_identity_for(program, item),
+                        parsed.source_node_id.as_str().to_string(),
+                        format!("core-value:{}", root.node_id.as_str()),
+                    ],
+                    root: root.clone(),
+                    operands: [left_facts, right_facts],
+                    declared_result: result.map(|result| {
+                        (
+                            result.id.clone(),
+                            result.status,
+                            expected_return_value_type(&result.type_text)
+                                == CANONICAL_MINIMAL_ADD_TYPE_TEXT,
+                        )
+                    }),
+                    checked_type: (
+                        CANONICAL_MINIMAL_ADD_TYPE_ID,
+                        CANONICAL_MINIMAL_ADD_TYPE_TEXT,
+                    ),
+                },
+            )));
+        }
+        if left_facts.2.type_text == right_facts.2.type_text
+            && builtin_declaration(&left_facts.2)
+            && builtin_declaration(&right_facts.2)
+        {
+            return issue(Disposition::AuthenticatedOutOfScope);
+        }
+        issue(Disposition::UnsupportedTargetLike)
+    }
+
+    fn operand_facts(
+        &self,
+        task: &Task,
+        param: &crate::ast::Param,
+        expression: &CanonicalExpression,
+        name: &str,
+        position: usize,
+    ) -> Option<OperandAuthority> {
+        if name != param.name {
+            return None;
+        }
+        let reference = sole(self.references.iter().filter(|reference| {
+            reference.canonical_node_id.as_deref() == Some(expression.node_id.as_str())
+                && reference.name == name
+                && reference
+                    .canonical_child_position
+                    .as_deref()
+                    .is_some_and(|child| child.contains(&format!(":path-0.{position}:node-")))
+                && reference.resolution_status.starts_with("resolved_")
+        }))?;
+        let definition_id = reference.resolved_definition_id.as_deref()?;
+        let definition = sole(self.definitions.iter().filter(|definition| {
+            definition.id == definition_id
+                && definition.definition_kind == "parameter"
+                && definition.name == param.name
+                && same_span(&definition.source_span, &param.span)
+                && definition.status == "defined_v0"
+                && reference.resolved_definition_semantic_identity.as_deref()
+                    == Some(definition.semantic_identity.as_str())
+        }))?;
+        let declaration = sole(self.checked_declarations.iter().filter(|declaration| {
+            declaration.declaration_kind == "parameter"
+                && declaration.owner_kind == "task"
+                && declaration.owner_name == task.name
+                && declaration.name == name
+                && same_span(&declaration.source_span, &param.span)
+                && declaration.type_text == param.ty
+                && declaration.resolver_definition_id == reference.resolved_definition_id
+                && declaration.status == "accepted_declaration_annotation_v0"
+        }))?;
+        Some(OperandAuthority(
+            reference.clone(),
+            definition.clone(),
+            declaration.clone(),
+        ))
+    }
+}
+
+fn builtin_declaration(declaration: &CheckedDeclaration) -> bool {
+    !declaration.type_references.is_empty()
+        && declaration
+            .type_references
+            .iter()
+            .all(|reference| reference.type_env_status == "reserved_type_v0")
+}
+
+fn sole<I: Iterator>(mut values: I) -> Option<I::Item> {
+    let value = values.next()?;
+    values.next().is_none().then_some(value)
+}
+
+fn integrity_failure(reason: &'static str) -> CanonicalMinimalAddTypeOutcome {
+    issue(Disposition::IntegrityFailure(reason))
+}
+
+fn issue(disposition: Disposition) -> CanonicalMinimalAddTypeOutcome {
+    CanonicalMinimalAddTypeOutcome(disposition)
+}
+
+impl CanonicalMinimalAddTypeOutcome {
+    fn non_target() -> Self {
+        issue(Disposition::NonTarget)
+    }
+
+    pub(crate) fn supported_authority(&self) -> Option<&CanonicalMinimalAddTypeAuthority> {
+        match &self.0 {
+            Disposition::Supported(authority) => Some(authority),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn is_supported(&self) -> bool {
+        self.supported_authority().is_some()
+    }
+
+    pub(crate) fn integrity_failure_reason(&self) -> Option<&'static str> {
+        match &self.0 {
+            Disposition::IntegrityFailure(reason) => Some(reason),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn is_unsupported_target_like(&self) -> bool {
+        matches!(&self.0, Disposition::UnsupportedTargetLike)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn disposition_name_for_test(&self) -> &'static str {
+        match &self.0 {
+            Disposition::Supported(_) => "Supported",
+            Disposition::AuthenticatedOutOfScope => "AuthenticatedOutOfScope",
+            Disposition::LegacyCompatibleAdditive => "LegacyCompatibleAdditive",
+            Disposition::IntegrityFailure(_) => "IntegrityFailure",
+            Disposition::UnsupportedTargetLike => "UnsupportedTargetLike",
+            Disposition::NonTarget => "NonTarget",
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn authority_snapshot_for_test(&self) -> Option<(usize, String)> {
+        self.supported_authority()
+            .map(CanonicalMinimalAddTypeAuthority::snapshot_for_test)
+    }
+}
+
+impl CanonicalMinimalAddTypeAuthority {
+    #[cfg(test)]
+    fn snapshot_for_test(&self) -> (usize, String) {
+        (std::ptr::from_ref(self).addr(), format!("{self:?}"))
+    }
+
+    pub(crate) fn matches_source(
+        &self,
+        program: &Program,
+        owner: &CanonicalCoreOwnerBinding,
+        item: &Item,
+        statement: &ParsedBodyStatement,
+        expression: &CanonicalExpression,
+    ) -> bool {
+        self.program_identity == std::ptr::from_ref(program).addr()
+            && self.owner == *owner
+            && self.source_identities[0]
+                == crate::resolve::semantic_item_identity_for(program, item)
+            && self.source_identities[1] == statement.source_node_id.as_str()
+            && self.root == *expression
+            && self.operands.iter().enumerate().all(|(index, operand)| {
+                operand
+                    .0
+                    .canonical_child_position
+                    .as_deref()
+                    .is_some_and(|position| position.contains(&format!(":path-0.{index}:node-")))
+                    && operand.0.resolved_definition_id.as_deref() == Some(operand.1.id.as_str())
+                    && operand.2.resolver_definition_id == operand.0.resolved_definition_id
+                    && operand.2.status == "accepted_declaration_annotation_v0"
+                    && operand.2.type_text == CANONICAL_MINIMAL_ADD_TYPE_TEXT
+                    && builtin_declaration(&operand.2)
+            })
+            && self.declared_result.as_ref().is_none_or(|(id, status, _)| {
+                !id.is_empty() && *status == "accepted_declaration_annotation_v0"
+            })
+            && self.checked_type.0 == CANONICAL_MINIMAL_ADD_TYPE_ID
+            && self.checked_type.1 == CANONICAL_MINIMAL_ADD_TYPE_TEXT
+            && self.source_identities[2] == format!("core-value:{}", expression.node_id.as_str())
+    }
+
+    pub(crate) fn verification_facts(&self) -> (usize, &str, &str, &str, &str, &str, Option<bool>) {
+        (
+            self.program_identity,
+            self.root.node_id.as_str(),
+            self.checked_type.0,
+            self.checked_type.1,
+            &self.source_identities[2],
+            &self.source_identities[1],
+            self.declared_result.as_ref().map(|result| result.2),
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1879,6 +2260,151 @@ task remember_work_item(title: Text) -> Result WorkItem, WorkError {
         let parsed = parse_source("types.hum", source);
         Program {
             files: vec![parsed.file],
+        }
+    }
+
+    #[test]
+    fn canonical_minimal_add_type_authority_is_operation_bound() {
+        fn canonical_reference(
+            producer: &mut super::CanonicalMinimalAddTypeProducer,
+        ) -> &mut crate::resolve::ResolveReferenceSummary {
+            producer
+                .references
+                .iter_mut()
+                .find(|reference| reference.canonical_node_id.is_some())
+                .expect("canonical reference")
+        }
+        fn declaration<'a>(
+            producer: &'a mut super::CanonicalMinimalAddTypeProducer,
+            name: &str,
+        ) -> &'a mut super::CheckedDeclaration {
+            producer
+                .checked_declarations
+                .iter_mut()
+                .find(|declaration| declaration.name == name)
+                .expect("checked declaration")
+        }
+        fn preissuance(
+            source: &str,
+            mutate: impl FnOnce(&mut super::CanonicalMinimalAddTypeProducer),
+        ) -> &'static str {
+            let parsed = parse_source("matrix-a.hum", source);
+            let diagnostics = parsed.diagnostics;
+            let program = Program {
+                files: vec![parsed.file],
+            };
+            let item = &program.files[0].items[0];
+            let does = item
+                .sections()
+                .iter()
+                .find(|section| section.name == "does")
+                .expect("does section");
+            let statement = does.body_syntax[0].as_ref().expect("body statement");
+            let crate::ast::ParsedBodyStatementKind::Return(expression) = &statement.kind else {
+                panic!("return statement")
+            };
+            let owner = program
+                .canonical_core_operation_owner_expectation(item, does)
+                .expect("owner expectation");
+            let mut producer = super::CanonicalMinimalAddTypeProducer::new(&program, &diagnostics);
+            mutate(&mut producer);
+            producer
+                .classify(
+                    &program,
+                    owner.candidate_facts().2,
+                    item,
+                    Some(statement),
+                    Some(&expression.canonical),
+                    true,
+                )
+                .disposition_name_for_test()
+        }
+
+        let outcome = |source: &str| {
+            let parsed = parse_source("operation-bound.hum", source);
+            let program = Program {
+                files: vec![parsed.file],
+            };
+            crate::core_lower::build_core_lower_report(&program, &parsed.diagnostics).core_items[0]
+                .operations[0]
+                .minimal_add_type_outcome()
+                .expect("operation disposition")
+                .disposition_name_for_test()
+        };
+        let add = |params: &str, result: &str, expression: &str| {
+            format!("task add({params}){result} {{\n  does:\n    return {expression}\n}}\n")
+        };
+        for (params, result, expression, kind) in [
+            ("a: Int, b: Int", " -> Int", "a + b", 's'),
+            ("a: Int, b: Int", " -> Result Int, Text", "a + b", 's'),
+            ("a: Int, b: Int", "", "a + b", 's'),
+            ("a: UInt, b: UInt", " -> UInt", "a + b", 'o'),
+            ("a: Text, b: Text", " -> Text", "a + b", 'o'),
+            ("a: UInt", " -> UInt", "a + 1", 'l'),
+            ("a: Int, b: Int", " -> Int", "a + missing", 'i'),
+            ("a: Int, b: UInt", " -> Int", "a + b", 'u'),
+            ("a: Int", " -> Int", "1 + a", 'u'),
+            ("", " -> Int", "1 + 2", 'u'),
+        ] {
+            let expected = match kind {
+                's' => "Supported",
+                'o' => "AuthenticatedOutOfScope",
+                'l' => "LegacyCompatibleAdditive",
+                'i' => "IntegrityFailure",
+                _ => "UnsupportedTargetLike",
+            };
+            assert_eq!(outcome(&add(params, result, expression)), expected);
+        }
+        assert_eq!(
+            outcome("task keep(a: Int) -> Int {\n  does:\n    return a\n}\n"),
+            "NonTarget"
+        );
+        for (params, expression) in [
+            ("a: Int, b: Int", "b + a"),
+            ("a: Int, b: Int", "a + a"),
+            ("a: Int, b: Int, c: Int", "a + b"),
+        ] {
+            assert_ne!(outcome(&add(params, " -> Int", expression)), "Supported");
+        }
+        const SUPPORTED: &str = "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n";
+        assert_eq!(preissuance(SUPPORTED, |_| {}), "Supported");
+        for case in "mduoMDFnNBRf".chars() {
+            let actual = preissuance(SUPPORTED, |producer| match case {
+                'm' => producer.references.clear(),
+                'd' => {
+                    let fact = canonical_reference(producer).clone();
+                    producer.references.push(fact)
+                }
+                'u' => canonical_reference(producer).resolution_status = "unresolved_v0",
+                'o' => {
+                    canonical_reference(producer).canonical_child_position =
+                        Some("reordered-child".into())
+                }
+                'M' => producer.definitions.clear(),
+                'D' => {
+                    let fact = producer
+                        .definitions
+                        .iter()
+                        .find(|fact| fact.definition_kind == "parameter")
+                        .unwrap()
+                        .clone();
+                    producer.definitions.push(fact)
+                }
+                'F' => {
+                    canonical_reference(producer).resolved_definition_semantic_identity =
+                        Some("foreign-definition".into())
+                }
+                'n' => producer.checked_declarations.clear(),
+                'N' => {
+                    let fact = declaration(producer, "a").clone();
+                    producer.checked_declarations.push(fact)
+                }
+                'B' => declaration(producer, "b").status = "not_checked_blocked_by_prior_errors_v0",
+                'R' => declaration(producer, "b").status = "rejected_declaration_type_v0",
+                'f' => declaration(producer, "a").owner_name = "foreign".into(),
+                _ => unreachable!(),
+            });
+            assert_eq!(actual, "IntegrityFailure", "{case}");
         }
     }
 }

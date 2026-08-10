@@ -35,6 +35,16 @@ const NON_GOALS: &[&str] = &[
     "no safety proof",
 ];
 
+#[allow(unexpected_cfgs)]
+mod canonical_minimal_add_type_outcome_foreign_issue_compile_proof {
+    #[cfg(hum_compile_fail_canonical_minimal_add_type_outcome_foreign_issue)]
+    use crate::type_check::CanonicalMinimalAddTypeOutcome as O;
+    #[cfg(hum_compile_fail_canonical_minimal_add_type_outcome_foreign_issue)]
+    fn canonical_minimal_add_type_outcome_foreign_issue_must_not_compile() {
+        let canonical_minimal_add_type_outcome_foreign_issue_must_not_compile = O::non_target();
+    }
+}
+
 pub struct CoreLowerReadinessSummary {
     pub schema: &'static str,
     pub status: &'static str,
@@ -176,7 +186,6 @@ impl CoreLowerItem {
     }
 }
 
-#[cfg_attr(test, derive(Clone))]
 pub(crate) struct CoreLowerOperation {
     pub(crate) id: String,
     pub(crate) index: usize,
@@ -189,7 +198,12 @@ pub(crate) struct CoreLowerOperation {
     pub(crate) expression: Option<CoreLowerExpression>,
     pub(crate) reason: Option<&'static str>,
     candidate_origin: CoreOperationCandidateOrigin,
+    type_outcome: Option<type_check::CanonicalMinimalAddTypeOutcome>,
+    type_claim: Option<CanonicalMinimalAddTypeClaim>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalMinimalAddTypeClaim([String; 4]);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CoreOperationCandidateSourceFacts {
@@ -342,8 +356,19 @@ pub(crate) struct CoreLowerExpression {
     pub(crate) type_status: &'static str,
     pub(crate) type_text: Option<String>,
     pub(crate) type_source: Option<&'static str>,
+    result_value_present: bool,
+    pub(crate) result_value: Option<CoreLowerResultValue>,
     pub(crate) effect_status: &'static str,
     pub(crate) reason: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CoreLowerResultValue {
+    pub(crate) id: String,
+    pub(crate) type_id: String,
+    pub(crate) type_status: &'static str,
+    pub(crate) type_text: String,
+    pub(crate) provenance: &'static str,
 }
 
 impl CoreLowerExpression {
@@ -576,6 +601,7 @@ pub(crate) enum CoreLowerTreeCorruption {
         column_offset: usize,
     },
     OverflowSizedRange,
+    ZeroBasedRange,
     StructuralOverclaim,
 }
 
@@ -640,6 +666,10 @@ pub(crate) fn corrupt_first_structured_expression_for_test(
             structured.source_range.start.column = usize::MAX;
             structured.source_range.byte_len = usize::MAX;
         }
+        CoreLowerTreeCorruption::ZeroBasedRange => {
+            structured.source_range.start.line = 0;
+            structured.children[0].source_range.start.column = 0;
+        }
         CoreLowerTreeCorruption::StructuralOverclaim => structured.kind = "call",
     }
     Ok(())
@@ -696,6 +726,52 @@ pub(crate) fn reject_operation_origin_for_test(
         ));
 }
 
+#[cfg(test)]
+pub(crate) fn corrupt_minimal_add_candidate_for_test(
+    report: &mut CoreLowerReport,
+    corruption: &str,
+) {
+    let operation = &mut report.core_items[0].operations[0];
+    if corruption == "coherent" {
+        let claim = operation.type_claim.as_mut().expect("claim");
+        claim.0[1] = "hum-type:builtin:UInt".to_string();
+        claim.0[2] = "UInt".to_string();
+        let expression = operation.expression.as_mut().expect("expression");
+        expression.type_text = Some("UInt".to_string());
+        let value = expression.result_value.as_mut().expect("result value");
+        value.type_id = "hum-type:builtin:UInt".to_string();
+        value.type_text = "UInt".to_string();
+        return;
+    }
+    if corruption == "claim" {
+        operation.type_claim.as_mut().expect("claim").0[3] = "core-value:foreign".to_string();
+        return;
+    }
+    let expression = operation.expression.as_mut().expect("expression");
+    match corruption {
+        "type-status" => expression.type_status = "unchecked_type_v0",
+        "type-text" => expression.type_text = Some("UInt".to_string()),
+        "type-source" => expression.type_source = Some("foreign_v0"),
+        "drop-projection" => expression.structured = None,
+        "drop-authority" => expression.structured_authority = None,
+        "drop-both" => {
+            expression.structured = None;
+            expression.structured_authority = None;
+        }
+        corruption => {
+            let value = expression.result_value.as_mut().expect("result value");
+            match corruption {
+                "result-id" => value.id = "core-value:foreign".to_string(),
+                "result-type-id" => value.type_id = "hum-type:builtin:UInt".to_string(),
+                "result-status" => value.type_status = "unchecked_type_v0",
+                "result-text" => value.type_text = "UInt".to_string(),
+                "result-provenance" => value.provenance = "foreign_v0",
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
 pub(crate) fn build_core_lower_report_from_preview(
     program: &Program,
     diagnostics: &[Diagnostic],
@@ -705,6 +781,8 @@ pub(crate) fn build_core_lower_report_from_preview(
     let type_check_summary = type_check::type_check_summary(program, diagnostics);
     let core_preview_summary = core_preview::core_preview_readiness_summary(program, diagnostics);
     let checked_returns = type_check::checked_return_summaries(program, diagnostics);
+    let minimal_add_type_producer =
+        type_check::CanonicalMinimalAddTypeProducer::new(program, diagnostics);
     let failure_analysis = typed_failure::analyze_program(program);
     let predicate_facts = predicate::analyze_program(program);
     let errors = diagnostics
@@ -724,6 +802,7 @@ pub(crate) fn build_core_lower_report_from_preview(
             type_check_summary.type_errors,
             &failure_analysis,
             predicate_facts.facts(),
+            &minimal_add_type_producer,
             &mut core_items,
         );
     }
@@ -1140,6 +1219,7 @@ fn collect_items(
     type_errors: usize,
     failure_analysis: &ProgramFailureAnalysis,
     predicate_facts: &[PredicateFact],
+    minimal_add_type_producer: &type_check::CanonicalMinimalAddTypeProducer,
     core_items: &mut Vec<CoreLowerItem>,
 ) {
     for item in items {
@@ -1152,6 +1232,7 @@ fn collect_items(
             type_errors,
             failure_analysis,
             predicate_facts,
+            minimal_add_type_producer,
         ) {
             core_items.push(core_item);
         }
@@ -1165,6 +1246,7 @@ fn collect_items(
                 type_errors,
                 failure_analysis,
                 predicate_facts,
+                minimal_add_type_producer,
                 core_items,
             );
         }
@@ -1181,6 +1263,7 @@ fn core_item(
     type_errors: usize,
     failure_analysis: &ProgramFailureAnalysis,
     predicate_facts: &[PredicateFact],
+    minimal_add_type_producer: &type_check::CanonicalMinimalAddTypeProducer,
 ) -> Option<CoreLowerItem> {
     let does = item_sections(item)
         .iter()
@@ -1206,6 +1289,8 @@ fn core_item(
         checked_returns,
         &failure_analysis.facts,
         predicate_facts,
+        minimal_add_type_producer,
+        program,
     );
     let mut blockers = item_blockers(
         item,
@@ -1256,6 +1341,7 @@ fn core_item(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_operations<'program>(
     item: &Item,
     owner: Result<CanonicalCoreOperationOwnerExpectation<'program>, CoreOperationExpectationError>,
@@ -1263,6 +1349,8 @@ fn lower_operations<'program>(
     checked_returns: &[CheckedReturnSummary],
     failure_facts: &std::collections::BTreeMap<usize, FailureFact>,
     predicate_facts: &[PredicateFact],
+    minimal_add_type_producer: &type_check::CanonicalMinimalAddTypeProducer,
+    program: &Program,
 ) -> Vec<CoreLowerOperation> {
     let pending = match &owner {
         Ok(_) => CoreOperationExpectationError::Ordering(0),
@@ -1296,15 +1384,75 @@ fn lower_operations<'program>(
         }
     }
     if let Ok(owner) = owner {
-        let result =
-            with_expected_core_operations_for_item(owner, body, predicate_facts, |expected| {
-                if let Ok(origin) = CoreOperationCandidateOriginFacts::from_expected(&expected)
-                    && let Some(candidate) = operations.get_mut(expected.slot)
-                {
-                    candidate.candidate_origin =
-                        CoreOperationCandidateOrigin::Authenticated(Box::new(origin));
+        let result = with_expected_core_operations_for_item(
+            owner,
+            body,
+            predicate_facts,
+            |expected| {
+                if let Some(candidate) = operations.get_mut(expected.slot) {
+                    if let Ok(origin) = CoreOperationCandidateOriginFacts::from_expected(&expected)
+                    {
+                        candidate.candidate_origin =
+                            CoreOperationCandidateOrigin::Authenticated(Box::new(origin));
+                    }
+                    let (parsed, expression, authenticated) = match &expected.source {
+                        ExpectedCoreOperationSource::Body {
+                            parsed, artifact, ..
+                        } => (
+                            Some(*parsed),
+                            artifact
+                                .as_ref()
+                                .ok()
+                                .and_then(|artifact| artifact.canonical_expression()),
+                            artifact.is_ok(),
+                        ),
+                        ExpectedCoreOperationSource::Predicate { .. } => (None, None, true),
+                    };
+                    let outcome = minimal_add_type_producer.classify(
+                        program,
+                        expected.owner.candidate_facts().2,
+                        expected.owner.item(),
+                        parsed,
+                        expression,
+                        authenticated,
+                    );
+                    candidate.type_claim = None;
+                    if let Some(authority) = outcome.supported_authority() {
+                        if let Some(expression) = candidate.expression.as_mut() {
+                            let (_, root, type_id, type_text, value_id, _, _) =
+                                authority.verification_facts();
+                            expression.type_status =
+                                core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_STATUS;
+                            expression.type_text = Some(type_text.to_string());
+                            expression.type_source =
+                                Some(core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_SOURCE);
+                            expression.result_value = Some(CoreLowerResultValue {
+                                id: value_id.to_string(),
+                                type_id: type_id.to_string(),
+                                type_status:
+                                    core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_STATUS,
+                                type_text: type_text.to_string(),
+                                provenance:
+                                    core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_SOURCE,
+                            });
+                            expression.result_value_present = true;
+                            candidate.type_claim = Some(CanonicalMinimalAddTypeClaim([
+                                root.to_string(),
+                                type_id.to_string(),
+                                type_text.to_string(),
+                                value_id.to_string(),
+                            ]));
+                        }
+                    } else if outcome.integrity_failure_reason().is_some()
+                        && let Some(expression) = candidate.expression.as_mut()
+                    {
+                        expression.type_status = core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_INTEGRITY_FAILURE_STATUS;
+                        expression.result_value_present = true;
+                    }
+                    candidate.type_outcome = Some(outcome);
                 }
-            });
+            },
+        );
         if let Err(error) = result {
             for candidate in &mut operations {
                 candidate.candidate_origin = CoreOperationCandidateOrigin::Rejected(error.clone());
@@ -1312,6 +1460,76 @@ fn lower_operations<'program>(
         }
     }
     operations
+}
+
+impl CoreLowerOperation {
+    pub(crate) fn minimal_add_type_outcome(
+        &self,
+    ) -> Option<&type_check::CanonicalMinimalAddTypeOutcome> {
+        self.type_outcome.as_ref()
+    }
+}
+
+pub(crate) fn canonical_minimal_add_verification_facts(
+    program: &Program,
+    expected: Option<&ExpectedCoreOperation<'_, '_>>,
+    operation: &CoreLowerOperation,
+) -> (bool, bool, bool) {
+    let Some(authority) = operation
+        .type_outcome
+        .as_ref()
+        .and_then(type_check::CanonicalMinimalAddTypeOutcome::supported_authority)
+    else {
+        return (false, false, false);
+    };
+    let retained_structure_present = operation.expression.as_ref().is_some_and(|expression| {
+        expression.structured.is_some() && expression.structured_authority().is_some()
+    });
+    let authority_matches = retained_structure_present
+        && expected.is_some_and(|expected| match &expected.source {
+            ExpectedCoreOperationSource::Body {
+                parsed, artifact, ..
+            } => artifact
+                .as_ref()
+                .ok()
+                .and_then(|artifact| artifact.canonical_expression())
+                .is_some_and(|expression| {
+                    let (_, _, owner, _) = expected.owner.candidate_facts();
+                    authority.matches_source(
+                        program,
+                        owner,
+                        expected.owner.item(),
+                        parsed,
+                        expression,
+                    )
+                }),
+            ExpectedCoreOperationSource::Predicate { .. } => false,
+        });
+    let (_, root_node_id, type_id, type_text, result_value_id, _, _) =
+        authority.verification_facts();
+    let claim_matches = operation.type_claim.as_ref().is_some_and(|claim| {
+        claim
+            .0
+            .iter()
+            .map(String::as_str)
+            .eq([root_node_id, type_id, type_text, result_value_id])
+    });
+    let public_projection_matches = operation.expression.as_ref().is_some_and(|expression| {
+        expression.type_status == core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_STATUS
+            && expression.type_text.as_deref() == Some(type_text)
+            && expression.type_source
+                == Some(core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_SOURCE)
+            && expression.result_value.as_ref().is_some_and(|value| {
+                value.id == result_value_id
+                    && value.type_id == type_id
+                    && value.type_status
+                        == core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_STATUS
+                    && value.type_text == type_text
+                    && value.provenance
+                        == core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_SOURCE
+            })
+    });
+    (authority_matches, claim_matches, public_projection_matches)
 }
 
 fn lower_predicate_operation(
@@ -1348,6 +1566,8 @@ fn lower_predicate_operation(
         expression,
         reason: Some(fact.reason),
         candidate_origin,
+        type_outcome: None,
+        type_claim: None,
     }
 }
 
@@ -1381,6 +1601,8 @@ fn lower_operation(
             expression: None,
             reason: fact.reason.or(Some("unsupported_try_expression_shape_v0")),
             candidate_origin,
+            type_outcome: None,
+            type_claim: None,
         };
     }
     let (core_operation, status, fallback_reason) = core_operation_for(statement);
@@ -1406,6 +1628,8 @@ fn lower_operation(
         expression,
         reason: statement.reason.or(fallback_reason),
         candidate_origin,
+        type_outcome: None,
+        type_claim: None,
     }
 }
 
@@ -1498,6 +1722,8 @@ fn expression_from_preview(preview: &CoreExpressionPreview) -> CoreLowerExpressi
         type_status: preview.ast.type_status,
         type_text: preview.ast.type_text.clone(),
         type_source: preview.ast.type_source,
+        result_value_present: false,
+        result_value: None,
         effect_status: preview.ast.effect_status,
         reason: preview.reason.or(preview.ast.root.reason),
     }
@@ -1791,7 +2017,7 @@ fn count_kind_in(items: &[Item], kind: &str) -> usize {
         .sum()
 }
 
-fn portable_span(span: &Span) -> Span {
+pub(crate) fn portable_span(span: &Span) -> Span {
     Span {
         file: span.file.replace('\\', "/"),
         line: span.line,
@@ -1996,6 +2222,9 @@ fn push_expression(
             true,
         );
         push_optional_string_field(out, indent + 2, "type_source", expression.type_source, true);
+        if expression.result_value_present {
+            push_result_value(out, expression.result_value.as_ref(), indent + 2, true);
+        }
         push_string_field(
             out,
             indent + 2,
@@ -2004,6 +2233,29 @@ fn push_expression(
             true,
         );
         push_optional_string_field(out, indent + 2, "reason", expression.reason, false);
+        push_indent(out, indent);
+        out.push('}');
+    } else {
+        out.push_str("null");
+    }
+    push_comma_newline(out, comma);
+}
+
+fn push_result_value(
+    out: &mut String,
+    value: Option<&CoreLowerResultValue>,
+    indent: usize,
+    comma: bool,
+) {
+    push_indent(out, indent);
+    out.push_str("\"result_value\": ");
+    if let Some(value) = value {
+        out.push_str("{\n");
+        push_string_field(out, indent + 2, "id", &value.id, true);
+        push_string_field(out, indent + 2, "type_id", &value.type_id, true);
+        push_string_field(out, indent + 2, "type_status", value.type_status, true);
+        push_string_field(out, indent + 2, "type_text", &value.type_text, true);
+        push_string_field(out, indent + 2, "provenance", value.provenance, false);
         push_indent(out, indent);
         out.push('}');
     } else {
@@ -2370,9 +2622,10 @@ mod tests {
         assert!(json.contains("\"provenance\": \"parser_owned_canonical_expression_v0\""));
         assert!(json.contains("\"kind\": \"binary\""));
         assert!(json.contains("\"operator\": \"add\""));
-        assert!(json.contains("\"type_status\": \"not_type_checked_v0\""));
-        assert!(json.contains("\"type_text\": null"));
-        assert!(json.contains("\"type_source\": null"));
+        assert!(json.contains("\"type_status\": \"checked_canonical_minimal_add_type_v0\""));
+        assert!(json.contains("\"type_text\": \"Int\""));
+        assert!(json.contains("\"type_source\": \"canonical_minimal_add_type_authority_v0\""));
+        assert!(json.contains("\"result_value\": {"));
         assert!(!json.contains("\"checked_type_status\""));
         assert!(!json.contains("\"checked_type\""));
         assert!(json.contains("\"index\": 0"));
@@ -2485,5 +2738,55 @@ task remember(item: WorkItem) -> WorkItem {
         assert!(json.contains("\"reason\": \"surface_save_requires_store_lowering\""));
         assert!(json.contains("\"blocked_operations\": 1"));
         assert!(json.contains("\"core_operation\": \"blocked_surface_statement\""));
+    }
+
+    #[test]
+    fn canonical_minimal_add_type_authority_is_owned_by_exact_operation() {
+        let supported = |operation: &super::CoreLowerOperation| {
+            operation
+                .minimal_add_type_outcome()
+                .is_some_and(crate::type_check::CanonicalMinimalAddTypeOutcome::is_supported)
+        };
+        let parsed = parse_source(
+            "owned-add.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+        );
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let report = super::build_core_lower_report(&program, &parsed.diagnostics);
+        let operation = &report.core_items[0].operations[0];
+        assert!(supported(operation));
+        assert!(operation.type_claim.is_some());
+        let expression = operation.expression.as_ref().expect("expression");
+        assert_eq!(
+            expression.type_status,
+            crate::core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_STATUS
+        );
+        assert_eq!(expression.type_text.as_deref(), Some("Int"));
+        assert_eq!(
+            expression.result_value.as_ref().unwrap().type_id,
+            crate::type_check::CANONICAL_MINIMAL_ADD_TYPE_ID
+        );
+        let json = core_lower_json(&program, &parsed.diagnostics);
+        assert!(json.contains("\"result_value\": {"));
+        assert!(!json.contains("type_claim"));
+        assert!(!json.contains("CanonicalMinimalAddTypeAuthority"));
+
+        let paired = parse_source(
+            "paired-adds.hum",
+            "task first(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\ntask second(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+        );
+        let paired_program = Program {
+            files: vec![paired.file],
+        };
+        let paired_report = super::build_core_lower_report(&paired_program, &paired.diagnostics);
+        let first = &paired_report.core_items[0].operations[0];
+        let second = &paired_report.core_items[1].operations[0];
+        assert!(supported(first) && supported(second));
+        assert_ne!(
+            first.type_claim.as_ref().unwrap().0[3],
+            second.type_claim.as_ref().unwrap().0[3]
+        );
     }
 }

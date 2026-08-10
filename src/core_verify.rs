@@ -1,6 +1,6 @@
 use crate::ast::{
-    CanonicalExpression, CanonicalExpressionKind, Item, ParsedBinaryOperator, ParsedSourceRange,
-    Program,
+    CanonicalExpression, CanonicalExpressionKind, Item, ParsedBinaryOperator, ParsedBodyStatement,
+    ParsedSourceRange, Program,
 };
 use crate::callable;
 use crate::core_contract;
@@ -64,6 +64,254 @@ pub struct CoreVerifyReadinessSummary {
 struct CoreVerifyReport {
     lower: CoreLowerReport,
     checks: Vec<CoreVerifyCheck>,
+}
+
+pub(crate) struct CoreVerifyFullTypeHandoff {
+    readiness_summary: CoreVerifyReadinessSummary,
+    diagnostic_occurrences: DiagnosticOccurrenceSet,
+    _report_identity: usize,
+}
+
+pub(crate) struct CoreVerifyFullTypeReportAccess<'report> {
+    program: &'report Program,
+    report: &'report CoreVerifyReport,
+    readiness_summary: &'report CoreVerifyReadinessSummary,
+}
+
+pub(crate) struct CoreVerifyDiagnosticOccurrenceAccess<'report> {
+    occurrences: &'report DiagnosticOccurrenceSet,
+    _report_identity: usize,
+}
+
+pub(crate) struct VerifiedCanonicalMinimalAddTypeResult<'report> {
+    authority: &'report type_check::CanonicalMinimalAddTypeAuthority,
+}
+
+pub(crate) enum CanonicalMinimalAddTypeLookup<'report> {
+    Delivered(VerifiedCanonicalMinimalAddTypeResult<'report>),
+    MissingOperation,
+    DuplicateOperation,
+    AmbiguousOperation,
+    ForeignOperation,
+    NonSupportedDisposition,
+    LocallyIneligible,
+    ReportBlocked,
+}
+
+#[allow(unexpected_cfgs)]
+mod verified_canonical_minimal_add_type_escape_compile_proof {
+    #[cfg(hum_compile_fail_verified_canonical_minimal_add_type_escape)]
+    mod enabled {
+        use super::super::{
+            CanonicalMinimalAddTypeLookup, CoreVerifyDiagnosticOccurrenceAccess,
+            CoreVerifyFullTypeReportAccess, VerifiedCanonicalMinimalAddTypeResult,
+            with_core_verify_for_full_type,
+        };
+        use crate::{
+            ast::{Item, ParsedBodyStatement, Program},
+            diagnostic::{Diagnostic, DiagnosticOccurrence},
+        };
+        type StaticAccess = CoreVerifyFullTypeReportAccess<'static>;
+        type StaticResult = VerifiedCanonicalMinimalAddTypeResult<'static>;
+        type StaticOccurrences = (
+            &'static DiagnosticOccurrence,
+            CoreVerifyDiagnosticOccurrenceAccess<'static>,
+        );
+
+        macro_rules! access_escape {
+            ($name:ident) => {
+                fn $name(program: &Program, diagnostics: &[Diagnostic]) -> StaticAccess {
+                    let mut $name = None;
+                    let _ = with_core_verify_for_full_type(program, diagnostics, |access| {
+                        $name = Some(access)
+                    });
+                    $name.unwrap()
+                }
+            };
+        }
+        access_escape!(verified_canonical_minimal_add_access_cannot_outlive_verify_artifact);
+        access_escape!(core_verify_full_type_report_access_cannot_escape);
+
+        fn verified_canonical_minimal_add_result_cannot_be_collected(
+            program: &Program,
+            diagnostics: &[Diagnostic],
+            item: &Item,
+            statement: &ParsedBodyStatement,
+        ) {
+            let mut verified_canonical_minimal_add_result_cannot_be_collected: Vec<StaticResult> =
+                vec![];
+            let _ = with_core_verify_for_full_type(program, diagnostics, |access| {
+                if let CanonicalMinimalAddTypeLookup::Delivered(result) =
+                    access.canonical_minimal_add_type_for(item, statement)
+                {
+                    verified_canonical_minimal_add_result_cannot_be_collected.push(result);
+                }
+            });
+        }
+
+        fn verified_canonical_minimal_add_result_cannot_become_static(
+            program: &Program,
+            diagnostics: &[Diagnostic],
+            item: &Item,
+            statement: &ParsedBodyStatement,
+        ) -> StaticResult {
+            let mut verified_canonical_minimal_add_result_cannot_become_static = None;
+            let _ = with_core_verify_for_full_type(program, diagnostics, |access| {
+                let CanonicalMinimalAddTypeLookup::Delivered(result) =
+                    access.canonical_minimal_add_type_for(item, statement)
+                else {
+                    panic!("missing verified result")
+                };
+                verified_canonical_minimal_add_result_cannot_become_static = Some(result);
+            });
+            verified_canonical_minimal_add_result_cannot_become_static.unwrap()
+        }
+
+        fn core_verify_diagnostic_occurrence_access_cannot_escape(
+            program: &Program,
+            diagnostics: &[Diagnostic],
+        ) -> StaticOccurrences {
+            with_core_verify_for_full_type(program, diagnostics, |access| {
+                let core_verify_diagnostic_occurrence_access_cannot_escape =
+                    access.diagnostic_occurrences();
+                let occurrence = core_verify_diagnostic_occurrence_access_cannot_escape
+                    .occurrences()
+                    .next()
+                    .expect("diagnostic occurrence");
+                (
+                    occurrence,
+                    core_verify_diagnostic_occurrence_access_cannot_escape,
+                )
+            })
+            .1
+        }
+    }
+}
+
+pub(crate) fn with_core_verify_for_full_type<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    consume: impl for<'report> FnOnce(CoreVerifyFullTypeReportAccess<'report>) -> R,
+) -> (CoreVerifyFullTypeHandoff, R) {
+    let report = build_report(program, diagnostics);
+    let readiness_summary = readiness_summary_from_report(&report);
+    let result = consume(CoreVerifyFullTypeReportAccess {
+        program,
+        report: &report,
+        readiness_summary: &readiness_summary,
+    });
+    (
+        CoreVerifyFullTypeHandoff {
+            readiness_summary,
+            _report_identity: std::ptr::from_ref(&report).addr(),
+            diagnostic_occurrences: report.lower.diagnostic_occurrences,
+        },
+        result,
+    )
+}
+
+impl CoreVerifyFullTypeHandoff {
+    pub(crate) fn into_parts(self) -> (CoreVerifyReadinessSummary, DiagnosticOccurrenceSet) {
+        (self.readiness_summary, self.diagnostic_occurrences)
+    }
+}
+
+impl<'report> CoreVerifyFullTypeReportAccess<'report> {
+    pub(crate) fn readiness_summary(&self) -> &'report CoreVerifyReadinessSummary {
+        self.readiness_summary
+    }
+
+    pub(crate) fn diagnostic_occurrences(&self) -> CoreVerifyDiagnosticOccurrenceAccess<'report> {
+        CoreVerifyDiagnosticOccurrenceAccess {
+            occurrences: &self.report.lower.diagnostic_occurrences,
+            _report_identity: std::ptr::from_ref(self.report).addr(),
+        }
+    }
+
+    pub(crate) fn canonical_minimal_add_type_for(
+        &self,
+        item: &Item,
+        statement: &ParsedBodyStatement,
+    ) -> CanonicalMinimalAddTypeLookup<'report> {
+        let matching_items = self.report.lower.core_items.iter().filter(|candidate| {
+            candidate.kind == item.kind()
+                && candidate.name == item.name()
+                && candidate.span == core_lower::portable_span(item.span())
+        });
+        let candidate_item = match unique(matching_items) {
+            Some(Ok(item)) => item,
+            Some(Err(())) => return CanonicalMinimalAddTypeLookup::AmbiguousOperation,
+            None => return CanonicalMinimalAddTypeLookup::MissingOperation,
+        };
+        let matching_operations = candidate_item
+            .operations
+            .iter()
+            .filter(|operation| operation.span == core_lower::portable_span(&statement.span));
+        let operation = match unique(matching_operations) {
+            Some(Ok(operation)) => operation,
+            Some(Err(())) => return CanonicalMinimalAddTypeLookup::DuplicateOperation,
+            None => return CanonicalMinimalAddTypeLookup::MissingOperation,
+        };
+        let has_check = |rule, status| {
+            self.report.checks.iter().any(|check| {
+                check.scope_id == operation.id && check.rule == rule && check.status == status
+            })
+        };
+        if has_check("operation_index_consistent", "failed_v0") {
+            return CanonicalMinimalAddTypeLookup::ForeignOperation;
+        }
+        let Some(authority) = operation
+            .minimal_add_type_outcome()
+            .and_then(type_check::CanonicalMinimalAddTypeOutcome::supported_authority)
+        else {
+            return CanonicalMinimalAddTypeLookup::NonSupportedDisposition;
+        };
+        if authority.verification_facts().5 != statement.source_node_id.as_str()
+            || authority.verification_facts().0 != std::ptr::from_ref(self.program).addr()
+        {
+            return CanonicalMinimalAddTypeLookup::ForeignOperation;
+        }
+        if !has_check(
+            "canonical_minimal_add_type_access_locally_eligible",
+            "passed_v0",
+        ) {
+            return CanonicalMinimalAddTypeLookup::LocallyIneligible;
+        }
+        if self.report.failed_checks() > 0 {
+            return CanonicalMinimalAddTypeLookup::ReportBlocked;
+        }
+        CanonicalMinimalAddTypeLookup::Delivered(VerifiedCanonicalMinimalAddTypeResult {
+            authority,
+        })
+    }
+}
+
+fn unique<I: Iterator>(mut values: I) -> Option<Result<I::Item, ()>> {
+    let value = values.next()?;
+    Some(values.next().is_none().then_some(value).ok_or(()))
+}
+
+impl<'report> CoreVerifyDiagnosticOccurrenceAccess<'report> {
+    pub(crate) fn occurrences(
+        &self,
+    ) -> impl Iterator<Item = &'report crate::diagnostic::DiagnosticOccurrence> + 'report {
+        self.occurrences.occurrences()
+    }
+}
+
+impl VerifiedCanonicalMinimalAddTypeResult<'_> {
+    pub(crate) fn facts(&self) -> (&str, &str, &str, &str, &'static str, Option<bool>) {
+        let (_, _, type_id, type_text, result_value_id, statement, compatible) =
+            self.authority.verification_facts();
+        (
+            result_value_id,
+            type_id,
+            type_text,
+            statement,
+            "verified_canonical_minimal_add_type_v0",
+            compatible,
+        )
+    }
 }
 
 struct CoreVerifyCheck {
@@ -254,6 +502,10 @@ pub fn core_verify_readiness_summary(
     diagnostics: &[Diagnostic],
 ) -> CoreVerifyReadinessSummary {
     let report = build_report(program, diagnostics);
+    readiness_summary_from_report(&report)
+}
+
+fn readiness_summary_from_report(report: &CoreVerifyReport) -> CoreVerifyReadinessSummary {
     CoreVerifyReadinessSummary {
         schema: CORE_VERIFY_SCHEMA,
         status: report.verification_status(),
@@ -290,6 +542,18 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreVerifyRepo
         .diagnostic_projection
         .validate_against("core_lower", &preview_authority)
         .expect("Core verify must compare lower projection with preview authority");
+    #[cfg(test)]
+    let mut lower = lower;
+    #[cfg(test)]
+    CORE_VERIFY_TEST_CORRUPTION.with(|corruption| {
+        if let Some(corruption) = corruption.take() {
+            core_lower::corrupt_minimal_add_candidate_for_test(&mut lower, corruption);
+        }
+    });
+    finish_report(program, lower)
+}
+
+fn finish_report(program: &Program, lower: CoreLowerReport) -> CoreVerifyReport {
     let mut checks = verify_lower_report(program, &lower);
     let callable_failures = callable::analyze_program(program).verify();
     if callable_failures.is_empty() {
@@ -315,16 +579,30 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreVerifyRepo
             );
         }
     }
+    #[cfg(test)]
+    CORE_VERIFY_REPORT_BUILD_COUNT.with(|count| count.set(count.get().checked_add(1).unwrap()));
     CoreVerifyReport { lower, checks }
 }
 
-pub(crate) fn diagnostic_occurrence_set(
-    program: &Program,
-    diagnostics: &[Diagnostic],
-) -> DiagnosticOccurrenceSet {
-    build_report(program, diagnostics)
-        .lower
-        .diagnostic_occurrences
+#[cfg(test)]
+thread_local! {
+    static CORE_VERIFY_REPORT_BUILD_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static CORE_VERIFY_TEST_CORRUPTION: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_core_verify_report_build_count_for_test() {
+    CORE_VERIFY_REPORT_BUILD_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn core_verify_report_build_count_for_test() -> usize {
+    CORE_VERIFY_REPORT_BUILD_COUNT.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn set_core_verify_corruption_for_test(corruption: &'static str) {
+    CORE_VERIFY_TEST_CORRUPTION.with(|active| assert_eq!(active.replace(Some(corruption)), None));
 }
 
 pub(crate) fn validate_diagnostic_projection_from_source(
@@ -347,6 +625,27 @@ pub(crate) fn validate_diagnostic_projection_from_source(
         &lower.diagnostic_occurrences,
     )?;
     Ok(lower.diagnostic_occurrences)
+}
+
+#[cfg(test)]
+impl CoreVerifyFullTypeHandoff {
+    pub(crate) fn report_identity_for_test(&self) -> usize {
+        self._report_identity
+    }
+}
+
+#[cfg(test)]
+impl CoreVerifyFullTypeReportAccess<'_> {
+    pub(crate) fn report_identity_for_test(&self) -> usize {
+        std::ptr::from_ref(self.report).addr()
+    }
+}
+
+#[cfg(test)]
+impl CoreVerifyDiagnosticOccurrenceAccess<'_> {
+    pub(crate) fn report_identity_for_test(&self) -> usize {
+        self._report_identity
+    }
 }
 
 fn verify_lower_report(program: &Program, lower: &CoreLowerReport) -> Vec<CoreVerifyCheck> {
@@ -397,7 +696,7 @@ fn verify_lower_report(program: &Program, lower: &CoreLowerReport) -> Vec<CoreVe
             false,
             |checks| {
                 for (index, operation) in item.operations.iter().enumerate() {
-                    verify_operation(item, operation, index, None, checks);
+                    verify_operation(program, item, operation, index, None, checks);
                 }
             },
             &mut checks,
@@ -445,6 +744,7 @@ fn verify_program_items(
                                     predicate_facts,
                                     |slot| {
                                         verify_expected_operation(
+                                            program,
                                             candidate,
                                             &mut expected_slots,
                                             slot,
@@ -452,7 +752,7 @@ fn verify_program_items(
                                         )
                                     },
                                 );
-                            verify_remaining_operations(candidate, expected_slots, checks);
+                            verify_remaining_operations(program, candidate, expected_slots, checks);
                         },
                         checks,
                     );
@@ -592,6 +892,7 @@ fn verify_item(
 
 #[cfg(test)]
 fn verify_expected_operations(
+    program: &Program,
     expected_owner: crate::ast::CanonicalCoreOperationOwnerExpectation<'_>,
     item: &CoreLowerItem,
     body: &crate::core_body::CanonicalBodyGrammarReport,
@@ -605,13 +906,14 @@ fn verify_expected_operations(
         body,
         predicate_facts,
         operation_slot,
-        |expected| verify_expected_operation(item, &mut expected_slots, expected, checks),
+        |expected| verify_expected_operation(program, item, &mut expected_slots, expected, checks),
     );
-    verify_remaining_operations(item, expected_slots, checks);
+    verify_remaining_operations(program, item, expected_slots, checks);
     streamed
 }
 
 fn verify_expected_operation(
+    program: &Program,
     item: &CoreLowerItem,
     expected_slots: &mut Option<usize>,
     expected: crate::core_lower::ExpectedCoreOperation<'_, '_>,
@@ -620,7 +922,7 @@ fn verify_expected_operation(
     let slot = expected.slot();
     *expected_slots = slot.checked_add(1);
     if let Some(operation) = item.operations.get(slot) {
-        verify_operation(item, operation, slot, Some(&expected), checks);
+        verify_operation(program, item, operation, slot, Some(&expected), checks);
     } else {
         push_check(
             checks,
@@ -635,22 +937,24 @@ fn verify_expected_operation(
 }
 
 fn verify_remaining_operations(
+    program: &Program,
     item: &CoreLowerItem,
     expected_slots: Option<usize>,
     checks: &mut Vec<CoreVerifyCheck>,
 ) {
     let Some(expected_slots) = expected_slots else {
         for (index, operation) in item.operations.iter().enumerate() {
-            verify_operation(item, operation, index, None, checks);
+            verify_operation(program, item, operation, index, None, checks);
         }
         return;
     };
     for (index, operation) in item.operations.iter().enumerate().skip(expected_slots) {
-        verify_operation(item, operation, index, None, checks);
+        verify_operation(program, item, operation, index, None, checks);
     }
 }
 
 fn verify_operation(
+    program: &Program,
     item: &CoreLowerItem,
     operation: &CoreLowerOperation,
     expected_index: usize,
@@ -726,6 +1030,7 @@ fn verify_operation(
         );
     }
 
+    let expression_checks_start = checks.len();
     match &operation.expression {
         Some(expression) => {
             push_check(
@@ -791,7 +1096,16 @@ fn verify_operation(
             );
             match (&expression.structured, expression.structured_authority()) {
                 (Some(structured), _) => {
-                    verify_structured_expression(operation, expression, structured, checks);
+                    let emit_outer_unchecked = !operation
+                        .minimal_add_type_outcome()
+                        .is_some_and(type_check::CanonicalMinimalAddTypeOutcome::is_supported);
+                    verify_structured_expression(
+                        operation,
+                        expression,
+                        structured,
+                        emit_outer_unchecked,
+                        checks,
+                    );
                 }
                 (None, Some(_)) => push_check(
                     checks,
@@ -819,12 +1133,86 @@ fn verify_operation(
             );
         }
     }
+    push_minimal_add_disposition_checks(
+        program,
+        operation,
+        expected,
+        expression_checks_start,
+        checks,
+    );
+}
+
+fn push_minimal_add_disposition_checks(
+    program: &Program,
+    operation: &CoreLowerOperation,
+    expected: Option<&crate::core_lower::ExpectedCoreOperation<'_, '_>>,
+    expression_checks_start: usize,
+    checks: &mut Vec<CoreVerifyCheck>,
+) {
+    let Some(outcome) = operation.minimal_add_type_outcome() else {
+        return;
+    };
+    let structural_checks_pass = checks[expression_checks_start..]
+        .iter()
+        .all(|check| check.status == "passed_v0");
+    let mut push = |passed, rule, detail| {
+        push_check(
+            checks,
+            "operation_expression",
+            &operation.id,
+            Some(&operation.span),
+            passed,
+            rule,
+            detail,
+        )
+    };
+    if outcome.is_supported() {
+        let (authority_matches, claim_matches, public_projection_matches) =
+            core_lower::canonical_minimal_add_verification_facts(program, expected, operation);
+        push(
+            authority_matches,
+            "canonical_minimal_add_type_authority_matches_exact_operation",
+            "canonical minimal-add type authority matches parser, resolver, declarations, and exact Core operation",
+        );
+        push(
+            authority_matches && claim_matches,
+            "canonical_minimal_add_type_claim_matches_untouched_authority",
+            "canonical minimal-add private type claim matches untouched checked authority",
+        );
+        let public_pass = authority_matches && claim_matches && public_projection_matches;
+        push(
+            public_pass,
+            "canonical_minimal_add_result_value_matches_checked_type",
+            "canonical minimal-add public type and result value match untouched checked authority",
+        );
+        push(
+            structural_checks_pass && public_pass,
+            "canonical_minimal_add_type_access_locally_eligible",
+            "canonical minimal-add target is locally eligible for report-bound verified type access",
+        );
+    } else {
+        let (rule, detail) = if outcome.integrity_failure_reason().is_some() {
+            (
+                "canonical_minimal_add_integrity_failure_rejected",
+                "recognized canonical minimal-add target has incomplete or inconsistent checked type authority",
+            )
+        } else if outcome.is_unsupported_target_like() {
+            (
+                "canonical_minimal_add_unsupported_target_like_rejected",
+                "unsupported additive task-return shape has no checked canonical type authority",
+            )
+        } else {
+            return;
+        };
+        push(false, rule, detail);
+    }
 }
 
 fn verify_structured_expression(
     operation: &CoreLowerOperation,
     expression: &CoreLowerExpression,
     structured: &CoreLowerStructuredExpression,
+    emit_outer_unchecked: bool,
     checks: &mut Vec<CoreVerifyCheck>,
 ) {
     let scope = "structured_expression";
@@ -1025,18 +1413,20 @@ fn verify_structured_expression(
         "child ranges are sane, same-file, ordered, and contained by the root",
     );
 
-    let outer_type_unchecked = expression.type_status == core_expr::CORE_EXPRESSION_TYPE_STATUS
-        && expression.type_text.is_none()
-        && expression.type_source.is_none();
-    push_check(
-        checks,
-        scope,
-        scope_id,
-        span,
-        outer_type_unchecked,
-        "structured_expression_outer_type_unchecked",
-        "structured add preserves the authoritative unchecked outer type state",
-    );
+    if emit_outer_unchecked {
+        let outer_type_unchecked = expression.type_status == core_expr::CORE_EXPRESSION_TYPE_STATUS
+            && expression.type_text.is_none()
+            && expression.type_source.is_none();
+        push_check(
+            checks,
+            scope,
+            scope_id,
+            span,
+            outer_type_unchecked,
+            "structured_expression_outer_type_unchecked",
+            "structured add preserves the authoritative unchecked outer type state",
+        );
+    }
 }
 
 struct MinimalAddAuthority<'a> {
@@ -1291,6 +1681,8 @@ fn valid_type_status(status: &str) -> bool {
         core_expr::CORE_EXPRESSION_TYPE_STATUS
             | core_expr::CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_TYPE_STATUS
             | core_expr::CORE_EXPRESSION_CHECKED_TRIVIAL_RETURN_MISMATCH_STATUS
+            | core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_TYPE_STATUS
+            | core_expr::CORE_EXPRESSION_CANONICAL_MINIMAL_ADD_INTEGRITY_FAILURE_STATUS
             | core_expr::CORE_PREDICATE_TYPE_STATUS
     )
 }
@@ -1683,7 +2075,7 @@ mod tests {
             let does = item.sections().iter().find(|s| s.name == "does").unwrap();
             let owner = p.canonical_core_operation_owner_expectation(item, does).unwrap();
             let mut checks = Vec::new();
-            let result = super::verify_expected_operations(owner, &r.core_items[0], body, facts, 0, &mut checks);
+            let result = super::verify_expected_operations(p, owner, &r.core_items[0], body, facts, 0, &mut checks);
             (result, checks)
         }
         fn fails(p: &Program, r: &CoreLowerReport, rule: &str, count: usize) { assert_eq!(failures(p, r, rule), count, "{rule}"); }
@@ -1734,7 +2126,7 @@ mod tests {
                 "ii" => { let extra = lower(&program, &diagnostics).core_items.remove(0); changed.core_items.insert(a, extra); }
                 "si" => changed.core_items.swap(a, b),
                 "do" => { changed.core_items[0].operations.remove(a); reindex(&mut changed, 0); }
-                "io" => { let extra = changed.core_items[0].operations[0].clone(); changed.core_items[0].operations.insert(a, extra); reindex(&mut changed, 0); }
+                "io" => { let mut issued = lower(&program, &diagnostics); let extra = issued.core_items[0].operations.remove(0); changed.core_items[0].operations.insert(a, extra); reindex(&mut changed, 0); }
                 "so" | "sr" => { changed.core_items[0].operations.swap(a, b); if kind == "sr" { reindex(&mut changed, 0); } }
                 "po" => core_lower::swap_operation_origins_for_test(&mut changed, 0, a, b),
                 _ => unreachable!(),
@@ -1783,7 +2175,10 @@ mod tests {
         assert_eq!(missing.rule, "expected_core_operation_present");
         assert_eq!(missing.detail, "parser-owned Core operation slot has one lowered candidate");
         assert_eq!(missing.span.as_ref(), Some(&sole_program.files[0].items[0].sections()[0].lines[0].span));
-        let report = super::CoreVerifyReport { lower: sole, checks: sole_checks };
+        let report = super::CoreVerifyReport {
+            lower: sole,
+            checks: sole_checks,
+        };
         assert_eq!(report.verification_status(), super::CORE_VERIFY_FAILED_STATUS);
         assert_eq!(report.verified_operations(), 0);
 
@@ -1809,11 +2204,11 @@ mod tests {
         let does = item.sections().iter().find(|s| s.name == "does").unwrap();
         let owner = program.canonical_core_operation_owner_expectation(item, does).unwrap();
         let mut overflow_checks = Vec::new();
-        let overflow = super::verify_expected_operations(owner, &clean.core_items[0], &body, &facts, usize::MAX, &mut overflow_checks);
+        let overflow = super::verify_expected_operations(&program, owner, &clean.core_items[0], &body, &facts, usize::MAX, &mut overflow_checks);
         assert_eq!(overflow, Err(CoreOperationExpectationError::SlotOverflow));
         assert!(overflow_checks.iter().any(|c| c.status == "failed_v0"));
 
-        fixture("examples/core/minimal_add.hum", include_str!("../examples/core/minimal_add.hum"), 35);
+        fixture("examples/core/minimal_add.hum", include_str!("../examples/core/minimal_add.hum"), 38);
         let uint_report = fixture("fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum", include_str!("../fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum"), 766);
         assert!(uint_report.lower.core_items.iter().flat_map(|i| &i.operations).any(|op| op.core_operation == "blocked_unsupported_try_expression"));
     }
@@ -1821,7 +2216,7 @@ mod tests {
     #[test]
     fn task_signature_authority_is_load_bearing() {
         const SOURCE: &str =
-            "task add(left: Int, right: Int) -> Int {\n  does:\n    return left + right\n}\n";
+            "task identity(left: Int, right: Int) -> Int {\n  does:\n    return left\n}\n";
 
         fn test_program() -> (Program, Vec<crate::diagnostic::Diagnostic>) {
             let parsed = parse_source("authority/load-bearing.hum", SOURCE);
@@ -1940,9 +2335,9 @@ mod tests {
         assert_eq!(clean.failed_checks(), 0, "clean artifact must verify");
         assert!(
             clean.checks.iter().any(|check| check.rule
-                == "structured_expression_outer_type_unchecked"
+                == "canonical_minimal_add_type_access_locally_eligible"
                 && check.status == "passed_v0"),
-            "the production verifier must consume the structured tree"
+            "the production verifier must consume the checked structured tree"
         );
 
         let mut reordered = crate::core_lower::build_core_lower_report(&program, &diagnostics);
@@ -2230,5 +2625,254 @@ task remember(item: WorkItem) -> WorkItem {
         assert!(json.contains("surface_save_requires_store_lowering"));
         assert!(json.contains("blocked_operation_has_matching_blocker"));
         assert!(json.contains("\"failed_checks\": 0"));
+    }
+
+    #[test]
+    fn canonical_minimal_add_type_verification_withholds_invalid_access() {
+        fn subject(path: &str, source: &str) -> (Program, Vec<Diagnostic>) {
+            let parsed = parse_source(path, source);
+            let program = Program {
+                files: vec![parsed.file],
+            };
+            (program, parsed.diagnostics)
+        }
+        fn disposition_fixture(
+            source: &str,
+            checks: usize,
+            failed: usize,
+            failure_rule: Option<&str>,
+        ) {
+            let (program, diagnostics) = subject("disposition.hum", source);
+            let report = build_report(&program, &diagnostics);
+            let matching_failures = report
+                .checks
+                .iter()
+                .filter(|check| Some(check.rule) == failure_rule && check.status == "failed_v0")
+                .count();
+            assert_eq!(report.checks.len(), checks);
+            assert_eq!(report.failed_checks(), failed);
+            assert_eq!(matching_failures, usize::from(failure_rule.is_some()));
+        }
+        fn supported_corruption(
+            program: &Program,
+            diagnostics: &[Diagnostic],
+            mutate: impl FnOnce(&mut CoreLowerReport),
+        ) -> usize {
+            let mut lower = crate::core_lower::build_core_lower_report(program, diagnostics);
+            let before = snapshot(&lower.core_items[0].operations[0]);
+            mutate(&mut lower);
+            let after = snapshot(&lower.core_items[0].operations[0]);
+            assert_eq!(after, before);
+            let report = super::finish_report(program, lower);
+            let failed = |rule| {
+                report
+                    .checks
+                    .iter()
+                    .any(|check| check.rule == rule && check.status == "failed_v0")
+            };
+            assert!(failed("canonical_minimal_add_type_access_locally_eligible"));
+            assert!(!failed("canonical_minimal_add_integrity_failure_rejected"));
+            assert_eq!(lookup_name(program, &report), "LocallyIneligible");
+            report.checks.len()
+        }
+        fn snapshot(operation: &crate::core_lower::CoreLowerOperation) -> (usize, String) {
+            operation
+                .minimal_add_type_outcome()
+                .and_then(
+                    crate::type_check::CanonicalMinimalAddTypeOutcome::authority_snapshot_for_test,
+                )
+                .expect("issued Supported authority")
+        }
+        fn lookup_name(program: &Program, report: &super::CoreVerifyReport) -> &'static str {
+            use super::CanonicalMinimalAddTypeLookup::*;
+            let item = &program.files[0].items[0];
+            let does = item
+                .sections()
+                .iter()
+                .find(|section| section.name == "does")
+                .unwrap();
+            let statement = does.body_syntax[0].as_ref().unwrap();
+            let summary = super::readiness_summary_from_report(report);
+            let access = super::CoreVerifyFullTypeReportAccess {
+                program,
+                report,
+                readiness_summary: &summary,
+            };
+            match access.canonical_minimal_add_type_for(item, statement) {
+                Delivered(_) => "Delivered",
+                MissingOperation => "MissingOperation",
+                DuplicateOperation => "DuplicateOperation",
+                AmbiguousOperation => "AmbiguousOperation",
+                ForeignOperation => "ForeignOperation",
+                NonSupportedDisposition => "NonSupportedDisposition",
+                LocallyIneligible => "LocallyIneligible",
+                ReportBlocked => "ReportBlocked",
+            }
+        }
+        let (program, diagnostics) = subject(
+            "verified-add.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+        );
+        macro_rules! corrupt {
+            ($mutation:expr) => {
+                supported_corruption(&program, &diagnostics, $mutation)
+            };
+        }
+        let clean = build_report(&program, &diagnostics);
+        assert_eq!((clean.checks.len(), clean.failed_checks()), (38, 0));
+        let rules = clean
+            .checks
+            .iter()
+            .filter(|check| check.scope == "operation_expression")
+            .map(|check| check.rule)
+            .collect::<Vec<_>>();
+        assert!(rules.ends_with(&[
+            "canonical_minimal_add_type_authority_matches_exact_operation",
+            "canonical_minimal_add_type_claim_matches_untouched_authority",
+            "canonical_minimal_add_result_value_matches_checked_type",
+            "canonical_minimal_add_type_access_locally_eligible",
+        ]));
+        assert_eq!(lookup_name(&program, &clean), "Delivered");
+        let (foreign_program, foreign_diagnostics) = subject(
+            "verified-add.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\n",
+        );
+        assert_eq!(lookup_name(&foreign_program, &clean), "ForeignOperation");
+        let foreign_lower =
+            crate::core_lower::build_core_lower_report(&foreign_program, &foreign_diagnostics);
+
+        for corruption in [
+            "claim",
+            "type-status",
+            "type-text",
+            "type-source",
+            "result-id",
+            "result-type-id",
+            "result-status",
+            "result-text",
+            "result-provenance",
+        ] {
+            corrupt!(|lower| core_lower::corrupt_minimal_add_candidate_for_test(lower, corruption));
+        }
+        use core_lower::CoreLowerTreeCorruption as Tree;
+        for corruption in [
+            Tree::ReorderChildren,
+            Tree::DuplicateChildIdentity,
+            Tree::IncorrectIdentifierSpelling("foreign".to_string()),
+            Tree::OverflowSizedRange,
+            Tree::ZeroBasedRange,
+        ] {
+            corrupt!(|lower| {
+                core_lower::corrupt_first_structured_expression_for_test(lower, corruption)
+                    .expect("structured corruption")
+            });
+        }
+        corrupt!(|lower| core_lower::corrupt_minimal_add_candidate_for_test(lower, "coherent"));
+        for (corruption, total) in [
+            ("drop-authority", 38usize),
+            ("drop-projection", 26usize),
+            ("drop-both", 25usize),
+        ] {
+            let observed = corrupt!(|lower| core_lower::corrupt_minimal_add_candidate_for_test(
+                lower, corruption
+            ));
+            assert_eq!(observed, total);
+        }
+        for (case, expected) in [
+            ("missing", "MissingOperation"),
+            ("duplicate", "DuplicateOperation"),
+            ("ambiguous", "AmbiguousOperation"),
+            ("foreign", "ForeignOperation"),
+            ("rejected", "ForeignOperation"),
+        ] {
+            let mut lower = core_lower::build_core_lower_report(&program, &diagnostics);
+            let before = snapshot(&lower.core_items[0].operations[0]);
+            let mut issued = core_lower::build_core_lower_report(&program, &diagnostics);
+            let removed = match case {
+                "missing" => Some(lower.core_items[0].operations.remove(0)),
+                "duplicate" => {
+                    let duplicate = issued.core_items[0].operations.remove(0);
+                    lower.core_items[0].operations.push(duplicate);
+                    None
+                }
+                "ambiguous" => {
+                    lower.core_items.push(issued.core_items.remove(0));
+                    None
+                }
+                "foreign" => {
+                    core_lower::copy_operation_origin_for_test(
+                        &mut lower,
+                        0,
+                        0,
+                        &foreign_lower,
+                        0,
+                        0,
+                    );
+                    None
+                }
+                "rejected" => {
+                    core_lower::reject_operation_origin_for_test(&mut lower, 0, 0);
+                    None
+                }
+                _ => unreachable!(),
+            };
+            let preserved = removed
+                .as_ref()
+                .unwrap_or_else(|| &lower.core_items[0].operations[0]);
+            assert_eq!(snapshot(preserved), before);
+            assert_eq!(
+                lookup_name(&program, &super::finish_report(&program, lower)),
+                expected
+            );
+        }
+        let (reordered_program, reordered_diagnostics) = subject(
+            "reordered-add.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n    return a + b\n}\n",
+        );
+        let mut lower =
+            crate::core_lower::build_core_lower_report(&reordered_program, &reordered_diagnostics);
+        let before = snapshot(&lower.core_items[0].operations[0]);
+        lower.core_items[0].operations.swap(0, 1);
+        for (index, operation) in lower.core_items[0].operations.iter_mut().enumerate() {
+            operation.index = index;
+        }
+        assert_eq!(snapshot(&lower.core_items[0].operations[1]), before);
+        assert_eq!(
+            lookup_name(
+                &reordered_program,
+                &super::finish_report(&reordered_program, lower)
+            ),
+            "ForeignOperation"
+        );
+
+        let (blocked_program, blocked_diagnostics) = subject(
+            "report-blocked.hum",
+            "task add(a: Int, b: Int) -> Int {\n  does:\n    return a + b\n}\ntask unsupported(a: Int) -> Int {\n  does:\n    return 1 + a\n}\n",
+        );
+        let blocked_report = build_report(&blocked_program, &blocked_diagnostics);
+        assert_eq!(
+            lookup_name(&blocked_program, &blocked_report),
+            "ReportBlocked"
+        );
+        let add = |params: &str, result: &str, expression: &str| {
+            format!("task add({params}){result} {{\n  does:\n    return {expression}\n}}\n")
+        };
+        for (params, result, expression, checks, failed, kind) in [
+            ("a: UInt, b: UInt", " -> UInt", "a + b", 35, 0, 'n'),
+            ("a: UInt", " -> UInt", "a + 1", 21, 0, 'n'),
+            ("a: Int, b: UInt", " -> Int", "a + b", 36, 1, 'u'),
+            ("a: Int", " -> Int", "1 + a", 22, 1, 'u'),
+            ("", " -> Int", "1 + 2", 22, 1, 'u'),
+            ("a: Int, b: Int", " -> Int", "a + missing", 38, 2, 'i'),
+            ("b: Int", " -> Int", "1 + missing", 24, 1, 'i'),
+            ("a: Int", " -> Int", "a", 21, 0, 'n'),
+        ] {
+            let rule = match kind {
+                'u' => Some("canonical_minimal_add_unsupported_target_like_rejected"),
+                'i' => Some("canonical_minimal_add_integrity_failure_rejected"),
+                _ => None,
+            };
+            disposition_fixture(&add(params, result, expression), checks, failed, rule);
+        }
     }
 }
