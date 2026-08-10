@@ -1,7 +1,6 @@
 # Hum Work Order 17: Verify Checked Type Authority On Exact Core Operations
 
 Date: 2026-08-09
-<!-- hum-active-workorder:v1 -->
 Status: Closed. Work Order 17 Unit 1 is accepted, implemented, published, and
 terminal-green. The accepted documentation package is commit
 `5aca6eeab4ac427142e420f67e13d9a00ee9c706`; its publication status is commit
@@ -33,6 +32,10 @@ once and passed once with zero failures: F1 630, F2 4,950, F3/F4 8,646,
 `93573945837` succeeded in 1,577 seconds with a 1,543-second full preflight and
 the root suite at 459/459; it correctly skipped only the duplicate Exhaustive
 producer.
+
+This closed record is frozen. A separately authorized successor-planning
+transition installs `WORKORDER_18.md` as the sole active Work Order; it does
+not reopen Work Order 17 or authorize successor implementation.
 
 Owner: BDFL (Ocean).
 Author: Work Order 17 architect-author. The author is permanently disqualified
@@ -1526,7 +1529,8 @@ that harness fragility.
 
 Backend/IR work, types-table production, open-skeleton integration, harness
 repair, a replacement or new Work Order, archive mutation, and every later
-activity remain unauthorized pending a separate BDFL signal. The active marker
-remains in this file until a separately reviewed planning transition installs
-a successor.
+activity remained unauthorized until a separate BDFL signal. That signal
+authorizes only the planning package recorded above. `WORKORDER_18.md` now
+contains the sole active marker, and its implementation remains unauthorized
+through this Work Order 17 closeout.
 <!-- workorder-current-authorization-gate:end -->
