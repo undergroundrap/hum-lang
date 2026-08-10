@@ -2,12 +2,20 @@
 
 Date: 2026-08-10
 <!-- hum-active-workorder:v1 -->
-Status: Drafted for independent pre-issuance architect review. This document is
-unissued, unpublished, and unauthorized for implementation. Authoring and
-implementation are separate activities. Implementation requires exact-document
-acceptance, a separately authorized local documentation commit, publication,
-terminal-green full CI, a separately authorized publication-status record, and
-an explicit later BDFL Unit 1 go signal.
+Status: Accepted and published planning package; implementation is not
+authorized. The exact independently reviewed documents were committed as
+`2f3131b8866703ecc40ae81cdce0458f93320ce2`, with parent
+`6960a340263f1a032c17df50c3048e9b88cf9041` and subject
+`docs(workorder): bind backend facts at ir readiness`, then published to
+`origin/main` by normal fast-forward. Required full-lane CI passed in workflow
+`ci`, run `31440656283`, attempt 1, with overall conclusion `success` and
+`mode=full;reason=no_status_transition` on both required platforms. Ubuntu job
+`93624472019` succeeded in 18m17s with a 17m39s full preflight; Windows job
+`93624471931` succeeded in 26m58s with a 26m36s full preflight. Ubuntu passed
+the Exhaustive producer at 14,226 pairs with seed `0x48554D5F5345414C`;
+Windows correctly skipped the duplicate. Text hygiene and public readiness
+passed for 526 files, alpha claims passed, and release readiness passed for
+version `0.0.1`. Unit 1 remains unauthorized pending a separate BDFL go signal.
 
 Owner: BDFL (Ocean).
 Author: Work Order 18 architect-author. The author may not independently review
@@ -733,15 +741,17 @@ authoring.
 
 ## Current authorization gate
 
-Work Order 18 is drafted, unissued, unpublished, and unauthorized for
-implementation. This document is the sole active Work Order.
+Work Order 18 is accepted, published, and terminal-green as the exact planning
+package recorded in the Status field. This document remains the sole active
+Work Order.
 
-The only eligible next activity is one fresh independent pre-issuance architect
-review of the exact unstaged two-document package. Review does not authorize an
-edit, commit, publication, status record, or implementation.
+The only eligible next activity is separately authorized publication of this
+status-only record. Unit 1 remains unauthorized until that publication is
+terminal-green and the BDFL issues a separate explicit implementation go
+signal. This local status commit does not authorize its own publication.
 
 Work Order 18 Unit 1, backend artifact bytes, `ir_verify`,
-`VerifiedBackendInput`, Cranelift work, open-skeleton tooling, termination,
-native-stderr harness repair, archive mutation, and every later activity remain
-unauthorized pending their explicit gates.
+`VerifiedBackendInput`, Cranelift work, native-stderr harness repair,
+open-skeleton tooling, termination, archive mutation, another Work Order, and
+every later activity remain unauthorized pending their explicit gates.
 <!-- workorder-current-authorization-gate:end -->
