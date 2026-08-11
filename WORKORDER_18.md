@@ -2,9 +2,10 @@
 
 Date: 2026-08-10
 <!-- hum-active-workorder:v1 -->
-Status: Published planning package; Unit 1 is stopped for a material
-implementation-envelope defect, and the remedial amendment below is under
-review. The exact independently reviewed planning documents were committed as
+Status: Published planning package and published remedial amendment; Unit 1
+remains stopped and unauthorized pending publication of this status record and
+a later separate explicit BDFL resumption signal. The exact independently
+reviewed planning documents were committed as
 `2f3131b8866703ecc40ae81cdce0458f93320ce2`, with parent
 `6960a340263f1a032c17df50c3048e9b88cf9041` and subject
 `docs(workorder): bind backend facts at ir readiness`, then published to
@@ -29,9 +30,37 @@ The first Unit 1 candidate later stopped when final Fast proved that `README.md`
 is a required durable consumer outside the original eleven-path envelope. That
 exact stopped candidate is preserved locally and remotely at
 `archive/workorder-18-unit1-envelope-stop-2026-08-10`, commit
-`82c6f74a6392ad806b4ab1dd33960654595627fb`. Unit 1 remains stopped; archive
-restoration, README editing, implementation, commit, and publication remain
-unauthorized pending the separate gates below.
+`82c6f74a6392ad806b4ab1dd33960654595627fb`.
+
+The remedial amendment was independently accepted, committed as
+`0396399c94f5e43511f3811319320a6ca2db0b93`, with parent
+`a3b60708524edfc5631b8a6617ac6b2740fbeafe`, subject
+`docs(workorder): include readme in backend facts envelope`, sole path
+`WORKORDER_18.md`, statistics `+209/-37`, and blob
+`fd597ead78a8c262d0309492bc2cb32a4509f228`. It was published by normal
+non-force fast-forward of `main` only. Required full-lane CI passed in workflow
+`ci`, run `31462478083`, attempt 1, testing that exact SHA, with overall
+conclusion `success`. Both platforms reported
+`mode=full;reason=no_status_transition` with empty/zero status-chain fields.
+Ubuntu job `93688626613` on `ubuntu-latest` succeeded in 18m16s; its full
+Hum/Fast preflight succeeded in 17m39s and status-only evidence was skipped.
+Ubuntu's Exhaustive producer selected, ran, and passed exactly one
+`parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero`
+test with zero failures: F1 `630`, F2 `4,950`, F3/F4 `8,646`, total `14,226`,
+elapsed 16.42s, seed `0x48554D5F5345414C`. Windows job `93688626710` on
+`windows-latest` succeeded in 26m47s; its full Hum/Fast preflight succeeded in
+26m18s, the platform-independent Exhaustive duplicate was skipped, and
+status-only evidence was skipped. Both platforms passed Cargo-cache and
+Rust-toolchain preparation, text hygiene and public readiness for 526 files,
+alpha claims, release readiness for `0.0.1`, and the terminal
+`All Hum preflight checks passed.` marker.
+
+The remedial amendment is accepted, published, and terminal-green. Work Order
+18 Unit 1 remains stopped and unauthorized. Archive restoration, README
+editing, implementation resumption, implementation review, implementation
+commit, and implementation push remain unauthorized. The next possible action
+is a separate explicit BDFL resumption signal only after this status commit is
+itself published and terminal-green.
 
 Owner: BDFL (Ocean).
 Author: Work Order 18 architect-author. The author may not independently review
@@ -911,16 +940,16 @@ authoring.
 
 ## Current authorization gate
 
-Work Order 18's original planning package and publication-status record are
-published and terminal-green. Unit 1 is stopped at the material README envelope
-defect. Only this remedial document amendment is under review.
+Work Order 18's original planning package, its publication-status record, and
+the remedial README-envelope amendment are accepted, published, and
+terminal-green. Unit 1 remains stopped and unauthorized.
 
-Restoration of the archived eleven blobs, editing `README.md`, resuming
-implementation, running implementation evidence, committing implementation,
-pushing implementation, and later work remain unauthorized. Amendment review,
-BDFL acceptance, the local documentation commit, publication and terminal full
-CI, publication-status recording and terminal fast CI, and a new explicit BDFL
-implementation-resumption signal are separate gates; none authorizes the next.
+Archive restoration, editing `README.md`, implementation resumption,
+implementation review, implementation commit, implementation push, and later
+work remain unauthorized. This status commit must itself be separately
+published and reach terminal-green fast-lane CI. Only after that gate may a new
+explicit BDFL signal authorize implementation resumption; no gate authorizes
+the next implicitly.
 
 Backend artifact bytes, `ir_verify`, `VerifiedBackendInput`, Cranelift work,
 native-stderr harness repair, open-skeleton tooling, termination, archive
