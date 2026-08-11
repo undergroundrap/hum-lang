@@ -2,8 +2,9 @@
 
 Date: 2026-08-10
 <!-- hum-active-workorder:v1 -->
-Status: Accepted and published planning package; implementation is not
-authorized. The exact independently reviewed documents were committed as
+Status: Published planning package; Unit 1 is stopped for a material
+implementation-envelope defect, and the remedial amendment below is under
+review. The exact independently reviewed planning documents were committed as
 `2f3131b8866703ecc40ae81cdce0458f93320ce2`, with parent
 `6960a340263f1a032c17df50c3048e9b88cf9041` and subject
 `docs(workorder): bind backend facts at ir readiness`, then published to
@@ -15,13 +16,32 @@ authorized. The exact independently reviewed documents were committed as
 the Exhaustive producer at 14,226 pairs with seed `0x48554D5F5345414C`;
 Windows correctly skipped the duplicate. Text hygiene and public readiness
 passed for 526 files, alpha claims passed, and release readiness passed for
-version `0.0.1`. Unit 1 remains unauthorized pending a separate BDFL go signal.
+version `0.0.1`. Publication was then recorded in status-only commit
+`a3b60708524edfc5631b8a6617ac6b2740fbeafe`, with parent
+`2f3131b8866703ecc40ae81cdce0458f93320ce2` and subject
+`docs(workorder): record work order 18 publication`. Required fast-lane CI
+passed in workflow `ci`, run `31445562441`, attempt 1, with overall conclusion
+`success`. Ubuntu job `93638901547` and Windows job `93638901617` both
+reproduced `mode=fast;reason=eligible_status_chain`, anchored at
+`2f3131b8866703ecc40ae81cdce0458f93320ce2`, for transition
+`2f3131b8866703ecc40ae81cdce0458f93320ce2>a3b60708524edfc5631b8a6617ac6b2740fbeafe`.
+The first Unit 1 candidate later stopped when final Fast proved that `README.md`
+is a required durable consumer outside the original eleven-path envelope. That
+exact stopped candidate is preserved locally and remotely at
+`archive/workorder-18-unit1-envelope-stop-2026-08-10`, commit
+`82c6f74a6392ad806b4ab1dd33960654595627fb`. Unit 1 remains stopped; archive
+restoration, README editing, implementation, commit, and publication remain
+unauthorized pending the separate gates below.
 
 Owner: BDFL (Ocean).
 Author: Work Order 18 architect-author. The author may not independently review
 this document package or any implementation candidate produced under it.
-Planning baseline: `HEAD`, local `main`, cached `origin/main`, and live remote
-`main` are all `6960a340263f1a032c17df50c3048e9b88cf9041`.
+Historical WO18 planning baseline: the published Work Order 17 closeout commit
+`6960a340263f1a032c17df50c3048e9b88cf9041` was the `main` revision from which
+WO18 planning began. It is not the current amendment baseline.
+Current remedial-amendment and archived-candidate baseline: `HEAD`, local
+`main`, cached `origin/main`, and live remote `main` are all
+`a3b60708524edfc5631b8a6617ac6b2740fbeafe`.
 
 ## Closed predecessor and planning authority
 
@@ -397,9 +417,126 @@ ordering, fields, null/omission behavior, and blocker precedence. A public
 projection mutation can change rendered bytes in a corruption test but cannot
 mint the private facts or the new candidate status.
 
+## Remedial envelope-stop record and exact resumption base
+
+The original eleven-path Unit 1 candidate was not rejected for semantic
+behavior. Its evidence sequence stopped at three real boundaries:
+
+1. The first completed Fast failure exposed a required second resource-stage
+   Core-body consumer. The candidate retained both production consumers, and
+   the Replacement F4 audit was strengthened to require exactly one report-
+   builder call and one independent authority-issuance call.
+2. The next completed Fast failure exposed obsolete Session AP production-
+   source extraction. The candidate replaced that extraction non-vacuously,
+   retained nested cfg items and later production code, rejected terminal-test
+   spelling as production evidence, and added deletion and ambiguity controls.
+3. The final Fast passed the root Rust tests, all four Work Order 18 selectors,
+   the 99/99 exact-selector inventory, the compile-fail proof, Replacement F4,
+   and Session AP. It then failed the unchanged README/fixture parity gate
+   because the required `examples/core/minimal_add.hum` edit was not mirrored in
+   the checked README block.
+
+That last result is a material envelope defect, not a harness defect.
+`README.md` is a real durable consumer of the edited source. The exact stopped
+candidate is preserved and published at:
+
+- branch: `archive/workorder-18-unit1-envelope-stop-2026-08-10`;
+- commit: `82c6f74a6392ad806b4ab1dd33960654595627fb`;
+- parent: `a3b60708524edfc5631b8a6617ac6b2740fbeafe`;
+- complete tree: `05e60ef87b6a23b6a474323c25cdd5385f8c675c`; and
+- scoped eleven-path tree:
+  `f4b3594b1d4d745b7e8801b72ffa4a80204feabb`.
+
+The archive is immutable evidence and a permitted exact byte source for a
+later resumption. It is not semantic authority and must not be amended,
+rebased, merged, or treated as an accepted implementation.
+
+### Complete consumer audit and README synchronization
+
+The complete tracked consumer audit found one synchronized public copy and no
+additional implementation path:
+
+- `README.md` contains the sole
+  `<!-- hum-example:start examples/core/minimal_add.hum -->` block;
+- the unchanged `Assert-ReadmeHumExamplesMatch` function in
+  `tools/check_all.ps1` requires that marked code to be a contiguous substring
+  of the referenced fixture;
+- no second marked `minimal_add` block, live fixture checksum, manifest,
+  snapshot, golden file, or other exact-copy gate exists;
+- `src/core_lower.rs` and `src/core_verify.rs` consume the fixture dynamically
+  through `include_str!` and are already represented by the archived candidate
+  where their behavior changes;
+- the Cranelift experiment probes read the live source dynamically, while the
+  source SHA recorded in the historical lowering report is explicitly bound to
+  its historical compiler commit and must not be rewritten; and
+- unmarked `add` examples in `SPEC.md` and `docs/FORMAL_CORE.md` are independent
+  teaching examples, not mirrors of this fixture. Historical Work Orders are
+  records, not implementation consumers.
+
+README is therefore the indispensable twelfth path, and the audit found no
+thirteenth path. Its sole authorized implementation edit is to replace only the
+code inside the existing marked block with this verbatim contiguous fixture
+excerpt:
+
+```hum
+task add(a: Int, b: Int) -> Int {
+  allocates:
+    nothing
+
+  does:
+    return a + b
+}
+```
+
+This adds exactly the `allocates: nothing` section and its separating blank
+line. The marker comments, `Minimal form` teaching context, all other README
+prose and examples, and `Assert-ReadmeHumExamplesMatch` remain unchanged.
+README is synchronized public documentation, not semantic authority.
+
+Against published `main`, the exact README edit is expected to be `+3/-0`,
+with Git blob `d1f54f28c113de62c4d31f92a4eafbf6b6a26b2b`, SHA-256
+`29c75e3c416811c433f64c2bb1800aff7e664794f5809575143707a9cf4dbd3e`,
+32,429 bytes, and 487 lines. These identities must be reproduced before a
+resumed candidate can be frozen; a discrepancy is a stop, not permission to
+change another path.
+
+### Frozen eleven archived blobs
+
+The first resumed implementation candidate must restore these exact archive
+blobs byte-for-byte:
+
+| Path | Archived diff | Git blob |
+| --- | ---: | --- |
+| `src/type_check.rs` | `+68/-0` | `eb9f13d348aef04da255ff1b622f9b1005b5185d` |
+| `src/core_verify.rs` | `+156/-2` | `afb4824c2718c6b7a05c747ebfbeb0e36156ac15` |
+| `src/full_type_check.rs` | `+188/-13` | `4754748728581ff9f53cb5829275b9ac03e3fd2c` |
+| `src/effect_check.rs` | `+127/-5` | `9e975b72c01a1046167e3155f4e3431a47e4e0bf` |
+| `src/ownership_check.rs` | `+186/-16` | `8c3ea1909bea3fdef26b9351ac53a90545629c71` |
+| `src/resource_check.rs` | `+146/-2` | `349648f08a0d0f7938b0b726bce9f1ca8d0af448` |
+| `src/profile_check.rs` | `+168/-2` | `ac08e42c71a869651e0142dc2c0def1a7f2c8b7f` |
+| `src/ir_readiness.rs` | `+668/-3` | `2e70944fd5ab6be2cfa6798001d28e120a6add25` |
+| `examples/core/minimal_add.hum` | `+3/-0` | `86c7139d750d0b6e606eda248e3dc7b21f3923b2` |
+| `docs/HUM_IR_READINESS_SCHEMA.md` | `+61/-1` | `3a1b9f618915126c1397f27bfaa9403fc4f455ac` |
+| `tools/check_all.ps1` | `+87/-6` | `92828905e2f280be1d3f03397cea7bd6731b332b` |
+
+Those eleven paths remain exactly `+1,858/-50`. The first resumed candidate
+may add only the exact README edit above, producing exactly twelve paths and an
+expected combined `+1,861/-50`. Its expected insertion accounting is 947
+production-Rust lines, 760 permanent-test and compile-proof lines, and 154
+combined schema/tool/example/README lines. These expected figures are identity
+checks, not permission to ignore an honest discrepancy.
+
+No other semantic or tool change is permitted before the resumed candidate's
+final Fast run. A later implementer must verify the archive commit, scoped
+tree, all eleven archived blob identities, and the exact README identity before
+claiming the twelve-path candidate is restored.
+
 ## Complete implementation envelope
 
-Exactly these eleven paths are authorized for Unit 1:
+After this amendment is independently accepted, committed, published through
+terminal full CI, recorded through terminal fast CI, and followed by a new
+explicit BDFL resumption signal, exactly these twelve paths are authorized for
+Unit 1:
 
 1. `src/type_check.rs`
    - expose the narrow borrowed operand/resolver/type identity facts from the
@@ -424,21 +561,27 @@ Exactly these eleven paths are authorized for Unit 1:
      it in production readiness, and freeze the new narrow projection.
 9. `examples/core/minimal_add.hum`
    - add only the explicit `allocates: nothing` source intent.
-10. `docs/HUM_IR_READINESS_SCHEMA.md`
+10. `README.md`
+    - update only the existing checked `hum-example` block for
+      `examples/core/minimal_add.hum` by adding the exact `allocates: nothing`
+      section and separating blank line; preserve verbatim contiguous fixture
+      parity and make no unrelated prose or example change.
+11. `docs/HUM_IR_READINESS_SCHEMA.md`
     - document the exact status/facts additions, fourteen-pass prerequisite
       set including `core_preview`, and non-authority boundary.
-11. `tools/check_all.ps1`
+12. `tools/check_all.ps1`
     - register exact selectors and the compile-fail evidence; do not repair the
       native-stderr capture harness.
 
-No listed path is speculative. No twelfth path is permitted. In particular,
+No listed path is speculative. No thirteenth path is permitted. In particular,
 Unit 1 excludes:
 
 - `src/ast.rs`, `src/parser.rs`, `src/resolve.rs`, `src/type_env.rs`;
 - `src/core_body.rs`, `src/core_expr.rs`, `src/core_lower.rs`;
 - `src/main.rs`, `src/lib.rs`, `src/version.rs`, `src/capabilities.rs`;
 - `src/ir_contract.rs`, `src/backend_contract.rs`;
-- Cargo files, workflows, other fixtures/examples, and other schemas/docs;
+- Cargo files, workflows, other fixtures/examples, and docs or schemas other
+  than the two explicitly listed documentation paths;
 - a new backend-input, IR-verifier, digest, JSON parser, or backend module.
 
 If any excluded path is required for an honest implementation, stop for BDFL
@@ -584,12 +727,12 @@ No other example or fixture changes.
 This prerequisite is intentionally smaller than artifact encoding and byte
 verification. Final implementation limits are:
 
-- at most 1,900 insertions and fewer than 180 deletions across all eleven
+- at most 1,900 insertions and fewer than 180 deletions across all twelve
   paths;
 - at most 950 production-source insertions excluding `#[cfg(test)]` and
   compile-proof bodies;
 - at most 760 permanent-test and compile-proof insertions;
-- at most 190 combined schema, tool, and example insertions;
+- at most 190 combined schema, tool, example, and README insertions;
 - no generated source, dependency, unsafe code, macro-generated protocol, or
   duplicated public projection; and
 - no more than four focused independent-review hours.
@@ -598,10 +741,36 @@ Checked ordinal arithmetic must use checked operations. No truncation,
 wrapping, saturation, unchecked indexing, or panic on adversarial candidate
 data is allowed.
 
-Implementation gets one authoring pass, one fresh independent review, and at
-most one separately authorized bounded correction inside this exact envelope.
-A correction may not add a path, public schema family, producer, or mechanism.
-Any architecture, scope, or budget breach stops and returns to the BDFL.
+The original eleven-path authoring/correction lifecycle is consumed. Its
+archived bytes and partial evidence receive no automatic acceptance credit.
+The reviewed envelope amendment creates one new, explicit lifecycle: one
+resumption pass from the exact archived blobs plus the exact README edit, one
+fresh independent review of the complete twelve-path candidate, and at most one
+separately authorized bounded correction inside this twelve-path envelope. A
+correction may not add a path, public schema family, producer, mechanism, or
+change to the frozen archive base. A thirteenth path or any architecture,
+scope, or budget breach stops and returns to the BDFL.
+
+## Resumed implementation evidence boundary
+
+The resumed implementer must:
+
+- verify all twelve path identities before running acceptance evidence;
+- prove that README's checked block is the exact contiguous excerpt of the
+  edited `examples/core/minimal_add.hum` fixture frozen above;
+- run the proportional Rust, selector, source-audit, document, compatibility,
+  and preservation checks already required by this Work Order;
+- run final Fast exactly once on the frozen bytes with native stdout and stderr
+  kept separate under the invocation rule below;
+- run no local Exhaustive producer;
+- stop on any completed Fast failure without correction, retry, or workaround;
+  and
+- leave the complete twelve-path candidate unstaged and uncommitted for one
+  fresh independent implementation review.
+
+Archive restoration, README editing, and every implementation check remain
+unauthorized until the amendment's review, acceptance, commit, publication,
+status, and explicit resumption gates are complete.
 
 ## Native-stderr evidence rule
 
@@ -659,7 +828,7 @@ The following are forbidden:
 - exposing a public/crate-visible constructor for any authority or final facts;
 - serializing an authority or calling it `VerifiedBackendInput`;
 - test-only minting of successful production authority;
-- a twelfth path or a new dependency; and
+- a thirteenth path or a new dependency; and
 - reuse of rejected Work Order 13 or 15 implementation material.
 
 Stop without workaround if any required fact cannot be tied to the exact live
@@ -704,12 +873,14 @@ authorized.
 
 ## Review, correction, commit, and publication gates
 
-This exact two-document package requires one fresh independent pre-issuance
-architect review by a reviewer who did not author or edit it. The reviewer must
-independently test authority validity, sufficiency, evidence linkage, the
-resource prerequisite, exact dependency direction, eleven-path necessity and
-sufficiency, public readiness contract, corruption/lifetime evidence,
-sustainability, and all document checks.
+The original two-document planning package completed its review and
+publication gates. This remedial `WORKORDER_18.md`-only amendment requires one
+fresh independent pre-issuance architect review by a reviewer who did not
+author or edit it. The reviewer must independently test authority validity,
+the envelope-stop history, archive and blob identities, consumer-audit
+completeness, the exact README synchronization rule, twelve-path necessity and
+sufficiency, preserved architecture/evidence/budgets, lifecycle boundaries,
+and all document checks.
 
 The document verdict is `ACCEPT`, `ACCEPT WITH REQUIRED FIX`, or `REJECT`; no
 verdict authorizes an edit. At most one separately authorized bounded document
@@ -726,7 +897,6 @@ terminal full CI, and status closeout are also separate.
 Before freezing this draft, the architect-author runs only:
 
 - `git diff --check`;
-- fail-closed no-index whitespace checking for untracked `WORKORDER_18.md`;
 - the complete 123-case status-classifier suite twice with byte-identical
   output;
 - text hygiene;
@@ -741,17 +911,19 @@ authoring.
 
 ## Current authorization gate
 
-Work Order 18 is accepted, published, and terminal-green as the exact planning
-package recorded in the Status field. This document remains the sole active
-Work Order.
+Work Order 18's original planning package and publication-status record are
+published and terminal-green. Unit 1 is stopped at the material README envelope
+defect. Only this remedial document amendment is under review.
 
-The only eligible next activity is separately authorized publication of this
-status-only record. Unit 1 remains unauthorized until that publication is
-terminal-green and the BDFL issues a separate explicit implementation go
-signal. This local status commit does not authorize its own publication.
+Restoration of the archived eleven blobs, editing `README.md`, resuming
+implementation, running implementation evidence, committing implementation,
+pushing implementation, and later work remain unauthorized. Amendment review,
+BDFL acceptance, the local documentation commit, publication and terminal full
+CI, publication-status recording and terminal fast CI, and a new explicit BDFL
+implementation-resumption signal are separate gates; none authorizes the next.
 
-Work Order 18 Unit 1, backend artifact bytes, `ir_verify`,
-`VerifiedBackendInput`, Cranelift work, native-stderr harness repair,
-open-skeleton tooling, termination, archive mutation, another Work Order, and
-every later activity remain unauthorized pending their explicit gates.
+Backend artifact bytes, `ir_verify`, `VerifiedBackendInput`, Cranelift work,
+native-stderr harness repair, open-skeleton tooling, termination, archive
+mutation, another Work Order, and every later activity remain unauthorized
+pending their explicit gates.
 <!-- workorder-current-authorization-gate:end -->
