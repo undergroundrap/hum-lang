@@ -2,65 +2,52 @@
 
 Date: 2026-08-10
 <!-- hum-active-workorder:v1 -->
-Status: Published planning package and published remedial amendment; Unit 1
-remains stopped and unauthorized pending publication of this status record and
-a later separate explicit BDFL resumption signal. The exact independently
-reviewed planning documents were committed as
-`2f3131b8866703ecc40ae81cdce0458f93320ce2`, with parent
-`6960a340263f1a032c17df50c3048e9b88cf9041` and subject
-`docs(workorder): bind backend facts at ir readiness`, then published to
-`origin/main` by normal fast-forward. Required full-lane CI passed in workflow
-`ci`, run `31440656283`, attempt 1, with overall conclusion `success` and
-`mode=full;reason=no_status_transition` on both required platforms. Ubuntu job
-`93624472019` succeeded in 18m17s with a 17m39s full preflight; Windows job
-`93624471931` succeeded in 26m58s with a 26m36s full preflight. Ubuntu passed
-the Exhaustive producer at 14,226 pairs with seed `0x48554D5F5345414C`;
-Windows correctly skipped the duplicate. Text hygiene and public readiness
-passed for 526 files, alpha claims passed, and release readiness passed for
-version `0.0.1`. Publication was then recorded in status-only commit
-`a3b60708524edfc5631b8a6617ac6b2740fbeafe`, with parent
-`2f3131b8866703ecc40ae81cdce0458f93320ce2` and subject
-`docs(workorder): record work order 18 publication`. Required fast-lane CI
-passed in workflow `ci`, run `31445562441`, attempt 1, with overall conclusion
-`success`. Ubuntu job `93638901547` and Windows job `93638901617` both
-reproduced `mode=fast;reason=eligible_status_chain`, anchored at
-`2f3131b8866703ecc40ae81cdce0458f93320ce2`, for transition
-`2f3131b8866703ecc40ae81cdce0458f93320ce2>a3b60708524edfc5631b8a6617ac6b2740fbeafe`.
-The first Unit 1 candidate later stopped when final Fast proved that `README.md`
-is a required durable consumer outside the original eleven-path envelope. That
-exact stopped candidate is preserved locally and remotely at
-`archive/workorder-18-unit1-envelope-stop-2026-08-10`, commit
-`82c6f74a6392ad806b4ab1dd33960654595627fb`.
+Status: Closed: Work Order 18 Unit 1 was terminally rejected after its sole
+bounded correction cycle. The remedial-amendment publication was recorded in
+status commit `6ca305e6d9de76968ec5a3abc22e6a3fed4bdc7f`, with parent
+`0396399c94f5e43511f3811319320a6ca2db0b93` and subject
+`docs(workorder): record remedial amendment publication`. Its required
+fast-lane CI passed in workflow `ci`, run `31511815240`, attempt 1, with
+overall conclusion `success`. Ubuntu job `93847240160` and Windows job
+`93847240466` both succeeded and selected
+`mode=fast;reason=eligible_status_chain`, anchored at
+`0396399c94f5e43511f3811319320a6ca2db0b93`, for transition
+`0396399c94f5e43511f3811319320a6ca2db0b93>6ca305e6d9de76968ec5a3abc22e6a3fed4bdc7f`.
 
-The remedial amendment was independently accepted, committed as
-`0396399c94f5e43511f3811319320a6ca2db0b93`, with parent
-`a3b60708524edfc5631b8a6617ac6b2740fbeafe`, subject
-`docs(workorder): include readme in backend facts envelope`, sole path
-`WORKORDER_18.md`, statistics `+209/-37`, and blob
-`fd597ead78a8c262d0309492bc2cb32a4509f228`. It was published by normal
-non-force fast-forward of `main` only. Required full-lane CI passed in workflow
-`ci`, run `31462478083`, attempt 1, testing that exact SHA, with overall
-conclusion `success`. Both platforms reported
-`mode=full;reason=no_status_transition` with empty/zero status-chain fields.
-Ubuntu job `93688626613` on `ubuntu-latest` succeeded in 18m16s; its full
-Hum/Fast preflight succeeded in 17m39s and status-only evidence was skipped.
-Ubuntu's Exhaustive producer selected, ran, and passed exactly one
-`parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero`
-test with zero failures: F1 `630`, F2 `4,950`, F3/F4 `8,646`, total `14,226`,
-elapsed 16.42s, seed `0x48554D5F5345414C`. Windows job `93688626710` on
-`windows-latest` succeeded in 26m47s; its full Hum/Fast preflight succeeded in
-26m18s, the platform-independent Exhaustive duplicate was skipped, and
-status-only evidence was skipped. Both platforms passed Cargo-cache and
-Rust-toolchain preparation, text hygiene and public readiness for 526 files,
-alpha claims, release readiness for `0.0.1`, and the terminal
-`All Hum preflight checks passed.` marker.
+Unit 1 was explicitly resumed only after the remedial amendment and that
+status record were published and terminal-green. The final corrected candidate
+contained exactly twelve paths and `+2,334/-50`. Its terminal independent
+verdict was `REJECT` with one P1 and no P0 or P2. The remaining P1 was that the
+coherent public-field corruption matrix did not make the final private-lineage
+comparison load-bearing: absent lineage lost authority during full-type
+checking; foreign lineage was rejected by resource checking's Program-owned
+Core expectation; and disabling the final backend-facts Program-lineage
+comparison still left the selector green. The compiler-sealed intermediate
+wrappers and seven distinct checked-empty states were independently confirmed
+closed. The sole bounded correction cycle was consumed, and no Unit 1
+implementation commit was accepted or published to `main`.
 
-The remedial amendment is accepted, published, and terminal-green. Work Order
-18 Unit 1 remains stopped and unauthorized. Archive restoration, README
-editing, implementation resumption, implementation review, implementation
-commit, and implementation push remain unauthorized. The next possible action
-is a separate explicit BDFL resumption signal only after this status commit is
-itself published and terminal-green.
+The exact rejected candidate is preserved on branch
+`archive/workorder-18-unit1-terminal-rejection-2026-08-11`, commit
+`cc8af829bb8794daabee92298e4154be917b1de3`, with parent
+`6ca305e6d9de76968ec5a3abc22e6a3fed4bdc7f`, subject
+`chore(archive): preserve rejected work order 18 unit 1`, complete tree
+`970a65ac80fbcecdf93994796fe792d46aeb632c`, scoped twelve-path tree
+`10daf6b4598086769ef5a6de87de796e7858b619`, and statistics
+`12 paths, +2,334/-50`. The archive exists locally, in origin tracking, and on
+the live remote at that exact commit. Its publication created only that archive
+ref and triggered no workflow.
+
+Work Order 18 is closed. Its Unit 1 candidate and both WO18 archives are
+failure evidence only. No backend-facts authority from WO18 is accepted or
+present on `main`. Recovery stash
+`73101039f5e3faf0c802d4f723add1b891c51602` remains non-authoritative parked
+evidence and must not be applied or dropped under this authorization. Any
+replacement design or implementation requires a fresh Work Order and a
+separate BDFL signal. Backend artifact bytes, `ir_verify`,
+`VerifiedBackendInput`, Cranelift, native-stderr harness repair, open-skeleton
+tooling, termination work, archive mutation, and all later activity remain
+unauthorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 18 architect-author. The author may not independently review
@@ -940,19 +927,19 @@ authoring.
 
 ## Current authorization gate
 
-Work Order 18's original planning package, its publication-status record, and
-the remedial README-envelope amendment are accepted, published, and
-terminal-green. Unit 1 remains stopped and unauthorized.
+Work Order 18 is closed and terminally rejected. Unit 1 may not be resumed,
+repaired, accepted, committed, or published. Its candidate, both WO18 archive
+branches, and the recovery stash are failure evidence only and grant no
+backend-facts authority.
 
-Archive restoration, editing `README.md`, implementation resumption,
-implementation review, implementation commit, implementation push, and later
-work remain unauthorized. This status commit must itself be separately
-published and reach terminal-green fast-lane CI. Only after that gate may a new
-explicit BDFL signal authorize implementation resumption; no gate authorizes
-the next implicitly.
+This exact status-only closeout must be separately published and reach
+terminal-green fast-lane CI. Publication grants no replacement-planning or
+implementation authority. Any replacement requires a fresh Work Order and a
+separate explicit BDFL signal.
 
-Backend artifact bytes, `ir_verify`, `VerifiedBackendInput`, Cranelift work,
-native-stderr harness repair, open-skeleton tooling, termination, archive
-mutation, another Work Order, and every later activity remain unauthorized
-pending their explicit gates.
+Do not restore either archive, apply or drop the recovery stash, edit
+`README.md`, or begin backend artifact bytes, `ir_verify`,
+`VerifiedBackendInput`, Cranelift, native-stderr harness repair, open-skeleton
+tooling, termination work, archive mutation, replacement planning, or any
+later activity.
 <!-- workorder-current-authorization-gate:end -->
