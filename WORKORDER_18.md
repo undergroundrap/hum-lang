@@ -1,7 +1,6 @@
 # Hum Work Order 18: Bind Exact Minimal-Add Backend Facts At IR Readiness
 
 Date: 2026-08-10
-<!-- hum-active-workorder:v1 -->
 Status: Closed: Work Order 18 Unit 1 was terminally rejected after its sole
 bounded correction cycle. The remedial-amendment publication was recorded in
 status commit `6ca305e6d9de76968ec5a3abc22e6a3fed4bdc7f`, with parent
