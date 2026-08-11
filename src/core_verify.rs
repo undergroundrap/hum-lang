@@ -35,6 +35,7 @@ const NON_GOALS: &[&str] = &[
     "no profile enforcement",
 ];
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoreVerifyReadinessSummary {
     pub schema: &'static str,
     pub status: &'static str,
@@ -64,6 +65,13 @@ pub struct CoreVerifyReadinessSummary {
 struct CoreVerifyReport {
     lower: CoreLowerReport,
     checks: Vec<CoreVerifyCheck>,
+    backend_passes: Vec<CoreBackendPassAuthority>,
+}
+
+struct CoreBackendPassAuthority {
+    operation_id: String,
+    context: (usize, Vec<u8>, String, String, String),
+    conclusions: Vec<(&'static str, bool)>,
 }
 
 pub(crate) struct CoreVerifyFullTypeHandoff {
@@ -85,6 +93,7 @@ pub(crate) struct CoreVerifyDiagnosticOccurrenceAccess<'report> {
 
 pub(crate) struct VerifiedCanonicalMinimalAddTypeResult<'report> {
     authority: &'report type_check::CanonicalMinimalAddTypeAuthority,
+    backend_passes: &'report CoreBackendPassAuthority,
 }
 
 pub(crate) enum CanonicalMinimalAddTypeLookup<'report> {
@@ -228,6 +237,10 @@ impl<'report> CoreVerifyFullTypeReportAccess<'report> {
         }
     }
 
+    pub(crate) fn diagnostic_occurrence_set(&self) -> &'report DiagnosticOccurrenceSet {
+        &self.report.lower.diagnostic_occurrences
+    }
+
     pub(crate) fn canonical_minimal_add_type_for(
         &self,
         item: &Item,
@@ -280,8 +293,43 @@ impl<'report> CoreVerifyFullTypeReportAccess<'report> {
         if self.report.failed_checks() > 0 {
             return CanonicalMinimalAddTypeLookup::ReportBlocked;
         }
+        let backend_passes = match unique(
+            self.report
+                .backend_passes
+                .iter()
+                .filter(|candidate| candidate.operation_id == operation.id),
+        ) {
+            Some(Ok(authority)) => authority,
+            Some(Err(())) => return CanonicalMinimalAddTypeLookup::DuplicateOperation,
+            None => return CanonicalMinimalAddTypeLookup::LocallyIneligible,
+        };
+        let identity = authority.backend_identity();
+        const REQUIRED_CORE_PASSES: [&str; 7] = [
+            "parse",
+            "semantic_graph_build",
+            "resolve",
+            "body_grammar",
+            "core_preview",
+            "core_lowering",
+            "core_verify",
+        ];
+        if backend_passes.context.0 != identity.program_identity
+            || backend_passes.context.1 != identity.owner.file.source_revision.as_ref()
+            || backend_passes.context.2 != identity.source_identities[0]
+            || backend_passes.context.3 != identity.source_identities[1]
+            || backend_passes.context.4 != identity.source_identities[2]
+            || backend_passes.conclusions.len() != REQUIRED_CORE_PASSES.len()
+            || backend_passes
+                .conclusions
+                .iter()
+                .zip(REQUIRED_CORE_PASSES)
+                .any(|((actual, accepted), expected)| *actual != expected || !accepted)
+        {
+            return CanonicalMinimalAddTypeLookup::LocallyIneligible;
+        }
         CanonicalMinimalAddTypeLookup::Delivered(VerifiedCanonicalMinimalAddTypeResult {
             authority,
+            backend_passes,
         })
     }
 }
@@ -311,6 +359,17 @@ impl VerifiedCanonicalMinimalAddTypeResult<'_> {
             "verified_canonical_minimal_add_type_v0",
             compatible,
         )
+    }
+
+    pub(crate) fn backend_identity(&self) -> type_check::CanonicalMinimalAddBackendIdentity<'_> {
+        self.authority.backend_identity()
+    }
+
+    pub(crate) fn core_prerequisite_names(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.backend_passes
+            .conclusions
+            .iter()
+            .map(|(name, _)| *name)
     }
 }
 
@@ -550,7 +609,16 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> CoreVerifyRepo
             core_lower::corrupt_minimal_add_candidate_for_test(&mut lower, corruption);
         }
     });
-    finish_report(program, lower)
+    let report = finish_report(program, lower);
+    #[cfg(test)]
+    let mut report = report;
+    #[cfg(test)]
+    CORE_VERIFY_BACKEND_PASS_CORRUPTION.with(|corruption| {
+        if let Some(corruption) = corruption.take() {
+            corrupt_backend_passes_for_test(&mut report, corruption);
+        }
+    });
+    report
 }
 
 fn finish_report(program: &Program, lower: CoreLowerReport) -> CoreVerifyReport {
@@ -581,13 +649,57 @@ fn finish_report(program: &Program, lower: CoreLowerReport) -> CoreVerifyReport 
     }
     #[cfg(test)]
     CORE_VERIFY_REPORT_BUILD_COUNT.with(|count| count.set(count.get().checked_add(1).unwrap()));
-    CoreVerifyReport { lower, checks }
+    let backend_passes = collect_core_backend_passes(program, &lower);
+    CoreVerifyReport {
+        lower,
+        checks,
+        backend_passes,
+    }
+}
+
+fn collect_core_backend_passes(
+    program: &Program,
+    lower: &CoreLowerReport,
+) -> Vec<CoreBackendPassAuthority> {
+    lower
+        .core_items
+        .iter()
+        .flat_map(|item| &item.operations)
+        .filter_map(|operation| {
+            let authority = operation
+                .minimal_add_type_outcome()?
+                .supported_authority()?;
+            let identity = authority.backend_identity();
+            (identity.program_identity == std::ptr::from_ref(program).addr()).then(|| {
+                CoreBackendPassAuthority {
+                    operation_id: operation.id.clone(),
+                    context: (
+                        identity.program_identity,
+                        identity.owner.file.source_revision.to_vec(),
+                        identity.source_identities[0].clone(),
+                        identity.source_identities[1].clone(),
+                        identity.source_identities[2].clone(),
+                    ),
+                    conclusions: vec![
+                        ("parse", true),
+                        ("semantic_graph_build", true),
+                        ("resolve", true),
+                        ("body_grammar", true),
+                        ("core_preview", true),
+                        ("core_lowering", true),
+                        ("core_verify", true),
+                    ],
+                }
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
 thread_local! {
     static CORE_VERIFY_REPORT_BUILD_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static CORE_VERIFY_TEST_CORRUPTION: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
+    static CORE_VERIFY_BACKEND_PASS_CORRUPTION: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
 }
 
 #[cfg(test)]
@@ -603,6 +715,47 @@ pub(crate) fn core_verify_report_build_count_for_test() -> usize {
 #[cfg(test)]
 pub(crate) fn set_core_verify_corruption_for_test(corruption: &'static str) {
     CORE_VERIFY_TEST_CORRUPTION.with(|active| assert_eq!(active.replace(Some(corruption)), None));
+}
+
+#[cfg(test)]
+pub(crate) fn set_backend_pass_corruption_for_test(corruption: &'static str) {
+    CORE_VERIFY_BACKEND_PASS_CORRUPTION
+        .with(|active| assert_eq!(active.replace(Some(corruption)), None));
+}
+
+#[cfg(test)]
+fn corrupt_backend_passes_for_test(report: &mut CoreVerifyReport, corruption: &'static str) {
+    let authority = report
+        .backend_passes
+        .first_mut()
+        .expect("backend-pass corruption requires one supported operation");
+    let preview = authority
+        .conclusions
+        .iter()
+        .position(|(name, _)| *name == "core_preview")
+        .expect("core preview pass");
+    match corruption {
+        "missing_core_preview" => {
+            authority.conclusions.remove(preview);
+        }
+        "blocked_core_preview" => authority.conclusions[preview].1 = false,
+        "duplicate_core_preview" => {
+            if let Some(next) = preview.checked_add(1) {
+                authority.conclusions.insert(next, ("core_preview", true));
+            } else {
+                authority.conclusions.clear();
+            }
+        }
+        "foreign_core_preview" => authority.context.0 ^= 1,
+        "reordered_core_preview" => {
+            if let Some(prior) = preview.checked_sub(1) {
+                authority.conclusions.swap(prior, preview);
+            } else {
+                authority.conclusions.clear();
+            }
+        }
+        _ => panic!("unknown backend-pass corruption: {corruption}"),
+    }
 }
 
 pub(crate) fn validate_diagnostic_projection_from_source(
@@ -2178,6 +2331,7 @@ mod tests {
         let report = super::CoreVerifyReport {
             lower: sole,
             checks: sole_checks,
+            backend_passes: Vec::new(),
         };
         assert_eq!(report.verification_status(), super::CORE_VERIFY_FAILED_STATUS);
         assert_eq!(report.verified_operations(), 0);

@@ -133,11 +133,44 @@ struct OperandAuthority(Reference, Definition, CheckedDeclaration);
 pub(crate) struct CanonicalMinimalAddTypeAuthority {
     program_identity: usize,
     owner: CanonicalCoreOwnerBinding,
+    source_module: Option<String>,
     source_identities: [String; 3],
     root: CanonicalExpression,
     operands: [OperandAuthority; 2],
+    operand_value_ids: [String; 2],
     declared_result: Option<(String, &'static str, bool)>,
     checked_type: (&'static str, &'static str),
+}
+
+pub(crate) struct CanonicalMinimalAddBackendIdentity<'authority> {
+    pub(crate) program_identity: usize,
+    pub(crate) owner: &'authority CanonicalCoreOwnerBinding,
+    pub(crate) source_module: Option<&'authority str>,
+    pub(crate) source_identities: &'authority [String; 3],
+    pub(crate) root: &'authority CanonicalExpression,
+    pub(crate) checked_type: (&'static str, &'static str),
+    pub(crate) declared_result_compatible: Option<bool>,
+    authority: &'authority CanonicalMinimalAddTypeAuthority,
+}
+
+#[cfg(test)]
+thread_local! {
+    static WO18_STAGE_CORRUPTION: std::cell::Cell<Option<(&'static str, &'static str)>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn set_wo18_stage_corruption(stage: &'static str, kind: &'static str) {
+    WO18_STAGE_CORRUPTION.with(|active| assert_eq!(active.replace(Some((stage, kind))), None));
+}
+
+#[cfg(test)]
+pub(crate) fn take_wo18_stage_corruption(stage: &str) -> Option<&'static str> {
+    WO18_STAGE_CORRUPTION.with(|active| {
+        active
+            .get()
+            .filter(|(target, _)| *target == stage)
+            .and_then(|(_, kind)| active.take().map(|_| kind))
+    })
 }
 
 enum Disposition {
@@ -299,12 +332,20 @@ impl CanonicalMinimalAddTypeProducer {
                 CanonicalMinimalAddTypeAuthority {
                     program_identity: std::ptr::from_ref(program).addr(),
                     owner: owner.clone(),
+                    source_module: program
+                        .files
+                        .get(owner.file.semantic_file_index)
+                        .and_then(|file| file.module.clone()),
                     source_identities: [
                         crate::resolve::semantic_item_identity_for(program, item),
                         parsed.source_node_id.as_str().to_string(),
                         format!("core-value:{}", root.node_id.as_str()),
                     ],
                     root: root.clone(),
+                    operand_value_ids: [
+                        format!("core-value:param:{}", left_facts.1.semantic_identity),
+                        format!("core-value:param:{}", right_facts.1.semantic_identity),
+                    ],
                     operands: [left_facts, right_facts],
                     declared_result: result.map(|result| {
                         (
@@ -495,6 +536,33 @@ impl CanonicalMinimalAddTypeAuthority {
             &self.source_identities[1],
             self.declared_result.as_ref().map(|result| result.2),
         )
+    }
+
+    pub(crate) fn backend_identity(&self) -> CanonicalMinimalAddBackendIdentity<'_> {
+        CanonicalMinimalAddBackendIdentity {
+            program_identity: self.program_identity,
+            owner: &self.owner,
+            source_module: self.source_module.as_deref(),
+            source_identities: &self.source_identities,
+            root: &self.root,
+            checked_type: self.checked_type,
+            declared_result_compatible: self.declared_result.as_ref().map(|result| result.2),
+            authority: self,
+        }
+    }
+}
+
+impl CanonicalMinimalAddBackendIdentity<'_> {
+    pub(crate) fn operand(&self, ordinal: usize) -> Option<(&str, &str, &str, &str, &str, &Span)> {
+        let operand = self.authority.operands.get(ordinal)?;
+        Some((
+            self.authority.operand_value_ids.get(ordinal)?,
+            operand.0.canonical_node_id.as_deref()?,
+            operand.1.id.as_str(),
+            operand.1.semantic_identity.as_str(),
+            operand.2.type_text.as_str(),
+            &operand.2.source_span,
+        ))
     }
 }
 

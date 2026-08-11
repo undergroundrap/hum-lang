@@ -85,6 +85,15 @@ struct EffectCheckReport {
     diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
+pub(crate) struct EffectOwnershipReportAccess<'report> {
+    report: &'report EffectCheckReport,
+    full_type: &'report full_type_check::FullTypeEffectReportAccess<'report>,
+}
+
+pub(crate) struct VerifiedMinimalAddEffect<'report>(
+    pub(crate) full_type_check::VerifiedMinimalAddFullType<'report>,
+);
+
 struct EffectItem {
     id: String,
     kind: &'static str,
@@ -171,6 +180,10 @@ pub fn effect_check_has_errors(program: &Program, diagnostics: &[Diagnostic]) ->
 
 pub fn effect_check_summary(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckSummary {
     let report = build_report(program, diagnostics);
+    summary_from_report(&report)
+}
+
+fn summary_from_report(report: &EffectCheckReport) -> EffectCheckSummary {
     EffectCheckSummary {
         schema: EFFECT_CHECK_SCHEMA,
         status: report.status(),
@@ -402,7 +415,17 @@ pub fn effect_check_json(program: &Program, diagnostics: &[Diagnostic]) -> Strin
 }
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckReport {
-    let full_type_check_summary = full_type_check::full_type_check_summary(program, diagnostics);
+    full_type_check::with_full_type_for_effect(program, diagnostics, |access| {
+        build_report_from_full_type(program, diagnostics, &access)
+    })
+}
+
+fn build_report_from_full_type(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    full_type_access: &full_type_check::FullTypeEffectReportAccess<'_>,
+) -> EffectCheckReport {
+    let (full_type_check_summary, full_type_occurrences) = full_type_access.report_parts();
     let source_errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
@@ -420,9 +443,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckRep
             item.boundary_checks.push(capability_boundary_check(route));
         }
     }
-
-    let mut diagnostic_occurrences =
-        full_type_check::diagnostic_occurrence_set(program, diagnostics);
+    let mut diagnostic_occurrences = full_type_occurrences.clone();
     let projection = diagnostic_projection_from_full_type(&diagnostic_occurrences)
         .expect("effect check must carry one sealed full-type projection");
     projection
@@ -438,7 +459,6 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckRep
             .expect("effect-owned typed-failure occurrences must remain unique");
     }
     let static_prior_blockers = diagnostic_occurrences.prior_blockers();
-
     EffectCheckReport {
         full_type_check_summary,
         items,
@@ -456,6 +476,108 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> EffectCheckRep
     }
 }
 
+fn build_report_with<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    consume: impl for<'report> FnOnce(EffectOwnershipReportAccess<'report>) -> R,
+) -> (EffectCheckReport, R) {
+    full_type_check::with_full_type_for_effect(program, diagnostics, |full_type_access| {
+        #[allow(unused_mut)]
+        let mut report = build_report_from_full_type(program, diagnostics, &full_type_access);
+        #[cfg(test)]
+        corrupt_wo18_report_for_test(&mut report);
+        let result = consume(EffectOwnershipReportAccess {
+            report: &report,
+            full_type: &full_type_access,
+        });
+        (report, result)
+    })
+}
+
+#[cfg(test)]
+fn corrupt_wo18_report_for_test(report: &mut EffectCheckReport) {
+    let Some(kind) = crate::type_check::take_wo18_stage_corruption("effect_check") else {
+        return;
+    };
+    match kind {
+        "missing" => {
+            if let Some(item) = report.items.first_mut() {
+                item.statements.clear()
+            }
+        }
+        "global" => report.source_errors = 1,
+        kind => {
+            let Some(row) = report
+                .items
+                .first_mut()
+                .and_then(|item| item.statements.first_mut())
+            else {
+                return;
+            };
+            match kind {
+                "target" => row.target = Some("external.authority".to_string()),
+                "declaration" => row.declaration = Some("changes external".to_string()),
+                "rejected" => row.status = "rejected_external_effect_v0",
+                "unchecked" => row.status = "unchecked_effect_v0",
+                "foreign" => row.span.file = "foreign.hum".to_string(),
+                _ => report.items.clear(),
+            }
+        }
+    }
+}
+
+pub(crate) fn with_effect_for_ownership<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    consume: impl for<'report> FnOnce(EffectOwnershipReportAccess<'report>) -> R,
+) -> R {
+    build_report_with(program, diagnostics, consume).1
+}
+
+impl<'report> EffectOwnershipReportAccess<'report> {
+    pub(crate) fn report_parts(&self) -> (EffectCheckSummary, &'report DiagnosticOccurrenceSet) {
+        (
+            summary_from_report(self.report),
+            &self.report.diagnostic_occurrences,
+        )
+    }
+
+    pub(crate) fn canonical_minimal_add_for(
+        &self,
+        item: &Item,
+        statement: &crate::ast::ParsedBodyStatement,
+    ) -> Option<VerifiedMinimalAddEffect<'report>> {
+        let full_type = self.full_type.canonical_minimal_add_for(item, statement)?;
+        (self.report.blocking_issues() == 0).then_some(())?;
+        let item_row = sole(self.report.items.iter().filter(|row| {
+            row.kind == item.kind()
+                && row.name == item.name()
+                && row.span == portable_span(item.span())
+        }))?;
+        let statement_row = sole(
+            item_row
+                .statements
+                .iter()
+                .filter(|row| row.span == portable_span(&statement.span)),
+        )?;
+        (statement_row.effect_kind == "pure_or_local"
+            && statement_row.target.as_deref() == Some("a + b")
+            && statement_row.declaration.is_none()
+            && statement_row.status == "accepted_no_external_effect_v0"
+            && statement_row.reason.is_none()
+            && item_row.boundary_checks.iter().all(|row| {
+                !row.status.starts_with("rejected_") && !row.status.starts_with("unchecked_")
+            }))
+        .then_some(VerifiedMinimalAddEffect(full_type))
+    }
+}
+
+pub(crate) fn sole<I: Iterator>(mut values: I) -> Option<I::Item> {
+    let value = values.next()?;
+    values.next().is_none().then_some(value)
+}
+
+#[allow(dead_code)]
 pub(crate) fn diagnostic_occurrence_set(
     program: &Program,
     diagnostics: &[Diagnostic],
