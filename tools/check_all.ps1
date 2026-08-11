@@ -381,6 +381,10 @@ try {
   Invoke-ExactRustTest 'Work Order 17 exact Core operation type ownership' $Cargo 'core_lower::tests::canonical_minimal_add_type_authority_is_owned_by_exact_operation'
   Invoke-ExactRustTest 'Work Order 17 verified access is withheld after corruption' $Cargo 'core_verify::tests::canonical_minimal_add_type_verification_withholds_invalid_access'
   Invoke-ExactRustTest 'Work Order 17 full type consumes only verified canonical type' $Cargo 'full_type_check::tests::minimal_add_consumes_only_verified_canonical_type'
+  Invoke-ExactRustTest 'Work Order 18 exact full-type backend handoff' $Cargo 'full_type_check::tests::minimal_add_backend_fact_handoff_is_exact_and_borrowed'
+  Invoke-ExactRustTest 'Work Order 18 exact effect and ownership authority' $Cargo 'ownership_check::tests::minimal_add_effect_and_ownership_authority_stays_operation_owned'
+  Invoke-ExactRustTest 'Work Order 18 checked-empty resource and profile authority' $Cargo 'profile_check::tests::minimal_add_resource_and_profile_authority_is_checked_empty'
+  Invoke-ExactRustTest 'Work Order 18 complete backend facts before IR verify' $Cargo 'ir_readiness::tests::minimal_add_backend_facts_are_complete_but_ir_verify_blocked'
   Invoke-ExactRustTest 'Increment 10B.1b recursive H0010 sealed-consumer matrix and controls' $Cargo 'parser::tests::recursive_h0010_consumer_is_complete_and_load_bearing'
   Invoke-ExactRustTest 'Increment 10B.1b canonical-tree and retained-authority corruption matrix' $Cargo 'parser::tests::h0010_sealed_corruption_and_authority_substitution_fail_closed'
   Invoke-ExactRustTest 'Increment 10B.2 supporting resolver/callable production source and dataflow audit' $Cargo 'callable::tests::ten_b2_source_audit_rejects_semantic_reconstruction_and_span_selection'
@@ -965,6 +969,20 @@ task malformed() -> UInt {
     if ([regex]::IsMatch($Entry.Value, 'CanonicalCore(?:FileWitness|OwnerWitness|SealCapability|ParseContext)::parser_issue\s*\(') -or [regex]::IsMatch($Entry.Value, '(?:SourceFile|App|TypeDef|Store|Task|Test|Section)::parser_new\s*\(') -or [regex]::IsMatch($Entry.Value, 'CanonicalCore(?:FileWitness|OwnerWitness|SealCapability|ParseContext)\s*\(') -or [regex]::IsMatch($Entry.Value, 'canonical_core_(?:file_witness|owner_witness|seal_capability)\s*:\s*Some\s*\(')) { throw "Replacement F4 valid-authority issuer escaped ast/parser: $($Entry.Key)" }
   }
   if ([regex]::Matches($F4AstProduction, 'pub\(crate\) fn parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, '::parser_issue\(').Count -ne 4 -or [regex]::Matches($F4ParserProduction, 'SourceFile::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ParserProduction, 'Item::(?:App|Type|Store|Task|Test)\([^\r\n]*::parser_new\(').Count -ne 5 -or [regex]::Matches($F4ParserProduction, 'Section::parser_new\(').Count -ne 1 -or [regex]::Matches($F4ProductionSources['src/app_entry.rs'], 'SourceFile::empty_non_authoritative\(').Count -ne 1) { throw 'Replacement F4 valid-authority issuer or installer inventory drifted' }
+  function Assert-F4ResourceCoreTopology([string]$Source) {
+    $ReportBuilder = [regex]::Match($Source, '(?ms)^fn check_task\s*\(.*?^\)\s*->\s*Option<ResourceItem>\s*\{(?<body>.*?)^\}')
+    $AccessImpl = [regex]::Match($Source, '(?ms)^impl<''report> ResourceProfileReportAccess<''report>\s*\{(?<body>.*?)^\}')
+    $AuthorityIssuer = if ($AccessImpl.Success) { [regex]::Match($AccessImpl.Groups['body'].Value, '(?ms)^    pub\(crate\) fn canonical_minimal_add_for\s*\(.*?^    \)\s*->\s*Option<VerifiedMinimalAddResource<''report>>\s*\{(?<body>.*?)^    \}') } else { $null }
+    if (-not $ReportBuilder.Success -or $null -eq $AuthorityIssuer -or -not $AuthorityIssuer.Success) { throw 'Replacement F4 resource Core consumers must remain in check_task and ResourceProfileReportAccess::canonical_minimal_add_for' }
+    $ReportBody = $ReportBuilder.Groups['body'].Value
+    $AuthorityBody = $AuthorityIssuer.Groups['body'].Value
+    if ([regex]::Matches($Source, '\banalyze_does_section\s*\(').Count -ne 2 -or [regex]::Matches($ReportBody, '\banalyze_does_section\s*\(').Count -ne 1 -or [regex]::Matches($AuthorityBody, '\banalyze_does_section\s*\(').Count -ne 1) { throw 'Replacement F4 resource Core consumers must remain exactly one report-builder call plus one authority-issuance call' }
+    if (-not [regex]::IsMatch($ReportBody, 'let body\s*=\s*core_body::analyze_does_section\s*\(\s*program\s*\.canonical_core_expectation\s*\(\s*item\s*,\s*does\s*\)\s*\.expect\s*\(\s*"live resource task must have parser authority"\s*\)\s*,?\s*\)\s*;') -or -not [regex]::IsMatch($ReportBody, 'task_resource_checks\s*\(\s*task\s*,\s*&declarations\s*,\s*&body\.statements\s*,')) { throw 'Replacement F4 resource report construction must consume and use one fresh Program-owned Core expectation in check_task' }
+    $AuthorityCall = [regex]::Match($AuthorityBody, 'let body\s*=\s*core_body::analyze_does_section\s*\(\s*self\.program\.canonical_core_expectation\s*\(\s*item\s*,\s*does\s*\)\.ok\s*\(\s*\)\?\s*,?\s*\)\s*;')
+    $AuthorityIssueIndex = $AuthorityBody.IndexOf('.then_some(VerifiedMinimalAddResource')
+    if (-not $AuthorityCall.Success -or $AuthorityIssueIndex -le $AuthorityCall.Index -or -not [regex]::IsMatch($AuthorityBody, 'body\.statements\.len\s*\(\s*\)\s*==\s*1\s*&&\s*body\.statements\.iter\s*\(\s*\)\.all')) { throw 'Replacement F4 resource authority issuance must independently consume and use the live authenticated body before issuing VerifiedMinimalAddResource' }
+  }
+  Assert-F4ResourceCoreTopology $F4ProductionSources['src/resource_check.rs']
   $F4ConsumerCalls = [ordered]@{
     'src/check.rs' = 1
     'src/core_lower.rs' = 0
@@ -976,7 +994,7 @@ task malformed() -> UInt {
     'src/path_boundary.rs' = 2
     'src/predicate.rs' = 1
     'src/resolve.rs' = 1
-    'src/resource_check.rs' = 1
+    'src/resource_check.rs' = 2
     'src/run.rs' = 3
     'src/type_check.rs' = 1
     'src/typed_failure.rs' = 1
@@ -1003,7 +1021,8 @@ task malformed() -> UInt {
   $F4CoreLowerProduction = $F4ProductionSources['src/core_lower.rs']
   if ($F4CoreLowerProduction.Contains('canonical_expressions') -or -not $F4CoreLowerProduction.Contains('bound_statement: &CanonicalBodyStatement') -or -not $F4CoreLowerProduction.Contains('let statement = bound_statement.statement();') -or -not $F4CoreLowerProduction.Contains('let canonical_expression = bound_statement.canonical_expression();') -or [regex]::IsMatch($F4CoreLowerProduction, 'canonical_expression[^\r\n]*\.get\s*\(\s*index\s*\)')) { throw 'Replacement F4 Core lowering must consume parser authority directly from the current bound statement' }
   $F4CombinedProductionCallCount = $F4ProductionCallCount + $F4PrivateLoweringCallCount
-  if ($F4ConsumerCalls.Count -ne 14 -or $F4ProductionCallCount -ne 17 -or $F4PrivateLoweringCallCount -ne 1 -or $F4CombinedProductionCallCount -ne 18) { throw "Replacement F4 must retain exactly 17 public plus one private lowering use across 14 consumer files, found $F4ProductionCallCount public and $F4PrivateLoweringCallCount private across $($F4ConsumerCalls.Count)" }
+  if ($F4ConsumerCalls.Count -ne 14 -or $F4ProductionCallCount -ne 18 -or $F4PrivateLoweringCallCount -ne 1 -or $F4CombinedProductionCallCount -ne 19) { throw "Replacement F4 must retain exactly 18 public plus one private lowering use across 14 consumer files, found $F4ProductionCallCount public and $F4PrivateLoweringCallCount private across $($F4ConsumerCalls.Count)" }
+  Write-Host "Replacement F4 inventory passed: registered=14 public=18 private=1 combined=19 core_verify_private=0 unregistered=0 issuers=4/4"
   if (-not $F4ParserProduction.Contains('CanonicalCoreFileWitness::parser_issue') -or -not $F4ParserProduction.Contains('CanonicalCoreOwnerWitness::parser_issue') -or -not $F4ParserProduction.Contains('CanonicalCoreSealCapability::parser_issue') -or -not $F4ParserProduction.Contains('CanonicalCoreParseContext::parser_issue')) { throw 'Replacement F4 independent file, item, Section, and pre-Program authority issuance is incomplete' }
   if (-not $F4ParserTestSource.Contains('assert_eq!(catalogue_count, 132)') -or -not $F4ParserTestSource.Contains('assert_eq!(pairs.len(), 8_646)')) { throw 'Replacement F4 independently supplied 132-field/8646-pair pins are missing' }
   $F4AuditPin = [regex]::Match($F4ParserTestSource, '(?s)const REQUIRED_SOURCE_AUDIT_ARMS: \[&str; 13\] = \[(.*?)\];')
@@ -1062,6 +1081,77 @@ task malformed() -> UInt {
   if ([regex]::IsMatch($Wo17CompileFailure.Output, 'error\[E(?:0412|0422|0432|0433|0603)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|private (?:struct|field|function)')) { throw 'Work Order 17 lifetime proof failed for an unrelated privacy, symbol, cfg, or import reason' }
   if (-not [string]::Equals($env:RUSTFLAGS, $Wo17PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 17 lifetime proof did not restore RUSTFLAGS' }
   Invoke-Native 'Work Order 17 normal compiler check after lifetime proof' $Cargo @('check', '--all-targets')
+
+  Write-Host '==> Work Order 18 independently load-bearing intermediate-wrapper privacy proofs'
+  $Wo18CompileProofSource = Get-Content -Raw 'src/ir_readiness.rs'
+  foreach ($Wo18WrapperProof in @(
+    @{
+      Cfg = 'hum_compile_fail_verified_minimal_add_full_type_construction'
+      Function = 'verified_minimal_add_full_type_sibling_construction_must_not_compile'
+      Type = 'VerifiedMinimalAddFullType'
+    },
+    @{
+      Cfg = 'hum_compile_fail_verified_minimal_add_effect_construction'
+      Function = 'verified_minimal_add_effect_sibling_construction_must_not_compile'
+      Type = 'VerifiedMinimalAddEffect'
+    },
+    @{
+      Cfg = 'hum_compile_fail_verified_minimal_add_ownership_construction'
+      Function = 'verified_minimal_add_ownership_sibling_construction_must_not_compile'
+      Type = 'VerifiedMinimalAddOwnership'
+    }
+  )) {
+    $Wo18WrapperPriorRustFlags = $env:RUSTFLAGS
+    try {
+      $env:RUSTFLAGS = "--cfg $($Wo18WrapperProof.Cfg)"
+      $Wo18WrapperFailure = Read-NativeOutputWithExit "Work Order 18 $($Wo18WrapperProof.Type) sibling-construction proof" $Cargo @('check', '--all-targets')
+    } finally {
+      if ($null -eq $Wo18WrapperPriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo18WrapperPriorRustFlags }
+    }
+    if ($Wo18WrapperFailure.ExitCode -ne 101) { throw "Work Order 18 $($Wo18WrapperProof.Type) sibling-construction proof must exit 101, found $($Wo18WrapperFailure.ExitCode)" }
+    if (-not $Wo18CompileProofSource.Contains("fn $($Wo18WrapperProof.Function)(") -or -not $Wo18WrapperFailure.Output.Contains("tuple struct constructor ``$($Wo18WrapperProof.Type)`` is private")) { throw "Work Order 18 $($Wo18WrapperProof.Type) sibling-construction proof did not fail at its named private production constructor" }
+    if ([regex]::Matches($Wo18WrapperFailure.Output, 'error\[E0603\]: tuple struct constructor').Count -ne 1 -or [regex]::IsMatch($Wo18WrapperFailure.Output, 'error\[E0382\]|error\[E(?:0412|0422|0432|0433)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|expected item, found')) { throw "Work Order 18 $($Wo18WrapperProof.Type) sibling-construction proof failed for an unrelated reason" }
+    if (-not [string]::Equals($env:RUSTFLAGS, $Wo18WrapperPriorRustFlags, [System.StringComparison]::Ordinal)) { throw "Work Order 18 $($Wo18WrapperProof.Type) sibling-construction proof did not restore RUSTFLAGS" }
+  }
+
+  Write-Host '==> Work Order 18 lifetime-bound backend facts proof'
+  Invoke-Native 'Work Order 18 normal compiler check before backend facts proof' $Cargo @('check', '--all-targets')
+  $Wo18PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_canonical_minimal_add_backend_facts_escape'
+    $Wo18CompileFailure = Read-NativeOutputWithExit 'Work Order 18 forbidden backend facts escape proof' $Cargo @('check', '--all-targets')
+  } finally {
+    if ($null -eq $Wo18PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo18PriorRustFlags }
+  }
+  if ($Wo18CompileFailure.ExitCode -ne 101) { throw "Work Order 18 backend facts proof must exit 101, found $($Wo18CompileFailure.ExitCode)" }
+  foreach ($Wo18CompileFunction in @(
+    'backend_facts_return_escape_must_not_compile',
+    'backend_facts_static_escape_must_not_compile',
+    'backend_facts_collection_escape_must_not_compile',
+    'backend_facts_foreign_construction_must_not_compile'
+  )) {
+    if (-not $Wo18CompileFailure.Output.Contains($Wo18CompileFunction)) { throw "Work Order 18 backend facts proof did not identify $Wo18CompileFunction" }
+  }
+  foreach ($Wo18WrapperFunction in @(
+    'verified_minimal_add_full_type_sibling_construction_must_not_compile',
+    'verified_minimal_add_effect_sibling_construction_must_not_compile',
+    'verified_minimal_add_ownership_sibling_construction_must_not_compile'
+  )) {
+    if (-not $Wo18CompileProofSource.Contains("fn $Wo18WrapperFunction(")) { throw "Work Order 18 backend facts proof lost named sibling probe $Wo18WrapperFunction" }
+  }
+  if (-not [regex]::IsMatch($Wo18CompileFailure.Output, 'lifetime may not live long enough|error\[E05(?:15|21)\]')) { throw 'Work Order 18 backend facts escape proof did not fail for a borrow-check lifetime reason' }
+  if (-not $Wo18CompileFailure.Output.Contains('field `facts` of struct `CanonicalMinimalAddBackendFactsAccess` is private')) { throw 'Work Order 18 backend facts proof did not reject foreign construction at the private field' }
+  foreach ($Wo18PrivateWrapper in @(
+    'VerifiedMinimalAddFullType',
+    'VerifiedMinimalAddEffect',
+    'VerifiedMinimalAddOwnership'
+  )) {
+    if (-not $Wo18CompileFailure.Output.Contains("tuple struct constructor ``$Wo18PrivateWrapper`` is private")) { throw "Work Order 18 compiler proof did not reject sibling construction of $Wo18PrivateWrapper" }
+  }
+  if ([regex]::Matches($Wo18CompileFailure.Output, 'error\[E0603\]: tuple struct constructor `VerifiedMinimalAdd(?:FullType|Effect|Ownership)` is private').Count -ne 3) { throw 'Work Order 18 compiler proof must contain exactly three intermediate-wrapper privacy failures' }
+  if ([regex]::IsMatch($Wo18CompileFailure.Output, 'error\[E0382\]|error\[E(?:0412|0422|0432|0433)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|expected item, found')) { throw 'Work Order 18 backend facts proof failed for an unrelated move, symbol, cfg, import, privacy-type, or syntax reason' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo18PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 18 backend facts proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 18 normal compiler check after backend facts proof' $Cargo @('check', '--all-targets')
 
   Write-Host '==> Work Order 17 sole minimal-add outcome producer proof'
   $Wo17OutcomePriorRustFlags = $env:RUSTFLAGS
@@ -1227,7 +1317,7 @@ task malformed() -> UInt {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 95 -or $UniqueExactRustSelectorCredits.Count -ne 95) { throw "exact Rust selector inventory must credit 95 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 99 -or $UniqueExactRustSelectorCredits.Count -ne 99) { throw "exact Rust selector inventory must credit 99 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
   if ($ExactRustSelectorCredits -notcontains 'core_body::tests::validated_body_grammar_construction_is_compiler_sealed') { throw 'exact Rust selector inventory lost the compiler-sealed validated body grammar construction test' }
   foreach ($WorkOrder17Selector in @(
@@ -1237,6 +1327,14 @@ task malformed() -> UInt {
     'full_type_check::tests::minimal_add_consumes_only_verified_canonical_type'
   )) {
     if ($ExactRustSelectorCredits -notcontains $WorkOrder17Selector) { throw "exact Rust selector inventory lost Work Order 17 selector $WorkOrder17Selector" }
+  }
+  foreach ($WorkOrder18Selector in @(
+    'full_type_check::tests::minimal_add_backend_fact_handoff_is_exact_and_borrowed',
+    'ownership_check::tests::minimal_add_effect_and_ownership_authority_stays_operation_owned',
+    'profile_check::tests::minimal_add_resource_and_profile_authority_is_checked_empty',
+    'ir_readiness::tests::minimal_add_backend_facts_are_complete_but_ir_verify_blocked'
+  )) {
+    if ($ExactRustSelectorCredits -notcontains $WorkOrder18Selector) { throw "exact Rust selector inventory lost Work Order 18 selector $WorkOrder18Selector" }
   }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
@@ -1288,9 +1386,39 @@ task malformed() -> UInt {
     if ($ApMainProductionSource.Contains($ForbiddenMainCollector)) { throw "Session AP top-level main boundary contains unauthorized occurrence collection/validation: $ForbiddenMainCollector" }
   }
   if (-not $ApMainProductionSource.Contains('profile_check::diagnostic_transport_from_source') -or -not $ApMainProductionSource.Contains('graph::validate_diagnostic_occurrence_projection') -or -not $ApMainProductionSource.Contains('runtime_diagnostic_occurrences')) { throw 'Session AQ main must retain graph validation and add only the canonical runtime occurrence transport over load_program authority' }
-  $ApCoreVerifyProductionSource = [regex]::Replace((Get-Content -Raw 'src/core_verify.rs'), '(?s)#\[cfg\(test\)\].*$', '')
-  $ApIrProductionSource = [regex]::Replace((Get-Content -Raw 'src/ir_readiness.rs'), '(?s)#\[cfg\(test\)\].*$', '')
-  if (-not $ApCoreVerifyProductionSource.Contains('.validate_against("core_lower", &preview_authority)') -or -not $ApIrProductionSource.Contains('.validate_against("ir_readiness", diagnostic_occurrences)')) { throw 'Session AP Core/IR occurrence validation must remain inside its authorized stage modules' }
+  $ApCoreValidationNeedle = '.validate_against("core_lower", &preview_authority)'
+  $ApIrValidationNeedle = '.validate_against("ir_readiness", diagnostic_occurrences)'
+  function Assert-ApCoreIrProductionValidation([string]$CoreSource, [string]$IrSource) {
+    if (-not $CoreSource.Contains($ApCoreValidationNeedle) -or -not $IrSource.Contains($ApIrValidationNeedle)) { throw 'Session AP Core/IR occurrence validation must remain inside its authorized stage modules' }
+  }
+  $ApCoreVerifyProductionSource = Get-AqRustProductionSource 'src/core_verify.rs'
+  $ApIrProductionSource = Get-AqRustProductionSource 'src/ir_readiness.rs'
+  Assert-ApCoreIrProductionValidation $ApCoreVerifyProductionSource $ApIrProductionSource
+  $ApSnapshotMatch = [regex]::Match($ApIrProductionSource, '(?m)#\[cfg\(test\)\]\r?\n        fn snapshot')
+  $ApSnapshotIndex = if ($ApSnapshotMatch.Success) { $ApSnapshotMatch.Index } else { -1 }
+  $ApIrValidationIndex = $ApIrProductionSource.IndexOf($ApIrValidationNeedle)
+  if ($ApSnapshotIndex -lt 0 -or $ApIrValidationIndex -le $ApSnapshotIndex) { throw 'Session AP production extraction must retain the nested snapshot method and later IR validation' }
+  $ApDeletedValidationRejected = $false
+  try { Assert-ApCoreIrProductionValidation $ApCoreVerifyProductionSource ($ApIrProductionSource.Replace($ApIrValidationNeedle, '')) } catch { $ApDeletedValidationRejected = $true }
+  if (-not $ApDeletedValidationRejected) { throw 'Session AP must reject deletion of the real IR production validation' }
+  $ApExtractionProbe = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-ap-production-source-{0}.rs" -f [guid]::NewGuid().ToString('N'))
+  try {
+    $ApProbeSource = "#[cfg(test)]`nfn nested_probe() {}`nfn production() { transport$ApIrValidationNeedle; }`n#[cfg(test)]`nmod tests {`n    const TEST_ONLY_SENTINEL: &str = `"excluded`";`n}`n"
+    [System.IO.File]::WriteAllText($ApExtractionProbe, $ApProbeSource)
+    $ApProbeProduction = Get-AqRustProductionSource $ApExtractionProbe
+    if (-not $ApProbeProduction.Contains('fn nested_probe()') -or -not $ApProbeProduction.Contains($ApIrValidationNeedle) -or $ApProbeProduction.Contains('TEST_ONLY_SENTINEL')) { throw 'Session AP production extraction must retain nested cfg items and later production while excluding terminal tests' }
+    $ApMovedOnlySource = "#[cfg(test)]`nfn nested_probe() {}`nfn production() {}`n#[cfg(test)]`nmod tests {`n    fn test_only() { transport$ApIrValidationNeedle; }`n}`n"
+    [System.IO.File]::WriteAllText($ApExtractionProbe, $ApMovedOnlySource)
+    $ApMovedOnlyRejected = $false
+    try { Assert-ApCoreIrProductionValidation $ApCoreVerifyProductionSource (Get-AqRustProductionSource $ApExtractionProbe) } catch { $ApMovedOnlyRejected = $true }
+    if (-not $ApMovedOnlyRejected) { throw 'Session AP terminal-test validation spelling must not satisfy the production audit' }
+    [System.IO.File]::WriteAllText($ApExtractionProbe, "#[cfg(test)]`nmod tests {}`n#[cfg(test)]`nmod tests {}`n")
+    $ApAmbiguousRejected = $false
+    try { $null = Get-AqRustProductionSource $ApExtractionProbe } catch { $ApAmbiguousRejected = $_.Exception.Message.Contains('ambiguous terminal test modules') }
+    if (-not $ApAmbiguousRejected) { throw 'Session AP production extraction must reject ambiguous terminal test modules' }
+  } finally {
+    if (Test-Path -LiteralPath $ApExtractionProbe) { Remove-Item -LiteralPath $ApExtractionProbe -Force }
+  }
 
   $ApParser = 'fixtures/diagnostics/session_ap_parser_resolver_precedence_fail.hum'
   $ApParserResolve = Read-NativeOutputWithExit 'Session AP parser/resolver owner' $Hum @('resolve', $ApParser)

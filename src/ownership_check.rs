@@ -88,6 +88,27 @@ struct OwnershipCheckReport {
     diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
+pub(crate) struct OwnershipResourceReportAccess<'report> {
+    report: &'report OwnershipCheckReport,
+    effect: &'report effect_check::EffectOwnershipReportAccess<'report>,
+}
+
+pub(crate) struct VerifiedMinimalAddOwnership<'report>(
+    effect_check::VerifiedMinimalAddEffect<'report>,
+);
+
+impl VerifiedMinimalAddOwnership<'_> {
+    pub(crate) fn backend_identity(
+        &self,
+    ) -> crate::type_check::CanonicalMinimalAddBackendIdentity<'_> {
+        self.0.backend_identity()
+    }
+
+    pub(crate) fn core_prerequisite_names(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.0.core_prerequisite_names()
+    }
+}
+
 struct OwnershipItem {
     id: String,
     semantic_identity: String,
@@ -365,6 +386,10 @@ pub fn ownership_check_summary(
     diagnostics: &[Diagnostic],
 ) -> OwnershipCheckSummary {
     let report = build_report(program, diagnostics);
+    summary_from_report(&report)
+}
+
+fn summary_from_report(report: &OwnershipCheckReport) -> OwnershipCheckSummary {
     OwnershipCheckSummary {
         schema: OWNERSHIP_CHECK_SCHEMA,
         status: report.status(),
@@ -592,7 +617,17 @@ pub fn ownership_check_json(program: &Program, diagnostics: &[Diagnostic]) -> St
 }
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> OwnershipCheckReport {
-    let effect_check_summary = effect_check::effect_check_summary(program, diagnostics);
+    effect_check::with_effect_for_ownership(program, diagnostics, |access| {
+        build_report_from_effect(program, diagnostics, &access)
+    })
+}
+
+fn build_report_from_effect(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    effect_access: &effect_check::EffectOwnershipReportAccess<'_>,
+) -> OwnershipCheckReport {
+    let (effect_check_summary, effect_occurrences) = effect_access.report_parts();
     let source_errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
@@ -602,8 +637,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> OwnershipCheck
     for file in &program.files {
         collect_items(program, &file.items, blocked, &mut items);
     }
-
-    let mut diagnostic_occurrences = effect_check::diagnostic_occurrence_set(program, diagnostics);
+    let mut diagnostic_occurrences = effect_occurrences.clone();
     let effect_projection = diagnostic_projection_from_effect(&diagnostic_occurrences)
         .expect("ownership check must carry one sealed effect projection");
     effect_projection
@@ -611,23 +645,20 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> OwnershipCheck
         .expect("ownership check must validate its effect authority");
     for item in &items {
         for statement in &item.statements {
-            let Some(occurrence) = &statement.diagnostic_occurrence else {
-                continue;
-            };
-            diagnostic_occurrences
-                .insert_owned(occurrence.clone())
-                .expect("ownership diagnostic occurrences must be unique");
+            if let Some(occurrence) = &statement.diagnostic_occurrence {
+                diagnostic_occurrences
+                    .insert_owned(occurrence.clone())
+                    .expect("ownership diagnostic occurrences must be unique");
+            }
         }
         for dependency in &item.return_dependencies {
-            let Some(occurrence) = &dependency.diagnostic_occurrence else {
-                continue;
-            };
-            diagnostic_occurrences
-                .insert_owned(occurrence.clone())
-                .expect("return-dependency occurrences must be unique");
+            if let Some(occurrence) = &dependency.diagnostic_occurrence {
+                diagnostic_occurrences
+                    .insert_owned(occurrence.clone())
+                    .expect("return-dependency occurrences must be unique");
+            }
         }
     }
-
     OwnershipCheckReport {
         effect_check_summary,
         items,
@@ -639,6 +670,107 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> OwnershipCheck
     }
 }
 
+fn build_report_with<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    consume: impl for<'report> FnOnce(OwnershipResourceReportAccess<'report>) -> R,
+) -> (OwnershipCheckReport, R) {
+    effect_check::with_effect_for_ownership(program, diagnostics, |effect_access| {
+        #[allow(unused_mut)]
+        let mut report = build_report_from_effect(program, diagnostics, &effect_access);
+        #[cfg(test)]
+        corrupt_wo18_report_for_test(&mut report);
+        let result = consume(OwnershipResourceReportAccess {
+            report: &report,
+            effect: &effect_access,
+        });
+        (report, result)
+    })
+}
+
+#[cfg(test)]
+fn corrupt_wo18_report_for_test(report: &mut OwnershipCheckReport) {
+    let Some(kind) = crate::type_check::take_wo18_stage_corruption("ownership_check") else {
+        return;
+    };
+    match kind {
+        "missing" => {
+            if let Some(item) = report.items.first_mut() {
+                item.statements.clear()
+            }
+        }
+        "global" => report.source_errors = 1,
+        kind => {
+            let Some(row) = report
+                .items
+                .first_mut()
+                .and_then(|item| item.statements.first_mut())
+            else {
+                return;
+            };
+            match kind {
+                "move" | "borrow" => row.ownership_kind = kind,
+                "alias" => row.alias = Some("foreign_alias".to_string()),
+                "transfer" => row.place = Some("foreign_resource".to_string()),
+                "rejected" => row.status = "rejected_ownership_transfer_v0",
+                "foreign" => row.span.file = "foreign.hum".to_string(),
+                _ => report.items.clear(),
+            }
+        }
+    }
+}
+
+pub(crate) fn with_ownership_for_resource<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    consume: impl for<'report> FnOnce(OwnershipResourceReportAccess<'report>) -> R,
+) -> R {
+    build_report_with(program, diagnostics, consume).1
+}
+
+impl<'report> OwnershipResourceReportAccess<'report> {
+    pub(crate) fn report_parts(&self) -> (OwnershipCheckSummary, &'report DiagnosticOccurrenceSet) {
+        (
+            summary_from_report(self.report),
+            &self.report.diagnostic_occurrences,
+        )
+    }
+
+    pub(crate) fn canonical_minimal_add_for(
+        &self,
+        item: &Item,
+        statement: &crate::ast::ParsedBodyStatement,
+    ) -> Option<VerifiedMinimalAddOwnership<'report>> {
+        let effect = self.effect.canonical_minimal_add_for(item, statement)?;
+        (self.report.blocking_issues() == 0).then_some(())?;
+        let item_row = sole(self.report.items.iter().filter(|row| {
+            row.kind == item.kind()
+                && row.name == item.name()
+                && row.span == portable_span(item.span())
+        }))?;
+        let statement_row = sole(
+            item_row
+                .statements
+                .iter()
+                .filter(|row| row.span == portable_span(&statement.span)),
+        )?;
+        (statement_row.ownership_kind == "pure_or_local"
+            && statement_row.target.as_deref() == Some("a + b")
+            && statement_row.declaration.is_none()
+            && statement_row.status == "accepted_no_ownership_transfer_v0"
+            && statement_row.reason.is_none()
+            && statement_row.alias.is_none()
+            && statement_row.place.is_none()
+            && item_row.boundary_checks.iter().all(|row| {
+                !row.status.starts_with("rejected_") && !row.status.starts_with("unchecked_")
+            }))
+        .then_some(VerifiedMinimalAddOwnership(effect))
+    }
+}
+
+pub(crate) use crate::effect_check::sole;
+
+#[allow(dead_code)]
 pub(crate) fn diagnostic_occurrence_set(
     program: &Program,
     diagnostics: &[Diagnostic],
@@ -4491,5 +4623,54 @@ task remember(title: Text) -> Result WorkItem, WorkError {
         Program {
             files: vec![parse_source(path, source).file],
         }
+    }
+
+    #[test]
+    fn minimal_add_effect_and_ownership_authority_stays_operation_owned() {
+        let parsed = parse_source(
+            "examples/core/minimal_add.hum",
+            include_str!("../examples/core/minimal_add.hum"),
+        );
+        let diagnostics = parsed.diagnostics;
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let item = &program.files[0].items[0];
+        let Item::Task(task) = item else {
+            panic!("minimal add task")
+        };
+        let statement = &task.body_syntax[0];
+        let delivered = super::with_ownership_for_resource(&program, &diagnostics, |access| {
+            let result = access
+                .canonical_minimal_add_for(item, statement)
+                .expect("operation-owned effect and ownership authority");
+            let identity = result.backend_identity();
+            let left = identity.operand(0).unwrap();
+            let right = identity.operand(1).unwrap();
+            assert_ne!(left.0, right.0);
+            assert_ne!(left.2, right.2);
+            assert_ne!(left.3, right.3);
+            true
+        });
+        assert!(delivered);
+
+        let swapped = parse_source(
+            "swapped.hum",
+            "task add(a: Int, b: Int) -> Int {\n  allocates:\n    nothing\n\n  does:\n    return b + a\n}\n",
+        );
+        let swapped_program = Program {
+            files: vec![swapped.file],
+        };
+        let swapped_item = &swapped_program.files[0].items[0];
+        let Item::Task(swapped_task) = swapped_item else {
+            panic!("swapped task")
+        };
+        let withheld =
+            super::with_ownership_for_resource(&swapped_program, &swapped.diagnostics, |access| {
+                access
+                    .canonical_minimal_add_for(swapped_item, &swapped_task.body_syntax[0])
+                    .is_some()
+            });
+        assert!(!withheld);
     }
 }

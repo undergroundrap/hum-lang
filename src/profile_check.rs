@@ -118,6 +118,16 @@ struct ProfileCheckReport {
     diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
+pub(crate) struct ProfileIrReadinessReportAccess<'report> {
+    report: &'report ProfileCheckReport,
+    resource: &'report resource_check::ResourceProfileReportAccess<'report>,
+}
+
+pub(crate) struct VerifiedMinimalAddProfile<'report> {
+    resource: resource_check::VerifiedMinimalAddResource<'report>,
+    declaration: &'report ProfileDeclaration,
+}
+
 struct ProfileItem {
     id: String,
     kind: &'static str,
@@ -153,6 +163,10 @@ pub fn profile_check_has_errors(program: &Program, diagnostics: &[Diagnostic]) -
 
 pub fn profile_check_summary(program: &Program, diagnostics: &[Diagnostic]) -> ProfileCheckSummary {
     let report = build_report(program, diagnostics);
+    summary_from_report(&report)
+}
+
+fn summary_from_report(report: &ProfileCheckReport) -> ProfileCheckSummary {
     ProfileCheckSummary {
         schema: PROFILE_CHECK_SCHEMA,
         status: report.status(),
@@ -303,7 +317,17 @@ pub fn profile_check_json(program: &Program, diagnostics: &[Diagnostic]) -> Stri
 }
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ProfileCheckReport {
-    let resource_check_summary = resource_check::resource_check_summary(program, diagnostics);
+    resource_check::with_resource_for_profile(program, diagnostics, |access| {
+        build_report_from_resource(program, diagnostics, &access)
+    })
+}
+
+fn build_report_from_resource(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    resource_access: &resource_check::ResourceProfileReportAccess<'_>,
+) -> ProfileCheckReport {
+    let (resource_check_summary, resource_occurrences) = resource_access.report_parts();
     let source_errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
@@ -314,7 +338,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ProfileCheckRe
     for file in &program.files {
         collect_items(&file.items, blocked, &mut tasks, &mut items);
     }
-    let diagnostic_occurrences = resource_check::diagnostic_occurrence_set(program, diagnostics);
+    let diagnostic_occurrences = resource_occurrences.clone();
     let projection = diagnostic_projection_from_resource(&diagnostic_occurrences)
         .expect("profile check must carry one sealed resource projection");
     projection
@@ -329,6 +353,121 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ProfileCheckRe
         items,
         prior_blockers,
         diagnostic_occurrences,
+    }
+}
+
+fn build_report_with<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    consume: impl for<'report> FnOnce(ProfileIrReadinessReportAccess<'report>) -> R,
+) -> (ProfileCheckReport, R) {
+    resource_check::with_resource_for_profile(program, diagnostics, |resource_access| {
+        #[allow(unused_mut)]
+        let mut report = build_report_from_resource(program, diagnostics, &resource_access);
+        #[cfg(test)]
+        corrupt_wo18_report_for_test(&mut report);
+        let result = consume(ProfileIrReadinessReportAccess {
+            report: &report,
+            resource: &resource_access,
+        });
+        (report, result)
+    })
+}
+
+#[cfg(test)]
+fn corrupt_wo18_report_for_test(report: &mut ProfileCheckReport) {
+    let Some(kind) = crate::type_check::take_wo18_stage_corruption("profile_check") else {
+        return;
+    };
+    match kind {
+        "missing" => {
+            if let Some(item) = report.items.first_mut() {
+                item.checks.clear()
+            }
+        }
+        "global" => report.source_errors = 1,
+        kind => {
+            let Some(item) = report.items.first_mut() else {
+                return;
+            };
+            match kind {
+                "unknown" | "strict" => {
+                    if let Some(row) = item.declarations.first_mut() {
+                        row.normalized = kind.to_string()
+                    }
+                }
+                "rejected" | "fabricated" | "foreign" => {
+                    let Some(row) = item.checks.first_mut() else {
+                        return;
+                    };
+                    match kind {
+                        "rejected" => row.status = "profile_errors_v0",
+                        "fabricated" => row.profile_id = Some("fabricated".to_string()),
+                        _ => row.span.file = "foreign.hum".to_string(),
+                    }
+                }
+                _ => report.items.clear(),
+            }
+        }
+    }
+}
+
+pub(crate) fn with_profile_for_ir_readiness<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    consume: impl for<'report> FnOnce(ProfileIrReadinessReportAccess<'report>) -> R,
+) -> R {
+    build_report_with(program, diagnostics, consume).1
+}
+
+impl<'report> ProfileIrReadinessReportAccess<'report> {
+    pub(crate) fn canonical_minimal_add_for(
+        &self,
+        item: &Item,
+        statement: &crate::ast::ParsedBodyStatement,
+    ) -> Option<VerifiedMinimalAddProfile<'report>> {
+        let resource = self.resource.canonical_minimal_add_for(item, statement)?;
+        (self.report.status() == "recognized_profile_policy_checked_v0").then_some(())?;
+        let item_row = sole(self.report.items.iter().filter(|row| {
+            row.kind == item.kind()
+                && row.name == item.name()
+                && row.span == portable_span(item.span())
+        }))?;
+        let declaration = sole(item_row.declarations.iter())?;
+        let check = sole(item_row.checks.iter())?;
+        (declaration.source_section == "default"
+            && declaration.normalized == "normal"
+            && declaration.known_profile.map(|profile| profile.id) == Some("normal")
+            && check.check == "normal_profile_policy"
+            && check.span == portable_span(item.span())
+            && check.profile_id.as_deref() == Some("normal")
+            && check.status == "accepted_normal_profile_policy_v0")
+            .then_some(VerifiedMinimalAddProfile {
+                resource,
+                declaration,
+            })
+    }
+}
+
+use crate::resource_check::sole;
+
+impl<'report> VerifiedMinimalAddProfile<'report> {
+    pub(crate) fn resource(&self) -> &resource_check::VerifiedMinimalAddResource<'report> {
+        &self.resource
+    }
+
+    pub(crate) fn profile_id(&self) -> &'report str {
+        self.declaration.normalized.as_str()
+    }
+
+    pub(crate) fn backend_identity(
+        &self,
+    ) -> crate::type_check::CanonicalMinimalAddBackendIdentity<'_> {
+        self.resource.backend_identity()
+    }
+
+    pub(crate) fn core_prerequisite_names(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.resource.core_prerequisite_names()
     }
 }
 
@@ -1333,5 +1472,42 @@ task retry(flag: Bool) -> Result UInt, WorkError {{
         Program {
             files: vec![parse_source(path, source).file],
         }
+    }
+
+    #[test]
+    fn minimal_add_resource_and_profile_authority_is_checked_empty() {
+        fn delivered(source: &str) -> bool {
+            let parsed = parse_source("minimal-add.hum", source);
+            let diagnostics = parsed.diagnostics;
+            let program = Program {
+                files: vec![parsed.file],
+            };
+            let item = &program.files[0].items[0];
+            let crate::ast::Item::Task(task) = item else {
+                return false;
+            };
+            super::with_profile_for_ir_readiness(&program, &diagnostics, |access| {
+                let Some(result) = access.canonical_minimal_add_for(item, &task.body_syntax[0])
+                else {
+                    return false;
+                };
+                assert_eq!(result.resource().allocation_declaration(), Some("nothing"));
+                assert_eq!(result.profile_id(), "normal");
+                true
+            })
+        }
+
+        let clean = include_str!("../examples/core/minimal_add.hum");
+        assert!(delivered(clean));
+        assert!(!delivered(
+            &clean.replace("  allocates:\n    nothing\n\n", "")
+        ));
+        assert!(!delivered(&clean.replace(
+            "  allocates:\n    nothing",
+            "  allocates:\n    nothing\n    nothing"
+        )));
+        assert!(!delivered(
+            &clean.replace("  does:", "  profile:\n    strict\n\n  does:")
+        ));
     }
 }
