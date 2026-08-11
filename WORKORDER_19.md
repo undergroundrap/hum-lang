@@ -2,9 +2,44 @@
 
 Date: 2026-08-11
 <!-- hum-active-workorder:v1 -->
-Status: Draft planning package. Work Order 18 is closed and terminally rejected.
-No Work Order 19 implementation, archive restoration, commit, publication, or
-later compiler work is authorized by this draft.
+Status: Planning package independently accepted, published, and terminal-green.
+The accepted planning commit is
+`e5ccb140419e81f4e4eb0338c6674cdb11c352be`, with parent
+`dc1475a808c3cf47980cc429f2f8ecaa787a1680` and subject
+`docs(workorder): make backend lineage validation load-bearing`. It contains
+exactly two paths and `+861/-1`: `WORKORDER_18.md` at `+0/-1`, blob
+`71f0f071dc3c2028f2a47f4767c80dab2ba4afec`, and `WORKORDER_19.md` at
+`+861/-0`, blob `f7f8353b7f3899c09bace938612f0281582d0852`. Publication was a normal
+non-force fast-forward of `main` only, over range
+`dc1475a808c3cf47980cc429f2f8ecaa787a1680..e5ccb140419e81f4e4eb0338c6674cdb11c352be`.
+
+Required full-lane CI passed in workflow `ci`, run `31536839041`, attempt 1,
+testing `e5ccb140419e81f4e4eb0338c6674cdb11c352be`, with overall conclusion
+`success`. Ubuntu job `93929841761` succeeded in `17m52s`, with `17m10s` in
+full preflight. Windows job `93929841859` succeeded in `25m27s`, with `25m02s`
+in full preflight. Both platforms reported
+`mode=full;reason=no_status_transition` with empty or zero status-chain fields;
+passed Cargo-cache preparation, Rust-toolchain preparation, and full Hum/Fast
+preflight; skipped status-only evidence; passed text hygiene and public
+readiness for 527 files, alpha claims, and release readiness for `0.0.1`; and
+printed `All Hum preflight checks passed.`
+
+Ubuntu alone passed
+`parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero`
+with selected/passed/failed `1/1/0`, F1 630, F2 4,950, F3/F4 8,646, total
+14,226, producer elapsed `16.969s`, and seed `0x48554D5F5345414C`. Windows
+correctly skipped the platform-independent duplicate.
+
+Work Order 19 implementation remains unauthorized. This status commit must be
+separately published and reach terminal-green fast-lane CI before a separate
+explicit BDFL go signal may authorize implementation. No gate implicitly
+authorizes archive restoration, stash application, implementation review,
+commit, push, or later work. Work Order 18 remains closed and terminally
+rejected; both WO18 archives and recovery stash
+`73101039f5e3faf0c802d4f723add1b891c51602` remain failure or parking evidence
+only. Artifact encoding, `ir_verify`, `VerifiedBackendInput`, Cranelift, ABI
+work, native-stderr harness repair, open-skeleton integration, termination,
+and all later work remain deferred.
 
 Owner: BDFL (Ocean).
 Author: Work Order 19 architect-author. The author may not independently review
@@ -849,13 +884,21 @@ planning validation.
 
 ## Current authorization gate
 
-Authorization is limited to this planning draft. Work Order 18 remains closed.
-No Work Order 19 implementation, archive restoration, stash mutation, README or
-production edit, acceptance, commit, push, publication, status record,
-artifact work, `ir_verify`, backend lowering, harness repair, open-skeleton
-work, termination work, or later planning is authorized.
+The Work Order 19 planning package is independently accepted, published as
+`e5ccb140419e81f4e4eb0338c6674cdb11c352be`, and terminal-green in workflow
+`ci`, run `31536839041`, attempt 1. Ubuntu job `93929841761` and Windows job
+`93929841859` both succeeded in full mode with reason `no_status_transition`.
 
-Leave `WORKORDER_18.md` and `WORKORDER_19.md` unstaged and uncommitted for one
-fresh independent pre-issuance architect review. Because the author wrote this
-package, the author may not review or accept it.
+Work Order 19 implementation remains unauthorized. Publication of this exact
+status-only commit and terminal-green fast-lane CI are required next. Only
+after that gate may a separate explicit BDFL go signal authorize Unit 1
+implementation. No gate implicitly authorizes archive restoration, stash
+application, implementation review, commit, push, publication, or later work.
+
+Work Order 18 remains closed and terminally rejected. Both WO18 archives and
+recovery stash `73101039f5e3faf0c802d4f723add1b891c51602` remain failure or
+parking evidence only and grant no implementation authority. Do not begin
+artifact encoding, `ir_verify`, `VerifiedBackendInput`, Cranelift or ABI work,
+native-stderr harness repair, open-skeleton integration, termination work,
+archive mutation, or any later activity.
 <!-- workorder-current-authorization-gate:end -->
