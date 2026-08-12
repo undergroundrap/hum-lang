@@ -2,7 +2,8 @@
 
 Date: 2026-08-11
 <!-- hum-active-workorder:v1 -->
-Status: Planning package independently accepted, published, and terminal-green.
+Status: Unit A stopped at its final Fast boundary; exact candidate parked and
+not rejected; relocation-aware amendment awaiting independent review.
 The accepted final twenty-path planning package was committed as
 `7c6a769003fa1cb9f41ce2b545b99991be025d79`, with parent
 `74913b5fa459e51cb6dc5bd841dc1717ca7ecab4` and subject
@@ -15,10 +16,21 @@ job `94032782803` and Windows job `94032782817` both succeeded with
 `mode=full;reason=no_status_transition`. Ubuntu additionally passed all 14,226
 platform-independent Exhaustive pairs.
 
-Unit A is the next possible implementation unit, but it remains unauthorized
-pending publication of this exact status-only commit, terminal-green fast-lane
-CI, and a later separate explicit BDFL Unit A go signal. Unit B and all later
-work remain unauthorized.
+The planning publication-status commit is
+`3156dd4869b3960a85eb63c6ba906b5c2b9916c8`. Its fast-lane CI passed in
+workflow `ci`, run `31574787474`, attempt 1: Ubuntu job `94044372993` and
+Windows job `94044373199` both succeeded with
+`mode=fast;reason=eligible_status_chain`. The authenticated anchor evidence is
+planning run `31570998795`, attempt 1, Ubuntu job `94032782803`, and Windows
+job `94032782817`, with transition
+`7c6a769003fa1cb9f41ce2b545b99991be025d79>3156dd4869b3960a85eb63c6ba906b5c2b9916c8`.
+
+The BDFL then explicitly authorized Unit A. The exact implementation reached
+its one final Fast and stopped red on one obsolete IR-contract audit. The
+candidate is viable, losslessly parked, and not accepted, rejected, complete,
+or ready for commit. No implementation is currently active. This document-only
+amendment and its fresh independent review are the current gate. Unit B and all
+later work remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 20 architect-author. The author may not independently review
@@ -56,9 +68,11 @@ The recovery stash remains non-authoritative parked evidence:
 - commit: `73101039f5e3faf0c802d4f723add1b891c51602`;
 - tree: `535198cd6c9fdbd2fb713a30266530cb47e766c0`.
 
-All archive refs are immutable historical evidence. No archive or stash may be
-restored, applied, popped, dropped, rewritten, merged, cherry-picked, or used
-as authority under this Work Order.
+All archive refs are immutable historical evidence and may not be restored,
+rewritten, merged, or cherry-picked. The older recovery stash may not be
+applied, popped, dropped, or used as authority. The parked Unit A stash may be
+restored only through the exact amendment-publication and BDFL-resumption
+lifecycle below; no other stash operation is authorized.
 
 ## Planning review history and final BDFL re-envelope
 
@@ -89,9 +103,250 @@ topology is sixteen Unit A paths, sixteen Unit B paths, twelve shared paths, and
 twenty union paths, with a necessary twenty-first path as the mandatory stop.
 The historical eighteen- and nineteen-path packages remain accurately recorded
 as the packages reviewed at those gates; this amendment does not retroactively
-rewrite either review or authorize implementation. No further planning
-correction cycle remains. Any non-`ACCEPT` result from the next independent
-review stops Work Order 20 and returns it directly to the BDFL.
+rewrite either review or authorize implementation. The ordinary planning
+correction cycle remains consumed. This BDFL-directed Fast-boundary amendment
+is a separate prospective accounting and evidence ruling, not another ordinary
+author correction. Any non-`ACCEPT` result from its fresh independent review
+returns Work Order 20 directly to the BDFL and grants no automatic author edit.
+
+## Unit A Fast-boundary amendment
+
+The first Unit A implementation was based on published `main` at
+`3156dd4869b3960a85eb63c6ba906b5c2b9916c8`. Its product and focused evidence
+were substantially green, but its final Fast completed red after candidate
+evidence began. That result was a valid stop under the Work Order then in
+force. It is not retroactively reclassified as green.
+
+The exact candidate is preserved by Git object identity, not stash ordinal:
+
+- stash commit: `bd6d2722cffa50da8463201204a48f4a7305ae1b`;
+- stash tree: `1aabe316b01345ad2f2cd589f95b64b598305bb6`;
+- first parent: `3156dd4869b3960a85eb63c6ba906b5c2b9916c8`;
+- message: `wo20-unit-a-fast-boundary-stop-2026-08-12`;
+- reconstructed scoped sixteen-path tree:
+  `46eb384f4f36218b71525cba758d60f2881c6ba5`.
+
+The older recovery stash remains separate and unchanged at commit
+`73101039f5e3faf0c802d4f723add1b891c51602`, tree
+`535198cd6c9fdbd2fb713a30266530cb47e766c0`, first parent
+`0396399c94f5e43511f3811319320a6ca2db0b93`. Neither stash is current
+authority, and neither may be applied, popped, dropped, renamed, recreated, or
+rewritten by this amendment.
+
+### Exact stopped-candidate evidence
+
+The parked candidate contains exactly the accepted sixteen Unit A paths. Its
+measured evidence is:
+
+- raw diff: `+1,474/-459`;
+- whitespace-insensitive diff: `+1,473/-458`;
+- production Rust: 742 lines;
+- permanent tests/proofs: 418 lines;
+- documentation/tool/fixture/catalog/reference: 314 lines;
+- authenticated Work Order 19 issuer relocation: 410 deleted source lines;
+- relocated production subset: 243 lines;
+- ordinary/non-relocation deletions: 49 lines;
+- new production logic excluding moved production: 499 lines;
+- golden artifact: 8,715 bytes;
+- payload and artifact SHA-256:
+  `a37707c23cc20a1720e45de901624e3101183a77ec1b5eb4ed55095b5097b82f`;
+- root suite: 465/465;
+- both new selectors: selected one, executed one, passed one;
+- exact-selector inventory: 101/101;
+- the SHA-round-constant and envelope-order producer mutations both failed
+  their exact selector as intended;
+- final Fast: exit 1 after 298.9 seconds;
+- terminal Fast-success marker: absent;
+- local Exhaustive: not run; and
+- nothing staged, committed, or pushed.
+
+The stopped `tools/check_all.ps1` blob is exactly
+`2d3d647821905ab2edf724b761e7cd7ffdfbe2f5`.
+
+### Authenticated relocation ledger
+
+The deletion exemption below is an ownership-relocation exemption, not a
+general moved-code exemption. The source is the published-parent
+`src/ir_readiness.rs` blob
+`f62b8f5d7912989d0d716f05656e4aff5bf3c25a`. The destination is the parked
+`src/backend_input.rs` blob
+`e0ff799e6b2ffb14a23cc3adc5c69218f05e1b12`; the retained compatibility
+bridge is in parked `src/ir_readiness.rs` blob
+`163e0d38840b0caeafced5da0fe0679ad27423ca`.
+
+Every locator below is a content identity of the form `Git blob:Lx-Ly`, with
+one-based inclusive lines over the exact LF Git blob. A comma joins
+non-contiguous ranges in the same blob. This is reproducible without applying
+the stash and is the stable byte/content identity for each block. To keep the
+ledger readable, `S` means the full source blob
+`f62b8f5d7912989d0d716f05656e4aff5bf3c25a`, `D` means the full destination
+blob `e0ff799e6b2ffb14a23cc3adc5c69218f05e1b12`, and `B` means the full bridge
+blob `163e0d38840b0caeafced5da0fe0679ad27423ca`.
+
+| # | Source block and identity | Class | Source lines | Destination counterpart and identity | Destination lines | Equivalence rule |
+| ---: | --- | --- | ---: | --- | ---: | --- |
+| 1 | export/module/import scaffold `S:L61-L65` | production | 5 | bridge `B:L61` plus explicit imports `D:L1-L10` | 11 | module unwrap and explicit imports only |
+| 2 | `REQUIRED_PASSES` `S:L66-L82` | production | 17 | `D:L20-L36` | 17 | token-identical after one-level dedent |
+| 3 | facts/access types `S:L83-L102` | production | 20 | `D:L57-L76` | 20 | token-identical after dedent |
+| 4 | final-lineage validator impl `S:L103-L219` | production | 117 | `D:L77-L193` | 117 | token-identical after dedent and exact constant aliasing |
+| 5 | facts snapshot `S:L220-L241` | test/proof | 22 | `D:L194-L215` | 22 | token-identical after dedent |
+| 6 | access impl `S:L242-L248` | production | 7 | `D:L216-L222` | 7 | token-identical after dedent |
+| 7 | access snapshot `S:L249-L252` | test/proof | 4 | `D:L223-L226` | 4 | token-identical after dedent |
+| 8 | facts assembly `S:L253-L300` | production | 48 | `D:L227-L274` | 48 | token-identical after dedent and exact constant aliasing |
+| 9 | test corruption hook `S:L301-L302` | test/proof | 2 | `D:L275-L276` | 2 | token-identical after dedent |
+| 10 | `issue_assembled` `S:L303-L315` | production | 13 | `D:L277-L289` | 13 | token-identical after dedent |
+| 11 | old issuer and wrapper call `S:L316-L326,L480` | production | 12 | artifact issuer and compatibility wrapper `D:L290-L326` | 37 | old profile/assemble/issue/consume path retained; 25 added lines are new Unit A logic |
+| 12 | foreign-final-lineage helper `S:L327-L346` | test/proof | 20 | `D:L561-L580` | 20 | token-identical after required test-only visibility qualification |
+| 13 | final-lineage thread locals `S:L347-L352` | test/proof | 6 | `D:L581-L587` | 7 | both moved cells exact; one new artifact-corruption cell counts as new insertion |
+| 14 | test comparison observer `S:L353-L363` | test/proof | 11 | `D:L588-L598` | 11 | token-identical after dedent |
+| 15 | normal comparison observer `S:L364-L366` | production | 3 | `D:L599-L601` | 3 | token-identical after dedent |
+| 16 | corruption setter `S:L367-L371` | test/proof | 5 | `D:L602-L606` | 5 | token-identical after required test-only visibility qualification |
+| 17 | corruption dispatcher `S:L372-L450` | test/proof | 79 | `D:L607-L682` | 76 | same arms, values, and calls; rustfmt removes one single-expression arm block |
+| 18 | checked-empty corruption helper `S:L451-L462` | test/proof | 12 | `D:L683-L694` | 12 | token-identical after dedent |
+| 19 | failure-edge corruption helper `S:L463-L468` | test/proof | 6 | `D:L695-L700` | 6 | identical assignment with a rustfmt-added trailing semicolon |
+| 20 | nested-module close `S:L469` | production | 1 | file-root ownership | 0 | structural unwrap; no semantic statement deleted |
+
+The source ledger totals exactly 410 lines: 243 production and 167
+test/proof. The production total includes the non-contiguous old wrapper call
+at source line 480. The 409-line nested-module deletion plus that one wrapper
+call is the entire authenticated relocation allowance.
+
+As a separate semantic proof, normalized token comparison reproduced 15 of 17
+direct counterparts exactly. Normalization removes one module indentation
+level, aliases the two accepted string constants to `SEMANTIC_CONTRACT` and
+`TARGET_CONTEXT`, and qualifies moved test helpers from `pub(super)` to
+`pub(crate)`. The two remaining direct counterparts differ only by rustfmt's
+removal of braces around the `empty_unsupported` single-expression match arm
+and addition of a trailing semicolon to the unit-returning edge assignment.
+Blocks 1, 11, and 20 are the explicitly enumerated structural/expanded cases:
+the compatibility bridge remains, every old profile/assembly/validation/
+consumer statement remains in the destination call chain, and all added
+artifact logic continues to count fully as insertion. No semantic statement
+was deleted to claim relocation credit.
+
+Only the source-side deletion of these exact 410 authenticated lines is exempt
+from Unit A ordinary-deletion accounting. New logic, formatting-only deletion,
+and any omitted, changed, split, merged, or semantically rewritten block
+receive no exemption unless this exact ledger still proves equivalence. An
+unused part of the 410-line relocation allowance cannot become ordinary
+deletion allowance.
+
+### Relocation-aware deletion arithmetic
+
+The original literal Unit A ceiling was 250 raw deletions. The parked candidate
+has 459 raw deletions, so that original rule correctly stopped it. This BDFL
+amendment changes the accounting prospectively; it does not claim that 459
+passed the old ceiling.
+
+The amended measures are:
+
+```text
+410 exact authenticated relocation deletions
++ at most 250 ordinary/non-relocation deletions
+= at most 660 Unit A raw deletions
+```
+
+The parked candidate therefore measures:
+
+```text
+459 raw deletions
+- 410 exact authenticated relocation deletions
+= 49 ordinary/non-relocation deletions
+```
+
+It is within both amended Unit A deletion ceilings. Relocated destination
+insertions continue to count fully against the production/test/total insertion
+ceilings. Ordinary deletion allowance cannot transfer to Unit B, and unused
+relocation allowance cannot transfer anywhere.
+
+### Bounded obsolete-audit correction
+
+The stopped Fast failed at `tools/check_all.ps1:1657` with:
+
+```text
+IR contract JSON must keep V0 non-emission claim
+```
+
+That audit still required the obsolete IR-contract string:
+
+```text
+"no IR emission for source files"
+```
+
+Unit A intentionally changes the `hum_ir` layer to:
+
+```text
+status = produced-unverified
+role = canonical target-independent backend-input bytes awaiting IR verification
+```
+
+Only after this amendment's complete publication/status chain and a separate
+explicit candidate-resumption signal may the resumed candidate change the
+already authorized `tools/check_all.ps1` path. That correction may replace
+only the obsolete IR-contract JSON assertion with checks over the real
+`hum ir-contract --format json` output proving:
+
+- the `hum_ir` layer exists;
+- its status is exactly `produced-unverified`;
+- its role is exactly `canonical target-independent backend-input bytes
+  awaiting IR verification`;
+- the obsolete `no IR emission for source files` claim is absent from that
+  IR-contract surface;
+- existing schema, semantic-owner, Core-schema, required-pass,
+  typed-failure-fact, and later-backend-boundary assertions remain active;
+- Unit A still claims no verified IR capability;
+- Unit A still claims no backend lowering; and
+- Unit A still claims no backend-adapter input authority.
+
+The correction may not remove or weaken an unrelated assertion. Separate
+Core-lower non-emission assertions remain unchanged where they are truthful.
+No IR-readiness assertion may change unless independent amendment review first
+proves a conflict with the published Unit A contract; the stopped evidence
+identifies only the direct IR-contract assertion above.
+
+The corrected audit must be load-bearing. Honest Unit A IR-contract JSON must
+pass; removing or changing `produced-unverified` must fail; removing or
+changing the exact role must fail; restoring only the obsolete non-emission
+claim must not satisfy the corrected audit; and surrounding checks must remain
+active. Each mutation must reach the intended corrected assertion rather than
+an unrelated compilation or routing failure. This adds no parser, general JSON
+framework, detached inventory, selector, or runtime credit. Inventory remains
+exactly 101/101.
+
+### Amendment publication and candidate resumption
+
+The gates are exact and independent:
+
+1. this document-only amendment receives fresh independent review;
+2. only an unqualified `ACCEPT` advances;
+3. a separately authorized local amendment commit contains only
+   `WORKORDER_20.md`;
+4. separate amendment publication reaches terminal-green full CI;
+5. a separate amendment publication-status commit is created;
+6. separate status publication reaches terminal-green fast CI;
+7. the BDFL sends a separate explicit Unit A resumption signal;
+8. the candidate is restored from exact stash commit
+   `bd6d2722cffa50da8463201204a48f4a7305ae1b`;
+9. all sixteen parked blobs and scoped tree
+   `46eb384f4f36218b71525cba758d60f2881c6ba5` are independently verified;
+10. only the authorized `tools/check_all.ps1` audit correction is applied;
+11. checks proportional to that correction are rerun;
+12. exactly one renewed direct Fast is run;
+13. no local Exhaustive is run; and
+14. the corrected sixteen-path candidate is frozen for fresh independent Unit
+    A review.
+
+The original completed-red Fast remains a valid stop verdict under the old
+envelope. This amendment authorizes one new Fast only after the complete
+durable correction chain and exact resumption. If that renewed Fast completes
+red for any other reason, there is no retry or broader repair: preserve the
+candidate and return to the BDFL.
+
+This amendment changes no Unit A product semantic, path, artifact byte,
+digest, CLI behavior, schema meaning, capability/catalog/reference parity,
+blocked readiness state, eleven-fact order, selector ownership, or insertion
+ceiling. It changes no Unit B envelope, budget, verifier/capability contract,
+or authorization. Unit A remains unverified; Unit B remains unauthorized.
 
 ## Mandatory sufficiency ruling
 
@@ -1579,7 +1834,9 @@ Unit A hard ceilings are:
 - at most 950 new or moved production Rust lines;
 - at most 650 permanent test/proof Rust lines;
 - at most 650 schema/tool/fixture/README/catalog/reference insertions;
-- at most 2,250 total insertions and 250 deletions;
+- at most 2,250 total insertions;
+- at most 660 raw deletions, consisting only of exactly 410 authenticated
+  relocation deletions plus at most 250 ordinary/non-relocation deletions;
 - exactly one private SHA implementation and one canonical encoder;
 - exactly two new selectors and intermediate inventory 101/101; and
 - one implementer Fast, at most one complete-review Fast, and no local
@@ -1601,8 +1858,12 @@ Unit B hard ceilings are:
 The non-transferable union ceilings are therefore twenty paths, 2,750
 production Rust insertions, 2,500 test/proof insertions, 1,300
 schema/tool/fixture/README/catalog/reference insertions, 6,550 total
-insertions, and 800 deletions. Unused Unit A budget cannot be transferred to
-Unit B or vice versa.
+insertions, and 1,210 raw deletions. Exactly 410 of those raw deletions are the
+authenticated Unit A relocation allowance, so the relocation-adjusted union
+deletion ceiling remains 800. Unit B retains its independent 550-raw-deletion
+ceiling. Unused Unit A insertion, ordinary-deletion, or relocation budget
+cannot be transferred to Unit B, and unused Unit B budget cannot transfer to
+Unit A.
 The newly recognized durable consumers fit inside each existing documentation/
 tool category ceiling; neither per-unit nor union line budget increases.
 Across both units there remains exactly one SHA implementation, one canonical
@@ -1679,29 +1940,35 @@ The gates are separate and no gate implies the next:
 5. separate BDFL planning publication and terminal full CI;
 6. isolated planning publication-status record and terminal fast CI;
 7. explicit BDFL Unit A implementation signal;
-8. one bounded sixteen-path Unit A implementation on clean published `main`;
-9. fresh independent complete Unit A review;
-10. at most one BDFL-authorized bounded Unit A correction;
-11. separately authorized Unit A local commit;
-12. separately authorized Unit A publication and terminal 101/101 full CI;
-13. isolated Unit A status record and terminal fast CI;
-14. explicit BDFL Unit B implementation signal;
-15. one bounded sixteen-path Unit B implementation on the published Unit A
+8. the first bounded sixteen-path Unit A implementation, its valid completed-
+   red Fast stop, and lossless candidate parking;
+9. this relocation-aware amendment, fresh independent review, separate local
+   commit, full-CI publication, status record, and fast-CI status publication;
+10. separate explicit BDFL resumption, exact candidate restoration, bounded
+    tool-audit correction, one renewed Fast, and fresh complete Unit A review;
+11. at most one BDFL-authorized bounded Unit A implementation correction after
+    that review;
+12. separately authorized Unit A local commit;
+13. separately authorized Unit A publication and terminal 101/101 full CI;
+14. isolated Unit A status record and terminal fast CI;
+15. explicit BDFL Unit B implementation signal;
+16. one bounded sixteen-path Unit B implementation on the published Unit A
     status baseline;
-16. fresh independent complete Unit B review;
-17. at most one BDFL-authorized bounded Unit B correction;
-18. separately authorized Unit B local commit;
-19. separately authorized Unit B publication and terminal 104/104 full CI; and
-20. separately authorized final status/closeout record and publication.
+17. fresh independent complete Unit B review;
+18. at most one BDFL-authorized bounded Unit B correction;
+19. separately authorized Unit B local commit;
+20. separately authorized Unit B publication and terminal 104/104 full CI; and
+21. separately authorized final status/closeout record and publication.
 
-The planning correction cycle remains consumed. The capabilities-catalog
-amendment and this final BDFL-pinned language-reference re-envelope are recorded
-exceptions and create no automatic successor correction. Any finding in the
-next final independent review returns directly to the BDFL without another
-author edit and stops Work Order 20. Each later implementation correction
-allowance is local to its own unit and cannot add a path, dependency, mechanism,
-public contract, evidence meaning, or backend behavior. A repeated authority/
-evidence failure or envelope defect returns directly to the BDFL.
+The planning correction cycle remains consumed. The capabilities-catalog and
+language-reference re-envelopes, plus this BDFL-directed Fast-boundary
+accounting amendment, are recorded exceptions and create no automatic
+successor correction. Any finding in the fresh amendment review returns
+directly to the BDFL without another author edit. Each later implementation
+correction allowance is local to its own unit and cannot add a path,
+dependency, mechanism, public contract, evidence meaning, or backend behavior.
+A repeated authority/evidence failure or envelope defect returns directly to
+the BDFL.
 
 ## Planning-package validation
 
@@ -1736,21 +2003,22 @@ commit, or push is part of planning validation.
 
 ## Current authorization gate
 
-The final twenty-path Work Order 20 planning package was independently
-accepted, published as `7c6a769003fa1cb9f41ce2b545b99991be025d79`,
-and reached terminal-green full CI in workflow `ci`, run `31570998795`,
-attempt 1. Ubuntu job `94032782803` and Windows job `94032782817` both
-succeeded with `mode=full;reason=no_status_transition`; Ubuntu additionally
-passed all 14,226 platform-independent Exhaustive pairs.
+The planning and publication-status chains are published and terminal-green at
+`3156dd4869b3960a85eb63c6ba906b5c2b9916c8`. The first Unit A candidate
+stopped at its completed-red Fast, was not rejected, and is losslessly parked
+at stash commit `bd6d2722cffa50da8463201204a48f4a7305ae1b` with scoped tree
+`46eb384f4f36218b71525cba758d60f2881c6ba5`.
 
-Unit A is the next possible implementation unit but remains unauthorized. The
-required next gates are this exact local status-only commit, separate BDFL
-publication authorization, terminal-green status-only fast CI, and only then a
-later separate explicit BDFL Unit A go signal. No one of those gates implies
-the next.
+No implementation is active. The next gate is fresh independent review of
+this document-only relocation-aware amendment. Candidate restoration, the
+bounded `tools/check_all.ps1` correction, and a renewed Fast remain
+unauthorized until the amendment receives unqualified acceptance, separate
+commit/publication/status publication with terminal-green CI, and a separate
+explicit BDFL resumption signal.
 
-Unit B remains unauthorized until accepted Unit A implementation, publication,
-and status evidence are durable and another explicit BDFL signal is issued.
-Backend lowering, artifact verification, archive or stash mutation, and every
-other later activity remain unauthorized.
+Unit A is not accepted, complete, rejected, or ready for commit. Unit B remains
+unauthorized until accepted Unit A implementation, publication, and status
+evidence are durable and another explicit BDFL signal is issued. Backend
+lowering, verified backend input, archive mutation, either stash operation, and
+every other later activity remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
