@@ -2,35 +2,34 @@
 
 Date: 2026-08-11
 <!-- hum-active-workorder:v1 -->
-Status: Unit A stopped at its final Fast boundary; exact candidate parked and
-not rejected; relocation-aware amendment awaiting independent review.
-The accepted final twenty-path planning package was committed as
-`7c6a769003fa1cb9f41ce2b545b99991be025d79`, with parent
-`74913b5fa459e51cb6dc5bd841dc1717ca7ecab4` and subject
-`docs(workorder): define canonical backend input pipeline`. It was published
-to `main` by normal non-force fast-forward.
+Status: Relocation-accounting amendment independently accepted, published, and
+terminal-green; exact Unit A candidate remains parked and has not resumed.
+The accepted amendment commit is
+`eef23720ddaecd850bcea47f3238e2a0650d1b51`, with parent
+`3156dd4869b3960a85eb63c6ba906b5c2b9916c8` and subject
+`docs(workorder): clarify unit a relocation accounting`. It was published by a
+normal non-force fast-forward of `main` only.
 
-Required full-lane CI passed in workflow `ci`, run `31570998795`, attempt 1,
-testing that exact planning commit with overall conclusion `success`. Ubuntu
-job `94032782803` and Windows job `94032782817` both succeeded with
-`mode=full;reason=no_status_transition`. Ubuntu additionally passed all 14,226
-platform-independent Exhaustive pairs.
+Required full-lane CI passed in workflow `ci`, run `31611779720`, attempt 1,
+testing that exact amendment commit with overall conclusion `success`. Ubuntu
+job `94164634954` completed successfully in `9m11s`, including an `8m35s`
+full preflight, root suites `448/448`, `13/13`, and `60/60`, selector inventory
+`99/99`, and platform-independent Exhaustive evidence `1/1/0` over 14,226
+cases in `18.075s` with seed `0x48554D5F5345414C`. Windows job
+`94164634792` completed successfully in `18m10s`, including a `17m45s` full
+preflight, root suites `463/463`, `16/16`, and `60/60`, selector inventory
+`99/99`, and the correct duplicate-Exhaustive skip. Both platforms classified
+`mode=full;reason=no_status_transition`, passed text hygiene and public
+readiness for 528 files, alpha claims, and release readiness for `0.0.1`, and
+contained exactly one terminal `All Hum preflight checks passed.` marker.
 
-The planning publication-status commit is
-`3156dd4869b3960a85eb63c6ba906b5c2b9916c8`. Its fast-lane CI passed in
-workflow `ci`, run `31574787474`, attempt 1: Ubuntu job `94044372993` and
-Windows job `94044373199` both succeeded with
-`mode=fast;reason=eligible_status_chain`. The authenticated anchor evidence is
-planning run `31570998795`, attempt 1, Ubuntu job `94032782803`, and Windows
-job `94032782817`, with transition
-`7c6a769003fa1cb9f41ce2b545b99991be025d79>3156dd4869b3960a85eb63c6ba906b5c2b9916c8`.
-
-The BDFL then explicitly authorized Unit A. The exact implementation reached
-its one final Fast and stopped red on one obsolete IR-contract audit. The
-candidate is viable, losslessly parked, and not accepted, rejected, complete,
-or ready for commit. No implementation is currently active. This document-only
-amendment and its fresh independent review are the current gate. Unit B and all
-later work remain unauthorized.
+The exact Unit A candidate remains unchanged and losslessly parked at stash
+commit `bd6d2722cffa50da8463201204a48f4a7305ae1b`. Unit A has not resumed.
+The next gates remain this local status commit, separately authorized status
+publication, terminal-green fast-lane CI, a separate explicit BDFL resumption
+signal, and only then restoration of the exact parked candidate plus the
+bounded `tools/check_all.ps1` correction. Unit B, implementation review,
+candidate commit, and all later work remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 20 architect-author. The author may not independently review
@@ -2003,22 +2002,29 @@ commit, or push is part of planning validation.
 
 ## Current authorization gate
 
-The planning and publication-status chains are published and terminal-green at
-`3156dd4869b3960a85eb63c6ba906b5c2b9916c8`. The first Unit A candidate
-stopped at its completed-red Fast, was not rejected, and is losslessly parked
-at stash commit `bd6d2722cffa50da8463201204a48f4a7305ae1b` with scoped tree
-`46eb384f4f36218b71525cba758d60f2881c6ba5`.
+The relocation-accounting amendment was independently accepted and published
+as commit `eef23720ddaecd850bcea47f3238e2a0650d1b51` by a normal non-force
+fast-forward of `main` only. Workflow `ci`, run `31611779720`, attempt 1,
+tested that exact SHA and concluded `success`. Ubuntu job `94164634954` and
+Windows job `94164634792` both completed the full lane successfully with
+`mode=full;reason=no_status_transition`.
 
-No implementation is active. The next gate is fresh independent review of
-this document-only relocation-aware amendment. Candidate restoration, the
-bounded `tools/check_all.ps1` correction, and a renewed Fast remain
-unauthorized until the amendment receives unqualified acceptance, separate
-commit/publication/status publication with terminal-green CI, and a separate
-explicit BDFL resumption signal.
+The exact Unit A candidate remains unchanged and losslessly parked at stash
+commit `bd6d2722cffa50da8463201204a48f4a7305ae1b`, tree
+`1aabe316b01345ad2f2cd589f95b64b598305bb6`, and scoped tree
+`46eb384f4f36218b71525cba758d60f2881c6ba5`. Unit A has not resumed, and no
+implementation is active.
 
-Unit A is not accepted, complete, rejected, or ready for commit. Unit B remains
-unauthorized until accepted Unit A implementation, publication, and status
-evidence are durable and another explicit BDFL signal is issued. Backend
-lowering, verified backend input, archive mutation, either stash operation, and
-every other later activity remain unauthorized.
+The next gates remain, in order:
+
+1. this local status-only commit;
+2. separately authorized publication of this status commit;
+3. terminal-green fast-lane CI;
+4. a separate explicit BDFL resumption signal; and
+5. only then, restoration of the exact parked candidate and the bounded
+   `tools/check_all.ps1` correction.
+
+Unit B, implementation review, candidate commit, stash mutation, archive
+mutation, backend lowering, verified backend input, and every other later
+activity remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
