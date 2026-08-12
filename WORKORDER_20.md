@@ -2,12 +2,14 @@
 
 Date: 2026-08-11
 <!-- hum-active-workorder:v1 -->
-Status: Unit A independently accepted, published, and terminal-green; its local
-publication-status record is the current gate. Unit B remains unauthorized.
-Unit A resumed from the authenticated parked candidate under the published
-relocation-accounting amendment, and the bounded `tools/check_all.ps1`
-correction was applied. A fresh independent review returned unqualified
-`ACCEPT`.
+Status: Unit A's implementation and publication-status chains are complete,
+published, and terminal-green. The BDFL then issued an explicit Unit B signal,
+but the implementer stopped before implementation at a genuine encoder-
+interface defect: the sole canonical encoder was private in
+`src/backend_input.rs`, while the stopped sixteen-path Unit B envelope forbade
+editing that file. The incomplete untracked verifier file was removed and the
+repository returned to its exact clean published state. No Unit B candidate,
+selector, validation run, Fast allowance, commit, or push was consumed.
 
 Unit A was committed as `103015e531db086d1ac455dd67f1273f9e7173ac`
 with subject `feat(ir): encode canonical backend input bytes` and published by
@@ -21,12 +23,18 @@ and payload/artifact ID
 `a37707c23cc20a1720e45de901624e3101183a77ec1b5eb4ed55095b5097b82f`
 were identical across platforms.
 
-Unit A remains explicitly unverified and blocked before `ir_verify`. The
-remaining gates are this local status commit, separately authorized status
-publication, terminal-green fast-lane CI, and a separate explicit BDFL Unit B
-implementation signal. Stash cleanup, Work Order organization, Unit B
-implementation, backend verification, candidate commit, and all later work
-remain unauthorized.
+The Unit A publication-status commit is
+`d522ef74cdf5418fe166d303d3f2ba8e49c892b5`. Workflow `ci`, run
+`31634296922`, attempt 1, tested that exact commit and concluded `success`.
+Ubuntu job `94240615122` and Windows job `94240615202` independently completed
+the fast lane. Unit A remains explicitly unverified and blocked before
+`ir_verify`.
+
+Unit B is paused pending this encoder-interface amendment's independent review,
+local commit, full-CI publication, publication-status record, fast-CI status
+publication, and a new explicit BDFL Unit B resumption signal. Stash cleanup,
+Work Order organization, Unit B implementation, backend verification,
+candidate commit, and all later work remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 20 architect-author. The author may not independently review
@@ -94,9 +102,10 @@ inventory omitted from the envelope: `docs/LANGUAGE_REFERENCE.md`. Its
 `Current Commands` table and bootstrap examples must change whenever these two
 public routes change.
 
-The BDFL then authorized this final pinned document-only re-envelope. The live
-topology is sixteen Unit A paths, sixteen Unit B paths, twelve shared paths, and
-twenty union paths, with a necessary twenty-first path as the mandatory stop.
+The BDFL then authorized the final pinned document-only re-envelope used for
+the published planning package. That now-historical topology was sixteen Unit A
+paths, sixteen Unit B paths, twelve shared paths, and twenty union paths, with
+a necessary twenty-first path as the mandatory stop.
 The historical eighteen- and nineteen-path packages remain accurately recorded
 as the packages reviewed at those gates; this amendment does not retroactively
 rewrite either review or authorize implementation. The ordinary planning
@@ -341,8 +350,55 @@ candidate and return to the BDFL.
 This amendment changes no Unit A product semantic, path, artifact byte,
 digest, CLI behavior, schema meaning, capability/catalog/reference parity,
 blocked readiness state, eleven-fact order, selector ownership, or insertion
-ceiling. It changes no Unit B envelope, budget, verifier/capability contract,
-or authorization. Unit A remains unverified; Unit B remains unauthorized.
+ceiling. At that historical gate it changed no Unit B envelope, budget,
+verifier/capability contract, or authorization. Unit A remains unverified.
+
+## Unit B encoder-interface stop and BDFL re-envelope
+
+After Unit A's implementation and publication-status chains were durable and
+terminal-green, the BDFL issued an explicit Unit B implementation signal. The
+implementer correctly stopped before implementation because the published
+Unit B envelope was not satisfiable as written:
+
+1. canonical verification requires the decoded declared artifact ID and
+   decoded payload model to pass through the one Unit A canonical encoder;
+2. that encoder is private in `src/backend_input.rs`;
+3. its accepted input is private producer facts tied to Work Order 19
+   authority rather than a closed non-authoritative transport model;
+4. the stopped sixteen-path Unit B envelope forbade editing
+   `src/backend_input.rs`; and
+5. copying key order, punctuation, escaping, or any other writer logic into
+   `src/ir_verify.rs` would create the expressly forbidden second encoder.
+
+The incomplete untracked `src/ir_verify.rs` file was removed. The repository
+returned to clean published `main` at
+`d522ef74cdf5418fe166d303d3f2ba8e49c892b5`; no Unit B candidate, selector,
+validation run, Fast allowance, commit, or push exists. This is a genuine
+satisfiability defect in the historical Unit B envelope, not an implementation
+rejection and not evidence that a second encoder is necessary.
+
+The BDFL therefore makes `src/backend_input.rs` intentionally shared. Unit A
+remains exactly sixteen paths. Unit B becomes exactly seventeen paths. The
+shared intersection becomes exactly thirteen paths. The union remains exactly
+twenty paths:
+
+```text
+16 + 17 - 13 = 20
+```
+
+The published Unit A starting blob for the newly shared path is
+`e0ff799e6b2ffb14a23cc3adc5c69218f05e1b12`. Unit B must authenticate that
+blob before editing and must account for the complete Unit B diff of
+`src/backend_input.rs`. An eighteenth Unit B path or a twenty-first union path
+is an unconditional stop.
+
+This re-envelope changes only the private canonicalization boundary needed to
+make the already-frozen verifier contract satisfiable. It does not authorize a
+second writer, change any Unit A byte or public surface, add a selector, alter
+the verifier/capability/report contract, or grant Unit B implementation
+authority. Unit B remains paused until this amendment completes independent
+review, local commit, full-CI publication, publication-status recording,
+fast-CI status publication, and a new explicit BDFL resumption signal.
 
 ## Mandatory sufficiency ruling
 
@@ -669,8 +725,68 @@ retain their own earlier classes.
 ## Artifact production API
 
 `src/backend_input.rs` owns the moved Work Order 19 backend-facts issuer, the
-closed V0 artifact model, deterministic assignments, and canonical encoder.
-This removes a conceptual `ir_readiness -> encoder -> ir_readiness` cycle.
+closed V0 artifact model, deterministic assignments, and the sole canonical
+payload/envelope byte emitter. This removes a conceptual
+`ir_readiness -> encoder -> ir_readiness` cycle while keeping producer and
+verifier authority acyclic.
+
+The published Unit A implementation currently assembles and writes directly
+from private `CanonicalMinimalAddBackendFacts`. Unit B may refactor that one
+file only enough to interpose one closed, explicitly unverified
+`hum.backend_input.v0` model shared by the producer and verifier. The model is
+owned by `src/backend_input.rs` and represents only the exact frozen V0 fields.
+It contains no `Program` pointer, Work Order 19 profile/access value, lineage
+permit, verified range, capability, report, generic JSON value, or authority.
+
+The Rust-satisfiable construction boundary is an opaque crate-private
+`UnverifiedBackendInputV0` with module-private fields plus an opaque
+schema-specific builder or equivalent hierarchical constructors owned by
+`src/backend_input.rs`. The construction API exposes only typed V0 record and
+scalar inputs needed by the frozen shape; it exposes no public or crate-visible
+field bag and no generic `key`, `value`, map, serializer, punctuation, escape,
+or writer operation. Unit A's private producer helper builds this model only
+after genuine Work Order 19 access. Unit B's decoder builds the same model only
+after its ordered occurrence stream has passed closed structural decoding.
+Constructing either form remains non-authoritative.
+
+One private `emit_backend_input_v0`-equivalent implementation in
+`src/backend_input.rs` owns all payload order, envelope order, punctuation,
+number spelling, string escaping, payload hashing, and final-LF emission. It
+consumes only the closed model plus a module-private two-case artifact-ID mode:
+`ComputeFromPayload` or `PreserveDeclared(&str)`. It has exactly two production
+call sites:
+
+1. the Unit A producer wrapper builds the model from authenticated Work Order
+   19 facts and calls the emitter with `ComputeFromPayload`; the emitter writes
+   canonical payload bytes, computes SHA-256 over those exact emitted bytes,
+   and uses that computed ID in the envelope; and
+2. the Unit B verifier wrapper accepts the model built from decoded fields and
+   calls the same emitter with `PreserveDeclared(decoded_id)` to obtain
+   ordinary canonical comparison bytes without recalculation or substitution.
+
+The narrow verifier-facing surface is equivalent to:
+
+```rust
+pub(crate) fn reencode_unverified_backend_input_v0(
+    model: &UnverifiedBackendInputV0,
+    declared_artifact_id: &str,
+) -> Option<CanonicalBackendInputArtifact>;
+```
+
+The exact opaque builder method split may follow the existing nested V0 shape,
+but the top-level ownership and data flow above are frozen. The wrapper may
+validate bounded artifact-ID spelling but must not compute, replace, repair,
+normalize, or otherwise substitute the declared ID. It returns only ordinary
+non-authoritative canonical bytes and range metadata. It cannot return facts
+access, a verified range, a permit, `VerifiedBackendInput`, or a callback that
+can issue one. `src/backend_input.rs` has no dependency on `src/ir_verify.rs`,
+and the verifier has no access to producer facts.
+
+This is one closed model and one writer with two authenticated production call
+sites, not friend-style privacy or duplicated canonicalization. Any design that
+requires a type cycle, a second emitter, copied spelling logic, generic JSON,
+producer authority in the verifier, or a large public field surface is
+unsatisfiable and stops Unit B.
 
 The production shape is equivalent to:
 
@@ -687,10 +803,25 @@ pub(crate) fn with_canonical_minimal_add_artifact<R>(
 ) -> Option<R>;
 ```
 
+That published producer signature, `canonical_minimal_add_artifact`, and the
+existing `CanonicalBackendInputArtifact` byte/payload/artifact-ID accessors
+remain unchanged. The proven necessary refactor is limited to private producer
+assembly/writer internals plus the new opaque model construction surface and
+the one crate-private verifier re-encoding wrapper. Any wider producer API
+change requires a new BDFL ruling.
+
 `CanonicalBackendInputArtifact` owns only unverified bytes plus non-authority
 range metadata needed to locate the payload. It is not a verified capability.
 Creating, serializing, deserializing, cloning, or persisting these bytes grants
 no backend authority.
+
+The shared `UnverifiedBackendInputV0` and verifier re-encoding result have the
+same non-authority status. Building the model, re-emitting it, or possessing
+its declared ID never invokes the verifier capability callback and cannot be
+converted into `VerifiedBackendInput<'artifact>`. Only `src/ir_verify.rs`,
+after canonical equality, digest, structure, semantics, and cross-table checks
+all succeed for the caller's original slice, may invoke its one private
+capability constructor.
 
 The existing Work Order 19 access and selector names remain available through
 narrow `ir_readiness` forwarding/re-export glue where required for compatibility
@@ -1021,9 +1152,9 @@ reports loss. Backend adapter and lowering work remain unauthorized.
 | Stage and path | Producer | Validator | Consumer |
 | --- | --- | --- | --- |
 | WO19 chain through `src/profile_check.rs` | exact Program/item/operation semantic authority | existing compiler-sealed stage validators | moved backend-facts issuer |
-| `src/backend_input.rs` | private backend facts and closed artifact model | exact cardinality, ordered assignments, provenance, V0 subset | canonical encoder |
+| `src/backend_input.rs` | private backend facts plus one opaque non-authoritative V0 model | exact cardinality, ordered assignments, provenance, V0 subset | sole canonical emitter |
 | `src/sha256.rs` | 32-byte digest of exact payload/source bytes | FIPS vectors and independent .NET comparison | envelope builder and verifier |
-| `src/backend_input.rs` encoder | exact payload then envelope bytes | byte grammar and golden fixture | `src/ir_verify.rs`, CLI, readiness |
+| `src/backend_input.rs` emitter | exact model plus compute-or-preserve ID mode | byte grammar, two-call-site audit, golden fixture, declared-ID preservation | producer bytes and verifier comparison bytes |
 | `src/ir_verify.rs` decoder | private unverified model from exact bytes | canonicality, digest, closed semantic tables and cross-references | sole capability constructor |
 | `src/ir_verify.rs` capability | `VerifiedBackendInput<'artifact>` | private constructor and lifetime | authenticated projections only |
 | `src/ir_readiness.rs` | exact candidate readiness row | successful same-byte verifier callback | public readiness projection |
@@ -1038,9 +1169,11 @@ The real dependency and public-consumer audit requires exactly twenty paths
 in the Work Order union. `[A]` and `[B]` identify the unit allowed to modify a
 path; `[A,B]` is an intentionally shared path modified in both commits:
 
-1. `[A]` `src/backend_input.rs` (new)
-   - own the moved single backend-facts issuer, closed artifact model,
-     deterministic ID assignment, and canonical encoder.
+1. `[A,B]` `src/backend_input.rs` (new in Unit A, shared in Unit B)
+   - Unit A owns the moved single backend-facts issuer, deterministic ID
+     assignment, and canonical encoder; Unit B refactors only the closed
+     unverified model and narrow verifier re-encoding surface while preserving
+     the sole writer and every published Unit A byte.
 2. `[A]` `src/sha256.rs` (new)
    - implement the one private safe one-shot SHA-256 path and KATs.
 3. `[B]` `src/ir_verify.rs` (new)
@@ -1129,9 +1262,10 @@ seventeenth Unit A path, or a Unit A ceiling breach becomes necessary.
 ### Unit B exact subset
 
 Unit B starts only from published, terminal-green, status-recorded Unit A and
-may modify exactly sixteen paths:
+may modify exactly seventeen paths:
 
 ```text
+src/backend_input.rs
 src/ir_verify.rs
 src/ir_readiness.rs
 src/main.rs
@@ -1150,19 +1284,26 @@ README.md
 tools/check_all.ps1
 ```
 
-Unit B consumes but does not modify Unit A's `src/backend_input.rs`,
-`src/sha256.rs`, producer schema, or golden artifact. Its evidence owns ordered
-raw-span decoding, duplicate retention, canonical equality, digest/semantic
-verification, all corruption matrices, the four exact verifier mutations, the
-actual-type privacy/lifetime proof, `ir-verify`, and the readiness transition.
+Unit B authenticates published `src/backend_input.rs` blob
+`e0ff799e6b2ffb14a23cc3adc5c69218f05e1b12` and may refactor that one Unit A
+path only to introduce the opaque shared V0 model and narrow declared-ID-
+preserving re-encoding wrapper above. Unit B consumes but does not modify
+`src/sha256.rs`, the producer schema, or the golden artifact. Its evidence owns
+ordered raw-span decoding, duplicate retention, canonical equality,
+digest/semantic verification, all corruption matrices, all existing verifier
+mutations plus the shared-interface mutations, the actual-type privacy/lifetime
+proof, `ir-verify`, and the readiness transition.
 
-Unit B stops if Unit A bytes/interfaces must be edited, the golden changes, a
-seventeenth Unit B path or twenty-first union path is required, a capability is
-needed outside its callback, or a Unit B ceiling is breached.
+Unit B stops if any published Unit A byte or public interface changes, if the
+private refactor exceeds the narrow model/emitter boundary, if the golden
+changes, if an eighteenth Unit B path or twenty-first union path is required,
+if a capability is needed outside its callback, or if a Unit B ceiling is
+breached.
 
-The twelve intentionally shared paths are exactly:
+The thirteen intentionally shared paths are exactly:
 
 ```text
+src/backend_input.rs
 src/ir_readiness.rs
 src/main.rs
 src/capabilities.rs
@@ -1180,7 +1321,7 @@ tools/check_all.ps1
 Unit B may change them only from the exact published Unit A state to the frozen
 verifier state described here.
 
-The set arithmetic is exact: `16 + 16 - 12 = 20`. No twenty-first path is
+The set arithmetic is exact: `16 + 17 - 13 = 20`. No twenty-first path is
 permitted. If any honest implementation requires a path
 outside this inventory, stop for a BDFL ruling before editing that path.
 
@@ -1383,13 +1524,14 @@ ir_readiness::tests::minimal_add_is_ir_ready_only_after_exact_artifact_verificat
 ```
 
 Each independently lists exactly one test, runs exactly one, passes exactly one,
-and receives exactly one runtime credit. The current published inventory is
-99 invocations / 99 unique selectors.
+and receives exactly one runtime credit. The pre-Work-Order-20 published
+inventory was 99 invocations / 99 unique selectors.
 
-Unit A adds exactly the first two selectors and closes at 101 invocations /
-101 unique selectors, with independent named membership for both. Unit B
-preserves those 101 credits, adds exactly the final three selectors, and closes
-at 104/104 with independent named membership for all five.
+Published Unit A added exactly the first two selectors and is now closed at 101
+invocations / 101 unique selectors, with independent named membership for both.
+Unit B preserves those 101 credits, adds exactly the final three selectors, and
+closes at 104/104 with independent named membership for all five. The shared-
+interface evidence adds no sixth selector.
 
 The Unit A backend-input selector also owns the exact blocked readiness proof:
 human and JSON output must carry the Unit A status, the exact ordered eleven-
@@ -1496,11 +1638,98 @@ For each case:
 5. the capability callback count remains zero; and
 6. a public report cannot be converted into a capability.
 
+## Shared canonicalization and non-authority evidence
+
+Unit B permanently proves that the newly shared private refactor preserves the
+published producer and creates no second encoder or authority route.
+
+### Unit A byte preservation
+
+Production `hum backend-input examples/core/minimal_add.hum` stdout remains
+byte-identical to published Unit A and to the golden. The golden remains exactly
+8,715 bytes with raw SHA-256
+`9a2affc59962e0d83a33633edce6f318d78a406a9d2e5ad2edc5b8e34cf7c293`.
+The payload digest and artifact ID remain
+`a37707c23cc20a1720e45de901624e3101183a77ec1b5eb4ed55095b5097b82f`.
+Both Unit A selectors and all 101 published prior selector credits remain green.
+No producer schema, fixture, command/catalog/reference entry, output byte,
+source digest, readiness fact, or public API may drift.
+
+### Single-emitter topology
+
+Permanent source/configuration audits require:
+
+- exactly one closed `UnverifiedBackendInputV0` model definition;
+- exactly one canonical payload/envelope writer implementation, owned by
+  `src/backend_input.rs`;
+- exactly one Unit A producer call site using `ComputeFromPayload`;
+- exactly one Unit B verifier re-encoding call site using
+  `PreserveDeclared(decoded_id)`;
+- no canonical punctuation, key-order, number-spelling, string-escaping, or
+  final-LF writer in `src/ir_verify.rs`;
+- no generic serializer, generic JSON model, map encoder, macro-generated
+  duplicate, third production call, or test-only production authority; and
+- no dependency from `src/backend_input.rs` to `src/ir_verify.rs`.
+
+Deletion of the shared wrapper, duplication or relocation of the writer,
+copied literal emission in `src/ir_verify.rs`, generic serializer substitution,
+or a third production call fails the existing Unit B corruption selector or
+its owning Fast source-audit block. Hand-built expected canonical strings in
+`src/ir_verify.rs` earn no evidence.
+
+### Declared-ID preservation and rejection ownership
+
+A structurally valid envelope whose declared artifact ID is the exact all-zero
+lowercase SHA-256 spelling reaches the shared emitter unchanged through
+`PreserveDeclared`. Canonical re-emission therefore preserves the wrong ID and
+may still equal the original wrong-ID envelope. The verifier's separate digest
+comparison, not `src/backend_input.rs`, owns rejection.
+
+A disposable mutation changes only the verifier wrapper's mode from
+`PreserveDeclared(decoded_id)` to `ComputeFromPayload`. It must compile and
+reach the existing wrong-ID isolation assertion. The mutation masks the
+designated digest rejection by repairing the ID, so the corruption selector
+must fail. An earlier structural rejection, stale text assertion, missing
+symbol, or unrelated failure earns no credit.
+
+### Canonical-equality isolation through the shared emitter
+
+For both exact noncanonical cases--one ASCII space after the payload
+`compiler`/`source_revision` comma and one normalized-path slash represented as
+`\/`--the production decoder must retain valid structure, produce the same
+closed semantic model, observe a matching recomputed digest over the mutated
+raw payload, and pass semantic/cross-table checks. The verifier then re-emits
+through `src/backend_input.rs`; exact re-encoded-versus-original inequality is
+the sole rejection.
+
+A disposable mutation bypasses only this shared canonical re-emission/equality
+boundary. Both alternate artifacts must then receive capability access and
+fail the corruption selector's zero-callback assertions. A second writer,
+hand-built expected string, digest mismatch, syntax failure, semantic change,
+or additional bypass earns no credit.
+
+### Shared-model non-authority
+
+Construction, inspection, or canonical emission of
+`UnverifiedBackendInputV0` never invokes the capability callback. The model,
+declared artifact ID, emitted bytes, artifact value, public report, and range
+metadata cannot convert into or construct `VerifiedBackendInput`. Only the
+private success path in `src/ir_verify.rs`, after all transport, canonical,
+digest, semantic, and cross-table checks, may call
+`VerifiedBackendInput::from_verified_parts` over the caller's original byte
+slice. Source and compile-proof audits reject any conversion, constructor,
+permit, facts access, lineage authority, or callback issuance added to the
+shared model or wrapper.
+
 ## Load-bearing mutation evidence
 
 Unit A runs the two producer mutations frozen in its path subsection. Unit B's
-implementer self-probes, and its fresh reviewer repeats, these four exact
-disposable-copy verifier mutations.
+implementer self-probes, and its fresh reviewer repeats, the four existing
+disposable-copy verifier mutations below, with the canonical-byte-equality
+mutation now required to bypass the shared `src/backend_input.rs` boundary,
+plus the separate declared-ID-preservation mutation above. These five Unit B
+mutation classes remain assigned to the existing corruption selector and
+source-audit blocks and add no selector credit.
 
 ### Digest comparison
 
@@ -1562,14 +1791,16 @@ under the decoder stages:
 Each retains the same semantic model. The harness computes SHA-256 over the
 mutated raw payload byte range and installs that matching lowercase declared
 ID. Decode, duplicate detection, structure, semantics, cross-table checks, and
-digest comparison all pass. Canonical re-encoding removes the selected
-whitespace/escape variant, making exact re-encoded-versus-original equality the
-sole rejection.
+digest comparison all pass. The closed decoded model then crosses the narrow
+verifier wrapper and the sole emitter in `src/backend_input.rs`; canonical
+re-encoding removes the selected whitespace/escape variant, making exact
+re-encoded-versus-original equality the sole rejection.
 
-The disposable mutation bypasses only that final byte equality. Both alternate
-envelopes must receive capability access and make the corruption selector fail.
-A syntax rejection, unchanged digest, semantic change, or second bypass earns
-no credit.
+The disposable mutation bypasses only that shared canonical re-emission/final
+byte-equality boundary. Both alternate envelopes must receive capability
+access and make the corruption selector fail. A copied verifier-side encoder,
+hand-built expected string, syntax rejection, unchanged digest, semantic
+change, or second bypass earns no credit.
 
 ### Capability construction
 
@@ -1665,10 +1896,12 @@ isolated trees. Unit A may change only the `backend-input` command, producer-
 side schemas/contracts, capability-catalog entries, language-reference command
 inventory and bootstrap example, the golden artifact, and the frozen unverified
 minimal-add readiness state; it does not expose `ir-verify` or final readiness.
-Unit B may add only the verifier command, verifier-side schemas/contracts,
-capability-catalog and language-reference entries, and the frozen final minimal-
-add readiness transition. Except for those unit-specific surfaces, all existing
-public surfaces are byte-identical.
+Unit B may privately refactor `src/backend_input.rs` only into the shared closed
+model/sole-emitter shape while keeping every Unit A byte and public interface
+identical. It may otherwise add only the verifier command, verifier-side
+schemas/contracts, capability-catalog and language-reference entries, and the
+frozen final minimal-add readiness transition. Except for those unit-specific
+surfaces, all existing public surfaces are byte-identical.
 
 Required preservation includes:
 
@@ -1749,38 +1982,55 @@ status chain is durable and the BDFL sends an explicit Unit B signal.
 
 ### Unit B implementer and review
 
-On the exact sixteen-path Unit B candidate based on published Unit A, the
+On the exact seventeen-path Unit B candidate based on published Unit A, the
 implementer runs:
 
 - `cargo fmt --all -- --check`, `cargo check --all-targets`, and applicable
   warnings-denied Clippy;
+- authentication of published `src/backend_input.rs` blob
+  `e0ff799e6b2ffb14a23cc3adc5c69218f05e1b12`, complete review of its Unit B
+  diff, and exact path/blob/budget telemetry for all seventeen paths;
 - the three Unit B selectors plus preservation of Unit A's 101 credits, ending
   at the closed 104/104 inventory and five-name membership;
 - ordered/raw-span decoder and duplicate-key source audits;
+- proof of exactly one opaque closed V0 model, one canonical emitter, one Unit
+  A `ComputeFromPayload` call site, and one Unit B
+  `PreserveDeclared(decoded_id)` re-encoding call site, with no copied writer
+  logic or generic serializer in `src/ir_verify.rs`;
+- published Unit A byte identity: exact production stdout, 8,715-byte golden,
+  raw golden SHA-256, payload/artifact ID, both Unit A selectors, and all 101
+  prior credits;
 - exact accepted/rejected `ir-verify` CLI/report evidence;
 - the complete transport and semantic corruption matrices;
 - the seven actual-type `0/101/0` lifetime/privacy probes;
-- all four exact Unit B disposable mutations;
+- all four existing Unit B disposable mutations plus the declared-ID-
+  preservation mutation, including the shared-emitter canonical-equality
+  mutation and rejection of a copied verifier-side encoder;
 - exact thirteen-fact readiness suffix, empty IR blocker sets, backend-only
   blocker, and callback-death evidence;
 - exact final `hum capabilities` human/JSON and
   `docs/CAPABILITIES_SCHEMA.md` parity while preserving both Unit A entries;
 - exact final `docs/LANGUAGE_REFERENCE.md` command/prose/bootstrap parity while
   preserving every accepted Unit A occurrence and authority non-claim;
-- source/F4/configuration audits and compatibility proportional to its sixteen
+- source/F4/configuration audits and compatibility proportional to its seventeen
   paths;
 - `git diff --check`, text hygiene, public readiness, alpha claims, and release
   readiness for `0.0.1`; and
 - one direct Fast on the frozen bytes, with no local Exhaustive.
 
-A fresh Unit B reviewer authenticates the published Unit A base and exact Unit
-B paths/blobs/budgets, reads the entire diff, traces decoder/verifier/capability/
-consumer ownership, repeats all three selectors, the actual-type proof, and all
-four mutations, checks every corruption for false-early failure, verifies CLI
-and readiness lifetime truth, independently verifies capability-catalog parity
-plus language-reference parity and preservation, and issues one findings-first
-verdict. At most one direct reviewer Fast is allowed after all other review
-evidence is complete.
+A fresh Unit B reviewer authenticates the published Unit A base, the published
+`src/backend_input.rs` starting blob, and all seventeen Unit B
+paths/blobs/budgets; reads the complete diff including the newly shared file;
+proves the single-emitter/two-call-site topology and Unit A byte identity;
+traces model/decoder/verifier/capability/consumer ownership; repeats all three
+selectors, the actual-type proof, all four existing mutations, and the
+declared-ID-preservation mutation; independently repeats both canonical-
+equality cases through the shared emitter; rejects copied canonical spelling in
+`src/ir_verify.rs`; checks every corruption for false-early failure; verifies
+CLI and readiness lifetime truth; independently verifies capability-catalog
+parity plus language-reference parity and preservation; and issues one
+findings-first verdict. At most one direct reviewer Fast is allowed after all
+other review evidence is complete.
 
 For either unit, a launcher failure before candidate evidence may be repaired
 only at the invocation boundary and must be disclosed. A completed Fast failure
@@ -1789,7 +2039,7 @@ stops that unit.
 ### Unit B commit, publication, status, and closeout
 
 Only after unqualified Unit B acceptance may a separately authorized
-implementer stage its exact sixteen paths and create one local commit:
+implementer stage its exact seventeen paths and create one local commit:
 
 ```text
 feat(ir): verify canonical backend input bytes
@@ -1840,7 +2090,7 @@ Unit A hard ceilings are:
 
 Unit B hard ceilings are:
 
-- exactly sixteen Unit B paths based on published Unit A;
+- exactly seventeen Unit B paths based on published Unit A;
 - at most 1,800 new or moved production Rust lines;
 - at most 1,850 permanent test/compile-proof Rust lines;
 - at most 650 schema/tool/README/catalog/reference insertions;
@@ -1850,6 +2100,14 @@ Unit B hard ceilings are:
 - exactly three new selectors and final inventory 104/104; and
 - one implementer Fast, at most one complete-review Fast, and no local
   Exhaustive.
+
+Adding `src/backend_input.rs` transfers no unused Unit A budget. Every Unit B
+insertion and deletion in the shared model/emitter refactor, its permanent
+tests, and its source-audit evidence counts fully against the Unit B ceilings
+above. Published Unit A lines receive no relocation or prior-work discount in
+the Unit B diff. If the one-model/one-emitter/two-call-site design cannot fit
+honestly, Unit B stops with exact measured evidence rather than weakening
+canonicality, declared-ID preservation, or capability authority.
 
 The non-transferable union ceilings are therefore twenty paths, 2,750
 production Rust insertions, 2,500 test/proof insertions, 1,300
@@ -1862,10 +2120,12 @@ cannot be transferred to Unit B, and unused Unit B budget cannot transfer to
 Unit A.
 The newly recognized durable consumers fit inside each existing documentation/
 tool category ceiling; neither per-unit nor union line budget increases.
-Across both units there remains exactly one SHA implementation, one canonical
-encoder, one strict decoder, one semantic verifier, and one capability
-constructor, with no dependency, unsafe code, build script, generated source,
-or duplicated public projection.
+Across both units there remains exactly one SHA implementation, one closed V0
+model, one canonical encoder, one strict decoder, one semantic verifier, and
+one capability constructor, with no dependency, unsafe code, build script,
+generated source, or duplicated public projection. The exact set arithmetic is
+`16 + 17 - 13 = 20`; the established non-transferable union ceilings do not
+change.
 
 These are review ceilings, not targets. Normal rustfmt output is mandatory; no
 format suppression or line packing may evade them. If either honest unit
@@ -1906,6 +2166,13 @@ Stop without workaround if:
 - any twenty-first path is necessary;
 - Cargo, license, vendoring, workflow, or dependency files become necessary;
 - a second SHA, encoder, decoder, verifier, or capability constructor appears;
+- a second canonical writer, verifier-side copied punctuation/key-order/
+  escaping logic, a generic serializer, or a generic JSON model appears;
+- the verifier wrapper recomputes, replaces, repairs, or normalizes the decoded
+  declared artifact ID before canonical equality;
+- the shared unverified model, its builder, emitted bytes, artifact value, or
+  verifier wrapper grants facts, lineage, permit, callback, or capability
+  authority;
 - semantically equivalent noncanonical bytes receive a capability;
 - a digest or cross-table mutation can receive capability without failing its
   exact selector;
@@ -1916,8 +2183,11 @@ Stop without workaround if:
 - a backend call, lowering, target artifact, or execution enters;
 - any existing nonminimal public behavior changes outside the frozen envelope;
 - Unit A exceeds its sixteen paths or budget, or claims verification/readiness;
-- Unit B alters Unit A producer bytes/interfaces or exceeds its sixteen paths
-  or budget;
+- Unit B changes any published Unit A output byte, golden identity, source
+  digest, artifact ID, producer schema, CLI/catalog/reference surface, selector
+  behavior, or public interface;
+- Unit B exceeds its seventeen paths or budget, or requires an eighteenth Unit
+  B path;
 - a selector selects zero or multiple tests;
 - Fast fails after candidate evidence begins; or
 - either unit cannot be independently reviewed in one sitting.
@@ -1947,14 +2217,25 @@ The gates are separate and no gate implies the next:
 12. separately authorized Unit A local commit;
 13. separately authorized Unit A publication and terminal 101/101 full CI;
 14. isolated Unit A status record and terminal fast CI;
-15. explicit BDFL Unit B implementation signal;
-16. one bounded sixteen-path Unit B implementation on the published Unit A
+15. the original explicit BDFL Unit B implementation signal and the correct
+    pre-implementation stop at the private encoder-interface defect, with no
+    candidate or evidence run consumed;
+16. this document-only encoder-interface amendment;
+17. one fresh independent amendment review, where only unqualified `ACCEPT`
+    advances;
+18. a separately authorized local amendment commit containing only
+    `WORKORDER_20.md`;
+19. separate amendment publication and terminal-green full CI;
+20. an isolated amendment publication-status commit;
+21. separate status publication and terminal-green fast CI;
+22. a new explicit BDFL Unit B resumption signal;
+23. one bounded seventeen-path Unit B implementation on the published amendment
     status baseline;
-17. fresh independent complete Unit B review;
-18. at most one BDFL-authorized bounded Unit B correction;
-19. separately authorized Unit B local commit;
-20. separately authorized Unit B publication and terminal 104/104 full CI; and
-21. separately authorized final status/closeout record and publication.
+24. fresh independent complete Unit B review;
+25. at most one BDFL-authorized bounded Unit B correction;
+26. separately authorized Unit B local commit;
+27. separately authorized Unit B publication and terminal 104/104 full CI; and
+28. separately authorized final status/closeout record and publication.
 
 The planning correction cycle remains consumed. The capabilities-catalog and
 language-reference re-envelopes, plus this BDFL-directed Fast-boundary
@@ -1964,7 +2245,9 @@ directly to the BDFL without another author edit. Each later implementation
 correction allowance is local to its own unit and cannot add a path,
 dependency, mechanism, public contract, evidence meaning, or backend behavior.
 A repeated authority/evidence failure or envelope defect returns directly to
-the BDFL.
+the BDFL. The original Unit B Fast allowance remains unused because the stop
+occurred before a candidate or evidence run; it becomes available only after
+step 22.
 
 ## Planning-package validation
 
@@ -1973,8 +2256,8 @@ The architect-author runs only document-level evidence:
 - `git diff --check`;
 - fail-closed no-index whitespace checking for `WORKORDER_20.md`;
 - complete 123-case status-classifier suite twice with byte-identical output;
-- text hygiene;
-- public readiness;
+- text hygiene for 532 files;
+- public readiness for 532 files;
 - alpha claims; and
 - release readiness for `0.0.1`.
 
@@ -1999,27 +2282,37 @@ commit, or push is part of planning validation.
 
 ## Current authorization gate
 
-Unit A resumed from the authenticated parked candidate under the published
-relocation-accounting amendment. The bounded `tools/check_all.ps1` correction
-was applied, and a fresh independent reviewer returned unqualified `ACCEPT`.
-Unit A was committed as `103015e531db086d1ac455dd67f1273f9e7173ac`
-and published by a normal non-force fast-forward of `main` only.
+Unit A's complete implementation and status chains are durable. Implementation
+commit `103015e531db086d1ac455dd67f1273f9e7173ac` passed workflow `ci`, run
+`31630027747`, attempt 1, with Ubuntu job `94226114196`, Windows job
+`94226114134`, and selector inventory `101/101`. Publication-status commit
+`d522ef74cdf5418fe166d303d3f2ba8e49c892b5` passed workflow `ci`, run
+`31634296922`, attempt 1, with Ubuntu job `94240615122` and Windows job
+`94240615202` in the fast lane. The 8,715-byte golden, raw golden SHA-256, and
+payload/artifact ID remain the published values. Unit A remains explicitly
+unverified and blocked before `ir_verify`.
 
-Workflow `ci`, run `31630027747`, attempt 1, tested that exact commit and
-concluded `success`. Ubuntu job `94226114196` and Windows job `94226114134`
-independently completed the full lane with `mode=full`,
-`reason=no_status_transition`, and selector inventory `101/101`. The canonical
-golden bytes and digest were identical across platforms. Unit A remains
-explicitly unverified and blocked before `ir_verify`.
+The BDFL issued an explicit Unit B signal, but the implementer stopped before
+implementation because Unit B could not reuse the sole private canonical
+encoder while `src/backend_input.rs` was outside its envelope. The incomplete
+untracked verifier file was removed and repository state returned clean. No
+Unit B candidate, validation, selector, Fast allowance, commit, or push was
+consumed.
 
 The next gates remain, in order:
 
-1. this local Unit A status commit;
-2. separately authorized publication of this status commit;
-3. terminal-green fast-lane CI;
-4. a separate explicit BDFL Unit B implementation signal.
+1. this document-only encoder-interface amendment;
+2. fresh independent amendment review;
+3. only an unqualified `ACCEPT` may advance;
+4. a separately authorized local `WORKORDER_20.md` amendment commit;
+5. separate amendment publication and terminal-green full CI;
+6. an isolated amendment publication-status commit;
+7. separate status publication and terminal-green fast CI; and
+8. a new explicit BDFL Unit B resumption signal.
 
-Stash cleanup, Work Order organization, Unit B implementation, backend
-verification, implementation review, candidate commit, stash mutation,
-archive mutation, and every other later activity remain unauthorized.
+Only after all eight gates may Unit B begin from the amended seventeen-path
+scope. Stash cleanup, Work Order organization, Unit B implementation, shared-
+interface code, verifier code, backend verification, implementation review,
+candidate commit, stash mutation, archive mutation, and every other later
+activity remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
