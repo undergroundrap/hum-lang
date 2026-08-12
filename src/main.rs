@@ -3,6 +3,7 @@
 mod app_entry;
 mod ast;
 mod backend_contract;
+mod backend_input;
 mod callable;
 mod capabilities;
 mod capability_root;
@@ -44,6 +45,7 @@ mod resource_report;
 mod return_dependency;
 mod run;
 mod runtime_profiles;
+mod sha256;
 mod state_model;
 mod syntax;
 mod target_facts;
@@ -58,6 +60,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -191,6 +194,31 @@ fn run() -> Result<ExitCode, String> {
     }
 
     let loaded = load_program(&options.inputs)?;
+    if options.command == "backend-input" {
+        if loaded
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
+        {
+            print_diagnostics(&loaded.diagnostics);
+            return Ok(ExitCode::FAILURE);
+        }
+        let Some(artifact) =
+            backend_input::canonical_minimal_add_artifact(&loaded.program, &loaded.diagnostics)
+        else {
+            eprintln!(
+                "backend-input: input is not the exact supported canonical minimal-add program"
+            );
+            return Ok(ExitCode::FAILURE);
+        };
+        debug_assert!(!artifact.payload().is_empty());
+        debug_assert!(artifact.artifact_id().starts_with("sha256:"));
+        std::io::stdout()
+            .lock()
+            .write_all(artifact.bytes())
+            .map_err(|error| format!("failed to write backend input: {error}"))?;
+        return Ok(ExitCode::SUCCESS);
+    }
     if options.command == "run" {
         let mut output_adapter = run::StdoutOutputAdapter;
         let mut replay_adapter = run::RunnerReplayAdapter::new(options.run_replay_ticks.clone());
@@ -855,7 +883,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{other}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `backend-input`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         )),
     }
 }
@@ -1672,6 +1700,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             | "resource-check"
             | "profile-check"
             | "ir-readiness"
+            | "backend-input"
             | "syntax"
             | "version"
             | "explain"
@@ -1687,7 +1716,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             | "target-facts"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{command}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `backend-input`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         ));
     }
 
@@ -2551,7 +2580,21 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         });
     }
 
-    let inputs = collect_inputs(&raw_inputs)?;
+    let inputs = if command == "backend-input" {
+        if show_timings {
+            return Err("`backend-input` does not support `--timings`".to_string());
+        }
+        if raw_inputs.len() != 1 {
+            return Err("`backend-input` requires exactly one .hum file".to_string());
+        }
+        let input = PathBuf::from(&raw_inputs[0]);
+        if !input.is_file() || input.extension().is_none_or(|extension| extension != "hum") {
+            return Err("`backend-input` requires exactly one .hum file".to_string());
+        }
+        vec![input]
+    } else {
+        collect_inputs(&raw_inputs)?
+    };
     if command == "run" {
         let input_is_file = raw_inputs.len() == 1 && PathBuf::from(&raw_inputs[0]).is_file();
         if !input_is_file || inputs.len() != 1 {
@@ -3249,6 +3292,7 @@ fn print_help() {
     println!("  hum resource-check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum profile-check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum ir-readiness [--format human|json] [--timings] <file-or-dir>...");
+    println!("  hum backend-input <file>");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!("  hum syntax [--format json|textmate]");
     println!("  hum version [--format human|json]");
@@ -3285,6 +3329,7 @@ fn print_help() {
     println!(
         "  ir-readiness      Report source readiness after profile checking, before Hum IR lowering"
     );
+    println!("  backend-input     Emit canonical unverified backend-input bytes");
     println!("  test-skeletons    Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
     println!("  version         Print toolchain identity and schema versions");

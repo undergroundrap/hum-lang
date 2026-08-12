@@ -58,416 +58,9 @@ struct LoweringCandidate {
     body_grammar: Option<BodyGrammarReport>,
 }
 
-pub(crate) use backend_facts::CanonicalMinimalAddBackendFactsAccess;
+pub(crate) use crate::backend_input::CanonicalMinimalAddBackendFactsAccess;
 
-mod backend_facts {
-    use super::*;
-
-    const REQUIRED_PASSES: [&str; 14] = [
-        "parse",
-        "semantic_graph_build",
-        "resolve",
-        "body_grammar",
-        "core_preview",
-        "core_lowering",
-        "core_verify",
-        "type_check",
-        "full_type_check",
-        "effect_check",
-        "ownership_alias_check",
-        "allocation_resource_check",
-        "contract_evidence_linking_checked_empty_for_exact_item",
-        "profile_check",
-    ];
-
-    struct CanonicalMinimalAddBackendFacts<'report, 'source> {
-        program: &'source Program,
-        item: &'source Item,
-        statement: &'source ParsedBodyStatement,
-        profile: profile_check::VerifiedMinimalAddProfile<'report>,
-        task_signature: crate::ast::AuthenticatedCanonicalTaskSignature,
-        compiler_version: &'static str,
-        semantic_contract: &'static str,
-        target_context: &'static str,
-        required_passes: Vec<(&'static str, bool, usize, usize)>,
-        ir_verify_state: &'static str,
-        source_slots: [usize; 2],
-        checked_empty_sets: Vec<&'static str>,
-        failure_edges: Vec<[&'static str; 3]>,
-    }
-
-    pub(crate) struct CanonicalMinimalAddBackendFactsAccess<'facts> {
-        facts: &'facts CanonicalMinimalAddBackendFacts<'facts, 'facts>,
-    }
-
-    impl CanonicalMinimalAddBackendFacts<'_, '_> {
-        fn is_complete_with_final_profile_lineage(
-            &self,
-            final_profile_lineage: &profile_check::VerifiedMinimalAddProfile<'_>,
-        ) -> bool {
-            let Item::Task(task) = self.item else {
-                return false;
-            };
-            let identity = self.profile.backend_identity();
-            let [Some(left), Some(right)] = [identity.operand(0), identity.operand(1)] else {
-                return false;
-            };
-            let semantic_facts_complete = self.compiler_version == version::HUM_VERSION
-                && self.semantic_contract == "hum.canonical_minimal_add_backend_facts.v0"
-                && self.target_context == "target_independent_checked_i64_v0"
-                && self.required_passes.len() == REQUIRED_PASSES.len()
-                && self.required_passes.iter().zip(REQUIRED_PASSES).all(
-                    |((actual, passed, selected, context), expected)| {
-                        *actual == expected
-                            && *passed
-                            && *selected == 1
-                            && *context == identity.program_identity
-                    },
-                )
-                && self.ir_verify_state == "not_implemented"
-                && self
-                    .profile
-                    .core_prerequisite_names()
-                    .eq(REQUIRED_PASSES[..7].iter().copied())
-                && self.profile.profile_id() == "normal"
-                && self.profile.resource().allocation_declaration() == Some("nothing")
-                && identity.program_identity == std::ptr::from_ref(self.program).addr()
-                && !identity.owner.file.source_revision.is_empty()
-                && identity.owner.file.semantic_file_index < self.program.files.len()
-                && !identity.owner.file.normalized_path.is_empty()
-                && identity.source_module.is_none_or(|value| !value.is_empty())
-                && !identity.owner.item_path.is_empty()
-                && !identity.source_identities[0].is_empty()
-                && identity.owner.item_kind == "task"
-                && self.task_signature.matches_lowered_candidate(
-                    identity.owner.item_kind,
-                    &task.name,
-                    &task.span,
-                    &task.params,
-                    task.result.as_deref(),
-                )
-                && task.params.len() == 2
-                && task.result.as_deref() == Some("Int")
-                && crate::predicate::PredicateAnalysis::build(self.program)
-                    .facts_for_task(task)
-                    .next()
-                    .is_none()
-                && crate::graph::evidence_obligations(task).is_empty()
-                && identity
-                    .owner
-                    .section_slots
-                    .get(self.source_slots[0])
-                    .map(AsRef::as_ref)
-                    == Some("does")
-                && identity
-                    .owner
-                    .section_slots
-                    .iter()
-                    .filter(|name| name.as_ref() == "does")
-                    .count()
-                    == 1
-                && task
-                    .body_syntax
-                    .get(self.source_slots[1])
-                    .is_some_and(|row| std::ptr::eq(row, self.statement))
-                && task
-                    .body_syntax
-                    .iter()
-                    .filter(|row| std::ptr::eq(*row, self.statement))
-                    .count()
-                    == 1
-                && !identity.source_identities[1].is_empty()
-                && !identity.source_identities[2].is_empty()
-                && matches!(
-                    identity.root.kind,
-                    CanonicalExpressionKind::Binary {
-                        operator: ParsedBinaryOperator::Add,
-                        ..
-                    }
-                )
-                && identity.root.node_id.as_str() != left.1
-                && identity.root.node_id.as_str() != right.1
-                && left.2 != right.2
-                && left.3 != right.3
-                && [left.4, right.4] == ["Int", "Int"]
-                && [left.5, right.5].iter().all(|span| !span.file.is_empty())
-                && identity.checked_type
-                    == (
-                        type_check::CANONICAL_MINIMAL_ADD_TYPE_ID,
-                        type_check::CANONICAL_MINIMAL_ADD_TYPE_TEXT,
-                    )
-                && identity.declared_result_compatible == Some(true)
-                && self.checked_empty_sets
-                    == [
-                        "effects",
-                        "ownership_transfers",
-                        "allocations",
-                        "contract_predicates",
-                        "evidence_obligations",
-                        "unsupported_or_weakened",
-                        "external_authority",
-                    ]
-                && self.failure_edges == [["signed_64", "checked_add", "runtime_trap_on_overflow"]];
-            if !semantic_facts_complete {
-                return false;
-            }
-            let final_lineage_matches = final_profile_lineage.backend_identity().program_identity
-                == std::ptr::from_ref(self.program).addr();
-            observe_final_profile_lineage_comparison_for_test(final_lineage_matches);
-            final_lineage_matches
-        }
-
-        #[cfg(test)]
-        fn snapshot(&self) -> Vec<String> {
-            let identity = self.profile.backend_identity();
-            let mut snapshot = self
-                .required_passes
-                .iter()
-                .map(|(name, _, _, _)| (*name).to_string())
-                .collect::<Vec<_>>();
-            snapshot.extend(
-                self.checked_empty_sets
-                    .iter()
-                    .map(|state| format!("checked_empty:{state}")),
-            );
-            snapshot.extend([
-                self.semantic_contract.to_string(),
-                self.profile.profile_id().to_string(),
-                identity.root.node_id.as_str().to_string(),
-                identity.source_identities[2].clone(),
-                self.failure_edges[0][1].to_string(),
-            ]);
-            snapshot
-        }
-    }
-
-    impl CanonicalMinimalAddBackendFactsAccess<'_> {
-        pub(crate) fn is_complete(&self) -> bool {
-            self.facts.semantic_contract == "hum.canonical_minimal_add_backend_facts.v0"
-        }
-
-        #[cfg(test)]
-        pub(crate) fn snapshot_for_test(&self) -> Vec<String> {
-            self.facts.snapshot()
-        }
-    }
-
-    fn assemble<'report, 'source>(
-        program: &'source Program,
-        item: &'source Item,
-        statement: &'source ParsedBodyStatement,
-        profile: profile_check::VerifiedMinimalAddProfile<'report>,
-    ) -> Option<CanonicalMinimalAddBackendFacts<'report, 'source>> {
-        let Item::Task(task) = item else {
-            return None;
-        };
-        let identity = profile.backend_identity();
-        let does_section_slot = identity
-            .owner
-            .section_slots
-            .iter()
-            .position(|name| name.as_ref() == "does")?;
-        let operation_slot = task
-            .body_syntax
-            .iter()
-            .position(|candidate| std::ptr::eq(candidate, statement))?;
-        let task_signature = program.authenticate_canonical_task_signature(task).ok()?;
-        #[allow(unused_mut)]
-        let mut facts = CanonicalMinimalAddBackendFacts {
-            program,
-            item,
-            statement,
-            profile,
-            task_signature,
-            compiler_version: version::HUM_VERSION,
-            semantic_contract: "hum.canonical_minimal_add_backend_facts.v0",
-            target_context: "target_independent_checked_i64_v0",
-            required_passes: REQUIRED_PASSES
-                .map(|name| (name, true, 1, std::ptr::from_ref(program).addr()))
-                .to_vec(),
-            ir_verify_state: "not_implemented",
-            source_slots: [does_section_slot, operation_slot],
-            checked_empty_sets: vec![
-                "effects",
-                "ownership_transfers",
-                "allocations",
-                "contract_predicates",
-                "evidence_obligations",
-                "unsupported_or_weakened",
-                "external_authority",
-            ],
-            failure_edges: vec![["signed_64", "checked_add", "runtime_trap_on_overflow"]],
-        };
-        #[cfg(test)]
-        corrupt_backend_facts_for_test(&mut facts);
-        Some(facts)
-    }
-
-    fn issue_assembled<R>(
-        facts: &CanonicalMinimalAddBackendFacts<'_, '_>,
-        final_profile_lineage: &profile_check::VerifiedMinimalAddProfile<'_>,
-        consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
-    ) -> Option<R> {
-        facts
-            .is_complete_with_final_profile_lineage(final_profile_lineage)
-            .then(|| consume(CanonicalMinimalAddBackendFactsAccess { facts }))
-    }
-
-    pub(super) fn issue<R>(
-        program: &Program,
-        item: &Item,
-        statement: &ParsedBodyStatement,
-        profile: profile_check::VerifiedMinimalAddProfile<'_>,
-        consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
-    ) -> Option<R> {
-        let facts = assemble(program, item, statement, profile)?;
-        issue_assembled(&facts, &facts.profile, consume)
-    }
-
-    #[cfg(test)]
-    pub(super) fn issue_with_final_profile_lineage_for_test<R>(
-        program: &Program,
-        item: &Item,
-        statement: &ParsedBodyStatement,
-        honest_profile: profile_check::VerifiedMinimalAddProfile<'_>,
-        foreign_profile_lineage: &profile_check::VerifiedMinimalAddProfile<'_>,
-        consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
-    ) -> (Option<R>, usize) {
-        FINAL_PROFILE_LINEAGE_OBSERVATION.with(|count| assert_eq!(count.replace(Some(0)), None));
-        let result = assemble(program, item, statement, honest_profile)
-            .and_then(|facts| issue_assembled(&facts, foreign_profile_lineage, consume));
-        let comparisons = FINAL_PROFILE_LINEAGE_OBSERVATION.with(|count| {
-            count
-                .take()
-                .expect("final profile-lineage observation must be armed")
-        });
-        (result, comparisons)
-    }
-
-    #[cfg(test)]
-    thread_local! {
-        static FINAL_PROFILE_LINEAGE_OBSERVATION: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
-        static FACTS_CORRUPTION: std::cell::Cell<Option<(&'static str, usize)>> = const { std::cell::Cell::new(None) };
-    }
-
-    #[cfg(test)]
-    fn observe_final_profile_lineage_comparison_for_test(_accepted: bool) {
-        FINAL_PROFILE_LINEAGE_OBSERVATION.with(|count| {
-            if let Some(current) = count.get() {
-                count.set(Some(
-                    current.checked_add(1).expect("lineage comparison count"),
-                ));
-            }
-        });
-    }
-
-    #[cfg(not(test))]
-    fn observe_final_profile_lineage_comparison_for_test(_accepted: bool) {}
-
-    #[cfg(test)]
-    pub(super) fn set_corruption_for_test(kind: &'static str, index: usize) {
-        FACTS_CORRUPTION.with(|active| assert_eq!(active.replace(Some((kind, index))), None));
-    }
-
-    #[cfg(test)]
-    fn corrupt_backend_facts_for_test(facts: &mut CanonicalMinimalAddBackendFacts<'_, '_>) {
-        let Some((kind, index)) = FACTS_CORRUPTION.with(std::cell::Cell::take) else {
-            return;
-        };
-        let passes = &mut facts.required_passes;
-        let edges = &mut facts.failure_edges;
-        match kind {
-            "pass_missing" => {
-                if index < passes.len() {
-                    passes.remove(index);
-                }
-            }
-            "pass_failed" => {
-                let _ = passes.get_mut(index).map(|row| row.1 = false);
-            }
-            "pass_zero" | "pass_skipped" => {
-                let _ = passes.get_mut(index).map(|row| row.2 = 0);
-            }
-            "pass_foreign" => {
-                let _ = passes.get_mut(index).map(|row| row.3 ^= 1);
-            }
-            "pass_duplicate" => {
-                if let (Some(row), Some(next)) = (passes.get(index).copied(), index.checked_add(1))
-                {
-                    passes.insert(next, row);
-                }
-            }
-            "pass_reordered" => {
-                if let Some(next) = index.checked_add(1).filter(|next| *next < passes.len()) {
-                    passes.swap(index, next);
-                } else {
-                    passes.reverse();
-                }
-            }
-            "empty_omitted" | "empty_missing" => {
-                if index < facts.checked_empty_sets.len() {
-                    facts.checked_empty_sets.remove(index);
-                }
-            }
-            "empty_not_checked" => set_empty_for_test(facts, index, "state_not_checked"),
-            "empty_unsupported" => {
-                set_empty_for_test(facts, index, "state_unsupported_and_blocked")
-            }
-            "empty_substituted" | "empty_corrupted" => {
-                set_empty_for_test(facts, index, "foreign_checked_empty_state")
-            }
-            "empty_duplicate" => {
-                if let (Some(state), Some(next)) = (
-                    facts.checked_empty_sets.get(index).copied(),
-                    index.checked_add(1),
-                ) {
-                    facts.checked_empty_sets.insert(next, state);
-                }
-            }
-            "empty_reordered" => {
-                let next = index
-                    .checked_add(1)
-                    .filter(|next| *next < facts.checked_empty_sets.len())
-                    .or_else(|| index.checked_sub(1));
-                if let Some(next) = next {
-                    facts.checked_empty_sets.swap(index, next);
-                }
-            }
-            "edge_omitted" => edges.clear(),
-            "edge_duplicate" => {
-                let _ = edges.first().copied().map(|edge| edges.push(edge));
-            }
-            "edge_reordered" => {
-                let _ = edges.first_mut().map(|edge| edge.swap(0, 1));
-            }
-            "edge_wrong_type" => set_edge_for_test(edges, 0, "unsigned_64"),
-            "edge_wraparound" => set_edge_for_test(edges, 1, "wrapping_add"),
-            "edge_wrong_width" => set_edge_for_test(edges, 0, "signed_32"),
-            "edge_foreign_trap" => set_edge_for_test(edges, 2, "foreign_trap"),
-            _ => passes.clear(),
-        }
-    }
-
-    #[cfg(test)]
-    fn set_empty_for_test(
-        facts: &mut CanonicalMinimalAddBackendFacts<'_, '_>,
-        index: usize,
-        value: &'static str,
-    ) {
-        let _ = facts
-            .checked_empty_sets
-            .get_mut(index)
-            .map(|slot| *slot = value);
-    }
-
-    #[cfg(test)]
-    fn set_edge_for_test(edges: &mut [[&'static str; 3]], index: usize, value: &'static str) {
-        if let Some(field) = edges.first_mut().and_then(|edge| edge.get_mut(index)) {
-            *field = value
-        }
-    }
-}
-
+#[allow(dead_code)]
 pub(crate) fn with_canonical_minimal_add_backend_facts<R>(
     program: &Program,
     diagnostics: &[Diagnostic],
@@ -475,10 +68,13 @@ pub(crate) fn with_canonical_minimal_add_backend_facts<R>(
     statement: &ParsedBodyStatement,
     consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
 ) -> Option<R> {
-    profile_check::with_profile_for_ir_readiness(program, diagnostics, |profile_access| {
-        let profile = profile_access.canonical_minimal_add_for(item, statement)?;
-        backend_facts::issue(program, item, statement, profile, consume)
-    })
+    crate::backend_input::with_canonical_minimal_add_backend_facts(
+        program,
+        diagnostics,
+        item,
+        statement,
+        consume,
+    )
 }
 
 #[allow(unexpected_cfgs)]
@@ -1293,12 +889,12 @@ fn candidate_backend_facts(item: &Item, context: &CandidateContext<'_>) -> bool 
     if statements.next().is_some() {
         return false;
     }
-    with_canonical_minimal_add_backend_facts(
+    crate::backend_input::with_canonical_minimal_add_artifact(
         context.program,
         context.diagnostics,
         item,
         statement,
-        |access| access.is_complete(),
+        |access, artifact| access.is_complete() && !artifact.bytes().is_empty(),
     )
     .unwrap_or(false)
 }
@@ -1387,6 +983,7 @@ fn facts_available(
             "resource_checked_empty_v0",
             "normal_profile_checked_v0",
             "checked_i64_overflow_trap_bound_v0",
+            "canonical_backend_input_bytes_produced_unverified_v0",
             "ir_verify_pending_v0",
         ]);
     }
@@ -3246,7 +2843,7 @@ task pass_box(item: Box) -> Box {
                                 std::ptr::from_ref(honest_program).addr(),
                                 std::ptr::from_ref(foreign_program).addr()
                             );
-                            super::backend_facts::issue_with_final_profile_lineage_for_test(
+                            crate::backend_input::issue_with_final_profile_lineage_for_test(
                                 honest_program,
                                 honest_item,
                                 &honest_task.body_syntax[0],
@@ -3338,6 +2935,7 @@ task pass_box(item: Box) -> Box {
             "resource_checked_empty_v0",
             "normal_profile_checked_v0",
             "checked_i64_overflow_trap_bound_v0",
+            "canonical_backend_input_bytes_produced_unverified_v0",
             "ir_verify_pending_v0",
         ];
         let expected_human_suffix = expected_fact_suffix.join(", ");
@@ -3452,7 +3050,7 @@ task pass_box(item: Box) -> Box {
                 "pass_foreign",
                 "pass_reordered",
             ] {
-                super::backend_facts::set_corruption_for_test(corruption, pass);
+                crate::backend_input::set_corruption_for_test(corruption, pass);
                 assert!(access_missing(), "{corruption}:{pass}");
             }
         }
@@ -3466,7 +3064,7 @@ task pass_box(item: Box) -> Box {
                 "empty_duplicate",
                 "empty_reordered",
             ] {
-                super::backend_facts::set_corruption_for_test(corruption, state);
+                crate::backend_input::set_corruption_for_test(corruption, state);
                 assert!(access_missing(), "{corruption}:{state}");
             }
         }
@@ -3479,7 +3077,7 @@ task pass_box(item: Box) -> Box {
             "edge_wrong_width",
             "edge_foreign_trap",
         ] {
-            super::backend_facts::set_corruption_for_test(corruption, 0);
+            crate::backend_input::set_corruption_for_test(corruption, 0);
             assert!(access_missing(), "{corruption}");
         }
         for corrupted in [

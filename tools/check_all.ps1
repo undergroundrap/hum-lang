@@ -385,6 +385,63 @@ try {
   Invoke-ExactRustTest 'Work Order 19 exact effect and ownership authority' $Cargo 'ownership_check::tests::minimal_add_effect_and_ownership_authority_stays_operation_owned'
   Invoke-ExactRustTest 'Work Order 19 checked-empty resource and profile authority' $Cargo 'profile_check::tests::minimal_add_resource_and_profile_authority_is_checked_empty'
   Invoke-ExactRustTest 'Work Order 19 load-bearing final backend lineage' $Cargo 'ir_readiness::tests::minimal_add_backend_facts_are_complete_but_ir_verify_blocked'
+  Invoke-ExactRustTest 'Work Order 20 Unit A private SHA-256 boundary matrix' $Cargo 'sha256::tests::sha256_known_answer_and_boundary_matrix_is_exact'
+  Invoke-ExactRustTest 'Work Order 20 Unit A canonical backend-input bytes' $Cargo 'backend_input::tests::minimal_add_backend_input_bytes_are_canonical_and_deterministic'
+  Write-Host '==> Work Order 20 Unit A canonical backend-input production surface'
+  $Wo20SourcePath = 'examples/core/minimal_add.hum'
+  $Wo20GoldenPath = 'fixtures/backend_input/minimal_add.backend_input.v0.json'
+  $Wo20SourceBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $Wo20SourcePath))
+  $Wo20GoldenBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $Wo20GoldenPath))
+  function Get-Wo20Sha256Hex([byte[]] $Bytes) {
+    $Hasher = [System.Security.Cryptography.SHA256]::Create()
+    try { $Hash = $Hasher.ComputeHash($Bytes) } finally { $Hasher.Dispose() }
+    return (($Hash | ForEach-Object { $_.ToString('x2') }) -join '')
+  }
+  if ((Get-Wo20Sha256Hex $Wo20SourceBytes) -cne 'aeae6ae9de975eee9873c3d9ece891e66bd7d6881b5035c24b1a11f3902a52b6') { throw 'Work Order 20 source revision SHA-256 drifted' }
+  if ($Wo20GoldenBytes.Length -ne 8715 -or $Wo20GoldenBytes[-1] -ne 10 -or @($Wo20GoldenBytes | Where-Object { $_ -eq 13 }).Count -ne 0) { throw 'Work Order 20 golden framing must be 8715 bytes, LF-only, and end in one LF' }
+  $Wo20GoldenText = [System.Text.Encoding]::UTF8.GetString($Wo20GoldenBytes)
+  $Wo20PayloadMarker = ',"payload":'
+  $Wo20PayloadStart = $Wo20GoldenText.IndexOf($Wo20PayloadMarker, [System.StringComparison]::Ordinal) + $Wo20PayloadMarker.Length
+  $Wo20PayloadEnd = $Wo20GoldenBytes.Length - 2
+  if ($Wo20PayloadStart -ne 131 -or $Wo20PayloadEnd -ne 8713 -or ($Wo20PayloadEnd - $Wo20PayloadStart) -ne 8582) { throw 'Work Order 20 golden payload range drifted' }
+  $Wo20PayloadBytes = New-Object byte[] ($Wo20PayloadEnd - $Wo20PayloadStart)
+  [Array]::Copy($Wo20GoldenBytes, $Wo20PayloadStart, $Wo20PayloadBytes, 0, $Wo20PayloadBytes.Length)
+  $Wo20PayloadHash = Get-Wo20Sha256Hex $Wo20PayloadBytes
+  if ($Wo20PayloadHash -cne 'a37707c23cc20a1720e45de901624e3101183a77ec1b5eb4ed55095b5097b82f' -or -not $Wo20GoldenText.StartsWith('{"schema":"hum.backend_input.v0","artifact_id":"sha256:' + $Wo20PayloadHash + '","payload":')) { throw 'Work Order 20 payload SHA-256 or envelope ID drifted' }
+  $Wo20Cli = Read-NativeChannelsWithExit 'Work Order 20 raw backend-input stdout' $Hum @('backend-input', $Wo20SourcePath)
+  if ($Wo20Cli.ExitCode -ne 0 -or $Wo20Cli.Stderr.Length -ne 0 -or $Wo20Cli.Stdout -cne $Wo20GoldenText) { throw 'Work Order 20 backend-input stdout must equal the exact golden bytes' }
+  foreach ($Wo20Rejected in @(
+    @{ Name = 'zero input'; Args = @(); Exit = 2 },
+    @{ Name = 'multiple inputs'; Args = @('backend-input', $Wo20SourcePath, $Wo20SourcePath); Exit = 2 },
+    @{ Name = 'directory input'; Args = @('backend-input', 'examples/core'); Exit = 2 },
+    @{ Name = 'format option'; Args = @('backend-input', '--format', 'json', $Wo20SourcePath); Exit = 2 },
+    @{ Name = 'timings option'; Args = @('backend-input', '--timings', $Wo20SourcePath); Exit = 2 },
+    @{ Name = 'valid non-target'; Args = @('backend-input', 'examples/core/add.hum'); Exit = 1 }
+  )) {
+    $Wo20Args = if ($Wo20Rejected.Args.Count -eq 0) { @('backend-input') } else { $Wo20Rejected.Args }
+    $Wo20Result = Read-NativeChannelsWithExit "Work Order 20 $($Wo20Rejected.Name)" $Hum $Wo20Args
+    if ($Wo20Result.ExitCode -ne $Wo20Rejected.Exit -or $Wo20Result.Stdout.Length -ne 0 -or $Wo20Result.Stderr.Length -eq 0) { throw "Work Order 20 $($Wo20Rejected.Name) exit/channel contract drifted" }
+  }
+  $Wo20CapabilitiesHuman = Read-NativeChannelsWithExit 'Work Order 20 capabilities human parity' $Hum @('capabilities')
+  $Wo20CapabilitiesJson = Read-NativeChannelsWithExit 'Work Order 20 capabilities JSON parity' $Hum @('capabilities', '--format', 'json')
+  if ($Wo20CapabilitiesHuman.ExitCode -ne 0 -or $Wo20CapabilitiesJson.ExitCode -ne 0 -or $Wo20CapabilitiesHuman.Stderr.Length -ne 0 -or $Wo20CapabilitiesJson.Stderr.Length -ne 0) { throw 'Work Order 20 capabilities routes failed' }
+  Assert-Json 'Work Order 20 capabilities JSON' $Wo20CapabilitiesJson.Stdout
+  $Wo20Capabilities = $Wo20CapabilitiesJson.Stdout | ConvertFrom-Json
+  $Wo20SchemaNames = @($Wo20Capabilities.schemas.PSObject.Properties.Name)
+  $Wo20IrReadinessSchemaIndex = [Array]::IndexOf($Wo20SchemaNames, 'ir_readiness')
+  if ($Wo20IrReadinessSchemaIndex -lt 0 -or $Wo20SchemaNames[$Wo20IrReadinessSchemaIndex + 1] -cne 'backend_input' -or $Wo20Capabilities.schemas.backend_input -cne 'hum.backend_input.v0') { throw 'Work Order 20 backend_input schema registration order drifted' }
+  $Wo20CommandNames = @($Wo20Capabilities.commands | ForEach-Object { $_.name })
+  $Wo20IrReadinessCommandIndex = [Array]::IndexOf($Wo20CommandNames, 'ir_readiness_json')
+  if ($Wo20IrReadinessCommandIndex -lt 0 -or $Wo20CommandNames[$Wo20IrReadinessCommandIndex + 1] -cne 'backend_input') { throw 'Work Order 20 backend_input command registration order drifted' }
+  $Wo20BackendCommand = @($Wo20Capabilities.commands | Where-Object { $_.name -ceq 'backend_input' })
+  if ($Wo20BackendCommand.Count -ne 1 -or $Wo20BackendCommand[0].command -cne 'hum backend-input <file>' -or $Wo20BackendCommand[0].schema -cne 'hum.backend_input.v0' -or $Wo20BackendCommand[0].status -cne 'adapter-ready') { throw 'Work Order 20 backend_input command registration drifted' }
+  if (($Wo20CapabilitiesHuman.Stdout + $Wo20CapabilitiesJson.Stdout).Contains('hum.ir_verify.v0') -or ($Wo20CapabilitiesHuman.Stdout + $Wo20CapabilitiesJson.Stdout).Contains('ir_verify')) { throw 'Work Order 20 Unit A exposed premature IR verification capability' }
+  $Wo20CapabilityDoc = Get-Content -Raw 'docs/CAPABILITIES_SCHEMA.md'
+  $Wo20LanguageDoc = Get-Content -Raw 'docs/LANGUAGE_REFERENCE.md'
+  $Wo20Readme = Get-Content -Raw 'README.md'
+  if ([regex]::Matches($Wo20CapabilityDoc, '(?m)^- `backend_input`: `hum\.backend_input\.v0`$').Count -ne 1 -or [regex]::Matches($Wo20CapabilityDoc, '(?m)^- `hum backend-input <file>`$').Count -ne 1) { throw 'Work Order 20 capability catalog producer entries drifted' }
+  if ([regex]::Matches($Wo20LanguageDoc, '(?m)^hum backend-input <file>$').Count -ne 1 -or [regex]::Matches($Wo20LanguageDoc, '(?m)^cargo run -- backend-input examples/core/minimal_add\.hum$').Count -ne 1) { throw 'Work Order 20 language-reference command/bootstrap parity drifted' }
+  if ([regex]::Matches($Wo20Readme, '(?m)^cargo run -- backend-input examples/core/minimal_add\.hum$').Count -ne 1 -or -not $Wo20Readme.Contains('docs/HUM_BACKEND_INPUT_SCHEMA.md')) { throw 'Work Order 20 README producer parity drifted' }
   Invoke-ExactRustTest 'Increment 10B.1b recursive H0010 sealed-consumer matrix and controls' $Cargo 'parser::tests::recursive_h0010_consumer_is_complete_and_load_bearing'
   Invoke-ExactRustTest 'Increment 10B.1b canonical-tree and retained-authority corruption matrix' $Cargo 'parser::tests::h0010_sealed_corruption_and_authority_substitution_fail_closed'
   Invoke-ExactRustTest 'Increment 10B.2 supporting resolver/callable production source and dataflow audit' $Cargo 'callable::tests::ten_b2_source_audit_rejects_semantic_reconstruction_and_span_selection'
@@ -1286,7 +1343,7 @@ task malformed() -> UInt {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 99 -or $UniqueExactRustSelectorCredits.Count -ne 99) { throw "exact Rust selector inventory must credit 99 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 101 -or $UniqueExactRustSelectorCredits.Count -ne 101) { throw "exact Rust selector inventory must credit 101 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
   if ($ExactRustSelectorCredits -notcontains 'core_body::tests::validated_body_grammar_construction_is_compiler_sealed') { throw 'exact Rust selector inventory lost the compiler-sealed validated body grammar construction test' }
   foreach ($WorkOrder17Selector in @(
@@ -1304,6 +1361,12 @@ task malformed() -> UInt {
     'ir_readiness::tests::minimal_add_backend_facts_are_complete_but_ir_verify_blocked'
   )) {
     if ($ExactRustSelectorCredits -notcontains $WorkOrder19Selector) { throw "exact Rust selector inventory lost Work Order 19 selector $WorkOrder19Selector" }
+  }
+  foreach ($WorkOrder20UnitASelector in @(
+    'sha256::tests::sha256_known_answer_and_boundary_matrix_is_exact',
+    'backend_input::tests::minimal_add_backend_input_bytes_are_canonical_and_deterministic'
+  )) {
+    if ($ExactRustSelectorCredits -notcontains $WorkOrder20UnitASelector) { throw "exact Rust selector inventory lost Work Order 20 Unit A selector $WorkOrder20UnitASelector" }
   }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
@@ -1362,11 +1425,12 @@ task malformed() -> UInt {
   }
   $ApCoreVerifyProductionSource = Get-AqRustProductionSource 'src/core_verify.rs'
   $ApIrProductionSource = Get-AqRustProductionSource 'src/ir_readiness.rs'
+  $ApBackendInputProductionSource = Get-AqRustProductionSource 'src/backend_input.rs'
   Assert-ApCoreIrProductionValidation $ApCoreVerifyProductionSource $ApIrProductionSource
-  $ApSnapshotMatch = [regex]::Match($ApIrProductionSource, '(?m)#\[cfg\(test\)\]\r?\n        fn snapshot')
+  $ApSnapshotMatch = [regex]::Match($ApBackendInputProductionSource, '(?m)#\[cfg\(test\)\]\r?\n    fn snapshot')
   $ApSnapshotIndex = if ($ApSnapshotMatch.Success) { $ApSnapshotMatch.Index } else { -1 }
   $ApIrValidationIndex = $ApIrProductionSource.IndexOf($ApIrValidationNeedle)
-  if ($ApSnapshotIndex -lt 0 -or $ApIrValidationIndex -le $ApSnapshotIndex) { throw 'Session AP production extraction must retain the nested snapshot method and later IR validation' }
+  if ($ApSnapshotIndex -lt 0 -or $ApIrValidationIndex -lt 0) { throw 'Session AP production extraction must retain the moved backend-facts snapshot method and the IR validation' }
   $ApDeletedValidationRejected = $false
   try { Assert-ApCoreIrProductionValidation $ApCoreVerifyProductionSource ($ApIrProductionSource.Replace($ApIrValidationNeedle, '')) } catch { $ApDeletedValidationRejected = $true }
   if (-not $ApDeletedValidationRejected) { throw 'Session AP must reject deletion of the real IR production validation' }
@@ -1391,14 +1455,15 @@ task malformed() -> UInt {
 
   Write-Host '==> Work Order 19 final-lineage source and configuration audit'
   $Wo19IrSource = Get-Content -Raw 'src/ir_readiness.rs'
-  $Wo19FinalHelperDefinition = [regex]::Matches($Wo19IrSource, '(?m)^    #\[cfg\(test\)\]\r?\n    pub\(super\) fn issue_with_final_profile_lineage_for_test<R>\(')
-  $Wo19FinalHelperCalls = [regex]::Matches($Wo19IrSource, 'backend_facts::issue_with_final_profile_lineage_for_test\(')
+  $Wo19BackendInputSource = Get-Content -Raw 'src/backend_input.rs'
+  $Wo19FinalHelperDefinition = [regex]::Matches($Wo19BackendInputSource, '(?m)^#\[cfg\(test\)\]\r?\npub\(crate\) fn issue_with_final_profile_lineage_for_test<R>\(')
+  $Wo19FinalHelperCalls = [regex]::Matches($Wo19IrSource, 'crate::backend_input::issue_with_final_profile_lineage_for_test\(')
   if ($Wo19FinalHelperDefinition.Count -ne 1 -or $Wo19FinalHelperCalls.Count -ne 1) { throw 'Work Order 19 requires exactly one cfg(test) final-lineage helper definition and one focused-selector call' }
-  if ([regex]::Matches($Wo19IrSource, '(?m)^        static FINAL_PROFILE_LINEAGE_OBSERVATION:').Count -ne 1 -or -not [regex]::IsMatch($Wo19IrSource, '(?m)^    #\[cfg\(test\)\]\r?\n    thread_local! \{\r?\n        static FINAL_PROFILE_LINEAGE_OBSERVATION:')) { throw 'Work Order 19 comparison observation state must remain test-only' }
-  if ([regex]::Matches($Wo19IrSource, 'fn is_complete_with_final_profile_lineage\(').Count -ne 1 -or [regex]::Matches($Wo19IrSource, '\.is_complete_with_final_profile_lineage\(').Count -ne 1) { throw 'Work Order 19 requires one private final validator and one shared issuance call' }
-  if ([regex]::Matches($Wo19IrSource, 'final_profile_lineage\.backend_identity\(\)\.program_identity\s*\r?\n\s*==\s*std::ptr::from_ref\(self\.program\)\.addr\(\)').Count -ne 1) { throw 'Work Order 19 final validator must contain exactly one actual-profile Program-lineage comparison' }
-  if ([regex]::Matches($Wo19IrSource, 'issue_assembled\(&facts, &facts\.profile, consume\)').Count -ne 1) { throw 'Work Order 19 production issuance must reuse the honest profile as its final lineage operand' }
-  if ([regex]::IsMatch($Wo19IrSource, 'pub\(crate\) fn issue_with_final_profile_lineage_for_test|issue_with_final_profile_lineage_for_test[^\{]+(?:bool|usize\s*,\s*consume)')) { throw 'Work Order 19 test seam must not expose production scope or accept preselected lineage state' }
+  if ([regex]::Matches($Wo19BackendInputSource, '(?m)^    static FINAL_PROFILE_LINEAGE_OBSERVATION:').Count -ne 1 -or -not [regex]::IsMatch($Wo19BackendInputSource, '(?m)^#\[cfg\(test\)\]\r?\nthread_local! \{\r?\n    static FINAL_PROFILE_LINEAGE_OBSERVATION:')) { throw 'Work Order 19 comparison observation state must remain test-only' }
+  if ([regex]::Matches($Wo19BackendInputSource, 'fn is_complete_with_final_profile_lineage\(').Count -ne 1 -or [regex]::Matches($Wo19BackendInputSource, '\.is_complete_with_final_profile_lineage\(').Count -ne 1) { throw 'Work Order 19 requires one private final validator and one shared issuance call' }
+  if ([regex]::Matches($Wo19BackendInputSource, 'final_profile_lineage\.backend_identity\(\)\.program_identity\s*\r?\n\s*==\s*std::ptr::from_ref\(self\.program\)\.addr\(\)').Count -ne 1) { throw 'Work Order 19 final validator must contain exactly one actual-profile Program-lineage comparison' }
+  if ([regex]::Matches($Wo19BackendInputSource, 'issue_assembled\(&facts, &facts\.profile, \|access\|').Count -ne 1) { throw 'Work Order 19 production issuance must reuse the honest profile as its final lineage operand' }
+  if ([regex]::IsMatch($Wo19BackendInputSource, 'pub fn issue_with_final_profile_lineage_for_test|issue_with_final_profile_lineage_for_test[^\{]+(?:bool|usize\s*,\s*consume)')) { throw 'Work Order 19 test seam must not expose public scope or accept preselected lineage state' }
   foreach ($Wo19WrapperSource in @(
     'src/full_type_check.rs',
     'src/effect_check.rs',
@@ -1589,7 +1654,15 @@ task malformed() -> UInt {
   if (-not $IrContractJson.Contains('"full_type_check"')) { throw 'IR contract JSON is missing full_type_check pass' }
   if (-not $IrContractJson.Contains('"effect_check"')) { throw 'IR contract JSON is missing effect_check pass' }
   if (-not $IrContractJson.Contains('"ir_verify"')) { throw 'IR contract JSON is missing ir_verify pass' }
-  if (-not $IrContractJson.Contains('"no IR emission for source files"')) { throw 'IR contract JSON must keep V0 non-emission claim' }
+  $IrContract = $IrContractJson | ConvertFrom-Json
+  $HumIrLayers = @($IrContract.ir_layers | Where-Object { $_.id -ceq 'hum_ir' })
+  if ($HumIrLayers.Count -ne 1) { throw 'IR contract JSON must contain exactly one hum_ir layer' }
+  if ($HumIrLayers[0].status -cne 'produced-unverified') { throw 'IR contract JSON hum_ir layer must remain produced-unverified' }
+  if ($HumIrLayers[0].role -cne 'canonical target-independent backend-input bytes awaiting IR verification') { throw 'IR contract JSON hum_ir layer role drifted' }
+  if ($IrContractJson.Contains('"no IR emission for source files"')) { throw 'IR contract JSON must remove the obsolete V0 non-emission claim' }
+  if (-not $IrContractJson.Contains('"no verified IR capability"')) { throw 'IR contract JSON must keep the unverified-capability non-claim' }
+  if (-not $IrContractJson.Contains('"no backend lowering"')) { throw 'IR contract JSON must keep the backend-lowering non-claim' }
+  if (-not $IrContractJson.Contains('"no backend adapter input authority"')) { throw 'IR contract JSON must keep the backend-adapter authority non-claim' }
 
   $BackendContractJson = Read-NativeOutput 'backend contract JSON' $Hum @('backend-contract', '--format', 'json')
   Assert-Json 'backend contract JSON' $BackendContractJson

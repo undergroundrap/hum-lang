@@ -14,9 +14,11 @@ verified Hum IR instead of raw surface Hum. Core Hum is named by
 toward these contracts is reported by
 [HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md).
 
-This command exists before actual IR emission so humans, agents, backend
-experiments, and future compiler passes have one target to satisfy. It is not a
-pretend interpreter, not an optimizer, and not a lowering implementation.
+The exact minimal-add subset now reaches canonical target-independent
+[`hum.backend_input.v0`](HUM_BACKEND_INPUT_SCHEMA.md) bytes. Those bytes are
+produced but unverified and grant no authority. This command remains a
+discovery contract: it is not a pretend interpreter, optimizer, verifier, or
+backend lowering implementation.
 
 ## Command
 
@@ -81,7 +83,7 @@ Each `ir_layers` entry has:
 
 - `id`: stable layer identifier
 - `stage`: numeric order in the lowering path
-- `status`: `current`, `design`, or `planned` in V0
+- `status`: `current`, `design`, `produced-unverified`, or `planned` in V0
 - `role`: why the layer exists
 
 Current layers:
@@ -91,8 +93,8 @@ Current layers:
   links
 - `core_hum`: small executable core for typed values, places, effects, and
   failure
-- `hum_ir`: compiler-owned semantic IR consumed by interpreters and backend
-  adapters
+- `hum_ir`: canonical target-independent backend-input bytes for the exact
+  minimal-add subset, awaiting IR verification
 - `backend_adapter_input`: verified Hum IR plus explicit unsupported or weakened
   facts
 
@@ -140,7 +142,8 @@ the narrow `hum.type_check.v0` declaration and trivial-return checker;
 
 ## Honesty Rules
 
-- `hum ir-contract` is a discovery command, not IR emission.
+- `hum ir-contract` is a discovery command; the separate `backend-input`
+  command emits canonical unverified bytes.
 - It must not run generated code.
 - It must not claim Hum has executable semantics.
 - It must not pretend complete type checking, ownership checking, resource checking, optimization, or backend
@@ -162,7 +165,7 @@ The command is local-first:
 
 ## Non-Goals For V0
 
-V0 does not emit IR for source files, execute tasks, choose a backend, optimize
-programs, prove memory safety, or lower to Cranelift, LLVM, MLIR, Wasm, C, or a
-custom backend. It names the shape future work must satisfy before those claims
-are honest.
+V0 emits canonical unverified backend-input bytes only for the exact supported
+minimal-add source. It does not issue verified IR authority, execute tasks,
+choose a backend, optimize programs, prove memory safety, or lower to
+Cranelift, LLVM, MLIR, Wasm, C, or a custom backend.

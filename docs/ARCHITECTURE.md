@@ -62,7 +62,11 @@ emitted by `hum type-check --format json`; recognized Core/body statement type c
 [HUM_FULL_TYPE_CHECK_SCHEMA.md](HUM_FULL_TYPE_CHECK_SCHEMA.md), emitted by `hum full-type-check --format json`; recognized Core/body effect checking is reported by [HUM_EFFECT_CHECK_SCHEMA.md](HUM_EFFECT_CHECK_SCHEMA.md), emitted by `hum effect-check --format json`; recognized local ownership and alias facts are reported by [HUM_OWNERSHIP_CHECK_SCHEMA.md](HUM_OWNERSHIP_CHECK_SCHEMA.md), emitted by `hum ownership-check --format json`; declared allocation and resource intent is checked by [HUM_RESOURCE_CHECK_SCHEMA.md](HUM_RESOURCE_CHECK_SCHEMA.md), emitted by `hum resource-check --format json`; runtime profile policy declarations are checked by [HUM_PROFILE_CHECK_SCHEMA.md](HUM_PROFILE_CHECK_SCHEMA.md), emitted by `hum profile-check --format json`;
 the Hum IR ownership contract is [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md), emitted by `hum ir-contract --format json`;
 source progress toward those contracts is reported by [HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md),
-emitted by `hum ir-readiness --format json`.
+emitted by `hum ir-readiness --format json`; the exact supported minimal-add
+program can be projected into canonical but unverified
+[`hum.backend_input.v0`](HUM_BACKEND_INPUT_SCHEMA.md) bytes by
+`hum backend-input examples/core/minimal_add.hum`. Those bytes grant no
+authority and remain blocked before IR verification and backend lowering.
 
 See [FORMAL_CORE.md](FORMAL_CORE.md).
 
@@ -84,10 +88,14 @@ parse/current
 -> ownership_check/recognized_core_ownership_gate_available_v0
 -> resource_check/recognized_core_resource_gate_available_v0
 -> profile_check/recognized_core_profile_gate_available_v0
+-> backend_input/canonical_target_independent_bytes_produced_unverified_v0
 -> ir_readiness/blocked_by_full_type_check_errors_or_effect_check_errors_or_ownership_check_errors_or_resource_check_errors_or_profile_check_errors_or_before_ir_verify
 ```
 
-`full_type_check` now exists as a narrow recognized Core/body statement type gate, `effect_check` now exists as a narrow recognized Core/body effect gate, `ownership_check` now exists as a narrow local ownership fact gate, `resource_check` now exists as a narrow declared allocation/resource intent gate, and `profile_check` now exists as a narrow runtime profile policy gate. These report gates remain non-executing and must not claim complete type safety, effect safety, ownership safety, memory safety, allocation-freedom proof, strict profile enforcement, IR emission, backend readiness, or safety-critical readiness. `hum run` begins Milestone 1 executable semantics only for the explicitly interpreted first Formal Core subset; it does not turn the report gates into proof, memory-safety, optimization, IR, backend, or certification claims.
+For the exact authenticated minimal-add subset, `backend_input` owns one
+canonical encoder and a private one-shot SHA-256 identity guard. The artifact
+is deterministic inspection and transport data, not a signature, verified
+capability, backend-ready object, or executable. `full_type_check` now exists as a narrow recognized Core/body statement type gate, `effect_check` now exists as a narrow recognized Core/body effect gate, `ownership_check` now exists as a narrow local ownership fact gate, `resource_check` now exists as a narrow declared allocation/resource intent gate, and `profile_check` now exists as a narrow runtime profile policy gate. These report gates remain non-executing and must not claim complete type safety, effect safety, ownership safety, memory safety, allocation-freedom proof, strict profile enforcement, verified IR authority, backend readiness, or safety-critical readiness. `hum run` begins Milestone 1 executable semantics only for the explicitly interpreted first Formal Core subset; it does not turn the report gates into proof, memory-safety, optimization, IR verification, backend, or certification claims.
 
 Typed-failure doctrine: a known fallible call in any currently executable
 expression position never propagates invisibly. Shared analysis finds calls at

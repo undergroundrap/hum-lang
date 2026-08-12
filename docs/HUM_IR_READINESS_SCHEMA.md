@@ -441,15 +441,19 @@ The candidate's `facts_available` appends, in this order:
 7. `resource_checked_empty_v0`
 8. `normal_profile_checked_v0`
 9. `checked_i64_overflow_trap_bound_v0`
-10. `ir_verify_pending_v0`
+10. `canonical_backend_input_bytes_produced_unverified_v0`
+11. `ir_verify_pending_v0`
 
 The private record binds the authenticated source and operation identities,
 ordered distinct resolver definitions, checked `Int + Int -> Int`, the exact
 single `allocates: nothing` declaration, checked-empty effect/ownership/
 allocation/predicate/evidence/external-authority sets, the default `normal`
 profile, and one `signed_64` / `checked_add` /
-`runtime_trap_on_overflow` edge. It does not claim an ABI, backend target,
-artifact encoding, IR verification, execution readiness, or persisted proof.
+`runtime_trap_on_overflow` edge. The private producer now emits the exact
+canonical but unverified [`hum.backend_input.v0`](HUM_BACKEND_INPUT_SCHEMA.md)
+artifact and records that completion immediately before the pending verifier
+fact. It does not claim a verified ABI, backend target, IR verification,
+execution readiness, or persisted proof.
 All other candidates retain their prior status, ordering, omission/null rules,
 and blocker precedence.
 

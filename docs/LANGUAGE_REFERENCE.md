@@ -684,7 +684,7 @@ a private resolved-definition handle. The handle is nonescaping and has no
 source conversion or display surface; this does not add general closures or
 higher-order runtime values.
 
-The report gates remain non-executing. `hum core-preview` maps recognized lines into Core Hum candidate operations and explicit blockers without executing, type-checking, effect-checking, or emitting IR. `hum resolve` performs the first checked pass over scopes, definitions, references, and mutable-place targets. `hum type-env` records declared type names and annotations with resolver identity. `hum type-check` validates declaration annotation names without expression inference or body checking. `hum full-type-check`, `hum effect-check`, `hum ownership-check`, and `hum resource-check` report recognized facts and blockers without execution or IR emission. `hum ir-readiness` consumes the checked resolver, type, Core verifier, full-type-check, effect-check, ownership-check, and resource-check summaries before any future lowering claim. New executable syntax must still become checkable, lower into [FORMAL_CORE.md](FORMAL_CORE.md), and preserve the non-claims of the report surfaces before it becomes stable.
+The report gates remain non-executing. `hum core-preview` maps recognized lines into Core Hum candidate operations and explicit blockers without executing, type-checking, effect-checking, or emitting IR. `hum resolve` performs the first checked pass over scopes, definitions, references, and mutable-place targets. `hum type-env` records declared type names and annotations with resolver identity. `hum type-check` validates declaration annotation names without expression inference or body checking. `hum full-type-check`, `hum effect-check`, `hum ownership-check`, and `hum resource-check` report recognized facts and blockers without execution or IR emission. `hum ir-readiness` consumes the checked resolver, type, Core verifier, full-type-check, effect-check, ownership-check, and resource-check summaries before any future lowering claim. `hum backend-input <file>` accepts exactly one Hum source file and emits canonical but unverified `hum.backend_input.v0` bytes for the exact supported minimal-add program; those bytes grant no authority. New executable syntax must still become checkable, lower into [FORMAL_CORE.md](FORMAL_CORE.md), and preserve the non-claims of the report surfaces before it becomes stable.
 
 Starter executable forms are tracked in [CORE_LANGUAGE_SHAPE.md](CORE_LANGUAGE_SHAPE.md).
 
@@ -862,6 +862,7 @@ hum resource-report <file-or-dir>...
 hum resource-report --format json <file-or-dir>...
 hum ir-readiness <file-or-dir>...
 hum ir-readiness --format json <file-or-dir>...
+hum backend-input <file>
 hum core-preview <file-or-dir>...
 hum core-preview --format json <file-or-dir>...
 hum core-lower <file-or-dir>...
@@ -928,6 +929,7 @@ cargo run -- resource-report examples/control_flow.hum
 cargo run -- resource-report --format json examples/control_flow.hum
 cargo run -- ir-readiness examples/reference_surface.hum
 cargo run -- ir-readiness --format json examples/reference_surface.hum
+cargo run -- backend-input examples/core/minimal_add.hum
 cargo run -- core-preview examples/reference_surface.hum
 cargo run -- core-preview --format json examples/reference_surface.hum
 cargo run -- core-lower examples/reference_surface.hum

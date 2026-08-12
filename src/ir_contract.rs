@@ -35,8 +35,8 @@ const IR_LAYERS: &[IrLayer] = &[
     IrLayer {
         id: "hum_ir",
         stage: 4,
-        status: "planned",
-        role: "compiler-owned semantic IR consumed by interpreters and backend adapters",
+        status: "produced-unverified",
+        role: "canonical target-independent backend-input bytes awaiting IR verification",
     },
     IrLayer {
         id: "backend_adapter_input",
@@ -108,12 +108,12 @@ const RULES: &[&str] = &[
 ];
 
 const NON_GOALS_V0: &[&str] = &[
-    "no IR emission for source files",
+    "no verified IR capability",
     "no executable semantics",
     "no full type checker implementation",
     "no optimizer implementation",
     "no backend lowering",
-    "no generated artifact",
+    "no backend adapter input authority",
 ];
 
 pub fn ir_contract_text() -> String {
@@ -289,7 +289,12 @@ mod tests {
         assert!(text.contains("semantic_owner: hum_ir"));
         assert!(text.contains("core_contract_schema: hum.core_contract.v0"));
         assert!(text.contains("1. surface_hum [current]"));
-        assert!(text.contains("4. hum_ir [planned]"));
+        assert!(text.contains("4. hum_ir [produced-unverified]"));
+        assert!(
+            text.contains(
+                "canonical target-independent backend-input bytes awaiting IR verification"
+            )
+        );
         assert!(text.contains("required_carried_facts"));
     }
 
@@ -306,6 +311,7 @@ mod tests {
         assert!(json.contains("\"typed_failure_edges\""));
         assert!(json.contains("\"core_verify\""));
         assert!(json.contains("\"ir_verify\""));
-        assert!(json.contains("\"no IR emission for source files\""));
+        assert!(json.contains("\"status\": \"produced-unverified\""));
+        assert!(json.contains("\"no verified IR capability\""));
     }
 }

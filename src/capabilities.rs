@@ -1,4 +1,5 @@
 use crate::backend_contract;
+use crate::backend_input;
 use crate::core_contract;
 use crate::core_lower;
 use crate::core_preview;
@@ -170,6 +171,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: ir_readiness::IR_READINESS_SCHEMA,
         status: "adapter-ready",
         purpose: "source readiness report after Core verification, before full type/effect checking and Hum IR lowering",
+    },
+    CommandCapability {
+        name: "backend_input",
+        command: "hum backend-input <file>",
+        schema: backend_input::BACKEND_INPUT_SCHEMA,
+        status: "adapter-ready",
+        purpose: "canonical unverified backend-input bytes for the exact supported minimal-add program",
     },
     CommandCapability {
         name: "syntax",
@@ -374,7 +382,7 @@ pub fn capabilities_text() -> String {
         resource_report::RESOURCE_REPORT_SCHEMA
     ));
     out.push_str(&format!(
-        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  full_type_check: {}\n  effect_check: {}\n  ownership_check: {}\n  resource_check: {}\n  profile_check: {}\n  ir_readiness: {}\n",
+        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  full_type_check: {}\n  effect_check: {}\n  ownership_check: {}\n  resource_check: {}\n  profile_check: {}\n  ir_readiness: {}\n  backend_input: {}\n",
         core_preview::CORE_PREVIEW_SCHEMA,
         core_lower::CORE_LOWER_SCHEMA,
         core_verify::CORE_VERIFY_SCHEMA,
@@ -386,7 +394,8 @@ pub fn capabilities_text() -> String {
         ownership_check::OWNERSHIP_CHECK_SCHEMA,
         resource_check::RESOURCE_CHECK_SCHEMA,
         profile_check::PROFILE_CHECK_SCHEMA,
-        ir_readiness::IR_READINESS_SCHEMA
+        ir_readiness::IR_READINESS_SCHEMA,
+        backend_input::BACKEND_INPUT_SCHEMA
     ));
     out.push_str(&format!(
         "  diagnostic_explain: {}\n",
@@ -518,6 +527,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         indent + 2,
         "ir_readiness",
         ir_readiness::IR_READINESS_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "backend_input",
+        backend_input::BACKEND_INPUT_SCHEMA,
         true,
     );
     push_string_field(
@@ -776,6 +792,9 @@ mod tests {
         assert!(text.contains("hum check --format json"));
         assert!(text.contains("hum run <file>"));
         assert!(text.contains("hum evidence --format json"));
+        assert!(text.contains("  backend_input: hum.backend_input.v0"));
+        assert!(text.contains("backend_input [adapter-ready]: hum backend-input <file>"));
+        assert!(!text.contains("ir_verify"));
         assert!(text.contains("document_symbols"));
         assert!(text.contains("semantic_token_legend"));
     }
@@ -791,6 +810,7 @@ mod tests {
         assert!(json.contains("\"math_obligation\": \"hum.math_obligation.v0\""));
         assert!(json.contains("\"resource_report\": \"hum.resource_report.v0\""));
         assert!(json.contains("\"ir_readiness\": \"hum.ir_readiness.v0\""));
+        assert!(json.contains("\"backend_input\": \"hum.backend_input.v0\""));
         assert!(json.contains("\"core_preview\": \"hum.core_preview.v0\""));
         assert!(json.contains("\"core_lower\": \"hum.core_lower.v0\""));
         assert!(json.contains("\"core_verify\": \"hum.core_verify.v0\""));
@@ -832,6 +852,9 @@ mod tests {
         assert!(json.contains("\"name\": \"resource_check_json\""));
         assert!(json.contains("\"name\": \"profile_check_json\""));
         assert!(json.contains("\"name\": \"ir_readiness_json\""));
+        assert!(json.contains("\"name\": \"backend_input\""));
+        assert!(json.contains("\"command\": \"hum backend-input <file>\""));
+        assert!(!json.contains("ir_verify"));
         assert!(json.contains("\"name\": \"core_preview_json\""));
         assert!(json.contains("\"name\": \"core_lower_json\""));
         assert!(json.contains("\"name\": \"core_verify_json\""));
