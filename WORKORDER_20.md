@@ -3,13 +3,22 @@
 Date: 2026-08-11
 <!-- hum-active-workorder:v1 -->
 Status: Unit A's implementation and publication-status chains are complete,
-published, and terminal-green. The BDFL then issued an explicit Unit B signal,
-but the implementer stopped before implementation at a genuine encoder-
-interface defect: the sole canonical encoder was private in
-`src/backend_input.rs`, while the stopped sixteen-path Unit B envelope forbade
-editing that file. The incomplete untracked verifier file was removed and the
-repository returned to its exact clean published state. No Unit B candidate,
-selector, validation run, Fast allowance, commit, or push was consumed.
+published, and terminal-green. The independently accepted encoder-interface
+amendment was committed as `296283c4000ed8c2e70692bf300d4d0e80875468`,
+with parent `d522ef74cdf5418fe166d303d3f2ba8e49c892b5` and subject
+`docs(workorder): share backend input encoder with verifier`. It was published
+by a normal non-force fast-forward of `main` only over range
+`d522ef74cdf5418fe166d303d3f2ba8e49c892b5..296283c4000ed8c2e70692bf300d4d0e80875468`.
+
+Workflow `ci`, run `31645223153`, attempt 1, tested that exact amendment commit
+and concluded `success`. Ubuntu job `94277100326` and Windows job
+`94277100324` independently selected
+`mode=full;reason=no_status_transition;anchor=;run_id=0;run_attempt=0;ubuntu_job_id=0;windows_job_id=0;transitions=`
+and completed the full lane successfully. Both enforced selector inventory
+`101/101`, passed text hygiene and public readiness for 532 files, alpha
+claims, and release readiness `0.0.1`. Ubuntu completed the 14,226-case
+Exhaustive producer; Windows correctly skipped the platform-independent
+duplicate.
 
 Unit A was committed as `103015e531db086d1ac455dd67f1273f9e7173ac`
 with subject `feat(ir): encode canonical backend input bytes` and published by
@@ -30,11 +39,14 @@ Ubuntu job `94240615122` and Windows job `94240615202` independently completed
 the fast lane. Unit A remains explicitly unverified and blocked before
 `ir_verify`.
 
-Unit B is paused pending this encoder-interface amendment's independent review,
-local commit, full-CI publication, publication-status record, fast-CI status
-publication, and a new explicit BDFL Unit B resumption signal. Stash cleanup,
-Work Order organization, Unit B implementation, backend verification,
-candidate commit, and all later work remain unauthorized.
+The encoder-interface amendment is accepted, committed, published, and
+terminal-green. This isolated publication-status record is the current local
+gate; its publication and terminal-green fast-lane CI are the next separate
+gate. Unit B remains unauthorized until that status publication is green and
+a fresh explicit BDFL Unit B resumption signal is issued. Its future envelope
+remains exactly seventeen paths. Stash cleanup, Work Order organization, Unit
+B implementation, backend verification, candidate commit, and all later work
+remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 20 architect-author. The author may not independently review
@@ -2292,27 +2304,34 @@ commit `103015e531db086d1ac455dd67f1273f9e7173ac` passed workflow `ci`, run
 payload/artifact ID remain the published values. Unit A remains explicitly
 unverified and blocked before `ir_verify`.
 
-The BDFL issued an explicit Unit B signal, but the implementer stopped before
-implementation because Unit B could not reuse the sole private canonical
-encoder while `src/backend_input.rs` was outside its envelope. The incomplete
-untracked verifier file was removed and repository state returned clean. No
-Unit B candidate, validation, selector, Fast allowance, commit, or push was
-consumed.
+The independently accepted encoder-interface amendment is committed as
+`296283c4000ed8c2e70692bf300d4d0e80875468`, with parent
+`d522ef74cdf5418fe166d303d3f2ba8e49c892b5` and subject
+`docs(workorder): share backend input encoder with verifier`. It was published
+by a normal non-force fast-forward of `main` only over range
+`d522ef74cdf5418fe166d303d3f2ba8e49c892b5..296283c4000ed8c2e70692bf300d4d0e80875468`.
+Workflow `ci`, run `31645223153`, attempt 1, tested that exact SHA and concluded
+`success`. Ubuntu job `94277100326` and Windows job `94277100324` both selected
+`mode=full;reason=no_status_transition` with all anchor, run, job, and
+transition binding fields empty or zero, and both completed full preflight
+successfully. Both enforced selector inventory `101/101`, passed text hygiene
+and public readiness for 532 files, alpha claims, and release readiness
+`0.0.1`; Ubuntu completed all 14,226 Exhaustive cases and Windows correctly
+skipped the duplicate producer.
 
-The next gates remain, in order:
+The amendment is accepted, committed, published, and terminal-green. This
+isolated publication-status record is the current local gate. The next gates
+remain, in order:
 
-1. this document-only encoder-interface amendment;
-2. fresh independent amendment review;
-3. only an unqualified `ACCEPT` may advance;
-4. a separately authorized local `WORKORDER_20.md` amendment commit;
-5. separate amendment publication and terminal-green full CI;
-6. an isolated amendment publication-status commit;
-7. separate status publication and terminal-green fast CI; and
-8. a new explicit BDFL Unit B resumption signal.
+1. separate publication of this status commit;
+2. terminal-green fast-lane CI for that exact publication;
+3. a fresh explicit BDFL Unit B resumption signal; and
+4. only then, bounded Unit B implementation from the amended seventeen-path
+   scope.
 
-Only after all eight gates may Unit B begin from the amended seventeen-path
-scope. Stash cleanup, Work Order organization, Unit B implementation, shared-
-interface code, verifier code, backend verification, implementation review,
-candidate commit, stash mutation, archive mutation, and every other later
-activity remain unauthorized.
+Unit B is not automatically authorized by this record. Its future envelope
+remains exactly seventeen paths. Stash cleanup, Work Order organization, Unit
+B implementation, shared-interface code, verifier code, backend verification,
+implementation review, candidate commit, stash mutation, archive mutation,
+and every other later activity remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
