@@ -1,7 +1,6 @@
 # Hum Work Order 19: Bind Backend Facts With Load-Bearing Final Lineage Authority
 
 Date: 2026-08-11
-<!-- hum-active-workorder:v1 -->
 Status: Work Order 19 is closed. Its planning package and sole implementation
 unit are independently accepted, published, and terminal-green.
 The accepted planning commit is
