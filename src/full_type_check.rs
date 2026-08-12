@@ -66,6 +66,26 @@ struct FullTypeCheckReport {
     diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
+pub(crate) struct FullTypeEffectReportAccess<'report> {
+    program: &'report Program,
+    report: &'report FullTypeCheckReport,
+    core_verify: &'report core_verify::CoreVerifyFullTypeReportAccess<'report>,
+}
+
+pub(crate) struct VerifiedMinimalAddFullType<'report>(
+    core_verify::VerifiedCanonicalMinimalAddTypeResult<'report>,
+);
+
+impl VerifiedMinimalAddFullType<'_> {
+    pub(crate) fn backend_identity(&self) -> type_check::CanonicalMinimalAddBackendIdentity<'_> {
+        self.0.backend_identity()
+    }
+
+    pub(crate) fn core_prerequisite_names(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.0.core_prerequisite_names()
+    }
+}
+
 struct FullTypeItem {
     id: String,
     kind: &'static str,
@@ -149,6 +169,10 @@ pub fn full_type_check_summary(
     diagnostics: &[Diagnostic],
 ) -> FullTypeCheckSummary {
     let report = build_report(program, diagnostics);
+    summary_from_report(&report)
+}
+
+fn summary_from_report(report: &FullTypeCheckReport) -> FullTypeCheckSummary {
     FullTypeCheckSummary {
         schema: FULL_TYPE_CHECK_SCHEMA,
         status: report.status(),
@@ -394,6 +418,14 @@ pub fn full_type_check_json(program: &Program, diagnostics: &[Diagnostic]) -> St
 }
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckReport {
+    build_report_with(program, diagnostics, |_| ()).0
+}
+
+fn build_report_with<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    consume: impl for<'report> FnOnce(FullTypeEffectReportAccess<'report>) -> R,
+) -> (FullTypeCheckReport, R) {
     let type_check_summary = type_check::type_check_summary(program, diagnostics);
     let callables = callable::analyze_program(program);
     let source_errors = diagnostics
@@ -406,7 +438,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
     let predicates = predicate::analyze_program(program);
     #[cfg(test)]
     let mut core_verify_report_identity = 0;
-    let (handoff, items) =
+    let (handoff, (report, result)) =
         core_verify::with_core_verify_for_full_type(program, diagnostics, |core_verify_access| {
             #[cfg(test)]
             {
@@ -437,26 +469,123 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> FullTypeCheckR
             for file in &program.files {
                 collect_items(&context, &file.items, &task_returns, &mut items);
             }
-            items
+            let mut diagnostic_occurrences = core_verify_access.diagnostic_occurrence_set().clone();
+            extend_full_type_occurrences(&failure_analysis, &items, &mut diagnostic_occurrences);
+            #[allow(unused_mut)]
+            let mut report = FullTypeCheckReport {
+                type_check_summary,
+                core_verify_summary: core_verify_summary.clone(),
+                items,
+                files: program.files.len(),
+                item_count: count_items(program),
+                source_errors,
+                predicates: predicates.facts().to_vec(),
+                diagnostic_occurrences,
+            };
+            #[cfg(test)]
+            corrupt_wo19_report_for_test(&mut report);
+            let result = consume(FullTypeEffectReportAccess {
+                program,
+                report: &report,
+                core_verify: &core_verify_access,
+            });
+            (report, result)
         });
     #[cfg(test)]
     assert_eq!(
         core_verify_report_identity,
         handoff.report_identity_for_test()
     );
-    let (core_verify_summary, mut diagnostic_occurrences) = handoff.into_parts();
-    extend_full_type_occurrences(&failure_analysis, &items, &mut diagnostic_occurrences);
+    let (core_verify_summary, _core_diagnostics) = handoff.into_parts();
+    debug_assert_eq!(report.core_verify_summary, core_verify_summary);
+    (report, result)
+}
 
-    FullTypeCheckReport {
-        type_check_summary,
-        core_verify_summary,
-        items,
-        files: program.files.len(),
-        item_count: count_items(program),
-        source_errors,
-        predicates: predicates.facts().to_vec(),
-        diagnostic_occurrences,
+#[cfg(test)]
+fn corrupt_wo19_report_for_test(report: &mut FullTypeCheckReport) {
+    let Some(kind) = type_check::take_wo19_stage_corruption("full_type_check") else {
+        return;
+    };
+    match kind {
+        "missing" => {
+            if let Some(item) = report.items.first_mut() {
+                item.statements.clear()
+            }
+        }
+        "global" => report.source_errors = 1,
+        kind => {
+            let Some(row) = report
+                .items
+                .first_mut()
+                .and_then(|item| item.statements.first_mut())
+            else {
+                return;
+            };
+            match kind {
+                "rejected" => row.status = "rejected_statement_type_v0",
+                "unchecked" => row.status = "unchecked_statement_type_v0",
+                "foreign" => row.span.file = "foreign.hum".to_string(),
+                "fabricated" => row.type_source = Some("fabricated_public_type_v0"),
+                _ => report.items.clear(),
+            }
+        }
     }
+}
+
+pub(crate) fn with_full_type_for_effect<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    consume: impl for<'report> FnOnce(FullTypeEffectReportAccess<'report>) -> R,
+) -> R {
+    build_report_with(program, diagnostics, consume).1
+}
+
+impl<'report> FullTypeEffectReportAccess<'report> {
+    pub(crate) fn report_parts(&self) -> (FullTypeCheckSummary, &'report DiagnosticOccurrenceSet) {
+        (
+            summary_from_report(self.report),
+            &self.report.diagnostic_occurrences,
+        )
+    }
+
+    pub(crate) fn canonical_minimal_add_for(
+        &self,
+        item: &Item,
+        statement: &crate::ast::ParsedBodyStatement,
+    ) -> Option<VerifiedMinimalAddFullType<'report>> {
+        let core_verify::CanonicalMinimalAddTypeLookup::Delivered(verified_type) = self
+            .core_verify
+            .canonical_minimal_add_type_for(item, statement)
+        else {
+            return None;
+        };
+        (self.report.blocking_issues() == 0
+            && std::ptr::from_ref(self.program).addr()
+                == verified_type.backend_identity().program_identity)
+            .then_some(())?;
+        let item_row = unique(self.report.items.iter().filter(|row| {
+            row.kind == item.kind()
+                && row.name == item.name()
+                && row.span == portable_span(item.span())
+        }))?;
+        let statement_row = unique(
+            item_row
+                .statements
+                .iter()
+                .filter(|row| row.span == portable_span(&statement.span)),
+        )?;
+        (statement_row.statement_kind == "return"
+            && statement_row.actual_type.as_deref() == Some("Int")
+            && statement_row.type_source == Some("verified_canonical_minimal_add_type_v0")
+            && statement_row.status == "accepted_statement_type_v0"
+            && statement_row.reason.is_none())
+        .then_some(VerifiedMinimalAddFullType(verified_type))
+    }
+}
+
+fn unique<I: Iterator>(mut values: I) -> Option<I::Item> {
+    let value = values.next()?;
+    values.next().is_none().then_some(value)
 }
 
 fn extend_full_type_occurrences(
@@ -484,6 +613,7 @@ fn extend_full_type_occurrences(
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn diagnostic_occurrence_set(
     program: &Program,
     diagnostics: &[Diagnostic],
@@ -2781,5 +2911,60 @@ task remember(title: Text) -> Result WorkItem, WorkError {
         )));
         one_verify_report(|| super::full_type_check_text(&program, &diagnostics));
         one_verify_report(|| super::full_type_check_json(&program, &diagnostics));
+    }
+
+    #[test]
+    fn minimal_add_backend_fact_handoff_is_exact_and_borrowed() {
+        let parsed = parse_source(
+            "examples/core/minimal_add.hum",
+            include_str!("../examples/core/minimal_add.hum"),
+        );
+        let diagnostics = parsed.diagnostics;
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let item = &program.files[0].items[0];
+        let crate::ast::Item::Task(task) = item else {
+            panic!("minimal add task")
+        };
+        let statement = &task.body_syntax[0];
+        reset_verify_builds();
+        let delivered = super::with_full_type_for_effect(&program, &diagnostics, |access| {
+            let result = access
+                .canonical_minimal_add_for(item, statement)
+                .expect("same-report verified full type");
+            let identity = result.backend_identity();
+            assert_eq!(
+                identity.program_identity,
+                std::ptr::from_ref(&program).addr()
+            );
+            assert_eq!(
+                identity.owner.file.source_revision.as_ref(),
+                include_bytes!("../examples/core/minimal_add.hum")
+            );
+            assert_eq!(identity.owner.file.semantic_file_index, 0);
+            assert_eq!(
+                identity.owner.file.normalized_path.as_ref(),
+                "examples/core/minimal_add.hum"
+            );
+            assert_eq!(identity.source_module, Some("examples.core.minimal_add"));
+            assert_eq!(identity.owner.item_path.as_ref(), [0]);
+            assert_eq!(identity.owner.item_kind, "task");
+            assert_eq!(
+                identity
+                    .owner
+                    .section_slots
+                    .iter()
+                    .map(|slot| slot.as_ref())
+                    .collect::<Vec<_>>(),
+                ["allocates", "does"]
+            );
+            assert_eq!(result.core_prerequisite_names().count(), 7);
+            assert_eq!(identity.operand(0).unwrap().4, "Int");
+            assert_eq!(identity.operand(1).unwrap().4, "Int");
+            true
+        });
+        assert!(delivered);
+        assert_eq!(verify_builds(), 1);
     }
 }

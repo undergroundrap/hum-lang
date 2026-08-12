@@ -1,4 +1,7 @@
-use crate::ast::{App, Item, Program, Section, Store, Task, Test, TypeDef};
+use crate::ast::{
+    App, CanonicalExpressionKind, Item, ParsedBinaryOperator, ParsedBodyStatement,
+    ParsedBodyStatementKind, Program, Section, Store, Task, Test, TypeDef,
+};
 use crate::core_body::{self, BodyGrammarReport, BodyStatement};
 use crate::core_contract;
 use crate::core_lower;
@@ -53,6 +56,582 @@ struct LoweringCandidate {
     blocking_reasons: Vec<&'static str>,
     section_names: Vec<String>,
     body_grammar: Option<BodyGrammarReport>,
+}
+
+pub(crate) use backend_facts::CanonicalMinimalAddBackendFactsAccess;
+
+mod backend_facts {
+    use super::*;
+
+    const REQUIRED_PASSES: [&str; 14] = [
+        "parse",
+        "semantic_graph_build",
+        "resolve",
+        "body_grammar",
+        "core_preview",
+        "core_lowering",
+        "core_verify",
+        "type_check",
+        "full_type_check",
+        "effect_check",
+        "ownership_alias_check",
+        "allocation_resource_check",
+        "contract_evidence_linking_checked_empty_for_exact_item",
+        "profile_check",
+    ];
+
+    struct CanonicalMinimalAddBackendFacts<'report, 'source> {
+        program: &'source Program,
+        item: &'source Item,
+        statement: &'source ParsedBodyStatement,
+        profile: profile_check::VerifiedMinimalAddProfile<'report>,
+        task_signature: crate::ast::AuthenticatedCanonicalTaskSignature,
+        compiler_version: &'static str,
+        semantic_contract: &'static str,
+        target_context: &'static str,
+        required_passes: Vec<(&'static str, bool, usize, usize)>,
+        ir_verify_state: &'static str,
+        source_slots: [usize; 2],
+        checked_empty_sets: Vec<&'static str>,
+        failure_edges: Vec<[&'static str; 3]>,
+    }
+
+    pub(crate) struct CanonicalMinimalAddBackendFactsAccess<'facts> {
+        facts: &'facts CanonicalMinimalAddBackendFacts<'facts, 'facts>,
+    }
+
+    impl CanonicalMinimalAddBackendFacts<'_, '_> {
+        fn is_complete_with_final_profile_lineage(
+            &self,
+            final_profile_lineage: &profile_check::VerifiedMinimalAddProfile<'_>,
+        ) -> bool {
+            let Item::Task(task) = self.item else {
+                return false;
+            };
+            let identity = self.profile.backend_identity();
+            let [Some(left), Some(right)] = [identity.operand(0), identity.operand(1)] else {
+                return false;
+            };
+            let semantic_facts_complete = self.compiler_version == version::HUM_VERSION
+                && self.semantic_contract == "hum.canonical_minimal_add_backend_facts.v0"
+                && self.target_context == "target_independent_checked_i64_v0"
+                && self.required_passes.len() == REQUIRED_PASSES.len()
+                && self.required_passes.iter().zip(REQUIRED_PASSES).all(
+                    |((actual, passed, selected, context), expected)| {
+                        *actual == expected
+                            && *passed
+                            && *selected == 1
+                            && *context == identity.program_identity
+                    },
+                )
+                && self.ir_verify_state == "not_implemented"
+                && self
+                    .profile
+                    .core_prerequisite_names()
+                    .eq(REQUIRED_PASSES[..7].iter().copied())
+                && self.profile.profile_id() == "normal"
+                && self.profile.resource().allocation_declaration() == Some("nothing")
+                && identity.program_identity == std::ptr::from_ref(self.program).addr()
+                && !identity.owner.file.source_revision.is_empty()
+                && identity.owner.file.semantic_file_index < self.program.files.len()
+                && !identity.owner.file.normalized_path.is_empty()
+                && identity.source_module.is_none_or(|value| !value.is_empty())
+                && !identity.owner.item_path.is_empty()
+                && !identity.source_identities[0].is_empty()
+                && identity.owner.item_kind == "task"
+                && self.task_signature.matches_lowered_candidate(
+                    identity.owner.item_kind,
+                    &task.name,
+                    &task.span,
+                    &task.params,
+                    task.result.as_deref(),
+                )
+                && task.params.len() == 2
+                && task.result.as_deref() == Some("Int")
+                && crate::predicate::PredicateAnalysis::build(self.program)
+                    .facts_for_task(task)
+                    .next()
+                    .is_none()
+                && crate::graph::evidence_obligations(task).is_empty()
+                && identity
+                    .owner
+                    .section_slots
+                    .get(self.source_slots[0])
+                    .map(AsRef::as_ref)
+                    == Some("does")
+                && identity
+                    .owner
+                    .section_slots
+                    .iter()
+                    .filter(|name| name.as_ref() == "does")
+                    .count()
+                    == 1
+                && task
+                    .body_syntax
+                    .get(self.source_slots[1])
+                    .is_some_and(|row| std::ptr::eq(row, self.statement))
+                && task
+                    .body_syntax
+                    .iter()
+                    .filter(|row| std::ptr::eq(*row, self.statement))
+                    .count()
+                    == 1
+                && !identity.source_identities[1].is_empty()
+                && !identity.source_identities[2].is_empty()
+                && matches!(
+                    identity.root.kind,
+                    CanonicalExpressionKind::Binary {
+                        operator: ParsedBinaryOperator::Add,
+                        ..
+                    }
+                )
+                && identity.root.node_id.as_str() != left.1
+                && identity.root.node_id.as_str() != right.1
+                && left.2 != right.2
+                && left.3 != right.3
+                && [left.4, right.4] == ["Int", "Int"]
+                && [left.5, right.5].iter().all(|span| !span.file.is_empty())
+                && identity.checked_type
+                    == (
+                        type_check::CANONICAL_MINIMAL_ADD_TYPE_ID,
+                        type_check::CANONICAL_MINIMAL_ADD_TYPE_TEXT,
+                    )
+                && identity.declared_result_compatible == Some(true)
+                && self.checked_empty_sets
+                    == [
+                        "effects",
+                        "ownership_transfers",
+                        "allocations",
+                        "contract_predicates",
+                        "evidence_obligations",
+                        "unsupported_or_weakened",
+                        "external_authority",
+                    ]
+                && self.failure_edges == [["signed_64", "checked_add", "runtime_trap_on_overflow"]];
+            if !semantic_facts_complete {
+                return false;
+            }
+            let final_lineage_matches = final_profile_lineage.backend_identity().program_identity
+                == std::ptr::from_ref(self.program).addr();
+            observe_final_profile_lineage_comparison_for_test(final_lineage_matches);
+            final_lineage_matches
+        }
+
+        #[cfg(test)]
+        fn snapshot(&self) -> Vec<String> {
+            let identity = self.profile.backend_identity();
+            let mut snapshot = self
+                .required_passes
+                .iter()
+                .map(|(name, _, _, _)| (*name).to_string())
+                .collect::<Vec<_>>();
+            snapshot.extend(
+                self.checked_empty_sets
+                    .iter()
+                    .map(|state| format!("checked_empty:{state}")),
+            );
+            snapshot.extend([
+                self.semantic_contract.to_string(),
+                self.profile.profile_id().to_string(),
+                identity.root.node_id.as_str().to_string(),
+                identity.source_identities[2].clone(),
+                self.failure_edges[0][1].to_string(),
+            ]);
+            snapshot
+        }
+    }
+
+    impl CanonicalMinimalAddBackendFactsAccess<'_> {
+        pub(crate) fn is_complete(&self) -> bool {
+            self.facts.semantic_contract == "hum.canonical_minimal_add_backend_facts.v0"
+        }
+
+        #[cfg(test)]
+        pub(crate) fn snapshot_for_test(&self) -> Vec<String> {
+            self.facts.snapshot()
+        }
+    }
+
+    fn assemble<'report, 'source>(
+        program: &'source Program,
+        item: &'source Item,
+        statement: &'source ParsedBodyStatement,
+        profile: profile_check::VerifiedMinimalAddProfile<'report>,
+    ) -> Option<CanonicalMinimalAddBackendFacts<'report, 'source>> {
+        let Item::Task(task) = item else {
+            return None;
+        };
+        let identity = profile.backend_identity();
+        let does_section_slot = identity
+            .owner
+            .section_slots
+            .iter()
+            .position(|name| name.as_ref() == "does")?;
+        let operation_slot = task
+            .body_syntax
+            .iter()
+            .position(|candidate| std::ptr::eq(candidate, statement))?;
+        let task_signature = program.authenticate_canonical_task_signature(task).ok()?;
+        #[allow(unused_mut)]
+        let mut facts = CanonicalMinimalAddBackendFacts {
+            program,
+            item,
+            statement,
+            profile,
+            task_signature,
+            compiler_version: version::HUM_VERSION,
+            semantic_contract: "hum.canonical_minimal_add_backend_facts.v0",
+            target_context: "target_independent_checked_i64_v0",
+            required_passes: REQUIRED_PASSES
+                .map(|name| (name, true, 1, std::ptr::from_ref(program).addr()))
+                .to_vec(),
+            ir_verify_state: "not_implemented",
+            source_slots: [does_section_slot, operation_slot],
+            checked_empty_sets: vec![
+                "effects",
+                "ownership_transfers",
+                "allocations",
+                "contract_predicates",
+                "evidence_obligations",
+                "unsupported_or_weakened",
+                "external_authority",
+            ],
+            failure_edges: vec![["signed_64", "checked_add", "runtime_trap_on_overflow"]],
+        };
+        #[cfg(test)]
+        corrupt_backend_facts_for_test(&mut facts);
+        Some(facts)
+    }
+
+    fn issue_assembled<R>(
+        facts: &CanonicalMinimalAddBackendFacts<'_, '_>,
+        final_profile_lineage: &profile_check::VerifiedMinimalAddProfile<'_>,
+        consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
+    ) -> Option<R> {
+        facts
+            .is_complete_with_final_profile_lineage(final_profile_lineage)
+            .then(|| consume(CanonicalMinimalAddBackendFactsAccess { facts }))
+    }
+
+    pub(super) fn issue<R>(
+        program: &Program,
+        item: &Item,
+        statement: &ParsedBodyStatement,
+        profile: profile_check::VerifiedMinimalAddProfile<'_>,
+        consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
+    ) -> Option<R> {
+        let facts = assemble(program, item, statement, profile)?;
+        issue_assembled(&facts, &facts.profile, consume)
+    }
+
+    #[cfg(test)]
+    pub(super) fn issue_with_final_profile_lineage_for_test<R>(
+        program: &Program,
+        item: &Item,
+        statement: &ParsedBodyStatement,
+        honest_profile: profile_check::VerifiedMinimalAddProfile<'_>,
+        foreign_profile_lineage: &profile_check::VerifiedMinimalAddProfile<'_>,
+        consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
+    ) -> (Option<R>, usize) {
+        FINAL_PROFILE_LINEAGE_OBSERVATION.with(|count| assert_eq!(count.replace(Some(0)), None));
+        let result = assemble(program, item, statement, honest_profile)
+            .and_then(|facts| issue_assembled(&facts, foreign_profile_lineage, consume));
+        let comparisons = FINAL_PROFILE_LINEAGE_OBSERVATION.with(|count| {
+            count
+                .take()
+                .expect("final profile-lineage observation must be armed")
+        });
+        (result, comparisons)
+    }
+
+    #[cfg(test)]
+    thread_local! {
+        static FINAL_PROFILE_LINEAGE_OBSERVATION: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+        static FACTS_CORRUPTION: std::cell::Cell<Option<(&'static str, usize)>> = const { std::cell::Cell::new(None) };
+    }
+
+    #[cfg(test)]
+    fn observe_final_profile_lineage_comparison_for_test(_accepted: bool) {
+        FINAL_PROFILE_LINEAGE_OBSERVATION.with(|count| {
+            if let Some(current) = count.get() {
+                count.set(Some(
+                    current.checked_add(1).expect("lineage comparison count"),
+                ));
+            }
+        });
+    }
+
+    #[cfg(not(test))]
+    fn observe_final_profile_lineage_comparison_for_test(_accepted: bool) {}
+
+    #[cfg(test)]
+    pub(super) fn set_corruption_for_test(kind: &'static str, index: usize) {
+        FACTS_CORRUPTION.with(|active| assert_eq!(active.replace(Some((kind, index))), None));
+    }
+
+    #[cfg(test)]
+    fn corrupt_backend_facts_for_test(facts: &mut CanonicalMinimalAddBackendFacts<'_, '_>) {
+        let Some((kind, index)) = FACTS_CORRUPTION.with(std::cell::Cell::take) else {
+            return;
+        };
+        let passes = &mut facts.required_passes;
+        let edges = &mut facts.failure_edges;
+        match kind {
+            "pass_missing" => {
+                if index < passes.len() {
+                    passes.remove(index);
+                }
+            }
+            "pass_failed" => {
+                let _ = passes.get_mut(index).map(|row| row.1 = false);
+            }
+            "pass_zero" | "pass_skipped" => {
+                let _ = passes.get_mut(index).map(|row| row.2 = 0);
+            }
+            "pass_foreign" => {
+                let _ = passes.get_mut(index).map(|row| row.3 ^= 1);
+            }
+            "pass_duplicate" => {
+                if let (Some(row), Some(next)) = (passes.get(index).copied(), index.checked_add(1))
+                {
+                    passes.insert(next, row);
+                }
+            }
+            "pass_reordered" => {
+                if let Some(next) = index.checked_add(1).filter(|next| *next < passes.len()) {
+                    passes.swap(index, next);
+                } else {
+                    passes.reverse();
+                }
+            }
+            "empty_omitted" | "empty_missing" => {
+                if index < facts.checked_empty_sets.len() {
+                    facts.checked_empty_sets.remove(index);
+                }
+            }
+            "empty_not_checked" => set_empty_for_test(facts, index, "state_not_checked"),
+            "empty_unsupported" => {
+                set_empty_for_test(facts, index, "state_unsupported_and_blocked")
+            }
+            "empty_substituted" | "empty_corrupted" => {
+                set_empty_for_test(facts, index, "foreign_checked_empty_state")
+            }
+            "empty_duplicate" => {
+                if let (Some(state), Some(next)) = (
+                    facts.checked_empty_sets.get(index).copied(),
+                    index.checked_add(1),
+                ) {
+                    facts.checked_empty_sets.insert(next, state);
+                }
+            }
+            "empty_reordered" => {
+                let next = index
+                    .checked_add(1)
+                    .filter(|next| *next < facts.checked_empty_sets.len())
+                    .or_else(|| index.checked_sub(1));
+                if let Some(next) = next {
+                    facts.checked_empty_sets.swap(index, next);
+                }
+            }
+            "edge_omitted" => edges.clear(),
+            "edge_duplicate" => {
+                let _ = edges.first().copied().map(|edge| edges.push(edge));
+            }
+            "edge_reordered" => {
+                let _ = edges.first_mut().map(|edge| edge.swap(0, 1));
+            }
+            "edge_wrong_type" => set_edge_for_test(edges, 0, "unsigned_64"),
+            "edge_wraparound" => set_edge_for_test(edges, 1, "wrapping_add"),
+            "edge_wrong_width" => set_edge_for_test(edges, 0, "signed_32"),
+            "edge_foreign_trap" => set_edge_for_test(edges, 2, "foreign_trap"),
+            _ => passes.clear(),
+        }
+    }
+
+    #[cfg(test)]
+    fn set_empty_for_test(
+        facts: &mut CanonicalMinimalAddBackendFacts<'_, '_>,
+        index: usize,
+        value: &'static str,
+    ) {
+        let _ = facts
+            .checked_empty_sets
+            .get_mut(index)
+            .map(|slot| *slot = value);
+    }
+
+    #[cfg(test)]
+    fn set_edge_for_test(edges: &mut [[&'static str; 3]], index: usize, value: &'static str) {
+        if let Some(field) = edges.first_mut().and_then(|edge| edge.get_mut(index)) {
+            *field = value
+        }
+    }
+}
+
+pub(crate) fn with_canonical_minimal_add_backend_facts<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    item: &Item,
+    statement: &ParsedBodyStatement,
+    consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
+) -> Option<R> {
+    profile_check::with_profile_for_ir_readiness(program, diagnostics, |profile_access| {
+        let profile = profile_access.canonical_minimal_add_for(item, statement)?;
+        backend_facts::issue(program, item, statement, profile, consume)
+    })
+}
+
+#[allow(unexpected_cfgs)]
+mod canonical_minimal_add_backend_facts_escape_compile_proof {
+    #[cfg(hum_compile_fail_canonical_minimal_add_backend_facts_escape)]
+    mod enabled {
+        use super::super::{
+            CanonicalMinimalAddBackendFactsAccess, with_canonical_minimal_add_backend_facts,
+        };
+        use crate::{
+            ast::{Item, ParsedBodyStatement, Program},
+            diagnostic::Diagnostic,
+        };
+
+        type StaticAccess = CanonicalMinimalAddBackendFactsAccess<'static>;
+
+        fn backend_facts_return_escape_must_not_compile_value(
+            access: StaticAccess,
+        ) -> StaticAccess {
+            access
+        }
+
+        fn backend_facts_return_escape_must_not_compile(
+            program: &Program,
+            diagnostics: &[Diagnostic],
+            item: &Item,
+            statement: &ParsedBodyStatement,
+        ) -> StaticAccess {
+            with_canonical_minimal_add_backend_facts(
+                program,
+                diagnostics,
+                item,
+                statement,
+                backend_facts_return_escape_must_not_compile_value,
+            )
+            .unwrap()
+        }
+
+        fn backend_facts_static_escape_must_not_compile(
+            program: &Program,
+            diagnostics: &[Diagnostic],
+            item: &Item,
+            statement: &ParsedBodyStatement,
+        ) {
+            let mut backend_facts_static_escape_must_not_compile: Option<StaticAccess> = None;
+            let _ = with_canonical_minimal_add_backend_facts(
+                program,
+                diagnostics,
+                item,
+                statement,
+                |access| backend_facts_static_escape_must_not_compile = Some(access),
+            );
+        }
+
+        fn backend_facts_collection_escape_must_not_compile(
+            program: &Program,
+            diagnostics: &[Diagnostic],
+            item: &Item,
+            statement: &ParsedBodyStatement,
+        ) {
+            let mut backend_facts_collection_escape_must_not_compile: Vec<StaticAccess> = vec![];
+            let _ = with_canonical_minimal_add_backend_facts(
+                program,
+                diagnostics,
+                item,
+                statement,
+                |access| backend_facts_collection_escape_must_not_compile.push(access),
+            );
+        }
+
+        fn backend_facts_foreign_construction_must_not_compile(access: StaticAccess) {
+            let backend_facts_foreign_construction_must_not_compile =
+                CanonicalMinimalAddBackendFactsAccess {
+                    facts: access.facts,
+                };
+            let _ = backend_facts_foreign_construction_must_not_compile;
+        }
+    }
+}
+
+#[allow(unexpected_cfgs)]
+mod verified_minimal_add_wrapper_construction_compile_proof {
+    #[cfg(any(
+        hum_compile_fail_canonical_minimal_add_backend_facts_escape,
+        hum_compile_fail_verified_minimal_add_full_type_construction,
+        hum_compile_fail_verified_minimal_add_effect_construction,
+        hum_compile_fail_verified_minimal_add_ownership_construction,
+        hum_compile_fail_verified_minimal_add_resource_construction,
+        hum_compile_fail_verified_minimal_add_profile_construction
+    ))]
+    mod enabled {
+        #[cfg(any(
+            hum_compile_fail_canonical_minimal_add_backend_facts_escape,
+            hum_compile_fail_verified_minimal_add_full_type_construction
+        ))]
+        fn verified_minimal_add_full_type_sibling_construction_must_not_compile(
+            verified_type: crate::core_verify::VerifiedCanonicalMinimalAddTypeResult<'_>,
+        ) {
+            let verified_minimal_add_full_type_sibling_construction_must_not_compile =
+                crate::full_type_check::VerifiedMinimalAddFullType(verified_type);
+            let _ = verified_minimal_add_full_type_sibling_construction_must_not_compile;
+        }
+
+        #[cfg(any(
+            hum_compile_fail_canonical_minimal_add_backend_facts_escape,
+            hum_compile_fail_verified_minimal_add_effect_construction
+        ))]
+        fn verified_minimal_add_effect_sibling_construction_must_not_compile(
+            full_type: crate::full_type_check::VerifiedMinimalAddFullType<'_>,
+        ) {
+            let verified_minimal_add_effect_sibling_construction_must_not_compile =
+                crate::effect_check::VerifiedMinimalAddEffect(full_type);
+            let _ = verified_minimal_add_effect_sibling_construction_must_not_compile;
+        }
+
+        #[cfg(any(
+            hum_compile_fail_canonical_minimal_add_backend_facts_escape,
+            hum_compile_fail_verified_minimal_add_ownership_construction
+        ))]
+        fn verified_minimal_add_ownership_sibling_construction_must_not_compile(
+            effect: crate::effect_check::VerifiedMinimalAddEffect<'_>,
+        ) {
+            let verified_minimal_add_ownership_sibling_construction_must_not_compile =
+                crate::ownership_check::VerifiedMinimalAddOwnership(effect);
+            let _ = verified_minimal_add_ownership_sibling_construction_must_not_compile;
+        }
+
+        #[cfg(any(
+            hum_compile_fail_canonical_minimal_add_backend_facts_escape,
+            hum_compile_fail_verified_minimal_add_resource_construction
+        ))]
+        fn verified_minimal_add_resource_sibling_construction_must_not_compile(
+            ownership: crate::ownership_check::VerifiedMinimalAddOwnership<'_>,
+        ) {
+            let verified_minimal_add_resource_sibling_construction_must_not_compile =
+                crate::resource_check::VerifiedMinimalAddResource(todo!());
+            let _ = ownership;
+            let _ = verified_minimal_add_resource_sibling_construction_must_not_compile;
+        }
+
+        #[cfg(any(
+            hum_compile_fail_canonical_minimal_add_backend_facts_escape,
+            hum_compile_fail_verified_minimal_add_profile_construction
+        ))]
+        fn verified_minimal_add_profile_sibling_construction_must_not_compile(
+            resource: crate::resource_check::VerifiedMinimalAddResource<'_>,
+        ) {
+            let verified_minimal_add_profile_sibling_construction_must_not_compile =
+                crate::profile_check::VerifiedMinimalAddProfile(todo!());
+            let _ = resource;
+            let _ = verified_minimal_add_profile_sibling_construction_must_not_compile;
+        }
+    }
 }
 
 struct PassStatus {
@@ -638,6 +1217,7 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
         .map(|section| section.name.clone())
         .collect::<Vec<_>>();
     let body_grammar = body_grammar_for_item(context.program, item);
+    let backend_facts = candidate_backend_facts(item, context);
 
     LoweringCandidate {
         id: readiness_id(item),
@@ -663,12 +1243,14 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
             "blocked_by_resource_check_errors"
         } else if has_profile_check_errors {
             "blocked_by_profile_check_errors"
+        } else if backend_facts {
+            "blocked_before_ir_verify_with_backend_input_facts_v0"
         } else {
             "blocked_before_ir_verify"
         },
         current_layer: CURRENT_LAYER,
         target_layer: TARGET_LAYER,
-        facts_available: facts_available(item, context),
+        facts_available: facts_available(item, context, backend_facts),
         missing_passes: if has_full_type_check_errors {
             MISSING_IR_PASSES.to_vec()
         } else if has_effect_check_errors {
@@ -688,7 +1270,44 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
     }
 }
 
-fn facts_available(item: &Item, context: &CandidateContext<'_>) -> Vec<&'static str> {
+fn candidate_backend_facts(item: &Item, context: &CandidateContext<'_>) -> bool {
+    let Item::Task(task) = item else {
+        return false;
+    };
+    let mut statements = task.body_syntax.iter().filter(|statement| {
+        matches!(
+            &statement.kind,
+            ParsedBodyStatementKind::Return(expression)
+                if matches!(
+                    expression.canonical.kind,
+                    CanonicalExpressionKind::Binary {
+                        operator: ParsedBinaryOperator::Add,
+                        ..
+                    }
+                )
+        )
+    });
+    let Some(statement) = statements.next() else {
+        return false;
+    };
+    if statements.next().is_some() {
+        return false;
+    }
+    with_canonical_minimal_add_backend_facts(
+        context.program,
+        context.diagnostics,
+        item,
+        statement,
+        |access| access.is_complete(),
+    )
+    .unwrap_or(false)
+}
+
+fn facts_available(
+    item: &Item,
+    context: &CandidateContext<'_>,
+    backend_facts: bool,
+) -> Vec<&'static str> {
     let mut facts = vec![
         "source_span",
         "semantic_graph_node_id",
@@ -755,6 +1374,21 @@ fn facts_available(item: &Item, context: &CandidateContext<'_>) -> Vec<&'static 
         Item::Store(store) => add_store_facts(store, &mut facts),
         Item::Task(task) => add_task_facts(context.program, item, task, &mut facts),
         Item::Test(test) => add_test_facts(context.program, item, test, &mut facts),
+    }
+
+    if backend_facts {
+        facts.extend([
+            "canonical_minimal_add_backend_facts_v0",
+            "source_and_operation_identity_bound_v0",
+            "ordered_resolver_bindings_bound_v0",
+            "verified_checked_type_bound_v0",
+            "effect_checked_empty_v0",
+            "ownership_checked_empty_v0",
+            "resource_checked_empty_v0",
+            "normal_profile_checked_v0",
+            "checked_i64_overflow_trap_bound_v0",
+            "ir_verify_pending_v0",
+        ]);
     }
 
     facts
@@ -2465,6 +3099,406 @@ task pass_box(item: Box) -> Box {
         assert!(json.contains("\"status\": \"blocked_by_resolver_errors\""));
         assert!(json.contains("\"checked_resolver_errors\""));
         assert!(json.contains("\"ready_for_ir\": 0"));
+    }
+
+    #[test]
+    fn minimal_add_backend_facts_are_complete_but_ir_verify_blocked() {
+        type PublicReports = [(&'static str, String); 10];
+
+        fn subject(source: &str) -> (Program, Vec<crate::diagnostic::Diagnostic>) {
+            let parsed = parse_source("examples/core/minimal_add.hum", source);
+            (
+                Program {
+                    files: vec![parsed.file],
+                },
+                parsed.diagnostics,
+            )
+        }
+
+        fn access(
+            program: &Program,
+            diagnostics: &[crate::diagnostic::Diagnostic],
+        ) -> Option<Vec<String>> {
+            let item = &program.files[0].items[0];
+            let crate::ast::Item::Task(task) = item else {
+                return None;
+            };
+            super::with_canonical_minimal_add_backend_facts(
+                program,
+                diagnostics,
+                item,
+                &task.body_syntax[0],
+                |access| {
+                    assert!(access.is_complete());
+                    access.snapshot_for_test()
+                },
+            )
+        }
+
+        fn public_reports(
+            program: &Program,
+            diagnostics: &[crate::diagnostic::Diagnostic],
+        ) -> PublicReports {
+            [
+                (
+                    "full_type.human",
+                    crate::full_type_check::full_type_check_text(program, diagnostics),
+                ),
+                (
+                    "full_type.json",
+                    crate::full_type_check::full_type_check_json(program, diagnostics),
+                ),
+                (
+                    "effect.human",
+                    crate::effect_check::effect_check_text(program, diagnostics),
+                ),
+                (
+                    "effect.json",
+                    crate::effect_check::effect_check_json(program, diagnostics),
+                ),
+                (
+                    "ownership.human",
+                    crate::ownership_check::ownership_check_text(program, diagnostics),
+                ),
+                (
+                    "ownership.json",
+                    crate::ownership_check::ownership_check_json(program, diagnostics),
+                ),
+                (
+                    "resource.human",
+                    crate::resource_check::resource_check_text(program, diagnostics),
+                ),
+                (
+                    "resource.json",
+                    crate::resource_check::resource_check_json(program, diagnostics),
+                ),
+                (
+                    "profile.human",
+                    crate::profile_check::profile_check_text(program, diagnostics),
+                ),
+                (
+                    "profile.json",
+                    crate::profile_check::profile_check_json(program, diagnostics),
+                ),
+            ]
+        }
+
+        fn assert_public_chain_unblocked(
+            program: &Program,
+            diagnostics: &[crate::diagnostic::Diagnostic],
+        ) {
+            assert_eq!(
+                crate::full_type_check::full_type_check_summary(program, diagnostics)
+                    .blocking_issues,
+                0
+            );
+            assert_eq!(
+                crate::effect_check::effect_check_summary(program, diagnostics).blocking_issues,
+                0
+            );
+            assert_eq!(
+                crate::ownership_check::ownership_check_summary(program, diagnostics)
+                    .blocking_issues,
+                0
+            );
+            assert_eq!(
+                crate::resource_check::resource_check_summary(program, diagnostics).blocking_issues,
+                0
+            );
+            assert_eq!(
+                crate::profile_check::profile_check_summary(program, diagnostics).blocking_issues,
+                0
+            );
+        }
+
+        fn foreign_final_profile_lineage(
+            honest_program: &Program,
+            honest_diagnostics: &[crate::diagnostic::Diagnostic],
+            foreign_program: &Program,
+            foreign_diagnostics: &[crate::diagnostic::Diagnostic],
+        ) -> (Option<Vec<String>>, usize) {
+            let honest_item = &honest_program.files[0].items[0];
+            let crate::ast::Item::Task(honest_task) = honest_item else {
+                panic!("honest subject must be a task")
+            };
+            let foreign_item = &foreign_program.files[0].items[0];
+            let crate::ast::Item::Task(foreign_task) = foreign_item else {
+                panic!("foreign subject must be a task")
+            };
+            crate::profile_check::with_profile_for_ir_readiness(
+                honest_program,
+                honest_diagnostics,
+                |honest_access| {
+                    let honest_profile = honest_access
+                        .canonical_minimal_add_for(honest_item, &honest_task.body_syntax[0])
+                        .expect("honest actual profile authority");
+                    crate::profile_check::with_profile_for_ir_readiness(
+                        foreign_program,
+                        foreign_diagnostics,
+                        |foreign_access| {
+                            let foreign_profile = foreign_access
+                                .canonical_minimal_add_for(
+                                    foreign_item,
+                                    &foreign_task.body_syntax[0],
+                                )
+                                .expect("foreign actual profile authority");
+                            assert_ne!(
+                                std::ptr::from_ref(honest_program).addr(),
+                                std::ptr::from_ref(foreign_program).addr()
+                            );
+                            super::backend_facts::issue_with_final_profile_lineage_for_test(
+                                honest_program,
+                                honest_item,
+                                &honest_task.body_syntax[0],
+                                honest_profile,
+                                &foreign_profile,
+                                |access| access.snapshot_for_test(),
+                            )
+                        },
+                    )
+                },
+            )
+        }
+
+        let source = include_str!("../examples/core/minimal_add.hum");
+        let (program, diagnostics) = subject(source);
+        let snapshot = access(&program, &diagnostics).expect("complete backend facts");
+        assert_eq!(
+            &snapshot[..14],
+            [
+                "parse",
+                "semantic_graph_build",
+                "resolve",
+                "body_grammar",
+                "core_preview",
+                "core_lowering",
+                "core_verify",
+                "type_check",
+                "full_type_check",
+                "effect_check",
+                "ownership_alias_check",
+                "allocation_resource_check",
+                "contract_evidence_linking_checked_empty_for_exact_item",
+                "profile_check",
+            ]
+        );
+        assert_eq!(
+            &snapshot[14..21],
+            [
+                "checked_empty:effects",
+                "checked_empty:ownership_transfers",
+                "checked_empty:allocations",
+                "checked_empty:contract_predicates",
+                "checked_empty:evidence_obligations",
+                "checked_empty:unsupported_or_weakened",
+                "checked_empty:external_authority",
+            ]
+        );
+        assert_eq!(snapshot.last().map(String::as_str), Some("checked_add"));
+
+        let (foreign_program, foreign_diagnostics) = subject(source);
+        assert_public_chain_unblocked(&program, &diagnostics);
+        assert_public_chain_unblocked(&foreign_program, &foreign_diagnostics);
+        assert_eq!(
+            public_reports(&program, &diagnostics),
+            public_reports(&foreign_program, &foreign_diagnostics),
+            "independent Programs must expose byte-identical public reports"
+        );
+        assert!(access(&program, &diagnostics).is_some());
+        assert!(access(&foreign_program, &foreign_diagnostics).is_some());
+        let (foreign_access, comparisons) = foreign_final_profile_lineage(
+            &program,
+            &diagnostics,
+            &foreign_program,
+            &foreign_diagnostics,
+        );
+        assert_eq!(comparisons, 1, "the final comparison must run exactly once");
+        assert!(
+            foreign_access.is_none(),
+            "foreign actual profile lineage must not receive final facts access"
+        );
+        assert!(access(&program, &diagnostics).is_some(), "honest issuance");
+
+        let text = ir_readiness_text(&program, &diagnostics);
+        let json = ir_readiness_json(&program, &diagnostics);
+        assert_eq!(text, ir_readiness_text(&program, &diagnostics));
+        assert_eq!(json, ir_readiness_json(&program, &diagnostics));
+        assert!(text.contains("[blocked_before_ir_verify_with_backend_input_facts_v0]"));
+        assert!(text.contains("missing_passes: ir_verify"));
+        assert!(text.contains("blocking_reasons: ir_verify_not_implemented"));
+        assert!(json.contains("\"ready_for_ir\": 0"));
+        assert!(json.contains("\"missing_passes\": [\"ir_verify\"]"));
+        let expected_fact_suffix = [
+            "canonical_minimal_add_backend_facts_v0",
+            "source_and_operation_identity_bound_v0",
+            "ordered_resolver_bindings_bound_v0",
+            "verified_checked_type_bound_v0",
+            "effect_checked_empty_v0",
+            "ownership_checked_empty_v0",
+            "resource_checked_empty_v0",
+            "normal_profile_checked_v0",
+            "checked_i64_overflow_trap_bound_v0",
+            "ir_verify_pending_v0",
+        ];
+        let expected_human_suffix = expected_fact_suffix.join(", ");
+        let human_facts_line = text
+            .lines()
+            .find(|line| line.contains(expected_fact_suffix[0]))
+            .expect("human readiness facts for the canonical minimal add");
+        let human_suffix_start = human_facts_line
+            .find(expected_fact_suffix[0])
+            .expect("human canonical backend-facts suffix");
+        assert_eq!(
+            &human_facts_line[human_suffix_start..],
+            expected_human_suffix,
+            "human readiness facts must preserve the exact backend-facts suffix",
+        );
+
+        let expected_json_suffix = format!(
+            "{}],",
+            expected_fact_suffix
+                .iter()
+                .map(|fact| format!("\"{fact}\""))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let json_facts_line = json
+            .lines()
+            .find(|line| line.contains(expected_fact_suffix[0]))
+            .expect("JSON readiness facts for the canonical minimal add");
+        let json_suffix_start = json_facts_line
+            .find(&format!("\"{}\"", expected_fact_suffix[0]))
+            .expect("JSON canonical backend-facts suffix");
+        assert_eq!(
+            &json_facts_line[json_suffix_start..],
+            expected_json_suffix,
+            "JSON readiness facts must preserve the exact backend-facts suffix",
+        );
+        let json_blocking_reasons = json
+            .lines()
+            .find(|line| line.contains("\"blocking_reasons\":"))
+            .expect("JSON readiness blocker for the canonical minimal add");
+        assert_eq!(
+            json_blocking_reasons.trim(),
+            "\"blocking_reasons\": [\"ir_verify_not_implemented\"],",
+        );
+
+        let access_missing = || access(&program, &diagnostics).is_none();
+        for corruption in [
+            "missing_core_preview",
+            "blocked_core_preview",
+            "duplicate_core_preview",
+            "foreign_core_preview",
+            "reordered_core_preview",
+        ] {
+            crate::core_verify::set_backend_pass_corruption_for_test(corruption);
+            assert!(access_missing(), "{corruption}");
+        }
+        let standard = &[
+            "missing",
+            "rejected",
+            "unchecked",
+            "foreign",
+            "fabricated",
+            "global",
+        ];
+        for (stage, corruptions) in [
+            ("full_type_check", &standard[..]),
+            (
+                "effect_check",
+                &[
+                    "missing",
+                    "target",
+                    "declaration",
+                    "rejected",
+                    "unchecked",
+                    "foreign",
+                    "global",
+                ][..],
+            ),
+            (
+                "ownership_check",
+                &[
+                    "missing", "move", "borrow", "alias", "transfer", "rejected", "foreign",
+                    "global",
+                ][..],
+            ),
+            ("resource_check", &standard[..]),
+            (
+                "profile_check",
+                &[
+                    "missing",
+                    "unknown",
+                    "strict",
+                    "rejected",
+                    "fabricated",
+                    "foreign",
+                    "global",
+                ][..],
+            ),
+        ] {
+            for corruption in corruptions {
+                crate::type_check::set_wo19_stage_corruption(stage, corruption);
+                assert!(access_missing(), "{stage}:{corruption}");
+            }
+        }
+        for pass in 0..14 {
+            for corruption in [
+                "pass_missing",
+                "pass_failed",
+                "pass_skipped",
+                "pass_zero",
+                "pass_duplicate",
+                "pass_foreign",
+                "pass_reordered",
+            ] {
+                super::backend_facts::set_corruption_for_test(corruption, pass);
+                assert!(access_missing(), "{corruption}:{pass}");
+            }
+        }
+        for state in 0..7 {
+            for corruption in [
+                "empty_missing",
+                "empty_not_checked",
+                "empty_unsupported",
+                "empty_substituted",
+                "empty_corrupted",
+                "empty_duplicate",
+                "empty_reordered",
+            ] {
+                super::backend_facts::set_corruption_for_test(corruption, state);
+                assert!(access_missing(), "{corruption}:{state}");
+            }
+        }
+        for corruption in [
+            "edge_omitted",
+            "edge_duplicate",
+            "edge_reordered",
+            "edge_wrong_type",
+            "edge_wraparound",
+            "edge_wrong_width",
+            "edge_foreign_trap",
+        ] {
+            super::backend_facts::set_corruption_for_test(corruption, 0);
+            assert!(access_missing(), "{corruption}");
+        }
+        for corrupted in [
+            source.replace("  allocates:\n    nothing\n\n", ""),
+            source.replace(
+                "  allocates:\n    nothing",
+                "  allocates:\n    nothing\n    nothing",
+            ),
+            source.replace("return a + b", "return b + a"),
+            source.replace("return a + b", "return a + a"),
+            source.replace("  does:", "  ensures:\n    result is positive\n\n  does:"),
+            source.replace("  does:", "  protects:\n    add is correct\n\n  does:"),
+        ] {
+            let (corrupted_program, corrupted_diagnostics) = subject(&corrupted);
+            assert!(
+                access(&corrupted_program, &corrupted_diagnostics).is_none(),
+                "unexpected authority for:\n{corrupted}"
+            );
+        }
     }
 
     fn demo_program() -> Program {

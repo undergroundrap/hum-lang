@@ -393,6 +393,66 @@ the same partial body grammar to emit Core Hum candidate operations and blockers
 summaries to emit unverified source-mapped Core Hum artifact rows without
 crossing into executable semantics.
 
+## Canonical Minimal-Add Backend Facts Boundary
+
+The exact `examples/core/minimal_add.hum` operation may report:
+
+```text
+status=blocked_before_ir_verify_with_backend_input_facts_v0
+missing_passes=[ir_verify]
+blocking_reasons=[ir_verify_not_implemented]
+```
+
+This projection requires one private, non-serializable
+`CanonicalMinimalAddBackendFacts` authority for the live Program, task,
+statement, and operation. The authority is delivered only through a borrowed
+higher-ranked callback and does not escape, grant lowering authority, or
+authenticate persisted bytes.
+
+Its successful prerequisites are exactly, in order:
+
+1. `parse`
+2. `semantic_graph_build`
+3. `resolve`
+4. `body_grammar`
+5. `core_preview`
+6. `core_lowering`
+7. `core_verify`
+8. `type_check`
+9. `full_type_check`
+10. `effect_check`
+11. `ownership_alias_check`
+12. `allocation_resource_check`
+13. `contract_evidence_linking_checked_empty_for_exact_item`
+14. `profile_check`
+
+`core_preview` is independent authority consumed by Core lowering. Missing,
+failed, duplicate, foreign, or reordered authority withholds the new projection.
+`ir_verify` is excluded from the successful set and remains `not_implemented`.
+
+The candidate's `facts_available` appends, in this order:
+
+1. `canonical_minimal_add_backend_facts_v0`
+2. `source_and_operation_identity_bound_v0`
+3. `ordered_resolver_bindings_bound_v0`
+4. `verified_checked_type_bound_v0`
+5. `effect_checked_empty_v0`
+6. `ownership_checked_empty_v0`
+7. `resource_checked_empty_v0`
+8. `normal_profile_checked_v0`
+9. `checked_i64_overflow_trap_bound_v0`
+10. `ir_verify_pending_v0`
+
+The private record binds the authenticated source and operation identities,
+ordered distinct resolver definitions, checked `Int + Int -> Int`, the exact
+single `allocates: nothing` declaration, checked-empty effect/ownership/
+allocation/predicate/evidence/external-authority sets, the default `normal`
+profile, and one `signed_64` / `checked_add` /
+`runtime_trap_on_overflow` edge. It does not claim an ABI, backend target,
+artifact encoding, IR verification, execution readiness, or persisted proof.
+All other candidates retain their prior status, ordering, omission/null rules,
+and blocker precedence.
+
 ## Pass Status
 
 V0 reports these pass statuses:

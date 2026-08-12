@@ -1,6 +1,9 @@
 module examples.core.minimal_add
 
 task add(a: Int, b: Int) -> Int {
+  allocates:
+    nothing
+
   does:
     return a + b
 }

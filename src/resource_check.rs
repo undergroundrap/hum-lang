@@ -59,6 +59,19 @@ struct ResourceCheckReport {
     diagnostic_occurrences: DiagnosticOccurrenceSet,
 }
 
+pub(crate) struct ResourceProfileReportAccess<'report> {
+    program: &'report Program,
+    report: &'report ResourceCheckReport,
+    ownership: &'report ownership_check::OwnershipResourceReportAccess<'report>,
+}
+
+pub(crate) struct VerifiedMinimalAddResource<'report>(VerifiedMinimalAddResourceProof<'report>);
+
+struct VerifiedMinimalAddResourceProof<'report> {
+    ownership: ownership_check::VerifiedMinimalAddOwnership<'report>,
+    item: &'report ResourceItem,
+}
+
 struct ResourceItem {
     id: String,
     name: String,
@@ -100,6 +113,10 @@ pub fn resource_check_summary(
     diagnostics: &[Diagnostic],
 ) -> ResourceCheckSummary {
     let report = build_report(program, diagnostics);
+    summary_from_report(&report)
+}
+
+fn summary_from_report(report: &ResourceCheckReport) -> ResourceCheckSummary {
     ResourceCheckSummary {
         schema: RESOURCE_CHECK_SCHEMA,
         status: report.status(),
@@ -229,7 +246,17 @@ pub fn resource_check_json(program: &Program, diagnostics: &[Diagnostic]) -> Str
 }
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ResourceCheckReport {
-    let ownership_check_summary = ownership_check::ownership_check_summary(program, diagnostics);
+    ownership_check::with_ownership_for_resource(program, diagnostics, |access| {
+        build_report_from_ownership(program, diagnostics, &access)
+    })
+}
+
+fn build_report_from_ownership(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    ownership_access: &ownership_check::OwnershipResourceReportAccess<'_>,
+) -> ResourceCheckReport {
+    let (ownership_check_summary, ownership_occurrences) = ownership_access.report_parts();
     let resource_report_summary = resource_report::resource_report_summary(program, diagnostics);
     let source_errors = diagnostics
         .iter()
@@ -249,7 +276,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ResourceCheckR
             &mut items,
         );
     }
-    let diagnostic_occurrences = ownership_check::diagnostic_occurrence_set(program, diagnostics);
+    let diagnostic_occurrences = ownership_occurrences.clone();
     let projection = diagnostic_projection_from_ownership(&diagnostic_occurrences)
         .expect("resource check must carry one sealed ownership projection");
     projection
@@ -268,6 +295,138 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> ResourceCheckR
     }
 }
 
+fn build_report_with<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    consume: impl for<'report> FnOnce(ResourceProfileReportAccess<'report>) -> R,
+) -> (ResourceCheckReport, R) {
+    ownership_check::with_ownership_for_resource(program, diagnostics, |ownership_access| {
+        #[allow(unused_mut)]
+        let mut report = build_report_from_ownership(program, diagnostics, &ownership_access);
+        #[cfg(test)]
+        corrupt_wo19_report_for_test(&mut report);
+        let result = consume(ResourceProfileReportAccess {
+            program,
+            report: &report,
+            ownership: &ownership_access,
+        });
+        (report, result)
+    })
+}
+
+#[cfg(test)]
+fn corrupt_wo19_report_for_test(report: &mut ResourceCheckReport) {
+    let Some(kind) = crate::type_check::take_wo19_stage_corruption("resource_check") else {
+        return;
+    };
+    match kind {
+        "missing" => {
+            if let Some(item) = report.items.first_mut() {
+                item.checks.clear()
+            }
+        }
+        "global" => report.source_errors = 1,
+        kind => {
+            let Some(row) = report
+                .items
+                .first_mut()
+                .and_then(|item| item.checks.first_mut())
+            else {
+                return;
+            };
+            match kind {
+                "rejected" => row.status = "rejected_allocation_claim_v0",
+                "unchecked" => row.status = "unchecked_allocation_claim_v0",
+                "fabricated" => row.reason = Some("fabricated_public_acceptance"),
+                "foreign" => row.span.file = "foreign.hum".to_string(),
+                _ => report.items.clear(),
+            }
+        }
+    }
+}
+
+pub(crate) fn with_resource_for_profile<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    consume: impl for<'report> FnOnce(ResourceProfileReportAccess<'report>) -> R,
+) -> R {
+    build_report_with(program, diagnostics, consume).1
+}
+
+impl<'report> ResourceProfileReportAccess<'report> {
+    pub(crate) fn report_parts(&self) -> (ResourceCheckSummary, &'report DiagnosticOccurrenceSet) {
+        (
+            summary_from_report(self.report),
+            &self.report.diagnostic_occurrences,
+        )
+    }
+
+    pub(crate) fn canonical_minimal_add_for(
+        &self,
+        item: &Item,
+        statement: &crate::ast::ParsedBodyStatement,
+    ) -> Option<VerifiedMinimalAddResource<'report>> {
+        let ownership = self.ownership.canonical_minimal_add_for(item, statement)?;
+        let Item::Task(task) = item else {
+            return None;
+        };
+        (self.report.blocking_issues() == 0).then_some(())?;
+        let item_row = sole(
+            self.report
+                .items
+                .iter()
+                .filter(|row| row.name == item.name() && row.span == portable_span(item.span())),
+        )?;
+        let check = sole(item_row.checks.iter().filter(|row| {
+            row.check == "allocation_free_visibility"
+                && row.span == portable_span(item.span())
+                && row.status == "accepted_conservative_allocation_free_claim_v0"
+                && row.declaration.as_deref() == Some("nothing")
+        }))?;
+        let does = task.section("does")?;
+        let body = core_body::analyze_does_section(
+            self.program.canonical_core_expectation(item, does).ok()?,
+        );
+        (check.reason == Some("declared_not_proven")
+            && item_row.declarations.allocations.len() == 1
+            && item_row.declarations.first_allocation_text().as_deref() == Some("nothing")
+            && body.statements.len() == 1
+            && body.statements.iter().all(|row| {
+                !has_visible_allocation_risk(row) && row.expression_kind != Some("call_like")
+            }))
+        .then_some(VerifiedMinimalAddResource(
+            VerifiedMinimalAddResourceProof {
+                ownership,
+                item: item_row,
+            },
+        ))
+    }
+}
+
+pub(crate) use crate::ownership_check::sole;
+
+impl<'report> VerifiedMinimalAddResource<'report> {
+    pub(crate) fn backend_identity(
+        &self,
+    ) -> crate::type_check::CanonicalMinimalAddBackendIdentity<'_> {
+        self.0.ownership.backend_identity()
+    }
+
+    pub(crate) fn core_prerequisite_names(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.0.ownership.core_prerequisite_names()
+    }
+
+    pub(crate) fn allocation_declaration(&self) -> Option<&'report str> {
+        self.0
+            .item
+            .declarations
+            .allocations
+            .first()
+            .map(|declaration| declaration.normalized.as_str())
+    }
+}
+
+#[allow(dead_code)]
 pub(crate) fn diagnostic_occurrence_set(
     program: &Program,
     diagnostics: &[Diagnostic],
