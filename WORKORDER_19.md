@@ -2,7 +2,8 @@
 
 Date: 2026-08-11
 <!-- hum-active-workorder:v1 -->
-Status: Planning package independently accepted, published, and terminal-green.
+Status: Work Order 19 is closed. Its planning package and sole implementation
+unit are independently accepted, published, and terminal-green.
 The accepted planning commit is
 `e5ccb140419e81f4e4eb0338c6674cdb11c352be`, with parent
 `dc1475a808c3cf47980cc429f2f8ecaa787a1680` and subject
@@ -30,16 +31,61 @@ with selected/passed/failed `1/1/0`, F1 630, F2 4,950, F3/F4 8,646, total
 14,226, producer elapsed `16.969s`, and seed `0x48554D5F5345414C`. Windows
 correctly skipped the platform-independent duplicate.
 
-Work Order 19 implementation remains unauthorized. This status commit must be
-separately published and reach terminal-green fast-lane CI before a separate
-explicit BDFL go signal may authorize implementation. No gate implicitly
-authorizes archive restoration, stash application, implementation review,
-commit, push, or later work. Work Order 18 remains closed and terminally
-rejected; both WO18 archives and recovery stash
-`73101039f5e3faf0c802d4f723add1b891c51602` remain failure or parking evidence
-only. Artifact encoding, `ir_verify`, `VerifiedBackendInput`, Cranelift, ABI
-work, native-stderr harness repair, open-skeleton integration, termination,
-and all later work remain deferred.
+The sole implementation unit was committed as
+`811588db0bbdbd42e0637d5d50c84ef72923f214`, with parent
+`abe1bd95cb98f013688cdf26cc54fb7db6be9b05` and subject
+`feat(ir): bind backend facts to program lineage`. Ocean Bennett is both author
+and committer, using the repository-required GitHub no-reply identity. The
+commit contains exactly twelve paths and `+2,319/-46`.
+
+Fresh independent corrected-candidate review reported no P0, P1, or P2
+findings and returned `ACCEPT`. Complete backend facts are bound to one exact
+Program-owned minimal-add operation. Full-type, effect, ownership, resource,
+and profile authorities remain private and compiler-sealed. The final
+Program-lineage comparison is independently load-bearing, and the test-only
+two-real-profile HRTB seam is absent from production. The ordered fourteen
+passes, seven checked-empty states, checked signed-i64 overflow trap edge, and
+exact public IR-readiness fact order are bound. `ir_ready=0` remains unchanged,
+`ir_verify_not_implemented` remains the sole blocker, and the result is not
+`VerifiedBackendInput`. No backend artifact, digest, IR verification, or
+backend lowering was implemented.
+
+Publication was a normal non-force fast-forward of `main` only over range
+`abe1bd95cb98f013688cdf26cc54fb7db6be9b05..811588db0bbdbd42e0637d5d50c84ef72923f214`.
+No other remote ref changed.
+
+Required full-lane CI passed in workflow `ci`, run `31553589478`, attempt 1,
+testing `811588db0bbdbd42e0637d5d50c84ef72923f214`, with overall conclusion
+`success`. Ubuntu job `93981274365` succeeded in `10m10s`, with `9m39s` in
+full preflight and root suite `448/448`. Windows job `93981274258` succeeded in
+`16m53s`, with `16m26s` in full preflight and root suite `463/463`.
+
+Both platforms reported `mode=full;reason=no_status_transition` with empty or
+zero status-chain fields. Cargo-cache and Rust-toolchain preparation passed;
+full Hum/Fast preflight passed; status-only evidence was skipped; exact
+selector inventory was `99/99`; all four isolated Work Order 19 selectors
+passed `1/1`; the exact ordered ten-fact public sequence and exact blocker JSON
+`["ir_verify_not_implemented"]` passed; the combined privacy/lifetime sequence
+was `0/101/0` with no E0382 or unrelated compile-fail substitute; F4 inventory
+was `14/18/1/19`, with zero unregistered consumers and issuers `4/4`; text
+hygiene and public readiness passed for 527 files; alpha claims and release
+readiness for `0.0.1` passed; and both printed
+`All Hum preflight checks passed.`
+
+Ubuntu alone passed
+`parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero`
+with selected/passed/failed `1/1/0`, F1 630, F2 4,950, F3/F4 8,646, total
+14,226, producer elapsed `17.009s`, and seed `0x48554D5F5345414C`. Windows
+correctly skipped the platform-independent duplicate.
+
+Work Order 19 is closed, and its backend-facts authority is accepted and
+present on `main`. The result remains blocked before IR verification. No later
+session or implementation is authorized; a successor design requires a fresh
+Work Order and separate BDFL authorization. Artifact encoding, SHA-256 artifact
+identity, `hum.ir_verify.v0`, `VerifiedBackendInput`, Cranelift or other backend
+lowering, ABI work, native-stderr harness repair, open-skeleton integration,
+termination work, recovery-stash cleanup, archive mutation, and unrelated work
+remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 19 architect-author. The author may not independently review
@@ -884,21 +930,25 @@ planning validation.
 
 ## Current authorization gate
 
-The Work Order 19 planning package is independently accepted, published as
-`e5ccb140419e81f4e4eb0338c6674cdb11c352be`, and terminal-green in workflow
-`ci`, run `31536839041`, attempt 1. Ubuntu job `93929841761` and Windows job
-`93929841859` both succeeded in full mode with reason `no_status_transition`.
+Work Order 19 Unit 1 is independently accepted, published as
+`811588db0bbdbd42e0637d5d50c84ef72923f214`, and terminal-green in workflow
+`ci`, run `31553589478`, attempt 1. Ubuntu job `93981274365` and Windows job
+`93981274258` both succeeded in full mode with reason `no_status_transition`.
 
-Work Order 19 implementation remains unauthorized. Publication of this exact
-status-only commit and terminal-green fast-lane CI are required next. Only
-after that gate may a separate explicit BDFL go signal authorize Unit 1
-implementation. No gate implicitly authorizes archive restoration, stash
-application, implementation review, commit, push, publication, or later work.
+Work Order 19 is closed. Its backend-facts authority is accepted and present on
+`main`, but the result remains blocked before IR verification with
+`ir_ready=0` and `ir_verify_not_implemented` as the sole blocker. It is not
+`VerifiedBackendInput` and grants no artifact, IR-verification, lowering, or
+execution authority.
+
+No later session or implementation is authorized. A successor design requires
+a fresh Work Order and separate BDFL authorization. Artifact encoding, SHA-256
+artifact identity, `hum.ir_verify.v0`, `VerifiedBackendInput`, Cranelift or
+other backend lowering, ABI work, native-stderr harness repair, open-skeleton
+integration, termination work, recovery-stash cleanup, archive mutation, and
+unrelated work remain unauthorized.
 
 Work Order 18 remains closed and terminally rejected. Both WO18 archives and
-recovery stash `73101039f5e3faf0c802d4f723add1b891c51602` remain failure or
-parking evidence only and grant no implementation authority. Do not begin
-artifact encoding, `ir_verify`, `VerifiedBackendInput`, Cranelift or ABI work,
-native-stderr harness repair, open-skeleton integration, termination work,
-archive mutation, or any later activity.
+recovery stash `73101039f5e3faf0c802d4f723add1b891c51602` remain immutable
+failure or parking evidence only and grant no implementation authority.
 <!-- workorder-current-authorization-gate:end -->
