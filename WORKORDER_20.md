@@ -2,12 +2,23 @@
 
 Date: 2026-08-11
 <!-- hum-active-workorder:v1 -->
-Status: Drafted under BDFL planning authorization and amended under the final
-BDFL-pinned re-envelope ruling below. Prior independent reviews returned
-bounded planning findings; this amended package has not been independently
-accepted, committed, published, or authorized for implementation. Work Order
-19 is closed and terminal-green. Work Order 20 is the sole active planning
-document.
+Status: Planning package independently accepted, published, and terminal-green.
+The accepted final twenty-path planning package was committed as
+`7c6a769003fa1cb9f41ce2b545b99991be025d79`, with parent
+`74913b5fa459e51cb6dc5bd841dc1717ca7ecab4` and subject
+`docs(workorder): define canonical backend input pipeline`. It was published
+to `main` by normal non-force fast-forward.
+
+Required full-lane CI passed in workflow `ci`, run `31570998795`, attempt 1,
+testing that exact planning commit with overall conclusion `success`. Ubuntu
+job `94032782803` and Windows job `94032782817` both succeeded with
+`mode=full;reason=no_status_transition`. Ubuntu additionally passed all 14,226
+platform-independent Exhaustive pairs.
+
+Unit A is the next possible implementation unit, but it remains unauthorized
+pending publication of this exact status-only commit, terminal-green fast-lane
+CI, and a later separate explicit BDFL Unit A go signal. Unit B and all later
+work remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 20 architect-author. The author may not independently review
@@ -1725,24 +1736,21 @@ commit, or push is part of planning validation.
 
 ## Current authorization gate
 
-Work Order 20 exists only as an unaccepted planning package. The code-grounded
-sufficiency audit found no missing prerequisite, selected the dependency-free
-in-repository SHA-256 strategy, froze the exact canonical byte grammar, split
-the final twenty-path union at the published-unverified producer boundary,
-bound the established capabilities catalog and language-reference command
-inventory to both units, and
-ruled that Unit B successful exact verification makes only canonical minimal
-add IR-ready with `backend_ready=0`.
+The final twenty-path Work Order 20 planning package was independently
+accepted, published as `7c6a769003fa1cb9f41ce2b545b99991be025d79`,
+and reached terminal-green full CI in workflow `ci`, run `31570998795`,
+attempt 1. Ubuntu job `94032782803` and Windows job `94032782817` both
+succeeded with `mode=full;reason=no_status_transition`; Ubuntu additionally
+passed all 14,226 platform-independent Exhaustive pairs.
 
-No implementation is authorized. No path in the twenty-path envelope may be
-edited until a fresh independent final re-envelope architect-reviewer returns
-an unqualified `ACCEPT`, the BDFL accepts and publishes the planning package,
-the planning publication-status chain is terminal-green, and the BDFL sends a
-separate explicit Unit A implementation signal. Any other review verdict stops
-Work Order 20 without another correction. Unit B remains unauthorized until
-Unit A's own publication and status chain is terminal-green and another explicit
-BDFL signal is issued. A necessary twenty-first path stops the relevant unit and
-returns directly to the BDFL.
+Unit A is the next possible implementation unit but remains unauthorized. The
+required next gates are this exact local status-only commit, separate BDFL
+publication authorization, terminal-green status-only fast CI, and only then a
+later separate explicit BDFL Unit A go signal. No one of those gates implies
+the next.
 
-Backend lowering and every later activity remain unauthorized.
+Unit B remains unauthorized until accepted Unit A implementation, publication,
+and status evidence are durable and another explicit BDFL signal is issued.
+Backend lowering, artifact verification, archive or stash mutation, and every
+other later activity remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
