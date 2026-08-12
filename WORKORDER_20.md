@@ -2,34 +2,31 @@
 
 Date: 2026-08-11
 <!-- hum-active-workorder:v1 -->
-Status: Relocation-accounting amendment independently accepted, published, and
-terminal-green; exact Unit A candidate remains parked and has not resumed.
-The accepted amendment commit is
-`eef23720ddaecd850bcea47f3238e2a0650d1b51`, with parent
-`3156dd4869b3960a85eb63c6ba906b5c2b9916c8` and subject
-`docs(workorder): clarify unit a relocation accounting`. It was published by a
-normal non-force fast-forward of `main` only.
+Status: Unit A independently accepted, published, and terminal-green; its local
+publication-status record is the current gate. Unit B remains unauthorized.
+Unit A resumed from the authenticated parked candidate under the published
+relocation-accounting amendment, and the bounded `tools/check_all.ps1`
+correction was applied. A fresh independent review returned unqualified
+`ACCEPT`.
 
-Required full-lane CI passed in workflow `ci`, run `31611779720`, attempt 1,
-testing that exact amendment commit with overall conclusion `success`. Ubuntu
-job `94164634954` completed successfully in `9m11s`, including an `8m35s`
-full preflight, root suites `448/448`, `13/13`, and `60/60`, selector inventory
-`99/99`, and platform-independent Exhaustive evidence `1/1/0` over 14,226
-cases in `18.075s` with seed `0x48554D5F5345414C`. Windows job
-`94164634792` completed successfully in `18m10s`, including a `17m45s` full
-preflight, root suites `463/463`, `16/16`, and `60/60`, selector inventory
-`99/99`, and the correct duplicate-Exhaustive skip. Both platforms classified
-`mode=full;reason=no_status_transition`, passed text hygiene and public
-readiness for 528 files, alpha claims, and release readiness for `0.0.1`, and
-contained exactly one terminal `All Hum preflight checks passed.` marker.
+Unit A was committed as `103015e531db086d1ac455dd67f1273f9e7173ac`
+with subject `feat(ir): encode canonical backend input bytes` and published by
+a normal non-force fast-forward of `main` only. Workflow `ci`, run
+`31630027747`, attempt 1, tested that exact commit and concluded `success`.
+Ubuntu job `94226114196` and Windows job `94226114134` independently completed
+the full lane with selector inventory `101/101`. The canonical 8,715-byte
+golden artifact, raw SHA-256
+`9a2affc59962e0d83a33633edce6f318d78a406a9d2e5ad2edc5b8e34cf7c293`,
+and payload/artifact ID
+`a37707c23cc20a1720e45de901624e3101183a77ec1b5eb4ed55095b5097b82f`
+were identical across platforms.
 
-The exact Unit A candidate remains unchanged and losslessly parked at stash
-commit `bd6d2722cffa50da8463201204a48f4a7305ae1b`. Unit A has not resumed.
-The next gates remain this local status commit, separately authorized status
-publication, terminal-green fast-lane CI, a separate explicit BDFL resumption
-signal, and only then restoration of the exact parked candidate plus the
-bounded `tools/check_all.ps1` correction. Unit B, implementation review,
-candidate commit, and all later work remain unauthorized.
+Unit A remains explicitly unverified and blocked before `ir_verify`. The
+remaining gates are this local status commit, separately authorized status
+publication, terminal-green fast-lane CI, and a separate explicit BDFL Unit B
+implementation signal. Stash cleanup, Work Order organization, Unit B
+implementation, backend verification, candidate commit, and all later work
+remain unauthorized.
 
 Owner: BDFL (Ocean).
 Author: Work Order 20 architect-author. The author may not independently review
@@ -2002,29 +1999,27 @@ commit, or push is part of planning validation.
 
 ## Current authorization gate
 
-The relocation-accounting amendment was independently accepted and published
-as commit `eef23720ddaecd850bcea47f3238e2a0650d1b51` by a normal non-force
-fast-forward of `main` only. Workflow `ci`, run `31611779720`, attempt 1,
-tested that exact SHA and concluded `success`. Ubuntu job `94164634954` and
-Windows job `94164634792` both completed the full lane successfully with
-`mode=full;reason=no_status_transition`.
+Unit A resumed from the authenticated parked candidate under the published
+relocation-accounting amendment. The bounded `tools/check_all.ps1` correction
+was applied, and a fresh independent reviewer returned unqualified `ACCEPT`.
+Unit A was committed as `103015e531db086d1ac455dd67f1273f9e7173ac`
+and published by a normal non-force fast-forward of `main` only.
 
-The exact Unit A candidate remains unchanged and losslessly parked at stash
-commit `bd6d2722cffa50da8463201204a48f4a7305ae1b`, tree
-`1aabe316b01345ad2f2cd589f95b64b598305bb6`, and scoped tree
-`46eb384f4f36218b71525cba758d60f2881c6ba5`. Unit A has not resumed, and no
-implementation is active.
+Workflow `ci`, run `31630027747`, attempt 1, tested that exact commit and
+concluded `success`. Ubuntu job `94226114196` and Windows job `94226114134`
+independently completed the full lane with `mode=full`,
+`reason=no_status_transition`, and selector inventory `101/101`. The canonical
+golden bytes and digest were identical across platforms. Unit A remains
+explicitly unverified and blocked before `ir_verify`.
 
 The next gates remain, in order:
 
-1. this local status-only commit;
+1. this local Unit A status commit;
 2. separately authorized publication of this status commit;
 3. terminal-green fast-lane CI;
-4. a separate explicit BDFL resumption signal; and
-5. only then, restoration of the exact parked candidate and the bounded
-   `tools/check_all.ps1` correction.
+4. a separate explicit BDFL Unit B implementation signal.
 
-Unit B, implementation review, candidate commit, stash mutation, archive
-mutation, backend lowering, verified backend input, and every other later
-activity remain unauthorized.
+Stash cleanup, Work Order organization, Unit B implementation, backend
+verification, implementation review, candidate commit, stash mutation,
+archive mutation, and every other later activity remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
