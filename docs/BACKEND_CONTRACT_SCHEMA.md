@@ -107,6 +107,11 @@ Every backend adapter must preserve or explicitly report loss of:
 - debug and profiling provenance
 - unsupported features or weakened guarantees
 
+Adapters may consume these facts only through the borrowed
+`VerifiedBackendInput<'artifact>` capability issued by `hum ir-verify`. The
+current compiler verifies the canonical minimal-add artifact but still exposes
+no implemented backend adapter, code generator, or executable artifact.
+
 ## Honesty Rules
 
 - `hum backend-contract` is a discovery command, not execution.

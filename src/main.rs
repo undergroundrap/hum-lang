@@ -28,6 +28,7 @@ mod full_type_check;
 mod graph;
 mod ir_contract;
 mod ir_readiness;
+mod ir_verify;
 mod json;
 mod lsp;
 mod math_obligations;
@@ -191,6 +192,29 @@ fn run() -> Result<ExitCode, String> {
             DiagnosticsFormat::Json => print!("{}", diagnostics::diagnostics_json()),
         }
         return Ok(ExitCode::SUCCESS);
+    }
+
+    if options.command == "ir-verify" {
+        let input = options
+            .inputs
+            .first()
+            .expect("ir-verify has exactly one validated input");
+        let artifact = fs::read(input)
+            .map_err(|error| format!("failed to read {}: {error}", input.display()))?;
+        let (report, accepted) = ir_verify::with_verified_backend_input(&artifact, |access| {
+            debug_assert_eq!(access.artifact(), artifact.as_slice());
+            debug_assert!(!access.payload().is_empty());
+            debug_assert!(access.projection_count() > 0);
+        });
+        match options.ir_readiness_format {
+            IrReadinessFormat::Human => print!("{}", ir_verify::ir_verify_text(&report)),
+            IrReadinessFormat::Json => print!("{}", ir_verify::ir_verify_json(&report)),
+        }
+        return Ok(if accepted.is_some() && report.accepted() {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        });
     }
 
     let loaded = load_program(&options.inputs)?;
@@ -883,7 +907,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `backend-input`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{other}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `backend-input`, `ir-verify`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         )),
     }
 }
@@ -1701,6 +1725,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             | "profile-check"
             | "ir-readiness"
             | "backend-input"
+            | "ir-verify"
             | "syntax"
             | "version"
             | "explain"
@@ -1716,8 +1741,24 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             | "target-facts"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `backend-input`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{command}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `backend-input`, `ir-verify`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         ));
+    }
+    if command == "ir-verify" {
+        let exact_shape = matches!(
+            args.as_slice(),
+            [_, input] if !input.starts_with("--")
+        ) || matches!(
+            args.as_slice(),
+            [_, flag, format, input]
+                if flag == "--format" && format == "json" && !input.starts_with("--")
+        );
+        if !exact_shape {
+            return Err(
+                "`ir-verify` accepts only `<backend-input-file>` or `--format json <backend-input-file>`"
+                    .to_string(),
+            );
+        }
     }
 
     let mut show_timings = false;
@@ -1880,6 +1921,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                         | "resource-check"
                         | "profile-check"
                         | "ir-readiness"
+                        | "ir-verify"
                 ) =>
             {
                 let Some(value) = args.next() else {
@@ -1921,6 +1963,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                     "resource-check" => type_check_format = parse_resource_check_format(&value)?,
                     "profile-check" => type_check_format = parse_profile_check_format(&value)?,
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(&value)?,
+                    "ir-verify" => ir_readiness_format = parse_ir_verify_format(&value)?,
                     _ => unreachable!(),
                 }
             }
@@ -1955,6 +1998,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                     | "resource-check"
                     | "profile-check"
                     | "ir-readiness"
+                    | "ir-verify"
             ) && flag.starts_with("--format=") =>
             {
                 let value = flag.trim_start_matches("--format=");
@@ -1994,6 +2038,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                     "resource-check" => type_check_format = parse_resource_check_format(value)?,
                     "profile-check" => type_check_format = parse_profile_check_format(value)?,
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(value)?,
+                    "ir-verify" => ir_readiness_format = parse_ir_verify_format(value)?,
                     _ => unreachable!(),
                 }
             }
@@ -2592,6 +2637,18 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             return Err("`backend-input` requires exactly one .hum file".to_string());
         }
         vec![input]
+    } else if command == "ir-verify" {
+        if show_timings {
+            return Err("`ir-verify` does not support `--timings`".to_string());
+        }
+        if raw_inputs.len() != 1 {
+            return Err("`ir-verify` requires exactly one backend-input file".to_string());
+        }
+        let input = PathBuf::from(&raw_inputs[0]);
+        if !input.is_file() {
+            return Err("`ir-verify` requires exactly one backend-input file".to_string());
+        }
+        vec![input]
     } else {
         collect_inputs(&raw_inputs)?
     };
@@ -3037,6 +3094,15 @@ fn parse_ir_readiness_format(value: &str) -> Result<IrReadinessFormat, String> {
     }
 }
 
+fn parse_ir_verify_format(value: &str) -> Result<IrReadinessFormat, String> {
+    match value {
+        "json" => Ok(IrReadinessFormat::Json),
+        other => Err(format!(
+            "unknown ir-verify format `{other}`; expected `json`"
+        )),
+    }
+}
+
 fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
     let total_start = Instant::now();
     let mut program = Program::default();
@@ -3293,6 +3359,7 @@ fn print_help() {
     println!("  hum profile-check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum ir-readiness [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum backend-input <file>");
+    println!("  hum ir-verify [--format human|json] <backend-input-file>");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!("  hum syntax [--format json|textmate]");
     println!("  hum version [--format human|json]");
@@ -3330,6 +3397,7 @@ fn print_help() {
         "  ir-readiness      Report source readiness after profile checking, before Hum IR lowering"
     );
     println!("  backend-input     Emit canonical unverified backend-input bytes");
+    println!("  ir-verify         Verify canonical backend-input bytes without execution");
     println!("  test-skeletons    Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
     println!("  version         Print toolchain identity and schema versions");

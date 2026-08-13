@@ -40,6 +40,87 @@ pub(crate) struct CanonicalBackendInputArtifact {
     artifact_id: String,
 }
 
+macro_rules! closed_backend_record {
+    ($name:ident, $constructor:ident, { $($field:ident: $ty:ty),+ $(,)? }) => {
+        pub(crate) struct $name { $( $field: $ty ),+ }
+        #[allow(clippy::too_many_arguments)]
+        pub(crate) fn $constructor($( $field: $ty ),+) -> $name {
+            $name { $( $field ),+ }
+        }
+    };
+}
+
+closed_backend_record!(UnverifiedBackendInputV0, unverified_backend_input_v0, {
+    compiler: BackendCompilerV0, source_revision: BackendSourceRevisionV0,
+    module: BackendModuleV0, function: BackendFunctionV0, abi: BackendAbiV0,
+    operation: BackendOperationV0, expression: BackendExpressionV0,
+    parameters: [BackendParameterV0; 2], checked_type: BackendTypeV0,
+    effect: BackendEffectV0, resource: BackendResourceV0,
+    failure_edge: BackendFailureEdgeV0, required_passes: Vec<BackendPassV0>,
+    unsupported: Vec<String>
+});
+closed_backend_record!(BackendCompilerV0, backend_compiler_v0, {
+    version: String, ir_schema: String, semantic_contract: String,
+    feature_set: Vec<String>, target_context: String
+});
+closed_backend_record!(BackendSourceRevisionV0, backend_source_revision_v0, {
+    id: String, sha256: String, file_ordinal: usize, normalized_path: String
+});
+closed_backend_record!(BackendModuleV0, backend_module_v0, {
+    id: String, name: String, files: Vec<String>
+});
+closed_backend_record!(BackendFunctionV0, backend_function_v0, {
+    id: String, source_item_id: String, display_name: String, item_kind: String,
+    linkage_kind: String, linkage_symbol: String, source_id: String,
+    span: (usize, usize)
+});
+closed_backend_record!(BackendAbiV0, backend_abi_v0, {
+    calling_convention: String, result_value_id: String, result_type: String,
+    integer_width: usize, trap_convention: String
+});
+closed_backend_record!(BackendOperationV0, backend_operation_v0, {
+    block_id: String, id: String, section_id: String, kind: String,
+    statement_id: String, expression_id: String, result_value_id: String,
+    source_id: String, span: (usize, usize)
+});
+closed_backend_record!(BackendExpressionV0, backend_expression_v0, {
+    id: String, kind: String, operator: String, result_value_id: String,
+    checked_type_id: String, effect_id: String, resource_id: String,
+    failure_edge_id: String, unsupported: Vec<String>, source_id: String,
+    statement_id: String, span: (usize, usize)
+});
+closed_backend_record!(BackendParameterV0, backend_parameter_v0, {
+    abi_value_id: String, abi_type_id: String, child_ordinal: usize,
+    node_id: String, child_value_id: String, child_definition_id: String,
+    definition_id: String, semantic_id: String, definition_kind: String,
+    definition_ordinal: usize, definition_value_id: String,
+    definition_type_id: String, source_id: String, span: (usize, usize)
+});
+closed_backend_record!(BackendTypeV0, backend_type_v0, {
+    id: String, source_type_id: String, name: String, kind: String,
+    signed: bool, bits: usize
+});
+closed_backend_record!(BackendEffectV0, backend_effect_v0, {
+    id: String, effects: Vec<String>, external_authority: Vec<String>
+});
+closed_backend_record!(BackendResourceV0, backend_resource_v0, {
+    id: String, allocation_declaration: String, allocations: Vec<String>,
+    moves: Vec<String>, borrows: Vec<String>, aliases: Vec<String>,
+    ownership_transfers: Vec<String>, contract_predicates: Vec<String>,
+    evidence_obligations: Vec<String>, profile: String
+});
+closed_backend_record!(BackendFailureEdgeV0, backend_failure_edge_v0, {
+    id: String, value_type: String, operation: String, behavior: String
+});
+closed_backend_record!(BackendPassV0, backend_pass_v0, {
+    name: String, status: String, selected: usize, ordinal: usize
+});
+
+enum ArtifactIdMode<'a> {
+    ComputeFromPayload,
+    PreserveDeclared(&'a str),
+}
+
 impl CanonicalBackendInputArtifact {
     pub(crate) fn bytes(&self) -> &[u8] {
         &self.bytes
@@ -403,9 +484,176 @@ fn encode_minimal_add_artifact(
         && source_digest == "aeae6ae9de975eee9873c3d9ece891e66bd7d6881b5035c24b1a11f3902a52b6")
         .then_some(())?;
 
-    let payload = encode_payload(facts, target_context, &source_digest, left, right);
-    let payload_digest = sha256::digest(payload.as_bytes())?;
-    let artifact_id = format!("sha256:{}", sha256::lowercase_hex(&payload_digest));
+    let model = UnverifiedBackendInputV0 {
+        compiler: BackendCompilerV0 {
+            version: facts.compiler_version.to_string(),
+            ir_schema: "hum.ir_contract.v0".to_string(),
+            semantic_contract: facts.semantic_contract.to_string(),
+            feature_set: vec![FEATURE_SET.to_string()],
+            target_context: target_context.to_string(),
+        },
+        source_revision: BackendSourceRevisionV0 {
+            id: "source:0".to_string(),
+            sha256: format!("sha256:{source_digest}"),
+            file_ordinal: 0,
+            normalized_path: SOURCE_PATH.to_string(),
+        },
+        module: BackendModuleV0 {
+            id: "module:examples.core.minimal_add".to_string(),
+            name: MODULE_NAME.to_string(),
+            files: vec!["source:0".to_string()],
+        },
+        function: BackendFunctionV0 {
+            id: "function:0".to_string(),
+            source_item_id: identity.source_identities[0].clone(),
+            display_name: task.name.clone(),
+            item_kind: "task".to_string(),
+            linkage_kind: "internal".to_string(),
+            linkage_symbol: "hum_fn_0".to_string(),
+            source_id: "source:0".to_string(),
+            span: (task.span.line, task.span.column),
+        },
+        abi: BackendAbiV0 {
+            calling_convention: "hum_internal_v0".to_string(),
+            result_value_id: identity.source_identities[2].clone(),
+            result_type: "type:int64".to_string(),
+            integer_width: 64,
+            trap_convention: "hum_checked_trap_v0".to_string(),
+        },
+        operation: BackendOperationV0 {
+            block_id: "block:function:0:0".to_string(),
+            id: "operation:function:0:block:0:0".to_string(),
+            section_id: "section:function:0:does:0".to_string(),
+            kind: "return".to_string(),
+            statement_id: identity.source_identities[1].clone(),
+            expression_id: identity.root.node_id.as_str().to_string(),
+            result_value_id: identity.source_identities[2].clone(),
+            source_id: "source:0".to_string(),
+            span: (facts.statement.span.line, facts.statement.span.column),
+        },
+        expression: BackendExpressionV0 {
+            id: identity.root.node_id.as_str().to_string(),
+            kind: "binary".to_string(),
+            operator: "checked_add".to_string(),
+            result_value_id: identity.source_identities[2].clone(),
+            checked_type_id: "type:int64".to_string(),
+            effect_id: "effect:function:0:0".to_string(),
+            resource_id: "resource:function:0:0".to_string(),
+            failure_edge_id: "failure-edge:function:0:0".to_string(),
+            unsupported: Vec::new(),
+            source_id: "source:0".to_string(),
+            statement_id: identity.source_identities[1].clone(),
+            span: (
+                identity.root.range.start.line,
+                identity.root.range.start.column,
+            ),
+        },
+        parameters: [
+            BackendParameterV0 {
+                abi_value_id: left.0.to_string(),
+                abi_type_id: "type:int64".to_string(),
+                child_ordinal: 0,
+                node_id: left.1.to_string(),
+                child_value_id: left.0.to_string(),
+                child_definition_id: left.2.to_string(),
+                definition_id: left.2.to_string(),
+                semantic_id: left.3.to_string(),
+                definition_kind: "parameter".to_string(),
+                definition_ordinal: 0,
+                definition_value_id: left.0.to_string(),
+                definition_type_id: "type:int64".to_string(),
+                source_id: "source:0".to_string(),
+                span: (left.5.line, left.5.column),
+            },
+            BackendParameterV0 {
+                abi_value_id: right.0.to_string(),
+                abi_type_id: "type:int64".to_string(),
+                child_ordinal: 1,
+                node_id: right.1.to_string(),
+                child_value_id: right.0.to_string(),
+                child_definition_id: right.2.to_string(),
+                definition_id: right.2.to_string(),
+                semantic_id: right.3.to_string(),
+                definition_kind: "parameter".to_string(),
+                definition_ordinal: 1,
+                definition_value_id: right.0.to_string(),
+                definition_type_id: "type:int64".to_string(),
+                source_id: "source:0".to_string(),
+                span: (right.5.line, right.5.column),
+            },
+        ],
+        checked_type: BackendTypeV0 {
+            id: "type:int64".to_string(),
+            source_type_id: identity.checked_type.0.to_string(),
+            name: "Int".to_string(),
+            kind: "integer".to_string(),
+            signed: true,
+            bits: 64,
+        },
+        effect: BackendEffectV0 {
+            id: "effect:function:0:0".to_string(),
+            effects: Vec::new(),
+            external_authority: Vec::new(),
+        },
+        resource: BackendResourceV0 {
+            id: "resource:function:0:0".to_string(),
+            allocation_declaration: "nothing".to_string(),
+            allocations: Vec::new(),
+            moves: Vec::new(),
+            borrows: Vec::new(),
+            aliases: Vec::new(),
+            ownership_transfers: Vec::new(),
+            contract_predicates: Vec::new(),
+            evidence_obligations: Vec::new(),
+            profile: "normal".to_string(),
+        },
+        failure_edge: BackendFailureEdgeV0 {
+            id: "failure-edge:function:0:0".to_string(),
+            value_type: "signed_64".to_string(),
+            operation: "checked_add".to_string(),
+            behavior: "runtime_trap_on_overflow".to_string(),
+        },
+        required_passes: facts
+            .required_passes
+            .iter()
+            .enumerate()
+            .map(|(ordinal, (name, _, selected, _))| BackendPassV0 {
+                name: (*name).to_string(),
+                status: "passed".to_string(),
+                selected: *selected,
+                ordinal,
+            })
+            .collect(),
+        unsupported: Vec::new(),
+    };
+    emit_backend_input_v0(&model, ArtifactIdMode::ComputeFromPayload)
+}
+
+pub(crate) fn reencode_unverified_backend_input_v0(
+    model: &UnverifiedBackendInputV0,
+    declared_id: &str,
+) -> Option<CanonicalBackendInputArtifact> {
+    (declared_id.len() == 71
+        && declared_id.starts_with("sha256:")
+        && declared_id[7..]
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
+    .then_some(())?;
+    emit_backend_input_v0(model, ArtifactIdMode::PreserveDeclared(declared_id))
+}
+
+fn emit_backend_input_v0(
+    model: &UnverifiedBackendInputV0,
+    id_mode: ArtifactIdMode<'_>,
+) -> Option<CanonicalBackendInputArtifact> {
+    let payload = encode_payload(model);
+    let artifact_id = match id_mode {
+        ArtifactIdMode::ComputeFromPayload => {
+            let payload_digest = sha256::digest(payload.as_bytes())?;
+            format!("sha256:{}", sha256::lowercase_hex(&payload_digest))
+        }
+        ArtifactIdMode::PreserveDeclared(declared) => declared.to_string(),
+    };
     let prefix = format!(
         "{{\"schema\":\"{BACKEND_INPUT_SCHEMA}\",\"artifact_id\":\"{artifact_id}\",\"payload\":"
     );
@@ -423,119 +671,244 @@ fn encode_minimal_add_artifact(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn encode_payload(
-    facts: &CanonicalMinimalAddBackendFacts<'_, '_>,
-    target_context: &str,
-    source_digest: &str,
-    left: (&str, &str, &str, &str, &str, &crate::diagnostic::Span),
-    right: (&str, &str, &str, &str, &str, &crate::diagnostic::Span),
-) -> String {
-    let identity = facts.profile.backend_identity();
-    let Item::Task(task) = facts.item else {
-        unreachable!("validated minimal-add facts own a task")
-    };
-    let result_value_id = &identity.source_identities[2];
-    let statement_id = &identity.source_identities[1];
-    let root_id = identity.root.node_id.as_str();
+fn encode_payload(model: &UnverifiedBackendInputV0) -> String {
+    let [left, right] = &model.parameters;
     let mut out = String::with_capacity(4096);
     out.push_str("{\"compiler\":{\"version\":");
-    push_json_string(&mut out, facts.compiler_version);
-    out.push_str(",\"ir_schema\":\"hum.ir_contract.v0\",\"semantic_contract\":");
-    push_json_string(&mut out, facts.semantic_contract);
-    out.push_str(",\"feature_set\":[");
-    push_json_string(&mut out, FEATURE_SET);
-    out.push_str("],\"target_context\":");
-    push_json_string(&mut out, target_context);
-    out.push_str("},\"source_revision\":{\"id\":\"source:0\",\"sha256\":\"sha256:");
-    out.push_str(source_digest);
-    out.push_str("\",\"file_ordinal\":0,\"normalized_path\":");
-    push_json_string(&mut out, SOURCE_PATH);
-    out.push_str("},\"module\":{\"id\":\"module:examples.core.minimal_add\",\"name\":");
-    push_json_string(&mut out, MODULE_NAME);
-    out.push_str(
-        ",\"files\":[\"source:0\"]},\"functions\":[{\"id\":\"function:0\",\"source_item_id\":",
-    );
-    push_json_string(&mut out, &identity.source_identities[0]);
-    out.push_str(",\"display_name\":");
-    push_json_string(&mut out, &task.name);
-    out.push_str(",\"item_kind\":\"task\",\"linkage\":{\"kind\":\"internal\",\"symbol\":\"hum_fn_0\"},\"source_span\":{\"source_id\":\"source:0\",\"line\":");
-    let _ = write!(out, "{},\"column\":{}", task.span.line, task.span.column);
-    out.push_str("},\"abi\":{\"calling_convention\":\"hum_internal_v0\",\"parameters\":[");
-    push_json_string(&mut out, left.0);
-    out.push(',');
-    push_json_string(&mut out, right.0);
-    out.push_str("],\"parameter_types\":[\"type:int64\",\"type:int64\"],\"result\":");
-    push_json_string(&mut out, result_value_id);
-    out.push_str(",\"result_type\":\"type:int64\",\"integer_width\":64,\"trap_convention\":\"hum_checked_trap_v0\"},\"blocks\":[{\"id\":\"block:function:0:0\",\"operations\":[{\"id\":\"operation:function:0:block:0:0\",\"section_id\":\"section:function:0:does:0\",\"kind\":\"return\",\"statement_id\":");
-    push_json_string(&mut out, statement_id);
-    out.push_str(",\"expression_id\":");
-    push_json_string(&mut out, root_id);
-    out.push_str(",\"result_value_id\":");
-    push_json_string(&mut out, result_value_id);
-    out.push_str(",\"source_span\":{\"source_id\":\"source:0\",\"line\":");
+    push_json_string(&mut out, &model.compiler.version);
+    out.push_str(",\"ir_schema\":");
+    push_json_string(&mut out, &model.compiler.ir_schema);
+    out.push_str(",\"semantic_contract\":");
+    push_json_string(&mut out, &model.compiler.semantic_contract);
+    out.push_str(",\"feature_set\":");
+    push_json_string_array(&mut out, &model.compiler.feature_set);
+    out.push_str(",\"target_context\":");
+    push_json_string(&mut out, &model.compiler.target_context);
+    out.push_str("},\"source_revision\":{\"id\":");
+    push_json_string(&mut out, &model.source_revision.id);
+    out.push_str(",\"sha256\":");
+    push_json_string(&mut out, &model.source_revision.sha256);
     let _ = write!(
         out,
-        "{},\"column\":{}",
-        facts.statement.span.line, facts.statement.span.column
+        ",\"file_ordinal\":{}",
+        model.source_revision.file_ordinal
     );
-    out.push_str("}}]}],\"expressions\":[{\"id\":");
-    push_json_string(&mut out, root_id);
-    out.push_str(",\"kind\":\"binary\",\"operator\":\"checked_add\",\"children\":[{\"ordinal\":0,\"node_id\":");
-    push_json_string(&mut out, left.1);
-    out.push_str(",\"value_id\":");
-    push_json_string(&mut out, left.0);
-    out.push_str(",\"definition_id\":");
-    push_json_string(&mut out, left.2);
-    out.push_str("},{\"ordinal\":1,\"node_id\":");
-    push_json_string(&mut out, right.1);
-    out.push_str(",\"value_id\":");
-    push_json_string(&mut out, right.0);
-    out.push_str(",\"definition_id\":");
-    push_json_string(&mut out, right.2);
-    out.push_str("}],\"result_value_id\":");
-    push_json_string(&mut out, result_value_id);
-    out.push_str(",\"checked_type_id\":\"type:int64\",\"effect_id\":\"effect:function:0:0\",\"resource_id\":\"resource:function:0:0\",\"failure_edge_id\":\"failure-edge:function:0:0\",\"unsupported\":[],\"source_provenance\":{\"source_id\":\"source:0\",\"statement_id\":");
-    push_json_string(&mut out, statement_id);
+    out.push_str(",\"normalized_path\":");
+    push_json_string(&mut out, &model.source_revision.normalized_path);
+    out.push_str("},\"module\":{\"id\":");
+    push_json_string(&mut out, &model.module.id);
+    out.push_str(",\"name\":");
+    push_json_string(&mut out, &model.module.name);
+    out.push_str(",\"files\":");
+    push_json_string_array(&mut out, &model.module.files);
+    out.push_str("},\"functions\":[{\"id\":");
+    push_json_string(&mut out, &model.function.id);
+    out.push_str(",\"source_item_id\":");
+    push_json_string(&mut out, &model.function.source_item_id);
+    out.push_str(",\"display_name\":");
+    push_json_string(&mut out, &model.function.display_name);
+    out.push_str(",\"item_kind\":");
+    push_json_string(&mut out, &model.function.item_kind);
+    out.push_str(",\"linkage\":{\"kind\":");
+    push_json_string(&mut out, &model.function.linkage_kind);
+    out.push_str(",\"symbol\":");
+    push_json_string(&mut out, &model.function.linkage_symbol);
+    out.push_str("},\"source_span\":{\"source_id\":");
+    push_json_string(&mut out, &model.function.source_id);
     out.push_str(",\"line\":");
     let _ = write!(
         out,
         "{},\"column\":{}",
-        identity.root.range.start.line, identity.root.range.start.column
+        model.function.span.0, model.function.span.1
+    );
+    out.push_str("},\"abi\":{\"calling_convention\":");
+    push_json_string(&mut out, &model.abi.calling_convention);
+    out.push_str(",\"parameters\":[");
+    push_json_string(&mut out, &left.abi_value_id);
+    out.push(',');
+    push_json_string(&mut out, &right.abi_value_id);
+    out.push_str("],\"parameter_types\":[");
+    push_json_string(&mut out, &left.abi_type_id);
+    out.push(',');
+    push_json_string(&mut out, &right.abi_type_id);
+    out.push_str("],\"result\":");
+    push_json_string(&mut out, &model.abi.result_value_id);
+    out.push_str(",\"result_type\":");
+    push_json_string(&mut out, &model.abi.result_type);
+    let _ = write!(out, ",\"integer_width\":{}", model.abi.integer_width);
+    out.push_str(",\"trap_convention\":");
+    push_json_string(&mut out, &model.abi.trap_convention);
+    out.push_str("},\"blocks\":[{\"id\":");
+    push_json_string(&mut out, &model.operation.block_id);
+    out.push_str(",\"operations\":[{\"id\":");
+    push_json_string(&mut out, &model.operation.id);
+    out.push_str(",\"section_id\":");
+    push_json_string(&mut out, &model.operation.section_id);
+    out.push_str(",\"kind\":");
+    push_json_string(&mut out, &model.operation.kind);
+    out.push_str(",\"statement_id\":");
+    push_json_string(&mut out, &model.operation.statement_id);
+    out.push_str(",\"expression_id\":");
+    push_json_string(&mut out, &model.operation.expression_id);
+    out.push_str(",\"result_value_id\":");
+    push_json_string(&mut out, &model.operation.result_value_id);
+    out.push_str(",\"source_span\":{\"source_id\":");
+    push_json_string(&mut out, &model.operation.source_id);
+    out.push_str(",\"line\":");
+    let _ = write!(
+        out,
+        "{},\"column\":{}",
+        model.operation.span.0, model.operation.span.1
+    );
+    out.push_str("}}]}],\"expressions\":[{\"id\":");
+    push_json_string(&mut out, &model.expression.id);
+    out.push_str(",\"kind\":");
+    push_json_string(&mut out, &model.expression.kind);
+    out.push_str(",\"operator\":");
+    push_json_string(&mut out, &model.expression.operator);
+    out.push_str(",\"children\":[{\"ordinal\":");
+    let _ = write!(out, "{}", left.child_ordinal);
+    out.push_str(",\"node_id\":");
+    push_json_string(&mut out, &left.node_id);
+    out.push_str(",\"value_id\":");
+    push_json_string(&mut out, &left.child_value_id);
+    out.push_str(",\"definition_id\":");
+    push_json_string(&mut out, &left.child_definition_id);
+    out.push_str("},{\"ordinal\":");
+    let _ = write!(out, "{}", right.child_ordinal);
+    out.push_str(",\"node_id\":");
+    push_json_string(&mut out, &right.node_id);
+    out.push_str(",\"value_id\":");
+    push_json_string(&mut out, &right.child_value_id);
+    out.push_str(",\"definition_id\":");
+    push_json_string(&mut out, &right.child_definition_id);
+    out.push_str("}],\"result_value_id\":");
+    push_json_string(&mut out, &model.expression.result_value_id);
+    out.push_str(",\"checked_type_id\":");
+    push_json_string(&mut out, &model.expression.checked_type_id);
+    out.push_str(",\"effect_id\":");
+    push_json_string(&mut out, &model.expression.effect_id);
+    out.push_str(",\"resource_id\":");
+    push_json_string(&mut out, &model.expression.resource_id);
+    out.push_str(",\"failure_edge_id\":");
+    push_json_string(&mut out, &model.expression.failure_edge_id);
+    out.push_str(",\"unsupported\":");
+    push_json_string_array(&mut out, &model.expression.unsupported);
+    out.push_str(",\"source_provenance\":{\"source_id\":");
+    push_json_string(&mut out, &model.expression.source_id);
+    out.push_str(",\"statement_id\":");
+    push_json_string(&mut out, &model.expression.statement_id);
+    out.push_str(",\"line\":");
+    let _ = write!(
+        out,
+        "{},\"column\":{}",
+        model.expression.span.0, model.expression.span.1
     );
     out.push_str("}}],\"required_passes\":[");
-    for (ordinal, (name, _, selected, _)) in facts.required_passes.iter().enumerate() {
-        if ordinal > 0 {
+    for (index, pass) in model.required_passes.iter().enumerate() {
+        let ordinal = pass.ordinal;
+        if index > 0 {
             out.push(',');
         }
         out.push_str("{\"name\":");
-        push_json_string(&mut out, name);
-        out.push_str(",\"status\":\"passed\",\"selected\":");
-        let _ = write!(out, "{selected},\"ordinal\":{ordinal}}}");
+        push_json_string(&mut out, &pass.name);
+        out.push_str(",\"status\":");
+        push_json_string(&mut out, &pass.status);
+        out.push_str(",\"selected\":");
+        let _ = write!(out, "{},\"ordinal\":{ordinal}}}", pass.selected);
     }
-    out.push_str("]}],\"types\":[{\"id\":\"type:int64\",\"source_type_id\":");
-    push_json_string(&mut out, identity.checked_type.0);
-    out.push_str(",\"name\":\"Int\",\"kind\":\"integer\",\"signed\":true,\"bits\":64}],\"definitions\":[{\"id\":");
-    push_json_string(&mut out, left.2);
-    out.push_str(",\"semantic_id\":");
-    push_json_string(&mut out, left.3);
-    out.push_str(",\"kind\":\"parameter\",\"ordinal\":0,\"value_id\":");
-    push_json_string(&mut out, left.0);
-    out.push_str(
-        ",\"type_id\":\"type:int64\",\"source_span\":{\"source_id\":\"source:0\",\"line\":",
+    out.push_str("]}],\"types\":[{\"id\":");
+    push_json_string(&mut out, &model.checked_type.id);
+    out.push_str(",\"source_type_id\":");
+    push_json_string(&mut out, &model.checked_type.source_type_id);
+    out.push_str(",\"name\":");
+    push_json_string(&mut out, &model.checked_type.name);
+    out.push_str(",\"kind\":");
+    push_json_string(&mut out, &model.checked_type.kind);
+    let _ = write!(
+        out,
+        ",\"signed\":{},\"bits\":{}",
+        model.checked_type.signed, model.checked_type.bits
     );
-    let _ = write!(out, "{},\"column\":{}", left.5.line, left.5.column);
+    out.push_str("}],\"definitions\":[{\"id\":");
+    push_json_string(&mut out, &left.definition_id);
+    out.push_str(",\"semantic_id\":");
+    push_json_string(&mut out, &left.semantic_id);
+    out.push_str(",\"kind\":");
+    push_json_string(&mut out, &left.definition_kind);
+    let _ = write!(out, ",\"ordinal\":{}", left.definition_ordinal);
+    out.push_str(",\"value_id\":");
+    push_json_string(&mut out, &left.definition_value_id);
+    out.push_str(",\"type_id\":");
+    push_json_string(&mut out, &left.definition_type_id);
+    out.push_str(",\"source_span\":{\"source_id\":");
+    push_json_string(&mut out, &left.source_id);
+    out.push_str(",\"line\":");
+    let _ = write!(out, "{},\"column\":{}", left.span.0, left.span.1);
     out.push_str("}},{\"id\":");
-    push_json_string(&mut out, right.2);
+    push_json_string(&mut out, &right.definition_id);
     out.push_str(",\"semantic_id\":");
-    push_json_string(&mut out, right.3);
-    out.push_str(",\"kind\":\"parameter\",\"ordinal\":1,\"value_id\":");
-    push_json_string(&mut out, right.0);
-    out.push_str(
-        ",\"type_id\":\"type:int64\",\"source_span\":{\"source_id\":\"source:0\",\"line\":",
-    );
-    let _ = write!(out, "{},\"column\":{}", right.5.line, right.5.column);
-    out.push_str("}}],\"effects\":[{\"id\":\"effect:function:0:0\",\"effects\":[],\"external_authority\":[]}],\"resources\":[{\"id\":\"resource:function:0:0\",\"allocation_declaration\":\"nothing\",\"allocations\":[],\"moves\":[],\"borrows\":[],\"aliases\":[],\"ownership_transfers\":[],\"contract_predicates\":[],\"evidence_obligations\":[],\"profile\":\"normal\"}],\"failure_edges\":[{\"id\":\"failure-edge:function:0:0\",\"value_type\":\"signed_64\",\"operation\":\"checked_add\",\"behavior\":\"runtime_trap_on_overflow\"}],\"unsupported\":[]}");
+    push_json_string(&mut out, &right.semantic_id);
+    out.push_str(",\"kind\":");
+    push_json_string(&mut out, &right.definition_kind);
+    let _ = write!(out, ",\"ordinal\":{}", right.definition_ordinal);
+    out.push_str(",\"value_id\":");
+    push_json_string(&mut out, &right.definition_value_id);
+    out.push_str(",\"type_id\":");
+    push_json_string(&mut out, &right.definition_type_id);
+    out.push_str(",\"source_span\":{\"source_id\":");
+    push_json_string(&mut out, &right.source_id);
+    out.push_str(",\"line\":");
+    let _ = write!(out, "{},\"column\":{}", right.span.0, right.span.1);
+    out.push_str("}}],\"effects\":[{\"id\":");
+    push_json_string(&mut out, &model.effect.id);
+    out.push_str(",\"effects\":");
+    push_json_string_array(&mut out, &model.effect.effects);
+    out.push_str(",\"external_authority\":");
+    push_json_string_array(&mut out, &model.effect.external_authority);
+    out.push_str("}],\"resources\":[{\"id\":");
+    push_json_string(&mut out, &model.resource.id);
+    out.push_str(",\"allocation_declaration\":");
+    push_json_string(&mut out, &model.resource.allocation_declaration);
+    out.push_str(",\"allocations\":");
+    push_json_string_array(&mut out, &model.resource.allocations);
+    out.push_str(",\"moves\":");
+    push_json_string_array(&mut out, &model.resource.moves);
+    out.push_str(",\"borrows\":");
+    push_json_string_array(&mut out, &model.resource.borrows);
+    out.push_str(",\"aliases\":");
+    push_json_string_array(&mut out, &model.resource.aliases);
+    out.push_str(",\"ownership_transfers\":");
+    push_json_string_array(&mut out, &model.resource.ownership_transfers);
+    out.push_str(",\"contract_predicates\":");
+    push_json_string_array(&mut out, &model.resource.contract_predicates);
+    out.push_str(",\"evidence_obligations\":");
+    push_json_string_array(&mut out, &model.resource.evidence_obligations);
+    out.push_str(",\"profile\":");
+    push_json_string(&mut out, &model.resource.profile);
+    out.push_str("}],\"failure_edges\":[{\"id\":");
+    push_json_string(&mut out, &model.failure_edge.id);
+    out.push_str(",\"value_type\":");
+    push_json_string(&mut out, &model.failure_edge.value_type);
+    out.push_str(",\"operation\":");
+    push_json_string(&mut out, &model.failure_edge.operation);
+    out.push_str(",\"behavior\":");
+    push_json_string(&mut out, &model.failure_edge.behavior);
+    out.push_str("}],\"unsupported\":");
+    push_json_string_array(&mut out, &model.unsupported);
+    out.push('}');
     out
+}
+
+fn push_json_string_array(out: &mut String, values: &[String]) {
+    out.push('[');
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        push_json_string(out, value);
+    }
+    out.push(']');
 }
 
 fn push_json_string(out: &mut String, value: &str) {
@@ -827,8 +1200,10 @@ mod tests {
             "resource_checked_empty_v0",
             "normal_profile_checked_v0",
             "checked_i64_overflow_trap_bound_v0",
-            "canonical_backend_input_bytes_produced_unverified_v0",
-            "ir_verify_pending_v0",
+            "canonical_backend_input_bytes_v0",
+            "sha256_payload_identity_verified_v0",
+            "ir_verify_passed_v0",
+            "verified_backend_input_capability_lent_v0",
         ];
         let text_suffix = expected.join(", ");
         let text_line = text
@@ -852,13 +1227,11 @@ mod tests {
             .find(&format!("\"{}\"", expected[0]))
             .expect("JSON canonical backend-input facts suffix");
         assert_eq!(&json_line[json_start..], format!("{json_suffix}],"));
-        assert!(text.contains("[blocked_before_ir_verify_with_backend_input_facts_v0]"));
-        assert!(
-            json.contains("\"status\": \"blocked_before_ir_verify_with_backend_input_facts_v0\"")
-        );
-        assert!(text.contains("blocking_reasons: ir_verify_not_implemented"));
-        assert!(json.contains("\"blocking_reasons\": [\"ir_verify_not_implemented\"]"));
-        assert!(text.contains("ir_ready=0"));
-        assert!(json.contains("\"ir_ready\": 0"));
+        assert!(text.contains("[ready_for_ir_with_verified_backend_input_v0]"));
+        assert!(json.contains("\"status\": \"ready_for_ir_with_verified_backend_input_v0\""));
+        assert!(text.contains("blocking_reasons: \n"));
+        assert!(json.contains("\"blocking_reasons\": []"));
+        assert!(text.contains("ready_for_ir: 1"));
+        assert!(json.contains("\"ready_for_ir\": 1"));
     }
 }

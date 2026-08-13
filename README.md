@@ -378,6 +378,8 @@ cargo run -- resource-report --format json examples/control_flow.hum
 cargo run -- ir-readiness examples/reference_surface.hum
 cargo run -- ir-readiness --format json examples/reference_surface.hum
 cargo run -- backend-input examples/core/minimal_add.hum
+cargo run -- ir-verify fixtures/backend_input/minimal_add.backend_input.v0.json
+cargo run -- ir-verify --format json fixtures/backend_input/minimal_add.backend_input.v0.json
 cargo run -- lsp --capabilities
 cargo run -- lsp --capabilities --format json
 cargo run -- doctor
@@ -407,8 +409,9 @@ Current CLI:
 - `hum evidence [--format human|json] <file-or-dir>...`: emit `hum.evidence.v0` security/trust evidence status for humans, agents, and CI wrappers
 - `hum math-obligations [--format human|json] [--out-dir <dir>] <file-or-dir>...`: emit `hum.math_obligations.v0` reports and optional per-obligation `hum.math_obligation.v0` files for external contract validators
 - `hum resource-report [--format human|json] <file-or-dir>...`: emit `hum.resource_report.v0` source-declared resource, layout, and optimization claim inventory
-- `hum ir-readiness [--format human|json] <file-or-dir>...`: emit `hum.ir_readiness.v0` source readiness and blocker facts after consuming profile-check readiness, while still blocking before IR verification and Hum IR lowering
+- `hum ir-readiness [--format human|json] <file-or-dir>...`: emit `hum.ir_readiness.v0` source readiness after consuming exact backend-input verification; canonical minimal-add is IR-ready while backend readiness remains blocked
 - `hum backend-input <file>`: accept exactly one Hum source file and emit canonical but unverified `hum.backend_input.v0` bytes for the exact supported minimal-add program; the bytes grant no authority
+- `hum ir-verify [--format json] <backend-input-file>`: strictly verify canonical `hum.backend_input.v0` bytes and report `hum.ir_verify.v0` without executing code or persisting authority
 - `hum version [--format human|json]`: print toolchain identity, version, target, and schema names
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents

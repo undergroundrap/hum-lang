@@ -387,6 +387,9 @@ try {
   Invoke-ExactRustTest 'Work Order 19 load-bearing final backend lineage' $Cargo 'ir_readiness::tests::minimal_add_backend_facts_are_complete_but_ir_verify_blocked'
   Invoke-ExactRustTest 'Work Order 20 Unit A private SHA-256 boundary matrix' $Cargo 'sha256::tests::sha256_known_answer_and_boundary_matrix_is_exact'
   Invoke-ExactRustTest 'Work Order 20 Unit A canonical backend-input bytes' $Cargo 'backend_input::tests::minimal_add_backend_input_bytes_are_canonical_and_deterministic'
+  Invoke-ExactRustTest 'Work Order 20 Unit B canonical corruption matrix' $Cargo 'ir_verify::tests::canonical_backend_input_corruption_matrix_fails_closed'
+  Invoke-ExactRustTest 'Work Order 20 Unit B byte-bound compiler-sealed capability' $Cargo 'ir_verify::tests::verified_backend_input_is_byte_bound_and_compiler_sealed'
+  Invoke-ExactRustTest 'Work Order 20 Unit B exact verified IR readiness' $Cargo 'ir_readiness::tests::minimal_add_is_ir_ready_only_after_exact_artifact_verification'
   Write-Host '==> Work Order 20 Unit A canonical backend-input production surface'
   $Wo20SourcePath = 'examples/core/minimal_add.hum'
   $Wo20GoldenPath = 'fixtures/backend_input/minimal_add.backend_input.v0.json'
@@ -422,26 +425,129 @@ try {
     $Wo20Result = Read-NativeChannelsWithExit "Work Order 20 $($Wo20Rejected.Name)" $Hum $Wo20Args
     if ($Wo20Result.ExitCode -ne $Wo20Rejected.Exit -or $Wo20Result.Stdout.Length -ne 0 -or $Wo20Result.Stderr.Length -eq 0) { throw "Work Order 20 $($Wo20Rejected.Name) exit/channel contract drifted" }
   }
+function Test-Wo20CapabilityCatalogParity {
+  param(
+    [Parameter(Mandatory = $true)][string] $Catalog,
+    [Parameter(Mandatory = $true)][string] $CapabilitiesHuman,
+    [Parameter(Mandatory = $true)][object] $Capabilities
+  )
+
+  $SchemaNames = @($Capabilities.schemas.PSObject.Properties.Name)
+  $IrReadinessSchemaIndex = [Array]::IndexOf($SchemaNames, 'ir_readiness')
+  $BackendSchemaIndex = [Array]::IndexOf($SchemaNames, 'backend_input')
+  $IrVerifySchemaIndex = [Array]::IndexOf($SchemaNames, 'ir_verify')
+  if (@($SchemaNames | Where-Object { $_ -ceq 'backend_input' }).Count -ne 1 -or @($SchemaNames | Where-Object { $_ -ceq 'ir_verify' }).Count -ne 1 -or $BackendSchemaIndex -ne ($IrReadinessSchemaIndex + 1) -or $IrVerifySchemaIndex -ne ($BackendSchemaIndex + 1) -or $Capabilities.schemas.backend_input -cne 'hum.backend_input.v0' -or $Capabilities.schemas.ir_verify -cne 'hum.ir_verify.v0') {
+    throw 'Work Order 20 backend_input/ir_verify schema registration order drifted'
+  }
+
+  $CommandNames = @($Capabilities.commands | ForEach-Object { $_.name })
+  $IrReadinessCommandIndex = [Array]::IndexOf($CommandNames, 'ir_readiness_json')
+  $BackendCommandIndex = [Array]::IndexOf($CommandNames, 'backend_input')
+  $IrVerifyCommandIndex = [Array]::IndexOf($CommandNames, 'ir_verify')
+  $BackendCommand = @($Capabilities.commands | Where-Object { $_.name -ceq 'backend_input' })
+  $IrVerifyCommand = @($Capabilities.commands | Where-Object { $_.name -ceq 'ir_verify' })
+  if ($BackendCommand.Count -ne 1 -or $IrVerifyCommand.Count -ne 1 -or $BackendCommandIndex -ne ($IrReadinessCommandIndex + 1) -or $IrVerifyCommandIndex -ne ($BackendCommandIndex + 1)) {
+    throw 'Work Order 20 backend_input/ir_verify command registration order drifted'
+  }
+  if ($BackendCommand[0].command -cne 'hum backend-input <file>' -or $BackendCommand[0].schema -cne 'hum.backend_input.v0' -or $BackendCommand[0].status -cne 'adapter-ready' -or $IrVerifyCommand[0].command -cne 'hum ir-verify [--format json] <backend-input-file>' -or $IrVerifyCommand[0].schema -cne 'hum.ir_verify.v0' -or $IrVerifyCommand[0].status -cne 'adapter-ready') {
+    throw 'Work Order 20 backend_input/ir_verify command registration drifted'
+  }
+
+  $BackendHumanSchemaCount = ([regex]::Matches($CapabilitiesHuman, '(?m)^  backend_input: hum\.backend_input\.v0$')).Count
+  $IrVerifyHumanSchemaCount = ([regex]::Matches($CapabilitiesHuman, '(?m)^  ir_verify: hum\.ir_verify\.v0$')).Count
+  $BackendHumanCommandCount = ([regex]::Matches($CapabilitiesHuman, '(?m)^  backend_input \[adapter-ready\]: hum backend-input <file>$')).Count
+  $IrVerifyHumanCommandCount = ([regex]::Matches($CapabilitiesHuman, '(?m)^  ir_verify \[adapter-ready\]: hum ir-verify \[--format json\] <backend-input-file>$')).Count
+  if ($BackendHumanSchemaCount -ne 1 -or $IrVerifyHumanSchemaCount -ne 1 -or $BackendHumanCommandCount -ne 1 -or $IrVerifyHumanCommandCount -ne 1 -or $CapabilitiesHuman -notmatch '(?m)^  ir_readiness: hum\.ir_readiness\.v0\r?\n  backend_input: hum\.backend_input\.v0\r?\n  ir_verify: hum\.ir_verify\.v0$' -or $CapabilitiesHuman -notmatch '(?m)^  ir_readiness_json \[adapter-ready\]: hum ir-readiness --format json <file-or-dir>\.\.\.\r?\n  backend_input \[adapter-ready\]: hum backend-input <file>\r?\n  ir_verify \[adapter-ready\]: hum ir-verify \[--format json\] <backend-input-file>$') {
+    throw 'Work Order 20 human capabilities parity drifted'
+  }
+
+  $BackendCatalogSchemaCount = ([regex]::Matches($Catalog, '(?m)^- `backend_input`: `hum\.backend_input\.v0`$')).Count
+  $IrVerifyCatalogSchemaCount = ([regex]::Matches($Catalog, '(?m)^- `ir_verify`: `hum\.ir_verify\.v0`$')).Count
+  $BackendCatalogCommandCount = ([regex]::Matches($Catalog, '(?m)^- `hum backend-input <file>`$')).Count
+  $IrVerifyCatalogCommandCount = ([regex]::Matches($Catalog, '(?m)^- `hum ir-verify \[--format json\] <backend-input-file>`$')).Count
+  if ($BackendCatalogSchemaCount -ne 1 -or $IrVerifyCatalogSchemaCount -ne 1 -or $BackendCatalogCommandCount -ne 1 -or $IrVerifyCatalogCommandCount -ne 1) {
+    throw 'Work Order 20 capability catalog entries drifted'
+  }
+  if ($Catalog -notmatch '(?m)^- `ir_readiness`: `hum\.ir_readiness\.v0`\r?\n- `backend_input`: `hum\.backend_input\.v0`\r?\n- `ir_verify`: `hum\.ir_verify\.v0`\r?\n- `core_contract`: `hum\.core_contract\.v0`$' -or $Catalog -notmatch '(?m)^- `hum ir-readiness --format json`\r?\n- `hum backend-input <file>`\r?\n- `hum ir-verify \[--format json\] <backend-input-file>`\r?\n- `hum core-contract --format json`$') {
+    throw 'Work Order 20 capability catalog ordering drifted'
+  }
+}
   $Wo20CapabilitiesHuman = Read-NativeChannelsWithExit 'Work Order 20 capabilities human parity' $Hum @('capabilities')
   $Wo20CapabilitiesJson = Read-NativeChannelsWithExit 'Work Order 20 capabilities JSON parity' $Hum @('capabilities', '--format', 'json')
   if ($Wo20CapabilitiesHuman.ExitCode -ne 0 -or $Wo20CapabilitiesJson.ExitCode -ne 0 -or $Wo20CapabilitiesHuman.Stderr.Length -ne 0 -or $Wo20CapabilitiesJson.Stderr.Length -ne 0) { throw 'Work Order 20 capabilities routes failed' }
   Assert-Json 'Work Order 20 capabilities JSON' $Wo20CapabilitiesJson.Stdout
   $Wo20Capabilities = $Wo20CapabilitiesJson.Stdout | ConvertFrom-Json
-  $Wo20SchemaNames = @($Wo20Capabilities.schemas.PSObject.Properties.Name)
-  $Wo20IrReadinessSchemaIndex = [Array]::IndexOf($Wo20SchemaNames, 'ir_readiness')
-  if ($Wo20IrReadinessSchemaIndex -lt 0 -or $Wo20SchemaNames[$Wo20IrReadinessSchemaIndex + 1] -cne 'backend_input' -or $Wo20Capabilities.schemas.backend_input -cne 'hum.backend_input.v0') { throw 'Work Order 20 backend_input schema registration order drifted' }
-  $Wo20CommandNames = @($Wo20Capabilities.commands | ForEach-Object { $_.name })
-  $Wo20IrReadinessCommandIndex = [Array]::IndexOf($Wo20CommandNames, 'ir_readiness_json')
-  if ($Wo20IrReadinessCommandIndex -lt 0 -or $Wo20CommandNames[$Wo20IrReadinessCommandIndex + 1] -cne 'backend_input') { throw 'Work Order 20 backend_input command registration order drifted' }
-  $Wo20BackendCommand = @($Wo20Capabilities.commands | Where-Object { $_.name -ceq 'backend_input' })
-  if ($Wo20BackendCommand.Count -ne 1 -or $Wo20BackendCommand[0].command -cne 'hum backend-input <file>' -or $Wo20BackendCommand[0].schema -cne 'hum.backend_input.v0' -or $Wo20BackendCommand[0].status -cne 'adapter-ready') { throw 'Work Order 20 backend_input command registration drifted' }
-  if (($Wo20CapabilitiesHuman.Stdout + $Wo20CapabilitiesJson.Stdout).Contains('hum.ir_verify.v0') -or ($Wo20CapabilitiesHuman.Stdout + $Wo20CapabilitiesJson.Stdout).Contains('ir_verify')) { throw 'Work Order 20 Unit A exposed premature IR verification capability' }
   $Wo20CapabilityDoc = Get-Content -Raw 'docs/CAPABILITIES_SCHEMA.md'
   $Wo20LanguageDoc = Get-Content -Raw 'docs/LANGUAGE_REFERENCE.md'
   $Wo20Readme = Get-Content -Raw 'README.md'
-  if ([regex]::Matches($Wo20CapabilityDoc, '(?m)^- `backend_input`: `hum\.backend_input\.v0`$').Count -ne 1 -or [regex]::Matches($Wo20CapabilityDoc, '(?m)^- `hum backend-input <file>`$').Count -ne 1) { throw 'Work Order 20 capability catalog producer entries drifted' }
-  if ([regex]::Matches($Wo20LanguageDoc, '(?m)^hum backend-input <file>$').Count -ne 1 -or [regex]::Matches($Wo20LanguageDoc, '(?m)^cargo run -- backend-input examples/core/minimal_add\.hum$').Count -ne 1) { throw 'Work Order 20 language-reference command/bootstrap parity drifted' }
-  if ([regex]::Matches($Wo20Readme, '(?m)^cargo run -- backend-input examples/core/minimal_add\.hum$').Count -ne 1 -or -not $Wo20Readme.Contains('docs/HUM_BACKEND_INPUT_SCHEMA.md')) { throw 'Work Order 20 README producer parity drifted' }
+  Test-Wo20CapabilityCatalogParity -Catalog $Wo20CapabilityDoc -CapabilitiesHuman $Wo20CapabilitiesHuman.Stdout -Capabilities $Wo20Capabilities
+$Wo20BackendCommandLine = '- `hum backend-input <file>`'
+$Wo20IrVerifyCommandLine = '- `hum ir-verify [--format json] <backend-input-file>`'
+$Wo20CorePreviewCommandLine = '- `hum core-preview --format json`'
+$Wo20IrReadinessCommandLine = '- `hum ir-readiness --format json`'
+$Wo20CoreContractCommandLine = '- `hum core-contract --format json`'
+$Wo20IrContractCommandLine = '- `hum ir-contract --format json`'
+$Wo20CommandBoundary = $Wo20IrReadinessCommandLine + "`n" + $Wo20BackendCommandLine + "`n" + $Wo20IrVerifyCommandLine + "`n" + $Wo20CoreContractCommandLine
+$Wo20SwappedCommandBoundary = $Wo20IrReadinessCommandLine + "`n" + $Wo20IrVerifyCommandLine + "`n" + $Wo20BackendCommandLine + "`n" + $Wo20CoreContractCommandLine
+$Wo20CatalogMutations = @(
+  $Wo20CapabilityDoc.Replace($Wo20CorePreviewCommandLine, $Wo20BackendCommandLine + "`n" + $Wo20CorePreviewCommandLine),
+  $Wo20CapabilityDoc.Replace($Wo20BackendCommandLine + "`n", ''),
+  $Wo20CapabilityDoc.Replace($Wo20CorePreviewCommandLine, $Wo20IrVerifyCommandLine + "`n" + $Wo20CorePreviewCommandLine),
+  $Wo20CapabilityDoc.Replace($Wo20IrVerifyCommandLine + "`n", ''),
+  $Wo20CapabilityDoc.Replace($Wo20CommandBoundary, $Wo20SwappedCommandBoundary),
+  $Wo20CapabilityDoc.Replace($Wo20CommandBoundary, $Wo20IrReadinessCommandLine + "`n" + $Wo20CoreContractCommandLine).Replace($Wo20IrContractCommandLine, $Wo20BackendCommandLine + "`n" + $Wo20IrVerifyCommandLine + "`n" + $Wo20IrContractCommandLine)
+)
+for ($Wo20CatalogMutationIndex = 0; $Wo20CatalogMutationIndex -lt $Wo20CatalogMutations.Count; $Wo20CatalogMutationIndex++) {
+  $Wo20CatalogMutation = $Wo20CatalogMutations[$Wo20CatalogMutationIndex]
+  $Wo20CatalogMutationRejected = $false
+  try { Test-Wo20CapabilityCatalogParity -Catalog $Wo20CatalogMutation -CapabilitiesHuman $Wo20CapabilitiesHuman.Stdout -Capabilities $Wo20Capabilities } catch { $Wo20CatalogMutationRejected = $true }
+  if (-not $Wo20CatalogMutationRejected) { throw "Work Order 20 capability catalog mutation $Wo20CatalogMutationIndex was accepted" }
+}
+  if ([regex]::Matches($Wo20LanguageDoc, '(?m)^hum backend-input <file>$').Count -ne 1 -or [regex]::Matches($Wo20LanguageDoc, '(?m)^hum ir-verify <backend-input-file>$').Count -ne 1 -or [regex]::Matches($Wo20LanguageDoc, '(?m)^cargo run -- backend-input examples/core/minimal_add\.hum$').Count -ne 1) { throw 'Work Order 20 language-reference command/bootstrap parity drifted' }
+  if ([regex]::Matches($Wo20Readme, '(?m)^cargo run -- backend-input examples/core/minimal_add\.hum$').Count -ne 1 -or [regex]::Matches($Wo20Readme, '(?m)^cargo run -- ir-verify fixtures/backend_input/minimal_add\.backend_input\.v0\.json$').Count -ne 1 -or -not $Wo20Readme.Contains('docs/HUM_BACKEND_INPUT_SCHEMA.md')) { throw 'Work Order 20 README producer/verifier parity drifted' }
+  $Wo20VerifyHuman = Read-NativeChannelsWithExit 'Work Order 20 ir-verify human' $Hum @('ir-verify', $Wo20GoldenPath)
+  $Wo20VerifyJson = Read-NativeChannelsWithExit 'Work Order 20 ir-verify JSON' $Hum @('ir-verify', '--format', 'json', $Wo20GoldenPath)
+  if ($Wo20VerifyHuman.ExitCode -ne 0 -or $Wo20VerifyJson.ExitCode -ne 0 -or $Wo20VerifyHuman.Stderr.Length -ne 0 -or $Wo20VerifyJson.Stderr.Length -ne 0 -or -not $Wo20VerifyHuman.Stdout.Contains('accepted_canonical_backend_input_v0') -or -not $Wo20VerifyJson.Stdout.Contains('"status": "accepted_canonical_backend_input_v0"')) { throw 'Work Order 20 ir-verify accepted CLI contract drifted' }
+  $Wo20VerifyReport = $Wo20VerifyJson.Stdout | ConvertFrom-Json
+  if ($Wo20VerifyReport.schema -cne 'hum.ir_verify.v0' -or $Wo20VerifyReport.tool -cne 'ir-verify' -or $Wo20VerifyReport.version -cne '0.0.1' -or $Wo20VerifyReport.artifact_schema -cne 'hum.backend_input.v0' -or $Wo20VerifyReport.artifact_id -cne 'sha256:a37707c23cc20a1720e45de901624e3101183a77ec1b5eb4ed55095b5097b82f' -or $Wo20VerifyReport.summary.payload_bytes -ne 8582 -or @($Wo20VerifyReport.rejections).Count -ne 0) { throw 'Work Order 20 ir-verify accepted report identity drifted' }
+  $Wo20WrongIdPath = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-wo20-wrong-id-{0}.json" -f [Guid]::NewGuid().ToString('N'))
+  try {
+    $Wo20WrongIdText = [System.Text.Encoding]::UTF8.GetString($Wo20GoldenBytes).Replace('sha256:a37707c23cc20a1720e45de901624e3101183a77ec1b5eb4ed55095b5097b82f', 'sha256:0000000000000000000000000000000000000000000000000000000000000000')
+    [System.IO.File]::WriteAllText($Wo20WrongIdPath, $Wo20WrongIdText, [System.Text.UTF8Encoding]::new($false))
+    $Wo20WrongId = Read-NativeChannelsWithExit 'Work Order 20 ir-verify wrong declared ID rejection' $Hum @('ir-verify', '--format', 'json', $Wo20WrongIdPath)
+    if ($Wo20WrongId.ExitCode -ne 1 -or $Wo20WrongId.Stderr.Length -ne 0 -or -not $Wo20WrongId.Stdout.Contains('"status": "rejected_backend_input_v0"') -or -not $Wo20WrongId.Stdout.Contains('"code": "artifact_id_mismatch_v0"')) { throw 'Work Order 20 ir-verify digest rejection ownership drifted' }
+  } finally {
+    Remove-Item -LiteralPath $Wo20WrongIdPath -Force -ErrorAction SilentlyContinue
+  }
+  foreach ($Wo20RejectedInvocation in @(
+    @{ Args = @('ir-verify') },
+    @{ Args = @('ir-verify', '--timings', $Wo20GoldenPath) },
+    @{ Args = @('ir-verify', '--format', 'human', $Wo20GoldenPath) },
+    @{ Args = @('ir-verify', "--format=json", $Wo20GoldenPath) },
+    @{ Args = @('ir-verify', $Wo20GoldenPath, '--format', 'json') },
+    @{ Args = @('ir-verify', $Wo20GoldenPath, $Wo20GoldenPath) }
+  )) {
+    $Wo20RejectedCli = Read-NativeChannelsWithExit 'Work Order 20 ir-verify closed invocation' $Hum $Wo20RejectedInvocation.Args
+    if ($Wo20RejectedCli.ExitCode -ne 2 -or $Wo20RejectedCli.Stdout.Length -ne 0 -or $Wo20RejectedCli.Stderr.Length -eq 0) { throw "Work Order 20 ir-verify invocation accepted a forbidden shape: $($Wo20RejectedInvocation.Args -join ' ')" }
+  }
+  $Wo20BackendProduction = [regex]::Replace((Get-Content -Raw 'src/backend_input.rs'), '(?ms)^#\[cfg\(test\)\]\r?\nmod tests\s*\{.*$', '')
+  $Wo20VerifyProduction = [regex]::Replace((Get-Content -Raw 'src/ir_verify.rs'), '(?ms)^#\[cfg\(test\)\]\r?\nmod tests\s*\{.*$', '')
+  if ([regex]::Matches($Wo20BackendProduction, 'closed_backend_record!\s*\(\s*UnverifiedBackendInputV0\b').Count -ne 1 -or [regex]::Matches($Wo20BackendProduction, '\bfn\s+emit_backend_input_v0\s*\(').Count -ne 1 -or [regex]::Matches($Wo20BackendProduction, '\bemit_backend_input_v0\s*\(').Count -ne 3) { throw 'Work Order 20 shared closed model/emitter topology drifted' }
+  if ([regex]::IsMatch($Wo20BackendProduction, '(?m)^\s+pub(?:\(crate\))?\s+[A-Za-z_][A-Za-z0-9_]*\s*:')) { throw 'Work Order 20 opaque unverified model exposed a public or crate-visible field bag' }
+  # Each mode occurs once at its call site and once in the private emitter's match.
+  if ([regex]::Matches($Wo20BackendProduction, 'ArtifactIdMode::ComputeFromPayload').Count -ne 2 -or [regex]::Matches($Wo20BackendProduction, 'ArtifactIdMode::PreserveDeclared').Count -ne 2) { throw 'Work Order 20 exact two emitter modes/call sites drifted' }
+  if ([regex]::Matches($Wo20VerifyProduction, 'reencode_unverified_backend_input_v0\s*\(').Count -ne 1 -or -not $Wo20VerifyProduction.Contains('key_span: Range<usize>') -or -not $Wo20VerifyProduction.Contains('member_span: Range<usize>') -or $Wo20BackendProduction.Contains('crate::ir_verify') -or $Wo20BackendProduction.Contains('use crate::ir_verify')) { throw 'Work Order 20 verifier wrapper direction, ordered raw-span retention, or dependency drifted' }
+  $Wo20RawSpanStage = $Wo20VerifyProduction.IndexOf('raw_spans_are_well_formed(&root, body.len())')
+  $Wo20DuplicateStage = $Wo20VerifyProduction.IndexOf('first_duplicate_key_offset(&root)')
+  $Wo20ClosedStage = $Wo20VerifyProduction.IndexOf('let parts = extract_model(payload)')
+  $Wo20ReemitStage = $Wo20VerifyProduction.IndexOf('reencode_unverified_backend_input_v0(&parts.model, &declared_id)')
+  $Wo20CanonicalStage = $Wo20VerifyProduction.IndexOf('if reencoded.bytes() != artifact')
+  $Wo20DigestStage = $Wo20VerifyProduction.IndexOf('sha256::digest(&artifact[payload_range.clone()])')
+  $Wo20SemanticStage = $Wo20VerifyProduction.IndexOf('validate_model(&parts)')
+  if ($Wo20RawSpanStage -lt 0 -or $Wo20DuplicateStage -le $Wo20RawSpanStage -or $Wo20ClosedStage -le $Wo20DuplicateStage -or $Wo20ReemitStage -le $Wo20ClosedStage -or $Wo20CanonicalStage -le $Wo20ReemitStage -or $Wo20DigestStage -le $Wo20CanonicalStage -or $Wo20SemanticStage -le $Wo20DigestStage) { throw 'Work Order 20 verifier frozen transport/span/closed/reemit/canonical/digest/semantic ordering drifted' }
+  foreach ($ForbiddenEncoder in @('serde_json', 'HashMap', 'BTreeMap', 'to_string_pretty', 'json!')) {
+    if ($Wo20VerifyProduction.Contains($ForbiddenEncoder)) { throw "Work Order 20 verifier contains forbidden serializer/model surface: $ForbiddenEncoder" }
+  }
   Invoke-ExactRustTest 'Increment 10B.1b recursive H0010 sealed-consumer matrix and controls' $Cargo 'parser::tests::recursive_h0010_consumer_is_complete_and_load_bearing'
   Invoke-ExactRustTest 'Increment 10B.1b canonical-tree and retained-authority corruption matrix' $Cargo 'parser::tests::h0010_sealed_corruption_and_authority_substitution_fail_closed'
   Invoke-ExactRustTest 'Increment 10B.2 supporting resolver/callable production source and dataflow audit' $Cargo 'callable::tests::ten_b2_source_audit_rejects_semantic_reconstruction_and_span_selection'
@@ -1179,6 +1285,34 @@ task malformed() -> UInt {
   if (-not [string]::Equals($env:RUSTFLAGS, $Wo19PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 19 combined proof did not restore RUSTFLAGS' }
   Invoke-Native 'Work Order 19 normal compiler check after combined proof' $Cargo @('check', '--all-targets')
 
+  Write-Host '==> Work Order 20 Unit B verified backend-input privacy and lifetime proof'
+  Invoke-Native 'Work Order 20 Unit B normal compiler check before authority proof' $Cargo @('check', '--all-targets')
+  $Wo20CompileProofSource = Get-Content -Raw 'src/ir_readiness.rs'
+  $Wo20PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_backend_input_authority'
+    $Wo20CompileFailure = Read-NativeOutputWithExit 'Work Order 20 Unit B forbidden capability construction and escape proof' $Cargo @('check', '--all-targets')
+  } finally {
+    if ($null -eq $Wo20PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo20PriorRustFlags }
+  }
+  if ($Wo20CompileFailure.ExitCode -ne 101) { throw "Work Order 20 Unit B authority proof must exit 101, found $($Wo20CompileFailure.ExitCode)" }
+  foreach ($Wo20CompileFunction in @(
+    'verified_backend_input_return_escape_must_not_compile',
+    'verified_backend_input_static_escape_must_not_compile',
+    'verified_backend_input_collection_escape_must_not_compile',
+    'verified_backend_input_foreign_construction_must_not_compile',
+    'verified_backend_input_rebind_bytes_must_not_compile',
+    'verified_backend_input_from_decoded_report_must_not_compile',
+    'verified_backend_input_after_owner_drop_must_not_compile'
+  )) {
+    if (-not $Wo20CompileProofSource.Contains("fn $Wo20CompileFunction")) { throw "Work Order 20 Unit B authority proof lost probe $Wo20CompileFunction" }
+  }
+  if (-not $Wo20CompileFailure.Output.Contains('associated function `from_verified_parts` is private') -or -not $Wo20CompileFailure.Output.Contains('field `artifact` of struct `VerifiedBackendInput` is private')) { throw 'Work Order 20 Unit B authority proof did not fail at the private constructor and field' }
+  if (-not [regex]::IsMatch($Wo20CompileFailure.Output, 'lifetime may not live long enough|error\[E05(?:15|21)\]')) { throw 'Work Order 20 Unit B authority proof did not contain the expected lifetime rejection' }
+  if ([regex]::IsMatch($Wo20CompileFailure.Output, 'error\[E0382\]|error\[E(?:0412|0422|0432|0433|0603)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|expected item, found')) { throw 'Work Order 20 Unit B authority proof failed for an unrelated move, symbol, cfg, import, or syntax reason' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo20PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 20 Unit B authority proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 20 Unit B normal compiler check after authority proof' $Cargo @('check', '--all-targets')
+
   Write-Host '==> Work Order 17 sole minimal-add outcome producer proof'
   $Wo17OutcomePriorRustFlags = $env:RUSTFLAGS
   try {
@@ -1343,7 +1477,7 @@ task malformed() -> UInt {
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 101 -or $UniqueExactRustSelectorCredits.Count -ne 101) { throw "exact Rust selector inventory must credit 101 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
+  if ($ExactRustSelectorCredits.Count -ne 104 -or $UniqueExactRustSelectorCredits.Count -ne 104) { throw "exact Rust selector inventory must credit 104 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
   if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
   if ($ExactRustSelectorCredits -notcontains 'core_body::tests::validated_body_grammar_construction_is_compiler_sealed') { throw 'exact Rust selector inventory lost the compiler-sealed validated body grammar construction test' }
   foreach ($WorkOrder17Selector in @(
@@ -1367,6 +1501,13 @@ task malformed() -> UInt {
     'backend_input::tests::minimal_add_backend_input_bytes_are_canonical_and_deterministic'
   )) {
     if ($ExactRustSelectorCredits -notcontains $WorkOrder20UnitASelector) { throw "exact Rust selector inventory lost Work Order 20 Unit A selector $WorkOrder20UnitASelector" }
+  }
+  foreach ($WorkOrder20UnitBSelector in @(
+    'ir_verify::tests::canonical_backend_input_corruption_matrix_fails_closed',
+    'ir_verify::tests::verified_backend_input_is_byte_bound_and_compiler_sealed',
+    'ir_readiness::tests::minimal_add_is_ir_ready_only_after_exact_artifact_verification'
+  )) {
+    if ($ExactRustSelectorCredits -notcontains $WorkOrder20UnitBSelector) { throw "exact Rust selector inventory lost Work Order 20 Unit B selector $WorkOrder20UnitBSelector" }
   }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
@@ -3809,8 +3950,8 @@ task malformed() -> UInt {
   if (-not $IrReadinessJson.Contains('"recognized_core_profile_gate_available_v0"')) { throw 'IR readiness JSON is missing profile-check pass availability' }
   if ($IrReadinessJson.Contains('"allocation_resource_check_not_implemented"')) { throw 'IR readiness JSON should not report resource check as not implemented' }
   if ($IrReadinessJson.Contains('"profile_check_not_implemented"')) { throw 'IR readiness JSON should not report profile check as not implemented' }
-  if (-not $IrReadinessJson.Contains('"ir_verify_not_implemented"')) { throw 'IR readiness JSON is missing IR verifier blocker' }
-  if (-not $IrReadinessJson.Contains('"not_implemented"')) { throw 'IR readiness JSON is missing not_implemented blockers' }
+  if (-not $IrReadinessJson.Contains('"canonical_backend_input_not_available_v0"')) { throw 'IR readiness JSON is missing unavailable canonical backend-input blocker' }
+  if (-not $IrReadinessJson.Contains('"implemented_canonical_minimal_add_backend_input_v0"')) { throw 'IR readiness JSON is missing implemented narrow IR verifier pass' }
   if (-not $IrReadinessJson.Contains('"no IR emission"')) { throw 'IR readiness JSON must keep V0 non-emission claim' }
 
   $MathOutDir = Join-Path (Join-Path $RepoRoot 'target') ('hum-math-obligations-smoke-' + [System.Guid]::NewGuid().ToString('N'))
@@ -3995,7 +4136,9 @@ task malformed() -> UInt {
   if (-not $IrReadinessSchemaText.Contains('blocked_by_ownership_check_errors')) { throw 'IR readiness schema doc is missing ownership-check blocker' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_resource_check_errors')) { throw 'IR readiness schema doc is missing resource-check blocker' }
   if (-not $IrReadinessSchemaText.Contains('blocked_by_profile_check_errors')) { throw 'IR readiness schema doc is missing profile-check blocker' }
-  if (-not $IrReadinessSchemaText.Contains('blocked_before_ir_verify')) { throw 'IR readiness schema doc is missing before-IR-verifier blocker' }
+  if (-not $IrReadinessSchemaText.Contains('ready_for_ir_with_verified_backend_input_v0')) { throw 'IR readiness schema doc is missing verified-backend-input readiness status' }
+  $IrVerifySchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_IR_VERIFY_SCHEMA.md'))
+  if (-not $IrVerifySchemaText.Contains('hum.ir_verify.v0') -or -not $IrVerifySchemaText.Contains('VerifiedBackendInput') -or -not $IrVerifySchemaText.Contains('artifact_id_mismatch_v0')) { throw 'IR verify schema doc is incomplete' }
   if (-not $IrReadinessSchemaText.Contains('resource_check_summary_v0')) { throw 'IR readiness schema doc is missing resource check summary fact' }
   if (-not $IrReadinessSchemaText.Contains('profile_check_summary_v0')) { throw 'IR readiness schema doc is missing profile check summary fact' }
   if (-not $IrReadinessSchemaText.Contains('recognized_core_resource_gate_available_v0')) { throw 'IR readiness schema doc is missing resource-check pass status' }

@@ -74,6 +74,7 @@ const REQUIRED_FACTS: &[&str] = &[
 
 const RULES: &[&str] = &[
     "Hum IR owns semantics; backend IRs are adapters.",
+    "Backend adapters accept only a borrowed VerifiedBackendInput capability issued by ir-verify.",
     "Surface Hum must not lower directly to backend IR.",
     "Backend adapters must preserve required facts or report explicit loss.",
     "Cranelift is a first native proof candidate, not a newer LLVM.",
@@ -89,6 +90,7 @@ const NON_GOALS_V0: &[&str] = &[
     "no generated artifact",
     "no performance claim",
     "no solver or network dependency",
+    "no implemented backend adapter",
 ];
 
 pub fn backend_contract_text() -> String {

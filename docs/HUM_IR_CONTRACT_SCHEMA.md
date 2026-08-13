@@ -142,8 +142,9 @@ the narrow `hum.type_check.v0` declaration and trivial-return checker;
 
 ## Honesty Rules
 
-- `hum ir-contract` is a discovery command; the separate `backend-input`
-  command emits canonical unverified bytes.
+- `hum ir-contract` is a discovery command; `backend-input` emits canonical
+  unverified bytes and `ir-verify` validates the exact minimal-add artifact
+  before lending callback-scoped `VerifiedBackendInput` authority.
 - It must not run generated code.
 - It must not claim Hum has executable semantics.
 - It must not pretend complete type checking, ownership checking, resource checking, optimization, or backend
@@ -165,7 +166,8 @@ The command is local-first:
 
 ## Non-Goals For V0
 
-V0 emits canonical unverified backend-input bytes only for the exact supported
-minimal-add source. It does not issue verified IR authority, execute tasks,
+V0 emits and verifies canonical backend-input bytes only for the exact supported
+minimal-add source. Verified authority is borrowed and ephemeral; it does not
+execute tasks,
 choose a backend, optimize programs, prove memory safety, or lower to
 Cranelift, LLVM, MLIR, Wasm, C, or a custom backend.

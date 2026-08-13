@@ -441,8 +441,10 @@ The candidate's `facts_available` appends, in this order:
 7. `resource_checked_empty_v0`
 8. `normal_profile_checked_v0`
 9. `checked_i64_overflow_trap_bound_v0`
-10. `canonical_backend_input_bytes_produced_unverified_v0`
-11. `ir_verify_pending_v0`
+10. `canonical_backend_input_bytes_v0`
+11. `sha256_payload_identity_verified_v0`
+12. `ir_verify_passed_v0`
+13. `verified_backend_input_capability_lent_v0`
 
 The private record binds the authenticated source and operation identities,
 ordered distinct resolver definitions, checked `Int + Int -> Int`, the exact
@@ -451,9 +453,12 @@ allocation/predicate/evidence/external-authority sets, the default `normal`
 profile, and one `signed_64` / `checked_add` /
 `runtime_trap_on_overflow` edge. The private producer now emits the exact
 canonical but unverified [`hum.backend_input.v0`](HUM_BACKEND_INPUT_SCHEMA.md)
-artifact and records that completion immediately before the pending verifier
-fact. It does not claim a verified ABI, backend target, IR verification,
-execution readiness, or persisted proof.
+artifact, verifies those exact bytes through `hum.ir_verify.v0`, and lends the
+byte-bound capability only while readiness is calculated. The exact candidate
+uses `ready_for_ir_with_verified_backend_input_v0`, `ready_for_ir=1`, empty IR
+blockers, `backend_ready=0`, and
+`backend_blocking_reasons=[backend_adapter_not_implemented]`. It does not claim
+a verified platform ABI, backend target, execution readiness, or persisted proof.
 All other candidates retain their prior status, ordering, omission/null rules,
 and blocker precedence.
 
@@ -475,7 +480,7 @@ V0 reports these pass statuses:
 - `allocation_resource_check`: `recognized_core_resource_gate_available_v0`
 - `contract_evidence_linking`: `report_available_not_ir_pass`
 - `profile_check`: `recognized_core_profile_gate_available_v0`
-- `ir_verify`: `not_implemented`
+- `ir_verify`: `implemented_canonical_minimal_add_backend_input_v0`
 
 ## Honesty Rules
 
@@ -501,7 +506,7 @@ V0 reports these pass statuses:
 - It must block V0 lowering candidates when `hum.profile_check.v0` reports
   unknown profile declarations, strict profile declarations V0 cannot enforce, or prior gate blockers.
 - It must stay in sync with `hum.core_contract.v0`, `hum.core_lower.v0`,
-  `hum.core_verify.v0`, `hum.full_type_check.v0`, `hum.effect_check.v0`, `hum.ownership_check.v0`, `hum.resource_check.v0`, `hum.profile_check.v0`, `hum.ir_contract.v0`, `hum capabilities --format json`, and
+  `hum.core_verify.v0`, `hum.full_type_check.v0`, `hum.effect_check.v0`, `hum.ownership_check.v0`, `hum.resource_check.v0`, `hum.profile_check.v0`, `hum.ir_verify.v0`, `hum.ir_contract.v0`, `hum capabilities --format json`, and
   `hum version --format json`.
 
 ## Privacy And Dependency Rules

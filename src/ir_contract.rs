@@ -35,8 +35,8 @@ const IR_LAYERS: &[IrLayer] = &[
     IrLayer {
         id: "hum_ir",
         stage: 4,
-        status: "produced-unverified",
-        role: "canonical target-independent backend-input bytes awaiting IR verification",
+        status: "verified-minimal-add-v0",
+        role: "canonical target-independent minimal-add backend input checked by ir-verify",
     },
     IrLayer {
         id: "backend_adapter_input",
@@ -108,7 +108,7 @@ const RULES: &[&str] = &[
 ];
 
 const NON_GOALS_V0: &[&str] = &[
-    "no verified IR capability",
+    "no durable verified IR authority",
     "no executable semantics",
     "no full type checker implementation",
     "no optimizer implementation",
@@ -289,12 +289,10 @@ mod tests {
         assert!(text.contains("semantic_owner: hum_ir"));
         assert!(text.contains("core_contract_schema: hum.core_contract.v0"));
         assert!(text.contains("1. surface_hum [current]"));
-        assert!(text.contains("4. hum_ir [produced-unverified]"));
-        assert!(
-            text.contains(
-                "canonical target-independent backend-input bytes awaiting IR verification"
-            )
-        );
+        assert!(text.contains("4. hum_ir [verified-minimal-add-v0]"));
+        assert!(text.contains(
+            "canonical target-independent minimal-add backend input checked by ir-verify"
+        ));
         assert!(text.contains("required_carried_facts"));
     }
 
@@ -311,7 +309,7 @@ mod tests {
         assert!(json.contains("\"typed_failure_edges\""));
         assert!(json.contains("\"core_verify\""));
         assert!(json.contains("\"ir_verify\""));
-        assert!(json.contains("\"status\": \"produced-unverified\""));
-        assert!(json.contains("\"no verified IR capability\""));
+        assert!(json.contains("\"status\": \"verified-minimal-add-v0\""));
+        assert!(json.contains("\"no durable verified IR authority\""));
     }
 }

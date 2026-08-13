@@ -11,6 +11,7 @@ use crate::effect_check;
 use crate::full_type_check;
 use crate::ir_contract;
 use crate::ir_readiness;
+use crate::ir_verify;
 use crate::json;
 use crate::lsp;
 use crate::math_obligations;
@@ -32,7 +33,7 @@ pub const HUM_MILESTONE: &str = "1 executable core slice";
 
 pub fn version_text() -> String {
     format!(
-        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\ncore_contract_schema: {}\ncore_preview_schema: {}\ncore_lower_schema: {}\ncore_verify_schema: {}\nresolve_report_schema: {}\ntype_env_schema: {}\ntype_check_schema: {}\nfull_type_check_schema: {}\neffect_check_schema: {}\nownership_check_schema: {}\nresource_check_schema: {}\nprofile_check_schema: {}\nir_contract_schema: {}\nbackend_contract_schema: {}\nruntime_profiles_schema: {}\nruntime_profile_schema: {}\nstate_model_schema: {}\nstate_permission_schema: {}\nlsp_capabilities_schema: {}\nmath_obligations_report_schema: {}\nmath_obligation_schema: {}\nresource_report_schema: {}\nir_readiness_schema: {}\nbackend_input_schema: {}\ndoctor_schema: {}\ntarget_facts_schema: {}\ntarget_fact_record_schema: {}\n",
+        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\ncore_contract_schema: {}\ncore_preview_schema: {}\ncore_lower_schema: {}\ncore_verify_schema: {}\nresolve_report_schema: {}\ntype_env_schema: {}\ntype_check_schema: {}\nfull_type_check_schema: {}\neffect_check_schema: {}\nownership_check_schema: {}\nresource_check_schema: {}\nprofile_check_schema: {}\nir_contract_schema: {}\nbackend_contract_schema: {}\nruntime_profiles_schema: {}\nruntime_profile_schema: {}\nstate_model_schema: {}\nstate_permission_schema: {}\nlsp_capabilities_schema: {}\nmath_obligations_report_schema: {}\nmath_obligation_schema: {}\nresource_report_schema: {}\nir_readiness_schema: {}\nbackend_input_schema: {}\nir_verify_schema: {}\ndoctor_schema: {}\ntarget_facts_schema: {}\ntarget_fact_record_schema: {}\n",
         target_name(),
         json::SEMANTIC_GRAPH_SCHEMA,
         syntax::SYNTAX_SCHEMA,
@@ -63,6 +64,7 @@ pub fn version_text() -> String {
         resource_report::RESOURCE_REPORT_SCHEMA,
         ir_readiness::IR_READINESS_SCHEMA,
         backend_input::BACKEND_INPUT_SCHEMA,
+        ir_verify::IR_VERIFY_SCHEMA,
         doctor::DOCTOR_SCHEMA,
         target_facts::TARGET_FACTS_SCHEMA,
         target_facts::TARGET_FACT_RECORD_SCHEMA
@@ -270,6 +272,7 @@ pub fn version_json() -> String {
         backend_input::BACKEND_INPUT_SCHEMA,
         true,
     );
+    push_string_field(&mut out, 4, "ir_verify", ir_verify::IR_VERIFY_SCHEMA, true);
     push_string_field(&mut out, 4, "doctor", doctor::DOCTOR_SCHEMA, true);
     push_string_field(
         &mut out,
@@ -403,6 +406,7 @@ mod tests {
         assert!(text.contains("resource_report_schema: hum.resource_report.v0"));
         assert!(text.contains("ir_readiness_schema: hum.ir_readiness.v0"));
         assert!(text.contains("backend_input_schema: hum.backend_input.v0"));
+        assert!(text.contains("ir_verify_schema: hum.ir_verify.v0"));
         assert!(text.contains("doctor_schema: hum.doctor.v0"));
         assert!(text.contains("target_facts_schema: hum.target_facts.v0"));
         assert!(text.contains("target_fact_record_schema: hum.target_fact_record.v0"));
@@ -443,6 +447,7 @@ mod tests {
         assert!(json.contains("\"resource_report\": \"hum.resource_report.v0\""));
         assert!(json.contains("\"ir_readiness\": \"hum.ir_readiness.v0\""));
         assert!(json.contains("\"backend_input\": \"hum.backend_input.v0\""));
+        assert!(json.contains("\"ir_verify\": \"hum.ir_verify.v0\""));
         assert!(json.contains("\"doctor\": \"hum.doctor.v0\""));
         assert!(json.contains("\"target_facts\": \"hum.target_facts.v0\""));
         assert!(json.contains("\"target_fact_record\": \"hum.target_fact_record.v0\""));
