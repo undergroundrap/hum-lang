@@ -2,26 +2,70 @@
 
 Date: 2026-08-11
 <!-- hum-active-workorder:v1 -->
-Status: Unit A's implementation and publication-status chains are complete,
-published, and terminal-green. The encoder-interface amendment and both earlier
-Unit B recovery-amendment publication/status chains are also complete,
-published, and terminal-green. The independently accepted terminal parity-
-binding amendment is published at
-`e0e4e62cd06e57c7ac4b0a4a2846aed5ab86c7a3`; workflow `ci`, run
-`31725458303`, attempt 1, tested that exact SHA and is terminal-green on Ubuntu
-and Windows. Published `main` is that exact commit.
+Status: CLOSED. Work Order 20 is terminally closed. Unit A completed
+successfully and remains published on `main`; Unit B is terminally rejected
+under this Work Order and was never merged.
 
-The exact Unit B candidate remains parked losslessly at stash commit
-`f9b310902f804a0b8b7a3bf58910c7ec4f639c18`. The single renewed Fast allowance
-remains unconsumed. Candidate restoration and the actual two-assignment
-`tools/check_all.ps1` correction remain unauthorized.
+Unit A's accepted implementation commit is
+`103015e531db086d1ac455dd67f1273f9e7173ac`, subject
+`feat(ir): encode canonical backend input bytes`. Full CI run `31630027747`
+concluded `success`, including Ubuntu job `94226114196` and Windows job
+`94226114134`. Its publication-status commit is
+`d522ef74cdf5418fe166d303d3f2ba8e49c892b5`; fast CI run `31634296922`
+concluded `success`. The published golden artifact remains exactly 8,715 bytes
+with raw SHA-256
+`9a2affc59962e0d83a33633edce6f318d78a406a9d2e5ad2edc5b8e34cf7c293`
+and payload/artifact identity
+`a37707c23cc20a1720e45de901624e3101183a77ec1b5eb4ed55095b5097b82f`.
 
-The sole current authorization is this isolated local publication-status
-record. Its next gates are separate publication, terminal-green fast-lane CI,
-a fresh explicit BDFL recovery signal, and only then exact stash restoration
-plus the frozen real tool correction. This record does not accept Unit B or
-authorize an implementation commit, closeout, stash cleanup, Work Order
-organization, semantic-coordinate research, or later backend work.
+Unit B is an evidence-gate rejection under Work Order 20, not proof that its
+architecture is impossible. Its final authorized direct Fast process completed
+red with exit 1 after 286.950 seconds. The root suite reached 468/468, the
+subsidiary suites reached 16/16 and 60/60, and all five Work Order 20 selector
+labels were reached. No terminal success marker appeared, local Exhaustive did
+not run, and runtime 104/104 credit is unavailable. The exact final assertion
+is unavailable because the native output buffers were discarded; no semantic
+defect, harness defect, or specific terminal assertion is inferred or claimed.
+
+The exact rejected Unit B bytes are preserved by published archive commit
+`94b32ca95a14072b4a22adf6e56101118650c683`, subject
+`chore(archive): preserve rejected work order 20 unit b`, complete tree
+`4648d6f7b7dabb2145f4f9578e06cf95149803b0`, and scoped seventeen-path tree
+`c4d3f94539fa01ffe150a6cbfc7a030acbbf9cc9`. The archive was created remotely
+by one normal non-force branch-creation push. The deterministic remote
+inventory changed from 10 refs with SHA-256
+`3e22895f4819315751757a206aea99f91573deb51e6cd19591e0d3a8ca54796a` to
+11 refs with SHA-256
+`a8296a227664280c72c36403ffeacf9078462b308c7087860aaf9172540d4212`;
+the archive ref was the sole delta and `main` remained unchanged. No workflow
+exists for the archive branch or commit. The actual dual-source Actions
+observations occurred at `2026-08-13T19:18:31.343Z` (+104.327 seconds),
+`2026-08-13T19:18:47.116Z` (+120.099 seconds), and
+`2026-08-13T19:19:07.760Z` (+140.744 seconds), with zero CLI and REST matches
+at every observation; they are not represented as immediate/+15/+35 evidence.
+
+No source rollback occurred. Unit A, the canonical backend-input encoder, and
+its accepted artifact remain live on published `main`; Unit B's verifier
+implementation did not land. Published readiness remains `ir_ready=0` and
+`backend_ready=0`. This closeout assigns no completion percentage.
+
+The closeout baseline and current published `main` are
+`93f8b267c603786945cb0fb16fa89140d6591350`. The completed parent status
+transition was
+`e0e4e62cd06e57c7ac4b0a4a2846aed5ab86c7a3` >
+`93f8b267c603786945cb0fb16fa89140d6591350`. Fast CI run `31730051646`
+concluded `success`, including Ubuntu job `94547959455` and Windows job
+`94547959420`.
+
+Successor questions are frozen, not authorized. The first planning question is
+consolidation of the evidence harness before any Unit B retry: evaluate a thin
+PowerShell orchestrator, Rust-owned semantic assertions where practical,
+centralized native-process capture, durable failure transcripts, and smaller
+independently testable harness modules. Work Order active/closed-folder
+organization remains queued as a separate reviewed repository-wide change
+after closeout publication. The semantic-coordinate/canonical cognitive-layout
+research advisory remains queued for later representative-program research.
+No `WORKORDER_21.md` is created and none of that work begins here.
 
 Owner: BDFL (Ocean).
 Author: Work Order 20 architect-author. The author may not independently review
@@ -2972,77 +3016,22 @@ commit, or push is part of planning validation.
 
 ## Current authorization gate
 
-Published `main` is
-`e0e4e62cd06e57c7ac4b0a4a2846aed5ab86c7a3`. The independently accepted
-terminal Unit B parity-binding amendment was published by exactly one normal
-non-force fast-forward of `refs/heads/main:refs/heads/main`, range
-`51ec193d070fdda48a476b4532d20c1f36cb040f..e0e4e62cd06e57c7ac4b0a4a2846aed5ab86c7a3`.
-The sole remote delta was `main`; the live inventory contained 10 refs before
-and after publication. Its before SHA-256 was
-`3e943518bb7faca0c5c1720445bc4e56f3db1c4c35965d3ad882895186e6df2e`, and
-its after SHA-256 was
-`38773fd169d663e53bdc7f93c45d5c2571b2346b2b6a5569f0e3040f3c3d4322`.
+Work Order 20 is closed. The sole current authorization is this local
+document-author closeout draft, its document-only proportional checks, and one
+fresh independent terminal-closeout review of the exact resulting bytes.
 
-Workflow `ci`, run `31725458303`, attempt 1, tested exact SHA
-`e0e4e62cd06e57c7ac4b0a4a2846aed5ab86c7a3` and concluded `success`. Both
-platform jobs selected exactly:
+No commit or publication is authorized. No source or tool edit, Unit B
+restoration, retry, repair, reimplementation, renewed validation, Fast run,
+stash cleanup, archive mutation, Work Order folder reorganization, replacement
+planning, semantic-coordinate implementation, backend work, or later activity
+is authorized.
 
-```text
-mode=full
-reason=no_status_transition
-anchor=
-run_id=0
-run_attempt=0
-ubuntu_job_id=0
-windows_job_id=0
-transitions=
-```
-
-Ubuntu job `94532606848` concluded `success` in 10m02s. Its full preflight
-concluded `success` in 9m28s; Cargo cache and Rust toolchain preparation both
-succeeded; suites passed `450/450`, `13/13`, and `60/60`; the exact selector
-inventory remained `101/101`; both published Unit A selectors passed; text
-hygiene and public readiness passed for 532 files; alpha claims and release
-readiness `0.0.1` passed; and exactly one terminal
-`All Hum preflight checks passed.` marker appeared. Its Exhaustive producer
-selected/passed/failed `1/1/0`, with F1/F2/F3-F4 counts
-`630/4,950/8,646`, total `14,226`, seed `0x48554D5F5345414C`, and producer
-elapsed time 16.964s.
-
-Windows job `94532606598` concluded `success` in 15m41s. Its full preflight
-concluded `success` in 15m09s; Cargo cache and Rust toolchain preparation both
-succeeded; suites passed `465/465`, `16/16`, and `60/60`; the exact selector
-inventory remained `101/101`; both published Unit A selectors passed; text
-hygiene and public readiness passed for 532 files; alpha claims and release
-readiness `0.0.1` passed; and exactly one terminal
-`All Hum preflight checks passed.` marker appeared. Windows correctly skipped
-only the duplicate platform-independent Exhaustive producer. Status-only
-evidence was correctly skipped on both platforms.
-
-The published Unit A golden remained exactly 8,715 bytes with raw SHA-256
-`9a2affc59962e0d83a33633edce6f318d78a406a9d2e5ad2edc5b8e34cf7c293` and
-payload/artifact identity
-`a37707c23cc20a1720e45de901624e3101183a77ec1b5eb4ed55095b5097b82f`.
-No Unit B candidate, projected repair, or stash content ran in that CI.
-
-The exact Unit B candidate remains parked and unapplied at stash commit
-`f9b310902f804a0b8b7a3bf58910c7ec4f639c18`, complete tree
-`108ed77491dce8c6ede45736988ecf9c950277b1`, scoped seventeen-path tree
-`e25fd40558b75e4f2ec37391c0ec9bf31d299ae9`. The single renewed Fast allowance
-remains unconsumed. Candidate restoration and the actual two-assignment
-`tools/check_all.ps1` correction remain unauthorized.
-
-The only current authorization is creation of this isolated local publication-
-status commit. The next gates are, in order: separately authorized publication
-of this status commit; terminal-green fast-lane CI; a fresh explicit BDFL Unit
-B recovery signal; and only then exact restoration of stash
-`f9b310902f804a0b8b7a3bf58910c7ec4f639c18` plus the frozen real tool
-correction producing blob `0c008cc818b1a0187223e9771cd42bb04c357b3c` and final manifest SHA-256
-`be361565e7f26751fc20a01fbab72bf8b66a37538f9b1aad64d8e8f5e156b99f`.
-
-This status record does not accept Unit B or authorize stash restoration,
-candidate correction, renewed validation or Fast, Unit B review, an
-implementation commit or publication, closeout, stash cleanup, archive
-mutation, Work Order organization, semantic-coordinate research, or any later
-backend activity.
+The first successor planning question remains evidence-harness consolidation
+before any Unit B retry. A future separately authorized review may evaluate a
+thin PowerShell orchestrator, Rust-owned semantic assertions where practical,
+centralized native-process capture, durable failure transcripts, and smaller
+independently testable harness modules. Work Order folder organization and the
+semantic-coordinate/canonical cognitive-layout research advisory remain queued
+for their own later gates. This closeout does not create `WORKORDER_21.md`,
+move any Work Order, modify tooling, or start research.
 <!-- workorder-current-authorization-gate:end -->
