@@ -3,49 +3,40 @@
 Date: 2026-08-11
 <!-- hum-active-workorder:v1 -->
 Status: Unit A's implementation and publication-status chains are complete,
-published, and terminal-green. The encoder-interface amendment and its
-publication-status chain are also complete, published, and terminal-green.
-Published `main` is
-`74eb0396a19ea1a058bd3fed05939c1cda7ba5a5`.
+published, and terminal-green. The encoder-interface amendment and both Unit B
+recovery-amendment publication/status chains are also complete, published, and
+terminal-green. Published `main` is
+`51ec193d070fdda48a476b4532d20c1f36cb040f`.
 
-The exact seventeen-path Unit B candidate completed its one authorized Fast
-red after candidate evidence began and remains parked losslessly at stash
-commit `303ee9af93696409bea66d3f8a379cb1a8cf8e1a`, tree
-`1f2084dd5f5e535f8cd41a3be07b7fba6b50b8a5`, on first parent
-`11e037c06d70cd822e52a58f1524ae7cd0701475`. Unit B remains stopped. The
-completed-red result is permanent and receives no success credit.
+The first exact seventeen-path Unit B candidate completed its one authorized
+Fast red after candidate evidence began and was parked losslessly at stash
+commit `303ee9af93696409bea66d3f8a379cb1a8cf8e1a`. That historical completed-red
+result is permanent and receives no success credit.
 
-The independently accepted Unit B Fast-boundary recovery amendment was
-committed as `74eb0396a19ea1a058bd3fed05939c1cda7ba5a5`, with parent
-`11e037c06d70cd822e52a58f1524ae7cd0701475` and subject
-`docs(workorder): define unit b fast recovery`. Its sole path was
-`WORKORDER_20.md`, with `+462/-51`, blob
-`4c83fcf74813d33065599bc640641299b623f529`, and file SHA-256
-`3eb604beb58a4065205411c19ee420248ad051b78446b07fcce506a4fb76d9e7`.
-It was published by a normal non-force fast-forward of `main` only from
-`11e037c06d70cd822e52a58f1524ae7cd0701475` to
-`74eb0396a19ea1a058bd3fed05939c1cda7ba5a5`.
+After the independently accepted Fast-boundary recovery amendment and its
+publication-status chain became durable, the BDFL issued the explicit Unit B
+recovery signal. The implementer restored stash commit
+`303ee9af93696409bea66d3f8a379cb1a8cf8e1a` without conflicts, consumption, or
+reordering, authenticated all seventeen stopped blobs, and reproduced the two
+frozen candidate corrections exactly. Focused validation then stopped before
+Fast at the permanent language-reference parity assertion because the frozen
+tool replacement had removed the only assignments to `$Wo20LanguageDoc` and
+`$Wo20Readme` while later assertions still referenced both variables.
 
-Workflow `ci`, run `31667895670`, attempt 1, tested exact SHA
-`74eb0396a19ea1a058bd3fed05939c1cda7ba5a5` and concluded `success`. Ubuntu
-job `94346311867` and Windows job `94346311903` independently selected
-`mode=full;reason=no_status_transition`, with empty anchor and transition
-fields and zero run, attempt, and job binding fields. Both completed full
-preflight successfully, enforced exact selector inventory `101/101`, passed
-text hygiene and public readiness for 532 files, passed alpha claims and
-release readiness `0.0.1`, and emitted exactly one terminal
-`All Hum preflight checks passed.` marker.
+Fast was not invoked. The single renewed Fast allowance remains unconsumed. No
+candidate repair or retry occurred. The exact corrected semantic candidate and
+the defective recovery harness are now parked losslessly at stash commit
+`f9b310902f804a0b8b7a3bf58910c7ec4f639c18`, complete tree
+`108ed77491dce8c6ede45736988ecf9c950277b1`, scoped seventeen-path tree
+`e25fd40558b75e4f2ec37391c0ec9bf31d299ae9`, on first parent
+`51ec193d070fdda48a476b4532d20c1f36cb040f`.
 
-Ubuntu passed suites `450/450`, `13/13`, and `60/60`, then completed all
-14,226 Exhaustive cases with seed `0x48554D5F5345414C`. Windows passed suites
-`465/465`, `16/16`, and `60/60`, and correctly skipped only the duplicate
-Exhaustive producer.
-
-This status record grants no Unit B recovery authority. Candidate restoration,
-either frozen correction, renewed validation or Fast, Unit B review,
-implementation commit, publication, closeout, stash cleanup, Work Order
-organization, semantic-coordinate research, and later backend work remain
-unauthorized until their separately frozen gates are reached.
+This terminal recovery amendment is planning and evidence authorization only.
+It freezes the complete integrated two-assignment harness repair and a fresh
+publication/status/resumption lifecycle. It does not accept Unit B, restore the
+candidate, authorize a real tool edit, invoke Fast, or grant implementation,
+commit, publication, closeout, stash cleanup, Work Order organization,
+semantic-coordinate research, or later backend authority.
 
 Owner: BDFL (Ocean).
 Author: Work Order 20 architect-author. The author may not independently review
@@ -770,6 +761,301 @@ review returns directly to the BDFL and authorizes no automatic correction.
 Unit B implementation publication, status, closeout, stash cleanup, Work Order
 organization, semantic-coordinate research, and later backend work remain
 separately gated.
+
+## Unit B terminal language-reference and README recovery amendment
+
+This is the terminal recovery amendment for the Work Order 20 Unit B harness
+chain. The verifier, encoder, capability, CLI, readiness, schema, selector,
+artifact, golden, and public-contract bytes in the parked candidate remain
+accepted in substance and are not reopened. The amendment records the focused-
+validation stop and freezes one additional candidate correction inside the
+already authorized `tools/check_all.ps1` path.
+
+### Published recovery chain and focused-validation stop
+
+The first Unit B Fast-boundary recovery amendment was committed as
+`74eb0396a19ea1a058bd3fed05939c1cda7ba5a5` and published by a normal non-force
+fast-forward of `main` only. Workflow `ci`, run `31667895670`, attempt 1, tested
+that exact SHA and concluded `success`. Ubuntu job `94346311867` and Windows job
+`94346311903` completed the full lane successfully.
+
+The recovery publication-status commit is
+`51ec193d070fdda48a476b4532d20c1f36cb040f`, with parent
+`74eb0396a19ea1a058bd3fed05939c1cda7ba5a5` and subject
+`docs(workorder): record unit b recovery publication`. Workflow `ci`, run
+`31670105185`, attempt 1, tested that exact SHA and concluded `success`. Ubuntu
+job `94352788404` and Windows job `94352788388` independently reproduced:
+
+```text
+mode=fast
+reason=eligible_status_chain
+anchor=74eb0396a19ea1a058bd3fed05939c1cda7ba5a5
+run_id=31667895670
+run_attempt=1
+ubuntu_job_id=94346311867
+windows_job_id=94346311903
+transitions=74eb0396a19ea1a058bd3fed05939c1cda7ba5a5>51ec193d070fdda48a476b4532d20c1f36cb040f
+```
+
+Both status jobs completed the status-only lane successfully and skipped Cargo
+cache preparation, Rust toolchain preparation, full Hum preflight, and
+Exhaustive evidence. The complete recovery publication and status chain was
+therefore durable before the BDFL issued the explicit Unit B recovery signal.
+
+The implementer restored exact stash commit
+`303ee9af93696409bea66d3f8a379cb1a8cf8e1a` without conflict, consumption, or
+reordering and authenticated all seventeen stopped blobs. The two previously
+frozen corrections reproduced exactly:
+
+- `docs/CAPABILITIES_SCHEMA.md` blob
+  `aed5764b194d203fa1f8febfd076399b06b6cafc`; and
+- `tools/check_all.ps1` blob
+  `d1ebd59b4d93221067be2fe04014e08855fe481c`.
+
+The restored corrected candidate measured `+2,942/-174`, or
+`+2,941/-173` with whitespace ignored. Its category accounting was 1,798
+production Rust insertions, 847 permanent test/compile-proof insertions, and
+297 documentation/tool/catalog/reference insertions. Its sorted manifest was
+2,299 bytes with SHA-256
+`1ad6e4f1e1909f0bd0e68c33fd1ab4fc50dbc3126a04432a52bf1634ed082bf0`.
+
+Before the stop, all of the following passed on the exact restored bytes:
+
+- `cargo fmt --all -- --check`;
+- `cargo check --all-targets`;
+- warnings-denied Clippy;
+- Windows PowerShell 5.1 parsing for all 13 scripts;
+- diff hygiene;
+- all five Work Order 20 selectors, each selected/executed/passed `1/1/0`;
+- the compiler-sealing normal/failing/normal proof;
+- the honest shared catalog helper against real `hum capabilities` human and
+  JSON output;
+- all six catalog mutations; and
+- the exact-one audit-weakening proof.
+
+Fast was not invoked and the renewed Fast allowance remains unconsumed.
+Focused validation stopped at projected `tools/check_all.ps1` line 504 with:
+
+```text
+Work Order 20 language-reference command/bootstrap parity drifted
+```
+
+The frozen replacement had removed the only assignments to
+`$Wo20LanguageDoc` and `$Wo20Readme`. Later exact language-reference and README
+assertions still referenced both variables, so both were undefined in a fresh
+process. This was a defect in the frozen recovery harness projection, not a
+verifier-semantic failure and not a completed Fast result. No correction,
+retry, or broader edit occurred.
+
+The exact candidate was then parked as:
+
+- stash commit: `f9b310902f804a0b8b7a3bf58910c7ec4f639c18`;
+- message: `On main: wo20-unit-b-language-parity-boundary-stop-2026-08-13`;
+- first parent: `51ec193d070fdda48a476b4532d20c1f36cb040f`;
+- complete tree: `108ed77491dce8c6ede45736988ecf9c950277b1`;
+- scoped seventeen-path tree:
+  `e25fd40558b75e4f2ec37391c0ec9bf31d299ae9`;
+- index parent: `2120c06d2953ffc9f1edcbf53cf4c0bf1618b1a0`;
+- untracked parent: `0c6447faa0e14d6bc6db6587170a0993a355303b`;
+- raw statistics: `+2,942/-174`;
+- whitespace-insensitive statistics: `+2,941/-173`; and
+- the same 2,299-byte manifest and SHA-256 recorded above.
+
+The untracked component contains exactly
+`docs/HUM_IR_VERIFY_SCHEMA.md` and `src/ir_verify.rs`. Final stash order is:
+
+1. `f9b310902f804a0b8b7a3bf58910c7ec4f639c18`;
+2. `303ee9af93696409bea66d3f8a379cb1a8cf8e1a`;
+3. `bd6d2722cffa50da8463201204a48f4a7305ae1b`; and
+4. `73101039f5e3faf0c802d4f723add1b891c51602`.
+
+### Final frozen integrated harness repair
+
+The future correction starts from exact parked tool blob
+`d1ebd59b4d93221067be2fe04014e08855fe481c` and restores exactly these two
+repository-backed assignments immediately after the existing real capability-
+catalog binding and before either document's first assertion:
+
+```powershell
+$Wo20LanguageDoc = Get-Content -Raw 'docs/LANGUAGE_REFERENCE.md'
+$Wo20Readme = Get-Content -Raw 'README.md'
+```
+
+The implementation may retain the surrounding script indentation, but the
+bindings must load those actual repository documents directly. Neither may be
+a constant, copied excerpt, expected-output string, callback substitute,
+report field, catalog text, or detached surrogate. The existing
+`$Wo20CapabilityDoc` binding and shared catalog helper remain byte-identical.
+All six catalog variants and the exact-one weakening mutation remain load-
+bearing. The language-reference and README checks remain exact, keep their
+existing order before candidate `ir-verify` evidence, and may not be removed,
+weakened, changed to count-only substitutes, or satisfied by duplicate text.
+
+A disposable projection from the exact parked tool blob applied only those two
+assignments. Windows PowerShell 5.1 parsed the complete projected script. A
+fresh PowerShell process then executed the complete permanent region from the
+shared catalog helper through the accepted `ir-verify` report-identity check,
+using the real candidate `hum capabilities` human/JSON output and exact
+repository-backed projected documents. The honest region:
+
+1. passed production capability/schema/command parity;
+2. passed exact catalog parity and ordering;
+3. passed language-reference command/bootstrap parity;
+4. passed README producer/verifier parity;
+5. ran real `ir-verify` human and JSON commands on the accepted golden;
+6. passed the accepted report identity; and
+7. reached the next real `ir-verify` evidence stage.
+
+There was no undefined variable, null expression, missing function, ignored
+error, hard-coded expected result, or false-early failure. The complete-region
+adversarial evidence was:
+
+| Mutation | Required and observed boundary |
+| --- | --- |
+| delete only `$Wo20LanguageDoc` assignment | rejected by `Work Order 20 language-reference command/bootstrap parity drifted` |
+| bind `$Wo20LanguageDoc` to real `README.md` | rejected by the same language-reference boundary |
+| delete only `$Wo20Readme` assignment | rejected by `Work Order 20 README producer/verifier parity drifted` |
+| bind `$Wo20Readme` to real `docs/LANGUAGE_REFERENCE.md` | rejected by the same README boundary |
+| remove the required `hum ir-verify <backend-input-file>` occurrence from the real projected language reference | rejected by the language-reference boundary |
+| remove the required `cargo run -- ir-verify fixtures/backend_input/minimal_add.backend_input.v0.json` occurrence from the real projected README | rejected by the README boundary |
+| duplicate backend-input catalog command | rejected by `Work Order 20 capability catalog entries drifted` |
+| remove backend-input catalog command | rejected by the same catalog-entry boundary |
+| duplicate ir-verify catalog command | rejected by the same catalog-entry boundary |
+| remove ir-verify catalog command | rejected by the same catalog-entry boundary |
+| swap only backend-input and ir-verify catalog order | rejected by `Work Order 20 capability catalog ordering drifted` |
+| move the intact pair away from its frozen boundary | rejected by the same catalog-order boundary |
+| change only `$BackendCatalogCommandCount -ne 1` to `-lt 1` | honest input passed, the duplicate was admitted, then the complete harness failed with `Work Order 20 capability catalog mutation 0 was accepted` |
+
+Every mutation parsed, passed the shared helper and earlier honest production
+bindings as applicable, and reached its intended permanent boundary. A parse
+failure, missing helper, unbound placeholder, unrelated earlier failure,
+preselected result, or generic blocker receives no evidence.
+
+The final frozen projected `tools/check_all.ps1` identity is:
+
+- diff against published Unit A: `+159/-16`;
+- diff against parked tool blob `d1ebd59b4d93221067be2fe04014e08855fe481c`:
+  `+2/-0`;
+- whitespace-insensitive diff against published Unit A: `+159/-16`;
+- lines/LF: 4,232;
+- bytes: 454,658;
+- Git blob: `0c008cc818b1a0187223e9771cd42bb04c357b3c`;
+- SHA-256: `f6c46d3e47f689daebf68945fc4e23f18005440dcb4f74f5b7cdfef590fd0a44`;
+- CR count: zero; and
+- final LF: present.
+
+The two restored assignments are published Unit A lines that the frozen
+replacement accidentally deleted. Consequently they reduce the complete Unit
+B deletion count by two rather than increasing its insertion count.
+
+### Final corrected seventeen-path identity and accounting
+
+Only `tools/check_all.ps1` changes relative to stash commit
+`f9b310902f804a0b8b7a3bf58910c7ec4f639c18`. Every verifier, encoder,
+capability, CLI, readiness, schema, selector, artifact, golden, and public-
+contract byte remains identical to the parked candidate.
+
+| Path | Corrected diff | Corrected blob | Corrected SHA-256 |
+| --- | ---: | --- | --- |
+| `README.md` | `+4/-1` | `5dac9428b5f29321f404612cca357674ef7f0f9a` | `feabeb8d1cfc9bc24457b822aa60e9d88db969123f09cfec3ca157af02c700a6` |
+| `docs/ARCHITECTURE.md` | `+1/-1` | `6af4b71fc58d0c15682be352488d72189847ecb5` | `9f0ac1f984e9d6fd547e92cc96865ba12d907f40f996eb445111b39cb35115cd` |
+| `docs/BACKEND_CONTRACT_SCHEMA.md` | `+6/-1` | `8115ef859b75d827e4525b1dc3d582d459f3f7a6` | `1b056cae66c0369f70c9604a9867b3c9bf23da8cc320213851595a8ee6f036f5` |
+| `docs/CAPABILITIES_SCHEMA.md` | `+2/-0` | `aed5764b194d203fa1f8febfd076399b06b6cafc` | `8e98b3c90326fd59b221966b02f10369ecbdfaf5008d023756ec20f01fc2f00c` |
+| `docs/HUM_IR_CONTRACT_SCHEMA.md` | `+6/-4` | `8d34102dc3a2094a891edc27fbe359ec2eeb2709` | `9c24809a74d33a1592665d311629a46f649f73b4692d62d8345aa15ebb235de6` |
+| `docs/HUM_IR_READINESS_SCHEMA.md` | `+12/-7` | `5292f92152e2a1107baa8266f2bcb9c73e483bcc` | `c593acde13f7a26a1d9769cca7c69e919294f502a37b453225dafeff0d600e5c` |
+| `docs/HUM_IR_VERIFY_SCHEMA.md` | `+102/-0` | `10843f238874624edb5b39c78889b475a92d0028` | `aaf898158516d0151dc834289539d648137dcbf9999c882a5dc2f5add20a0dd1` |
+| `docs/LANGUAGE_REFERENCE.md` | `+5/-1` | `ceeb526f6cd627b68f040b1bcb951badce371dd6` | `2df1a6916effab6c8b7686002fb5f891e764bd730d34437cd84b458f60f6ea25` |
+| `src/backend_contract.rs` | `+2/-0` | `5d101f49fc343165a3d1d330f4739bec85e30da9` | `42f26687d20e3a83fafbe290e2c3168cb6f1ad132ccc4e429296250580417091` |
+| `src/backend_input.rs` | `+468/-95` | `5bd4a8386834d337b06eacbadc853e9370abed52` | `8ab1ea4197cb12a8f635f1dce0c1c5453187361a5b485f8b6808be6bcb1a46f1` |
+| `src/capabilities.rs` | `+25/-4` | `1843bf7282ae77c375579542bab38a550555ac16` | `57e306773d89dccca6bce4987b333e81826921cca5557ac479a5159f04d6fe43` |
+| `src/ir_contract.rs` | `+9/-11` | `5113d16b8e705550812f05df6d2a011f2dcbc22c` | `5a11f8945b5124e4d28e3b288cd2d89b6a1ce6489be7ced76b164cfe692a8544` |
+| `src/ir_readiness.rs` | `+232/-28` | `2996dfeb2b2a53d3ccb693bd29a45054435486a4` | `f85734ccd6d653ce6c5522fd4417871ff7f6105025db82f6578522b0ac72f6c0` |
+| `src/ir_verify.rs` | `+1,833/-0` | `0542b8f5e6d539612486fdad20e5f4a94c1c240d` | `985c67f4a150f4699499a9dfb5f2cb23f55f041b6b9358ed504cdd4a841c0745` |
+| `src/main.rs` | `+70/-2` | `3558a09f3d1bfb2f971244d7f45014762ba912c3` | `456b715c522a62b84112b1202a4f4fa1457dd6db2202203f4d34a8ba17be3d93` |
+| `src/version.rs` | `+6/-1` | `4a5cef6f09da0d5b8b400cc11b97871d88339aa0` | `e056d5283b5415d72edeb7f56af227175dca8793ccefa16a2c98e8fe0b7b28c1` |
+| `tools/check_all.ps1` | `+159/-16` | `0c008cc818b1a0187223e9771cd42bb04c357b3c` | `f6c46d3e47f689daebf68945fc4e23f18005440dcb4f74f5b7cdfef590fd0a44` |
+
+The complete final projected candidate has:
+
+- exactly seventeen regular `100644` paths;
+- raw statistics `+2,942/-172`;
+- whitespace-insensitive statistics `+2,941/-171`;
+- 1,798 production Rust insertions;
+- 847 permanent test/compile-proof insertions;
+- 297 documentation/tool/catalog/reference insertions;
+- total insertions 2,942 and raw deletions 172;
+- the same two candidate-added files,
+  `docs/HUM_IR_VERIFY_SCHEMA.md` and `src/ir_verify.rs`;
+- no unsafe code, dependency, mode, rename, copy, type, symlink, submodule, or
+  generated-source change; and
+- no changed byte outside `tools/check_all.ps1` relative to stash
+  `f9b310902f804a0b8b7a3bf58910c7ec4f639c18`.
+
+The manifest remains the sorted 2,299-byte UTF-8 sequence with one line per
+path as `100644<TAB><blob><TAB><sha256><TAB><path><LF>`. Its new SHA-256 is
+`be361565e7f26751fc20a01fbab72bf8b66a37538f9b1aad64d8e8f5e156b99f`.
+The table plus this manifest are the complete candidate identity.
+
+The final projection remains within every Unit B ceiling:
+
+```text
+17 paths                         = 17
+production Rust insertions       = 1,798 <= 1,800
+test/compile-proof insertions    =   847 <= 1,850
+documentation/tool insertions    =   297 <=   650
+total insertions                 = 2,942 <= 4,300
+raw deletions                    =   172 <=   550
+Unit B selectors                 =     3
+final selector inventory         = 104/104
+```
+
+There is no eighteenth Unit B path and no twenty-first Work Order 20 union
+path. No unused budget transfers. The correction adds no path, selector,
+public behavior, production Rust, schema, verifier behavior, or semantic
+authority.
+
+### Terminal recovery lifecycle
+
+The final recovery gates are exact and separate:
+
+1. this terminal document-only amendment is authored;
+2. one fresh independent architect-reviewer reviews the exact amendment bytes
+   and independently reconstructs and executes the complete integrated
+   projection;
+3. only unqualified `ACCEPT` advances;
+4. a separately authorized local commit contains only `WORKORDER_20.md`;
+5. separate amendment publication receives terminal-green full CI;
+6. a separate publication-status commit records that publication;
+7. separate status publication receives terminal-green fast CI;
+8. the BDFL issues a fresh explicit Unit B recovery signal;
+9. the implementer restores exactly stash commit
+   `f9b310902f804a0b8b7a3bf58910c7ec4f639c18` without consuming, dropping, or
+   reordering any stash;
+10. all seventeen parked blobs, the scoped tree, and the 2,299-byte parked
+    manifest are authenticated;
+11. only the newly frozen two-assignment `tools/check_all.ps1` repair is
+    applied, producing exact tool blob
+    `0c008cc818b1a0187223e9771cd42bb04c357b3c` and final manifest SHA-256
+    `be361565e7f26751fc20a01fbab72bf8b66a37538f9b1aad64d8e8f5e156b99f`;
+12. the complete integrated catalog, language-reference, README, mutation,
+    proportional, and standing evidence passes;
+13. exactly one renewed direct Fast runs;
+14. a completed-red Fast stops without repair or retry and returns to the BDFL;
+15. terminal-green Fast leaves the exact seventeen-path candidate unstaged for
+    one fresh independent complete Unit B review; and
+16. only unqualified Unit B `ACCEPT` advances to separately authorized local
+    implementation commit creation.
+
+The renewed Fast allowance remains unconsumed. This amendment does not create a
+second allowance; it preserves the single allowance whose invocation never
+began during the focused-validation stop. The historical completed-red Fast
+remains red and receives no success credit.
+
+This is the terminal recovery amendment for this harness chain. If its fresh
+independent review finds another integrated projection defect, or the later
+complete projected region cannot run honestly, the result returns directly to
+the BDFL for rejection or re-scope. No automatic author correction, helper-only
+projection, retry, or additional recovery layer is authorized.
 
 ## Mandatory sufficiency ruling
 
@@ -2406,10 +2692,12 @@ other review evidence is complete.
 For either unit, a launcher failure before candidate evidence may be repaired
 only at the invocation boundary and must be disclosed. A completed Fast failure
 stops that unit. Unit B's first Fast did complete red after candidate evidence
-began, so its ordinary allowance is consumed permanently. Only the separately
-published recovery amendment and all eighteen mandatory recovery gates above
-may authorize one new Fast on the two-file corrected candidate; that renewed
-run is a distinct event, not a retry or reclassification of the red run.
+began, so its ordinary allowance is consumed permanently. The first recovery
+attempt stopped during focused validation before its separately authorized Fast
+was invoked. Only the complete terminal recovery lifecycle above may preserve
+that single unconsumed allowance and authorize it on the exact final corrected
+candidate. That later run is a distinct event, not a retry or reclassification
+of the historical red run, and this amendment creates no second allowance.
 
 ### Unit B commit, publication, status, and closeout
 
@@ -2619,31 +2907,52 @@ The gates are separate and no gate implies the next:
 27. separate recovery-amendment publication and terminal-green full CI;
 28. an isolated recovery-amendment publication-status commit;
 29. separate status publication and terminal-green fast CI;
-30. a new explicit BDFL Unit B recovery signal;
+30. the first explicit BDFL Unit B recovery signal;
 31. exact stopped-stash restoration without stash consumption or reordering,
     authentication of all seventeen blobs, and exactly the frozen
     `docs/CAPABILITIES_SCHEMA.md` and `tools/check_all.ps1` corrections;
-32. focused honest catalog evidence, all six document variants, the
-    audit-weakening mutation, proportional checks, and exactly one renewed
-    direct Fast;
-33. on terminal-green Fast only, one fresh independent complete Unit B review;
-34. on unqualified Unit B `ACCEPT` only, separately authorized Unit B local
+32. focused catalog, mutation, proportional, and standing evidence through the
+    language-reference assertion, the pre-Fast missing-binding stop, and
+    lossless parking at stash commit
+    `f9b310902f804a0b8b7a3bf58910c7ec4f639c18` without invoking Fast;
+33. this terminal document-only language-reference/README binding recovery
+    amendment and its complete integrated disposable projection;
+34. one fresh independent terminal-amendment review, where only unqualified
+    `ACCEPT` advances;
+35. a separately authorized local terminal-amendment commit containing only
+    `WORKORDER_20.md`;
+36. separate terminal-amendment publication and terminal-green full CI;
+37. an isolated terminal-amendment publication-status commit;
+38. separate status publication and terminal-green fast CI;
+39. a fresh explicit BDFL Unit B recovery signal;
+40. exact restoration of stash
+    `f9b310902f804a0b8b7a3bf58910c7ec4f639c18`, without stash consumption or
+    reordering, and authentication of all seventeen blobs and the parked
+    2,299-byte manifest;
+41. only the frozen two-assignment `tools/check_all.ps1` repair, producing tool
+    blob `0c008cc818b1a0187223e9771cd42bb04c357b3c` and final manifest SHA-256
+    `be361565e7f26751fc20a01fbab72bf8b66a37538f9b1aad64d8e8f5e156b99f`;
+42. complete integrated catalog/language/README mutations, proportional and
+    standing evidence, and exactly one renewed direct Fast;
+43. on terminal-green Fast only, one fresh independent complete Unit B review;
+44. on unqualified Unit B `ACCEPT` only, separately authorized Unit B local
     commit;
-35. separately authorized Unit B publication and terminal 104/104 full CI; and
-36. separately authorized final status/closeout record and publication.
+45. separately authorized Unit B publication and terminal 104/104 full CI; and
+46. separately authorized final status/closeout record and publication.
 
 The planning correction cycle remains consumed. The capabilities-catalog and
-language-reference re-envelopes, plus this BDFL-directed Fast-boundary
-accounting amendment, are recorded exceptions and create no automatic
-successor correction. Any finding in the fresh amendment review returns
-directly to the BDFL without another author edit. Each later implementation
-correction allowance is local to its own unit and cannot add a path,
-dependency, mechanism, public contract, evidence meaning, or backend behavior.
-A repeated authority/evidence failure or envelope defect returns directly to
-the BDFL. The first Unit B Fast allowance was consumed by the completed-red
-candidate event at step 23. The single renewed Fast at step 32 is new authority
-created only by the complete recovery chain; it never alters the historical
-red result.
+language-reference re-envelopes, the first Fast-boundary accounting amendment,
+and this terminal complete-region binding amendment are recorded BDFL
+exceptions and create no automatic successor correction. Any finding in the
+fresh terminal-amendment review returns directly to the BDFL without another
+author edit. Each later implementation correction allowance is local to its
+own unit and cannot add a path, dependency, mechanism, public contract,
+evidence meaning, or backend behavior. A repeated authority/evidence failure
+or envelope defect returns directly to the BDFL. The first Unit B Fast
+allowance was consumed by the completed-red candidate event at step 23. The
+single renewed allowance authorized by the first complete recovery chain was
+not invoked at step 32 and remains unconsumed; steps 33-42 preserve that same
+allowance and do not create another or alter the historical red result.
 
 ## Planning-package validation
 
@@ -2678,33 +2987,42 @@ commit, or push is part of planning validation.
 
 ## Current authorization gate
 
-The independently accepted Unit B Fast-boundary recovery amendment is
-published as `74eb0396a19ea1a058bd3fed05939c1cda7ba5a5` by a normal non-force
-fast-forward of `main` only. Workflow `ci`, run `31667895670`, attempt 1,
-tested that exact SHA and concluded `success`. Ubuntu job `94346311867` and
-Windows job `94346311903` both completed the full lane successfully with
-`mode=full;reason=no_status_transition`, exact selector inventory `101/101`,
-532-file text-hygiene and public-readiness evidence, alpha claims, release
-readiness `0.0.1`, and exactly one terminal preflight-success marker. Ubuntu
-completed all 14,226 Exhaustive cases with seed `0x48554D5F5345414C`;
-Windows correctly skipped the duplicate producer.
+Published `main` is
+`51ec193d070fdda48a476b4532d20c1f36cb040f`. The accepted Unit B
+Fast-boundary recovery amendment is published as
+`74eb0396a19ea1a058bd3fed05939c1cda7ba5a5`, and workflow `ci`, run
+`31667895670`, attempt 1, concluded `success` for that exact SHA. The isolated
+recovery publication-status commit is
+`51ec193d070fdda48a476b4532d20c1f36cb040f`; workflow `ci`, run
+`31670105185`, attempt 1, concluded `success`, with Ubuntu job `94352788404`
+and Windows job `94352788388` independently selecting the exact fast binding
+recorded in the terminal amendment above.
 
-Unit B remains stopped and parked at stash commit
-`303ee9af93696409bea66d3f8a379cb1a8cf8e1a`. Candidate restoration and both
-frozen corrections remain unauthorized. This local status record does not
-accept Unit B, authorize an implementation commit, or imply any later work.
+The explicit Unit B recovery attempt restored the historical candidate and
+reproduced both frozen corrections, then stopped during focused validation at
+the missing `$Wo20LanguageDoc`/`$Wo20Readme` binding boundary. Fast was not
+invoked. No repair or retry occurred. The exact candidate is parked at stash
+commit `f9b310902f804a0b8b7a3bf58910c7ec4f639c18`, complete tree
+`108ed77491dce8c6ede45736988ecf9c950277b1`, scoped tree
+`e25fd40558b75e4f2ec37391c0ec9bf31d299ae9`. The single renewed Fast allowance
+remains unconsumed.
 
-The next gates remain exact and separate:
+The only current authorization is authorship and document-level validation of
+this terminal recovery amendment. The amendment freezes the two-assignment
+projected repair, final corrected candidate identity, and terminal recovery
+lifecycle. It does not claim independent acceptance, restored candidacy,
+completed validation, Fast success, or implementation authority.
 
-1. separately authorized publication of this status commit;
-2. terminal-green fast-lane CI for that exact publication;
-3. a fresh explicit BDFL Unit B recovery/resumption signal; and
-4. only after that signal, exact restoration of the parked stash and exactly
-   the two frozen corrections to `docs/CAPABILITIES_SCHEMA.md` and
-   `tools/check_all.ps1` under the established recovery lifecycle.
+The next receiving role is one fresh independent terminal-recovery-amendment
+architect-reviewer. That reviewer must authenticate the exact amendment bytes,
+stash/ref state, complete integrated projection, all mutation boundaries,
+projected tool identity, final manifest, and reconciled budgets. Only an
+unqualified `ACCEPT` may return the exact document to the BDFL for separately
+authorized local commit creation.
 
-Renewed validation, Fast, independent Unit B review, implementation commit,
-publication, closeout, stash cleanup, archive mutation, Work Order
-organization, semantic-coordinate research, and every later backend activity
-remain unauthorized.
+Commit, amendment publication, publication-status recording, stash restoration,
+real `tools/check_all.ps1` correction, renewed validation or Fast, Unit B
+review, implementation commit or publication, closeout, stash cleanup, archive
+mutation, Work Order organization, semantic-coordinate research, and every
+later backend activity remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
