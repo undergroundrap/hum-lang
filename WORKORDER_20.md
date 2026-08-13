@@ -3,56 +3,49 @@
 Date: 2026-08-11
 <!-- hum-active-workorder:v1 -->
 Status: Unit A's implementation and publication-status chains are complete,
-published, and terminal-green. The independently accepted encoder-interface
-amendment and its publication-status chain are also complete, published, and
-terminal-green. Published `main` is
-`11e037c06d70cd822e52a58f1524ae7cd0701475`.
+published, and terminal-green. The encoder-interface amendment and its
+publication-status chain are also complete, published, and terminal-green.
+Published `main` is
+`74eb0396a19ea1a058bd3fed05939c1cda7ba5a5`.
 
-After the separate explicit BDFL Unit B resumption signal, the implementer
-produced the exact seventeen-path Unit B candidate. Its focused verifier,
-selector, mutation, capability, lifetime, and architecture evidence was
-promising, but its one direct Fast completed red after candidate evidence had
-begun. The failure was the real public catalog-parity assertion
-`Work Order 20 capability catalog entries drifted` at
-`tools/check_all.ps1:446`: the candidate contained the exact
-`hum backend-input <file>` catalog line twice. The completed-red result is
-permanent and receives no success credit.
-
-The candidate is parked losslessly at stash commit
-`303ee9af93696409bea66d3f8a379cb1a8cf8e1a`, tree
+The exact seventeen-path Unit B candidate completed its one authorized Fast
+red after candidate evidence began and remains parked losslessly at stash
+commit `303ee9af93696409bea66d3f8a379cb1a8cf8e1a`, tree
 `1f2084dd5f5e535f8cd41a3be07b7fba6b50b8a5`, on first parent
-`11e037c06d70cd822e52a58f1524ae7cd0701475`. Unit B is stopped. This
-document-only Fast-boundary recovery amendment is the sole current authorized
-work. Candidate restoration, either projected candidate correction, renewed
-validation, Fast,
-review, implementation commit, publication, status, closeout, stash cleanup,
-Work Order organization, semantic-coordinate research, and later backend work
-remain unauthorized until their separately frozen gates are reached.
+`11e037c06d70cd822e52a58f1524ae7cd0701475`. Unit B remains stopped. The
+completed-red result is permanent and receives no success credit.
 
-Unit A was committed as `103015e531db086d1ac455dd67f1273f9e7173ac`
-with subject `feat(ir): encode canonical backend input bytes` and published by
-a normal non-force fast-forward of `main` only. Workflow `ci`, run
-`31630027747`, attempt 1, tested that exact commit and concluded `success`.
-Ubuntu job `94226114196` and Windows job `94226114134` independently completed
-the full lane with selector inventory `101/101`. The canonical 8,715-byte
-golden artifact, raw SHA-256
-`9a2affc59962e0d83a33633edce6f318d78a406a9d2e5ad2edc5b8e34cf7c293`,
-and payload/artifact ID
-`a37707c23cc20a1720e45de901624e3101183a77ec1b5eb4ed55095b5097b82f`
-were identical across platforms.
+The independently accepted Unit B Fast-boundary recovery amendment was
+committed as `74eb0396a19ea1a058bd3fed05939c1cda7ba5a5`, with parent
+`11e037c06d70cd822e52a58f1524ae7cd0701475` and subject
+`docs(workorder): define unit b fast recovery`. Its sole path was
+`WORKORDER_20.md`, with `+462/-51`, blob
+`4c83fcf74813d33065599bc640641299b623f529`, and file SHA-256
+`3eb604beb58a4065205411c19ee420248ad051b78446b07fcce506a4fb76d9e7`.
+It was published by a normal non-force fast-forward of `main` only from
+`11e037c06d70cd822e52a58f1524ae7cd0701475` to
+`74eb0396a19ea1a058bd3fed05939c1cda7ba5a5`.
 
-The Unit A publication-status commit is
-`d522ef74cdf5418fe166d303d3f2ba8e49c892b5`. Workflow `ci`, run
-`31634296922`, attempt 1, tested that exact commit and concluded `success`.
-Ubuntu job `94240615122` and Windows job `94240615202` independently completed
-the fast lane. Unit A remains explicitly unverified and blocked before
-`ir_verify`.
+Workflow `ci`, run `31667895670`, attempt 1, tested exact SHA
+`74eb0396a19ea1a058bd3fed05939c1cda7ba5a5` and concluded `success`. Ubuntu
+job `94346311867` and Windows job `94346311903` independently selected
+`mode=full;reason=no_status_transition`, with empty anchor and transition
+fields and zero run, attempt, and job binding fields. Both completed full
+preflight successfully, enforced exact selector inventory `101/101`, passed
+text hygiene and public readiness for 532 files, passed alpha claims and
+release readiness `0.0.1`, and emitted exactly one terminal
+`All Hum preflight checks passed.` marker.
 
-The original encoder-interface amendment was committed as
-`296283c4000ed8c2e70692bf300d4d0e80875468`, published through terminal-green
-full CI, and followed by its separately published terminal-green status chain.
-That history authorized the one now-completed Unit B implementation attempt;
-it does not authorize recovery from the completed-red Fast.
+Ubuntu passed suites `450/450`, `13/13`, and `60/60`, then completed all
+14,226 Exhaustive cases with seed `0x48554D5F5345414C`. Windows passed suites
+`465/465`, `16/16`, and `60/60`, and correctly skipped only the duplicate
+Exhaustive producer.
+
+This status record grants no Unit B recovery authority. Candidate restoration,
+either frozen correction, renewed validation or Fast, Unit B review,
+implementation commit, publication, closeout, stash cleanup, Work Order
+organization, semantic-coordinate research, and later backend work remain
+unauthorized until their separately frozen gates are reached.
 
 Owner: BDFL (Ocean).
 Author: Work Order 20 architect-author. The author may not independently review
@@ -2685,64 +2678,33 @@ commit, or push is part of planning validation.
 
 ## Current authorization gate
 
-Unit A's complete implementation and status chains are durable. Implementation
-commit `103015e531db086d1ac455dd67f1273f9e7173ac` passed workflow `ci`, run
-`31630027747`, attempt 1, with Ubuntu job `94226114196`, Windows job
-`94226114134`, and selector inventory `101/101`. Publication-status commit
-`d522ef74cdf5418fe166d303d3f2ba8e49c892b5` passed workflow `ci`, run
-`31634296922`, attempt 1, with Ubuntu job `94240615122` and Windows job
-`94240615202` in the fast lane. The 8,715-byte golden, raw golden SHA-256, and
-payload/artifact ID remain the published values. Unit A remains explicitly
-unverified and blocked before `ir_verify`.
+The independently accepted Unit B Fast-boundary recovery amendment is
+published as `74eb0396a19ea1a058bd3fed05939c1cda7ba5a5` by a normal non-force
+fast-forward of `main` only. Workflow `ci`, run `31667895670`, attempt 1,
+tested that exact SHA and concluded `success`. Ubuntu job `94346311867` and
+Windows job `94346311903` both completed the full lane successfully with
+`mode=full;reason=no_status_transition`, exact selector inventory `101/101`,
+532-file text-hygiene and public-readiness evidence, alpha claims, release
+readiness `0.0.1`, and exactly one terminal preflight-success marker. Ubuntu
+completed all 14,226 Exhaustive cases with seed `0x48554D5F5345414C`;
+Windows correctly skipped the duplicate producer.
 
-The independently accepted encoder-interface amendment is committed as
-`296283c4000ed8c2e70692bf300d4d0e80875468`, with parent
-`d522ef74cdf5418fe166d303d3f2ba8e49c892b5` and subject
-`docs(workorder): share backend input encoder with verifier`. It was published
-by a normal non-force fast-forward of `main` only over range
-`d522ef74cdf5418fe166d303d3f2ba8e49c892b5..296283c4000ed8c2e70692bf300d4d0e80875468`.
-Workflow `ci`, run `31645223153`, attempt 1, tested that exact SHA and concluded
-`success`. Ubuntu job `94277100326` and Windows job `94277100324` both selected
-`mode=full;reason=no_status_transition` with all anchor, run, job, and
-transition binding fields empty or zero, and both completed full preflight
-successfully. Both enforced selector inventory `101/101`, passed text hygiene
-and public readiness for 532 files, alpha claims, and release readiness
-`0.0.1`; Ubuntu completed all 14,226 Exhaustive cases and Windows correctly
-skipped the duplicate producer.
+Unit B remains stopped and parked at stash commit
+`303ee9af93696409bea66d3f8a379cb1a8cf8e1a`. Candidate restoration and both
+frozen corrections remain unauthorized. This local status record does not
+accept Unit B, authorize an implementation commit, or imply any later work.
 
-The encoder-interface publication-status commit is
-`11e037c06d70cd822e52a58f1524ae7cd0701475`, with parent
-`296283c4000ed8c2e70692bf300d4d0e80875468` and subject
-`docs(workorder): record encoder interface amendment publication`. Its
-publication and terminal-green fast-lane CI completed the amendment chain.
-The subsequent explicit BDFL Unit B signal authorized the one implementation
-attempt now recorded above.
+The next gates remain exact and separate:
 
-That exact seventeen-path candidate completed Fast red after evidence began
-and is parked at stash commit
-`303ee9af93696409bea66d3f8a379cb1a8cf8e1a`. Unit B is stopped. The only
-current authorization is authorship of the bounded integrated-variable P1
-correction to this document-only completed-red Fast-boundary recovery
-amendment. No candidate
-restoration, catalog correction, tool correction, validation, Fast,
-implementation review, commit, push, or Unit B continuation is authorized by
-the corrected amendment draft.
+1. separately authorized publication of this status commit;
+2. terminal-green fast-lane CI for that exact publication;
+3. a fresh explicit BDFL Unit B recovery/resumption signal; and
+4. only after that signal, exact restoration of the parked stash and exactly
+   the two frozen corrections to `docs/CAPABILITIES_SCHEMA.md` and
+   `tools/check_all.ps1` under the established recovery lifecycle.
 
-The next gates remain, in order:
-
-1. one fresh independent review of this exact finally corrected amendment;
-2. on unqualified `ACCEPT` only, a separately authorized local commit
-   containing only `WORKORDER_20.md`;
-3. separately authorized amendment publication and terminal-green full CI;
-4. a separate amendment publication-status commit;
-5. separate status publication and terminal-green fast CI;
-6. a new explicit BDFL Unit B recovery signal; and
-7. only then, exact stash restoration and exactly the two frozen
-   `docs/CAPABILITIES_SCHEMA.md` and `tools/check_all.ps1` corrections under
-   the eighteen-step recovery lifecycle.
-
-Unit B's envelope remains exactly seventeen paths. Unit B review,
-implementation commit, publication, status, closeout, stash cleanup, Work
-Order organization, semantic-coordinate research, archive mutation, and every
-later backend activity remain unauthorized.
+Renewed validation, Fast, independent Unit B review, implementation commit,
+publication, closeout, stash cleanup, archive mutation, Work Order
+organization, semantic-coordinate research, and every later backend activity
+remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
