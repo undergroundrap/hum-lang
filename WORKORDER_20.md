@@ -4,21 +4,30 @@ Date: 2026-08-11
 <!-- hum-active-workorder:v1 -->
 Status: Unit A's implementation and publication-status chains are complete,
 published, and terminal-green. The independently accepted encoder-interface
-amendment was committed as `296283c4000ed8c2e70692bf300d4d0e80875468`,
-with parent `d522ef74cdf5418fe166d303d3f2ba8e49c892b5` and subject
-`docs(workorder): share backend input encoder with verifier`. It was published
-by a normal non-force fast-forward of `main` only over range
-`d522ef74cdf5418fe166d303d3f2ba8e49c892b5..296283c4000ed8c2e70692bf300d4d0e80875468`.
+amendment and its publication-status chain are also complete, published, and
+terminal-green. Published `main` is
+`11e037c06d70cd822e52a58f1524ae7cd0701475`.
 
-Workflow `ci`, run `31645223153`, attempt 1, tested that exact amendment commit
-and concluded `success`. Ubuntu job `94277100326` and Windows job
-`94277100324` independently selected
-`mode=full;reason=no_status_transition;anchor=;run_id=0;run_attempt=0;ubuntu_job_id=0;windows_job_id=0;transitions=`
-and completed the full lane successfully. Both enforced selector inventory
-`101/101`, passed text hygiene and public readiness for 532 files, alpha
-claims, and release readiness `0.0.1`. Ubuntu completed the 14,226-case
-Exhaustive producer; Windows correctly skipped the platform-independent
-duplicate.
+After the separate explicit BDFL Unit B resumption signal, the implementer
+produced the exact seventeen-path Unit B candidate. Its focused verifier,
+selector, mutation, capability, lifetime, and architecture evidence was
+promising, but its one direct Fast completed red after candidate evidence had
+begun. The failure was the real public catalog-parity assertion
+`Work Order 20 capability catalog entries drifted` at
+`tools/check_all.ps1:446`: the candidate contained the exact
+`hum backend-input <file>` catalog line twice. The completed-red result is
+permanent and receives no success credit.
+
+The candidate is parked losslessly at stash commit
+`303ee9af93696409bea66d3f8a379cb1a8cf8e1a`, tree
+`1f2084dd5f5e535f8cd41a3be07b7fba6b50b8a5`, on first parent
+`11e037c06d70cd822e52a58f1524ae7cd0701475`. Unit B is stopped. This
+document-only Fast-boundary recovery amendment is the sole current authorized
+work. Candidate restoration, either projected candidate correction, renewed
+validation, Fast,
+review, implementation commit, publication, status, closeout, stash cleanup,
+Work Order organization, semantic-coordinate research, and later backend work
+remain unauthorized until their separately frozen gates are reached.
 
 Unit A was committed as `103015e531db086d1ac455dd67f1273f9e7173ac`
 with subject `feat(ir): encode canonical backend input bytes` and published by
@@ -39,14 +48,11 @@ Ubuntu job `94240615122` and Windows job `94240615202` independently completed
 the fast lane. Unit A remains explicitly unverified and blocked before
 `ir_verify`.
 
-The encoder-interface amendment is accepted, committed, published, and
-terminal-green. This isolated publication-status record is the current local
-gate; its publication and terminal-green fast-lane CI are the next separate
-gate. Unit B remains unauthorized until that status publication is green and
-a fresh explicit BDFL Unit B resumption signal is issued. Its future envelope
-remains exactly seventeen paths. Stash cleanup, Work Order organization, Unit
-B implementation, backend verification, candidate commit, and all later work
-remain unauthorized.
+The original encoder-interface amendment was committed as
+`296283c4000ed8c2e70692bf300d4d0e80875468`, published through terminal-green
+full CI, and followed by its separately published terminal-green status chain.
+That history authorized the one now-completed Unit B implementation attempt;
+it does not authorize recovery from the completed-red Fast.
 
 Owner: BDFL (Ocean).
 Author: Work Order 20 architect-author. The author may not independently review
@@ -411,6 +417,366 @@ the verifier/capability/report contract, or grant Unit B implementation
 authority. Unit B remains paused until this amendment completes independent
 review, local commit, full-CI publication, publication-status recording,
 fast-CI status publication, and a new explicit BDFL resumption signal.
+
+## Unit B completed-red Fast-boundary recovery amendment
+
+The encoder-interface amendment completed its independent review, local
+commit, full-CI publication, publication-status record, and terminal-green
+fast-CI status publication. The BDFL then issued the separate explicit Unit B
+resumption signal. The resulting implementation produced the exact frozen
+seventeen-path candidate below.
+
+The candidate's one direct Fast completed red after candidate evidence had
+begun. This was not a launcher or environment failure. It was not a semantic-
+verifier, capability, lifetime, mutation, or architecture rejection. It was a
+genuine public catalog-parity candidate defect caught by the unchanged
+production audit. The Work Order's completed-Fast-failure stop rule was obeyed:
+there was no same-run repair or retry, and the candidate was parked losslessly.
+The historical Fast remains completed-red forever and receives no success
+credit. Recovery is possible only through this separately reviewed amendment
+and the complete new publication/status/resumption chain below.
+
+### Exact stopped candidate and completed-red evidence
+
+The stopped candidate is identified by Git objects rather than by a movable
+stash ordinal:
+
+- stash reference at amendment authorship: `stash@{0}`;
+- stash commit: `303ee9af93696409bea66d3f8a379cb1a8cf8e1a`;
+- complete stash tree: `1f2084dd5f5e535f8cd41a3be07b7fba6b50b8a5`;
+- first parent: `11e037c06d70cd822e52a58f1524ae7cd0701475`;
+- index parent: `37515a768721c90206d6814666082392aaeffabe`;
+- untracked parent: `2ed5701a68a7d5a0d09e9e48bd3c8a7c8150acb2`; and
+- message: `On main: wo20-unit-b-fast-boundary-stop-2026-08-12`.
+
+The prior parked Unit A candidate remains the next stash at commit
+`bd6d2722cffa50da8463201204a48f4a7305ae1b`. The older WO18 recovery stash
+remains third at commit `73101039f5e3faf0c802d4f723add1b891c51602`.
+None may be applied, popped, dropped, reordered, renamed, or rewritten by this
+amendment.
+
+Read-only reconstruction of the stopped stash proves:
+
+- exactly seventeen regular `100644` paths;
+- raw statistics `+2,878/-166`;
+- whitespace-insensitive statistics `+2,877/-165`;
+- 1,798 production Rust insertions;
+- 847 permanent test/compile-proof insertions;
+- 233 documentation/tool/catalog/reference insertions;
+- exactly two untracked components,
+  `docs/HUM_IR_VERIFY_SCHEMA.md` and `src/ir_verify.rs`;
+- no `WORKORDER_20.md` change; and
+- no path outside the frozen Unit B envelope.
+
+The complete stopped and projected-corrected inventory follows. Each SHA-256
+is over the exact LF Git blob bytes. The corrected columns repeat every full
+identity deliberately; `same` or abbreviated object names are not durable
+evidence.
+
+| Path | Stopped diff | Stopped blob | Stopped SHA-256 | Corrected diff | Corrected blob | Corrected SHA-256 |
+| --- | ---: | --- | --- | ---: | --- | --- |
+| `README.md` | `+4/-1` | `5dac9428b5f29321f404612cca357674ef7f0f9a` | `feabeb8d1cfc9bc24457b822aa60e9d88db969123f09cfec3ca157af02c700a6` | `+4/-1` | `5dac9428b5f29321f404612cca357674ef7f0f9a` | `feabeb8d1cfc9bc24457b822aa60e9d88db969123f09cfec3ca157af02c700a6` |
+| `docs/ARCHITECTURE.md` | `+1/-1` | `6af4b71fc58d0c15682be352488d72189847ecb5` | `9f0ac1f984e9d6fd547e92cc96865ba12d907f40f996eb445111b39cb35115cd` | `+1/-1` | `6af4b71fc58d0c15682be352488d72189847ecb5` | `9f0ac1f984e9d6fd547e92cc96865ba12d907f40f996eb445111b39cb35115cd` |
+| `docs/BACKEND_CONTRACT_SCHEMA.md` | `+6/-1` | `8115ef859b75d827e4525b1dc3d582d459f3f7a6` | `1b056cae66c0369f70c9604a9867b3c9bf23da8cc320213851595a8ee6f036f5` | `+6/-1` | `8115ef859b75d827e4525b1dc3d582d459f3f7a6` | `1b056cae66c0369f70c9604a9867b3c9bf23da8cc320213851595a8ee6f036f5` |
+| `docs/CAPABILITIES_SCHEMA.md` | `+3/-0` | `134857fc6844259f0059a287f20d5631a3571a29` | `162e729e6575dce7717a0ba9b035606894c6a5b6dcccda9d3f2ab09fa05779ab` | `+2/-0` | `aed5764b194d203fa1f8febfd076399b06b6cafc` | `8e98b3c90326fd59b221966b02f10369ecbdfaf5008d023756ec20f01fc2f00c` |
+| `docs/HUM_IR_CONTRACT_SCHEMA.md` | `+6/-4` | `8d34102dc3a2094a891edc27fbe359ec2eeb2709` | `9c24809a74d33a1592665d311629a46f649f73b4692d62d8345aa15ebb235de6` | `+6/-4` | `8d34102dc3a2094a891edc27fbe359ec2eeb2709` | `9c24809a74d33a1592665d311629a46f649f73b4692d62d8345aa15ebb235de6` |
+| `docs/HUM_IR_READINESS_SCHEMA.md` | `+12/-7` | `5292f92152e2a1107baa8266f2bcb9c73e483bcc` | `c593acde13f7a26a1d9769cca7c69e919294f502a37b453225dafeff0d600e5c` | `+12/-7` | `5292f92152e2a1107baa8266f2bcb9c73e483bcc` | `c593acde13f7a26a1d9769cca7c69e919294f502a37b453225dafeff0d600e5c` |
+| `docs/HUM_IR_VERIFY_SCHEMA.md` | `+102/-0` | `10843f238874624edb5b39c78889b475a92d0028` | `aaf898158516d0151dc834289539d648137dcbf9999c882a5dc2f5add20a0dd1` | `+102/-0` | `10843f238874624edb5b39c78889b475a92d0028` | `aaf898158516d0151dc834289539d648137dcbf9999c882a5dc2f5add20a0dd1` |
+| `docs/LANGUAGE_REFERENCE.md` | `+5/-1` | `ceeb526f6cd627b68f040b1bcb951badce371dd6` | `2df1a6916effab6c8b7686002fb5f891e764bd730d34437cd84b458f60f6ea25` | `+5/-1` | `ceeb526f6cd627b68f040b1bcb951badce371dd6` | `2df1a6916effab6c8b7686002fb5f891e764bd730d34437cd84b458f60f6ea25` |
+| `src/backend_contract.rs` | `+2/-0` | `5d101f49fc343165a3d1d330f4739bec85e30da9` | `42f26687d20e3a83fafbe290e2c3168cb6f1ad132ccc4e429296250580417091` | `+2/-0` | `5d101f49fc343165a3d1d330f4739bec85e30da9` | `42f26687d20e3a83fafbe290e2c3168cb6f1ad132ccc4e429296250580417091` |
+| `src/backend_input.rs` | `+468/-95` | `5bd4a8386834d337b06eacbadc853e9370abed52` | `8ab1ea4197cb12a8f635f1dce0c1c5453187361a5b485f8b6808be6bcb1a46f1` | `+468/-95` | `5bd4a8386834d337b06eacbadc853e9370abed52` | `8ab1ea4197cb12a8f635f1dce0c1c5453187361a5b485f8b6808be6bcb1a46f1` |
+| `src/capabilities.rs` | `+25/-4` | `1843bf7282ae77c375579542bab38a550555ac16` | `57e306773d89dccca6bce4987b333e81826921cca5557ac479a5159f04d6fe43` | `+25/-4` | `1843bf7282ae77c375579542bab38a550555ac16` | `57e306773d89dccca6bce4987b333e81826921cca5557ac479a5159f04d6fe43` |
+| `src/ir_contract.rs` | `+9/-11` | `5113d16b8e705550812f05df6d2a011f2dcbc22c` | `5a11f8945b5124e4d28e3b288cd2d89b6a1ce6489be7ced76b164cfe692a8544` | `+9/-11` | `5113d16b8e705550812f05df6d2a011f2dcbc22c` | `5a11f8945b5124e4d28e3b288cd2d89b6a1ce6489be7ced76b164cfe692a8544` |
+| `src/ir_readiness.rs` | `+232/-28` | `2996dfeb2b2a53d3ccb693bd29a45054435486a4` | `f85734ccd6d653ce6c5522fd4417871ff7f6105025db82f6578522b0ac72f6c0` | `+232/-28` | `2996dfeb2b2a53d3ccb693bd29a45054435486a4` | `f85734ccd6d653ce6c5522fd4417871ff7f6105025db82f6578522b0ac72f6c0` |
+| `src/ir_verify.rs` | `+1,833/-0` | `0542b8f5e6d539612486fdad20e5f4a94c1c240d` | `985c67f4a150f4699499a9dfb5f2cb23f55f041b6b9358ed504cdd4a841c0745` | `+1,833/-0` | `0542b8f5e6d539612486fdad20e5f4a94c1c240d` | `985c67f4a150f4699499a9dfb5f2cb23f55f041b6b9358ed504cdd4a841c0745` |
+| `src/main.rs` | `+70/-2` | `3558a09f3d1bfb2f971244d7f45014762ba912c3` | `456b715c522a62b84112b1202a4f4fa1457dd6db2202203f4d34a8ba17be3d93` | `+70/-2` | `3558a09f3d1bfb2f971244d7f45014762ba912c3` | `456b715c522a62b84112b1202a4f4fa1457dd6db2202203f4d34a8ba17be3d93` |
+| `src/version.rs` | `+6/-1` | `4a5cef6f09da0d5b8b400cc11b97871d88339aa0` | `e056d5283b5415d72edeb7f56af227175dca8793ccefa16a2c98e8fe0b7b28c1` | `+6/-1` | `4a5cef6f09da0d5b8b400cc11b97871d88339aa0` | `e056d5283b5415d72edeb7f56af227175dca8793ccefa16a2c98e8fe0b7b28c1` |
+| `tools/check_all.ps1` | `+94/-10` | `d6792a184ff9635d2b502971a9f6bc908ba42635` | `b36bad081cab8d5131d5c92c602001959dc9c3701b539815176eb16813237fa3` | `+159/-18` | `d1ebd59b4d93221067be2fe04014e08855fe481c` | `f0d34b270215d5b5ab8eba284140d9c841ccc59729d786dbb4f7d492f3e9a9cd` |
+
+The stopped projection manifest is the 2,299-byte UTF-8 sequence formed by
+sorting the table by ordinal path bytes and writing one line per path as
+`100644<TAB><blob><TAB><sha256><TAB><path><LF>`. Its SHA-256 is
+`ecdb56f240892c8598da1b22ed4bfd8de9c3ff82a60049693565e25ed742f2f0`.
+This makes the combined identity reproducible without applying the stash.
+
+The completed-red Fast evidence is exact:
+
+- exit: 1;
+- duration: 188.133 seconds;
+- candidate evidence had begun;
+- root suite: 468/468;
+- all five Work Order 20 selectors were each uniquely selected and passed
+  1/1/0;
+- failure: `Work Order 20 capability catalog entries drifted`;
+- failing production audit: `tools/check_all.ps1:446`;
+- defect: `docs/CAPABILITIES_SCHEMA.md` contained the exact line
+  ``- `hum backend-input <file>` `` twice, reported at candidate lines 114 and
+  128;
+- terminal `All Hum preflight checks passed.` markers: zero;
+- exact 104/104 selector inventory was not reached; and
+- no retry, repair, local Exhaustive, commit, or push occurred.
+
+### Independent recovery-amendment finding and bounded closure
+
+The first independent review of this recovery amendment accepted the proposed
+catalog bytes but found the evidence plan unsatisfiable while the stopped
+`tools/check_all.ps1` remained byte-identical. The stopped tool blob
+`d6792a184ff9635d2b502971a9f6bc908ba42635` counts the two catalog schema and
+command entries, but it does not inspect the catalog's command order. Moving
+the ir-verify command therefore passes. Changing the backend-input exact-one
+predicate from `-ne 1` to duplicate-tolerant `-lt 1` also passes because no
+permanent adversarial harness observes the admitted duplicate. No other
+selector, script, or permanent audit owns either failure.
+
+Recovery is therefore re-enveloped as exactly two bounded changes inside the
+existing seventeen-path Unit B envelope:
+
+1. `docs/CAPABILITIES_SCHEMA.md`; and
+2. `tools/check_all.ps1`.
+
+This adds no repository path, selector, script, or framework. Unit B remains
+seventeen paths, the Work Order 20 union remains twenty paths, an eighteenth
+Unit B path remains a mandatory stop, a twenty-first union path remains a
+mandatory stop, and the final selector inventory remains 104/104.
+
+The fresh independent review of the first two-file projection then found one
+integration defect. The shared helper was sound in isolation, but the
+integrated mutation setup at projected tool lines 491-496 constructed every
+variant with `$Catalog.Replace(...)`. The surrounding real production block
+bound the real document only as `$Wo20CapabilityDoc`; `$Catalog` was therefore
+null/unbound. With `$ErrorActionPreference = 'Stop'`, mutation construction
+terminated with `You cannot call a method on a null-valued expression.` before
+any variant reached the helper. That rejected projection had blob
+`d64134cb7cd561bd31f5c29380a699e723c72f2c`, SHA-256
+`063e2ff4244fc9f64b82ab7cd4952df19583561188b9c42e60d923de073cfdda`,
+4,230 lines, and 454,486 bytes. It is historical failed review evidence, not a
+live recovery identity.
+
+This bounded correction changes only those six mutation-construction receivers
+from `$Catalog` to `$Wo20CapabilityDoc`. Every variant is consequently derived
+from the same real catalog text used by the honest invocation. No second source,
+validator, or path is introduced, and no semantic predicate changes.
+
+### Frozen two-file correction and projected candidate
+
+The published Unit A occurrence of
+``- `hum backend-input <file>` `` is authoritative and remains in its published
+relative position. The catalog half of the future two-file correction changes
+only `docs/CAPABILITIES_SCHEMA.md` from the stopped candidate. It removes the
+extra Unit B-added backend-input occurrence, moves no published Unit A
+occurrence, and places the sole Unit B ir-verify occurrence immediately after
+the preserved backend-input occurrence. The final contiguous command order is:
+
+1. `hum ir-readiness --format json`
+2. `hum backend-input <file>`
+3. `hum ir-verify [--format json] <backend-input-file>`
+4. `hum core-contract --format json`
+
+Every other catalog entry remains byte-identical and in its existing relative
+order. The corrected tool audit requires exact-one parity; it may not be
+weakened, bypassed, replaced with a tolerant count, or compensated by duplicate
+text elsewhere. If physical line numbers shift, exact content and the frozen
+relative order above control.
+
+The projected corrected `docs/CAPABILITIES_SCHEMA.md` identity, calculated
+from the stopped blob without changing the real worktree, is:
+
+- diff against published Unit A: `+2/-0`;
+- lines/LF: 178;
+- bytes: 5,630;
+- Git blob: `aed5764b194d203fa1f8febfd076399b06b6cafc`;
+- SHA-256: `8e98b3c90326fd59b221966b02f10369ecbdfaf5008d023756ec20f01fc2f00c`;
+- CR count: zero; and
+- final LF: present.
+
+The future `tools/check_all.ps1` correction starts from the stopped blob
+`d6792a184ff9635d2b502971a9f6bc908ba42635` and changes only its existing WO20
+capability/catalog parity region. It replaces the stopped lines 428-446 with
+one focused `Test-Wo20CapabilityCatalogParity` helper, one honest invocation
+over the real human and JSON `hum capabilities` results plus the real catalog,
+and one in-memory six-variant rejection harness. The helper preserves every
+existing production schema/command assertion and additionally owns:
+
+- exact-one backend-input and ir-verify schema keys and their production order;
+- exact-one backend-input and ir-verify command records, production order,
+  command strings, schemas, and `adapter-ready` status;
+- exact-one human schema and command lines plus their production order;
+- exact-one catalog schema and command lines;
+- the exact catalog schema boundary
+  `ir_readiness`/`backend_input`/`ir_verify`/`core_contract`; and
+- the exact four-command boundary frozen above.
+
+The projected helper and harness use no selector, new script, generic document
+validator, or second tolerant path. All bytes before the stopped line 428 and
+after the stopped line 446 remain byte-identical; only unavoidable local
+formatting inside this bounded parity region changes.
+
+Windows PowerShell 5.1 parsed the corrected externally projected complete
+script. The actual integrated region ran under stop-on-error
+(`$ErrorActionPreference = 'Stop'`) with production-shaped values bound as
+`$Wo20CapabilitiesHuman`, `$Wo20CapabilitiesJson`, and
+`$Wo20CapabilityDoc`. The honest invocation completed successfully. Each of
+the six variants was then constructed from `$Wo20CapabilityDoc`, reached the
+same helper, and was rejected: the four missing/duplicate variants by the
+`capability catalog entries drifted` assertion, and both order-only variants
+by the `capability catalog ordering drifted` assertion. No unbound variable,
+null expression, missing helper, or ignored error occurred.
+
+Changing only `$BackendCatalogCommandCount -ne 1` to `-lt 1` in the complete
+corrected projection still parsed and accepted honest input. It admitted the
+duplicate-backend-input variant, after which the permanent harness failed
+precisely with `Work Order 20 capability catalog mutation 0 was accepted`.
+The order-only variants retained exactly one relevant occurrence and continued
+to fail only the frozen contiguous-order assertion. Integrated evidence, not
+helper-only evidence, is mandatory. The exact corrected projected identity is:
+
+- diff against published Unit A: `+159/-18`;
+- diff against the stopped tool: `+70/-13`;
+- whitespace-insensitive diff against published Unit A: `+159/-18`;
+- lines/LF: 4,230;
+- bytes: 454,546;
+- Git blob: `d1ebd59b4d93221067be2fe04014e08855fe481c`;
+- SHA-256: `f0d34b270215d5b5ab8eba284140d9c841ccc59729d786dbb4f7d492f3e9a9cd`;
+- CR count: zero; and
+- final LF: present.
+
+The complete projected corrected candidate has:
+
+- exactly seventeen regular `100644` paths;
+- raw statistics `+2,942/-174`;
+- whitespace-insensitive statistics `+2,941/-173`;
+- 1,798 production Rust insertions;
+- 847 permanent test/compile-proof insertions;
+- 297 documentation/tool/catalog/reference insertions;
+- total insertions 2,942 and raw deletions 174;
+- the same two candidate-added files,
+  `docs/HUM_IR_VERIFY_SCHEMA.md` and `src/ir_verify.rs`; and
+- no changed byte outside `docs/CAPABILITIES_SCHEMA.md` and
+`tools/check_all.ps1` relative to the stopped candidate.
+
+The corrected projection manifest uses the same sorted 2,299-byte format as
+the stopped manifest, with the corrected catalog and tool identities from the
+table. Its SHA-256 is
+`1ad6e4f1e1909f0bd0e68c33fd1ab4fc50dbc3126a04432a52bf1634ed082bf0`.
+The complete table and this manifest are the reproducible combined identity;
+no unrecorded temporary tree or shell-formatted diff hash is authoritative.
+The earlier one-file projection (`+2,877/-166`, whitespace-insensitive
+`+2,876/-165`, 232 documentation/tool/catalog/reference insertions, manifest
+`22fc089bc04e228048fa4ae86eed1b07416e4c07ff9dabdda8ed181837583060`) is a
+superseded historical projection and is not an acceptable recovery identity.
+The rejected first two-file projection happened to reproduce the current
+numeric totals, but its manifest
+`3ce498d6f279097a8ba6a6abc27307383bd73ca2cbe17f27aed4656f5a48542c`
+contains the unbound-variable tool blob and is likewise historical only.
+
+The corrected candidate remains within every Unit B ceiling:
+
+```text
+17 paths                         = 17
+production Rust insertions       = 1,798 <= 1,800
+test/compile-proof insertions    =   847 <= 1,850
+documentation/tool insertions    =   297 <=   650
+total insertions                 = 2,942 <= 4,300
+raw deletions                    =   174 <=   550
+Unit B selectors                 =     3
+final selector inventory         = 104/104
+```
+
+An eighteenth Unit B path or a twenty-first Work Order 20 union path remains a
+mandatory stop. Unit A's 101 published selector credits and every published
+Unit A byte remain mandatory.
+
+The two corrections change no production Rust, verifier behavior, shared model
+or emitter architecture, `ComputeFromPayload`, `PreserveDeclared(decoded_id)`,
+canonical equality, digest ownership, capability construction, readiness,
+CLI behavior, schema other than the already frozen candidate bytes, selector,
+README, language reference, architecture text, or other candidate byte. The
+tool correction adds only the bounded parity helper and evidence described
+above; every non-WO20 tooling behavior remains unchanged.
+
+### Permanent catalog recovery evidence
+
+The corrected existing Fast capability/catalog parity block and existing Unit
+B selectors own the following evidence without a sixth selector or duplicate
+runtime credit. Exactly one helper is the catalog validation boundary. It is
+invoked exactly once on the honest real human/JSON/catalog inputs and once per
+in-memory adversarial catalog. Source/topology audit must prove that complete
+shape, the absence of a second tolerant path, no compensating duplicate, no
+command-order bypass, no suppression of an adversarial rejection, and zero
+unbound-variable or null-expression failures:
+
+1. Honest corrected catalog: exactly one backend-input command, exactly one
+   ir-verify command, exact adjacency/order at the frozen ir-readiness/core-
+   contract boundary, exact schema-entry parity, and production human/JSON
+   capability parity.
+2. Duplicate backend-input mutation: reintroducing the removed duplicate away
+   from the otherwise-correct four-command boundary must fail exact-one
+   enforcement in the shared helper.
+3. Missing backend-input mutation: deleting the preserved published Unit A
+   occurrence must fail.
+4. Duplicate ir-verify mutation: adding a second ir-verify occurrence must
+   fail.
+5. Missing ir-verify mutation: deleting the sole ir-verify occurrence must
+   fail.
+6. Two separately represented reordered-command variants: one swaps only
+   backend-input and ir-verify while keeping both counts exactly one; the other
+   moves the intact pair away from the frozen ir-readiness/core-contract
+   boundary. Each must fail only the shared document-order check while schema
+   and production capability inputs remain honest.
+7. Audit-weakening mutation: in a disposable projected copy, changing only the
+   helper's backend-input catalog-command comparison from `-ne 1` to `-lt 1`
+   must parse and continue to accept the honest catalog. The independently
+   projected weakened helper did so, then admitted the duplicate-backend-input
+   variant; the permanent mutation harness detected that admission and failed
+   the owning parity block.
+
+Each mutation must reach its intended existing production parity boundary. A
+stale expected string, unrelated compilation failure, alternate duplicate, or
+preselected failure result earns no evidence. Syntax, missing symbols, an
+unrelated assertion, or weakening detected only by source text also earns no
+credit.
+
+### Mandatory recovery lifecycle
+
+The recovery gates are separate and exact:
+
+1. this corrected document-only amendment is authored;
+2. one fresh independent corrected-amendment review occurs;
+3. only unqualified `ACCEPT` advances;
+4. a separately authorized local commit contains only `WORKORDER_20.md`;
+5. separate amendment publication receives terminal-green full CI;
+6. a separate publication-status commit records that publication;
+7. separate status publication receives terminal-green fast CI;
+8. the BDFL issues a new explicit Unit B recovery signal;
+9. the implementer restores exactly stash commit
+   `303ee9af93696409bea66d3f8a379cb1a8cf8e1a` without consuming, dropping, or
+   reordering any stash;
+10. all seventeen stopped-candidate blobs and both candidate-added files are
+    authenticated against the table above;
+11. the implementer changes exactly `docs/CAPABILITIES_SCHEMA.md` and
+    `tools/check_all.ps1` from the stopped candidate, applying both frozen
+    projected identities and no other candidate byte;
+12. the integrated focused honest validation, all six in-memory document
+    variants constructed from `$Wo20CapabilityDoc`, the source/topology audit,
+    and the independently load-bearing audit-weakening mutation all pass
+    through the shared parity boundary with zero unbound/null failures;
+13. all proportional checks pass;
+14. exactly one renewed direct Fast runs on the corrected frozen candidate;
+15. if that Fast completes red for any other reason, no repair or retry occurs;
+    the candidate is preserved and control returns to the BDFL;
+16. if Fast is terminal-green, the exact corrected seventeen-path candidate is
+    left unstaged for one fresh complete independent Unit B review;
+17. the reviewer repeats the complete Work Order 20 Unit B review, with at most
+    one independently authorized reviewer Fast; and
+18. only unqualified Unit B `ACCEPT` may advance to a separately authorized
+    local implementation commit.
+
+The renewed Fast does not erase, replace, rerun, or grant success credit to the
+historical completed-red Fast. A non-`ACCEPT` amendment or implementation
+review returns directly to the BDFL and authorizes no automatic correction.
+Unit B implementation publication, status, closeout, stash cleanup, Work Order
+organization, semantic-coordinate research, and later backend work remain
+separately gated.
 
 ## Mandatory sufficiency ruling
 
@@ -2046,7 +2412,11 @@ other review evidence is complete.
 
 For either unit, a launcher failure before candidate evidence may be repaired
 only at the invocation boundary and must be disclosed. A completed Fast failure
-stops that unit.
+stops that unit. Unit B's first Fast did complete red after candidate evidence
+began, so its ordinary allowance is consumed permanently. Only the separately
+published recovery amendment and all eighteen mandatory recovery gates above
+may authorize one new Fast on the two-file corrected candidate; that renewed
+run is a distinct event, not a retry or reclassification of the red run.
 
 ### Unit B commit, publication, status, and closeout
 
@@ -2201,7 +2571,9 @@ Stop without workaround if:
 - Unit B exceeds its seventeen paths or budget, or requires an eighteenth Unit
   B path;
 - a selector selects zero or multiple tests;
-- Fast fails after candidate evidence begins; or
+- Fast fails after candidate evidence begins; Unit B's historical run did fail
+  and stopped the unit, and any separately authorized renewed recovery Fast
+  that completes red also stops without repair or retry; or
 - either unit cannot be independently reviewed in one sitting.
 
 ## Work Order 20 lifecycle
@@ -2240,14 +2612,32 @@ The gates are separate and no gate implies the next:
 19. separate amendment publication and terminal-green full CI;
 20. an isolated amendment publication-status commit;
 21. separate status publication and terminal-green fast CI;
-22. a new explicit BDFL Unit B resumption signal;
-23. one bounded seventeen-path Unit B implementation on the published amendment
-    status baseline;
-24. fresh independent complete Unit B review;
-25. at most one BDFL-authorized bounded Unit B correction;
-26. separately authorized Unit B local commit;
-27. separately authorized Unit B publication and terminal 104/104 full CI; and
-28. separately authorized final status/closeout record and publication.
+22. the explicit BDFL Unit B resumption signal;
+23. the bounded seventeen-path Unit B implementation on the published amendment
+    status baseline, its completed-red Fast after candidate evidence began, and
+    lossless parking at stash commit
+    `303ee9af93696409bea66d3f8a379cb1a8cf8e1a`;
+24. this document-only completed-red Fast-boundary recovery amendment, its two
+    independent review findings, and their bounded document corrections;
+25. one fresh independent final corrected recovery-amendment review, where
+    only unqualified `ACCEPT` advances;
+26. a separately authorized local recovery-amendment commit containing only
+    `WORKORDER_20.md`;
+27. separate recovery-amendment publication and terminal-green full CI;
+28. an isolated recovery-amendment publication-status commit;
+29. separate status publication and terminal-green fast CI;
+30. a new explicit BDFL Unit B recovery signal;
+31. exact stopped-stash restoration without stash consumption or reordering,
+    authentication of all seventeen blobs, and exactly the frozen
+    `docs/CAPABILITIES_SCHEMA.md` and `tools/check_all.ps1` corrections;
+32. focused honest catalog evidence, all six document variants, the
+    audit-weakening mutation, proportional checks, and exactly one renewed
+    direct Fast;
+33. on terminal-green Fast only, one fresh independent complete Unit B review;
+34. on unqualified Unit B `ACCEPT` only, separately authorized Unit B local
+    commit;
+35. separately authorized Unit B publication and terminal 104/104 full CI; and
+36. separately authorized final status/closeout record and publication.
 
 The planning correction cycle remains consumed. The capabilities-catalog and
 language-reference re-envelopes, plus this BDFL-directed Fast-boundary
@@ -2257,9 +2647,10 @@ directly to the BDFL without another author edit. Each later implementation
 correction allowance is local to its own unit and cannot add a path,
 dependency, mechanism, public contract, evidence meaning, or backend behavior.
 A repeated authority/evidence failure or envelope defect returns directly to
-the BDFL. The original Unit B Fast allowance remains unused because the stop
-occurred before a candidate or evidence run; it becomes available only after
-step 22.
+the BDFL. The first Unit B Fast allowance was consumed by the completed-red
+candidate event at step 23. The single renewed Fast at step 32 is new authority
+created only by the complete recovery chain; it never alters the historical
+red result.
 
 ## Planning-package validation
 
@@ -2319,19 +2710,39 @@ and public readiness for 532 files, alpha claims, and release readiness
 `0.0.1`; Ubuntu completed all 14,226 Exhaustive cases and Windows correctly
 skipped the duplicate producer.
 
-The amendment is accepted, committed, published, and terminal-green. This
-isolated publication-status record is the current local gate. The next gates
-remain, in order:
+The encoder-interface publication-status commit is
+`11e037c06d70cd822e52a58f1524ae7cd0701475`, with parent
+`296283c4000ed8c2e70692bf300d4d0e80875468` and subject
+`docs(workorder): record encoder interface amendment publication`. Its
+publication and terminal-green fast-lane CI completed the amendment chain.
+The subsequent explicit BDFL Unit B signal authorized the one implementation
+attempt now recorded above.
 
-1. separate publication of this status commit;
-2. terminal-green fast-lane CI for that exact publication;
-3. a fresh explicit BDFL Unit B resumption signal; and
-4. only then, bounded Unit B implementation from the amended seventeen-path
-   scope.
+That exact seventeen-path candidate completed Fast red after evidence began
+and is parked at stash commit
+`303ee9af93696409bea66d3f8a379cb1a8cf8e1a`. Unit B is stopped. The only
+current authorization is authorship of the bounded integrated-variable P1
+correction to this document-only completed-red Fast-boundary recovery
+amendment. No candidate
+restoration, catalog correction, tool correction, validation, Fast,
+implementation review, commit, push, or Unit B continuation is authorized by
+the corrected amendment draft.
 
-Unit B is not automatically authorized by this record. Its future envelope
-remains exactly seventeen paths. Stash cleanup, Work Order organization, Unit
-B implementation, shared-interface code, verifier code, backend verification,
-implementation review, candidate commit, stash mutation, archive mutation,
-and every other later activity remain unauthorized.
+The next gates remain, in order:
+
+1. one fresh independent review of this exact finally corrected amendment;
+2. on unqualified `ACCEPT` only, a separately authorized local commit
+   containing only `WORKORDER_20.md`;
+3. separately authorized amendment publication and terminal-green full CI;
+4. a separate amendment publication-status commit;
+5. separate status publication and terminal-green fast CI;
+6. a new explicit BDFL Unit B recovery signal; and
+7. only then, exact stash restoration and exactly the two frozen
+   `docs/CAPABILITIES_SCHEMA.md` and `tools/check_all.ps1` corrections under
+   the eighteen-step recovery lifecycle.
+
+Unit B's envelope remains exactly seventeen paths. Unit B review,
+implementation commit, publication, status, closeout, stash cleanup, Work
+Order organization, semantic-coordinate research, archive mutation, and every
+later backend activity remain unauthorized.
 <!-- workorder-current-authorization-gate:end -->
