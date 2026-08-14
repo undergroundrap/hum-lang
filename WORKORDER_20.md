@@ -1,7 +1,6 @@
 # Hum Work Order 20: Encode And Verify Canonical Backend Input Bytes
 
 Date: 2026-08-11
-<!-- hum-active-workorder:v1 -->
 Status: CLOSED. Work Order 20 is terminally closed. Unit A completed
 successfully and remains published on `main`; Unit B is terminally rejected
 under this Work Order and was never merged.
