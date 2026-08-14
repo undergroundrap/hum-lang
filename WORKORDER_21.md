@@ -13,16 +13,24 @@ A was subsequently authorized, implemented, and independently reviewed. That
 candidate review returned `ACCEPT WITH REQUIRED FIX`: P0 and P2 were empty,
 while the sole P1 found that repository-wide marker counting used `git grep -I`
 and could ignore an exact marker line inside a Git-classified binary blob. The
-first binary-marker amendment was then independently reviewed and also returned
-`ACCEPT WITH REQUIRED FIX`: P0 and P2 were empty, while the sole P1 found that
-its two-state A11 fixture was not load-bearing because adding `hidden.bin`
-inside the measured transition independently forced full mode. The reviewer
-proved the required three-state fixture satisfiable. No semantic, path-layout,
-or raw-byte-architecture defect was found. The complete candidate remains
-unchanged in stash `799d4eaa2fb473633b41bbf17ad82e67fe2386a3`; Fast remains
-unconsumed. Only this bounded A11 fixture correction and its document checks
-are authorized. Candidate restoration, code correction, Fast, Unit B, Unit C,
-migration, and later work remain unauthorized.
+complete implementation remains unchanged in stash
+`799d4eaa2fb473633b41bbf17ad82e67fe2386a3`, with scoped two-path tree
+`2ac3a52f056e0c705c1b689c7bc06b4845aa0748`, production blob
+`64a66f49a40d423cb6aa60d577e77843bd280d15`, and test blob
+`481ae5752671f67610170cebc3f9f730b09f1101`. The first binary-marker amendment
+review found only that its two-state A11 fixture was not load-bearing. The
+corrected three-state amendment was independently accepted and committed as
+`bc4bbf7538fcf977772e887150655c7816f5232c`. That exact commit was published
+by a normal non-force fast-forward of `main` only. Workflow `ci`, run
+`31819289956`, attempt 1, tested that exact SHA and concluded `success`. Ubuntu
+job `94828415231` and Windows job `94828415241` both succeeded, selected
+`mode=full` with `reason=no_status_transition`, and completed the required full
+preflight. The independent-review Fast allowance remains unconsumed. The sole
+current authorization is creation of this local publication-status commit.
+Candidate restoration or correction requires separate publication of this
+status commit, terminal-green fast-lane CI, and a fresh explicit BDFL Unit A
+correction-resumption signal. Unit B, Unit C, migration, stash mutation, Work
+Order movement, and all later work remain unauthorized.
 Owner: BDFL (Ocean).
 
 ## Durable-consumer audit
@@ -1210,27 +1218,27 @@ probe, or migration simulation is authorized during planning authorship.
 
 ## Current authorization gate
 
-The sole current authorization is authorship of this one-file A11 fixture
-correction and its document-only evidence. Unit A was implemented and reviewed;
-the candidate review found the binary-marker bypass, and the first amendment
-review found only that the two-state fixture was not load-bearing because the
-`hidden.bin` addition itself forced full mode. No semantic, path-layout, or
-raw-byte-architecture defect was found, and the exact unmodified candidate is
-parked in stash `799d4eaa2fb473633b41bbf17ad82e67fe2386a3`.
+The sole current authorization is creation of this one-file local publication-
+status commit for the independently accepted binary-marker amendment. The
+amendment is commit `bc4bbf7538fcf977772e887150655c7816f5232c` and was
+published by a normal non-force fast-forward of `main` only. Workflow `ci`, run
+`31819289956`, attempt 1, tested that exact SHA and concluded `success`. Ubuntu
+job `94828415231` and Windows job `94828415241` both succeeded, selected
+`mode=full` with `reason=no_status_transition`, and completed the required full
+preflight.
 
-After document authorship stops, the next eligible gate is one fresh
-independent review of the exact unstaged amendment. Only an unqualified
-acceptance may return it to the BDFL for separately authorized local commit
-creation with subject
-`docs(workorder): require binary-safe marker counting`. Review eligibility is
-not commit or publication authority.
+The exact Unit A implementation remains parked and unchanged in stash
+`799d4eaa2fb473633b41bbf17ad82e67fe2386a3`; its scoped tree and two
+implementation blobs remain the identities recorded above. The independent-
+review Fast allowance remains unconsumed. Candidate restoration or correction
+is unauthorized until this exact status commit is separately published, its
+required Ubuntu and Windows fast-lane CI is terminal-green, and the BDFL then
+issues a fresh explicit Unit A correction-resumption signal.
 
-Candidate restoration or correction, stash apply/pop/drop/reorder, Fast,
-publication, status editing, Unit B, Unit C, migration, Work Order movement,
-archive mutation, history rewriting, tags, evidence-harness consolidation,
-compiler work, and all later activity remain unauthorized. Unit A correction
-may resume only after the complete amendment commit/publication/status chain is
-terminal-green and the BDFL issues a fresh explicit signal following the
-14-step lifecycle above.
+This status commit grants no push, stash apply/pop/drop/reorder, candidate
+restoration, code correction, Fast, Unit B, Unit C, migration, Work Order
+movement, archive mutation, history rewriting, tags, evidence-harness
+consolidation, compiler work, or later activity. No next step follows
+implicitly.
 
 <!-- workorder-current-authorization-gate:end -->
