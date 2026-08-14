@@ -17,8 +17,10 @@ $script:WorkOrderBoundaryApiRoot = 'https://api.github.com'
 $script:WorkOrderBoundaryApiVersion = '2026-03-10'
 $script:WorkOrderBoundaryPageSize = 100
 $script:WorkOrderBoundaryActiveMarker = '<!-- hum-active-workorder:v1 -->'
-$script:WorkOrderBoundaryCandidatePattern = '^WORKORDER(?:_[1-9][0-9]*)?\.md$'
-$script:WorkOrderBoundaryLikePattern = '^WORKORDER(?![A-Za-z]).*$'
+$script:WorkOrderBoundaryLegacyPattern = '^WORKORDER(?:_[1-9][0-9]*)?\.md$'
+$script:WorkOrderBoundaryCanonicalActivePattern = '^workorders/active/WORKORDER_[1-9][0-9]*\.md$'
+$script:WorkOrderBoundaryCanonicalClosedPattern = '^workorders/closed/WORKORDER_[1-9][0-9]*\.md$'
+$script:WorkOrderBoundaryLikePattern = '(?:^|[/\\])WORKORDER(?![A-Za-z]).*$'
 
 function Throw-WorkOrderBoundaryFailure {
   param([string] $Reason)
@@ -251,10 +253,7 @@ function ConvertFrom-WorkOrderBlob {
     [string] $Path
   )
 
-  if (
-    $Path -cnotmatch $script:WorkOrderBoundaryCandidatePattern -or
-    $ObjectId -cnotmatch '^[0-9a-f]{40}$'
-  ) {
+  if ([string]::IsNullOrEmpty((Get-WorkOrderPathClass $Path)) -or $ObjectId -cnotmatch '^[0-9a-f]{40}$') {
     Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
   }
 
@@ -269,6 +268,9 @@ function ConvertFrom-WorkOrderBlob {
   } catch {
     Throw-WorkOrderBoundaryFailure 'workorder_encoding_invalid'
   }
+  if ($Bytes.Length -lt 1 -or $Bytes[$Bytes.Length - 1] -ne 0x0A -or $Bytes -contains 0x0D) {
+    Throw-WorkOrderBoundaryFailure 'workorder_encoding_invalid'
+  }
 
   return [pscustomobject]@{
     Path = $Path
@@ -278,27 +280,140 @@ function ConvertFrom-WorkOrderBlob {
   }
 }
 
+function Get-WorkOrderPathClass {
+  param([string] $Path)
+
+  if ($Path -cmatch $script:WorkOrderBoundaryLegacyPattern) {
+    return 'legacy'
+  }
+  if ($Path -cmatch $script:WorkOrderBoundaryCanonicalActivePattern) {
+    return 'active'
+  }
+  if ($Path -cmatch $script:WorkOrderBoundaryCanonicalClosedPattern) {
+    return 'closed'
+  }
+  return ''
+}
+
+function Get-RecursiveTreeEntries {
+  param(
+    [string] $RepoPath,
+    [string] $Commit
+  )
+
+  $Bytes = Invoke-BoundaryGitBytes $RepoPath @('ls-tree', '-r', '-z', '--full-tree', $Commit)
+  $Entries = New-Object System.Collections.Generic.List[object]
+  $Start = 0
+  for ($Index = 0; $Index -lt $Bytes.Length; $Index += 1) {
+    if ($Bytes[$Index] -ne 0) {
+      continue
+    }
+    if ($Index -le $Start) {
+      Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
+    }
+    [byte[]]$Record = $Bytes[$Start..($Index - 1)]
+    $Tab = [System.Array]::IndexOf($Record, [byte]0x09)
+    if ($Tab -lt 1 -or $Tab -ge ($Record.Length - 1)) {
+      Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
+    }
+    $Header = [System.Text.Encoding]::ASCII.GetString($Record, 0, $Tab)
+    if ($Header -notmatch '^(?<mode>[0-9]{6}) (?<type>[a-z]+) (?<oid>[0-9a-f]{40})$') {
+      Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
+    }
+    try {
+      $Utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+      $Path = $Utf8.GetString($Record, $Tab + 1, $Record.Length - $Tab - 1)
+    } catch {
+      Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
+    }
+    $Entries.Add([pscustomobject]@{
+      Mode = [string]$Matches.mode
+      Type = [string]$Matches.type
+      ObjectId = [string]$Matches.oid
+      Path = $Path
+    })
+    $Start = $Index + 1
+  }
+  if ($Start -ne $Bytes.Length) {
+    Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
+  }
+  return @($Entries | ForEach-Object { $_ })
+}
+
+function Get-RawMarkerLineCount {
+  param([byte[]] $Bytes)
+
+  [byte[]]$MarkerBytes = [System.Text.Encoding]::ASCII.GetBytes(
+    $script:WorkOrderBoundaryActiveMarker
+  )
+  if ($Bytes.Length -lt $MarkerBytes.Length) {
+    return 0
+  }
+
+  $Count = 0
+  for ($Start = 0; $Start -le ($Bytes.Length - $MarkerBytes.Length); $Start += 1) {
+    if ($Start -gt 0 -and $Bytes[$Start - 1] -ne 0x0A) {
+      continue
+    }
+
+    $Matches = $true
+    for ($Offset = 0; $Offset -lt $MarkerBytes.Length; $Offset += 1) {
+      if ($Bytes[$Start + $Offset] -ne $MarkerBytes[$Offset]) {
+        $Matches = $false
+        break
+      }
+    }
+    if (-not $Matches) {
+      continue
+    }
+
+    $After = $Start + $MarkerBytes.Length
+    if ($After -lt $Bytes.Length -and $Bytes[$After] -ne 0x0A) {
+      continue
+    }
+    $Count += 1
+  }
+  return $Count
+}
+
+function Get-RepositoryMarkerCount {
+  param(
+    [string] $RepoPath,
+    [object[]] $Entries
+  )
+
+  $Count = 0
+  foreach ($Entry in $Entries) {
+    if ($Entry.Type -ceq 'blob') {
+      if (-not @('100644', '100755', '120000').Contains([string]$Entry.Mode)) {
+        Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
+      }
+      $BlobBytes = Invoke-BoundaryGitBytes $RepoPath @(
+        'cat-file', 'blob', [string]$Entry.ObjectId
+      )
+      $Count += Get-RawMarkerLineCount $BlobBytes
+      continue
+    }
+    if ($Entry.Type -ceq 'commit' -and $Entry.Mode -ceq '160000') {
+      continue
+    }
+    Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
+  }
+  return $Count
+}
+
 function Resolve-ActiveWorkOrderBlob {
   param(
     [string] $RepoPath,
     [string] $Commit
   )
 
-  $Tree = Invoke-BoundaryGit $RepoPath @('ls-tree', $Commit)
-  if ($Tree.ExitCode -ne 0) {
-    Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
-  }
-
-  $Candidates = New-Object System.Collections.Generic.List[object]
-  foreach ($Line in @($Tree.Lines)) {
-    if ($Line -notmatch '^(?<mode>[0-9]{6}) (?<type>[a-z]+) (?<oid>[0-9a-f]{40})\t(?<path>.+)$') {
-      Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
-    }
-
-    $Mode = [string]$Matches.mode
-    $Type = [string]$Matches.type
-    $ObjectId = [string]$Matches.oid
-    $Path = [string]$Matches.path
+  $Legacy = New-Object System.Collections.Generic.List[object]
+  $Active = New-Object System.Collections.Generic.List[object]
+  $Closed = New-Object System.Collections.Generic.List[object]
+  $Entries = @(Get-RecursiveTreeEntries $RepoPath $Commit)
+  foreach ($Entry in $Entries) {
+    $Path = [string]$Entry.Path
     $LikeOptions = (
       [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor
       [System.Text.RegularExpressions.RegexOptions]::CultureInvariant
@@ -308,43 +423,66 @@ function Resolve-ActiveWorkOrderBlob {
       $script:WorkOrderBoundaryLikePattern,
       $LikeOptions
     )
-    if ($IsWorkOrderLike -and $Path -cnotmatch $script:WorkOrderBoundaryCandidatePattern) {
+    $Class = Get-WorkOrderPathClass $Path
+    if ($IsWorkOrderLike -and [string]::IsNullOrEmpty($Class)) {
       Throw-WorkOrderBoundaryFailure 'workorder_path_invalid'
     }
-    if ($Path -cnotmatch $script:WorkOrderBoundaryCandidatePattern) {
+    if ([string]::IsNullOrEmpty($Class)) {
       continue
     }
-    if ($Mode -cne '100644' -or $Type -cne 'blob') {
+    if ($Entry.Mode -cne '100644' -or $Entry.Type -cne 'blob') {
       Throw-WorkOrderBoundaryFailure 'workorder_object_invalid'
     }
-    $Candidates.Add((ConvertFrom-WorkOrderBlob $RepoPath $ObjectId $Path))
+    $Candidate = ConvertFrom-WorkOrderBlob $RepoPath $Entry.ObjectId $Path
+    if ($Class -ceq 'legacy') { $Legacy.Add($Candidate) }
+    if ($Class -ceq 'active') { $Active.Add($Candidate) }
+    if ($Class -ceq 'closed') { $Closed.Add($Candidate) }
   }
 
-  if ($Candidates.Count -lt 1) {
+  if ($Legacy.Count -gt 0 -and ($Active.Count -gt 0 -or $Closed.Count -gt 0)) {
+    Throw-WorkOrderBoundaryFailure 'workorder_layout_mixed'
+  }
+  if ($Legacy.Count -lt 1 -and $Active.Count -lt 1 -and $Closed.Count -lt 1) {
     Throw-WorkOrderBoundaryFailure 'active_workorder_missing'
   }
 
-  $Marked = New-Object System.Collections.Generic.List[object]
-  $MarkerLinePattern = '(?m)^' + [regex]::Escape($script:WorkOrderBoundaryActiveMarker) + '\r?$'
-  $MarkerPositionPattern = '(?m)^' + [regex]::Escape($script:WorkOrderBoundaryActiveMarker) + '\r?\nStatus:'
-  foreach ($Candidate in $Candidates) {
-    $MarkerLines = [regex]::Matches($Candidate.Text, $MarkerLinePattern)
-    if ($MarkerLines.Count -eq 0) {
-      continue
+  $RepositoryMarkerCount = Get-RepositoryMarkerCount $RepoPath $Entries
+  $MarkerLinePattern = '(?m)^' + [regex]::Escape($script:WorkOrderBoundaryActiveMarker) + '$'
+  $MarkerPositionPattern = '(?m)^' + [regex]::Escape($script:WorkOrderBoundaryActiveMarker) + '\nStatus:'
+  if ($Legacy.Count -gt 0) {
+    $Marked = @($Legacy | Where-Object {
+      [regex]::Matches($_.Text, $MarkerLinePattern).Count -gt 0
+    })
+    if ($RepositoryMarkerCount -ne 1 -or $Marked.Count -ne 1) {
+      Throw-WorkOrderBoundaryFailure 'active_workorder_ambiguous'
     }
     if (
-      $MarkerLines.Count -ne 1 -or
-      [regex]::Matches($Candidate.Text, $MarkerPositionPattern).Count -ne 1
+      [regex]::Matches($Marked[0].Text, $MarkerLinePattern).Count -ne 1 -or
+      [regex]::Matches($Marked[0].Text, $MarkerPositionPattern).Count -ne 1
     ) {
       Throw-WorkOrderBoundaryFailure 'active_workorder_marker_invalid'
     }
-    $Marked.Add($Candidate)
+    return $Marked[0]
   }
 
-  if ($Marked.Count -ne 1) {
+  if ($Active.Count -ne 1) {
     Throw-WorkOrderBoundaryFailure 'active_workorder_ambiguous'
   }
-  return $Marked[0]
+  foreach ($Candidate in $Closed) {
+    if ([regex]::Matches($Candidate.Text, $MarkerLinePattern).Count -ne 0) {
+      Throw-WorkOrderBoundaryFailure 'closed_workorder_marker_invalid'
+    }
+  }
+  $ActiveMarkerCount = [regex]::Matches($Active[0].Text, $MarkerLinePattern).Count
+  $ActiveMarkerPositionCount = [regex]::Matches($Active[0].Text, $MarkerPositionPattern).Count
+  if (
+    $RepositoryMarkerCount -ne 1 -or
+    $ActiveMarkerCount -ne 1 -or
+    $ActiveMarkerPositionCount -ne 1
+  ) {
+    Throw-WorkOrderBoundaryFailure 'active_workorder_marker_invalid'
+  }
+  return $Active[0]
 }
 
 function Get-UniqueRegexMatch {
@@ -386,7 +524,10 @@ function Get-WorkOrderStatusProjection {
 
   $HeaderBody = $Text.Substring($HeaderStart, $HeaderEnd - $HeaderStart)
   $GateBody = $Text.Substring($GateStart, $GateEnd - $GateStart)
-  $BeforeHeader = $Text.Substring(0, $HeaderStart)
+  $BeforeHeader = $Text.Substring(0, $HeaderStart).Replace(
+    "$script:WorkOrderBoundaryActiveMarker`n",
+    ''
+  )
   $Between = $Text.Substring($HeaderEnd, $GateStart - $HeaderEnd)
   $AfterGate = $Text.Substring($GateEnd)
   $Normalized = $BeforeHeader + '<hum-status-header-body>' + $Between + '<hum-current-gate-body>' + $AfterGate
@@ -413,18 +554,21 @@ function Test-StatusOnlyTransition {
 
     $ParentBlob = Resolve-ActiveWorkOrderBlob $RepoPath $Parent
     $ChildBlob = Resolve-ActiveWorkOrderBlob $RepoPath $Child
-    if ($ParentBlob.Path -cne $ChildBlob.Path) {
-      return [pscustomobject]@{ IsValid = $false; Reason = 'active_workorder_changed' }
-    }
+    $SameActivePath = $ParentBlob.Path -ceq $ChildBlob.Path
 
     $Diff = Invoke-BoundaryGit $RepoPath @(
-      'diff-tree', '--no-commit-id', '--raw', '-r', '--no-renames', $Parent, $Child, '--'
+      'diff-tree', '--no-commit-id', '--raw', '-r', '-M100%', $Parent, $Child, '--'
     )
     if ($Diff.ExitCode -ne 0 -or $Diff.Lines.Count -ne 1) {
       return [pscustomobject]@{ IsValid = $false; Reason = 'transition_path_invalid' }
     }
 
-    $RawPattern = '^:100644 100644 [0-9a-f]{40} [0-9a-f]{40} M\t' + [regex]::Escape($ParentBlob.Path) + '$'
+    if ($SameActivePath) {
+      $RawPattern = '^:100644 100644 [0-9a-f]{40} [0-9a-f]{40} M\t' + [regex]::Escape($ParentBlob.Path) + '$'
+    } else {
+      $RawPattern = '^:100644 100644 [0-9a-f]{40} [0-9a-f]{40} R100\t' +
+        [regex]::Escape($ParentBlob.Path) + '\t' + [regex]::Escape($ChildBlob.Path) + '$'
+    }
     if ($Diff.Lines[0] -notmatch $RawPattern) {
       return [pscustomobject]@{ IsValid = $false; Reason = 'transition_path_invalid' }
     }
@@ -434,11 +578,8 @@ function Test-StatusOnlyTransition {
     if ($ParentProjection.Normalized -cne $ChildProjection.Normalized) {
       return [pscustomobject]@{ IsValid = $false; Reason = 'status_remainder_changed' }
     }
-    if (
-      $ParentProjection.HeaderBody -ceq $ChildProjection.HeaderBody -and
-      $ParentProjection.GateBody -ceq $ChildProjection.GateBody
-    ) {
-      return [pscustomobject]@{ IsValid = $false; Reason = 'status_body_unchanged' }
+    if (-not $SameActivePath) {
+      return [pscustomobject]@{ IsValid = $false; Reason = 'active_workorder_changed' }
     }
 
     return [pscustomobject]@{

@@ -7,9 +7,14 @@ $ClassifierPath = Join-Path $PSScriptRoot 'check_workorder_status_boundary.ps1'
 
 $script:BoundaryTestCount = 0
 $script:BoundaryRepositorySerial = 0
-$script:ExpectedBoundaryTestCount = 123
+$script:ExpectedPublishedBoundaryTestCount = 123
+$script:ExpectedBoundaryTestCount = 151
+$script:BoundaryCaseNames = New-Object System.Collections.Generic.List[string]
+$script:UnitACaseResults = New-Object System.Collections.Generic.List[object]
 $script:BoundaryActiveWorkOrderPath = 'WORKORDER_10.md'
 $script:BoundaryInactiveWorkOrderPath = 'WORKORDER.md'
+$script:BoundaryCanonicalActivePath = 'workorders/active/WORKORDER_21.md'
+$script:BoundaryCanonicalClosedPath = 'workorders/closed/WORKORDER_20.md'
 
 function Assert-BoundaryTest {
   param(
@@ -20,6 +25,26 @@ function Assert-BoundaryTest {
   if (-not $Condition) {
     throw $Message
   }
+}
+
+function Register-BoundaryCase {
+  param([string] $Name)
+
+  Assert-BoundaryTest (-not $script:BoundaryCaseNames.Contains($Name)) "duplicate boundary case name $Name"
+  $script:BoundaryCaseNames.Add($Name)
+  $script:BoundaryTestCount += 1
+}
+
+function Get-OrdinalUniqueCount {
+  param([string[]] $Values)
+
+  $Unique = New-Object 'System.Collections.Generic.HashSet[string]' (
+    [System.StringComparer]::Ordinal
+  )
+  foreach ($Value in $Values) {
+    [void]$Unique.Add($Value)
+  }
+  return $Unique.Count
 }
 
 function Invoke-TestGit {
@@ -60,6 +85,59 @@ function Write-TestText {
   }
   $Utf8 = New-Object System.Text.UTF8Encoding($false)
   [System.IO.File]::WriteAllText($Path, $Text, $Utf8)
+}
+
+function Write-TestBytes {
+  param(
+    [string] $Path,
+    [byte[]] $Bytes
+  )
+
+  $Parent = Split-Path -Parent $Path
+  if (-not (Test-Path -LiteralPath $Parent)) {
+    [void][System.IO.Directory]::CreateDirectory($Parent)
+  }
+  [System.IO.File]::WriteAllBytes($Path, $Bytes)
+}
+
+function Get-TestRawMarkerLineCount {
+  param([byte[]] $Bytes)
+
+  [byte[]]$MarkerBytes = [System.Text.Encoding]::ASCII.GetBytes(
+    $script:WorkOrderBoundaryActiveMarker
+  )
+  $Count = 0
+  for ($Start = 0; $Start -le ($Bytes.Length - $MarkerBytes.Length); $Start += 1) {
+    if ($Start -gt 0 -and $Bytes[$Start - 1] -ne 0x0A) {
+      continue
+    }
+    $Matches = $true
+    for ($Offset = 0; $Offset -lt $MarkerBytes.Length; $Offset += 1) {
+      if ($Bytes[$Start + $Offset] -ne $MarkerBytes[$Offset]) {
+        $Matches = $false
+        break
+      }
+    }
+    if (-not $Matches) {
+      continue
+    }
+    $After = $Start + $MarkerBytes.Length
+    if ($After -eq $Bytes.Length -or $Bytes[$After] -eq 0x0A) {
+      $Count += 1
+    }
+  }
+  return $Count
+}
+
+function Get-TestCommitBlobBytes {
+  param(
+    [object] $Repository,
+    [string] $Commit,
+    [string] $Path
+  )
+
+  $ObjectId = Invoke-TestGit $Repository.Path @('rev-parse', "$Commit`:$Path")
+  return Invoke-BoundaryGitBytes $Repository.Path @('cat-file', 'blob', $ObjectId)
 }
 
 function New-TestWorkOrderText {
@@ -145,13 +223,119 @@ function Add-TestStatusCommit {
     [object] $Repository,
     [string] $Status,
     [string] $Gate,
-    [string] $Mandate = "## Session AP mandate`nExecutable requirements stay frozen.`n"
+    [string] $Mandate = "## Session AP mandate`nExecutable requirements stay frozen.`n",
+    [string] $WorkOrderPath = $script:BoundaryActiveWorkOrderPath
   )
 
-  Write-TestText (Join-Path $Repository.Path $script:BoundaryActiveWorkOrderPath) (
+  Write-TestText (Join-Path $Repository.Path $WorkOrderPath) (
     New-TestWorkOrderText -Status $Status -Gate $Gate -Mandate $Mandate
   )
   return Commit-TestRepository $Repository 'status update'
+}
+
+function New-CanonicalTestRepository {
+  param(
+    [string] $Root,
+    [switch] $WithAdjacentPath
+  )
+
+  $Repository = New-TestRepository $Root -WithoutWorkOrder
+  Write-TestText (Join-Path $Repository.Path $script:BoundaryCanonicalClosedPath) (
+    New-TestWorkOrderText -Inactive
+  )
+  Write-TestText (Join-Path $Repository.Path $script:BoundaryCanonicalActivePath) (
+    New-TestWorkOrderText
+  )
+  if ($WithAdjacentPath) {
+    Write-TestText (Join-Path $Repository.Path 'workorders/active/WORKORDERING.md') (
+      New-TestWorkOrderText -Status ' adjacent non-candidate' -Inactive
+    )
+  }
+  $Repository.Anchor = Commit-TestRepository $Repository 'canonical full anchor'
+  return $Repository
+}
+
+function New-UnitALegacyRepository {
+  param([string] $Root)
+
+  $Repository = New-TestRepository $Root -WithoutWorkOrder
+  Write-TestText (Join-Path $Repository.Path 'WORKORDER_20.md') (
+    New-TestWorkOrderText -Inactive
+  )
+  Write-TestText (Join-Path $Repository.Path 'WORKORDER_21.md') (
+    New-TestWorkOrderText
+  )
+  $Repository.Anchor = Commit-TestRepository $Repository 'unit a legacy full anchor'
+  return $Repository
+}
+
+function Assert-ResolvedActivePath {
+  param(
+    [object] $Repository,
+    [string] $Commit,
+    [string] $ExpectedPath,
+    [string] $ControlName
+  )
+
+  $Resolved = Resolve-ActiveWorkOrderBlob $Repository.Path $Commit
+  Assert-BoundaryTest ($Resolved.Path -ceq $ExpectedPath) "$ControlName resolved $($Resolved.Path), expected $ExpectedPath"
+  Assert-BoundaryTest ($Resolved.ObjectId -cmatch '^[0-9a-f]{40}$') "$ControlName did not return an exact blob OID"
+  Assert-BoundaryTest ($Resolved.Bytes.Length -gt 0) "$ControlName returned empty bytes"
+  Assert-BoundaryTest ($Resolved.Text.Contains($script:WorkOrderBoundaryActiveMarker)) "$ControlName did not return marked active text"
+}
+
+function Move-TestPathExact {
+  param(
+    [object] $Repository,
+    [string] $Source,
+    [string] $Destination,
+    [switch] $CaseOnly
+  )
+
+  if ($CaseOnly) {
+    $Temporary = "$Source-unit-a-case-move"
+    Invoke-TestGit $Repository.Path @('mv', $Source, $Temporary) | Out-Null
+    Invoke-TestGit $Repository.Path @('mv', $Temporary, $Destination) | Out-Null
+  } else {
+    Invoke-TestGit $Repository.Path @('mv', $Source, $Destination) | Out-Null
+  }
+}
+
+function Set-TestRawIndexEntry {
+  param(
+    [object] $Repository,
+    [string] $Mode,
+    [string] $ObjectId,
+    [string] $Path
+  )
+
+  $Record = (New-Object System.Text.UTF8Encoding($false)).GetBytes("$Mode $ObjectId`t$Path`0")
+  $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $StartInfo.FileName = (Get-Command git -ErrorAction Stop).Source
+  $StartInfo.WorkingDirectory = $Repository.Path
+  $StartInfo.Arguments = 'update-index -z --index-info'
+  $StartInfo.UseShellExecute = $false
+  $StartInfo.CreateNoWindow = $true
+  $StartInfo.RedirectStandardInput = $true
+  $StartInfo.RedirectStandardOutput = $true
+  $StartInfo.RedirectStandardError = $true
+  $Process = New-Object System.Diagnostics.Process
+  $Process.StartInfo = $StartInfo
+  if (-not $Process.Start()) {
+    throw 'raw index-entry process did not start'
+  }
+  try {
+    $Process.StandardInput.BaseStream.Write($Record, 0, $Record.Length)
+    $Process.StandardInput.Close()
+    $Output = $Process.StandardOutput.ReadToEnd()
+    $ErrorText = $Process.StandardError.ReadToEnd()
+    $Process.WaitForExit()
+    if ($Process.ExitCode -ne 0) {
+      throw "raw index-entry update failed: $Output$ErrorText"
+    }
+  } finally {
+    $Process.Dispose()
+  }
 }
 
 function Copy-TestObject {
@@ -299,7 +483,8 @@ function Invoke-BoundaryCase {
     [string] $ExpectedAnchor = '',
     [string] $EventName = 'push',
     [string] $EventRef = 'refs/heads/main',
-    [string] $WorkflowPath = '.github/workflows/ci.yml'
+    [string] $WorkflowPath = '.github/workflows/ci.yml',
+    [scriptblock] $ValidateResult
   )
 
   $EvidenceRows = New-Object System.Collections.Generic.List[string]
@@ -319,12 +504,68 @@ function Invoke-BoundaryCase {
     Assert-BoundaryTest ($Result.Mode -ceq $ExpectedMode) "$Name execution $Execution returned mode $($Result.Mode) with reason $($Result.Reason)"
     Assert-BoundaryTest ($Result.Reason -ceq $ExpectedReason) "$Name execution $Execution returned reason $($Result.Reason)"
     Assert-BoundaryTest ($Result.Anchor -ceq $ExpectedAnchor) "$Name execution $Execution returned anchor $($Result.Anchor)"
+    if ($null -ne $ValidateResult) {
+      & $ValidateResult $Result $Execution
+    }
     $EvidenceRows.Add((ConvertTo-WorkOrderBoundaryEvidence $Result))
   }
 
   Assert-BoundaryTest ($EvidenceRows[0] -ceq $EvidenceRows[1]) "$Name was not byte-identical across two fresh executions"
-  $script:BoundaryTestCount += 1
+  Register-BoundaryCase $Name
   Write-Host "ok $($script:BoundaryTestCount) - $Name => mode=$ExpectedMode;reason=$ExpectedReason"
+}
+
+function Invoke-UnitABoundaryCase {
+  param(
+    [string] $Name,
+    [object] $Repository,
+    [string] $Base,
+    [string] $Head,
+    [object] $PairFactory,
+    [string] $ExpectedMode,
+    [string] $ExpectedReason,
+    [string] $ExpectedAnchor = '',
+    [string[]] $ExpectedTransitions = @()
+  )
+
+  $Mode = $ExpectedMode
+  $Anchor = $ExpectedAnchor
+  $Transitions = @($ExpectedTransitions)
+  $Assert = {
+    param([bool] $Condition, [string] $Message)
+    if (-not $Condition) {
+      throw $Message
+    }
+  }
+  $Validator = {
+    param($Result, $Execution)
+    if ($Mode -ceq 'full') {
+      & $Assert ($Result.Anchor -ceq '') "$Name execution $Execution returned a full-lane anchor"
+      & $Assert ($Result.RunId -eq 0) "$Name execution $Execution returned a full-lane run ID"
+      & $Assert ($Result.RunAttempt -eq 0) "$Name execution $Execution returned a full-lane run attempt"
+      & $Assert ($Result.UbuntuJobId -eq 0) "$Name execution $Execution returned a full-lane Ubuntu job ID"
+      & $Assert ($Result.WindowsJobId -eq 0) "$Name execution $Execution returned a full-lane Windows job ID"
+      & $Assert (@($Result.Transitions).Count -eq 0) "$Name execution $Execution returned full-lane transitions"
+      return
+    }
+    & $Assert ($Result.Anchor -ceq $Anchor) "$Name execution $Execution returned the wrong fast anchor"
+    & $Assert ($Result.RunId -eq 9001) "$Name execution $Execution returned the wrong fast run ID"
+    & $Assert ($Result.RunAttempt -eq 1) "$Name execution $Execution returned the wrong fast run attempt"
+    & $Assert ($Result.UbuntuJobId -eq 9101) "$Name execution $Execution returned the wrong Ubuntu job ID"
+    & $Assert ($Result.WindowsJobId -eq 9102) "$Name execution $Execution returned the wrong Windows job ID"
+    & $Assert (
+      (@($Result.Transitions) -join "`n") -ceq ($Transitions -join "`n")
+    ) "$Name execution $Execution returned the wrong ordered transition binding"
+  }.GetNewClosure()
+
+  Invoke-BoundaryCase -Name $Name -Repository $Repository -Base $Base -Head $Head `
+    -PairFactory $PairFactory -ExpectedMode $ExpectedMode -ExpectedReason $ExpectedReason `
+    -ExpectedAnchor $ExpectedAnchor -ValidateResult $Validator
+  $script:UnitACaseResults.Add([pscustomobject]@{
+    Name = $Name
+    Mode = $ExpectedMode
+    Reason = $ExpectedReason
+  })
 }
 
 function Set-BothSnapshots {
@@ -376,14 +617,17 @@ function Assert-ProductionSeamIsClosed {
     'Resolve-ActiveWorkOrderBlob',
     '<!-- hum-active-workorder:v1 -->',
     '^WORKORDER(?:_[1-9][0-9]*)?\.md$',
-    '^WORKORDER(?![A-Za-z]).*$'
+    '^workorders/active/WORKORDER_[1-9][0-9]*\.md$',
+    '^workorders/closed/WORKORDER_[1-9][0-9]*\.md$',
+    '(?:^|[/\\])WORKORDER(?![A-Za-z]).*$',
+    "'ls-tree', '-r', '-z', '--full-tree'"
   )) {
     Assert-BoundaryTest $Classifier.Contains($RequiredText) "classifier is missing history-rewrite defense $RequiredText"
   }
 
   $CheckAll = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'tools/check_all.ps1'))
   Assert-BoundaryTest ([regex]::Matches($CheckAll, "test_workorder_status_boundary\.ps1").Count -eq 1) 'full preflight must invoke the boundary matrix exactly once'
-  $script:BoundaryTestCount += 1
+  Register-BoundaryCase 'production evidence seam and workflow source contract'
   Write-Host "ok $($script:BoundaryTestCount) - production evidence seam and workflow source contract"
 }
 
@@ -397,7 +641,7 @@ function Assert-HistoricalAmendmentIsFull {
     $Evidence.Add("$($Transition.IsValid):$($Transition.Reason)")
   }
   Assert-BoundaryTest ($Evidence[0] -ceq $Evidence[1]) '505ce30 ineligibility was not deterministic'
-  $script:BoundaryTestCount += 1
+  Register-BoundaryCase 'exact 505ce30 mandate amendment remains ineligible'
   Write-Host "ok $($script:BoundaryTestCount) - exact 505ce30 mandate amendment remains ineligible => mode=full;reason=no_status_transition"
 }
 
@@ -753,7 +997,7 @@ try {
 
   $AdjacentUnrelatedPath = New-TestRepository $TestRoot
   Write-TestText (Join-Path $AdjacentUnrelatedPath.Path 'WORKORDERING.md') (
-    New-TestWorkOrderText -Status ' unrelated adjacent name'
+    New-TestWorkOrderText -Status ' unrelated adjacent name' -Inactive
   )
   $AdjacentUnrelatedAnchor = Commit-TestRepository $AdjacentUnrelatedPath 'add unrelated adjacent path'
   $AdjacentUnrelatedHead = Add-TestStatusCommit $AdjacentUnrelatedPath ' valid status beside unrelated path' "`nnext session remains unauthorized`n"
@@ -996,6 +1240,384 @@ try {
   $ReversedDescendant = Add-TestStatusCommit $Reversed ' descendant' "`ndescendant`n"
   Invoke-TestGit $Reversed.Path @('update-ref', 'refs/heads/main', $Reversed.Anchor) | Out-Null
   Invoke-BoundaryCase 'reversed comparison range is full' $Reversed $ReversedDescendant $Reversed.Anchor (New-ValidPairFactory $Reversed.Anchor) 'full' 'event_range_not_linear'
+
+  Assert-BoundaryTest (
+    $script:BoundaryTestCount -eq $script:ExpectedPublishedBoundaryTestCount
+  ) "published Work Order status-boundary inventory changed from 123 to $script:BoundaryTestCount"
+  $PublishedBoundaryNames = @($script:BoundaryCaseNames | ForEach-Object { $_ })
+  Assert-BoundaryTest (
+    (Get-OrdinalUniqueCount $PublishedBoundaryNames) -eq 123
+  ) 'published Work Order status-boundary inventory contains duplicate names'
+
+  $A01 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A01 $A01.Anchor $script:BoundaryCanonicalActivePath 'A01 parent control'
+  $A01Head = Add-TestStatusCommit -Repository $A01 -Status ' canonical header update' `
+    -Gate "`nbaseline authorization`n" -WorkOrderPath $script:BoundaryCanonicalActivePath
+  Assert-ResolvedActivePath $A01 $A01Head $script:BoundaryCanonicalActivePath 'A01 child control'
+  Invoke-UnitABoundaryCase -Name 'canonical_nested_header_only_fast' -Repository $A01 `
+    -Base $A01.Anchor -Head $A01Head -PairFactory (New-ValidPairFactory $A01.Anchor) `
+    -ExpectedMode 'fast' -ExpectedReason 'eligible_status_chain' -ExpectedAnchor $A01.Anchor `
+    -ExpectedTransitions @("$($A01.Anchor)>$A01Head")
+
+  $A02 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A02 $A02.Anchor $script:BoundaryCanonicalActivePath 'A02 parent control'
+  $A02Head = Add-TestStatusCommit -Repository $A02 -Status ' baseline' `
+    -Gate "`ncanonical gate update`n" -WorkOrderPath $script:BoundaryCanonicalActivePath
+  Assert-ResolvedActivePath $A02 $A02Head $script:BoundaryCanonicalActivePath 'A02 child control'
+  Invoke-UnitABoundaryCase -Name 'canonical_nested_gate_only_fast' -Repository $A02 `
+    -Base $A02.Anchor -Head $A02Head -PairFactory (New-ValidPairFactory $A02.Anchor) `
+    -ExpectedMode 'fast' -ExpectedReason 'eligible_status_chain' -ExpectedAnchor $A02.Anchor `
+    -ExpectedTransitions @("$($A02.Anchor)>$A02Head")
+
+  $A03 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A03 $A03.Anchor $script:BoundaryCanonicalActivePath 'A03 anchor control'
+  $A03First = Add-TestStatusCommit -Repository $A03 -Status ' canonical first status' `
+    -Gate "`nbaseline authorization`n" -WorkOrderPath $script:BoundaryCanonicalActivePath
+  $A03Second = Add-TestStatusCommit -Repository $A03 -Status ' canonical first status' `
+    -Gate "`ncanonical second gate`n" -WorkOrderPath $script:BoundaryCanonicalActivePath
+  Assert-ResolvedActivePath $A03 $A03First $script:BoundaryCanonicalActivePath 'A03 first child control'
+  Assert-ResolvedActivePath $A03 $A03Second $script:BoundaryCanonicalActivePath 'A03 second child control'
+  Invoke-UnitABoundaryCase -Name 'canonical_nested_two_commit_chain_fast' -Repository $A03 `
+    -Base $A03First -Head $A03Second -PairFactory (New-ValidPairFactory $A03.Anchor) `
+    -ExpectedMode 'fast' -ExpectedReason 'eligible_status_chain' -ExpectedAnchor $A03.Anchor `
+    -ExpectedTransitions @("$($A03.Anchor)>$A03First", "$A03First>$A03Second")
+
+  $A04 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A04 $A04.Anchor $script:BoundaryCanonicalActivePath 'A04 parent control'
+  Write-TestText (Join-Path $A04.Path $script:BoundaryCanonicalActivePath) (
+    New-TestWorkOrderText -Mandate "## Session AP mandate`nCanonical immutable requirements changed.`n"
+  )
+  $A04Head = Commit-TestRepository $A04 'canonical immutable change'
+  Assert-ResolvedActivePath $A04 $A04Head $script:BoundaryCanonicalActivePath 'A04 child control'
+  Invoke-UnitABoundaryCase -Name 'canonical_non_status_full' -Repository $A04 -Base $A04.Anchor `
+    -Head $A04Head -PairFactory (New-ValidPairFactory $A04.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A05 = New-UnitALegacyRepository $TestRoot
+  Assert-ResolvedActivePath $A05 $A05.Anchor 'WORKORDER_21.md' 'A05 legacy parent control'
+  [void][System.IO.Directory]::CreateDirectory((Join-Path $A05.Path 'workorders/active'))
+  [void][System.IO.Directory]::CreateDirectory((Join-Path $A05.Path 'workorders/closed'))
+  Move-TestPathExact $A05 'WORKORDER_20.md' $script:BoundaryCanonicalClosedPath
+  Move-TestPathExact $A05 'WORKORDER_21.md' $script:BoundaryCanonicalActivePath
+  $A05Head = Commit-TestRepository $A05 'legacy to canonical migration'
+  Assert-ResolvedActivePath $A05 $A05Head $script:BoundaryCanonicalActivePath 'A05 canonical child control'
+  Invoke-UnitABoundaryCase -Name 'legacy_to_canonical_migration_full' -Repository $A05 `
+    -Base $A05.Anchor -Head $A05Head -PairFactory (New-ValidPairFactory $A05.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A06 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A06 $A06.Anchor $script:BoundaryCanonicalActivePath 'A06 predecessor control'
+  Move-TestPathExact $A06 $script:BoundaryCanonicalActivePath 'workorders/closed/WORKORDER_21.md'
+  $A06Closed = [System.IO.File]::ReadAllText((Join-Path $A06.Path 'workorders/closed/WORKORDER_21.md'))
+  Write-TestText (Join-Path $A06.Path 'workorders/closed/WORKORDER_21.md') (
+    $A06Closed.Replace("$script:WorkOrderBoundaryActiveMarker`n", '')
+  )
+  Write-TestText (Join-Path $A06.Path 'workorders/active/WORKORDER_22.md') (
+    New-TestWorkOrderText -Status ' successor issued'
+  )
+  $A06Head = Commit-TestRepository $A06 'canonical successor issuance'
+  Assert-ResolvedActivePath $A06 $A06Head 'workorders/active/WORKORDER_22.md' 'A06 successor control'
+  Invoke-UnitABoundaryCase -Name 'canonical_successor_issuance_full' -Repository $A06 `
+    -Base $A06.Anchor -Head $A06Head -PairFactory (New-ValidPairFactory $A06.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A07 = New-CanonicalTestRepository $TestRoot -WithAdjacentPath
+  Assert-ResolvedActivePath $A07 $A07.Anchor $script:BoundaryCanonicalActivePath 'A07 parent control'
+  $A07Head = Add-TestStatusCommit -Repository $A07 -Status ' adjacent path ignored' `
+    -Gate "`nadjacent path remains unrelated`n" -WorkOrderPath $script:BoundaryCanonicalActivePath
+  Assert-ResolvedActivePath $A07 $A07Head $script:BoundaryCanonicalActivePath 'A07 child control'
+  Invoke-UnitABoundaryCase -Name 'canonical_adjacent_workordering_ignored' -Repository $A07 `
+    -Base $A07.Anchor -Head $A07Head -PairFactory (New-ValidPairFactory $A07.Anchor) `
+    -ExpectedMode 'fast' -ExpectedReason 'eligible_status_chain' -ExpectedAnchor $A07.Anchor `
+    -ExpectedTransitions @("$($A07.Anchor)>$A07Head")
+
+  $A08 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A08 $A08.Anchor $script:BoundaryCanonicalActivePath 'A08 honest control'
+  Write-TestText (Join-Path $A08.Path $script:BoundaryCanonicalActivePath) (New-TestWorkOrderText -Inactive)
+  Write-TestText (Join-Path $A08.Path $script:BoundaryCanonicalClosedPath) (New-TestWorkOrderText)
+  $A08Head = Commit-TestRepository $A08 'move marker into closed work order'
+  Invoke-UnitABoundaryCase -Name 'closed_marker_rejected' -Repository $A08 -Base $A08.Anchor `
+    -Head $A08Head -PairFactory (New-ValidPairFactory $A08.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A09 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A09 $A09.Anchor $script:BoundaryCanonicalActivePath 'A09 honest control'
+  Invoke-TestGit $A09.Path @('rm', '--quiet', $script:BoundaryCanonicalActivePath) | Out-Null
+  [void][System.IO.Directory]::CreateDirectory((Join-Path $A09.Path 'workorders/active'))
+  [System.IO.File]::Copy(
+    (Join-Path $A09.Path $script:BoundaryCanonicalClosedPath),
+    (Join-Path $A09.Path 'workorders/active/WORKORDER_20.md')
+  )
+  $A09Head = Commit-TestRepository $A09 'copy closed work order into active'
+  Invoke-UnitABoundaryCase -Name 'closed_copy_cannot_become_active' -Repository $A09 `
+    -Base $A09.Anchor -Head $A09Head -PairFactory (New-ValidPairFactory $A09.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A10 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A10 $A10.Anchor $script:BoundaryCanonicalActivePath 'A10 honest control'
+  Write-TestText (Join-Path $A10.Path 'workorders/active/WORKORDER_22.md') (New-TestWorkOrderText -Inactive)
+  $A10Head = Commit-TestRepository $A10 'add second active candidate'
+  Invoke-UnitABoundaryCase -Name 'two_active_candidates_rejected' -Repository $A10 `
+    -Base $A10.Anchor -Head $A10Head -PairFactory (New-ValidPairFactory $A10.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A11 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A11 $A11.Anchor $script:BoundaryCanonicalActivePath 'A11 State 1 control'
+  Assert-BoundaryTest (
+    (Invoke-TestGit $A11.Path @('ls-tree', '-r', '--name-only', $A11.Anchor, '--', 'hidden.bin')) -ceq ''
+  ) 'A11 State 1 unexpectedly contains hidden.bin'
+  $A11ActiveObject = Invoke-TestGit $A11.Path @(
+    'rev-parse', "$($A11.Anchor):$script:BoundaryCanonicalActivePath"
+  )
+
+  [byte[]]$A11HiddenBytes = @([byte]0x00, [byte]0x41, [byte]0x0A) +
+    [System.Text.Encoding]::ASCII.GetBytes($script:WorkOrderBoundaryActiveMarker) +
+    @([byte]0x0A, [byte]0x42, [byte]0x00)
+  Write-TestBytes (Join-Path $A11.Path 'hidden.bin') $A11HiddenBytes
+  $A11CorruptionAnchor = Commit-TestRepository $A11 'add binary marker corruption anchor'
+  $A11State2Diff = Invoke-TestGit $A11.Path @(
+    'diff-tree', '--no-commit-id', '--name-status', '-r', '--no-renames',
+    $A11.Anchor, $A11CorruptionAnchor, '--'
+  )
+  Assert-BoundaryTest ($A11State2Diff -ceq "A`thidden.bin") 'A11 State 2 did not add only hidden.bin'
+  $A11HiddenEntry = Invoke-TestGit $A11.Path @('ls-tree', $A11CorruptionAnchor, '--', 'hidden.bin')
+  Assert-BoundaryTest (
+    $A11HiddenEntry -cmatch '^100644 blob [0-9a-f]{40}\thidden\.bin$'
+  ) 'A11 State 2 hidden.bin is not one regular 100644 blob'
+  $A11HiddenAnchorBytes = Get-TestCommitBlobBytes $A11 $A11CorruptionAnchor 'hidden.bin'
+  Assert-BoundaryTest ($A11HiddenAnchorBytes -contains 0x00) 'A11 State 2 hidden.bin lacks a NUL byte'
+  Assert-BoundaryTest (
+    (Get-TestRawMarkerLineCount $A11HiddenAnchorBytes) -eq 1
+  ) 'A11 State 2 hidden.bin does not contain exactly one standalone marker line'
+  Assert-BoundaryTest (
+    (Invoke-TestGit $A11.Path @('rev-parse', "$A11CorruptionAnchor`:$script:BoundaryCanonicalActivePath")) -ceq $A11ActiveObject
+  ) 'A11 State 2 changed the legitimate active Work Order'
+  $A11AdjacentChild = Add-TestStatusCommit -Repository $A11 -Status ' binary marker adjacent child' `
+    -Gate "`nbaseline authorization`n" -WorkOrderPath $script:BoundaryCanonicalActivePath
+  $A11HiddenChildBytes = Get-TestCommitBlobBytes $A11 $A11AdjacentChild 'hidden.bin'
+  Assert-BoundaryTest (
+    [Convert]::ToBase64String($A11HiddenAnchorBytes) -ceq [Convert]::ToBase64String($A11HiddenChildBytes)
+  ) 'A11 State 3 did not retain hidden.bin byte-identically'
+  $A11MeasuredDiff = Invoke-TestGit $A11.Path @(
+    'diff-tree', '--no-commit-id', '--name-status', '-r', '--no-renames',
+    $A11CorruptionAnchor, $A11AdjacentChild, '--'
+  )
+  Assert-BoundaryTest (
+    $A11MeasuredDiff -ceq "M`t$script:BoundaryCanonicalActivePath"
+  ) "A11 State 3 measured diff was $A11MeasuredDiff"
+  Invoke-UnitABoundaryCase -Name 'duplicate_repository_marker_rejected' -Repository $A11 `
+    -Base $A11CorruptionAnchor -Head $A11AdjacentChild `
+    -PairFactory (New-ValidPairFactory $A11CorruptionAnchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A12 = New-UnitALegacyRepository $TestRoot
+  Assert-ResolvedActivePath $A12 $A12.Anchor 'WORKORDER_21.md' 'A12 honest control'
+  Write-TestText (Join-Path $A12.Path 'workorders/active/WORKORDER_22.md') (New-TestWorkOrderText -Inactive)
+  $A12Head = Commit-TestRepository $A12 'mix legacy and canonical layouts'
+  Invoke-UnitABoundaryCase -Name 'mixed_layout_ambiguity_rejected' -Repository $A12 `
+    -Base $A12.Anchor -Head $A12Head -PairFactory (New-ValidPairFactory $A12.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A13 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A13 $A13.Anchor $script:BoundaryCanonicalActivePath 'A13 honest control'
+  Move-TestPathExact $A13 $script:BoundaryCanonicalActivePath 'workorders/active/WORKORDER.md'
+  $A13Head = Commit-TestRepository $A13 'canonical unnumbered active path'
+  Invoke-UnitABoundaryCase -Name 'canonical_unnumbered_active_rejected' -Repository $A13 `
+    -Base $A13.Anchor -Head $A13Head -PairFactory (New-ValidPairFactory $A13.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A14 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A14 $A14.Anchor $script:BoundaryCanonicalActivePath 'A14 honest control'
+  Move-TestPathExact $A14 $script:BoundaryCanonicalActivePath 'workorders/active/WORKORDER_021.md'
+  $A14Head = Commit-TestRepository $A14 'canonical leading-zero active path'
+  Invoke-UnitABoundaryCase -Name 'canonical_leading_zero_rejected' -Repository $A14 `
+    -Base $A14.Anchor -Head $A14Head -PairFactory (New-ValidPairFactory $A14.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A15 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A15 $A15.Anchor $script:BoundaryCanonicalActivePath 'A15 honest control'
+  Move-TestPathExact $A15 'workorders/active' 'workorders/Active' -CaseOnly
+  $A15Head = Commit-TestRepository $A15 'canonical active directory case'
+  Invoke-UnitABoundaryCase -Name 'active_directory_case_rejected' -Repository $A15 `
+    -Base $A15.Anchor -Head $A15Head -PairFactory (New-ValidPairFactory $A15.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A16 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A16 $A16.Anchor $script:BoundaryCanonicalActivePath 'A16 honest control'
+  Move-TestPathExact $A16 'workorders/closed' 'workorders/Closed' -CaseOnly
+  $A16Head = Commit-TestRepository $A16 'canonical closed directory case'
+  Invoke-UnitABoundaryCase -Name 'closed_directory_case_rejected' -Repository $A16 `
+    -Base $A16.Anchor -Head $A16Head -PairFactory (New-ValidPairFactory $A16.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A17 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A17 $A17.Anchor $script:BoundaryCanonicalActivePath 'A17 honest control'
+  Move-TestPathExact $A17 $script:BoundaryCanonicalActivePath 'workorders/active/WORKORDER_21.MD' -CaseOnly
+  $A17Head = Commit-TestRepository $A17 'canonical extension case'
+  Invoke-UnitABoundaryCase -Name 'extension_case_rejected' -Repository $A17 `
+    -Base $A17.Anchor -Head $A17Head -PairFactory (New-ValidPairFactory $A17.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A18 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A18 $A18.Anchor $script:BoundaryCanonicalActivePath 'A18 honest control'
+  Move-TestPathExact $A18 $script:BoundaryCanonicalActivePath 'workorders/active/WORKORDER_21.md.bak'
+  $A18Head = Commit-TestRepository $A18 'canonical suffix path'
+  Invoke-UnitABoundaryCase -Name 'canonical_suffix_rejected' -Repository $A18 `
+    -Base $A18.Anchor -Head $A18Head -PairFactory (New-ValidPairFactory $A18.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A19 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A19 $A19.Anchor $script:BoundaryCanonicalActivePath 'A19 honest control'
+  $A19Object = Invoke-TestGit $A19.Path @('rev-parse', "$($A19.Anchor):$script:BoundaryCanonicalActivePath")
+  Invoke-TestGit $A19.Path @('update-index', '--force-remove', '--', $script:BoundaryCanonicalActivePath) | Out-Null
+  Set-TestRawIndexEntry $A19 '100644' $A19Object 'workorders\active\WORKORDER_21.md'
+  Invoke-TestGit $A19.Path @('commit', '--quiet', '-m', 'literal backslash work order path') | Out-Null
+  $A19Head = Invoke-TestGit $A19.Path @('rev-parse', 'HEAD')
+  Invoke-UnitABoundaryCase -Name 'backslash_separator_rejected' -Repository $A19 `
+    -Base $A19.Anchor -Head $A19Head -PairFactory (New-ValidPairFactory $A19.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A20 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A20 $A20.Anchor $script:BoundaryCanonicalActivePath 'A20 honest control'
+  [void][System.IO.Directory]::CreateDirectory((Join-Path $A20.Path 'workorders/pending'))
+  Move-TestPathExact $A20 $script:BoundaryCanonicalActivePath 'workorders/pending/WORKORDER_21.md'
+  $A20Head = Commit-TestRepository $A20 'unrecognized work order directory'
+  Invoke-UnitABoundaryCase -Name 'unrecognized_directory_rejected' -Repository $A20 `
+    -Base $A20.Anchor -Head $A20Head -PairFactory (New-ValidPairFactory $A20.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A21 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A21 $A21.Anchor $script:BoundaryCanonicalActivePath 'A21 honest control'
+  Write-TestText (Join-Path $A21.Path 'link-target.txt') "target`n"
+  $A21Object = Invoke-TestGit $A21.Path @('hash-object', '-w', 'link-target.txt')
+  Invoke-TestGit $A21.Path @('rm', '--cached', '--quiet', $script:BoundaryCanonicalActivePath) | Out-Null
+  Invoke-TestGit $A21.Path @('update-index', '--add', '--cacheinfo', "120000,$A21Object,$script:BoundaryCanonicalActivePath") | Out-Null
+  Invoke-TestGit $A21.Path @('commit', '--quiet', '-m', 'canonical active symlink replacement') | Out-Null
+  $A21Head = Invoke-TestGit $A21.Path @('rev-parse', 'HEAD')
+  Invoke-UnitABoundaryCase -Name 'active_symlink_rejected' -Repository $A21 `
+    -Base $A21.Anchor -Head $A21Head -PairFactory (New-ValidPairFactory $A21.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A22 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A22 $A22.Anchor $script:BoundaryCanonicalActivePath 'A22 honest control'
+  Invoke-TestGit $A22.Path @('rm', '--cached', '--quiet', $script:BoundaryCanonicalActivePath) | Out-Null
+  Invoke-TestGit $A22.Path @('update-index', '--add', '--cacheinfo', "160000,$($A22.Anchor),$script:BoundaryCanonicalActivePath") | Out-Null
+  Invoke-TestGit $A22.Path @('commit', '--quiet', '-m', 'canonical active submodule replacement') | Out-Null
+  $A22Head = Invoke-TestGit $A22.Path @('rev-parse', 'HEAD')
+  Invoke-UnitABoundaryCase -Name 'active_submodule_rejected' -Repository $A22 `
+    -Base $A22.Anchor -Head $A22Head -PairFactory (New-ValidPairFactory $A22.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A23 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A23 $A23.Anchor $script:BoundaryCanonicalActivePath 'A23 honest control'
+  Invoke-TestGit $A23.Path @('rm', '--quiet', $script:BoundaryCanonicalActivePath) | Out-Null
+  $A23Head = Commit-TestRepository $A23 'delete canonical active without successor'
+  Invoke-UnitABoundaryCase -Name 'active_deletion_without_successor_full' -Repository $A23 `
+    -Base $A23.Anchor -Head $A23Head -PairFactory (New-ValidPairFactory $A23.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A24 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A24 $A24.Anchor $script:BoundaryCanonicalActivePath 'A24 honest control'
+  Move-TestPathExact $A24 $script:BoundaryCanonicalActivePath 'workorders/active/WORKORDER_22.md'
+  $A24Head = Commit-TestRepository $A24 'bare canonical active rename'
+  Assert-ResolvedActivePath $A24 $A24Head 'workorders/active/WORKORDER_22.md' 'A24 renamed child control'
+  Invoke-UnitABoundaryCase -Name 'active_rename_without_successor_full' -Repository $A24 `
+    -Base $A24.Anchor -Head $A24Head -PairFactory (New-ValidPairFactory $A24.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A25 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A25 $A25.Anchor $script:BoundaryCanonicalActivePath 'A25 honest control'
+  Write-TestText (Join-Path $A25.Path $script:BoundaryCanonicalActivePath) (
+    New-TestWorkOrderText -Status ' active status changed'
+  )
+  $A25Closed = [System.IO.File]::ReadAllText((Join-Path $A25.Path $script:BoundaryCanonicalClosedPath))
+  Write-TestText (Join-Path $A25.Path $script:BoundaryCanonicalClosedPath) (
+    $A25Closed.Replace('Executable requirements stay frozen.', 'Executable requirements changed.')
+  )
+  $A25Head = Commit-TestRepository $A25 'status plus closed edit'
+  Invoke-UnitABoundaryCase -Name 'status_plus_closed_edit_full' -Repository $A25 `
+    -Base $A25.Anchor -Head $A25Head -PairFactory (New-ValidPairFactory $A25.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A26 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A26 $A26.Anchor $script:BoundaryCanonicalActivePath 'A26 honest control'
+  Write-TestText (Join-Path $A26.Path $script:BoundaryCanonicalActivePath) (
+    New-TestWorkOrderText -Status ' active status changed'
+  )
+  Move-TestPathExact $A26 $script:BoundaryCanonicalClosedPath 'workorders/closed/WORKORDER_22.md'
+  $A26Head = Commit-TestRepository $A26 'status plus closed work order move'
+  Invoke-UnitABoundaryCase -Name 'status_plus_workorder_move_full' -Repository $A26 `
+    -Base $A26.Anchor -Head $A26Head -PairFactory (New-ValidPairFactory $A26.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A27 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A27 $A27.Anchor $script:BoundaryCanonicalActivePath 'A27 honest control'
+  Write-TestText (Join-Path $A27.Path $script:BoundaryCanonicalActivePath) (New-TestWorkOrderText -Inactive)
+  $A27Head = Commit-TestRepository $A27 'remove canonical active marker'
+  Invoke-UnitABoundaryCase -Name 'canonical_active_marker_removed_full' -Repository $A27 `
+    -Base $A27.Anchor -Head $A27Head -PairFactory (New-ValidPairFactory $A27.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $A28 = New-CanonicalTestRepository $TestRoot
+  Assert-ResolvedActivePath $A28 $A28.Anchor $script:BoundaryCanonicalActivePath 'A28 honest control'
+  Move-TestPathExact $A28 $script:BoundaryCanonicalActivePath 'workorders/closed/WORKORDER_21.md'
+  Write-TestText (Join-Path $A28.Path 'workorders/active/WORKORDER_22.md') (
+    New-TestWorkOrderText -Status ' successor with retained predecessor marker'
+  )
+  $A28Head = Commit-TestRepository $A28 'retain predecessor marker during successor issuance'
+  Invoke-UnitABoundaryCase -Name 'successor_retained_predecessor_marker_rejected' -Repository $A28 `
+    -Base $A28.Anchor -Head $A28Head -PairFactory (New-ValidPairFactory $A28.Anchor) `
+    -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
+
+  $ExpectedUnitANames = @(
+    'canonical_nested_header_only_fast',
+    'canonical_nested_gate_only_fast',
+    'canonical_nested_two_commit_chain_fast',
+    'canonical_non_status_full',
+    'legacy_to_canonical_migration_full',
+    'canonical_successor_issuance_full',
+    'canonical_adjacent_workordering_ignored',
+    'closed_marker_rejected',
+    'closed_copy_cannot_become_active',
+    'two_active_candidates_rejected',
+    'duplicate_repository_marker_rejected',
+    'mixed_layout_ambiguity_rejected',
+    'canonical_unnumbered_active_rejected',
+    'canonical_leading_zero_rejected',
+    'active_directory_case_rejected',
+    'closed_directory_case_rejected',
+    'extension_case_rejected',
+    'canonical_suffix_rejected',
+    'backslash_separator_rejected',
+    'unrecognized_directory_rejected',
+    'active_symlink_rejected',
+    'active_submodule_rejected',
+    'active_deletion_without_successor_full',
+    'active_rename_without_successor_full',
+    'status_plus_closed_edit_full',
+    'status_plus_workorder_move_full',
+    'canonical_active_marker_removed_full',
+    'successor_retained_predecessor_marker_rejected'
+  )
+  $ActualUnitANames = @($script:UnitACaseResults | ForEach-Object { $_.Name })
+  Assert-BoundaryTest (
+    ($ActualUnitANames -join "`n") -ceq ($ExpectedUnitANames -join "`n")
+  ) 'Unit A case names or direct invocation order changed'
+  Assert-BoundaryTest (
+    (Get-OrdinalUniqueCount $ActualUnitANames) -eq 28
+  ) 'Unit A case names are not exactly 28 unique values'
+  Assert-BoundaryTest (
+    @($script:UnitACaseResults | Where-Object { $_.Mode -ceq 'fast' -and $_.Reason -ceq 'eligible_status_chain' }).Count -eq 4
+  ) 'Unit A fast case count is not exactly four'
+  Assert-BoundaryTest (
+    @($script:UnitACaseResults | Where-Object { $_.Mode -ceq 'full' -and $_.Reason -ceq 'no_status_transition' }).Count -eq 24
+  ) 'Unit A full case count is not exactly twenty-four'
+  Assert-BoundaryTest (
+    (Get-OrdinalUniqueCount @($script:BoundaryCaseNames)) -eq $script:ExpectedBoundaryTestCount
+  ) 'final Work Order status-boundary names are not unique'
+  Assert-BoundaryTest (
+    (@($script:BoundaryCaseNames | Select-Object -First 123) -join "`n") -ceq ($PublishedBoundaryNames -join "`n")
+  ) 'published Work Order status-boundary names were renamed or reordered'
 
   Assert-BoundaryTest ($script:BoundaryTestCount -gt 0) 'Work Order status-boundary selector executed zero cases'
   Assert-BoundaryTest (
