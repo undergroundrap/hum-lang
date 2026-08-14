@@ -2,35 +2,27 @@
 
 Date: 2026-08-13
 <!-- hum-active-workorder:v1 -->
-Status: Work Order 21 planning is independently accepted, committed, published,
-and terminal-green. The accepted planning package was committed as
-`a0ff6466b43f46afe3341e3e8453313dc954845c` and published by a normal
-non-force fast-forward of `main` only. Workflow `ci`, run `31762233813`, attempt
-1, tested that exact SHA and concluded `success`. Ubuntu job `94650838755` and
-Windows job `94650838773` both succeeded, selected `mode=full` with
-`reason=no_status_transition`, and completed the required full preflight. Unit
-A was subsequently authorized, implemented, and independently reviewed. That
-candidate review returned `ACCEPT WITH REQUIRED FIX`: P0 and P2 were empty,
-while the sole P1 found that repository-wide marker counting used `git grep -I`
-and could ignore an exact marker line inside a Git-classified binary blob. The
-complete implementation remains unchanged in stash
-`799d4eaa2fb473633b41bbf17ad82e67fe2386a3`, with scoped two-path tree
-`2ac3a52f056e0c705c1b689c7bc06b4845aa0748`, production blob
-`64a66f49a40d423cb6aa60d577e77843bd280d15`, and test blob
-`481ae5752671f67610170cebc3f9f730b09f1101`. The first binary-marker amendment
-review found only that its two-state A11 fixture was not load-bearing. The
-corrected three-state amendment was independently accepted and committed as
-`bc4bbf7538fcf977772e887150655c7816f5232c`. That exact commit was published
-by a normal non-force fast-forward of `main` only. Workflow `ci`, run
-`31819289956`, attempt 1, tested that exact SHA and concluded `success`. Ubuntu
-job `94828415231` and Windows job `94828415241` both succeeded, selected
-`mode=full` with `reason=no_status_transition`, and completed the required full
-preflight. The independent-review Fast allowance remains unconsumed. The sole
-current authorization is creation of this local publication-status commit.
-Candidate restoration or correction requires separate publication of this
-status commit, terminal-green fast-lane CI, and a fresh explicit BDFL Unit A
-correction-resumption signal. Unit B, Unit C, migration, stash mutation, Work
-Order movement, and all later work remain unauthorized.
+Status: Work Order 21 planning and Unit A are independently accepted,
+committed, published, and terminal-green. Unit A was committed as
+`d0cf9bac19871949bb6439ecc6049711d7a4380f`, with parent
+`35ab15a47fab5a4a456513eab39a719108daacae`, subject
+`ci(workorders): support nested work order layouts`, exactly two paths, and
+statistics `+817/-54`. It was published by one normal non-force fast-forward of
+`main` only. Workflow `ci`, run `31838787240`, attempt 1, tested that exact SHA
+and concluded `success`. Ubuntu job `94890940249` and Windows job
+`94890940168` both succeeded, selected `mode=full` with
+`reason=no_status_transition`, passed the exact 151-invocation/151-unique-name
+classifier inventory twice deterministically, and retained Unit A's exact 28
+cases as four fast and 24 full. Both passed binary-safe A11, the separate
+visible duplicate-marker case, text hygiene and public readiness for 533
+files, alpha claims, and release readiness `0.0.1`. Ubuntu passed the 14,226-
+pair Exhaustive producer; Windows skipped only that duplicate producer. The
+sole current authorization is creation of this one-file local Unit A
+publication-status commit. Unit B remains unauthorized until this exact status
+commit is separately published, its required Ubuntu and Windows fast-lane CI
+is terminal-green, and the BDFL issues a fresh explicit Unit B signal. Unit C,
+migration, stash mutation, Work Order movement, and all later work remain
+unauthorized and receive no implicit authority.
 Owner: BDFL (Ocean).
 
 ## Durable-consumer audit
@@ -1218,27 +1210,25 @@ probe, or migration simulation is authorized during planning authorship.
 
 ## Current authorization gate
 
-The sole current authorization is creation of this one-file local publication-
-status commit for the independently accepted binary-marker amendment. The
-amendment is commit `bc4bbf7538fcf977772e887150655c7816f5232c` and was
-published by a normal non-force fast-forward of `main` only. Workflow `ci`, run
-`31819289956`, attempt 1, tested that exact SHA and concluded `success`. Ubuntu
-job `94828415231` and Windows job `94828415241` both succeeded, selected
-`mode=full` with `reason=no_status_transition`, and completed the required full
-preflight.
+The sole current authorization is creation of this one-file local Unit A
+publication-status commit. Unit A was independently accepted, committed as
+`d0cf9bac19871949bb6439ecc6049711d7a4380f`, and published by one normal
+non-force fast-forward of `main` only. Workflow `ci`, run `31838787240`, attempt
+1, tested that exact SHA and concluded `success`. Ubuntu job `94890940249` and
+Windows job `94890940168` both succeeded, selected `mode=full` with
+`reason=no_status_transition`, passed the exact 151/151 classifier inventory
+twice deterministically, and retained Unit A's exact four-fast/24-full split.
+Both passed binary-safe A11, the separate visible duplicate-marker case, text
+hygiene and public readiness for 533 files, alpha claims, and release readiness
+`0.0.1`. Ubuntu passed 14,226 Exhaustive pairs; Windows skipped only the
+duplicate platform-independent producer.
 
-The exact Unit A implementation remains parked and unchanged in stash
-`799d4eaa2fb473633b41bbf17ad82e67fe2386a3`; its scoped tree and two
-implementation blobs remain the identities recorded above. The independent-
-review Fast allowance remains unconsumed. Candidate restoration or correction
-is unauthorized until this exact status commit is separately published, its
-required Ubuntu and Windows fast-lane CI is terminal-green, and the BDFL then
-issues a fresh explicit Unit A correction-resumption signal.
-
-This status commit grants no push, stash apply/pop/drop/reorder, candidate
-restoration, code correction, Fast, Unit B, Unit C, migration, Work Order
+Unit B remains unauthorized until this exact status commit is separately
+published, its required Ubuntu and Windows fast-lane CI is terminal-green, and
+the BDFL issues a fresh explicit Unit B signal. This status commit grants no
+push, stash apply/pop/drop/reorder, Unit B, Unit C, migration, Work Order
 movement, archive mutation, history rewriting, tags, evidence-harness
-consolidation, compiler work, or later activity. No next step follows
-implicitly.
+consolidation, compiler work, semantic-coordinate research, or later activity.
+No next step follows implicitly.
 
 <!-- workorder-current-authorization-gate:end -->
