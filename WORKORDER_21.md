@@ -2,10 +2,14 @@
 
 Date: 2026-08-13
 <!-- hum-active-workorder:v1 -->
-Status: Planning draft only. Work Order 20 is closed and published. This Work
-Order temporarily lives at the repository root so the published legacy control
-plane can issue and govern a reviewed migration. No migration unit is issued,
-implemented, staged, committed, or published by this draft.
+Status: Work Order 21 planning is independently accepted, committed, published,
+and terminal-green. The accepted planning package was committed as
+`a0ff6466b43f46afe3341e3e8453313dc954845c` and published by a normal
+non-force fast-forward of `main` only. Workflow `ci`, run `31762233813`, attempt
+1, tested that exact SHA and concluded `success`. Ubuntu job `94650838755` and
+Windows job `94650838773` both succeeded, selected `mode=full` with
+`reason=no_status_transition`, and completed the required full preflight. Unit
+A is the next planned unit but remains unauthorized.
 Owner: BDFL (Ocean).
 
 ## Durable-consumer audit
@@ -1018,25 +1022,26 @@ probe, or migration simulation is authorized during planning authorship.
 
 ## Current authorization gate
 
-Authorized now:
+The sole current authorization is creation of this local planning-publication
+status commit after the required document-only evidence. Nothing may be pushed
+under this gate.
 
-- this two-document planning draft;
-- document-only checks listed above; and
-- one fresh independent pre-issuance architect review of the frozen package.
+Unit A is the next planned unit but remains unauthorized. It may begin only
+after all three separate gates complete:
 
-Unauthorized now:
+1. this exact status commit is separately authorized for publication;
+2. its required fast-lane CI reaches terminal-green on Ubuntu and Windows; and
+3. the BDFL issues a fresh explicit Unit A resumption signal.
 
-- Unit A, B, or C implementation;
-- any classifier, test, policy, source, workflow, governance, or tool edit;
-- any Work Order move, rename, copy, deletion, or canonical-directory creation;
-- stage, commit, push, status record, publication, CI, tag, or archive mutation;
-- stash operation or history rewrite;
-- successor planning, evidence-harness consolidation, WO20 Unit B retry, or
-  compiler work; and
-- any action after review without a new explicit BDFL signal.
+Unit B, Unit C, migration activity, successor planning, evidence-harness
+consolidation, compiler work, Work Order movement, classifier or policy edits,
+stash operations, archive mutation, history rewriting, tags, and all later work
+remain unauthorized. This status record changes no planning requirement,
+consumer audit, case ledger, budget, topology, subject, exclusion, or stop
+condition.
 
-The next eligible role is one fresh independent WO21 pre-issuance
-architect-reviewer. Because the author created these bytes, this document
-issues no verdict.
+The next eligible gate is separately authorized publication of the exact local
+status commit followed by terminal fast-lane CI. That eligibility is not
+publication authority and does not authorize Unit A automatically.
 
 <!-- workorder-current-authorization-gate:end -->
