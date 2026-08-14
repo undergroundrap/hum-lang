@@ -9,7 +9,20 @@ non-force fast-forward of `main` only. Workflow `ci`, run `31762233813`, attempt
 1, tested that exact SHA and concluded `success`. Ubuntu job `94650838755` and
 Windows job `94650838773` both succeeded, selected `mode=full` with
 `reason=no_status_transition`, and completed the required full preflight. Unit
-A is the next planned unit but remains unauthorized.
+A was subsequently authorized, implemented, and independently reviewed. That
+candidate review returned `ACCEPT WITH REQUIRED FIX`: P0 and P2 were empty,
+while the sole P1 found that repository-wide marker counting used `git grep -I`
+and could ignore an exact marker line inside a Git-classified binary blob. The
+first binary-marker amendment was then independently reviewed and also returned
+`ACCEPT WITH REQUIRED FIX`: P0 and P2 were empty, while the sole P1 found that
+its two-state A11 fixture was not load-bearing because adding `hidden.bin`
+inside the measured transition independently forced full mode. The reviewer
+proved the required three-state fixture satisfiable. No semantic, path-layout,
+or raw-byte-architecture defect was found. The complete candidate remains
+unchanged in stash `799d4eaa2fb473633b41bbf17ad82e67fe2386a3`; Fast remains
+unconsumed. Only this bounded A11 fixture correction and its document checks
+are authorized. Candidate restoration, code correction, Fast, Unit B, Unit C,
+migration, and later work remain unauthorized.
 Owner: BDFL (Ocean).
 
 ## Durable-consumer audit
@@ -179,7 +192,9 @@ does not permit an unnumbered Work Order.
 
 All three units preserve these requirements:
 
-1. Exactly one active-marker line exists repository-wide.
+1. Exactly one active-marker line exists repository-wide across the raw bytes
+   of every committed blob entry, independent of Git text/binary
+   classification.
 2. The marker appears exactly once in the sole valid active Work Order and
    immediately precedes its unique status anchor.
 3. Closed Work Orders never carry the active marker.
@@ -312,6 +327,8 @@ and the Unit B migration remain governable. It is not the final contract.
 `Resolve-ActiveWorkOrderBlob` or its reviewed replacement must:
 
 - parse recursive `git ls-tree` inventory fail-closed;
+- inspect every tree entry whose object type is `blob` through raw Git object
+  plumbing and count exact active-marker-line occurrences per tree entry;
 - reject malformed or ambiguous Work-Order-like paths before selecting a file;
 - require regular `100644` blobs;
 - decode strict UTF-8 without BOM;
@@ -344,7 +361,7 @@ published classifier reasons; Unit A needs no new reason vocabulary.
 | A08 | `closed_marker_rejected` | Valid canonical tree | Move the sole marker from active WO21 into closed WO20, leaving exactly one marker but in the wrong class | `full` | `no_status_transition` | Marker-to-active-directory binding | adversarial |
 | A09 | `closed_copy_cannot_become_active` | Valid canonical tree with closed unmarked WO20 and marked active WO21 | Replace the active file with an exact unmarked copy of closed WO20 at `workorders/active/WORKORDER_20.md` | `full` | `no_status_transition` | Closed bytes copied into active cannot acquire authority | adversarial |
 | A10 | `two_active_candidates_rejected` | Valid canonical tree | Add one distinct unmarked numbered active candidate while retaining the sole marked active candidate | `full` | `no_status_transition` | Active-candidate cardinality is exactly one | adversarial |
-| A11 | `duplicate_repository_marker_rejected` | Valid canonical tree | Add a second marker line to the sole active file | `full` | `no_status_transition` | Repository-wide marker cardinality is exactly one | adversarial |
+| A11 | `duplicate_repository_marker_rejected` | Three-state fixture: State 1 is a valid canonical control with the sole legitimate marker, no `hidden.bin`, no other marker occurrence, and its active path proven resolvable; State 2 is a committed corruption anchor derived by adding only regular `100644` `hidden.bin`, whose raw bytes contain at least one NUL and exactly one standalone ASCII marker line, while retaining the legitimate marker unchanged | From the corruption anchor, retain `hidden.bin` byte-identically and change only the recognized `Status:` body in the same canonical active Work Order; commit this State 3 adjacent child; the measured anchor-to-child diff is exactly one `M workorders/active/WORKORDER_21.md` record, and the single classifier invocation measures State 2 to State 3 | `full` | `no_status_transition` | Repository-wide marker cardinality counts exact marker-line occurrences in every committed blob entry regardless of path or Git text/binary classification | adversarial |
 | A12 | `mixed_layout_ambiguity_rejected` | Valid legacy root tree with one marked active | Add one unmarked canonical active candidate while retaining the legacy inventory | `full` | `no_status_transition` | A single tree cannot mix legacy and canonical candidates | adversarial |
 | A13 | `canonical_unnumbered_active_rejected` | Valid canonical tree | Rename active WO21 to `workorders/active/WORKORDER.md` | `full` | `no_status_transition` | Canonical Work Orders must be numbered | adversarial |
 | A14 | `canonical_leading_zero_rejected` | Valid canonical tree | Rename active WO21 to `workorders/active/WORKORDER_021.md` | `full` | `no_status_transition` | Canonical numbers forbid leading zero | adversarial |
@@ -396,6 +413,13 @@ A01, A02, A03, and A07 are the only new fast cases. Exactly 4 new cases are
 `fast/eligible_status_chain`; exactly 24 are `full/no_status_transition`.
 Therefore the exact Unit A arithmetic remains `123 + 28 = 151`.
 
+A11 retains its ordinal, stable name, full result, owned repository-wide
+marker-cardinality property, and one direct credited invocation. Its amended
+three-state binary-blob fixture does not create A29 or another credit. The
+published case `duplicate active marker is full` remains separately credited
+and continues to cover a visible second marker inside the active Work Order.
+A11 alone covers the independent binary-classification bypass described below.
+
 For every adversarial row, the honest control must first reach the intended
 resolver/classifier branch; the child then mutates only the row's owned
 property. Deleting or weakening the corresponding production check must make
@@ -438,6 +462,162 @@ No Work Order move or edit; no `AGENTS.md` change; no diagnostic-catalog change;
 no workflow or preflight-wrapper change; no compiler/source change; no status
 record inside the implementation commit; no archive/stash operation; no Unit B
 work.
+
+### Binary-marker recovery amendment (BDFL-directed, 2026-08-14)
+
+The first complete Unit A candidate was independently reviewed at the exact
+published baseline `77974e7c576e298a4fb67b6ec8d5f88035582f2a`. The verdict was
+`ACCEPT WITH REQUIRED FIX`: P0 and P2 were empty, and the sole P1 was that
+repository-wide marker counting used `git grep -I`. Because `-I` ignores
+Git-classified binary blobs, a committed `hidden.bin` containing a NUL byte and
+one exact standalone marker line admitted an otherwise exact status transition
+as `fast/eligible_status_chain` even though two repository-wide marker
+occurrences existed. The permanent 151-case suite and every other focused
+review probe passed. The reviewer did not invoke Fast, so the single direct
+independent-review Fast allowance remains unconsumed.
+
+The first amendment review also returned `ACCEPT WITH REQUIRED FIX`, with no P0
+or P2. Its sole P1 was that adding `hidden.bin` in A11's measured parent-to-child
+diff independently forced full mode under the classifier's exact one-record
+gate. Both the binary-safe implementation and a defective `git grep -I`
+mutation therefore returned `full/no_status_transition`, so the two-state
+fixture could not make the marker-count boundary load-bearing. The reviewer
+independently demonstrated that committing the corruption anchor first and
+then measuring its adjacent status-only child yields honest full and weakened
+fast behavior. This is a fixture correction only; the accepted raw-byte
+production architecture remains unchanged.
+
+The candidate was parked without modification as follows:
+
+- stash commit: `799d4eaa2fb473633b41bbf17ad82e67fe2386a3`;
+- first parent: `77974e7c576e298a4fb67b6ec8d5f88035582f2a`;
+- complete tree: `ee9a392827a5c707962eaef5626d6b429a992f58`;
+- scoped two-path tree: `2ac3a52f056e0c705c1b689c7bc06b4845aa0748`;
+- production blob: `64a66f49a40d423cb6aa60d577e77843bd280d15`;
+- test blob: `481ae5752671f67610170cebc3f9f730b09f1101`;
+- raw statistics: `+677/-55`; and
+- whitespace-insensitive statistics: `+674/-52`.
+
+The amendment changes A11's fixture only. It does not add A29, increase the
+151-case inventory, rename A11, or transfer its credit. Revised A11 has this
+exact three-state contract.
+
+State 1 - valid canonical control:
+
+1. Start from a valid canonical tree whose numbered active Work Order owns the
+   sole legitimate marker.
+2. `hidden.bin` does not exist, no other exact marker occurrence exists, and
+   the exact canonical active path is independently proven to resolve normally.
+
+State 2 - corruption anchor:
+
+3. Starting from State 1, add only one regular `100644` non-Work-Order blob at
+   exact path `hidden.bin` and commit that tree as the corruption anchor.
+4. `hidden.bin` contains at least one NUL byte and exactly one standalone ASCII
+   line `<!-- hum-active-workorder:v1 -->`; the legitimate active marker remains
+   unchanged.
+5. Raw Git-object inspection independently proves both the NUL byte and exact
+   marker line. The binary-safe implementation must reject repository-wide
+   marker cardinality at this anchor.
+
+State 3 - adjacent status child:
+
+6. Starting from the corruption anchor, retain `hidden.bin` byte-identically,
+   change only the recognized `Status:` body in the same canonical active Work
+   Order, and commit that tree as the adjacent child.
+7. The measured corruption-anchor-to-adjacent-child diff contains exactly one
+   record: `M workorders/active/WORKORDER_21.md`.
+8. A11's single credited classifier invocation measures only the corruption
+   anchor to the adjacent child.
+9. Honest classification is exactly `mode=full` and
+   `reason=no_status_transition`, with empty anchor and transitions and zero
+   run, attempt, Ubuntu-job, and Windows-job bindings. The full result must be
+   attributable to marker cardinality, not diff shape.
+10. A11 owns repository-wide exact marker-line counting across every committed
+    blob entry regardless of path or Git text/binary classification.
+
+The production correction must not use `git grep -I`, filesystem reads, text
+decoding, or Git's text/binary classification as marker-count authority. It
+must enumerate the committed tree through exact Git object plumbing and inspect
+the raw bytes of every entry whose object type is `blob`, including regular
+`100644`, executable `100755`, and symlink `120000` blob entries. Counting is
+per tree entry, not per unique blob OID: one blob referenced at two paths
+represents two repository occurrences. Submodule `160000` commit entries have
+no blob bytes and are not decoded as blobs.
+
+An occurrence counts only when the raw byte line equals the exact ASCII marker
+bytes, preceded by start-of-blob or LF and followed by LF or end-of-blob. CR,
+prefixes, suffixes, and marker-like substrings do not count. A NUL or other
+binary byte elsewhere in the blob cannot hide an exact marker line. Any tree
+enumeration, object-type validation, or blob-read failure fails closed. The
+existing strict UTF-8, BOM, LF framing, final-LF, and marker-position checks for
+the selected Work Order remain unchanged.
+
+The corrected evidence must be load-bearing:
+
+- State 1 resolves normally with exactly one marker;
+- State 2 adds only `hidden.bin`, commits the corruption anchor, preserves the
+  legitimate marker, and independently proves the NUL and exact marker line;
+- State 3 retains `hidden.bin` byte-identically, changes only the recognized
+  status body, and produces exactly one measured active-Work-Order `M` record;
+- exact A11 measures State 2 to State 3 and returns
+  `full/no_status_transition` with empty/zero bindings;
+- a disposable mutation that restores `git grep -I`, skips NUL-containing
+  blobs, or otherwise excludes Git-classified binary blobs must make both
+  measured endpoints incorrectly resolve the same canonical active path and
+  make exact A11 return `fast/eligible_status_chain`;
+- the weakened result must carry the expected nonzero synthetic run, attempt,
+  Ubuntu-job, and Windows-job bindings; its anchor must be the corruption-anchor
+  commit and its transitions field must be exactly
+  `corruption-anchor>adjacent-child`;
+- the mutation must make A11 fail at its expected-full assertion. Because
+  `hidden.bin` is present byte-identically in both measured endpoints and its
+  addition is outside the measured transition, the only honest/weakened
+  difference is whether binary marker bytes participate in repository-wide
+  cardinality;
+- that mutation reaches the marker-count boundary and does not fail through
+  syntax, fixture construction, path resolution, Git plumbing, or unrelated
+  behavior; and
+- the published visible duplicate-marker case remains green.
+
+Inventory arithmetic remains exact: 123 published cases plus 28 Unit A cases
+equals 151 invocations and 151 unique stable names. Unit A remains exactly four
+fast and 24 full cases, with A11 among the 24 full cases. Unit C must retain
+revised binary-safe A11 and the published visible duplicate-marker case when it
+removes the legacy fallback. The Unit C six-for-six rollover and final
+`119 + 26 + 6 = 151` composition remain unchanged. No extra credited case,
+alias, or renamed credit is permitted.
+
+The existing Unit A ceilings remain authoritative. The parked candidate uses
+`+142/-46` production, `+535/-9` tests, and `+677/-55` combined; ignoring
+whitespace it uses `+139/-43`, `+535/-9`, and `+674/-52`. The correction must
+remain within production `+260/-80`, tests `+900/-180`, and combined
+`+1,160/-260`, under both raw and whitespace-insensitive accounting. The
+amendment grants no extra path or line budget.
+
+Recovery follows exactly this separately gated lifecycle:
+
+1. Author this amendment in `WORKORDER_21.md` only.
+2. Obtain one fresh independent amendment review.
+3. Under separate BDFL authority, create one local commit with subject
+   `docs(workorder): require binary-safe marker counting`.
+4. Separately publish that exact amendment and obtain terminal-green full CI.
+5. Create a separate publication-status commit.
+6. Separately publish that status commit and obtain terminal-green fast CI.
+7. Obtain a fresh explicit BDFL Unit A correction-resumption signal.
+8. Apply, but do not pop, stash
+   `799d4eaa2fb473633b41bbf17ad82e67fe2386a3`.
+9. Authenticate the exact parked two-file candidate.
+10. Correct only the two Unit A tool files.
+11. Prove revised A11's exact three-state construction, honest full result,
+    weakening-mutation fast result with exact synthetic bindings, the 151-case
+    inventory, all budgets, and every standing check.
+12. Leave the corrected candidate unstaged for a fresh independent review.
+13. Preserve the single direct reviewer Fast allowance for that fresh review;
+    the prior review did not consume it.
+14. Keep Unit B unauthorized until the complete Unit A
+    commit/publication/status lifecycle finishes and a new BDFL signal is
+    issued.
 
 ## Unit B - content-preserving repository migration
 
@@ -749,6 +929,13 @@ C04, C05, and C12. The arithmetic is exactly `151 - 6 + 6 = 151` and
 `119 + 26 + 6 = 151`. The final inventory must contain exactly 151 direct
 invocations and 151 unique stable names.
 
+The retained A11 is the amended binary-safe
+`duplicate_repository_marker_rejected` fixture. Unit C must preserve its raw
+per-entry blob scan and the three-state corruption-anchor-to-adjacent-child
+weakening proof. The separately credited published
+`duplicate active marker is full` case remains the visible same-Work-Order
+duplicate fixture; neither credit aliases or replaces the other.
+
 Unit C's permanent report must identify the four retired published names
 verbatim, retired Unit A names A05 and A12, added names C01 through C05 and C12,
 starting count 151, retired count 6, added count 6, final invocation count 151,
@@ -888,7 +1075,8 @@ not delete or combine these rows.
 | Marker placed in `workorders/closed` | A, C | classifier suite | fail closed/full |
 | Closed file copied into active | A, B, C | classifier/tree evidence | fail closed/full |
 | Two active numbered files | A, C | classifier suite | fail closed/full |
-| Two active markers | A, B, C | classifier/tree evidence | fail closed/full |
+| Visible second marker in the active Work Order | A, B, C | published `duplicate active marker is full` | fail closed/full |
+| Exact marker line retained byte-identically in a Git-classified binary non-Work-Order blob across a measured status-only transition | A, C | revised three-state binary-safe A11 and its weakening mutation | honest fail closed/full; binary-excluding mutation fast |
 | Mixed legacy/canonical tree | A | classifier suite | fail closed/full |
 | Root Work Order reintroduced beside valid canonical authority | C | exact replacement case C05 | fail closed/full |
 | Legacy-root parent after fallback removal | C | exact replacement case C12 | full, `no_status_transition` |
@@ -1022,26 +1210,27 @@ probe, or migration simulation is authorized during planning authorship.
 
 ## Current authorization gate
 
-The sole current authorization is creation of this local planning-publication
-status commit after the required document-only evidence. Nothing may be pushed
-under this gate.
+The sole current authorization is authorship of this one-file A11 fixture
+correction and its document-only evidence. Unit A was implemented and reviewed;
+the candidate review found the binary-marker bypass, and the first amendment
+review found only that the two-state fixture was not load-bearing because the
+`hidden.bin` addition itself forced full mode. No semantic, path-layout, or
+raw-byte-architecture defect was found, and the exact unmodified candidate is
+parked in stash `799d4eaa2fb473633b41bbf17ad82e67fe2386a3`.
 
-Unit A is the next planned unit but remains unauthorized. It may begin only
-after all three separate gates complete:
+After document authorship stops, the next eligible gate is one fresh
+independent review of the exact unstaged amendment. Only an unqualified
+acceptance may return it to the BDFL for separately authorized local commit
+creation with subject
+`docs(workorder): require binary-safe marker counting`. Review eligibility is
+not commit or publication authority.
 
-1. this exact status commit is separately authorized for publication;
-2. its required fast-lane CI reaches terminal-green on Ubuntu and Windows; and
-3. the BDFL issues a fresh explicit Unit A resumption signal.
-
-Unit B, Unit C, migration activity, successor planning, evidence-harness
-consolidation, compiler work, Work Order movement, classifier or policy edits,
-stash operations, archive mutation, history rewriting, tags, and all later work
-remain unauthorized. This status record changes no planning requirement,
-consumer audit, case ledger, budget, topology, subject, exclusion, or stop
-condition.
-
-The next eligible gate is separately authorized publication of the exact local
-status commit followed by terminal fast-lane CI. That eligibility is not
-publication authority and does not authorize Unit A automatically.
+Candidate restoration or correction, stash apply/pop/drop/reorder, Fast,
+publication, status editing, Unit B, Unit C, migration, Work Order movement,
+archive mutation, history rewriting, tags, evidence-harness consolidation,
+compiler work, and all later activity remain unauthorized. Unit A correction
+may resume only after the complete amendment commit/publication/status chain is
+terminal-green and the BDFL issues a fresh explicit signal following the
+14-step lifecycle above.
 
 <!-- workorder-current-authorization-gate:end -->
