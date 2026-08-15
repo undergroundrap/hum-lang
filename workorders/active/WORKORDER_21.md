@@ -5,38 +5,36 @@ Date: 2026-08-13
 Status: Work Order 21 planning, Unit A, and Unit B are independently accepted,
 committed, published, status-recorded, and terminal-green. The first Unit C
 harness-recovery amendment and its publication-status lifecycle are also
-terminal-green. Its status commit
-`7877e346ffc86418a14a06e5bf00aa7741311eae`, with parent
-`aad65f27e4092bea1d33daa9e8f84f2894e75ea7`, was published by a normal
-non-force `main`-only fast-forward. Workflow `ci`, run `31870788991`, attempt
-1, tested that exact SHA and concluded `success`. Ubuntu job `94978976470` and
-Windows job `94978976418` both selected the exact fast binding
-`mode=fast;reason=eligible_status_chain;anchor=aad65f27e4092bea1d33daa9e8f84f2894e75ea7;run_id=31868380939;run_attempt=1;ubuntu_job_id=94972895006;windows_job_id=94972895023;transitions=aad65f27e4092bea1d33daa9e8f84f2894e75ea7>7877e346ffc86418a14a06e5bf00aa7741311eae`,
-passed the exact 151-case deterministic inventory and all status-only document
-gates, and correctly skipped Cargo, Rust preparation, full preflight, and
-Exhaustive evidence.
+terminal-green. Unit C remains unaccepted, and its clean and rejected candidate
+stashes remain separately preserved and unchanged.
 
-After the required fresh recovery signal, the exact candidate at stash commit
-`b9093901b8c92c626c3c23ee1a52366d2e54f698` was restored without popping. Its
-production semantics and permanent 151-case matrix remained green, but its
-replacement mutation-evidence transport exceeded its local recovery budget and
-failed independent architectural review. That rejected candidate is preserved
-at stash commit `44262ceec1e895a3120133e8676387f2786ae3d0`; the clean candidate at
-`b9093901b8c92c626c3c23ee1a52366d2e54f698` remains separately preserved. The
-independent disposition was terminal `REDESIGN`, with no production-classifier
-semantic finding and no authority to raise a budget around the rejected
-transport. Unit C remains unaccepted. The sole current authorization is this
-one-file document-only evidence-transport redesign amendment and its disposable
-external projections. Implementation and every later lifecycle step remain
-separately gated and unauthorized.
+The Unit C evidence-transport redesign amendment was independently accepted.
+It was committed as `2619184469dc43748a42695a80866d0bbd9df1c6`, with parent
+`7877e346ffc86418a14a06e5bf00aa7741311eae`, subject
+`docs(workorder): redesign unit c evidence transport`, sole path
+`workorders/active/WORKORDER_21.md`, blob
+`b814d8d41717d6b9bebcc1d9d1f3fe4854b040c9`, and statistics `+952/-40`. It was
+published by one normal non-force `main`-only fast-forward.
 
-The first fresh independent review of the redesign returned
-ACCEPT WITH REQUIRED FIX with no P0 or P2 finding. It accepted the selected
-ownership-adversary architecture in substance, but found that the exact
-projected test bytes and 329-line ceiling could not be independently
-reconstructed from retained immutable inputs. The bounded correction below
-retains the architecture unchanged and embeds one canonical byte-complete
-patch plus a fail-closed reconstruction procedure for a fresh review.
+Workflow `ci`, run `31909076659`, attempt 1, tested exact SHA
+`2619184469dc43748a42695a80866d0bbd9df1c6` and concluded `success`. Ubuntu job
+`95071313852` and Windows job `95071313802` both selected the exact binding
+`mode=full;reason=no_status_transition;anchor=;run_id=0;run_attempt=0;ubuntu_job_id=0;windows_job_id=0;transitions=`.
+Both passed the required full preflight, exact 151-invocation and
+151-unique-name deterministic classifier inventory, Unit A four-fast/24-full
+accounting, binary-safe A11 and separate visible duplicate-marker evidence,
+canonical diagnostic-doctrine evidence, text hygiene and public readiness for
+533 files, alpha claims, release readiness 0.0.1, and all platform obligations.
+Ubuntu passed the 14,226-pair platform-independent Exhaustive producer; Windows
+correctly skipped only its duplicate. Both correctly skipped status-only
+evidence.
+
+The publication-status record and its exact local commit are the sole current
+lifecycle step. Publication of that status commit, terminal-green fast CI, a
+fresh explicit BDFL Unit C redesign-implementation signal, clean-stash
+restoration, implementation, Fast, independent review, acceptance, closeout,
+WO22, broad harness consolidation, semantic-coordinate research, and compiler
+work all remain separately gated and unauthorized.
 Owner: BDFL (Ocean).
 
 ## Durable-consumer audit
@@ -2339,29 +2337,20 @@ probe, or migration simulation is authorized during planning authorship.
 
 ## Current authorization gate
 
-The sole current authorization is the bounded one-file raw-byte decoder
-correction. It is complete only when CR and missing-final-LF mutations fail
-before any disposable side effect under both required Windows PowerShell
-versions, the honest retained artifact still reconstructs exact target blob
-`8d28cc9854863255719b7ccd55a42ea304afe6cf`, the focused architectural evidence
-and two complete 151-case executions pass, all document checks finish, every
-disposable artifact is removed, and the canonical repository contains exactly
-this unstaged Work Order edit.
+The sole current authorization is this one-file immutable publication-status
+record and its exact local commit with subject
+`docs(workorder): record unit c redesign publication`. Publication of that
+status commit and terminal-green fast Ubuntu and Windows CI remain separately
+gated and require a fresh explicit BDFL signal.
 
-The next gate is one fresh independent corrected-amendment review of both the
-document and its retained reconstruction artifact. No commit follows unless
-that reviewer returns an unqualified `ACCEPT`, and the exact proposed
-documentation subject remains
-`docs(workorder): redesign unit c evidence transport`. Amendment commit,
-publication, full CI, publication-status record, status publication, fast CI,
-clean-candidate restoration, implementation, matrix, mutations, Fast, Unit C
-acceptance, closeout, successor issuance, and all later work each remain
-separately gated.
-
-This document-author authority grants no stash apply/pop/drop/reorder,
-candidate edit, production or test-script edit, Cargo, classifier mutation,
-Fast, Exhaustive, CI, commit, push, archive mutation, broad harness
-consolidation, compiler work, semantic-coordinate research, WO22, or later
-activity. No next step follows implicitly.
+Even after terminal-green status CI, restoration of clean candidate stash
+`b9093901b8c92c626c3c23ee1a52366d2e54f698` and Unit C implementation require a
+fresh explicit BDFL Unit C redesign-implementation signal. Rejected stash
+`44262ceec1e895a3120133e8676387f2786ae3d0` remains preservation-only and may not
+be applied. No stash apply/pop/drop/reorder, candidate edit, production or test
+script edit, matrix or mutation execution, Cargo, Fast, Exhaustive, CI, push,
+archive mutation, Unit C acceptance, closeout, successor issuance, WO22, broad
+harness consolidation, compiler work, semantic-coordinate research, or later
+activity follows implicitly.
 
 <!-- workorder-current-authorization-gate:end -->
