@@ -3,30 +3,25 @@
 Date: 2026-08-13
 <!-- hum-active-workorder:v1 -->
 Status: Work Order 21 planning, Unit A, and Unit B are independently accepted,
-committed, published, and terminal-green. Unit B was committed as
-`3a43f0bd4bcf73f6e8082415d30411e1926feda5`, with parent
-`51cef1eeb7e04012fde85cd4e9079fcabfb64a35`, tree
-`c0921d37541adb38fbc102c6fcf54b5f0f47e5c4`, subject
-`chore(workorders): organize active and closed records`, exactly 15 change
-records comprising 13 `R100` renames and two ordinary modifications, and
-combined statistics `+64/-24`. It was published by one normal non-force
-fast-forward of `main` only. Workflow `ci`, run `31853438267`, attempt 1,
-tested that exact SHA and concluded `success`. Ubuntu job `94933569007` and
-Windows job `94933569065` both succeeded and selected `mode=full` with
-`reason=no_status_transition`. Ubuntu passed root and subsidiary Rust suites
-of 451/451, 13/13, and 60/60; Windows passed 466/466, 16/16, and 60/60. Both
-passed the exact 151-invocation/151-unique-name classifier inventory twice
-deterministically, retained Unit A's exact four-fast/24-full split, passed the
-doctrine and canonical-path evidence, passed text hygiene and public readiness
-for 533 files, passed alpha claims, and passed release readiness `0.0.1`.
-Ubuntu passed all 14,226 Exhaustive pairs; Windows skipped only the duplicate
-platform-independent producer. The sole current authorization is creation of
-this one-file local Unit B publication-status commit. Unit C remains
-unauthorized until this exact status commit is separately published, its
-required Ubuntu and Windows fast-lane CI is terminal-green, and the BDFL
-issues a fresh explicit Unit C signal. Stash mutation, further Work Order
-movement, archive mutation, and all later work remain unauthorized and receive
-no implicit authority.
+committed, published, status-recorded, and terminal-green. Unit B's publication
+status was committed as `29a6c011490f9bc4698a885d05321a3c69135840`, with
+parent `3a43f0bd4bcf73f6e8082415d30411e1926feda5`, subject
+`docs(workorder): record unit b publication`, and sole changed path
+`workorders/active/WORKORDER_21.md`. It was published by one normal non-force
+fast-forward of `main` only. Workflow `ci`, run `31860185064`, attempt 1,
+tested that exact SHA and concluded `success`. Ubuntu job `94952085370` and
+Windows job `94952085413` both succeeded through status-only evidence and
+reproduced the exact `fast/eligible_status_chain` binding to Unit B's published
+full-lane evidence. Unit C then received a fresh BDFL implementation signal.
+Its canonical-only production candidate and corrected permanent 151-case
+matrix reached green, but the ordered evidence sequence stopped at its third
+distinct harness boundary before the remaining mutations, document checks, or
+Fast could run. The exact two-path candidate is now preserved, unapplied, in
+stash commit `b9093901b8c92c626c3c23ee1a52366d2e54f698`. Unit C has not been
+independently reviewed or accepted. The sole current authorization is this
+one-file Unit C harness-recovery amendment. Candidate restoration, harness
+correction, evidence resumption, Fast, commit, publication, closeout, Unit C
+acceptance, and all later work remain separately gated and unauthorized.
 Owner: BDFL (Ocean).
 
 ## Durable-consumer audit
@@ -1063,6 +1058,227 @@ No Work Order move or content edit; no policy/source/governance/workflow/
 preflight edit; no archive/stash cleanup; no branch deletion; no successor Work
 Order; no compiler work.
 
+### Unit C harness-recovery amendment (BDFL-directed, 2026-08-15)
+
+#### Terminal evidence record
+
+Unit C began only after its full entry lifecycle completed. The exact status
+commit `29a6c011490f9bc4698a885d05321a3c69135840` was published, and workflow
+`31860185064`, attempt 1, tested that exact SHA and concluded `success`.
+Ubuntu job `94952085370` and Windows job `94952085413` both completed the fast
+status-only lane successfully. The BDFL then issued the required fresh Unit C
+signal.
+
+The Unit C implementation sequence completed red at three distinct evidence-
+harness boundaries. None was a production-classifier semantic failure:
+
+1. The first candidate-matrix run stopped before case 3 because the published
+   closed-inventory fixture compared Git's lexicographic tree order with
+   numeric Work Order 9-through-20 order. The bounded correction made that
+   exact inventory assertion order-independent while retaining exact ordinal,
+   case-sensitive set equality, count 12, and rejection of missing, extra,
+   duplicate, substituted, wrong-case, wrong-directory, malformed, and wrong-
+   number paths.
+2. The second candidate-matrix run passed cases 1 through 124 and stopped at
+   A07 because `New-CanonicalTestRepository -WithAdjacentPath` wrote
+   `workorders/active/WORKORDERING.md` after the returned anchor was committed.
+   The measured child therefore contained both the adjacent-path addition and
+   the intended active-status edit. The bounded correction committed the
+   adjacent fixture first, returned that commit as A07's anchor, retained it
+   byte-identically in the child, and restored the exact one-record measured
+   diff `M workorders/active/WORKORDER_21.md`.
+3. The restarted matrix and initial mutation sequence then stopped because the
+   mutation harness did not transport the exact disposable repository's
+   process-local `safe.directory` context into a nested child that invoked
+   `git show`. Git rejected the nested access before the intended mutation
+   assertion was reached. This is an evidence-context transport failure, not a
+   production-classifier or canonical-path failure.
+
+The corrected permanent matrix itself exited 0. Exactly 151 direct invocations
+and 151 case-sensitive unique stable names passed twice deterministically. The
+composition was exactly 119 retained published cases, 26 retained Unit A
+cases, and six Unit C cases: `119 + 26 + 6 = 151`. All six retirements and six
+additions matched the frozen ledger. Binary-safe A11 and the separately
+credited visible duplicate-marker case passed. Initial C01-C04, active/closed
+directory-distinction, and C05 mutation evidence passed before the third stop.
+
+The remaining legacy-root-branch mutation and A11 binary-excluding mutation
+were not reached. Text hygiene, public readiness, alpha claims, release
+readiness, and Fast were not run on this candidate. The single direct Unit C
+Fast allowance remains unconsumed. No green credit is claimed for an
+unreached check or mutation.
+
+#### Parked candidate identity
+
+The stopped candidate is preserved without correction at `stash@{0}` with:
+
+- stash commit: `b9093901b8c92c626c3c23ee1a52366d2e54f698`;
+- complete tree: `3342bcda2baabbb416b6797b5ed3346ec9e2c0c9`;
+- first parent: `29a6c011490f9bc4698a885d05321a3c69135840`;
+- index parent: `b5d5909ebe36e7b5b97802ac76083ea9e7c2e090`;
+- first-parent and index-parent tree:
+  `78c0ab10681128779224aaca2674927c9bd9b017`;
+- independently reconstructed scoped two-path tree:
+  `700eaf0dc131f546295ff244646325eae50ab5ce`;
+- raw statistics: `+265/-102`; and
+- whitespace-insensitive statistics: `+263/-100`.
+
+Its only changed paths are regular tracked `100644` files:
+
+| Path | Blob | SHA-256 | Raw statistics | Whitespace-insensitive |
+| --- | --- | --- | ---: | ---: |
+| `tools/check_workorder_status_boundary.ps1` | `62b3d964e116a1c19190945550151b456ad5aa99` | `c5edf187b8a799d361a6a02dd67bf572711328d96b3267846e1352a673ea950b` | `+1/-26` | `+1/-26` |
+| `tools/test_workorder_status_boundary.ps1` | `21dbcd830a3384a91c98b563e437c1f8e9793f20` | `83e3d13dd97d9bd70e822f957b9127324e543f0e5ff7133cedb47a00561adaaf` | `+264/-76` | `+262/-74` |
+
+Recovery must apply this exact stash by commit identity, never pop it. The five
+older stash commits remain byte-identical and retain their relative order:
+
+1. `799d4eaa2fb473633b41bbf17ad82e67fe2386a3`;
+2. `f9b310902f804a0b8b7a3bf58910c7ec4f639c18`;
+3. `303ee9af93696409bea66d3f8a379cb1a8cf8e1a`;
+4. `bd6d2722cffa50da8463201204a48f4a7305ae1b`; and
+5. `73101039f5e3faf0c802d4f723add1b891c51602`.
+
+#### Frozen recovery architecture
+
+The production candidate
+`tools/check_workorder_status_boundary.ps1` must remain byte-identical at blob
+`62b3d964e116a1c19190945550151b456ad5aa99` throughout recovery. Only
+`tools/test_workorder_status_boundary.ps1` may receive the bounded evidence-
+context correction. The canonical-only resolver, six-for-six ledger, A11
+binary-safe behavior, A07 correction, and order-independent inventory
+correction do not change.
+
+The recovery must use one repository-owned Git invocation helper for every
+direct and nested Git command used by Unit C mutation evidence. An exact
+equivalent organization is acceptable only if one shared contract remains
+mechanically observable. The helper must:
+
+1. resolve the requested disposable repository with
+   `System.IO.Path.GetFullPath`, require that exact directory to exist, reject
+   NUL, CR, LF, wildcard, and ambiguous input, and derive trust only from that
+   resolved path;
+2. normalize the exact trust value for Git without widening path identity and
+   require a post-invocation `rev-parse --show-toplevel` result to match the
+   same resolved repository under the host's path-comparison rules;
+3. invoke Git with command-scoped, process-local trust equivalent to
+   `git --no-replace-objects -c safe.directory=<exact-repository> -C
+   <exact-repository> ...`;
+4. quote every native argument with a PowerShell-5.1-safe algorithm, including
+   empty values, whitespace, quotes, and trailing backslashes;
+5. capture native stdout and stderr as distinct complete byte streams, retain
+   the exact child exit code, drain both streams without deadlock, and emit
+   exactly one structured result object without helper or task-return objects
+   leaking into the PowerShell pipeline;
+6. make nonzero exit, unexpected stderr, and required-but-missing stdout
+   independently observable and incapable of satisfying a success assertion;
+7. require nested PowerShell probes to receive the exact repository path
+   explicitly and to invoke Git through the same helper and validation
+   contract as direct probes, never through a raw ambient `git show`; and
+8. leave caller environment variables and Git configuration byte-for-byte
+   unchanged after success or failure.
+
+Trusting `*`, a parent directory, another disposable repository, or any other
+broader/different value is forbidden. Global or system `safe.directory`
+mutation, persisted repository or user configuration, credential changes,
+parent-directory trust, environment leakage, and unrelated PATH or shell-tool
+repair are forbidden. If a process-local environment transport is used as an
+exact equivalent rather than command-scoped `-c`, every preexisting value must
+be authenticated, only the exact repository value may be added, and every
+value must be restored in `finally`; malformed, orphaned, broader, or
+mismatched configuration fails closed.
+
+#### Disposable projection and recovery budget
+
+A disposable external projection established this shape without applying the
+stash or changing either candidate script. Its final proof script was 309
+LF-only lines and 10,177 bytes, with SHA-256
+`d5a0c7023f5fe0b5557a6e38759eee2a2d37e6f2136112a9a4bc7c377248b488`
+and Git-style blob identity `1e7b7b8d7541b2172439b97001d048f8d35407e6`.
+Windows PowerShell 5.1 and the installed current PowerShell each exited 0 and
+reproduced the same payload SHA-256
+`46581d19ee1ff1c2b7006377d0f486a108fc90346db020495699ad055b4869aa`.
+The projection is evidence, not a required repository artifact, and must be
+removed after authorship.
+
+The projection includes standalone repository creation and assertions that the
+permanent harness already owns. The smallest credible integration ceiling is
+therefore an additional `+300/-100` in
+`tools/test_workorder_status_boundary.ps1` relative to parked blob
+`21dbcd830a3384a91c98b563e437c1f8e9793f20`, under both raw and whitespace-
+insensitive accounting. That yields final conservative ceilings relative to
+the Unit C parent of `+564/-176` for the test script and `+565/-202` combined
+with the unchanged production candidate. The existing Unit C ceilings of
+test `+600/-520` and combined `+700/-700` remain authoritative; no revised
+unit budget, third path, or production allowance is needed. The recovery delta
+is a ceiling, not an insertion target, and unrelated refactoring remains
+forbidden.
+
+#### Load-bearing recovery evidence
+
+Before the complete matrix restarts, focused disposable evidence must prove:
+
+1. an honest nested `git show` succeeds while assuming a different owner only
+   because the exact resolved disposable repository receives scoped trust;
+2. removing only trust propagation reaches the recorded dubious-ownership
+   failure before any mutation assertion, while the honest control remains
+   green;
+3. substituting a different disposable directory for the trust value fails;
+4. wildcard, parent-directory, and other broader trust are rejected by the
+   permanent harness rather than merely avoided by the honest fixture;
+5. nonzero exit, stderr, and missing stdout remain separately captured and
+   each fails the appropriate success contract;
+6. direct and nested invocations traverse the same helper and return byte-
+   identical output for the same `git show` request;
+7. process environment and local, global, and system Git configuration are
+   unchanged after every successful and failing probe; and
+8. the remaining precise legacy-root-branch mutation and A11 binary-excluding
+   mutation both reach their intended classifier assertions without weakening
+   or rewriting those assertions.
+
+The trust-removal proof must fail for the same reason recorded by the third
+completed-red sequence. A syntax error, missing Git executable, malformed
+fixture, missing commit, path-resolution error, hook/PATH failure, or changed
+expected result earns no credit. The legacy and binary-excluding mutations
+remain distinct load-bearing requirements and must not be combined.
+
+#### Exact recovery lifecycle
+
+Recovery follows this sequence with no implied next step:
+
+1. Author this Work Order amendment only.
+2. Obtain one fresh independent amendment review.
+3. Under separate BDFL authority, create one local documentation commit with
+   subject `docs(workorder): define unit c harness recovery`.
+4. Separately publish that exact amendment by normal non-force `main`
+   fast-forward and obtain terminal-green full Ubuntu and Windows CI.
+5. Create a separate immutable publication-status record.
+6. Separately publish that status record and obtain terminal-green fast Ubuntu
+   and Windows CI.
+7. Obtain a fresh explicit BDFL Unit C recovery signal.
+8. Apply, but do not pop, stash
+   `b9093901b8c92c626c3c23ee1a52366d2e54f698`.
+9. Authenticate the exact parked two-path candidate, blobs, scoped tree, and
+   raw and whitespace-insensitive statistics.
+10. Preserve the production script byte-for-byte and apply only the frozen
+    test-harness context correction.
+11. Run the focused trust/context mutations above.
+12. Restart the complete 151-case matrix and the required mutation sequence
+    from their beginning; no prior partial run contributes green credit.
+13. Run every standing Unit C check and the single still-unconsumed Fast
+    allowance in the mandated order.
+14. Leave the exact two-path candidate unstaged for one fresh independent
+    complete-tree review.
+15. Continue implementation commit, publication, status, and WO21 closeout only
+    through their existing separate gates.
+
+A failure at any recovery step stops without repair, rerun, scope expansion,
+fallback, assertion weakening, alternate trust, or later-work authority. This
+amendment authorizes no stash application, candidate edit, matrix execution,
+mutation, Fast, commit, push, closeout, WO22, global harness consolidation,
+compiler work, semantic-coordinate research, archive mutation, or stash
+cleanup.
+
 ## Complete mutation matrix
 
 Every required property has an honest control and one-property corruption. The
@@ -1214,32 +1430,27 @@ probe, or migration simulation is authorized during planning authorship.
 
 ## Current authorization gate
 
-The sole current authorization is creation of this one-file local Unit B
-publication-status commit. Unit B was independently accepted, committed as
-`3a43f0bd4bcf73f6e8082415d30411e1926feda5`, with parent
-`51cef1eeb7e04012fde85cd4e9079fcabfb64a35`, tree
-`c0921d37541adb38fbc102c6fcf54b5f0f47e5c4`, subject
-`chore(workorders): organize active and closed records`, exactly 15 change
-records comprising 13 `R100` renames and two ordinary modifications, and
-combined statistics `+64/-24`. It was published by one normal non-force
-fast-forward of `main` only. Workflow `ci`, run `31853438267`, attempt 1,
-tested that exact SHA and concluded `success`. Ubuntu job `94933569007` and
-Windows job `94933569065` both succeeded and selected `mode=full` with
-`reason=no_status_transition`. Ubuntu passed root and subsidiary Rust suites
-of 451/451, 13/13, and 60/60; Windows passed 466/466, 16/16, and 60/60. Both
-passed the exact 151-invocation/151-unique-name classifier inventory twice
-deterministically, retained Unit A's exact four-fast/24-full split, passed the
-doctrine and canonical-path evidence, passed text hygiene and public readiness
-for 533 files, passed alpha claims, and passed release readiness `0.0.1`.
-Ubuntu passed all 14,226 Exhaustive pairs; Windows skipped only the duplicate
-platform-independent producer.
+The sole current authorization is authorship of this one-file Unit C harness-
+recovery amendment. Unit B and its publication-status lifecycle are complete:
+status commit `29a6c011490f9bc4698a885d05321a3c69135840` is published, and
+workflow `31860185064`, attempt 1, tested that exact SHA and concluded
+`success` on Ubuntu job `94952085370` and Windows job `94952085413` through the
+required fast status-only lane.
 
-Unit C remains unauthorized until this exact status commit is separately
-published, its required Ubuntu and Windows fast-lane CI is terminal-green, and
-the BDFL issues a fresh explicit Unit C signal. This status commit grants no
-push, stash apply/pop/drop/reorder, Unit C, further Work Order movement,
-archive mutation, history rewriting, tags, evidence-harness consolidation,
-compiler work, semantic-coordinate research, or later activity. No next step
-follows implicitly.
+The stopped Unit C candidate remains unapplied at stash commit
+`b9093901b8c92c626c3c23ee1a52366d2e54f698`. This amendment must remain
+unstaged and uncommitted for a fresh independent amendment review. Only an
+unqualified acceptance may return it for a separately authorized local
+documentation commit with subject
+`docs(workorder): define unit c harness recovery`. Publication, its full CI,
+the separate publication-status commit, status publication, terminal-green
+fast CI, and a fresh explicit BDFL Unit C recovery signal must all occur before
+the stash may be applied.
+
+This authorship grants no stash apply/pop/drop/reorder, candidate correction,
+matrix or mutation execution, Fast, Exhaustive, CI, commit, push, Unit C
+acceptance, closeout, successor issuance, archive mutation, global harness
+consolidation, compiler work, semantic-coordinate research, or later activity.
+No next step follows implicitly.
 
 <!-- workorder-current-authorization-gate:end -->
