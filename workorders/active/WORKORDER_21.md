@@ -2,27 +2,31 @@
 
 Date: 2026-08-13
 <!-- hum-active-workorder:v1 -->
-Status: Work Order 21 planning and Unit A are independently accepted,
-committed, published, and terminal-green. Unit A was committed as
-`d0cf9bac19871949bb6439ecc6049711d7a4380f`, with parent
-`35ab15a47fab5a4a456513eab39a719108daacae`, subject
-`ci(workorders): support nested work order layouts`, exactly two paths, and
-statistics `+817/-54`. It was published by one normal non-force fast-forward of
-`main` only. Workflow `ci`, run `31838787240`, attempt 1, tested that exact SHA
-and concluded `success`. Ubuntu job `94890940249` and Windows job
-`94890940168` both succeeded, selected `mode=full` with
-`reason=no_status_transition`, passed the exact 151-invocation/151-unique-name
-classifier inventory twice deterministically, and retained Unit A's exact 28
-cases as four fast and 24 full. Both passed binary-safe A11, the separate
-visible duplicate-marker case, text hygiene and public readiness for 533
-files, alpha claims, and release readiness `0.0.1`. Ubuntu passed the 14,226-
-pair Exhaustive producer; Windows skipped only that duplicate producer. The
-sole current authorization is creation of this one-file local Unit A
-publication-status commit. Unit B remains unauthorized until this exact status
-commit is separately published, its required Ubuntu and Windows fast-lane CI
-is terminal-green, and the BDFL issues a fresh explicit Unit B signal. Unit C,
-migration, stash mutation, Work Order movement, and all later work remain
-unauthorized and receive no implicit authority.
+Status: Work Order 21 planning, Unit A, and Unit B are independently accepted,
+committed, published, and terminal-green. Unit B was committed as
+`3a43f0bd4bcf73f6e8082415d30411e1926feda5`, with parent
+`51cef1eeb7e04012fde85cd4e9079fcabfb64a35`, tree
+`c0921d37541adb38fbc102c6fcf54b5f0f47e5c4`, subject
+`chore(workorders): organize active and closed records`, exactly 15 change
+records comprising 13 `R100` renames and two ordinary modifications, and
+combined statistics `+64/-24`. It was published by one normal non-force
+fast-forward of `main` only. Workflow `ci`, run `31853438267`, attempt 1,
+tested that exact SHA and concluded `success`. Ubuntu job `94933569007` and
+Windows job `94933569065` both succeeded and selected `mode=full` with
+`reason=no_status_transition`. Ubuntu passed root and subsidiary Rust suites
+of 451/451, 13/13, and 60/60; Windows passed 466/466, 16/16, and 60/60. Both
+passed the exact 151-invocation/151-unique-name classifier inventory twice
+deterministically, retained Unit A's exact four-fast/24-full split, passed the
+doctrine and canonical-path evidence, passed text hygiene and public readiness
+for 533 files, passed alpha claims, and passed release readiness `0.0.1`.
+Ubuntu passed all 14,226 Exhaustive pairs; Windows skipped only the duplicate
+platform-independent producer. The sole current authorization is creation of
+this one-file local Unit B publication-status commit. Unit C remains
+unauthorized until this exact status commit is separately published, its
+required Ubuntu and Windows fast-lane CI is terminal-green, and the BDFL
+issues a fresh explicit Unit C signal. Stash mutation, further Work Order
+movement, archive mutation, and all later work remain unauthorized and receive
+no implicit authority.
 Owner: BDFL (Ocean).
 
 ## Durable-consumer audit
@@ -1210,25 +1214,32 @@ probe, or migration simulation is authorized during planning authorship.
 
 ## Current authorization gate
 
-The sole current authorization is creation of this one-file local Unit A
-publication-status commit. Unit A was independently accepted, committed as
-`d0cf9bac19871949bb6439ecc6049711d7a4380f`, and published by one normal
-non-force fast-forward of `main` only. Workflow `ci`, run `31838787240`, attempt
-1, tested that exact SHA and concluded `success`. Ubuntu job `94890940249` and
-Windows job `94890940168` both succeeded, selected `mode=full` with
-`reason=no_status_transition`, passed the exact 151/151 classifier inventory
-twice deterministically, and retained Unit A's exact four-fast/24-full split.
-Both passed binary-safe A11, the separate visible duplicate-marker case, text
-hygiene and public readiness for 533 files, alpha claims, and release readiness
-`0.0.1`. Ubuntu passed 14,226 Exhaustive pairs; Windows skipped only the
-duplicate platform-independent producer.
+The sole current authorization is creation of this one-file local Unit B
+publication-status commit. Unit B was independently accepted, committed as
+`3a43f0bd4bcf73f6e8082415d30411e1926feda5`, with parent
+`51cef1eeb7e04012fde85cd4e9079fcabfb64a35`, tree
+`c0921d37541adb38fbc102c6fcf54b5f0f47e5c4`, subject
+`chore(workorders): organize active and closed records`, exactly 15 change
+records comprising 13 `R100` renames and two ordinary modifications, and
+combined statistics `+64/-24`. It was published by one normal non-force
+fast-forward of `main` only. Workflow `ci`, run `31853438267`, attempt 1,
+tested that exact SHA and concluded `success`. Ubuntu job `94933569007` and
+Windows job `94933569065` both succeeded and selected `mode=full` with
+`reason=no_status_transition`. Ubuntu passed root and subsidiary Rust suites
+of 451/451, 13/13, and 60/60; Windows passed 466/466, 16/16, and 60/60. Both
+passed the exact 151-invocation/151-unique-name classifier inventory twice
+deterministically, retained Unit A's exact four-fast/24-full split, passed the
+doctrine and canonical-path evidence, passed text hygiene and public readiness
+for 533 files, passed alpha claims, and passed release readiness `0.0.1`.
+Ubuntu passed all 14,226 Exhaustive pairs; Windows skipped only the duplicate
+platform-independent producer.
 
-Unit B remains unauthorized until this exact status commit is separately
+Unit C remains unauthorized until this exact status commit is separately
 published, its required Ubuntu and Windows fast-lane CI is terminal-green, and
-the BDFL issues a fresh explicit Unit B signal. This status commit grants no
-push, stash apply/pop/drop/reorder, Unit B, Unit C, migration, Work Order
-movement, archive mutation, history rewriting, tags, evidence-harness
-consolidation, compiler work, semantic-coordinate research, or later activity.
-No next step follows implicitly.
+the BDFL issues a fresh explicit Unit C signal. This status commit grants no
+push, stash apply/pop/drop/reorder, Unit C, further Work Order movement,
+archive mutation, history rewriting, tags, evidence-harness consolidation,
+compiler work, semantic-coordinate research, or later activity. No next step
+follows implicitly.
 
 <!-- workorder-current-authorization-gate:end -->
