@@ -2,39 +2,60 @@
 
 Date: 2026-08-13
 <!-- hum-active-workorder:v1 -->
-Status: Work Order 21 planning, Unit A, and Unit B are independently accepted,
-committed, published, status-recorded, and terminal-green. The first Unit C
-harness-recovery amendment and its publication-status lifecycle are also
-terminal-green. Unit C remains unaccepted, and its clean and rejected candidate
-stashes remain separately preserved and unchanged.
+Status: CLOSED. Work Order 21 is terminally closed.
 
-The Unit C evidence-transport redesign amendment was independently accepted.
-It was committed as `2619184469dc43748a42695a80866d0bbd9df1c6`, with parent
-`7877e346ffc86418a14a06e5bf00aa7741311eae`, subject
-`docs(workorder): redesign unit c evidence transport`, sole path
-`workorders/active/WORKORDER_21.md`, blob
-`b814d8d41717d6b9bebcc1d9d1f3fe4854b040c9`, and statistics `+952/-40`. It was
-published by one normal non-force `main`-only fast-forward.
+Work Order 21 planning and Unit A are independently accepted, committed,
+published, status-recorded, and terminal-green. Unit B is independently
+accepted, committed, published, status-recorded, and terminal-green. The
+canonical repository topology is live: `workorders/active` contains exactly
+the one active `WORKORDER_21.md`, `workorders/closed` contains closed Work
+Orders 9 through 20, and the repository contains zero root Work Orders.
 
-Workflow `ci`, run `31909076659`, attempt 1, tested exact SHA
-`2619184469dc43748a42695a80866d0bbd9df1c6` and concluded `success`. Ubuntu job
-`95071313852` and Windows job `95071313802` both selected the exact binding
-`mode=full;reason=no_status_transition;anchor=;run_id=0;run_attempt=0;ubuntu_job_id=0;windows_job_id=0;transitions=`.
-Both passed the required full preflight, exact 151-invocation and
-151-unique-name deterministic classifier inventory, Unit A four-fast/24-full
-accounting, binary-safe A11 and separate visible duplicate-marker evidence,
-canonical diagnostic-doctrine evidence, text hygiene and public readiness for
-533 files, alpha claims, release readiness 0.0.1, and all platform obligations.
-Ubuntu passed the 14,226-pair platform-independent Exhaustive producer; Windows
-correctly skipped only its duplicate. Both correctly skipped status-only
-evidence.
+The first Unit C harness-recovery amendment and the later Unit C evidence-
+transport redesign amendment each completed their separately gated amendment
+and publication-status lifecycles. The redesign was committed as
+`2619184469dc43748a42695a80866d0bbd9df1c6` and its publication-status record
+was committed as `cd47a325a12a2c2c3701bf66574e0c1dbf3a5b41`. Workflow `ci`,
+run `31912503462`, attempt 1, tested the exact status SHA and concluded
+`success`; Ubuntu job `95079601966` and Windows job `95079601863` both passed
+the required fast status-only lane.
 
-The publication-status record and its exact local commit are the sole current
-lifecycle step. Publication of that status commit, terminal-green fast CI, a
-fresh explicit BDFL Unit C redesign-implementation signal, clean-stash
-restoration, implementation, Fast, independent review, acceptance, closeout,
-WO22, broad harness consolidation, semantic-coordinate research, and compiler
-work all remain separately gated and unauthorized.
+Unit C is terminally incomplete and unaccepted. Its intended removal of the
+legacy-root classifier fallback did not land, so published `main` retains the
+transitional fallback. The final attempt restored clean candidate stash
+`b9093901b8c92c626c3c23ee1a52366d2e54f698` exactly without popping it. The
+retained procedure and Base64 patch authenticated successfully, but the
+Windows PowerShell 5.1 extraction child exited 1 before invoking the retained
+procedure because the caller's in-memory wrapper compared the procedure-start
+line with an accidental trailing space and reported `procedure start count
+0`.
+
+The retained procedure never executed. No disposable projection was created,
+no canonical patch was applied, and no mutation, matrix, readiness, Fast, or
+Exhaustive evidence ran. The Fast allowance remained unconsumed but expires
+with terminal WO21 closeout; it does not transfer to or authorize later work.
+This final stop established no semantic or production-classifier defect.
+
+The exact clean candidate remains preserved at stash commit
+`b9093901b8c92c626c3c23ee1a52366d2e54f698` as evidence, not accepted code.
+Rejected stash `44262ceec1e895a3120133e8676387f2786ae3d0` remains preservation-only.
+Neither stash is implicitly authorized successor work. No additional Unit C
+amendment, implementation attempt, correction, or rerun may occur under WO21.
+
+The forward advisory for a separately issued next Work Order is to prioritize
+the compiler critical path. Its intended terminal objective is
+`backend_ready=1` for canonical `minimal_add`, with `ir_ready=1` as the required
+earlier boundary. The WO20 verifier archive is a source of hypotheses and code,
+not authority. Historical missing evidence must be authenticated as missing,
+not reconstructed indefinitely. Any future capture adapter is a bounded
+preflight with one implementation attempt, one independent review, and at most
+one non-architectural mechanical correction. Lowering must report per-
+requirement GO/NO-GO results; an evidence-backed NO-GO is a valid terminal
+result, and no fabricated lowering or readiness claim may satisfy a future Work
+Order. Harness consolidation and semantic-coordinate research remain queued
+behind the first real lowering milestone unless a narrowly bounded critical-
+path defect blocks it. This advisory is not WO22 issuance or implementation
+authority.
 Owner: BDFL (Ocean).
 
 ## Durable-consumer audit
@@ -2337,20 +2358,20 @@ probe, or migration simulation is authorized during planning authorship.
 
 ## Current authorization gate
 
-The sole current authorization is this one-file immutable publication-status
-record and its exact local commit with subject
-`docs(workorder): record unit c redesign publication`. Publication of that
-status commit and terminal-green fast Ubuntu and Windows CI remain separately
-gated and require a fresh explicit BDFL signal.
+The sole current gate is one fresh independent WO21 terminal-closeout review.
+Only an unqualified `ACCEPT` may recommend a separately authorized local
+closeout commit with exact subject:
 
-Even after terminal-green status CI, restoration of clean candidate stash
-`b9093901b8c92c626c3c23ee1a52366d2e54f698` and Unit C implementation require a
-fresh explicit BDFL Unit C redesign-implementation signal. Rejected stash
-`44262ceec1e895a3120133e8676387f2786ae3d0` remains preservation-only and may not
-be applied. No stash apply/pop/drop/reorder, candidate edit, production or test
-script edit, matrix or mutation execution, Cargo, Fast, Exhaustive, CI, push,
-archive mutation, Unit C acceptance, closeout, successor issuance, WO22, broad
-harness consolidation, compiler work, semantic-coordinate research, or later
-activity follows implicitly.
+```text
+docs(workorder): close work order 21
+```
+
+The closeout commit, publication, CI, active-marker transfer, successor
+issuance, WO22, stash or archive disposition, compiler work, broad harness
+consolidation, and semantic-coordinate research all remain separately
+unauthorized. The active marker remains on WO21 until a separately authorized
+successor issuance. The forward advisory recorded in Status is planning input
+only; it grants no WO22 issuance, implementation, evidence, or publication
+authority.
 
 <!-- workorder-current-authorization-gate:end -->
