@@ -3,25 +3,29 @@
 Date: 2026-08-13
 <!-- hum-active-workorder:v1 -->
 Status: Work Order 21 planning, Unit A, and Unit B are independently accepted,
-committed, published, status-recorded, and terminal-green. Unit B's publication
-status was committed as `29a6c011490f9bc4698a885d05321a3c69135840`, with
-parent `3a43f0bd4bcf73f6e8082415d30411e1926feda5`, subject
-`docs(workorder): record unit b publication`, and sole changed path
-`workorders/active/WORKORDER_21.md`. It was published by one normal non-force
-fast-forward of `main` only. Workflow `ci`, run `31860185064`, attempt 1,
-tested that exact SHA and concluded `success`. Ubuntu job `94952085370` and
-Windows job `94952085413` both succeeded through status-only evidence and
-reproduced the exact `fast/eligible_status_chain` binding to Unit B's published
-full-lane evidence. Unit C then received a fresh BDFL implementation signal.
-Its canonical-only production candidate and corrected permanent 151-case
-matrix reached green, but the ordered evidence sequence stopped at its third
-distinct harness boundary before the remaining mutations, document checks, or
-Fast could run. The exact two-path candidate is now preserved, unapplied, in
-stash commit `b9093901b8c92c626c3c23ee1a52366d2e54f698`. Unit C has not been
-independently reviewed or accepted. The sole current authorization is this
-one-file Unit C harness-recovery amendment. Candidate restoration, harness
-correction, evidence resumption, Fast, commit, publication, closeout, Unit C
-acceptance, and all later work remain separately gated and unauthorized.
+committed, published, status-recorded, and terminal-green. The Unit C harness-
+recovery amendment was independently accepted with no P0, P1, or P2 findings.
+It was committed as `aad65f27e4092bea1d33daa9e8f84f2894e75ea7`, with parent
+`29a6c011490f9bc4698a885d05321a3c69135840`, subject
+`docs(workorder): define unit c harness recovery`, sole changed path
+`workorders/active/WORKORDER_21.md`, blob
+`e5c4d0169b87826c7102c7c01de2ba4fde50136a`, and statistics `+262/-51`.
+After one earlier authentication-boundary attempt changed no remote ref or
+started any workflow, it was published by one normal non-force fast-forward of
+`main` only. Workflow `ci`, run `31868380939`, attempt 1, tested that exact SHA
+and concluded `success`. Ubuntu job `94972895006` and Windows job
+`94972895023` both selected `full/no_status_transition` with empty/zero
+bindings, completed the full preflight successfully, passed the exact 151-case
+deterministic inventory, text hygiene and public readiness for 533 files,
+alpha claims, and release readiness for `0.0.1`. Ubuntu passed all 14,226
+platform-independent Exhaustive pairs; Windows skipped only that duplicate
+producer. CI checked out only the published commit and did not apply or inspect
+the parked Unit C stash. The exact two-path candidate remains preserved,
+unapplied and unchanged, in stash commit
+`b9093901b8c92c626c3c23ee1a52366d2e54f698`. Unit C implementation remains
+unaccepted. The sole current authorization is creation of this one-file local
+publication-status commit. Recovery and all later work remain separately gated
+and unauthorized.
 Owner: BDFL (Ocean).
 
 ## Durable-consumer audit
@@ -1430,27 +1434,22 @@ probe, or migration simulation is authorized during planning authorship.
 
 ## Current authorization gate
 
-The sole current authorization is authorship of this one-file Unit C harness-
-recovery amendment. Unit B and its publication-status lifecycle are complete:
-status commit `29a6c011490f9bc4698a885d05321a3c69135840` is published, and
-workflow `31860185064`, attempt 1, tested that exact SHA and concluded
-`success` on Ubuntu job `94952085370` and Windows job `94952085413` through the
-required fast status-only lane.
+The sole current authorization is creation of this one-file local Unit C
+harness-recovery-amendment publication-status commit. The amendment was
+committed as `aad65f27e4092bea1d33daa9e8f84f2894e75ea7`, published by a normal
+non-force `main`-only fast-forward, and tested successfully by workflow
+`31868380939`, attempt 1, on Ubuntu job `94972895006` and Windows job
+`94972895023` through the required full lane.
 
-The stopped Unit C candidate remains unapplied at stash commit
-`b9093901b8c92c626c3c23ee1a52366d2e54f698`. This amendment must remain
-unstaged and uncommitted for a fresh independent amendment review. Only an
-unqualified acceptance may return it for a separately authorized local
-documentation commit with subject
-`docs(workorder): define unit c harness recovery`. Publication, its full CI,
-the separate publication-status commit, status publication, terminal-green
-fast CI, and a fresh explicit BDFL Unit C recovery signal must all occur before
-the stash may be applied.
+Publication of this status commit and terminal-green fast Ubuntu and Windows
+CI remain separately gated. Even after that CI, restoring stash
+`b9093901b8c92c626c3c23ee1a52366d2e54f698` requires a fresh explicit BDFL
+Unit C recovery signal. The stopped candidate remains unapplied and unchanged.
 
-This authorship grants no stash apply/pop/drop/reorder, candidate correction,
-matrix or mutation execution, Fast, Exhaustive, CI, commit, push, Unit C
-acceptance, closeout, successor issuance, archive mutation, global harness
-consolidation, compiler work, semantic-coordinate research, or later activity.
-No next step follows implicitly.
+This status-record authority grants no stash apply/pop/drop/reorder, candidate
+correction, matrix or mutation execution, Fast, Exhaustive, CI, publication,
+Unit C acceptance, closeout, successor issuance, archive mutation, global
+harness consolidation, compiler work, semantic-coordinate research, WO22, or
+later activity. No next step follows implicitly.
 
 <!-- workorder-current-authorization-gate:end -->
