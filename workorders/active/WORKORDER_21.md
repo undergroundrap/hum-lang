@@ -3,29 +3,40 @@
 Date: 2026-08-13
 <!-- hum-active-workorder:v1 -->
 Status: Work Order 21 planning, Unit A, and Unit B are independently accepted,
-committed, published, status-recorded, and terminal-green. The Unit C harness-
-recovery amendment was independently accepted with no P0, P1, or P2 findings.
-It was committed as `aad65f27e4092bea1d33daa9e8f84f2894e75ea7`, with parent
-`29a6c011490f9bc4698a885d05321a3c69135840`, subject
-`docs(workorder): define unit c harness recovery`, sole changed path
-`workorders/active/WORKORDER_21.md`, blob
-`e5c4d0169b87826c7102c7c01de2ba4fde50136a`, and statistics `+262/-51`.
-After one earlier authentication-boundary attempt changed no remote ref or
-started any workflow, it was published by one normal non-force fast-forward of
-`main` only. Workflow `ci`, run `31868380939`, attempt 1, tested that exact SHA
-and concluded `success`. Ubuntu job `94972895006` and Windows job
-`94972895023` both selected `full/no_status_transition` with empty/zero
-bindings, completed the full preflight successfully, passed the exact 151-case
-deterministic inventory, text hygiene and public readiness for 533 files,
-alpha claims, and release readiness for `0.0.1`. Ubuntu passed all 14,226
-platform-independent Exhaustive pairs; Windows skipped only that duplicate
-producer. CI checked out only the published commit and did not apply or inspect
-the parked Unit C stash. The exact two-path candidate remains preserved,
-unapplied and unchanged, in stash commit
-`b9093901b8c92c626c3c23ee1a52366d2e54f698`. Unit C implementation remains
-unaccepted. The sole current authorization is creation of this one-file local
-publication-status commit. Recovery and all later work remain separately gated
-and unauthorized.
+committed, published, status-recorded, and terminal-green. The first Unit C
+harness-recovery amendment and its publication-status lifecycle are also
+terminal-green. Its status commit
+`7877e346ffc86418a14a06e5bf00aa7741311eae`, with parent
+`aad65f27e4092bea1d33daa9e8f84f2894e75ea7`, was published by a normal
+non-force `main`-only fast-forward. Workflow `ci`, run `31870788991`, attempt
+1, tested that exact SHA and concluded `success`. Ubuntu job `94978976470` and
+Windows job `94978976418` both selected the exact fast binding
+`mode=fast;reason=eligible_status_chain;anchor=aad65f27e4092bea1d33daa9e8f84f2894e75ea7;run_id=31868380939;run_attempt=1;ubuntu_job_id=94972895006;windows_job_id=94972895023;transitions=aad65f27e4092bea1d33daa9e8f84f2894e75ea7>7877e346ffc86418a14a06e5bf00aa7741311eae`,
+passed the exact 151-case deterministic inventory and all status-only document
+gates, and correctly skipped Cargo, Rust preparation, full preflight, and
+Exhaustive evidence.
+
+After the required fresh recovery signal, the exact candidate at stash commit
+`b9093901b8c92c626c3c23ee1a52366d2e54f698` was restored without popping. Its
+production semantics and permanent 151-case matrix remained green, but its
+replacement mutation-evidence transport exceeded its local recovery budget and
+failed independent architectural review. That rejected candidate is preserved
+at stash commit `44262ceec1e895a3120133e8676387f2786ae3d0`; the clean candidate at
+`b9093901b8c92c626c3c23ee1a52366d2e54f698` remains separately preserved. The
+independent disposition was terminal `REDESIGN`, with no production-classifier
+semantic finding and no authority to raise a budget around the rejected
+transport. Unit C remains unaccepted. The sole current authorization is this
+one-file document-only evidence-transport redesign amendment and its disposable
+external projections. Implementation and every later lifecycle step remain
+separately gated and unauthorized.
+
+The first fresh independent review of the redesign returned
+ACCEPT WITH REQUIRED FIX with no P0 or P2 finding. It accepted the selected
+ownership-adversary architecture in substance, but found that the exact
+projected test bytes and 329-line ceiling could not be independently
+reconstructed from retained immutable inputs. The bounded correction below
+retains the architecture unchanged and embeds one canonical byte-complete
+patch plus a fail-closed reconstruction procedure for a fresh review.
 Owner: BDFL (Ocean).
 
 ## Durable-consumer audit
@@ -1283,6 +1294,900 @@ mutation, Fast, commit, push, closeout, WO22, global harness consolidation,
 compiler work, semantic-coordinate research, archive mutation, or stash
 cleanup.
 
+### Unit C evidence-transport redesign amendment (BDFL-directed, 2026-08-15)
+
+This amendment supersedes only the first recovery amendment's evidence-
+transport architecture, disposable projection, recovery-delta ceiling,
+load-bearing transport evidence, and implementation base/lifecycle. The Unit C
+production semantics, two-path envelope, canonical-only resolver, six-for-six
+ledger, 151-case accounting, A07 correction, binary-safe A11, mutation matrix,
+unit budgets, commit subject, and exclusions remain byte-for-byte authoritative.
+It is not a migration rollback and does not authorize broad harness
+consolidation.
+
+#### Terminal `REDESIGN` disposition
+
+The independent scope/budget review found no defect in the frozen Unit C
+production blob or permanent classifier matrix. The candidate matrix had
+already passed all 151 direct invocations twice deterministically, and the
+single Unit C Fast allowance remained unconsumed. The terminal disposition was
+`REDESIGN`, not a budget increase, because the added mutation-evidence
+transport had three P1 defects:
+
+1. In rejected test blob
+   `9f629012439af424e5364d4b202f7f4afd03c940`, line 692 begins the native
+   quote probe and line 693 passes
+   `-Arguments @('-NoProfile', '-File', $QuoteProbePath) + $QuoteValues`.
+   Windows PowerShell 5.1 binds `+ $QuoteValues` as the next parameter unless
+   the complete array concatenation is parenthesized. The assertion therefore
+   did not exercise the intended argument vector.
+2. The direct and nested probes executed as the same repository owner. Exact
+   `safe.directory` text was present, but removing it did not activate Git's
+   dubious-ownership boundary, so the trust evidence was not load-bearing.
+3. Failed Git invocations retained exit status and stderr, but repository
+   validation ran only after a successful operation. A failed child therefore
+   did not independently prove which repository produced the failure.
+
+The review attributed the rejected 404-line recovery addition as follows:
+
+| Rejected addition category | Lines |
+| --- | ---: |
+| Native stdout/stderr/exit capture | 68 |
+| PowerShell 5.1 native quoting | 36 |
+| Repository and trust validation | 79 |
+| Shared direct/nested transport | 43 |
+| Environment and Git-configuration restoration | 32 |
+| Focused assertions | 112 |
+| Integration glue | 26 |
+| Mechanically duplicate byte-hash block | 8 |
+| **Total** | **404** |
+
+Only the eight-line hash block was mechanically redundant. Removing it did not
+make the old `+300` recovery ceiling satisfiable, and compaction could not cure
+the three P1s. The budget-only amendment path is closed.
+
+#### Rejected and clean parked identities
+
+The rejected candidate is preserved at `stash@{0}` as commit
+`44262ceec1e895a3120133e8676387f2786ae3d0`, complete tree
+`aa67b506da93174273eb4bdfdbd74e1ed259f90c`, first parent
+`7877e346ffc86418a14a06e5bf00aa7741311eae`, and index parent
+`7a2247f97bb1c1b97d42d7dc914f19bb60639a0e`. Its independently reconstructed
+two-path scoped tree is `103acfb4f5b83f56699140363164fb25c6275dc3`.
+It contains only regular `100644` paths:
+
+| Path | Blob | SHA-256 | Raw | Whitespace-insensitive |
+| --- | --- | --- | ---: | ---: |
+| `tools/check_workorder_status_boundary.ps1` | `62b3d964e116a1c19190945550151b456ad5aa99` | `c5edf187b8a799d361a6a02dd67bf572711328d96b3267846e1352a673ea950b` | `+1/-26` | `+1/-26` |
+| `tools/test_workorder_status_boundary.ps1` | `9f629012439af424e5364d4b202f7f4afd03c940` | `39701cf2902abc396442b3459d52af1a6272389d2cac3a508d4b93ae6904c692` | `+664/-111` | `+662/-109` |
+| **Combined** | | | **`+665/-137`** | **`+663/-135`** |
+
+The clean semantic candidate remains at `stash@{1}` as commit
+`b9093901b8c92c626c3c23ee1a52366d2e54f698`, complete tree
+`3342bcda2baabbb416b6797b5ed3346ec9e2c0c9`, and scoped tree
+`700eaf0dc131f546295ff244646325eae50ab5ce`. Its production blob is the same
+`62b3d964e116a1c19190945550151b456ad5aa99`; its test blob is
+`21dbcd830a3384a91c98b563e437c1f8e9793f20`, SHA-256
+`83e3d13dd97d9bd70e822f957b9127324e543f0e5ff7133cedb47a00561adaaf`.
+Its combined raw and whitespace-insensitive statistics remain respectively
+`+265/-102` and `+263/-100`. Only this clean stash is eligible as a future
+implementation base. The rejected stash is immutable evidence and must never
+be applied as the redesign implementation.
+
+#### Selected ownership-adversary architecture
+
+The selected design uses one repository-owned synchronous native-process
+primitive and one mutation-process transport. It does not retain the old
+direct-versus-nested equivalence assertion: direct and nested execution under
+one owner did not constrain trust, and the redesign has only one mutation child
+path. The transport contract is:
+
+1. Resolve an absolute disposable non-bare worktree path with
+   `System.IO.Path.GetFullPath`; require the exact worktree and its `.git`
+   directory to exist; reject NUL, CR, LF, wildcard, relative, missing, and
+   ambiguous paths; normalize only directory separators for Git's
+   `safe.directory` value.
+2. Require one lowercase 40-hex expected commit. Before launching the mutation
+   child, independently execute
+   `git --no-replace-objects --git-dir=<resolved-repository>/.git rev-parse
+   --verify <expected>^{commit}` and require exit 0, zero stderr, and exactly
+   that commit on stdout. This object-database operation does not perform the
+   later worktree discovery and therefore authenticates canonical path plus
+   immutable commit even when the worktree operation fails at ownership.
+3. Fail closed unless the installed Git's controlled
+   `GIT_TEST_ASSUME_DIFFERENT_OWNER=1` adversary is executable: the same-owner
+   control without it must succeed, the adversarial child without added trust
+   must fail nonzero with `dubious ownership` on stderr, and adding only exact
+   repository trust must make the same operation succeed. If any platform's
+   Git lacks or ignores this adversary, Unit C stops; no weaker substitute is
+   allowed.
+4. Authenticate the complete inherited `GIT_CONFIG_COUNT` vector. Its count
+   must be canonical nonnegative decimal; every indexed key and value must
+   exist; orphaned indexed entries fail closed. The mutation child alone
+   receives `GIT_TEST_ASSUME_DIFFERENT_OWNER=1` and one appended config entry:
+   `GIT_CONFIG_COUNT=N+1`, `GIT_CONFIG_KEY_N=safe.directory`, and
+   `GIT_CONFIG_VALUE_N=<exact-normalized-repository>`. Trust removal deletes
+   only that appended entry. Parent environment and local, global, and system
+   Git configuration never change.
+5. Require the supplied trust path to resolve exactly to the selected worktree
+   under the host's path-comparison rules before any child launch. Wildcard
+   trust is rejected syntactically. Parent, broader, and different-repository
+   trust fail exact equality. Git's own acceptance of `safe.directory=*` is
+   not evidence and must never be reached through the helper.
+6. Quote every native argument with the Windows command-line algorithm, and
+   pass concatenated argument vectors only as a fully parenthesized expression.
+   Empty strings, whitespace, embedded quotes, and trailing backslashes are
+   mandatory focused cases under Windows PowerShell 5.1.
+7. Capture the mutation PowerShell child's stdout and stderr as separate
+   complete byte streams with asynchronous draining, close stdin, wait for the
+   child and both drain tasks, retain the exact exit code, and return one
+   structured result containing canonical repository path, authenticated
+   commit, exit, stdout bytes, and stderr bytes.
+8. A success contract requires authenticated identity, exit 0, zero stderr,
+   and exactly `<expected-commit>\n` stdout. Nonzero exit, any stderr, missing
+   stdout, malformed stdout, extra stdout, wrong identity, launch failure, or
+   incomplete drain is independently observable and fails.
+
+No global, system, user, or repository Git configuration write is permitted.
+No credential, PATH, askpass, shell, or persistent environment repair belongs
+to this design. The transport may be used only by Unit C's focused mutation
+evidence; it is not a general subprocess framework.
+
+#### Executable disposable projection
+
+The author evaluated both a real Windows SID boundary and the portable
+controlled adversary. A disposable repo owned by `OCEAN\ocean` was accessed by
+`OCEAN\CodexSandboxOffline`: no trust exited 128 at `dubious ownership`;
+independent `--git-dir` identity returned exact commit
+`a280aaff99dfc30280d1f3406f84cadefefd1ec3`; exact forward-slash-normalized
+repository trust returned that commit with exit 0. Parent trust remained red.
+Git's wildcard trust succeeded, confirming why the helper must reject it before
+launch rather than merely omit it.
+
+Git `2.45.1.windows.1` also proved the controlled adversary in a same-owner
+repo: normal access returned exact commit
+`1ff2df6fe62e7ce93a944b26849d9e33853f8e17` with exit 0, while adding only
+`GIT_TEST_ASSUME_DIFFERENT_OWNER=1` exited 128 at dubious ownership. The parent
+environment was restored after that probe.
+
+The final integrated projection preserves production blob
+`62b3d964e116a1c19190945550151b456ad5aa99` byte-for-byte and projects the test
+script to 2,155 LF-only lines, 110,883 bytes, zero CR, final LF, SHA-256
+`d473bfd9102ddc1e988bf9f62c751ff0e3875aa0797193bb833afe6f9e0c3f90`, and
+Git-style blob `8d28cc9854863255719b7ccd55a42ea304afe6cf`. It parses with zero errors. Its
+exact diffs are:
+
+| Comparison base | Test raw | Test whitespace-insensitive | Combined raw | Combined whitespace-insensitive |
+| --- | ---: | ---: | ---: | ---: |
+| Published Unit C parent scripts | `+593/-76` | `+591/-74` | `+594/-102` | `+592/-100` |
+| Clean parked candidate `b9093901...` | `+329/-0` | `+329/-0` | `+329/-0` | `+329/-0` |
+| Rejected candidate `44262cee...` | `+275/-311` | `+273/-309` | `+275/-311` | `+273/-309` |
+
+The exact 329-line recovery addition is attributable without overlap:
+
+| Selected addition category | Lines |
+| --- | ---: |
+| PowerShell 5.1 native argument quoting | 32 |
+| Synchronous native stdout/stderr/exit capture | 49 |
+| Canonical repository, trust, and independent identity binding | 84 |
+| Inherited Git-config vector authentication | 24 |
+| Exact success-result contract | 12 |
+| Environment and Git-configuration fingerprint | 24 |
+| Focused adversary, corruption, and reachability fixtures/assertions | 103 |
+| Permanent-suite integration call | 1 |
+| **Total** | **329** |
+
+An authoring-only focus entry exercised the same selected functions and was
+removed from the integrated projection. Windows PowerShell 5.1.26100.9168 and
+PowerShell 7.6.4 each exited 0 against the same fixture identity
+`aac5844e02c0829a6f1e7a4971f8bfe751dc1ed2`. In both hosts the honest child
+exited 0 with 41 stdout bytes, SHA-256
+`d1f70ce144864470f386b4ab1d9668efd7e89561d4b3aeb3ff4c3cadff045556`, and
+zero stderr bytes, SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+Trust removal preserved the same independently authenticated identity, exited
+128, emitted zero stdout bytes with the empty SHA-256, and emitted 334 stderr
+bytes containing the precise dubious-ownership failure. The PS5.1 stderr
+SHA-256 was `ebd2f3a49b9ab7da632006a8b1a8cb74255d35bcab9bd1f6a41d9c3146e1cc0d`;
+the PowerShell 7.6.4 stderr SHA-256 was
+`51474e760bc6f214f7ea150195341b2ff0407c015d2ef00ff31be19fe18f5502`.
+Host newline transport explains the byte-hash difference; both retained the
+same Git failure, exit, zero stdout, and authenticated repository identity.
+
+Both hosts passed the exact empty/space/embedded-quote/trailing-backslash
+argument vector, rejected different, parent, and wildcard trust, rejected
+nonzero, missing, and malformed result shapes, preserved separate streams, and
+reached distinct `legacy-assertion-reached` and
+`binary-assertion-reached` child assertions. The author environment contained
+a valid inherited two-entry Git config vector; the projection appended one
+child-only entry and proved the complete parent environment plus local, global,
+and system config fingerprints unchanged afterward.
+
+The Windows hosts and real Windows SID boundary were exercised. Ubuntu/Linux
+was not available locally and remains mandatory full-CI evidence; absence or
+different behavior of `GIT_TEST_ASSUME_DIFFERENT_OWNER` there is a mandatory
+stop, not permission to select another ownership simulation. The actual
+legacy-root and binary-marker classifier mutations were intentionally not run
+during document authorship; their exact future assertions remain mandatory.
+
+#### Projection reproducibility correction (BDFL-directed, 2026-08-15)
+
+The first fresh review accepted the redesign behaviorally but could not
+authenticate its exact projected bytes because only the target identities were
+retained. This correction changes no architecture, test meaning, line
+attribution, budget, or lifecycle rule. It freezes the exact transformation
+from clean parked test blob
+`21dbcd830a3384a91c98b563e437c1f8e9793f20` to projected test blob
+`8d28cc9854863255719b7ccd55a42ea304afe6cf` as one canonical full-index Git
+patch.
+
+The fresh review of that retained artifact reproduced the patch, target,
+architecture, attribution, and budgets, but found one decoder-ordering P1:
+`ReadAllLines` normalized CRLF framing before the envelope checks could reject
+it. The bounded correction below authenticates the single raw Work Order byte
+buffer before any line-oriented operation or disposable side effect, then
+derives every parsed line from that same strictly decoded buffer. It changes no
+payload or projected implementation byte.
+
+The decoded patch identity is exact:
+
+- source blob:
+  `21dbcd830a3384a91c98b563e437c1f8e9793f20`;
+- target blob:
+  `8d28cc9854863255719b7ccd55a42ea304afe6cf`;
+- byte count: 14,210;
+- LF count: 347;
+- CR count: 0;
+- final LF: present; and
+- SHA-256:
+  `ce54a995e6ddaad260059f2b935899846055d0fa3f488958c46299354f724934`.
+
+The RFC 4648 Base64 representation is canonical and frozen as exactly 18,948
+characters on 250 lines: lines 1 through 249 contain exactly 76 characters,
+line 250 contains exactly 24 characters, and no other whitespace is permitted.
+The final encoded line carries the only padding. Decoding must reject invalid
+alphabet characters, malformed or noncanonical padding, a wrong line count or
+line length, extra whitespace, a re-encoding mismatch, or any decoded
+length/hash/newline mismatch.
+
+The following PowerShell 5.1-compatible procedure is normative. Run it from
+the canonical repository root with no real stash application. It materializes
+the two clean projected input blobs in one disposable repository through the
+canonical object database, authenticates the clean stash path, writes the
+decoded patch only inside that disposable repository, requires
+`git apply --check --index` before applying, and restores the caller's
+alternate-object environment in `finally`.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+$Repository = (Resolve-Path '.').Path
+$SafeRepository = $Repository.Replace('\', '/')
+$WorkOrder = Join-Path $Repository 'workorders/active/WORKORDER_21.md'
+$Disposable = [IO.Path]::GetFullPath(
+  (Join-Path ([IO.Path]::GetTempPath()) 'hum-wo21-unit-c-projection')
+)
+$TestPath = 'tools/test_workorder_status_boundary.ps1'
+$ProductionPath = 'tools/check_workorder_status_boundary.ps1'
+$PublishedHead = '7877e346ffc86418a14a06e5bf00aa7741311eae'
+$BaseTest = '21dbcd830a3384a91c98b563e437c1f8e9793f20'
+$TargetTest = '8d28cc9854863255719b7ccd55a42ea304afe6cf'
+$PublishedTest = '762ef996b926a3f9c5bdf69c8abee9e13cafb67e'
+$PublishedProduction = '6b7d421d7d153e8ae660e70a3fccb634983df7a3'
+$ProjectedProduction = '62b3d964e116a1c19190945550151b456ad5aa99'
+$PatchSha = 'ce54a995e6ddaad260059f2b935899846055d0fa3f488958c46299354f724934'
+$BeginLiteral = '<!-- wo21-unit-c-projection-patch-base64:begin -->'
+$EndLiteral = '<!-- wo21-unit-c-projection-patch-base64:end -->'
+$StrictUtf8 = New-Object Text.UTF8Encoding($false, $true)
+
+function Get-Wo21BytesSha256 {
+  param([byte[]] $Bytes)
+  $Sha = [Security.Cryptography.SHA256]::Create()
+  try {
+    return ([BitConverter]::ToString($Sha.ComputeHash($Bytes)) -replace '-', '').ToLowerInvariant()
+  } finally {
+    $Sha.Dispose()
+  }
+}
+
+function Get-Wo21ExactLine {
+  param([string[]] $Lines, [string] $Text)
+  $Matches = @(
+    for ($Index = 0; $Index -lt $Lines.Count; $Index += 1) {
+      if ($Lines[$Index] -ceq $Text) { $Index }
+    }
+  )
+  if ($Matches.Count -ne 1) { throw "expected one exact line: $Text" }
+  return [int]$Matches[0]
+}
+
+$DocumentBytes = [IO.File]::ReadAllBytes($WorkOrder)
+if ($DocumentBytes.Length -eq 0) {
+  throw 'Work Order raw byte stream is empty'
+}
+if ([Array]::IndexOf($DocumentBytes, [byte]13) -ge 0) {
+  throw 'Work Order raw byte stream contains CR'
+}
+if ($DocumentBytes[$DocumentBytes.Length - 1] -ne 10) {
+  throw 'Work Order raw byte stream lacks its final LF'
+}
+try {
+  $DocumentText = $StrictUtf8.GetString($DocumentBytes)
+} catch {
+  throw 'Work Order raw byte stream is not strict UTF-8'
+}
+$DocumentLines = @(
+  $DocumentText.Substring(0, $DocumentText.Length - 1).Split([char]10)
+)
+$Begin = Get-Wo21ExactLine $DocumentLines $BeginLiteral
+$End = Get-Wo21ExactLine $DocumentLines $EndLiteral
+if (
+  $End - $Begin -ne 253 -or
+  $DocumentLines[$Begin + 1] -cne '```text' -or
+  $DocumentLines[$End - 1] -cne '```'
+) {
+  throw 'projection Base64 envelope is malformed'
+}
+$EncodedLines = @($DocumentLines[($Begin + 2)..($End - 2)])
+if ($EncodedLines.Count -ne 250) {
+  throw 'projection Base64 line count changed'
+}
+for ($Index = 0; $Index -lt 249; $Index += 1) {
+  if (
+    $EncodedLines[$Index].Length -ne 76 -or
+    $EncodedLines[$Index] -cnotmatch '^[A-Za-z0-9+/]{76}$'
+  ) {
+    throw "projection Base64 line $($Index + 1) is noncanonical"
+  }
+}
+if (
+  $EncodedLines[249].Length -ne 24 -or
+  $EncodedLines[249] -cnotmatch '^[A-Za-z0-9+/]{23}=$'
+) {
+  throw 'projection Base64 final line is noncanonical'
+}
+$Encoded = @($EncodedLines) -join ''
+if (
+  $Encoded.Length -ne 18948 -or
+  $Encoded -cnotmatch '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$'
+) {
+  throw 'projection Base64 payload is malformed'
+}
+try {
+  $PatchBytes = [Convert]::FromBase64String($Encoded)
+} catch {
+  throw 'projection Base64 decoding failed'
+}
+if ([Convert]::ToBase64String($PatchBytes) -cne $Encoded) {
+  throw 'projection Base64 is not canonical RFC 4648'
+}
+if (
+  $PatchBytes.Length -ne 14210 -or
+  (Get-Wo21BytesSha256 $PatchBytes) -cne $PatchSha -or
+  @($PatchBytes | Where-Object { $_ -eq 10 }).Count -ne 347 -or
+  @($PatchBytes | Where-Object { $_ -eq 13 }).Count -ne 0 -or
+  $PatchBytes[$PatchBytes.Length - 1] -ne 10
+) {
+  throw 'decoded projection patch identity changed'
+}
+
+if (Test-Path -LiteralPath $Disposable) {
+  throw "disposable projection path already exists: $Disposable"
+}
+$null = New-Item -ItemType Directory -Path $Disposable
+$Git = (Get-Command git.exe -ErrorAction Stop).Source
+& $Git -C $Disposable init --quiet
+if ($LASTEXITCODE -ne 0) { throw 'disposable git init failed' }
+& $Git -C $Disposable config core.autocrlf false
+if ($LASTEXITCODE -ne 0) { throw 'disposable core.autocrlf setup failed' }
+
+$StashBase = @(
+  & $Git --no-replace-objects -c "safe.directory=$SafeRepository" -C $Repository `
+    rev-parse "b9093901b8c92c626c3c23ee1a52366d2e54f698`:$TestPath"
+)
+if ($LASTEXITCODE -ne 0 -or $StashBase.Count -ne 1 -or $StashBase[0] -cne $BaseTest) {
+  throw 'clean stash test blob does not match the frozen base'
+}
+
+$OldAlternate = [Environment]::GetEnvironmentVariable(
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'Process'
+)
+$HadAlternate = $null -ne $OldAlternate
+$SourceObjects = [IO.Path]::GetFullPath((Join-Path $Repository '.git/objects'))
+$NewAlternate = if ([string]::IsNullOrEmpty($OldAlternate)) {
+  $SourceObjects
+} else {
+  $OldAlternate + [IO.Path]::PathSeparator + $SourceObjects
+}
+try {
+  [Environment]::SetEnvironmentVariable(
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    $NewAlternate,
+    'Process'
+  )
+  & $Git -C $Disposable update-ref refs/heads/main $PublishedHead
+  if ($LASTEXITCODE -ne 0) { throw 'published projection ref setup failed' }
+  & $Git -C $Disposable symbolic-ref HEAD refs/heads/main
+  if ($LASTEXITCODE -ne 0) { throw 'published projection HEAD setup failed' }
+  & $Git -C $Disposable read-tree $PublishedHead
+  if ($LASTEXITCODE -ne 0) { throw 'published projection tree setup failed' }
+  & $Git -C $Disposable checkout-index -a
+  if ($LASTEXITCODE -ne 0) { throw 'published projection checkout failed' }
+
+  & $Git -C $Disposable update-index --add --cacheinfo `
+    "100644,$BaseTest,$TestPath"
+  if ($LASTEXITCODE -ne 0) { throw 'clean test blob indexing failed' }
+  & $Git -C $Disposable update-index --add --cacheinfo `
+    "100644,$ProjectedProduction,$ProductionPath"
+  if ($LASTEXITCODE -ne 0) { throw 'production blob indexing failed' }
+  & $Git -C $Disposable checkout-index --force -- $TestPath $ProductionPath
+  if ($LASTEXITCODE -ne 0) { throw 'projected script checkout failed' }
+  & $Git -C $Disposable update-index --refresh
+  if ($LASTEXITCODE -ne 0) { throw 'clean projection index refresh failed' }
+
+  $BaseFile = Join-Path $Disposable $TestPath
+  $ObservedBase = @(& $Git -C $Disposable hash-object -- $BaseFile)
+  if (
+    $LASTEXITCODE -ne 0 -or
+    $ObservedBase.Count -ne 1 -or
+    $ObservedBase[0] -cne $BaseTest
+  ) {
+    throw 'materialized clean test blob changed'
+  }
+
+  $PatchPath = Join-Path $Disposable 'wo21-unit-c-projection.patch'
+  [IO.File]::WriteAllBytes($PatchPath, $PatchBytes)
+  & $Git -C $Disposable apply --check --index $PatchPath
+  if ($LASTEXITCODE -ne 0) { throw 'projection git apply check failed' }
+  & $Git -C $Disposable apply --index $PatchPath
+  if ($LASTEXITCODE -ne 0) { throw 'projection git apply failed' }
+
+  $TargetFile = Join-Path $Disposable $TestPath
+  $TargetBytes = [IO.File]::ReadAllBytes($TargetFile)
+  $ObservedTarget = @(& $Git -C $Disposable hash-object -- $TargetFile)
+  if (
+    $LASTEXITCODE -ne 0 -or
+    $ObservedTarget.Count -ne 1 -or
+    $ObservedTarget[0] -cne $TargetTest -or
+    $TargetBytes.Length -ne 110883 -or
+    (Get-Wo21BytesSha256 $TargetBytes) -cne
+      'd473bfd9102ddc1e988bf9f62c751ff0e3875aa0797193bb833afe6f9e0c3f90' -or
+    @($TargetBytes | Where-Object { $_ -eq 10 }).Count -ne 2155 -or
+    @($TargetBytes | Where-Object { $_ -eq 13 }).Count -ne 0 -or
+    $TargetBytes[$TargetBytes.Length - 1] -ne 10
+  ) {
+    throw 'reconstructed projected test identity changed'
+  }
+
+  $CleanStat = @(& $Git -C $Disposable diff --numstat $BaseTest $TargetTest)
+  $PublishedStat = @(
+    & $Git -C $Disposable diff --numstat $PublishedTest $TargetTest
+  )
+  $ProductionStat = @(
+    & $Git -C $Disposable diff --numstat `
+      $PublishedProduction $ProjectedProduction
+  )
+  if (
+    $LASTEXITCODE -ne 0 -or
+    $CleanStat.Count -ne 1 -or
+    $CleanStat[0] -cnotmatch "^329`t0`t" -or
+    $PublishedStat.Count -ne 1 -or
+    $PublishedStat[0] -cnotmatch "^593`t76`t" -or
+    $ProductionStat.Count -ne 1 -or
+    $ProductionStat[0] -cnotmatch "^1`t26`t"
+  ) {
+    throw 'reconstructed projection statistics changed'
+  }
+} finally {
+  if ($HadAlternate) {
+    [Environment]::SetEnvironmentVariable(
+      'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+      $OldAlternate,
+      'Process'
+    )
+  } else {
+    [Environment]::SetEnvironmentVariable(
+      'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+      $null,
+      'Process'
+    )
+  }
+}
+```
+
+Excluding its Markdown fences, the corrected normative procedure is exactly
+8,503 bytes on 236 LF-only lines, has zero CR and a final LF, and has SHA-256
+`a25ecb032641a053ed4e2c3de48c05093a931f85275ec203e618db11c629dc0f`.
+
+The decoder ordering is load-bearing and must be reviewed before target
+reconstruction. For each required shell, a reviewer must bind an extracted
+copy of only the `$WorkOrder` and `$Disposable` declarations to one mutated
+external Work Order and one unique, predeclared, absent scratch path. No other
+procedure byte may change. These six sentinel path names are frozen relative
+to one fresh external review root:
+
+- `sentinel-payload-crlf-ps51` and `sentinel-payload-crlf-pwsh`;
+- `sentinel-outside-crlf-ps51` and `sentinel-outside-crlf-pwsh`; and
+- `sentinel-missing-final-lf-ps51` and
+  `sentinel-missing-final-lf-pwsh`.
+
+The bounded correction executed all six probes. In Windows PowerShell
+5.1.26100.9168 and PowerShell 7.6.4 alike, changing one Base64 payload LF to
+CRLF and inserting one CR before an LF outside the payload each exited 1 with
+`Work Order raw byte stream contains CR`; removing only the Work Order's final
+LF exited 1 with `Work Order raw byte stream lacks its final LF`. Every probe
+produced zero stdout bytes, and its unique disposable sentinel was absent both
+before and after the process. No cleanup of a created sentinel received credit.
+The honest LF-only Work Order must still complete the retained reconstruction
+under both shells before this evidence is accepted.
+
+The reconstructed target itself fixes the attribution boundaries. A fresh
+review must read its LF-delimited lines and require these exact, nonoverlapping
+ranges:
+
+| Category | Exact reconstructed line range | Lines |
+| --- | --- | ---: |
+| PowerShell 5.1 native argument quoting | 114-145 | 32 |
+| Synchronous native stdout/stderr/exit capture | 146-194 | 49 |
+| Canonical repository/trust/identity binding | 195-227 and 252-302 | 84 |
+| Inherited Git-config vector authentication | 228-251 | 24 |
+| Exact success-result contract | 303-314 | 12 |
+| Environment/configuration fingerprint | 315-338 | 24 |
+| Focused adversary/corruption/reachability evidence | 339-441 | 103 |
+| Permanent-suite integration call | exact line 1051 | 1 |
+| **Total** | | **329** |
+
+The declaration boundaries at lines 114, 146, 195, 219, 228, 252, 303, 315,
+339, and 442 must respectively be
+`ConvertTo-RecoveryNativeArgument`, `Invoke-RecoveryNativeProcess`,
+`Resolve-RecoveryRepository`, `Test-RecoveryPathEqual`,
+`Get-RecoveryAmbientGitConfigCount`, `Invoke-RecoveryMutationProcess`,
+`Assert-RecoveryMutationSuccess`, `Get-RecoveryStateSha256`,
+`Assert-RecoveryTransportProjection`, and `Invoke-TestGit`. The integration
+line must occur exactly once as
+`Assert-RecoveryTransportProjection $TestRoot`. These boundaries prove the
+category counts directly from the reconstructed bytes; a source-text table
+alone is not evidence.
+
+After reconstruction, execute the disposable target with its materialized
+production blob under Windows PowerShell 5.1.26100.9168 and PowerShell 7.6.4.
+Both executions must pass the focused ownership-adversary projection and the
+complete 151-case deterministic suite. They must prove exact-trust success,
+trust-removal dubious-ownership failure with retained repository identity,
+fully parenthesized argument-vector fidelity, non-exact trust rejection,
+malformed/missing-output rejection, caller environment/configuration
+restoration, and distinct legacy-root and binary-marker assertion reachability.
+Remove the entire disposable repository afterward.
+
+The reconstructed target must still reproduce test `+329/-0` against the clean
+stash blob and test `+593/-76` against the published parent. The unchanged
+production projection remains `+1/-26`, so the combined parent-relative result
+is exactly `+594/-102`. The attribution therefore continues to ground the
+existing `+333/-4` recovery ceiling, `+597/-80` final test ceiling, and
+`+598/-106` final combined ceiling with the same four insertion and four
+deletion lines of honest integration headroom.
+
+The canonical patch follows. Its sentinels, fence lines, payload line count,
+wrapping, and bytes are immutable parts of this amendment.
+
+<!-- wo21-unit-c-projection-patch-base64:begin -->
+```text
+ZGlmZiAtLWdpdCBhL3Rvb2xzL3Rlc3Rfd29ya29yZGVyX3N0YXR1c19ib3VuZGFyeS5wczEgYi90
+b29scy90ZXN0X3dvcmtvcmRlcl9zdGF0dXNfYm91bmRhcnkucHMxCmluZGV4IDIxZGJjZDgzMGEz
+Mzg0YTkxYzk4YjU2M2U0MzdjMWY4ZTk3OTNmMjAuLjhkMjhjYzk4NTQ4NjMyNTU3MTliN2NjZDU1
+YTQyZWEzMDRhZmU2Y2YgMTAwNjQ0Ci0tLSBhL3Rvb2xzL3Rlc3Rfd29ya29yZGVyX3N0YXR1c19i
+b3VuZGFyeS5wczEKKysrIGIvdG9vbHMvdGVzdF93b3Jrb3JkZXJfc3RhdHVzX2JvdW5kYXJ5LnBz
+MQpAQCAtMTExLDYgKzExMSwzMzQgQEAgZnVuY3Rpb24gQXNzZXJ0LVB1Ymxpc2hlZENsb3NlZElu
+dmVudG9yeVJlamVjdGVkIHsKICAgQXNzZXJ0LUJvdW5kYXJ5VGVzdCAkUmVqZWN0ZWQgIiROYW1l
+IGludmVudG9yeSBjb3JydXB0aW9uIHdhcyBhY2NlcHRlZCIKIH0KIAorZnVuY3Rpb24gQ29udmVy
+dFRvLVJlY292ZXJ5TmF0aXZlQXJndW1lbnQgeworICBwYXJhbShbQWxsb3dFbXB0eVN0cmluZygp
+XVtzdHJpbmddICRBcmd1bWVudCkKKworICBpZiAoJEFyZ3VtZW50Lkxlbmd0aCAtZXEgMCkgeyBy
+ZXR1cm4gJyIiJyB9CisgIGlmICgkQXJndW1lbnQgLW5vdG1hdGNoICdbXHMiXScpIHsgcmV0dXJu
+ICRBcmd1bWVudCB9CisgICRCdWlsZGVyID0gTmV3LU9iamVjdCBTeXN0ZW0uVGV4dC5TdHJpbmdC
+dWlsZGVyCisgIFt2b2lkXSRCdWlsZGVyLkFwcGVuZCgnIicpCisgICRCYWNrc2xhc2hlcyA9IDAK
+KyAgZm9yZWFjaCAoJENoYXJhY3RlciBpbiAkQXJndW1lbnQuVG9DaGFyQXJyYXkoKSkgeworICAg
+IGlmICgkQ2hhcmFjdGVyIC1lcSAnXCcpIHsKKyAgICAgICRCYWNrc2xhc2hlcyArPSAxCisgICAg
+ICBjb250aW51ZQorICAgIH0KKyAgICBpZiAoJENoYXJhY3RlciAtZXEgJyInKSB7CisgICAgICBb
+dm9pZF0kQnVpbGRlci5BcHBlbmQoKCgnXCcgKiAoKCRCYWNrc2xhc2hlcyAqIDIpICsgMSkpIC1q
+b2luICcnKSkKKyAgICAgIFt2b2lkXSRCdWlsZGVyLkFwcGVuZCgnIicpCisgICAgICAkQmFja3Ns
+YXNoZXMgPSAwCisgICAgICBjb250aW51ZQorICAgIH0KKyAgICBpZiAoJEJhY2tzbGFzaGVzIC1n
+dCAwKSB7CisgICAgICBbdm9pZF0kQnVpbGRlci5BcHBlbmQoKCgnXCcgKiAkQmFja3NsYXNoZXMp
+IC1qb2luICcnKSkKKyAgICAgICRCYWNrc2xhc2hlcyA9IDAKKyAgICB9CisgICAgW3ZvaWRdJEJ1
+aWxkZXIuQXBwZW5kKCRDaGFyYWN0ZXIpCisgIH0KKyAgaWYgKCRCYWNrc2xhc2hlcyAtZ3QgMCkg
+eworICAgIFt2b2lkXSRCdWlsZGVyLkFwcGVuZCgoKCdcJyAqICgkQmFja3NsYXNoZXMgKiAyKSkg
+LWpvaW4gJycpKQorICB9CisgIFt2b2lkXSRCdWlsZGVyLkFwcGVuZCgnIicpCisgIHJldHVybiAk
+QnVpbGRlci5Ub1N0cmluZygpCit9CisKK2Z1bmN0aW9uIEludm9rZS1SZWNvdmVyeU5hdGl2ZVBy
+b2Nlc3MgeworICBwYXJhbSgKKyAgICBbc3RyaW5nXSAkRmlsZU5hbWUsCisgICAgW3N0cmluZ1td
+XSAkQXJndW1lbnRzLAorICAgIFtzdHJpbmddICRXb3JraW5nRGlyZWN0b3J5LAorICAgIFtoYXNo
+dGFibGVdICRDaGlsZEVudmlyb25tZW50ID0gQHt9CisgICkKKworICAkU3RhcnRJbmZvID0gTmV3
+LU9iamVjdCBTeXN0ZW0uRGlhZ25vc3RpY3MuUHJvY2Vzc1N0YXJ0SW5mbworICAkU3RhcnRJbmZv
+LkZpbGVOYW1lID0gJEZpbGVOYW1lCisgICRTdGFydEluZm8uQXJndW1lbnRzID0gKEAoJEFyZ3Vt
+ZW50cyB8IEZvckVhY2gtT2JqZWN0IHsKKyAgICBDb252ZXJ0VG8tUmVjb3ZlcnlOYXRpdmVBcmd1
+bWVudCAoW3N0cmluZ10kXykKKyAgfSkgLWpvaW4gJyAnKQorICAkU3RhcnRJbmZvLldvcmtpbmdE
+aXJlY3RvcnkgPSAkV29ya2luZ0RpcmVjdG9yeQorICAkU3RhcnRJbmZvLlVzZVNoZWxsRXhlY3V0
+ZSA9ICRmYWxzZQorICAkU3RhcnRJbmZvLkNyZWF0ZU5vV2luZG93ID0gJHRydWUKKyAgJFN0YXJ0
+SW5mby5SZWRpcmVjdFN0YW5kYXJkSW5wdXQgPSAkdHJ1ZQorICAkU3RhcnRJbmZvLlJlZGlyZWN0
+U3RhbmRhcmRPdXRwdXQgPSAkdHJ1ZQorICAkU3RhcnRJbmZvLlJlZGlyZWN0U3RhbmRhcmRFcnJv
+ciA9ICR0cnVlCisgIGZvcmVhY2ggKCROYW1lIGluIEAoJENoaWxkRW52aXJvbm1lbnQuS2V5cykp
+IHsKKyAgICAkU3RhcnRJbmZvLkVudmlyb25tZW50VmFyaWFibGVzW1tzdHJpbmddJE5hbWVdID0g
+W3N0cmluZ10kQ2hpbGRFbnZpcm9ubWVudFskTmFtZV0KKyAgfQorICAkUHJvY2VzcyA9IE5ldy1P
+YmplY3QgU3lzdGVtLkRpYWdub3N0aWNzLlByb2Nlc3MKKyAgJFByb2Nlc3MuU3RhcnRJbmZvID0g
+JFN0YXJ0SW5mbworICBpZiAoLW5vdCAkUHJvY2Vzcy5TdGFydCgpKSB7CisgICAgJFByb2Nlc3Mu
+RGlzcG9zZSgpCisgICAgdGhyb3cgJ3JlY292ZXJ5IHByb2Nlc3MgZGlkIG5vdCBzdGFydCcKKyAg
+fQorICAkU3Rkb3V0ID0gTmV3LU9iamVjdCBTeXN0ZW0uSU8uTWVtb3J5U3RyZWFtCisgICRTdGRl
+cnIgPSBOZXctT2JqZWN0IFN5c3RlbS5JTy5NZW1vcnlTdHJlYW0KKyAgdHJ5IHsKKyAgICAkU3Rk
+b3V0VGFzayA9ICRQcm9jZXNzLlN0YW5kYXJkT3V0cHV0LkJhc2VTdHJlYW0uQ29weVRvQXN5bmMo
+JFN0ZG91dCkKKyAgICAkU3RkZXJyVGFzayA9ICRQcm9jZXNzLlN0YW5kYXJkRXJyb3IuQmFzZVN0
+cmVhbS5Db3B5VG9Bc3luYygkU3RkZXJyKQorICAgICRQcm9jZXNzLlN0YW5kYXJkSW5wdXQuQ2xv
+c2UoKQorICAgICRQcm9jZXNzLldhaXRGb3JFeGl0KCkKKyAgICAkU3Rkb3V0VGFzay5XYWl0KCkK
+KyAgICAkU3RkZXJyVGFzay5XYWl0KCkKKyAgICByZXR1cm4gW3BzY3VzdG9tb2JqZWN0XUB7Cisg
+ICAgICBFeGl0Q29kZSA9ICRQcm9jZXNzLkV4aXRDb2RlCisgICAgICBTdGRvdXRCeXRlcyA9ICRT
+dGRvdXQuVG9BcnJheSgpCisgICAgICBTdGRlcnJCeXRlcyA9ICRTdGRlcnIuVG9BcnJheSgpCisg
+ICAgfQorICB9IGZpbmFsbHkgeworICAgICRTdGRvdXQuRGlzcG9zZSgpCisgICAgJFN0ZGVyci5E
+aXNwb3NlKCkKKyAgICAkUHJvY2Vzcy5EaXNwb3NlKCkKKyAgfQorfQorCitmdW5jdGlvbiBSZXNv
+bHZlLVJlY292ZXJ5UmVwb3NpdG9yeSB7CisgIHBhcmFtKFtzdHJpbmddICRQYXRoKQorCisgIGlm
+ICgKKyAgICBbc3RyaW5nXTo6SXNOdWxsT3JXaGl0ZVNwYWNlKCRQYXRoKSAtb3IKKyAgICAtbm90
+IFtTeXN0ZW0uSU8uUGF0aF06OklzUGF0aFJvb3RlZCgkUGF0aCkgLW9yCisgICAgJFBhdGguSW5k
+ZXhPZihbY2hhcl0wKSAtZ2UgMCAtb3IKKyAgICAkUGF0aC5JbmRleE9mKCJgciIsIFtTdHJpbmdD
+b21wYXJpc29uXTo6T3JkaW5hbCkgLWdlIDAgLW9yCisgICAgJFBhdGguSW5kZXhPZigiYG4iLCBb
+U3RyaW5nQ29tcGFyaXNvbl06Ok9yZGluYWwpIC1nZSAwIC1vcgorICAgIFtTeXN0ZW0uTWFuYWdl
+bWVudC5BdXRvbWF0aW9uLldpbGRjYXJkUGF0dGVybl06OkNvbnRhaW5zV2lsZGNhcmRDaGFyYWN0
+ZXJzKCRQYXRoKQorICApIHsgdGhyb3cgJ3JlY292ZXJ5IHJlcG9zaXRvcnkgcGF0aCBpcyBhbWJp
+Z3VvdXMgb3IgdW5zYWZlJyB9CisgICRSZXNvbHZlZCA9IFtTeXN0ZW0uSU8uUGF0aF06OkdldEZ1
+bGxQYXRoKCRQYXRoKS5UcmltRW5kKCdcJywgJy8nKQorICAkR2l0RGlyZWN0b3J5ID0gSm9pbi1Q
+YXRoICRSZXNvbHZlZCAnLmdpdCcKKyAgaWYgKAorICAgIC1ub3QgW1N5c3RlbS5JTy5EaXJlY3Rv
+cnldOjpFeGlzdHMoJFJlc29sdmVkKSAtb3IKKyAgICAtbm90IFtTeXN0ZW0uSU8uRGlyZWN0b3J5
+XTo6RXhpc3RzKCRHaXREaXJlY3RvcnkpCisgICkgeyB0aHJvdyAncmVjb3ZlcnkgcmVwb3NpdG9y
+eSBpcyBub3QgYW4gZXhhY3Qgbm9uLWJhcmUgR2l0IHdvcmt0cmVlJyB9CisgIHJldHVybiBbcHNj
+dXN0b21vYmplY3RdQHsKKyAgICBQYXRoID0gJFJlc29sdmVkCisgICAgR2l0RGlyZWN0b3J5ID0g
+W1N5c3RlbS5JTy5QYXRoXTo6R2V0RnVsbFBhdGgoJEdpdERpcmVjdG9yeSkKKyAgICBTYWZlRGly
+ZWN0b3J5ID0gJFJlc29sdmVkLlJlcGxhY2UoJ1wnLCAnLycpCisgIH0KK30KKworZnVuY3Rpb24g
+VGVzdC1SZWNvdmVyeVBhdGhFcXVhbCB7CisgIHBhcmFtKFtzdHJpbmddICRGaXJzdCwgW3N0cmlu
+Z10gJFNlY29uZCkKKworICAkQ29tcGFyaXNvbiA9IGlmICgkZW52Ok9TIC1jZXEgJ1dpbmRvd3Nf
+TlQnKSB7CisgICAgW1N0cmluZ0NvbXBhcmlzb25dOjpPcmRpbmFsSWdub3JlQ2FzZQorICB9IGVs
+c2UgeyBbU3RyaW5nQ29tcGFyaXNvbl06Ok9yZGluYWwgfQorICByZXR1cm4gW3N0cmluZ106OkVx
+dWFscygkRmlyc3QsICRTZWNvbmQsICRDb21wYXJpc29uKQorfQorCitmdW5jdGlvbiBHZXQtUmVj
+b3ZlcnlBbWJpZW50R2l0Q29uZmlnQ291bnQgeworICAkRW52aXJvbm1lbnQgPSBbRW52aXJvbm1l
+bnRdOjpHZXRFbnZpcm9ubWVudFZhcmlhYmxlcygnUHJvY2VzcycpCisgICRSYXdDb3VudCA9IFtz
+dHJpbmddJEVudmlyb25tZW50WydHSVRfQ09ORklHX0NPVU5UJ10KKyAgaWYgKFtzdHJpbmddOjpJ
+c051bGxPckVtcHR5KCRSYXdDb3VudCkpIHsgJENvdW50ID0gMCB9CisgIGVsc2VpZiAoJFJhd0Nv
+dW50IC1jbWF0Y2ggJ14oPzowfFsxLTldWzAtOV0qKSQnKSB7ICRDb3VudCA9IFtpbnRdJFJhd0Nv
+dW50IH0KKyAgZWxzZSB7IHRocm93ICdyZWNvdmVyeSBhbWJpZW50IEdJVF9DT05GSUdfQ09VTlQg
+aXMgbWFsZm9ybWVkJyB9CisgIGlmICgkbnVsbCAtbmUgJEVudmlyb25tZW50WydHSVRfVEVTVF9B
+U1NVTUVfRElGRkVSRU5UX09XTkVSJ10pIHsKKyAgICB0aHJvdyAncmVjb3Zlcnkgb3duZXJzaGlw
+IGFkdmVyc2FyeSBpcyBhbHJlYWR5IGFjdGl2ZScKKyAgfQorICBmb3JlYWNoICgkTmFtZSBpbiBA
+KCRFbnZpcm9ubWVudC5LZXlzKSkgeworICAgIGlmIChbc3RyaW5nXSROYW1lIC1jbWF0Y2ggJ15H
+SVRfQ09ORklHXyg/OktFWXxWQUxVRSlfKFswLTldKykkJykgeworICAgICAgJEluZGV4ID0gW2lu
+dF0kTWF0Y2hlc1sxXQorICAgICAgaWYgKCRJbmRleCAtZ2UgJENvdW50KSB7IHRocm93ICdyZWNv
+dmVyeSBhbWJpZW50IEdpdCBjb25maWcgY29udGFpbnMgYW4gb3JwaGFuJyB9CisgICAgfQorICB9
+CisgIGZvciAoJEluZGV4ID0gMDsgJEluZGV4IC1sdCAkQ291bnQ7ICRJbmRleCArPSAxKSB7Cisg
+ICAgaWYgKAorICAgICAgJG51bGwgLWVxICRFbnZpcm9ubWVudFsiR0lUX0NPTkZJR19LRVlfJElu
+ZGV4Il0gLW9yCisgICAgICAkbnVsbCAtZXEgJEVudmlyb25tZW50WyJHSVRfQ09ORklHX1ZBTFVF
+XyRJbmRleCJdCisgICAgKSB7IHRocm93ICdyZWNvdmVyeSBhbWJpZW50IEdpdCBjb25maWcgaXMg
+aW5jb21wbGV0ZScgfQorICB9CisgIHJldHVybiAkQ291bnQKK30KKworZnVuY3Rpb24gSW52b2tl
+LVJlY292ZXJ5TXV0YXRpb25Qcm9jZXNzIHsKKyAgcGFyYW0oCisgICAgW3N0cmluZ10gJFJlcG9z
+aXRvcnlQYXRoLAorICAgIFtzdHJpbmddICRFeHBlY3RlZENvbW1pdCwKKyAgICBbc3RyaW5nXSAk
+VHJ1c3RQYXRoLAorICAgIFtzdHJpbmdbXV0gJFBvd2VyU2hlbGxBcmd1bWVudHMsCisgICAgW3N3
+aXRjaF0gJE9taXRUcnVzdAorICApCisKKyAgJEFtYmllbnRDb3VudCA9IEdldC1SZWNvdmVyeUFt
+YmllbnRHaXRDb25maWdDb3VudAorICBpZiAoJEV4cGVjdGVkQ29tbWl0IC1jbm90bWF0Y2ggJ15b
+MC05YS1mXXs0MH0kJykgeworICAgIHRocm93ICdyZWNvdmVyeSBleHBlY3RlZCBjb21taXQgaXMg
+aW52YWxpZCcKKyAgfQorICAkUmVwb3NpdG9yeSA9IFJlc29sdmUtUmVjb3ZlcnlSZXBvc2l0b3J5
+ICRSZXBvc2l0b3J5UGF0aAorICAkVHJ1c3QgPSBSZXNvbHZlLVJlY292ZXJ5UmVwb3NpdG9yeSAk
+VHJ1c3RQYXRoCisgIGlmICgtbm90IChUZXN0LVJlY292ZXJ5UGF0aEVxdWFsICRSZXBvc2l0b3J5
+LlBhdGggJFRydXN0LlBhdGgpKSB7CisgICAgdGhyb3cgJ3JlY292ZXJ5IHRydXN0IGRvZXMgbm90
+IGV4YWN0bHkgbWF0Y2ggdGhlIHNlbGVjdGVkIHJlcG9zaXRvcnknCisgIH0KKyAgJEdpdCA9IChH
+ZXQtQ29tbWFuZCBnaXQuZXhlIC1FcnJvckFjdGlvbiBTdG9wKS5Tb3VyY2UKKyAgJEFkdmVyc2Fy
+eSA9IEB7IEdJVF9URVNUX0FTU1VNRV9ESUZGRVJFTlRfT1dORVIgPSAnMScgfQorICAkSWRlbnRp
+dHkgPSBJbnZva2UtUmVjb3ZlcnlOYXRpdmVQcm9jZXNzIC1GaWxlTmFtZSAkR2l0IC1Xb3JraW5n
+RGlyZWN0b3J5ICRSZXBvc2l0b3J5LlBhdGggYAorICAgIC1DaGlsZEVudmlyb25tZW50ICRBZHZl
+cnNhcnkgLUFyZ3VtZW50cyBAKAorICAgICAgJy0tbm8tcmVwbGFjZS1vYmplY3RzJywgIi0tZ2l0
+LWRpcj0kKCRSZXBvc2l0b3J5LkdpdERpcmVjdG9yeSkiLAorICAgICAgJ3Jldi1wYXJzZScsICct
+LXZlcmlmeScsICIkRXhwZWN0ZWRDb21taXRgXntjb21taXR9IgorICAgICkKKyAgJFV0ZjggPSBO
+ZXctT2JqZWN0IFN5c3RlbS5UZXh0LlVURjhFbmNvZGluZygkZmFsc2UsICR0cnVlKQorICBpZiAo
+CisgICAgJElkZW50aXR5LkV4aXRDb2RlIC1uZSAwIC1vcgorICAgICRJZGVudGl0eS5TdGRlcnJC
+eXRlcy5MZW5ndGggLW5lIDAgLW9yCisgICAgJFV0ZjguR2V0U3RyaW5nKCRJZGVudGl0eS5TdGRv
+dXRCeXRlcykuVHJpbUVuZChbY2hhcltdXSJgcmBuIikgLWNuZSAkRXhwZWN0ZWRDb21taXQKKyAg
+KSB7IHRocm93ICdyZWNvdmVyeSByZXBvc2l0b3J5IGlkZW50aXR5IGF1dGhlbnRpY2F0aW9uIGZh
+aWxlZCcgfQorCisgICRDaGlsZEVudmlyb25tZW50ID0gQHsgR0lUX1RFU1RfQVNTVU1FX0RJRkZF
+UkVOVF9PV05FUiA9ICcxJyB9CisgIGlmICgtbm90ICRPbWl0VHJ1c3QpIHsKKyAgICAkQ2hpbGRF
+bnZpcm9ubWVudC5HSVRfQ09ORklHX0NPVU5UID0gW3N0cmluZ10oJEFtYmllbnRDb3VudCArIDEp
+CisgICAgJENoaWxkRW52aXJvbm1lbnRbIkdJVF9DT05GSUdfS0VZXyRBbWJpZW50Q291bnQiXSA9
+ICdzYWZlLmRpcmVjdG9yeScKKyAgICAkQ2hpbGRFbnZpcm9ubWVudFsiR0lUX0NPTkZJR19WQUxV
+RV8kQW1iaWVudENvdW50Il0gPSAkUmVwb3NpdG9yeS5TYWZlRGlyZWN0b3J5CisgIH0KKyAgJFBv
+d2VyU2hlbGwgPSAoR2V0LVByb2Nlc3MgLUlkICRQSUQpLlBhdGgKKyAgJFJlc3VsdCA9IEludm9r
+ZS1SZWNvdmVyeU5hdGl2ZVByb2Nlc3MgLUZpbGVOYW1lICRQb3dlclNoZWxsIGAKKyAgICAtV29y
+a2luZ0RpcmVjdG9yeSAkUmVwb3NpdG9yeS5QYXRoIC1DaGlsZEVudmlyb25tZW50ICRDaGlsZEVu
+dmlyb25tZW50IGAKKyAgICAtQXJndW1lbnRzICRQb3dlclNoZWxsQXJndW1lbnRzCisgIHJldHVy
+biBbcHNjdXN0b21vYmplY3RdQHsKKyAgICBSZXBvc2l0b3J5UGF0aCA9ICRSZXBvc2l0b3J5LlBh
+dGgKKyAgICBJZGVudGl0eSA9ICRFeHBlY3RlZENvbW1pdAorICAgIEV4aXRDb2RlID0gJFJlc3Vs
+dC5FeGl0Q29kZQorICAgIFN0ZG91dEJ5dGVzID0gJFJlc3VsdC5TdGRvdXRCeXRlcworICAgIFN0
+ZGVyckJ5dGVzID0gJFJlc3VsdC5TdGRlcnJCeXRlcworICB9Cit9CisKK2Z1bmN0aW9uIEFzc2Vy
+dC1SZWNvdmVyeU11dGF0aW9uU3VjY2VzcyB7CisgIHBhcmFtKFtvYmplY3RdICRSZXN1bHQsIFtz
+dHJpbmddICRFeHBlY3RlZENvbW1pdCkKKworICAkVXRmOCA9IE5ldy1PYmplY3QgVGV4dC5VVEY4
+RW5jb2RpbmcoJGZhbHNlLCAkdHJ1ZSkKKyAgaWYgKAorICAgICRSZXN1bHQuSWRlbnRpdHkgLWNu
+ZSAkRXhwZWN0ZWRDb21taXQgLW9yCisgICAgJFJlc3VsdC5FeGl0Q29kZSAtbmUgMCAtb3IKKyAg
+ICAkUmVzdWx0LlN0ZGVyckJ5dGVzLkxlbmd0aCAtbmUgMCAtb3IKKyAgICAkVXRmOC5HZXRTdHJp
+bmcoJFJlc3VsdC5TdGRvdXRCeXRlcykgLWNuZSAiJEV4cGVjdGVkQ29tbWl0YG4iCisgICkgeyB0
+aHJvdyAncmVjb3ZlcnkgbXV0YXRpb24gcmVzdWx0IGlzIG1pc3NpbmcsIG1hbGZvcm1lZCwgb3Ig
+dW5zdWNjZXNzZnVsJyB9Cit9CisKK2Z1bmN0aW9uIEdldC1SZWNvdmVyeVN0YXRlU2hhMjU2IHsK
+KyAgcGFyYW0oW3N0cmluZ10gJFJlcG9zaXRvcnlQYXRoKQorCisgICRSb3dzID0gTmV3LU9iamVj
+dCBTeXN0ZW0uQ29sbGVjdGlvbnMuR2VuZXJpYy5MaXN0W3N0cmluZ10KKyAgJEVudmlyb25tZW50
+ID0gW0Vudmlyb25tZW50XTo6R2V0RW52aXJvbm1lbnRWYXJpYWJsZXMoJ1Byb2Nlc3MnKQorICBm
+b3JlYWNoICgkTmFtZSBpbiBAKCRFbnZpcm9ubWVudC5LZXlzIHwgU29ydC1PYmplY3QpKSB7Cisg
+ICAgJEJ5dGVzID0gW1RleHQuRW5jb2RpbmddOjpVVEY4LkdldEJ5dGVzKFtzdHJpbmddJEVudmly
+b25tZW50WyROYW1lXSkKKyAgICAkUm93cy5BZGQoImVudjokTmFtZT0kKFtDb252ZXJ0XTo6VG9C
+YXNlNjRTdHJpbmcoJEJ5dGVzKSkiKQorICB9CisgICRHaXQgPSAoR2V0LUNvbW1hbmQgZ2l0LmV4
+ZSAtRXJyb3JBY3Rpb24gU3RvcCkuU291cmNlCisgIGZvcmVhY2ggKCRTY29wZSBpbiBAKCdsb2Nh
+bCcsICdnbG9iYWwnLCAnc3lzdGVtJykpIHsKKyAgICAkQXJndW1lbnRzID0gaWYgKCRTY29wZSAt
+Y2VxICdsb2NhbCcpIHsKKyAgICAgIEAoIi0tZ2l0LWRpcj0kUmVwb3NpdG9yeVBhdGhcLmdpdCIs
+ICdjb25maWcnLCAnLS1sb2NhbCcsICctLW51bGwnLCAnLS1saXN0JykKKyAgICB9IGVsc2UgeyBA
+KCdjb25maWcnLCAiLS0kU2NvcGUiLCAnLS1udWxsJywgJy0tbGlzdCcpIH0KKyAgICAkUmVzdWx0
+ID0gSW52b2tlLVJlY292ZXJ5TmF0aXZlUHJvY2VzcyAkR2l0ICRBcmd1bWVudHMgJFJlcG9zaXRv
+cnlQYXRoCisgICAgJFJvd3MuQWRkKCIke1Njb3BlfTokKCRSZXN1bHQuRXhpdENvZGUpOiQoW0Nv
+bnZlcnRdOjpUb0Jhc2U2NFN0cmluZygkUmVzdWx0LlN0ZG91dEJ5dGVzKSk6JChbQ29udmVydF06
+OlRvQmFzZTY0U3RyaW5nKCRSZXN1bHQuU3RkZXJyQnl0ZXMpKSIpCisgIH0KKyAgJFNoYSA9IFtT
+ZWN1cml0eS5DcnlwdG9ncmFwaHkuU0hBMjU2XTo6Q3JlYXRlKCkKKyAgdHJ5IHsKKyAgICAkQnl0
+ZXMgPSBbVGV4dC5FbmNvZGluZ106OlVURjguR2V0Qnl0ZXMoKEAoJFJvd3MpIC1qb2luICJgbiIp
+ICsgImBuIikKKyAgICByZXR1cm4gKFtCaXRDb252ZXJ0ZXJdOjpUb1N0cmluZygkU2hhLkNvbXB1
+dGVIYXNoKCRCeXRlcykpIC1yZXBsYWNlICctJywgJycpLlRvTG93ZXJJbnZhcmlhbnQoKQorICB9
+IGZpbmFsbHkgeyAkU2hhLkRpc3Bvc2UoKSB9Cit9CisKK2Z1bmN0aW9uIEFzc2VydC1SZWNvdmVy
+eVRyYW5zcG9ydFByb2plY3Rpb24geworICBwYXJhbShbc3RyaW5nXSAkUm9vdCkKKworICAkUmVw
+b3NpdG9yeSA9IE5ldy1UZXN0UmVwb3NpdG9yeSAkUm9vdAorICAkT3RoZXIgPSBOZXctVGVzdFJl
+cG9zaXRvcnkgJFJvb3QKKyAgJFByb2JlUGF0aCA9IEpvaW4tUGF0aCAkUm9vdCAncmVjb3Zlcnkt
+Y2hpbGQucHMxJworICBXcml0ZS1UZXN0VGV4dCAkUHJvYmVQYXRoIEAnCitwYXJhbShbc3RyaW5n
+XSAkUmVwb3NpdG9yeSwgW3N0cmluZ10gJENvbW1pdCwgW3N0cmluZ10gJE1vZGUpCitpZiAoJE1v
+ZGUgLWNlcSAnbm9uemVybycpIHsgW0NvbnNvbGVdOjpFcnJvci5Xcml0ZSgncHJvYmUtZXJyb3In
+KTsgZXhpdCAyMyB9CitpZiAoJE1vZGUgLWNlcSAnbWlzc2luZycpIHsgZXhpdCAwIH0KK2lmICgk
+TW9kZSAtY2VxICdtYWxmb3JtZWQnKSB7IFtDb25zb2xlXTo6T3V0LldyaXRlKCJtYWxmb3JtZWRg
+biIpOyBleGl0IDAgfQorJEdpdCA9IChHZXQtQ29tbWFuZCBnaXQuZXhlIC1FcnJvckFjdGlvbiBT
+dG9wKS5Tb3VyY2UKKyRPdXRwdXQgPSBAKCYgJEdpdCAtLW5vLXJlcGxhY2Utb2JqZWN0cyAtQyAk
+UmVwb3NpdG9yeSBzaG93ICctLWZvcm1hdD0lSCcgLS1uby1wYXRjaCAkQ29tbWl0KQorJENvZGUg
+PSAkTEFTVEVYSVRDT0RFCitpZiAoJENvZGUgLW5lIDApIHsgZXhpdCAkQ29kZSB9CitbQ29uc29s
+ZV06Ok91dC5Xcml0ZSgoQCgkT3V0cHV0KSAtam9pbiAiYG4iKSArICJgbiIpCitpZiAoJE1vZGUg
+LWNlcSAnbGVnYWN5JykgeyBbQ29uc29sZV06Ok91dC5Xcml0ZSgibGVnYWN5LWFzc2VydGlvbi1y
+ZWFjaGVkYG4iKSB9CitpZiAoJE1vZGUgLWNlcSAnYmluYXJ5JykgeyBbQ29uc29sZV06Ok91dC5X
+cml0ZSgiYmluYXJ5LWFzc2VydGlvbi1yZWFjaGVkYG4iKSB9CisnQAorICAkUXVvdGVQYXRoID0g
+Sm9pbi1QYXRoICRSb290ICdyZWNvdmVyeS1xdW90ZS5wczEnCisgIFdyaXRlLVRlc3RUZXh0ICRR
+dW90ZVBhdGggQCcKKyRSb3dzID0gQCgkYXJncyB8IEZvckVhY2gtT2JqZWN0IHsKKyAgW0NvbnZl
+cnRdOjpUb0Jhc2U2NFN0cmluZyhbVGV4dC5FbmNvZGluZ106OlVURjguR2V0Qnl0ZXMoW3N0cmlu
+Z10kXykpCit9KQorW0NvbnNvbGVdOjpPdXQuV3JpdGUoJFJvd3MgLWpvaW4gJzsnKQorJ0AKKyAg
+JFF1b3RlVmFsdWVzID0gQCgnJywgJ3R3byB3b3JkcycsICdlbWJlZGRlZCJxdW90ZScsICd0cmFp
+bGluZ1wnKQorICAkUXVvdGVSZXN1bHQgPSBJbnZva2UtUmVjb3ZlcnlOYXRpdmVQcm9jZXNzIChH
+ZXQtUHJvY2VzcyAtSWQgJFBJRCkuUGF0aCBgCisgICAgKEAoJy1Ob1Byb2ZpbGUnLCAnLUZpbGUn
+LCAkUXVvdGVQYXRoKSArICRRdW90ZVZhbHVlcykgJFJvb3QKKyAgJEV4cGVjdGVkUXVvdGVzID0g
+QCgkUXVvdGVWYWx1ZXMgfCBGb3JFYWNoLU9iamVjdCB7CisgICAgW0NvbnZlcnRdOjpUb0Jhc2U2
+NFN0cmluZyhbVGV4dC5FbmNvZGluZ106OlVURjguR2V0Qnl0ZXMoJF8pKQorICB9KSAtam9pbiAn
+OycKKyAgQXNzZXJ0LUJvdW5kYXJ5VGVzdCAoCisgICAgJFF1b3RlUmVzdWx0LkV4aXRDb2RlIC1l
+cSAwIC1hbmQKKyAgICAkUXVvdGVSZXN1bHQuU3RkZXJyQnl0ZXMuTGVuZ3RoIC1lcSAwIC1hbmQK
+KyAgICBbVGV4dC5FbmNvZGluZ106OlVURjguR2V0U3RyaW5nKCRRdW90ZVJlc3VsdC5TdGRvdXRC
+eXRlcykgLWNlcSAkRXhwZWN0ZWRRdW90ZXMKKyAgKSAnUG93ZXJTaGVsbCA1LjEgcmVjb3Zlcnkg
+YXJndW1lbnQgY29uc3RydWN0aW9uIGNoYW5nZWQgYW4gYXJndW1lbnQnCisgICRQb3dlclNoZWxs
+QXJndW1lbnRzID0gQCgKKyAgICAnLU5vUHJvZmlsZScsICctRmlsZScsICRQcm9iZVBhdGgsCisg
+ICAgJy1SZXBvc2l0b3J5JywgJFJlcG9zaXRvcnkuUGF0aCwKKyAgICAnLUNvbW1pdCcsICRSZXBv
+c2l0b3J5LkFuY2hvciwKKyAgICAnLU1vZGUnLCAnaG9uZXN0JworICApCisgICRTdGF0ZSA9IEdl
+dC1SZWNvdmVyeVN0YXRlU2hhMjU2ICRSZXBvc2l0b3J5LlBhdGgKKyAgJEJhc2VsaW5lID0gSW52
+b2tlLVJlY292ZXJ5TmF0aXZlUHJvY2VzcyAoR2V0LVByb2Nlc3MgLUlkICRQSUQpLlBhdGggYAor
+ICAgICRQb3dlclNoZWxsQXJndW1lbnRzICRSZXBvc2l0b3J5LlBhdGgKKyAgQXNzZXJ0LUJvdW5k
+YXJ5VGVzdCAoJEJhc2VsaW5lLkV4aXRDb2RlIC1lcSAwKSAnc2FtZS1vd25lciBjb250cm9sIGRp
+ZCBub3Qgc3VjY2VlZCcKKworICAkSG9uZXN0ID0gSW52b2tlLVJlY292ZXJ5TXV0YXRpb25Qcm9j
+ZXNzICRSZXBvc2l0b3J5LlBhdGggJFJlcG9zaXRvcnkuQW5jaG9yIGAKKyAgICAkUmVwb3NpdG9y
+eS5QYXRoICRQb3dlclNoZWxsQXJndW1lbnRzCisgICRVdGY4ID0gTmV3LU9iamVjdCBUZXh0LlVU
+RjhFbmNvZGluZygkZmFsc2UsICR0cnVlKQorICAkRXhwZWN0ZWQgPSAiJCgkUmVwb3NpdG9yeS5B
+bmNob3IpYG4iCisgIEFzc2VydC1SZWNvdmVyeU11dGF0aW9uU3VjY2VzcyAkSG9uZXN0ICRSZXBv
+c2l0b3J5LkFuY2hvcgorCisgICROb1RydXN0ID0gSW52b2tlLVJlY292ZXJ5TXV0YXRpb25Qcm9j
+ZXNzICRSZXBvc2l0b3J5LlBhdGggJFJlcG9zaXRvcnkuQW5jaG9yIGAKKyAgICAkUmVwb3NpdG9y
+eS5QYXRoICRQb3dlclNoZWxsQXJndW1lbnRzIC1PbWl0VHJ1c3QKKyAgQXNzZXJ0LUJvdW5kYXJ5
+VGVzdCAoCisgICAgJE5vVHJ1c3QuSWRlbnRpdHkgLWNlcSAkUmVwb3NpdG9yeS5BbmNob3IgLWFu
+ZAorICAgICROb1RydXN0LkV4aXRDb2RlIC1uZSAwIC1hbmQKKyAgICAkTm9UcnVzdC5TdGRvdXRC
+eXRlcy5MZW5ndGggLWVxIDAgLWFuZAorICAgICRVdGY4LkdldFN0cmluZygkTm9UcnVzdC5TdGRl
+cnJCeXRlcykuQ29udGFpbnMoJ2R1YmlvdXMgb3duZXJzaGlwJykKKyAgKSAnb3duZXJzaGlwIGFk
+dmVyc2FyeSBkaWQgbm90IGZhaWwgc3BlY2lmaWNhbGx5IGF0IGR1YmlvdXMgb3duZXJzaGlwJwor
+CisgIGZvcmVhY2ggKCRUcnVzdCBpbiBAKCRPdGhlci5QYXRoLCAkUm9vdCwgIiQoJFJlcG9zaXRv
+cnkuUGF0aCkqIikpIHsKKyAgICAkUmVqZWN0ZWQgPSAkZmFsc2UKKyAgICB0cnkgeworICAgICAg
+W3ZvaWRdKEludm9rZS1SZWNvdmVyeU11dGF0aW9uUHJvY2VzcyAkUmVwb3NpdG9yeS5QYXRoICRS
+ZXBvc2l0b3J5LkFuY2hvciBgCisgICAgICAgICRUcnVzdCAkUG93ZXJTaGVsbEFyZ3VtZW50cykK
+KyAgICB9IGNhdGNoIHsgJFJlamVjdGVkID0gJHRydWUgfQorICAgIEFzc2VydC1Cb3VuZGFyeVRl
+c3QgJFJlamVjdGVkICJub24tZXhhY3QgcmVjb3ZlcnkgdHJ1c3Qgd2FzIGFjY2VwdGVkOiAkVHJ1
+c3QiCisgIH0KKworICBmb3JlYWNoICgkTW9kZSBpbiBAKCdub256ZXJvJywgJ21pc3NpbmcnLCAn
+bWFsZm9ybWVkJywgJ2xlZ2FjeScsICdiaW5hcnknKSkgeworICAgICRBcmd1bWVudHMgPSBAKCRQ
+b3dlclNoZWxsQXJndW1lbnRzKQorICAgICRBcmd1bWVudHNbJEFyZ3VtZW50cy5Db3VudCAtIDFd
+ID0gJE1vZGUKKyAgICAkUmVzdWx0ID0gSW52b2tlLVJlY292ZXJ5TXV0YXRpb25Qcm9jZXNzICRS
+ZXBvc2l0b3J5LlBhdGggJFJlcG9zaXRvcnkuQW5jaG9yIGAKKyAgICAgICRSZXBvc2l0b3J5LlBh
+dGggJEFyZ3VtZW50cworICAgICRUZXh0ID0gJFV0ZjguR2V0U3RyaW5nKCRSZXN1bHQuU3Rkb3V0
+Qnl0ZXMpCisgICAgaWYgKCRNb2RlIC1jaW4gQCgnbm9uemVybycsICdtaXNzaW5nJywgJ21hbGZv
+cm1lZCcpKSB7CisgICAgICAkUmVqZWN0ZWQgPSAkZmFsc2UKKyAgICAgIHRyeSB7IEFzc2VydC1S
+ZWNvdmVyeU11dGF0aW9uU3VjY2VzcyAkUmVzdWx0ICRSZXBvc2l0b3J5LkFuY2hvciB9IGNhdGNo
+IHsgJFJlamVjdGVkID0gJHRydWUgfQorICAgICAgQXNzZXJ0LUJvdW5kYXJ5VGVzdCAkUmVqZWN0
+ZWQgIiRNb2RlIHJlY292ZXJ5IHJlc3VsdCBzYXRpc2ZpZWQgdGhlIHN1Y2Nlc3MgY29udHJhY3Qi
+CisgICAgICBpZiAoJE1vZGUgLWNlcSAnbm9uemVybycpIHsKKyAgICAgICAgQXNzZXJ0LUJvdW5k
+YXJ5VGVzdCAoJFJlc3VsdC5FeGl0Q29kZSAtZXEgMjMgLWFuZCAkUmVzdWx0LlN0ZGVyckJ5dGVz
+Lkxlbmd0aCAtZ3QgMCkgYAorICAgICAgICAgICdub256ZXJvIHJlY292ZXJ5IHJlc3VsdCB3YXMg
+bm90IHByZXNlcnZlZCcKKyAgICAgIH0gZWxzZWlmICgkTW9kZSAtY2VxICdtaXNzaW5nJykgewor
+ICAgICAgICBBc3NlcnQtQm91bmRhcnlUZXN0ICgkUmVzdWx0LkV4aXRDb2RlIC1lcSAwIC1hbmQg
+JFJlc3VsdC5TdGRvdXRCeXRlcy5MZW5ndGggLWVxIDApIGAKKyAgICAgICAgICAnbWlzc2luZyBy
+ZWNvdmVyeSBvdXRwdXQgd2FzIG5vdCBvYnNlcnZhYmxlJworICAgICAgfQorICAgIH0gZWxzZSB7
+CisgICAgICBBc3NlcnQtQm91bmRhcnlUZXN0ICgKKyAgICAgICAgJFJlc3VsdC5FeGl0Q29kZSAt
+ZXEgMCAtYW5kCisgICAgICAgICRSZXN1bHQuU3RkZXJyQnl0ZXMuTGVuZ3RoIC1lcSAwIC1hbmQK
+KyAgICAgICAgJFRleHQuQ29udGFpbnMoIiRNb2RlLWFzc2VydGlvbi1yZWFjaGVkYG4iKQorICAg
+ICAgKSAiJE1vZGUgbXV0YXRpb24gYXNzZXJ0aW9uIHdhcyBub3QgcmVhY2hlZCIKKyAgICB9Cisg
+IH0KKyAgQXNzZXJ0LUJvdW5kYXJ5VGVzdCAoCisgICAgKEdldC1SZWNvdmVyeVN0YXRlU2hhMjU2
+ICRSZXBvc2l0b3J5LlBhdGgpIC1jZXEgJFN0YXRlCisgICkgJ3JlY292ZXJ5IHByb2plY3Rpb24g
+Y2hhbmdlZCBwYXJlbnQgZW52aXJvbm1lbnQgb3IgR2l0IGNvbmZpZ3VyYXRpb24nCisgIFdyaXRl
+LUhvc3QgIlVuaXQgQyByZWNvdmVyeSByZWRlc2lnbiBwYXNzZWQ6IGlkZW50aXR5PSQoJFJlcG9z
+aXRvcnkuQW5jaG9yKTtxdW90ZXM9ZXhhY3Q7bGVnYWN5PXJlYWNoYWJsZTtiaW5hcnk9cmVhY2hh
+YmxlIgorfQorCiBmdW5jdGlvbiBJbnZva2UtVGVzdEdpdCB7CiAgIHBhcmFtKAogICAgIFtzdHJp
+bmddICRSZXBvUGF0aCwKQEAgLTcyMCw2ICsxMDQ4LDcgQEAgQXNzZXJ0LUJvdW5kYXJ5VGVzdCAk
+VGVzdFJvb3QuU3RhcnRzV2l0aCgkVGVtcEJhc2UsIFtTeXN0ZW0uU3RyaW5nQ29tcGFyaXNvbl06
+Ok8KIFt2b2lkXVtTeXN0ZW0uSU8uRGlyZWN0b3J5XTo6Q3JlYXRlRGlyZWN0b3J5KCRUZXN0Um9v
+dCkKIAogdHJ5IHsKKyAgQXNzZXJ0LVJlY292ZXJ5VHJhbnNwb3J0UHJvamVjdGlvbiAkVGVzdFJv
+b3QKICAgQXNzZXJ0LVByb2R1Y3Rpb25TZWFtSXNDbG9zZWQKICAgQXNzZXJ0LUhpc3RvcmljYWxB
+bWVuZG1lbnRJc0Z1bGwKIAo=
+```
+<!-- wo21-unit-c-projection-patch-base64:end -->
+
+#### Revised recovery ceiling and one implementation path
+
+The smallest passing integrated projection adds 329 lines and deletes none
+relative to clean candidate `b9093901...`. The redesign permits exactly four
+lines of insertion and four lines of deletion headroom for platform integration
+without architectural change. The recovery delta ceiling is therefore
+`+333/-4`, under both raw and whitespace-insensitive accounting. This derives
+from measured `+329/-0`, not from a round target.
+
+With that ceiling, final test-script limits relative to the published Unit C
+parent are `+597/-80`; final combined limits with the unchanged production
+candidate are `+598/-106`. These remain below the already authoritative Unit C
+ceilings of test `+600/-520` and combined `+700/-700`; no unit-level budget is
+raised. Production remains exactly `+1/-26`, blob
+`62b3d964e116a1c19190945550151b456ad5aa99`. Unused deletion capacity is not
+refactoring authority.
+
+There is one future implementation path:
+
+1. Obtain a fresh independent review of this exact amendment. Only an
+   unqualified `ACCEPT` may return it to the BDFL.
+2. Under separate authority, create one documentation commit with exact subject
+   `docs(workorder): redesign unit c evidence transport`.
+3. Separately publish that commit and require terminal-green full Ubuntu and
+   Windows CI.
+4. Separately author, commit, publish, and prove its immutable publication-
+   status record through terminal-green fast CI.
+5. Obtain a fresh explicit BDFL Unit C redesign-implementation signal.
+6. Apply, never pop, clean stash commit
+   `b9093901b8c92c626c3c23ee1a52366d2e54f698`; never apply rejected stash
+   `44262ceec1e895a3120133e8676387f2786ae3d0`.
+7. Reauthenticate the clean two-path candidate, preserve the production blob,
+   and implement only the selected 329-line architecture within `+333/-4`.
+8. Before restarting the matrix, prove adversary availability, independent
+   identity on honest and failed calls, exact scoped-trust success, trust-
+   removal dubious-ownership failure, non-exact trust rejection, PS5.1 quoting,
+   separate streams/exit, result-shape rejection, and state restoration.
+9. Run the precise legacy-root and binary-excluding mutations through this one
+   transport and require their original classifier assertions to be reached
+   and fail under their one-property production weakenings.
+10. Restart the complete 151-case matrix and every remaining Unit C mutation
+    from the beginning, then run all standing document gates and the single
+    still-unconsumed Fast allowance in their frozen order.
+11. Leave exactly the two candidate paths unstaged for one fresh independent
+    complete-tree review. Commit, publication, status, closeout, and successor
+    work remain separately gated.
+
+A third path, production-blob drift, Work Order edit during implementation,
+rejected-stash application, malformed/orphaned ambient config, unavailable or
+non-load-bearing ownership adversary, identity mismatch, broader trust reaching
+Git, different trust satisfying the child, incomplete capture, environment or
+config drift, mutation assertion not reached, matrix failure, budget breach,
+platform disagreement, or Fast failure is a mandatory stop. No correction,
+alternate adversary, budget increase, rerun, compaction, assertion weakening,
+or broad harness consolidation follows implicitly.
+
+This amendment authorizes no candidate restoration or edit, matrix, mutation,
+Fast, Exhaustive, Cargo/compiler evidence, commit, push, CI, closeout, WO22,
+stash mutation, archive mutation, global harness consolidation,
+semantic-coordinate research, or compiler work.
+
 ## Complete mutation matrix
 
 Every required property has an honest control and one-property corruption. The
@@ -1434,22 +2339,29 @@ probe, or migration simulation is authorized during planning authorship.
 
 ## Current authorization gate
 
-The sole current authorization is creation of this one-file local Unit C
-harness-recovery-amendment publication-status commit. The amendment was
-committed as `aad65f27e4092bea1d33daa9e8f84f2894e75ea7`, published by a normal
-non-force `main`-only fast-forward, and tested successfully by workflow
-`31868380939`, attempt 1, on Ubuntu job `94972895006` and Windows job
-`94972895023` through the required full lane.
+The sole current authorization is the bounded one-file raw-byte decoder
+correction. It is complete only when CR and missing-final-LF mutations fail
+before any disposable side effect under both required Windows PowerShell
+versions, the honest retained artifact still reconstructs exact target blob
+`8d28cc9854863255719b7ccd55a42ea304afe6cf`, the focused architectural evidence
+and two complete 151-case executions pass, all document checks finish, every
+disposable artifact is removed, and the canonical repository contains exactly
+this unstaged Work Order edit.
 
-Publication of this status commit and terminal-green fast Ubuntu and Windows
-CI remain separately gated. Even after that CI, restoring stash
-`b9093901b8c92c626c3c23ee1a52366d2e54f698` requires a fresh explicit BDFL
-Unit C recovery signal. The stopped candidate remains unapplied and unchanged.
+The next gate is one fresh independent corrected-amendment review of both the
+document and its retained reconstruction artifact. No commit follows unless
+that reviewer returns an unqualified `ACCEPT`, and the exact proposed
+documentation subject remains
+`docs(workorder): redesign unit c evidence transport`. Amendment commit,
+publication, full CI, publication-status record, status publication, fast CI,
+clean-candidate restoration, implementation, matrix, mutations, Fast, Unit C
+acceptance, closeout, successor issuance, and all later work each remain
+separately gated.
 
-This status-record authority grants no stash apply/pop/drop/reorder, candidate
-correction, matrix or mutation execution, Fast, Exhaustive, CI, publication,
-Unit C acceptance, closeout, successor issuance, archive mutation, global
-harness consolidation, compiler work, semantic-coordinate research, WO22, or
-later activity. No next step follows implicitly.
+This document-author authority grants no stash apply/pop/drop/reorder,
+candidate edit, production or test-script edit, Cargo, classifier mutation,
+Fast, Exhaustive, CI, commit, push, archive mutation, broad harness
+consolidation, compiler work, semantic-coordinate research, WO22, or later
+activity. No next step follows implicitly.
 
 <!-- workorder-current-authorization-gate:end -->
