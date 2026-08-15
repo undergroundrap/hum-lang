@@ -5,9 +5,10 @@ This repo is the Hum language design seed and Milestone 0 Rust bootstrap.
 ## Operating Rules (BDFL-accepted 2026-07-08)
 
 These rules override any older habit in this file or in session memory. The
-active Work Order is the sole root `WORKORDER*.md` file carrying
-`<!-- hum-active-workorder:v1 -->`; execute it top to bottom before proposing
-new work.
+active Work Order is the sole regular numbered Markdown file under
+`workorders/active` carrying `<!-- hum-active-workorder:v1 -->`; discover it
+through that marker and canonical active path, then execute it top to bottom
+before proposing new work.
 
 Roles and mandates are codified in `docs/GOVERNANCE.md` under "Agent Roles
 And Mandates": one BDFL (Ocean), an architect-reviewer agent that holds
@@ -25,8 +26,8 @@ authority; any model-side memory is a cache, never the source of truth.
 ### Assuming the architect-reviewer role
 
 Cold-start read order: this file; `docs/GOVERNANCE.md` (roles, delegated
-ruling, reserved BDFL matters); the root Work Order carrying the sole active
-marker (active sessions, bans, acceptance criteria, backlog);
+ruling, reserved BDFL matters); the sole marked regular numbered Work Order
+under `workorders/active` (active sessions, bans, acceptance criteria, backlog);
 `git log --oneline -25` (state);
 `docs/decisions/README.md`; the newest `docs/research/` snapshots. Current
 state is always derivable from git log plus that active Work Order; if a prior
@@ -366,12 +367,21 @@ session, then closed. When its authorized session sequence completes, close it
 — freeze the file, record the closure, and make no further amendments. Git
 preserves the full history; the working file does not need to.
 
-Start new work as a fresh Work Order file, never as more amendments to a
-completed one. Over a long Work Order, its root file accumulates the full
+Author new Work Orders under `workorders/active`. Closed Work Orders are
+immutable and live under `workorders/closed`. Start new work as a fresh Work
+Order file, never as more amendments to a completed one. Over a long Work Order, its file accumulates the full
 spec, every session record, CI job logs, and layered amendments; left
 unbounded, that mass becomes a cold-start tax — every agent must read it to
 act, and the signal-to-noise degrades. That degradation is context rot, and it
 is a defect, not a badge of thoroughness.
+
+Successor issuance moves the predecessor from active to closed, removes
+exactly its one active-marker line, preserves every other predecessor byte,
+and creates the numbered successor under `workorders/active` with the sole
+marker at line 4. Both parent and child trees must resolve, and the issuance
+classifies `full` with `reason=no_status_transition`, never status-only. The
+closed predecessor then becomes immutable. Git history preserves this
+lifecycle without accumulating root Work Orders.
 
 A fresh Work Order carries forward only live, load-bearing context — accepted
 decisions, active strategy, and the specific evidence its own sessions need —
@@ -390,8 +400,8 @@ closure may omit separate independent architect review only when every one of
 these conditions is proven:
 
 - `main` is clean and synchronized with `origin/main` before editing;
-- exactly the root Work Order carrying the sole active marker is modified, the
-  index is empty, and there is no unrelated or untracked work;
+- exactly the marked regular numbered Work Order under `workorders/active` is
+  modified, the index is empty, and there is no unrelated or untracked work;
 - every changed byte is inside the status-boundary classifier's recognized
   `Status:` body or `## Current authorization gate` body;
 - no path is added, deleted, copied, renamed, mode- or type-changed, symlinked,

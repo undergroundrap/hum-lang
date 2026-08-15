@@ -2047,6 +2047,7 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
     }
 }
 
+const WORK_ORDER_9_DOCTRINE: &str = "workorders/closed/WORKORDER_9.md";
 pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
     DiagnosticFamilySpec {
         start: 0,
@@ -2054,7 +2055,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::SOURCE_SHAPE,
         semantic_owner: "source_shape",
         status: AllocationStatus::Active,
-        doctrine: &["decisions/0001", "WORKORDER.md"],
+        doctrine: &["decisions/0001", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 100,
@@ -2062,7 +2063,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::INTENT_SHAPE,
         semantic_owner: "intent_shape",
         status: AllocationStatus::Active,
-        doctrine: &["decisions/0009", "WORKORDER.md"],
+        doctrine: &["decisions/0009", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 200,
@@ -2070,7 +2071,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::DECLARED_STATE_EFFECTS,
         semantic_owner: "declared_state_effects",
         status: AllocationStatus::Active,
-        doctrine: &["decisions/0010", "WORKORDER.md"],
+        doctrine: &["decisions/0010", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 300,
@@ -2078,7 +2079,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::COST_CONTRACTS,
         semantic_owner: "cost_contracts",
         status: AllocationStatus::Active,
-        doctrine: &["decisions/0006", "WORKORDER.md"],
+        doctrine: &["decisions/0006", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 400,
@@ -2086,7 +2087,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::SECURITY_TRUST,
         semantic_owner: "security_trust",
         status: AllocationStatus::Active,
-        doctrine: &["docs/SECURITY_MODEL.md", "WORKORDER.md"],
+        doctrine: &["docs/SECURITY_MODEL.md", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 500,
@@ -2094,7 +2095,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::TEST_EVIDENCE,
         semantic_owner: "test_evidence",
         status: AllocationStatus::Active,
-        doctrine: &["decisions/0004", "WORKORDER.md"],
+        doctrine: &["decisions/0004", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 600,
@@ -2102,7 +2103,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::FRONT_END_SEMANTICS,
         semantic_owner: "front_end_semantics",
         status: AllocationStatus::Active,
-        doctrine: &["decisions/0011", "decisions/0017", "WORKORDER.md"],
+        doctrine: &["decisions/0011", "decisions/0017", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 700,
@@ -2110,7 +2111,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::EXECUTABLE_CONTRACTS,
         semantic_owner: "executable_contracts",
         status: AllocationStatus::Active,
-        doctrine: &["decisions/0015", "WORKORDER.md"],
+        doctrine: &["decisions/0015", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 800,
@@ -2118,7 +2119,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::OWNERSHIP_BORROWING,
         semantic_owner: "ownership_borrowing",
         status: AllocationStatus::Active,
-        doctrine: &["decisions/0014", "WORKORDER.md"],
+        doctrine: &["decisions/0014", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 900,
@@ -2126,7 +2127,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::NOMINAL_TYPED_FAILURE,
         semantic_owner: "nominal_typed_failure",
         status: AllocationStatus::Active,
-        doctrine: &["decisions/0016", "WORKORDER.md"],
+        doctrine: &["decisions/0016", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 1000,
@@ -2134,7 +2135,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::UNSAFE_FFI_PROVENANCE,
         semantic_owner: "unsafe_ffi_provenance",
         status: AllocationStatus::Reserved,
-        doctrine: &["docs/UNSAFE_POLICY.md", "WORKORDER.md"],
+        doctrine: &["docs/UNSAFE_POLICY.md", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 1100,
@@ -2142,7 +2143,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::RUNTIME_PROFILE_POLICY,
         semantic_owner: "runtime_profile_policy",
         status: AllocationStatus::Reserved,
-        doctrine: &["docs/RUNTIME_PROFILES.md", "WORKORDER.md"],
+        doctrine: &["docs/RUNTIME_PROFILES.md", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 1200,
@@ -2150,7 +2151,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::TARGET_BACKEND_METADATA,
         semantic_owner: "target_backend_metadata",
         status: AllocationStatus::Active,
-        doctrine: &["docs/PORTABILITY_BOUNDARY_MODEL.md", "WORKORDER.md"],
+        doctrine: &["docs/PORTABILITY_BOUNDARY_MODEL.md", WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 1300,
@@ -2158,7 +2159,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::CONCURRENCY_MEMORY_ORDERING,
         semantic_owner: "concurrency_memory_ordering",
         status: AllocationStatus::Reserved,
-        doctrine: &["WORKORDER.md"],
+        doctrine: &[WORK_ORDER_9_DOCTRINE],
     },
     DiagnosticFamilySpec {
         start: 1400,
@@ -2166,7 +2167,7 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
         key: DiagnosticFamilyKey::CALLABLE_EFFECT_ROWS,
         semantic_owner: "callable_effect_rows",
         status: AllocationStatus::Active,
-        doctrine: &["decisions/0018", "WORKORDER.md"],
+        doctrine: &["decisions/0018", WORK_ORDER_9_DOCTRINE],
     },
 ];
 
@@ -3936,6 +3937,35 @@ mod tests {
         Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceSet,
         DiagnosticPrecedenceRelationship, Span,
     };
+
+    fn doctrine_paths_are_valid(families: &[super::DiagnosticFamilySpec]) -> bool {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        families.len() == 15
+            && families.iter().all(|family| {
+                let doctrine = family.doctrine;
+                doctrine.iter().filter(|&&r| r == super::WORK_ORDER_9_DOCTRINE).count() == 1
+                    && !doctrine.contains(&"WORKORDER.md")
+                    && doctrine.iter().filter(|r| r.ends_with(".md")).all(|r| {
+                        matches!(std::fs::symlink_metadata(root.join(r)), Ok(m) if m.file_type().is_file())
+                    })
+            })
+    }
+
+    #[test]
+    fn doctrine_paths_are_canonical_and_resolve() {
+        assert!(doctrine_paths_are_valid(DIAGNOSTIC_FAMILIES));
+        let corruptions = [
+            "WORKORDER.md",
+            "workorders/closed/WORKORDER_10.md",
+            "workorders/active/WORKORDER_9.md",
+            "workorders/closed/MISSING.md",
+        ];
+        for corruption in corruptions {
+            let mut families = DIAGNOSTIC_FAMILIES.to_vec();
+            families[0].doctrine = Box::leak(Box::new(["decisions/0001", corruption]));
+            assert!(!doctrine_paths_are_valid(&families), "{corruption}");
+        }
+    }
 
     #[test]
     fn catalog_contains_known_codes() {
