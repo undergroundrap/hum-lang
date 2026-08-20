@@ -301,41 +301,157 @@ function Move-TestPathExact {
   }
 }
 
-function Set-TestRawIndexEntry {
+function Invoke-TestGitWithoutOutput {
   param(
-    [object] $Repository,
-    [string] $Mode,
-    [string] $ObjectId,
-    [string] $Path
+    [string] $RepoPath,
+    [string[]] $Arguments
   )
 
-  $Record = (New-Object System.Text.UTF8Encoding($false)).GetBytes("$Mode $ObjectId`t$Path`0")
-  $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
-  $StartInfo.FileName = (Get-Command git -ErrorAction Stop).Source
-  $StartInfo.WorkingDirectory = $Repository.Path
-  $StartInfo.Arguments = 'update-index -z --index-info'
-  $StartInfo.UseShellExecute = $false
-  $StartInfo.CreateNoWindow = $true
-  $StartInfo.RedirectStandardInput = $true
-  $StartInfo.RedirectStandardOutput = $true
-  $StartInfo.RedirectStandardError = $true
-  $Process = New-Object System.Diagnostics.Process
-  $Process.StartInfo = $StartInfo
-  if (-not $Process.Start()) {
-    throw 'raw index-entry process did not start'
-  }
+  $Git = (Get-Command git -ErrorAction Stop).Source
+  $PreviousPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
   try {
-    $Process.StandardInput.BaseStream.Write($Record, 0, $Record.Length)
-    $Process.StandardInput.Close()
-    $Output = $Process.StandardOutput.ReadToEnd()
-    $ErrorText = $Process.StandardError.ReadToEnd()
-    $Process.WaitForExit()
-    if ($Process.ExitCode -ne 0) {
-      throw "raw index-entry update failed: $Output$ErrorText"
-    }
+    $Output = @(& $Git -C $RepoPath @Arguments 2>&1)
+    $ExitCode = $LASTEXITCODE
   } finally {
-    $Process.Dispose()
+    $ErrorActionPreference = $PreviousPreference
   }
+  Assert-BoundaryTest ($ExitCode -eq 0) "test git $($Arguments -join ' ') failed"
+  Assert-BoundaryTest ($Output.Count -eq 0) "test git $($Arguments -join ' ') emitted output"
+}
+
+function Test-TestByteArrayEqual {
+  param([byte[]] $First, [byte[]] $Second)
+
+  if ($First.Length -ne $Second.Length) { return $false }
+  for ($Index = 0; $Index -lt $First.Length; $Index += 1) {
+    if ($First[$Index] -ne $Second[$Index]) { return $false }
+  }
+  return $true
+}
+
+function Get-TestA19EntryState {
+  param(
+    [object] $Repository,
+    [string] $ObjectId,
+    [string] $Commit = '',
+    [AllowNull()][byte[]] $InventoryBytes = $null
+  )
+
+  Assert-BoundaryTest ($ObjectId -cmatch '^[0-9a-f]{40}$') 'A19 expected blob is invalid'
+  $Arguments = if ($Commit -ceq '') {
+    @('ls-files', '--stage', '-z')
+  } else {
+    @('ls-tree', '-r', '-z', '--full-tree', $Commit)
+  }
+  $ExpectedMetadata = if ($Commit -ceq '') {
+    "100644 $ObjectId 0"
+  } else {
+    "100644 blob $ObjectId"
+  }
+  $MetadataPattern = if ($Commit -ceq '') {
+    '^(?:100644|100755|120000|160000) [0-9a-f]{40} [0-3]$'
+  } else {
+    '^(?:100644 blob|100755 blob|120000 blob|040000 tree|160000 commit) [0-9a-f]{40}$'
+  }
+  [byte[]]$ExpectedPath = [System.Text.Encoding]::ASCII.GetBytes(
+    'workorders\active\WORKORDER_21.md'
+  )
+  [byte[]]$CanonicalPath = [System.Text.Encoding]::ASCII.GetBytes(
+    $script:BoundaryCanonicalActivePath
+  )
+  [byte[]]$Bytes = if ($null -eq $InventoryBytes) { Invoke-BoundaryGitBytes $Repository.Path $Arguments } else { $InventoryBytes }
+  Assert-BoundaryTest (
+    $Bytes.Length -gt 0 -and $Bytes[$Bytes.Length - 1] -eq 0
+  ) 'A19 raw Git inventory is not NUL terminated'
+
+  $TargetCount = 0
+  $CanonicalCount = 0
+  $TargetMetadataValid = $true
+  $InventoryMetadataValid = $true
+  $Start = 0
+  for ($Index = 0; $Index -lt $Bytes.Length; $Index += 1) {
+    if ($Bytes[$Index] -ne 0) { continue }
+    Assert-BoundaryTest ($Index -gt $Start) 'A19 raw Git inventory has an empty record'
+    [byte[]]$Record = $Bytes[$Start..($Index - 1)]
+    $Tab = [System.Array]::IndexOf($Record, [byte]9)
+    Assert-BoundaryTest (
+      $Tab -gt 0 -and $Tab -lt ($Record.Length - 1)
+    ) 'A19 raw Git inventory record is malformed'
+    [byte[]]$MetadataBytes = $Record[0..($Tab - 1)]
+    foreach ($Byte in $MetadataBytes) {
+      Assert-BoundaryTest ($Byte -le 0x7F) 'A19 raw Git metadata is not ASCII'
+    }
+    $Metadata = [System.Text.Encoding]::ASCII.GetString($MetadataBytes)
+    if ($Metadata -cnotmatch $MetadataPattern) { $InventoryMetadataValid = $false }
+    [byte[]]$PathBytes = $Record[($Tab + 1)..($Record.Length - 1)]
+    if (Test-TestByteArrayEqual $PathBytes $ExpectedPath) {
+      $TargetCount += 1
+      if ($Metadata -cne $ExpectedMetadata) { $TargetMetadataValid = $false }
+    }
+    if (Test-TestByteArrayEqual $PathBytes $CanonicalPath) {
+      $CanonicalCount += 1
+    }
+    $Start = $Index + 1
+  }
+  Assert-BoundaryTest ($Start -eq $Bytes.Length) 'A19 raw Git inventory has trailing bytes'
+  return [pscustomobject]@{
+    IsValid = $InventoryMetadataValid -and $TargetCount -eq 1 -and $TargetMetadataValid -and $CanonicalCount -eq 0
+    InventoryMetadataValid = $InventoryMetadataValid
+    TargetCount = $TargetCount
+    TargetMetadataValid = $TargetMetadataValid
+    CanonicalCount = $CanonicalCount
+  }
+}
+
+function Assert-TestA19MetadataGrammar {
+  $ObjectId = ('1' * 40) -join ''; $TargetPath = 'workorders\active\WORKORDER_21.md'
+  $Check = {
+    param($Shape, [string] $OrdinaryMetadata, [string] $OrdinaryPath)
+    $Text = "$($Shape.Target)`t$TargetPath`0$OrdinaryMetadata`t$OrdinaryPath`0"
+    try {
+      $State = Get-TestA19EntryState -Repository ([pscustomobject]@{ Path = '' }) `
+        -ObjectId $ObjectId -Commit ([string]$Shape.Commit) `
+        -InventoryBytes ([System.Text.Encoding]::UTF8.GetBytes($Text))
+      return $State.IsValid -and $State.TargetCount -eq 1 -and $State.CanonicalCount -eq 0
+    } catch { return $false }
+  }
+  foreach ($Shape in @(
+    [pscustomobject]@{ Commit = ''; Target = "100644 $ObjectId 0"; Valid = @(
+      "100644 $ObjectId 0", "100755 $ObjectId 1", "120000 $ObjectId 2", "160000 $ObjectId 3"
+    ); Invalid = @(
+      'malformed metadata', "10064x $ObjectId 0", "100644 $((('g' * 40) -join '')) 0", "100644 $ObjectId 4", "100644 $ObjectId", "100644 $ObjectId 0 extra", "100644é $ObjectId 0",
+      "777777 $ObjectId 0", "040000 $ObjectId 0", "100664 $ObjectId 0"
+    ) },
+    [pscustomobject]@{ Commit = 'synthetic'; Target = "100644 blob $ObjectId"; Valid = @(
+      "100644 blob $ObjectId", "100755 blob $ObjectId", "120000 blob $ObjectId", "040000 tree $ObjectId", "160000 commit $ObjectId"
+    ); Invalid = @(
+      'malformed metadata', "10064x blob $ObjectId", "100644 blob $((('g' * 40) -join ''))", "100644 mystery $ObjectId", "100644 $ObjectId", "100644 blob $ObjectId extra", "100644é blob $ObjectId",
+      "100644 tree $ObjectId", "040000 blob $ObjectId", "160000 blob $ObjectId", "100644 commit $ObjectId", "100644 tag $ObjectId", "777777 blob $ObjectId"
+    ) }
+  )) {
+    foreach ($Metadata in @($Shape.Valid)) {
+      Assert-BoundaryTest (& $Check $Shape $Metadata 'ordinary.txt') 'A19 valid ordinary metadata changed target counts'
+    }
+    foreach ($Metadata in $Shape.Invalid) {
+      Assert-BoundaryTest (-not (& $Check $Shape $Metadata 'ordinary.txt')) 'A19 malformed ordinary metadata was accepted'
+    }
+    Assert-BoundaryTest (-not (& $Check $Shape ([string]$Shape.Valid[0]) '')) 'A19 empty ordinary path was accepted'
+  }
+}
+function Assert-TestA19Entry {
+  param(
+    [object] $Repository,
+    [string] $ObjectId,
+    [string] $Commit = ''
+  )
+
+  $State = Get-TestA19EntryState $Repository $ObjectId $Commit
+  Assert-BoundaryTest $State.IsValid (
+    "A19 literal entry authentication failed: target=$($State.TargetCount); " +
+    "metadata=$($State.TargetMetadataValid); canonical=$($State.CanonicalCount)"
+  )
+  return $true
 }
 
 function Copy-TestObject {
@@ -1466,13 +1582,51 @@ try {
     -Base $A18.Anchor -Head $A18Head -PairFactory (New-ValidPairFactory $A18.Anchor) `
     -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
 
+  Assert-TestA19MetadataGrammar
+  $A19LiteralPath = 'workorders\active\WORKORDER_21.md'
+  if ($env:OS -ceq 'Windows_NT') {
+    $A19Protected = New-CanonicalTestRepository $TestRoot
+    Assert-ResolvedActivePath $A19Protected $A19Protected.Anchor `
+      $script:BoundaryCanonicalActivePath 'A19 protected-path control'
+    Invoke-TestGit $A19Protected.Path @('config', '--local', 'core.protectNTFS', 'true') | Out-Null
+    $A19ProtectedObject = Invoke-TestGit $A19Protected.Path @(
+      'rev-parse', "$($A19Protected.Anchor):$script:BoundaryCanonicalActivePath"
+    )
+    Invoke-TestGit $A19Protected.Path @(
+      'update-index', '--force-remove', '--', $script:BoundaryCanonicalActivePath
+    ) | Out-Null
+    $A19ProtectedClean = $true
+    try {
+      Invoke-TestGitWithoutOutput $A19Protected.Path @(
+        'update-index', '--add', '--cacheinfo', "100644,$A19ProtectedObject,$A19LiteralPath"
+      )
+    } catch { $A19ProtectedClean = $false }
+    $A19ProtectedState = Get-TestA19EntryState $A19Protected $A19ProtectedObject
+    if ($A19ProtectedState.IsValid) {
+      Assert-BoundaryTest $A19ProtectedClean `
+        'A19 protected-path control accepted the entry with unexpected diagnostics'
+    } else {
+      Assert-BoundaryTest (
+        $A19ProtectedState.TargetCount -eq 0 -and $A19ProtectedState.CanonicalCount -eq 0
+      ) 'A19 protected-path control did not expose a deletion-only index'
+    }
+  }
+
   $A19 = New-CanonicalTestRepository $TestRoot
   Assert-ResolvedActivePath $A19 $A19.Anchor $script:BoundaryCanonicalActivePath 'A19 honest control'
+  Invoke-TestGitWithoutOutput $A19.Path @('config', '--local', 'core.protectNTFS', 'false')
   $A19Object = Invoke-TestGit $A19.Path @('rev-parse', "$($A19.Anchor):$script:BoundaryCanonicalActivePath")
   Invoke-TestGit $A19.Path @('update-index', '--force-remove', '--', $script:BoundaryCanonicalActivePath) | Out-Null
-  Set-TestRawIndexEntry $A19 '100644' $A19Object 'workorders\active\WORKORDER_21.md'
+  Invoke-TestGitWithoutOutput $A19.Path @(
+    'update-index', '--add', '--cacheinfo', "100644,$A19Object,$A19LiteralPath"
+  )
+  $A19IndexWitness = Assert-TestA19Entry $A19 $A19Object
   Invoke-TestGit $A19.Path @('commit', '--quiet', '-m', 'literal backslash work order path') | Out-Null
   $A19Head = Invoke-TestGit $A19.Path @('rev-parse', 'HEAD')
+  $A19TreeWitness = Assert-TestA19Entry $A19 $A19Object $A19Head
+  Assert-BoundaryTest (
+    $A19IndexWitness -and $A19TreeWitness
+  ) 'A19 classifier credit requires authenticated index and tree entries'
   Invoke-UnitABoundaryCase -Name 'backslash_separator_rejected' -Repository $A19 `
     -Base $A19.Anchor -Head $A19Head -PairFactory (New-ValidPairFactory $A19.Anchor) `
     -ExpectedMode 'full' -ExpectedReason 'no_status_transition'
