@@ -38,12 +38,19 @@ fn digest_checked(input: &[u8]) -> Result<[u8; 32], InputTooLarge> {
     padded.extend_from_slice(&bit_length.to_be_bytes());
 
     let mut state = INITIAL_STATE;
-    for chunk in padded.chunks_exact(64) {
+    let (chunks, remainder) = padded.as_chunks::<64>();
+    assert!(
+        remainder.is_empty(),
+        "SHA-256 padding must fill whole blocks"
+    );
+    for chunk in chunks {
         compress(&mut state, chunk);
     }
 
     let mut output = [0u8; 32];
-    for (slot, word) in output.chunks_exact_mut(4).zip(state) {
+    let (slots, remainder) = output.as_chunks_mut::<4>();
+    assert!(remainder.is_empty(), "SHA-256 output must fill whole words");
+    for (slot, word) in slots.iter_mut().zip(state) {
         slot.copy_from_slice(&word.to_be_bytes());
     }
     Ok(output)
@@ -55,7 +62,12 @@ fn checked_bit_length(byte_length: u64) -> Result<u64, InputTooLarge> {
 
 fn compress(state: &mut [u32; 8], chunk: &[u8]) {
     let mut schedule = [0u32; 64];
-    for (index, word) in chunk.chunks_exact(4).enumerate() {
+    let (words, remainder) = chunk.as_chunks::<4>();
+    assert!(
+        remainder.is_empty() && words.len() == 16,
+        "SHA-256 compression requires one complete block"
+    );
+    for (index, word) in words.iter().enumerate() {
         schedule[index] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
     }
     for index in 16..64 {

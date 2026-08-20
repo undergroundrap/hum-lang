@@ -1463,10 +1463,11 @@ fn validate_occurrence_seal_inner(
             return Err("canonical_complete_contains_unsupported_v0");
         }
     } else {
-        if !seal.malformed_projection.len().is_multiple_of(8) {
+        let (malformed_facts, malformed_remainder) = seal.malformed_projection.as_chunks::<8>();
+        if !malformed_remainder.is_empty() {
             return Err("canonical_malformed_shape_corrupt_v0");
         }
-        for facts in seal.malformed_projection.chunks_exact(8) {
+        for facts in malformed_facts {
             if !facts.iter().map(|fact| fact.field).eq([
                 CanonicalMalformedSealField::Status,
                 CanonicalMalformedSealField::Node,
@@ -1482,9 +1483,8 @@ fn validate_occurrence_seal_inner(
             }
             validate_malformed_semantics(seal, facts)?;
         }
-        let malformed_nodes = seal
-            .malformed_projection
-            .chunks_exact(8)
+        let malformed_nodes = malformed_facts
+            .iter()
             .filter_map(|facts| match &facts[1].value {
                 CanonicalMalformedSealValue::Node(node) => Some(node),
                 _ => None,
