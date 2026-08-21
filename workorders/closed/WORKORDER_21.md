@@ -1,7 +1,6 @@
 # Hum Work Order 21: Organize Active And Closed Work Orders
 
 Date: 2026-08-13
-<!-- hum-active-workorder:v1 -->
 Status: CLOSED. Work Order 21 is terminally closed.
 
 Work Order 21 planning and Unit A are independently accepted, committed,
