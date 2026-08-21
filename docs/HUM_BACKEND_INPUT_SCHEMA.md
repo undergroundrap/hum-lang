@@ -129,8 +129,9 @@ The exact order is:
 13. `contract_evidence_linking_checked_empty_for_exact_item`
 14. `profile_check`
 
-IR verification is not a prerequisite record. Unit A produces bytes while
-`ir_verify` remains unimplemented.
+IR verification is not a prerequisite record inside the artifact. The strict
+`ir_verify` consumer independently authenticates these complete bytes before
+issuing compiler-owned typed authority.
 
 ## Canonical Scalars
 
@@ -167,16 +168,24 @@ origin.
 
 ## Readiness Boundary
 
-Successful production adds
-`canonical_backend_input_bytes_produced_unverified_v0` immediately before
-`ir_verify_pending_v0` in the canonical candidate's ordered readiness facts.
-The candidate remains:
+Successful live production and verification append these ordered readiness
+facts after the earlier producer facts:
+
+- `canonical_backend_input_bytes_v0`;
+- `sha256_payload_identity_verified_v0`;
+- `ir_verify_passed_v0`; and
+- `verified_backend_input_capability_lent_v0`.
+
+The exact canonical candidate becomes:
 
 ```text
-status=blocked_before_ir_verify_with_backend_input_facts_v0
-ready_for_ir=0
-missing_passes=[ir_verify]
-blocking_reasons=[ir_verify_not_implemented]
+status=ready_for_ir_with_verified_backend_input_v0
+ir_ready=1
+ready_for_ir=1
+backend_ready=0
+missing_passes=[]
+blocking_reasons=[]
+backend_blocking_reasons=[backend_adapter_not_implemented]
 ```
 
 No artifact byte, digest, report field, or fixture can replace the private
@@ -186,10 +195,9 @@ Program-bound facts access that produced it.
 
 V0 does not claim:
 
-- verified IR;
+- backend lowering or backend-ready evidence;
 - a durable or serializable authority;
-- `ready_for_ir=1`;
-- backend readiness or lowering;
+- durable, serializable, or forgeable capability authority;
 - executable code;
 - a target choice;
 - a stable external ABI;

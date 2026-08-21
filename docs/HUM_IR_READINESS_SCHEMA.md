@@ -7,7 +7,7 @@ Current schema: `hum.ir_readiness.v0`
 ## Purpose
 
 `hum ir-readiness` reports how far current `.hum` source has progressed toward
-future Hum IR verification and Hum IR lowering after Core verification and recognized type/effect/ownership/resource/profile gates.
+verified Hum IR facts and future lowering after the recognized compiler gates.
 
 This is not an IR emitter. It is a readiness and blocker inventory built from
 the parser, AST, semantic graph facts, diagnostics, the checked resolver report
@@ -87,8 +87,9 @@ compiler-roadmap checks, and future IR verifier work.
 - `ownership_check`: `hum.ownership_check.v0` summary consumed as the recognized local ownership fact gate, not as complete ownership, borrowing, alias, or memory safety
 - `resource_check`: `hum.resource_check.v0` summary consumed as the declared allocation/resource intent gate, not as allocation-freedom proof, complete resource analysis, profile enforcement, optimization, or memory safety
 - `profile_check`: `hum.profile_check.v0` summary consumed as the runtime profile policy gate, not as profile enforcement, certification, target selection, stdlib narrowing, optimization, or memory safety
-- `summary`: file, item, task, test, candidate, ready, blocked, error, warning,
-  type-error, and body-grammar counts
+- `summary`: file, item, task, test, candidate, `ir_ready`, legacy parity
+  `ready_for_ir`, `backend_ready`, blocked, error, warning, type-error, and
+  body-grammar counts
 - `pass_status`: current status for the pass names in `hum.ir_contract.v0`
 - `lowering_candidates`: parsed source items that future lowering must handle
 - `non_goals_v0`: claims this command must not make
@@ -256,12 +257,16 @@ Each `lowering_candidates` entry has:
 - `name`: source item name
 - `graph_node_id`: semantic graph node ID for the same item
 - `source_span`: file, line, and column
-- `status`: readiness status, currently blocked by full-type-check errors, blocked by effect-check errors, blocked by ownership-check errors, blocked by resource-check errors, blocked by profile-check errors, or before IR verification once recognized body type, effect, ownership, resource, and profile gates pass
+- `status`: readiness status, including `ready_for_ir_with_verified_backend_input_v0` only after live verification succeeds
 - `current_layer`: currently visible compiler layers
 - `target_layer`: future target layer path
 - `facts_available`: source facts already visible to tools
 - `missing_passes`: pass boundaries still missing before honest IR
-- `blocking_reasons`: reason strings explaining the blocked state; after the profile gate, the expected future blocker is `ir_verify_not_implemented`; resource-gate failures use `resource_check_errors` and profile-gate failures use `profile_check_errors`
+- `blocking_reasons`: reasons preventing `ir_ready`; canonical verification leaves this empty
+- `ir_ready`: 1 only when live byte verification and logical cross-binding succeed
+- `ready_for_ir`: exact V0 parity alias of `ir_ready`
+- `backend_ready`: remains 0 in Unit A
+- `backend_blocking_reasons`: `backend_adapter_not_implemented` after IR verification
 - `source_sections`: sections seen on the item
 - `body_grammar`: optional partial V0 parse/classification of meaningful `does:`
   lines, when the item has a `does:` section
@@ -273,7 +278,8 @@ Current candidate statuses:
 - `blocked_by_ownership_check_errors`: `hum.ownership_check.v0` reported duplicate local ownership facts, unchecked ownership contexts, mutation authority contradictions, or prior gate blockers
 - `blocked_by_resource_check_errors`: `hum.resource_check.v0` reported missing allocation/resource declarations, contradictions in allocation-free claims, unchecked call allocation effects, or prior gate blockers
 - `blocked_by_profile_check_errors`: `hum.profile_check.v0` reported unknown profile declarations, strict profile declarations that V0 cannot enforce yet, or prior gate blockers
-- `blocked_before_ir_verify`: source parsed, resolved, V0 type-checked, lowered to an unverified Core artifact, passed non-executing Core artifact verification, passed the recognized body type gate, passed the recognized effect gate, passed the recognized ownership fact gate, passed the declared allocation/resource intent gate, and passed the runtime profile policy gate, but IR verification is still missing
+- `blocked_before_ir_verify`: an otherwise supported candidate could not obtain verified live authority
+- `ready_for_ir_with_verified_backend_input_v0`: exact canonical minimal-add bytes verified and cross-bound to live typed facts; no backend adapter exists
 - `blocked_by_core_verify_errors`: `hum.core_verify.v0` reported artifact invariant failures
 - `blocked_by_source_errors`: source diagnostics include errors
 - `blocked_by_resolver_errors`: `hum.resolve.v0` reported name, duplicate, or mutable-place errors
@@ -398,16 +404,19 @@ crossing into executable semantics.
 The exact `examples/core/minimal_add.hum` operation may report:
 
 ```text
-status=blocked_before_ir_verify_with_backend_input_facts_v0
-missing_passes=[ir_verify]
-blocking_reasons=[ir_verify_not_implemented]
+status=ready_for_ir_with_verified_backend_input_v0
+ir_ready=1
+ready_for_ir=1
+backend_ready=0
+missing_passes=[]
+blocking_reasons=[]
+backend_blocking_reasons=[backend_adapter_not_implemented]
 ```
 
-This projection requires one private, non-serializable
-`CanonicalMinimalAddBackendFacts` authority for the live Program, task,
-statement, and operation. The authority is delivered only through a borrowed
-higher-ranked callback and does not escape, grant lowering authority, or
-authenticate persisted bytes.
+This projection requires strict verification of the live canonical artifact
+and logical cross-binding to the same Program facts. A private, non-serializable
+`VerifiedBackendInput` is delivered only through a higher-ranked callback and
+does not escape or grant backend authority.
 
 Its successful prerequisites are exactly, in order:
 
@@ -428,7 +437,8 @@ Its successful prerequisites are exactly, in order:
 
 `core_preview` is independent authority consumed by Core lowering. Missing,
 failed, duplicate, foreign, or reordered authority withholds the new projection.
-`ir_verify` is excluded from the successful set and remains `not_implemented`.
+`ir_verify` follows these prerequisites and is implemented only for the exact
+canonical minimal-add boundary.
 
 The candidate's `facts_available` appends, in this order:
 
@@ -441,8 +451,10 @@ The candidate's `facts_available` appends, in this order:
 7. `resource_checked_empty_v0`
 8. `normal_profile_checked_v0`
 9. `checked_i64_overflow_trap_bound_v0`
-10. `canonical_backend_input_bytes_produced_unverified_v0`
-11. `ir_verify_pending_v0`
+10. `canonical_backend_input_bytes_v0`
+11. `sha256_payload_identity_verified_v0`
+12. `ir_verify_passed_v0`
+13. `verified_backend_input_capability_lent_v0`
 
 The private record binds the authenticated source and operation identities,
 ordered distinct resolver definitions, checked `Int + Int -> Int`, the exact
@@ -450,10 +462,9 @@ single `allocates: nothing` declaration, checked-empty effect/ownership/
 allocation/predicate/evidence/external-authority sets, the default `normal`
 profile, and one `signed_64` / `checked_add` /
 `runtime_trap_on_overflow` edge. The private producer now emits the exact
-canonical but unverified [`hum.backend_input.v0`](HUM_BACKEND_INPUT_SCHEMA.md)
-artifact and records that completion immediately before the pending verifier
-fact. It does not claim a verified ABI, backend target, IR verification,
-execution readiness, or persisted proof.
+canonical [`hum.backend_input.v0`](HUM_BACKEND_INPUT_SCHEMA.md) artifact. The
+verifier independently authenticates it before lending typed authority. This
+does not claim a verified ABI, backend target, execution, or persisted proof.
 All other candidates retain their prior status, ordering, omission/null rules,
 and blocker precedence.
 
@@ -475,7 +486,7 @@ V0 reports these pass statuses:
 - `allocation_resource_check`: `recognized_core_resource_gate_available_v0`
 - `contract_evidence_linking`: `report_available_not_ir_pass`
 - `profile_check`: `recognized_core_profile_gate_available_v0`
-- `ir_verify`: `not_implemented`
+- `ir_verify`: `implemented_canonical_minimal_add_backend_input_v0`
 
 ## Honesty Rules
 

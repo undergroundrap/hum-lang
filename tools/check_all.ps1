@@ -287,10 +287,47 @@ function Assert-SessionASurfaceRules {
 Push-Location $RepoRoot
 try {
   Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
+  $CaptureTest = Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
+  $Pwsh = (Get-Command pwsh -ErrorAction Stop).Source
+  if ($env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_OS -eq 'Linux') {
+    $Workspace = (Resolve-Path -LiteralPath $env:GITHUB_WORKSPACE -ErrorAction Stop).Path
+    $CurrentRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
+    if (-not [string]::Equals($Workspace, $CurrentRoot, [System.StringComparison]::Ordinal)) {
+      throw "Ubuntu capture workspace differs from repository root: $Workspace != $CurrentRoot"
+    }
+    $ChildPwsh = Read-NativeChannelsWithExit 'Ubuntu fresh-child pwsh resolution' $Pwsh @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '(Get-Command pwsh -CommandType Application -ErrorAction Stop).Source')
+    if ($ChildPwsh.ExitCode -ne 0 -or $ChildPwsh.Stderr.Length -ne 0 -or -not [string]::Equals($ChildPwsh.Stdout.Trim(), $Pwsh, [System.StringComparison]::Ordinal)) {
+      throw 'Ubuntu fresh child did not resolve the same pwsh executable'
+    }
+    $UbuntuScratch = Join-Path $env:RUNNER_TEMP "hum-fast-capture-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-ubuntu"
+    Invoke-Native 'Fast evidence capture tests (Ubuntu pwsh checkpoint)' $Pwsh @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', './tools/test_fast_evidence_capture.ps1', '-ShellContract', 'pwsh', '-ScratchRoot', $UbuntuScratch)
+  } else {
+    $CaptureScratchBase = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-fast-capture-" + [Guid]::NewGuid().ToString('N'))
+    if ($env:OS -eq 'Windows_NT') {
+      $WindowsPowerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+      Invoke-Native 'Fast evidence capture tests (Windows PowerShell 5.1)' $WindowsPowerShell @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $CaptureTest, '-ShellContract', 'powershell', '-ScratchRoot', "$CaptureScratchBase-windows-powershell")
+    }
+    Invoke-Native 'Fast evidence capture tests (pwsh)' $Pwsh @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $CaptureTest, '-ShellContract', 'pwsh', '-ScratchRoot', "$CaptureScratchBase-pwsh")
+  }
   $CheckAllSource = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'))
+  foreach ($UbuntuCaptureArm in @(
+    ('(Resolve-Path -LiteralPath $env:' + 'GITHUB_WORKSPACE -ErrorAction Stop).Path'),
+    "hum-fast-capture-`$env:GITHUB_RUN_ID-`$env:GITHUB_RUN_ATTEMPT-ubuntu",
+    "'-File', './tools/test_fast_evidence_capture.ps1', '-ShellContract', 'pwsh', '-ScratchRoot', `$UbuntuScratch"
+  )) {
+    if ([regex]::Matches($CheckAllSource, [regex]::Escape($UbuntuCaptureArm)).Count -ne 1) { throw "Ubuntu capture checkpoint drifted: $UbuntuCaptureArm" }
+  }
+  if ($CheckAllSource.Contains('$UbuntuScratch-' + 'pwsh')) { throw 'Ubuntu capture checkpoint must not append -pwsh' }
   $ExactFlag = '--' + 'exact'
   if ($CheckAllSource.Contains($ExactFlag)) { throw 'exact Rust tests must use the guarded selector helper' }
   $CiSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot '.github/workflows/ci.yml'))
+  $FastStepPattern = '(?m)^      - name: Run Hum preflight\r?\n        if: steps\.classify\.outputs\.mode != ''fast''\r?\n        shell: pwsh\r?\n        run: \./tools/check_all\.ps1 -EvidenceTier Fast$'
+  if ([regex]::Matches($CiSource, $FastStepPattern).Count -ne 1) {
+    throw 'Ubuntu/Windows Run Hum preflight workflow route drifted'
+  }
+  if ($CheckAllSource.IndexOf('Fast evidence capture tests (Ubuntu pwsh checkpoint)', [System.StringComparison]::Ordinal) -ge $CheckAllSource.IndexOf('Invoke-ExactRustSelectorSelfTests', [System.StringComparison]::Ordinal)) {
+    throw 'Ubuntu capture checkpoint must precede compiler selectors'
+  }
   if ([regex]::Matches($CiSource, [regex]::Escape('timeout-minutes: 60')).Count -ne 1) {
     throw 'canonical-seal CI timeout headroom drifted'
   }
@@ -384,9 +421,11 @@ try {
   Invoke-ExactRustTest 'Work Order 19 exact full-type backend handoff' $Cargo 'full_type_check::tests::minimal_add_backend_fact_handoff_is_exact_and_borrowed'
   Invoke-ExactRustTest 'Work Order 19 exact effect and ownership authority' $Cargo 'ownership_check::tests::minimal_add_effect_and_ownership_authority_stays_operation_owned'
   Invoke-ExactRustTest 'Work Order 19 checked-empty resource and profile authority' $Cargo 'profile_check::tests::minimal_add_resource_and_profile_authority_is_checked_empty'
-  Invoke-ExactRustTest 'Work Order 19 load-bearing final backend lineage' $Cargo 'ir_readiness::tests::minimal_add_backend_facts_are_complete_but_ir_verify_blocked'
+  Invoke-ExactRustTest 'Work Order 22 Unit A live verified readiness transition' $Cargo 'ir_readiness::tests::canonical_minimal_add_is_ir_ready_only_after_live_verification'
   Invoke-ExactRustTest 'Work Order 20 Unit A private SHA-256 boundary matrix' $Cargo 'sha256::tests::sha256_known_answer_and_boundary_matrix_is_exact'
   Invoke-ExactRustTest 'Work Order 20 Unit A canonical backend-input bytes' $Cargo 'backend_input::tests::minimal_add_backend_input_bytes_are_canonical_and_deterministic'
+  Invoke-ExactRustTest 'Work Order 22 Unit A corruption matrix' $Cargo 'ir_verify::tests::canonical_minimal_add_artifact_corruption_matrix_is_complete'
+  Invoke-ExactRustTest 'Work Order 22 Unit A sealed capability boundary' $Cargo 'ir_verify::tests::verified_backend_input_is_sealed_typed_and_lifetime_bound'
   Write-Host '==> Work Order 20 Unit A canonical backend-input production surface'
   $Wo20SourcePath = 'examples/core/minimal_add.hum'
   $Wo20GoldenPath = 'fixtures/backend_input/minimal_add.backend_input.v0.json'
@@ -435,7 +474,58 @@ try {
   if ($Wo20IrReadinessCommandIndex -lt 0 -or $Wo20CommandNames[$Wo20IrReadinessCommandIndex + 1] -cne 'backend_input') { throw 'Work Order 20 backend_input command registration order drifted' }
   $Wo20BackendCommand = @($Wo20Capabilities.commands | Where-Object { $_.name -ceq 'backend_input' })
   if ($Wo20BackendCommand.Count -ne 1 -or $Wo20BackendCommand[0].command -cne 'hum backend-input <file>' -or $Wo20BackendCommand[0].schema -cne 'hum.backend_input.v0' -or $Wo20BackendCommand[0].status -cne 'adapter-ready') { throw 'Work Order 20 backend_input command registration drifted' }
-  if (($Wo20CapabilitiesHuman.Stdout + $Wo20CapabilitiesJson.Stdout).Contains('hum.ir_verify.v0') -or ($Wo20CapabilitiesHuman.Stdout + $Wo20CapabilitiesJson.Stdout).Contains('ir_verify')) { throw 'Work Order 20 Unit A exposed premature IR verification capability' }
+  $Wo22IrVerifyCommand = @($Wo20Capabilities.commands | Where-Object { $_.name -ceq 'ir_verify' })
+  if ($Wo22IrVerifyCommand.Count -ne 1 -or $Wo22IrVerifyCommand[0].command -cne 'hum ir-verify [--format human|json] <backend-input-file>' -or $Wo22IrVerifyCommand[0].schema -cne 'hum.ir_verify.v0') { throw 'Work Order 22 ir-verify command registration drifted' }
+  $Wo22VerifyHuman = Read-NativeChannelsWithExit 'Work Order 22 accepted ir-verify human report' $Hum @('ir-verify', $Wo20GoldenPath)
+  $Wo22VerifyJson = Read-NativeChannelsWithExit 'Work Order 22 accepted ir-verify JSON report' $Hum @('ir-verify', '--format', 'json', $Wo20GoldenPath)
+  if ($Wo22VerifyHuman.ExitCode -ne 0 -or $Wo22VerifyJson.ExitCode -ne 0 -or $Wo22VerifyHuman.Stderr.Length -ne 0 -or $Wo22VerifyJson.Stderr.Length -ne 0) { throw 'Work Order 22 accepted ir-verify channel contract drifted' }
+  Assert-Json 'Work Order 22 ir-verify JSON' $Wo22VerifyJson.Stdout
+  $Wo22Verify = $Wo22VerifyJson.Stdout | ConvertFrom-Json
+  if ($Wo22Verify.schema -cne 'hum.ir_verify.v0' -or $Wo22Verify.status -cne 'accepted_canonical_backend_input_v0' -or $Wo22Verify.artifact_id -cne ('sha256:' + $Wo20PayloadHash)) { throw 'Work Order 22 accepted ir-verify identity drifted' }
+  $Wo22ProbeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-ir-verify-" + [Guid]::NewGuid().ToString('N'))
+  $Wo22EarlyPath = Join-Path $Wo22ProbeRoot 'early.json'
+  $Wo22LatePath = Join-Path $Wo22ProbeRoot 'late.json'
+  try {
+    [System.IO.Directory]::CreateDirectory($Wo22ProbeRoot) | Out-Null
+    [System.IO.File]::WriteAllBytes($Wo22EarlyPath, [byte[]]@())
+    $Wo22LateText = $Wo20GoldenText.Replace('"profile":"normal"', '"profile":"strict"')
+    $Wo22LateBytes = [System.Text.Encoding]::UTF8.GetBytes($Wo22LateText)
+    $Wo22LatePayload = New-Object byte[] ($Wo22LateBytes.Length - $Wo20PayloadStart - 2)
+    [Array]::Copy($Wo22LateBytes, $Wo20PayloadStart, $Wo22LatePayload, 0, $Wo22LatePayload.Length)
+    $Wo22LateHash = Get-Wo20Sha256Hex $Wo22LatePayload
+    $Wo22LateText = $Wo22LateText.Replace('"artifact_id":"sha256:' + $Wo20PayloadHash + '"', '"artifact_id":"sha256:' + $Wo22LateHash + '"')
+    $Wo22Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Wo22LatePath, $Wo22LateText, $Wo22Utf8NoBom)
+    foreach ($Wo22RejectedProbe in @(
+      @{ Name = 'early'; Path = $Wo22EarlyPath; Row = 'A-R01'; Code = 'invalid_framing_v0'; Tasks = $null; Passes = $null },
+      @{ Name = 'late'; Path = $Wo22LatePath; Row = 'A-R07'; Code = 'profile_or_checked_empty_mismatch_v0'; Tasks = 1; Passes = 14 }
+    )) {
+      $Wo22RejectedHuman = Read-NativeChannelsWithExit "Work Order 22 $($Wo22RejectedProbe.Name) rejected human report" $Hum @('ir-verify', $Wo22RejectedProbe.Path)
+      $Wo22RejectedJson = Read-NativeChannelsWithExit "Work Order 22 $($Wo22RejectedProbe.Name) rejected JSON report" $Hum @('ir-verify', '--format=json', $Wo22RejectedProbe.Path)
+      if ($Wo22RejectedHuman.ExitCode -ne 1 -or $Wo22RejectedJson.ExitCode -ne 1 -or $Wo22RejectedHuman.Stderr.Length -ne 0 -or $Wo22RejectedJson.Stderr.Length -ne 0) { throw "Work Order 22 $($Wo22RejectedProbe.Name) rejection channel contract drifted" }
+      Assert-Json "Work Order 22 $($Wo22RejectedProbe.Name) rejected JSON" $Wo22RejectedJson.Stdout
+      $Wo22RejectedReport = $Wo22RejectedJson.Stdout | ConvertFrom-Json
+      if ($Wo22RejectedReport.rejected_check -cne $Wo22RejectedProbe.Row -or $Wo22RejectedReport.findings[0].code -cne $Wo22RejectedProbe.Code -or $Wo22RejectedReport.task_count -ne $Wo22RejectedProbe.Tasks -or $Wo22RejectedReport.ordered_pass_count -ne $Wo22RejectedProbe.Passes) { throw "Work Order 22 $($Wo22RejectedProbe.Name) rejected report facts drifted" }
+      $Wo22TaskText = if ($null -eq $Wo22RejectedProbe.Tasks) { 'null' } else { [string]$Wo22RejectedProbe.Tasks }
+      if (-not $Wo22RejectedHuman.Stdout.Contains("task_count: $Wo22TaskText")) { throw "Work Order 22 $($Wo22RejectedProbe.Name) human/JSON fact parity drifted" }
+    }
+  } finally {
+    if (Test-Path -LiteralPath $Wo22ProbeRoot) { Remove-Item -LiteralPath $Wo22ProbeRoot -Recurse -Force }
+  }
+  foreach ($Wo22Invocation in @(
+    @('ir-verify'),
+    @('ir-verify', $Wo20GoldenPath, $Wo20GoldenPath),
+    @('ir-verify', 'examples/core'),
+    @('ir-verify', '--format=xml', $Wo20GoldenPath),
+    @('ir-verify', '--timings', $Wo20GoldenPath),
+    @('ir-verify', 'missing-work-order-22-artifact.json')
+  )) {
+    $Wo22InvocationResult = Read-NativeChannelsWithExit 'Work Order 22 ir-verify invocation rejection' $Hum $Wo22Invocation
+    if ($Wo22InvocationResult.ExitCode -ne 2 -or $Wo22InvocationResult.Stdout.Length -ne 0 -or $Wo22InvocationResult.Stderr.Length -eq 0) { throw 'Work Order 22 ir-verify invocation contract drifted' }
+  }
+  $Wo22SchemaDoc = Get-Content -Raw 'docs/HUM_IR_VERIFY_SCHEMA.md'
+  $Wo22SchemaRegexOptions = [System.Text.RegularExpressions.RegexOptions]::CultureInvariant
+  if (-not [regex]::IsMatch($Wo22SchemaDoc, '(?<![\p{L}\p{N}_-])rendered\s+as\s+the\s+literal\s+`null`\s+in\s+both\s+human\s+and\s+JSON\s+output(?![\p{L}\p{N}_-])', $Wo22SchemaRegexOptions) -or -not [regex]::IsMatch($Wo22SchemaDoc, '(?<![\p{L}\p{N}_-])verifier-owned\s+private\s+request(?![\p{L}\p{N}_-])', $Wo22SchemaRegexOptions)) { throw 'Work Order 22 truthful rejection/authority documentation drifted' }
   $Wo20CapabilityDoc = Get-Content -Raw 'docs/CAPABILITIES_SCHEMA.md'
   $Wo20LanguageDoc = Get-Content -Raw 'docs/LANGUAGE_REFERENCE.md'
   $Wo20Readme = Get-Content -Raw 'README.md'
@@ -1141,7 +1231,6 @@ task malformed() -> UInt {
 
   Write-Host '==> Work Order 19 combined backend-facts lifetime and wrapper-privacy proof'
   Invoke-Native 'Work Order 19 normal compiler check before combined proof' $Cargo @('check', '--all-targets')
-  $Wo19CompileProofSource = Get-Content -Raw 'src/ir_readiness.rs'
   $Wo19PriorRustFlags = $env:RUSTFLAGS
   try {
     $env:RUSTFLAGS = '--cfg hum_compile_fail_canonical_minimal_add_backend_facts_escape'
@@ -1150,19 +1239,7 @@ task malformed() -> UInt {
     if ($null -eq $Wo19PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo19PriorRustFlags }
   }
   if ($Wo19CompileFailure.ExitCode -ne 101) { throw "Work Order 19 combined proof must exit 101, found $($Wo19CompileFailure.ExitCode)" }
-  foreach ($Wo19CompileFunction in @(
-    'backend_facts_return_escape_must_not_compile',
-    'backend_facts_static_escape_must_not_compile',
-    'backend_facts_collection_escape_must_not_compile',
-    'backend_facts_foreign_construction_must_not_compile',
-    'verified_minimal_add_full_type_sibling_construction_must_not_compile',
-    'verified_minimal_add_effect_sibling_construction_must_not_compile',
-    'verified_minimal_add_ownership_sibling_construction_must_not_compile',
-    'verified_minimal_add_resource_sibling_construction_must_not_compile',
-    'verified_minimal_add_profile_sibling_construction_must_not_compile'
-  )) {
-    if (-not $Wo19CompileProofSource.Contains("fn $Wo19CompileFunction(")) { throw "Work Order 19 combined proof lost named actual-production probe $Wo19CompileFunction" }
-  }
+  if (-not $Wo19CompileFailure.Output.Contains('no `CanonicalMinimalAddBackendFactsAccess` in `backend_input`') -or -not $Wo19CompileFailure.Output.Contains('cannot find function `with_canonical_minimal_add_backend_facts`')) { throw 'Work Order 19 proof did not establish removal of the raw backend-facts authority route' }
   foreach ($Wo19PrivateWrapper in @(
     'VerifiedMinimalAddFullType',
     'VerifiedMinimalAddEffect',
@@ -1173,11 +1250,51 @@ task malformed() -> UInt {
     if (-not $Wo19CompileFailure.Output.Contains("tuple struct constructor ``$Wo19PrivateWrapper`` is private")) { throw "Work Order 19 combined proof did not reject sibling construction of $Wo19PrivateWrapper" }
   }
   if ([regex]::Matches($Wo19CompileFailure.Output, 'error\[E0603\]: tuple struct constructor `VerifiedMinimalAdd(?:FullType|Effect|Ownership|Resource|Profile)` is private').Count -ne 5) { throw 'Work Order 19 combined proof must contain exactly five wrapper-constructor privacy failures' }
-  if (-not [regex]::IsMatch($Wo19CompileFailure.Output, 'lifetime may not live long enough|error\[E05(?:15|21)\]')) { throw 'Work Order 19 backend facts escape proof did not fail for a borrow-check lifetime reason' }
-  if (-not $Wo19CompileFailure.Output.Contains('field `facts` of struct `CanonicalMinimalAddBackendFactsAccess` is private')) { throw 'Work Order 19 combined proof did not reject foreign access construction at the private field' }
-  if ([regex]::IsMatch($Wo19CompileFailure.Output, 'error\[E0382\]|error\[E(?:0412|0422|0432|0433)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|expected item, found')) { throw 'Work Order 19 combined proof failed for an unrelated move, symbol, cfg, import, or syntax reason' }
+  if ([regex]::IsMatch($Wo19CompileFailure.Output, 'error\[E0382\]|error\[E(?:0412|0422|0433)\]|unexpected `cfg`|cannot find (?:type|struct|module)|expected item, found')) { throw 'Work Order 19 combined proof failed for an unrelated move, symbol, cfg, import, or syntax reason' }
   if (-not [string]::Equals($env:RUSTFLAGS, $Wo19PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 19 combined proof did not restore RUSTFLAGS' }
   Invoke-Native 'Work Order 19 normal compiler check after combined proof' $Cargo @('check', '--all-targets')
+
+  Write-Host '==> Work Order 22 source-bound VerifiedBackendInput authority proof'
+  Invoke-Native 'Work Order 22 normal compiler check before authority proof' $Cargo @('check', '--all-targets')
+  $Wo22PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_backend_input_construction'
+    $Wo22ConstructionFailure = Read-NativeOutputWithExit 'Work Order 22 forbidden capability/request construction proof' $Cargo @('check', '--bin', 'hum')
+  } finally {
+    if ($null -eq $Wo22PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22PriorRustFlags }
+  }
+  if ($Wo22ConstructionFailure.ExitCode -ne 101 -or [regex]::Matches($Wo22ConstructionFailure.Output, 'error\[E0451\]').Count -ne 2) { throw 'Work Order 22 private capability/request construction proof must produce exactly two E0451 failures' }
+  foreach ($Wo22PrivateFields in @(
+    'fields `projection` and `_artifact` of struct `VerifiedBackendInput` are private',
+    'fields `expected`, `observed` and `program_identity` of struct `LiveIdentityRequest` are private'
+  )) {
+    if (-not $Wo22ConstructionFailure.Output.Contains($Wo22PrivateFields)) { throw "Work Order 22 construction proof lost: $Wo22PrivateFields" }
+  }
+  if ([regex]::IsMatch($Wo22ConstructionFailure.Output, 'unexpected `cfg`|unresolved import|cannot find (?:type|struct|module|function)|expected item, found')) { throw 'Work Order 22 construction proof failed for an unrelated cfg, import, symbol, or syntax reason' }
+  $Wo22PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_backend_input_authority'
+    $Wo22AuthorityFailure = Read-NativeOutputWithExit 'Work Order 22 forbidden production authority substitutions' $Cargo @('check', '--bin', 'hum')
+  } finally {
+    if ($null -eq $Wo22PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22PriorRustFlags }
+  }
+  if ($Wo22AuthorityFailure.ExitCode -ne 101) { throw "Work Order 22 authority proof must exit 101, found $($Wo22AuthorityFailure.ExitCode)" }
+  foreach ($Wo22AuthorityEvidence in @(
+    'struct `CanonicalMinimalAddBackendFacts` is private',
+    'field `projection` of struct `VerifiedBackendInput` is private',
+    'the trait bound `VerifiedBackendInput<''_>: From<&[u8]>` is not satisfied',
+    'found `CanonicalBackendInputArtifact`',
+    'found `IrVerifyReport`',
+    'found `&[u8]`',
+    'expected `&mut LiveIdentityRequest<''_>`, found `&mut ()`',
+    'borrowed data escapes outside of closure'
+  )) {
+    if (-not $Wo22AuthorityFailure.Output.Contains($Wo22AuthorityEvidence)) { throw "Work Order 22 source-bound authority proof lost: $Wo22AuthorityEvidence" }
+  }
+  if ([regex]::Matches($Wo22AuthorityFailure.Output, 'error\[E0308\]').Count -ne 4 -or -not $Wo22AuthorityFailure.Output.Contains('error[E0521]')) { throw 'Work Order 22 substitution/lifetime compiler evidence count drifted' }
+  if ([regex]::IsMatch($Wo22AuthorityFailure.Output, 'unexpected `cfg`|unresolved import|cannot find (?:type|struct|module|function)|expected item, found')) { throw 'Work Order 22 authority proof failed for an unrelated cfg, import, symbol, or syntax reason' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo22PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 22 authority proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 22 normal compiler check after authority proof' $Cargo @('check', '--all-targets')
 
   Write-Host '==> Work Order 17 sole minimal-add outcome producer proof'
   $Wo17OutcomePriorRustFlags = $env:RUSTFLAGS
@@ -1358,7 +1475,7 @@ task malformed() -> UInt {
     'full_type_check::tests::minimal_add_backend_fact_handoff_is_exact_and_borrowed',
     'ownership_check::tests::minimal_add_effect_and_ownership_authority_stays_operation_owned',
     'profile_check::tests::minimal_add_resource_and_profile_authority_is_checked_empty',
-    'ir_readiness::tests::minimal_add_backend_facts_are_complete_but_ir_verify_blocked'
+    'ir_readiness::tests::canonical_minimal_add_is_ir_ready_only_after_live_verification'
   )) {
     if ($ExactRustSelectorCredits -notcontains $WorkOrder19Selector) { throw "exact Rust selector inventory lost Work Order 19 selector $WorkOrder19Selector" }
   }
@@ -1657,10 +1774,10 @@ task malformed() -> UInt {
   $IrContract = $IrContractJson | ConvertFrom-Json
   $HumIrLayers = @($IrContract.ir_layers | Where-Object { $_.id -ceq 'hum_ir' })
   if ($HumIrLayers.Count -ne 1) { throw 'IR contract JSON must contain exactly one hum_ir layer' }
-  if ($HumIrLayers[0].status -cne 'produced-unverified') { throw 'IR contract JSON hum_ir layer must remain produced-unverified' }
-  if ($HumIrLayers[0].role -cne 'canonical target-independent backend-input bytes awaiting IR verification') { throw 'IR contract JSON hum_ir layer role drifted' }
+  if ($HumIrLayers[0].status -cne 'verified-input-ready') { throw 'IR contract JSON hum_ir layer must expose verified input readiness' }
+  if ($HumIrLayers[0].role -cne 'verified target-independent backend input behind a sealed compiler capability') { throw 'IR contract JSON hum_ir layer role drifted' }
   if ($IrContractJson.Contains('"no IR emission for source files"')) { throw 'IR contract JSON must remove the obsolete V0 non-emission claim' }
-  if (-not $IrContractJson.Contains('"no verified IR capability"')) { throw 'IR contract JSON must keep the unverified-capability non-claim' }
+  if (-not $IrContractJson.Contains('"no durable verified-input authority"')) { throw 'IR contract JSON must keep the durable-authority non-claim' }
   if (-not $IrContractJson.Contains('"no backend lowering"')) { throw 'IR contract JSON must keep the backend-lowering non-claim' }
   if (-not $IrContractJson.Contains('"no backend adapter input authority"')) { throw 'IR contract JSON must keep the backend-adapter authority non-claim' }
 
@@ -3809,9 +3926,13 @@ task malformed() -> UInt {
   if (-not $IrReadinessJson.Contains('"recognized_core_profile_gate_available_v0"')) { throw 'IR readiness JSON is missing profile-check pass availability' }
   if ($IrReadinessJson.Contains('"allocation_resource_check_not_implemented"')) { throw 'IR readiness JSON should not report resource check as not implemented' }
   if ($IrReadinessJson.Contains('"profile_check_not_implemented"')) { throw 'IR readiness JSON should not report profile check as not implemented' }
-  if (-not $IrReadinessJson.Contains('"ir_verify_not_implemented"')) { throw 'IR readiness JSON is missing IR verifier blocker' }
-  if (-not $IrReadinessJson.Contains('"not_implemented"')) { throw 'IR readiness JSON is missing not_implemented blockers' }
+  if (-not $IrReadinessJson.Contains('"implemented_canonical_minimal_add_backend_input_v0"')) { throw 'IR readiness JSON is missing implemented IR verifier status' }
   if (-not $IrReadinessJson.Contains('"no IR emission"')) { throw 'IR readiness JSON must keep V0 non-emission claim' }
+  $Wo22ReadinessJson = Read-NativeOutput 'Work Order 22 canonical verified readiness' $Hum @('ir-readiness', '--format', 'json', 'examples/core/minimal_add.hum')
+  $Wo22Readiness = $Wo22ReadinessJson | ConvertFrom-Json
+  if ($Wo22Readiness.summary.ir_ready -ne 1 -or $Wo22Readiness.summary.ready_for_ir -ne 1 -or $Wo22Readiness.summary.backend_ready -ne 0) { throw 'Work Order 22 readiness summary must be exactly 1/1/0' }
+  $Wo22Candidate = @($Wo22Readiness.lowering_candidates)
+  if ($Wo22Candidate.Count -ne 1 -or $Wo22Candidate[0].status -cne 'ready_for_ir_with_verified_backend_input_v0' -or $Wo22Candidate[0].backend_blocking_reasons -notcontains 'backend_adapter_not_implemented') { throw 'Work Order 22 verified candidate boundary drifted' }
 
   $MathOutDir = Join-Path (Join-Path $RepoRoot 'target') ('hum-math-obligations-smoke-' + [System.Guid]::NewGuid().ToString('N'))
   Invoke-Native 'math obligations out-dir' $Hum @('math-obligations', '--out-dir', $MathOutDir, 'examples/control_flow.hum')

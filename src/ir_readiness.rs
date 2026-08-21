@@ -12,6 +12,7 @@ use crate::effect_check;
 use crate::full_type_check;
 use crate::graph::is_meaningful_line_text;
 use crate::ir_contract;
+use crate::ir_verify;
 use crate::node_id;
 use crate::ownership_check;
 use crate::profile_check;
@@ -54,34 +55,43 @@ struct LoweringCandidate {
     facts_available: Vec<&'static str>,
     missing_passes: Vec<&'static str>,
     blocking_reasons: Vec<&'static str>,
+    ir_ready: usize,
+    ready_for_ir: usize,
+    backend_ready: usize,
+    backend_blocking_reasons: Vec<&'static str>,
     section_names: Vec<String>,
     body_grammar: Option<BodyGrammarReport>,
 }
 
-pub(crate) use crate::backend_input::CanonicalMinimalAddBackendFactsAccess;
+#[allow(unexpected_cfgs)]
+mod removed_raw_backend_authority_surface {
+    #[cfg(hum_compile_fail_canonical_minimal_add_backend_facts_escape)]
+    pub(crate) use crate::backend_input::CanonicalMinimalAddBackendFactsAccess;
 
-#[allow(dead_code)]
-pub(crate) fn with_canonical_minimal_add_backend_facts<R>(
-    program: &Program,
-    diagnostics: &[Diagnostic],
-    item: &Item,
-    statement: &ParsedBodyStatement,
-    consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
-) -> Option<R> {
-    crate::backend_input::with_canonical_minimal_add_backend_facts(
-        program,
-        diagnostics,
-        item,
-        statement,
-        consume,
-    )
+    #[allow(dead_code)]
+    #[cfg(hum_compile_fail_canonical_minimal_add_backend_facts_escape)]
+    pub(crate) fn with_canonical_minimal_add_backend_facts<R>(
+        program: &super::Program,
+        diagnostics: &[super::Diagnostic],
+        item: &super::Item,
+        statement: &super::ParsedBodyStatement,
+        consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
+    ) -> Option<R> {
+        crate::backend_input::with_canonical_minimal_add_backend_facts(
+            program,
+            diagnostics,
+            item,
+            statement,
+            consume,
+        )
+    }
 }
 
 #[allow(unexpected_cfgs)]
 mod canonical_minimal_add_backend_facts_escape_compile_proof {
     #[cfg(hum_compile_fail_canonical_minimal_add_backend_facts_escape)]
     mod enabled {
-        use super::super::{
+        use super::super::removed_raw_backend_authority_surface::{
             CanonicalMinimalAddBackendFactsAccess, with_canonical_minimal_add_backend_facts,
         };
         use crate::{
@@ -151,6 +161,116 @@ mod canonical_minimal_add_backend_facts_escape_compile_proof {
                     facts: access.facts,
                 };
             let _ = backend_facts_foreign_construction_must_not_compile;
+        }
+    }
+}
+
+#[allow(unexpected_cfgs)]
+mod verified_backend_input_authority_compile_proof {
+    #[cfg(hum_compile_fail_verified_backend_input_authority)]
+    mod enabled {
+        use crate::{
+            ast::{Item, ParsedBodyStatement, Program},
+            backend_input::CanonicalBackendInputArtifact,
+            diagnostic::Diagnostic,
+            ir_verify::{IrVerifyReport, LiveIdentityRequest, VerifiedBackendInput},
+        };
+        use std::marker::PhantomData;
+
+        fn consume_verified_backend_input(_: VerifiedBackendInput<'_>) {}
+
+        fn verified_backend_input_private_construction_must_not_compile() {
+            let _ = VerifiedBackendInput {
+                projection: None.unwrap(),
+                _artifact: PhantomData,
+            };
+        }
+
+        fn verified_backend_input_private_field_access_must_not_compile(
+            value: VerifiedBackendInput<'_>,
+        ) {
+            let _ = value.projection;
+        }
+
+        fn verified_backend_input_fabricated_conversion_must_not_compile(bytes: &[u8]) {
+            let _: VerifiedBackendInput<'_> = bytes.into();
+        }
+
+        fn raw_artifact_substitution_must_not_compile(value: CanonicalBackendInputArtifact) {
+            consume_verified_backend_input(value);
+        }
+
+        fn raw_report_substitution_must_not_compile(value: IrVerifyReport) {
+            consume_verified_backend_input(value);
+        }
+
+        fn raw_fixture_substitution_must_not_compile(value: &[u8]) {
+            consume_verified_backend_input(value);
+        }
+
+        fn verified_backend_input_lifetime_escape_must_not_compile(
+            program: &Program,
+            diagnostics: &[Diagnostic],
+            artifact: &[u8],
+        ) -> VerifiedBackendInput<'static> {
+            let mut escaped = None;
+            let _ = crate::ir_verify::with_verified_backend_input(
+                program,
+                diagnostics,
+                artifact,
+                |value| escaped = Some(value),
+            );
+            escaped.unwrap()
+        }
+
+        fn sibling_raw_facts_type_must_not_compile(
+            _: crate::backend_input::CanonicalMinimalAddBackendFacts<'static, 'static>,
+        ) {
+        }
+
+        fn sibling_live_request_construction_must_not_compile() {
+            let _ = LiveIdentityRequest {
+                expected: None.unwrap(),
+                observed: None,
+                program_identity: 0,
+            };
+        }
+
+        fn sibling_raw_authority_call_without_request_must_not_compile(
+            program: &Program,
+            diagnostics: &[Diagnostic],
+            _item: &Item,
+            _statement: &ParsedBodyStatement,
+        ) {
+            let _ = crate::backend_input::bind_canonical_minimal_add_live_identity(
+                &mut (),
+                program,
+                diagnostics,
+            );
+        }
+    }
+}
+
+#[allow(unexpected_cfgs)]
+mod verified_backend_input_construction_compile_proof {
+    #[cfg(hum_compile_fail_verified_backend_input_construction)]
+    mod enabled {
+        use crate::ir_verify::{LiveIdentityRequest, VerifiedBackendInput};
+        use std::marker::PhantomData;
+
+        fn private_construction_must_not_compile() {
+            let _ = VerifiedBackendInput {
+                projection: None.unwrap(),
+                _artifact: PhantomData,
+            };
+        }
+
+        fn private_live_request_must_not_compile() {
+            let _ = LiveIdentityRequest {
+                expected: None.unwrap(),
+                observed: None,
+                program_identity: 0,
+            };
         }
     }
 }
@@ -341,8 +461,8 @@ const PASS_STATUSES: &[PassStatus] = &[
     },
     PassStatus {
         name: "ir_verify",
-        status: "not_implemented",
-        source: ir_contract::IR_CONTRACT_SCHEMA,
+        status: "implemented_canonical_minimal_add_backend_input_v0",
+        source: ir_verify::IR_VERIFY_SCHEMA,
     },
 ];
 
@@ -387,12 +507,14 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
         version::HUM_STATUS
     ));
     out.push_str(&format!(
-        "summary: files={} items={} tasks={} tests={} lowering_candidates={} ready_for_ir=0 blocked={} errors={} warnings={} body_grammar_candidates={} body_grammar_recognized_lines={} body_grammar_unsupported_lines={} resolver_status={} resolver_errors={} unresolved_references={} type_check_status={} type_errors={} unknown_type_references={} checked_returns={} rejected_returns={} unchecked_returns={}\n",
+        "summary: files={} items={} tasks={} tests={} lowering_candidates={} ir_ready={} ready_for_ir={} backend_ready=0 blocked={} errors={} warnings={} body_grammar_candidates={} body_grammar_recognized_lines={} body_grammar_unsupported_lines={} resolver_status={} resolver_errors={} unresolved_references={} type_check_status={} type_errors={} unknown_type_references={} checked_returns={} rejected_returns={} unchecked_returns={}\n",
         report.files,
         report.items,
         report.tasks,
         report.tests,
         report.candidates.len(),
+        report.ready_count(),
+        report.ready_count(),
         blocked,
         report.errors,
         report.warnings,
@@ -611,6 +733,13 @@ pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> Strin
             "    blocking_reasons: {}\n",
             candidate.blocking_reasons.join(", ")
         ));
+        out.push_str(&format!("    ir_ready: {}\n", candidate.ir_ready));
+        out.push_str(&format!("    ready_for_ir: {}\n", candidate.ready_for_ir));
+        out.push_str(&format!("    backend_ready: {}\n", candidate.backend_ready));
+        out.push_str(&format!(
+            "    backend_blocking_reasons: {}\n",
+            candidate.backend_blocking_reasons.join(", ")
+        ));
         if let Some(body_grammar) = &candidate.body_grammar {
             out.push_str(&format!(
                 "    body_grammar: {} meaningful_lines={} recognized_lines={} unsupported_lines={}\n",
@@ -797,7 +926,7 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
         context.profile_check_summary.status,
         "profile_errors_v0" | "blocked_by_unchecked_profile_policy_v0"
     );
-    let blocking_reasons = blocking_reasons(CandidateBlockers {
+    let blockers = CandidateBlockers {
         has_errors,
         has_resolver_errors,
         has_type_errors,
@@ -807,13 +936,15 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
         has_ownership_check_errors,
         has_resource_check_errors,
         has_profile_check_errors,
-    });
+    };
     let section_names = item_sections(item)
         .iter()
         .map(|section| section.name.clone())
         .collect::<Vec<_>>();
     let body_grammar = body_grammar_for_item(context.program, item);
     let backend_facts = candidate_backend_facts(item, context);
+    let backend_verified = backend_facts;
+    let blocking_reasons = blocking_reasons(blockers, backend_verified);
 
     LoweringCandidate {
         id: readiness_id(item),
@@ -839,15 +970,17 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
             "blocked_by_resource_check_errors"
         } else if has_profile_check_errors {
             "blocked_by_profile_check_errors"
-        } else if backend_facts {
-            "blocked_before_ir_verify_with_backend_input_facts_v0"
+        } else if backend_verified {
+            "ready_for_ir_with_verified_backend_input_v0"
         } else {
             "blocked_before_ir_verify"
         },
         current_layer: CURRENT_LAYER,
         target_layer: TARGET_LAYER,
         facts_available: facts_available(item, context, backend_facts),
-        missing_passes: if has_full_type_check_errors {
+        missing_passes: if backend_verified {
+            Vec::new()
+        } else if has_full_type_check_errors {
             MISSING_IR_PASSES.to_vec()
         } else if has_effect_check_errors {
             MISSING_AFTER_FULL_TYPE_PASSES.to_vec()
@@ -861,6 +994,12 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
             MISSING_AFTER_PROFILE_PASSES.to_vec()
         },
         blocking_reasons,
+        ir_ready: usize::from(backend_verified),
+        ready_for_ir: usize::from(backend_verified),
+        backend_ready: 0,
+        backend_blocking_reasons: backend_verified
+            .then_some(vec!["backend_adapter_not_implemented"])
+            .unwrap_or_default(),
         section_names,
         body_grammar,
     }
@@ -883,20 +1022,58 @@ fn candidate_backend_facts(item: &Item, context: &CandidateContext<'_>) -> bool 
                 )
         )
     });
-    let Some(statement) = statements.next() else {
+    let Some(statement): Option<&ParsedBodyStatement> = statements.next() else {
         return false;
     };
+    let _ = statement;
     if statements.next().is_some() {
         return false;
     }
-    crate::backend_input::with_canonical_minimal_add_artifact(
-        context.program,
-        context.diagnostics,
-        item,
-        statement,
-        |access, artifact| access.is_complete() && !artifact.bytes().is_empty(),
-    )
-    .unwrap_or(false)
+    crate::backend_input::canonical_minimal_add_artifact(context.program, context.diagnostics)
+        .is_some_and(|artifact| {
+            let (report, observed) = ir_verify::with_verified_backend_input(
+                context.program,
+                context.diagnostics,
+                artifact.bytes(),
+                |verified| {
+                    let parameter_ids = verified.parameter_value_ids();
+                    let definition_ids = verified.parameter_definition_ids();
+                    let parameter_types = verified.parameter_types();
+                    let parameter_spans = verified.parameter_spans();
+                    let (linkage_kind, linkage_symbol) = verified.linkage();
+                    let (result_id, result_type) = verified.result();
+                    let (overflow_type, overflow_operation, overflow_behavior) =
+                        verified.overflow_edge();
+                    verified.schema() == crate::backend_input::BACKEND_INPUT_SCHEMA
+                        && verified.artifact_id() == artifact.artifact_id()
+                        && verified.compiler_version() == crate::version::HUM_VERSION
+                        && verified.semantic_contract() == crate::backend_input::SEMANTIC_CONTRACT
+                        && verified.target_context() == crate::backend_input::TARGET_CONTEXT
+                        && verified.source_revision()
+                            == crate::backend_input::SOURCE_REVISION_SHA256
+                        && verified.source_path() == crate::backend_input::SOURCE_PATH
+                        && verified.function_id() == "function:0"
+                        && linkage_kind == "internal"
+                        && !linkage_symbol.is_empty()
+                        && parameter_ids[0] != parameter_ids[1]
+                        && definition_ids[0] != definition_ids[1]
+                        && parameter_types == ["type:int64", "type:int64"]
+                        && parameter_spans
+                            .iter()
+                            .all(|(line, column)| *line > 0 && *column > 0)
+                        && !verified.operation_id().is_empty()
+                        && !result_id.is_empty()
+                        && result_type == "type:int64"
+                        && verified.operation_span().0 > 0
+                        && overflow_type == "signed_64"
+                        && overflow_operation == "checked_add"
+                        && overflow_behavior == "runtime_trap_on_overflow"
+                        && verified.profile() == "normal"
+                        && verified.required_passes().count() == 14
+                },
+            );
+            report.accepted() && observed == Some(true)
+        })
 }
 
 fn facts_available(
@@ -983,8 +1160,10 @@ fn facts_available(
             "resource_checked_empty_v0",
             "normal_profile_checked_v0",
             "checked_i64_overflow_trap_bound_v0",
-            "canonical_backend_input_bytes_produced_unverified_v0",
-            "ir_verify_pending_v0",
+            "canonical_backend_input_bytes_v0",
+            "sha256_payload_identity_verified_v0",
+            "ir_verify_passed_v0",
+            "verified_backend_input_capability_lent_v0",
         ]);
     }
 
@@ -1148,7 +1327,7 @@ fn item_sections(item: &Item) -> &[Section] {
     }
 }
 
-fn blocking_reasons(blockers: CandidateBlockers) -> Vec<&'static str> {
+fn blocking_reasons(blockers: CandidateBlockers, backend_verified: bool) -> Vec<&'static str> {
     let mut reasons = Vec::new();
     if blockers.has_errors {
         reasons.push("source_diagnostics_include_errors");
@@ -1177,11 +1356,19 @@ fn blocking_reasons(blockers: CandidateBlockers) -> Vec<&'static str> {
     if blockers.has_profile_check_errors {
         reasons.push("profile_check_errors");
     }
-    reasons.push("ir_verify_not_implemented");
+    if !backend_verified {
+        reasons.push("canonical_backend_input_not_verified_v0");
+    }
     reasons
 }
 
 impl IrReadinessReport {
+    fn ready_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.ir_ready)
+            .sum()
+    }
     fn blocked_count(&self) -> usize {
         self.candidates
             .iter()
@@ -1778,12 +1965,14 @@ fn push_summary(out: &mut String, report: &IrReadinessReport, indent: usize, com
     push_indent(out, indent);
     out.push_str("\"summary\": {");
     out.push_str(&format!(
-        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"lowering_candidates\": {}, \"ready_for_ir\": 0, \"blocked\": {}, \"errors\": {}, \"warnings\": {}, \"type_errors\": {}, \"unknown_type_references\": {}, \"checked_returns\": {}, \"rejected_returns\": {}, \"unchecked_returns\": {}, \"body_grammar_candidates\": {}, \"body_grammar_recognized_lines\": {}, \"body_grammar_unsupported_lines\": {}",
+        "\"files\": {}, \"items\": {}, \"tasks\": {}, \"tests\": {}, \"lowering_candidates\": {}, \"ir_ready\": {}, \"ready_for_ir\": {}, \"backend_ready\": 0, \"blocked\": {}, \"errors\": {}, \"warnings\": {}, \"type_errors\": {}, \"unknown_type_references\": {}, \"checked_returns\": {}, \"rejected_returns\": {}, \"unchecked_returns\": {}, \"body_grammar_candidates\": {}, \"body_grammar_recognized_lines\": {}, \"body_grammar_unsupported_lines\": {}",
         report.files,
         report.items,
         report.tasks,
         report.tests,
         report.candidates.len(),
+        report.ready_count(),
+        report.ready_count(),
         report.blocked_count(),
         report.errors,
         report.warnings,
@@ -2307,6 +2496,28 @@ fn push_candidate(out: &mut String, candidate: &LoweringCandidate, indent: usize
         &candidate.facts_available,
         true,
     );
+    push_usize_field(out, indent + 2, "ir_ready", candidate.ir_ready, true);
+    push_usize_field(
+        out,
+        indent + 2,
+        "ready_for_ir",
+        candidate.ready_for_ir,
+        true,
+    );
+    push_usize_field(
+        out,
+        indent + 2,
+        "backend_ready",
+        candidate.backend_ready,
+        true,
+    );
+    push_string_array(
+        out,
+        indent + 2,
+        "backend_blocking_reasons",
+        &candidate.backend_blocking_reasons,
+        true,
+    );
     push_string_array(
         out,
         indent + 2,
@@ -2537,7 +2748,11 @@ mod tests {
         assert!(text.contains("Hum IR readiness (hum.ir_readiness.v0)"));
         assert!(text.contains("core_contract_schema: hum.core_contract.v0"));
         assert!(text.contains("resolver: schema=hum.resolve.v0 status=checked_resolver_v0"));
-        assert!(text.contains("lowering_candidates=4 ready_for_ir=0 blocked=4"));
+        assert!(
+            text.contains(
+                "lowering_candidates=4 ir_ready=0 ready_for_ir=0 backend_ready=0 blocked=4"
+            )
+        );
         assert!(text.contains("body_grammar_candidates=2"));
         assert!(
             text.contains(
@@ -2614,7 +2829,7 @@ mod tests {
         assert!(!json.contains("\"allocation_resource_check_not_implemented\""));
         assert!(json.contains("\"recognized_core_profile_gate_available_v0\""));
         assert!(!json.contains("\"profile_check_not_implemented\""));
-        assert!(json.contains("\"ir_verify_not_implemented\""));
+        assert!(json.contains("\"implemented_canonical_minimal_add_backend_input_v0\""));
         assert!(!json.contains("\"ownership_alias_check_not_implemented\""));
         assert!(json.contains("\"name\": \"body_grammar\""));
         assert!(json.contains("\"name\": \"core_preview\""));
@@ -2699,7 +2914,7 @@ task pass_box(item: Box) -> Box {
     }
 
     #[test]
-    fn minimal_add_backend_facts_are_complete_but_ir_verify_blocked() {
+    fn canonical_minimal_add_is_ir_ready_only_after_live_verification() {
         type PublicReports = [(&'static str, String); 10];
 
         fn subject(source: &str) -> (Program, Vec<crate::diagnostic::Diagnostic>) {
@@ -2720,16 +2935,37 @@ task pass_box(item: Box) -> Box {
             let crate::ast::Item::Task(task) = item else {
                 return None;
             };
-            super::with_canonical_minimal_add_backend_facts(
+            let _ = &task.body_syntax[0];
+            let artifact =
+                crate::backend_input::canonical_minimal_add_artifact(program, diagnostics)?;
+            let text = std::str::from_utf8(artifact.bytes()).ok()?;
+            let checked_empty = [
+                ("effects", "\"effects\":[]"),
+                ("ownership_transfers", "\"ownership_transfers\":[]"),
+                ("allocations", "\"allocations\":[]"),
+                ("contract_predicates", "\"contract_predicates\":[]"),
+                ("evidence_obligations", "\"evidence_obligations\":[]"),
+                ("unsupported_or_weakened", "\"unsupported\":[]"),
+                ("external_authority", "\"external_authority\":[]"),
+            ];
+            let (report, snapshot) = crate::ir_verify::with_verified_backend_input(
                 program,
                 diagnostics,
-                item,
-                &task.body_syntax[0],
-                |access| {
-                    assert!(access.is_complete());
-                    access.snapshot_for_test()
+                artifact.bytes(),
+                |verified| {
+                    let mut snapshot = verified
+                        .required_passes()
+                        .map(str::to_string)
+                        .collect::<Vec<_>>();
+                    snapshot.extend(checked_empty.map(|(name, needle)| {
+                        assert!(text.contains(needle), "missing checked-empty {name}");
+                        format!("checked_empty:{name}")
+                    }));
+                    snapshot.push(verified.overflow_edge().1.to_string());
+                    snapshot
                 },
-            )
+            );
+            report.accepted().then_some(snapshot).flatten()
         }
 
         fn public_reports(
@@ -2849,7 +3085,6 @@ task pass_box(item: Box) -> Box {
                                 &honest_task.body_syntax[0],
                                 honest_profile,
                                 &foreign_profile,
-                                |access| access.snapshot_for_test(),
                             )
                         },
                     )
@@ -2920,11 +3155,13 @@ task pass_box(item: Box) -> Box {
         let json = ir_readiness_json(&program, &diagnostics);
         assert_eq!(text, ir_readiness_text(&program, &diagnostics));
         assert_eq!(json, ir_readiness_json(&program, &diagnostics));
-        assert!(text.contains("[blocked_before_ir_verify_with_backend_input_facts_v0]"));
-        assert!(text.contains("missing_passes: ir_verify"));
-        assert!(text.contains("blocking_reasons: ir_verify_not_implemented"));
-        assert!(json.contains("\"ready_for_ir\": 0"));
-        assert!(json.contains("\"missing_passes\": [\"ir_verify\"]"));
+        assert!(text.contains("[ready_for_ir_with_verified_backend_input_v0]"));
+        assert!(text.contains("missing_passes: \n"));
+        assert!(text.contains("blocking_reasons: \n"));
+        assert!(json.contains("\"ir_ready\": 1"));
+        assert!(json.contains("\"ready_for_ir\": 1"));
+        assert!(json.contains("\"backend_ready\": 0"));
+        assert!(json.contains("\"missing_passes\": []"));
         let expected_fact_suffix = [
             "canonical_minimal_add_backend_facts_v0",
             "source_and_operation_identity_bound_v0",
@@ -2935,8 +3172,10 @@ task pass_box(item: Box) -> Box {
             "resource_checked_empty_v0",
             "normal_profile_checked_v0",
             "checked_i64_overflow_trap_bound_v0",
-            "canonical_backend_input_bytes_produced_unverified_v0",
-            "ir_verify_pending_v0",
+            "canonical_backend_input_bytes_v0",
+            "sha256_payload_identity_verified_v0",
+            "ir_verify_passed_v0",
+            "verified_backend_input_capability_lent_v0",
         ];
         let expected_human_suffix = expected_fact_suffix.join(", ");
         let human_facts_line = text
@@ -2976,10 +3215,7 @@ task pass_box(item: Box) -> Box {
             .lines()
             .find(|line| line.contains("\"blocking_reasons\":"))
             .expect("JSON readiness blocker for the canonical minimal add");
-        assert_eq!(
-            json_blocking_reasons.trim(),
-            "\"blocking_reasons\": [\"ir_verify_not_implemented\"],",
-        );
+        assert_eq!(json_blocking_reasons.trim(), "\"blocking_reasons\": [],",);
 
         let access_missing = || access(&program, &diagnostics).is_none();
         for corruption in [
@@ -3097,6 +3333,15 @@ task pass_box(item: Box) -> Box {
                 "unexpected authority for:\n{corrupted}"
             );
         }
+        crate::backend_input::set_artifact_target_context_corruption_for_test(
+            "foreign_target_context_v0",
+        );
+        let rejected = ir_readiness_json(&program, &diagnostics);
+        assert!(rejected.contains("\"ir_ready\": 0"));
+        assert!(rejected.contains("\"ready_for_ir\": 0"));
+        assert!(rejected.contains("\"backend_ready\": 0"));
+        assert!(rejected.contains("\"status\": \"blocked_before_ir_verify\""));
+        assert!(rejected.contains("\"canonical_backend_input_not_verified_v0\""));
     }
 
     fn demo_program() -> Program {

@@ -76,6 +76,7 @@ const RULES: &[&str] = &[
     "Hum IR owns semantics; backend IRs are adapters.",
     "Surface Hum must not lower directly to backend IR.",
     "Backend adapters must preserve required facts or report explicit loss.",
+    "Backend adapters accept only callback-scoped VerifiedBackendInput authority.",
     "Cranelift is a first native proof candidate, not a newer LLVM.",
     "LLVM is a mature optimized AOT target, not Hum's semantic center.",
     "MLIR and custom backend work require evidence from real Hum facts.",
@@ -87,6 +88,7 @@ const NON_GOALS_V0: &[&str] = &[
     "no backend selection",
     "no optimizer promise",
     "no generated artifact",
+    "no backend-ready claim from verified input alone",
     "no performance claim",
     "no solver or network dependency",
 ];

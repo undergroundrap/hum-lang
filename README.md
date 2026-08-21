@@ -190,7 +190,7 @@ Current artifacts:
 
 - [examples/reference_surface.hum](examples/reference_surface.hum): checked Milestone 0 source fixture covering the current reference surface
 - [examples/core](examples/core): first Milestone 1 executable fixtures for `hum run` (`add`, `divide`, and `count_completed`)
-- [fixtures/backend_input/minimal_add.backend_input.v0.json](fixtures/backend_input/minimal_add.backend_input.v0.json): exact canonical unverified backend-input bytes for the checked minimal-add fixture
+- [fixtures/backend_input/minimal_add.backend_input.v0.json](fixtures/backend_input/minimal_add.backend_input.v0.json): exact canonical backend-input bytes verified before typed authority is issued
 - [examples/probes/writable_field_aliases.hum](examples/probes/writable_field_aliases.hum): Session V write-through, distinct-field, and straight-line last-use evidence for Program 8
 - [SPEC.md](SPEC.md): broad language design draft
 - [docs/LANGUAGE_REFERENCE.md](docs/LANGUAGE_REFERENCE.md): traditional reference spine for source files, items, sections, and current language status
@@ -212,8 +212,9 @@ Current artifacts:
 - [docs/HUM_OWNERSHIP_CHECK_SCHEMA.md](docs/HUM_OWNERSHIP_CHECK_SCHEMA.md): `hum.ownership_check.v0` recognized local ownership fact gate
 - [docs/HUM_RESOURCE_CHECK_SCHEMA.md](docs/HUM_RESOURCE_CHECK_SCHEMA.md): `hum.resource_check.v0` declared allocation/resource intent gate
 - [docs/HUM_IR_CONTRACT_SCHEMA.md](docs/HUM_IR_CONTRACT_SCHEMA.md): `hum.ir_contract.v0` Hum IR ownership, carried-fact, and pass-boundary contract
-- [docs/HUM_IR_READINESS_SCHEMA.md](docs/HUM_IR_READINESS_SCHEMA.md): `hum.ir_readiness.v0` source readiness and blocker report after profile checking, before Hum IR verification and lowering
+- [docs/HUM_IR_READINESS_SCHEMA.md](docs/HUM_IR_READINESS_SCHEMA.md): `hum.ir_readiness.v0` reports verified minimal-add IR readiness separately from backend readiness
 - [docs/HUM_BACKEND_INPUT_SCHEMA.md](docs/HUM_BACKEND_INPUT_SCHEMA.md): `hum.backend_input.v0` canonical target-independent producer bytes and non-authority contract
+- [docs/HUM_IR_VERIFY_SCHEMA.md](docs/HUM_IR_VERIFY_SCHEMA.md): `hum.ir_verify.v0` strict byte verification and sealed capability boundary
 - [docs/BACKEND_CONTRACT_SCHEMA.md](docs/BACKEND_CONTRACT_SCHEMA.md): `hum.backend_contract.v0` backend ladder and adapter preservation contract
 - [docs/LSP_CAPABILITIES_SCHEMA.md](docs/LSP_CAPABILITIES_SCHEMA.md): `hum.lsp_capabilities.v0` preview schema for LSP adapter support
 - [docs/DOCTOR_SCHEMA.md](docs/DOCTOR_SCHEMA.md): `hum.doctor.v0` setup health schema for portable repo guardrails
@@ -378,6 +379,7 @@ cargo run -- resource-report --format json examples/control_flow.hum
 cargo run -- ir-readiness examples/reference_surface.hum
 cargo run -- ir-readiness --format json examples/reference_surface.hum
 cargo run -- backend-input examples/core/minimal_add.hum
+cargo run -- ir-verify fixtures/backend_input/minimal_add.backend_input.v0.json
 cargo run -- lsp --capabilities
 cargo run -- lsp --capabilities --format json
 cargo run -- doctor
@@ -407,8 +409,9 @@ Current CLI:
 - `hum evidence [--format human|json] <file-or-dir>...`: emit `hum.evidence.v0` security/trust evidence status for humans, agents, and CI wrappers
 - `hum math-obligations [--format human|json] [--out-dir <dir>] <file-or-dir>...`: emit `hum.math_obligations.v0` reports and optional per-obligation `hum.math_obligation.v0` files for external contract validators
 - `hum resource-report [--format human|json] <file-or-dir>...`: emit `hum.resource_report.v0` source-declared resource, layout, and optimization claim inventory
-- `hum ir-readiness [--format human|json] <file-or-dir>...`: emit `hum.ir_readiness.v0` source readiness and blocker facts after consuming profile-check readiness, while still blocking before IR verification and Hum IR lowering
+- `hum ir-readiness [--format human|json] <file-or-dir>...`: emit `hum.ir_readiness.v0`, with the exact verified minimal-add candidate at `ir_ready=1` and `backend_ready=0`
 - `hum backend-input <file>`: accept exactly one Hum source file and emit canonical but unverified `hum.backend_input.v0` bytes for the exact supported minimal-add program; the bytes grant no authority
+- `hum ir-verify [--format human|json] <backend-input-file>`: verify exact canonical bytes and report acceptance without exposing capability authority
 - `hum version [--format human|json]`: print toolchain identity, version, target, and schema names
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents

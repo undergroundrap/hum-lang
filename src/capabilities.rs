@@ -12,6 +12,7 @@ use crate::evidence;
 use crate::full_type_check;
 use crate::ir_contract;
 use crate::ir_readiness;
+use crate::ir_verify;
 use crate::json;
 use crate::lsp;
 use crate::math_obligations;
@@ -178,6 +179,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: backend_input::BACKEND_INPUT_SCHEMA,
         status: "adapter-ready",
         purpose: "canonical unverified backend-input bytes for the exact supported minimal-add program",
+    },
+    CommandCapability {
+        name: "ir_verify",
+        command: "hum ir-verify [--format human|json] <backend-input-file>",
+        schema: ir_verify::IR_VERIFY_SCHEMA,
+        status: "adapter-ready",
+        purpose: "strict canonical backend-input verification without lowering or execution",
     },
     CommandCapability {
         name: "syntax",
@@ -382,7 +390,7 @@ pub fn capabilities_text() -> String {
         resource_report::RESOURCE_REPORT_SCHEMA
     ));
     out.push_str(&format!(
-        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  full_type_check: {}\n  effect_check: {}\n  ownership_check: {}\n  resource_check: {}\n  profile_check: {}\n  ir_readiness: {}\n  backend_input: {}\n",
+        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  full_type_check: {}\n  effect_check: {}\n  ownership_check: {}\n  resource_check: {}\n  profile_check: {}\n  ir_readiness: {}\n  backend_input: {}\n  ir_verify: {}\n",
         core_preview::CORE_PREVIEW_SCHEMA,
         core_lower::CORE_LOWER_SCHEMA,
         core_verify::CORE_VERIFY_SCHEMA,
@@ -395,7 +403,8 @@ pub fn capabilities_text() -> String {
         resource_check::RESOURCE_CHECK_SCHEMA,
         profile_check::PROFILE_CHECK_SCHEMA,
         ir_readiness::IR_READINESS_SCHEMA,
-        backend_input::BACKEND_INPUT_SCHEMA
+        backend_input::BACKEND_INPUT_SCHEMA,
+        ir_verify::IR_VERIFY_SCHEMA
     ));
     out.push_str(&format!(
         "  diagnostic_explain: {}\n",
@@ -534,6 +543,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         indent + 2,
         "backend_input",
         backend_input::BACKEND_INPUT_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "ir_verify",
+        ir_verify::IR_VERIFY_SCHEMA,
         true,
     );
     push_string_field(
@@ -794,7 +810,8 @@ mod tests {
         assert!(text.contains("hum evidence --format json"));
         assert!(text.contains("  backend_input: hum.backend_input.v0"));
         assert!(text.contains("backend_input [adapter-ready]: hum backend-input <file>"));
-        assert!(!text.contains("ir_verify"));
+        assert!(text.contains("  ir_verify: hum.ir_verify.v0"));
+        assert!(text.contains("ir_verify [adapter-ready]: hum ir-verify"));
         assert!(text.contains("document_symbols"));
         assert!(text.contains("semantic_token_legend"));
     }
@@ -854,7 +871,8 @@ mod tests {
         assert!(json.contains("\"name\": \"ir_readiness_json\""));
         assert!(json.contains("\"name\": \"backend_input\""));
         assert!(json.contains("\"command\": \"hum backend-input <file>\""));
-        assert!(!json.contains("ir_verify"));
+        assert!(json.contains("\"ir_verify\": \"hum.ir_verify.v0\""));
+        assert!(json.contains("\"name\": \"ir_verify\""));
         assert!(json.contains("\"name\": \"core_preview_json\""));
         assert!(json.contains("\"name\": \"core_lower_json\""));
         assert!(json.contains("\"name\": \"core_verify_json\""));

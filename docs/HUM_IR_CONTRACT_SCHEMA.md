@@ -15,10 +15,10 @@ toward these contracts is reported by
 [HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md).
 
 The exact minimal-add subset now reaches canonical target-independent
-[`hum.backend_input.v0`](HUM_BACKEND_INPUT_SCHEMA.md) bytes. Those bytes are
-produced but unverified and grant no authority. This command remains a
-discovery contract: it is not a pretend interpreter, optimizer, verifier, or
-backend lowering implementation.
+[`hum.backend_input.v0`](HUM_BACKEND_INPUT_SCHEMA.md) bytes. The strict verifier
+can authenticate them, cross-bind them to live typed facts, and lend a sealed
+capability; bytes and reports alone grant no authority. This command remains a
+discovery contract, not a backend lowering implementation.
 
 ## Command
 
@@ -93,8 +93,8 @@ Current layers:
   links
 - `core_hum`: small executable core for typed values, places, effects, and
   failure
-- `hum_ir`: canonical target-independent backend-input bytes for the exact
-  minimal-add subset, awaiting IR verification
+- `hum_ir`: verified target-independent facts for the exact minimal-add subset,
+  represented by a callback-scoped compiler-owned capability
 - `backend_adapter_input`: verified Hum IR plus explicit unsupported or weakened
   facts
 
@@ -138,12 +138,12 @@ The V0 contract names these pass boundaries:
 These names are not final implementation APIs. They are a shared map for build
 order, docs, agents, and future compiler diagnostics. In V0, `type_check` names
 the narrow `hum.type_check.v0` declaration and trivial-return checker;
-`full_type_check` names the implemented narrow `hum.full_type_check.v0` gate for recognized Core/body statement types. `effect_check` names the implemented narrow `hum.effect_check.v0` gate for recognized Core/body effect contexts. `ownership_alias_check` is backed by the narrow `hum.ownership_check.v0` local ownership fact gate. `allocation_resource_check` is backed by the narrow `hum.resource_check.v0` declared allocation/resource intent gate. `profile_check` is backed by the narrow `hum.profile_check.v0` runtime profile policy gate. All five must pass, and later IR verification and backend-preservation gates must exist, before broader safety, IR, or backend claims can be honest.
+`full_type_check` names the implemented narrow `hum.full_type_check.v0` gate for recognized Core/body statement types. `effect_check` names the implemented narrow `hum.effect_check.v0` gate for recognized Core/body effect contexts. `ownership_alias_check` is backed by the narrow `hum.ownership_check.v0` local ownership fact gate. `allocation_resource_check` is backed by the narrow `hum.resource_check.v0` declared allocation/resource intent gate. `profile_check` is backed by the narrow `hum.profile_check.v0` runtime profile policy gate. All five and strict `ir_verify` must pass before `ir_ready=1`; backend preservation remains future work.
 
 ## Honesty Rules
 
-- `hum ir-contract` is a discovery command; the separate `backend-input`
-  command emits canonical unverified bytes.
+- `hum ir-contract` is a discovery command; `backend-input` emits canonical
+  bytes and `ir-verify` reports strict acceptance without exposing authority.
 - It must not run generated code.
 - It must not claim Hum has executable semantics.
 - It must not pretend complete type checking, ownership checking, resource checking, optimization, or backend
@@ -165,7 +165,7 @@ The command is local-first:
 
 ## Non-Goals For V0
 
-V0 emits canonical unverified backend-input bytes only for the exact supported
-minimal-add source. It does not issue verified IR authority, execute tasks,
+V0 verifies canonical backend-input bytes only for the exact supported
+minimal-add source and lends authority only inside a compiler callback. It does not execute tasks,
 choose a backend, optimize programs, prove memory safety, or lower to
 Cranelift, LLVM, MLIR, Wasm, C, or a custom backend.

@@ -11,13 +11,15 @@ use std::ops::Range;
 
 pub const BACKEND_INPUT_SCHEMA: &str = "hum.backend_input.v0";
 
-const SEMANTIC_CONTRACT: &str = "hum.canonical_minimal_add_backend_facts.v0";
-const TARGET_CONTEXT: &str = "target_independent_checked_i64_v0";
-const FEATURE_SET: &str = "canonical_minimal_add_checked_i64_v0";
-const SOURCE_PATH: &str = "examples/core/minimal_add.hum";
-const MODULE_NAME: &str = "examples.core.minimal_add";
+pub(crate) const SEMANTIC_CONTRACT: &str = "hum.canonical_minimal_add_backend_facts.v0";
+pub(crate) const TARGET_CONTEXT: &str = "target_independent_checked_i64_v0";
+pub(crate) const FEATURE_SET: &str = "canonical_minimal_add_checked_i64_v0";
+pub(crate) const SOURCE_PATH: &str = "examples/core/minimal_add.hum";
+pub(crate) const MODULE_NAME: &str = "examples.core.minimal_add";
+pub(crate) const SOURCE_REVISION_SHA256: &str =
+    "sha256:aeae6ae9de975eee9873c3d9ece891e66bd7d6881b5035c24b1a11f3902a52b6";
 
-const REQUIRED_PASSES: [&str; 14] = [
+pub(crate) const REQUIRED_PASSES: [&str; 14] = [
     "parse",
     "semantic_graph_build",
     "resolve",
@@ -68,10 +70,6 @@ struct CanonicalMinimalAddBackendFacts<'report, 'source> {
     source_slots: [usize; 2],
     checked_empty_sets: Vec<&'static str>,
     failure_edges: Vec<[&'static str; 3]>,
-}
-
-pub(crate) struct CanonicalMinimalAddBackendFactsAccess<'facts> {
-    facts: &'facts CanonicalMinimalAddBackendFacts<'facts, 'facts>,
 }
 
 impl CanonicalMinimalAddBackendFacts<'_, '_> {
@@ -215,17 +213,6 @@ impl CanonicalMinimalAddBackendFacts<'_, '_> {
     }
 }
 
-impl CanonicalMinimalAddBackendFactsAccess<'_> {
-    pub(crate) fn is_complete(&self) -> bool {
-        self.facts.semantic_contract == SEMANTIC_CONTRACT
-    }
-
-    #[cfg(test)]
-    pub(crate) fn snapshot_for_test(&self) -> Vec<String> {
-        self.facts.snapshot()
-    }
-}
-
 fn assemble<'report, 'source>(
     program: &'source Program,
     item: &'source Item,
@@ -277,51 +264,25 @@ fn assemble<'report, 'source>(
     Some(facts)
 }
 
-fn issue_assembled<R>(
+fn assembled_is_authenticated(
     facts: &CanonicalMinimalAddBackendFacts<'_, '_>,
     final_profile_lineage: &profile_check::VerifiedMinimalAddProfile<'_>,
-    consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
-) -> Option<R> {
-    facts
-        .is_complete_with_final_profile_lineage(final_profile_lineage)
-        .then(|| consume(CanonicalMinimalAddBackendFactsAccess { facts }))
+) -> bool {
+    facts.is_complete_with_final_profile_lineage(final_profile_lineage)
 }
 
-pub(crate) fn with_canonical_minimal_add_artifact<R>(
+fn canonical_minimal_add_artifact_for(
     program: &Program,
     diagnostics: &[Diagnostic],
     item: &Item,
     statement: &ParsedBodyStatement,
-    consume: impl for<'facts> FnOnce(
-        CanonicalMinimalAddBackendFactsAccess<'facts>,
-        CanonicalBackendInputArtifact,
-    ) -> R,
-) -> Option<R> {
+) -> Option<CanonicalBackendInputArtifact> {
     profile_check::with_profile_for_ir_readiness(program, diagnostics, |profile_access| {
         let profile = profile_access.canonical_minimal_add_for(item, statement)?;
         let facts = assemble(program, item, statement, profile)?;
-        issue_assembled(&facts, &facts.profile, |access| {
-            let artifact = encode_minimal_add_artifact(access.facts)?;
-            Some(consume(access, artifact))
-        })?
+        assembled_is_authenticated(&facts, &facts.profile)
+            .then(|| encode_minimal_add_artifact(&facts))?
     })
-}
-
-#[allow(dead_code)]
-pub(crate) fn with_canonical_minimal_add_backend_facts<R>(
-    program: &Program,
-    diagnostics: &[Diagnostic],
-    item: &Item,
-    statement: &ParsedBodyStatement,
-    consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
-) -> Option<R> {
-    with_canonical_minimal_add_artifact(
-        program,
-        diagnostics,
-        item,
-        statement,
-        |access, _artifact| consume(access),
-    )
 }
 
 pub(crate) fn canonical_minimal_add_artifact(
@@ -340,13 +301,104 @@ pub(crate) fn canonical_minimal_add_artifact(
     let [statement] = task.body_syntax.as_slice() else {
         return None;
     };
-    with_canonical_minimal_add_artifact(
-        program,
-        diagnostics,
-        item,
-        statement,
-        |_access, artifact| artifact,
-    )
+    canonical_minimal_add_artifact_for(program, diagnostics, item, statement)
+}
+
+pub(crate) fn bind_canonical_minimal_add_live_identity(
+    request: &mut crate::ir_verify::LiveIdentityRequest<'_>,
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> bool {
+    let [file] = program.files.as_slice() else {
+        return false;
+    };
+    let [item] = file.items.as_slice() else {
+        return false;
+    };
+    let Item::Task(task) = item else {
+        return false;
+    };
+    let [statement] = task.body_syntax.as_slice() else {
+        return false;
+    };
+    bind_canonical_minimal_add_live_identity_for(request, program, diagnostics, item, statement)
+}
+
+fn bind_canonical_minimal_add_live_identity_for(
+    request: &mut crate::ir_verify::LiveIdentityRequest<'_>,
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    item: &Item,
+    statement: &ParsedBodyStatement,
+) -> bool {
+    profile_check::with_profile_for_ir_readiness(program, diagnostics, |profile_access| {
+        let profile = profile_access.canonical_minimal_add_for(item, statement)?;
+        let facts = assemble(program, item, statement, profile)?;
+        assembled_is_authenticated(&facts, &facts.profile)
+            .then(|| observe_live_identity(request, &facts))
+    })
+    .is_some()
+}
+
+fn observe_live_identity(
+    request: &mut crate::ir_verify::LiveIdentityRequest<'_>,
+    facts: &CanonicalMinimalAddBackendFacts<'_, '_>,
+) {
+    let identity = facts.profile.backend_identity();
+    let [Some(left), Some(right)] = [identity.operand(0), identity.operand(1)] else {
+        return;
+    };
+    let passes = facts
+        .required_passes
+        .iter()
+        .enumerate()
+        .map(|(ordinal, (name, _, _, _))| {
+            format!(
+                "{name}@file:{}:ordinal:{ordinal}",
+                identity.owner.file.semantic_file_index
+            )
+        })
+        .collect::<Vec<_>>();
+    request.observe(
+        SOURCE_REVISION_SHA256,
+        SOURCE_PATH,
+        passes,
+        "function:0",
+        "internal",
+        "hum_fn_0",
+        [left.0.to_string(), right.0.to_string()],
+        [left.2.to_string(), right.2.to_string()],
+        [left.3.to_string(), right.3.to_string()],
+        ["type:int64", "type:int64"],
+        [(left.5.line, left.5.column), (right.5.line, right.5.column)],
+        "operation:function:0:block:0:0".to_string(),
+        identity.root.node_id.as_str().to_string(),
+        identity.source_identities[2].clone(),
+        "type:int64",
+        (facts.statement.span.line, facts.statement.span.column),
+    );
+}
+
+#[cfg(test)]
+pub(crate) fn bind_canonical_minimal_add_live_identity_for_test(
+    request: &mut crate::ir_verify::LiveIdentityRequest<'_>,
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    semantic_file_index: usize,
+) -> bool {
+    let Some(file) = program.files.get(semantic_file_index) else {
+        return false;
+    };
+    let [item] = file.items.as_slice() else {
+        return false;
+    };
+    let Item::Task(task) = item else {
+        return false;
+    };
+    let [statement] = task.body_syntax.as_slice() else {
+        return false;
+    };
+    bind_canonical_minimal_add_live_identity_for(request, program, diagnostics, item, statement)
 }
 
 fn encode_minimal_add_artifact(
@@ -400,7 +452,7 @@ fn encode_minimal_add_artifact(
         && identity.root.range.start.column == 12
         && facts.source_slots == [1, 0]
         && facts.required_passes.len() == 14
-        && source_digest == "aeae6ae9de975eee9873c3d9ece891e66bd7d6881b5035c24b1a11f3902a52b6")
+        && format!("sha256:{source_digest}") == SOURCE_REVISION_SHA256)
         .then_some(())?;
 
     let payload = encode_payload(facts, target_context, &source_digest, left, right);
@@ -559,17 +611,17 @@ fn push_json_string(out: &mut String, value: &str) {
 }
 
 #[cfg(test)]
-pub(crate) fn issue_with_final_profile_lineage_for_test<R>(
+pub(crate) fn issue_with_final_profile_lineage_for_test(
     program: &Program,
     item: &Item,
     statement: &ParsedBodyStatement,
     honest_profile: profile_check::VerifiedMinimalAddProfile<'_>,
     foreign_profile_lineage: &profile_check::VerifiedMinimalAddProfile<'_>,
-    consume: impl for<'facts> FnOnce(CanonicalMinimalAddBackendFactsAccess<'facts>) -> R,
-) -> (Option<R>, usize) {
+) -> (Option<Vec<String>>, usize) {
     FINAL_PROFILE_LINEAGE_OBSERVATION.with(|count| assert_eq!(count.replace(Some(0)), None));
-    let result = assemble(program, item, statement, honest_profile)
-        .and_then(|facts| issue_assembled(&facts, foreign_profile_lineage, consume));
+    let result = assemble(program, item, statement, honest_profile).and_then(|facts| {
+        assembled_is_authenticated(&facts, foreign_profile_lineage).then(|| facts.snapshot())
+    });
     let comparisons = FINAL_PROFILE_LINEAGE_OBSERVATION.with(|count| {
         count
             .take()
@@ -712,7 +764,7 @@ fn artifact_target_context_for_test(honest: &'static str) -> &'static str {
 }
 
 #[cfg(test)]
-fn set_artifact_target_context_corruption_for_test(value: &'static str) {
+pub(crate) fn set_artifact_target_context_corruption_for_test(value: &'static str) {
     ARTIFACT_TARGET_CONTEXT_CORRUPTION.with(|active| assert_eq!(active.replace(Some(value)), None));
 }
 
@@ -827,8 +879,10 @@ mod tests {
             "resource_checked_empty_v0",
             "normal_profile_checked_v0",
             "checked_i64_overflow_trap_bound_v0",
-            "canonical_backend_input_bytes_produced_unverified_v0",
-            "ir_verify_pending_v0",
+            "canonical_backend_input_bytes_v0",
+            "sha256_payload_identity_verified_v0",
+            "ir_verify_passed_v0",
+            "verified_backend_input_capability_lent_v0",
         ];
         let text_suffix = expected.join(", ");
         let text_line = text
@@ -852,13 +906,12 @@ mod tests {
             .find(&format!("\"{}\"", expected[0]))
             .expect("JSON canonical backend-input facts suffix");
         assert_eq!(&json_line[json_start..], format!("{json_suffix}],"));
-        assert!(text.contains("[blocked_before_ir_verify_with_backend_input_facts_v0]"));
-        assert!(
-            json.contains("\"status\": \"blocked_before_ir_verify_with_backend_input_facts_v0\"")
-        );
-        assert!(text.contains("blocking_reasons: ir_verify_not_implemented"));
-        assert!(json.contains("\"blocking_reasons\": [\"ir_verify_not_implemented\"]"));
-        assert!(text.contains("ir_ready=0"));
-        assert!(json.contains("\"ir_ready\": 0"));
+        assert!(text.contains("[ready_for_ir_with_verified_backend_input_v0]"));
+        assert!(json.contains("\"status\": \"ready_for_ir_with_verified_backend_input_v0\""));
+        assert!(text.contains("blocking_reasons: \n"));
+        assert!(json.contains("\"blocking_reasons\": []"));
+        assert!(text.contains("ir_ready=1"));
+        assert!(json.contains("\"ir_ready\": 1"));
+        assert!(text.contains("backend_ready=0"));
     }
 }

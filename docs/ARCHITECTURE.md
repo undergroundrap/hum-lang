@@ -63,10 +63,12 @@ emitted by `hum type-check --format json`; recognized Core/body statement type c
 the Hum IR ownership contract is [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md), emitted by `hum ir-contract --format json`;
 source progress toward those contracts is reported by [HUM_IR_READINESS_SCHEMA.md](HUM_IR_READINESS_SCHEMA.md),
 emitted by `hum ir-readiness --format json`; the exact supported minimal-add
-program can be projected into canonical but unverified
+program can be projected into canonical
 [`hum.backend_input.v0`](HUM_BACKEND_INPUT_SCHEMA.md) bytes by
 `hum backend-input examples/core/minimal_add.hum`. Those bytes grant no
-authority and remain blocked before IR verification and backend lowering.
+authority by themselves. The strict `ir_verify` decoder cross-binds accepted
+bytes to live typed facts and lends a private `VerifiedBackendInput`; backend
+lowering remains absent.
 
 See [FORMAL_CORE.md](FORMAL_CORE.md).
 
@@ -89,7 +91,8 @@ parse/current
 -> resource_check/recognized_core_resource_gate_available_v0
 -> profile_check/recognized_core_profile_gate_available_v0
 -> backend_input/canonical_target_independent_bytes_produced_unverified_v0
--> ir_readiness/blocked_by_full_type_check_errors_or_effect_check_errors_or_ownership_check_errors_or_resource_check_errors_or_profile_check_errors_or_before_ir_verify
+-> ir_verify/accepted_canonical_backend_input_v0
+-> ir_readiness/ready_for_ir_with_verified_backend_input_v0_backend_ready_0
 ```
 
 For the exact authenticated minimal-add subset, `backend_input` owns one

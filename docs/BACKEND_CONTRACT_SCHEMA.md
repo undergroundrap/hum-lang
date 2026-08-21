@@ -19,6 +19,11 @@ It does not mean Hum has an interpreter, Cranelift backend, LLVM backend, MLIR
 lowering, Wasm output, C output, or custom backend today. It is a contract for
 future adapters.
 
+The exact minimal-add artifact can now become a compiler-owned
+`VerifiedBackendInput` only after strict byte verification and live-fact
+cross-binding. No backend adapter exists yet, so this advances IR readiness
+without claiming backend readiness.
+
 ## Command
 
 ```powershell
@@ -116,6 +121,8 @@ Every backend adapter must preserve or explicitly report loss of:
   behavior.
 - It must keep LLVM, Cranelift, MLIR, Wasm, C, and future custom backends behind
   the same Hum IR adapter boundary.
+- A future adapter must accept the sealed verified-input capability, never raw
+  artifact bytes, report text, a fixture, source, AST, or Core reconstruction.
 - It must keep `hum ir-contract --format json`, `hum capabilities --format
   json`, and `hum version --format json` in sync with this schema.
 
