@@ -151,6 +151,46 @@ function Read-NativeChannelsWithExit {
   }
 }
 
+function ConvertTo-UbuntuPwshResolutionEncodedCommand {
+  param([string] $Command)
+
+  $ExpectedCommand = '(Get-Command pwsh -CommandType Application -ErrorAction Stop).Source'
+  $ExpectedEncoded = 'KABHAGUAdAAtAEMAbwBtAG0AYQBuAGQAIABwAHcAcwBoACAALQBDAG8AbQBtAGEAbgBkAFQAeQBwAGUAIABBAHAAcABsAGkAYwBhAHQAaQBvAG4AIAAtAEUAcgByAG8AcgBBAGMAdABpAG8AbgAgAFMAdABvAHAAKQAuAFMAbwB1AHIAYwBlAA=='
+  if ($Command -cne $ExpectedCommand) {
+    throw 'Ubuntu pwsh resolution command drifted'
+  }
+  $Encoding = New-Object System.Text.UnicodeEncoding($false, $false, $true)
+  $Bytes = [byte[]] $Encoding.GetBytes($Command)
+  if ($Bytes.Length -ne ($Command.Length * 2) -or
+      ($Bytes.Length -ge 2 -and $Bytes[0] -eq 0xff -and $Bytes[1] -eq 0xfe)) {
+    throw 'Ubuntu pwsh resolution command is not BOM-free UTF-16LE'
+  }
+  $Encoded = [Convert]::ToBase64String($Bytes)
+  if ($Encoded -cne $ExpectedEncoded -or $Encoded -match '\s') {
+    throw 'Ubuntu pwsh resolution encoded command identity mismatch'
+  }
+  $Decoded = [byte[]] [Convert]::FromBase64String($Encoded)
+  $BytesMatch = $Bytes.Length -eq $Decoded.Length
+  for ($Index = 0; $BytesMatch -and $Index -lt $Bytes.Length; $Index++) {
+    $BytesMatch = $Bytes[$Index] -eq $Decoded[$Index]
+  }
+  if (-not $BytesMatch -or $Encoding.GetString($Decoded) -cne $Command -or
+      [Convert]::ToBase64String($Decoded) -cne $Encoded) {
+    throw 'Ubuntu pwsh resolution encoded command failed canonical round trip'
+  }
+  $Encoded
+}
+
+function Assert-UbuntuPwshResolutionArguments {
+  param([string[]] $Arguments, [string] $ExpectedEncoded)
+
+  $Expected = @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $ExpectedEncoded)
+  if (($Arguments -join "`n") -cne ($Expected -join "`n") -or
+      @($Arguments | Where-Object { $_ -match '\s' }).Count -ne 0) {
+    throw 'Ubuntu pwsh resolution argument vector is not the authenticated whitespace-free form'
+  }
+}
+
 function Invoke-RepoScript {
   param(
     [string] $Label,
@@ -289,13 +329,22 @@ try {
   Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
   $CaptureTest = Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
   $Pwsh = (Get-Command pwsh -ErrorAction Stop).Source
+  $UbuntuPwshResolutionCommand = '(Get-Command pwsh -CommandType Application -ErrorAction Stop).Source'
+  $UbuntuPwshResolutionEncoded = ConvertTo-UbuntuPwshResolutionEncodedCommand $UbuntuPwshResolutionCommand
+  $UbuntuPwshResolutionArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $UbuntuPwshResolutionEncoded)
+  Assert-UbuntuPwshResolutionArguments $UbuntuPwshResolutionArguments $UbuntuPwshResolutionEncoded
+  $WhitespaceMutation = @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', $UbuntuPwshResolutionCommand)
+  $WhitespaceMutationRejected = $false
+  try { Assert-UbuntuPwshResolutionArguments $WhitespaceMutation $UbuntuPwshResolutionEncoded }
+  catch { $WhitespaceMutationRejected = $true }
+  if (-not $WhitespaceMutationRejected) { throw 'Ubuntu whitespace-bearing command mutation was accepted' }
   if ($env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_OS -eq 'Linux') {
     $Workspace = (Resolve-Path -LiteralPath $env:GITHUB_WORKSPACE -ErrorAction Stop).Path
     $CurrentRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
     if (-not [string]::Equals($Workspace, $CurrentRoot, [System.StringComparison]::Ordinal)) {
       throw "Ubuntu capture workspace differs from repository root: $Workspace != $CurrentRoot"
     }
-    $ChildPwsh = Read-NativeChannelsWithExit 'Ubuntu fresh-child pwsh resolution' $Pwsh @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '(Get-Command pwsh -CommandType Application -ErrorAction Stop).Source')
+    $ChildPwsh = Read-NativeChannelsWithExit 'Ubuntu fresh-child pwsh resolution' $Pwsh $UbuntuPwshResolutionArguments
     if ($ChildPwsh.ExitCode -ne 0 -or $ChildPwsh.Stderr.Length -ne 0 -or -not [string]::Equals($ChildPwsh.Stdout.Trim(), $Pwsh, [System.StringComparison]::Ordinal)) {
       throw 'Ubuntu fresh child did not resolve the same pwsh executable'
     }
@@ -312,6 +361,7 @@ try {
   $CheckAllSource = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'))
   foreach ($UbuntuCaptureArm in @(
     ('(Resolve-Path -LiteralPath $env:' + 'GITHUB_WORKSPACE -ErrorAction Stop).Path'),
+    ('$Pwsh $UbuntuPwshResolution' + 'Arguments'),
     "hum-fast-capture-`$env:GITHUB_RUN_ID-`$env:GITHUB_RUN_ATTEMPT-ubuntu",
     "'-File', './tools/test_fast_evidence_capture.ps1', '-ShellContract', 'pwsh', '-ScratchRoot', `$UbuntuScratch"
   )) {

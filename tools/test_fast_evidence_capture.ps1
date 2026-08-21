@@ -173,6 +173,53 @@ function Assert-CaptureRejected {
   Assert-True $Rejected $Message
 }
 
+function Assert-LaunchedCapture {
+  param([object] $Capture)
+  try {
+    Assert-HumCaptureComplete $Capture
+  } catch {
+    $Diagnostic = Get-HumCaptureFailureDiagnostic $Capture
+    [Console]::Error.WriteLine($Diagnostic)
+    [Console]::Error.Flush()
+    throw
+  }
+}
+
+function Assert-PrelaunchDiagnostic {
+  param([object] $Capture, [string] $Diagnostic)
+  $LaunchIdentity = Get-HumFileIdentity $Capture.LaunchErrorPath
+  $CaptureIdentity = Get-HumFileIdentity $Capture.CaptureErrorPath
+  $Expected = @(
+    'hum_capture_failure_v1'
+    "case_name=$($Capture.CaseName)"
+    "capture_directory=$($Capture.CaptureDirectory)"
+    "containment_kind=$($Capture.ContainmentKind)"
+    "process_creation_attempted=$($Capture.ProcessCreationAttempted.ToString().ToLowerInvariant())"
+    "process_creation_succeeded=$($Capture.ProcessCreationSucceeded.ToString().ToLowerInvariant())"
+    "launch_succeeded=$($Capture.Launched.ToString().ToLowerInvariant())"
+    "pid=$(if ($null -eq $Capture.Pid) { 'null' } else { $Capture.Pid })"
+    "completion_count=$($Capture.CompletionCount)"
+    "exit=$(if ($null -eq $Capture.ExitCode) { 'null' } else { $Capture.ExitCode })"
+    "deadline_disposition=$($Capture.DeadlineDisposition)"
+    "timed_out=$($Capture.TimedOut.ToString().ToLowerInvariant())"
+    "termination_disposition=$($Capture.TerminationDisposition)"
+    "termination_count=$($Capture.TerminationCount)"
+    "launch_error_bytes=$($LaunchIdentity.Bytes)"
+    "launch_error_sha256=$($LaunchIdentity.Sha256)"
+    "launch_error_base64=$([Convert]::ToBase64String([byte[]] [System.IO.File]::ReadAllBytes($Capture.LaunchErrorPath)))"
+    "capture_error_bytes=$($CaptureIdentity.Bytes)"
+    "capture_error_sha256=$($CaptureIdentity.Sha256)"
+    "capture_error_base64=$([Convert]::ToBase64String([byte[]] [System.IO.File]::ReadAllBytes($Capture.CaptureErrorPath)))"
+  ) -join "`n"
+  Assert-True ($Diagnostic -ceq $Expected) 'prelaunch diagnostic does not bind exact retained evidence'
+  Assert-True (-not $Diagnostic.Contains('stdout_base64=') -and -not $Diagnostic.Contains('stderr_base64=')) 'prelaunch diagnostic exposed child streams'
+}
+
+function Test-PrelaunchDiagnostic {
+  param([object] $Capture, [string] $Diagnostic)
+  try { Assert-PrelaunchDiagnostic $Capture $Diagnostic; $true } catch { $false }
+}
+
 function Assert-WindowsContainmentLifecycle {
   param([object] $Capture, [string] $Message)
   Assert-True ($Capture.ContainmentKind -ceq 'windows_job') "$Message containment kind"
@@ -237,6 +284,8 @@ function Assert-RunnerSourceContract {
     "'resume_succeeded.txt'", 'ActiveProcessCount',
     'Get-HumRemainingMilliseconds', "'termination_count.txt'",
     'Read-HumCaptureRecord $Result.CaptureDirectory',
+    "'case_name.txt'", 'Get-HumCaptureFailureDiagnostic $Retained',
+    'launch_error_base64=', 'capture_error_base64=',
     'if ($State.TerminationCount -ne 0) { throw ''termination requested more than once'' }',
     'if ($State.PrimaryExited -and $State.StdoutCompleted -and $State.StderrCompleted -and $State.JobQuiescent)',
     '-not $JobQuiescent -or $FinalActive -ne 0',
@@ -366,39 +415,44 @@ try {
   $Self = $MyInvocation.MyCommand.Path
   $BaseArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $Self)
 
-  $Preflight = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'preflight')) $BeforeDirectory (Join-Path $ScratchRoot 'preflight') 30
-  $Preflight = Assert-HumCaptureComplete $Preflight
+  $Preflight = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'preflight')) $BeforeDirectory (Join-Path $ScratchRoot 'preflight') 30 -CaseName 'preflight'
+  $Preflight = Assert-LaunchedCapture $Preflight
   Assert-True ($Preflight.ExitCode -eq 0 -and $Preflight.StderrBytes -eq 0) 'shell preflight failed'
   $PreflightLines = @([Text.Encoding]::UTF8.GetString((Read-Bytes $Preflight.StdoutPath)) -split "\r?\n" | Where-Object { $_ -ne '' })
   Assert-True ($PreflightLines.Count -eq 2) 'shell preflight output shape'
   Assert-True ([System.IO.Path]::GetFullPath($PreflightLines[0]) -eq [System.IO.Path]::GetFullPath($Shell)) 'fresh child resolved a different shell'
 
-  $Success = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'success')) $BeforeDirectory (Join-Path $ScratchRoot 'success') 30
-  $Success = Assert-HumCaptureComplete $Success
+  $Success = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'success')) $BeforeDirectory (Join-Path $ScratchRoot 'success') 30 -CaseName 'success'
+  $Success = Assert-LaunchedCapture $Success
   $Success = Read-HumCaptureRecord $Success.CaptureDirectory
   Assert-True ($Success.ExitCode -eq 0 -and $Success.CompletionCount -eq 1) 'success terminal metadata'
   Assert-Bytes (Read-Bytes $Success.StdoutPath) ([Text.Encoding]::ASCII.GetBytes("CAPTURE_STDOUT`n$SuccessMarker`n")) 'success stdout'
   Assert-Bytes (Read-Bytes $Success.StderrPath) ([Text.Encoding]::ASCII.GetBytes("CAPTURE_STDERR`n")) 'success stderr'
   Assert-True ($Success.SuccessMarkerCount -eq 1 -and $Success.TerminalStdoutLine -ceq $SuccessMarker) 'success terminal marker'
 
-  $Exit23 = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'exit23')) $BeforeDirectory (Join-Path $ScratchRoot 'exit23') 30
-  $Exit23 = Assert-HumCaptureComplete $Exit23
+  $Exit23 = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'exit23')) $BeforeDirectory (Join-Path $ScratchRoot 'exit23') 30 -CaseName 'exit23'
+  $Exit23 = Assert-LaunchedCapture $Exit23
   Assert-True ($Exit23.ExitCode -eq 23) 'exit 23 must be retained'
   Assert-Bytes (Read-Bytes $Exit23.StdoutPath) ([Text.Encoding]::ASCII.GetBytes("EXIT23_STDOUT`n")) 'exit23 stdout'
   Assert-Bytes (Read-Bytes $Exit23.StderrPath) ([Text.Encoding]::ASCII.GetBytes("EXIT23_STDERR`n")) 'exit23 stderr'
 
-  $Empty = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'empty')) $BeforeDirectory (Join-Path $ScratchRoot 'empty') 30
-  $Empty = Assert-HumCaptureComplete $Empty
+  $Empty = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'empty')) $BeforeDirectory (Join-Path $ScratchRoot 'empty') 30 -CaseName 'empty'
+  $Empty = Assert-LaunchedCapture $Empty
   Assert-True ($Empty.Launched -and $Empty.ExitCode -eq 0 -and $Empty.StdoutBytes -eq 0 -and $Empty.StderrBytes -eq 0) 'launched empty-stream child'
 
-  $Missing = Invoke-HumBinaryCapture (Join-Path $ScratchRoot 'missing-executable.exe') @('--unused') $BeforeDirectory (Join-Path $ScratchRoot 'prelaunch') 30
+  $Missing = Invoke-HumBinaryCapture (Join-Path $ScratchRoot 'missing-executable.exe') @('--unused') $BeforeDirectory (Join-Path $ScratchRoot 'prelaunch') 30 -CaseName 'known-missing-executable'
   $Missing = Read-HumCaptureRecord $Missing.CaptureDirectory
   Assert-True (-not $Missing.Launched -and $null -eq $Missing.ExitCode -and $Missing.CompletionCount -eq 0) 'prelaunch failure state'
   Assert-True ($Missing.StdoutBytes -eq 0 -and $Missing.StderrBytes -eq 0) 'prelaunch durable empty streams'
   Assert-True ((Get-HumFileIdentity $Missing.LaunchErrorPath).Bytes -gt 0) 'prelaunch error must be retained'
+  $MissingDiagnostic = Get-HumCaptureFailureDiagnostic $Missing
+  Assert-PrelaunchDiagnostic $Missing $MissingDiagnostic
+  $MissingDiagnosticMutation = $MissingDiagnostic -replace '(?m)^launch_error_base64=.*$', 'launch_error_base64='
+  Assert-True ($MissingDiagnosticMutation -cne $MissingDiagnostic) 'prelaunch diagnostic mutation did not initialize'
+  Assert-True (-not (Test-PrelaunchDiagnostic $Missing $MissingDiagnosticMutation)) 'launch-error diagnostic omission accepted'
 
-  $Interleaved = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'interleaved')) $BeforeDirectory (Join-Path $ScratchRoot 'interleaved') 60
-  $Interleaved = Assert-HumCaptureComplete $Interleaved
+  $Interleaved = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'interleaved')) $BeforeDirectory (Join-Path $ScratchRoot 'interleaved') 60 -CaseName 'interleaved'
+  $Interleaved = Assert-LaunchedCapture $Interleaved
   $ExpectedOut = New-Object System.Text.StringBuilder
   $ExpectedErr = New-Object System.Text.StringBuilder
   for ($Index = 0; $Index -lt 2048; $Index++) {
@@ -408,19 +462,19 @@ try {
   Assert-Bytes (Read-Bytes $Interleaved.StdoutPath) ([Text.Encoding]::ASCII.GetBytes($ExpectedOut.ToString())) 'interleaved stdout order'
   Assert-Bytes (Read-Bytes $Interleaved.StderrPath) ([Text.Encoding]::ASCII.GetBytes($ExpectedErr.ToString())) 'interleaved stderr order'
 
-  $Unicode = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'unicode')) $BeforeDirectory (Join-Path $ScratchRoot 'unicode') 30
-  $Unicode = Assert-HumCaptureComplete $Unicode
+  $Unicode = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'unicode')) $BeforeDirectory (Join-Path $ScratchRoot 'unicode') 30 -CaseName 'unicode'
+  $Unicode = Assert-LaunchedCapture $Unicode
   Assert-Bytes (Read-Bytes $Unicode.StdoutPath) ([byte[]] (0x75, 0x74, 0x66, 0x38, 0x3d, 0xe2, 0x98, 0x83, 0x0d, 0x0a, 0x6c, 0x66, 0x0a)) 'Unicode stdout'
   Assert-Bytes (Read-Bytes $Unicode.StderrPath) ([byte[]] (0x65, 0x72, 0x72, 0x3d, 0xf0, 0x9f, 0x8c, 0x8a, 0x0a, 0x63, 0x72, 0x0d)) 'Unicode stderr'
 
-  $Early = Assert-HumCaptureComplete (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'early-marker')) $BeforeDirectory (Join-Path $ScratchRoot 'early-marker') 30)
+  $Early = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'early-marker')) $BeforeDirectory (Join-Path $ScratchRoot 'early-marker') 30 -CaseName 'early-marker')
   Assert-True ($Early.SuccessMarkerCount -eq 1 -and $Early.TerminalStdoutLine -ceq 'later assertion') 'early marker must not be terminal success'
-  $Duplicate = Assert-HumCaptureComplete (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'duplicate-marker')) $BeforeDirectory (Join-Path $ScratchRoot 'duplicate-marker') 30)
+  $Duplicate = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'duplicate-marker')) $BeforeDirectory (Join-Path $ScratchRoot 'duplicate-marker') 30 -CaseName 'duplicate-marker')
   Assert-True ($Duplicate.SuccessMarkerCount -eq 2) 'duplicate marker must be visible'
-  $Nonzero = Assert-HumCaptureComplete (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'nonzero-marker')) $BeforeDirectory (Join-Path $ScratchRoot 'nonzero-marker') 30)
+  $Nonzero = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'nonzero-marker')) $BeforeDirectory (Join-Path $ScratchRoot 'nonzero-marker') 30 -CaseName 'nonzero-marker')
   Assert-True ($Nonzero.ExitCode -eq 9 -and $Nonzero.SuccessMarkerCount -eq 1 -and $Nonzero.TerminalStdoutLine -ceq $SuccessMarker) 'nonzero marker case'
 
-  $Timeout = Assert-HumCaptureComplete (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'timeout')) $BeforeDirectory (Join-Path $ScratchRoot 'timeout') 2)
+  $Timeout = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'timeout')) $BeforeDirectory (Join-Path $ScratchRoot 'timeout') 2 -CaseName 'timeout')
   Assert-True ($Timeout.TimedOut -and $Timeout.KillAttemptCount -eq 1 -and $Timeout.TerminationDisposition -ceq 'tree_termination_confirmed') 'timeout tree termination'
   $TimeoutOut = [Text.Encoding]::UTF8.GetString((Read-Bytes $Timeout.StdoutPath))
   $TimeoutErr = [Text.Encoding]::UTF8.GetString((Read-Bytes $Timeout.StderrPath))
@@ -435,7 +489,7 @@ try {
   $SetupCaptures = @()
   if ($env:OS -eq 'Windows_NT') {
     $InheritedWall = [Diagnostics.Stopwatch]::StartNew()
-    $Inherited = Assert-HumCaptureComplete (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'inherited-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'inherited-parent') 1 2)
+    $Inherited = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'inherited-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'inherited-parent') 1 2 -CaseName 'inherited-parent')
     $InheritedWall.Stop()
     Assert-WindowsContainmentLifecycle $Inherited 'inherited-pipe'
     Assert-True ($Inherited.TimedOut -and $Inherited.TerminationCount -eq 1 -and $Inherited.FinalDescendantTree -ceq 'terminated_quiescent') 'inherited-pipe timeout disposition'
@@ -448,7 +502,7 @@ try {
     Assert-True ($null -eq (Get-Process -Id $InheritedDescendant -ErrorAction SilentlyContinue)) 'inherited-pipe descendant survived'
 
     $RedirectedWall = [Diagnostics.Stopwatch]::StartNew()
-    $Redirected = Assert-HumCaptureComplete (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'redirected-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'redirected-parent') 1 2)
+    $Redirected = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'redirected-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'redirected-parent') 1 2 -CaseName 'redirected-parent')
     $RedirectedWall.Stop()
     Assert-WindowsContainmentLifecycle $Redirected 'redirected-descendant'
     Assert-True ($Redirected.TimedOut -and $Redirected.TerminationCount -eq 1) 'redirected descendant escaped Job deadline'
@@ -460,7 +514,7 @@ try {
     Assert-True ($RedirectedWall.Elapsed.TotalSeconds -lt 6.0) 'redirected capture waited for natural descendant exit'
     Assert-True ($null -eq (Get-Process -Id $RedirectedDescendant -ErrorAction SilentlyContinue)) 'redirected descendant survived'
 
-    $Earliest = Assert-HumCaptureComplete (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'earliest-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'earliest-parent') 1 2)
+    $Earliest = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'earliest-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'earliest-parent') 1 2 -CaseName 'earliest-parent')
     Assert-WindowsContainmentLifecycle $Earliest 'earliest-descendant'
     Assert-True ($Earliest.TimedOut -and $Earliest.TerminationCount -eq 1) 'earliest descendant did not remain contained'
     $EarliestText = [Text.Encoding]::UTF8.GetString((Read-Bytes $Earliest.StdoutPath))
@@ -470,7 +524,7 @@ try {
     Assert-Bytes (Read-Bytes $Earliest.StderrPath) ([Text.Encoding]::ASCII.GetBytes("earliest_parent_stderr`n")) 'earliest descendant stderr'
     Assert-True ($null -eq (Get-Process -Id $EarliestDescendant -ErrorAction SilentlyContinue)) 'earliest descendant survived'
 
-    $Quiescent = Assert-HumCaptureComplete (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'quiescent-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'quiescent-parent') 5 2)
+    $Quiescent = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'quiescent-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'quiescent-parent') 5 2 -CaseName 'quiescent-parent')
     Assert-WindowsContainmentLifecycle $Quiescent 'ordinary-quiescent'
     Assert-True (-not $Quiescent.TimedOut -and $Quiescent.TerminationCount -eq 0 -and $Quiescent.DeadlineDisposition -ceq 'completed_before_deadline') 'ordinary quiescence disposition'
     $QuiescentText = [Text.Encoding]::UTF8.GetString((Read-Bytes $Quiescent.StdoutPath))
@@ -481,7 +535,7 @@ try {
     Assert-True ($null -eq (Get-Process -Id $QuiescentDescendant -ErrorAction SilentlyContinue)) 'ordinary short descendant survived'
 
     foreach ($FailureName in @('job_create', 'job_configure', 'process_create', 'assignment', 'resume')) {
-      $Failure = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'empty')) $BeforeDirectory (Join-Path $ScratchRoot "setup-$FailureName") 10 2 $FailureName
+      $Failure = Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'empty')) $BeforeDirectory (Join-Path $ScratchRoot "setup-$FailureName") 10 2 $FailureName -CaseName "setup-$FailureName"
       $Failure = Read-HumCaptureRecord $Failure.CaptureDirectory
       Assert-True ($Failure.CaptureErrorBytes -gt 0 -or -not $Failure.ProcessCreationSucceeded) "setup failure not retained: $FailureName"
       if ($FailureName -in @('job_create', 'job_configure', 'process_create')) {

@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $script:HumSuccessMarker = 'All Hum preflight checks passed.'
 $script:HumCaptureFiles = @(
+  'case_name.txt',
   'containment_kind.txt',
   'job_creation_attempted.txt', 'job_creation_succeeded.txt',
   'job_kill_on_close_configured.txt',
@@ -488,7 +489,7 @@ function Get-HumTerminalFacts {
 function Write-HumCaptureManifest {
   param([string] $CaptureDirectory)
   $Lines = New-Object System.Collections.Generic.List[string]
-  $Lines.Add('schema=hum.fast_evidence_capture.v2')
+  $Lines.Add('schema=hum.fast_evidence_capture.v3')
   foreach ($Name in $script:HumCaptureFiles) {
     $Identity = Get-HumFileIdentity (Join-Path $CaptureDirectory $Name)
     $Lines.Add("file=$Name;bytes=$($Identity.Bytes);sha256=$($Identity.Sha256)")
@@ -512,7 +513,7 @@ function Read-HumCaptureRecord {
   $ManifestText = Read-HumStrictUtf8 $ManifestPath $true
   $ManifestLines = @($ManifestText.Substring(0, $ManifestText.Length - 1) -split "`n")
   if ($ManifestLines.Count -ne $script:HumCaptureFiles.Count + 1 -or
-      $ManifestLines[0] -cne 'schema=hum.fast_evidence_capture.v2') {
+      $ManifestLines[0] -cne 'schema=hum.fast_evidence_capture.v3') {
     throw 'capture manifest framing mismatch'
   }
   for ($Index = 0; $Index -lt $script:HumCaptureFiles.Count; $Index++) {
@@ -524,6 +525,8 @@ function Read-HumCaptureRecord {
     }
   }
 
+  $CaseName = Read-HumScalar $CaptureDirectory 'case_name.txt'
+  if ($CaseName -cnotmatch '^[a-z0-9][a-z0-9_-]{0,63}$') { throw 'capture case name malformed' }
   $Kind = Read-HumScalar $CaptureDirectory 'containment_kind.txt'
   if ($Kind -cnotmatch '^(windows_job|process_tree)$') { throw 'containment kind malformed' }
   $JobAttempted = ConvertFrom-HumCaptureFlag (Read-HumScalar $CaptureDirectory 'job_creation_attempted.txt') 'job_creation_attempted'
@@ -639,6 +642,7 @@ function Read-HumCaptureRecord {
   $StdoutIdentity = Get-HumFileIdentity $StdoutPath
   $StderrIdentity = Get-HumFileIdentity $StderrPath
   [pscustomobject]@{
+    CaseName = $CaseName
     CaptureDirectory = [System.IO.Path]::GetFullPath($CaptureDirectory)
     ContainmentKind = $Kind
     JobCreationAttempted = $JobAttempted
@@ -699,7 +703,9 @@ function Get-HumRemainingMilliseconds {
 }
 
 function Initialize-HumCaptureRecord {
-  param([string] $Directory, [string] $Kind, [DateTime] $Started, [Int64] $Deadline, [Int64] $Grace)
+  param([string] $Directory, [string] $CaseName, [string] $Kind, [DateTime] $Started, [Int64] $Deadline, [Int64] $Grace)
+  if ($CaseName -cnotmatch '^[a-z0-9][a-z0-9_-]{0,63}$') { throw 'capture case name malformed' }
+  Set-HumDurableText (Join-Path $Directory 'case_name.txt') $CaseName
   Set-HumDurableText (Join-Path $Directory 'containment_kind.txt') $Kind
   foreach ($Name in @(
     'job_creation_attempted.txt', 'job_creation_succeeded.txt',
@@ -809,7 +815,10 @@ function Invoke-HumBinaryCapture {
     [ValidateRange(1, 86400)][int] $TimeoutSeconds = 60,
     [ValidateRange(1, 30)][int] $TerminationGraceSeconds = 3,
     [ValidateSet('', 'job_create', 'job_configure', 'process_create', 'assignment', 'resume')]
-    [string] $InjectedSetupFailure = ''
+    [string] $InjectedSetupFailure = '',
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[a-z0-9][a-z0-9_-]{0,63}$')]
+    [string] $CaseName
   )
   if ([System.IO.Directory]::Exists($CaptureDirectory) -or [System.IO.File]::Exists($CaptureDirectory)) {
     throw "capture path already exists: $CaptureDirectory"
@@ -821,7 +830,7 @@ function Invoke-HumBinaryCapture {
   $DeadlineTicks = [Int64] $TimeoutSeconds * $Frequency
   $GraceTicks = [Int64] $TerminationGraceSeconds * $Frequency
   $WindowsPlatform = $env:OS -eq 'Windows_NT'
-  Initialize-HumCaptureRecord $CaptureDirectory $(if ($WindowsPlatform) { 'windows_job' } else { 'process_tree' }) $StartedUtc $DeadlineTicks $GraceTicks
+  Initialize-HumCaptureRecord $CaptureDirectory $CaseName $(if ($WindowsPlatform) { 'windows_job' } else { 'process_tree' }) $StartedUtc $DeadlineTicks $GraceTicks
 
   $Encoding = New-Object System.Text.UTF8Encoding($false, $true)
   $StdoutPath = Join-Path $CaptureDirectory 'stdout.bin'
@@ -1065,7 +1074,8 @@ function Assert-HumCaptureComplete {
   param([object] $Result)
   $Retained = Read-HumCaptureRecord $Result.CaptureDirectory
   if (-not $Retained.Launched -or $null -eq $Retained.ExitCode) {
-    throw 'capture has no launched terminal child'
+    $Diagnostic = Get-HumCaptureFailureDiagnostic $Retained
+    throw "capture has no launched terminal child`n$Diagnostic"
   }
   if ($Retained.CompletionCount -ne 1 -or $Retained.CaptureErrorBytes -ne 0 -or
       -not $Retained.PrimaryExitObserved -or -not $Retained.StdoutCompletionObserved -or
@@ -1078,6 +1088,37 @@ function Assert-HumCaptureComplete {
     throw 'capture child was not resumed from durable Windows containment'
   }
   $Retained
+}
+
+function Get-HumCaptureFailureDiagnostic {
+  param([object] $Result)
+  $Retained = Read-HumCaptureRecord $Result.CaptureDirectory
+  $LaunchIdentity = Get-HumFileIdentity $Retained.LaunchErrorPath
+  $CaptureIdentity = Get-HumFileIdentity $Retained.CaptureErrorPath
+  $LaunchBytes = [System.IO.File]::ReadAllBytes($Retained.LaunchErrorPath)
+  $CaptureBytes = [System.IO.File]::ReadAllBytes($Retained.CaptureErrorPath)
+  @(
+    'hum_capture_failure_v1'
+    "case_name=$($Retained.CaseName)"
+    "capture_directory=$($Retained.CaptureDirectory)"
+    "containment_kind=$($Retained.ContainmentKind)"
+    "process_creation_attempted=$($Retained.ProcessCreationAttempted.ToString().ToLowerInvariant())"
+    "process_creation_succeeded=$($Retained.ProcessCreationSucceeded.ToString().ToLowerInvariant())"
+    "launch_succeeded=$($Retained.Launched.ToString().ToLowerInvariant())"
+    "pid=$(if ($null -eq $Retained.Pid) { 'null' } else { $Retained.Pid })"
+    "completion_count=$($Retained.CompletionCount)"
+    "exit=$(if ($null -eq $Retained.ExitCode) { 'null' } else { $Retained.ExitCode })"
+    "deadline_disposition=$($Retained.DeadlineDisposition)"
+    "timed_out=$($Retained.TimedOut.ToString().ToLowerInvariant())"
+    "termination_disposition=$($Retained.TerminationDisposition)"
+    "termination_count=$($Retained.TerminationCount)"
+    "launch_error_bytes=$($LaunchIdentity.Bytes)"
+    "launch_error_sha256=$($LaunchIdentity.Sha256)"
+    "launch_error_base64=$([Convert]::ToBase64String($LaunchBytes))"
+    "capture_error_bytes=$($CaptureIdentity.Bytes)"
+    "capture_error_sha256=$($CaptureIdentity.Sha256)"
+    "capture_error_base64=$([Convert]::ToBase64String($CaptureBytes))"
+  ) -join "`n"
 }
 
 function Remove-HumCaptureAfterAuthentication {
@@ -1102,7 +1143,7 @@ if ($MyInvocation.InvocationName -ne '.') {
   $Result = Invoke-HumBinaryCapture $PowerShell @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'tools/check_all.ps1',
     '-EvidenceTier', 'Fast'
-  ) $RepoRoot $ScratchRoot $TimeoutSeconds
+  ) $RepoRoot $ScratchRoot $TimeoutSeconds -CaseName 'production-fast'
   try {
     $Result = Assert-HumCaptureComplete $Result
     Write-Output (
