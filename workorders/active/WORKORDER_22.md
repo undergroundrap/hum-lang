@@ -421,6 +421,27 @@ must fail the declared-ID-preservation case. Thus hashing, declared-ID
 preservation, identity agreement, canonical encoding, and semantic validation
 cannot satisfy one another's credit.
 
+A-R02 is the one layered digest-guard exception to the live-sentinel mutation
+rule. Its exact fixture starts from the accepted canonical artifact, changes
+only `"profile":"normal"` to `"profile":"strict"`, and retains the original
+declared artifact ID and digest. Honest production checks must reject those
+bytes at A-R02 with `payload_digest_mismatch_v0`, before capability issuance,
+with both the capability callback and backend-call sentinel counts at zero.
+When only A-R02's production digest-mismatch rejection is disabled, the exact
+same fixture must advance to A-R07 and reject with
+`profile_or_checked_empty_mismatch_v0`, again with both counts at zero. The
+mutation evidence fails if A-R02 remains active but the fixture advances past
+it, A-R07 is not the exact exposed later rejection, any row other than that
+exact A-R07 guard receives the disabled-A-R02 disposition, capability issuance
+occurs, or the backend sentinel is reached. No SHA-256 collision, digest
+rewriting, unchecked payload fact, second-row weakening, or test-only injected
+success receives credit.
+
+A-R03 remains the distinct unchanged-valid-payload/changed-declared-ID case.
+Honest production must reject it at A-R03. Disabling only A-R03's owned check
+may reach the live capability and backend sentinels; that evidence may neither
+borrow A-R02's weakening nor rewrite the declared ID.
+
 No verification check may be satisfied from a fixture, report text, a prefilled
 success enum, the expected constant copied into the verifier, or the existing
 facts access object's shallow `is_complete` method. The file command and live
@@ -444,12 +465,15 @@ classes are distinct evidence rows but are not backend GO/NO-GO credit:
 
 Each row starts from the same accepted control and changes only its named
 dimension. The permanent matrix must prove that the immediately preceding and
-following rows do not satisfy that assertion, that the capability callback and
-a backend-call sentinel remain uninvoked for every A-R01 through A-R09
-rejection, and that removing only the row's production check makes its exact
-case reach the capability sentinel while all nonadjacent rows remain rejected.
-A-R10 is load-bearing through compile-fail privacy mutations. This prevents a
-verifier rejection from being recycled as Unit B evidence.
+following rows do not satisfy that assertion and that the capability callback
+and backend-call sentinel remain uninvoked for every honest A-R01 through A-R09
+rejection. For every independently satisfiable row A-R01 and A-R03 through
+A-R09, removing only that row's production check must make its exact case reach
+both live sentinels while the immediately adjacent and all nonadjacent row cases
+remain rejected. A-R02 instead has only the exact layered A-R02-to-A-R07
+disposition above and must reach neither sentinel. A-R10 is load-bearing
+through compile-fail privacy mutations. This prevents a verifier rejection
+from being recycled as Unit B evidence.
 
 ### `VerifiedBackendInput` authority
 
@@ -554,7 +578,7 @@ Required load-bearing mutations are:
 
 | Mutation | Must fail at |
 | --- | --- |
-| bypass exact payload-byte digest comparison | payload-digest corruption cases |
+| bypass exact payload-byte digest comparison | exact A-R02 changed-profile/stale-digest case advances only to A-R07 `profile_or_checked_empty_mismatch_v0` with zero capability/backend counts; issuance, another owner, or a missing A-R07 rejection fails |
 | rewrite the declared artifact ID during re-encoding | declared-ID preservation and mismatch cases |
 | bypass canonical re-encoding | noncanonical but parseable JSON cases |
 | weaken one semantic completeness row | that row's exact corruption case |
@@ -1121,15 +1145,19 @@ planning authorship or review.
 
 ## Current authorization gate
 
-The sole current authorization is creation of this one-file local immutable
-publication-status commit. Publication of that status commit and terminal-
-green fast Ubuntu and Windows CI remain separately gated.
+The sole current authorization is fresh independent review of this bounded
+A-R02 Work Order amendment. Unit A remains implementation-incomplete pending
+the implementation correction and a fresh complete-candidate review. Its
+existing twenty-path candidate remains preserved, unstaged, and unaccepted;
+the Unit A Fast allowance remains unconsumed.
 
-Even after that fast CI, Unit A remains unauthorized until a fresh explicit
-BDFL signal. Unit B, closeout, WO23, stash or archive operations, general
-evidence-harness consolidation, semantic-coordinate research, and every other
-later unit or project remain unauthorized. This status record grants no Fast
-allowance, compiler or backend edit, implementation session, publication,
-repair, retry, reclassification, or other implicit authority.
+No Unit A implementation correction may resume unless this amendment is first
+independently accepted, committed, published, and terminal-green in its
+required CI under separate authorizations, followed by a fresh explicit BDFL
+implementation signal. Unit B, closeout, WO23, stash or archive operations,
+general evidence-harness consolidation, semantic-coordinate research, and
+every other later unit or project remain unauthorized. This amendment grants
+no compiler or backend edit, implementation correction, Fast launch,
+publication, repair, retry, reclassification, or other implicit authority.
 
 <!-- workorder-current-authorization-gate:end -->
