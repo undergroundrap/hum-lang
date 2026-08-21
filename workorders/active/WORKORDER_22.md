@@ -2,13 +2,21 @@
 
 Date: 2026-08-15
 <!-- hum-active-workorder:v1 -->
-Status: CORRECTED ISSUANCE CANDIDATE. The first independent pre-issuance review
-rejected contradictory evidence reachability, frozen identities, scope, and
-platform detail before implementation. The bounded redesign resolves those
-findings. A later BDFL ruling simplified the planning gate after repeated
-synthetic-transition transport and wrapper failures occurred before classifier
-invocation and discovered no package or classifier defect. The candidate
-remains unaccepted and unissued.
+Status: ISSUED AND PUBLISHED. The corrected WO22 planning package was
+independently accepted and committed as
+`aab0601c2e835e0c534ef44e5ac4076fa1df8193` with subject
+`docs(workorder): verify backend input and lower minimal add`. It was published
+by one normal non-force fast-forward from
+`677335feb7700a105b613b281f8d58969084c00f` to the exact planning commit.
+Workflow `ci` run `32436159663`, attempt `1`, tested that commit and concluded
+`success`. Ubuntu job `96637679436` and Windows job `96637679328` both
+succeeded and selected exact `full` / `no_status_transition` with empty anchor
+and transitions and zero run/job bindings. Both passed the required Rust
+suites, the exact 151-case twice-deterministic Work Order classifier inventory,
+text hygiene and public readiness for 534 files, alpha claims, and release
+readiness `0.0.1`; Ubuntu also passed the platform-independent Exhaustive
+producer. The planning publication lifecycle now awaits this separate
+immutable status record and its separately gated fast CI.
 
 This Work Order carries forward only the compiler-critical facts left live by
 Work Order 21. Work Order 21 is closed and immutable. Its Units A and B landed;
@@ -1113,43 +1121,15 @@ planning authorship or review.
 
 ## Current authorization gate
 
-The sole current gate is one fresh independent WO22 pre-issuance architecture
-review of this exact successor package. The reviewer must assess authority,
-session sizing, typed capability ownership, capture-adapter containment,
-GO/NO-GO honesty, cross-platform satisfiability, exact path/budget envelopes,
-adversarial coverage, lifecycle, and all planning evidence without editing.
+The sole current authorization is creation of this one-file local immutable
+publication-status commit. Publication of that status commit and terminal-
+green fast Ubuntu and Windows CI remain separately gated.
 
-Only an unqualified `ACCEPT` may recommend, but not execute, one separately
-authorized planning commit with exact subject:
-
-```text
-docs(workorder): verify backend input and lower minimal add
-```
-
-Only after that exact real local issuance commit exists may a separately
-authorized implementer invoke the production classifier exactly once against
-its exact parent and child, before any push. The required result is:
-
-```text
-mode=full
-reason=no_status_transition
-anchor=
-run_id=0
-run_attempt=0
-ubuntu_job_id=0
-windows_job_id=0
-transitions=
-```
-
-A disagreement, nonzero exit, lost stdout/stderr or exit evidence, or missing
-binding stops before push. No retry, reclassification, status edit, Unit A, or
-later implementation follows implicitly. Publication remains a separately
-authorized normal non-force push, and Ubuntu and Windows full CI must both
-finish green on the exact published issuance commit.
-
-The planning commit, publication, full CI, publication-status record, fast
-status CI, Unit A, Unit B, Fast allowances, compiler/backend changes, stash or
-archive operations, closeout, WO23, harness consolidation, and semantic-
-coordinate research all remain unauthorized until their exact later gates.
+Even after that fast CI, Unit A remains unauthorized until a fresh explicit
+BDFL signal. Unit B, closeout, WO23, stash or archive operations, general
+evidence-harness consolidation, semantic-coordinate research, and every other
+later unit or project remain unauthorized. This status record grants no Fast
+allowance, compiler or backend edit, implementation session, publication,
+repair, retry, reclassification, or other implicit authority.
 
 <!-- workorder-current-authorization-gate:end -->
