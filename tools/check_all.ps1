@@ -1511,7 +1511,7 @@ task malformed() -> UInt {
     if ($null -eq $Wo19PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo19PriorRustFlags }
   }
   if ($Wo19CompileFailure.ExitCode -ne 101) { throw "Work Order 19 combined proof must exit 101, found $($Wo19CompileFailure.ExitCode)" }
-  if (-not $Wo19CompileFailure.Output.Contains('no `CanonicalMinimalAddBackendFactsAccess` in `backend_input`') -or -not $Wo19CompileFailure.Output.Contains('cannot find function `with_canonical_minimal_add_backend_facts`')) { throw 'Work Order 19 proof did not establish removal of the raw backend-facts authority route' }
+  if (-not $Wo19CompileFailure.Output.Contains('no `CanonicalMinimalAddBackendFactsAccess` in `backend_input`') -or -not $Wo19CompileFailure.Output.Contains('cannot find function `with_canonical_minimal_add_backend_facts`') -or -not $Wo19CompileFailure.Output.Contains('cannot find function `issue_assembled`')) { throw 'Work Order 19 proof did not establish removal of every retired backend-facts authority route' }
   foreach ($Wo19PrivateWrapper in @(
     'VerifiedMinimalAddFullType',
     'VerifiedMinimalAddEffect',
@@ -1848,28 +1848,6 @@ task malformed() -> UInt {
     if (-not $ApAmbiguousRejected) { throw 'Session AP production extraction must reject ambiguous terminal test modules' }
   } finally {
     if (Test-Path -LiteralPath $ApExtractionProbe) { Remove-Item -LiteralPath $ApExtractionProbe -Force }
-  }
-
-  Write-Host '==> Work Order 19 final-lineage source and configuration audit'
-  $Wo19IrSource = Get-Content -Raw 'src/ir_readiness.rs'
-  $Wo19BackendInputSource = Get-Content -Raw 'src/backend_input.rs'
-  $Wo19FinalHelperDefinition = [regex]::Matches($Wo19BackendInputSource, '(?m)^#\[cfg\(test\)\]\r?\npub\(crate\) fn issue_with_final_profile_lineage_for_test<R>\(')
-  $Wo19FinalHelperCalls = [regex]::Matches($Wo19IrSource, 'crate::backend_input::issue_with_final_profile_lineage_for_test\(')
-  if ($Wo19FinalHelperDefinition.Count -ne 1 -or $Wo19FinalHelperCalls.Count -ne 1) { throw 'Work Order 19 requires exactly one cfg(test) final-lineage helper definition and one focused-selector call' }
-  if ([regex]::Matches($Wo19BackendInputSource, '(?m)^    static FINAL_PROFILE_LINEAGE_OBSERVATION:').Count -ne 1 -or -not [regex]::IsMatch($Wo19BackendInputSource, '(?m)^#\[cfg\(test\)\]\r?\nthread_local! \{\r?\n    static FINAL_PROFILE_LINEAGE_OBSERVATION:')) { throw 'Work Order 19 comparison observation state must remain test-only' }
-  if ([regex]::Matches($Wo19BackendInputSource, 'fn is_complete_with_final_profile_lineage\(').Count -ne 1 -or [regex]::Matches($Wo19BackendInputSource, '\.is_complete_with_final_profile_lineage\(').Count -ne 1) { throw 'Work Order 19 requires one private final validator and one shared issuance call' }
-  if ([regex]::Matches($Wo19BackendInputSource, 'final_profile_lineage\.backend_identity\(\)\.program_identity\s*\r?\n\s*==\s*std::ptr::from_ref\(self\.program\)\.addr\(\)').Count -ne 1) { throw 'Work Order 19 final validator must contain exactly one actual-profile Program-lineage comparison' }
-  if ([regex]::Matches($Wo19BackendInputSource, 'issue_assembled\(&facts, &facts\.profile, \|access\|').Count -ne 1) { throw 'Work Order 19 production issuance must reuse the honest profile as its final lineage operand' }
-  if ([regex]::IsMatch($Wo19BackendInputSource, 'pub fn issue_with_final_profile_lineage_for_test|issue_with_final_profile_lineage_for_test[^\{]+(?:bool|usize\s*,\s*consume)')) { throw 'Work Order 19 test seam must not expose public scope or accept preselected lineage state' }
-  foreach ($Wo19WrapperSource in @(
-    'src/full_type_check.rs',
-    'src/effect_check.rs',
-    'src/ownership_check.rs',
-    'src/resource_check.rs',
-    'src/profile_check.rs'
-  )) {
-    $Wo19WrapperText = Get-Content -Raw $Wo19WrapperSource
-    if ([regex]::IsMatch($Wo19WrapperText, '(?ms)#\[derive\([^\]]*\b(?:Clone|Copy)\b[^\]]*\)\]\s*pub\(crate\) struct VerifiedMinimalAdd')) { throw "Work Order 19 verified wrapper in $Wo19WrapperSource must not derive production Clone or Copy" }
   }
 
   $ApParser = 'fixtures/diagnostics/session_ap_parser_resolver_precedence_fail.hum'

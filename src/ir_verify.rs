@@ -17,6 +17,14 @@ const NON_CLAIMS: [&str; 4] = [
     "no_durable_authority_v0",
 ];
 
+#[allow(unexpected_cfgs)]
+mod retired_issue_assembled_compile_proof {
+    #[cfg(hum_compile_fail_canonical_minimal_add_backend_facts_escape)]
+    fn retired_issue_assembled_must_not_compile() {
+        crate::backend_input::issue_assembled();
+    }
+}
+
 #[derive(Clone)]
 struct VerifiedProjection {
     artifact_id: String,
@@ -2143,6 +2151,12 @@ mod tests {
         assert!(report.accepted());
         assert_eq!(callbacks, 1);
         assert_eq!(value.as_deref(), report.artifact_id.as_deref());
+
+        for (kind, index) in backend_input::REPRESENTATIVE_AUTHENTICATION_CORRUPTIONS {
+            backend_input::set_corruption_for_test(kind, index);
+            live(&program, &diagnostics, &golden, a_r09, 0);
+            live(&program, &diagnostics, &golden, None, 1);
+        }
 
         let early = verify_backend_input(&[]);
         assert!(early.facts.semantic_contract.is_none());

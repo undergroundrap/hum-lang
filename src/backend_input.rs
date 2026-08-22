@@ -657,6 +657,13 @@ pub(crate) fn set_corruption_for_test(kind: &'static str, index: usize) {
 }
 
 #[cfg(test)]
+pub(crate) const REPRESENTATIVE_AUTHENTICATION_CORRUPTIONS: [(&str, usize); 3] = [
+    ("pass_failed", 13),
+    ("empty_corrupted", 0),
+    ("edge_wraparound", 0),
+];
+
+#[cfg(test)]
 fn corrupt_backend_facts_for_test(facts: &mut CanonicalMinimalAddBackendFacts<'_, '_>) {
     let Some((kind, index)) = FACTS_CORRUPTION.with(std::cell::Cell::take) else {
         return;
@@ -769,7 +776,7 @@ pub(crate) fn set_artifact_target_context_corruption_for_test(value: &'static st
 }
 
 #[cfg(test)]
-pub(crate) fn minimal_add_artifact_for_test() -> CanonicalBackendInputArtifact {
+fn minimal_add_artifact_result_for_test() -> Option<CanonicalBackendInputArtifact> {
     let source = include_str!("../examples/core/minimal_add.hum");
     let parsed = crate::parser::parse_source(SOURCE_PATH.to_string(), source);
     let checked = crate::check::check_parse_output(&parsed);
@@ -778,12 +785,68 @@ pub(crate) fn minimal_add_artifact_for_test() -> CanonicalBackendInputArtifact {
     let program = Program {
         files: vec![parsed.file],
     };
-    canonical_minimal_add_artifact(&program, &[]).expect("canonical fixture must issue")
+    canonical_minimal_add_artifact(&program, &[])
+}
+
+#[cfg(test)]
+pub(crate) fn minimal_add_artifact_for_test() -> CanonicalBackendInputArtifact {
+    minimal_add_artifact_result_for_test().expect("canonical fixture must issue")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    macro_rules! assert_not_impl {
+        ($type:ty, $trait:path) => {
+            const _: fn() = || {
+                trait AmbiguousIfImplemented<A> {
+                    fn marker() {}
+                }
+                impl<T: ?Sized> AmbiguousIfImplemented<()> for T {}
+                impl<T: ?Sized + $trait> AmbiguousIfImplemented<u8> for T {}
+                let _ = <$type as AmbiguousIfImplemented<_>>::marker;
+            };
+        };
+    }
+
+    assert_not_impl!(
+        crate::full_type_check::VerifiedMinimalAddFullType<'static>,
+        Clone
+    );
+    assert_not_impl!(
+        crate::full_type_check::VerifiedMinimalAddFullType<'static>,
+        Copy
+    );
+    assert_not_impl!(
+        crate::effect_check::VerifiedMinimalAddEffect<'static>,
+        Clone
+    );
+    assert_not_impl!(crate::effect_check::VerifiedMinimalAddEffect<'static>, Copy);
+    assert_not_impl!(
+        crate::ownership_check::VerifiedMinimalAddOwnership<'static>,
+        Clone
+    );
+    assert_not_impl!(
+        crate::ownership_check::VerifiedMinimalAddOwnership<'static>,
+        Copy
+    );
+    assert_not_impl!(
+        crate::resource_check::VerifiedMinimalAddResource<'static>,
+        Clone
+    );
+    assert_not_impl!(
+        crate::resource_check::VerifiedMinimalAddResource<'static>,
+        Copy
+    );
+    assert_not_impl!(
+        crate::profile_check::VerifiedMinimalAddProfile<'static>,
+        Clone
+    );
+    assert_not_impl!(
+        crate::profile_check::VerifiedMinimalAddProfile<'static>,
+        Copy
+    );
 
     #[test]
     fn minimal_add_backend_input_bytes_are_canonical_and_deterministic() {
@@ -848,6 +911,18 @@ mod tests {
         assert_eq!(payload.matches("\"status\":\"passed\"").count(), 14);
         assert!(!payload.contains("ir_verify"));
         assert!(!payload.contains("verified"));
+
+        for (kind, index) in REPRESENTATIVE_AUTHENTICATION_CORRUPTIONS {
+            set_corruption_for_test(kind, index);
+            assert!(
+                minimal_add_artifact_result_for_test().is_none(),
+                "artifact construction accepted {kind}:{index}"
+            );
+            assert!(
+                minimal_add_artifact_result_for_test().is_some(),
+                "honest artifact construction did not recover after {kind}:{index}"
+            );
+        }
 
         set_artifact_target_context_corruption_for_test("foreign_target_context_v0");
         let corrupted = minimal_add_artifact_for_test();
