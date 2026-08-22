@@ -2,21 +2,80 @@
 
 Date: 2026-08-15
 <!-- hum-active-workorder:v1 -->
-Status: ISSUED AND PUBLISHED. The corrected WO22 planning package was
-independently accepted and committed as
-`aab0601c2e835e0c534ef44e5ac4076fa1df8193` with subject
-`docs(workorder): verify backend input and lower minimal add`. It was published
-by one normal non-force fast-forward from
-`677335feb7700a105b613b281f8d58969084c00f` to the exact planning commit.
-Workflow `ci` run `32436159663`, attempt `1`, tested that commit and concluded
-`success`. Ubuntu job `96637679436` and Windows job `96637679328` both
-succeeded and selected exact `full` / `no_status_transition` with empty anchor
-and transitions and zero run/job bindings. Both passed the required Rust
-suites, the exact 151-case twice-deterministic Work Order classifier inventory,
-text hygiene and public readiness for 534 files, alpha claims, and release
-readiness `0.0.1`; Ubuntu also passed the platform-independent Exhaustive
-producer. The planning publication lifecycle now awaits this separate
-immutable status record and its separately gated fast CI.
+Status: UNIT A IMPLEMENTED AND PUBLISHED; STATUS RECORD PENDING. The corrected
+WO22 planning package and its publication-status lifecycle are complete. Unit A
+was independently accepted and committed as
+`7ad76c78ad85df2d8cd8f69437f4f9beead7177c` with subject
+`feat(ir): verify canonical backend input`. The bounded published CI-repair
+chain then advanced through:
+
+1. `526c95b4ca8cfd17bad9e2f5d5d2ab80751ec818`,
+   `fix(ci): encode pwsh probe and retain launch errors`;
+2. `0f9e70c44f53cbb12d2b84643901b0bfb5bca83c`,
+   `fix(ci): align pwsh and selector assertions`;
+3. `9f571d680943625fcae29f7470c4f432fda763f0`,
+   `fix(ci): stabilize cross-platform capture matrix`; and
+4. terminal accepted main `da5111e0b40ab4c373e6a00c2a0b1539aaad397a`,
+   `fix(ci): replace final-lineage text audit`.
+
+Workflow `ci` run `32550186464`, attempt `1`, tested exact terminal main and
+concluded `success`. Ubuntu job `96975538124` succeeded in `12m29s`; Windows
+job `96975538121` succeeded in `26m15s`. Both selected the exact binding:
+
+```text
+mode=full;reason=no_status_transition;anchor=;run_id=0;run_attempt=0;ubuntu_job_id=0;windows_job_id=0;transitions=
+```
+
+The Ubuntu `pwsh` capture matrix and both Windows PowerShell 5.1 and `pwsh`
+capture matrices passed. Both platforms passed the 151-case twice-deterministic
+Work Order classifier with exactly one terminal marker; the ordered Rust
+selector ledger authenticated `103/103` invocation/unique names, 8,043
+canonical bytes, and SHA-256
+`e6d27660a36468704b78fec89c218d8fe6e38d471ed8a4a686f8aab23d68120d`.
+The root Rust suites passed `455/455` on Ubuntu and `470/470` on Windows; the
+subsidiary suites passed `13/13` and `60/60` on Ubuntu and `16/16` and `60/60`
+on Windows. Warnings-denied Clippy, the Unit A verifier, capability,
+compile-failure, mutation, CLI, and readiness evidence, text hygiene and public
+readiness for 538 files, alpha claims, and release readiness `0.0.1` all
+passed. Ubuntu's platform-independent Exhaustive producer selected and passed
+`parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero`
+with F1 `630`, F2 `4,950`, F3/F4 `8,646`, total `14,226`, and seed
+`0x48554D5F5345414C`; Windows correctly skipped only that duplicate producer.
+
+Unit A therefore honestly establishes `ir_ready=1` and its parity alias
+`ready_for_ir=1`, while retaining `backend_ready=0`. No backend lowering or
+execution readiness is claimed.
+
+The required sorted Unit A manifest below is derived from Git objects at
+terminal main. Raw statistics use `git diff --numstat`; whitespace-insensitive
+statistics use `git diff -w --numstat`. Both compare the authenticated Unit A
+baseline `35b86d04475f0439945be8b772b736811451d339`, the immediate parent of
+the implementation commit, with terminal accepted main
+`da5111e0b40ab4c373e6a00c2a0b1539aaad397a`.
+
+| Path | Mode | Final blob | Raw | Whitespace-insensitive |
+| --- | --- | --- | ---: | ---: |
+| `README.md` | `100644` | `04ae888a380bbdcebbe562a4efec31df96ecfc92` | `+6/-3` | `+6/-3` |
+| `docs/ARCHITECTURE.md` | `100644` | `ebb010d15279ee0c49257a63ade853a60b267182` | `+6/-3` | `+6/-3` |
+| `docs/BACKEND_CONTRACT_SCHEMA.md` | `100644` | `9cb236e741480fff87b25882fb1f1c9a9a7c84cf` | `+8/-1` | `+7/-0` |
+| `docs/CAPABILITIES_SCHEMA.md` | `100644` | `c4565f4332215f38e2265f6ec96f10aebd341cb0` | `+2/-0` | `+2/-0` |
+| `docs/HUM_BACKEND_INPUT_SCHEMA.md` | `100644` | `a5d9ae20d1504cecd526e3739367757b673843a8` | `+21/-13` | `+21/-13` |
+| `docs/HUM_IR_CONTRACT_SCHEMA.md` | `100644` | `909ae6df3c3f96a2884f91b6af4bfed76e868952` | `+11/-11` | `+11/-11` |
+| `docs/HUM_IR_READINESS_SCHEMA.md` | `100644` | `fb5e2d2bca24a21b653b1839b12a0f253f27819d` | `+33/-22` | `+33/-22` |
+| `docs/HUM_IR_VERIFY_SCHEMA.md` | `100644` | `79c064c68d01dae87c113254c1872f5921c9d78a` | `+118/-0` | `+118/-0` |
+| `docs/LANGUAGE_REFERENCE.md` | `100644` | `42bb0c493df9e59154b08f24ac8ac4170682db1d` | `+3/-1` | `+3/-1` |
+| `src/backend_contract.rs` | `100644` | `ebf8325969ccea2e1cad1b6412e780de1d942144` | `+2/-0` | `+2/-0` |
+| `src/backend_input.rs` | `100644` | `cb229d98c88657b4db49b25cc38f011b2625c180` | `+209/-81` | `+208/-80` |
+| `src/capabilities.rs` | `100644` | `47c3927945b482734848af81050c41a91dc6d161` | `+22/-4` | `+22/-4` |
+| `src/ir_contract.rs` | `100644` | `9a7ee1699dd023bb397f6ad3097c23498dccb8ca` | `+9/-11` | `+9/-11` |
+| `src/ir_readiness.rs` | `100644` | `d0ef55ccf4c33ba2522f365695041c9b5d0a4441` | `+306/-61` | `+292/-47` |
+| `src/ir_verify.rs` | `100644` | `8467764d26b131353d743170917b4f1d0ae025dc` | `+2426/-0` | `+2426/-0` |
+| `src/main.rs` | `100644` | `cfc699fc9f0067212fd57e198f673139784ee56b` | `+75/-1` | `+75/-1` |
+| `src/version.rs` | `100644` | `1a48bd00840c87a24ca05da240dc176e4f0e6e54` | `+4/-1` | `+4/-1` |
+| `tools/check_all.ps1` | `100644` | `1cbdc0972cc7c0ea0b10ec7decacae085a5364a8` | `+441/-62` | `+441/-62` |
+| `tools/run_fast_evidence.ps1` | `100644` | `52bbd75cdd7460971819c726a85afab23c395d60` | `+1165/-0` | `+1165/-0` |
+| `tools/test_fast_evidence_capture.ps1` | `100644` | `d7b1c630f8cb2df84cc3daa216c89b982a304eef` | `+657/-0` | `+657/-0` |
+| **Total** | | | **`+5524/-275`** | **`+5508/-259`** |
 
 This Work Order carries forward only the compiler-critical facts left live by
 Work Order 21. Work Order 21 is closed and immutable. Its Units A and B landed;
@@ -1145,19 +1204,24 @@ planning authorship or review.
 
 ## Current authorization gate
 
-The sole current authorization is fresh independent review of this bounded
-A-R02 Work Order amendment. Unit A remains implementation-incomplete pending
-the implementation correction and a fresh complete-candidate review. Its
-existing twenty-path candidate remains preserved, unstaged, and unaccepted;
-the Unit A Fast allowance remains unconsumed.
+Unit A implementation and its full cross-platform publication CI are complete.
+The sole current lifecycle action is this routine status-only record. Unit B
+remains unauthorized pending all of the following, in order:
 
-No Unit A implementation correction may resume unless this amendment is first
-independently accepted, committed, published, and terminal-green in its
-required CI under separate authorizations, followed by a fresh explicit BDFL
-implementation signal. Unit B, closeout, WO23, stash or archive operations,
-general evidence-harness consolidation, semantic-coordinate research, and
-every other later unit or project remain unauthorized. This amendment grants
-no compiler or backend edit, implementation correction, Fast launch,
-publication, repair, retry, reclassification, or other implicit authority.
+1. independent authentication of this exact candidate or satisfaction of the
+   exact routine-status exception;
+2. a separately authorized status commit;
+3. a separately authorized normal non-force push;
+4. terminal-green Ubuntu and Windows fast status CI reproducing the exact
+   eligible status-chain binding; and
+5. a fresh explicit BDFL Unit B signal after that report.
+
+Until all five gates complete, no Unit B dependency, Cranelift adapter,
+lowering, backend probe, GO/NO-GO row, JIT execution, or readiness change is
+authorized. Closeout, WO23, stash or archive operations, local Fast or
+Exhaustive, CI optimization, general evidence-harness consolidation,
+semantic-coordinate research, and every other later unit or project remain
+unauthorized. This record grants no commit, push, implementation, repair,
+retry, reclassification, or other implicit authority.
 
 <!-- workorder-current-authorization-gate:end -->
