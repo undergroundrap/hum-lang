@@ -675,7 +675,7 @@ terminal-green and a fresh BDFL signal is issued.
 ### Unit B authorization and path envelope
 
 Unit B may begin only from the accepted, published, status-recorded, terminal-
-green Unit A tree. It authorizes exactly these nineteen paths:
+green Unit A tree. It authorizes exactly these twenty-three paths:
 
 | Path | Maximum insertions | Maximum deletions | Required ownership |
 | --- | ---: | ---: | --- |
@@ -685,11 +685,15 @@ green Unit A tree. It authorizes exactly these nineteen paths:
 | `docs/ARCHITECTURE.md` | 12 | 8 | verified capability to adapter boundary |
 | `docs/BACKEND_STRATEGY.md` | 30 | 16 | first production backend rung and deferrals |
 | `docs/BACKEND_CONTRACT_SCHEMA.md` | 45 | 25 | exact checked-add lowering/ABI contract |
+| `docs/BOOTSTRAP_COMPILER.md` | 12 | 4 | preserve bootstrap trust rules while documenting deny-by-default, one reviewed Unit B JIT invocation boundary, and the five exact pinned Cranelift dependencies |
 | `docs/CAPABILITIES_SCHEMA.md` | 12 | 6 | exact `backend-probe` catalog entry |
 | `docs/HUM_IR_CONTRACT_SCHEMA.md` | 30 | 18 | verified fact to CLIF mapping |
 | `docs/HUM_IR_READINESS_SCHEMA.md` | 60 | 35 | distinguish IR readiness from explicit backend probe |
 | `docs/HUM_BACKEND_PROBE_SCHEMA.md` | 170 | 0 | new GO/NO-GO report contract |
 | `docs/LANGUAGE_REFERENCE.md` | 18 | 10 | exact supported execution slice |
+| `docs/UNSAFE_POLICY.md` | 12 | 4 | preserve Hum source-language unsafe policy while documenting deny-by-default and the one reviewed Unit B JIT invocation boundary |
+| `docs/decisions/0002-use-rust-bootstrap-until-self-hosting.md` | 16 | 6 | preserve ADR history while recording the narrow WO22 amendment to the former no-dependency/forbid-unsafe bootstrap decision |
+| `docs/decisions/0017-adopt-structural-app-authority-boundary.md` | 12 | 4 | preserve structural app/authority/locality decisions while correcting only the main-crate unsafe-default assumption |
 | `src/backend_contract.rs` | 35 | 20 | machine-readable lowering contract rows |
 | `src/backend_cranelift.rs` | 1,150 | 0 | new verified-only adapter, JIT, probe report |
 | `src/capabilities.rs` | 60 | 20 | command/schema capability catalog |
@@ -698,14 +702,15 @@ green Unit A tree. It authorizes exactly these nineteen paths:
 | `src/main.rs` | 240 | 90 | explicit backend-probe CLI and routing |
 | `src/version.rs` | 25 | 12 | schema/version catalog parity |
 | `tools/check_all.ps1` | 420 | 130 | selectors, probes, cross-platform gates |
-| **Unit B total** | **3,326** | **608** | **no borrowing between paths** |
+| **Unit B total** | **3,378** | **626** | **no borrowing between paths** |
 
 The same raw and whitespace-insensitive ceilings apply. `Cargo.lock` is
 mechanical but remains inside the ceiling. The exact read-only fixtures are
 `examples/core/minimal_add.hum` and
 `fixtures/backend_input/minimal_add.backend_input.v0.json`; neither may change.
 No new fixture, build script, workflow, unsafe helper, public library API,
-runtime subsystem, AOT/object/link path, or twentieth modified path is implied.
+runtime subsystem, AOT/object/link path, or twenty-fourth modified path is
+implied.
 
 Unit B also has these non-borrowable category ceilings:
 
@@ -713,14 +718,98 @@ Unit B also has these non-borrowable category ceilings:
 | --- | ---: | ---: |
 | Production Rust | 1,700 | 320 |
 | Tests and proof fixtures | 650 | 150 |
-| Documentation, schemas, and tools | 426 | 108 |
+| Documentation, schemas, and tools | 478 | 126 |
 | Dependency manifests and lock data | 550 | 30 |
-| **Unit B category total** | **3,326** | **608** |
+| **Unit B category total** | **3,378** | **626** |
 
 The Unit A attribution rules continue. `Cargo.toml` and `Cargo.lock` alone are
 Dependency manifests and lock data. Every line is attributed once, and neither
 per-path nor category headroom may be borrowed, under raw or whitespace-
 insensitive accounting.
+
+### Unit B normative policy-document corrections
+
+Truthful Unit B publication requires bounded corrections to the four added
+normative documents. `docs/BOOTSTRAP_COMPILER.md` must replace its unconditional
+`#![forbid(unsafe_code)]` rule with `#![deny(unsafe_code)]` as the crate-wide
+default, permit exactly the one named and reviewed locally allowed unsafe JIT
+invocation boundary frozen by WO22, and replace the obsolete blanket ban on
+third-party crates with an exact exception for the five pinned Cranelift
+`0.133.1` dependencies. Its bans on build scripts, proc macros, hidden code
+generation, and every broader unsafe or dependency expansion remain binding.
+
+`docs/UNSAFE_POLICY.md` must preserve its Hum source-language unsafe policy
+unchanged. Only its Rust-bootstrap implementation rule may replace the old
+unqualified `#![forbid(unsafe_code)]` claim with `#![deny(unsafe_code)]` as the
+crate-wide default and exactly one reviewed, locally allowed WO22 JIT
+invocation boundary. It grants no broader unsafe, dependency, FFI, backend, or
+source-language authority.
+
+`docs/decisions/0002-use-rust-bootstrap-until-self-hosting.md` must preserve its
+original decision and rationale as history while recording that WO22 Unit B
+narrowly amends the accepted decision. The amendment records
+`#![deny(unsafe_code)]` as the crate-wide default, exactly one reviewed local
+unsafe JIT invocation exception, and exactly the five pinned Cranelift
+dependencies. It grants no general dependency, unsafe, backend, build-script,
+proc-macro, or hidden-generation permission.
+
+`docs/decisions/0017-adopt-structural-app-authority-boundary.md` must preserve
+its structural app, capability, operator-consent, path, locality, threat-model,
+source-language authority decisions, and historical rationale. Only its active
+claim that the main crate continues to forbid unsafe code may change. The
+amendment records `#![deny(unsafe_code)]` as the crate-wide default and exactly
+one reviewed, locally allowed WO22 JIT invocation boundary. It grants no
+broader unsafe, FFI, dependency, backend, source-language, build-script,
+proc-macro, or hidden-generation authority.
+
+#### Complete classified policy inventory
+
+The complete active normative contradiction set is exactly:
+
+1. `docs/BOOTSTRAP_COMPILER.md`;
+2. `docs/UNSAFE_POLICY.md`;
+3. `docs/decisions/0002-use-rust-bootstrap-until-self-hosting.md`; and
+4. `docs/decisions/0017-adopt-structural-app-authority-boundary.md`.
+
+Related matches in `CHANGELOG.md`, `docs/releases/v0.0.1.md`, closed Work
+Orders, `docs/SESSION_AC_WINDOWS_LOCALITY_REVIEW.md`,
+`docs/research/2026-07-06-offline-tool-alpha.md`,
+`docs/research/2026-07-07-bellard-systems-lessons.md`, and
+`docs/bakeoff/SCORECARD.md` are historical snapshots, closed records, research
+proposals, or candidate-specific statements. They remain unchanged and are not
+current policy contradictions.
+
+Each corrected document must carry the rationale needed to keep its changed
+rule truthful, and the four-document set must explain the architecture
+collectively. Hum's original zero-third-party bootstrap rule intentionally kept
+the immature compiler trust root small. WO22 graduates that rule narrowly for
+native code generation: the five pinned direct Cranelift crates and their
+locked transitive dependency graph provide the practical first executable
+backend while Hum retains ownership of language semantics, verification,
+capability authority, and backend admission. Cranelift remains a bounded,
+replaceable implementation component; no document may promise its removal or
+an LLVM migration that has not been decided. `#![deny(unsafe_code)]` remains
+the crate-wide default with exactly one reviewed, locally allowed WO22 JIT
+invocation boundary. This rationale must be concise, factual, and
+confidence-building rather than defensive marketing, and grants no general
+permission for arbitrary dependencies, unsafe code, FFI, additional backends,
+build scripts, proc macros, hidden generation, or source-language unsafe
+behavior.
+
+Permanent public-readiness evidence must reject any of the four corrected
+documents if it regains an old unqualified `#![forbid(unsafe_code)]` or
+no-third-party-crate claim, omits the narrow WO22 exception, broadens that
+exception, changes Hum's source-language unsafe policy, or silently rewrites
+ADR 0002 or ADR 0017 history instead of recording the amendment. It must
+distinguish active normative policy from historical snapshots, closed records,
+research proposals, and candidate-specific bake-off statements, failing if any
+active normative contradiction remains or returns without rewriting history to
+pretend the former rule never existed. It must also prove semantically, rather
+than through brittle exact prose or substring-only matching, that each document
+contains its applicable rationale and the four-document set covers every
+obligation above. The four added path ceilings and the exact documentation/
+category totals above are non-borrowable; every other Unit B path and category
+ceiling is unchanged.
 
 ### Sequential overlap and Unit B baseline
 
@@ -1162,16 +1251,16 @@ units and is consumed only by a child that actually starts.
 | Unit | Maximum insertions | Maximum deletions |
 | --- | ---: | ---: |
 | Unit A verifier, capability, readiness, and narrow capture | 4,329 | 418 |
-| Unit B verified Cranelift lowering and probe | 3,326 | 608 |
-| **Maximum aggregate** | **7,655** | **1,026** |
+| Unit B verified Cranelift lowering and probe | 3,378 | 626 |
+| **Maximum aggregate** | **7,707** | **1,044** |
 
 The same ceilings govern whitespace-insensitive accounting. No unit may borrow
 another unit's path or budget. Review reports per-path raw and whitespace-
 insensitive statistics, modes, blob identities, and whether changes are
 semantic, evidence, documentation, dependency-lock, or new-file content.
 
-Path arithmetic is exact: twenty Unit A entries plus nineteen Unit B entries
-minus the fourteen explicitly listed sequential overlaps equals twenty-five
+Path arithmetic is exact: twenty Unit A entries plus twenty-three Unit B entries
+minus the fourteen explicitly listed sequential overlaps equals twenty-nine
 distinct authorized repository paths. Evidence arithmetic is likewise
 nonduplicative: ten Unit A invalid-input rejection rows stop before backend
 entry; fifteen Unit B runtime rows start only after valid capability issuance.
@@ -1183,9 +1272,9 @@ Aggregate category ceilings are likewise exact and non-borrowable:
 | --- | ---: | ---: |
 | Production Rust | 4,300 | 580 |
 | Tests and proof fixtures | 1,550 | 240 |
-| Documentation, schemas, and tools | 1,255 | 176 |
+| Documentation, schemas, and tools | 1,307 | 194 |
 | Dependency manifests and lock data | 550 | 30 |
-| **Aggregate category total** | **7,655** | **1,026** |
+| **Aggregate category total** | **7,707** | **1,044** |
 
 The aggregate table is the arithmetic sum of the two unit category tables, not
 a pool. A Unit A or Unit B category failure cannot borrow from its sibling or
@@ -1223,29 +1312,35 @@ planning authorship or review.
 ## Current authorization gate
 
 Unit A implementation, status recording, and both publication lifecycles are
-complete. The first complete Unit B candidate was independently rejected at
-its pre-Fast review gate. The preserved nineteen-path candidate remains
-unstaged and unaccepted. Fast remains unconsumed. Two findings are bounded
-implementation defects: the B01-B15 fault seam lacked paired executable
-mutations of every real production predicate, and overflow execution did not
-observe that the result slot remained unchanged. The third finding exposed the
-overbroad unsupported-target promise corrected by this amendment.
+complete. The standalone Fast-capture prerequisite is published at
+`410b706967a753e0d2ed545eec9463c93f760c3b`; workflow `ci` run
+`32596607799`, attempt `1`, tested that exact commit and concluded `success` on
+Ubuntu and Windows.
 
-Unit B implementation correction remains blocked pending independent review,
-local commit, separately authorized publication, and terminal required CI for
-this amendment. A later fresh BDFL correction signal must require the preserved
-candidate to:
+Unit B remains unstaged and unaccepted. Its preserved nineteen-path candidate
+includes the bounded static-exhaustiveness and `README.md`/`ARCHITECTURE.md`
+corrections, but those partial corrections have no evidence credit. Four
+additional normative documents were then discovered outside the former
+nineteen-path envelope: `docs/BOOTSTRAP_COMPILER.md`, `docs/UNSAFE_POLICY.md`,
+`docs/decisions/0002-use-rust-bootstrap-until-self-hosting.md`, and
+`docs/decisions/0017-adopt-structural-app-authority-boundary.md`. The
+replacement Fast allowance remains unconsumed.
 
-1. add paired executable mutations for every B01-B15 real production
-   predicate, with no credit from the fault enum alone;
-2. observe and require an unchanged overflow result slot; and
-3. implement the clarified B08 contract through the real production target and
-   ISA predicate after valid capability admission.
+Unit B implementation correction cannot resume until this amendment is
+independently accepted, committed locally, separately published, and its
+required CI is terminal-green. A later fresh BDFL signal may authorize only
+completion of the four normative policy-document corrections above and
+revalidation of the complete twenty-three-path Unit B candidate. That candidate
+must still prove paired executable mutations for every B01-B15 real production
+predicate, unchanged overflow result slots, the clarified B08 contract, the
+static exhaustive fault mapping, truthful public claims, and every previously
+frozen Unit B gate without borrowing path or category budget.
 
-This amendment grants no budget expansion, path expansion, implementation,
-repair, Fast launch, commit, push, or publication authority. Closeout, WO23,
-stash or archive operations, local Fast or Exhaustive, CI optimization,
-general evidence-harness consolidation, semantic-coordinate research, and
-every other later unit or project remain unauthorized.
+This amendment grants only the exact four-path, documentation-category, Unit B,
+aggregate-category, aggregate-total, and path-arithmetic expansions recorded
+above. It grants no implementation resumption, Fast launch, commit, push,
+status work, closeout, WO23, macOS CI, additional dependency, second unsafe
+boundary, backend expansion, stash/archive operation, harness consolidation,
+semantic-coordinate research, or other later work.
 
 <!-- workorder-current-authorization-gate:end -->
