@@ -154,8 +154,9 @@ function Read-NativeChannelsWithExit {
 function ConvertTo-UbuntuPwshResolutionEncodedCommand {
   param([string] $Command)
 
-  $ExpectedCommand = '(Get-Command pwsh -CommandType Application -ErrorAction Stop).Source'
-  $ExpectedEncoded = 'KABHAGUAdAAtAEMAbwBtAG0AYQBuAGQAIABwAHcAcwBoACAALQBDAG8AbQBtAGEAbgBkAFQAeQBwAGUAIABBAHAAcABsAGkAYwBhAHQAaQBvAG4AIAAtAEUAcgByAG8AcgBBAGMAdABpAG8AbgAgAFMAdABvAHAAKQAuAFMAbwB1AHIAYwBlAA=='
+  $ExpectedCommand = '$a=@(Get-Command pwsh -CommandType Application -All -ErrorAction Stop);if($a.Count -eq 0){exit 86};$s=[string]($a[0].Source);if([string]::IsNullOrEmpty($s)-or $s.IndexOfAny([char[]]@(13,10,0)) -ge 0){exit 87};[Console]::Out.Write($s)'
+  $ExpectedEncoded = 'JABhAD0AQAAoAEcAZQB0AC0AQwBvAG0AbQBhAG4AZAAgAHAAdwBzAGgAIAAtAEMAbwBtAG0AYQBuAGQAVAB5AHAAZQAgAEEAcABwAGwAaQBjAGEAdABpAG8AbgAgAC0AQQBsAGwAIAAtAEUAcgByAG8AcgBBAGMAdABpAG8AbgAgAFMAdABvAHAAKQA7AGkAZgAoACQAYQAuAEMAbwB1AG4AdAAgAC0AZQBxACAAMAApAHsAZQB4AGkAdAAgADgANgB9ADsAJABzAD0AWwBzAHQAcgBpAG4AZwBdACgAJABhAFsAMABdAC4AUwBvAHUAcgBjAGUAKQA7AGkAZgAoAFsAcwB0AHIAaQBuAGcAXQA6ADoASQBzAE4AdQBsAGwATwByAEUAbQBwAHQAeQAoACQAcwApAC0AbwByACAAJABzAC4ASQBuAGQAZQB4AE8AZgBBAG4AeQAoAFsAYwBoAGEAcgBbAF0AXQBAACgAMQAzACwAMQAwACwAMAApACkAIAAtAGcAZQAgADAAKQB7AGUAeABpAHQAIAA4ADcAfQA7AFsAQwBvAG4AcwBvAGwAZQBdADoAOgBPAHUAdAAuAFcAcgBpAHQAZQAoACQAcwApAA=='
+  $ExpectedSha256 = '419fd0feda5efca97c5810e085d5e6246756fbb2656cfe36bec8f3758b475dfe'
   if ($Command -cne $ExpectedCommand) {
     throw 'Ubuntu pwsh resolution command drifted'
   }
@@ -169,6 +170,15 @@ function ConvertTo-UbuntuPwshResolutionEncodedCommand {
   if ($Encoded -cne $ExpectedEncoded -or $Encoded -match '\s') {
     throw 'Ubuntu pwsh resolution encoded command identity mismatch'
   }
+  $Hasher = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $CommandSha256 = (($Hasher.ComputeHash($Bytes) | ForEach-Object { $_.ToString('x2') }) -join '')
+  } finally {
+    $Hasher.Dispose()
+  }
+  if ($CommandSha256 -cne $ExpectedSha256) {
+    throw 'Ubuntu pwsh resolution UTF-16LE byte identity mismatch'
+  }
   $Decoded = [byte[]] [Convert]::FromBase64String($Encoded)
   $BytesMatch = $Bytes.Length -eq $Decoded.Length
   for ($Index = 0; $BytesMatch -and $Index -lt $Bytes.Length; $Index++) {
@@ -181,6 +191,65 @@ function ConvertTo-UbuntuPwshResolutionEncodedCommand {
   $Encoded
 }
 
+function Select-FirstApplicationSource {
+  param([object[]] $Applications, [string] $Label)
+
+  $Candidates = @($Applications)
+  if ($Candidates.Count -eq 0) {
+    throw "$Label did not resolve an application"
+  }
+  $Sources = @($Candidates[0].Source)
+  if ($Sources.Count -ne 1) {
+    throw "$Label first application source was not scalar"
+  }
+  $Source = [string] $Sources[0]
+  if ([string]::IsNullOrEmpty($Source) -or
+      -not [System.IO.Path]::IsPathRooted($Source) -or
+      [regex]::IsMatch($Source, '[\x00-\x1f\x7f]')) {
+    throw "$Label first application source was not one absolute path"
+  }
+  return $Source
+}
+
+function ConvertTo-UbuntuPwshSafePathBase64 {
+  param([string] $Path)
+
+  if ([string]::IsNullOrEmpty($Path) -or $Path.Length -gt 4096 -or
+      -not [System.IO.Path]::IsPathRooted($Path) -or
+      [regex]::IsMatch($Path, '[\x00-\x1f\x7f]')) {
+    return '<invalid>'
+  }
+  $Utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+  return [Convert]::ToBase64String([byte[]] $Utf8.GetBytes($Path))
+}
+
+function Assert-UbuntuPwshResolutionCapture {
+  param([object] $Capture, [string] $ExpectedPath)
+
+  $Stdout = if ($null -eq $Capture.Stdout) { '' } else { [string] $Capture.Stdout }
+  $Stderr = if ($null -eq $Capture.Stderr) { '' } else { [string] $Capture.Stderr }
+  $ObservedCount = if ($Stdout.Length -eq 0) { 0 } else { [regex]::Matches($Stdout, "`n").Count + 1 }
+  $ObservedPathBase64 = ConvertTo-UbuntuPwshSafePathBase64 $Stdout
+  $ExpectedPathBase64 = ConvertTo-UbuntuPwshSafePathBase64 $ExpectedPath
+  $ExitCode = if ($null -eq $Capture.ExitCode) { 'null' } else { [string] $Capture.ExitCode }
+  $Matches = (
+    $Capture.ExitCode -eq 0 -and
+    $Stderr.Length -eq 0 -and
+    $ObservedCount -eq 1 -and
+    $ObservedPathBase64 -cne '<invalid>' -and
+    [string]::Equals($Stdout, $ExpectedPath, [System.StringComparison]::Ordinal)
+  )
+  if (-not $Matches) {
+    throw (
+      'Ubuntu fresh child pwsh identity mismatch: ' +
+      "expected_count=1;expected_path_base64=$ExpectedPathBase64;" +
+      "observed_count=$ObservedCount;observed_path_base64=$ObservedPathBase64;" +
+      "stdout_chars=$($Stdout.Length);stderr_chars=$($Stderr.Length);exit_code=$ExitCode"
+    )
+  }
+  return $Stdout
+}
+
 function Assert-UbuntuPwshResolutionArguments {
   param([string[]] $Arguments, [string] $ExpectedEncoded)
 
@@ -189,6 +258,164 @@ function Assert-UbuntuPwshResolutionArguments {
       @($Arguments | Where-Object { $_ -match '\s' }).Count -ne 0) {
     throw 'Ubuntu pwsh resolution argument vector is not the authenticated whitespace-free form'
   }
+}
+
+function Invoke-UbuntuPwshResolutionSelfTests {
+  param([string] $Command, [string] $Encoded)
+
+  $FirstPath = [System.IO.Path]::GetFullPath((Join-Path ([System.IO.Path]::GetTempPath()) 'hum-pwsh-first'))
+  $SecondPath = [System.IO.Path]::GetFullPath((Join-Path ([System.IO.Path]::GetTempPath()) 'hum-pwsh-second'))
+  $Applications = @(
+    [pscustomobject] @{ Source = $FirstPath },
+    [pscustomobject] @{ Source = $SecondPath }
+  )
+  $SelectedFirst = Select-FirstApplicationSource $Applications 'synthetic pwsh selection'
+  $SelectedAgain = Select-FirstApplicationSource $Applications 'synthetic pwsh selection repeat'
+  if ($SelectedFirst -cne $FirstPath -or $SelectedAgain -cne $FirstPath -or $SelectedFirst -match '[\r\n]') {
+    throw 'Ubuntu pwsh selection did not retain one stable first application'
+  }
+  if ((ConvertTo-UbuntuPwshResolutionEncodedCommand $Command) -cne $Encoded) {
+    throw 'Ubuntu pwsh resolution self-test lost canonical encoding identity'
+  }
+  $ExactCapture = [pscustomobject] @{ Stdout = $FirstPath; Stderr = ''; ExitCode = 0 }
+  if ((Assert-UbuntuPwshResolutionCapture $ExactCapture $FirstPath) -cne $FirstPath) {
+    throw 'Ubuntu pwsh resolution exact capture was not accepted'
+  }
+  foreach ($Mutation in @(
+    [pscustomobject] @{ Label = 'empty'; Capture = [pscustomobject] @{ Stdout = ''; Stderr = ''; ExitCode = 0 } },
+    [pscustomobject] @{ Label = 'duplicate'; Capture = [pscustomobject] @{ Stdout = "$FirstPath`n$FirstPath"; Stderr = ''; ExitCode = 0 } },
+    [pscustomobject] @{ Label = 'malformed'; Capture = [pscustomobject] @{ Stdout = "$FirstPath`r"; Stderr = ''; ExitCode = 0 } },
+    [pscustomobject] @{ Label = 'nonzero'; Capture = [pscustomobject] @{ Stdout = $FirstPath; Stderr = ''; ExitCode = 87 } },
+    [pscustomobject] @{ Label = 'stderr'; Capture = [pscustomobject] @{ Stdout = $FirstPath; Stderr = 'bounded failure'; ExitCode = 0 } }
+  )) {
+    $Rejected = $false
+    try { $null = Assert-UbuntuPwshResolutionCapture $Mutation.Capture $FirstPath }
+    catch { $Rejected = $true }
+    if (-not $Rejected) { throw "Ubuntu pwsh resolution $($Mutation.Label) mutation was accepted" }
+  }
+  $Arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $Encoded)
+  Assert-UbuntuPwshResolutionArguments $Arguments $Encoded
+  $WhitespaceMutation = @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', $Command)
+  $WhitespaceRejected = $false
+  try { Assert-UbuntuPwshResolutionArguments $WhitespaceMutation $Encoded }
+  catch { $WhitespaceRejected = $true }
+  if (-not $WhitespaceRejected) { throw 'Ubuntu whitespace-bearing command mutation was accepted' }
+}
+
+function Assert-ExactRustSelectorLedger {
+  param([string[]] $Credits)
+
+  $ExpectedByteCount = 8043
+  $ExpectedSha256 = 'e6d27660a36468704b78fec89c218d8fe6e38d471ed8a4a686f8aab23d68120d'
+  $Items = @($Credits)
+  $Unique = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+  foreach ($Item in $Items) {
+    if ([string]::IsNullOrEmpty($Item) -or
+        -not [regex]::IsMatch($Item, '^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+$')) {
+      throw "exact Rust selector inventory contains an invalid selector: '$Item'"
+    }
+    $null = $Unique.Add($Item)
+  }
+  if ($Items.Count -ne 103 -or $Unique.Count -ne 103) {
+    throw "exact Rust selector inventory must credit 103 case-sensitive unique tests, credited $($Items.Count) invocations and $($Unique.Count) unique tests"
+  }
+
+  $CanonicalText = ($Items -join "`n") + "`n"
+  $Encoding = New-Object System.Text.UTF8Encoding($false, $true)
+  [byte[]] $Bytes = $Encoding.GetBytes($CanonicalText)
+  $LfCount = 0
+  $CrCount = 0
+  foreach ($Byte in $Bytes) {
+    if ($Byte -eq 10) { $LfCount++ }
+    if ($Byte -eq 13) { $CrCount++ }
+  }
+  if ($Bytes.Length -ne $ExpectedByteCount -or $LfCount -ne 103 -or $CrCount -ne 0 -or
+      $Bytes[$Bytes.Length - 1] -ne 10 -or
+      ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xef -and $Bytes[1] -eq 0xbb -and $Bytes[2] -eq 0xbf) -or
+      $Encoding.GetString($Bytes) -cne $CanonicalText) {
+    throw "exact Rust selector canonical serialization drifted: bytes=$($Bytes.Length) lf=$LfCount cr=$CrCount"
+  }
+  $Hasher = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $Sha256 = (($Hasher.ComputeHash($Bytes) | ForEach-Object { $_.ToString('x2') }) -join '')
+  } finally {
+    $Hasher.Dispose()
+  }
+  if ($Sha256 -cne $ExpectedSha256) {
+    throw "exact Rust selector invocation-order digest drifted: $Sha256"
+  }
+}
+
+function Assert-ExactRustSelectorLedgerRejects {
+  param([string[]] $Credits, [string] $Label)
+
+  $Rejected = $false
+  try { Assert-ExactRustSelectorLedger -Credits $Credits }
+  catch { $Rejected = $true }
+  if (-not $Rejected) { throw "exact Rust selector ledger accepted $Label" }
+}
+
+function Get-ExactRustSelectorOrdinalIndex {
+  param([string[]] $Selectors, [string] $Selector)
+
+  for ($Index = 0; $Index -lt $Selectors.Count; $Index++) {
+    if ($Selectors[$Index] -ceq $Selector) { return $Index }
+  }
+  throw "exact Rust selector mutation fixture lost $Selector"
+}
+
+function Invoke-ExactRustSelectorLedgerMutationTests {
+  param([string[]] $Credits, [string[]] $PreservedNamedSelectors)
+
+  $Wo22UnitASelectors = @(
+    'ir_verify::tests::canonical_minimal_add_artifact_corruption_matrix_is_complete',
+    'ir_verify::tests::verified_backend_input_is_sealed_typed_and_lifetime_bound'
+  )
+  Assert-ExactRustSelectorLedger -Credits $Credits
+  foreach ($Selector in $Wo22UnitASelectors) {
+    $Removal = @($Credits | Where-Object { $_ -cne $Selector })
+    Assert-ExactRustSelectorLedgerRejects -Credits $Removal -Label "removal of $Selector"
+    $Duplicate = @($Credits) + $Selector
+    Assert-ExactRustSelectorLedgerRejects -Credits $Duplicate -Label "duplication of $Selector"
+    $Substitution = [string[]] $Credits.Clone()
+    $Substitution[(Get-ExactRustSelectorOrdinalIndex -Selectors $Substitution -Selector $Selector)] = "$Selector-substituted"
+    Assert-ExactRustSelectorLedgerRejects -Credits $Substitution -Label "substitution of $Selector"
+  }
+
+  $Fabricated = @($Wo22UnitASelectors)
+  for ($Index = 1; $Index -le 101; $Index++) { $Fabricated += ('fabricated::selector_{0:D3}' -f $Index) }
+  Assert-ExactRustSelectorLedgerRejects -Credits $Fabricated -Label 'two Unit A selectors plus 101 fabricated selectors'
+
+  $PreservedAndFabricated = @($PreservedNamedSelectors) + @($Wo22UnitASelectors)
+  for ($Index = $PreservedAndFabricated.Count; $Index -lt 103; $Index++) {
+    $PreservedAndFabricated += ('fabricated::preserved_replacement_{0:D3}' -f $Index)
+  }
+  Assert-ExactRustSelectorLedgerRejects -Credits $PreservedAndFabricated -Label 'preserved named obligations plus fabricated replacements'
+
+  $CaseChanged = [string[]] $Credits.Clone()
+  $OlderRequired = 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed'
+  $CaseChanged[(Get-ExactRustSelectorOrdinalIndex -Selectors $CaseChanged -Selector $OlderRequired)] = $OlderRequired.ToUpperInvariant()
+  Assert-ExactRustSelectorLedgerRejects -Credits $CaseChanged -Label 'case change of an older required selector'
+
+  $RequiredReplacement = [string[]] $Credits.Clone()
+  $RequiredReplacement[(Get-ExactRustSelectorOrdinalIndex -Selectors $RequiredReplacement -Selector $Wo22UnitASelectors[0])] = 'parser::tests::exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero'
+  Assert-ExactRustSelectorLedgerRejects -Credits $RequiredReplacement -Label 'required selector replaced by a different real selector'
+
+  $UnmentionedReplacement = [string[]] $Credits.Clone()
+  $Unmentioned = 'parser::tests::recursive_h0010_consumer_is_complete_and_load_bearing'
+  $UnmentionedReplacement[(Get-ExactRustSelectorOrdinalIndex -Selectors $UnmentionedReplacement -Selector $Unmentioned)] = 'parser::tests::parses_task_with_sections'
+  Assert-ExactRustSelectorLedgerRejects -Credits $UnmentionedReplacement -Label 'otherwise unmentioned selector replacement'
+
+  $Reordered = [string[]] $Credits.Clone()
+  $Swap = $Reordered[0]
+  $Reordered[0] = $Reordered[1]
+  $Reordered[1] = $Swap
+  Assert-ExactRustSelectorLedgerRejects -Credits $Reordered -Label 'selector reordering'
+
+  Assert-ExactRustSelectorLedgerRejects -Credits @($Credits[0..($Credits.Count - 2)]) -Label 'missing selector'
+  $DuplicateAtSameCardinality = [string[]] $Credits.Clone()
+  $DuplicateAtSameCardinality[$DuplicateAtSameCardinality.Count - 1] = $DuplicateAtSameCardinality[0]
+  Assert-ExactRustSelectorLedgerRejects -Credits $DuplicateAtSameCardinality -Label 'duplicate selector at unchanged invocation count'
 }
 
 function Invoke-RepoScript {
@@ -328,16 +555,13 @@ Push-Location $RepoRoot
 try {
   Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
   $CaptureTest = Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
-  $Pwsh = (Get-Command pwsh -ErrorAction Stop).Source
-  $UbuntuPwshResolutionCommand = '(Get-Command pwsh -CommandType Application -ErrorAction Stop).Source'
+  $PwshApplications = @(Get-Command pwsh -CommandType Application -All -ErrorAction Stop)
+  $Pwsh = Select-FirstApplicationSource $PwshApplications 'outer pwsh selection'
+  $UbuntuPwshResolutionCommand = '$a=@(Get-Command pwsh -CommandType Application -All -ErrorAction Stop);if($a.Count -eq 0){exit 86};$s=[string]($a[0].Source);if([string]::IsNullOrEmpty($s)-or $s.IndexOfAny([char[]]@(13,10,0)) -ge 0){exit 87};[Console]::Out.Write($s)'
   $UbuntuPwshResolutionEncoded = ConvertTo-UbuntuPwshResolutionEncodedCommand $UbuntuPwshResolutionCommand
   $UbuntuPwshResolutionArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $UbuntuPwshResolutionEncoded)
   Assert-UbuntuPwshResolutionArguments $UbuntuPwshResolutionArguments $UbuntuPwshResolutionEncoded
-  $WhitespaceMutation = @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', $UbuntuPwshResolutionCommand)
-  $WhitespaceMutationRejected = $false
-  try { Assert-UbuntuPwshResolutionArguments $WhitespaceMutation $UbuntuPwshResolutionEncoded }
-  catch { $WhitespaceMutationRejected = $true }
-  if (-not $WhitespaceMutationRejected) { throw 'Ubuntu whitespace-bearing command mutation was accepted' }
+  Invoke-UbuntuPwshResolutionSelfTests $UbuntuPwshResolutionCommand $UbuntuPwshResolutionEncoded
   if ($env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_OS -eq 'Linux') {
     $Workspace = (Resolve-Path -LiteralPath $env:GITHUB_WORKSPACE -ErrorAction Stop).Path
     $CurrentRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
@@ -345,9 +569,7 @@ try {
       throw "Ubuntu capture workspace differs from repository root: $Workspace != $CurrentRoot"
     }
     $ChildPwsh = Read-NativeChannelsWithExit 'Ubuntu fresh-child pwsh resolution' $Pwsh $UbuntuPwshResolutionArguments
-    if ($ChildPwsh.ExitCode -ne 0 -or $ChildPwsh.Stderr.Length -ne 0 -or -not [string]::Equals($ChildPwsh.Stdout.Trim(), $Pwsh, [System.StringComparison]::Ordinal)) {
-      throw 'Ubuntu fresh child did not resolve the same pwsh executable'
-    }
+    $null = Assert-UbuntuPwshResolutionCapture $ChildPwsh $Pwsh
     $UbuntuScratch = Join-Path $env:RUNNER_TEMP "hum-fast-capture-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-ubuntu"
     Invoke-Native 'Fast evidence capture tests (Ubuntu pwsh checkpoint)' $Pwsh @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', './tools/test_fast_evidence_capture.ps1', '-ShellContract', 'pwsh', '-ScratchRoot', $UbuntuScratch)
   } else {
@@ -1509,31 +1731,39 @@ task malformed() -> UInt {
     Invoke-ExactRustTest "Session AP evidence $EvidenceTest" $Cargo $EvidenceTest
   }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
-  $UniqueExactRustSelectorCredits = @($ExactRustSelectorCredits | Sort-Object -Unique)
-  if ($ExactRustSelectorCredits.Count -ne 101 -or $UniqueExactRustSelectorCredits.Count -ne 101) { throw "exact Rust selector inventory must credit 101 unique tests, credited $($ExactRustSelectorCredits.Count) invocations and $($UniqueExactRustSelectorCredits.Count) unique tests" }
-  if ($ExactRustSelectorCredits -notcontains 'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed') { throw 'exact Rust selector inventory lost the typed-failure call-identity boundary test' }
-  if ($ExactRustSelectorCredits -notcontains 'core_body::tests::validated_body_grammar_construction_is_compiler_sealed') { throw 'exact Rust selector inventory lost the compiler-sealed validated body grammar construction test' }
-  foreach ($WorkOrder17Selector in @(
+  $OlderExactRustSelectorObligations = @(
+    'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed',
+    'core_body::tests::validated_body_grammar_construction_is_compiler_sealed'
+  )
+  $WorkOrder17ExactRustSelectors = @(
     'type_check::tests::canonical_minimal_add_type_authority_is_operation_bound',
     'core_lower::tests::canonical_minimal_add_type_authority_is_owned_by_exact_operation',
     'core_verify::tests::canonical_minimal_add_type_verification_withholds_invalid_access',
     'full_type_check::tests::minimal_add_consumes_only_verified_canonical_type'
-  )) {
-    if ($ExactRustSelectorCredits -notcontains $WorkOrder17Selector) { throw "exact Rust selector inventory lost Work Order 17 selector $WorkOrder17Selector" }
-  }
-  foreach ($WorkOrder19Selector in @(
+  )
+  $WorkOrder19ExactRustSelectors = @(
     'full_type_check::tests::minimal_add_backend_fact_handoff_is_exact_and_borrowed',
     'ownership_check::tests::minimal_add_effect_and_ownership_authority_stays_operation_owned',
     'profile_check::tests::minimal_add_resource_and_profile_authority_is_checked_empty',
     'ir_readiness::tests::canonical_minimal_add_is_ir_ready_only_after_live_verification'
-  )) {
-    if ($ExactRustSelectorCredits -notcontains $WorkOrder19Selector) { throw "exact Rust selector inventory lost Work Order 19 selector $WorkOrder19Selector" }
-  }
-  foreach ($WorkOrder20UnitASelector in @(
+  )
+  $WorkOrder20UnitAExactRustSelectors = @(
     'sha256::tests::sha256_known_answer_and_boundary_matrix_is_exact',
     'backend_input::tests::minimal_add_backend_input_bytes_are_canonical_and_deterministic'
-  )) {
-    if ($ExactRustSelectorCredits -notcontains $WorkOrder20UnitASelector) { throw "exact Rust selector inventory lost Work Order 20 Unit A selector $WorkOrder20UnitASelector" }
+  )
+  $PreservedNamedExactRustSelectors = @($OlderExactRustSelectorObligations) + @($WorkOrder17ExactRustSelectors) + @($WorkOrder19ExactRustSelectors) + @($WorkOrder20UnitAExactRustSelectors)
+  Invoke-ExactRustSelectorLedgerMutationTests -Credits $ExactRustSelectorCredits -PreservedNamedSelectors $PreservedNamedExactRustSelectors
+  foreach ($OlderSelector in $OlderExactRustSelectorObligations) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $OlderSelector }).Count -ne 1) { throw "exact Rust selector inventory lost older required selector $OlderSelector" }
+  }
+  foreach ($WorkOrder17Selector in $WorkOrder17ExactRustSelectors) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder17Selector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 17 selector $WorkOrder17Selector" }
+  }
+  foreach ($WorkOrder19Selector in $WorkOrder19ExactRustSelectors) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder19Selector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 19 selector $WorkOrder19Selector" }
+  }
+  foreach ($WorkOrder20UnitASelector in $WorkOrder20UnitAExactRustSelectors) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder20UnitASelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 20 Unit A selector $WorkOrder20UnitASelector" }
   }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
