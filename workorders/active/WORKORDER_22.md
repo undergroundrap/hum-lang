@@ -879,7 +879,7 @@ and makes only that row the primary NO_GO.
 | B05 | verified checked-add operator/result | instruction selector | fact-derived `sadd_overflow` and sum result can be emitted | `checked_add_selection_failed` | yes |
 | B06 | verified overflow and normal edges | CFG/status builder | branch, success store/status 0, and overflow status 1 can be emitted without a result on failure | `overflow_control_flow_failed` | yes |
 | B07 | verified operation span | source-map builder | the operation maps to a non-default exact `SourceLoc` | `source_location_mapping_failed` | yes |
-| B08 | required host target | ISA builder | exact x86_64 Windows-MSVC or x86_64 Linux-GNU native ISA initializes | `unsupported_or_unavailable_target` | yes |
+| B08 | runnable host target and native-ISA availability | ISA builder | exact x86_64 Windows-MSVC or x86_64 Linux-GNU native ISA initializes; any runnable non-required host or unavailable/rejected required-host ISA is NO_GO | `unsupported_or_unavailable_target` | yes |
 | B09 | completed CLIF function | Cranelift verifier | emitted function verifies with the fact-derived instruction, CFG, ABI, and source location | `cranelift_verification_failed` | yes |
 | B10 | verified function declaration plan | JIT module | internal function is declared with the exact signature/linkage | `jit_declaration_failed` | yes |
 | B11 | verified CLIF body | JIT module | exact declared function body is defined | `jit_definition_failed` | yes |
@@ -923,11 +923,29 @@ return status 1 and must not claim a result. The same function produced from the
 same verified capability runs all six cases. Recompiling or substituting a
 case-specific function is forbidden.
 
-Only x86_64 Windows-MSVC and x86_64 Linux-GNU are required GO configurations.
-All other architectures, operating systems, environments, calling conventions,
-or unavailable native-ISA builders are explicitly unexercised and must produce
-B08 `NO_GO`, never a compile error or fallback. Unit reports must list every
-unexercised configuration honestly.
+Only `x86_64-pc-windows-msvc` and `x86_64-unknown-linux-gnu` are required GO
+build and execution configurations. WO22 does not claim that Hum or its
+Cranelift JIT dependencies compile for every Rust target, architecture,
+operating system, or environment. A target outside Hum's compiled and runnable
+support envelope may remain explicitly unexercised. Failure to build Hum for
+an otherwise unsupported Rust target such as `wasm32` is not a B08 runtime
+result and must not be represented as one.
+
+B08 `NO_GO` is required after valid capability admission when Hum successfully
+builds and runs on a host outside the required GO set, or when a required GO
+host reaches the real native-ISA boundary but the ISA builder is unavailable
+or rejects the exact target. No unsupported host may be reported as GO,
+silently fall back, route to the interpreter, or set backend readiness. Unit
+reports must list locally unexercised configurations honestly. Required
+Windows and Linux publication CI remain mandatory and unchanged.
+
+Permanent B08 evidence must exercise the real production target and ISA
+predicate after valid capability admission. An initialized disposable mutation
+that removes or ignores only that predicate must make the permanent selector
+fail. `BackendProbeFault::RejectTargetIsa` alone is never load-bearing proof.
+All other B01-B15 semantics, the verified-only adapter, Cranelift pins,
+readiness rules, paths, budgets, unsafe boundary, probes, and publication
+requirements remain unchanged.
 
 Cross-platform publication is a separate lifecycle gate, not a sixteenth
 runtime row that a local process could predict. A host-local backend probe may
@@ -984,7 +1002,7 @@ Required targeted mutations are:
 | replace fact-derived selection with hard-coded add or `iadd` | B05 and overflow probes |
 | omit overflow branch or write result on overflow | B06 and B14 |
 | drop or default the operation `SourceLoc` | B07 |
-| force target support or hide ISA failure | B08 unsupported-target case |
+| force a runnable unsupported host to GO, remove the production target predicate, or hide a required-host ISA failure | B08 real target/ISA case after valid capability admission |
 | skip Cranelift verification | B09 verification case |
 | hide JIT declaration, definition, or finalization failure | B10, B11, or B12 exact case |
 | return expected ordinary constants without finalized invocation | B13 execution-origin assertion |
@@ -1204,24 +1222,30 @@ planning authorship or review.
 
 ## Current authorization gate
 
-Unit A implementation and its full cross-platform publication CI are complete.
-The sole current lifecycle action is this routine status-only record. Unit B
-remains unauthorized pending all of the following, in order:
+Unit A implementation, status recording, and both publication lifecycles are
+complete. The first complete Unit B candidate was independently rejected at
+its pre-Fast review gate. The preserved nineteen-path candidate remains
+unstaged and unaccepted. Fast remains unconsumed. Two findings are bounded
+implementation defects: the B01-B15 fault seam lacked paired executable
+mutations of every real production predicate, and overflow execution did not
+observe that the result slot remained unchanged. The third finding exposed the
+overbroad unsupported-target promise corrected by this amendment.
 
-1. independent authentication of this exact candidate or satisfaction of the
-   exact routine-status exception;
-2. a separately authorized status commit;
-3. a separately authorized normal non-force push;
-4. terminal-green Ubuntu and Windows fast status CI reproducing the exact
-   eligible status-chain binding; and
-5. a fresh explicit BDFL Unit B signal after that report.
+Unit B implementation correction remains blocked pending independent review,
+local commit, separately authorized publication, and terminal required CI for
+this amendment. A later fresh BDFL correction signal must require the preserved
+candidate to:
 
-Until all five gates complete, no Unit B dependency, Cranelift adapter,
-lowering, backend probe, GO/NO-GO row, JIT execution, or readiness change is
-authorized. Closeout, WO23, stash or archive operations, local Fast or
-Exhaustive, CI optimization, general evidence-harness consolidation,
-semantic-coordinate research, and every other later unit or project remain
-unauthorized. This record grants no commit, push, implementation, repair,
-retry, reclassification, or other implicit authority.
+1. add paired executable mutations for every B01-B15 real production
+   predicate, with no credit from the fault enum alone;
+2. observe and require an unchanged overflow result slot; and
+3. implement the clarified B08 contract through the real production target and
+   ISA predicate after valid capability admission.
+
+This amendment grants no budget expansion, path expansion, implementation,
+repair, Fast launch, commit, push, or publication authority. Closeout, WO23,
+stash or archive operations, local Fast or Exhaustive, CI optimization,
+general evidence-harness consolidation, semantic-coordinate research, and
+every other later unit or project remain unauthorized.
 
 <!-- workorder-current-authorization-gate:end -->
