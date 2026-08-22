@@ -1,6 +1,7 @@
 param(
   [ValidateSet('powershell', 'pwsh')][string] $ShellContract = 'pwsh',
   [string] $ScratchRoot = '',
+  [switch] $EnvironmentSnapshotOnly,
   [ValidateSet('', 'preflight', 'success', 'exit23', 'empty', 'interleaved', 'unicode',
     'early-marker', 'duplicate-marker', 'nonzero-marker', 'timeout', 'descendant',
     'descendant-long', 'descendant-short', 'inherited-parent', 'redirected-parent',
@@ -164,6 +165,535 @@ function Assert-Bytes {
   for ($Index = 0; $Index -lt $Actual.Length; $Index++) {
     Assert-True ($Actual[$Index] -eq $Expected[$Index]) "$Message byte $Index"
   }
+}
+
+function Assert-Throws {
+  param([scriptblock] $Action, [string] $Message)
+  $Rejected = $false
+  try { & $Action } catch { $Rejected = $true }
+  Assert-True $Rejected $Message
+}
+
+if (-not ('HumFastEnvironmentNative' -as [type])) {
+  Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public sealed class HumFastEnvironmentProbe
+{
+    private readonly char[] characters;
+    private readonly bool releaseResult;
+
+    public bool Acquired { get; private set; }
+    public int ReadCallCount { get; private set; }
+    public int MaximumRequestedIndex { get; private set; }
+    public int ReadAfterReleaseCount { get; private set; }
+    public int ReleaseCallCount { get; private set; }
+    public bool Released { get; private set; }
+    public bool ReleaseResult { get { return releaseResult; } }
+
+    private HumFastEnvironmentProbe(char[] characters, bool acquired, bool releaseResult)
+    {
+        this.characters = characters == null ? null : (char[])characters.Clone();
+        this.Acquired = acquired;
+        this.releaseResult = releaseResult;
+        this.MaximumRequestedIndex = -1;
+    }
+
+    public static HumFastEnvironmentProbe Create(
+        char[] characters,
+        bool acquired,
+        bool releaseResult)
+    {
+        return new HumFastEnvironmentProbe(characters, acquired, releaseResult);
+    }
+
+    public char ReadCharacter(int index)
+    {
+        if (Released)
+        {
+            ReadAfterReleaseCount++;
+            throw new InvalidOperationException("environment block read after release");
+        }
+        ReadCallCount++;
+        if (index > MaximumRequestedIndex) { MaximumRequestedIndex = index; }
+        if (characters == null || index < 0 || index >= characters.Length)
+        {
+            throw new InvalidOperationException(
+                "environment block ended before the terminal double NUL");
+        }
+        return characters[index];
+    }
+
+    public bool Release()
+    {
+        ReleaseCallCount++;
+        if (ReleaseCallCount != 1)
+        {
+            throw new InvalidOperationException("environment block released more than once");
+        }
+        Released = true;
+        return releaseResult;
+    }
+}
+
+public static class HumFastEnvironmentNative
+{
+    private const int MaximumCharacters = 4 * 1024 * 1024;
+    private const int MaximumEntries = 65536;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr GetEnvironmentStrings();
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool FreeEnvironmentStrings(IntPtr environmentBlock);
+
+    private static char ReadBounded(
+        Func<int, char> readCharacter,
+        int index,
+        int maximumCharacters)
+    {
+        if (index < 0 || index >= maximumCharacters)
+        {
+            throw new InvalidOperationException("environment block exceeds the character limit");
+        }
+        return readCharacter(index);
+    }
+
+    private static void ValidateEntry(string entry)
+    {
+        if (entry.Length == 0)
+        {
+            throw new InvalidOperationException("environment block contains an empty internal entry");
+        }
+
+        int firstEquals = entry.IndexOf('=');
+        if (firstEquals > 0)
+        {
+            return;
+        }
+        if (firstEquals == 0 && entry.IndexOf('=', 1) > 1)
+        {
+            return;
+        }
+        throw new InvalidOperationException("environment block contains a malformed entry");
+    }
+
+    public static string[] ParseBoundedEnvironmentBlock(
+        Func<int, char> readCharacter,
+        int maximumCharacters,
+        int maximumEntries)
+    {
+        if (readCharacter == null)
+        {
+            throw new ArgumentNullException("readCharacter");
+        }
+        if (maximumCharacters < 2)
+        {
+            throw new InvalidOperationException(
+                "environment block character limit cannot authenticate double NUL");
+        }
+        if (maximumEntries < 0)
+        {
+            throw new InvalidOperationException("environment block entry limit is invalid");
+        }
+
+        List<string> entries = new List<string>();
+        int cursor = 0;
+        if (ReadBounded(readCharacter, cursor, maximumCharacters) == '\0')
+        {
+            if (ReadBounded(readCharacter, cursor + 1, maximumCharacters) != '\0')
+            {
+                throw new InvalidOperationException(
+                    "empty environment block lacks terminal double NUL");
+            }
+            return entries.ToArray();
+        }
+
+        while (true)
+        {
+            if (entries.Count >= maximumEntries)
+            {
+                throw new InvalidOperationException("environment block exceeds the entry limit");
+            }
+
+            StringBuilder entry = new StringBuilder();
+            while (true)
+            {
+                char value = ReadBounded(readCharacter, cursor, maximumCharacters);
+                if (value == '\0')
+                {
+                    break;
+                }
+                entry.Append(value);
+                cursor++;
+            }
+
+            string entryText = entry.ToString();
+            ValidateEntry(entryText);
+            entries.Add(entryText);
+            cursor++;
+
+            if (ReadBounded(readCharacter, cursor, maximumCharacters) == '\0')
+            {
+                return entries.ToArray();
+            }
+        }
+    }
+
+    public static void AuthenticateRelease(
+        int releaseCallCount,
+        bool reportedResult,
+        bool actualResult)
+    {
+        if (releaseCallCount != 1)
+        {
+            throw new InvalidOperationException(
+                "environment block release count must equal one");
+        }
+        if (reportedResult != actualResult)
+        {
+            throw new InvalidOperationException("environment block release result was altered");
+        }
+        if (!actualResult)
+        {
+            throw new InvalidOperationException("environment block release failed");
+        }
+    }
+
+    private static string[] ReadAcquiredEnvironmentBlock(
+        bool acquired,
+        Func<int, char> readCharacter,
+        int maximumCharacters,
+        int maximumEntries,
+        Func<bool> release,
+        Func<int> releaseCallCount)
+    {
+        if (!acquired)
+        {
+            throw new InvalidOperationException("environment block acquisition returned null");
+        }
+
+        string[] result = null;
+        bool reportedReleaseResult = false;
+        bool actualReleaseResult = false;
+        try
+        {
+            result = ParseBoundedEnvironmentBlock(
+                readCharacter,
+                maximumCharacters,
+                maximumEntries);
+        }
+        finally
+        {
+            actualReleaseResult = release();
+            reportedReleaseResult = actualReleaseResult;
+            AuthenticateRelease(
+                releaseCallCount(),
+                reportedReleaseResult,
+                actualReleaseResult);
+        }
+        return result;
+    }
+
+    public static string[] ReadInjectedEnvironmentBlock(
+        HumFastEnvironmentProbe probe,
+        int maximumCharacters,
+        int maximumEntries)
+    {
+        if (probe == null)
+        {
+            throw new InvalidOperationException("environment block acquisition returned null");
+        }
+        return ReadAcquiredEnvironmentBlock(
+            probe.Acquired,
+            probe.ReadCharacter,
+            maximumCharacters,
+            maximumEntries,
+            probe.Release,
+            delegate { return probe.ReleaseCallCount; });
+    }
+
+    public static string[] ReadWindowsEnvironmentBlock()
+    {
+        IntPtr block = GetEnvironmentStrings();
+        if (block == IntPtr.Zero)
+        {
+            throw new InvalidOperationException(
+                "GetEnvironmentStrings failed with Win32 error " + Marshal.GetLastWin32Error());
+        }
+
+        int releaseCallCount = 0;
+        return ReadAcquiredEnvironmentBlock(
+            true,
+            delegate(int index)
+            {
+                return (char)Marshal.ReadInt16(block, checked(index * 2));
+            },
+            MaximumCharacters,
+            MaximumEntries,
+            delegate
+            {
+                releaseCallCount++;
+                return FreeEnvironmentStrings(block);
+            },
+            delegate { return releaseCallCount; });
+    }
+}
+'@
+}
+
+function Get-ProcessEnvironmentEntries {
+  if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+    [HumFastEnvironmentNative]::ReadWindowsEnvironmentBlock()
+    return
+  }
+
+  $Entries = New-Object 'System.Collections.Generic.List[string]'
+  foreach ($Entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerator()) {
+    $Entries.Add(([string] $Entry.Key) + '=' + ([string] $Entry.Value))
+  }
+  $Entries.ToArray()
+}
+
+function ConvertTo-EnvironmentSnapshotBytes {
+  param([Parameter(Mandatory = $true)][AllowNull()][AllowEmptyCollection()][System.Array] $Entries)
+
+  if ($null -eq $Entries) { throw 'environment snapshot entries array is null' }
+  $Ordered = New-Object 'string[]' $Entries.Length
+  for ($Index = 0; $Index -lt $Entries.Length; $Index++) {
+    $Entry = $Entries.GetValue($Index)
+    if ($null -eq $Entry) { throw 'environment snapshot entry is null' }
+    if (-not ($Entry -is [string])) { throw 'environment snapshot entry is not a string' }
+    $Ordered[$Index] = [string] $Entry
+  }
+  [Array]::Sort($Ordered, [StringComparer]::Ordinal)
+  $Utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+  $Stream = New-Object System.IO.MemoryStream
+  try {
+    foreach ($Entry in $Ordered) {
+      if ($Entry.IndexOf([char] 0) -ge 0) { throw 'environment snapshot entry contains NUL' }
+      $Bytes = $Utf8.GetBytes($Entry)
+      $Stream.Write($Bytes, 0, $Bytes.Length)
+      $Stream.WriteByte(0)
+    }
+    return ,([byte[]] $Stream.ToArray())
+  } finally {
+    $Stream.Dispose()
+  }
+}
+
+function Test-ExactBytesEqual {
+  param([byte[]] $Left, [byte[]] $Right)
+  if ($Left.Length -ne $Right.Length) { return $false }
+  for ($Index = 0; $Index -lt $Left.Length; $Index++) {
+    if ($Left[$Index] -ne $Right[$Index]) { return $false }
+  }
+  $true
+}
+
+function New-EnvironmentProbe {
+  param(
+    [char[]] $Characters,
+    [bool] $Acquired = $true,
+    [bool] $ReleaseResult = $true
+  )
+  [HumFastEnvironmentProbe]::Create($Characters, $Acquired, $ReleaseResult)
+}
+
+function Assert-EnvironmentNativeParserContract {
+  $DoubleNul = [char[]] @([char] 0, [char] 0)
+  $EmptyProbe = New-EnvironmentProbe $DoubleNul
+  $EmptyEntries = @([HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock($EmptyProbe, $DoubleNul.Length, 0))
+  Assert-True ($EmptyEntries.Count -eq 0) 'valid empty environment block was rejected'
+  Assert-True ($EmptyProbe.ReleaseCallCount -eq 1 -and $EmptyProbe.Released) 'empty block release lifecycle'
+  Assert-True ($EmptyProbe.ReadAfterReleaseCount -eq 0) 'empty block read after release'
+
+  $OrdinaryCharacters = [char[]] "B=2$([char] 0)A=1$([char] 0)$([char] 0)".ToCharArray()
+  $OrdinaryProbe = New-EnvironmentProbe $OrdinaryCharacters
+  $OrdinaryEntries = @([HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock(
+      $OrdinaryProbe,
+      $OrdinaryCharacters.Length,
+      2))
+  Assert-True ($OrdinaryEntries.Count -eq 2) 'valid ordinary environment block entry count'
+  Assert-True ($OrdinaryEntries[0] -ceq 'B=2' -and $OrdinaryEntries[1] -ceq 'A=1') 'valid ordinary environment block order'
+  Assert-True ($OrdinaryProbe.ReleaseCallCount -eq 1 -and $OrdinaryProbe.ReadAfterReleaseCount -eq 0) 'ordinary block release lifecycle'
+
+  $SpecialEntry = '=C:=C:' + [char] 92 + 'probe'
+  $SpecialCharacters = [char[]] "$SpecialEntry$([char] 0)$([char] 0)".ToCharArray()
+  $SpecialProbe = New-EnvironmentProbe $SpecialCharacters
+  $SpecialEntries = @([HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock(
+      $SpecialProbe,
+      $SpecialCharacters.Length,
+      1))
+  Assert-True ($SpecialEntries.Count -eq 1 -and $SpecialEntries[0] -ceq $SpecialEntry) 'valid leading-equals Windows entry rejected'
+  Assert-True ($SpecialProbe.ReleaseCallCount -eq 1) 'leading-equals block release lifecycle'
+
+  $NullProbe = New-EnvironmentProbe $DoubleNul $false $true
+  Assert-Throws {
+    [HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock($NullProbe, $DoubleNul.Length, 0)
+  } 'null environment block acquisition was accepted'
+  Assert-True ($NullProbe.ReadCallCount -eq 0 -and $NullProbe.ReleaseCallCount -eq 0) 'null block was parsed or released'
+
+  $SingleNul = [char[]] @([char] 0)
+  $SingleNulProbe = New-EnvironmentProbe $SingleNul
+  Assert-Throws {
+    [HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock($SingleNulProbe, 2, 0)
+  } 'empty block with one NUL was accepted'
+  Assert-True ($SingleNulProbe.ReleaseCallCount -eq 1) 'single-NUL rejection did not release'
+
+  $OneTerminalNul = [char[]] "A=1$([char] 0)".ToCharArray()
+  $OneTerminalProbe = New-EnvironmentProbe $OneTerminalNul
+  Assert-Throws {
+    [HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock($OneTerminalProbe, $OneTerminalNul.Length + 1, 1)
+  } 'nonempty block with one terminal NUL was accepted'
+  Assert-True ($OneTerminalProbe.ReleaseCallCount -eq 1) 'one-terminal-NUL rejection did not release'
+
+  $TruncatedCharacters = [char[]] 'A='.ToCharArray()
+  $TruncatedProbe = New-EnvironmentProbe $TruncatedCharacters
+  Assert-Throws {
+    [HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock($TruncatedProbe, $TruncatedCharacters.Length + 1, 1)
+  } 'truncated environment entry was accepted'
+  Assert-True ($TruncatedProbe.ReleaseCallCount -eq 1) 'truncated-entry rejection did not release'
+
+  $MissingTerminatorCharacters = [char[]] 'A=1'.ToCharArray()
+  $MissingTerminatorProbe = New-EnvironmentProbe $MissingTerminatorCharacters
+  Assert-Throws {
+    [HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock(
+      $MissingTerminatorProbe,
+      $MissingTerminatorCharacters.Length + 1,
+      1)
+  } 'unterminated environment entry was accepted'
+  Assert-True ($MissingTerminatorProbe.ReleaseCallCount -eq 1) 'unterminated-entry rejection did not release'
+
+  $CharacterBoundProbe = New-EnvironmentProbe $OrdinaryCharacters
+  $CharacterBound = $OrdinaryCharacters.Length - 1
+  Assert-Throws {
+    [HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock($CharacterBoundProbe, $CharacterBound, 2)
+  } 'environment character-bound exhaustion was accepted'
+  Assert-True ($CharacterBound -lt $OrdinaryCharacters.Length) 'character-bound exhaustion mutation did not initialize'
+  Assert-True ($CharacterBoundProbe.MaximumRequestedIndex -lt $CharacterBound) 'environment parser read past character bound'
+  Assert-True ($CharacterBoundProbe.ReleaseCallCount -eq 1) 'character-bound rejection did not release'
+  $RepeatedReadProbe = New-EnvironmentProbe $DoubleNul
+  for ($Index = 0; $Index -le $DoubleNul.Length; $Index++) { $null = $RepeatedReadProbe.ReadCharacter(0) }
+  Assert-True ($RepeatedReadProbe.ReadCallCount -gt $DoubleNul.Length -and $RepeatedReadProbe.MaximumRequestedIndex -eq 0) 'repeated bounded-read control failed'
+  Assert-True ($RepeatedReadProbe.Release()) 'repeated bounded-read control release failed'
+
+  $EntryBoundProbe = New-EnvironmentProbe $OrdinaryCharacters
+  Assert-Throws {
+    [HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock($EntryBoundProbe, $OrdinaryCharacters.Length, 1)
+  } 'environment entry-bound exhaustion was accepted'
+  Assert-True ($EntryBoundProbe.ReleaseCallCount -eq 1) 'entry-bound rejection did not release'
+
+  $MalformedCharacters = [char[]] "MALFORMED$([char] 0)$([char] 0)".ToCharArray()
+  $MalformedProbe = New-EnvironmentProbe $MalformedCharacters
+  Assert-Throws {
+    [HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock($MalformedProbe, $MalformedCharacters.Length, 1)
+  } 'malformed environment entry was accepted'
+  Assert-True ($MalformedProbe.ReleaseCallCount -eq 1 -and $MalformedProbe.ReadAfterReleaseCount -eq 0) 'parse failure release lifecycle'
+
+  $ReleaseFailureProbe = New-EnvironmentProbe $DoubleNul $true $false
+  Assert-Throws {
+    [HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock($ReleaseFailureProbe, $DoubleNul.Length, 0)
+  } 'environment release failure was accepted'
+  Assert-True ($ReleaseFailureProbe.ReleaseCallCount -eq 1 -and $ReleaseFailureProbe.Released) 'release failure call count'
+
+  Assert-Throws {
+    [HumFastEnvironmentNative]::AuthenticateRelease(0, $true, $true)
+  } 'missing environment release was accepted'
+  Assert-Throws {
+    [HumFastEnvironmentNative]::AuthenticateRelease(2, $true, $true)
+  } 'duplicate environment release was accepted'
+  Assert-Throws {
+    [HumFastEnvironmentNative]::AuthenticateRelease(1, $true, $false)
+  } 'forced-success environment release was accepted'
+
+  $DuplicateReleaseProbe = New-EnvironmentProbe $DoubleNul
+  $null = [HumFastEnvironmentNative]::ReadInjectedEnvironmentBlock(
+    $DuplicateReleaseProbe,
+    $DoubleNul.Length,
+    0)
+  Assert-Throws { $DuplicateReleaseProbe.Release() } 'duplicate release operation was accepted'
+  Assert-True ($DuplicateReleaseProbe.ReleaseCallCount -eq 2) 'duplicate release mutation did not initialize'
+
+  Assert-Throws { $OrdinaryProbe.ReadCharacter(0) } 'read after environment release was accepted'
+  Assert-True ($OrdinaryProbe.ReadAfterReleaseCount -eq 1) 'read-after-release adversary did not initialize'
+}
+
+function Get-ProcessEnvironmentSnapshot {
+  $Entries = @(Get-ProcessEnvironmentEntries)
+  $Bytes = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] $Entries))
+  $Hasher = [Security.Cryptography.SHA256]::Create()
+  try {
+    $Sha256 = ([BitConverter]::ToString($Hasher.ComputeHash($Bytes))).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $Hasher.Dispose()
+  }
+  [pscustomobject] @{
+    EntryCount = $Entries.Count
+    Bytes = $Bytes
+    ByteCount = $Bytes.Length
+    Sha256 = $Sha256
+  }
+}
+
+function Assert-EnvironmentSnapshotContract {
+  Assert-EnvironmentNativeParserContract
+
+  $EmptyA = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @()))
+  $EmptyB = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @()))
+  Assert-True (Test-ExactBytesEqual $EmptyA $EmptyB) 'empty environment snapshot is nondeterministic'
+
+  $OrdinaryA = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @('B=2', 'A=1')))
+  $OrdinaryB = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @('A=1', 'B=2')))
+  Assert-True (Test-ExactBytesEqual $OrdinaryA $OrdinaryB) 'ordinary environment snapshot depends on input order'
+
+  $CaseVariantsA = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @('PATH=value-a', 'Path=value-b')))
+  $CaseVariantsB = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @('Path=value-b', 'PATH=value-a')))
+  Assert-True (Test-ExactBytesEqual $CaseVariantsA $CaseVariantsB) 'case-variant environment snapshot depends on input order'
+  $ChangedUpper = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @('PATH=value-c', 'Path=value-b')))
+  $ChangedLower = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @('PATH=value-a', 'Path=value-c')))
+  Assert-True (-not (Test-ExactBytesEqual $CaseVariantsA $ChangedUpper)) 'uppercase environment value change was lost'
+  Assert-True (-not (Test-ExactBytesEqual $CaseVariantsA $ChangedLower)) 'mixed-case environment value change was lost'
+
+  $Single = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @('DUPLICATE=value')))
+  $Duplicate = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @('DUPLICATE=value', 'DUPLICATE=value')))
+  Assert-True ($Duplicate.Length -eq (2 * $Single.Length)) 'exact environment duplicate multiplicity was lost'
+  Assert-True (-not (Test-ExactBytesEqual $Single $Duplicate)) 'exact environment duplicate was collapsed'
+
+  $FramedA = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @("FRAME=line-one`nline=two", 'EQUALS=a=b=c')))
+  $FramedB = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @('EQUALS=a=b=c', "FRAME=line-one`nline=two")))
+  $AmbiguousTextShape = [byte[]] (ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @('FRAME=line-one', 'line=two', 'EQUALS=a=b=c')))
+  Assert-True (Test-ExactBytesEqual $FramedA $FramedB) 'framed environment snapshot depends on input order'
+  Assert-True (-not (Test-ExactBytesEqual $FramedA $AmbiguousTextShape)) 'environment entry framing is ambiguous'
+
+  $NullOnly = [Array]::CreateInstance([string], 1)
+  Assert-Throws { ConvertTo-EnvironmentSnapshotBytes -Entries $NullOnly } 'one-element null environment entry was accepted'
+  $NullAmongEntries = [Array]::CreateInstance([string], 2)
+  $NullAmongEntries.SetValue('A=1', 0)
+  Assert-Throws { ConvertTo-EnvironmentSnapshotBytes -Entries $NullAmongEntries } 'null among environment entries was accepted'
+  Assert-Throws {
+    ConvertTo-EnvironmentSnapshotBytes -Entries ([string[]] @("NUL=value$([char] 0)tail"))
+  } 'embedded NUL environment entry was accepted'
+
+  $Before = Get-ProcessEnvironmentSnapshot
+  $ProbeName = 'HUM_FAST_CAPTURE_ENV_SNAPSHOT_' + [Guid]::NewGuid().ToString('N')
+  Assert-True ($null -eq [Environment]::GetEnvironmentVariable($ProbeName, [EnvironmentVariableTarget]::Process)) 'environment probe name collision'
+  try {
+    [Environment]::SetEnvironmentVariable($ProbeName, "value=one`nvalue-two", [EnvironmentVariableTarget]::Process)
+    $Changed = Get-ProcessEnvironmentSnapshot
+    Assert-True (-not (Test-ExactBytesEqual $Before.Bytes $Changed.Bytes)) 'initialized environment mutation was not detected'
+  } finally {
+    [Environment]::SetEnvironmentVariable(
+      $ProbeName,
+      [System.Management.Automation.Language.NullString]::Value,
+      [EnvironmentVariableTarget]::Process)
+  }
+  $Restored = Get-ProcessEnvironmentSnapshot
+  Assert-True (Test-ExactBytesEqual $Before.Bytes $Restored.Bytes) 'environment probe was not restored byte-exactly'
 }
 
 function Assert-CaptureRejected {
@@ -356,11 +886,18 @@ function Get-GitConfigurationIdentity {
   }) -join "`n"
 }
 
+if ($EnvironmentSnapshotOnly) {
+  Assert-EnvironmentSnapshotContract
+  Write-Output "Environment snapshot tests passed for $ShellContract."
+  exit 0
+}
+
 if ($ScratchRoot -eq '') {
   $ScratchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-fast-capture-test-" + [Guid]::NewGuid().ToString('N'))
 }
 Assert-True (-not (Test-Path -LiteralPath $ScratchRoot)) 'scratch root must be absent before test'
-$BeforeEnvironment = @(Get-ChildItem Env: | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join "`n"
+Assert-EnvironmentSnapshotContract
+$BeforeEnvironment = Get-ProcessEnvironmentSnapshot
 $BeforeDirectory = (Get-Location).Path
 $BeforeConfig = Get-GitConfigurationIdentity
 $RunnerSource = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'run_fast_evidence.ps1'))
@@ -651,7 +1188,8 @@ try {
 
 Assert-True (-not (Test-Path -LiteralPath $ScratchRoot)) 'scratch root cleanup'
 Assert-True ((Get-Location).Path -eq $BeforeDirectory) 'current directory changed'
-Assert-True ((@(Get-ChildItem Env: | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join "`n") -eq $BeforeEnvironment) 'parent environment changed'
+$AfterEnvironment = Get-ProcessEnvironmentSnapshot
+Assert-True (Test-ExactBytesEqual $BeforeEnvironment.Bytes $AfterEnvironment.Bytes) 'parent environment changed'
 $AfterConfig = Get-GitConfigurationIdentity
 Assert-True ($AfterConfig -eq $BeforeConfig) 'local/global/system Git configuration changed'
 Write-Output "Fast evidence capture tests passed for $ShellContract."
