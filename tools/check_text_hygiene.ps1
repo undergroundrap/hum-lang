@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$ExcludedDirectories = @('.git', 'target')
+$ExcludedDirectories = @('.git', 'target', '.cargo-home')
 $TextExtensions = @(
   '.code-workspace',
   '.classpath',
@@ -66,7 +66,7 @@ function Test-ExcludedRelativePath {
   param([string] $RelativePath)
 
   foreach ($directory in $ExcludedDirectories) {
-    if ($RelativePath -eq $directory) {
+    if ([string]::Equals($RelativePath, $directory, [System.StringComparison]::OrdinalIgnoreCase)) {
       return $true
     }
 
@@ -189,6 +189,30 @@ foreach ($directory in $ExcludedDirectories) {
     }
   }
 }
+
+$CargoHomeEntries = @($ExcludedDirectories | Where-Object {
+    [string]::Equals($_, '.cargo-home', [System.StringComparison]::OrdinalIgnoreCase)
+  })
+if ($CargoHomeEntries.Count -ne 1) { throw 'Cargo home exclusion inventory is missing or duplicated' }
+foreach ($samplePath in @(
+    '.cargo-home/sample.rs',
+    '.cargo-home/registry/src/sample.rs',
+    '.cargo-home\sample.rs',
+    '.CARGO-HOME/registry/src/sample.rs'
+  )) {
+  if (-not (Test-ExcludedRelativePath $samplePath)) { throw "Cargo home exclusion rejected: $samplePath" }
+}
+foreach ($samplePath in @('.cargo-home-other/sample.rs', 'cargo-home/sample.rs', 'nested/.cargo-home/sample.rs')) {
+  if (Test-ExcludedRelativePath $samplePath) { throw "Cargo home lookalike was excluded: $samplePath" }
+}
+$InvalidFixtureBytes = [byte[]] @(0xC3, 0x28)
+$ExcludedInvalidFixture = New-Object System.IO.FileInfo (Join-Path $RepoRoot '.cargo-home\sample.rs')
+$IncludedInvalidFixture = New-Object System.IO.FileInfo (Join-Path $RepoRoot '.cargo-home-other\sample.rs')
+if (Test-TextFile $ExcludedInvalidFixture) { throw 'Invalid Cargo cache fixture entered the hygiene scan' }
+if (-not (Test-TextFile $IncludedInvalidFixture)) { throw 'Invalid Cargo cache lookalike escaped the hygiene scan' }
+$InvalidFixtureRejected = $false
+try { $null = $Utf8Strict.GetString($InvalidFixtureBytes) } catch { $InvalidFixtureRejected = $true }
+if (-not $InvalidFixtureRejected) { throw 'Invalid Cargo cache fixture did not exercise UTF-8 rejection' }
 
 $files = Get-ChildItem -LiteralPath $RepoRoot -Recurse -File -Force | Where-Object { Test-TextFile $_ }
 

@@ -1075,9 +1075,14 @@ try {
     Assert-Bytes (Read-Bytes $Earliest.StderrPath) ([Text.Encoding]::ASCII.GetBytes("earliest_parent_stderr`n")) 'earliest descendant stderr'
     Assert-True ($null -eq (Get-Process -Id $EarliestDescendant -ErrorAction SilentlyContinue)) 'earliest descendant survived'
 
-    $Quiescent = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'quiescent-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'quiescent-parent') 5 2 -CaseName 'quiescent-parent')
+    $OrdinaryCompletionDeadlineSeconds = 20
+    $Quiescent = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'quiescent-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'quiescent-parent') $OrdinaryCompletionDeadlineSeconds 2 -CaseName 'quiescent-parent')
     Assert-WindowsContainmentLifecycle $Quiescent 'ordinary-quiescent'
-    Assert-True (-not $Quiescent.TimedOut -and $Quiescent.TerminationCount -eq 0 -and $Quiescent.DeadlineDisposition -ceq 'completed_before_deadline') 'ordinary quiescence disposition'
+    Assert-True ($Quiescent.DeadlineTicks -eq [Int64] $OrdinaryCompletionDeadlineSeconds * $Quiescent.StopwatchFrequency) 'ordinary quiescence absolute deadline'
+    Assert-True ($Quiescent.ExitCode -eq 0 -and -not $Quiescent.TimedOut -and
+      -not $Quiescent.TerminationRequested -and $Quiescent.TerminationCount -eq 0 -and
+      $Quiescent.KillAttemptCount -eq 0 -and $Quiescent.DeadlineDisposition -ceq 'completed_before_deadline' -and
+      $Quiescent.FinalDescendantTree -ceq 'quiescent') 'ordinary quiescence disposition'
     $QuiescentText = [Text.Encoding]::UTF8.GetString((Read-Bytes $Quiescent.StdoutPath))
     $QuiescentDescendant = Get-WitnessPid $QuiescentText 'quiescent_descendant_pid'
     $QuiescentExpected = [Text.Encoding]::ASCII.GetBytes("quiescent_parent_pid=$($Quiescent.Pid)`nquiescent_descendant_pid=$QuiescentDescendant`nquiescent_parent_stdout`n")
