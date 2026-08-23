@@ -2,8 +2,8 @@
 
 Date: 2026-08-15
 <!-- hum-active-workorder:v1 -->
-Status: UNITS A AND B IMPLEMENTED AND PUBLISHED; UNIT B STATUS PUBLICATION
-PENDING. The corrected
+Status: CLOSED. Work Order 22 is terminally closed.
+The corrected
 WO22 planning package and its publication-status lifecycle are complete. Unit A
 was independently accepted and committed as
 `7ad76c78ad85df2d8cd8f69437f4f9beead7177c` with subject
@@ -174,6 +174,63 @@ B baseline. The terminal side is
 | `src/version.rs` | `100644` | `e155c94736c270de93f7011ecd6f8a15e30b4a3c` | `+11/-2` | `+11/-2` |
 | `tools/check_all.ps1` | `100644` | `d3a0467c701e2f0dbf0521bdc37321fc53c31b76` | `+396/-16` | `+396/-16` |
 | **Total** | | | **`+2480/-81`** | **`+2479/-80`** |
+
+Unit A's complete implementation, bounded-repair, publication, status-record,
+and status-publication lifecycles are accepted and terminal-green. Unit B's
+complete implementation, bounded-repair, publication, status-record, and
+status-publication lifecycles are likewise accepted and terminal-green. The
+Unit B implementation commit is
+`6b8ef398a88ee3473fb4031013dc6c7a87e9e070`; the terminal accepted
+implementation tree was published at
+`29e826b4a716cd153486195c062116754d477fa3`; and the Unit B status commit is
+`7a3436311c26b5d731fb871af6041633b655e4e2`.
+
+Status workflow `ci` run `32670066323`, attempt `1`, concluded `success`.
+Ubuntu job `97269414833` and Windows job `97269414799` both concluded
+`success` and reproduced exactly:
+
+```text
+mode=fast;reason=eligible_status_chain;anchor=29e826b4a716cd153486195c062116754d477fa3;run_id=32661961409;run_attempt=1;ubuntu_job_id=97249390620;windows_job_id=97249390527;transitions=29e826b4a716cd153486195c062116754d477fa3>7a3436311c26b5d731fb871af6041633b655e4e2
+```
+
+Both jobs passed all 151 classifier cases twice deterministically, status-only
+transition evidence, text hygiene and public readiness for 540 files, alpha
+claims, and release readiness `0.0.1`. Cargo preparation, the full Hum
+preflight, and Exhaustive were correctly skipped. Together with the accepted
+full publication evidence recorded above, this establishes that the exact
+verified canonical minimal-add path reached Cranelift backend GO with
+`ir_ready=1` and `backend_ready=1` on required Ubuntu and Windows CI. It proves
+only that narrow native backend path, not general language completeness,
+arbitrary-program compilation, macOS support, optimization, AOT or object
+production, standard-library maturity, additional programs, or a second
+backend.
+
+Every WO22 Fast allowance expires at this closeout and transfers no authority.
+No retained capture, scratch, proof, credential, configuration, or environment
+artifact exists. The eight existing stashes and every archive remain unchanged
+and confer no successor implementation authority.
+
+### Forward advisory for separately planned WO23
+
+- Prioritize Hum's first canonical user-facing program path through real
+  checked source and native execution.
+- Define an orderly, predictable program-file framework so humans and coding
+  agents know where declarations, authority, implementation, evidence, and
+  entry structure belong.
+- Require each representative program to strengthen compiler semantics,
+  diagnostics, regression coverage, and future library design rather than
+  existing only as a demo.
+- Defer promotion into the standard library or Nectar until repeated programs
+  prove genuine reusable abstractions.
+- Treat macOS as an explicit future supported-platform addition after the
+  Windows/Linux path, not as support already delivered.
+- Defer crater-like ecosystem testing until Hum has a stable package identity,
+  dependency graph, build contract, and representative downstream corpus.
+- Retain Cranelift as a bounded, replaceable first backend without promising
+  its removal or committing to an undecided LLVM migration.
+
+This advisory is planning input only. It defines no WO23 session, path, budget,
+diagnostic, acceptance gate, or implementation authority.
 
 This Work Order carries forward only the compiler-critical facts left live by
 Work Order 21. Work Order 21 is closed and immutable. Its Units A and B landed;
@@ -1409,20 +1466,19 @@ planning authorship or review.
 
 ## Current authorization gate
 
-Unit A and Unit B implementation and publication lifecycles are complete. This
-status-only edit records Unit B's independently accepted implementation,
-bounded repair chain, and terminal-green Ubuntu and Windows publication
-evidence.
+The sole next action is a fresh independent terminal-closeout review. Only an
+unqualified `ACCEPT` may recommend a separately authorized local commit with
+the frozen subject:
 
-The only currently authorized action is the local commit of this exact routine
-status record. Publication of that status commit remains a separate BDFL gate.
-Its required Ubuntu and Windows CI must each select
-`mode=fast;reason=eligible_status_chain`, authenticate the exact terminal full
-run recorded above, run status-only evidence, skip Cargo preparation, the full
-Hum preflight, and Exhaustive, and conclude `success`.
+```text
+docs(workorder): close work order 22
+```
 
-WO22 closeout remains separately unauthorized. WO23, macOS CI, another
-program, standard-library work, optimization, another backend, release or tag
-work, and every other later implementation remain unauthorized.
+The closeout commit, its publication and CI, active-marker transfer, moving
+WO22 into `workorders/closed`, WO23 authorship or issuance, program
+implementation, macOS support, standard-library or Nectar work, crater-like
+ecosystem work, LLVM work, release or tag work, and every later action remain
+separately unauthorized. The active marker remains on WO22 until a separately
+authorized canonical successor issuance.
 
 <!-- workorder-current-authorization-gate:end -->
