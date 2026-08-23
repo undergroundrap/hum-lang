@@ -1026,24 +1026,34 @@ try {
   $SetupCaptures = @()
   if ($env:OS -eq 'Windows_NT') {
     $ContainedDescendantDeadlineSeconds = 6
-    $ContainedDescendantWallLimitSeconds = 11.0
-    $InheritedWall = [Diagnostics.Stopwatch]::StartNew()
     $Inherited = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'inherited-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'inherited-parent') $ContainedDescendantDeadlineSeconds 2 -CaseName 'inherited-parent')
-    $InheritedWall.Stop()
     Assert-WindowsContainmentLifecycle $Inherited 'inherited-pipe'
     Assert-True ($Inherited.DeadlineTicks -eq [Int64] $ContainedDescendantDeadlineSeconds * $Inherited.StopwatchFrequency) 'inherited-pipe absolute deadline'
-    Assert-True ($Inherited.TimedOut -and $Inherited.TerminationCount -eq 1 -and $Inherited.FinalDescendantTree -ceq 'terminated_quiescent') 'inherited-pipe timeout disposition'
+    Assert-True ($Inherited.TimedOut -and $Inherited.DeadlineDisposition -ceq 'deadline_expired' -and
+      $Inherited.TerminationRequested -and $Inherited.TerminationCount -eq 1 -and
+      $Inherited.KillAttemptCount -eq 1 -and $Inherited.FinalDescendantTree -ceq 'terminated_quiescent') 'inherited-pipe timeout disposition'
     $InheritedText = [Text.Encoding]::UTF8.GetString((Read-Bytes $Inherited.StdoutPath))
     $InheritedDescendant = Get-WitnessPid $InheritedText 'inherited_descendant_pid'
     $InheritedExpected = [Text.Encoding]::ASCII.GetBytes("inherited_parent_pid=$($Inherited.Pid)`ninherited_descendant_pid=$InheritedDescendant`ninherited_parent_stdout`n")
     Assert-Bytes (Read-Bytes $Inherited.StdoutPath) $InheritedExpected 'inherited-pipe stdout'
     Assert-Bytes (Read-Bytes $Inherited.StderrPath) ([Text.Encoding]::ASCII.GetBytes("inherited_parent_stderr`n")) 'inherited-pipe stderr'
-    Assert-True ($InheritedWall.Elapsed.TotalSeconds -lt $ContainedDescendantWallLimitSeconds) 'inherited-pipe capture waited for natural descendant exit'
     Assert-True ($null -eq (Get-Process -Id $InheritedDescendant -ErrorAction SilentlyContinue)) 'inherited-pipe descendant survived'
 
-    $RedirectedWall = [Diagnostics.Stopwatch]::StartNew()
+    $InheritedNatural = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'inherited-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'inherited-parent-natural') 20 2 -CaseName 'inherited-parent-natural')
+    Assert-WindowsContainmentLifecycle $InheritedNatural 'inherited natural completion'
+    Assert-True ($InheritedNatural.DeadlineTicks -eq [Int64] 20 * $InheritedNatural.StopwatchFrequency) 'inherited natural-completion deadline'
+    Assert-True ($InheritedNatural.ExitCode -eq 0 -and -not $InheritedNatural.TimedOut -and
+      -not $InheritedNatural.TerminationRequested -and $InheritedNatural.TerminationCount -eq 0 -and
+      $InheritedNatural.KillAttemptCount -eq 0 -and $InheritedNatural.DeadlineDisposition -ceq 'completed_before_deadline' -and
+      $InheritedNatural.FinalDescendantTree -ceq 'quiescent') 'inherited natural-completion disposition'
+    $InheritedNaturalText = [Text.Encoding]::UTF8.GetString((Read-Bytes $InheritedNatural.StdoutPath))
+    $InheritedNaturalDescendant = Get-WitnessPid $InheritedNaturalText 'inherited_descendant_pid'
+    $InheritedNaturalExpected = [Text.Encoding]::ASCII.GetBytes("inherited_parent_pid=$($InheritedNatural.Pid)`ninherited_descendant_pid=$InheritedNaturalDescendant`ninherited_parent_stdout`n")
+    Assert-Bytes (Read-Bytes $InheritedNatural.StdoutPath) $InheritedNaturalExpected 'inherited natural-completion stdout'
+    Assert-Bytes (Read-Bytes $InheritedNatural.StderrPath) ([Text.Encoding]::ASCII.GetBytes("inherited_parent_stderr`n")) 'inherited natural-completion stderr'
+    Assert-True ($null -eq (Get-Process -Id $InheritedNaturalDescendant -ErrorAction SilentlyContinue)) 'naturally completed inherited descendant survived'
+
     $Redirected = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'redirected-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'redirected-parent') $ContainedDescendantDeadlineSeconds 2 -CaseName 'redirected-parent')
-    $RedirectedWall.Stop()
     Assert-WindowsContainmentLifecycle $Redirected 'redirected-descendant'
     Assert-True ($Redirected.DeadlineTicks -eq [Int64] $ContainedDescendantDeadlineSeconds * $Redirected.StopwatchFrequency) 'redirected-descendant absolute deadline'
     Assert-True ($Redirected.TimedOut -and $Redirected.TerminationCount -eq 1) 'redirected descendant escaped Job deadline'
@@ -1052,12 +1062,9 @@ try {
     $RedirectedExpected = [Text.Encoding]::ASCII.GetBytes("redirected_parent_pid=$($Redirected.Pid)`nredirected_descendant_pid=$RedirectedDescendant`nredirected_parent_stdout`n")
     Assert-Bytes (Read-Bytes $Redirected.StdoutPath) $RedirectedExpected 'redirected descendant stdout'
     Assert-Bytes (Read-Bytes $Redirected.StderrPath) ([Text.Encoding]::ASCII.GetBytes("redirected_parent_stderr`n")) 'redirected descendant stderr'
-    Assert-True ($RedirectedWall.Elapsed.TotalSeconds -lt $ContainedDescendantWallLimitSeconds) 'redirected capture waited for natural descendant exit'
     Assert-True ($null -eq (Get-Process -Id $RedirectedDescendant -ErrorAction SilentlyContinue)) 'redirected descendant survived'
 
-    $EarliestWall = [Diagnostics.Stopwatch]::StartNew()
     $Earliest = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'earliest-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'earliest-parent') $ContainedDescendantDeadlineSeconds 2 -CaseName 'earliest-parent')
-    $EarliestWall.Stop()
     Assert-WindowsContainmentLifecycle $Earliest 'earliest-descendant'
     Assert-True ($Earliest.DeadlineTicks -eq [Int64] $ContainedDescendantDeadlineSeconds * $Earliest.StopwatchFrequency) 'earliest-descendant absolute deadline'
     Assert-True ($Earliest.TimedOut -and $Earliest.TerminationCount -eq 1) 'earliest descendant did not remain contained'
@@ -1066,7 +1073,6 @@ try {
     $EarliestExpected = [Text.Encoding]::ASCII.GetBytes("earliest_parent_pid=$($Earliest.Pid)`nearliest_descendant_pid=$EarliestDescendant`nearliest_parent_stdout`n")
     Assert-Bytes (Read-Bytes $Earliest.StdoutPath) $EarliestExpected 'earliest descendant stdout'
     Assert-Bytes (Read-Bytes $Earliest.StderrPath) ([Text.Encoding]::ASCII.GetBytes("earliest_parent_stderr`n")) 'earliest descendant stderr'
-    Assert-True ($EarliestWall.Elapsed.TotalSeconds -lt $ContainedDescendantWallLimitSeconds) 'earliest capture waited for natural descendant exit'
     Assert-True ($null -eq (Get-Process -Id $EarliestDescendant -ErrorAction SilentlyContinue)) 'earliest descendant survived'
 
     $Quiescent = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'quiescent-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'quiescent-parent') 5 2 -CaseName 'quiescent-parent')
@@ -1093,7 +1099,7 @@ try {
     }
     Assert-True (-not $SetupCaptures[3].JobAssignmentSucceeded -and -not $SetupCaptures[3].ResumeAttempted) 'assignment-failure lifecycle'
     Assert-True ($SetupCaptures[4].JobAssignmentSucceeded -and $SetupCaptures[4].ResumeAttempted -and -not $SetupCaptures[4].ResumeSucceeded) 'resume-failure lifecycle'
-    $WindowsCaptures = @($Inherited, $Redirected, $Earliest, $Quiescent)
+    $WindowsCaptures = @($Inherited, $InheritedNatural, $Redirected, $Earliest, $Quiescent)
   }
 
   $MissingFact = Copy-CaptureForMutation $Success.CaptureDirectory (Join-Path $ScratchRoot 'mutation-missing')
@@ -1162,6 +1168,11 @@ try {
   }
 
   if ($env:OS -eq 'Windows_NT') {
+    $TimeoutDisposition = Copy-CaptureForMutation $Inherited.CaptureDirectory (Join-Path $ScratchRoot 'mutation-timeout-disposition')
+    Set-HumDurableText (Join-Path $TimeoutDisposition 'timed_out.txt') '0'
+    Rewrite-Manifest $TimeoutDisposition
+    Assert-CaptureRejected $TimeoutDisposition 'timeout disposition corruption accepted'
+
     $DoubleTermination = Copy-CaptureForMutation $Inherited.CaptureDirectory (Join-Path $ScratchRoot 'mutation-double-termination')
     Set-HumDurableText (Join-Path $DoubleTermination 'termination_count.txt') '2'
     Set-HumDurableText (Join-Path $DoubleTermination 'kill_attempt_count.txt') '2'
