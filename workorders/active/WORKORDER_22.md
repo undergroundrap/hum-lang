@@ -2,7 +2,8 @@
 
 Date: 2026-08-15
 <!-- hum-active-workorder:v1 -->
-Status: UNIT A IMPLEMENTED AND PUBLISHED; STATUS RECORD PENDING. The corrected
+Status: UNITS A AND B IMPLEMENTED AND PUBLISHED; UNIT B STATUS PUBLICATION
+PENDING. The corrected
 WO22 planning package and its publication-status lifecycle are complete. Unit A
 was independently accepted and committed as
 `7ad76c78ad85df2d8cd8f69437f4f9beead7177c` with subject
@@ -76,6 +77,103 @@ the implementation commit, with terminal accepted main
 | `tools/run_fast_evidence.ps1` | `100644` | `52bbd75cdd7460971819c726a85afab23c395d60` | `+1165/-0` | `+1165/-0` |
 | `tools/test_fast_evidence_capture.ps1` | `100644` | `d7b1c630f8cb2df84cc3daa216c89b982a304eef` | `+657/-0` | `+657/-0` |
 | **Total** | | | **`+5524/-275`** | **`+5508/-259`** |
+
+That record describes Unit A at its own publication boundary. Unit B was later
+independently accepted and committed as
+`6b8ef398a88ee3473fb4031013dc6c7a87e9e070`, parent
+`4692fa014a5f4345a5fa4667f2e8b45e47f8a7f3`, tree
+`66cdf967f10cf2b0030e93161a4d840918844f95`, with subject
+`feat(backend): lower verified minimal add with cranelift` and exactly the 23
+authorized Unit B paths. Two bounded accepted repairs completed its publication
+chain:
+
+1. `62d19c6f04f85b049f71053618a8cf7d7ccbab59`, parent
+   `6b8ef398a88ee3473fb4031013dc6c7a87e9e070`, tree
+   `8e2b373a998a920d4fb5363bb4071cf2e9a2fa23`, subject
+   `fix(backend): accept cranelift provenance version`, changed only
+   `src/backend_cranelift.rs` to terminal blob
+   `deebdf4603dd930047d6c7c859b63216a45aac59`; its independent post-hoc
+   verdict was P0 none, P1 none, P2 none, `ACCEPT`.
+2. Terminal accepted main `29e826b4a716cd153486195c062116754d477fa3`,
+   parent `62d19c6f04f85b049f71053618a8cf7d7ccbab59`, tree
+   `0a21f12c87fa50197d817104ccda16cc14c6ebb4`, subject
+   `fix(ci): stabilize hosted preflight boundaries`, changed exactly
+   `tools/test_fast_evidence_capture.ps1` at blob
+   `2462fed610567e64aab0661ce651ccb0fc14732d`,
+   `tools/check_text_hygiene.ps1` at blob
+   `29cfebac8e8be6af8c06ad6341da9a621103819f`, and
+   `tools/check_public_readiness.ps1` at blob
+   `1c740c4541517c0363d49d837d91a40555beadea`; its independent post-hoc
+   verdict was P0 none, P1 none, P2 none, `ACCEPT`.
+
+Workflow `ci` run `32661961409`, attempt `1`, event `push`, tested exact
+terminal SHA `29e826b4a716cd153486195c062116754d477fa3` and concluded
+`success`. Ubuntu job `97249390620` succeeded from
+`2026-08-23T19:40:05Z` through `2026-08-23T19:53:54Z` in `13m49s`;
+Windows job `97249390527` succeeded from `2026-08-23T19:40:07Z` through
+`2026-08-23T20:15:02Z` in `34m55s`. Both selected exactly:
+
+```text
+mode=full;reason=no_status_transition;anchor=;run_id=0;run_attempt=0;ubuntu_job_id=0;windows_job_id=0;transitions=
+```
+
+Both platforms checked out the exact terminal SHA. The 151 classifier cases
+passed twice deterministically; Ubuntu `pwsh` and Windows PowerShell 5.1 and
+`pwsh` capture matrices passed. All four exact Unit B selectors, every B01-B15
+mutation including B02, and the dedicated overflow/no-write mutation passed.
+Six fixed backend probes passed and all fifteen ordered B01-B15 rows reported
+GO, establishing `ir_ready=1` and `backend_ready=1` on the explicit backend
+probe. Root suites passed `461/461` on Ubuntu and `476/476` on Windows;
+subsidiary suites passed `13/13` and `60/60` on Ubuntu and `16/16` and `60/60`
+on Windows. Cargo checks, warnings-denied Clippy, text hygiene and public
+readiness for 540 Hum files, alpha claims, and release readiness `0.0.1`
+passed. Exactly one full-preflight terminal marker appeared per platform.
+Ubuntu Exhaustive passed F1 `630`, F2 `4,950`, F3/F4 `8,646`, total `14,226`,
+with seed `0x48554D5F5345414C`; Windows skipped only the duplicate Exhaustive
+producer, and both platforms correctly skipped status-only evidence.
+
+The canonical verified minimal-add path therefore reaches the explicit
+Cranelift backend probe with `backend_ready=1` on both required publication
+platforms. This is the narrow verified minimal-add milestone only. It does not
+claim general language completeness, general native compilation, optimization,
+AOT or object output, standard-library maturity, additional programs, macOS
+support, or a second backend.
+
+The sorted terminal Unit B manifest below is derived from Git objects. Raw
+statistics use `git diff --numstat`; whitespace-insensitive statistics use
+`git diff -w --numstat`. The accepted Unit A terminal tree
+`da5111e0b40ab4c373e6a00c2a0b1539aaad397a` and the immediate Unit B
+implementation parent `4692fa014a5f4345a5fa4667f2e8b45e47f8a7f3` are
+byte-identical across all 23 Unit B paths, so both reproduce the required Unit
+B baseline. The terminal side is
+`29e826b4a716cd153486195c062116754d477fa3`.
+
+| Path | Mode | Final blob | Raw | Whitespace-insensitive |
+| --- | --- | --- | ---: | ---: |
+| `Cargo.lock` | `100644` | `0f9c62a2fe8663144deb10ffc718adbfd59d54d4` | `+534/-0` | `+534/-0` |
+| `Cargo.toml` | `100644` | `39ae7385fea62e305dbed06f6898d659db001f23` | `+5/-0` | `+5/-0` |
+| `README.md` | `100644` | `040f2e8202a44d2b71eee683ea83b1fbfcaa101d` | `+5/-1` | `+5/-1` |
+| `docs/ARCHITECTURE.md` | `100644` | `c7bf80757f04a9baca3cc21b45d60db17e38b2dc` | `+9/-4` | `+9/-4` |
+| `docs/BACKEND_CONTRACT_SCHEMA.md` | `100644` | `217b9e787615456df9c041b8f4911d6d5c5b7a78` | `+17/-14` | `+17/-14` |
+| `docs/BACKEND_STRATEGY.md` | `100644` | `54887153bda173434f1a8fff7efdac0a258427c9` | `+16/-0` | `+16/-0` |
+| `docs/BOOTSTRAP_COMPILER.md` | `100644` | `b6d5a32d9ce792c219a59f907adcf5236abc2cf2` | `+12/-4` | `+11/-3` |
+| `docs/CAPABILITIES_SCHEMA.md` | `100644` | `81396e75eaa96ec337fe8663f70e4bccbea66144` | `+2/-0` | `+2/-0` |
+| `docs/HUM_BACKEND_PROBE_SCHEMA.md` | `100644` | `517c8eeb18eb244062f02f92eeefcbfaf694f58e` | `+124/-0` | `+124/-0` |
+| `docs/HUM_IR_CONTRACT_SCHEMA.md` | `100644` | `219b4d6070e8776230ddede92d57952ae687f147` | `+16/-14` | `+16/-14` |
+| `docs/HUM_IR_READINESS_SCHEMA.md` | `100644` | `b91b46e466fd3317f0fd7e16eebab0bc858e65e8` | `+15/-6` | `+15/-6` |
+| `docs/LANGUAGE_REFERENCE.md` | `100644` | `8871cd415fe9f5ef87de9666ed0853ad69522019` | `+2/-0` | `+2/-0` |
+| `docs/UNSAFE_POLICY.md` | `100644` | `c2dcdb723cb7dddc7afb7fd480a924ed71f73cc1` | `+6/-1` | `+6/-1` |
+| `docs/decisions/0002-use-rust-bootstrap-until-self-hosting.md` | `100644` | `d70273d2f2197e4c3fa7b74e6d658339a183d9d4` | `+16/-2` | `+16/-2` |
+| `docs/decisions/0017-adopt-structural-app-authority-boundary.md` | `100644` | `db10725bd119edad506001b75c7d33ad65472ef6` | `+7/-3` | `+7/-3` |
+| `src/backend_contract.rs` | `100644` | `d5e95e0aca2ac5ba58e82fc973fb719378bb4c92` | `+6/-4` | `+6/-4` |
+| `src/backend_cranelift.rs` | `100644` | `deebdf4603dd930047d6c7c859b63216a45aac59` | `+1137/-0` | `+1137/-0` |
+| `src/capabilities.rs` | `100644` | `b1c8e7bd4ac16095d49d578dbc151acf80bb8a32` | `+18/-2` | `+18/-2` |
+| `src/ir_contract.rs` | `100644` | `d4f652676cd68bf0918dcb1eb85f4c59cd2196a6` | `+5/-4` | `+5/-4` |
+| `src/ir_readiness.rs` | `100644` | `9ad8e53e099bf0be95f61a08d1ba4cef7a0854a6` | `+1/-1` | `+1/-1` |
+| `src/main.rs` | `100644` | `931ceb2141988e98213104dbfc995616610ced38` | `+120/-3` | `+120/-3` |
+| `src/version.rs` | `100644` | `e155c94736c270de93f7011ecd6f8a15e30b4a3c` | `+11/-2` | `+11/-2` |
+| `tools/check_all.ps1` | `100644` | `d3a0467c701e2f0dbf0521bdc37321fc53c31b76` | `+396/-16` | `+396/-16` |
+| **Total** | | | **`+2480/-81`** | **`+2479/-80`** |
 
 This Work Order carries forward only the compiler-critical facts left live by
 Work Order 21. Work Order 21 is closed and immutable. Its Units A and B landed;
@@ -1311,36 +1409,20 @@ planning authorship or review.
 
 ## Current authorization gate
 
-Unit A implementation, status recording, and both publication lifecycles are
-complete. The standalone Fast-capture prerequisite is published at
-`410b706967a753e0d2ed545eec9463c93f760c3b`; workflow `ci` run
-`32596607799`, attempt `1`, tested that exact commit and concluded `success` on
-Ubuntu and Windows.
+Unit A and Unit B implementation and publication lifecycles are complete. This
+status-only edit records Unit B's independently accepted implementation,
+bounded repair chain, and terminal-green Ubuntu and Windows publication
+evidence.
 
-Unit B remains unstaged and unaccepted. Its preserved nineteen-path candidate
-includes the bounded static-exhaustiveness and `README.md`/`ARCHITECTURE.md`
-corrections, but those partial corrections have no evidence credit. Four
-additional normative documents were then discovered outside the former
-nineteen-path envelope: `docs/BOOTSTRAP_COMPILER.md`, `docs/UNSAFE_POLICY.md`,
-`docs/decisions/0002-use-rust-bootstrap-until-self-hosting.md`, and
-`docs/decisions/0017-adopt-structural-app-authority-boundary.md`. The
-replacement Fast allowance remains unconsumed.
+The only currently authorized action is the local commit of this exact routine
+status record. Publication of that status commit remains a separate BDFL gate.
+Its required Ubuntu and Windows CI must each select
+`mode=fast;reason=eligible_status_chain`, authenticate the exact terminal full
+run recorded above, run status-only evidence, skip Cargo preparation, the full
+Hum preflight, and Exhaustive, and conclude `success`.
 
-Unit B implementation correction cannot resume until this amendment is
-independently accepted, committed locally, separately published, and its
-required CI is terminal-green. A later fresh BDFL signal may authorize only
-completion of the four normative policy-document corrections above and
-revalidation of the complete twenty-three-path Unit B candidate. That candidate
-must still prove paired executable mutations for every B01-B15 real production
-predicate, unchanged overflow result slots, the clarified B08 contract, the
-static exhaustive fault mapping, truthful public claims, and every previously
-frozen Unit B gate without borrowing path or category budget.
-
-This amendment grants only the exact four-path, documentation-category, Unit B,
-aggregate-category, aggregate-total, and path-arithmetic expansions recorded
-above. It grants no implementation resumption, Fast launch, commit, push,
-status work, closeout, WO23, macOS CI, additional dependency, second unsafe
-boundary, backend expansion, stash/archive operation, harness consolidation,
-semantic-coordinate research, or other later work.
+WO22 closeout remains separately unauthorized. WO23, macOS CI, another
+program, standard-library work, optimization, another backend, release or tag
+work, and every other later implementation remain unauthorized.
 
 <!-- workorder-current-authorization-gate:end -->
