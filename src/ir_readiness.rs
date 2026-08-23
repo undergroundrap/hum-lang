@@ -998,7 +998,7 @@ fn lowering_candidate(item: &Item, context: &CandidateContext<'_>) -> LoweringCa
         ready_for_ir: usize::from(backend_verified),
         backend_ready: 0,
         backend_blocking_reasons: backend_verified
-            .then_some(vec!["backend_adapter_not_implemented"])
+            .then_some(vec!["explicit_backend_probe_required"])
             .unwrap_or_default(),
         section_names,
         body_grammar,

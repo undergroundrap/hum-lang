@@ -1,8 +1,9 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 mod app_entry;
 mod ast;
 mod backend_contract;
+mod backend_cranelift;
 mod backend_input;
 mod callable;
 mod capabilities;
@@ -235,6 +236,50 @@ fn run() -> Result<ExitCode, String> {
             .write_all(artifact.bytes())
             .map_err(|error| format!("failed to write backend input: {error}"))?;
         return Ok(ExitCode::SUCCESS);
+    }
+    if options.command == "backend-probe" {
+        if loaded
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
+        {
+            eprintln!("backend-probe: canonical input did not pass the Hum checker");
+            return Ok(ExitCode::from(1));
+        }
+        let Some(artifact) =
+            backend_input::canonical_minimal_add_artifact(&loaded.program, &loaded.diagnostics)
+        else {
+            eprintln!("backend-probe: canonical verified backend input was unavailable");
+            return Ok(ExitCode::from(1));
+        };
+        let (verification, report) = ir_verify::with_verified_backend_input(
+            &loaded.program,
+            &loaded.diagnostics,
+            artifact.bytes(),
+            |verified| backend_cranelift::probe(&verified),
+        );
+        if !verification.accepted() || report.is_none() {
+            eprintln!("backend-probe: verified capability issuance failed closed");
+            return Ok(ExitCode::from(1));
+        }
+        let report = report.expect("verified report checked above");
+        if !report.structurally_valid() {
+            eprintln!("backend-probe: adapter returned malformed evidence");
+            return Ok(ExitCode::from(1));
+        }
+        match options.ir_readiness_format {
+            IrReadinessFormat::Human => {
+                print!("{}", backend_cranelift::backend_probe_text(&report))
+            }
+            IrReadinessFormat::Json => {
+                print!("{}", backend_cranelift::backend_probe_json(&report))
+            }
+        }
+        return Ok(if report.go() {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(3)
+        });
     }
     if options.command == "run" {
         let mut output_adapter = run::StdoutOutputAdapter;
@@ -900,7 +945,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         other => Err(format!(
-            "unknown command `{other}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `backend-input`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{other}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `backend-input`, `backend-probe`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         )),
     }
 }
@@ -1718,6 +1763,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             | "profile-check"
             | "ir-readiness"
             | "backend-input"
+            | "backend-probe"
             | "ir-verify"
             | "syntax"
             | "version"
@@ -1734,7 +1780,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             | "target-facts"
     ) {
         return Err(format!(
-            "unknown command `{command}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `backend-input`, `ir-verify`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
+            "unknown command `{command}`; expected `check`, `run`, `graph`, `evidence`, `math-obligations`, `resource-report`, `core-preview`, `core-lower`, `core-verify`, `resolve`, `type-env`, `type-check`, `full-type-check`, `effect-check`, `ownership-check`, `resource-check`, `profile-check`, `ir-readiness`, `backend-input`, `backend-probe`, `ir-verify`, `test-skeletons`, `syntax`, `version`, `explain`, `diagnostics`, `capabilities`, `core-contract`, `ir-contract`, `backend-contract`, `profiles`, `state-model`, `lsp`, `doctor`, or `target-facts`"
         ));
     }
 
@@ -1898,6 +1944,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                         | "resource-check"
                         | "profile-check"
                         | "ir-readiness"
+                        | "backend-probe"
                         | "ir-verify"
                 ) =>
             {
@@ -1940,6 +1987,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                     "resource-check" => type_check_format = parse_resource_check_format(&value)?,
                     "profile-check" => type_check_format = parse_profile_check_format(&value)?,
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(&value)?,
+                    "backend-probe" => ir_readiness_format = parse_backend_probe_format(&value)?,
                     "ir-verify" => ir_readiness_format = parse_ir_verify_format(&value)?,
                     _ => unreachable!(),
                 }
@@ -1975,6 +2023,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                     | "resource-check"
                     | "profile-check"
                     | "ir-readiness"
+                    | "backend-probe"
                     | "ir-verify"
             ) && flag.starts_with("--format=") =>
             {
@@ -2015,6 +2064,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                     "resource-check" => type_check_format = parse_resource_check_format(value)?,
                     "profile-check" => type_check_format = parse_profile_check_format(value)?,
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(value)?,
+                    "backend-probe" => ir_readiness_format = parse_backend_probe_format(value)?,
                     "ir-verify" => ir_readiness_format = parse_ir_verify_format(value)?,
                     _ => unreachable!(),
                 }
@@ -2614,6 +2664,22 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             return Err("`backend-input` requires exactly one .hum file".to_string());
         }
         vec![input]
+    } else if command == "backend-probe" {
+        if show_timings {
+            return Err("`backend-probe` does not support `--timings`".to_string());
+        }
+        if raw_inputs != ["examples/core/minimal_add.hum"] {
+            return Err(
+                "`backend-probe` requires exactly `examples/core/minimal_add.hum`".to_string(),
+            );
+        }
+        let input = PathBuf::from(&raw_inputs[0]);
+        if !input.is_file() {
+            return Err(
+                "`backend-probe` requires exactly `examples/core/minimal_add.hum`".to_string(),
+            );
+        }
+        vec![input]
     } else if command == "ir-verify" {
         if show_timings {
             return Err("`ir-verify` does not support `--timings`".to_string());
@@ -3081,6 +3147,16 @@ fn parse_ir_verify_format(value: &str) -> Result<IrReadinessFormat, String> {
     }
 }
 
+fn parse_backend_probe_format(value: &str) -> Result<IrReadinessFormat, String> {
+    match value {
+        "human" => Ok(IrReadinessFormat::Human),
+        "json" => Ok(IrReadinessFormat::Json),
+        other => Err(format!(
+            "unknown backend-probe format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
 fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
     let total_start = Instant::now();
     let mut program = Program::default();
@@ -3337,6 +3413,7 @@ fn print_help() {
     println!("  hum profile-check [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum ir-readiness [--format human|json] [--timings] <file-or-dir>...");
     println!("  hum backend-input <file>");
+    println!("  hum backend-probe [--format human|json] examples/core/minimal_add.hum");
     println!("  hum ir-verify [--format human|json] <backend-input-file>");
     println!("  hum test-skeletons [--timings] <file-or-dir>...");
     println!("  hum syntax [--format json|textmate]");
@@ -3375,6 +3452,7 @@ fn print_help() {
         "  ir-readiness      Report source readiness after profile checking, before Hum IR lowering"
     );
     println!("  backend-input     Emit canonical unverified backend-input bytes");
+    println!("  backend-probe     JIT-probe the verified canonical minimal-add function");
     println!("  ir-verify         Verify canonical backend-input bytes without lowering");
     println!("  test-skeletons    Print Hum test skeletons for unlinked obligations");
     println!("  syntax          Emit syntax JSON or generated TextMate grammar");
@@ -5175,6 +5253,45 @@ mod tests {
         assert_eq!(
             error,
             "unknown ir-verify format `textmate`; expected `human` or `json`"
+        );
+    }
+
+    #[test]
+    fn parses_only_the_exact_backend_probe_surface() {
+        let options = parse_cli(vec![
+            "backend-probe".to_string(),
+            "--format=json".to_string(),
+            "examples/core/minimal_add.hum".to_string(),
+        ])
+        .expect("exact backend-probe command");
+        assert_eq!(options.command, "backend-probe");
+        assert_eq!(options.ir_readiness_format, IrReadinessFormat::Json);
+        assert_eq!(
+            options.inputs,
+            [PathBuf::from("examples/core/minimal_add.hum")]
+        );
+
+        for input in ["examples/core/add.hum", "README.md"] {
+            let error = parse_cli(vec!["backend-probe".to_string(), input.to_string()])
+                .expect_err("noncanonical backend-probe input must fail");
+            assert_eq!(
+                error,
+                "`backend-probe` requires exactly `examples/core/minimal_add.hum`"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_backend_probe_format() {
+        let error = parse_cli(vec![
+            "backend-probe".to_string(),
+            "--format=textmate".to_string(),
+            "examples/core/minimal_add.hum".to_string(),
+        ])
+        .expect_err("backend-probe should reject unknown formats");
+        assert_eq!(
+            error,
+            "unknown backend-probe format `textmate`; expected `human` or `json`"
         );
     }
 

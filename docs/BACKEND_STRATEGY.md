@@ -178,6 +178,22 @@ Risks:
 Cranelift is the best first native backend candidate for Hum because it lets us
 build the compiler in Rust without swallowing LLVM's complexity on day one.
 
+The first production rung is intentionally smaller than that strategy. The
+explicit `backend-probe` command accepts only the verifier-issued capability
+for the canonical minimal-add function. It derives ordered `I64` parameters,
+`sadd_overflow`, overflow `brif`, result store, statuses, and `SourceLoc` from
+authenticated facts, verifies CLIF, finalizes one retained JIT function, and
+runs six frozen probes. Fifteen ordered GO/NO-GO rows report the exact boundary
+that failed. This is not a general Cranelift backend, optimizer, AOT path, or
+permission to lower another source shape.
+
+The root dependency audit disables every Cranelift default feature. Codegen
+enables only `std`, the transitively required `unwind`, and `host-arch`; the
+frontend, module, and native crates enable only `std`; JIT enables no optional
+feature. This omits timing, all-architecture, disassembly, serde,
+incremental-cache, and Wasmtime-unwinder surfaces that the repository does not
+exercise.
+
 ### Custom Hum Backend
 
 A custom Hum backend or custom optimization stack is a future option, not a

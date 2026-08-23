@@ -215,6 +215,7 @@ Current artifacts:
 - [docs/HUM_IR_READINESS_SCHEMA.md](docs/HUM_IR_READINESS_SCHEMA.md): `hum.ir_readiness.v0` reports verified minimal-add IR readiness separately from backend readiness
 - [docs/HUM_BACKEND_INPUT_SCHEMA.md](docs/HUM_BACKEND_INPUT_SCHEMA.md): `hum.backend_input.v0` canonical target-independent producer bytes and non-authority contract
 - [docs/HUM_IR_VERIFY_SCHEMA.md](docs/HUM_IR_VERIFY_SCHEMA.md): `hum.ir_verify.v0` strict byte verification and sealed capability boundary
+- [docs/HUM_BACKEND_PROBE_SCHEMA.md](docs/HUM_BACKEND_PROBE_SCHEMA.md): `hum.backend_probe.v0` verified-only checked-add Cranelift JIT evidence
 - [docs/BACKEND_CONTRACT_SCHEMA.md](docs/BACKEND_CONTRACT_SCHEMA.md): `hum.backend_contract.v0` backend ladder and adapter preservation contract
 - [docs/LSP_CAPABILITIES_SCHEMA.md](docs/LSP_CAPABILITIES_SCHEMA.md): `hum.lsp_capabilities.v0` preview schema for LSP adapter support
 - [docs/DOCTOR_SCHEMA.md](docs/DOCTOR_SCHEMA.md): `hum.doctor.v0` setup health schema for portable repo guardrails
@@ -314,7 +315,9 @@ Current artifacts:
 
 ## Bootstrap Compiler
 
-The first compiler front-end is written in Rust with `#![forbid(unsafe_code)]` and no third-party crates.
+The Rust bootstrap denies unsafe code by default. WO22 Unit B permits exactly one reviewed,
+locally allowed unsafe JIT invocation boundary and uses five exactly pinned Cranelift
+dependencies; it grants no broader unsafe-code or dependency allowance.
 
 Cargo is the bootstrap build and install path for now. Hum itself should not be
 positioned as "just a Cargo crate"; long-term distribution needs prebuilt
@@ -412,6 +415,7 @@ Current CLI:
 - `hum ir-readiness [--format human|json] <file-or-dir>...`: emit `hum.ir_readiness.v0`, with the exact verified minimal-add candidate at `ir_ready=1` and `backend_ready=0`
 - `hum backend-input <file>`: accept exactly one Hum source file and emit canonical but unverified `hum.backend_input.v0` bytes for the exact supported minimal-add program; the bytes grant no authority
 - `hum ir-verify [--format human|json] <backend-input-file>`: verify exact canonical bytes and report acceptance without exposing capability authority
+- `hum backend-probe [--format human|json] examples/core/minimal_add.hum`: explicitly JIT-probe the verified minimal-add capability through fifteen ordered GO/NO-GO rows
 - `hum version [--format human|json]`: print toolchain identity, version, target, and schema names
 - `hum explain <H####> [--format human|json]`: explain a stable diagnostic code for humans, editors, and agents
 - `hum diagnostics [--format human|json]`: list the stable diagnostic catalog for humans, editors, and agents

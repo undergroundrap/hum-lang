@@ -83,6 +83,7 @@ Current `schemas` includes:
 - `ir_readiness`: `hum.ir_readiness.v0`
 - `backend_input`: `hum.backend_input.v0`
 - `ir_verify`: `hum.ir_verify.v0`
+- `backend_probe`: `hum.backend_probe.v0`
 - `core_contract`: `hum.core_contract.v0`
 - `ir_contract`: `hum.ir_contract.v0`
 - `backend_contract`: `hum.backend_contract.v0`
@@ -125,6 +126,7 @@ Current entries include:
 - `hum ir-readiness --format json`
 - `hum backend-input <file>`
 - `hum ir-verify [--format human|json] <backend-input-file>`
+- `hum backend-probe [--format human|json] examples/core/minimal_add.hum`
 - `hum core-contract --format json`
 - `hum ir-contract --format json`
 - `hum backend-contract --format json`

@@ -1,4 +1,5 @@
 use crate::backend_contract;
+use crate::backend_cranelift;
 use crate::backend_input;
 use crate::core_contract;
 use crate::core_lower;
@@ -186,6 +187,13 @@ const COMMANDS: &[CommandCapability] = &[
         schema: ir_verify::IR_VERIFY_SCHEMA,
         status: "adapter-ready",
         purpose: "strict canonical backend-input verification without lowering or execution",
+    },
+    CommandCapability {
+        name: "backend_probe",
+        command: "hum backend-probe [--format human|json] examples/core/minimal_add.hum",
+        schema: backend_cranelift::BACKEND_PROBE_SCHEMA,
+        status: "current-narrow",
+        purpose: "verified-only checked-add Cranelift JIT probe with fifteen GO/NO-GO rows",
     },
     CommandCapability {
         name: "syntax",
@@ -390,7 +398,7 @@ pub fn capabilities_text() -> String {
         resource_report::RESOURCE_REPORT_SCHEMA
     ));
     out.push_str(&format!(
-        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  full_type_check: {}\n  effect_check: {}\n  ownership_check: {}\n  resource_check: {}\n  profile_check: {}\n  ir_readiness: {}\n  backend_input: {}\n  ir_verify: {}\n",
+        "  core_preview: {}\n  core_lower: {}\n  core_verify: {}\n  resolve_report: {}\n  type_env: {}\n  type_check: {}\n  full_type_check: {}\n  effect_check: {}\n  ownership_check: {}\n  resource_check: {}\n  profile_check: {}\n  ir_readiness: {}\n  backend_input: {}\n  ir_verify: {}\n  backend_probe: {}\n",
         core_preview::CORE_PREVIEW_SCHEMA,
         core_lower::CORE_LOWER_SCHEMA,
         core_verify::CORE_VERIFY_SCHEMA,
@@ -404,7 +412,8 @@ pub fn capabilities_text() -> String {
         profile_check::PROFILE_CHECK_SCHEMA,
         ir_readiness::IR_READINESS_SCHEMA,
         backend_input::BACKEND_INPUT_SCHEMA,
-        ir_verify::IR_VERIFY_SCHEMA
+        ir_verify::IR_VERIFY_SCHEMA,
+        backend_cranelift::BACKEND_PROBE_SCHEMA
     ));
     out.push_str(&format!(
         "  diagnostic_explain: {}\n",
@@ -550,6 +559,13 @@ fn push_schemas(out: &mut String, indent: usize, comma: bool) {
         indent + 2,
         "ir_verify",
         ir_verify::IR_VERIFY_SCHEMA,
+        true,
+    );
+    push_string_field(
+        out,
+        indent + 2,
+        "backend_probe",
+        backend_cranelift::BACKEND_PROBE_SCHEMA,
         true,
     );
     push_string_field(

@@ -18,7 +18,8 @@ The exact minimal-add subset now reaches canonical target-independent
 [`hum.backend_input.v0`](HUM_BACKEND_INPUT_SCHEMA.md) bytes. The strict verifier
 can authenticate them, cross-bind them to live typed facts, and lend a sealed
 capability; bytes and reports alone grant no authority. This command remains a
-discovery contract, not a backend lowering implementation.
+discovery contract. The separate explicit `backend-probe` may borrow that
+capability and lower only the canonical checked add to verified Cranelift IR.
 
 ## Command
 
@@ -83,7 +84,7 @@ Each `ir_layers` entry has:
 
 - `id`: stable layer identifier
 - `stage`: numeric order in the lowering path
-- `status`: `current`, `design`, `produced-unverified`, or `planned` in V0
+- `status`: current narrow support, `design`, or `planned`
 - `role`: why the layer exists
 
 Current layers:
@@ -95,8 +96,8 @@ Current layers:
   failure
 - `hum_ir`: verified target-independent facts for the exact minimal-add subset,
   represented by a callback-scoped compiler-owned capability
-- `backend_adapter_input`: verified Hum IR plus explicit unsupported or weakened
-  facts
+- `backend_adapter_input`: callback-scoped verified facts lowered only for the
+  current canonical checked-add probe
 
 ## Required Carried Facts
 
@@ -138,16 +139,16 @@ The V0 contract names these pass boundaries:
 These names are not final implementation APIs. They are a shared map for build
 order, docs, agents, and future compiler diagnostics. In V0, `type_check` names
 the narrow `hum.type_check.v0` declaration and trivial-return checker;
-`full_type_check` names the implemented narrow `hum.full_type_check.v0` gate for recognized Core/body statement types. `effect_check` names the implemented narrow `hum.effect_check.v0` gate for recognized Core/body effect contexts. `ownership_alias_check` is backed by the narrow `hum.ownership_check.v0` local ownership fact gate. `allocation_resource_check` is backed by the narrow `hum.resource_check.v0` declared allocation/resource intent gate. `profile_check` is backed by the narrow `hum.profile_check.v0` runtime profile policy gate. All five and strict `ir_verify` must pass before `ir_ready=1`; backend preservation remains future work.
+`full_type_check` names the implemented narrow `hum.full_type_check.v0` gate for recognized Core/body statement types. `effect_check` names the implemented narrow `hum.effect_check.v0` gate for recognized Core/body effect contexts. `ownership_alias_check` is backed by the narrow `hum.ownership_check.v0` local ownership fact gate. `allocation_resource_check` is backed by the narrow `hum.resource_check.v0` declared allocation/resource intent gate. `profile_check` is backed by the narrow `hum.profile_check.v0` runtime profile policy gate. All five and strict `ir_verify` must pass before `ir_ready=1`; the current adapter then derives ordered `I64` parameters, `sadd_overflow`, overflow `brif`, and `SourceLoc` from the lent facts.
 
 ## Honesty Rules
 
 - `hum ir-contract` is a discovery command; `backend-input` emits canonical
   bytes and `ir-verify` reports strict acceptance without exposing authority.
-- It must not run generated code.
-- It must not claim Hum has executable semantics.
-- It must not pretend complete type checking, ownership checking, resource checking, optimization, or backend
-  lowering exists.
+- Only `backend-probe` may run the frozen generated minimal-add matrix.
+- It must not claim general backend executable semantics.
+- It must not pretend broad type, ownership, resource, optimization, or backend
+  coverage exists beyond the exact checked gates and probe.
 - It must stay in sync with `hum core-contract --format json`, `hum
   backend-contract --format json`, `hum capabilities --format json`, and `hum
   version --format json`.
@@ -160,12 +161,13 @@ The command is local-first:
 - no cloud
 - no telemetry
 - no solver dependency
-- no backend dependency
-- no generated code execution
+- exact Cranelift 0.133.1 dependencies for the separate narrow probe only
+- no generated execution through this discovery command
 
 ## Non-Goals For V0
 
 V0 verifies canonical backend-input bytes only for the exact supported
-minimal-add source and lends authority only inside a compiler callback. It does not execute tasks,
-choose a backend, optimize programs, prove memory safety, or lower to
-Cranelift, LLVM, MLIR, Wasm, C, or a custom backend.
+minimal-add source and lends authority only inside a compiler callback. The
+explicit probe lowers that one checked add to Cranelift. V0 does not execute
+arbitrary tasks, optimize programs, prove memory safety, or support general
+Cranelift, LLVM, MLIR, Wasm, C, or custom-backend lowering.

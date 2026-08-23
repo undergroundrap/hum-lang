@@ -16,9 +16,17 @@ The first Hum compiler must be boring before it is brilliant.
 
 The Rust bootstrap must follow these rules:
 
-1. `#![forbid(unsafe_code)]` in compiler code.
-2. No third-party crates in Milestone 0.
-3. No build scripts, proc macros, or hidden code generation in Milestone 0.
+1. `#![deny(unsafe_code)]` is the compiler-wide default. WO22 Unit B allows
+   exactly one reviewed, local exception: invoking its finalized JIT code.
+2. Milestone 0's zero-third-party rule intentionally kept the immature compiler
+   trust root small. WO22 graduates it only for native code generation, using
+   exactly five pinned direct Cranelift `0.133.1` crates: `cranelift-codegen`,
+   `cranelift-frontend`, `cranelift-jit`, `cranelift-module`, and
+   `cranelift-native`, together with their locked transitive dependency graph.
+3. Hum retains language semantics, verification, capability authority, and
+   backend admission. Cranelift is bounded and replaceable; no removal or
+   undecided LLVM migration is promised.
+   No broader dependency, unsafe, FFI, backend, build-script, proc-macro, hidden-generation, or source-language unsafe permission follows.
 4. `cargo test` must pass before changes are considered real.
 5. `cargo clippy --all-targets -- -D warnings` must pass before changes are considered clean.
 6. The compiler should emit structured facts before it emits machine code.

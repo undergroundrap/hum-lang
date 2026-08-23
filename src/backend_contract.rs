@@ -25,9 +25,9 @@ const BACKEND_STAGES: &[BackendStage] = &[
     BackendStage {
         id: "cranelift",
         stage: 2,
-        status: "planned",
-        role: "first native proof and fast local feedback",
-        decision: "candidate after interpreter proof",
+        status: "current-minimal-add-probe",
+        role: "verified checked-add lowering and host-local JIT evidence",
+        decision: "one sealed capability, one internal function, no general backend claim",
     },
     BackendStage {
         id: "llvm",
@@ -81,6 +81,8 @@ const RULES: &[&str] = &[
     "LLVM is a mature optimized AOT target, not Hum's semantic center.",
     "MLIR and custom backend work require evidence from real Hum facts.",
     "No safety-critical credibility comes from a backend choice alone.",
+    "The first adapter maps verified checked_add to sadd_overflow and an explicit overflow branch.",
+    "The internal probe ABI is exactly (i64,i64,*mut i64)->i32.",
 ];
 
 const NON_GOALS_V0: &[&str] = &[
@@ -250,7 +252,7 @@ mod tests {
         assert!(text.contains("Hum backend contract (hum.backend_contract.v0)"));
         assert!(text.contains("decision: 0008-adopt-swappable-backend-ladder"));
         assert!(text.contains("1. interpreter [planned]"));
-        assert!(text.contains("2. cranelift [planned]"));
+        assert!(text.contains("2. cranelift [current-minimal-add-probe]"));
         assert!(text.contains("3. llvm [planned]"));
         assert!(text.contains("semantic_owner: hum_ir"));
         assert!(text.contains("semantic_owner_schema: hum.ir_contract.v0"));

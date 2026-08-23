@@ -15,14 +15,12 @@ This command exists so humans, agents, backend experiments, CI wrappers, and
 future editor tools can ask the Hum binary what backend path it currently
 recognizes without scraping prose from architecture docs.
 
-It does not mean Hum has an interpreter, Cranelift backend, LLVM backend, MLIR
-lowering, Wasm output, C output, or custom backend today. It is a contract for
-future adapters.
-
 The exact minimal-add artifact can now become a compiler-owned
 `VerifiedBackendInput` only after strict byte verification and live-fact
-cross-binding. No backend adapter exists yet, so this advances IR readiness
-without claiming backend readiness.
+cross-binding. The first production Cranelift adapter consumes only that lent
+capability, maps its checked-add facts to verified CLIF, and exposes one explicit
+host-local `backend-probe`. It is not a general backend, optimizer, AOT path,
+LLVM/MLIR/Wasm/C path, or custom code generator.
 
 ## Command
 
@@ -83,14 +81,14 @@ Each `backend_order` entry has:
 
 - `id`: stable backend-stage identifier
 - `stage`: numeric order in the ladder
-- `status`: `planned` or `deferred` in V0
+- `status`: current narrow support, `planned`, or `deferred`
 - `role`: why this stage exists
 - `decision`: current rule for when to use the stage
 
 Current stages:
 
 - `interpreter`: first executable semantics and contract behavior
-- `cranelift`: first native proof and fast local feedback
+- `cranelift`: current verified-only minimal-add JIT proof and future native rung
 - `llvm`: mature optimized native AOT builds
 - `mlir`: future multi-level lowering for vector, tensor, sparse, GPU, or
   accelerator work
@@ -123,6 +121,11 @@ Every backend adapter must preserve or explicitly report loss of:
   the same Hum IR adapter boundary.
 - A future adapter must accept the sealed verified-input capability, never raw
   artifact bytes, report text, a fixture, source, AST, or Core reconstruction.
+- The current adapter derives two ordered `I64` parameters, `sadd_overflow`, one
+  overflow `brif`, success-only result storage, statuses 0/1, and a non-default
+  `SourceLoc` from authenticated facts.
+- Its private ABI is exactly `(i64,i64,*mut i64)->i32`; one finalized function
+  runs four ordinary and two overflow probes.
 - It must keep `hum ir-contract --format json`, `hum capabilities --format
   json`, and `hum version --format json` in sync with this schema.
 
@@ -134,12 +137,12 @@ The command is local-first:
 - no cloud
 - no telemetry
 - no solver dependency
-- no backend dependency
-- no generated code execution
+- five exact Cranelift 0.133.1 production dependencies only
+- generated execution only through the explicit verified `backend-probe`
 
 ## Non-Goals For V0
 
-V0 does not promise an interpreter, code generator, optimizer, executable
-artifact, backend CLI flag, debug info, target triple support, or safety-critical
-qualification. It is the machine-readable contract that prevents future backend
-work from erasing Hum's source semantics.
+V0 does not promise general code generation, optimization, executable artifacts,
+debug info, broad target support, or safety-critical qualification. The narrow
+probe reports B01-B15 honestly and prevents future backend work from erasing
+Hum's source semantics.

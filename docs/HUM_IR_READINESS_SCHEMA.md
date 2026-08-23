@@ -265,8 +265,8 @@ Each `lowering_candidates` entry has:
 - `blocking_reasons`: reasons preventing `ir_ready`; canonical verification leaves this empty
 - `ir_ready`: 1 only when live byte verification and logical cross-binding succeed
 - `ready_for_ir`: exact V0 parity alias of `ir_ready`
-- `backend_ready`: remains 0 in Unit A
-- `backend_blocking_reasons`: `backend_adapter_not_implemented` after IR verification
+- `backend_ready`: remains 0 on this non-executing readiness surface
+- `backend_blocking_reasons`: `explicit_backend_probe_required` after IR verification
 - `source_sections`: sections seen on the item
 - `body_grammar`: optional partial V0 parse/classification of meaningful `does:`
   lines, when the item has a `does:` section
@@ -279,7 +279,7 @@ Current candidate statuses:
 - `blocked_by_resource_check_errors`: `hum.resource_check.v0` reported missing allocation/resource declarations, contradictions in allocation-free claims, unchecked call allocation effects, or prior gate blockers
 - `blocked_by_profile_check_errors`: `hum.profile_check.v0` reported unknown profile declarations, strict profile declarations that V0 cannot enforce yet, or prior gate blockers
 - `blocked_before_ir_verify`: an otherwise supported candidate could not obtain verified live authority
-- `ready_for_ir_with_verified_backend_input_v0`: exact canonical minimal-add bytes verified and cross-bound to live typed facts; no backend adapter exists
+- `ready_for_ir_with_verified_backend_input_v0`: exact canonical minimal-add bytes verified and cross-bound to live typed facts; the capability remains callback-scoped
 - `blocked_by_core_verify_errors`: `hum.core_verify.v0` reported artifact invariant failures
 - `blocked_by_source_errors`: source diagnostics include errors
 - `blocked_by_resolver_errors`: `hum.resolve.v0` reported name, duplicate, or mutable-place errors
@@ -410,8 +410,16 @@ ready_for_ir=1
 backend_ready=0
 missing_passes=[]
 blocking_reasons=[]
-backend_blocking_reasons=[backend_adapter_not_implemented]
+backend_blocking_reasons=[explicit_backend_probe_required]
 ```
+
+`ir-readiness` never runs the JIT and never remembers another process's result.
+The separate opt-in `backend-probe` command redoes live verification, lends the
+capability directly to the Cranelift adapter, and may report host-local
+`backend_ready=1` only after its ordered B01-B15 matrix is entirely GO. See
+[HUM_BACKEND_PROBE_SCHEMA.md](HUM_BACKEND_PROBE_SCHEMA.md). Repository-wide
+backend readiness additionally requires the published Ubuntu and Windows
+full-CI lifecycle; it cannot be inferred here.
 
 This projection requires strict verification of the live canonical artifact
 and logical cross-binding to the same Program facts. A private, non-serializable
@@ -487,6 +495,7 @@ V0 reports these pass statuses:
 - `contract_evidence_linking`: `report_available_not_ir_pass`
 - `profile_check`: `recognized_core_profile_gate_available_v0`
 - `ir_verify`: `implemented_canonical_minimal_add_backend_input_v0`
+- `backend_probe`: separate explicit verified-only execution surface
 
 ## Honesty Rules
 
@@ -523,11 +532,11 @@ The command is local-first:
 - no cloud
 - no telemetry
 - no solver dependency
-- no backend dependency
+- no backend execution on this readiness command
 - no generated code execution
 
 ## Non-Goals For V0
 
-V0 does not produce Core Hum, Hum IR, bytecode, machine code, backend adapter
+V0 readiness does not produce Core Hum, Hum IR, bytecode, machine code, backend adapter
 input, proof artifacts, optimized code, or executable behavior. It is a progress
 map from current parsed source through non-executing Core artifact verification toward the first honest IR milestone.

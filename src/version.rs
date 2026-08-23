@@ -1,4 +1,5 @@
 use crate::backend_contract;
+use crate::backend_cranelift;
 use crate::backend_input;
 use crate::capabilities;
 use crate::core_contract;
@@ -29,11 +30,11 @@ use crate::type_env;
 
 pub const HUM_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const HUM_STATUS: &str = "pre-alpha";
-pub const HUM_MILESTONE: &str = "1 executable core slice";
+pub const HUM_MILESTONE: &str = "verified minimal-add backend probe";
 
 pub fn version_text() -> String {
     format!(
-        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\ncore_contract_schema: {}\ncore_preview_schema: {}\ncore_lower_schema: {}\ncore_verify_schema: {}\nresolve_report_schema: {}\ntype_env_schema: {}\ntype_check_schema: {}\nfull_type_check_schema: {}\neffect_check_schema: {}\nownership_check_schema: {}\nresource_check_schema: {}\nprofile_check_schema: {}\nir_contract_schema: {}\nbackend_contract_schema: {}\nruntime_profiles_schema: {}\nruntime_profile_schema: {}\nstate_model_schema: {}\nstate_permission_schema: {}\nlsp_capabilities_schema: {}\nmath_obligations_report_schema: {}\nmath_obligation_schema: {}\nresource_report_schema: {}\nir_readiness_schema: {}\nbackend_input_schema: {}\nir_verify_schema: {}\ndoctor_schema: {}\ntarget_facts_schema: {}\ntarget_fact_record_schema: {}\n",
+        "Hum {HUM_VERSION} {HUM_STATUS}\nmilestone: {HUM_MILESTONE}\ntarget: {}\nsemantic_graph_schema: {}\nsyntax_surface_schema: {}\ndiagnostic_explain_schema: {}\ndiagnostic_catalog_schema: {}\ncapabilities_schema: {}\ncore_contract_schema: {}\ncore_preview_schema: {}\ncore_lower_schema: {}\ncore_verify_schema: {}\nresolve_report_schema: {}\ntype_env_schema: {}\ntype_check_schema: {}\nfull_type_check_schema: {}\neffect_check_schema: {}\nownership_check_schema: {}\nresource_check_schema: {}\nprofile_check_schema: {}\nir_contract_schema: {}\nbackend_contract_schema: {}\nruntime_profiles_schema: {}\nruntime_profile_schema: {}\nstate_model_schema: {}\nstate_permission_schema: {}\nlsp_capabilities_schema: {}\nmath_obligations_report_schema: {}\nmath_obligation_schema: {}\nresource_report_schema: {}\nir_readiness_schema: {}\nbackend_input_schema: {}\nir_verify_schema: {}\nbackend_probe_schema: {}\ndoctor_schema: {}\ntarget_facts_schema: {}\ntarget_fact_record_schema: {}\n",
         target_name(),
         json::SEMANTIC_GRAPH_SCHEMA,
         syntax::SYNTAX_SCHEMA,
@@ -65,6 +66,7 @@ pub fn version_text() -> String {
         ir_readiness::IR_READINESS_SCHEMA,
         backend_input::BACKEND_INPUT_SCHEMA,
         ir_verify::IR_VERIFY_SCHEMA,
+        backend_cranelift::BACKEND_PROBE_SCHEMA,
         doctor::DOCTOR_SCHEMA,
         target_facts::TARGET_FACTS_SCHEMA,
         target_facts::TARGET_FACT_RECORD_SCHEMA
@@ -273,6 +275,13 @@ pub fn version_json() -> String {
         true,
     );
     push_string_field(&mut out, 4, "ir_verify", ir_verify::IR_VERIFY_SCHEMA, true);
+    push_string_field(
+        &mut out,
+        4,
+        "backend_probe",
+        backend_cranelift::BACKEND_PROBE_SCHEMA,
+        true,
+    );
     push_string_field(&mut out, 4, "doctor", doctor::DOCTOR_SCHEMA, true);
     push_string_field(
         &mut out,

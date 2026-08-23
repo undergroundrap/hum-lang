@@ -68,7 +68,10 @@ program can be projected into canonical
 `hum backend-input examples/core/minimal_add.hum`. Those bytes grant no
 authority by themselves. The strict `ir_verify` decoder cross-binds accepted
 bytes to live typed facts and lends a private `VerifiedBackendInput`; backend
-lowering remains absent.
+lowering can consume that capability only inside its callback. The explicit
+`backend-probe` route lowers the exact checked add to Cranelift, verifies and
+finalizes it, then runs the frozen host-local matrix; no report or byte artifact
+can enter the adapter.
 
 See [FORMAL_CORE.md](FORMAL_CORE.md).
 
@@ -93,6 +96,7 @@ parse/current
 -> backend_input/canonical_target_independent_bytes_produced_unverified_v0
 -> ir_verify/accepted_canonical_backend_input_v0
 -> ir_readiness/ready_for_ir_with_verified_backend_input_v0_backend_ready_0
+-> backend_probe/verified_checked_add_cranelift_go_or_no_go_v0
 ```
 
 For the exact authenticated minimal-add subset, `backend_input` owns one
@@ -186,9 +190,10 @@ preliminary evidence. A zero-access synthesized volume handle must report no
 type-2 storage dependency and a complete nonempty extent list; every synthesized
 physical-disk handle must report non-removable ATA, SATA, or NVMe; and the drive
 type/mapping must be identical after inspection. Everything else remains
-unclassified. The main crate remains unsafe-free, candidate paths are never
-opened, and this is not a portable Path model, target-availability claim, or
-filesystem sandbox.
+unclassified. The main crate denies unsafe code by default; WO22 Unit B locally
+allows only its single reviewed JIT invocation boundary. Candidate paths are
+never opened, and this is not a portable Path model, target-availability claim,
+or filesystem sandbox.
 
 Session AD adds the first bounded file operation:
 `files_read_text(path: Path) -> Result Text, FileReadError`. The operation is

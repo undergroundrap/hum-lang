@@ -111,9 +111,13 @@ drive-relative, traversal, UNC, verbatim/device/NT/volume, alternate-stream,
 trailing-dot/space, and normalized DOS-device aliases. Lexical `Prefix::Disk`
 evidence is not proof of locality and authorizes no file operation.
 
-Fixed-local classification is isolated in one small audited bootstrap adapter,
-outside the main crate that continues to forbid unsafe code. That adapter may
-use only the bounded query chain recorded by Session AC over an already
+Fixed-local classification is isolated in one small audited bootstrap adapter.
+The main crate keeps `#![deny(unsafe_code)]` as its default; WO22 Unit B permits
+exactly one reviewed, locally allowed JIT invocation boundary. That compiler
+exception grants no broader unsafe, FFI, dependency, backend, build-script,
+proc-macro, hidden-generation, source-language, operator-consent, structural,
+path, locality, or threat-model authority. The adapter may use only the bounded
+query chain recorded by Session AC over an already
 validated drive root and synthesized volume/physical-disk device names. It
 performs no network, process, environment, registry, candidate-file, or content
 access. Non-Windows classification fails as unsupported in this initial slice.

@@ -440,7 +440,12 @@ First compiler support should be structural:
 3. Reject unsafe tasks missing required sections.
 4. Warn when unsafe body is large.
 5. Add example fixtures for MMIO, FFI wrapper, unchecked slice, and lock-free queue.
-6. Keep Rust bootstrap compiler itself at `#![forbid(unsafe_code)]`.
+6. Keep `#![deny(unsafe_code)]` as the Rust bootstrap's default. WO22 Unit B
+   permits exactly one reviewed, locally allowed JIT invocation boundary.
+
+That compiler implementation exception does not change Hum's source-language
+unsafe policy. It grants no broader unsafe, dependency, FFI, backend,
+build-script, proc-macro, hidden-generation, or source-language authority.
 
 ## Sources
 

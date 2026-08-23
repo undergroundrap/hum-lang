@@ -41,8 +41,8 @@ const IR_LAYERS: &[IrLayer] = &[
     IrLayer {
         id: "backend_adapter_input",
         stage: 5,
-        status: "planned",
-        role: "verified Hum IR plus explicit unsupported or weakened facts",
+        status: "minimal-add-lowering-current",
+        role: "callback-scoped verified facts lowered to checked Cranelift IR",
     },
 ];
 
@@ -105,6 +105,7 @@ const RULES: &[&str] = &[
     "Every backend adapter consumes verified Hum IR, not raw surface syntax.",
     "Every unsupported or weakened fact must be explicit in the IR or adapter report.",
     "Optimizations may change shape only when carried facts remain valid or are reported as changed.",
+    "The current adapter derives ordered I64 parameters, sadd_overflow, brif, and SourceLoc from verified facts.",
 ];
 
 const NON_GOALS_V0: &[&str] = &[
@@ -112,8 +113,8 @@ const NON_GOALS_V0: &[&str] = &[
     "no executable semantics",
     "no full type checker implementation",
     "no optimizer implementation",
-    "no backend lowering",
-    "no backend adapter input authority",
+    "no general backend lowering beyond canonical minimal_add",
+    "no durable backend adapter input authority",
 ];
 
 pub fn ir_contract_text() -> String {

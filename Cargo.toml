@@ -9,4 +9,9 @@ name = "hum"
 path = "src/main.rs"
 
 [dependencies]
+cranelift-codegen = { version = "=0.133.1", default-features = false, features = ["std", "unwind", "host-arch"] }
+cranelift-frontend = { version = "=0.133.1", default-features = false, features = ["std"] }
+cranelift-jit = { version = "=0.133.1", default-features = false }
+cranelift-module = { version = "=0.133.1", default-features = false, features = ["std"] }
+cranelift-native = { version = "=0.133.1", default-features = false, features = ["std"] }
 windows-drive-locality = { path = "crates/windows-drive-locality" }

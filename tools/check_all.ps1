@@ -305,8 +305,8 @@ function Invoke-UbuntuPwshResolutionSelfTests {
 function Assert-ExactRustSelectorLedger {
   param([string[]] $Credits)
 
-  $ExpectedByteCount = 8043
-  $ExpectedSha256 = 'e6d27660a36468704b78fec89c218d8fe6e38d471ed8a4a686f8aab23d68120d'
+  $ExpectedByteCount = 8324
+  $ExpectedSha256 = '58a2ca9f27e73d01e763547a6a084bd0737a145e2cd59a596b578949177940f2'
   $Items = @($Credits)
   $Unique = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
   foreach ($Item in $Items) {
@@ -316,8 +316,8 @@ function Assert-ExactRustSelectorLedger {
     }
     $null = $Unique.Add($Item)
   }
-  if ($Items.Count -ne 103 -or $Unique.Count -ne 103) {
-    throw "exact Rust selector inventory must credit 103 case-sensitive unique tests, credited $($Items.Count) invocations and $($Unique.Count) unique tests"
+  if ($Items.Count -ne 107 -or $Unique.Count -ne 107) {
+    throw "exact Rust selector inventory must credit 107 case-sensitive unique tests, credited $($Items.Count) invocations and $($Unique.Count) unique tests"
   }
 
   $CanonicalText = ($Items -join "`n") + "`n"
@@ -329,7 +329,7 @@ function Assert-ExactRustSelectorLedger {
     if ($Byte -eq 10) { $LfCount++ }
     if ($Byte -eq 13) { $CrCount++ }
   }
-  if ($Bytes.Length -ne $ExpectedByteCount -or $LfCount -ne 103 -or $CrCount -ne 0 -or
+  if ($Bytes.Length -ne $ExpectedByteCount -or $LfCount -ne 107 -or $CrCount -ne 0 -or
       $Bytes[$Bytes.Length - 1] -ne 10 -or
       ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xef -and $Bytes[1] -eq 0xbb -and $Bytes[2] -eq 0xbf) -or
       $Encoding.GetString($Bytes) -cne $CanonicalText) {
@@ -371,8 +371,14 @@ function Invoke-ExactRustSelectorLedgerMutationTests {
     'ir_verify::tests::canonical_minimal_add_artifact_corruption_matrix_is_complete',
     'ir_verify::tests::verified_backend_input_is_sealed_typed_and_lifetime_bound'
   )
+  $Wo22UnitBSelectors = @(
+    'backend_cranelift::tests::verified_minimal_add_emits_checked_cranelift_ir',
+    'backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact',
+    'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing',
+    'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
+  )
   Assert-ExactRustSelectorLedger -Credits $Credits
-  foreach ($Selector in $Wo22UnitASelectors) {
+  foreach ($Selector in @($Wo22UnitASelectors) + @($Wo22UnitBSelectors)) {
     $Removal = @($Credits | Where-Object { $_ -cne $Selector })
     Assert-ExactRustSelectorLedgerRejects -Credits $Removal -Label "removal of $Selector"
     $Duplicate = @($Credits) + $Selector
@@ -383,11 +389,11 @@ function Invoke-ExactRustSelectorLedgerMutationTests {
   }
 
   $Fabricated = @($Wo22UnitASelectors)
-  for ($Index = 1; $Index -le 101; $Index++) { $Fabricated += ('fabricated::selector_{0:D3}' -f $Index) }
-  Assert-ExactRustSelectorLedgerRejects -Credits $Fabricated -Label 'two Unit A selectors plus 101 fabricated selectors'
+  for ($Index = 1; $Index -le 105; $Index++) { $Fabricated += ('fabricated::selector_{0:D3}' -f $Index) }
+  Assert-ExactRustSelectorLedgerRejects -Credits $Fabricated -Label 'two Unit A selectors plus 105 fabricated selectors'
 
-  $PreservedAndFabricated = @($PreservedNamedSelectors) + @($Wo22UnitASelectors)
-  for ($Index = $PreservedAndFabricated.Count; $Index -lt 103; $Index++) {
+  $PreservedAndFabricated = @($PreservedNamedSelectors) + @($Wo22UnitASelectors) + @($Wo22UnitBSelectors)
+  for ($Index = $PreservedAndFabricated.Count; $Index -lt 107; $Index++) {
     $PreservedAndFabricated += ('fabricated::preserved_replacement_{0:D3}' -f $Index)
   }
   Assert-ExactRustSelectorLedgerRejects -Credits $PreservedAndFabricated -Label 'preserved named obligations plus fabricated replacements'
@@ -524,6 +530,294 @@ function Assert-ReadmeHumExamplesMatch {
   }
 }
 
+function Test-Wo22ByteArraysEqual {
+  param(
+    [AllowEmptyCollection()] [byte[]] $Expected,
+    [AllowEmptyCollection()] [byte[]] $Actual
+  )
+
+  if ($null -eq $Expected -or $null -eq $Actual -or $Expected.Length -ne $Actual.Length) {
+    return $false
+  }
+  for ($Index = 0; $Index -lt $Expected.Length; $Index++) {
+    if ([int] $Expected[$Index] -ne [int] $Actual[$Index]) {
+      return $false
+    }
+  }
+  return $true
+}
+
+function Assert-Wo22ActivePolicySection {
+  param([string] $RelativePath, [string] $Heading, [string[]] $Clauses)
+  $Text = [System.IO.File]::ReadAllText((Join-Path $RepoRoot $RelativePath)); $Active = [regex]::Replace($Text, '(?s)<!--.*?-->', '')
+  $Active = [regex]::Replace($Active, '(?ms)^```[^\r\n]*\r?\n.*?^```\s*$|^~~~[^\r\n]*\r?\n.*?^~~~\s*$', ''); $Pattern = '(?ms)^' + [regex]::Escape($Heading) + '\r?\n(?<body>.*?)(?=^#{1,6}\s|\z)'
+  $Sections = [regex]::Matches($Active, $Pattern); if ($Sections.Count -ne 1) { throw "Work Order 22 active policy section is missing or duplicate: $RelativePath $Heading" }
+  $Body = [regex]::Replace($Sections[0].Groups['body'].Value, '\s+', ' ').Trim()
+  if ([regex]::IsMatch($Body, '(?is)#!\[forbid\(unsafe_code\)\]|\bno\s+third-party\s+(?:crates|dependencies)\b|\b(?:compiler|main\s+crate)\b.{0,48}\b(?:forbids?\s+(?:all\s+)?unsafe|unsafe-free)\b')) { throw "Work Order 22 active policy section restored a stale absolute claim: $RelativePath" }
+  foreach ($Clause in $Clauses) { if (-not [regex]::IsMatch($Body, $Clause, [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)) { throw "Work Order 22 active policy section lost semantic clause '$Clause': $RelativePath" } }
+}
+
+function Invoke-Wo22UnsafeBoundaryCompilerEvidence {
+  param([string] $Cargo, [string] $BackendPath)
+
+  $OriginalBytes = [System.IO.File]::ReadAllBytes($BackendPath)
+  $Utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+  $Original = $Utf8.GetString($OriginalBytes)
+  $FunctionNeedle = 'fn invoke_finalized_minimal_add('
+  $FunctionIndex = $Original.IndexOf($FunctionNeedle, [System.StringComparison]::Ordinal)
+  $Allow = '#[allow(unsafe_code)]' + "`n"
+  $AllowIndex = $FunctionIndex - $Allow.Length
+  if ($FunctionIndex -lt 0 -or $FunctionIndex -ne $Original.LastIndexOf($FunctionNeedle, [System.StringComparison]::Ordinal) -or
+      $AllowIndex -lt 0 -or $Original.Substring($AllowIndex, $Allow.Length) -cne $Allow) {
+    throw 'Work Order 22 unsafe allowance is not attached to invoke_finalized_minimal_add'
+  }
+  Invoke-Native 'Work Order 22 normal compiler check before unsafe-boundary proof' $Cargo @('check', '--all-targets')
+  try {
+    [System.IO.File]::WriteAllBytes($BackendPath, $Utf8.GetBytes($Original.Remove($AllowIndex, $Allow.Length)))
+    $Failure = Read-NativeChannelsWithExit 'Work Order 22 removed unsafe allowance compiler proof' $Cargo @('check', '--bin', 'hum', '--message-format=json')
+  } finally {
+    [System.IO.File]::WriteAllBytes($BackendPath, $OriginalBytes)
+  }
+  if (-not (Test-Wo22ByteArraysEqual $OriginalBytes ([System.IO.File]::ReadAllBytes($BackendPath)))) { throw 'Work Order 22 unsafe-boundary proof did not restore the exact backend source' }
+  $Diagnostics = @($Failure.Stdout -split '\r?\n' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.reason -ceq 'compiler-message' } | ForEach-Object { $_.message })
+  $UnsafeDiagnostics = @($Diagnostics | Where-Object { $null -ne $_.code -and $_.code.code -ceq 'unsafe_code' })
+  $ActionableErrors = @($Diagnostics | Where-Object { $_.level -ceq 'error' -and ($null -ne $_.code -or @($_.spans | Where-Object { $_.is_primary }).Count -gt 0) })
+  $Primary = @($UnsafeDiagnostics | ForEach-Object { $_.spans } | Where-Object { $_.is_primary })
+  $BoundaryLines = @($Primary | ForEach-Object { $_.text } | Where-Object { $_.text -ceq '    let status = unsafe {' })
+  $Highlighted = if ($BoundaryLines.Count -eq 1) { $BoundaryLines[0].text.Substring($BoundaryLines[0].highlight_start - 1, $BoundaryLines[0].highlight_end - $BoundaryLines[0].highlight_start) } else { '' }
+  $Finished = @($Failure.Stdout -split '\r?\n' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.reason -ceq 'build-finished' })
+  if ($Failure.ExitCode -ne 101 -or $UnsafeDiagnostics.Count -ne 1 -or $ActionableErrors.Count -ne 1 -or $Primary.Count -ne 1 -or
+      (($Primary[0].file_name -replace '\\', '/') -cne 'src/backend_cranelift.rs') -or
+      $BoundaryLines.Count -ne 1 -or $Highlighted -cne 'unsafe {' -or
+      $Finished.Count -ne 1 -or $Finished[0].success -ne $false) {
+    throw 'Work Order 22 removed allowance must expose only the executable unsafe_code boundary'
+  }
+  Invoke-Native 'Work Order 22 normal compiler check after unsafe-boundary proof' $Cargo @('check', '--all-targets')
+}
+
+function Invoke-Wo22BackendPredicateMutationEvidence {
+  param([string] $Cargo, [string] $BackendPath, [string] $OnlyLabel = '')
+
+  $Selector = 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'
+  $ProbeSelector = 'backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact'
+  $Mutations = @(
+    [pscustomobject] @{ Label = 'B01 capability admission'; Selector = $Selector; Needle = 'fault_at(fault, 0) || input.schema() != crate::backend_input::BACKEND_INPUT_SCHEMA'; Replacement = 'fault_at(fault, 0) && input.schema() != crate::backend_input::BACKEND_INPUT_SCHEMA' },
+    [pscustomobject] @{ Label = 'B02 pinned versions'; Selector = $Selector; Needle = 'fault_at(fault, 1) || pinned_versions != [CRANELIFT_VERSION; 5]'; Replacement = 'fault_at(fault, 1) && pinned_versions != [CRANELIFT_VERSION; 5]' },
+    [pscustomobject] @{ Label = 'B03 declaration plan'; Selector = $Selector; Needle = 'let declaration_symbol = linkage_symbol;'; Replacement = 'let declaration_symbol = "hum_fn_substituted";'; RequiredFailureFragment = 'B03 linkage consumption' },
+    [pscustomobject] @{ Label = 'B04 ABI facts'; Selector = $Selector; Needle = 'let (left, right, result_slot) = (params[0], params[1], params[2]);'; Replacement = 'let (left, right, result_slot) = (params[1], params[0], params[2]);'; RequiredFailureFragment = 'B04 parameter-order consumption' },
+    [pscustomobject] @{ Label = 'B05 checked-add selection'; Selector = $Selector; Needle = 'let overflow_operation = verified_operator(&mut evidence, input);'; Replacement = 'let overflow_operation = "checked_add";'; RequiredFailureFragment = 'B05 operator-getter consumption' },
+    [pscustomobject] @{
+      Label = 'B06 overflow edge'
+      Selector = $Selector
+      Needle = 'fault_at(fault, 5)' + "`n" + '        || overflow_type != "signed_64"' + "`n" + '        || overflow_behavior != "runtime_trap_on_overflow"'
+      Replacement = 'fault_at(fault, 5)' + "`n" + '        && (overflow_type != "signed_64"' + "`n" + '            || overflow_behavior != "runtime_trap_on_overflow")'
+      AdditionalChanges = @(
+        [pscustomobject] @{
+          Needle = 'fault_at(fault, 5) || clif.matches("brif").count() != 1 || clif.matches("store").count() != 1'
+          Replacement = 'fault_at(fault, 5) && (clif.matches("brif").count() != 1 || clif.matches("store").count() != 1)'
+        }
+      )
+      OwnedSites = @('verified overflow type/behavior edge', 'emitted brif/store control flow')
+      RequiredFailureFragment = 'assertion failed: !report.go()'
+    },
+    [pscustomobject] @{
+      Label = 'B07 source location'
+      Selector = $Selector
+      Needle = 'fault_at(fault, 6) || source_location.is_none()'
+      Replacement = 'fault_at(fault, 6) && source_location.is_none()'
+      AdditionalChanges = @(
+        [pscustomobject] @{
+          Needle = 'fault_at(fault, 6)' + "`n" + '        || !clif.contains(&SourceLoc::new(source_location).to_string())' + "`n" + '        || SourceLoc::new(source_location).is_default()'
+          Replacement = 'fault_at(fault, 6)' + "`n" + '        && (!clif.contains(&SourceLoc::new(source_location).to_string())' + "`n" + '            || SourceLoc::new(source_location).is_default())'
+        }
+      )
+      OwnedSites = @('verified span-to-SourceLoc conversion', 'emitted non-default SourceLoc')
+      RequiredFailureFragment = 'assertion failed: !report.go()'
+    },
+    [pscustomobject] @{
+      Label = 'B08 host target predicate'
+      Selector = $Selector
+      Needle = 'fault_at(fault, 7)' + "`n" + '        || !target_is_required('
+      Replacement = 'fault_at(fault, 7)' + "`n" + '        && !target_is_required('
+      AdditionalChanges = @(
+        [pscustomobject] @{
+          Needle = 'if flag_builder.set("use_colocated_libcalls", "false").is_err()' + "`n" + '        || flag_builder.set("is_pic", "false").is_err()' + "`n" + '    {'
+          Replacement = 'if fault_at(fault, 7)' + "`n" + '        && (flag_builder.set("use_colocated_libcalls", "false").is_err()' + "`n" + '            || flag_builder.set("is_pic", "false").is_err())' + "`n" + '    {'
+        },
+        [pscustomobject] @{
+          Needle = 'let isa_builder = match cranelift_native::builder() {' + "`n" + '        Ok(builder) => builder,' + "`n" + '        Err(error) => stop!(7, format!("native ISA builder unavailable: {error}")),' + "`n" + '    };'
+          Replacement = 'let isa_builder = cranelift_native::builder()' + "`n" + '        .expect("B08 mutation bypassed native ISA builder disposition");'
+        },
+        [pscustomobject] @{
+          Needle = 'let isa = match isa_builder.finish(settings::Flags::new(flag_builder)) {' + "`n" + '        Ok(isa) => isa,' + "`n" + '        Err(error) => stop!(7, format!("native ISA initialization failed: {error}")),' + "`n" + '    };'
+          Replacement = 'let isa = isa_builder' + "`n" + '        .finish(settings::Flags::new(flag_builder))' + "`n" + '        .expect("B08 mutation bypassed native ISA initialization disposition");'
+        },
+        [pscustomobject] @{
+          Needle = 'if !matches!(' + "`n" + '        evidence.target_triple.as_str(),' + "`n" + '        "x86_64-pc-windows-msvc" | "x86_64-unknown-linux-gnu"' + "`n" + '    ) {'
+          Replacement = 'if fault_at(fault, 7)' + "`n" + '        && !matches!(' + "`n" + '            evidence.target_triple.as_str(),' + "`n" + '            "x86_64-pc-windows-msvc" | "x86_64-unknown-linux-gnu"' + "`n" + '        )' + "`n" + '    {'
+        }
+      )
+      OwnedSites = @('required host predicate', 'required JIT flag disposition', 'native ISA builder disposition', 'native ISA finish disposition', 'final required triple')
+      RequiredFailureFragment = 'assertion failed: !report.go()'
+    },
+    [pscustomobject] @{
+      Label = 'B09 CLIF verifier disposition'
+      Selector = $Selector
+      Needle = 'let verification = verify_function(&context.func, module.isa());'
+      Replacement = 'let verification: cranelift_codegen::verifier::VerifierResult<()> = Ok(());'
+      OwnedSites = @('Cranelift verifier disposition')
+      RequiredFailureFragment = 'cranelift_verification_failed'
+    },
+    [pscustomobject] @{
+      Label = 'B10 declaration disposition'
+      Selector = $Selector
+      Needle = 'fault_at(fault, 9) || declaration.is_err()'
+      Replacement = 'fault_at(fault, 9) && declaration.is_err()'
+      OwnedSites = @('JIT declaration disposition')
+      RequiredFailureFragment = 'assertion failed: !report.go()'
+    },
+    [pscustomobject] @{
+      Label = 'B11 definition disposition'
+      Selector = $Selector
+      Needle = 'fault_at(fault, 10) || definition.is_err()'
+      Replacement = 'fault_at(fault, 10) && definition.is_err()'
+      OwnedSites = @('JIT definition disposition')
+      RequiredFailureFragment = 'assertion failed: !report.go()'
+    },
+    [pscustomobject] @{
+      Label = 'B12 finalization disposition'
+      Selector = $Selector
+      Needle = 'fault_at(fault, 11) || finalization.is_err()'
+      Replacement = 'fault_at(fault, 11) && finalization.is_err()'
+      AdditionalChanges = @(
+        [pscustomobject] @{
+          Needle = 'if code.is_null() {'
+          Replacement = 'if fault_at(fault, 11) && code.is_null() {'
+        }
+      )
+      OwnedSites = @('JIT finalization disposition', 'non-null finalized code pointer')
+      RequiredFailureFragment = 'assertion failed: !report.go()'
+    },
+    [pscustomobject] @{
+      Label = 'B13 ordinary execution'
+      Selector = $Selector
+      Needle = 'let code = evidence' + "`n" + '            .compiled' + "`n" + '            .as_ref()' + "`n" + '            .expect("compiled probe retained")' + "`n" + '            .code;' + "`n" + '        let status = invoke_finalized_minimal_add(' + "`n" + '            code,' + "`n" + '            left,' + "`n" + '            right,' + "`n" + '            &mut result_slot,' + "`n" + '            &mut evidence.consumption,' + "`n" + '            1,' + "`n" + '        );'
+      Replacement = 'let status = {' + "`n" + '            result_slot = left.checked_add(right).expect("ordinary probe is in range");' + "`n" + '            0' + "`n" + '        };'
+      OwnedSites = @('ordinary finalized JIT invocation')
+      RequiredFailureFragment = 'B13 finalized ordinary invocation'
+    },
+    [pscustomobject] @{
+      Label = 'B14 overflow execution'
+      Selector = $Selector
+      Needle = 'let code = evidence' + "`n" + '            .compiled' + "`n" + '            .as_ref()' + "`n" + '            .expect("compiled probe retained")' + "`n" + '            .code;' + "`n" + '        let status = invoke_finalized_minimal_add(' + "`n" + '            code,' + "`n" + '            left,' + "`n" + '            right,' + "`n" + '            &mut result_slot,' + "`n" + '            &mut evidence.consumption,' + "`n" + '            2,' + "`n" + '        );'
+      Replacement = 'let status = 1;'
+      OwnedSites = @('overflow finalized JIT invocation')
+      RequiredFailureFragment = 'B14 finalized overflow invocation'
+    },
+    [pscustomobject] @{
+      Label = 'B15 aggregate evidence'
+      Selector = $Selector
+      Needle = 'fault_at(fault, 14) || !backend_evidence_is_complete(&evidence)'
+      Replacement = 'fault_at(fault, 14) && !backend_evidence_is_complete(&evidence)'
+      OwnedSites = @('aggregate evidence/readiness disposition')
+      RequiredFailureFragment = 'assertion failed: !report.go()'
+    },
+    [pscustomobject] @{ Label = 'B14 overflow store ordering'; Selector = $ProbeSelector; Needle = ('let (sum, overflowed) = builder.ins().sadd_overflow(left, right);' + "`n" + '        builder.ins().brif(overflowed, overflow, &[], success, &[]);' + "`n" + '        builder.switch_to_block(success);' + "`n" + '        builder' + "`n" + '            .ins()' + "`n" + '            .store(MemFlagsData::new(), sum, result_slot, 0);'); Replacement = ('let (sum, overflowed) = builder.ins().sadd_overflow(left, right);' + "`n" + '        builder' + "`n" + '            .ins()' + "`n" + '            .store(MemFlagsData::new(), sum, result_slot, 0);' + "`n" + '        builder.ins().brif(overflowed, overflow, &[], success, &[]);' + "`n" + '        builder.switch_to_block(success);') }
+  )
+
+  $SelectedMutations = @($Mutations | Where-Object {
+      [string]::IsNullOrEmpty($OnlyLabel) -or $_.Label -ceq $OnlyLabel
+    })
+  if (-not [string]::IsNullOrEmpty($OnlyLabel) -and $SelectedMutations.Count -ne 1) {
+    throw "Work Order 22 focused production mutation label is missing or duplicate: $OnlyLabel"
+  }
+
+  $OriginalBytes = [System.IO.File]::ReadAllBytes($BackendPath)
+  $Utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+  $Original = $Utf8.GetString($OriginalBytes)
+  if (-not (Test-Wo22ByteArraysEqual $OriginalBytes $Utf8.GetBytes($Original))) {
+    throw 'Work Order 22 backend mutation source is not canonical BOM-free UTF-8'
+  }
+  try {
+    foreach ($Mutation in $SelectedMutations) {
+      $Needles = @($Mutation.Needle)
+      $Replacements = @($Mutation.Replacement)
+      $AdditionalNeedle = $Mutation.PSObject.Properties['AdditionalNeedle']
+      if ($null -ne $AdditionalNeedle) {
+        $Needles += $AdditionalNeedle.Value
+        $Replacements += $Mutation.PSObject.Properties['AdditionalReplacement'].Value
+      }
+      $AdditionalChanges = $Mutation.PSObject.Properties['AdditionalChanges']
+      if ($null -ne $AdditionalChanges) {
+        foreach ($Change in @($AdditionalChanges.Value)) {
+          $Needles += $Change.Needle
+          $Replacements += $Change.Replacement
+        }
+      }
+      $OwnedSitesProperty = $Mutation.PSObject.Properties['OwnedSites']
+      if ($null -ne $OwnedSitesProperty -and @($OwnedSitesProperty.Value).Count -ne $Needles.Count) {
+        throw "Work Order 22 $($Mutation.Label) ownership map does not bind every mutation arm"
+      }
+      $Mutated = $Original
+      for ($Index = 0; $Index -lt $Needles.Count; $Index++) {
+        if ([regex]::Matches($Original, [regex]::Escape($Needles[$Index])).Count -ne 1) {
+          throw "Work Order 22 $($Mutation.Label) production mutation arm $($Index + 1) is missing or duplicate"
+        }
+        $Next = $Mutated.Replace($Needles[$Index], $Replacements[$Index])
+        if ([string]::Equals($Next, $Mutated, [System.StringComparison]::Ordinal)) {
+          throw "Work Order 22 $($Mutation.Label) production mutation arm $($Index + 1) did not change initialized source"
+        }
+        $Mutated = $Next
+      }
+      if ([string]::Equals($Mutated, $Original, [System.StringComparison]::Ordinal)) {
+        throw "Work Order 22 $($Mutation.Label) did not change initialized production source"
+      }
+      $MutationExecutionLabel = "Work Order 22 $($Mutation.Label) guarded production mutation"
+      $CreditsBefore = @(Get-ExactRustSelectorCredits)
+      $ResultOutput = New-Object 'System.Collections.Generic.List[string]'
+      $ResultFailure = $null
+      try {
+        [System.IO.File]::WriteAllText($BackendPath, $Mutated, $Utf8)
+        try {
+          & { Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector } 6>&1 |
+            ForEach-Object { $ResultOutput.Add($_.ToString()) }
+        } catch {
+          $ResultFailure = $_
+        }
+      } finally {
+        [System.IO.File]::WriteAllBytes($BackendPath, $OriginalBytes)
+      }
+      $RunningCounts = @($ResultOutput | ForEach-Object { if ($_ -match '^running (?<count>[0-9]+) tests?$') { [int] $Matches['count'] } })
+      $NamedResults = @($ResultOutput | Where-Object { $_ -match '^test .+ \.\.\. (?:ok|FAILED|ignored)$' })
+      $NamedFailure = @($NamedResults | Where-Object { $_ -ceq "test $($Mutation.Selector) ... FAILED" })
+      $FailureSummary = @($ResultOutput | Where-Object { $_ -match '^test result: FAILED\. 0 passed; 1 failed; 0 ignored; 0 measured; [0-9]+ filtered out;' })
+      $CompileErrors = @($ResultOutput | Where-Object { $_ -match '^error\[E[0-9]+\]' })
+      $CreditsAfter = @(Get-ExactRustSelectorCredits)
+      $CreditsUnchanged = $CreditsBefore.Count -eq $CreditsAfter.Count -and [string]::Join("`n", $CreditsBefore) -ceq [string]::Join("`n", $CreditsAfter)
+      if ($null -eq $ResultFailure -or
+          $ResultFailure.Exception.Message -cne "$MutationExecutionLabel failed with exit code 101" -or
+          $RunningCounts.Count -eq 0 -or ($RunningCounts | Measure-Object -Sum).Sum -ne 1 -or
+          $NamedResults.Count -ne 1 -or $NamedFailure.Count -ne 1 -or $FailureSummary.Count -ne 1 -or
+          $CompileErrors.Count -ne 0 -or -not $CreditsUnchanged) {
+        $ResultOutput | ForEach-Object { Write-Host $_ }
+        throw "Work Order 22 $($Mutation.Label) did not fail the intended permanent selector"
+      }
+      $RequiredFailureFragment = $Mutation.PSObject.Properties['RequiredFailureFragment']
+      if ($null -ne $RequiredFailureFragment -and
+          -not ([string]::Join("`n", $ResultOutput)).Contains($RequiredFailureFragment.Value)) {
+        $ResultOutput | ForEach-Object { Write-Host $_ }
+        throw "Work Order 22 $($Mutation.Label) did not reach its required escaped disposition"
+      }
+      if (-not (Test-Wo22ByteArraysEqual $OriginalBytes ([System.IO.File]::ReadAllBytes($BackendPath)))) {
+        throw "Work Order 22 $($Mutation.Label) did not restore the exact backend source"
+      }
+      Write-Host "ok - Work Order 22 $($Mutation.Label) production mutation rejected"
+    }
+  } finally {
+    [System.IO.File]::WriteAllBytes($BackendPath, $OriginalBytes)
+  }
+}
+
 function Assert-SessionASurfaceRules {
   Write-Host '==> Session A source-surface rules'
   $HumRoots = @((Join-Path $RepoRoot 'examples'), (Join-Path $RepoRoot 'fixtures'))
@@ -590,6 +884,15 @@ try {
     if ([regex]::Matches($CheckAllSource, [regex]::Escape($UbuntuCaptureArm)).Count -ne 1) { throw "Ubuntu capture checkpoint drifted: $UbuntuCaptureArm" }
   }
   if ($CheckAllSource.Contains('$UbuntuScratch-' + 'pwsh')) { throw 'Ubuntu capture checkpoint must not append -pwsh' }
+  $CheckAllTokens = $null
+  $CheckAllParseErrors = $null
+  $CheckAllAst = [System.Management.Automation.Language.Parser]::ParseInput($CheckAllSource, [ref] $CheckAllTokens, [ref] $CheckAllParseErrors)
+  $MutationFunctions = @($CheckAllAst.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq 'Invoke-Wo22BackendPredicateMutationEvidence' }, $true))
+  if ($CheckAllParseErrors.Count -ne 0 -or $MutationFunctions.Count -ne 1) { throw 'Work Order 22 mutation runner syntax or identity drifted' }
+  $MutationCommands = @($MutationFunctions[0].Body.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.CommandAst] }, $true))
+  $GuardedMutationCalls = @($MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustTest' })
+  $BypassMutationCalls = @($MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustNativeCapture' })
+  if ($GuardedMutationCalls.Count -ne 1 -or $GuardedMutationCalls[0].Extent.Text -cne 'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector' -or $BypassMutationCalls.Count -ne 0) { throw 'Work Order 22 mutation selector must use the one guarded exact-selector route' }
   $ExactFlag = '--' + 'exact'
   if ($CheckAllSource.Contains($ExactFlag)) { throw 'exact Rust tests must use the guarded selector helper' }
   $CiSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot '.github/workflows/ci.yml'))
@@ -638,12 +941,13 @@ try {
   Invoke-ExactRustTest 'canonical diagnostic registry/projection test' $Cargo 'diagnostic_catalog::tests::canonical_registry_and_checked_projections_are_valid'
   Invoke-Native 'Windows drive locality adapter tests' $Cargo @('test', '-p', 'windows-drive-locality')
   Invoke-Native 'effect bake-off corpus harness tests' $Cargo @('test', '--manifest-path', 'experiments/effect-bakeoff/Cargo.toml', '--target-dir', 'target/effect-bakeoff')
-  Invoke-Native 'cargo clippy' $Cargo @('clippy', '--all-targets', '--', '-D', 'warnings')
+  Invoke-Native 'cargo clippy' $Cargo @('clippy', '--all-targets', '--', '-D', 'warnings', '-D', 'clippy::undocumented_unsafe_blocks')
   Invoke-Native 'Windows drive locality adapter clippy' $Cargo @('clippy', '-p', 'windows-drive-locality', '--all-targets', '--', '-D', 'warnings')
   Invoke-Native 'cargo build' $Cargo @('build')
 
   $MainSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/main.rs'))
-  if (-not $MainSource.StartsWith('#![forbid(unsafe_code)]')) { throw 'Session AC main crate must retain forbid(unsafe_code)' }
+  if (-not $MainSource.StartsWith('#![deny(unsafe_code)]')) { throw 'main crate must deny unsafe code outside reviewed local boundaries' }
+  Invoke-Wo22UnsafeBoundaryCompilerEvidence $Cargo (Join-Path $RepoRoot 'src/backend_cranelift.rs')
   $LocalitySource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'crates/windows-drive-locality/src/lib.rs'))
   if (-not $LocalitySource.Contains('#![deny(unsafe_op_in_unsafe_fn)]')) { throw 'Session AC locality adapter must deny unsafe_op_in_unsafe_fn' }
   foreach ($Symbol in @('GetDriveTypeW', 'QueryDosDeviceW', 'CreateFileW', 'DeviceIoControl', 'GetStorageDependencyInformation', 'CloseHandle')) {
@@ -658,6 +962,40 @@ try {
 
   $HumName = if ($env:OS -eq 'Windows_NT') { 'hum.exe' } else { 'hum' }
   $Hum = Join-Path (Join-Path (Join-Path $RepoRoot 'target') 'debug') $HumName
+
+  Write-Host '==> Work Order 22 Unit B backend-probe CLI contract'
+  $BackendProbePath = 'examples/core/minimal_add.hum'
+  $BackendProbeHuman = Read-NativeChannelsWithExit 'Work Order 22 Unit B human GO probe' $Hum @('backend-probe', '--format', 'human', $BackendProbePath)
+  if ($BackendProbeHuman.ExitCode -ne 0 -or $BackendProbeHuman.Stderr.Length -ne 0 -or
+      -not $BackendProbeHuman.Stdout.StartsWith("schema=hum.backend_probe.v0`ndecision=GO`nir_ready=1`nbackend_ready=1`n") -or
+      [regex]::Matches($BackendProbeHuman.Stdout, '(?m)^row=B[0-9]{2} decision=GO ').Count -ne 15 -or
+      [regex]::Matches($BackendProbeHuman.Stdout, '(?m)^probe left=').Count -ne 6 -or
+      [regex]::Matches($BackendProbeHuman.Stdout, '(?m)^row=B01 ').Count -ne 1 -or
+      [regex]::Matches($BackendProbeHuman.Stdout, '(?m)^row=B15 ').Count -ne 1) {
+    throw 'Work Order 22 Unit B human GO report or channel contract drifted'
+  }
+  $BackendProbeRows = @([regex]::Matches($BackendProbeHuman.Stdout, '(?m)^row=(B[0-9]{2}) ') | ForEach-Object { $_.Groups[1].Value })
+  $ExpectedBackendProbeRows = 1..15 | ForEach-Object { 'B{0:D2}' -f $_ }
+  if (($BackendProbeRows -join ',') -cne ($ExpectedBackendProbeRows -join ',')) { throw 'Work Order 22 Unit B runtime rows are missing, duplicate, or reordered' }
+  $BackendProbeJson = Read-NativeChannelsWithExit 'Work Order 22 Unit B JSON GO probe' $Hum @('backend-probe', '--format=json', $BackendProbePath)
+  if ($BackendProbeJson.ExitCode -ne 0 -or $BackendProbeJson.Stderr.Length -ne 0) { throw 'Work Order 22 Unit B JSON GO channel contract drifted' }
+  Assert-Json 'Work Order 22 Unit B backend-probe JSON' $BackendProbeJson.Stdout
+  $BackendProbeObject = $BackendProbeJson.Stdout | ConvertFrom-Json
+  if ($BackendProbeObject.schema -cne 'hum.backend_probe.v0' -or $BackendProbeObject.decision -cne 'GO' -or
+      $BackendProbeObject.ir_ready -ne 1 -or $BackendProbeObject.backend_ready -ne 1 -or
+      @($BackendProbeObject.rows).Count -ne 15 -or @($BackendProbeObject.probes).Count -ne 6 -or
+      @($BackendProbeObject.rows | Where-Object { $_.decision -ceq 'GO' }).Count -ne 15) {
+    throw 'Work Order 22 Unit B JSON semantic report drifted'
+  }
+  foreach ($BackendProbeMisuseArguments in @(
+    @('backend-probe'),
+    @('backend-probe', 'README.md'),
+    @('backend-probe', '--format=textmate', $BackendProbePath),
+    @('backend-probe', $BackendProbePath, $BackendProbePath)
+  )) {
+    $BackendProbeMisuse = Read-NativeChannelsWithExit 'Work Order 22 Unit B invocation misuse' $Hum $BackendProbeMisuseArguments
+    if ($BackendProbeMisuse.ExitCode -ne 2 -or $BackendProbeMisuse.Stdout.Length -ne 0 -or $BackendProbeMisuse.Stderr.Length -eq 0) { throw 'Work Order 22 Unit B invocation misuse contract drifted' }
+  }
 
   Write-Host '==> Increment 10A canonical syntax and string-aware scope matrix'
   foreach ($EvidenceTest in @(
@@ -698,6 +1036,11 @@ try {
   Invoke-ExactRustTest 'Work Order 20 Unit A canonical backend-input bytes' $Cargo 'backend_input::tests::minimal_add_backend_input_bytes_are_canonical_and_deterministic'
   Invoke-ExactRustTest 'Work Order 22 Unit A corruption matrix' $Cargo 'ir_verify::tests::canonical_minimal_add_artifact_corruption_matrix_is_complete'
   Invoke-ExactRustTest 'Work Order 22 Unit A sealed capability boundary' $Cargo 'ir_verify::tests::verified_backend_input_is_sealed_typed_and_lifetime_bound'
+  Invoke-ExactRustTest 'Work Order 22 Unit B verified checked-add CLIF' $Cargo 'backend_cranelift::tests::verified_minimal_add_emits_checked_cranelift_ir'
+  Invoke-ExactRustTest 'Work Order 22 Unit B exact JIT probe matrix' $Cargo 'backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact'
+  Invoke-ExactRustTest 'Work Order 22 Unit B complete load-bearing row matrix' $Cargo 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Work Order 22 Unit B explicit unsupported targets' $Cargo 'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
+  Invoke-Wo22BackendPredicateMutationEvidence $Cargo (Join-Path $RepoRoot 'src/backend_cranelift.rs')
   Write-Host '==> Work Order 20 Unit A canonical backend-input production surface'
   $Wo20SourcePath = 'examples/core/minimal_add.hum'
   $Wo20GoldenPath = 'fixtures/backend_input/minimal_add.backend_input.v0.json'
@@ -1568,6 +1911,29 @@ task malformed() -> UInt {
   if (-not [string]::Equals($env:RUSTFLAGS, $Wo22PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 22 authority proof did not restore RUSTFLAGS' }
   Invoke-Native 'Work Order 22 normal compiler check after authority proof' $Cargo @('check', '--all-targets')
 
+  Write-Host '==> Work Order 22 Unit B verified-only adapter compile proofs'
+  $Wo22UnitBPriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_backend_adapter_raw_inputs'
+    $Wo22UnitBRawFailure = Read-NativeOutputWithExit 'Work Order 22 Unit B raw-input rejection proof' $Cargo @('check', '--bin', 'hum')
+  } finally {
+    if ($null -eq $Wo22UnitBPriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22UnitBPriorRustFlags }
+  }
+  if ($Wo22UnitBRawFailure.ExitCode -ne 101 -or [regex]::Matches($Wo22UnitBRawFailure.Output, 'error\[E0308\]').Count -ne 3) { throw 'Work Order 22 Unit B raw inputs must produce exactly three type mismatches' }
+  foreach ($Wo22UnitBRawType in @('found reference `&Vec<u8>`', 'found reference `&Program`', 'found reference `&(i64, i64)`')) {
+    if (-not $Wo22UnitBRawFailure.Output.Contains($Wo22UnitBRawType)) { throw "Work Order 22 Unit B verified-only proof lost: $Wo22UnitBRawType" }
+  }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo22UnitBPriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 22 Unit B raw-input proof did not restore RUSTFLAGS' }
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_backend_fault_seam_in_production'
+    $Wo22UnitBFaultFailure = Read-NativeOutputWithExit 'Work Order 22 Unit B production fault-seam absence proof' $Cargo @('check', '--bin', 'hum')
+  } finally {
+    if ($null -eq $Wo22UnitBPriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22UnitBPriorRustFlags }
+  }
+  if ($Wo22UnitBFaultFailure.ExitCode -ne 101 -or [regex]::Matches($Wo22UnitBFaultFailure.Output, 'error\[E0433\]').Count -ne 1 -or -not $Wo22UnitBFaultFailure.Output.Contains('could not find `BackendProbeFault` in `super`')) { throw 'Work Order 22 Unit B test fault seam must be absent in production' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo22UnitBPriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 22 Unit B fault-seam proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 22 Unit B normal compiler check after compile proofs' $Cargo @('check', '--all-targets')
+
   Write-Host '==> Work Order 17 sole minimal-add outcome producer proof'
   $Wo17OutcomePriorRustFlags = $env:RUSTFLAGS
   try {
@@ -1751,7 +2117,13 @@ task malformed() -> UInt {
     'sha256::tests::sha256_known_answer_and_boundary_matrix_is_exact',
     'backend_input::tests::minimal_add_backend_input_bytes_are_canonical_and_deterministic'
   )
-  $PreservedNamedExactRustSelectors = @($OlderExactRustSelectorObligations) + @($WorkOrder17ExactRustSelectors) + @($WorkOrder19ExactRustSelectors) + @($WorkOrder20UnitAExactRustSelectors)
+  $WorkOrder22UnitBExactRustSelectors = @(
+    'backend_cranelift::tests::verified_minimal_add_emits_checked_cranelift_ir',
+    'backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact',
+    'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing',
+    'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
+  )
+  $PreservedNamedExactRustSelectors = @($OlderExactRustSelectorObligations) + @($WorkOrder17ExactRustSelectors) + @($WorkOrder19ExactRustSelectors) + @($WorkOrder20UnitAExactRustSelectors) + @($WorkOrder22UnitBExactRustSelectors)
   Invoke-ExactRustSelectorLedgerMutationTests -Credits $ExactRustSelectorCredits -PreservedNamedSelectors $PreservedNamedExactRustSelectors
   foreach ($OlderSelector in $OlderExactRustSelectorObligations) {
     if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $OlderSelector }).Count -ne 1) { throw "exact Rust selector inventory lost older required selector $OlderSelector" }
@@ -1764,6 +2136,9 @@ task malformed() -> UInt {
   }
   foreach ($WorkOrder20UnitASelector in $WorkOrder20UnitAExactRustSelectors) {
     if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder20UnitASelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 20 Unit A selector $WorkOrder20UnitASelector" }
+  }
+  foreach ($WorkOrder22UnitBSelector in $WorkOrder22UnitBExactRustSelectors) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder22UnitBSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 22 Unit B selector $WorkOrder22UnitBSelector" }
   }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
@@ -2036,8 +2411,7 @@ task malformed() -> UInt {
   if ($HumIrLayers[0].role -cne 'verified target-independent backend input behind a sealed compiler capability') { throw 'IR contract JSON hum_ir layer role drifted' }
   if ($IrContractJson.Contains('"no IR emission for source files"')) { throw 'IR contract JSON must remove the obsolete V0 non-emission claim' }
   if (-not $IrContractJson.Contains('"no durable verified-input authority"')) { throw 'IR contract JSON must keep the durable-authority non-claim' }
-  if (-not $IrContractJson.Contains('"no backend lowering"')) { throw 'IR contract JSON must keep the backend-lowering non-claim' }
-  if (-not $IrContractJson.Contains('"no backend adapter input authority"')) { throw 'IR contract JSON must keep the backend-adapter authority non-claim' }
+  if (@($IrContract.non_goals_v0 | Where-Object { $_ -ceq 'no general backend lowering beyond canonical minimal_add' }).Count -ne 1 -or @($IrContract.non_goals_v0 | Where-Object { $_ -ceq 'no backend lowering' }).Count -ne 0 -or @($IrContract.non_goals_v0 | Where-Object { $_ -ceq 'no durable backend adapter input authority' }).Count -ne 1 -or @($IrContract.non_goals_v0 | Where-Object { $_ -ceq 'no backend adapter input authority' }).Count -ne 0) { throw 'IR contract JSON must keep the two narrow backend non-claims and retire both absolute non-claims' }
 
   $BackendContractJson = Read-NativeOutput 'backend contract JSON' $Hum @('backend-contract', '--format', 'json')
   Assert-Json 'backend contract JSON' $BackendContractJson
@@ -4190,7 +4564,7 @@ task malformed() -> UInt {
   $Wo22Readiness = $Wo22ReadinessJson | ConvertFrom-Json
   if ($Wo22Readiness.summary.ir_ready -ne 1 -or $Wo22Readiness.summary.ready_for_ir -ne 1 -or $Wo22Readiness.summary.backend_ready -ne 0) { throw 'Work Order 22 readiness summary must be exactly 1/1/0' }
   $Wo22Candidate = @($Wo22Readiness.lowering_candidates)
-  if ($Wo22Candidate.Count -ne 1 -or $Wo22Candidate[0].status -cne 'ready_for_ir_with_verified_backend_input_v0' -or $Wo22Candidate[0].backend_blocking_reasons -notcontains 'backend_adapter_not_implemented') { throw 'Work Order 22 verified candidate boundary drifted' }
+  if ($Wo22Candidate.Count -ne 1 -or $Wo22Candidate[0].status -cne 'ready_for_ir_with_verified_backend_input_v0' -or @($Wo22Candidate[0].backend_blocking_reasons).Count -ne 1 -or $Wo22Candidate[0].backend_blocking_reasons[0] -cne 'explicit_backend_probe_required' -or @($Wo22Candidate[0].backend_blocking_reasons | Where-Object { $_ -ceq 'backend_adapter_not_implemented' }).Count -ne 0) { throw 'Work Order 22 verified candidate boundary drifted' }
 
   $MathOutDir = Join-Path (Join-Path $RepoRoot 'target') ('hum-math-obligations-smoke-' + [System.Guid]::NewGuid().ToString('N'))
   Invoke-Native 'math obligations out-dir' $Hum @('math-obligations', '--out-dir', $MathOutDir, 'examples/control_flow.hum')
@@ -4390,6 +4764,12 @@ task malformed() -> UInt {
   $ArchitectureText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\ARCHITECTURE.md'))
   if (-not $ArchitectureText.Contains('Current Compiler Spine')) { throw 'architecture doc is missing current compiler spine' }
   if (-not $ArchitectureText.Contains('recognized_core_body_type_gate_available_v0')) { throw 'architecture doc is missing current full type-check gate' }
+  Assert-Wo22ActivePolicySection 'README.md' '## Bootstrap Compiler' @('\bRust bootstrap denies unsafe code by default\b', '\bWO22 Unit B permits exactly one reviewed\b(?=[^.]*\bunsafe JIT invocation boundary\b)', '\bfive exactly pinned Cranelift dependencies\b', '\bgrants no broader unsafe-code or dependency allowance\b')
+  Assert-Wo22ActivePolicySection 'docs/ARCHITECTURE.md' '#### Current Compiler Spine' @('\bmain crate denies unsafe code by default\b', '\bWO22 Unit B\b', '\bsingle reviewed JIT invocation boundary\b')
+  Assert-Wo22ActivePolicySection 'docs/BOOTSTRAP_COMPILER.md' '## Bootstrap Rules' @('\bzero-third-party rule intentionally kept the immature compiler trust root small\b', '\bWO22 graduates it only for native code generation\b', '\bexactly five pinned direct Cranelift\b', '\bcranelift-codegen\b', '\bcranelift-frontend\b', '\bcranelift-jit\b', '\bcranelift-module\b', '\bcranelift-native\b', '\blocked transitive dependency graph\b', '\bHum retains\b(?=[^.]*\blanguage semantics\b)(?=[^.]*\bverification\b)(?=[^.]*\bcapability authority\b)(?=[^.]*\bbackend admission\b)', '\bCranelift is bounded and replaceable\b', '\bno removal or undecided LLVM migration is promised\b', '#!\[deny\(unsafe_code\)\]', '\bWO22 Unit B allows exactly one reviewed, local exception\b(?=[^.]*\bJIT code\b)', '\bNo broader\b(?=[^.]*\bdependency\b)(?=[^.]*\bunsafe\b)(?=[^.]*\bFFI\b)(?=[^.]*\bbackend\b)(?=[^.]*\bbuild-script\b)(?=[^.]*\bproc-macro\b)(?=[^.]*\bhidden-generation\b)(?=[^.]*\bsource-language unsafe\b)[^.]*\bpermission follows\b')
+  Assert-Wo22ActivePolicySection 'docs/UNSAFE_POLICY.md' '## First Implementation Slice' @('#!\[deny\(unsafe_code\)\]', '\bWO22 Unit B permits exactly one reviewed, locally allowed JIT invocation boundary\b', '\bdoes not change Hum''s source-language unsafe policy\b', '\bgrants no broader\b(?=[^.]*\bunsafe\b)(?=[^.]*\bdependency\b)(?=[^.]*\bFFI\b)(?=[^.]*\bbackend\b)(?=[^.]*\bbuild-script\b)(?=[^.]*\bproc-macro\b)(?=[^.]*\bhidden-generation\b)(?=[^.]*\bsource-language authority\b)')
+  Assert-Wo22ActivePolicySection 'docs/decisions/0002-use-rust-bootstrap-until-self-hosting.md' '### WO22 Unit B Amendment' @('\bWO22 preserves that small-trust-root rule as history and narrowly graduates\b(?=[^.]*\bnative code generation\b)', '\bExactly five pinned direct Cranelift\b', '\bcranelift-codegen\b', '\bcranelift-frontend\b', '\bcranelift-jit\b', '\bcranelift-module\b', '\bcranelift-native\b', '\blocked transitive graph\b', '\bHum retains\b(?=[^.]*\blanguage semantics\b)(?=[^.]*\bverification\b)(?=[^.]*\bcapability authority\b)(?=[^.]*\bbackend admission\b)', '\bCranelift is bounded and replaceable\b', '\bpromises neither its removal nor an undecided LLVM migration\b', '#!\[deny\(unsafe_code\)\]', '\bremains the compiler-wide default with exactly one reviewed, locally allowed JIT invocation boundary\b', '\bgrants no general\b(?=[^.]*\bdependency\b)(?=[^.]*\bunsafe\b)(?=[^.]*\bFFI\b)(?=[^.]*\bbackend\b)(?=[^.]*\bbuild-script\b)(?=[^.]*\bproc-macro\b)(?=[^.]*\bhidden-generation\b)[^.]*\bpermission\b')
+  Assert-Wo22ActivePolicySection 'docs/decisions/0017-adopt-structural-app-authority-boundary.md' '### Path Boundary' @('\bmain crate keeps\b(?=[^.]*#!\[deny\(unsafe_code\)\])(?=[^.]*\bas its default\b)', '\bWO22 Unit B permits exactly one reviewed, locally allowed JIT invocation boundary\b', '\bexception grants no broader\b(?=[^.]*\bunsafe\b)(?=[^.]*\bFFI\b)(?=[^.]*\bdependency\b)(?=[^.]*\bbackend\b)(?=[^.]*\bbuild-script\b)(?=[^.]*\bproc-macro\b)(?=[^.]*\bhidden-generation\b)(?=[^.]*\bsource-language\b)(?=[^.]*\boperator-consent\b)(?=[^.]*\bstructural\b)(?=[^.]*\bpath\b)(?=[^.]*\blocality\b)(?=[^.]*\bthreat-model authority\b)')
   $CoreContractSchemaText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'docs\HUM_CORE_CONTRACT_SCHEMA.md'))
   if (-not $CoreContractSchemaText.Contains('hum core-lower')) { throw 'Core contract schema doc is missing core-lower command link' }
   if (-not $CoreContractSchemaText.Contains('unverified_core_artifact_v0')) { throw 'Core contract schema doc is missing unverified core artifact gate' }
