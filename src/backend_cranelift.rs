@@ -21,6 +21,33 @@ const ORDINARY_PROBES: [(i64, i64); 4] = [(2, 3), (-7, 11), (0, 0), (1_000_000, 
 const OVERFLOW_PROBES: [(i64, i64); 2] = [(i64::MAX, 1), (i64::MIN, -1)];
 const OVERFLOW_SENTINEL: i64 = 0x5a5a_5a5a_5a5a_5a5a;
 
+fn cranelift_codegen_version_is_compatible(version: &str) -> bool {
+    if version == CRANELIFT_VERSION {
+        return true;
+    }
+    let Some(revision) = version
+        .strip_prefix(CRANELIFT_VERSION)
+        .and_then(|suffix| suffix.strip_prefix('-'))
+    else {
+        return false;
+    };
+    revision.len() == 9 && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn normalized_pinned_versions(versions: [&str; 5]) -> [&str; 5] {
+    [
+        if cranelift_codegen_version_is_compatible(versions[0]) {
+            CRANELIFT_VERSION
+        } else {
+            versions[0]
+        },
+        versions[1],
+        versions[2],
+        versions[3],
+        versions[4],
+    ]
+}
+
 const ROW_IDS: [&str; 15] = [
     "B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B09", "B10", "B11", "B12", "B13",
     "B14", "B15",
@@ -360,15 +387,16 @@ fn probe_with_fault(input: &VerifiedBackendInput<'_>, fault: Option<Fault>) -> B
         stop!(0, "verified capability getters were incomplete");
     }
 
-    let pinned_versions = [
+    let observed_versions = [
         cranelift_codegen::VERSION,
         cranelift_frontend::VERSION,
         cranelift_jit::VERSION,
         cranelift_module::VERSION,
         cranelift_native::VERSION,
     ];
+    let pinned_versions = normalized_pinned_versions(observed_versions);
     if fault_at(fault, 1) || pinned_versions != [CRANELIFT_VERSION; 5] {
-        stop!(1, format!("versions={pinned_versions:?}"));
+        stop!(1, format!("versions={observed_versions:?}"));
     }
 
     let (linkage_kind, linkage_symbol) = input.linkage();
@@ -985,14 +1013,7 @@ mod tests {
     use super::*;
     use crate::ast::Program;
 
-    fn with_valid_probe<R>(consume: impl FnOnce(&BackendProbeReport) -> R) -> R {
-        with_valid_probe_fault(None, consume)
-    }
-
-    fn with_valid_probe_fault<R>(
-        fault: Option<BackendProbeFault>,
-        consume: impl FnOnce(&BackendProbeReport) -> R,
-    ) -> R {
+    fn valid_probe(fault: Option<BackendProbeFault>) -> BackendProbeReport {
         let source = include_str!("../examples/core/minimal_add.hum");
         let parsed = crate::parser::parse_source(crate::backend_input::SOURCE_PATH, source);
         let checked = crate::check::check_parse_output(&parsed);
@@ -1009,11 +1030,10 @@ mod tests {
             artifact.bytes(),
             |verified| {
                 callback_count += 1;
-                let report = fault.map_or_else(
+                fault.map_or_else(
                     || probe(&verified),
                     |fault| probe_for_test(&verified, fault),
-                );
-                consume(&report)
+                )
             },
         );
         assert!(verification.accepted());
@@ -1023,71 +1043,83 @@ mod tests {
 
     #[test]
     fn verified_minimal_add_emits_checked_cranelift_ir() {
-        with_valid_probe(|report| {
-            assert!(report.go() && report.structurally_valid());
-            assert_eq!(report.clif_instruction, Some("sadd_overflow"));
-        });
+        let report = valid_probe(None);
+        assert!(report.go() && report.structurally_valid());
+        assert_eq!(report.clif_instruction, Some("sadd_overflow"));
     }
 
     #[test]
     fn minimal_add_jit_probe_matrix_is_exact() {
-        with_valid_probe(|report| {
-            let expected = [
-                (2, 3, 0, Some(5)),
-                (-7, 11, 0, Some(4)),
-                (0, 0, 0, Some(0)),
-                (1_000_000, 24, 0, Some(1_000_024)),
-                (i64::MAX, 1, 1, None),
-                (i64::MIN, -1, 1, None),
-            ];
-            assert_eq!(report.probes.len(), expected.len());
-            for (probe, expected) in report.probes.iter().zip(expected) {
-                assert_eq!(
-                    (probe.left, probe.right, probe.status, probe.result),
-                    expected
-                );
-                assert_eq!(probe.result, probe.left.checked_add(probe.right));
-                assert_eq!(probe.result_slot, probe.result.unwrap_or(OVERFLOW_SENTINEL));
-            }
-        });
+        let report = valid_probe(None);
+        let expected = [
+            (2, 3, 0, Some(5)),
+            (-7, 11, 0, Some(4)),
+            (0, 0, 0, Some(0)),
+            (1_000_000, 24, 0, Some(1_000_024)),
+            (i64::MAX, 1, 1, None),
+            (i64::MIN, -1, 1, None),
+        ];
+        assert_eq!(report.probes.len(), expected.len());
+        for (probe, expected) in report.probes.iter().zip(expected) {
+            assert_eq!(
+                (probe.left, probe.right, probe.status, probe.result),
+                expected
+            );
+            assert_eq!(probe.result, probe.left.checked_add(probe.right));
+            assert_eq!(probe.result_slot, probe.result.unwrap_or(OVERFLOW_SENTINEL));
+        }
     }
 
     #[test]
     fn backend_go_no_go_rows_are_complete_and_load_bearing() {
         assert_eq!(FAULTS.len(), 15);
-        with_valid_probe(|report| {
-            assert!(report.go());
-            assert_eq!(
-                report.rows.iter().map(|row| row.id).collect::<Vec<_>>(),
-                ROW_IDS
-            );
-            let consumption = &report.consumption;
-            assert!(consumption.0, "B03 linkage consumption");
-            assert!(consumption.1, "B04 parameter-order consumption");
-            assert!(consumption.2[0] == 1, "B05 operator-getter consumption");
-            assert!(consumption.2[1] == 4, "B13 finalized ordinary invocation");
-            assert!(consumption.2[2] == 2, "B14 finalized overflow invocation");
-        });
+        let report = valid_probe(None);
+        assert!(report.go());
+        let row_ids = report.rows.iter().map(|row| row.id).collect::<Vec<_>>();
+        assert_eq!(row_ids, ROW_IDS);
+        let consumption = &report.consumption;
+        assert!(consumption.0, "B03 linkage consumption");
+        assert!(consumption.1, "B04 parameter-order consumption");
+        assert!(consumption.2[0] == 1, "B05 operator-getter consumption");
+        assert!(consumption.2[1] == 4, "B13 finalized ordinary invocation");
+        assert!(consumption.2[2] == 2, "B14 finalized overflow invocation");
         for (ordinal, fault) in FAULTS.into_iter().enumerate() {
             assert_eq!(fault_ordinal(fault), ordinal);
-            with_valid_probe_fault(Some(fault), |report| {
-                assert!(!report.go() && report.structurally_valid() && report.backend_ready == 0);
-                assert_eq!(report.rows[ordinal].class, ROW_CLASSES[ordinal]);
-                if ordinal > 0 {
-                    assert_ne!(report.rows[ordinal].class, ROW_CLASSES[ordinal - 1]);
-                }
-                if ordinal + 1 < ROW_CLASSES.len() {
-                    assert_ne!(report.rows[ordinal].class, ROW_CLASSES[ordinal + 1]);
-                }
-            });
+            let report = valid_probe(Some(fault));
+            assert!(!report.go() && report.structurally_valid() && report.backend_ready == 0);
+            assert_eq!(report.rows[ordinal].class, ROW_CLASSES[ordinal]);
+            assert!(ordinal == 0 || report.rows[ordinal].class != ROW_CLASSES[ordinal - 1]);
+            let next = ordinal + 1;
+            assert!(next == ROW_CLASSES.len() || report.rows[ordinal].class != ROW_CLASSES[next]);
+            assert!(ordinal != 1 || report.probes.is_empty());
         }
     }
 
     #[test]
     fn unsupported_targets_are_explicit_no_go() {
+        assert!(cranelift_codegen_version_is_compatible("0.133.1"));
+        assert!(cranelift_codegen_version_is_compatible("0.133.1-012345678"));
+        for version in [
+            "0.133.2",
+            "0.133.1-",
+            "0.133.1-01234567",
+            "0.133.1-0123456789",
+            "0.133.1-01234567g",
+            "0.133.1-012345678-extra",
+        ] {
+            assert!(!cranelift_codegen_version_is_compatible(version));
+        }
+        let mut versions = [CRANELIFT_VERSION; 5];
+        versions[0] = "0.133.1-012345678";
+        assert_eq!(normalized_pinned_versions(versions), [CRANELIFT_VERSION; 5]);
+        for index in 1..5 {
+            versions = [CRANELIFT_VERSION; 5];
+            versions[index] = "0.133.1-012345678";
+            assert_ne!(normalized_pinned_versions(versions), [CRANELIFT_VERSION; 5]);
+        }
         assert!(target_is_required("x86_64", "windows", "msvc"));
         assert!(target_is_required("x86_64", "linux", "gnu"));
-        for (architecture, operating_system, environment) in [
+        for target in [
             ("x86_64", "windows", "gnu"),
             ("x86_64", "linux", "musl"),
             ("aarch64", "linux", "gnu"),
@@ -1095,16 +1127,11 @@ mod tests {
             ("wasm32", "unknown", "other"),
             ("s390x", "linux", "gnu"),
         ] {
-            assert!(!target_is_required(
-                architecture,
-                operating_system,
-                environment
-            ));
+            assert!(!target_is_required(target.0, target.1, target.2));
         }
-        with_valid_probe_fault(Some(BackendProbeFault::RejectTargetIsa), |report| {
-            assert_eq!(report.rows[7].class, "unsupported_or_unavailable_target");
-            assert_eq!(report.backend_ready, 0);
-            assert!(report.probes.is_empty());
-        });
+        let report = valid_probe(Some(BackendProbeFault::RejectTargetIsa));
+        assert_eq!(report.rows[7].class, "unsupported_or_unavailable_target");
+        assert_eq!(report.backend_ready, 0);
+        assert!(report.probes.is_empty());
     }
 }
