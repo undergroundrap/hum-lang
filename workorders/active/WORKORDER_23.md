@@ -282,7 +282,7 @@ committed, published, terminal-green on the full lane, status-recorded if
 required by the classifier lifecycle, and followed by a fresh explicit BDFL
 implementation signal.
 
-It authorizes exactly these fifty-four implementation paths. A missing path is
+It authorizes exactly these fifty-five implementation paths. A missing path is
 a stop and amendment request, not permission to expand. Deletions are ceilings,
 not goals. Every path and category is non-borrowable, and the same ceilings
 apply to raw and `git diff -w` statistics.
@@ -329,6 +329,7 @@ apply to raw and `git diff -w` statistics.
 | `src/core_lower.rs` | 260 | 40 | checked comparisons, blocks, and output-selection facts |
 | `src/core_verify.rs` | 260 | 40 | exact conditional/source provenance verification |
 | `src/diagnostic_catalog.rs` | 100 | 25 | H0634 allocation and producer-owned layout reasons |
+| `src/diagnostics.rs` | 6 | 4 | H0634-complete text and JSON catalog projection evidence |
 | `src/effect_check.rs` | 120 | 20 | sealed stdout-effect lineage wrapper |
 | `src/full_type_check.rs` | 140 | 25 | sealed integer-sign type lineage wrapper |
 | `src/ir_contract.rs` | 60 | 15 | current native-program feature/non-goals |
@@ -343,31 +344,60 @@ apply to raw and `git diff -w` statistics.
 | `src/type_check.rs` | 300 | 45 | canonical integer-sign type authority producer |
 | `src/version.rs` | 24 | 8 | honest milestone/public non-claims |
 | `tools/check_all.ps1` | 620 | 145 | exact selectors, mutations, corpus, and readiness evidence |
-| **Unit A total** | **6,717** | **1,068** | **no path borrowing** |
+| **Unit A total** | **6,723** | **1,072** | **no path borrowing** |
 
 Non-borrowable category ceilings are:
 
 | Category | Max + | Max - |
 | --- | ---: | ---: |
-| Production Rust, including colocated Rust tests | 4,494 | 758 |
+| Production Rust, including colocated Rust tests | 4,500 | 762 |
 | Canonical program and permanent fixtures | 1,105 | 0 |
 | Documentation and schemas | 498 | 165 |
 | PowerShell integration and mutation proof | 620 | 145 |
-| **Unit A category total** | **6,717** | **1,068** |
+| **Unit A category total** | **6,723** | **1,072** |
 
-The complete correction adds exactly `+860/-160` production Rust, `+795/-0`
+The complete correction adds exactly `+866/-164` production Rust, `+795/-0`
 fixtures, `+34/-12` documentation, and `+120/-25` PowerShell to the original
-thirty-five-path envelope. Thus `4,908 + 1,809 = 6,717` insertions and
-`871 + 197 = 1,068` deletions, with no cross-category borrowing.
+thirty-five-path envelope. Thus `4,908 + 1,815 = 6,723` insertions and
+`871 + 201 = 1,072` deletions, with no cross-category borrowing.
 
 No dependency-manifest or lockfile path is authorized. The five direct
 Cranelift pins and locked transitive graph remain exact. Path arithmetic is
-`35 + 19 = 54`: the additions are four production Rust owners, one diagnostic
+`35 + 20 = 55`: the additions are five production Rust owners, one diagnostic
 document, and fourteen dedicated layout fixtures; no prior path was removed. No
 unsafe-policy, workflow, capture, classifier, capability-root,
-operator-grant, `src/syntax.rs`, `src/diagnostic.rs`, `src/diagnostics.rs`,
-diagnostic-schema, interpreter grammar, package, stdlib, or Nectar path may
-change. Every path not listed above remains unauthorized.
+operator-grant, `src/syntax.rs`, `src/diagnostic.rs`, diagnostic-schema,
+interpreter grammar, package, stdlib, or Nectar path may change. Every path not
+listed above remains unauthorized.
+
+### BDFL-directed H0634 projection envelope amendment
+
+The complete known H0634 projection ripple is exactly five files:
+
+1. `src/backend_contract.rs` remains authorized to replace stale probe-only
+   expectations with the bounded native-program slice while preserving the
+   non-general-backend claim.
+2. `src/diagnostic_catalog.rs` remains authorized to place H0634's
+   `DiagnosticInfo` in canonical public-code order and derive exact active-code
+   and cause totals from the canonical registry.
+3. `docs/DIAGNOSTICS.md` remains authorized to add the H0634 table row and make
+   its JSON catalog count match the active registry.
+4. `src/diagnostics.rs` is newly authorized only to advance the complete-catalog
+   text and JSON projection expectations from 88 to 89 active codes. No
+   diagnostic schema, formatting, behavior, severity, allocation, meaning,
+   precedence, or other public surface may change.
+5. `tools/check_all.ps1` remains authorized to advance the stale exact
+   backend-contract JSON expectation at current line 2578 from
+   `"no code execution"` to `"no arbitrary-program native execution"`. This is
+   a mechanical consumer update and grants no weaker or broader contract check.
+
+The later correction must keep this projection load-bearing. `catalog.len()`
+must equal the derived 89 active entries, text must begin with
+`Hum diagnostics (89 codes)`, JSON must report `"count": 89`, and every
+catalog member, including H0634, must appear exactly once in text and JSON.
+H0634 remains exactly one active public code with its accepted meaning. No
+validator weakening, filtering, runtime sorting, hidden omission, or
+compatibility alias earns credit.
 
 ## Production integration map
 
@@ -788,27 +818,22 @@ code, or stash operation is authorized during planning authorship or review.
 
 ## Current authorization gate
 
-WO23 issuance is independently accepted, published, and terminal-green. This
-routine status-only candidate records that completed lifecycle but grants no
-implementation authority. Its local commit and publication remain separate
-BDFL gates. If separately authorized, the frozen status-commit subject is:
+The exact fifty-four-path Unit A implementation candidate is preserved,
+unstaged, and frozen. Its root-suite stop exposed the one omitted complete-
+catalog projection owner, so Unit A implementation cannot resume under the old
+envelope. Fast remains unconsumed and transfers no authority to this amendment.
 
-```text
-docs(workorder): record work order 23 publication
-```
+The sole next action is fresh independent review of this WO23 amendment. Only
+an unqualified `ACCEPT` may recommend a separately authorized local
+documentation commit. That commit must then receive separately authorized
+publication and terminal required CI. Only after that complete amendment
+lifecycle and a fresh explicit BDFL resumption signal may implementation
+continue under the fifty-five-path envelope.
 
-The production classifier may authenticate the status transition only after
-that real commit exists; no uncommitted-worktree prediction is required or
-authorized. The status commit must be separately published and its required
-Ubuntu and Windows CI must select `mode=fast` with
-`reason=eligible_status_chain`, pass status-only evidence, and conclude
-success. Only after that terminal-green lifecycle and a fresh explicit BDFL
-signal may Unit A begin.
-
-Staging, commit, push, CI, Unit A implementation, `integer_sign`, H0634,
-backend-input v1, M01-M13, Fast, native execution, macOS, another program,
-stdlib/Nectar work, packages, crater-like testing, optimization, AOT, another
-backend, LLVM work, release or tag work, WO23 closeout, and every later action
-remain unauthorized by this status record.
+Amendment authorship authorizes no implementation, staging, commit, push, CI,
+Fast, native execution, candidate repair, status work, WO23 closeout, successor
+authorship, macOS, another program, stdlib/Nectar work, packages, crater-like
+testing, optimization, AOT, another backend, LLVM work, release or tag work,
+or any later action.
 
 <!-- workorder-current-authorization-gate:end -->
