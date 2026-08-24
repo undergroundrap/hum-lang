@@ -2,9 +2,57 @@
 
 Date: 2026-08-23
 <!-- hum-active-workorder:v1 -->
-Status: PROPOSED. This successor package authorizes independent pre-issuance
-review only. It grants no implementation, commit, publication, or later-work
-authority.
+Status: ISSUED AND PUBLISHED; UNIT A IMPLEMENTATION PENDING BDFL SIGNAL.
+
+WO23 was independently accepted without findings, committed as
+`0cd67c20a786f3f961cb9c5913c30527eb7fb170`
+(`docs(workorder): issue work order 23`), and published to `main`. The issuance
+commit has parent `4bdc50e39c254cfa630fb12316b27e62be5bb519`, tree
+`0b33bb84210cbd6cf54b917edff83b2f9d9d90ec`, active WO23 blob
+`b097b9303bb0f43d5750669f5957998a26f595f7`, and closed WO22 blob
+`b07ea9070f4013148344e0b08851d3f53e0a2b1c`. Its rename-aware package
+statistics are `+763/-1`; canonical topology is one active, fourteen closed,
+and zero root Work Orders, with the sole active marker on WO23 line 4.
+
+Publication workflow `ci`, run `32689797716`, attempt `1`, event `push`, tested
+the exact issuance SHA and concluded `success`. Ubuntu job `97321328741`
+concluded `success` from `2026-08-24T04:23:01Z` through
+`2026-08-24T04:36:38Z` (`13m37s`). Windows job `97321328852` concluded
+`success` from `2026-08-24T04:23:04Z` through
+`2026-08-24T04:51:49Z` (`28m45s`). Both platforms selected exactly:
+
+```text
+mode=full
+reason=no_status_transition
+anchor=
+run_id=0
+run_attempt=0
+ubuntu_job_id=0
+windows_job_id=0
+transitions=
+```
+
+On each platform, all 151 classifier cases passed twice deterministically.
+The Ubuntu `pwsh` and Windows PowerShell 5.1 and `pwsh` capture matrices
+passed. Formatting, all-target checks, warnings-denied Clippy, compile-fail
+evidence, root and subsidiary Rust suites, the frozen ordered 107-selector
+ledger, every Unit B mutation, six fixed backend probes, and fifteen ordered
+B01-B15 `GO` rows passed; the established path remained `ir_ready=1` and
+`backend_ready=1`. The 541-file text hygiene and public-readiness checks, alpha
+claims, release readiness `0.0.1`, and exactly one terminal full-preflight
+marker per platform also passed. Ubuntu Exhaustive passed; Windows skipped only
+its duplicate platform-independent producer, and both platforms correctly
+skipped status-only evidence under full mode.
+
+The current selector ledger remains exactly 107 invocations and 107
+case-sensitive unique selectors. WO23's planned 112-selector ledger has not
+been implemented. No `programs/integer_sign.hum`, H0634 diagnostic,
+`hum.backend_input.v1` artifact, M01-M13 mutation evidence, macOS support,
+package system, standard-library API, new dependency, unsafe boundary, or
+other WO23 implementation has begun. Unit A remains unauthorized until this
+status record is separately committed, published through terminal-green fast
+Ubuntu and Windows CI, and followed by a fresh explicit BDFL implementation
+signal.
 
 Owner: BDFL (Ocean).
 
@@ -740,24 +788,27 @@ code, or stash operation is authorized during planning authorship or review.
 
 ## Current authorization gate
 
-The sole next action is a fresh independent WO23 pre-issuance re-review of this
-complete corrected uncommitted successor package. The reviewer must review the
-fifty-four-path envelope, H0634 ownership/precedence, layout corpus, mutation
-coverage, budgets, and preserved topology in addition to the unchanged
-producer/verifier/consumer plan. It may inspect repository and published CI
-truth and run only the planning-package validation above. It may not edit or
-begin Unit A.
-
-Only unqualified `ACCEPT` may recommend, without executing, the separately
-authorized exact issuance commit:
+WO23 issuance is independently accepted, published, and terminal-green. This
+routine status-only candidate records that completed lifecycle but grants no
+implementation authority. Its local commit and publication remain separate
+BDFL gates. If separately authorized, the frozen status-commit subject is:
 
 ```text
-docs(workorder): issue work order 23
+docs(workorder): record work order 23 publication
 ```
 
-Issuance commit, push, CI, status recording, Unit A implementation, Fast,
-native execution, macOS, another program, stdlib/Nectar work, packages,
-crater-like testing, optimization, AOT, another backend, LLVM work, release or
-tag work, WO23 closeout, and every later action remain unauthorized.
+The production classifier may authenticate the status transition only after
+that real commit exists; no uncommitted-worktree prediction is required or
+authorized. The status commit must be separately published and its required
+Ubuntu and Windows CI must select `mode=fast` with
+`reason=eligible_status_chain`, pass status-only evidence, and conclude
+success. Only after that terminal-green lifecycle and a fresh explicit BDFL
+signal may Unit A begin.
+
+Staging, commit, push, CI, Unit A implementation, `integer_sign`, H0634,
+backend-input v1, M01-M13, Fast, native execution, macOS, another program,
+stdlib/Nectar work, packages, crater-like testing, optimization, AOT, another
+backend, LLVM work, release or tag work, WO23 closeout, and every later action
+remain unauthorized by this status record.
 
 <!-- workorder-current-authorization-gate:end -->
