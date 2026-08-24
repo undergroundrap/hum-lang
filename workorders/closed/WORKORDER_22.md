@@ -1,7 +1,6 @@
 # Hum Work Order 22: Verify Backend Input And Lower Minimal Add
 
 Date: 2026-08-15
-<!-- hum-active-workorder:v1 -->
 Status: CLOSED. Work Order 22 is terminally closed.
 The corrected
 WO22 planning package and its publication-status lifecycle are complete. Unit A
