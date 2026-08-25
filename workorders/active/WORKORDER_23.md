@@ -2,24 +2,53 @@
 
 Date: 2026-08-23
 <!-- hum-active-workorder:v1 -->
-Status: ISSUED AND PUBLISHED; UNIT A IMPLEMENTATION PENDING BDFL SIGNAL.
+Status: UNIT A PUBLISHED AND TERMINAL-GREEN; STATUS RECORD PENDING INDEPENDENT REVIEW.
 
-WO23 was independently accepted without findings, committed as
+WO23 was independently accepted, issued as
 `0cd67c20a786f3f961cb9c5913c30527eb7fb170`
-(`docs(workorder): issue work order 23`), and published to `main`. The issuance
-commit has parent `4bdc50e39c254cfa630fb12316b27e62be5bb519`, tree
-`0b33bb84210cbd6cf54b917edff83b2f9d9d90ec`, active WO23 blob
-`b097b9303bb0f43d5750669f5957998a26f595f7`, and closed WO22 blob
-`b07ea9070f4013148344e0b08851d3f53e0a2b1c`. Its rename-aware package
-statistics are `+763/-1`; canonical topology is one active, fourteen closed,
-and zero root Work Orders, with the sole active marker on WO23 line 4.
+(`docs(workorder): issue work order 23`), and published through terminal-green
+full Ubuntu and Windows CI before Unit A received its separate implementation
+signal. The active-marker topology remains one active, fourteen closed, and
+zero root Work Orders, with the sole marker on WO23 line 4.
 
-Publication workflow `ci`, run `32689797716`, attempt `1`, event `push`, tested
-the exact issuance SHA and concluded `success`. Ubuntu job `97321328741`
-concluded `success` from `2026-08-24T04:23:01Z` through
-`2026-08-24T04:36:38Z` (`13m37s`). Windows job `97321328852` concluded
-`success` from `2026-08-24T04:23:04Z` through
-`2026-08-24T04:51:49Z` (`28m45s`). Both platforms selected exactly:
+Unit A was implemented by commit
+`0271d1e7e0a73ded7bdb6197de1779564dc54750`, parent
+`894de07d6e500af163a9f0688754269b6bc53c92`, tree
+`de4d297824f4ea50298a76db162292ec2054f370`, with exact subject
+`feat(program): run canonical integer sign natively`. Its complete inventory
+is exactly 55 regular `100644` paths: 38 modifications and 17 additions, with
+`+3404/-75` raw and whitespace-insensitive accounting.
+
+Initial publication workflow `ci`, run `32888746692`, attempt `1`, event
+`push`, tested that exact implementation SHA and concluded `failure`. Ubuntu
+job `97935356554` failed in `tools/check_all.ps1` because the PowerShell
+evidence predicate used a platform-sensitive `String.Contains` overload while
+searching captured stderr. This was an evidence-plumbing failure, not a Hum
+compiler, `integer_sign`, backend, authority, or native-execution semantic
+failure. The red run receives no terminal publication-success credit.
+
+The bounded repair is commit
+`1cef871d3bd7434184d9873c072b6562b07a628b`, parent
+`0271d1e7e0a73ded7bdb6197de1779564dc54750`, tree
+`ff56470594c39358f6c1d1429e025c136f10d8b4`, with exact subject
+`fix(ci): make stderr searches platform exact`. Its sole path is
+`tools/check_all.ps1`, mode/blob
+`100644 73dd33b13adce4224289ddc0ea1874a6e7c0e76d`, with `+20/-4` raw and
+whitespace-insensitive statistics.
+
+That repair commit used one explicitly authorized `--no-verify` bypass only
+because the external `commit-msg` hook could not resolve `sed`, `grep`, and
+`cat`. The exact single-line subject was independently authenticated against
+the real hook's sole substantive scoped Conventional Commit regex. No
+repository test, staged-tree, policy, or code-validation gate was bypassed,
+and the normal non-force push used no bypass.
+
+Final publication workflow `ci`, run `32891079181`, attempt `1`, event `push`,
+tested exact SHA `1cef871d3bd7434184d9873c072b6562b07a628b` and concluded
+`success`. Ubuntu job `97942902391` succeeded from
+`2026-08-25T19:42:25Z` through `2026-08-25T19:56:31Z` (`14m06s`). Windows
+job `97942902685` succeeded from `2026-08-25T19:42:25Z` through
+`2026-08-25T20:17:05Z` (`34m40s`). Both selected exactly:
 
 ```text
 mode=full
@@ -32,27 +61,46 @@ windows_job_id=0
 transitions=
 ```
 
-On each platform, all 151 classifier cases passed twice deterministically.
-The Ubuntu `pwsh` and Windows PowerShell 5.1 and `pwsh` capture matrices
-passed. Formatting, all-target checks, warnings-denied Clippy, compile-fail
-evidence, root and subsidiary Rust suites, the frozen ordered 107-selector
-ledger, every Unit B mutation, six fixed backend probes, and fifteen ordered
-B01-B15 `GO` rows passed; the established path remained `ir_ready=1` and
-`backend_ready=1`. The 541-file text hygiene and public-readiness checks, alpha
-claims, release readiness `0.0.1`, and exactly one terminal full-preflight
-marker per platform also passed. Ubuntu Exhaustive passed; Windows skipped only
-its duplicate platform-independent producer, and both platforms correctly
-skipped status-only evidence under full mode.
+Both required platforms checked out the exact published SHA. On each, all 151
+classifier cases passed twice deterministically; the required Ubuntu `pwsh`
+and Windows PowerShell 5.1/`pwsh` capture matrices passed; formatting, Cargo
+checks, warnings-denied Clippy, compile-fail boundaries, root and subsidiary
+Rust suites, and the exact 112-selector ledger passed. Ubuntu recorded 466
+root, 13 subsidiary, and 60 subsidiary tests; Windows recorded 481 root, 16
+subsidiary, and 60 subsidiary tests.
 
-The current selector ledger remains exactly 107 invocations and 107
-case-sensitive unique selectors. WO23's planned 112-selector ledger has not
-been implemented. No `programs/integer_sign.hum`, H0634 diagnostic,
-`hum.backend_input.v1` artifact, M01-M13 mutation evidence, macOS support,
-package system, standard-library API, new dependency, unsafe boundary, or
-other WO23 implementation has begun. Unit A remains unauthorized until this
-status record is separately committed, published through terminal-green fast
-Ubuntu and Windows CI, and followed by a fresh explicit BDFL implementation
-signal.
+Every B01-B15 mutation, both B12 enforcement sites, and every M01-M13 mutation
+passed. Deny-first, malformed-argument, unsupported-shape, initialized-failure,
+and byte-restoration evidence passed. Interpreter and native `integer_sign`
+execution agreed for `-7`, `-1`, `0`, `1`, and `9`. Six backend probes and
+fifteen ordered B01-B15 `GO` rows passed with `ir_ready=1` and
+`backend_ready=1`. Text hygiene and public readiness passed for 558 files;
+alpha claims and release readiness `0.0.1` passed; and exactly one terminal
+full-preflight success marker appeared per platform. Ubuntu Exhaustive passed
+all 14,226 pairs with seed `0x48554D5F5345414C`; Windows skipped only the
+duplicate platform-independent producer, and both platforms correctly skipped
+status-only evidence under full mode.
+
+The mandatory independent post-hoc review of the published one-path repair
+reported P0 none, P1 none, P2 none, and verdict `ACCEPT`. It confirmed that
+the repair preserved compiler semantics and that the one-time bypass skipped
+only the broken external execution of a commit-message rule whose exact
+subject already satisfied the rule.
+
+WO23 now proves only one canonical `integer_sign` Hum program through the
+established semantic and authority chain, bounded Cranelift lowering, and
+native execution on required `x86_64-pc-windows-msvc` and
+`x86_64-unknown-linux-gnu` CI. Its negative, zero, and positive output is
+input-driven and source-derived; canonical path/module/app identity and
+declaration ordering are enforced; native execution fails closed outside the
+bounded feature; and `ir_ready=1` and `backend_ready=1` apply only to this
+proven slice.
+
+WO23 does not claim arbitrary-program native compilation, general Text or
+conditional lowering, a standard library, Nectar packages, macOS support,
+AOT/object output, optimization, self-hosting, LLVM support, production
+readiness, a release, or any later program. No retained capture, scratch,
+proof, credential, configuration, or environment artifact remains.
 
 Owner: BDFL (Ocean).
 
@@ -818,22 +866,24 @@ code, or stash operation is authorized during planning authorship or review.
 
 ## Current authorization gate
 
-The exact fifty-four-path Unit A implementation candidate is preserved,
-unstaged, and frozen. Its root-suite stop exposed the one omitted complete-
-catalog projection owner, so Unit A implementation cannot resume under the old
-envelope. Fast remains unconsumed and transfers no authority to this amendment.
+Unit A implementation, bounded repair, publication, terminal required CI, and
+mandatory post-hoc repair accountability are complete. This candidate records
+that lifecycle without changing any WO23 mandate, architecture, scope,
+acceptance criterion, budget, exclusion, or implementation contract.
 
-The sole next action is fresh independent review of this WO23 amendment. Only
-an unqualified `ACCEPT` may recommend a separately authorized local
-documentation commit. That commit must then receive separately authorized
-publication and terminal required CI. Only after that complete amendment
-lifecycle and a fresh explicit BDFL resumption signal may implementation
-continue under the fifty-five-path envelope.
+The sole next action is fresh independent review of this exact status-only
+candidate. Only an unqualified `ACCEPT` may recommend, but does not execute, a
+separately authorized local documentation commit with exact subject:
 
-Amendment authorship authorizes no implementation, staging, commit, push, CI,
-Fast, native execution, candidate repair, status work, WO23 closeout, successor
-authorship, macOS, another program, stdlib/Nectar work, packages, crater-like
-testing, optimization, AOT, another backend, LLVM work, release or tag work,
-or any later action.
+```text
+docs(workorder): record unit a publication
+```
+
+The status commit, its publication, required fast Ubuntu and Windows CI, WO23
+closeout, successor authorship, another program, macOS, stdlib/Nectar work,
+packages, crater-like testing, optimization, AOT, another backend, LLVM work,
+release or tag work, and every later action remain separately unauthorized.
+This authorship grants no staging, commit, push, CI, Fast, native execution,
+implementation, stash/archive operation, or active-marker change.
 
 <!-- workorder-current-authorization-gate:end -->
