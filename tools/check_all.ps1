@@ -1242,9 +1242,17 @@ try {
       $DeniedArgs = @('run', '--native') + @($DeniedPolicy.Prefix) + @('programs/integer_sign.hum', '--args') + @($DeniedArgument.Args)
       $DeniedRun = Read-NativeChannelsWithExit "Work Order 23 $($DeniedPolicy.Label) $($DeniedArgument.Label)" $Hum $DeniedArgs
       $DeniedDisposition = 'OutputError.' + $DeniedPolicy.Reason + ': stdout.write operator consent denied' + [char]10
+      $DeniedForbiddenMatches = @(
+        @('requires exactly one Int argument', 'not an integer literal', 'artifact=', 'backend-input', 'JIT', 'output=', 'ir_ready=', 'backend_ready=', 'fallback') |
+          Where-Object {
+            $DeniedRun.Stderr.IndexOf(
+              [string]$_,
+              [System.StringComparison]::Ordinal
+            ) -ge 0
+          }
+      )
       if ($DeniedRun.ExitCode -ne 1 -or $DeniedRun.Stdout.Length -ne 0 -or $DeniedRun.Stderr -cne $DeniedDisposition -or
-          @('requires exactly one Int argument', 'not an integer literal', 'artifact=', 'backend-input', 'JIT', 'output=', 'ir_ready=', 'backend_ready=', 'fallback') |
-            Where-Object { $DeniedRun.Stderr.Contains($_) }) { throw "Work Order 23 $($DeniedPolicy.Label) must precede $($DeniedArgument.Label) and all backend work" }
+          $DeniedForbiddenMatches.Count -ne 0) { throw "Work Order 23 $($DeniedPolicy.Label) must precede $($DeniedArgument.Label) and all backend work" }
     }
   }
   foreach ($AllowedArgument in @(
@@ -1329,10 +1337,18 @@ try {
   if (-not (Test-Wo22ByteArraysEqual $CanonicalProgramBytes ([System.IO.File]::ReadAllBytes($CanonicalProgramPath)))) { throw 'Work Order 23 unsupported shape evidence did not restore the canonical program bytes' }
   if (-not (Test-Wo22ByteArraysEqual $UnsupportedFixtureBytes ([System.IO.File]::ReadAllBytes($UnsupportedFixturePath)))) { throw 'Work Order 23 unsupported shape evidence changed the permanent fixture' }
   $UnsupportedDisposition = 'native integer_sign backend-input admission failed' + [char]10
+  $UnsupportedForbiddenMatches = @(
+    @('artifact=', 'capability issuance', 'JIT execution', 'output=', 'ir_ready=', 'backend_ready=', 'fallback') |
+      Where-Object {
+        $UnsupportedShape.Stderr.IndexOf(
+          [string]$_,
+          [System.StringComparison]::Ordinal
+        ) -ge 0
+      }
+  )
   if ($null -eq $UnsupportedShape -or $UnsupportedShape.ExitCode -ne 1 -or $UnsupportedShape.Stdout.Length -ne 0 -or
       $UnsupportedShape.Stderr -cne $UnsupportedDisposition -or $UnsupportedShape.Stderr.Contains('H0634') -or
-      @('artifact=', 'capability issuance', 'JIT execution', 'output=', 'ir_ready=', 'backend_ready=', 'fallback') |
-        Where-Object { $UnsupportedShape.Stderr.Contains($_) }) { throw 'Work Order 23 unsupported shape must reject at backend-input admission without success evidence' }
+      $UnsupportedForbiddenMatches.Count -ne 0) { throw 'Work Order 23 unsupported shape must reject at backend-input admission without success evidence' }
   $UnsupportedFailureInitialized = $false
   $UnsupportedFailureObserved = $false
   try {
