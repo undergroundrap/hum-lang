@@ -22,6 +22,12 @@ capability, maps its checked-add facts to verified CLIF, and exposes one explici
 host-local `backend-probe`. It is not a general backend, optimizer, AOT path,
 LLVM/MLIR/Wasm/C path, or custom code generator.
 
+The same adapter now has one additive verified program slice for canonical
+`integer_sign`: typed signed comparisons select one verified source literal
+and one result tag through the existing JIT boundary. The slice retains
+Cranelift as a bounded backend component and makes no general lowering,
+optimization, AOT, or additional-platform claim.
+
 ## Command
 
 ```powershell

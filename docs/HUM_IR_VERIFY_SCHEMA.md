@@ -10,6 +10,12 @@ Current schema: `hum.ir_verify.v0`
 artifact. It is a local, non-executing report surface. Accepted report text is
 evidence only; it is never a capability or backend input.
 
+The compiler also verifies additive `hum.backend_input.v1` bytes for the
+canonical `integer_sign` path. It rereads canonical bytes, cross-binds every
+feature fact to the live program, and lends authority only inside a callback;
+mixed v0/v1 facts, foreign lineage, stale identity, and corruption reject.
+The existing v0 report contract remains unchanged.
+
 ## Command And Exit Contract
 
 ```text

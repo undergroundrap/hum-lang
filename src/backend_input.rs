@@ -10,6 +10,10 @@ use std::fmt::Write as _;
 use std::ops::Range;
 
 pub const BACKEND_INPUT_SCHEMA: &str = "hum.backend_input.v0";
+pub const INTEGER_SIGN_BACKEND_INPUT_SCHEMA: &str = "hum.backend_input.v1";
+pub(crate) const INTEGER_SIGN_SEMANTIC_CONTRACT: &str =
+    "hum.canonical_integer_sign_backend_facts.v0";
+pub(crate) const INTEGER_SIGN_FEATURE: &str = "canonical_integer_sign_app_v0";
 
 pub(crate) const SEMANTIC_CONTRACT: &str = "hum.canonical_minimal_add_backend_facts.v0";
 pub(crate) const TARGET_CONTEXT: &str = "target_independent_checked_i64_v0";
@@ -53,6 +57,193 @@ impl CanonicalBackendInputArtifact {
 
     pub(crate) fn artifact_id(&self) -> &str {
         &self.artifact_id
+    }
+}
+
+pub(crate) struct CanonicalIntegerSignBackendFacts {
+    program_identity: usize,
+    compiler_version: &'static str,
+    source_revision: String,
+    normalized_path: String,
+    module_name: String,
+    app_name: String,
+    entry_name: String,
+    argument_name: String,
+    profile_id: String,
+    branches: [crate::core_lower::CanonicalIntegerSignBranch; 3],
+    required_passes: Vec<&'static str>,
+}
+
+impl CanonicalIntegerSignBackendFacts {
+    fn complete(&self, program: &Program) -> bool {
+        self.program_identity == std::ptr::from_ref(program).addr()
+            && self.compiler_version == version::HUM_VERSION
+            && self.source_revision.starts_with("sha256:")
+            && self.normalized_path.starts_with("programs/")
+            && self.module_name == format!("programs.{}", self.app_name)
+            && !self.app_name.is_empty()
+            && self.entry_name == "run_tool"
+            && self.argument_name == "value"
+            && self.profile_id == "normal"
+            && self.required_passes == REQUIRED_PASSES
+            && self.branches[0].predicate == "signed_less_than_zero"
+            && self.branches[0].tag == 0
+            && self.branches[1].predicate == "equal_to_zero"
+            && self.branches[1].tag == 1
+            && self.branches[2].predicate == "fallthrough"
+            && self.branches[2].tag == 2
+            && self
+                .branches
+                .iter()
+                .all(|branch| !branch.literal.is_empty())
+    }
+}
+
+fn canonical_integer_sign_facts(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+) -> Option<CanonicalIntegerSignBackendFacts> {
+    let authority =
+        type_check::canonical_integer_sign_type_authority(program, layout, diagnostics)?;
+    let lower = crate::core_lower::lower_canonical_integer_sign(program, layout, &authority)?;
+    let verified =
+        crate::core_verify::verify_canonical_integer_sign(program, layout, &authority, &lower)?;
+    profile_check::with_profile_for_ir_readiness(program, diagnostics, |profile_access| {
+        let profile = profile_access.canonical_integer_sign_for(layout, &authority)?;
+        if !std::ptr::eq(profile.authority(), &authority) {
+            return None;
+        }
+        let source_digest = sha256::digest(authority.source_revision())?;
+        let (normalized_path, module_name, app_name, entry_name) = authority.identity();
+        let facts = CanonicalIntegerSignBackendFacts {
+            program_identity: std::ptr::from_ref(program).addr(),
+            compiler_version: version::HUM_VERSION,
+            source_revision: format!("sha256:{}", sha256::lowercase_hex(&source_digest)),
+            normalized_path: normalized_path.to_string(),
+            module_name: module_name.to_string(),
+            app_name: app_name.to_string(),
+            entry_name: entry_name.to_string(),
+            argument_name: "value".to_string(),
+            profile_id: profile.profile_id().to_string(),
+            branches: verified.branches().clone(),
+            required_passes: REQUIRED_PASSES.to_vec(),
+        };
+        facts.complete(program).then_some(facts)
+    })
+}
+
+pub(crate) fn with_canonical_integer_sign_facts<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    consume: impl FnOnce(&CanonicalIntegerSignBackendFacts) -> R,
+) -> Option<R> {
+    let facts = canonical_integer_sign_facts(program, diagnostics, layout)?;
+    Some(consume(&facts))
+}
+
+pub(crate) fn canonical_integer_sign_artifact(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+) -> Option<CanonicalBackendInputArtifact> {
+    let facts = canonical_integer_sign_facts(program, diagnostics, layout)?;
+    encode_integer_sign_artifact(&facts)
+}
+
+fn encode_integer_sign_artifact(
+    facts: &CanonicalIntegerSignBackendFacts,
+) -> Option<CanonicalBackendInputArtifact> {
+    let mut payload = String::with_capacity(4096);
+    payload.push_str("{\"compiler_version\":");
+    push_json_string(&mut payload, facts.compiler_version);
+    payload.push_str(",\"semantic_contract\":");
+    push_json_string(&mut payload, INTEGER_SIGN_SEMANTIC_CONTRACT);
+    payload.push_str(",\"feature\":");
+    push_json_string(&mut payload, INTEGER_SIGN_FEATURE);
+    payload.push_str(",\"target_context\":");
+    push_json_string(&mut payload, TARGET_CONTEXT);
+    payload.push_str(",\"source_revision\":");
+    push_json_string(&mut payload, &facts.source_revision);
+    payload.push_str(",\"source_path\":");
+    push_json_string(&mut payload, &facts.normalized_path);
+    payload.push_str(",\"module\":");
+    push_json_string(&mut payload, &facts.module_name);
+    payload.push_str(",\"app\":");
+    push_json_string(&mut payload, &facts.app_name);
+    payload.push_str(",\"entry\":");
+    push_json_string(&mut payload, &facts.entry_name);
+    payload.push_str(",\"argument\":{\"name\":");
+    push_json_string(&mut payload, &facts.argument_name);
+    payload.push_str(",\"type\":\"Int\",\"abi\":\"i64\"},\"result\":{\"type\":\"Result Unit, OutputError\",\"abi\":\"tag_i64\"},\"output_authority\":{\"source\":\"stdout.write\",\"operator_consent\":\"required\"},\"profile\":");
+    push_json_string(&mut payload, &facts.profile_id);
+    payload.push_str(",\"branches\":[");
+    for (index, branch) in facts.branches.iter().enumerate() {
+        if index > 0 {
+            payload.push(',');
+        }
+        payload.push_str("{\"ordinal\":");
+        let _ = write!(payload, "{index},\"predicate\":");
+        push_json_string(&mut payload, branch.predicate);
+        payload.push_str(",\"tag\":");
+        let _ = write!(payload, "{},\"literal\":", branch.tag);
+        push_json_string(&mut payload, &branch.literal);
+        payload.push_str(",\"predicate_span\":{");
+        let _ = write!(
+            payload,
+            "\"line\":{},\"column\":{}",
+            branch.predicate_span.line, branch.predicate_span.column
+        );
+        payload.push_str("},\"literal_span\":{");
+        let _ = write!(
+            payload,
+            "\"line\":{},\"column\":{}",
+            branch.literal_span.line, branch.literal_span.column
+        );
+        payload.push_str("}}");
+    }
+    payload.push_str("],\"required_passes\":[");
+    for (index, pass) in facts.required_passes.iter().enumerate() {
+        if index > 0 {
+            payload.push(',');
+        }
+        push_json_string(&mut payload, pass);
+    }
+    payload.push_str("],\"unsupported\":[]}");
+    let digest = sha256::digest(payload.as_bytes())?;
+    let artifact_id = format!("sha256:{}", sha256::lowercase_hex(&digest));
+    let prefix = format!(
+        "{{\"schema\":\"{INTEGER_SIGN_BACKEND_INPUT_SCHEMA}\",\"artifact_id\":\"{artifact_id}\",\"payload\":"
+    );
+    let payload_start = prefix.len();
+    let payload_end = payload_start.checked_add(payload.len())?;
+    let mut bytes = Vec::with_capacity(payload_end.checked_add(2)?);
+    bytes.extend_from_slice(prefix.as_bytes());
+    bytes.extend_from_slice(payload.as_bytes());
+    bytes.extend_from_slice(b"}\n");
+    Some(CanonicalBackendInputArtifact {
+        bytes,
+        payload_range: payload_start..payload_end,
+        artifact_id,
+    })
+}
+
+impl CanonicalIntegerSignBackendFacts {
+    pub(crate) fn source_revision(&self) -> &str {
+        &self.source_revision
+    }
+    pub(crate) fn source_path(&self) -> &str {
+        &self.normalized_path
+    }
+    pub(crate) fn identities(&self) -> (&str, &str, &str) {
+        (&self.module_name, &self.app_name, &self.entry_name)
+    }
+    pub(crate) fn branches(&self) -> &[crate::core_lower::CanonicalIntegerSignBranch; 3] {
+        &self.branches
+    }
+    pub(crate) fn required_passes(&self) -> &[&'static str] {
+        &self.required_passes
     }
 }
 
@@ -797,6 +988,46 @@ pub(crate) fn minimal_add_artifact_for_test() -> CanonicalBackendInputArtifact {
 mod tests {
     use super::*;
 
+    fn integer_sign_subject(source: &str) -> (Program, Vec<Diagnostic>) {
+        let parsed = crate::parser::parse_source("programs/integer_sign.hum", source);
+        let checked = crate::check::check_parse_output(&parsed);
+        assert!(parsed.diagnostics.is_empty(), "{:#?}", parsed.diagnostics);
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity != crate::diagnostic::Severity::Error),
+            "{:#?}",
+            checked.diagnostics
+        );
+        (
+            Program {
+                files: vec![parsed.file],
+            },
+            checked.diagnostics,
+        )
+    }
+
+    fn integer_sign_artifact(source: &str) -> CanonicalBackendInputArtifact {
+        let (program, diagnostics) = integer_sign_subject(source);
+        let entry = crate::app_entry::analyze(&program)
+            .entry
+            .expect("canonical app entry");
+        let layout = crate::app_entry::analyze_canonical_native_layout(
+            &program,
+            "programs/integer_sign.hum",
+            Some(&entry),
+        )
+        .layout
+        .expect("canonical native layout");
+        let cache_displacement = Program {
+            files: vec![crate::parser::parse_source("empty.hum", "").file],
+        };
+        let _ = crate::typed_failure::analyze_program(&cache_displacement);
+        canonical_integer_sign_artifact(&program, &diagnostics, &layout)
+            .expect("canonical integer-sign backend input")
+    }
+
     macro_rules! assert_not_impl {
         ($type:ty, $trait:path) => {
             const _: fn() = || {
@@ -847,6 +1078,107 @@ mod tests {
         crate::profile_check::VerifiedMinimalAddProfile<'static>,
         Copy
     );
+    assert_not_impl!(
+        crate::full_type_check::VerifiedIntegerSignFullType<'static>,
+        Clone
+    );
+    assert_not_impl!(
+        crate::full_type_check::VerifiedIntegerSignFullType<'static>,
+        Copy
+    );
+    assert_not_impl!(
+        crate::effect_check::VerifiedIntegerSignEffect<'static>,
+        Clone
+    );
+    assert_not_impl!(
+        crate::effect_check::VerifiedIntegerSignEffect<'static>,
+        Copy
+    );
+    assert_not_impl!(
+        crate::ownership_check::VerifiedIntegerSignOwnership<'static>,
+        Clone
+    );
+    assert_not_impl!(
+        crate::ownership_check::VerifiedIntegerSignOwnership<'static>,
+        Copy
+    );
+    assert_not_impl!(
+        crate::resource_check::VerifiedIntegerSignResource<'static>,
+        Clone
+    );
+    assert_not_impl!(
+        crate::resource_check::VerifiedIntegerSignResource<'static>,
+        Copy
+    );
+    assert_not_impl!(
+        crate::profile_check::VerifiedIntegerSignProfile<'static>,
+        Clone
+    );
+    assert_not_impl!(
+        crate::profile_check::VerifiedIntegerSignProfile<'static>,
+        Copy
+    );
+
+    #[test]
+    fn canonical_integer_sign_backend_input_is_exact_and_nonforgeable() {
+        let source = include_str!("../programs/integer_sign.hum");
+        let first = integer_sign_artifact(source);
+        let second = integer_sign_artifact(source);
+        assert_eq!(first.bytes(), second.bytes());
+        assert_eq!(first.artifact_id(), second.artifact_id());
+        assert_eq!(
+            first.bytes(),
+            include_bytes!("../fixtures/backend_input/integer_sign.backend_input.v1.json")
+        );
+        assert!(
+            first
+                .bytes()
+                .starts_with(b"{\"schema\":\"hum.backend_input.v1\",\"artifact_id\":\"sha256:")
+        );
+        assert!(first.bytes().ends_with(b"}\n"));
+        assert!(!first.bytes().contains(&b'\r'));
+        assert_eq!(
+            first.bytes().iter().filter(|byte| **byte == b'\n').count(),
+            1
+        );
+        let digest = sha256::lowercase_hex(
+            &sha256::digest(first.payload()).expect("bounded canonical payload"),
+        );
+        assert_eq!(first.artifact_id(), format!("sha256:{digest}"));
+        let payload = std::str::from_utf8(first.payload()).expect("canonical UTF-8");
+        for required in [
+            "\"source_path\":\"programs/integer_sign.hum\"",
+            "\"module\":\"programs.integer_sign\"",
+            "\"app\":\"integer_sign\"",
+            "\"entry\":\"run_tool\"",
+            "\"predicate\":\"signed_less_than_zero\"",
+            "\"predicate\":\"equal_to_zero\"",
+            "\"predicate\":\"fallthrough\"",
+            "\"literal\":\"negative\"",
+            "\"literal\":\"zero\"",
+            "\"literal\":\"positive\"",
+        ] {
+            assert!(payload.contains(required), "missing {required}");
+        }
+        assert_eq!(payload.matches("\"status\":\"passed\"").count(), 0);
+        assert_eq!(payload.matches("\"ordinal\":").count(), 3);
+        assert_eq!(payload.matches("\"literal\":").count(), 3);
+        assert_eq!(payload.matches("\"predicate\":").count(), 3);
+        assert_eq!(payload.matches("\"required_passes\":").count(), 1);
+
+        let changed_source = source.replacen("\"negative\"", "\"below\"", 1);
+        assert_ne!(changed_source.as_bytes(), source.as_bytes());
+        let changed = integer_sign_artifact(&changed_source);
+        assert_ne!(changed.bytes(), first.bytes());
+        assert_ne!(changed.artifact_id(), first.artifact_id());
+        let changed_payload = std::str::from_utf8(changed.payload()).expect("changed UTF-8");
+        assert!(changed_payload.contains("\"literal\":\"below\""));
+        assert!(!changed_payload.contains("\"literal\":\"negative\""));
+
+        let restored = integer_sign_artifact(source);
+        assert_eq!(restored.bytes(), first.bytes());
+        assert_eq!(restored.artifact_id(), first.artifact_id());
+    }
 
     #[test]
     fn minimal_add_backend_input_bytes_are_canonical_and_deterministic() {

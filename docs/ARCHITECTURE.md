@@ -27,6 +27,13 @@ toolchain should also emit machine-checkable intent, effect reports,
 capability boundaries, diagnostics, profile facts, provenance, SBOMs, and
 deployment evidence.
 
+The first source-driven native vertical slice is the canonical
+`programs/integer_sign.hum` layout. Its checked module/app/entry identity,
+signed conditions, source literals, output authority, and live lineage cross
+the same semantic gates into a feature-specific `hum.backend_input.v1`
+capability before Cranelift execution. It does not widen backend admission to
+arbitrary Hum programs.
+
 See [ADOPTION_STRATEGY_2026.md](ADOPTION_STRATEGY_2026.md).
 
 ## Architecture Layers

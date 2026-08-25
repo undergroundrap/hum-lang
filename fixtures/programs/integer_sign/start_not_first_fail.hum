@@ -1,0 +1,18 @@
+module programs.start_not_first_fail
+
+app start_not_first_fail {
+  starts with:
+    run_tool
+  task helper -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+  task run_tool -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+}

@@ -31,6 +31,12 @@ cargo run -- capabilities --format json
 The human output is for terminals. The JSON output is the adapter and agent
 contract.
 
+The current command inventory includes the narrow
+`run_native_integer_sign` capability for the exact invocation
+`hum run --native --allow stdout.write programs/integer_sign.hum --args <Int>`.
+Its schema is `hum.backend_input.v1`; it is discovery metadata, not authority
+to admit another program or bypass operator consent.
+
 ## Top-Level Shape
 
 ```json

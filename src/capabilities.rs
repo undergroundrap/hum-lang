@@ -63,6 +63,13 @@ const COMMANDS: &[CommandCapability] = &[
         purpose: "tree-walking execution for the first Formal Core programs",
     },
     CommandCapability {
+        name: "run_native_integer_sign",
+        command: "hum run --native --allow stdout.write programs/integer_sign.hum --args <Int>",
+        schema: backend_input::INTEGER_SIGN_BACKEND_INPUT_SCHEMA,
+        status: "current-narrow",
+        purpose: "verified canonical integer-sign source lowered through Cranelift on required hosts",
+    },
+    CommandCapability {
         name: "graph",
         command: "hum graph <file-or-dir>...",
         schema: json::SEMANTIC_GRAPH_SCHEMA,

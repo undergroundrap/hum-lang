@@ -58,6 +58,46 @@ mod typed_failure;
 mod version;
 mod writable_field_alias;
 
+#[allow(unexpected_cfgs, dead_code)]
+mod verified_integer_sign_backend_input_compile_proof {
+    #[cfg(hum_compile_fail_verified_integer_sign_backend_input_construction)]
+    fn verified_integer_sign_backend_input_construction_must_not_compile() {
+        let _ = crate::ir_verify::VerifiedIntegerSignBackendInput {
+            projection: None.unwrap(),
+            _artifact: std::marker::PhantomData,
+        };
+    }
+
+    #[cfg(hum_compile_fail_verified_integer_sign_backend_input_lifetime)]
+    fn verified_integer_sign_backend_input_lifetime_must_not_escape(
+        program: &crate::ast::Program,
+        diagnostics: &[crate::diagnostic::Diagnostic],
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+        artifact: &[u8],
+    ) -> crate::ir_verify::VerifiedIntegerSignBackendInput<'static> {
+        crate::ir_verify::with_verified_integer_sign_backend_input(
+            program,
+            diagnostics,
+            layout,
+            artifact,
+            |capability| capability,
+        )
+        .unwrap()
+    }
+
+    #[cfg(hum_compile_fail_verified_integer_sign_backend_input_substitution)]
+    fn raw_integer_sign_backend_input_must_not_compile(raw: &[u8]) {
+        let _ = crate::backend_cranelift::execute_integer_sign(raw, 0);
+    }
+
+    #[cfg(hum_compile_fail_verified_integer_sign_backend_input_substitution)]
+    fn other_verified_backend_input_must_not_compile(
+        other: &crate::ir_verify::VerifiedBackendInput<'_>,
+    ) {
+        let _ = crate::backend_cranelift::execute_integer_sign(other, 0);
+    }
+}
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -286,10 +326,32 @@ fn run() -> Result<ExitCode, String> {
         let mut replay_adapter = run::RunnerReplayAdapter::new(options.run_replay_ticks.clone());
         let execution = execute_run_command(
             loaded,
+            options.run_native,
             options.run_entry.as_deref(),
             &options.run_args,
             &options.run_authority,
-            |program, occurrences, entry, raw_args, grant_policy| {
+            |program, diagnostics, occurrences, entry, raw_args, grant_policy, native_layout| {
+                if let Some(layout) = native_layout {
+                    return match run::run_native_integer_sign(
+                        program,
+                        diagnostics,
+                        layout,
+                        raw_args,
+                        grant_policy,
+                        &mut output_adapter,
+                    ) {
+                        Ok(_) => run::RunReport {
+                            outcome: run::RunOutcome::AppSuccess,
+                            diagnostics: Vec::new(),
+                            authority_events: Vec::new(),
+                        },
+                        Err(message) => run::RunReport {
+                            outcome: run::RunOutcome::NativeFailure(message),
+                            diagnostics: Vec::new(),
+                            authority_events: Vec::new(),
+                        },
+                    };
+                }
                 run::run_program_with_occurrences_and_adapters(
                     program,
                     occurrences,
@@ -993,6 +1055,7 @@ struct RunCommandExecution {
 
 fn execute_run_command<InvokeRunner>(
     loaded: LoadedProgram,
+    native: bool,
     entry: Option<&str>,
     raw_args: &[OsString],
     grant_policy: &operator_grant::OperatorGrantPolicy,
@@ -1001,10 +1064,12 @@ fn execute_run_command<InvokeRunner>(
 where
     InvokeRunner: FnOnce(
         &Program,
+        &[Diagnostic],
         &DiagnosticOccurrenceSet,
         Option<&str>,
         &[OsString],
         &operator_grant::OperatorGrantPolicy,
+        Option<&app_entry::CanonicalNativeLayout<'_>>,
     ) -> run::RunReport,
 {
     let LoadedProgram {
@@ -1154,14 +1219,79 @@ where
         }
     }
 
+    let native_layout_analysis = if native {
+        for (failed, text) in [
+            (
+                effect_check::effect_check_has_errors(&program, &diagnostics),
+                effect_check::effect_check_text(&program, &diagnostics),
+            ),
+            (
+                ownership_check::ownership_check_has_errors(&program, &diagnostics),
+                ownership_check::ownership_check_text(&program, &diagnostics),
+            ),
+            (
+                resource_check::resource_check_has_errors(&program, &diagnostics),
+                resource_check::resource_check_text(&program, &diagnostics),
+            ),
+            (
+                profile_check::profile_check_has_errors(&program, &diagnostics),
+                profile_check::profile_check_text(&program, &diagnostics),
+            ),
+        ] {
+            if failed {
+                return Ok(RunCommandExecution {
+                    disposition: RunCommandDisposition::Text { text, exit_code: 1 },
+                    diagnostics,
+                    diagnostic_occurrences,
+                    reanalyzable_projections,
+                    runtime_diagnostic_occurrences: None,
+                    timings,
+                    total,
+                });
+            }
+        }
+        let analysis = app_entry::analyze_canonical_native_layout(
+            &program,
+            &program.files[0].path,
+            app_analysis.entry.as_ref(),
+        );
+        if let (Some(diagnostic), Some(occurrence)) = (
+            analysis.diagnostic.clone(),
+            analysis.diagnostic_occurrence.clone(),
+        ) {
+            diagnostic_occurrences
+                .insert_owned(occurrence)
+                .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+            return Ok(RunCommandExecution {
+                disposition: RunCommandDisposition::SelectedDiagnostics {
+                    diagnostics: vec![diagnostic],
+                    exit_code: 1,
+                },
+                diagnostics,
+                diagnostic_occurrences,
+                reanalyzable_projections,
+                runtime_diagnostic_occurrences: None,
+                timings,
+                total,
+            });
+        }
+        Some(analysis)
+    } else {
+        None
+    };
+
     let runtime_occurrences =
         runtime_diagnostic_occurrences(&program, &diagnostics, &diagnostic_occurrences)?;
     let report = invoke_runner(
         &program,
+        &diagnostics,
         &runtime_occurrences,
         entry,
         raw_args,
         grant_policy,
+        native_layout_analysis
+            .as_ref()
+            .and_then(|analysis| analysis.layout.as_ref()),
     );
     Ok(RunCommandExecution {
         disposition: RunCommandDisposition::Executed(report),
@@ -1223,6 +1353,10 @@ fn render_run_command_execution(execution: RunCommandExecution, show_timings: bo
                 }
                 run::RunOutcome::ContractViolation => ExitCode::from(1),
                 run::RunOutcome::PreflightRejected => ExitCode::from(2),
+                run::RunOutcome::NativeFailure(message) => {
+                    eprintln!("{message}");
+                    ExitCode::from(1)
+                }
                 run::RunOutcome::Trap(message) => {
                     eprintln!("runtime trap: {message}");
                     ExitCode::from(2)
@@ -1651,6 +1785,7 @@ struct CliOptions {
     command: String,
     inputs: Vec<PathBuf>,
     run_entry: Option<String>,
+    run_native: bool,
     run_args: Vec<OsString>,
     run_authority: operator_grant::OperatorGrantPolicy,
     run_replay_ticks: Vec<i64>,
@@ -1787,6 +1922,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
     let mut show_timings = false;
     let mut raw_inputs = Vec::new();
     let mut run_entry = None;
+    let mut run_native = false;
     let mut run_args = Vec::new();
     let mut run_authority = operator_grant::OperatorGrantPolicy::default();
     let mut run_replay_ticks = Vec::new();
@@ -1827,6 +1963,14 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                     return Err("`run --entry` requires a task name".to_string());
                 };
                 run_entry = Some(value);
+            }
+            "--native" if command == "run" => {
+                if std::mem::replace(&mut run_native, true) {
+                    return Err("`hum run --native` may appear exactly once".to_string());
+                }
+            }
+            "--native" => {
+                return Err("`--native` is supported only by `hum run`".to_string());
             }
             flag if command == "run" && flag.starts_with("--entry=") => {
                 let value = flag.trim_start_matches("--entry=");
@@ -2085,6 +2229,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2129,6 +2274,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2173,6 +2319,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2217,6 +2364,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2261,6 +2409,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2305,6 +2454,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2349,6 +2499,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2393,6 +2544,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2437,6 +2589,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2481,6 +2634,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2531,6 +2685,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2575,6 +2730,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2619,6 +2775,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             command,
             inputs: Vec::new(),
             run_entry: None,
+            run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
             run_replay_ticks: run_replay_ticks.clone(),
@@ -2700,12 +2857,19 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         if !input_is_file || inputs.len() != 1 {
             return Err("`run` requires exactly one .hum file".to_string());
         }
+        if run_native && run_entry.is_some() {
+            return Err("`hum run --native` does not accept `--entry`".to_string());
+        }
+        if run_native && !run_replay_ticks.is_empty() {
+            return Err("`hum run --native` does not accept replay ticks".to_string());
+        }
     }
 
     Ok(CliOptions {
         command,
         inputs,
         run_entry,
+        run_native,
         run_args,
         run_authority,
         run_replay_ticks,
@@ -3482,6 +3646,17 @@ fn print_help() {
     println!("  --replay-tick  Add one ordered runner replay UInt; repeatable up to 1024 values");
     println!("  --args      Pass all remaining values to `hum run`");
 }
+
+#[cfg(test)]
+mod main {
+    mod tests {
+        #[test]
+        fn native_integer_sign_run_is_authority_bound_and_platform_exact() {
+            crate::tests::run_native_integer_sign_selector();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::{OsStr, OsString};
@@ -3569,6 +3744,49 @@ mod tests {
             self.writes.push(bytes.to_vec());
             Ok(())
         }
+    }
+
+    pub(crate) fn run_native_integer_sign_selector() {
+        let options = parse_cli(vec![
+            "run".to_string(),
+            "--native".to_string(),
+            "--allow".to_string(),
+            "stdout.write".to_string(),
+            "programs/integer_sign.hum".to_string(),
+            "--args".to_string(),
+            "-7".to_string(),
+        ])
+        .expect("canonical native CLI");
+        assert!(options.run_native);
+        assert_eq!(options.inputs, [PathBuf::from("programs/integer_sign.hum")]);
+        assert_eq!(options.run_args, [OsString::from("-7")]);
+        assert_eq!(
+            options.run_authority.stdout_write_decision(),
+            crate::operator_grant::GrantDecision::Allowed
+        );
+        for rejected in [
+            vec![
+                "run",
+                "--native",
+                "--native",
+                "programs/integer_sign.hum",
+                "--args",
+                "-7",
+            ],
+            vec![
+                "run",
+                "--native",
+                "--entry",
+                "run_tool",
+                "programs/integer_sign.hum",
+                "--args",
+                "-7",
+            ],
+            vec!["check", "--native", "programs/integer_sign.hum"],
+        ] {
+            assert!(parse_cli(rejected.into_iter().map(str::to_string).collect()).is_err());
+        }
+        crate::run::tests::integer_sign_native_evidence();
     }
 
     #[derive(Default)]
@@ -3764,10 +3982,11 @@ mod tests {
         let mut runner_calls = 0;
         let execution = execute_run_command(
             loaded,
+            false,
             None,
             &[],
             &crate::operator_grant::OperatorGrantPolicy::default(),
-            |_, _, _, _, _| {
+            |_, _, _, _, _, _, _| {
                 runner_calls += 1;
                 panic!("invalid app must block before the runner")
             },
@@ -3811,10 +4030,11 @@ mod tests {
         let mut runner_calls = 0;
         let execution = execute_run_command(
             loaded,
+            false,
             None,
             &[],
             &crate::operator_grant::OperatorGrantPolicy::default(),
-            |_, _, _, _, _| {
+            |_, _, _, _, _, _, _| {
                 runner_calls += 1;
                 panic!("multiple apps must block before the runner")
             },
@@ -3904,10 +4124,11 @@ mod tests {
         let mut passed_authority = None;
         let execution = execute_run_command(
             loaded,
+            false,
             None,
             &[],
             &grant_policy,
-            |program, occurrences, entry, raw_args, grant_policy| {
+            |program, _, occurrences, entry, raw_args, grant_policy, _| {
                 passed_authority = Some(occurrences.clone());
                 crate::run::run_program_with_occurrences_and_test_adapters(
                     program,

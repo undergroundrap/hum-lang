@@ -21,6 +21,11 @@ capability; bytes and reports alone grant no authority. This command remains a
 discovery contract. The separate explicit `backend-probe` may borrow that
 capability and lower only the canonical checked add to verified Cranelift IR.
 
+An additive `hum.backend_input.v1` path now authenticates the canonical
+`integer_sign` source and lends a separate callback-scoped capability. Typed
+getters alone lower its signed comparisons, branch order, source literals, and
+one result-tag store. This is not general task or CFG lowering.
+
 ## Command
 
 ```powershell

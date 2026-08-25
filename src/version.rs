@@ -30,7 +30,7 @@ use crate::type_env;
 
 pub const HUM_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const HUM_STATUS: &str = "pre-alpha";
-pub const HUM_MILESTONE: &str = "verified minimal-add backend probe";
+pub const HUM_MILESTONE: &str = "first canonical native integer-sign program";
 
 pub fn version_text() -> String {
     format!(

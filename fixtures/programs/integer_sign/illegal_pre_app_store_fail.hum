@@ -1,0 +1,17 @@
+module programs.illegal_pre_app_store_fail
+
+store cache: Int {
+  why:
+    violate canonical order
+}
+
+app illegal_pre_app_store_fail {
+  starts with:
+    run_tool
+  task run_tool -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+}

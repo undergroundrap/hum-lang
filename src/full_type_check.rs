@@ -76,6 +76,11 @@ pub(crate) struct VerifiedMinimalAddFullType<'report>(
     core_verify::VerifiedCanonicalMinimalAddTypeResult<'report>,
 );
 
+pub(crate) struct VerifiedIntegerSignFullType<'report> {
+    authority: &'report type_check::CanonicalIntegerSignTypeAuthority,
+    _report: &'report FullTypeCheckReport,
+}
+
 impl VerifiedMinimalAddFullType<'_> {
     pub(crate) fn backend_identity(&self) -> type_check::CanonicalMinimalAddBackendIdentity<'_> {
         self.0.backend_identity()
@@ -580,6 +585,25 @@ impl<'report> FullTypeEffectReportAccess<'report> {
             && statement_row.status == "accepted_statement_type_v0"
             && statement_row.reason.is_none())
         .then_some(VerifiedMinimalAddFullType(verified_type))
+    }
+
+    pub(crate) fn canonical_integer_sign_for(
+        &self,
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+        authority: &'report type_check::CanonicalIntegerSignTypeAuthority,
+    ) -> Option<VerifiedIntegerSignFullType<'report>> {
+        (self.report.blocking_issues() == 0 && authority.matches(self.program, layout)).then_some(
+            VerifiedIntegerSignFullType {
+                authority,
+                _report: self.report,
+            },
+        )
+    }
+}
+
+impl VerifiedIntegerSignFullType<'_> {
+    pub(crate) fn authority(&self) -> &type_check::CanonicalIntegerSignTypeAuthority {
+        self.authority
     }
 }
 

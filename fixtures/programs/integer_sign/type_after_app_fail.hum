@@ -1,0 +1,16 @@
+module programs.type_after_app_fail
+
+app type_after_app_fail {
+  starts with:
+    run_tool
+  task run_tool -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+}
+
+type LateType {
+  value: Int
+}

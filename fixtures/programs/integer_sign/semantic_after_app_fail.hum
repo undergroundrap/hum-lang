@@ -1,0 +1,19 @@
+module programs.semantic_after_app_fail
+
+app semantic_after_app_fail {
+  starts with:
+    run_tool
+  task run_tool -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+}
+
+task late_helper -> Unit {
+  allocates:
+    callee-defined allocation behavior
+  does:
+    return
+}

@@ -1,0 +1,17 @@
+module programs.integer_sign
+
+app integer_sign {
+  why:
+    remain valid Hum while exceeding the native integer-sign feature
+  starts with:
+    run_tool
+  task run_tool(value: Int) -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      if value < 0 {
+        return
+      }
+      return
+  }
+}

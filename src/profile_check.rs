@@ -125,6 +125,12 @@ pub(crate) struct ProfileIrReadinessReportAccess<'report> {
 
 pub(crate) struct VerifiedMinimalAddProfile<'report>(VerifiedMinimalAddProfileProof<'report>);
 
+pub(crate) struct VerifiedIntegerSignProfile<'report> {
+    resource: resource_check::VerifiedIntegerSignResource<'report>,
+    profile_id: &'report str,
+    _report: &'report ProfileCheckReport,
+}
+
 struct VerifiedMinimalAddProfileProof<'report> {
     resource: resource_check::VerifiedMinimalAddResource<'report>,
     declaration: &'report ProfileDeclaration,
@@ -449,6 +455,28 @@ impl<'report> ProfileIrReadinessReportAccess<'report> {
                 declaration,
             }))
     }
+
+    pub(crate) fn canonical_integer_sign_for(
+        &self,
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+        authority: &'report crate::type_check::CanonicalIntegerSignTypeAuthority,
+    ) -> Option<VerifiedIntegerSignProfile<'report>> {
+        let resource = self
+            .resource
+            .canonical_integer_sign_for(layout, authority)?;
+        (self.report.status() == "recognized_profile_policy_checked_v0").then_some(())?;
+        let item = sole(self.report.items.iter().filter(|row| {
+            row.kind == "task"
+                && row.name == layout.entry.name
+                && row.span == portable_span(&layout.entry.span)
+        }))?;
+        let declaration = sole(item.declarations.iter())?;
+        (declaration.normalized == "normal").then_some(VerifiedIntegerSignProfile {
+            resource,
+            profile_id: declaration.normalized.as_str(),
+            _report: self.report,
+        })
+    }
 }
 
 use crate::resource_check::sole;
@@ -470,6 +498,16 @@ impl<'report> VerifiedMinimalAddProfile<'report> {
 
     pub(crate) fn core_prerequisite_names(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.0.resource.core_prerequisite_names()
+    }
+}
+
+impl VerifiedIntegerSignProfile<'_> {
+    pub(crate) fn authority(&self) -> &crate::type_check::CanonicalIntegerSignTypeAuthority {
+        self.resource.authority()
+    }
+
+    pub(crate) fn profile_id(&self) -> &str {
+        self.profile_id
     }
 }
 

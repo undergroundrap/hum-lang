@@ -1,0 +1,23 @@
+module programs.duplicate_app_fail
+
+app duplicate_app_fail {
+  starts with:
+    first
+  task first -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+}
+
+app another_app {
+  starts with:
+    second
+  task second -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+}

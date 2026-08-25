@@ -67,6 +67,11 @@ pub(crate) struct ResourceProfileReportAccess<'report> {
 
 pub(crate) struct VerifiedMinimalAddResource<'report>(VerifiedMinimalAddResourceProof<'report>);
 
+pub(crate) struct VerifiedIntegerSignResource<'report> {
+    ownership: ownership_check::VerifiedIntegerSignOwnership<'report>,
+    _report: &'report ResourceCheckReport,
+}
+
 struct VerifiedMinimalAddResourceProof<'report> {
     ownership: ownership_check::VerifiedMinimalAddOwnership<'report>,
     item: &'report ResourceItem,
@@ -401,6 +406,20 @@ impl<'report> ResourceProfileReportAccess<'report> {
             },
         ))
     }
+
+    pub(crate) fn canonical_integer_sign_for(
+        &self,
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+        authority: &'report crate::type_check::CanonicalIntegerSignTypeAuthority,
+    ) -> Option<VerifiedIntegerSignResource<'report>> {
+        let ownership = self
+            .ownership
+            .canonical_integer_sign_for(layout, authority)?;
+        (self.report.blocking_issues() == 0).then_some(VerifiedIntegerSignResource {
+            ownership,
+            _report: self.report,
+        })
+    }
 }
 
 pub(crate) use crate::ownership_check::sole;
@@ -423,6 +442,12 @@ impl<'report> VerifiedMinimalAddResource<'report> {
             .allocations
             .first()
             .map(|declaration| declaration.normalized.as_str())
+    }
+}
+
+impl VerifiedIntegerSignResource<'_> {
+    pub(crate) fn authority(&self) -> &crate::type_check::CanonicalIntegerSignTypeAuthority {
+        self.ownership.authority()
     }
 }
 

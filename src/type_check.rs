@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::app_entry::CanonicalNativeLayout;
 use crate::ast::{
     CanonicalCoreOwnerBinding, CanonicalExpression, CanonicalExpressionKind, Item,
     ParsedBinaryOperator, ParsedBodyStatement, ParsedBodyStatementKind, Program, Task,
@@ -126,6 +127,233 @@ struct TypeFact {
 
 pub(crate) const CANONICAL_MINIMAL_ADD_TYPE_ID: &str = "hum-type:builtin:Int";
 pub(crate) const CANONICAL_MINIMAL_ADD_TYPE_TEXT: &str = "Int";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalIntegerSignLiteral {
+    pub(crate) text: String,
+    pub(crate) span: Span,
+}
+
+#[derive(Debug)]
+pub(crate) struct CanonicalIntegerSignTypeAuthority {
+    program_identity: usize,
+    source_revision: Vec<u8>,
+    normalized_path: String,
+    module_name: String,
+    app_name: String,
+    entry_name: String,
+    argument_name: String,
+    app_span: Span,
+    entry_span: Span,
+    predicate_spans: [Span; 2],
+    literals: [CanonicalIntegerSignLiteral; 3],
+}
+
+pub(crate) fn canonical_integer_sign_type_authority(
+    program: &Program,
+    layout: &CanonicalNativeLayout<'_>,
+    diagnostics: &[Diagnostic],
+) -> Option<CanonicalIntegerSignTypeAuthority> {
+    if diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+        || !std::ptr::eq(layout.file, program.files.as_slice().first()?)
+    {
+        return None;
+    }
+    let task = layout.entry;
+    let [parameter] = task.params.as_slice() else {
+        return None;
+    };
+    if parameter.name != "value"
+        || parameter.ty != "Int"
+        || task.result.as_deref().map(str::trim) != Some("Result Unit, OutputError")
+        || exact_section_values(&layout.app.sections, "uses") != ["stdout.write"]
+        || exact_section_values(&task.sections, "uses") != ["stdout.write"]
+        || exact_section_values(&task.sections, "allocates")
+            != ["callee-defined allocation behavior"]
+        || exact_section_values(&task.sections, "fails when").is_empty()
+    {
+        return None;
+    }
+    let does = task.section("does")?;
+    let statements = does
+        .body_syntax
+        .iter()
+        .filter_map(Option::as_ref)
+        .collect::<Vec<_>>();
+    let [
+        negative_if,
+        negative_write,
+        negative_return,
+        negative_close,
+        zero_if,
+        zero_write,
+        zero_return,
+        zero_close,
+        positive_write,
+        positive_return,
+    ] = statements.as_slice()
+    else {
+        return None;
+    };
+    let negative_predicate = integer_sign_predicate(negative_if, ParsedBinaryOperator::Less)?;
+    let zero_predicate = integer_sign_predicate(zero_if, ParsedBinaryOperator::Equal)?;
+    for close in [negative_close, zero_close] {
+        if !matches!(&close.kind, ParsedBodyStatementKind::Other { expressions } if expressions.is_empty())
+            || close.core_kind != "block_close"
+        {
+            return None;
+        }
+    }
+    let negative = integer_sign_write(negative_write)?;
+    let zero = integer_sign_write(zero_write)?;
+    let positive = integer_sign_write(positive_write)?;
+    if !integer_sign_return(negative_return)
+        || !integer_sign_return(zero_return)
+        || !integer_sign_return(positive_return)
+        || [
+            negative.text.as_str(),
+            zero.text.as_str(),
+            positive.text.as_str(),
+        ]
+        .iter()
+        .any(|text| text.is_empty())
+    {
+        return None;
+    }
+    let module_name = layout.file.module_occurrences.first()?.name.clone();
+    Some(CanonicalIntegerSignTypeAuthority {
+        program_identity: std::ptr::from_ref(program).addr(),
+        source_revision: layout.file.canonical_source_revision().ok()?.to_vec(),
+        normalized_path: layout.normalized_path.clone(),
+        module_name,
+        app_name: layout.app.name.clone(),
+        entry_name: task.name.clone(),
+        argument_name: parameter.name.clone(),
+        app_span: layout.app.span.clone(),
+        entry_span: task.span.clone(),
+        predicate_spans: [
+            negative_predicate.range.start.clone(),
+            zero_predicate.range.start.clone(),
+        ],
+        literals: [negative, zero, positive],
+    })
+}
+
+fn exact_section_values<'a>(sections: &'a [crate::ast::Section], name: &str) -> Vec<&'a str> {
+    sections
+        .iter()
+        .filter(|section| section.name == name)
+        .flat_map(|section| &section.lines)
+        .map(|line| line.text.trim())
+        .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with("//"))
+        .collect()
+}
+
+fn integer_sign_predicate(
+    statement: &ParsedBodyStatement,
+    expected: ParsedBinaryOperator,
+) -> Option<&CanonicalExpression> {
+    let ParsedBodyStatementKind::Other { expressions } = &statement.kind else {
+        return None;
+    };
+    let [expression] = expressions.as_slice() else {
+        return None;
+    };
+    let CanonicalExpressionKind::Binary {
+        operator,
+        left,
+        right,
+    } = &expression.canonical.kind
+    else {
+        return None;
+    };
+    (*operator == expected
+        && matches!(&left.kind, CanonicalExpressionKind::Identifier(name) if name == "value")
+        && matches!(
+            &right.kind,
+            CanonicalExpressionKind::UIntLiteral(0) | CanonicalExpressionKind::IntLiteral(0)
+        ))
+    .then_some(&expression.canonical)
+}
+
+fn integer_sign_write(statement: &ParsedBodyStatement) -> Option<CanonicalIntegerSignLiteral> {
+    let ParsedBodyStatementKind::Binding {
+        mutable: false,
+        name: Some(name),
+        value: Some(value),
+    } = &statement.kind
+    else {
+        return None;
+    };
+    if name.name != "written" {
+        return None;
+    }
+    let CanonicalExpressionKind::Try { value, .. } = &value.canonical.kind else {
+        return None;
+    };
+    let CanonicalExpressionKind::Call { callee, arguments } = &value.kind else {
+        return None;
+    };
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    let CanonicalExpressionKind::Identifier(callee) = &callee.kind else {
+        return None;
+    };
+    let CanonicalExpressionKind::TextLiteral(text) = &argument.kind else {
+        return None;
+    };
+    (callee == "stdout_write").then(|| CanonicalIntegerSignLiteral {
+        text: text.clone(),
+        span: argument.range.start.clone(),
+    })
+}
+
+fn integer_sign_return(statement: &ParsedBodyStatement) -> bool {
+    matches!(
+        &statement.kind,
+        ParsedBodyStatementKind::Return(expression)
+            if matches!(&expression.canonical.kind, CanonicalExpressionKind::Identifier(name) if name == "written")
+    )
+}
+
+impl CanonicalIntegerSignTypeAuthority {
+    pub(crate) fn matches(&self, program: &Program, layout: &CanonicalNativeLayout<'_>) -> bool {
+        self.program_identity == std::ptr::from_ref(program).addr()
+            && self.normalized_path == layout.normalized_path
+            && self.module_name == layout.file.module.as_deref().unwrap_or_default()
+            && self.app_name == layout.app.name
+            && self.entry_name == layout.entry.name
+            && self.argument_name == layout.entry.params[0].name
+            && self.app_span == layout.app.span
+            && self.entry_span == layout.entry.span
+            && self.source_revision.as_slice()
+                == layout.file.canonical_source_revision().unwrap_or_default()
+    }
+
+    pub(crate) fn source_revision(&self) -> &[u8] {
+        &self.source_revision
+    }
+
+    pub(crate) fn identity(&self) -> (&str, &str, &str, &str) {
+        (
+            &self.normalized_path,
+            &self.module_name,
+            &self.app_name,
+            &self.entry_name,
+        )
+    }
+
+    pub(crate) fn predicate_spans(&self) -> &[Span; 2] {
+        &self.predicate_spans
+    }
+
+    pub(crate) fn literals(&self) -> &[CanonicalIntegerSignLiteral; 3] {
+        &self.literals
+    }
+}
 #[derive(Debug)]
 struct OperandAuthority(Reference, Definition, CheckedDeclaration);
 

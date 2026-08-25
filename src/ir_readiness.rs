@@ -496,6 +496,21 @@ const MISSING_AFTER_OWNERSHIP_PASSES: &[&str] =
 const MISSING_AFTER_RESOURCE_PASSES: &[&str] = &["profile_check", "ir_verify"];
 const MISSING_AFTER_PROFILE_PASSES: &[&str] = &["ir_verify"];
 
+pub(crate) fn authenticated_integer_sign_native_readiness(
+    execution: &crate::backend_cranelift::NativeIntegerSignExecution,
+) -> Option<(usize, usize)> {
+    (execution.ir_ready == 1
+        && execution.backend_ready == 1
+        && matches!(execution.tag, 0..=2)
+        && !execution.literal.is_empty()
+        && execution.clif_sha256.len() == "sha256:".len() + 64
+        && matches!(
+            execution.target_triple.as_str(),
+            "x86_64-pc-windows-msvc" | "x86_64-unknown-linux-gnu"
+        ))
+    .then_some((execution.ir_ready, execution.backend_ready))
+}
+
 pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
     let report = build_report(program, diagnostics);
     let blocked = report.blocked_count();

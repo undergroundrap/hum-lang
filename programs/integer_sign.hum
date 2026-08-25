@@ -1,0 +1,38 @@
+module programs.integer_sign
+
+app integer_sign {
+  why:
+    classify one checked integer through the first source-driven native app
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task run_tool(value: Int) -> Result Unit, OutputError {
+    why:
+      write the source-selected sign without hidden fallback
+
+    uses:
+      stdout.write
+
+    fails when:
+      bounded output is denied or the output adapter rejects the write
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      if value < 0 {
+        let written = try stdout_write("negative")
+        return written
+      }
+      if value == 0 {
+        let written = try stdout_write("zero")
+        return written
+      }
+      let written = try stdout_write("positive")
+      return written
+  }
+}

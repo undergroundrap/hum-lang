@@ -32,6 +32,12 @@ semantics, ownership, effects, or verification obligations.
 
 Hum needs its own semantic IR first.
 
+The first canonical program exercising that rule is `integer_sign`: verified
+Hum-owned type, control-flow, literal, output, and lineage facts reach
+Cranelift only after feature-specific admission. This remains a narrow native
+vertical slice; it neither makes Cranelift Hum's semantic owner nor commits Hum
+to a replacement backend.
+
 The Chris Lattner compiler lessons reinforce the same rule from another angle:
 modern hardware, accelerators, NUMA, SIMD, matrix units, and domain lowering
 need the right abstractions to survive long enough for the compiler to optimize

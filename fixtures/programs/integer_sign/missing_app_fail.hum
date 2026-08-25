@@ -1,0 +1,5 @@
+module programs.missing_app_fail
+
+type LocalType {
+  value: Int
+}

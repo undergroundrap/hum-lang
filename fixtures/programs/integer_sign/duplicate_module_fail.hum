@@ -1,0 +1,13 @@
+module programs.duplicate_module_fail
+module programs.duplicate_module_fail
+
+app duplicate_module_fail {
+  starts with:
+    run_tool
+  task run_tool -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+}

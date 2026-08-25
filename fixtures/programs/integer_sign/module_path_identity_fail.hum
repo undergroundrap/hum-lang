@@ -1,0 +1,12 @@
+module programs.foreign_identity
+
+app integer_sign {
+  starts with:
+    run_tool
+  task run_tool -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+}

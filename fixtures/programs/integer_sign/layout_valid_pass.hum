@@ -1,0 +1,36 @@
+module programs.layout_valid_pass
+
+type LocalError {
+  code: Text
+}
+
+type LocalResult {
+  value: Int
+}
+
+app layout_valid_pass {
+  why:
+    prove optional types and lexical helper order
+  starts with:
+    run_tool
+  task run_tool(value: Int) -> Unit {
+    why:
+      select the first direct child
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+  task helper_two -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+  task helper_one -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+}

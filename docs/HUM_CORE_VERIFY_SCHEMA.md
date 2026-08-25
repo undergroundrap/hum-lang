@@ -18,6 +18,11 @@ relationships, and honest non-claims. It does not mean the program can execute,
 that Hum IR exists, that effects or ownership are checked, or that memory safety,
 proof, optimization, backend, profile, or release claims are established.
 
+The canonical `integer_sign` path adds a private verified wrapper over its
+exact signed conditions, branch order, literals, spans, and live source
+identity. That wrapper is compiler authority for the later feature-specific
+backend chain; this report schema still does not itself grant execution.
+
 ## Command
 
 ```powershell

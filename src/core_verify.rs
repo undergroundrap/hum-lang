@@ -17,6 +17,40 @@ use crate::resolve;
 use crate::type_check;
 use crate::version;
 
+pub(crate) struct VerifiedCanonicalIntegerSignCore<'report> {
+    lower: &'report core_lower::CanonicalIntegerSignCoreLower,
+}
+
+pub(crate) fn verify_canonical_integer_sign<'report>(
+    program: &Program,
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    authority: &type_check::CanonicalIntegerSignTypeAuthority,
+    lower: &'report core_lower::CanonicalIntegerSignCoreLower,
+) -> Option<VerifiedCanonicalIntegerSignCore<'report>> {
+    if !authority.matches(program, layout) || !lower.matches(program, layout) {
+        return None;
+    }
+    let branches = lower.branches();
+    (branches[0].predicate == "signed_less_than_zero"
+        && branches[0].tag == 0
+        && branches[1].predicate == "equal_to_zero"
+        && branches[1].tag == 1
+        && branches[2].predicate == "fallthrough"
+        && branches[2].tag == 2
+        && branches.iter().all(|branch| {
+            !branch.literal.is_empty()
+                && branch.predicate_span.file == layout.file.path
+                && branch.literal_span.file == layout.file.path
+        }))
+    .then_some(VerifiedCanonicalIntegerSignCore { lower })
+}
+
+impl VerifiedCanonicalIntegerSignCore<'_> {
+    pub(crate) fn branches(&self) -> &[core_lower::CanonicalIntegerSignBranch; 3] {
+        self.lower.branches()
+    }
+}
+
 pub const CORE_VERIFY_SCHEMA: &str = "hum.core_verify.v0";
 pub const CORE_VERIFY_STATUS: &str = "verified_non_executing_core_artifact_v0";
 pub const CORE_VERIFY_FAILED_STATUS: &str = "core_artifact_verification_failed_v0";

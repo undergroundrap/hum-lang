@@ -1725,6 +1725,15 @@ diagnostic_causes!(
         "parser",
         "parser_expression_node",
         "parser_expression_route"
+    ),
+    (
+        180,
+        "canonical_native_program_layout_v0",
+        CANONICAL_NATIVE_PROGRAM_LAYOUT,
+        "front_end_semantics",
+        "app_entry",
+        "canonical_native_program_layout",
+        "canonical_native_program_route"
     )
 );
 
@@ -2043,6 +2052,7 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         85 => 64,
         86 => 65,
         87 => 87,
+        88 => 88,
         _ => u16::MAX,
     }
 }
@@ -2746,6 +2756,15 @@ diagnostic_code_allocations!(
         FRONT_END_SEMANTICS,
         "front_end_semantics",
         "file_read"
+    ),
+    (
+        88,
+        CANONICAL_NATIVE_PROGRAM_LAYOUT,
+        "H0634",
+        "canonical native program layout",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "app_entry"
     ),
     (
         60,
@@ -3535,6 +3554,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         default_severity: Severity::Error,
         explanation: "One comparison uses the result of another comparison as an operand. Hum requires each comparison to be written independently.",
         repair: "Repeat the middle operand and join the independent comparisons, for example `1 < 2 and 2 < 3`.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::CANONICAL_NATIVE_PROGRAM_LAYOUT,
+        default_severity: Severity::Error,
+        explanation: "A native canonical program must have one first module, optional local types, one final app, and the declared start task as its first direct child, with exact path/module/app identity.",
+        repair: "Use `programs/<name>.hum`, declare `module programs.<name>` first, keep local types before the sole final app, and place its start task first.",
     },
 ];
 
@@ -4502,12 +4527,12 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 88);
+        assert_eq!(summary.active_codes, 89);
         assert_eq!(summary.retired_codes, 0);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 179);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 180);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 8);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {

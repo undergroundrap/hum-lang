@@ -2,7 +2,7 @@
 
 Date: 2026-08-12
 
-Current schema: `hum.backend_input.v0`
+Current schemas: `hum.backend_input.v0` and `hum.backend_input.v1`
 
 ## Purpose
 
@@ -14,6 +14,13 @@ grants no compiler or backend authority.
 
 The producer consumes the private Work Order 19 facts chain. It never derives
 authority from a rendered report, a caller-supplied ID, or source-text search.
+
+The additive `hum.backend_input.v1` variant binds only the canonical
+`integer_sign` feature: exact live source/module/app/entry identity, one `Int`
+argument, signed branch order, three source literals and spans,
+`stdout.write` closure, analysis lineage, target-independent semantics, and
+artifact provenance. V0 bytes and meaning remain unchanged. V1 bytes alone
+grant no JIT or output authority.
 
 ## Command
 

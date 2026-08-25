@@ -16,6 +16,23 @@ pub struct Analysis<'a> {
     pub(crate) diagnostic_occurrence: Option<DiagnosticOccurrence>,
 }
 
+#[derive(Debug)]
+pub(crate) struct CanonicalNativeLayout<'a> {
+    pub(crate) file: &'a SourceFile,
+    pub(crate) app: &'a App,
+    pub(crate) entry: &'a Task,
+    pub(crate) normalized_path: String,
+}
+
+#[derive(Debug)]
+pub(crate) struct CanonicalNativeLayoutAnalysis<'a> {
+    pub(crate) layout: Option<CanonicalNativeLayout<'a>>,
+    pub(crate) diagnostic: Option<Diagnostic>,
+    pub(crate) diagnostic_occurrence: Option<DiagnosticOccurrence>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) reason: Option<&'static str>,
+}
+
 pub fn analyze(program: &Program) -> Analysis<'_> {
     let apps = top_level_apps(program);
     match apps.as_slice() {
@@ -335,6 +352,283 @@ fn analyze_app<'a>(program: &'a Program, app: &'a App) -> Analysis<'a> {
     }
 }
 
+pub(crate) fn analyze_canonical_native_layout<'a>(
+    program: &'a Program,
+    logical_path: &str,
+    accepted_entry: Option<&AppEntry<'a>>,
+) -> CanonicalNativeLayoutAnalysis<'a> {
+    let [file] = program.files.as_slice() else {
+        return native_layout_rejected(
+            "path_module_app_identity_v0",
+            None,
+            Vec::new(),
+            "native execution requires exactly one canonical program source file".to_string(),
+        );
+    };
+    let occurrences = &file.module_occurrences;
+    if occurrences.len() != 1 {
+        let mut related = occurrences
+            .iter()
+            .map(|occurrence| {
+                (
+                    format!("module `{}`", occurrence.name),
+                    occurrence.span.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let primary = related.first().map(|(_, span)| span.clone());
+        if related.len() == 1 {
+            related.clear();
+        }
+        return native_layout_rejected(
+            "module_count_v0",
+            primary,
+            related,
+            format!(
+                "canonical native program requires exactly one module declaration; found {}",
+                occurrences.len()
+            ),
+        );
+    }
+    let occurrence = occurrences.first();
+    if occurrence.is_some_and(|occurrence| {
+        file.items
+            .iter()
+            .any(|item| item.span().line < occurrence.span.line)
+    }) {
+        let occurrence = occurrence.expect("module occurrence checked above");
+        return native_layout_rejected(
+            "module_first_v0",
+            Some(occurrence.span.clone()),
+            Vec::new(),
+            "canonical native program module must be the first semantic item".to_string(),
+        );
+    }
+
+    let apps = file
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::App(app) => Some(app),
+            Item::Type(_) | Item::Store(_) | Item::Task(_) | Item::Test(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let [app] = apps.as_slice() else {
+        return native_layout_rejected(
+            "missing_app_v0",
+            occurrence.map(|occurrence| occurrence.span.clone()),
+            Vec::new(),
+            "canonical native program requires one final app".to_string(),
+        );
+    };
+
+    let Some(expected) = canonical_program_identity(logical_path) else {
+        return native_identity_rejected(file, occurrence, app, logical_path, None);
+    };
+    let retained = canonical_program_identity(&file.path);
+    let expected_module = format!("programs.{}", expected.stem);
+    if retained
+        .as_ref()
+        .map(|identity| identity.normalized.as_str())
+        != Some(expected.normalized.as_str())
+        || occurrence.is_some_and(|occurrence| {
+            occurrence.name != expected_module
+                || file.module.as_deref() != Some(occurrence.name.as_str())
+        })
+        || app.name != expected.stem
+        || accepted_entry.is_none_or(|entry| !std::ptr::eq(*app, entry.app))
+    {
+        return native_identity_rejected(
+            file,
+            occurrence,
+            app,
+            logical_path,
+            Some((&expected.normalized, &expected_module, &expected.stem)),
+        );
+    }
+
+    let app_index = file
+        .items
+        .iter()
+        .position(|item| matches!(item, Item::App(candidate) if std::ptr::eq(candidate, *app)))
+        .expect("accepted app belongs to source file");
+    for item in &file.items[..app_index] {
+        match item {
+            Item::Type(_) => {}
+            Item::Store(_) | Item::Task(_) | Item::Test(_) => {
+                return native_layout_rejected(
+                    "illegal_pre_app_item_v0",
+                    Some(item.span().clone()),
+                    Vec::new(),
+                    format!(
+                        "canonical native program forbids top-level `{}` before its app",
+                        item.kind()
+                    ),
+                );
+            }
+            Item::App(_) => unreachable!("sole app index is first app"),
+        }
+    }
+    if file.items[app_index + 1..]
+        .iter()
+        .any(|item| matches!(item, Item::Type(_)))
+    {
+        let item = file.items[app_index + 1..]
+            .iter()
+            .find(|item| matches!(item, Item::Type(_)))
+            .expect("late type");
+        return native_layout_rejected(
+            "type_after_app_v0",
+            Some(item.span().clone()),
+            Vec::new(),
+            "canonical native program types must precede its app".to_string(),
+        );
+    }
+    if let Some(item) = file.items[app_index + 1..]
+        .iter()
+        .find(|item| !matches!(item, Item::Type(_)))
+    {
+        return native_layout_rejected(
+            "app_finality_v0",
+            Some(item.span().clone()),
+            Vec::new(),
+            "canonical native program app must be the final top-level semantic item".to_string(),
+        );
+    }
+    let Some(Item::Task(first_task)) = app.items.first() else {
+        return native_layout_rejected(
+            "first_entry_task_v0",
+            Some(app.span.clone()),
+            Vec::new(),
+            "canonical native program entry must be its first direct-child task".to_string(),
+        );
+    };
+    let Some(accepted_entry) = accepted_entry else {
+        return native_layout_rejected(
+            "first_entry_task_v0",
+            Some(first_task.span.clone()),
+            Vec::new(),
+            "canonical native program entry was not authenticated by app analysis".to_string(),
+        );
+    };
+    if !std::ptr::eq(first_task, accepted_entry.task)
+        || app.items.iter().any(|item| match item {
+            Item::Task(_) => false,
+            Item::App(_) | Item::Type(_) | Item::Store(_) | Item::Test(_) => true,
+        })
+    {
+        return native_layout_rejected(
+            "first_entry_task_v0",
+            Some(first_task.span.clone()),
+            Vec::new(),
+            "canonical native program entry must be first and all later app children must be helper tasks"
+                .to_string(),
+        );
+    }
+
+    CanonicalNativeLayoutAnalysis {
+        layout: Some(CanonicalNativeLayout {
+            file,
+            app,
+            entry: accepted_entry.task,
+            normalized_path: expected.normalized,
+        }),
+        diagnostic: None,
+        diagnostic_occurrence: None,
+        reason: None,
+    }
+}
+
+struct CanonicalProgramIdentity {
+    normalized: String,
+    stem: String,
+}
+
+fn canonical_program_identity(path: &str) -> Option<CanonicalProgramIdentity> {
+    if path.is_empty()
+        || path.starts_with(['/', '\\'])
+        || path.as_bytes().get(1) == Some(&b':')
+        || path.contains("//")
+        || path.contains("\\\\")
+        || path.contains("/\\")
+        || path.contains("\\/")
+    {
+        return None;
+    }
+    let normalized = path.replace('\\', "/");
+    let mut components = normalized.split('/');
+    let (Some(directory), Some(file), None) =
+        (components.next(), components.next(), components.next())
+    else {
+        return None;
+    };
+    if directory != "programs" || !file.ends_with(".hum") {
+        return None;
+    }
+    let stem = file.strip_suffix(".hum")?.to_string();
+    if !is_value_identifier(&stem) || stem.starts_with('_') {
+        return None;
+    }
+    Some(CanonicalProgramIdentity { normalized, stem })
+}
+
+fn native_identity_rejected<'a>(
+    file: &SourceFile,
+    occurrence: Option<&crate::ast::ModuleOccurrence>,
+    app: &App,
+    logical_path: &str,
+    expected: Option<(&str, &str, &str)>,
+) -> CanonicalNativeLayoutAnalysis<'a> {
+    let expected = expected
+        .map(|(path, module, app)| {
+            format!("expected path `{path}`, module `{module}`, app `{app}`; ")
+        })
+        .unwrap_or_default();
+    native_layout_rejected(
+        "path_module_app_identity_v0",
+        Some(occurrence.map_or_else(|| app.span.clone(), |occurrence| occurrence.span.clone())),
+        vec![(format!("observed app `{}`", app.name), app.span.clone())],
+        format!(
+            "{expected}observed logical path `{logical_path}`, retained path `{}`, module `{}`, app `{}`",
+            file.path,
+            occurrence.map_or("<missing>", |occurrence| occurrence.name.as_str()),
+            app.name
+        ),
+    )
+}
+
+fn native_layout_rejected<'a>(
+    reason: &'static str,
+    span: Option<crate::diagnostic::Span>,
+    related: Vec<(String, crate::diagnostic::Span)>,
+    message: String,
+) -> CanonicalNativeLayoutAnalysis<'a> {
+    let mut diagnostic = Diagnostic::error(
+        DiagnosticCode::CANONICAL_NATIVE_PROGRAM_LAYOUT,
+        message,
+        span,
+    )
+    .with_help(
+        "Use one `programs/<name>.hum` source with `module programs.<name>` first, optional types, one final matching app, and its start task first.",
+    );
+    for (label, span) in related {
+        diagnostic = diagnostic.with_related_span(label, span);
+    }
+    let (diagnostic, diagnostic_occurrence) = DiagnosticOccurrence::producer_diagnostic(
+        crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(180),
+        diagnostic,
+        format!("canonical-native-layout:{reason}"),
+        vec![format!("layout_reason={reason}")],
+    )
+    .expect("canonical native layout cause must be producer-owned");
+    CanonicalNativeLayoutAnalysis {
+        layout: None,
+        diagnostic: Some(diagnostic),
+        diagnostic_occurrence: Some(diagnostic_occurrence),
+        reason: Some(reason),
+    }
+}
+
 fn section_identity(app_identity: &str, app: &App, target: &Section) -> String {
     let index = app
         .sections
@@ -451,7 +745,7 @@ fn is_value_identifier(text: &str) -> bool {
 mod tests {
     use crate::parser;
 
-    use super::analyze;
+    use super::{analyze, analyze_canonical_native_layout};
 
     fn program(source: &str) -> crate::ast::Program {
         let parsed = parser::parse_source("app.hum", source);
@@ -459,6 +753,226 @@ mod tests {
         crate::ast::Program {
             files: vec![parsed.file],
         }
+    }
+
+    fn native_program(path: &str, source: &str) -> crate::ast::Program {
+        let parsed = parser::parse_source(path, source);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "{path}: {:#?}",
+            parsed.diagnostics
+        );
+        crate::ast::Program {
+            files: vec![parsed.file],
+        }
+    }
+
+    fn layout_reason_for(
+        retained_path: &str,
+        logical_path: &str,
+        source: &str,
+    ) -> Option<&'static str> {
+        let program = native_program(retained_path, source);
+        let entry_analysis = analyze(&program);
+        let layout =
+            analyze_canonical_native_layout(&program, logical_path, entry_analysis.entry.as_ref());
+        if let Some(diagnostic) = layout.diagnostic.as_ref() {
+            assert_eq!(diagnostic.code.as_str(), "H0634");
+            assert_eq!(layout.diagnostic_occurrence.as_ref().map(|_| 1), Some(1));
+        }
+        layout.reason
+    }
+
+    fn layout_reason(path: &str, source: &str) -> Option<&'static str> {
+        layout_reason_for(path, path, source)
+    }
+
+    #[test]
+    fn canonical_native_program_layout_is_ordered_and_load_bearing() {
+        const INTEGER_SIGN: &str = include_str!("../programs/integer_sign.hum");
+        let parsed = parser::parse_source("programs/integer_sign.hum", INTEGER_SIGN);
+        assert!(parsed.diagnostics.is_empty(), "{:#?}", parsed.diagnostics);
+        assert_eq!(parsed.file.module.as_deref(), Some("programs.integer_sign"));
+        assert_eq!(parsed.file.module_occurrences.len(), 1);
+        assert_eq!(
+            parsed.file.module_occurrences[0].name,
+            "programs.integer_sign"
+        );
+        assert_eq!(parsed.file.module_occurrences[0].span.line, 1);
+        let program = crate::ast::Program {
+            files: vec![parsed.file],
+        };
+        let entry_analysis = analyze(&program);
+        assert!(entry_analysis.diagnostic.is_none());
+        let entry = entry_analysis.entry.as_ref().expect("integer_sign entry");
+        let accepted =
+            analyze_canonical_native_layout(&program, "programs/integer_sign.hum", Some(entry));
+        let layout = accepted.layout.expect("canonical integer_sign layout");
+        assert_eq!(layout.normalized_path, "programs/integer_sign.hum");
+        assert_eq!(layout.file.path, "programs/integer_sign.hum");
+        assert_eq!(layout.app.name, "integer_sign");
+        assert_eq!(layout.entry.name, "run_tool");
+
+        let valid = include_str!("../fixtures/programs/integer_sign/layout_valid_pass.hum");
+        assert_eq!(layout_reason("programs/layout_valid_pass.hum", valid), None);
+        let missing_module = layout_reason(
+            "programs/missing_module_fail.hum",
+            include_str!("../fixtures/programs/integer_sign/missing_module_fail.hum"),
+        );
+        let duplicate_module = native_program(
+            "programs/duplicate_module_fail.hum",
+            include_str!("../fixtures/programs/integer_sign/duplicate_module_fail.hum"),
+        );
+        let duplicate_entry = analyze(&duplicate_module).entry.expect("entry");
+        let duplicate = analyze_canonical_native_layout(
+            &duplicate_module,
+            "programs/duplicate_module_fail.hum",
+            Some(&duplicate_entry),
+        );
+        assert_eq!(
+            (
+                missing_module,
+                duplicate.reason,
+                duplicate
+                    .diagnostic
+                    .as_ref()
+                    .map(|diagnostic| diagnostic.related_spans.len()),
+            ),
+            (Some("module_count_v0"), Some("module_count_v0"), Some(2),),
+            "M07 missing and duplicate module cases must both retain H0634 without panic"
+        );
+        assert_eq!(
+            layout_reason(
+                "programs/late_module_fail.hum",
+                include_str!("../fixtures/programs/integer_sign/late_module_fail.hum"),
+            ),
+            Some("module_first_v0"),
+            "M08 late module must retain its H0634 reason"
+        );
+        assert_eq!(
+            layout_reason(
+                "programs/missing_app_fail.hum",
+                include_str!("../fixtures/programs/integer_sign/missing_app_fail.hum"),
+            ),
+            Some("missing_app_v0")
+        );
+        let illegal_pre_app_outcomes = [
+            layout_reason(
+                "programs/illegal_pre_app_store_fail.hum",
+                include_str!("../fixtures/programs/integer_sign/illegal_pre_app_store_fail.hum"),
+            ),
+            layout_reason(
+                "programs/illegal_pre_app_task_fail.hum",
+                include_str!("../fixtures/programs/integer_sign/illegal_pre_app_task_fail.hum"),
+            ),
+            layout_reason(
+                "programs/illegal_pre_app_test_fail.hum",
+                include_str!("../fixtures/programs/integer_sign/illegal_pre_app_test_fail.hum"),
+            ),
+        ];
+        assert_eq!(
+            illegal_pre_app_outcomes,
+            [Some("illegal_pre_app_item_v0"); 3],
+            "M13 Store, Task, and Test must each retain illegal-item H0634"
+        );
+        assert_eq!(
+            layout_reason(
+                "programs/type_after_app_fail.hum",
+                include_str!("../fixtures/programs/integer_sign/type_after_app_fail.hum"),
+            ),
+            Some("type_after_app_v0"),
+            "M09 type-after-app must retain its H0634 reason"
+        );
+        assert_eq!(
+            layout_reason(
+                "programs/semantic_after_app_fail.hum",
+                include_str!("../fixtures/programs/integer_sign/semantic_after_app_fail.hum"),
+            ),
+            Some("app_finality_v0"),
+            "M10 semantic-item-after-app must retain its H0634 reason"
+        );
+        let entry_order_outcomes = [
+            layout_reason(
+                "programs/start_not_first_fail.hum",
+                include_str!("../fixtures/programs/integer_sign/start_not_first_fail.hum"),
+            ),
+            layout_reason(
+                "programs/helper_before_start_fail.hum",
+                include_str!("../fixtures/programs/integer_sign/helper_before_start_fail.hum"),
+            ),
+        ];
+        assert_eq!(
+            entry_order_outcomes,
+            [Some("first_entry_task_v0"); 2],
+            "M11 start_not_first and helper_before_start must both retain entry-order H0634"
+        );
+
+        let app_name_mismatch = INTEGER_SIGN.replacen("app integer_sign {", "app foreign_app {", 1);
+        let identity_outcomes = [
+            layout_reason_for(
+                "programs/integer_sign.hum",
+                "programs/renamed_program.hum",
+                INTEGER_SIGN,
+            ),
+            layout_reason(
+                "programs/integer_sign.hum",
+                include_str!("../fixtures/programs/integer_sign/module_path_identity_fail.hum"),
+            ),
+            layout_reason("programs/integer_sign.hum", &app_name_mismatch),
+        ];
+        assert_eq!(
+            identity_outcomes,
+            [Some("path_module_app_identity_v0"); 3],
+            "M12 filename stem, module suffix, and app name must each retain identity H0634"
+        );
+        let duplicate_app = native_program(
+            "programs/duplicate_app_fail.hum",
+            include_str!("../fixtures/programs/integer_sign/duplicate_app_fail.hum"),
+        );
+        let duplicate_app_diagnostic = analyze(&duplicate_app).diagnostic.expect("H0615");
+        assert_eq!(duplicate_app_diagnostic.code.as_str(), "H0615");
+
+        assert_eq!(
+            layout_reason("programs\\integer_sign.hum", INTEGER_SIGN),
+            None,
+            "normalized backslash spelling must remain accepted"
+        );
+        for (label, invalid) in [
+            ("directory case", "Programs/integer_sign.hum"),
+            ("stem case", "programs/Integer_sign.hum"),
+            ("extension case", "programs/integer_sign.HUM"),
+            ("foreign directory", "other/integer_sign.hum"),
+            ("cache lookalike", "cargo-home/integer_sign.hum"),
+            ("missing extension", "programs/integer_sign"),
+            ("slash-root absolute", "/programs/integer_sign.hum"),
+            (
+                "drive-root absolute",
+                concat!("C:", r"\programs\integer_sign.hum"),
+            ),
+            (
+                "UNC absolute",
+                concat!(r"\", r"\server\programs\integer_sign.hum"),
+            ),
+            ("dot component", "programs/./integer_sign.hum"),
+            ("parent component", "programs/../integer_sign.hum"),
+            ("duplicate slash", "programs//integer_sign.hum"),
+            ("duplicate backslash", r"programs\\integer_sign.hum"),
+            ("slash-backslash", r"programs/\integer_sign.hum"),
+            ("backslash-slash", r"programs\/integer_sign.hum"),
+        ] {
+            assert_eq!(
+                layout_reason(invalid, INTEGER_SIGN),
+                Some("path_module_app_identity_v0"),
+                "rejected path row {label}: {invalid}"
+            );
+        }
+
+        let unsupported =
+            include_str!("../fixtures/programs/integer_sign/unsupported_shape_fail.hum");
+        assert_eq!(
+            layout_reason("programs/integer_sign.hum", unsupported),
+            None
+        );
     }
 
     #[test]

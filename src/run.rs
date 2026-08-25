@@ -37,6 +37,7 @@ pub enum RunOutcome {
     AppFailure(String),
     ContractViolation,
     PreflightRejected,
+    NativeFailure(String),
     Trap(String),
 }
 
@@ -144,6 +145,65 @@ impl ReplayAdapter for RunnerReplayAdapter {
     fn next_tick(&mut self) -> Option<i64> {
         self.ticks.pop_front()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NativeIntegerSignRun {
+    pub(crate) execution: crate::backend_cranelift::NativeIntegerSignExecution,
+    pub(crate) output_bytes: usize,
+}
+
+pub(crate) fn run_native_integer_sign(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    raw_args: &[OsString],
+    grant_policy: &OperatorGrantPolicy,
+    output_adapter: &mut dyn OutputAdapter,
+) -> Result<NativeIntegerSignRun, String> {
+    let decision = grant_policy.stdout_write_decision();
+    if decision != GrantDecision::Allowed {
+        return Err(format!(
+            "OutputError.{}: stdout.write operator consent denied",
+            decision.reason()
+        ));
+    }
+    let [raw_argument] = raw_args else {
+        return Err(format!(
+            "native integer_sign requires exactly one Int argument; got {}",
+            raw_args.len()
+        ));
+    };
+    let Value::Int(value) = parse_arg("Int", raw_argument, true)? else {
+        return Err("native integer_sign argument was not an Int".to_string());
+    };
+    let artifact =
+        crate::backend_input::canonical_integer_sign_artifact(program, diagnostics, layout)
+            .ok_or_else(|| "native integer_sign backend-input admission failed".to_string())?;
+    let execution = crate::ir_verify::with_verified_integer_sign_backend_input(
+        program,
+        diagnostics,
+        layout,
+        artifact.bytes(),
+        |capability| crate::backend_cranelift::execute_integer_sign(&capability, value),
+    )
+    .map_err(str::to_string)??;
+    if crate::ir_readiness::authenticated_integer_sign_native_readiness(&execution) != Some((1, 1))
+    {
+        return Err("native integer_sign readiness was incomplete".to_string());
+    }
+    let bytes = execution.literal.as_bytes();
+    let output_bytes = bytes.len();
+    if bytes.len() > OUTPUT_LIMIT_BYTES {
+        return Err("OutputError.limit_exceeded: native output exceeded the bound".to_string());
+    }
+    output_adapter
+        .write(bytes)
+        .map_err(|_| "OutputError.adapter_rejected: native output write failed".to_string())?;
+    Ok(NativeIntegerSignRun {
+        execution,
+        output_bytes,
+    })
 }
 
 struct ReplayRuntime<'a> {
@@ -4310,7 +4370,7 @@ fn outer_parens_wrap(text: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::ffi::{OsStr, OsString};
 
     use crate::ast::Program;
@@ -4329,7 +4389,7 @@ mod tests {
 
     use super::{
         OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, ReplayAdapter, RunAdapters,
-        RunOutcome, run_program, run_program_with_adapters,
+        RunOutcome, run_native_integer_sign, run_program, run_program_with_adapters,
         run_program_with_occurrences_and_adapters, run_program_with_occurrences_and_file_adapters,
         run_program_with_output, runtime_occurrence_authority,
     };
@@ -4353,6 +4413,155 @@ mod tests {
             self.writes.push(bytes.to_vec());
             Ok(())
         }
+    }
+
+    pub(crate) fn integer_sign_native_evidence() {
+        let source = include_str!("../programs/integer_sign.hum");
+        let parsed = parser::parse_source("programs/integer_sign.hum", source);
+        let checked = check::check_parse_output(&parsed);
+        assert!(parsed.diagnostics.is_empty());
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity != Severity::Error)
+        );
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let entry = crate::app_entry::analyze(&program)
+            .entry
+            .expect("canonical app entry");
+        let layout = crate::app_entry::analyze_canonical_native_layout(
+            &program,
+            "programs/integer_sign.hum",
+            Some(&entry),
+        )
+        .layout
+        .expect("canonical native layout");
+        let displacement = Program {
+            files: vec![parser::parse_source("empty.hum", "").file],
+        };
+        let _ = crate::typed_failure::analyze_program(&displacement);
+        let allowed = allowed_stdout();
+
+        for (value, expected) in [
+            (-7, b"negative".as_slice()),
+            (-1, b"negative".as_slice()),
+            (0, b"zero".as_slice()),
+            (1, b"positive".as_slice()),
+            (9, b"positive".as_slice()),
+        ] {
+            let mut output = RecordingOutput::default();
+            let observed = run_native_integer_sign(
+                &program,
+                &checked.diagnostics,
+                &layout,
+                &[OsString::from(value.to_string())],
+                &allowed,
+                &mut output,
+            )
+            .expect("authenticated native run");
+            assert_eq!(output.calls, 1);
+            assert_eq!(output.writes[0].as_slice(), expected);
+            assert_eq!(observed.output_bytes, expected.len());
+            assert_eq!(
+                (
+                    observed.execution.ir_ready,
+                    observed.execution.backend_ready
+                ),
+                (1, 1)
+            );
+            assert!(observed.execution.clif_sha256.starts_with("sha256:"));
+            assert!(matches!(
+                observed.execution.target_triple.as_str(),
+                "x86_64-pc-windows-msvc" | "x86_64-unknown-linux-gnu"
+            ));
+        }
+
+        let mut explicit_deny = OperatorGrantPolicy::default();
+        explicit_deny.deny("stdout.write").expect("exact deny");
+        for (denied, expected) in [
+            (
+                OperatorGrantPolicy::default(),
+                "OutputError.default_empty_grant_set_v0: stdout.write operator consent denied",
+            ),
+            (
+                explicit_deny,
+                "OutputError.exact_deny_overrides_allow_v0: stdout.write operator consent denied",
+            ),
+        ] {
+            for raw_args in [
+                vec![OsString::from("-7")],
+                Vec::new(),
+                vec![OsString::from("-7"), OsString::from("9")],
+                vec![OsString::from("not-an-int")],
+            ] {
+                let mut output = RecordingOutput::default();
+                let error = run_native_integer_sign(
+                    &program,
+                    &checked.diagnostics,
+                    &layout,
+                    &raw_args,
+                    &denied,
+                    &mut output,
+                )
+                .expect_err("operator consent must precede native argument handling");
+                assert_eq!(
+                    error, expected,
+                    "M04 denied native execution reached argument handling or backend work"
+                );
+                assert_eq!(output.calls, 0, "M04 denied native execution wrote output");
+            }
+        }
+
+        for (raw_args, expected) in [
+            (
+                Vec::new(),
+                "native integer_sign requires exactly one Int argument; got 0",
+            ),
+            (
+                vec![OsString::from("-7"), OsString::from("9")],
+                "native integer_sign requires exactly one Int argument; got 2",
+            ),
+            (
+                vec![OsString::from("not-an-int")],
+                "`not-an-int` is not an integer literal",
+            ),
+        ] {
+            let mut output = RecordingOutput::default();
+            let error = run_native_integer_sign(
+                &program,
+                &checked.diagnostics,
+                &layout,
+                &raw_args,
+                &allowed,
+                &mut output,
+            )
+            .expect_err("allowed invalid argument must retain its owning diagnostic");
+            assert_eq!(error, expected);
+            assert_eq!(output.calls, 0);
+        }
+
+        let mut rejecting = RecordingOutput {
+            fail_on_call: Some(0),
+            ..RecordingOutput::default()
+        };
+        let error = run_native_integer_sign(
+            &program,
+            &checked.diagnostics,
+            &layout,
+            &[OsString::from("9")],
+            &allowed,
+            &mut rejecting,
+        )
+        .expect_err("adapter rejection must remain typed");
+        assert_eq!(
+            error,
+            "OutputError.adapter_rejected: native output write failed"
+        );
+        assert_eq!(rejecting.calls, 1);
+        assert!(rejecting.writes.is_empty());
     }
 
     #[derive(Default)]

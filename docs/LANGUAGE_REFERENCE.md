@@ -36,6 +36,13 @@ begun a narrow local `hum run` interpreter for the explicitly documented core
 subset; it does not execute generated code, build scripts, packages, plugins, or
 foreign code.
 
+The current native exception is one canonical program layout:
+`hum run --native --allow stdout.write programs/integer_sign.hum --args <Int>`.
+The path requires one matching module and final app, the first direct-child
+entry task, exact signed three-way semantics, one `Int` argument, and explicit
+output consent. `H0634` reports native-layout failures; no rejected case falls
+back to the interpreter.
+
 ## Reading Map
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): ground-truth map

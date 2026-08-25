@@ -94,6 +94,11 @@ pub(crate) struct VerifiedMinimalAddEffect<'report>(
     full_type_check::VerifiedMinimalAddFullType<'report>,
 );
 
+pub(crate) struct VerifiedIntegerSignEffect<'report> {
+    full_type: full_type_check::VerifiedIntegerSignFullType<'report>,
+    _report: &'report EffectCheckReport,
+}
+
 impl VerifiedMinimalAddEffect<'_> {
     pub(crate) fn backend_identity(
         &self,
@@ -583,6 +588,26 @@ impl<'report> EffectOwnershipReportAccess<'report> {
                 !row.status.starts_with("rejected_") && !row.status.starts_with("unchecked_")
             }))
         .then_some(VerifiedMinimalAddEffect(full_type))
+    }
+
+    pub(crate) fn canonical_integer_sign_for(
+        &self,
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+        authority: &'report crate::type_check::CanonicalIntegerSignTypeAuthority,
+    ) -> Option<VerifiedIntegerSignEffect<'report>> {
+        let full_type = self
+            .full_type
+            .canonical_integer_sign_for(layout, authority)?;
+        (self.report.blocking_issues() == 0).then_some(VerifiedIntegerSignEffect {
+            full_type,
+            _report: self.report,
+        })
+    }
+}
+
+impl VerifiedIntegerSignEffect<'_> {
+    pub(crate) fn authority(&self) -> &crate::type_check::CanonicalIntegerSignTypeAuthority {
+        self.full_type.authority()
     }
 }
 

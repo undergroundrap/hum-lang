@@ -22,6 +22,12 @@ and the Hum IR contract in [HUM_IR_CONTRACT_SCHEMA.md](HUM_IR_CONTRACT_SCHEMA.md
 It exists so humans, agents, and CI can see which source facts are already
 visible and which compiler passes still block honest IR/backend claims.
 
+The explicit canonical `integer_sign` native run may reach `ir_ready=1` and
+`backend_ready=1` only after live v1 artifact verification, required-target
+Cranelift finalization, valid tag/sentinel evidence, and one bounded output.
+The ordinary readiness report remains honest for every other source and does
+not infer backend readiness from stored bytes.
+
 ## Command
 
 ```powershell

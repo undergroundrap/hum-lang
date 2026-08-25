@@ -20,6 +20,74 @@ use crate::type_check::{self, CheckedReturnSummary};
 use crate::typed_failure::{self, FailureFact, ProgramFailureAnalysis};
 use crate::version;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalIntegerSignBranch {
+    pub(crate) predicate: &'static str,
+    pub(crate) tag: i64,
+    pub(crate) literal: String,
+    pub(crate) predicate_span: Span,
+    pub(crate) literal_span: Span,
+}
+
+#[derive(Debug)]
+pub(crate) struct CanonicalIntegerSignCoreLower {
+    program_identity: usize,
+    normalized_path: String,
+    branches: [CanonicalIntegerSignBranch; 3],
+}
+
+pub(crate) fn lower_canonical_integer_sign(
+    program: &Program,
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    authority: &type_check::CanonicalIntegerSignTypeAuthority,
+) -> Option<CanonicalIntegerSignCoreLower> {
+    authority.matches(program, layout).then_some(())?;
+    let spans = authority.predicate_spans();
+    let literals = authority.literals();
+    Some(CanonicalIntegerSignCoreLower {
+        program_identity: std::ptr::from_ref(program).addr(),
+        normalized_path: layout.normalized_path.clone(),
+        branches: [
+            CanonicalIntegerSignBranch {
+                predicate: "signed_less_than_zero",
+                tag: 0,
+                literal: literals[0].text.clone(),
+                predicate_span: spans[0].clone(),
+                literal_span: literals[0].span.clone(),
+            },
+            CanonicalIntegerSignBranch {
+                predicate: "equal_to_zero",
+                tag: 1,
+                literal: literals[1].text.clone(),
+                predicate_span: spans[1].clone(),
+                literal_span: literals[1].span.clone(),
+            },
+            CanonicalIntegerSignBranch {
+                predicate: "fallthrough",
+                tag: 2,
+                literal: literals[2].text.clone(),
+                predicate_span: layout.entry.span.clone(),
+                literal_span: literals[2].span.clone(),
+            },
+        ],
+    })
+}
+
+impl CanonicalIntegerSignCoreLower {
+    pub(crate) fn matches(
+        &self,
+        program: &Program,
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    ) -> bool {
+        self.program_identity == std::ptr::from_ref(program).addr()
+            && self.normalized_path == layout.normalized_path
+    }
+
+    pub(crate) fn branches(&self) -> &[CanonicalIntegerSignBranch; 3] {
+        &self.branches
+    }
+}
+
 pub const CORE_LOWER_SCHEMA: &str = "hum.core_lower.v0";
 pub const CORE_LOWER_STATUS: &str = "unverified_core_artifact_v0";
 

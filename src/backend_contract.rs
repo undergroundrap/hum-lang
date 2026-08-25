@@ -25,9 +25,9 @@ const BACKEND_STAGES: &[BackendStage] = &[
     BackendStage {
         id: "cranelift",
         stage: 2,
-        status: "current-minimal-add-probe",
-        role: "verified checked-add lowering and host-local JIT evidence",
-        decision: "one sealed capability, one internal function, no general backend claim",
+        status: "current-verified-program-slice",
+        role: "verified checked-add probe plus canonical integer-sign native execution",
+        decision: "feature-specific sealed capabilities, no general backend claim",
     },
     BackendStage {
         id: "llvm",
@@ -82,12 +82,13 @@ const RULES: &[&str] = &[
     "MLIR and custom backend work require evidence from real Hum facts.",
     "No safety-critical credibility comes from a backend choice alone.",
     "The first adapter maps verified checked_add to sadd_overflow and an explicit overflow branch.",
+    "The first program adapter maps verified signed comparisons, source literals, and one result-tag store without interpreter fallback.",
     "The internal probe ABI is exactly (i64,i64,*mut i64)->i32.",
 ];
 
 const NON_GOALS_V0: &[&str] = &[
-    "no code execution",
-    "no backend selection",
+    "no arbitrary-program native execution",
+    "no general backend selection",
     "no optimizer promise",
     "no generated artifact",
     "no backend-ready claim from verified input alone",
@@ -252,7 +253,7 @@ mod tests {
         assert!(text.contains("Hum backend contract (hum.backend_contract.v0)"));
         assert!(text.contains("decision: 0008-adopt-swappable-backend-ladder"));
         assert!(text.contains("1. interpreter [planned]"));
-        assert!(text.contains("2. cranelift [current-minimal-add-probe]"));
+        assert!(text.contains("2. cranelift [current-verified-program-slice]"));
         assert!(text.contains("3. llvm [planned]"));
         assert!(text.contains("semantic_owner: hum_ir"));
         assert!(text.contains("semantic_owner_schema: hum.ir_contract.v0"));
@@ -270,6 +271,6 @@ mod tests {
         assert!(json.contains("\"id\": \"cranelift\""));
         assert!(json.contains("\"id\": \"llvm\""));
         assert!(json.contains("\"source_spans_and_semantic_graph_node_ids\""));
-        assert!(json.contains("\"no code execution\""));
+        assert!(json.contains("\"no arbitrary-program native execution\""));
     }
 }

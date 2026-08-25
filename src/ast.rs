@@ -492,8 +492,15 @@ pub struct Program {
 pub struct SourceFile {
     pub path: String,
     pub module: Option<String>,
+    pub(crate) module_occurrences: Vec<ModuleOccurrence>,
     pub items: Vec<Item>,
     canonical_core_file_witness: Option<CanonicalCoreFileWitness>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ModuleOccurrence {
+    pub(crate) name: String,
+    pub(crate) span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1785,12 +1792,14 @@ impl SourceFile {
     pub(crate) fn parser_new(
         path: String,
         module: Option<String>,
+        module_occurrences: Vec<ModuleOccurrence>,
         items: Vec<Item>,
         witness: CanonicalCoreFileWitness,
     ) -> Self {
         Self {
             path,
             module,
+            module_occurrences,
             items,
             canonical_core_file_witness: Some(witness),
         }
@@ -1805,6 +1814,7 @@ impl SourceFile {
         Self {
             path,
             module,
+            module_occurrences: Vec::new(),
             items,
             canonical_core_file_witness: None,
         }
@@ -1814,6 +1824,14 @@ impl SourceFile {
         self.canonical_core_file_witness
             .as_ref()
             .ok_or("canonical_core_file_witness_absent_v0")
+    }
+
+    pub(crate) fn canonical_source_revision(&self) -> Result<&[u8], &'static str> {
+        Ok(self
+            .canonical_core_file_witness()?
+            .binding()
+            .source_revision
+            .as_ref())
     }
 
     #[cfg(test)]
@@ -2304,6 +2322,7 @@ impl fmt::Debug for SourceFile {
             .debug_struct("SourceFile")
             .field("path", &self.path)
             .field("module", &self.module)
+            .field("module_occurrences", &self.module_occurrences)
             .field("items", &self.items)
             .finish()
     }
@@ -2311,7 +2330,10 @@ impl fmt::Debug for SourceFile {
 
 impl PartialEq for SourceFile {
     fn eq(&self, other: &Self) -> bool {
-        self.path == other.path && self.module == other.module && self.items == other.items
+        self.path == other.path
+            && self.module == other.module
+            && self.module_occurrences == other.module_occurrences
+            && self.items == other.items
     }
 }
 

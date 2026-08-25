@@ -1,7 +1,8 @@
 //! Verified-only Cranelift backend boundary for the canonical minimal-add probe.
 
-use crate::ir_verify::VerifiedBackendInput;
+use crate::ir_verify::{VerifiedBackendInput, VerifiedIntegerSignBackendInput};
 use crate::sha256;
+use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlagsData, SourceLoc, UserFuncName, types};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_codegen::verifier::verify_function;
@@ -603,7 +604,7 @@ fn probe_with_fault(input: &VerifiedBackendInput<'_>, fault: Option<Fault>) -> B
             .as_ref()
             .expect("compiled probe retained")
             .code;
-        let status = invoke_finalized_minimal_add(
+        let status = invoke_finalized_uniform(
             code,
             left,
             right,
@@ -637,7 +638,7 @@ fn probe_with_fault(input: &VerifiedBackendInput<'_>, fault: Option<Fault>) -> B
             .as_ref()
             .expect("compiled probe retained")
             .code;
-        let status = invoke_finalized_minimal_add(
+        let status = invoke_finalized_uniform(
             code,
             left,
             right,
@@ -691,7 +692,7 @@ fn backend_evidence_is_complete(evidence: &ProbeEvidence) -> bool {
 }
 
 #[allow(unsafe_code)]
-fn invoke_finalized_minimal_add(
+fn invoke_finalized_uniform(
     code: *const u8,
     left: i64,
     right: i64,
@@ -712,6 +713,214 @@ fn invoke_finalized_minimal_add(
         _consumption.2[_probe_class] += 1;
     }
     status
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NativeIntegerSignExecution {
+    #[cfg(test)]
+    pub(crate) value: i64,
+    pub(crate) tag: i64,
+    pub(crate) literal: String,
+    pub(crate) target_triple: String,
+    pub(crate) clif_sha256: String,
+    #[cfg(test)]
+    pub(crate) clif: String,
+    pub(crate) ir_ready: usize,
+    pub(crate) backend_ready: usize,
+}
+
+pub(crate) fn execute_integer_sign(
+    input: &VerifiedIntegerSignBackendInput<'_>,
+    value: i64,
+) -> Result<NativeIntegerSignExecution, String> {
+    if input.schema() != crate::backend_input::INTEGER_SIGN_BACKEND_INPUT_SCHEMA
+        || input.compiler_version() != env!("CARGO_PKG_VERSION")
+        || input.target_context() != crate::backend_input::TARGET_CONTEXT
+        || input.artifact_id().is_empty()
+        || input.required_passes() != crate::backend_input::REQUIRED_PASSES
+    {
+        return Err("verified integer-sign capability admission failed".to_string());
+    }
+    let (source_revision, source_path, module_name, app_name, entry_name) = input.source_identity();
+    if !source_revision.starts_with("sha256:")
+        || !source_path.starts_with("programs/")
+        || module_name != format!("programs.{app_name}")
+        || entry_name != "run_tool"
+    {
+        return Err("verified integer-sign source identity failed".to_string());
+    }
+    let branches = input.branches();
+    if branches[0].predicate != "signed_less_than_zero"
+        || branches[0].tag != 0
+        || branches[1].predicate != "equal_to_zero"
+        || branches[1].tag != 1
+        || branches[2].predicate != "fallthrough"
+        || branches[2].tag != 2
+    {
+        return Err("verified integer-sign control-flow facts failed".to_string());
+    }
+    if !target_is_required(
+        std::env::consts::ARCH,
+        std::env::consts::OS,
+        host_target_environment(),
+    ) {
+        return Err(format!(
+            "unsupported native target `{}`",
+            host_target_label()
+        ));
+    }
+    let observed_versions = [
+        cranelift_codegen::VERSION,
+        cranelift_frontend::VERSION,
+        cranelift_jit::VERSION,
+        cranelift_module::VERSION,
+        cranelift_native::VERSION,
+    ];
+    if normalized_pinned_versions(observed_versions) != [CRANELIFT_VERSION; 5] {
+        return Err("pinned Cranelift API unavailable".to_string());
+    }
+    let mut flag_builder = settings::builder();
+    flag_builder
+        .set("use_colocated_libcalls", "false")
+        .map_err(|error| format!("required JIT flag unavailable: {error}"))?;
+    flag_builder
+        .set("is_pic", "false")
+        .map_err(|error| format!("required JIT flag unavailable: {error}"))?;
+    let isa = cranelift_native::builder()
+        .map_err(|error| format!("native ISA builder unavailable: {error}"))?
+        .finish(settings::Flags::new(flag_builder))
+        .map_err(|error| format!("native ISA initialization failed: {error}"))?;
+    let target_triple = isa.triple().to_string();
+    if !matches!(
+        target_triple.as_str(),
+        "x86_64-pc-windows-msvc" | "x86_64-unknown-linux-gnu"
+    ) {
+        return Err(format!("unsupported native target `{target_triple}`"));
+    }
+    let mut module = JITModule::new(JITBuilder::with_isa(isa, default_libcall_names()));
+    let mut signature = module.make_signature();
+    signature.params.push(AbiParam::new(types::I64));
+    signature.params.push(AbiParam::new(types::I64));
+    signature
+        .params
+        .push(AbiParam::new(module.target_config().pointer_type()));
+    signature.returns.push(AbiParam::new(types::I32));
+    let mut context = module.make_context();
+    context.func.signature = signature.clone();
+    context.func.name = UserFuncName::user(0, 1);
+    let mut function_context = FunctionBuilderContext::new();
+    {
+        let mut builder = FunctionBuilder::new(&mut context.func, &mut function_context);
+        let entry = builder.create_block();
+        let negative = builder.create_block();
+        let zero_test = builder.create_block();
+        let zero = builder.create_block();
+        let positive = builder.create_block();
+        let emit = builder.create_block();
+        builder.append_block_param(emit, types::I64);
+        builder.switch_to_block(entry);
+        builder.append_block_params_for_function_params(entry);
+        let params = builder.block_params(entry);
+        let (argument, result_slot) = (params[0], params[2]);
+        let first_location = source_location_bits(
+            branches[0].predicate_span.line,
+            branches[0].predicate_span.column,
+        )
+        .ok_or_else(|| "invalid negative predicate source location".to_string())?;
+        builder.set_srcloc(SourceLoc::new(first_location));
+        let is_negative = builder.ins().icmp_imm(IntCC::SignedLessThan, argument, 0);
+        builder
+            .ins()
+            .brif(is_negative, negative, &[], zero_test, &[]);
+        builder.switch_to_block(negative);
+        let negative_tag = builder.ins().iconst(types::I64, branches[0].tag);
+        builder.ins().jump(emit, &[negative_tag.into()]);
+        builder.switch_to_block(zero_test);
+        let second_location = source_location_bits(
+            branches[1].predicate_span.line,
+            branches[1].predicate_span.column,
+        )
+        .ok_or_else(|| "invalid zero predicate source location".to_string())?;
+        builder.set_srcloc(SourceLoc::new(second_location));
+        let is_zero = builder.ins().icmp_imm(IntCC::Equal, argument, 0);
+        builder.ins().brif(is_zero, zero, &[], positive, &[]);
+        builder.switch_to_block(zero);
+        let zero_tag = builder.ins().iconst(types::I64, branches[1].tag);
+        builder.ins().jump(emit, &[zero_tag.into()]);
+        builder.switch_to_block(positive);
+        let positive_tag = builder.ins().iconst(types::I64, branches[2].tag);
+        builder.ins().jump(emit, &[positive_tag.into()]);
+        builder.switch_to_block(emit);
+        let selected = builder.block_params(emit)[0];
+        builder
+            .ins()
+            .store(MemFlagsData::new(), selected, result_slot, 0);
+        let ok = builder.ins().iconst(types::I32, 0);
+        builder.ins().return_(&[ok]);
+        builder.seal_all_blocks();
+        builder.finalize();
+    }
+    let clif = context.func.display().to_string();
+    if clif.matches("brif").count() != 2
+        || clif.matches("store").count() != 1
+        || !clif.contains("icmp slt")
+        || !clif.contains("icmp.i64 eq")
+    {
+        return Err("integer-sign CLIF shape verification failed".to_string());
+    }
+    verify_function(&context.func, module.isa())
+        .map_err(|error| format!("Cranelift verification failed: {error}"))?;
+    let function_id = module
+        .declare_function("hum_integer_sign_0", Linkage::Local, &signature)
+        .map_err(|error| format!("JIT declaration failed: {error}"))?;
+    context.func.name = UserFuncName::user(0, function_id.as_u32());
+    module
+        .define_function(function_id, &mut context)
+        .map_err(|error| format!("JIT definition failed: {error}"))?;
+    module
+        .finalize_definitions()
+        .map_err(|error| format!("JIT finalization failed: {error}"))?;
+    let code = module.get_finalized_function(function_id);
+    if code.is_null() {
+        return Err("finalized integer-sign code pointer was null".to_string());
+    }
+    let sentinel = 0x5a5a_5a5a_5a5a_5a5a_i64;
+    let mut result_slot = sentinel;
+    let status = invoke_finalized_uniform(
+        code,
+        value,
+        0,
+        &mut result_slot,
+        &mut BackendConsumption::default(),
+        0,
+    );
+    if status != 0 || result_slot == sentinel {
+        return Err(format!(
+            "integer-sign native invocation failed: status={status};result_slot={result_slot}"
+        ));
+    }
+    let branch = branches
+        .iter()
+        .find(|branch| branch.tag == result_slot)
+        .ok_or_else(|| format!("integer-sign native tag invalid: {result_slot}"))?;
+    let clif_sha256 = format!(
+        "sha256:{}",
+        sha256::lowercase_hex(
+            &sha256::digest(clif.as_bytes()).ok_or_else(|| "CLIF digest failed".to_string())?
+        )
+    );
+    Ok(NativeIntegerSignExecution {
+        #[cfg(test)]
+        value,
+        tag: result_slot,
+        literal: branch.literal.clone(),
+        target_triple,
+        clif_sha256,
+        #[cfg(test)]
+        clif,
+        ir_ready: 1,
+        backend_ready: 1,
+    })
 }
 
 fn finish_report(input: &VerifiedBackendInput<'_>, evidence: ProbeEvidence) -> BackendProbeReport {
@@ -1013,6 +1222,56 @@ mod tests {
     use super::*;
     use crate::ast::Program;
 
+    fn integer_sign_execution(source: &str, value: i64) -> NativeIntegerSignExecution {
+        let parsed = crate::parser::parse_source("programs/integer_sign.hum", source);
+        let checked = crate::check::check_parse_output(&parsed);
+        assert!(parsed.diagnostics.is_empty(), "{:#?}", parsed.diagnostics);
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity != crate::diagnostic::Severity::Error)
+        );
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let entry = crate::app_entry::analyze(&program)
+            .entry
+            .expect("canonical app entry");
+        let layout = crate::app_entry::analyze_canonical_native_layout(
+            &program,
+            "programs/integer_sign.hum",
+            Some(&entry),
+        )
+        .layout
+        .expect("canonical native layout");
+        let displacement = Program {
+            files: vec![crate::parser::parse_source("empty.hum", "").file],
+        };
+        let _ = crate::typed_failure::analyze_program(&displacement);
+        let artifact = crate::backend_input::canonical_integer_sign_artifact(
+            &program,
+            &checked.diagnostics,
+            &layout,
+        )
+        .expect("canonical integer-sign artifact");
+        let mut calls = 0;
+        let execution = crate::ir_verify::with_verified_integer_sign_backend_input(
+            &program,
+            &checked.diagnostics,
+            &layout,
+            artifact.bytes(),
+            |verified| {
+                calls += 1;
+                execute_integer_sign(&verified, value)
+            },
+        )
+        .expect("verified integer-sign authority")
+        .expect("integer-sign native execution");
+        assert_eq!(calls, 1);
+        execution
+    }
+
     fn valid_probe(fault: Option<BackendProbeFault>) -> BackendProbeReport {
         let source = include_str!("../examples/core/minimal_add.hum");
         let parsed = crate::parser::parse_source(crate::backend_input::SOURCE_PATH, source);
@@ -1046,6 +1305,62 @@ mod tests {
         let report = valid_probe(None);
         assert!(report.go() && report.structurally_valid());
         assert_eq!(report.clif_instruction, Some("sadd_overflow"));
+    }
+
+    #[test]
+    fn integer_sign_lowering_is_source_driven_and_load_bearing() {
+        let source = include_str!("../programs/integer_sign.hum");
+        assert!(target_is_required("x86_64", "windows", "msvc"));
+        assert!(target_is_required("x86_64", "linux", "gnu"));
+        assert!(!target_is_required("aarch64", "macos", "other"));
+        for (value, expected_tag, expected_literal) in [
+            (-7, 0, "negative"),
+            (-1, 0, "negative"),
+            (0, 1, "zero"),
+            (1, 2, "positive"),
+            (9, 2, "positive"),
+        ] {
+            let execution = integer_sign_execution(source, value);
+            assert_eq!(execution.value, value);
+            assert_eq!(execution.literal, expected_literal);
+            assert_eq!(execution.tag, expected_tag);
+            assert_eq!((execution.ir_ready, execution.backend_ready), (1, 1));
+            assert!(matches!(
+                execution.target_triple.as_str(),
+                "x86_64-pc-windows-msvc" | "x86_64-unknown-linux-gnu"
+            ));
+            assert_eq!(execution.clif.matches("brif").count(), 2);
+            assert_eq!(execution.clif.matches("store").count(), 1);
+            assert_eq!(execution.clif.matches("icmp slt").count(), 1);
+            assert_eq!(execution.clif.matches("icmp.i64 eq").count(), 1);
+            assert!(!execution.clif.contains(expected_literal));
+        }
+
+        let changed = source.replacen("\"negative\"", "\"below\"", 1);
+        assert_ne!(changed.as_bytes(), source.as_bytes());
+        let execution = integer_sign_execution(&changed, -7);
+        assert_eq!((execution.tag, execution.literal.as_str()), (0, "below"));
+        assert_eq!((execution.ir_ready, execution.backend_ready), (1, 1));
+
+        for (from, to) in [
+            ("value < 0", "value < 1"),
+            ("value == 0", "value == 1"),
+            (
+                "return written\n      }\n      let written",
+                "return written\n      }\n      if value > 0 {\n      let written",
+            ),
+        ] {
+            let mutated = source.replacen(from, to, 1);
+            assert_ne!(mutated.as_bytes(), source.as_bytes());
+            let result = std::panic::catch_unwind(|| integer_sign_execution(&mutated, -7));
+            assert!(
+                result.is_err(),
+                "unsupported semantic mutation escaped admission"
+            );
+        }
+
+        let restored = integer_sign_execution(source, -7);
+        assert_eq!((restored.tag, restored.literal.as_str()), (0, "negative"));
     }
 
     #[test]

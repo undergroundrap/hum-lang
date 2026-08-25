@@ -305,8 +305,17 @@ function Invoke-UbuntuPwshResolutionSelfTests {
 function Assert-ExactRustSelectorLedger {
   param([string[]] $Credits)
 
-  $ExpectedByteCount = 8324
-  $ExpectedSha256 = '58a2ca9f27e73d01e763547a6a084bd0737a145e2cd59a596b578949177940f2'
+  $ExpectedByteCount = 8713
+  $ExpectedSha256 = '3b838200974c7034ae244b4cfd25f8f9f9c979875281be923f956ca6adc4c8de'
+  $FrozenByteCount = 8324
+  $FrozenSha256 = '58a2ca9f27e73d01e763547a6a084bd0737a145e2cd59a596b578949177940f2'
+  $Wo23Appendix = @(
+    'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing',
+    'backend_input::tests::canonical_integer_sign_backend_input_is_exact_and_nonforgeable',
+    'ir_verify::tests::integer_sign_artifact_rejection_matrix_is_complete',
+    'backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing',
+    'main::tests::native_integer_sign_run_is_authority_bound_and_platform_exact'
+  )
   $Items = @($Credits)
   $Unique = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
   foreach ($Item in $Items) {
@@ -316,8 +325,11 @@ function Assert-ExactRustSelectorLedger {
     }
     $null = $Unique.Add($Item)
   }
-  if ($Items.Count -ne 107 -or $Unique.Count -ne 107) {
-    throw "exact Rust selector inventory must credit 107 case-sensitive unique tests, credited $($Items.Count) invocations and $($Unique.Count) unique tests"
+  if ($Items.Count -ne 112 -or $Unique.Count -ne 112) {
+    throw "exact Rust selector inventory must credit 112 case-sensitive unique tests, credited $($Items.Count) invocations and $($Unique.Count) unique tests"
+  }
+  if ([string]::Join("`n", $Items[107..111]) -cne [string]::Join("`n", $Wo23Appendix)) {
+    throw 'Work Order 23 exact Rust selectors must occupy only ordinals 108 through 112 in canonical order'
   }
 
   $CanonicalText = ($Items -join "`n") + "`n"
@@ -329,7 +341,7 @@ function Assert-ExactRustSelectorLedger {
     if ($Byte -eq 10) { $LfCount++ }
     if ($Byte -eq 13) { $CrCount++ }
   }
-  if ($Bytes.Length -ne $ExpectedByteCount -or $LfCount -ne 107 -or $CrCount -ne 0 -or
+  if ($Bytes.Length -ne $ExpectedByteCount -or $LfCount -ne 112 -or $CrCount -ne 0 -or
       $Bytes[$Bytes.Length - 1] -ne 10 -or
       ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xef -and $Bytes[1] -eq 0xbb -and $Bytes[2] -eq 0xbf) -or
       $Encoding.GetString($Bytes) -cne $CanonicalText) {
@@ -343,6 +355,13 @@ function Assert-ExactRustSelectorLedger {
   }
   if ($Sha256 -cne $ExpectedSha256) {
     throw "exact Rust selector invocation-order digest drifted: $Sha256"
+  }
+  $FrozenText = ($Items[0..106] -join "`n") + "`n"
+  [byte[]] $FrozenBytes = $Encoding.GetBytes($FrozenText)
+  $FrozenHasher = [System.Security.Cryptography.SHA256]::Create()
+  try { $FrozenObserved = (($FrozenHasher.ComputeHash($FrozenBytes) | ForEach-Object { $_.ToString('x2') }) -join '') } finally { $FrozenHasher.Dispose() }
+  if ($FrozenBytes.Length -ne $FrozenByteCount -or $FrozenObserved -cne $FrozenSha256) {
+    throw "original frozen 107-selector prefix drifted: bytes=$($FrozenBytes.Length) sha256=$FrozenObserved"
   }
 }
 
@@ -377,8 +396,15 @@ function Invoke-ExactRustSelectorLedgerMutationTests {
     'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing',
     'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
   )
+  $Wo23UnitASelectors = @(
+    'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing',
+    'backend_input::tests::canonical_integer_sign_backend_input_is_exact_and_nonforgeable',
+    'ir_verify::tests::integer_sign_artifact_rejection_matrix_is_complete',
+    'backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing',
+    'main::tests::native_integer_sign_run_is_authority_bound_and_platform_exact'
+  )
   Assert-ExactRustSelectorLedger -Credits $Credits
-  foreach ($Selector in @($Wo22UnitASelectors) + @($Wo22UnitBSelectors)) {
+  foreach ($Selector in @($Wo22UnitASelectors) + @($Wo22UnitBSelectors) + @($Wo23UnitASelectors)) {
     $Removal = @($Credits | Where-Object { $_ -cne $Selector })
     Assert-ExactRustSelectorLedgerRejects -Credits $Removal -Label "removal of $Selector"
     $Duplicate = @($Credits) + $Selector
@@ -389,11 +415,11 @@ function Invoke-ExactRustSelectorLedgerMutationTests {
   }
 
   $Fabricated = @($Wo22UnitASelectors)
-  for ($Index = 1; $Index -le 105; $Index++) { $Fabricated += ('fabricated::selector_{0:D3}' -f $Index) }
-  Assert-ExactRustSelectorLedgerRejects -Credits $Fabricated -Label 'two Unit A selectors plus 105 fabricated selectors'
+  for ($Index = 1; $Index -le 110; $Index++) { $Fabricated += ('fabricated::selector_{0:D3}' -f $Index) }
+  Assert-ExactRustSelectorLedgerRejects -Credits $Fabricated -Label 'two Unit A selectors plus 110 fabricated selectors'
 
   $PreservedAndFabricated = @($PreservedNamedSelectors) + @($Wo22UnitASelectors) + @($Wo22UnitBSelectors)
-  for ($Index = $PreservedAndFabricated.Count; $Index -lt 107; $Index++) {
+  for ($Index = $PreservedAndFabricated.Count; $Index -lt 112; $Index++) {
     $PreservedAndFabricated += ('fabricated::preserved_replacement_{0:D3}' -f $Index)
   }
   Assert-ExactRustSelectorLedgerRejects -Credits $PreservedAndFabricated -Label 'preserved named obligations plus fabricated replacements'
@@ -563,13 +589,13 @@ function Invoke-Wo22UnsafeBoundaryCompilerEvidence {
   $OriginalBytes = [System.IO.File]::ReadAllBytes($BackendPath)
   $Utf8 = New-Object System.Text.UTF8Encoding($false, $true)
   $Original = $Utf8.GetString($OriginalBytes)
-  $FunctionNeedle = 'fn invoke_finalized_minimal_add('
+  $FunctionNeedle = 'fn invoke_finalized_uniform('
   $FunctionIndex = $Original.IndexOf($FunctionNeedle, [System.StringComparison]::Ordinal)
   $Allow = '#[allow(unsafe_code)]' + "`n"
   $AllowIndex = $FunctionIndex - $Allow.Length
   if ($FunctionIndex -lt 0 -or $FunctionIndex -ne $Original.LastIndexOf($FunctionNeedle, [System.StringComparison]::Ordinal) -or
       $AllowIndex -lt 0 -or $Original.Substring($AllowIndex, $Allow.Length) -cne $Allow) {
-    throw 'Work Order 22 unsafe allowance is not attached to invoke_finalized_minimal_add'
+    throw 'Work Order 22 unsafe allowance is not attached to invoke_finalized_uniform'
   }
   Invoke-Native 'Work Order 22 normal compiler check before unsafe-boundary proof' $Cargo @('check', '--all-targets')
   try {
@@ -691,8 +717,8 @@ function Invoke-Wo22BackendPredicateMutationEvidence {
       Replacement = 'fault_at(fault, 11) && finalization.is_err()'
       AdditionalChanges = @(
         [pscustomobject] @{
-          Needle = 'if code.is_null() {'
-          Replacement = 'if fault_at(fault, 11) && code.is_null() {'
+          Needle = 'let code = module.get_finalized_function(function_id);' + "`n" + '    if code.is_null() {' + "`n" + '        stop!(11, "finalized code pointer was null");' + "`n" + '    }'
+          Replacement = 'let code = module.get_finalized_function(function_id);' + "`n" + '    if fault_at(fault, 11) && code.is_null() {' + "`n" + '        stop!(11, "finalized code pointer was null");' + "`n" + '    }'
         }
       )
       OwnedSites = @('JIT finalization disposition', 'non-null finalized code pointer')
@@ -701,7 +727,7 @@ function Invoke-Wo22BackendPredicateMutationEvidence {
     [pscustomobject] @{
       Label = 'B13 ordinary execution'
       Selector = $Selector
-      Needle = 'let code = evidence' + "`n" + '            .compiled' + "`n" + '            .as_ref()' + "`n" + '            .expect("compiled probe retained")' + "`n" + '            .code;' + "`n" + '        let status = invoke_finalized_minimal_add(' + "`n" + '            code,' + "`n" + '            left,' + "`n" + '            right,' + "`n" + '            &mut result_slot,' + "`n" + '            &mut evidence.consumption,' + "`n" + '            1,' + "`n" + '        );'
+      Needle = 'let code = evidence' + "`n" + '            .compiled' + "`n" + '            .as_ref()' + "`n" + '            .expect("compiled probe retained")' + "`n" + '            .code;' + "`n" + '        let status = invoke_finalized_uniform(' + "`n" + '            code,' + "`n" + '            left,' + "`n" + '            right,' + "`n" + '            &mut result_slot,' + "`n" + '            &mut evidence.consumption,' + "`n" + '            1,' + "`n" + '        );'
       Replacement = 'let status = {' + "`n" + '            result_slot = left.checked_add(right).expect("ordinary probe is in range");' + "`n" + '            0' + "`n" + '        };'
       OwnedSites = @('ordinary finalized JIT invocation')
       RequiredFailureFragment = 'B13 finalized ordinary invocation'
@@ -709,7 +735,7 @@ function Invoke-Wo22BackendPredicateMutationEvidence {
     [pscustomobject] @{
       Label = 'B14 overflow execution'
       Selector = $Selector
-      Needle = 'let code = evidence' + "`n" + '            .compiled' + "`n" + '            .as_ref()' + "`n" + '            .expect("compiled probe retained")' + "`n" + '            .code;' + "`n" + '        let status = invoke_finalized_minimal_add(' + "`n" + '            code,' + "`n" + '            left,' + "`n" + '            right,' + "`n" + '            &mut result_slot,' + "`n" + '            &mut evidence.consumption,' + "`n" + '            2,' + "`n" + '        );'
+      Needle = 'let code = evidence' + "`n" + '            .compiled' + "`n" + '            .as_ref()' + "`n" + '            .expect("compiled probe retained")' + "`n" + '            .code;' + "`n" + '        let status = invoke_finalized_uniform(' + "`n" + '            code,' + "`n" + '            left,' + "`n" + '            right,' + "`n" + '            &mut result_slot,' + "`n" + '            &mut evidence.consumption,' + "`n" + '            2,' + "`n" + '        );'
       Replacement = 'let status = 1;'
       OwnedSites = @('overflow finalized JIT invocation')
       RequiredFailureFragment = 'B14 finalized overflow invocation'
@@ -815,6 +841,154 @@ function Invoke-Wo22BackendPredicateMutationEvidence {
     }
   } finally {
     [System.IO.File]::WriteAllBytes($BackendPath, $OriginalBytes)
+  }
+}
+
+function Invoke-Wo23UnitAProductionMutationEvidence {
+  param([string] $Cargo, [string] $OnlyLabel = '')
+
+  $LayoutSelector = 'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing'
+  $BackendSelector = 'backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing'
+  $ProbeRowsSelector = 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'
+  $Mutations = @(
+    [pscustomobject] @{ Label = 'M01 live artifact identity'; Path = 'src/ir_verify.rs'; Selector = 'ir_verify::tests::integer_sign_artifact_rejection_matrix_is_complete'; RequiredFailureFragments = @('assertion failed: result.is_err()'); Changes = @(
+      [pscustomobject] @{ Owner = 'final live artifact/factory binding'; Needle = 'if live.bytes() != artifact {'; Replacement = 'if false && live.bytes() != artifact {' }
+    ) },
+    [pscustomobject] @{ Label = 'M02 signed condition'; Path = 'src/backend_cranelift.rs'; Selector = $BackendSelector; RequiredFailureFragments = @('left: "positive"', 'right: "negative"'); Changes = @(
+      [pscustomobject] @{ Owner = 'verified signed-less-than lowering'; Needle = 'let is_negative = builder.ins().icmp_imm(IntCC::SignedLessThan, argument, 0);'; Replacement = 'let is_negative = builder.ins().icmp_imm(IntCC::SignedGreaterThan, argument, 0);' },
+      [pscustomobject] @{ Owner = 'signed-less-than CLIF shape admission'; Needle = '|| !clif.contains("icmp slt")'; Replacement = '|| false && !clif.contains("icmp slt")' }
+    ) },
+    [pscustomobject] @{ Label = 'M03 source literal getter'; Path = 'src/backend_cranelift.rs'; Selector = $BackendSelector; RequiredFailureFragments = @('left: (', '"negative"', 'right: (', '"below"'); Changes = @(
+      [pscustomobject] @{ Owner = 'verified source-literal selection'; Needle = 'literal: branch.literal.clone(),'; Replacement = 'literal: ["negative", "zero", "positive"][result_slot as usize].to_string(),' }
+    ) },
+    [pscustomobject] @{ Label = 'M04 operator consent'; Path = 'src/run.rs'; Selector = 'main::tests::native_integer_sign_run_is_authority_bound_and_platform_exact'; RequiredFailureFragments = @('operator consent must precede native argument handling'); Changes = @(
+      [pscustomobject] @{ Owner = 'pre-JIT stdout.write consent'; Needle = ('let decision = grant_policy.stdout_write_decision();' + "`n" + '    if decision != GrantDecision::Allowed {'); Replacement = ('let decision = grant_policy.stdout_write_decision();' + "`n" + '    if false && decision != GrantDecision::Allowed {') }
+    ) },
+    [pscustomobject] @{ Label = 'M05 required target'; Path = 'src/backend_cranelift.rs'; Selector = $ProbeRowsSelector; RequiredFailureFragments = @('assertion failed: !report.go() && report.structurally_valid() && report.backend_ready == 0'); Changes = @(
+      [pscustomobject] @{ Owner = 'required target/ISA NO_GO predicate'; Needle = ('if fault_at(fault, 7)' + "`n" + '        || !target_is_required(' + "`n" + '            std::env::consts::ARCH,' + "`n" + '            std::env::consts::OS,' + "`n" + '            host_target_environment(),' + "`n" + '        )' + "`n" + '    {'); Replacement = ('if false' + "`n" + '        && (fault_at(fault, 7)' + "`n" + '            || !target_is_required(' + "`n" + '                std::env::consts::ARCH,' + "`n" + '                std::env::consts::OS,' + "`n" + '                host_target_environment(),' + "`n" + '            ))' + "`n" + '    {') }
+    ) },
+    [pscustomobject] @{ Label = 'M06 finalized one-store evidence'; Path = 'src/backend_cranelift.rs'; Selector = $BackendSelector; RequiredFailureFragments = @('left: 2', 'right: 1'); Changes = @(
+      [pscustomobject] @{ Owner = 'exact-one result-tag store predicate'; Needle = ('if clif.matches("brif").count() != 2' + "`n" + '        || clif.matches("store").count() != 1'); Replacement = ('if clif.matches("brif").count() != 2' + "`n" + '        || false') },
+      [pscustomobject] @{ Owner = 'malformed duplicate result-tag store'; Needle = ('let selected = builder.block_params(emit)[0];' + "`n" + '        builder' + "`n" + '            .ins()' + "`n" + '            .store(MemFlagsData::new(), selected, result_slot, 0);'); Replacement = ('let selected = builder.block_params(emit)[0];' + "`n" + '        builder' + "`n" + '            .ins()' + "`n" + '            .store(MemFlagsData::new(), selected, result_slot, 0);' + "`n" + '        builder' + "`n" + '            .ins()' + "`n" + '            .store(MemFlagsData::new(), selected, result_slot, 0);') }
+    ) },
+    [pscustomobject] @{ Label = 'M07 module count'; Path = 'src/app_entry.rs'; Selector = $LayoutSelector; RequiredFailureFragments = @('M07 missing and duplicate module cases must both retain H0634 without panic'); Changes = @(
+      [pscustomobject] @{ Owner = 'module occurrence cardinality'; Needle = 'if occurrences.len() != 1 {'; Replacement = 'if false && occurrences.len() != 1 {' }
+    ) },
+    [pscustomobject] @{ Label = 'M08 module first'; Path = 'src/app_entry.rs'; Selector = $LayoutSelector; RequiredFailureFragments = @('M08 late module must retain its H0634 reason'); Changes = @(
+      [pscustomobject] @{ Owner = 'module-first predicate'; Needle = ('if occurrence.is_some_and(|occurrence| {' + "`n" + '        file.items' + "`n" + '            .iter()' + "`n" + '            .any(|item| item.span().line < occurrence.span.line)' + "`n" + '    }) {'); Replacement = ('if false && occurrence.is_some_and(|occurrence| {' + "`n" + '        file.items' + "`n" + '            .iter()' + "`n" + '            .any(|item| item.span().line < occurrence.span.line)' + "`n" + '    }) {') }
+    ) },
+    [pscustomobject] @{ Label = 'M09 type before app'; Path = 'src/app_entry.rs'; Selector = $LayoutSelector; RequiredFailureFragments = @('M09 type-after-app must retain its H0634 reason'); Changes = @(
+      [pscustomobject] @{ Owner = 'type-before-app predicate'; Needle = 'if file.items[app_index + 1..]'; Replacement = 'if false && file.items[app_index + 1..]' }
+    ) },
+    [pscustomobject] @{ Label = 'M10 app finality'; Path = 'src/app_entry.rs'; Selector = $LayoutSelector; RequiredFailureFragments = @('M10 semantic-item-after-app must retain its H0634 reason'); Changes = @(
+      [pscustomobject] @{ Owner = 'post-app non-type finality predicate'; Needle = '.find(|item| !matches!(item, Item::Type(_)))'; Replacement = '.find(|_| false)' }
+    ) },
+    [pscustomobject] @{ Label = 'M11 first entry task'; Path = 'src/app_entry.rs'; Selector = $LayoutSelector; RequiredFailureFragments = @('M11 start_not_first and helper_before_start must both retain entry-order H0634'); Changes = @(
+      [pscustomobject] @{ Owner = 'first direct-child entry identity'; Needle = 'if !std::ptr::eq(first_task, accepted_entry.task)'; Replacement = 'if false && !std::ptr::eq(first_task, accepted_entry.task)' }
+    ) },
+    [pscustomobject] @{ Label = 'M12 path module app identity'; Path = 'src/app_entry.rs'; Selector = $LayoutSelector; RequiredFailureFragments = @('M12 filename stem, module suffix, and app name must each retain identity H0634'); Changes = @(
+      [pscustomobject] @{ Owner = 'generic normalized path/module/app identity opening'; Needle = ('if retained' + "`n" + '        .as_ref()'); Replacement = ('if false && (retained' + "`n" + '        .as_ref()') },
+      [pscustomobject] @{ Owner = 'generic normalized path/module/app identity closing'; Needle = '|| accepted_entry.is_none_or(|entry| !std::ptr::eq(*app, entry.app))'; Replacement = '|| accepted_entry.is_none_or(|entry| !std::ptr::eq(*app, entry.app)))' }
+    ) },
+    [pscustomobject] @{ Label = 'M13 exhaustive pre-app kinds'; Path = 'src/app_entry.rs'; Selector = $LayoutSelector; RequiredFailureFragments = @('M13 Store, Task, and Test must each retain illegal-item H0634'); Changes = @(
+      [pscustomobject] @{ Owner = 'exhaustive pre-app item-kind predicate'; Needle = (@(
+        '            Item::Store(_) | Item::Task(_) | Item::Test(_) => {',
+        '                return native_layout_rejected(',
+        '                    "illegal_pre_app_item_v0",',
+        '                    Some(item.span().clone()),',
+        '                    Vec::new(),',
+        '                    format!(',
+        '                        "canonical native program forbids top-level `{}` before its app",',
+        '                        item.kind()',
+        '                    ),',
+        '                );',
+        '            }'
+      ) -join "`n"); Replacement = '            Item::Store(_) | Item::Task(_) | Item::Test(_) => {}' }
+    ) }
+  )
+
+  $Utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+  $Selected = @($Mutations | Where-Object { [string]::IsNullOrEmpty($OnlyLabel) -or $_.Label -ceq $OnlyLabel })
+  if (-not [string]::IsNullOrEmpty($OnlyLabel) -and $Selected.Count -ne 1) { throw "Work Order 23 focused mutation is missing or duplicate: $OnlyLabel" }
+  foreach ($Mutation in $Selected) {
+    $Path = Join-Path $RepoRoot $Mutation.Path
+    $OriginalBytes = [System.IO.File]::ReadAllBytes($Path)
+    $Original = $Utf8.GetString($OriginalBytes)
+    if (-not (Test-Wo22ByteArraysEqual $OriginalBytes $Utf8.GetBytes($Original))) { throw "Work Order 23 $($Mutation.Label) source is not canonical UTF-8" }
+    $M01AssertionLine = 0
+    $M02AssertionLine = 0
+    if ($Mutation.Label -ceq 'M01 live artifact identity') {
+      $M01SelectorBodies = [regex]::Matches($Original, '(?s)#\[test\]\r?\n\s*fn integer_sign_artifact_rejection_matrix_is_complete\(\) \{(?<body>.*?)\r?\n    \}\r?\n\r?\n    fn subject\(\)')
+      if ($M01SelectorBodies.Count -ne 1) { throw 'Work Order 23 M01 selector body is missing or duplicate' }
+      $M01Body = $M01SelectorBodies[0].Groups['body'].Value
+      $M01OwnedAssertions = [regex]::Matches($M01Body, 'assert!\(result\.is_err\(\)\);')
+      if ($M01OwnedAssertions.Count -ne 1 -or
+          [regex]::Matches($M01Body, 'for mutation in mutations \{').Count -ne 1 -or
+          [regex]::Matches($M01Body, 'let result = with_verified_integer_sign_backend_input\(').Count -ne 1 -or
+          [regex]::Matches($M01Body, '(?m)^\s*&mutation,$').Count -ne 1 -or
+          [regex]::Matches($M01Body, 'assert_ne!\(mutation, golden\);').Count -ne 1) { throw 'Work Order 23 M01 Cargo-visible assertion is not uniquely bound to the altered-artifact rejection loop' }
+      $M01AssertionOffset = $M01SelectorBodies[0].Groups['body'].Index + $M01OwnedAssertions[0].Index
+      $M01AssertionLine = 1 + [regex]::Matches($Original.Substring(0, $M01AssertionOffset), "`n").Count
+    }
+    if ($Mutation.Label -ceq 'M02 signed condition') {
+      $M02SelectorBodies = [regex]::Matches($Original, '(?s)#\[test\]\r?\n\s*fn integer_sign_lowering_is_source_driven_and_load_bearing\(\) \{(?<body>.*?)\r?\n    \}\r?\n\r?\n    #\[test\]\r?\n    fn minimal_add_jit_probe_matrix_is_exact\(\)')
+      if ($M02SelectorBodies.Count -ne 1) { throw 'Work Order 23 M02 selector body is missing or duplicate' }
+      $M02Body = $M02SelectorBodies[0].Groups['body'].Value
+      $M02LiteralAssertions = [regex]::Matches($M02Body, 'assert_eq!\(execution\.literal, expected_literal\);')
+      $M02TagAssertions = [regex]::Matches($M02Body, 'assert_eq!\(execution\.tag, expected_tag\);')
+      if ($M02LiteralAssertions.Count -ne 1 -or $M02TagAssertions.Count -ne 1 -or
+          $M02LiteralAssertions[0].Index -ge $M02TagAssertions[0].Index) { throw 'Work Order 23 M02 literal assertion must be unique and precede the supplemental tag assertion' }
+      $M02AssertionOffset = $M02SelectorBodies[0].Groups['body'].Index + $M02LiteralAssertions[0].Index
+      $M02AssertionLine = 1 + [regex]::Matches($Original.Substring(0, $M02AssertionOffset), "`n").Count
+    }
+    $Mutated = $Original
+    foreach ($Change in $Mutation.Changes) {
+      if ([regex]::Matches($Mutated, [regex]::Escape($Change.Needle)).Count -ne 1) { throw "Work Order 23 $($Mutation.Label) owner '$($Change.Owner)' is missing or duplicate" }
+      $Next = $Mutated.Replace($Change.Needle, $Change.Replacement)
+      if ([string]::Equals($Next, $Mutated, [System.StringComparison]::Ordinal)) { throw "Work Order 23 $($Mutation.Label) did not change initialized source" }
+      $Mutated = $Next
+    }
+    $MutationExecutionLabel = "Work Order 23 $($Mutation.Label) guarded production mutation"
+    $CreditsBefore = @(Get-ExactRustSelectorCredits)
+    $Output = New-Object 'System.Collections.Generic.List[string]'
+    $Failure = $null
+    try {
+      [System.IO.File]::WriteAllText($Path, $Mutated, $Utf8)
+      try { & { Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector } 6>&1 | ForEach-Object { $Output.Add($_.ToString()) } } catch { $Failure = $_ }
+    } finally {
+      [System.IO.File]::WriteAllBytes($Path, $OriginalBytes)
+    }
+    $Named = @($Output | Where-Object { $_ -match '^test .+ \.\.\. (?:ok|FAILED|ignored)$' })
+    $NamedFailure = @($Named | Where-Object { $_ -ceq "test $($Mutation.Selector) ... FAILED" })
+    $CompileErrors = @($Output | Where-Object { $_ -match '^error\[E[0-9]+\]' })
+    $CreditsAfter = @(Get-ExactRustSelectorCredits)
+    $OutputText = [string]::Join("`n", $Output)
+    $MissingFailureFragments = @($Mutation.RequiredFailureFragments | Where-Object { $OutputText.IndexOf($_, [System.StringComparison]::Ordinal) -lt 0 })
+    $M01DispositionBound = $true
+    if ($Mutation.Label -ceq 'M01 live artifact identity') {
+      $M01VisibleAssertions = [regex]::Matches($OutputText, 'assertion failed: [^\r\n]+')
+      $M01DispositionBound = $M01VisibleAssertions.Count -eq 1 -and
+        $M01VisibleAssertions[0].Value -ceq 'assertion failed: result.is_err()' -and
+        [regex]::IsMatch($OutputText, "src[\\/]ir_verify\.rs:${M01AssertionLine}:[0-9]+")
+    }
+    $M02DispositionBound = $true
+    if ($Mutation.Label -ceq 'M02 signed condition') {
+      $M02DispositionBound = [regex]::Matches($OutputText, 'left: "positive"').Count -eq 1 -and
+        [regex]::Matches($OutputText, 'right: "negative"').Count -eq 1 -and
+        [regex]::IsMatch($OutputText, "src[\\/]backend_cranelift\.rs:${M02AssertionLine}:[0-9]+") -and
+        -not $OutputText.Contains('integer-sign CLIF shape verification failed')
+    }
+    if ($null -eq $Failure -or $Failure.Exception.Message -cne "$MutationExecutionLabel failed with exit code 101" -or
+        $Named.Count -ne 1 -or $NamedFailure.Count -ne 1 -or $CompileErrors.Count -ne 0 -or
+        $MissingFailureFragments.Count -ne 0 -or -not $M01DispositionBound -or -not $M02DispositionBound -or
+        [regex]::IsMatch($OutputText, 'index out of bounds|called `Option::unwrap\(\)`|module occurrence checked above|duplicate module H0634|unreachable code reached') -or
+        $CreditsBefore.Count -ne $CreditsAfter.Count -or
+        [string]::Join("`n", $CreditsBefore) -cne [string]::Join("`n", $CreditsAfter)) {
+      $Output | ForEach-Object { Write-Host $_ }
+      throw "Work Order 23 $($Mutation.Label) did not expose its row-owned escaped disposition"
+    }
+    if (-not (Test-Wo22ByteArraysEqual $OriginalBytes ([System.IO.File]::ReadAllBytes($Path)))) { throw "Work Order 23 $($Mutation.Label) did not restore source bytes" }
+    Write-Host "ok - Work Order 23 $($Mutation.Label) production mutation rejected"
   }
 }
 
@@ -1041,6 +1215,145 @@ try {
   Invoke-ExactRustTest 'Work Order 22 Unit B complete load-bearing row matrix' $Cargo 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'
   Invoke-ExactRustTest 'Work Order 22 Unit B explicit unsupported targets' $Cargo 'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
   Invoke-Wo22BackendPredicateMutationEvidence $Cargo (Join-Path $RepoRoot 'src/backend_cranelift.rs')
+  Invoke-Wo23UnitAProductionMutationEvidence $Cargo
+  Write-Host '==> Work Order 23 Unit A integer-sign CLI and corpus contract'
+  foreach ($Case in @(
+    [pscustomobject] @{ Value = '-7'; Output = 'negative' },
+    [pscustomobject] @{ Value = '-1'; Output = 'negative' },
+    [pscustomobject] @{ Value = '0'; Output = 'zero' },
+    [pscustomobject] @{ Value = '1'; Output = 'positive' },
+    [pscustomobject] @{ Value = '9'; Output = 'positive' }
+  )) {
+    $Interpreter = Read-NativeChannelsWithExit "Work Order 23 interpreter value $($Case.Value)" $Hum @('run', '--allow', 'stdout.write', 'programs/integer_sign.hum', '--args', $Case.Value)
+    $Native = Read-NativeChannelsWithExit "Work Order 23 native value $($Case.Value)" $Hum @('run', '--native', '--allow', 'stdout.write', 'programs/integer_sign.hum', '--args', $Case.Value)
+    if ($Interpreter.ExitCode -ne 0 -or $Native.ExitCode -ne 0 -or $Interpreter.Stderr.Length -ne 0 -or $Native.Stderr.Length -ne 0 -or
+        $Interpreter.Stdout -cne $Case.Output -or $Native.Stdout -cne $Case.Output -or $Native.Stdout -cne $Interpreter.Stdout) { throw "Work Order 23 interpreter/native parity failed for $($Case.Value)" }
+  }
+  foreach ($DeniedPolicy in @(
+    [pscustomobject] @{ Label = 'default deny'; Prefix = @(); Reason = 'default_empty_grant_set_v0' },
+    [pscustomobject] @{ Label = 'explicit deny'; Prefix = @('--deny', 'stdout.write'); Reason = 'exact_deny_overrides_allow_v0' }
+  )) {
+    foreach ($DeniedArgument in @(
+      [pscustomobject] @{ Label = 'valid argument'; Args = @('-7') },
+      [pscustomobject] @{ Label = 'missing argument'; Args = @() },
+      [pscustomobject] @{ Label = 'extra argument'; Args = @('-7', '9') },
+      [pscustomobject] @{ Label = 'malformed integer'; Args = @('invalid') }
+    )) {
+      $DeniedArgs = @('run', '--native') + @($DeniedPolicy.Prefix) + @('programs/integer_sign.hum', '--args') + @($DeniedArgument.Args)
+      $DeniedRun = Read-NativeChannelsWithExit "Work Order 23 $($DeniedPolicy.Label) $($DeniedArgument.Label)" $Hum $DeniedArgs
+      $DeniedDisposition = 'OutputError.' + $DeniedPolicy.Reason + ': stdout.write operator consent denied' + [char]10
+      if ($DeniedRun.ExitCode -ne 1 -or $DeniedRun.Stdout.Length -ne 0 -or $DeniedRun.Stderr -cne $DeniedDisposition -or
+          @('requires exactly one Int argument', 'not an integer literal', 'artifact=', 'backend-input', 'JIT', 'output=', 'ir_ready=', 'backend_ready=', 'fallback') |
+            Where-Object { $DeniedRun.Stderr.Contains($_) }) { throw "Work Order 23 $($DeniedPolicy.Label) must precede $($DeniedArgument.Label) and all backend work" }
+    }
+  }
+  foreach ($AllowedArgument in @(
+    [pscustomobject] @{ Label = 'missing argument'; Args = @(); Disposition = 'native integer_sign requires exactly one Int argument; got 0' + [char]10 },
+    [pscustomobject] @{ Label = 'extra argument'; Args = @('-7', '9'); Disposition = 'native integer_sign requires exactly one Int argument; got 2' + [char]10 },
+    [pscustomobject] @{ Label = 'malformed integer'; Args = @('invalid'); Disposition = '`invalid` is not an integer literal' + [char]10 }
+  )) {
+    $AllowedRun = Read-NativeChannelsWithExit "Work Order 23 allowed $($AllowedArgument.Label)" $Hum (@('run', '--native', '--allow', 'stdout.write', 'programs/integer_sign.hum', '--args') + @($AllowedArgument.Args))
+    if ($AllowedRun.ExitCode -ne 1 -or $AllowedRun.Stdout.Length -ne 0 -or $AllowedRun.Stderr -cne $AllowedArgument.Disposition) { throw "Work Order 23 allowed $($AllowedArgument.Label) lost its argument-owned disposition" }
+  }
+  foreach ($Rejected in @(
+    [pscustomobject] @{ Label = 'default deny'; Args = @('run', '--native', 'programs/integer_sign.hum', '--args', '-7') },
+    [pscustomobject] @{ Label = 'explicit deny'; Args = @('run', '--native', '--deny', 'stdout.write', 'programs/integer_sign.hum', '--args', '-7') },
+    [pscustomobject] @{ Label = 'invalid Int'; Args = @('run', '--native', '--allow', 'stdout.write', 'programs/integer_sign.hum', '--args', 'invalid') },
+    [pscustomobject] @{ Label = 'missing argument'; Args = @('run', '--native', '--allow', 'stdout.write', 'programs/integer_sign.hum', '--args') },
+    [pscustomobject] @{ Label = 'extra argument'; Args = @('run', '--native', '--allow', 'stdout.write', 'programs/integer_sign.hum', '--args', '-7', '9') },
+    [pscustomobject] @{ Label = 'direct entry'; Args = @('run', '--native', '--entry', 'run_tool', '--allow', 'stdout.write', 'programs/integer_sign.hum', '--args', '-7') },
+    [pscustomobject] @{ Label = 'duplicate native'; Args = @('run', '--native', '--native', '--allow', 'stdout.write', 'programs/integer_sign.hum', '--args', '-7') },
+    [pscustomobject] @{ Label = 'wrong program'; Args = @('run', '--native', '--allow', 'stdout.write', 'examples/core/minimal_add.hum', '--args', '-7') }
+  )) {
+    $Result = Read-NativeChannelsWithExit "Work Order 23 $($Rejected.Label)" $Hum $Rejected.Args
+    if ($Result.ExitCode -eq 0 -or $Result.Stdout.Length -ne 0 -or $Result.Stderr.Length -eq 0) { throw "Work Order 23 $($Rejected.Label) did not fail closed before output" }
+  }
+  foreach ($Fixture in @('missing_module_fail', 'duplicate_module_fail', 'late_module_fail', 'missing_app_fail', 'module_path_identity_fail', 'illegal_pre_app_store_fail', 'illegal_pre_app_task_fail', 'illegal_pre_app_test_fail', 'type_after_app_fail', 'semantic_after_app_fail', 'start_not_first_fail', 'helper_before_start_fail')) {
+    $Result = Read-NativeChannelsWithExit "Work Order 23 H0634 fixture $Fixture" $Hum @('run', '--native', '--allow', 'stdout.write', "fixtures/programs/integer_sign/$Fixture.hum", '--args', '0')
+    if ($Result.ExitCode -eq 0 -or $Result.Stdout.Length -ne 0 -or [regex]::Matches($Result.Stderr, 'H0634').Count -ne 1) { throw "Work Order 23 $Fixture must produce exactly one H0634 before output" }
+  }
+  $CanonicalProgramPath = (Resolve-Path 'programs/integer_sign.hum').Path
+  $CanonicalProgramBytes = [System.IO.File]::ReadAllBytes($CanonicalProgramPath)
+  $Wo23Utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+  $CanonicalProgramText = $Wo23Utf8.GetString($CanonicalProgramBytes)
+  if (-not (Test-Wo22ByteArraysEqual $CanonicalProgramBytes $Wo23Utf8.GetBytes($CanonicalProgramText))) { throw 'Work Order 23 canonical program is not strict UTF-8' }
+  $DuplicateApp = Read-NativeChannelsWithExit 'Work Order 23 retained H0615 precedence' $Hum @('run', '--native', '--allow', 'stdout.write', 'fixtures/programs/integer_sign/duplicate_app_fail.hum', '--args', '0')
+  if ($DuplicateApp.ExitCode -eq 0 -or $DuplicateApp.Stdout.Length -ne 0 -or [regex]::Matches($DuplicateApp.Stderr, 'H0615').Count -ne 1 -or $DuplicateApp.Stderr.Contains('H0634')) { throw 'Work Order 23 duplicate app must retain H0615 precedence' }
+  $LayoutDefectSource = $CanonicalProgramText.Replace('module programs.integer_sign', 'module programs.foreign_identity')
+  if ([string]::Equals($LayoutDefectSource, $CanonicalProgramText, [System.StringComparison]::Ordinal)) { throw 'Work Order 23 precedence controls did not initialize the retained layout defect' }
+  $DuplicateTask = "`n  task run_tool -> Unit {`n    allocates:`n      callee-defined allocation behavior`n    does:`n      return`n  }"
+  $FinalAppBrace = $LayoutDefectSource.LastIndexOf("`n}", [System.StringComparison]::Ordinal)
+  if ($FinalAppBrace -lt 0) { throw 'Work Order 23 precedence controls lost the final app boundary' }
+  $H0602Source = $LayoutDefectSource.Insert($FinalAppBrace, $DuplicateTask)
+  $H0614Source = $LayoutDefectSource.Replace("starts with:`n    run_tool", "starts with:`n    missing_task")
+  $H0615Source = $LayoutDefectSource + "`napp another_app {`n  starts with:`n    second`n  task second -> Unit {`n    allocates:`n      callee-defined allocation behavior`n    does:`n      return`n  }`n}`n"
+  $CapabilityFixturePath = (Resolve-Path 'fixtures/app_entry/session_z_missing_stdout_source_fail.hum').Path
+  $CapabilitySource = $Wo23Utf8.GetString([System.IO.File]::ReadAllBytes($CapabilityFixturePath)).Replace('module fixtures.app_entry.session_z_missing_stdout_source_fail', 'module programs.foreign_identity')
+  $CapabilityRepairSource = $CapabilitySource.Replace("    reject output whose task and app omit the source authority budget`n`n", "    reject output whose task and app omit the source authority budget`n`n  uses:`n    stdout.write`n`n").Replace("  task run_tool -> Result Unit, OutputError {`n", "  task run_tool -> Result Unit, OutputError {`n    uses:`n      stdout.write`n`n")
+  $MalformedSource = $LayoutDefectSource.Substring(0, $FinalAppBrace + 1)
+  $SemanticSource = $LayoutDefectSource.Remove($LayoutDefectSource.IndexOf('return written', [System.StringComparison]::Ordinal), 'return written'.Length).Insert($LayoutDefectSource.IndexOf('return written', [System.StringComparison]::Ordinal), 'return "wrong"')
+  foreach ($Precedence in @(
+    [pscustomobject] @{ Label = 'H0602 duplicate name'; Code = 'H0602'; Source = $H0602Source; RepairedSource = $LayoutDefectSource },
+    [pscustomobject] @{ Label = 'H0614 unknown start'; Code = 'H0614'; Source = $H0614Source; RepairedSource = $LayoutDefectSource },
+    [pscustomobject] @{ Label = 'H0615 duplicate app'; Code = 'H0615'; Source = $H0615Source; RepairedSource = $LayoutDefectSource },
+    [pscustomobject] @{ Label = 'capability rejection'; Code = 'H0621'; Source = $CapabilitySource; RepairedSource = $CapabilityRepairSource },
+    [pscustomobject] @{ Label = 'malformed source'; Code = 'H0004'; Source = $MalformedSource; RepairedSource = $LayoutDefectSource },
+    [pscustomobject] @{ Label = 'semantic-stage rejection'; Code = 'H0606'; Source = $SemanticSource; RepairedSource = $LayoutDefectSource }
+  )) {
+    $Earlier = $null
+    $Repaired = $null
+    try {
+      [System.IO.File]::WriteAllText($CanonicalProgramPath, $Precedence.Source, $Wo23Utf8)
+      if (Test-Wo22ByteArraysEqual $CanonicalProgramBytes ([System.IO.File]::ReadAllBytes($CanonicalProgramPath))) { throw "Work Order 23 $($Precedence.Label) did not initialize" }
+      $Earlier = Read-NativeChannelsWithExit "Work Order 23 $($Precedence.Label) precedence" $Hum @('run', '--native', '--allow', 'stdout.write', 'programs/integer_sign.hum', '--args', '0')
+      [System.IO.File]::WriteAllText($CanonicalProgramPath, $Precedence.RepairedSource, $Wo23Utf8)
+      $Repaired = Read-NativeChannelsWithExit "Work Order 23 $($Precedence.Label) repair" $Hum @('run', '--native', '--allow', 'stdout.write', 'programs/integer_sign.hum', '--args', '0')
+    } finally {
+      [System.IO.File]::WriteAllBytes($CanonicalProgramPath, $CanonicalProgramBytes)
+    }
+    if (-not (Test-Wo22ByteArraysEqual $CanonicalProgramBytes ([System.IO.File]::ReadAllBytes($CanonicalProgramPath)))) { throw "Work Order 23 $($Precedence.Label) did not restore the canonical program" }
+    if ($null -eq $Earlier -or $Earlier.ExitCode -eq 0 -or $Earlier.Stdout.Length -ne 0 -or [regex]::Matches($Earlier.Stderr, [regex]::Escape($Precedence.Code)).Count -ne 1 -or $Earlier.Stderr.Contains('H0634')) { throw "Work Order 23 $($Precedence.Label) did not win before H0634" }
+    if ($null -eq $Repaired -or $Repaired.ExitCode -ne 1 -or $Repaired.Stdout.Length -ne 0 -or [regex]::Matches($Repaired.Stderr, 'H0634').Count -ne 1 -or $Repaired.Stderr.Contains($Precedence.Code)) { throw "Work Order 23 $($Precedence.Label) repair did not reveal retained H0634" }
+  }
+  $UnsupportedFixturePath = (Resolve-Path 'fixtures/programs/integer_sign/unsupported_shape_fail.hum').Path
+  $UnsupportedFixtureBytes = [System.IO.File]::ReadAllBytes($UnsupportedFixturePath)
+  if (Test-Wo22ByteArraysEqual $CanonicalProgramBytes $UnsupportedFixtureBytes) { throw 'Work Order 23 unsupported shape fixture must differ from the canonical program' }
+  $UnsupportedShape = $null
+  try {
+    [System.IO.File]::WriteAllBytes($CanonicalProgramPath, $UnsupportedFixtureBytes)
+    if (-not (Test-Wo22ByteArraysEqual $UnsupportedFixtureBytes ([System.IO.File]::ReadAllBytes($CanonicalProgramPath)))) { throw 'Work Order 23 unsupported shape projection was not byte-exact' }
+    $UnsupportedShape = Read-NativeChannelsWithExit 'Work Order 23 layout-valid unsupported shape' $Hum @('run', '--native', '--allow', 'stdout.write', 'programs/integer_sign.hum', '--args', '0')
+  } finally {
+    [System.IO.File]::WriteAllBytes($CanonicalProgramPath, $CanonicalProgramBytes)
+  }
+  if (-not (Test-Wo22ByteArraysEqual $CanonicalProgramBytes ([System.IO.File]::ReadAllBytes($CanonicalProgramPath)))) { throw 'Work Order 23 unsupported shape evidence did not restore the canonical program bytes' }
+  if (-not (Test-Wo22ByteArraysEqual $UnsupportedFixtureBytes ([System.IO.File]::ReadAllBytes($UnsupportedFixturePath)))) { throw 'Work Order 23 unsupported shape evidence changed the permanent fixture' }
+  $UnsupportedDisposition = 'native integer_sign backend-input admission failed' + [char]10
+  if ($null -eq $UnsupportedShape -or $UnsupportedShape.ExitCode -ne 1 -or $UnsupportedShape.Stdout.Length -ne 0 -or
+      $UnsupportedShape.Stderr -cne $UnsupportedDisposition -or $UnsupportedShape.Stderr.Contains('H0634') -or
+      @('artifact=', 'capability issuance', 'JIT execution', 'output=', 'ir_ready=', 'backend_ready=', 'fallback') |
+        Where-Object { $UnsupportedShape.Stderr.Contains($_) }) { throw 'Work Order 23 unsupported shape must reject at backend-input admission without success evidence' }
+  $UnsupportedFailureInitialized = $false
+  $UnsupportedFailureObserved = $false
+  try {
+    [System.IO.File]::WriteAllBytes($CanonicalProgramPath, $UnsupportedFixtureBytes)
+    $UnsupportedFailureInitialized = -not (Test-Wo22ByteArraysEqual $CanonicalProgramBytes ([System.IO.File]::ReadAllBytes($CanonicalProgramPath)))
+    $UnsupportedFailureShape = Read-NativeChannelsWithExit 'Work Order 23 unsupported shape initialized assertion-failure control' $Hum @('run', '--native', '--allow', 'stdout.write', 'programs/integer_sign.hum', '--args', '0')
+    if ($UnsupportedFailureShape.Stderr -cne ($UnsupportedDisposition + 'corrupt')) { throw 'initialized unsupported-shape assertion failure' }
+  } catch {
+    if ($_.Exception.Message -cne 'initialized unsupported-shape assertion failure') { throw }
+    $UnsupportedFailureObserved = $true
+  } finally {
+    [System.IO.File]::WriteAllBytes($CanonicalProgramPath, $CanonicalProgramBytes)
+  }
+  if (-not $UnsupportedFailureInitialized -or -not $UnsupportedFailureObserved -or
+      -not (Test-Wo22ByteArraysEqual $CanonicalProgramBytes ([System.IO.File]::ReadAllBytes($CanonicalProgramPath))) -or
+      -not (Test-Wo22ByteArraysEqual $UnsupportedFixtureBytes ([System.IO.File]::ReadAllBytes($UnsupportedFixturePath)))) { throw 'Work Order 23 initialized unsupported-shape failure control did not restore exact bytes' }
+  $CapabilitiesV1 = (Read-NativeChannelsWithExit 'Work Order 23 capability projection' $Hum @('capabilities', '--format', 'json'))
+  if ($CapabilitiesV1.ExitCode -ne 0 -or $CapabilitiesV1.Stderr.Length -ne 0) { throw 'Work Order 23 capability projection failed' }
+  $CapabilitiesV1Json = $CapabilitiesV1.Stdout | ConvertFrom-Json
+  $NativeCommands = @($CapabilitiesV1Json.commands | Where-Object { $_.name -ceq 'run_native_integer_sign' })
+  if ($NativeCommands.Count -ne 1 -or $NativeCommands[0].schema -cne 'hum.backend_input.v1' -or $NativeCommands[0].status -cne 'current-narrow') { throw 'Work Order 23 native command capability drifted' }
   Write-Host '==> Work Order 20 Unit A canonical backend-input production surface'
   $Wo20SourcePath = 'examples/core/minimal_add.hum'
   $Wo20GoldenPath = 'fixtures/backend_input/minimal_add.backend_input.v0.json'
@@ -1475,7 +1788,9 @@ task malformed() -> UInt {
   Assert-Json 'diagnostic catalog JSON' $DiagnosticsJson
   $DiagnosticsCatalog = $DiagnosticsJson | ConvertFrom-Json
   $DiagnosticCodes = @($DiagnosticsCatalog.diagnostics | ForEach-Object { $_.code })
-  if ($DiagnosticsCatalog.count -ne 88 -or $DiagnosticCodes.Count -ne 88 -or @($DiagnosticCodes | Sort-Object -Unique).Count -ne 88) { throw 'canonical diagnostic catalog must expose exactly 88 unique active codes' }
+  if ($DiagnosticsCatalog.count -ne 89 -or $DiagnosticCodes.Count -ne 89 -or @($DiagnosticCodes | Sort-Object -Unique).Count -ne 89) { throw 'canonical diagnostic catalog must expose exactly 89 unique active codes' }
+  $H0634CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0634' -and $_.title -ceq 'canonical native program layout' })
+  if ($H0634CatalogRows.Count -ne 1) { throw 'Work Order 23 H0634 catalog projection drifted' }
   $H0010CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -eq 'H0010' })
   if (
     $H0010CatalogRows.Count -ne 1 -or
@@ -1687,11 +2002,192 @@ task malformed() -> UInt {
 
   function Get-AqRustProductionSource([string]$Path) {
     $Source = [System.IO.File]::ReadAllText((Resolve-Path $Path))
-    $TerminalTestModules = [regex]::Matches($Source, '(?m)^#\[cfg\(test\)\]\r?\nmod tests\s*\{')
+    $Mask = $Source.ToCharArray()
+    $Index = 0
+    while ($Index -lt $Source.Length) {
+      $Start = $Index
+      if ($Index + 1 -lt $Source.Length -and $Source[$Index] -eq '/' -and $Source[$Index + 1] -eq '/') {
+        $Index += 2
+        while ($Index -lt $Source.Length -and $Source[$Index] -notin @("`r", "`n")) { $Index++ }
+      } elseif ($Index + 1 -lt $Source.Length -and $Source[$Index] -eq '/' -and $Source[$Index + 1] -eq '*') {
+        $CommentDepth = 1
+        $Index += 2
+        while ($Index -lt $Source.Length -and $CommentDepth -gt 0) {
+          if ($Index + 1 -lt $Source.Length -and $Source[$Index] -eq '/' -and $Source[$Index + 1] -eq '*') { $CommentDepth++; $Index += 2 }
+          elseif ($Index + 1 -lt $Source.Length -and $Source[$Index] -eq '*' -and $Source[$Index + 1] -eq '/') { $CommentDepth--; $Index += 2 }
+          else { $Index++ }
+        }
+      } else {
+        $RawCursor = $Index
+        if ($RawCursor + 1 -lt $Source.Length -and $Source[$RawCursor] -in @('b', 'c') -and $Source[$RawCursor + 1] -eq 'r') { $RawCursor++ }
+        if ($RawCursor -lt $Source.Length -and $Source[$RawCursor] -eq 'r') {
+          $RawCursor++
+          $HashStart = $RawCursor
+          while ($RawCursor -lt $Source.Length -and $Source[$RawCursor] -eq '#') { $RawCursor++ }
+          if ($RawCursor -lt $Source.Length -and $Source[$RawCursor] -eq '"') {
+            $RawDelimiter = '"' + ('#' * ($RawCursor - $HashStart))
+            $RawEnd = $Source.IndexOf($RawDelimiter, $RawCursor + 1, [System.StringComparison]::Ordinal)
+            $Index = if ($RawEnd -lt 0) { $Source.Length } else { $RawEnd + $RawDelimiter.Length }
+          }
+        }
+        if ($Index -eq $Start -and $Source[$Index] -eq '"') {
+          $Index++
+          while ($Index -lt $Source.Length) {
+            if ($Source[$Index] -eq [char]92) { $Index = [Math]::Min($Index + 2, $Source.Length); continue }
+            $ClosingQuote = $Source[$Index] -eq '"'
+            $Index++
+            if ($ClosingQuote) { break }
+          }
+        } elseif ($Index -eq $Start -and $Source[$Index] -eq "'") {
+          $CharCursor = $Index + 1
+          while ($CharCursor -lt $Source.Length -and $Source[$CharCursor] -notin @("'", "`r", "`n")) {
+            if ($Source[$CharCursor] -eq [char]92) { $CharCursor = [Math]::Min($CharCursor + 2, $Source.Length) } else { $CharCursor++ }
+          }
+          if ($CharCursor -lt $Source.Length -and $Source[$CharCursor] -eq "'") { $Index = $CharCursor + 1 }
+        }
+        if ($Index -eq $Start) { $Index++; continue }
+      }
+      for ($MaskIndex = $Start; $MaskIndex -lt $Index; $MaskIndex++) {
+        if ($Mask[$MaskIndex] -notin @("`r", "`n")) { $Mask[$MaskIndex] = ' ' }
+      }
+    }
+    $MaskedSource = -join $Mask
+    $HeaderMatches = @([regex]::Matches($MaskedSource, '(?m)^#\[cfg\(test\)\]\r?\n(?:mod tests|pub\(crate\) mod tests)[ \t]*\{'))
+    $TerminalTestModules = @()
+    foreach ($HeaderMatch in $HeaderMatches) {
+      $ModuleBraceIndex = $HeaderMatch.Index + $HeaderMatch.Length - 1
+      $ModuleDepth = 1
+      $ModuleClosingBraceIndex = -1
+      for ($Index = $ModuleBraceIndex + 1; $Index -lt $MaskedSource.Length; $Index++) {
+        if ($MaskedSource[$Index] -eq '{') { $ModuleDepth++ }
+        elseif ($MaskedSource[$Index] -eq '}') {
+          $ModuleDepth--
+          if ($ModuleDepth -eq 0) { $ModuleClosingBraceIndex = $Index; break }
+        }
+      }
+      if ($ModuleClosingBraceIndex -ge 0 -and [string]::IsNullOrWhiteSpace($MaskedSource.Substring($ModuleClosingBraceIndex + 1))) {
+        $TerminalTestModules += $HeaderMatch
+      }
+    }
     if ($TerminalTestModules.Count -gt 1) { throw "Session AQ source extraction found ambiguous terminal test modules in $Path" }
     if ($TerminalTestModules.Count -eq 0) { return $Source }
-    return $Source.Substring(0, $TerminalTestModules[0].Index)
+    $TerminalTestModule = $TerminalTestModules[0]
+    return $Source.Substring(0, $TerminalTestModule.Index)
   }
+  function Assert-AqRustProductionSourceContract {
+    $Probe = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-aq-production-source-{0}.rs" -f [guid]::NewGuid().ToString('N'))
+    try {
+      $SingleBackslash = [string][char]92
+      $FormerBackslash = '\\'
+      if ($SingleBackslash.Length -ne 1 -or [int][char]$SingleBackslash -ne 92 -or $FormerBackslash.Length -ne 2) { throw 'Session AQ exact single-backslash control drifted' }
+      foreach ($Case in @(
+        @{ Name = 'private LF'; NewLine = "`n"; Header = 'mod tests {' },
+        @{ Name = 'public(crate) LF'; NewLine = "`n"; Header = 'pub(crate) mod tests {' },
+        @{ Name = 'private CRLF'; NewLine = ([string][char]13 + [char]10); Header = 'mod tests {' },
+        @{ Name = 'public(crate) CRLF'; NewLine = ([string][char]13 + [char]10); Header = 'pub(crate) mod tests {' }
+      )) {
+        $Prefix = 'fn production_anchor() {}' + $Case.NewLine
+        $ProbeSource = $Prefix + '#[cfg(test)]' + $Case.NewLine + $Case.Header + $Case.NewLine + '    fn nested() {' + $Case.NewLine + '        if true { }' + $Case.NewLine + '    }' + $Case.NewLine + '    const STRING_BRACES: &str = "{ inert }";' + $Case.NewLine + "    const CHARACTER_BRACE: char = '}';" + $Case.NewLine + '    const RAW_BRACES: &str = r#"{ inert raw }"#;' + $Case.NewLine + '    /* { inert comment } */' + $Case.NewLine + '    const TEST_ONLY_SENTINEL: &str = "excluded";' + $Case.NewLine + '}' + $Case.NewLine + '   ' + $Case.NewLine + '// trailing line comment' + $Case.NewLine + '/* trailing /* nested */ block comment */' + $Case.NewLine
+        [System.IO.File]::WriteAllText($Probe, $ProbeSource)
+        $Production = Get-AqRustProductionSource $Probe
+        if (-not [string]::Equals($Production, $Prefix, [System.StringComparison]::Ordinal) -or $Production.Contains('TEST_ONLY_SENTINEL')) { throw "Session AQ $($Case.Name) terminal test extraction drifted" }
+      }
+      [System.IO.File]::WriteAllText($Probe, '')
+      if ((Get-AqRustProductionSource $Probe).Length -ne 0) { throw 'Session AQ zero-length source must remain byte-equivalent' }
+      $NoModuleSource = "#[cfg(test)]`nfn item_level_test_probe() {}`nfn production_anchor() {}`n"
+      [System.IO.File]::WriteAllText($Probe, $NoModuleSource)
+      if (-not [string]::Equals((Get-AqRustProductionSource $Probe), $NoModuleSource, [System.StringComparison]::Ordinal)) { throw 'Session AQ source without a terminal test module must remain byte-equivalent' }
+      $AttributedPrefix = (@(
+        '#[cfg(test)]', 'const ITEM_PROBE: i32 = 1;', 'struct Holder {', '    #[cfg(test)]', '    field_probe: i32,', '}',
+        'impl Holder {', '    #[cfg(test)]', '    fn method_probe() {}', '}', '#[cfg(test)]', 'fn function_probe() {}', 'fn production_anchor() {}', ''
+      )) -join "`n"
+      [System.IO.File]::WriteAllText($Probe, $AttributedPrefix + "#[cfg(test)]`npub(crate) mod tests {`n    const TEST_ONLY_SENTINEL: i32 = 1;`n}`n")
+      if (-not [string]::Equals((Get-AqRustProductionSource $Probe), $AttributedPrefix, [System.StringComparison]::Ordinal)) { throw 'Session AQ field, function, method, and item cfg(test) attributes before terminal tests must survive byte-exactly' }
+      $DecoySource = (@(
+        'fn nested_scope() {', '#[cfg(test)]', 'mod tests {', '}', '}',
+        '    #[cfg(test)]', '    mod tests {', '    }',
+        '/*', '#[cfg(test)]', 'mod tests {', '}', '*/',
+        'const STRING_DECOY: &str = "', '#[cfg(test)]', 'mod tests {', '}', '";',
+        'const RAW_DECOY: &str = r#"', '#[cfg(test)]', 'pub(crate) mod tests {', '}', '"#;',
+        '#[cfg(test)]', 'pub mod tests {}', '#[cfg(test)]', 'pub(super) mod tests {}',
+        '#[cfg(test)]', 'pub(in crate) mod tests {}', '#[cfg(test)]', 'mod renamed {}',
+        '#[cfg(any(test))]', 'mod tests {}', 'fn production_anchor() {}', ''
+      )) -join "`n"
+      [System.IO.File]::WriteAllText($Probe, $DecoySource)
+      if (-not [string]::Equals((Get-AqRustProductionSource $Probe), $DecoySource, [System.StringComparison]::Ordinal)) { throw 'Session AQ nested, indented, comment, string, raw-string, visibility, name, or attribute decoy truncated production source' }
+      foreach ($Case in @(
+        @{ Name = 'private escaped-string LF'; NewLine = "`n"; Header = 'mod tests {' },
+        @{ Name = 'public(crate) escaped-string LF'; NewLine = "`n"; Header = 'pub(crate) mod tests {' },
+        @{ Name = 'private escaped-string CRLF'; NewLine = ([string][char]13 + [char]10); Header = 'mod tests {' },
+        @{ Name = 'public(crate) escaped-string CRLF'; NewLine = ([string][char]13 + [char]10); Header = 'pub(crate) mod tests {' }
+      )) {
+        $EscapedPrefix = 'const ESCAPED_DECOY: &str = "quote \' + '"' + $Case.NewLine + '#[cfg(test)]' + $Case.NewLine + $Case.Header + $Case.NewLine + '}' + $Case.NewLine + 'tail";' + $Case.NewLine + 'const ESCAPED_BACKSLASHES: &str = "slashes \\\\";' + $Case.NewLine + "const ESCAPED_QUOTE: char = '\'';" + $Case.NewLine + "const ESCAPED_BACKSLASH: char = '\\';" + $Case.NewLine + 'fn escaped_production_anchor() {}' + $Case.NewLine
+        $EscapedDecoySource = $EscapedPrefix + '#[cfg(test)]' + $Case.NewLine + 'pub(crate) mod tests {' + $Case.NewLine + '    const TEST_ONLY_SENTINEL: i32 = 1;' + $Case.NewLine + '}' + $Case.NewLine
+        [System.IO.File]::WriteAllText($Probe, $EscapedDecoySource)
+        if (-not [string]::Equals((Get-AqRustProductionSource $Probe), $EscapedPrefix, [System.StringComparison]::Ordinal)) { throw "Session AQ $($Case.Name) decoy escaped the ordinary-string mask" }
+      }
+      $EscapedQuoteIndex = $EscapedDecoySource.IndexOf($SingleBackslash + '"', [System.StringComparison]::Ordinal)
+      if ($EscapedQuoteIndex -lt 0 -or $EscapedDecoySource[$EscapedQuoteIndex] -eq $FormerBackslash -or -not [regex]::IsMatch($EscapedDecoySource.Substring($EscapedQuoteIndex + 2), '(?m)^#\[cfg\(test\)\]\r?\npub\(crate\) mod tests[ \t]*\{')) { throw 'Session AQ former two-character backslash corruption control was not initialized' }
+      $NonTerminalFunctionSource = "#[cfg(test)]`nmod tests {}`nfn production_after_tests() {}`n"
+      foreach ($Case in @(
+        @{ Name = 'function'; Source = $NonTerminalFunctionSource },
+        @{ Name = 'const'; Source = "#[cfg(test)]`npub(crate) mod tests {}`nconst PRODUCTION_AFTER_TESTS: i32 = 1;`n" },
+        @{ Name = 'attribute and item'; Source = "#[cfg(test)]`nmod tests {}`n#[inline]`nfn attributed_production_after_tests() {}`n" },
+        @{ Name = 'macro'; Source = "#[cfg(test)]`npub(crate) mod tests {}`nproduction_after_tests!();`n" },
+        @{ Name = 'second nonterminal module'; Source = "#[cfg(test)]`nmod tests {}`n#[cfg(test)]`npub(crate) mod tests {}`nfn production_after_both() {}`n" }
+      )) {
+        [System.IO.File]::WriteAllText($Probe, $Case.Source)
+        if (-not [string]::Equals((Get-AqRustProductionSource $Probe), $Case.Source, [System.StringComparison]::Ordinal)) { throw "Session AQ test module followed by $($Case.Name) must retain the complete source" }
+      }
+      $FormerTerminalityMatch = [regex]::Match($NonTerminalFunctionSource, '(?m)^#\[cfg\(test\)\]\r?\nmod tests[ \t]*\{')
+      $FormerTerminalityProduction = if ($FormerTerminalityMatch.Success) { $NonTerminalFunctionSource.Substring(0, $FormerTerminalityMatch.Index) } else { $NonTerminalFunctionSource }
+      if (-not $FormerTerminalityMatch.Success -or $FormerTerminalityProduction.Contains('production_after_tests')) { throw 'Session AQ removed-terminality corruption control was not initialized' }
+      $UnclosedSource = "#[cfg(test)]`npub(crate) mod tests {`n    fn nested() {}`n"
+      [System.IO.File]::WriteAllText($Probe, $UnclosedSource)
+      if (-not [string]::Equals((Get-AqRustProductionSource $Probe), $UnclosedSource, [System.StringComparison]::Ordinal)) { throw 'Session AQ unclosed recognized test module must retain the complete source' }
+      $CrLf = [string][char]13 + [char]10
+      $MacroCases = @(
+        @{ Name = 'parenthesized'; Source = "macro_call!(`n#[cfg(test)]`nmod tests {`n    const MACRO_SENTINEL: i32 = 1;`n}`n);`nfn production_after_macro() {}`n" },
+        @{ Name = 'parenthesized CRLF'; Source = 'macro_call!(' + $CrLf + '#[cfg(test)]' + $CrLf + 'mod tests {' + $CrLf + '    const MACRO_SENTINEL: i32 = 1;' + $CrLf + '}' + $CrLf + ');' + $CrLf + 'fn production_after_macro() {}' + $CrLf },
+        @{ Name = 'bracketed'; Source = "macro_call![`n#[cfg(test)]`npub(crate) mod tests {`n    const MACRO_SENTINEL: i32 = 1;`n}`n];`nfn production_after_macro() {}`n" },
+        @{ Name = 'bracketed CRLF'; Source = 'macro_call![' + $CrLf + '#[cfg(test)]' + $CrLf + 'pub(crate) mod tests {' + $CrLf + '    const MACRO_SENTINEL: i32 = 1;' + $CrLf + '}' + $CrLf + '];' + $CrLf + 'fn production_after_macro() {}' + $CrLf },
+        @{ Name = 'braced'; Source = "macro_call! {`n#[cfg(test)]`nmod tests {`n    const MACRO_SENTINEL: i32 = 1;`n}`n}`nfn production_after_macro() {}`n" }
+      )
+      foreach ($Case in $MacroCases) {
+        [System.IO.File]::WriteAllText($Probe, $Case.Source)
+        if (-not [string]::Equals((Get-AqRustProductionSource $Probe), $Case.Source, [System.StringComparison]::Ordinal)) { throw "Session AQ $($Case.Name) macro-contained header must retain the complete source" }
+      }
+      $MacroOnlySource = "macro_call!(`n#[cfg(test)]`nmod tests {`n    const MACRO_ONLY_SENTINEL: i32 = 1;`n}`n);`n"
+      [System.IO.File]::WriteAllText($Probe, $MacroOnlySource)
+      if (-not [string]::Equals((Get-AqRustProductionSource $Probe), $MacroOnlySource, [System.StringComparison]::Ordinal)) { throw 'Session AQ macro-only source must remain byte-equivalent' }
+      $MacroThenTerminalPrefix = "macro_call![`n#[cfg(test)]`nmod tests {`n    const MACRO_SENTINEL: i32 = 1;`n}`n];`nfn production_after_macro() {}`n"
+      $MacroThenTerminalSource = $MacroThenTerminalPrefix + "#[cfg(test)]`npub(crate) mod tests {`n    const REAL_TEST_SENTINEL: i32 = 1;`n}`n"
+      [System.IO.File]::WriteAllText($Probe, $MacroThenTerminalSource)
+      if (-not [string]::Equals((Get-AqRustProductionSource $Probe), $MacroThenTerminalPrefix, [System.StringComparison]::Ordinal)) { throw 'Session AQ macro decoy before a real terminal module must strip only the real terminal module' }
+      $DuplicateTerminalPrefix = "#[cfg(test)]`nmod tests {}`nfn production_between_tests() {}`n"
+      $DuplicateTerminalSource = $DuplicateTerminalPrefix + "#[cfg(test)]`npub(crate) mod tests {`n    const FINAL_TEST_SENTINEL: i32 = 1;`n}`n"
+      [System.IO.File]::WriteAllText($Probe, $DuplicateTerminalSource)
+      if (-not [string]::Equals((Get-AqRustProductionSource $Probe), $DuplicateTerminalPrefix, [System.StringComparison]::Ordinal)) { throw 'Session AQ an earlier nonterminal candidate must not discard following production before the proven terminal module' }
+      $FormerTopLevelMatches = @([regex]::Matches($MacroThenTerminalSource, '(?m)^#\[cfg\(test\)\]\r?\n(?:mod tests|pub\(crate\) mod tests)[ \t]*\{'))
+      $FormerTopLevelCount = 0
+      foreach ($FormerTopLevelMatch in $FormerTopLevelMatches) {
+        $FormerPrefix = $MacroThenTerminalSource.Substring(0, $FormerTopLevelMatch.Index)
+        $FormerBraceDepth = ([regex]::Matches($FormerPrefix, '\{').Count - [regex]::Matches($FormerPrefix, '\}').Count)
+        if ($FormerBraceDepth -eq 0) { $FormerTopLevelCount++ }
+      }
+      if ($FormerTopLevelCount -ne 2) { throw 'Session AQ removed global top-level-brace selection corruption control was not initialized' }
+      $RunSource = [System.IO.File]::ReadAllText((Resolve-Path 'src/run.rs'))
+      $RunProduction = Get-AqRustProductionSource 'src/run.rs'
+      $Survivor = 'session_aq_execution_time_use_after_move_survivor_is_internal_invariant'
+      if (-not $RunProduction.Contains('run_program_with_occurrences_and_file_adapters') -or -not $RunProduction.Contains('fn location(span: &Span)') -or $RunProduction.Contains($Survivor)) { throw 'Session AQ current run.rs extraction lost a production anchor or retained the test-only survivor' }
+      $PrivateOnlyMatches = @([regex]::Matches($RunSource, '(?m)^#\[cfg\(test\)\]\r?\nmod tests[ \t]*\{'))
+      $PrivateOnlyProduction = if ($PrivateOnlyMatches.Count -eq 0) { $RunSource } else { $RunSource.Substring(0, $PrivateOnlyMatches[0].Index) }
+      if (-not $PrivateOnlyProduction.Contains($Survivor)) { throw 'Session AQ private-only corruption control was not initialized against current pub(crate) run.rs tests' }
+    } finally {
+      if (Test-Path -LiteralPath $Probe) { Remove-Item -LiteralPath $Probe -Force }
+    }
+  }
+  Assert-AqRustProductionSourceContract
   Write-Host '==> Replacement F4 mandatory private Core boundary source audit'
   $F4CoreProduction = Get-AqRustProductionSource 'src/core_body.rs'
   $F4AstProduction = Get-AqRustProductionSource 'src/ast.rs'
@@ -1934,6 +2430,37 @@ task malformed() -> UInt {
   if (-not [string]::Equals($env:RUSTFLAGS, $Wo22UnitBPriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 22 Unit B fault-seam proof did not restore RUSTFLAGS' }
   Invoke-Native 'Work Order 22 Unit B normal compiler check after compile proofs' $Cargo @('check', '--all-targets')
 
+  Write-Host '==> Work Order 23 VerifiedIntegerSignBackendInput compiler-owned authority proof'
+  $Wo23PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_integer_sign_backend_input_construction'
+    $Wo23ConstructionFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability construction proof' $Cargo @('check', '--bin', 'hum')
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_integer_sign_backend_input_lifetime'
+    $Wo23LifetimeFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability lifetime escape proof' $Cargo @('check', '--bin', 'hum')
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_integer_sign_backend_input_substitution'
+    $Wo23SubstitutionFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability substitution proof' $Cargo @('check', '--bin', 'hum')
+  } finally {
+    if ($null -eq $Wo23PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo23PriorRustFlags }
+  }
+  if ($Wo23ConstructionFailure.ExitCode -ne 101 -or
+      [regex]::Matches($Wo23ConstructionFailure.Output, 'error\[E0451\]').Count -ne 1 -or
+      -not $Wo23ConstructionFailure.Output.Contains('fields `projection` and `_artifact` of struct `VerifiedIntegerSignBackendInput` are private') -or
+      -not $Wo23ConstructionFailure.Output.Contains('projection: None.unwrap()')) { throw 'Work Order 23 integer-sign construction proof lost its field-privacy diagnostic or primary span' }
+  if ($Wo23LifetimeFailure.ExitCode -ne 101 -or
+      -not [regex]::IsMatch($Wo23LifetimeFailure.Output, 'lifetime may not live long enough|borrowed data escapes outside of closure|error\[E0521\]') -or
+      -not $Wo23LifetimeFailure.Output.Contains('|capability| capability') -or
+      -not $Wo23LifetimeFailure.Output.Contains('return type of closure is VerifiedIntegerSignBackendInput')) { throw 'Work Order 23 integer-sign lifetime proof lost its callback-owned escape diagnostic or primary span' }
+  if ($Wo23SubstitutionFailure.ExitCode -ne 101 -or
+      [regex]::Matches($Wo23SubstitutionFailure.Output, 'error\[E0308\]').Count -ne 2 -or
+      -not $Wo23SubstitutionFailure.Output.Contains('found reference `&[u8]`') -or
+      -not $Wo23SubstitutionFailure.Output.Contains('found reference `&VerifiedBackendInput') -or
+      [regex]::Matches($Wo23SubstitutionFailure.Output, 'execute_integer_sign').Count -lt 4) { throw 'Work Order 23 integer-sign substitution proof lost its two backend-consumer type diagnostics or primary spans' }
+  foreach ($Wo23AuthorityFailure in @($Wo23ConstructionFailure, $Wo23LifetimeFailure, $Wo23SubstitutionFailure)) {
+    if ([regex]::IsMatch($Wo23AuthorityFailure.Output, 'error\[E(?:0412|0422|0432|0433|0603)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module|function)|expected item, found')) { throw 'Work Order 23 integer-sign authority proof failed for an unrelated symbol, cfg, import, or syntax reason' }
+  }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo23PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 23 integer-sign authority proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 23 normal compiler check after authority proof' $Cargo @('check', '--all-targets')
+
   Write-Host '==> Work Order 17 sole minimal-add outcome producer proof'
   $Wo17OutcomePriorRustFlags = $env:RUSTFLAGS
   try {
@@ -2096,6 +2623,11 @@ task malformed() -> UInt {
   )) {
     Invoke-ExactRustTest "Session AP evidence $EvidenceTest" $Cargo $EvidenceTest
   }
+  Invoke-ExactRustTest 'Work Order 23 Unit A canonical native layout' $Cargo 'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing'
+  Invoke-ExactRustTest 'Work Order 23 Unit A canonical backend input' $Cargo 'backend_input::tests::canonical_integer_sign_backend_input_is_exact_and_nonforgeable'
+  Invoke-ExactRustTest 'Work Order 23 Unit A artifact rejection matrix' $Cargo 'ir_verify::tests::integer_sign_artifact_rejection_matrix_is_complete'
+  Invoke-ExactRustTest 'Work Order 23 Unit A source-driven Cranelift lowering' $Cargo 'backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing'
+  Invoke-ExactRustTest 'Work Order 23 Unit A native CLI and authority' $Cargo 'main::tests::native_integer_sign_run_is_authority_bound_and_platform_exact'
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $OlderExactRustSelectorObligations = @(
     'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed',
@@ -2123,7 +2655,14 @@ task malformed() -> UInt {
     'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing',
     'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
   )
-  $PreservedNamedExactRustSelectors = @($OlderExactRustSelectorObligations) + @($WorkOrder17ExactRustSelectors) + @($WorkOrder19ExactRustSelectors) + @($WorkOrder20UnitAExactRustSelectors) + @($WorkOrder22UnitBExactRustSelectors)
+  $WorkOrder23UnitAExactRustSelectors = @(
+    'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing',
+    'backend_input::tests::canonical_integer_sign_backend_input_is_exact_and_nonforgeable',
+    'ir_verify::tests::integer_sign_artifact_rejection_matrix_is_complete',
+    'backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing',
+    'main::tests::native_integer_sign_run_is_authority_bound_and_platform_exact'
+  )
+  $PreservedNamedExactRustSelectors = @($OlderExactRustSelectorObligations) + @($WorkOrder17ExactRustSelectors) + @($WorkOrder19ExactRustSelectors) + @($WorkOrder20UnitAExactRustSelectors) + @($WorkOrder22UnitBExactRustSelectors) + @($WorkOrder23UnitAExactRustSelectors)
   Invoke-ExactRustSelectorLedgerMutationTests -Credits $ExactRustSelectorCredits -PreservedNamedSelectors $PreservedNamedExactRustSelectors
   foreach ($OlderSelector in $OlderExactRustSelectorObligations) {
     if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $OlderSelector }).Count -ne 1) { throw "exact Rust selector inventory lost older required selector $OlderSelector" }
@@ -2139,6 +2678,9 @@ task malformed() -> UInt {
   }
   foreach ($WorkOrder22UnitBSelector in $WorkOrder22UnitBExactRustSelectors) {
     if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder22UnitBSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 22 Unit B selector $WorkOrder22UnitBSelector" }
+  }
+  foreach ($WorkOrder23UnitASelector in $WorkOrder23UnitAExactRustSelectors) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder23UnitASelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 23 Unit A selector $WorkOrder23UnitASelector" }
   }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
@@ -2206,25 +2748,6 @@ task malformed() -> UInt {
   $ApDeletedValidationRejected = $false
   try { Assert-ApCoreIrProductionValidation $ApCoreVerifyProductionSource ($ApIrProductionSource.Replace($ApIrValidationNeedle, '')) } catch { $ApDeletedValidationRejected = $true }
   if (-not $ApDeletedValidationRejected) { throw 'Session AP must reject deletion of the real IR production validation' }
-  $ApExtractionProbe = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-ap-production-source-{0}.rs" -f [guid]::NewGuid().ToString('N'))
-  try {
-    $ApProbeSource = "#[cfg(test)]`nfn nested_probe() {}`nfn production() { transport$ApIrValidationNeedle; }`n#[cfg(test)]`nmod tests {`n    const TEST_ONLY_SENTINEL: &str = `"excluded`";`n}`n"
-    [System.IO.File]::WriteAllText($ApExtractionProbe, $ApProbeSource)
-    $ApProbeProduction = Get-AqRustProductionSource $ApExtractionProbe
-    if (-not $ApProbeProduction.Contains('fn nested_probe()') -or -not $ApProbeProduction.Contains($ApIrValidationNeedle) -or $ApProbeProduction.Contains('TEST_ONLY_SENTINEL')) { throw 'Session AP production extraction must retain nested cfg items and later production while excluding terminal tests' }
-    $ApMovedOnlySource = "#[cfg(test)]`nfn nested_probe() {}`nfn production() {}`n#[cfg(test)]`nmod tests {`n    fn test_only() { transport$ApIrValidationNeedle; }`n}`n"
-    [System.IO.File]::WriteAllText($ApExtractionProbe, $ApMovedOnlySource)
-    $ApMovedOnlyRejected = $false
-    try { Assert-ApCoreIrProductionValidation $ApCoreVerifyProductionSource (Get-AqRustProductionSource $ApExtractionProbe) } catch { $ApMovedOnlyRejected = $true }
-    if (-not $ApMovedOnlyRejected) { throw 'Session AP terminal-test validation spelling must not satisfy the production audit' }
-    [System.IO.File]::WriteAllText($ApExtractionProbe, "#[cfg(test)]`nmod tests {}`n#[cfg(test)]`nmod tests {}`n")
-    $ApAmbiguousRejected = $false
-    try { $null = Get-AqRustProductionSource $ApExtractionProbe } catch { $ApAmbiguousRejected = $_.Exception.Message.Contains('ambiguous terminal test modules') }
-    if (-not $ApAmbiguousRejected) { throw 'Session AP production extraction must reject ambiguous terminal test modules' }
-  } finally {
-    if (Test-Path -LiteralPath $ApExtractionProbe) { Remove-Item -LiteralPath $ApExtractionProbe -Force }
-  }
-
   $ApParser = 'fixtures/diagnostics/session_ap_parser_resolver_precedence_fail.hum'
   $ApParserResolve = Read-NativeOutputWithExit 'Session AP parser/resolver owner' $Hum @('resolve', $ApParser)
   if ($ApParserResolve.ExitCode -ne 1 -or [regex]::Matches($ApParserResolve.Output, 'H0001').Count -ne 1 -or [regex]::Matches($ApParserResolve.Output, 'H0601').Count -ne 1) { throw 'Session AP parser/resolver fixture must retain its two independently owned source facts at resolve' }
@@ -2411,7 +2934,7 @@ task malformed() -> UInt {
   if ($HumIrLayers[0].role -cne 'verified target-independent backend input behind a sealed compiler capability') { throw 'IR contract JSON hum_ir layer role drifted' }
   if ($IrContractJson.Contains('"no IR emission for source files"')) { throw 'IR contract JSON must remove the obsolete V0 non-emission claim' }
   if (-not $IrContractJson.Contains('"no durable verified-input authority"')) { throw 'IR contract JSON must keep the durable-authority non-claim' }
-  if (@($IrContract.non_goals_v0 | Where-Object { $_ -ceq 'no general backend lowering beyond canonical minimal_add' }).Count -ne 1 -or @($IrContract.non_goals_v0 | Where-Object { $_ -ceq 'no backend lowering' }).Count -ne 0 -or @($IrContract.non_goals_v0 | Where-Object { $_ -ceq 'no durable backend adapter input authority' }).Count -ne 1 -or @($IrContract.non_goals_v0 | Where-Object { $_ -ceq 'no backend adapter input authority' }).Count -ne 0) { throw 'IR contract JSON must keep the two narrow backend non-claims and retire both absolute non-claims' }
+  if (@($IrContract.non_goals_v0 | Where-Object { $_ -ceq 'no general backend lowering beyond canonical minimal_add and integer_sign' }).Count -ne 1 -or @($IrContract.non_goals_v0 | Where-Object { $_ -ceq 'no backend lowering' }).Count -ne 0 -or @($IrContract.non_goals_v0 | Where-Object { $_ -ceq 'no durable backend adapter input authority' }).Count -ne 1 -or @($IrContract.non_goals_v0 | Where-Object { $_ -ceq 'no backend adapter input authority' }).Count -ne 0) { throw 'IR contract JSON must keep the two narrow backend non-claims and retire both absolute non-claims' }
 
   $BackendContractJson = Read-NativeOutput 'backend contract JSON' $Hum @('backend-contract', '--format', 'json')
   Assert-Json 'backend contract JSON' $BackendContractJson
@@ -2421,7 +2944,7 @@ task malformed() -> UInt {
   if (-not $BackendContractJson.Contains('"id": "interpreter"')) { throw 'backend contract JSON is missing interpreter stage' }
   if (-not $BackendContractJson.Contains('"id": "cranelift"')) { throw 'backend contract JSON is missing cranelift stage' }
   if (-not $BackendContractJson.Contains('"id": "llvm"')) { throw 'backend contract JSON is missing llvm stage' }
-  if (-not $BackendContractJson.Contains('"no code execution"')) { throw 'backend contract JSON must keep V0 non-execution claim' }
+  if (-not $BackendContractJson.Contains('"no arbitrary-program native execution"')) { throw 'backend contract JSON must keep the bounded native-execution non-claim' }
 
   $RuntimeProfilesJson = Read-NativeOutput 'runtime profiles JSON' $Hum @('profiles', '--format', 'json')
   Assert-Json 'runtime profiles JSON' $RuntimeProfilesJson

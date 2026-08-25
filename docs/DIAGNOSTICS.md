@@ -15,6 +15,12 @@ Hum is trying to make systems programming readable, safe, fast, and friendly to
 agents. That only works if the compiler explains problems with stable facts, not
 just terminal prose.
 
+`H0634 canonical native program layout` is the stable native-admission
+diagnostic for the first program slice. Producer-owned reasons distinguish
+module cardinality and position, missing app, normalized path/module/app
+identity, illegal pre-app item kind, type/app order, app finality, and the
+first entry task. It does not make legacy Hum layouts globally invalid.
+
 A Hum diagnostic must help five readers at once:
 
 - a beginner who needs plain language
@@ -133,7 +139,7 @@ JSON shape in `hum diagnostics --format json`:
 ```json
 {
   "schema": "hum.diagnostic_catalog.v0",
-  "count": 88,
+  "count": 89,
   "diagnostics": [
     {
       "code": "H0201",
@@ -281,6 +287,7 @@ unallocated rather than implicitly free.
 | `H0631` | error | file operation lacks source authority | A `files_read_text` call lacks exact `files.read` coverage at its task or structural app boundary. |
 | `H0632` | error | invalid files_read_text call | The hardened reader does not receive exactly one checked opaque `Path` argument. |
 | `H0633` | error | reserved file-read built-in name redeclared | A user task attempts to redeclare the exact `files_read_text` builtin name. |
+| `H0634` | error | canonical native program layout | Native canonical admission requires matching `programs/<name>.hum`, `module programs.<name>`, and `app <name>` identity, with one module first, optional local types before the sole final app, and its declared entry task first. |
 
 ### Executable Contracts
 

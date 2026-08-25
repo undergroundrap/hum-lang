@@ -97,6 +97,11 @@ pub(crate) struct VerifiedMinimalAddOwnership<'report>(
     effect_check::VerifiedMinimalAddEffect<'report>,
 );
 
+pub(crate) struct VerifiedIntegerSignOwnership<'report> {
+    effect: effect_check::VerifiedIntegerSignEffect<'report>,
+    _report: &'report OwnershipCheckReport,
+}
+
 impl VerifiedMinimalAddOwnership<'_> {
     pub(crate) fn backend_identity(
         &self,
@@ -767,6 +772,24 @@ impl<'report> OwnershipResourceReportAccess<'report> {
                 !row.status.starts_with("rejected_") && !row.status.starts_with("unchecked_")
             }))
         .then_some(VerifiedMinimalAddOwnership(effect))
+    }
+
+    pub(crate) fn canonical_integer_sign_for(
+        &self,
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+        authority: &'report crate::type_check::CanonicalIntegerSignTypeAuthority,
+    ) -> Option<VerifiedIntegerSignOwnership<'report>> {
+        let effect = self.effect.canonical_integer_sign_for(layout, authority)?;
+        (self.report.blocking_issues() == 0).then_some(VerifiedIntegerSignOwnership {
+            effect,
+            _report: self.report,
+        })
+    }
+}
+
+impl VerifiedIntegerSignOwnership<'_> {
+    pub(crate) fn authority(&self) -> &crate::type_check::CanonicalIntegerSignTypeAuthority {
+        self.effect.authority()
     }
 }
 
@@ -2926,15 +2949,24 @@ fn local_ownership_facts(
     }
 
     let mut seen = BTreeSet::new();
+    let mut scope = Vec::<usize>::new();
+    let mut next_scope = 0usize;
     for statement in statements {
+        if statement.kind == "block_close" {
+            scope.pop();
+        }
         if !matches!(statement.kind, "let_binding" | "mutable_binding") {
+            if statement.text.ends_with('{') {
+                scope.push(next_scope);
+                next_scope += 1;
+            }
             continue;
         }
         let Some(name) = binding_name(statement) else {
             continue;
         };
         let name = first_resource(&name);
-        if !seen.insert(name.clone()) {
+        if !seen.insert((scope.clone(), name.clone())) {
             facts.duplicate_locals.insert(name.clone());
         }
         if let Some(binding) = alias_analysis

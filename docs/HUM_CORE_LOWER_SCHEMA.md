@@ -16,6 +16,11 @@ Hum-shaped subset the bootstrap can currently lower, keeps every operation tied
 to source spans, and reports blockers where source text cannot yet become Core
 Hum.
 
+For the canonical `integer_sign` program, the compiler also retains a private
+lowering fact set for signed `< 0`, `== 0`, and fallthrough branches with exact
+source literals and spans. Those facts are not a new serialized Core schema
+and do not admit arbitrary branch programs.
+
 ## Command
 
 ```powershell

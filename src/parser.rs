@@ -2223,7 +2223,7 @@ pub(crate) fn parse_source_at_index(
         occurrence_seals: Vec::new(),
         statement_seals: Vec::new(),
     };
-    let (module, items) = parser.parse_file_items();
+    let (module, module_occurrences, items) = parser.parse_file_items();
     parser
         .diagnostic_occurrences
         .validate()
@@ -2244,7 +2244,7 @@ pub(crate) fn parse_source_at_index(
     );
 
     ParseOutput {
-        file: SourceFile::parser_new(path, module, items, file_witness),
+        file: SourceFile::parser_new(path, module, module_occurrences, items, file_witness),
         diagnostics: parser.diagnostics,
         diagnostic_occurrences: parser.diagnostic_occurrences,
         source_owner_seals: parser.source_owner_seals,
@@ -2325,8 +2325,11 @@ impl Parser {
         )
     }
 
-    fn parse_file_items(&mut self) -> (Option<String>, Vec<Item>) {
+    fn parse_file_items(
+        &mut self,
+    ) -> (Option<String>, Vec<crate::ast::ModuleOccurrence>, Vec<Item>) {
         let mut module = None;
+        let mut module_occurrences = Vec::new();
         let mut items = Vec::new();
         let mut index = 0;
 
@@ -2343,6 +2346,10 @@ impl Parser {
                 if let Some(rest) = trimmed.strip_prefix("module ") {
                     let module_name = rest.trim().to_string();
                     self.validate_module_path(&module_name, line.number);
+                    module_occurrences.push(crate::ast::ModuleOccurrence {
+                        name: module_name.clone(),
+                        span: self.span(line.number),
+                    });
                     module = Some(module_name);
                     index += 1;
                     continue;
@@ -2376,7 +2383,7 @@ impl Parser {
             index += 1;
         }
 
-        (module, items)
+        (module, module_occurrences, items)
     }
 
     fn parse_items_in_range(

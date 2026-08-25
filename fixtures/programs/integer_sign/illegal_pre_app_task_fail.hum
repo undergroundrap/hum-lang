@@ -1,0 +1,19 @@
+module programs.illegal_pre_app_task_fail
+
+task helper -> Unit {
+  allocates:
+    callee-defined allocation behavior
+  does:
+    return
+}
+
+app illegal_pre_app_task_fail {
+  starts with:
+    run_tool
+  task run_tool -> Unit {
+    allocates:
+      callee-defined allocation behavior
+    does:
+      return
+  }
+}

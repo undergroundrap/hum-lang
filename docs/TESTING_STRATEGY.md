@@ -26,6 +26,12 @@ test add task rejects empty title {
 
 `tests:` is an obligation. `test` is executable evidence.
 
+The canonical `integer_sign` corpus is permanent compiler evidence rather than
+a demo: positive source/interpreter/native parity covers negative, zero, and
+positive inputs, while dedicated fixtures bind layout diagnostics and thirteen
+initialized production-predicate mutations. The exact-selector ledger carries
+five feature selectors and must remain ordered and exact-once.
+
 ## Why This Matters
 
 A senior engineer reads requirements and immediately hears test cases:

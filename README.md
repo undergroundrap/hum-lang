@@ -9,6 +9,13 @@ humans and coding agents.
 Hum source should scale from the small form most code wants to the explicit
 contract form safety-critical work deserves.
 
+The first canonical user-facing native slice is
+[`programs/integer_sign.hum`](programs/integer_sign.hum):
+`hum run --native --allow stdout.write programs/integer_sign.hum --args -7`
+checks the source, verifies its exact backend facts, and prints `negative`
+through Cranelift on supported Windows and Linux hosts. This is one bounded
+program shape, not general native compilation.
+
 Minimal form:
 
 <!-- hum-example:start examples/core/minimal_add.hum -->

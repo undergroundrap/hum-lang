@@ -179,6 +179,106 @@ pub(crate) struct VerifiedBackendInput<'artifact> {
     _artifact: PhantomData<&'artifact [u8]>,
 }
 
+struct VerifiedIntegerSignProjection {
+    artifact_id: String,
+    compiler_version: &'static str,
+    target_context: &'static str,
+    source_revision: String,
+    source_path: String,
+    module_name: String,
+    app_name: String,
+    entry_name: String,
+    branches: [crate::core_lower::CanonicalIntegerSignBranch; 3],
+    required_passes: Vec<&'static str>,
+}
+
+pub(crate) struct VerifiedIntegerSignBackendInput<'artifact> {
+    projection: VerifiedIntegerSignProjection,
+    _artifact: PhantomData<&'artifact [u8]>,
+}
+
+impl VerifiedIntegerSignBackendInput<'_> {
+    pub(crate) fn schema(&self) -> &'static str {
+        backend_input::INTEGER_SIGN_BACKEND_INPUT_SCHEMA
+    }
+    pub(crate) fn artifact_id(&self) -> &str {
+        &self.projection.artifact_id
+    }
+    pub(crate) fn compiler_version(&self) -> &str {
+        self.projection.compiler_version
+    }
+    pub(crate) fn target_context(&self) -> &str {
+        self.projection.target_context
+    }
+    pub(crate) fn source_identity(&self) -> (&str, &str, &str, &str, &str) {
+        (
+            &self.projection.source_revision,
+            &self.projection.source_path,
+            &self.projection.module_name,
+            &self.projection.app_name,
+            &self.projection.entry_name,
+        )
+    }
+    pub(crate) fn branches(&self) -> &[crate::core_lower::CanonicalIntegerSignBranch; 3] {
+        &self.projection.branches
+    }
+    pub(crate) fn required_passes(&self) -> &[&'static str] {
+        &self.projection.required_passes
+    }
+}
+
+pub(crate) fn with_verified_integer_sign_backend_input<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    artifact: &[u8],
+    consume: impl for<'artifact> FnOnce(VerifiedIntegerSignBackendInput<'artifact>) -> R,
+) -> Result<R, &'static str> {
+    if artifact.is_empty()
+        || artifact.starts_with(&[0xef, 0xbb, 0xbf])
+        || artifact.contains(&b'\r')
+        || !artifact.ends_with(b"\n")
+        || artifact.ends_with(b"\n\n")
+        || std::str::from_utf8(artifact).is_err()
+    {
+        return Err("integer_sign_artifact_framing_invalid_v1");
+    }
+    let live = backend_input::canonical_integer_sign_artifact(program, diagnostics, layout)
+        .ok_or("integer_sign_live_facts_unavailable_v1")?;
+    if live.bytes() != artifact {
+        return Err("integer_sign_artifact_live_binding_mismatch_v1");
+    }
+    let projection =
+        backend_input::with_canonical_integer_sign_facts(program, diagnostics, layout, |facts| {
+            let (module_name, app_name, entry_name) = facts.identities();
+            VerifiedIntegerSignProjection {
+                artifact_id: live.artifact_id().to_string(),
+                compiler_version: version::HUM_VERSION,
+                target_context: backend_input::TARGET_CONTEXT,
+                source_revision: facts.source_revision().to_string(),
+                source_path: facts.source_path().to_string(),
+                module_name: module_name.to_string(),
+                app_name: app_name.to_string(),
+                entry_name: entry_name.to_string(),
+                branches: facts.branches().clone(),
+                required_passes: facts.required_passes().to_vec(),
+            }
+        })
+        .ok_or("integer_sign_live_facts_unavailable_v1")?;
+    fn issue<'artifact, R>(
+        _program: &'artifact Program,
+        _artifact: &'artifact [u8],
+        projection: VerifiedIntegerSignProjection,
+        consume: impl FnOnce(VerifiedIntegerSignBackendInput<'artifact>) -> R,
+    ) -> R {
+        consume(VerifiedIntegerSignBackendInput {
+            projection,
+            _artifact: PhantomData,
+        })
+    }
+    Ok(issue(program, artifact, projection, consume))
+}
+
 impl VerifiedBackendInput<'_> {
     pub(crate) fn schema(&self) -> &'static str {
         backend_input::BACKEND_INPUT_SCHEMA
@@ -1950,6 +2050,187 @@ fn identities_match_for_test(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn integer_sign_subject(source: &str) -> (Program, Vec<Diagnostic>) {
+        let parsed = crate::parser::parse_source("programs/integer_sign.hum", source);
+        let checked = crate::check::check_parse_output(&parsed);
+        assert!(parsed.diagnostics.is_empty(), "{:#?}", parsed.diagnostics);
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity != crate::diagnostic::Severity::Error)
+        );
+        (
+            Program {
+                files: vec![parsed.file],
+            },
+            checked.diagnostics,
+        )
+    }
+
+    fn integer_sign_layout<'a>(
+        program: &'a Program,
+    ) -> crate::app_entry::CanonicalNativeLayout<'a> {
+        let entry = crate::app_entry::analyze(program)
+            .entry
+            .expect("canonical app entry");
+        crate::app_entry::analyze_canonical_native_layout(
+            program,
+            "programs/integer_sign.hum",
+            Some(&entry),
+        )
+        .layout
+        .expect("canonical native layout")
+    }
+
+    fn displace_typed_failure_cache() {
+        let displacement = Program {
+            files: vec![crate::parser::parse_source("empty.hum", "").file],
+        };
+        let _ = crate::typed_failure::analyze_program(&displacement);
+    }
+
+    #[test]
+    fn integer_sign_artifact_rejection_matrix_is_complete() {
+        let source = include_str!("../programs/integer_sign.hum");
+        let (program, diagnostics) = integer_sign_subject(source);
+        let layout = integer_sign_layout(&program);
+        displace_typed_failure_cache();
+        let artifact =
+            backend_input::canonical_integer_sign_artifact(&program, &diagnostics, &layout)
+                .expect("canonical integer-sign artifact");
+        assert_eq!(
+            artifact.bytes(),
+            include_bytes!("../fixtures/backend_input/integer_sign.backend_input.v1.json")
+        );
+        let mut callbacks = 0;
+        let observed = with_verified_integer_sign_backend_input(
+            &program,
+            &diagnostics,
+            &layout,
+            artifact.bytes(),
+            |capability| {
+                callbacks += 1;
+                assert_eq!(capability.schema(), "hum.backend_input.v1");
+                assert_eq!(capability.artifact_id(), artifact.artifact_id());
+                assert_eq!(capability.compiler_version(), crate::version::HUM_VERSION);
+                assert_eq!(capability.target_context(), backend_input::TARGET_CONTEXT);
+                assert_eq!(
+                    capability.source_identity(),
+                    (
+                        "sha256:6879bcb028cab033d431a7bf3cc246ffcbd1ab63f8f8ccea62c9c360ebc1bdca",
+                        "programs/integer_sign.hum",
+                        "programs.integer_sign",
+                        "integer_sign",
+                        "run_tool",
+                    )
+                );
+                assert_eq!(capability.required_passes(), backend_input::REQUIRED_PASSES);
+                capability
+                    .branches()
+                    .each_ref()
+                    .map(|branch| (branch.predicate, branch.tag, branch.literal.clone()))
+            },
+        )
+        .expect("verified integer-sign authority callback");
+        assert_eq!(callbacks, 1);
+        assert_eq!(
+            observed,
+            [
+                ("signed_less_than_zero", 0, "negative".to_string()),
+                ("equal_to_zero", 1, "zero".to_string()),
+                ("fallthrough", 2, "positive".to_string()),
+            ]
+        );
+
+        let golden = artifact.bytes();
+        let mut mutations = vec![
+            Vec::new(),
+            golden[..golden.len() - 1].to_vec(),
+            {
+                let mut value = vec![0xef, 0xbb, 0xbf];
+                value.extend_from_slice(golden);
+                value
+            },
+            replace_once(golden, b"\n", b"\r\n"),
+            replace_once(golden, b"hum.backend_input.v1", b"hum.backend_input.V1"),
+            replace_once(
+                golden,
+                b"\"compiler_version\":\"0.0.1\"",
+                b"\"compiler_version\":\"0.0.2\"",
+            ),
+            replace_once(golden, b"signed_less_than_zero", b"signed_less_than_one_"),
+            replace_once(golden, b"\"tag\":1", b"\"tag\":7"),
+            replace_once(golden, b"\"literal\":\"zero\"", b"\"literal\":\"none\""),
+            replace_once(golden, b"\"ordinal\":0", b"\"ordinal\":9"),
+            replace_once(
+                golden,
+                b"\"unsupported\":[]",
+                b"\"unknown\":[],\"unsupported\":[]",
+            ),
+        ];
+        let reordered = replace_once(
+            golden,
+            b"\"predicate\":\"signed_less_than_zero\",\"tag\":0",
+            b"\"tag\":0,\"predicate\":\"signed_less_than_zero\"",
+        );
+        mutations.push(reordered);
+        for mutation in mutations {
+            assert_ne!(mutation, golden);
+            let mut rejected_callbacks = 0;
+            let result = with_verified_integer_sign_backend_input(
+                &program,
+                &diagnostics,
+                &layout,
+                &mutation,
+                |_| rejected_callbacks += 1,
+            );
+            assert!(result.is_err());
+            assert_eq!(rejected_callbacks, 0);
+        }
+
+        let changed_source = source.replacen("\"negative\"", "\"below\"", 1);
+        let (foreign_program, foreign_diagnostics) = integer_sign_subject(&changed_source);
+        let foreign_layout = integer_sign_layout(&foreign_program);
+        displace_typed_failure_cache();
+        let foreign_artifact = backend_input::canonical_integer_sign_artifact(
+            &foreign_program,
+            &foreign_diagnostics,
+            &foreign_layout,
+        )
+        .expect("foreign canonical artifact");
+        assert_ne!(foreign_artifact.bytes(), golden);
+        let mut mixed_callbacks = 0;
+        assert!(
+            with_verified_integer_sign_backend_input(
+                &program,
+                &diagnostics,
+                &layout,
+                foreign_artifact.bytes(),
+                |_| mixed_callbacks += 1,
+            )
+            .is_err()
+        );
+        assert_eq!(mixed_callbacks, 0);
+        assert!(
+            with_verified_integer_sign_backend_input(
+                &foreign_program,
+                &foreign_diagnostics,
+                &foreign_layout,
+                golden,
+                |_| mixed_callbacks += 1,
+            )
+            .is_err()
+        );
+        assert_eq!(mixed_callbacks, 0);
+
+        displace_typed_failure_cache();
+        let restored =
+            backend_input::canonical_integer_sign_artifact(&program, &diagnostics, &layout)
+                .expect("restored canonical artifact");
+        assert_eq!(restored.bytes(), golden);
+    }
 
     fn subject() -> (Program, Vec<Diagnostic>) {
         let parsed = crate::parser::parse_source(
