@@ -131,6 +131,12 @@ pub(crate) struct VerifiedIntegerSignProfile<'report> {
     _report: &'report ProfileCheckReport,
 }
 
+pub(crate) struct VerifiedConstantTextProfile<'report> {
+    resource: resource_check::VerifiedConstantTextResource<'report>,
+    profile_id: &'report str,
+    _report: &'report ProfileCheckReport,
+}
+
 struct VerifiedMinimalAddProfileProof<'report> {
     resource: resource_check::VerifiedMinimalAddResource<'report>,
     declaration: &'report ProfileDeclaration,
@@ -477,6 +483,28 @@ impl<'report> ProfileIrReadinessReportAccess<'report> {
             _report: self.report,
         })
     }
+
+    pub(crate) fn canonical_constant_text_for(
+        &self,
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+        authority: &'report crate::type_check::CanonicalConstantTextTypeAuthority,
+    ) -> Option<VerifiedConstantTextProfile<'report>> {
+        let resource = self
+            .resource
+            .canonical_constant_text_for(layout, authority)?;
+        (self.report.status() == "recognized_profile_policy_checked_v0").then_some(())?;
+        let item = sole(self.report.items.iter().filter(|row| {
+            row.kind == "task"
+                && row.name == layout.entry.name
+                && row.span == portable_span(&layout.entry.span)
+        }))?;
+        let declaration = sole(item.declarations.iter())?;
+        (declaration.normalized == "normal").then_some(VerifiedConstantTextProfile {
+            resource,
+            profile_id: declaration.normalized.as_str(),
+            _report: self.report,
+        })
+    }
 }
 
 use crate::resource_check::sole;
@@ -503,6 +531,16 @@ impl<'report> VerifiedMinimalAddProfile<'report> {
 
 impl VerifiedIntegerSignProfile<'_> {
     pub(crate) fn authority(&self) -> &crate::type_check::CanonicalIntegerSignTypeAuthority {
+        self.resource.authority()
+    }
+
+    pub(crate) fn profile_id(&self) -> &str {
+        self.profile_id
+    }
+}
+
+impl VerifiedConstantTextProfile<'_> {
+    pub(crate) fn authority(&self) -> &crate::type_check::CanonicalConstantTextTypeAuthority {
         self.resource.authority()
     }
 

@@ -184,3 +184,10 @@ V0 does not promise:
 
 The surface exists so adapters and agents can stop guessing what the current Hum
 binary knows how to emit.
+
+`run_native_constant_text` reports the exact narrow command
+`hum run --native --allow stdout.write programs/hello_world.hum` with schema
+`hum.backend_input.v2` and status `current-narrow`. It means a verified constant
+Text source feature can execute on required targets. It does not report a
+general native compiler, arbitrary output expressions, stdlib console APIs, or
+support beyond Windows MSVC and Linux GNU evidence.

@@ -139,7 +139,7 @@ JSON shape in `hum diagnostics --format json`:
 ```json
 {
   "schema": "hum.diagnostic_catalog.v0",
-  "count": 89,
+  "count": 90,
   "diagnostics": [
     {
       "code": "H0201",
@@ -288,6 +288,7 @@ unallocated rather than implicitly free.
 | `H0632` | error | invalid files_read_text call | The hardened reader does not receive exactly one checked opaque `Path` argument. |
 | `H0633` | error | reserved file-read built-in name redeclared | A user task attempts to redeclare the exact `files_read_text` builtin name. |
 | `H0634` | error | canonical native program layout | Native canonical admission requires matching `programs/<name>.hum`, `module programs.<name>`, and `app <name>` identity, with one module first, optional local types before the sole final app, and its declared entry task first. |
+| `H0635` | error | unsupported native program feature | A layout-valid native request has no supported typed feature (`native_feature_not_supported_v0`) or has an ambiguous typed match (`native_feature_ambiguous_v0`). Owner `native_program` emits it at `native_admission`, after semantic/H0634 blockers and before backend input, JIT, output, or readiness. |
 
 ### Executable Contracts
 

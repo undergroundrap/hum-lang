@@ -367,3 +367,14 @@ comparison facts, not semantic identity. The slice rejects a second direct
 relationship or application for the same resolver-owned receiver. Rows remain
 type/effect evidence only: they grant no authority, consent, ownership,
 resource lifetime, allocation proof, capture, or handling.
+
+## Canonical Native Feature Discrimination
+
+The native-program seam is a sealed typed discriminator after generic H0634
+layout admission. It recognizes exactly integer-sign v0 or constant-Text-output
+v0 from live semantic facts. Zero or ambiguous matches produce H0635 before
+backend input; filenames, app names, and literal bytes are not dispatch
+authority. Constant Text continues through additive backend-input v2, a
+callback-scoped verifier capability, one Cranelift tag/store and finalized
+invocation, then the existing deny-first bounded output adapter. Cranelift
+remains a replaceable first backend, not Hum's semantic owner.

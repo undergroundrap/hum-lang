@@ -210,3 +210,13 @@ V0 does not claim:
 - a stable external ABI;
 - a public cryptographic API; or
 - support for programs outside the exact closed minimal-add subset.
+
+## Additive Constant-Text V2
+
+`hum.backend_input.v2` binds one canonical constant-Text-output feature. Its
+canonical payload fixes compiler/semantic identity, source SHA-256 and
+normalized identity, zero arguments, `Result Unit, OutputError`, the exact
+literal plus literal/call/binding/return spans, output authority, normal
+profile, and ordered required passes. V0 minimal-add and v1 integer-sign retain
+their existing meaning. V2 bytes are evidence, not authority; only exact live
+regeneration can issue the callback-scoped verifier capability.

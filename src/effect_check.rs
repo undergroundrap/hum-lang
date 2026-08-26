@@ -99,6 +99,11 @@ pub(crate) struct VerifiedIntegerSignEffect<'report> {
     _report: &'report EffectCheckReport,
 }
 
+pub(crate) struct VerifiedConstantTextEffect<'report> {
+    full_type: full_type_check::VerifiedConstantTextFullType<'report>,
+    _report: &'report EffectCheckReport,
+}
+
 impl VerifiedMinimalAddEffect<'_> {
     pub(crate) fn backend_identity(
         &self,
@@ -603,10 +608,30 @@ impl<'report> EffectOwnershipReportAccess<'report> {
             _report: self.report,
         })
     }
+
+    pub(crate) fn canonical_constant_text_for(
+        &self,
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+        authority: &'report crate::type_check::CanonicalConstantTextTypeAuthority,
+    ) -> Option<VerifiedConstantTextEffect<'report>> {
+        let full_type = self
+            .full_type
+            .canonical_constant_text_for(layout, authority)?;
+        (self.report.blocking_issues() == 0).then_some(VerifiedConstantTextEffect {
+            full_type,
+            _report: self.report,
+        })
+    }
 }
 
 impl VerifiedIntegerSignEffect<'_> {
     pub(crate) fn authority(&self) -> &crate::type_check::CanonicalIntegerSignTypeAuthority {
+        self.full_type.authority()
+    }
+}
+
+impl VerifiedConstantTextEffect<'_> {
+    pub(crate) fn authority(&self) -> &crate::type_check::CanonicalConstantTextTypeAuthority {
         self.full_type.authority()
     }
 }
@@ -706,9 +731,15 @@ fn check_item(
         .map(|param| first_resource(&param))
         .collect::<BTreeSet<_>>();
     let mut statements = Vec::new();
-    for (index, statement) in body.statements.iter().enumerate() {
+    for (index, (statement, parsed)) in body
+        .statements
+        .iter()
+        .zip(does.body_syntax.iter().flatten())
+        .enumerate()
+    {
         statements.push(check_statement_effect(
             statement,
+            parsed,
             index,
             &declarations,
             &local_mutables,
@@ -741,6 +772,7 @@ fn check_item(
 #[allow(clippy::too_many_arguments)]
 fn check_statement_effect(
     statement: &BodyStatement,
+    parsed: &crate::ast::ParsedBodyStatement,
     index: usize,
     declarations: &EffectDeclarations,
     local_mutables: &BTreeSet<String>,
@@ -772,6 +804,18 @@ fn check_statement_effect(
             statement
                 .reason
                 .or(Some("statement_not_in_core_body_grammar_v0")),
+        );
+    }
+
+    if crate::type_check::is_constant_text_stdout_write_statement(parsed) {
+        return effect_statement(
+            statement,
+            index,
+            "bounded_output_builtin",
+            Some("stdout_write".to_string()),
+            Some("uses".to_string()),
+            "accepted_declared_output_effect_v0",
+            None,
         );
     }
 

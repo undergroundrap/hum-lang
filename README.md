@@ -503,3 +503,18 @@ under the Apache-2.0 terms. See:
 - `LICENSE` for the full Apache-2.0 license text (includes an explicit patent grant)
 - `NOTICE.md` for attribution and the courtesy credit request
 - `TRADEMARK.md` for the Hum name policy (the code is free; the name is protected)
+
+## Canonical Native Programs
+
+Hum currently proves two narrow source-driven native program features on
+required Windows and Linux configurations: integer-sign v0 and constant-Text
+output v0. The second route is:
+
+```powershell
+hum run --native --allow stdout.write programs/hello_world.hum
+```
+
+It writes exactly the checked source literal `Hello, world!` with no newline.
+This is not arbitrary-program native compilation, a general output runtime, or
+a standard-library API. The canonical v2 bytes are frozen in
+`fixtures/backend_input/hello_world.backend_input.v2.json`.

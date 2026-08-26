@@ -41,7 +41,7 @@ const IR_LAYERS: &[IrLayer] = &[
     IrLayer {
         id: "backend_adapter_input",
         stage: 5,
-        status: "minimal-add-and-integer-sign-lowering-current",
+        status: "minimal-add-integer-sign-and-constant-text-lowering-current",
         role: "feature-specific callback-scoped verified facts lowered to checked Cranelift IR",
     },
 ];
@@ -107,6 +107,7 @@ const RULES: &[&str] = &[
     "Optimizations may change shape only when carried facts remain valid or are reported as changed.",
     "The current adapter derives ordered I64 parameters, sadd_overflow, brif, and SourceLoc from verified facts.",
     "The canonical integer-sign adapter derives signed branches, source literals, and one result tag from verified facts.",
+    "The canonical constant-Text adapter derives one source literal, semantic tag, and result-slot store from verified facts before bounded output.",
 ];
 
 const NON_GOALS_V0: &[&str] = &[
@@ -114,7 +115,7 @@ const NON_GOALS_V0: &[&str] = &[
     "no executable semantics",
     "no full type checker implementation",
     "no optimizer implementation",
-    "no general backend lowering beyond canonical minimal_add and integer_sign",
+    "no general backend lowering beyond canonical minimal_add, integer_sign, and constant Text output",
     "no durable backend adapter input authority",
 ];
 

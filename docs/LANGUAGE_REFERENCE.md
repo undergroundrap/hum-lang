@@ -1008,3 +1008,27 @@ Session AM keeps the same source spelling and infers one local latent row for
 the accepted application. A task with checked local `set` operations propagates
 their exact `change` occurrences through the callable call. There is no row
 syntax, public generalization, handler, callable storage, or callable return.
+
+## Canonical Constant-Text Native Program
+
+The second native program feature is one zero-argument start task returning
+`Result Unit, OutputError` whose body binds exactly one direct
+`try stdout_write(TextLiteral)` and returns that binding. App and task source
+authority must both cover `stdout.write`; operator consent remains deny-first.
+The interpreter and native route produce the exact UTF-8 literal bytes with no
+newline. H0634 owns generic program layout; H0635 owns a layout-valid shape that
+does not select exactly one sealed native feature.
+
+| Intent | Parsed/retained | Machine-readable fact | Statically checked | Runtime enforced | Formally verified | Current limitation | Evidence owner |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| normalized source/module/app and structural entry identity | exact file/module/app/start spans | H0634 layout record | yes | native admission requires it | not yet | one canonical file and final app | `app_entry` |
+| exact source Text literal and its span | literal and source span | constant-Text type/Core operation | yes | selected only through verified capability | live-fact equality, not a theorem | one literal call | `type_check`, `core_verify` |
+| app/task `stdout.write` closure | both `uses:` declarations | capability-root facts | yes | missing authority remains H0621 | not yet | one built-in output operation | `capability_root` |
+| explicit operator consent and deny-first behavior | CLI grant/deny | runner authority disposition | yes | deny precedes JIT and output | not yet | one MiB bounded adapter | `run` |
+| canonical backend-input artifact identity and live source revision | v2 bytes and source SHA-256 | `hum.backend_input.v2` artifact ID | yes | no external runtime authority | exact regeneration equality | v2 constant feature only | `backend_input` |
+| opaque callback-scoped verified capability | no source construction | sealed verified v2 getters | yes | callback lifetime only | strict framing and live equality | no durable capability | `ir_verify` |
+| feature discriminator and Cranelift tag/store/invocation facts | typed feature facts | sealed variant, tag/store/count facts | yes | one finalized invocation | verifier and backend structural checks | two native features only | `native_program`, `backend_cranelift` |
+| exact output bytes, no fallback, readiness, and supported target evidence | output bytes and target label | parity, refusal, `ir_ready=1`, `backend_ready=1` | yes | output once or terminal refusal | not yet | Windows MSVC and Linux GNU only | `run`, `ir_readiness`, CI |
+
+This matrix is a public truth surface, not proof by table. Later work that
+changes one of these intents must update its row or prove the row unchanged.

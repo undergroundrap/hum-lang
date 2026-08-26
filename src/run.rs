@@ -153,6 +153,67 @@ pub(crate) struct NativeIntegerSignRun {
     pub(crate) output_bytes: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NativeConstantTextRun {
+    pub(crate) execution: crate::backend_cranelift::NativeConstantTextExecution,
+    pub(crate) output_bytes: usize,
+}
+
+pub(crate) fn run_native_constant_text(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    authority: &crate::type_check::CanonicalConstantTextTypeAuthority,
+    raw_args: &[OsString],
+    grant_policy: &OperatorGrantPolicy,
+    output_adapter: &mut dyn OutputAdapter,
+) -> Result<NativeConstantTextRun, String> {
+    let decision = grant_policy.stdout_write_decision();
+    if decision != GrantDecision::Allowed {
+        return Err(format!(
+            "OutputError.{}: stdout.write operator consent denied",
+            decision.reason()
+        ));
+    }
+    if !raw_args.is_empty() {
+        return Err(format!(
+            "native constant-Text output requires zero arguments; got {}",
+            raw_args.len()
+        ));
+    }
+    let artifact = crate::backend_input::canonical_constant_text_artifact(
+        program,
+        diagnostics,
+        layout,
+        authority,
+    )
+    .ok_or_else(|| "native constant-Text backend-input admission failed".to_string())?;
+    let execution = crate::ir_verify::with_verified_constant_text_backend_input(
+        program,
+        diagnostics,
+        layout,
+        authority,
+        artifact.bytes(),
+        |capability| crate::backend_cranelift::execute_constant_text(&capability),
+    )
+    .map_err(str::to_string)??;
+    if crate::ir_readiness::authenticated_constant_text_native_readiness(&execution) != Some((1, 1))
+    {
+        return Err("native constant-Text readiness was incomplete".to_string());
+    }
+    let bytes = execution.literal.as_bytes();
+    if bytes.len() > OUTPUT_LIMIT_BYTES {
+        return Err("OutputError.limit_exceeded: native output exceeded the bound".to_string());
+    }
+    output_adapter
+        .write(bytes)
+        .map_err(|_| "OutputError.adapter_rejected: native output write failed".to_string())?;
+    Ok(NativeConstantTextRun {
+        output_bytes: bytes.len(),
+        execution,
+    })
+}
+
 pub(crate) fn run_native_integer_sign(
     program: &Program,
     diagnostics: &[Diagnostic],
@@ -1551,25 +1612,28 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         let occurrences = reachable_tasks
             .iter()
             .flat_map(|task| {
-                task.section("does")
-                    .map(|does| {
-                        core_body::analyze_does_section(
-                            self.program
-                                .canonical_core_expectation_for_task(task, does)
-                                .expect("live failure-preflight task must have parser authority"),
-                        )
-                    })
+                let Some(does) = task.section("does") else {
+                    return Vec::new();
+                };
+                let body = core_body::analyze_does_section(
+                    self.program
+                        .canonical_core_expectation_for_task(task, does)
+                        .expect("live failure-preflight task must have parser authority"),
+                );
+                body.statements
                     .into_iter()
-                    .flat_map(|body| {
-                        body.statements
-                            .into_iter()
-                            .enumerate()
-                            .filter_map(|(index, _statement)| {
-                                analysis
-                                    .fact(task, index)
-                                    .and_then(|fact| fact.occurrence.clone())
-                            })
+                    .enumerate()
+                    .filter_map(|(index, _statement)| {
+                        (!does
+                            .body_syntax
+                            .get(index)
+                            .and_then(Option::as_ref)
+                            .is_some_and(type_check::is_constant_text_stdout_write_statement))
+                        .then(|| analysis.fact(task, index))
+                        .flatten()
+                        .and_then(|fact| fact.occurrence.clone())
                     })
+                    .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
         if self.emit_exact_occurrences(occurrences)? {
@@ -2081,24 +2145,33 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         }
 
         if typed_failure::is_try_candidate(text) {
-            let parsed = typed_failure::parse_try_expression(text).ok_or_else(|| {
-                format!(
-                    "{}: unsupported typed-failure propagation shape",
-                    location(span)
-                )
-            })?;
-            return match self.eval_expr(&parsed.call.source, env, span, task_name)? {
-                Evaluated::Value(value) => Ok(Evaluated::Value(value)),
-                Evaluated::Failure(failure) => {
-                    let failure = if let Some(wrapper) = parsed.wrapper {
-                        failure.wrap(wrapper, span.clone(), parsed.call.callee)
-                    } else {
-                        failure.propagate(span.clone(), parsed.call.callee)
-                    };
-                    Ok(Evaluated::Failure(failure))
-                }
-                Evaluated::ContractViolation => Ok(Evaluated::ContractViolation),
-            };
+            if let Some(parsed) = typed_failure::parse_try_expression(text) {
+                return match self.eval_expr(&parsed.call.source, env, span, task_name)? {
+                    Evaluated::Value(value) => Ok(Evaluated::Value(value)),
+                    Evaluated::Failure(failure) => {
+                        let failure = if let Some(wrapper) = parsed.wrapper {
+                            failure.wrap(wrapper, span.clone(), parsed.call.callee)
+                        } else {
+                            failure.propagate(span.clone(), parsed.call.callee)
+                        };
+                        Ok(Evaluated::Failure(failure))
+                    }
+                    Evaluated::ContractViolation => Ok(Evaluated::ContractViolation),
+                };
+            }
+            if let Some(call) = constant_text_stdout_write_try_call(text) {
+                return match self.eval_expr(call, env, span, task_name)? {
+                    Evaluated::Value(value) => Ok(Evaluated::Value(value)),
+                    Evaluated::Failure(failure) => Ok(Evaluated::Failure(
+                        failure.propagate(span.clone(), "stdout_write".to_string()),
+                    )),
+                    Evaluated::ContractViolation => Ok(Evaluated::ContractViolation),
+                };
+            }
+            return Err(format!(
+                "{}: unsupported typed-failure propagation shape",
+                location(span)
+            ));
         }
 
         if let Some((left, right)) = split_word_operator(text, "or") {
@@ -4239,6 +4312,20 @@ fn split_call(text: &str) -> Option<(&str, &str)> {
     Some((&text[..open], &text[open + 1..text.len() - 1]))
 }
 
+fn constant_text_stdout_write_try_call(text: &str) -> Option<&str> {
+    let call = text.trim().strip_prefix("try ")?;
+    let (callee, arguments) = split_call(call)?;
+    let arguments = split_arguments(arguments);
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    (callee.trim() == "stdout_write"
+        && argument.starts_with('"')
+        && argument.ends_with('"')
+        && argument.len() >= 2)
+        .then_some(call)
+}
+
 fn split_arguments(text: &str) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut start = 0usize;
@@ -4389,9 +4476,10 @@ pub(crate) mod tests {
 
     use super::{
         OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, ReplayAdapter, RunAdapters,
-        RunOutcome, run_native_integer_sign, run_program, run_program_with_adapters,
-        run_program_with_occurrences_and_adapters, run_program_with_occurrences_and_file_adapters,
-        run_program_with_output, runtime_occurrence_authority,
+        RunOutcome, run_native_constant_text, run_native_integer_sign, run_program,
+        run_program_with_adapters, run_program_with_occurrences_and_adapters,
+        run_program_with_occurrences_and_file_adapters, run_program_with_output,
+        runtime_occurrence_authority,
     };
     #[cfg(windows)]
     use super::{RunReport, Value, parse_arg, run_program_with_file_adapters};
@@ -4558,6 +4646,120 @@ pub(crate) mod tests {
         .expect_err("adapter rejection must remain typed");
         assert_eq!(
             error,
+            "OutputError.adapter_rejected: native output write failed"
+        );
+        assert_eq!(rejecting.calls, 1);
+        assert!(rejecting.writes.is_empty());
+    }
+
+    pub(crate) fn constant_text_native_evidence() {
+        fn subject(source: &str) -> (Program, Vec<crate::diagnostic::Diagnostic>) {
+            let parsed = parser::parse_source("programs/hello_world.hum", source);
+            let checked = check::check_parse_output(&parsed);
+            assert!(parsed.diagnostics.is_empty(), "{:#?}", parsed.diagnostics);
+            assert!(
+                checked
+                    .diagnostics
+                    .iter()
+                    .all(|row| row.severity != Severity::Error)
+            );
+            (
+                Program {
+                    files: vec![parsed.file],
+                },
+                checked.diagnostics,
+            )
+        }
+        fn execute(
+            source: &str,
+            policy: &OperatorGrantPolicy,
+            args: &[OsString],
+            output: &mut RecordingOutput,
+        ) -> Result<super::NativeConstantTextRun, String> {
+            let (program, diagnostics) = subject(source);
+            let entry = crate::app_entry::analyze(&program).entry.expect("entry");
+            let layout = crate::app_entry::analyze_canonical_native_layout(
+                &program,
+                "programs/hello_world.hum",
+                Some(&entry),
+            )
+            .layout
+            .expect("layout");
+            let authority = crate::type_check::canonical_constant_text_type_authority(
+                &program,
+                &layout,
+                &diagnostics,
+            )
+            .expect("constant Text authority");
+            run_native_constant_text(
+                &program,
+                &diagnostics,
+                &layout,
+                &authority,
+                args,
+                policy,
+                output,
+            )
+        }
+
+        let source = include_str!("../programs/hello_world.hum");
+        let allowed = allowed_stdout();
+        let mut output = RecordingOutput::default();
+        let observed = execute(source, &allowed, &[], &mut output).expect("native output");
+        assert_eq!(output.calls, 1);
+        assert_eq!(output.writes, [b"Hello, world!".to_vec()]);
+        assert_eq!(observed.output_bytes, 13);
+        assert_eq!(
+            (
+                observed.execution.ir_ready,
+                observed.execution.backend_ready
+            ),
+            (1, 1)
+        );
+
+        let changed = source.replace("Hello, world!", "Source-derived!");
+        let mut changed_output = RecordingOutput::default();
+        execute(&changed, &allowed, &[], &mut changed_output).expect("mutated native output");
+        assert_eq!(changed_output.writes, [b"Source-derived!".to_vec()]);
+
+        let mut explicit_deny = OperatorGrantPolicy::default();
+        explicit_deny.deny("stdout.write").expect("deny");
+        for (policy, args) in [
+            (
+                OperatorGrantPolicy::default(),
+                vec![OsString::from("unexpected")],
+            ),
+            (explicit_deny, Vec::new()),
+        ] {
+            let mut denied = RecordingOutput::default();
+            let result = execute(source, &policy, &args, &mut denied);
+            assert!(
+                result
+                    .as_ref()
+                    .is_err_and(|error| error.starts_with("OutputError."))
+                    && denied.calls == 0,
+                "denied constant-Text execution reached authenticated JIT or output-adapter activity"
+            );
+        }
+        let mut with_arg = RecordingOutput::default();
+        assert_eq!(
+            execute(
+                source,
+                &allowed,
+                &[OsString::from("unexpected")],
+                &mut with_arg
+            )
+            .expect_err("zero arguments"),
+            "native constant-Text output requires zero arguments; got 1"
+        );
+        assert_eq!(with_arg.calls, 0);
+
+        let mut rejecting = RecordingOutput {
+            fail_on_call: Some(0),
+            ..RecordingOutput::default()
+        };
+        assert_eq!(
+            execute(source, &allowed, &[], &mut rejecting).expect_err("adapter rejection"),
             "OutputError.adapter_rejected: native output write failed"
         );
         assert_eq!(rejecting.calls, 1);

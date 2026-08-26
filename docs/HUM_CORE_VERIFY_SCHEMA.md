@@ -327,3 +327,11 @@ outside this bounded Core slice. Core projection tests independently corrupt
 each node's kind, identity, relationship, and result/status field; graph
 projection tests do the same for edge kind, identity, endpoints, owner,
 application, and span.
+
+## Constant-Text Verification
+
+Constant-Text verification requires exact Program/layout/type-authority
+lineage, one lower operation, a nonempty source literal, tag zero, and four
+spans owned by the same normalized source file. The resulting value remains
+compiler-internal and cannot be reconstructed from serialized bytes, a path,
+or a name.

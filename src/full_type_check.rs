@@ -81,6 +81,11 @@ pub(crate) struct VerifiedIntegerSignFullType<'report> {
     _report: &'report FullTypeCheckReport,
 }
 
+pub(crate) struct VerifiedConstantTextFullType<'report> {
+    authority: &'report type_check::CanonicalConstantTextTypeAuthority,
+    _report: &'report FullTypeCheckReport,
+}
+
 impl VerifiedMinimalAddFullType<'_> {
     pub(crate) fn backend_identity(&self) -> type_check::CanonicalMinimalAddBackendIdentity<'_> {
         self.0.backend_identity()
@@ -599,10 +604,29 @@ impl<'report> FullTypeEffectReportAccess<'report> {
             },
         )
     }
+
+    pub(crate) fn canonical_constant_text_for(
+        &self,
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+        authority: &'report type_check::CanonicalConstantTextTypeAuthority,
+    ) -> Option<VerifiedConstantTextFullType<'report>> {
+        (self.report.blocking_issues() == 0 && authority.matches(self.program, layout)).then_some(
+            VerifiedConstantTextFullType {
+                authority,
+                _report: self.report,
+            },
+        )
+    }
 }
 
 impl VerifiedIntegerSignFullType<'_> {
     pub(crate) fn authority(&self) -> &type_check::CanonicalIntegerSignTypeAuthority {
+        self.authority
+    }
+}
+
+impl VerifiedConstantTextFullType<'_> {
+    pub(crate) fn authority(&self) -> &type_check::CanonicalConstantTextTypeAuthority {
         self.authority
     }
 }
@@ -886,6 +910,23 @@ fn type_statement(
         return typed;
     }
 
+    if let Some(binding_name) = constant_text_stdout_write_binding(parsed) {
+        let actual = type_fact("Unit", "constant_text_stdout_write_success_v0");
+        environment.insert(name_key(binding_name), actual.clone());
+        let mut typed = typed_statement(
+            statement,
+            index,
+            expression_text_for_statement(statement).map(str::to_string),
+            None,
+            Some(actual),
+            "accepted_constant_text_stdout_write_v0",
+            None,
+        );
+        typed.failure_form = Some("bounded_output_builtin");
+        typed.caller_span = Some(item.span().clone());
+        return typed;
+    }
+
     if let Some(fact) = failure_fact {
         let effect_owned_missing_declaration = fact.diagnostic_code
             == Some(crate::diagnostic::DiagnosticCode::MISSING_FAILURE_DECLARATION);
@@ -978,6 +1019,29 @@ fn type_statement(
         status,
         reason,
     )
+}
+
+fn constant_text_stdout_write_binding(statement: &crate::ast::ParsedBodyStatement) -> Option<&str> {
+    let crate::ast::ParsedBodyStatementKind::Binding {
+        mutable: false,
+        name: Some(name),
+        value: Some(value),
+    } = &statement.kind
+    else {
+        return None;
+    };
+    let crate::ast::CanonicalExpressionKind::Try { value, .. } = &value.canonical.kind else {
+        return None;
+    };
+    let crate::ast::CanonicalExpressionKind::Call { callee, arguments } = &value.kind else {
+        return None;
+    };
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    (matches!(&callee.kind, crate::ast::CanonicalExpressionKind::Identifier(callee) if callee == "stdout_write")
+        && matches!(&argument.kind, crate::ast::CanonicalExpressionKind::TextLiteral(_)))
+    .then_some(name.name.as_str())
 }
 
 fn stdout_write_type_issue(

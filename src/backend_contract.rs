@@ -26,7 +26,7 @@ const BACKEND_STAGES: &[BackendStage] = &[
         id: "cranelift",
         stage: 2,
         status: "current-verified-program-slice",
-        role: "verified checked-add probe plus canonical integer-sign native execution",
+        role: "verified checked-add probe plus canonical integer-sign and constant-Text native execution",
         decision: "feature-specific sealed capabilities, no general backend claim",
     },
     BackendStage {
@@ -83,6 +83,7 @@ const RULES: &[&str] = &[
     "No safety-critical credibility comes from a backend choice alone.",
     "The first adapter maps verified checked_add to sadd_overflow and an explicit overflow branch.",
     "The first program adapter maps verified signed comparisons, source literals, and one result-tag store without interpreter fallback.",
+    "The second program adapter maps one verified constant Text literal to one semantic tag, one initialized result-slot store, and one finalized invocation before bounded output.",
     "The internal probe ABI is exactly (i64,i64,*mut i64)->i32.",
 ];
 

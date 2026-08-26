@@ -340,3 +340,12 @@ For Hum v0:
 - LLVM-Bench, 2026: https://arxiv.org/abs/2607.00700
 - IRFuzzer, 2024/2025: https://arxiv.org/abs/2402.05256
 - Lattner compiler lessons: [research/2026-07-07-lattner-compiler-lessons.md](research/2026-07-07-lattner-compiler-lessons.md)
+
+## Current Constant-Text Rung
+
+The Cranelift rung includes one bounded constant-Text-output path in addition
+to minimal-add and integer-sign. Its literal is retained from checked source
+through backend-input v2 and opaque verification; Cranelift returns only the
+authenticated semantic tag, and the existing output adapter writes the
+verified literal once. This grows reusable compiler seams without promising
+optimization, AOT/object production, LLVM migration, or a general backend.

@@ -34,6 +34,7 @@ mod json;
 mod lsp;
 mod math_obligations;
 mod native_path;
+mod native_program;
 mod node_id;
 mod operator_grant;
 mod ownership_check;
@@ -261,13 +262,51 @@ fn run() -> Result<ExitCode, String> {
             print_diagnostics(&loaded.diagnostics);
             return Ok(ExitCode::FAILURE);
         }
-        let Some(artifact) =
+        let artifact = if let Some(artifact) =
             backend_input::canonical_minimal_add_artifact(&loaded.program, &loaded.diagnostics)
-        else {
-            eprintln!(
-                "backend-input: input is not the exact supported canonical minimal-add program"
+        {
+            artifact
+        } else {
+            let app = app_entry::analyze(&loaded.program);
+            if let Some(diagnostic) = app.diagnostic {
+                print_diagnostics(&[diagnostic]);
+                return Ok(ExitCode::FAILURE);
+            }
+            let layout = app_entry::analyze_canonical_native_layout(
+                &loaded.program,
+                &loaded.program.files[0].path,
+                app.entry.as_ref(),
             );
-            return Ok(ExitCode::FAILURE);
+            if let Some(diagnostic) = layout.diagnostic {
+                print_diagnostics(&[diagnostic]);
+                return Ok(ExitCode::FAILURE);
+            }
+            let layout = layout.layout.expect("accepted native layout");
+            let feature = native_program::analyze(&loaded.program, &loaded.diagnostics, &layout);
+            if let Some(diagnostic) = feature.diagnostic {
+                print_diagnostics(&[diagnostic]);
+                return Ok(ExitCode::FAILURE);
+            }
+            match feature.feature.expect("accepted native feature") {
+                native_program::NativeProgramFeature::IntegerSign(_) => {
+                    backend_input::canonical_integer_sign_artifact(
+                        &loaded.program,
+                        &loaded.diagnostics,
+                        &layout,
+                    )
+                }
+                native_program::NativeProgramFeature::ConstantTextOutput(authority) => {
+                    backend_input::canonical_constant_text_artifact(
+                        &loaded.program,
+                        &loaded.diagnostics,
+                        &layout,
+                        &authority,
+                    )
+                }
+            }
+            .ok_or_else(|| {
+                "backend-input: authenticated native feature did not issue".to_string()
+            })?
         };
         debug_assert!(!artifact.payload().is_empty());
         debug_assert!(artifact.artifact_id().starts_with("sha256:"));
@@ -330,16 +369,45 @@ fn run() -> Result<ExitCode, String> {
             options.run_entry.as_deref(),
             &options.run_args,
             &options.run_authority,
-            |program, diagnostics, occurrences, entry, raw_args, grant_policy, native_layout| {
-                if let Some(layout) = native_layout {
-                    return match run::run_native_integer_sign(
-                        program,
-                        diagnostics,
-                        layout,
-                        raw_args,
-                        grant_policy,
-                        &mut output_adapter,
-                    ) {
+            |program,
+             diagnostics,
+             occurrences,
+             entry,
+             raw_args,
+             grant_policy,
+             native_layout,
+             native_feature| {
+                if let (Some(layout), Some(feature)) = (native_layout, native_feature) {
+                    let result = match feature {
+                        native_program::NativeProgramFeature::IntegerSign(authority) => {
+                            if authority.matches(program, layout) {
+                                run::run_native_integer_sign(
+                                    program,
+                                    diagnostics,
+                                    layout,
+                                    raw_args,
+                                    grant_policy,
+                                    &mut output_adapter,
+                                )
+                                .map(|_| ())
+                            } else {
+                                Err("native integer-sign feature lineage failed".to_string())
+                            }
+                        }
+                        native_program::NativeProgramFeature::ConstantTextOutput(authority) => {
+                            run::run_native_constant_text(
+                                program,
+                                diagnostics,
+                                layout,
+                                authority,
+                                raw_args,
+                                grant_policy,
+                                &mut output_adapter,
+                            )
+                            .map(|_| ())
+                        }
+                    };
+                    return match result {
                         Ok(_) => run::RunReport {
                             outcome: run::RunOutcome::AppSuccess,
                             diagnostics: Vec::new(),
@@ -1070,6 +1138,7 @@ where
         &[OsString],
         &operator_grant::OperatorGrantPolicy,
         Option<&app_entry::CanonicalNativeLayout<'_>>,
+        Option<&native_program::NativeProgramFeature>,
     ) -> run::RunReport,
 {
     let LoadedProgram {
@@ -1219,7 +1288,7 @@ where
         }
     }
 
-    let native_layout_analysis = if native {
+    let (native_layout_analysis, native_feature) = if native_admission_requested(native) {
         for (failed, text) in [
             (
                 effect_check::effect_check_has_errors(&program, &diagnostics),
@@ -1275,9 +1344,34 @@ where
                 total,
             });
         }
-        Some(analysis)
+        let layout = analysis
+            .layout
+            .as_ref()
+            .expect("diagnostic-free native layout analysis must retain its layout");
+        let feature_analysis = native_program::analyze(&program, &diagnostics, layout);
+        if let (Some(diagnostic), Some(occurrence)) = (
+            feature_analysis.diagnostic.clone(),
+            feature_analysis.diagnostic_occurrence.clone(),
+        ) {
+            diagnostic_occurrences
+                .insert_owned(occurrence)
+                .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+            return Ok(RunCommandExecution {
+                disposition: RunCommandDisposition::SelectedDiagnostics {
+                    diagnostics: vec![diagnostic],
+                    exit_code: 1,
+                },
+                diagnostics,
+                diagnostic_occurrences,
+                reanalyzable_projections,
+                runtime_diagnostic_occurrences: None,
+                timings,
+                total,
+            });
+        }
+        (Some(analysis), feature_analysis.feature)
     } else {
-        None
+        (None, None)
     };
 
     let runtime_occurrences =
@@ -1292,6 +1386,7 @@ where
         native_layout_analysis
             .as_ref()
             .and_then(|analysis| analysis.layout.as_ref()),
+        native_feature.as_ref(),
     );
     Ok(RunCommandExecution {
         disposition: RunCommandDisposition::Executed(report),
@@ -1302,6 +1397,10 @@ where
         timings,
         total,
     })
+}
+
+pub(crate) fn native_admission_requested(native: bool) -> bool {
+    native
 }
 
 fn render_run_command_execution(execution: RunCommandExecution, show_timings: bool) -> ExitCode {
@@ -3654,6 +3753,11 @@ mod main {
         fn native_integer_sign_run_is_authority_bound_and_platform_exact() {
             crate::tests::run_native_integer_sign_selector();
         }
+
+        #[test]
+        fn native_hello_world_run_is_authority_bound_and_platform_exact() {
+            crate::tests::run_native_hello_world_selector();
+        }
     }
 }
 
@@ -3787,6 +3891,40 @@ mod tests {
             assert!(parse_cli(rejected.into_iter().map(str::to_string).collect()).is_err());
         }
         crate::run::tests::integer_sign_native_evidence();
+    }
+
+    pub(crate) fn run_native_hello_world_selector() {
+        assert!(super::native_admission_requested(true));
+        assert!(!super::native_admission_requested(false));
+        let options = parse_cli(vec![
+            "run".to_string(),
+            "--native".to_string(),
+            "--allow".to_string(),
+            "stdout.write".to_string(),
+            "programs/hello_world.hum".to_string(),
+        ])
+        .expect("canonical constant-Text native CLI");
+        assert!(options.run_native);
+        assert_eq!(options.inputs, [PathBuf::from("programs/hello_world.hum")]);
+        assert!(options.run_args.is_empty());
+        assert_eq!(
+            options.run_authority.stdout_write_decision(),
+            crate::operator_grant::GrantDecision::Allowed
+        );
+        for rejected in [
+            vec!["run", "--native", "--native", "programs/hello_world.hum"],
+            vec![
+                "run",
+                "--native",
+                "--entry",
+                "run_tool",
+                "programs/hello_world.hum",
+            ],
+            vec!["check", "--native", "programs/hello_world.hum"],
+        ] {
+            assert!(parse_cli(rejected.into_iter().map(str::to_string).collect()).is_err());
+        }
+        crate::run::tests::constant_text_native_evidence();
     }
 
     #[derive(Default)]
@@ -3986,7 +4124,7 @@ mod tests {
             None,
             &[],
             &crate::operator_grant::OperatorGrantPolicy::default(),
-            |_, _, _, _, _, _, _| {
+            |_, _, _, _, _, _, _, _| {
                 runner_calls += 1;
                 panic!("invalid app must block before the runner")
             },
@@ -4034,7 +4172,7 @@ mod tests {
             None,
             &[],
             &crate::operator_grant::OperatorGrantPolicy::default(),
-            |_, _, _, _, _, _, _| {
+            |_, _, _, _, _, _, _, _| {
                 runner_calls += 1;
                 panic!("multiple apps must block before the runner")
             },
@@ -4128,7 +4266,7 @@ mod tests {
             None,
             &[],
             &grant_policy,
-            |program, _, occurrences, entry, raw_args, grant_policy, _| {
+            |program, _, occurrences, entry, raw_args, grant_policy, _, _| {
                 passed_authority = Some(occurrences.clone());
                 crate::run::run_program_with_occurrences_and_test_adapters(
                     program,

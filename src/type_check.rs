@@ -149,6 +149,165 @@ pub(crate) struct CanonicalIntegerSignTypeAuthority {
     literals: [CanonicalIntegerSignLiteral; 3],
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalConstantTextFact {
+    pub(crate) text: String,
+    pub(crate) literal_span: Span,
+    pub(crate) call_span: Span,
+    pub(crate) binding_span: Span,
+    pub(crate) return_span: Span,
+}
+
+#[derive(Debug)]
+pub(crate) struct CanonicalConstantTextTypeAuthority {
+    program_identity: usize,
+    source_revision: Vec<u8>,
+    normalized_path: String,
+    module_name: String,
+    app_name: String,
+    entry_name: String,
+    app_span: Span,
+    entry_span: Span,
+    fact: CanonicalConstantTextFact,
+}
+
+pub(crate) fn canonical_constant_text_type_authority(
+    program: &Program,
+    layout: &CanonicalNativeLayout<'_>,
+    diagnostics: &[Diagnostic],
+) -> Option<CanonicalConstantTextTypeAuthority> {
+    if diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+        || !std::ptr::eq(layout.file, program.files.as_slice().first()?)
+    {
+        return None;
+    }
+    let task = layout.entry;
+    if !task.params.is_empty()
+        || task.result.as_deref().map(str::trim) != Some("Result Unit, OutputError")
+        || exact_section_values(&layout.app.sections, "uses") != ["stdout.write"]
+        || exact_section_values(&task.sections, "uses") != ["stdout.write"]
+        || exact_section_values(&task.sections, "allocates")
+            != ["callee-defined allocation behavior"]
+        || exact_section_values(&task.sections, "fails when").is_empty()
+    {
+        return None;
+    }
+    let does = task.section("does")?;
+    let statements = does
+        .body_syntax
+        .iter()
+        .filter_map(Option::as_ref)
+        .collect::<Vec<_>>();
+    let [write, returned] = statements.as_slice() else {
+        return None;
+    };
+    let fact = constant_text_write(write, returned)?;
+    (!fact.text.is_empty()).then_some(CanonicalConstantTextTypeAuthority {
+        program_identity: std::ptr::from_ref(program).addr(),
+        source_revision: layout.file.canonical_source_revision().ok()?.to_vec(),
+        normalized_path: layout.normalized_path.replace('\\', "/"),
+        module_name: layout.file.module_occurrences.first()?.name.clone(),
+        app_name: layout.app.name.clone(),
+        entry_name: task.name.clone(),
+        app_span: layout.app.span.clone(),
+        entry_span: task.span.clone(),
+        fact,
+    })
+}
+
+fn constant_text_write(
+    statement: &ParsedBodyStatement,
+    returned: &ParsedBodyStatement,
+) -> Option<CanonicalConstantTextFact> {
+    let ParsedBodyStatementKind::Binding {
+        mutable: false,
+        name: Some(name),
+        value: Some(value),
+    } = &statement.kind
+    else {
+        return None;
+    };
+    let CanonicalExpressionKind::Try { value: tried, .. } = &value.canonical.kind else {
+        return None;
+    };
+    let CanonicalExpressionKind::Call { callee, arguments } = &tried.kind else {
+        return None;
+    };
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    let CanonicalExpressionKind::Identifier(callee) = &callee.kind else {
+        return None;
+    };
+    let CanonicalExpressionKind::TextLiteral(text) = &argument.kind else {
+        return None;
+    };
+    let ParsedBodyStatementKind::Return(expression) = &returned.kind else {
+        return None;
+    };
+    (callee == "stdout_write"
+        && matches!(&expression.canonical.kind, CanonicalExpressionKind::Identifier(returned) if returned == &name.name))
+    .then(|| CanonicalConstantTextFact {
+        text: text.clone(),
+        literal_span: argument.range.start.clone(),
+        call_span: tried.range.start.clone(),
+        binding_span: name.span.clone(),
+        return_span: returned.span.clone(),
+    })
+}
+
+pub(crate) fn is_constant_text_stdout_write_statement(statement: &ParsedBodyStatement) -> bool {
+    let ParsedBodyStatementKind::Binding {
+        mutable: false,
+        name: Some(_),
+        value: Some(value),
+    } = &statement.kind
+    else {
+        return false;
+    };
+    let CanonicalExpressionKind::Try { value, .. } = &value.canonical.kind else {
+        return false;
+    };
+    let CanonicalExpressionKind::Call { callee, arguments } = &value.kind else {
+        return false;
+    };
+    matches!(&callee.kind, CanonicalExpressionKind::Identifier(callee) if callee == "stdout_write")
+        && matches!(arguments.as_slice(), [argument] if matches!(&argument.kind, CanonicalExpressionKind::TextLiteral(_)))
+}
+
+impl CanonicalConstantTextTypeAuthority {
+    pub(crate) fn matches(&self, program: &Program, layout: &CanonicalNativeLayout<'_>) -> bool {
+        self.program_identity == std::ptr::from_ref(program).addr()
+            && self.normalized_path == layout.normalized_path.replace('\\', "/")
+            && self.module_name == layout.file.module.as_deref().unwrap_or_default()
+            && self.app_name == layout.app.name
+            && self.entry_name == layout.entry.name
+            && self.app_span == layout.app.span
+            && self.entry_span == layout.entry.span
+            && self.source_revision.as_slice()
+                == layout.file.canonical_source_revision().unwrap_or_default()
+    }
+
+    pub(crate) fn source_revision(&self) -> &[u8] {
+        &self.source_revision
+    }
+
+    pub(crate) fn identity(&self) -> (&str, &str, &str, &str) {
+        (
+            &self.normalized_path,
+            &self.module_name,
+            &self.app_name,
+            &self.entry_name,
+        )
+    }
+
+    pub(crate) fn fact(&self) -> &CanonicalConstantTextFact {
+        &self.fact
+    }
+}
+
 pub(crate) fn canonical_integer_sign_type_authority(
     program: &Program,
     layout: &CanonicalNativeLayout<'_>,

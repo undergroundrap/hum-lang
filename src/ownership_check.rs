@@ -102,6 +102,11 @@ pub(crate) struct VerifiedIntegerSignOwnership<'report> {
     _report: &'report OwnershipCheckReport,
 }
 
+pub(crate) struct VerifiedConstantTextOwnership<'report> {
+    effect: effect_check::VerifiedConstantTextEffect<'report>,
+    _report: &'report OwnershipCheckReport,
+}
+
 impl VerifiedMinimalAddOwnership<'_> {
     pub(crate) fn backend_identity(
         &self,
@@ -785,10 +790,28 @@ impl<'report> OwnershipResourceReportAccess<'report> {
             _report: self.report,
         })
     }
+
+    pub(crate) fn canonical_constant_text_for(
+        &self,
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+        authority: &'report crate::type_check::CanonicalConstantTextTypeAuthority,
+    ) -> Option<VerifiedConstantTextOwnership<'report>> {
+        let effect = self.effect.canonical_constant_text_for(layout, authority)?;
+        (self.report.blocking_issues() == 0).then_some(VerifiedConstantTextOwnership {
+            effect,
+            _report: self.report,
+        })
+    }
 }
 
 impl VerifiedIntegerSignOwnership<'_> {
     pub(crate) fn authority(&self) -> &crate::type_check::CanonicalIntegerSignTypeAuthority {
+        self.effect.authority()
+    }
+}
+
+impl VerifiedConstantTextOwnership<'_> {
+    pub(crate) fn authority(&self) -> &crate::type_check::CanonicalConstantTextTypeAuthority {
         self.effect.authority()
     }
 }

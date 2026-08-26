@@ -152,3 +152,11 @@ V0 does not promise general code generation, optimization, executable artifacts,
 debug info, broad target support, or safety-critical qualification. The narrow
 probe reports B01-B15 honestly and prevents future backend work from erasing
 Hum's source semantics.
+
+The current Cranelift stage accepts three sealed proof slices: minimal-add,
+integer-sign v0, and constant-Text-output v0. The last consumes only a verified
+v2 capability, creates one semantic tag and initialized result-slot store, and
+invokes one finalized function before bounded output. A verifier, target,
+finalization, status/tag, consent, or output failure is terminal; no route falls
+back to the interpreter. This remains no general backend or arbitrary-program
+claim.

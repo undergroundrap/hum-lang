@@ -1,0 +1,32 @@
+module programs.foreign
+
+app foreign {
+  uses:
+    stdout.write
+  starts with:
+    run_tool
+
+  task run_tool -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      output is denied
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try helper()
+      return written
+  }
+
+  task helper -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      output is denied
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("Hello, world!")
+      return written
+  }
+}

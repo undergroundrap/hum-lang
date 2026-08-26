@@ -1,0 +1,30 @@
+module programs.hello_world
+
+app hello_world {
+  why:
+    prove one source-derived constant Text output through native execution
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task run_tool -> Result Unit, OutputError {
+    why:
+      write one checked source literal without hidden fallback
+
+    uses:
+      stdout.write
+
+    fails when:
+      bounded output is denied or the output adapter rejects the write
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let written = try stdout_write("Hello, world!")
+      return written
+  }
+}

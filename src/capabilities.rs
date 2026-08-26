@@ -70,6 +70,13 @@ const COMMANDS: &[CommandCapability] = &[
         purpose: "verified canonical integer-sign source lowered through Cranelift on required hosts",
     },
     CommandCapability {
+        name: "run_native_constant_text",
+        command: "hum run --native --allow stdout.write programs/hello_world.hum",
+        schema: backend_input::CONSTANT_TEXT_BACKEND_INPUT_SCHEMA,
+        status: "current-narrow",
+        purpose: "verified canonical constant-Text output lowered through Cranelift on required hosts",
+    },
+    CommandCapability {
         name: "graph",
         command: "hum graph <file-or-dir>...",
         schema: json::SEMANTIC_GRAPH_SCHEMA,

@@ -229,3 +229,12 @@ have exact `covers:` links. It does not need to run them yet.
 
 Milestone 1 can execute basic tests against the interpreter or tiny executable
 core.
+
+WO24 permanent evidence binds the canonical constant-Text program to six exact
+selectors and N01-N08 initialized mutations. It proves source-literal mutation
+changes artifact identity and interpreter/native output, unsupported typed
+shapes stop at H0635, deny-first consent reaches neither JIT nor output, v2 live
+equality is required, one finalized invocation/store occurs, unsupported
+targets cannot earn readiness, and rejected native requests never fall back.
+The prior 112-selector order remains intact and the append-only ledger contains
+118 case-sensitive unique selectors.

@@ -546,3 +546,9 @@ The command is local-first:
 V0 readiness does not produce Core Hum, Hum IR, bytecode, machine code, backend adapter
 input, proof artifacts, optimized code, or executable behavior. It is a progress
 map from current parsed source through non-executing Core artifact verification toward the first honest IR milestone.
+
+Constant-Text native readiness is true only for an exact verified v2
+capability, supported Windows MSVC or Linux GNU target, one semantic
+tag/store/invocation, and a nonempty CLIF digest with `ir_ready=1` and
+`backend_ready=1`. Artifact bytes, layout acceptance, or verifier success alone
+cannot claim backend readiness.

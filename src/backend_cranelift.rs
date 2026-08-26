@@ -1,6 +1,8 @@
 //! Verified-only Cranelift backend boundary for the canonical minimal-add probe.
 
-use crate::ir_verify::{VerifiedBackendInput, VerifiedIntegerSignBackendInput};
+use crate::ir_verify::{
+    VerifiedBackendInput, VerifiedConstantTextBackendInput, VerifiedIntegerSignBackendInput,
+};
 use crate::sha256;
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlagsData, SourceLoc, UserFuncName, types};
@@ -105,7 +107,7 @@ const ROW_OWNERS: [&str; 15] = [
     "report/readiness gate",
 ];
 
-#[allow(unexpected_cfgs)]
+#[allow(unexpected_cfgs, dead_code)]
 mod verified_only_compile_proof {
     #[cfg(hum_compile_fail_backend_adapter_raw_inputs)]
     fn raw_inputs_must_not_compile() {
@@ -117,6 +119,42 @@ mod verified_only_compile_proof {
     #[cfg(hum_compile_fail_backend_fault_seam_in_production)]
     fn production_fault_seam_must_not_compile() {
         let _ = super::BackendProbeFault::RejectVerifiedAdmission;
+    }
+
+    #[cfg(hum_compile_fail_verified_constant_text_backend_input_construction)]
+    fn verified_constant_text_backend_input_construction_must_not_compile() {
+        let _ = crate::ir_verify::VerifiedConstantTextBackendInput {
+            projection: None.unwrap(),
+            _artifact: std::marker::PhantomData,
+        };
+    }
+
+    #[cfg(hum_compile_fail_verified_constant_text_backend_input_lifetime)]
+    fn verified_constant_text_backend_input_lifetime_must_not_escape(
+        program: &crate::ast::Program,
+        diagnostics: &[crate::diagnostic::Diagnostic],
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+        authority: &crate::type_check::CanonicalConstantTextTypeAuthority,
+        artifact: &[u8],
+    ) -> crate::ir_verify::VerifiedConstantTextBackendInput<'static> {
+        crate::ir_verify::with_verified_constant_text_backend_input(
+            program,
+            diagnostics,
+            layout,
+            authority,
+            artifact,
+            |capability| capability,
+        )
+        .unwrap()
+    }
+
+    #[cfg(hum_compile_fail_verified_backend_input_cross_substitution)]
+    fn verified_backend_inputs_must_not_substitute(
+        integer: &crate::ir_verify::VerifiedIntegerSignBackendInput<'_>,
+        text: &crate::ir_verify::VerifiedConstantTextBackendInput<'_>,
+    ) {
+        let _ = super::execute_constant_text(integer);
+        let _ = super::execute_integer_sign(text, 0);
     }
 }
 
@@ -923,6 +961,172 @@ pub(crate) fn execute_integer_sign(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NativeConstantTextExecution {
+    pub(crate) tag: i64,
+    pub(crate) literal: String,
+    pub(crate) target_triple: String,
+    pub(crate) clif_sha256: String,
+    #[cfg(test)]
+    pub(crate) clif: String,
+    pub(crate) invocation_count: usize,
+    pub(crate) result_store_count: usize,
+    pub(crate) ir_ready: usize,
+    pub(crate) backend_ready: usize,
+}
+
+pub(crate) fn execute_constant_text(
+    input: &VerifiedConstantTextBackendInput<'_>,
+) -> Result<NativeConstantTextExecution, String> {
+    if input.schema() != crate::backend_input::CONSTANT_TEXT_BACKEND_INPUT_SCHEMA
+        || input.compiler_version() != env!("CARGO_PKG_VERSION")
+        || input.target_context() != crate::backend_input::TARGET_CONTEXT
+        || input.artifact_id().is_empty()
+        || input.profile_id() != "normal"
+        || input.required_passes() != crate::backend_input::REQUIRED_PASSES
+    {
+        return Err("verified constant-Text capability admission failed".to_string());
+    }
+    let (source_revision, source_path, module_name, app_name, entry_name) = input.source_identity();
+    if !source_revision.starts_with("sha256:")
+        || source_revision.len() != "sha256:".len() + 64
+        || !source_path.starts_with("programs/")
+        || module_name != format!("programs.{app_name}")
+        || entry_name.is_empty()
+    {
+        return Err("verified constant-Text source identity failed".to_string());
+    }
+    let operation = input.operation();
+    if operation.tag != 0 || operation.literal.is_empty() {
+        return Err("verified constant-Text operation facts failed".to_string());
+    }
+    if !target_is_required(
+        std::env::consts::ARCH,
+        std::env::consts::OS,
+        host_target_environment(),
+    ) {
+        return Err(format!(
+            "unsupported native target `{}`",
+            host_target_label()
+        ));
+    }
+    let observed_versions = [
+        cranelift_codegen::VERSION,
+        cranelift_frontend::VERSION,
+        cranelift_jit::VERSION,
+        cranelift_module::VERSION,
+        cranelift_native::VERSION,
+    ];
+    if normalized_pinned_versions(observed_versions) != [CRANELIFT_VERSION; 5] {
+        return Err("pinned Cranelift API unavailable".to_string());
+    }
+    let mut flag_builder = settings::builder();
+    flag_builder
+        .set("use_colocated_libcalls", "false")
+        .map_err(|error| format!("required JIT flag unavailable: {error}"))?;
+    flag_builder
+        .set("is_pic", "false")
+        .map_err(|error| format!("required JIT flag unavailable: {error}"))?;
+    let isa = cranelift_native::builder()
+        .map_err(|error| format!("native ISA builder unavailable: {error}"))?
+        .finish(settings::Flags::new(flag_builder))
+        .map_err(|error| format!("native ISA initialization failed: {error}"))?;
+    let target_triple = isa.triple().to_string();
+    if !matches!(
+        target_triple.as_str(),
+        "x86_64-pc-windows-msvc" | "x86_64-unknown-linux-gnu"
+    ) {
+        return Err(format!("unsupported native target `{target_triple}`"));
+    }
+    let mut module = JITModule::new(JITBuilder::with_isa(isa, default_libcall_names()));
+    let mut signature = module.make_signature();
+    signature.params.push(AbiParam::new(types::I64));
+    signature.params.push(AbiParam::new(types::I64));
+    signature
+        .params
+        .push(AbiParam::new(module.target_config().pointer_type()));
+    signature.returns.push(AbiParam::new(types::I32));
+    let mut context = module.make_context();
+    context.func.signature = signature.clone();
+    context.func.name = UserFuncName::user(0, 2);
+    let mut function_context = FunctionBuilderContext::new();
+    {
+        let mut builder = FunctionBuilder::new(&mut context.func, &mut function_context);
+        let entry = builder.create_block();
+        builder.switch_to_block(entry);
+        builder.append_block_params_for_function_params(entry);
+        let result_slot = builder.block_params(entry)[2];
+        let location =
+            source_location_bits(operation.literal_span.line, operation.literal_span.column)
+                .ok_or_else(|| "invalid constant-Text source location".to_string())?;
+        builder.set_srcloc(SourceLoc::new(location));
+        let tag = builder.ins().iconst(types::I64, operation.tag);
+        builder
+            .ins()
+            .store(MemFlagsData::new(), tag, result_slot, 0);
+        let ok = builder.ins().iconst(types::I32, 0);
+        builder.ins().return_(&[ok]);
+        builder.seal_all_blocks();
+        builder.finalize();
+    }
+    let clif = context.func.display().to_string();
+    if clif.matches("store").count() != 1
+        || clif.contains(&operation.literal)
+        || clif.matches("iconst.i64 0").count() != 1
+    {
+        return Err("constant-Text CLIF shape verification failed".to_string());
+    }
+    verify_function(&context.func, module.isa())
+        .map_err(|error| format!("Cranelift verification failed: {error}"))?;
+    let function_id = module
+        .declare_function("hum_constant_text_0", Linkage::Local, &signature)
+        .map_err(|error| format!("JIT declaration failed: {error}"))?;
+    context.func.name = UserFuncName::user(0, function_id.as_u32());
+    module
+        .define_function(function_id, &mut context)
+        .map_err(|error| format!("JIT definition failed: {error}"))?;
+    module
+        .finalize_definitions()
+        .map_err(|error| format!("JIT finalization failed: {error}"))?;
+    let code = module.get_finalized_function(function_id);
+    if code.is_null() {
+        return Err("finalized constant-Text code pointer was null".to_string());
+    }
+    let sentinel = 0x5a5a_5a5a_5a5a_5a5a_i64;
+    let mut result_slot = sentinel;
+    let status = invoke_finalized_uniform(
+        code,
+        0,
+        0,
+        &mut result_slot,
+        &mut BackendConsumption::default(),
+        0,
+    );
+    if status != 0 || result_slot == sentinel || result_slot != operation.tag {
+        return Err(format!(
+            "constant-Text native invocation failed: status={status};result_slot={result_slot}"
+        ));
+    }
+    let clif_sha256 = format!(
+        "sha256:{}",
+        sha256::lowercase_hex(
+            &sha256::digest(clif.as_bytes()).ok_or_else(|| "CLIF digest failed".to_string())?
+        )
+    );
+    Ok(NativeConstantTextExecution {
+        tag: result_slot,
+        literal: operation.literal.clone(),
+        target_triple,
+        clif_sha256,
+        #[cfg(test)]
+        clif,
+        invocation_count: 1,
+        result_store_count: 1,
+        ir_ready: 1,
+        backend_ready: 1,
+    })
+}
+
 fn finish_report(input: &VerifiedBackendInput<'_>, evidence: ProbeEvidence) -> BackendProbeReport {
     let primary = evidence.primary_failure.as_ref().map(|(index, _)| *index);
     let rows = ROW_IDS
@@ -1272,6 +1476,46 @@ mod tests {
         execution
     }
 
+    fn constant_text_execution(source: &str) -> NativeConstantTextExecution {
+        let parsed = crate::parser::parse_source("programs/hello_world.hum", source);
+        let checked = crate::check::check_parse_output(&parsed);
+        assert!(parsed.diagnostics.is_empty(), "{:#?}", parsed.diagnostics);
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let entry = crate::app_entry::analyze(&program).entry.expect("entry");
+        let layout = crate::app_entry::analyze_canonical_native_layout(
+            &program,
+            "programs/hello_world.hum",
+            Some(&entry),
+        )
+        .layout
+        .expect("layout");
+        let authority = crate::type_check::canonical_constant_text_type_authority(
+            &program,
+            &layout,
+            &checked.diagnostics,
+        )
+        .expect("constant Text authority");
+        let artifact = crate::backend_input::canonical_constant_text_artifact(
+            &program,
+            &checked.diagnostics,
+            &layout,
+            &authority,
+        )
+        .expect("artifact");
+        crate::ir_verify::with_verified_constant_text_backend_input(
+            &program,
+            &checked.diagnostics,
+            &layout,
+            &authority,
+            artifact.bytes(),
+            |verified| execute_constant_text(&verified),
+        )
+        .expect("verified capability")
+        .expect("native execution")
+    }
+
     fn valid_probe(fault: Option<BackendProbeFault>) -> BackendProbeReport {
         let source = include_str!("../examples/core/minimal_add.hum");
         let parsed = crate::parser::parse_source(crate::backend_input::SOURCE_PATH, source);
@@ -1361,6 +1605,40 @@ mod tests {
 
         let restored = integer_sign_execution(source, -7);
         assert_eq!((restored.tag, restored.literal.as_str()), (0, "negative"));
+    }
+
+    #[test]
+    fn hello_world_lowering_is_source_driven_and_load_bearing() {
+        let unsupported_backend_ready = usize::from(target_is_required("x86_64", "macos", "other"));
+        assert_eq!(
+            unsupported_backend_ready, 0,
+            "unsupported target earned forbidden backend-ready evidence"
+        );
+        let source = include_str!("../programs/hello_world.hum");
+        let execution = constant_text_execution(source);
+        assert_eq!(execution.literal, "Hello, world!");
+        assert_eq!(execution.tag, 0);
+        assert_eq!(
+            execution.invocation_count, 1,
+            "finalized constant-Text invocation count was not exactly one"
+        );
+        assert_eq!(execution.result_store_count, 1);
+        assert_eq!((execution.ir_ready, execution.backend_ready), (1, 1));
+        assert_eq!(execution.clif.matches("store").count(), 1);
+        assert!(!execution.clif.contains("Hello, world!"));
+        assert!(matches!(
+            execution.target_triple.as_str(),
+            "x86_64-pc-windows-msvc" | "x86_64-unknown-linux-gnu"
+        ));
+
+        let changed = source.replace("Hello, world!", "Source facts win");
+        let changed_execution = constant_text_execution(&changed);
+        assert_eq!(
+            changed_execution.literal, "Source facts win",
+            "Rust literal stopped source-literal artifact/output parity"
+        );
+        assert_eq!(changed_execution.tag, 0);
+        assert!(!execution.clif_sha256.is_empty());
     }
 
     #[test]

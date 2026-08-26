@@ -122,3 +122,9 @@ code, ABI stability, optimization, memory safety, or backend readiness.
 
 The verifier is safe Rust, local-only, deterministic, and uses no network,
 cloud, telemetry, solver, backend, unsafe code, or new dependency.
+
+The verifier accepts additive `hum.backend_input.v2` only when strict framing,
+canonical regeneration, artifact identity, source revision, profile, required
+passes, literal, and every source span exactly match live compiler facts. It
+then issues one opaque callback-scoped constant-Text capability. V0 and v1 are
+unchanged; corrupt, mixed, stale, or foreign bytes issue no capability.

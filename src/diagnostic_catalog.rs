@@ -1734,6 +1734,24 @@ diagnostic_causes!(
         "app_entry",
         "canonical_native_program_layout",
         "canonical_native_program_route"
+    ),
+    (
+        181,
+        "native_feature_not_supported_v0",
+        UNSUPPORTED_NATIVE_PROGRAM_FEATURE,
+        "native_program",
+        "native_admission",
+        "native_program_feature",
+        "native_feature_admission_route"
+    ),
+    (
+        182,
+        "native_feature_ambiguous_v0",
+        UNSUPPORTED_NATIVE_PROGRAM_FEATURE,
+        "native_program",
+        "native_admission",
+        "native_program_feature",
+        "native_feature_admission_route"
     )
 );
 
@@ -2016,6 +2034,14 @@ pub(crate) const DIAGNOSTIC_PRECEDENCE: &[DiagnosticPrecedenceSpec] = &[
         applying_owner: "ownership_check",
         applying_stage: "ownership_check",
     },
+    DiagnosticPrecedenceSpec {
+        id: "canonical_layout_over_native_feature_v0",
+        dominant_causes: &[DiagnosticCauseKey(180)],
+        suppressed_causes: &[DiagnosticCauseKey(181), DiagnosticCauseKey(182)],
+        relationship: "canonical_layout_blocks_native_feature_admission_v0",
+        applying_owner: "native_program",
+        applying_stage: "native_admission",
+    },
 ];
 
 pub(crate) fn precedence_spec(
@@ -2053,6 +2079,7 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         86 => 65,
         87 => 87,
         88 => 88,
+        89 => 89,
         _ => u16::MAX,
     }
 }
@@ -2765,6 +2792,15 @@ diagnostic_code_allocations!(
         FRONT_END_SEMANTICS,
         "front_end_semantics",
         "app_entry"
+    ),
+    (
+        89,
+        UNSUPPORTED_NATIVE_PROGRAM_FEATURE,
+        "H0635",
+        "unsupported native program feature",
+        FRONT_END_SEMANTICS,
+        "native_program",
+        "native_admission"
     ),
     (
         60,
@@ -3561,6 +3597,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         explanation: "A native canonical program must have one first module, optional local types, one final app, and the declared start task as its first direct child, with exact path/module/app identity.",
         repair: "Use `programs/<name>.hum`, declare `module programs.<name>` first, keep local types before the sole final app, and place its start task first.",
     },
+    DiagnosticInfo {
+        code: DiagnosticCode::UNSUPPORTED_NATIVE_PROGRAM_FEATURE,
+        default_severity: Severity::Error,
+        explanation: "A canonical native layout passed H0634, but its authenticated typed facts identify no currently supported native feature or identify more than one feature.",
+        repair: "Use exactly one accepted typed native feature. Native admission does not use filenames, app names, or literal bytes as dispatch authority and never falls back to interpretation.",
+    },
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3709,8 +3751,14 @@ fn validate_registry(
             .iter()
             .find(|family| number >= family.start && number <= family.end)
             .ok_or(RegistryValidationError::CodeOutsideDeclaredFamily)?;
+        let delegated_native_feature_owner = allocation.key
+            == DiagnosticCodeKey::UNSUPPORTED_NATIVE_PROGRAM_FEATURE
+            && numeric_family.key == DiagnosticFamilyKey::FRONT_END_SEMANTICS
+            && allocation.semantic_owner == "native_program"
+            && allocation.owning_stage == "native_admission";
         if numeric_family.key != allocation.family
-            || numeric_family.semantic_owner != allocation.semantic_owner
+            || (numeric_family.semantic_owner != allocation.semantic_owner
+                && !delegated_native_feature_owner)
         {
             return Err(RegistryValidationError::CodeOwnedByDifferentFamily);
         }
@@ -4527,13 +4575,13 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 89);
+        assert_eq!(summary.active_codes, 90);
         assert_eq!(summary.retired_codes, 0);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 180);
-        assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 8);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 182);
+        assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 9);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {
                 assert!(super::precedence_spec(*dominant, *suppressed).is_some());
@@ -4563,6 +4611,33 @@ mod tests {
                 Some(relationship)
             );
         }
+    }
+
+    #[test]
+    fn unsupported_native_feature_catalog_projection_is_exact() {
+        let info = find("H0635").expect("H0635 catalog row");
+        assert_eq!(
+            info.code,
+            DiagnosticCode::UNSUPPORTED_NATIVE_PROGRAM_FEATURE
+        );
+        assert_eq!(info.code.title(), "unsupported native program feature");
+        assert_eq!(info.default_severity, crate::diagnostic::Severity::Error);
+        let allocation = super::allocation(info.code.key());
+        assert_eq!(allocation.semantic_owner, "native_program");
+        assert_eq!(allocation.owning_stage, "native_admission");
+        let causes = DIAGNOSTIC_CAUSES
+            .iter()
+            .filter(|cause| cause.code == info.code)
+            .collect::<Vec<_>>();
+        assert_eq!(causes.len(), 2);
+        assert_eq!(causes[0].key.ordinal(), 181);
+        assert_eq!(causes[0].reason, "native_feature_not_supported_v0");
+        assert_eq!(causes[1].key.ordinal(), 182);
+        assert_eq!(causes[1].reason, "native_feature_ambiguous_v0");
+        assert!(causes.iter().all(|cause| {
+            cause.semantic_owner == "native_program" && cause.owning_stage == "native_admission"
+        }));
+        assert_eq!(all().len(), 90);
     }
 
     #[test]

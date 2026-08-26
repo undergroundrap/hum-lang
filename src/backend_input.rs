@@ -11,9 +11,13 @@ use std::ops::Range;
 
 pub const BACKEND_INPUT_SCHEMA: &str = "hum.backend_input.v0";
 pub const INTEGER_SIGN_BACKEND_INPUT_SCHEMA: &str = "hum.backend_input.v1";
+pub const CONSTANT_TEXT_BACKEND_INPUT_SCHEMA: &str = "hum.backend_input.v2";
 pub(crate) const INTEGER_SIGN_SEMANTIC_CONTRACT: &str =
     "hum.canonical_integer_sign_backend_facts.v0";
 pub(crate) const INTEGER_SIGN_FEATURE: &str = "canonical_integer_sign_app_v0";
+pub(crate) const CONSTANT_TEXT_SEMANTIC_CONTRACT: &str =
+    "hum.canonical_constant_text_backend_facts.v0";
+pub(crate) const CONSTANT_TEXT_FEATURE: &str = "canonical_constant_text_output_app_v0";
 
 pub(crate) const SEMANTIC_CONTRACT: &str = "hum.canonical_minimal_add_backend_facts.v0";
 pub(crate) const TARGET_CONTEXT: &str = "target_independent_checked_i64_v0";
@@ -97,6 +101,185 @@ impl CanonicalIntegerSignBackendFacts {
                 .iter()
                 .all(|branch| !branch.literal.is_empty())
     }
+}
+
+pub(crate) struct CanonicalConstantTextBackendFacts {
+    program_identity: usize,
+    compiler_version: &'static str,
+    source_revision: String,
+    normalized_path: String,
+    module_name: String,
+    app_name: String,
+    entry_name: String,
+    profile_id: String,
+    operation: crate::core_lower::CanonicalConstantTextOperation,
+    required_passes: Vec<&'static str>,
+}
+
+impl CanonicalConstantTextBackendFacts {
+    fn complete(&self, program: &Program) -> bool {
+        self.program_identity == std::ptr::from_ref(program).addr()
+            && self.compiler_version == version::HUM_VERSION
+            && self.source_revision.starts_with("sha256:")
+            && self.source_revision.len() == "sha256:".len() + 64
+            && self.normalized_path.starts_with("programs/")
+            && self.module_name == format!("programs.{}", self.app_name)
+            && !self.app_name.is_empty()
+            && !self.entry_name.is_empty()
+            && self.profile_id == "normal"
+            && self.required_passes == REQUIRED_PASSES
+            && self.operation.tag == 0
+            && !self.operation.literal.is_empty()
+            && [
+                &self.operation.literal_span,
+                &self.operation.call_span,
+                &self.operation.binding_span,
+                &self.operation.return_span,
+            ]
+            .into_iter()
+            .all(|span| span.file.replace('\\', "/") == self.normalized_path)
+    }
+
+    pub(crate) fn source_revision(&self) -> &str {
+        &self.source_revision
+    }
+    pub(crate) fn source_path(&self) -> &str {
+        &self.normalized_path
+    }
+    pub(crate) fn identities(&self) -> (&str, &str, &str) {
+        (&self.module_name, &self.app_name, &self.entry_name)
+    }
+    pub(crate) fn profile_id(&self) -> &str {
+        &self.profile_id
+    }
+    pub(crate) fn operation(&self) -> &crate::core_lower::CanonicalConstantTextOperation {
+        &self.operation
+    }
+    pub(crate) fn required_passes(&self) -> &[&'static str] {
+        &self.required_passes
+    }
+}
+
+fn canonical_constant_text_facts(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    authority: &type_check::CanonicalConstantTextTypeAuthority,
+) -> Option<CanonicalConstantTextBackendFacts> {
+    let lower = crate::core_lower::lower_canonical_constant_text(program, layout, authority)?;
+    let verified =
+        crate::core_verify::verify_canonical_constant_text(program, layout, authority, &lower)?;
+    profile_check::with_profile_for_ir_readiness(program, diagnostics, |profile_access| {
+        let profile = profile_access.canonical_constant_text_for(layout, authority)?;
+        if !std::ptr::eq(profile.authority(), authority) {
+            return None;
+        }
+        let source_digest = sha256::digest(authority.source_revision())?;
+        let (normalized_path, module_name, app_name, entry_name) = authority.identity();
+        let facts = CanonicalConstantTextBackendFacts {
+            program_identity: std::ptr::from_ref(program).addr(),
+            compiler_version: version::HUM_VERSION,
+            source_revision: format!("sha256:{}", sha256::lowercase_hex(&source_digest)),
+            normalized_path: normalized_path.to_string(),
+            module_name: module_name.to_string(),
+            app_name: app_name.to_string(),
+            entry_name: entry_name.to_string(),
+            profile_id: profile.profile_id().to_string(),
+            operation: verified.operation().clone(),
+            required_passes: REQUIRED_PASSES.to_vec(),
+        };
+        facts.complete(program).then_some(facts)
+    })
+}
+
+pub(crate) fn with_canonical_constant_text_facts<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    authority: &type_check::CanonicalConstantTextTypeAuthority,
+    consume: impl FnOnce(&CanonicalConstantTextBackendFacts) -> R,
+) -> Option<R> {
+    let facts = canonical_constant_text_facts(program, diagnostics, layout, authority)?;
+    Some(consume(&facts))
+}
+
+pub(crate) fn canonical_constant_text_artifact(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    authority: &type_check::CanonicalConstantTextTypeAuthority,
+) -> Option<CanonicalBackendInputArtifact> {
+    let facts = canonical_constant_text_facts(program, diagnostics, layout, authority)?;
+    encode_constant_text_artifact(&facts)
+}
+
+fn encode_constant_text_artifact(
+    facts: &CanonicalConstantTextBackendFacts,
+) -> Option<CanonicalBackendInputArtifact> {
+    let operation = &facts.operation;
+    let mut payload = String::with_capacity(3072);
+    payload.push_str("{\"compiler_version\":");
+    push_json_string(&mut payload, facts.compiler_version);
+    payload.push_str(",\"semantic_contract\":");
+    push_json_string(&mut payload, CONSTANT_TEXT_SEMANTIC_CONTRACT);
+    payload.push_str(",\"feature\":");
+    push_json_string(&mut payload, CONSTANT_TEXT_FEATURE);
+    payload.push_str(",\"target_context\":");
+    push_json_string(&mut payload, TARGET_CONTEXT);
+    payload.push_str(",\"source_revision\":");
+    push_json_string(&mut payload, &facts.source_revision);
+    payload.push_str(",\"source_path\":");
+    push_json_string(&mut payload, &facts.normalized_path);
+    payload.push_str(",\"module\":");
+    push_json_string(&mut payload, &facts.module_name);
+    payload.push_str(",\"app\":");
+    push_json_string(&mut payload, &facts.app_name);
+    payload.push_str(",\"entry\":");
+    push_json_string(&mut payload, &facts.entry_name);
+    payload.push_str(",\"arguments\":[],\"result\":{\"type\":\"Result Unit, OutputError\",\"success\":\"Unit\",\"error\":\"OutputError\"},\"output\":{\"operation\":\"stdout_write\",\"binding\":\"written\",\"direct_try\":true,\"direct_return\":true,\"literal\":");
+    push_json_string(&mut payload, &operation.literal);
+    payload.push_str(",\"literal_span\":");
+    push_span(&mut payload, &operation.literal_span);
+    payload.push_str(",\"call_span\":");
+    push_span(&mut payload, &operation.call_span);
+    payload.push_str(",\"binding_span\":");
+    push_span(&mut payload, &operation.binding_span);
+    payload.push_str(",\"return_span\":");
+    push_span(&mut payload, &operation.return_span);
+    let _ = write!(payload, ",\"tag\":{}}}", operation.tag);
+    payload.push_str(",\"authority\":{\"app\":\"stdout.write\",\"task\":\"stdout.write\",\"operator_consent\":\"required\"},\"profile\":");
+    push_json_string(&mut payload, &facts.profile_id);
+    payload.push_str(",\"required_passes\":[");
+    for (ordinal, pass) in facts.required_passes.iter().enumerate() {
+        if ordinal > 0 {
+            payload.push(',');
+        }
+        payload.push_str("{\"name\":");
+        push_json_string(&mut payload, pass);
+        let _ = write!(payload, ",\"ordinal\":{ordinal},\"selected\":1}}");
+    }
+    payload.push_str("],\"unsupported\":[]}");
+    let digest = sha256::digest(payload.as_bytes())?;
+    let artifact_id = format!("sha256:{}", sha256::lowercase_hex(&digest));
+    let prefix = format!(
+        "{{\"schema\":\"{CONSTANT_TEXT_BACKEND_INPUT_SCHEMA}\",\"artifact_id\":\"{artifact_id}\",\"payload\":"
+    );
+    let payload_start = prefix.len();
+    let payload_end = payload_start.checked_add(payload.len())?;
+    let mut bytes = Vec::with_capacity(payload_end.checked_add(2)?);
+    bytes.extend_from_slice(prefix.as_bytes());
+    bytes.extend_from_slice(payload.as_bytes());
+    bytes.extend_from_slice(b"}\n");
+    Some(CanonicalBackendInputArtifact {
+        bytes,
+        payload_range: payload_start..payload_end,
+        artifact_id,
+    })
+}
+
+fn push_span(out: &mut String, span: &crate::diagnostic::Span) {
+    out.push_str("{\"line\":");
+    let _ = write!(out, "{},\"column\":{}}}", span.line, span.column);
 }
 
 fn canonical_integer_sign_facts(
@@ -987,6 +1170,87 @@ pub(crate) fn minimal_add_artifact_for_test() -> CanonicalBackendInputArtifact {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn constant_text_subject(path: &str, source: &str) -> (Program, Vec<Diagnostic>) {
+        let parsed = crate::parser::parse_source(path, source);
+        let checked = crate::check::check_parse_output(&parsed);
+        assert!(parsed.diagnostics.is_empty(), "{:#?}", parsed.diagnostics);
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity != crate::diagnostic::Severity::Error),
+            "{:#?}",
+            checked.diagnostics
+        );
+        (
+            Program {
+                files: vec![parsed.file],
+            },
+            checked.diagnostics,
+        )
+    }
+
+    fn constant_text_artifact(source: &str) -> CanonicalBackendInputArtifact {
+        constant_text_artifact_result("programs/hello_world.hum", source)
+            .expect("constant Text backend input")
+    }
+
+    fn constant_text_artifact_result(
+        path: &str,
+        source: &str,
+    ) -> Option<CanonicalBackendInputArtifact> {
+        let (program, diagnostics) = constant_text_subject(path, source);
+        let entry = crate::app_entry::analyze(&program)
+            .entry
+            .expect("canonical app entry");
+        let layout =
+            crate::app_entry::analyze_canonical_native_layout(&program, path, Some(&entry))
+                .layout
+                .expect("canonical native layout");
+        let authority = crate::type_check::canonical_constant_text_type_authority(
+            &program,
+            &layout,
+            &diagnostics,
+        )?;
+        canonical_constant_text_artifact(&program, &diagnostics, &layout, &authority)
+    }
+
+    #[test]
+    fn canonical_hello_world_backend_input_is_exact_and_nonforgeable() {
+        let source = include_str!("../programs/hello_world.hum");
+        let artifact = constant_text_artifact(source);
+        assert_eq!(
+            artifact.bytes(),
+            include_bytes!("../fixtures/backend_input/hello_world.backend_input.v2.json")
+        );
+        assert!(artifact.artifact_id().starts_with("sha256:"));
+        assert!(
+            artifact
+                .payload()
+                .windows(13)
+                .any(|row| row == b"Hello, world!")
+        );
+
+        let changed = source.replace("Hello, world!", "Goodbye, world!");
+        let changed = constant_text_artifact(&changed);
+        assert_ne!(artifact.artifact_id(), changed.artifact_id());
+        assert_ne!(artifact.bytes(), changed.bytes());
+        assert!(
+            changed
+                .bytes()
+                .windows(15)
+                .any(|row| row == b"Goodbye, world!")
+        );
+        assert!(
+            constant_text_artifact_result(
+                "programs/foreign.hum",
+                include_str!("../fixtures/programs/hello_world/unsupported_two_writes_fail.hum")
+            )
+            .is_none(),
+            "unsupported two-write fixture reached backend-artifact issuance"
+        );
+    }
 
     fn integer_sign_subject(source: &str) -> (Program, Vec<Diagnostic>) {
         let parsed = crate::parser::parse_source("programs/integer_sign.hum", source);

@@ -176,3 +176,9 @@ minimal-add source and lends authority only inside a compiler callback. The
 explicit probe lowers that one checked add to Cranelift. V0 does not execute
 arbitrary tasks, optimize programs, prove memory safety, or support general
 Cranelift, LLVM, MLIR, Wasm, C, or custom-backend lowering.
+
+The verified-input-ready layer now carries minimal-add, integer-sign v0, and
+constant-Text-output v0 only. The constant feature preserves its source
+literal, output operation, authority closure, semantic tag, and live source
+revision through the backend boundary. This is not general backend lowering,
+durable external authority, arbitrary Text computation, or optimization.

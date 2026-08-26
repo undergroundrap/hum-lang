@@ -72,6 +72,11 @@ pub(crate) struct VerifiedIntegerSignResource<'report> {
     _report: &'report ResourceCheckReport,
 }
 
+pub(crate) struct VerifiedConstantTextResource<'report> {
+    ownership: ownership_check::VerifiedConstantTextOwnership<'report>,
+    _report: &'report ResourceCheckReport,
+}
+
 struct VerifiedMinimalAddResourceProof<'report> {
     ownership: ownership_check::VerifiedMinimalAddOwnership<'report>,
     item: &'report ResourceItem,
@@ -420,6 +425,20 @@ impl<'report> ResourceProfileReportAccess<'report> {
             _report: self.report,
         })
     }
+
+    pub(crate) fn canonical_constant_text_for(
+        &self,
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+        authority: &'report crate::type_check::CanonicalConstantTextTypeAuthority,
+    ) -> Option<VerifiedConstantTextResource<'report>> {
+        let ownership = self
+            .ownership
+            .canonical_constant_text_for(layout, authority)?;
+        (self.report.blocking_issues() == 0).then_some(VerifiedConstantTextResource {
+            ownership,
+            _report: self.report,
+        })
+    }
 }
 
 pub(crate) use crate::ownership_check::sole;
@@ -447,6 +466,12 @@ impl<'report> VerifiedMinimalAddResource<'report> {
 
 impl VerifiedIntegerSignResource<'_> {
     pub(crate) fn authority(&self) -> &crate::type_check::CanonicalIntegerSignTypeAuthority {
+        self.ownership.authority()
+    }
+}
+
+impl VerifiedConstantTextResource<'_> {
+    pub(crate) fn authority(&self) -> &crate::type_check::CanonicalConstantTextTypeAuthority {
         self.ownership.authority()
     }
 }

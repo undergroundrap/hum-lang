@@ -51,6 +51,39 @@ impl VerifiedCanonicalIntegerSignCore<'_> {
     }
 }
 
+pub(crate) struct VerifiedCanonicalConstantTextCore<'report> {
+    lower: &'report core_lower::CanonicalConstantTextCoreLower,
+}
+
+pub(crate) fn verify_canonical_constant_text<'report>(
+    program: &Program,
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    authority: &type_check::CanonicalConstantTextTypeAuthority,
+    lower: &'report core_lower::CanonicalConstantTextCoreLower,
+) -> Option<VerifiedCanonicalConstantTextCore<'report>> {
+    if !authority.matches(program, layout) || !lower.matches(program, layout) {
+        return None;
+    }
+    let operation = lower.operation();
+    (operation.tag == 0
+        && !operation.literal.is_empty()
+        && [
+            &operation.literal_span,
+            &operation.call_span,
+            &operation.binding_span,
+            &operation.return_span,
+        ]
+        .into_iter()
+        .all(|span| span.file == layout.file.path))
+    .then_some(VerifiedCanonicalConstantTextCore { lower })
+}
+
+impl VerifiedCanonicalConstantTextCore<'_> {
+    pub(crate) fn operation(&self) -> &core_lower::CanonicalConstantTextOperation {
+        self.lower.operation()
+    }
+}
+
 pub const CORE_VERIFY_SCHEMA: &str = "hum.core_verify.v0";
 pub const CORE_VERIFY_STATUS: &str = "verified_non_executing_core_artifact_v0";
 pub const CORE_VERIFY_FAILED_STATUS: &str = "core_artifact_verification_failed_v0";

@@ -88,6 +88,59 @@ impl CanonicalIntegerSignCoreLower {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalConstantTextOperation {
+    pub(crate) literal: String,
+    pub(crate) literal_span: Span,
+    pub(crate) call_span: Span,
+    pub(crate) binding_span: Span,
+    pub(crate) return_span: Span,
+    pub(crate) tag: i64,
+}
+
+#[derive(Debug)]
+pub(crate) struct CanonicalConstantTextCoreLower {
+    program_identity: usize,
+    normalized_path: String,
+    operation: CanonicalConstantTextOperation,
+}
+
+pub(crate) fn lower_canonical_constant_text(
+    program: &Program,
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    authority: &type_check::CanonicalConstantTextTypeAuthority,
+) -> Option<CanonicalConstantTextCoreLower> {
+    authority.matches(program, layout).then_some(())?;
+    let fact = authority.fact();
+    Some(CanonicalConstantTextCoreLower {
+        program_identity: std::ptr::from_ref(program).addr(),
+        normalized_path: layout.normalized_path.clone(),
+        operation: CanonicalConstantTextOperation {
+            literal: fact.text.clone(),
+            literal_span: fact.literal_span.clone(),
+            call_span: fact.call_span.clone(),
+            binding_span: fact.binding_span.clone(),
+            return_span: fact.return_span.clone(),
+            tag: 0,
+        },
+    })
+}
+
+impl CanonicalConstantTextCoreLower {
+    pub(crate) fn matches(
+        &self,
+        program: &Program,
+        layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    ) -> bool {
+        self.program_identity == std::ptr::from_ref(program).addr()
+            && self.normalized_path == layout.normalized_path
+    }
+
+    pub(crate) fn operation(&self) -> &CanonicalConstantTextOperation {
+        &self.operation
+    }
+}
+
 pub const CORE_LOWER_SCHEMA: &str = "hum.core_lower.v0";
 pub const CORE_LOWER_STATUS: &str = "unverified_core_artifact_v0";
 

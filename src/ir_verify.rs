@@ -197,6 +197,58 @@ pub(crate) struct VerifiedIntegerSignBackendInput<'artifact> {
     _artifact: PhantomData<&'artifact [u8]>,
 }
 
+struct VerifiedConstantTextProjection {
+    artifact_id: String,
+    compiler_version: &'static str,
+    target_context: &'static str,
+    source_revision: String,
+    source_path: String,
+    module_name: String,
+    app_name: String,
+    entry_name: String,
+    profile_id: String,
+    operation: crate::core_lower::CanonicalConstantTextOperation,
+    required_passes: Vec<&'static str>,
+}
+
+pub(crate) struct VerifiedConstantTextBackendInput<'artifact> {
+    projection: VerifiedConstantTextProjection,
+    _artifact: PhantomData<&'artifact [u8]>,
+}
+
+impl VerifiedConstantTextBackendInput<'_> {
+    pub(crate) fn schema(&self) -> &'static str {
+        backend_input::CONSTANT_TEXT_BACKEND_INPUT_SCHEMA
+    }
+    pub(crate) fn artifact_id(&self) -> &str {
+        &self.projection.artifact_id
+    }
+    pub(crate) fn compiler_version(&self) -> &str {
+        self.projection.compiler_version
+    }
+    pub(crate) fn target_context(&self) -> &str {
+        self.projection.target_context
+    }
+    pub(crate) fn source_identity(&self) -> (&str, &str, &str, &str, &str) {
+        (
+            &self.projection.source_revision,
+            &self.projection.source_path,
+            &self.projection.module_name,
+            &self.projection.app_name,
+            &self.projection.entry_name,
+        )
+    }
+    pub(crate) fn profile_id(&self) -> &str {
+        &self.projection.profile_id
+    }
+    pub(crate) fn operation(&self) -> &crate::core_lower::CanonicalConstantTextOperation {
+        &self.projection.operation
+    }
+    pub(crate) fn required_passes(&self) -> &[&'static str] {
+        &self.projection.required_passes
+    }
+}
+
 impl VerifiedIntegerSignBackendInput<'_> {
     pub(crate) fn schema(&self) -> &'static str {
         backend_input::INTEGER_SIGN_BACKEND_INPUT_SCHEMA
@@ -272,6 +324,66 @@ pub(crate) fn with_verified_integer_sign_backend_input<R>(
         consume: impl FnOnce(VerifiedIntegerSignBackendInput<'artifact>) -> R,
     ) -> R {
         consume(VerifiedIntegerSignBackendInput {
+            projection,
+            _artifact: PhantomData,
+        })
+    }
+    Ok(issue(program, artifact, projection, consume))
+}
+
+pub(crate) fn with_verified_constant_text_backend_input<R>(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+    layout: &crate::app_entry::CanonicalNativeLayout<'_>,
+    authority: &crate::type_check::CanonicalConstantTextTypeAuthority,
+    artifact: &[u8],
+    consume: impl for<'artifact> FnOnce(VerifiedConstantTextBackendInput<'artifact>) -> R,
+) -> Result<R, &'static str> {
+    if artifact.is_empty()
+        || artifact.starts_with(&[0xef, 0xbb, 0xbf])
+        || artifact.contains(&b'\r')
+        || !artifact.ends_with(b"\n")
+        || artifact.ends_with(b"\n\n")
+        || std::str::from_utf8(artifact).is_err()
+    {
+        return Err("constant_text_artifact_framing_invalid_v2");
+    }
+    let live =
+        backend_input::canonical_constant_text_artifact(program, diagnostics, layout, authority)
+            .ok_or("constant_text_live_facts_unavailable_v2")?;
+    if live.bytes() != artifact {
+        return Err("constant_text_artifact_live_binding_mismatch_v2");
+    }
+    let projection = backend_input::with_canonical_constant_text_facts(
+        program,
+        diagnostics,
+        layout,
+        authority,
+        |facts| {
+            let (module_name, app_name, entry_name) = facts.identities();
+            VerifiedConstantTextProjection {
+                artifact_id: live.artifact_id().to_string(),
+                compiler_version: version::HUM_VERSION,
+                target_context: backend_input::TARGET_CONTEXT,
+                source_revision: facts.source_revision().to_string(),
+                source_path: facts.source_path().to_string(),
+                module_name: module_name.to_string(),
+                app_name: app_name.to_string(),
+                entry_name: entry_name.to_string(),
+                profile_id: facts.profile_id().to_string(),
+                operation: facts.operation().clone(),
+                required_passes: facts.required_passes().to_vec(),
+            }
+        },
+    )
+    .ok_or("constant_text_live_facts_unavailable_v2")?;
+    fn issue<'artifact, R>(
+        _program: &'artifact Program,
+        _artifact: &'artifact [u8],
+        projection: VerifiedConstantTextProjection,
+        consume: impl FnOnce(VerifiedConstantTextBackendInput<'artifact>) -> R,
+    ) -> R {
+        consume(VerifiedConstantTextBackendInput {
             projection,
             _artifact: PhantomData,
         })
@@ -2703,5 +2815,118 @@ mod tests {
         assert_eq!(observed.10, (3, 10));
         assert_eq!(observed.12, (8, 5));
         assert_eq!(observed.13, "checked_add");
+    }
+
+    #[test]
+    fn hello_world_artifact_rejection_matrix_is_complete() {
+        let source = include_str!("../programs/hello_world.hum");
+        let parsed = crate::parser::parse_source("programs/hello_world.hum", source);
+        let checked = crate::check::check_parse_output(&parsed);
+        assert!(parsed.diagnostics.is_empty());
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let diagnostics = checked.diagnostics;
+        let entry = crate::app_entry::analyze(&program).entry.expect("entry");
+        let layout = crate::app_entry::analyze_canonical_native_layout(
+            &program,
+            "programs/hello_world.hum",
+            Some(&entry),
+        )
+        .layout
+        .expect("layout");
+        let authority = crate::type_check::canonical_constant_text_type_authority(
+            &program,
+            &layout,
+            &diagnostics,
+        )
+        .expect("typed authority");
+        let artifact = backend_input::canonical_constant_text_artifact(
+            &program,
+            &diagnostics,
+            &layout,
+            &authority,
+        )
+        .expect("v2 artifact");
+        let mut callbacks = 0;
+        with_verified_constant_text_backend_input(
+            &program,
+            &diagnostics,
+            &layout,
+            &authority,
+            artifact.bytes(),
+            |capability| {
+                callbacks += 1;
+                assert_eq!(capability.schema(), "hum.backend_input.v2");
+                assert_eq!(capability.artifact_id(), artifact.artifact_id());
+                assert_eq!(capability.operation().literal, "Hello, world!");
+                assert_eq!(capability.operation().tag, 0);
+                assert_eq!(capability.profile_id(), "normal");
+            },
+        )
+        .expect("verified callback");
+        assert_eq!(callbacks, 1);
+
+        let mut corruptions = Vec::new();
+        let mut changed = artifact.bytes().to_vec();
+        changed[0] = b'[';
+        corruptions.push(changed);
+        let mut changed = artifact.bytes().to_vec();
+        changed.extend_from_slice(b"\n");
+        corruptions.push(changed);
+        let mut changed = artifact.bytes().to_vec();
+        let at = changed
+            .windows(13)
+            .position(|row| row == b"Hello, world!")
+            .expect("literal");
+        changed[at] = b'J';
+        corruptions.push(changed);
+        for bytes in corruptions {
+            assert!(
+                with_verified_constant_text_backend_input(
+                    &program,
+                    &diagnostics,
+                    &layout,
+                    &authority,
+                    &bytes,
+                    |_| (),
+                )
+                .is_err(),
+                "stale or foreign v2 bytes reached the capability callback"
+            );
+        }
+
+        let foreign_source = source.replace("Hello, world!", "Foreign world");
+        let foreign = crate::parser::parse_source("programs/hello_world.hum", &foreign_source);
+        let foreign_program = Program {
+            files: vec![foreign.file],
+        };
+        let foreign_entry = crate::app_entry::analyze(&foreign_program)
+            .entry
+            .expect("foreign entry");
+        let foreign_layout = crate::app_entry::analyze_canonical_native_layout(
+            &foreign_program,
+            "programs/hello_world.hum",
+            Some(&foreign_entry),
+        )
+        .layout
+        .expect("foreign layout");
+        let foreign_authority = crate::type_check::canonical_constant_text_type_authority(
+            &foreign_program,
+            &foreign_layout,
+            &[],
+        )
+        .expect("foreign authority");
+        assert!(
+            with_verified_constant_text_backend_input(
+                &foreign_program,
+                &[],
+                &foreign_layout,
+                &foreign_authority,
+                artifact.bytes(),
+                |_| (),
+            )
+            .is_err()
+        );
     }
 }

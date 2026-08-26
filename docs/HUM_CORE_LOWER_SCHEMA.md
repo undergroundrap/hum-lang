@@ -267,3 +267,10 @@ verify before Hum can honestly run code.
 The lowered report preserves the same callable type/value/application IDs,
 resolver relationship, result type, failure root, and closed-row identity. It
 does not lower closures, captures, handlers, or open rows.
+
+## Constant-Text Output Operation
+
+The constant-Text slice lowers one typed `stdout_write(TextLiteral)` binding
+and its direct return into one operation containing the source literal, tag
+zero, and literal/call/binding/return spans. The operation is program-neutral:
+no canonical filename, app name, entry name, or greeting literal selects it.

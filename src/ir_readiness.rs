@@ -511,6 +511,23 @@ pub(crate) fn authenticated_integer_sign_native_readiness(
     .then_some((execution.ir_ready, execution.backend_ready))
 }
 
+pub(crate) fn authenticated_constant_text_native_readiness(
+    execution: &crate::backend_cranelift::NativeConstantTextExecution,
+) -> Option<(usize, usize)> {
+    (execution.ir_ready == 1
+        && execution.backend_ready == 1
+        && execution.tag == 0
+        && !execution.literal.is_empty()
+        && execution.invocation_count == 1
+        && execution.result_store_count == 1
+        && execution.clif_sha256.len() == "sha256:".len() + 64
+        && matches!(
+            execution.target_triple.as_str(),
+            "x86_64-pc-windows-msvc" | "x86_64-unknown-linux-gnu"
+        ))
+    .then_some((execution.ir_ready, execution.backend_ready))
+}
+
 pub fn ir_readiness_text(program: &Program, diagnostics: &[Diagnostic]) -> String {
     let report = build_report(program, diagnostics);
     let blocked = report.blocked_count();
