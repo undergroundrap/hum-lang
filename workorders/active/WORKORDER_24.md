@@ -2,7 +2,67 @@
 
 Date: 2026-08-25
 <!-- hum-active-workorder:v1 -->
-Status: PROPOSED; PRE-ISSUANCE REVIEW ONLY.
+Status: ISSUED AND PUBLISHED; UNIT A IMPLEMENTATION PENDING FRESH BDFL SIGNAL.
+
+WO24 was independently accepted and issued by commit
+`d2d78c71e646ec4ad75de1a655b3f43c9832a661` with parent
+`d393116d74b0e64a81f0f1329113a2b27e203e7b`, tree
+`4eef8c1badeec92c65f2939fe4b55da6b09e1c2d`, and subject
+`docs(workorder): issue work order 24`. The exact committed topology inventory
+was:
+
+- delete `workorders/active/WORKORDER_23.md`, whose parent mode/blob was
+  `100644 522366a5e5845aef7301d93cab70b1cd6efd4ab7`;
+- add `workorders/active/WORKORDER_24.md` at
+  `100644 2a892677f611f36326a569ea78a4ee915bf72339`; and
+- add `workorders/closed/WORKORDER_23.md` at
+  `100644 294ca87a3bcd822659867ad66397ea94ab9861d8`.
+
+The issuance package accounted for exactly `+672/-16` raw and
+whitespace-insensitive. It was published by exactly one successful normal,
+non-force push advancing only `refs/heads/main` across the exact authorized
+parent-to-child range; the remote ref count, archives, and unrelated refs
+remained unchanged.
+
+Terminal publication evidence is workflow `ci` run `32919030984`, attempt `1`,
+event `push`, tested SHA
+`d2d78c71e646ec4ad75de1a655b3f43c9832a661`, conclusion `success`. Ubuntu job
+`98028669716` succeeded in `15m24s`; Windows job `98028669784` succeeded in
+`33m49s`. Both selected exactly:
+
+```text
+mode=full
+reason=no_status_transition
+anchor=
+run_id=0
+run_attempt=0
+ubuntu_job_id=0
+windows_job_id=0
+transitions=
+```
+
+Both platforms passed all 151 ordered, case-sensitive classifier cases twice
+deterministically; the required Ubuntu `pwsh` and Windows PS5.1/`pwsh` capture
+matrices; formatting; Cargo checks; warnings-denied Clippy; compile-fail
+boundaries; and root and subsidiary Rust suites. The published implementation
+ledger remained exactly 112 ordered selectors. B01-B15, both B12 enforcement
+sites, M01-M13, `integer_sign` interpreter/native parity and authority
+evidence, exactly six backend probes, and ordered readiness evidence with
+`ir_ready=1` and `backend_ready=1` all passed. Text hygiene and public
+readiness passed for 559 files; alpha claims and release readiness `0.0.1`
+passed.
+Exactly one terminal full-preflight success marker appeared per platform.
+
+Ubuntu Exhaustive passed F1 `630`, F2 `4,950`, and F3/F4 `8,646`, totaling all
+`14,226` pairs with seed `0x48554D5F5345414C`. Windows skipped only the
+duplicate Exhaustive producer. Both platforms correctly skipped status-only
+evidence under full mode.
+
+This issuance and its CI implement no WO24 program or compiler obligation and
+earn no WO24 implementation credit. `programs/hello_world.hum`, backend-input
+v2, H0635, selectors 113-118, and N01-N08 remain unimplemented. Unit A remains
+unauthorized pending acceptance, local commit, publication through required
+fast CI, and a fresh explicit BDFL implementation signal.
 
 Owner: BDFL (Ocean).
 
@@ -599,23 +659,26 @@ planning authorship or review.
 
 ## Current authorization gate
 
-This file is an unissued proposal. WO23 is terminally closed, but the combined
-topology and WO24 plan are not committed or published.
+WO24 is issued, published, and terminal-green. This status candidate records
+that issuance lifecycle and grants no implementation authority.
 
-The sole next action is fresh independent pre-issuance review of the exact
-WO23-closeout and WO24-successor package. Only an unqualified `ACCEPT` may
+The sole next action is fresh independent review of this exact WO24
+issuance-publication status candidate. Only an unqualified `ACCEPT` may
 recommend, but does not execute, a separately authorized local documentation
-commit with exact subject:
+commit with the frozen subject:
 
 ```text
-docs(workorder): issue work order 24
+docs(workorder): record work order 24 publication
 ```
 
 Review acceptance authorizes no commit or publication by itself. Staging,
-commit, push, CI, issuance status work, Unit A implementation,
-`programs/hello_world.hum`, Fast, native execution, another program, closeout,
-successor work, packages, stdlib/Nectar, macOS, crater-like testing,
-optimization, AOT, another backend, LLVM, release/tag work, stash/archive
-operations, and every later action remain separately unauthorized.
+commit, push, CI, Unit A implementation, `programs/hello_world.hum`,
+backend-input v2, H0635, selectors 113-118, N01-N08, Fast, native execution,
+another program, closeout, successor work, packages, stdlib/Nectar, macOS,
+crater-like testing, optimization, AOT, another backend, LLVM, release/tag
+work, stash/archive operations, and every later action remain separately
+unauthorized. Unit A may begin only after this status record is independently
+accepted, separately committed and published through terminal required fast
+CI, and followed by a fresh explicit BDFL implementation signal.
 
 <!-- workorder-current-authorization-gate:end -->
