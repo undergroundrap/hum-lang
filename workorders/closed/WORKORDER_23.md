@@ -1,8 +1,7 @@
 # Hum Work Order 23: Run The First Canonical Hum Program Natively
 
 Date: 2026-08-23
-<!-- hum-active-workorder:v1 -->
-Status: UNIT A PUBLISHED AND TERMINAL-GREEN; STATUS RECORD PENDING INDEPENDENT REVIEW.
+Status: CLOSED. Work Order 23 is terminally closed.
 
 WO23 was independently accepted, issued as
 `0cd67c20a786f3f961cb9c5913c30527eb7fb170`
@@ -87,6 +86,35 @@ the repair preserved compiler semantics and that the one-time bypass skipped
 only the broken external execution of a commit-message rule whose exact
 subject already satisfied the rule.
 
+The accepted publication record is commit
+`d393116d74b0e64a81f0f1329113a2b27e203e7b`, parent
+`1cef871d3bd7434184d9873c072b6562b07a628b`, with exact subject
+`docs(workorder): record unit a publication`. Its sole path is this Work
+Order. Status workflow `ci`, run `32911725130`, attempt `1`, event `push`,
+tested that exact status SHA and concluded `success`. Ubuntu job
+`98007090418` succeeded from `2026-08-25T23:39:19Z` through
+`2026-08-25T23:43:03Z` (`3m44s`); Windows job `98007090526` succeeded from
+`2026-08-25T23:39:19Z` through `2026-08-25T23:52:32Z` (`13m13s`). Both
+reproduced exactly:
+
+```text
+mode=fast
+reason=eligible_status_chain
+anchor=1cef871d3bd7434184d9873c072b6562b07a628b
+run_id=32891079181
+run_attempt=1
+ubuntu_job_id=97942902391
+windows_job_id=97942902685
+transitions=1cef871d3bd7434184d9873c072b6562b07a628b>d393116d74b0e64a81f0f1329113a2b27e203e7b
+```
+
+On both required platforms all 151 ordered classifier cases passed twice
+deterministically with exactly one terminal classifier marker. Status-only
+transition evidence, text hygiene and public readiness for 558 Hum files,
+alpha claims, and release readiness `0.0.1` passed. Cargo caching, Rust
+preparation, full Hum preflight, and Exhaustive were correctly skipped, and no
+unexpected stage ran.
+
 WO23 now proves only one canonical `integer_sign` Hum program through the
 established semantic and authority chain, bounded Cranelift lowering, and
 native execution on required `x86_64-pc-windows-msvc` and
@@ -101,6 +129,12 @@ conditional lowering, a standard library, Nectar packages, macOS support,
 AOT/object output, optimization, self-hosting, LLVM support, production
 readiness, a release, or any later program. No retained capture, scratch,
 proof, credential, configuration, or environment artifact remains.
+
+Unit A's implementation, bounded repair, independent review, publication,
+full required CI, status record, and fast status CI are complete. Every WO23
+Fast or replacement-Fast allowance expires at closeout and transfers no
+authority. The eight existing stashes and all archives remain unchanged,
+preservation-only state and confer no successor implementation authority.
 
 Owner: BDFL (Ocean).
 
@@ -866,24 +900,25 @@ code, or stash operation is authorized during planning authorship or review.
 
 ## Current authorization gate
 
-Unit A implementation, bounded repair, publication, terminal required CI, and
-mandatory post-hoc repair accountability are complete. This candidate records
-that lifecycle without changing any WO23 mandate, architecture, scope,
-acceptance criterion, budget, exclusion, or implementation contract.
+WO23 is terminally closed. This combined uncommitted successor package removes
+only WO23's standalone active marker, moves the resulting closed record to
+`workorders/closed/WORKORDER_23.md`, and proposes one marked active WO24.
 
-The sole next action is fresh independent review of this exact status-only
-candidate. Only an unqualified `ACCEPT` may recommend, but does not execute, a
-separately authorized local documentation commit with exact subject:
+The sole next action is fresh independent pre-issuance review of the complete
+WO23-closeout and WO24-successor package. Only an unqualified `ACCEPT` may
+recommend, but does not execute, a separately authorized local documentation
+commit with exact subject:
 
 ```text
-docs(workorder): record unit a publication
+docs(workorder): issue work order 24
 ```
 
-The status commit, its publication, required fast Ubuntu and Windows CI, WO23
-closeout, successor authorship, another program, macOS, stdlib/Nectar work,
-packages, crater-like testing, optimization, AOT, another backend, LLVM work,
-release or tag work, and every later action remain separately unauthorized.
-This authorship grants no staging, commit, push, CI, Fast, native execution,
-implementation, stash/archive operation, or active-marker change.
+Review acceptance authorizes no commit or publication by itself. The successor
+commit, its push, required full Ubuntu and Windows CI, WO24 status recording,
+Unit A implementation, `hello_world`, another program, macOS, packages,
+stdlib/Nectar work, crater-like testing, optimization, AOT, another backend,
+LLVM work, release or tag work, and every later action remain separately
+unauthorized. This authorship grants no staging, commit, push, CI, Fast,
+native execution, implementation, or stash/archive operation.
 
 <!-- workorder-current-authorization-gate:end -->
