@@ -1,8 +1,7 @@
 # Hum Work Order 24: Generalize One Source-Derived Native Text Program
 
 Date: 2026-08-25
-<!-- hum-active-workorder:v1 -->
-Status: UNIT A IMPLEMENTED, PUBLISHED, AND TERMINAL-GREEN; PUBLICATION STATUS RECORD PENDING INDEPENDENT REVIEW.
+Status: CLOSED; UNIT A IMPLEMENTED, PUBLISHED, STATUS-RECORDED, AND TERMINAL-GREEN.
 
 WO24 Unit A was independently accepted after its complete implementation,
 bounded evidence corrections, terminal-green local Fast evidence, and exact
@@ -119,6 +118,43 @@ WO24 does not establish arbitrary-program compilation, general Text lowering,
 general control flow, packages, a standard library or Nectar API, macOS
 support, AOT, optimization, LLVM, another backend, self-hosting, production
 readiness, a release, or any version beyond `0.0.1`.
+
+The terminal publication record was committed as
+`57349868aa40e625ce5b95d7ad578da2b68d9154` with parent
+`9c729d08ae98327221d43c2153184d5e087eb514`, tree
+`e9f36db31eb093821dd838ec29ed8018cc112e24`, and subject
+`docs(workorder): record unit a publication`. It changed only this Work Order,
+mode `100644`, to blob `be166df6a4d765f0927dc26dfb9537a964c8253b`, with exact
+statistics `+109/-56`.
+
+That status commit was published by exactly one normal, non-force push using
+`refs/heads/main:refs/heads/main`. The remote named-ref count remained 11, the
+sole delta was `refs/heads/main`, and all ten archive refs remained unchanged.
+Terminal status publication evidence is workflow `ci` run `33032320161`,
+attempt `1`, event `push`, tested SHA
+`57349868aa40e625ce5b95d7ad578da2b68d9154`, conclusion `success`. Ubuntu job
+`98387391337` and Windows job `98387391488` both succeeded.
+
+Both status jobs reproduced exact `mode=fast`,
+`reason=eligible_status_chain`, anchor
+`9c729d08ae98327221d43c2153184d5e087eb514`, run `33024468941`, attempt `1`,
+Ubuntu job `98362446915`, Windows job `98362447053`, and transition
+`9c729d08ae98327221d43c2153184d5e087eb514>57349868aa40e625ce5b95d7ad578da2b68d9154`.
+Each checked out the exact status SHA, passed all 151 ordered, case-sensitive
+classifier records twice deterministically, emitted exactly one terminal
+classifier marker, and passed status-only transition evidence, text hygiene
+and public readiness for 565 files, alpha claims, and release readiness
+`0.0.1`. Cargo caching, Rust preparation, full preflight, and Exhaustive were
+skipped, with no unexpected stage.
+
+After terminal-green status CI, `HEAD`, local `main`, cached `origin/main`, and
+live `origin/main` all equaled the status commit; ahead/behind was `0/0`; the
+worktree and index were clean with no untracked file; and the sole marker,
+topology, eight stashes, ten archive refs, unrelated refs, seven historical
+target proof directories, and persistent configuration were unchanged. No
+capture, scratch, proof, credential, PATH, trust, or configuration artifact
+persisted. WO24's implementation, publication, and status lifecycle is
+therefore terminal and this Work Order is closed.
 
 Owner: BDFL (Ocean).
 
@@ -715,23 +751,16 @@ planning authorship or review.
 
 ## Current authorization gate
 
-WO24 Unit A is implemented, independently accepted, locally Fast-green,
-committed, published, and terminal-green on required Ubuntu and Windows CI.
-This candidate records that exact lifecycle and grants no further authority.
+WO24 is closed after independently accepted implementation, terminal-green
+full publication CI, a separately authorized exact publication-status commit,
+and terminal-green fast status CI on required Ubuntu and Windows jobs. It
+grants no further implementation, correction, commit, push, CI, closeout,
+successor, language, infrastructure, release, stash, archive, or cleanup
+authority.
 
-The sole next action is fresh independent review of this exact WO24 Unit A
-publication-status candidate. Only an unqualified `ACCEPT` may recommend, but
-does not execute, a separately authorized local documentation commit with the
-frozen subject:
-
-```text
-docs(workorder): record unit a publication
-```
-
-Review acceptance alone authorizes no staging, commit, push, CI, closeout,
-successor planning, implementation, another program, package or stdlib/Nectar
-work, optimization, AOT, macOS, another backend, LLVM, release/tag work,
-stash/archive operation, or later action. Every such action remains separately
-unauthorized.
+Its historical mandates, implementation evidence, publication evidence,
+nonclaims, and lifecycle record are frozen in this closed file. Any successor
+work requires a separately issued active Work Order and a fresh explicit
+authorization at that Work Order's own gate.
 
 <!-- workorder-current-authorization-gate:end -->
