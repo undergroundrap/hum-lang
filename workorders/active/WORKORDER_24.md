@@ -2,33 +2,67 @@
 
 Date: 2026-08-25
 <!-- hum-active-workorder:v1 -->
-Status: ISSUED AND PUBLISHED; UNIT A IMPLEMENTATION PENDING FRESH BDFL SIGNAL.
+Status: UNIT A IMPLEMENTED, PUBLISHED, AND TERMINAL-GREEN; PUBLICATION STATUS RECORD PENDING INDEPENDENT REVIEW.
 
-WO24 was independently accepted and issued by commit
-`d2d78c71e646ec4ad75de1a655b3f43c9832a661` with parent
-`d393116d74b0e64a81f0f1329113a2b27e203e7b`, tree
-`4eef8c1badeec92c65f2939fe4b55da6b09e1c2d`, and subject
-`docs(workorder): issue work order 24`. The exact committed topology inventory
-was:
+WO24 Unit A was independently accepted after its complete implementation,
+bounded evidence corrections, terminal-green local Fast evidence, and exact
+Fast-artifact cleanup. The accepted implementation was committed as
+`9c729d08ae98327221d43c2153184d5e087eb514` with parent
+`70eae19247682d8fa5c7ed10471c7e6e96bf4395`, tree
+`cfbed4c3f1e6a6501ba18dbf2b478013cc4b8a7b`, and subject
+`feat(program): run canonical hello world natively`. Author and committer were
+authenticated as Ocean Bennett using the configured no-reply identity. The
+normal commit hook passed without bypass.
 
-- delete `workorders/active/WORKORDER_23.md`, whose parent mode/blob was
-  `100644 522366a5e5845aef7301d93cab70b1cd6efd4ab7`;
-- add `workorders/active/WORKORDER_24.md` at
-  `100644 2a892677f611f36326a569ea78a4ee915bf72339`; and
-- add `workorders/closed/WORKORDER_23.md` at
-  `100644 294ca87a3bcd822659867ad66397ea94ab9861d8`.
+The commit contains exactly 41 paths: 35 modifications and six additions, all
+mode `100644`. Its accounting is exactly `+2500/-103` raw and `+2474/-77`
+whitespace-insensitive. The independently accepted working-tree manifest is
+`f3cab5aee6cf3aa754891beaa607adb1c6bcd70525fb04a94d2b087411a2f143`; the
+canonical committed manifest is
+`8dacdba75d5fe467fef0a29b134e296f42544216fa8c955eee5aa612d61951b8`.
+Only `docs/TESTING_STRATEGY.md` changed representation through Git's clean
+filter: exactly 220 CRLF sequences normalized to LF. The other 40 identities
+remained exact.
 
-The issuance package accounted for exactly `+672/-16` raw and
-whitespace-insensitive. It was published by exactly one successful normal,
-non-force push advancing only `refs/heads/main` across the exact authorized
-parent-to-child range; the remote ref count, archives, and unrelated refs
-remained unchanged.
+The independently authenticated local Fast run used adapter PID `10532` and
+child PID `24276`; both exited `0`. It ran for `1,599.5523893` seconds, emitted
+exactly 2,873 stage headings, completed exactly once, emitted exactly one
+success marker, and ended with the exact terminal line:
 
-Terminal publication evidence is workflow `ci` run `32919030984`, attempt `1`,
-event `push`, tested SHA
-`d2d78c71e646ec4ad75de1a655b3f43c9832a661`, conclusion `success`. Ubuntu job
-`98028669716` succeeded in `15m24s`; Windows job `98028669784` succeeded in
-`33m49s`. Both selected exactly:
+```text
+All Hum preflight checks passed.
+```
+
+There was no timeout, termination, kill, launch error, capture error, or
+survivor. The authenticated green capture manifest was
+`ec998f687ab9500fa9d8f9c04510c76df228c1ff4a3a729ba718df0c8d42c49b`.
+That accepted green capture was later deleted under exact authorization. The
+one math-obligation proof directory created by this WO24 Fast run was also
+authenticated and deleted exactly. Seven older historical proof directories
+remain preserved; WO24 makes no global claim that all historical target
+artifacts are absent.
+
+Publication required two push attempts overall. The first stopped before
+authentication because Git could not spawn `sh`; it caused no remote mutation
+and triggered no workflow. One separately authorized credential-shell recovery
+push then succeeded. The successful push was normal and non-force, used exact
+refspec `refs/heads/main:refs/heads/main`, and published only the range
+`70eae19247682d8fa5c7ed10471c7e6e96bf4395..9c729d08ae98327221d43c2153184d5e087eb514`.
+The remote named-ref count remained 11; the sole delta was
+`refs/heads/main`; all ten archive refs retained their exact OIDs. No
+credential, askpass, PATH, trust, or Git-configuration change persisted.
+
+Terminal publication evidence is workflow `ci` run `33024468941`, attempt
+`1`, event `push`, tested SHA
+`9c729d08ae98327221d43c2153184d5e087eb514`, conclusion `success`. The workflow
+started at `2026-08-26T23:45:12Z` and its terminal record completed at
+`2026-08-27T00:20:47Z`. Ubuntu job `98362446915` started at
+`2026-08-26T23:45:16Z`, completed at `2026-08-27T00:02:28Z`, succeeded, and
+ran for `17m12s`. Windows job `98362447053` started at
+`2026-08-26T23:45:16Z`, completed at `2026-08-27T00:20:46Z`, succeeded, and
+ran for `35m30s`.
+
+Both jobs checked out the exact published SHA and selected exactly:
 
 ```text
 mode=full
@@ -42,27 +76,49 @@ transitions=
 ```
 
 Both platforms passed all 151 ordered, case-sensitive classifier cases twice
-deterministically; the required Ubuntu `pwsh` and Windows PS5.1/`pwsh` capture
-matrices; formatting; Cargo checks; warnings-denied Clippy; compile-fail
-boundaries; and root and subsidiary Rust suites. The published implementation
-ledger remained exactly 112 ordered selectors. B01-B15, both B12 enforcement
-sites, M01-M13, `integer_sign` interpreter/native parity and authority
-evidence, exactly six backend probes, and ordered readiness evidence with
-`ir_ready=1` and `backend_ready=1` all passed. Text hygiene and public
-readiness passed for 559 files; alpha claims and release readiness `0.0.1`
-passed.
-Exactly one terminal full-preflight success marker appeared per platform.
+deterministically and emitted exactly one terminal classifier marker. The
+required Ubuntu `pwsh` capture matrix and Windows PS5.1/`pwsh` capture matrices
+passed. Formatting, Cargo checks, warnings-denied Clippy, and constant-Text
+construction, lifetime, and cross-substitution compile-fail boundaries passed.
+Observed Rust suites were: Ubuntu root `472`, Windows-drive-locality `13`, and
+effect-bakeoff `60`; Windows root `487`, Windows-drive-locality `16`, and
+effect-bakeoff `60`. All recorded suite failures, ignored cases, and measured
+cases were zero.
+
+The exact 118-selector ordered, case-sensitive unique ledger passed. B01-B15,
+M01-M13, and N01-N08 passed with their owned mutation dispositions and
+restoration evidence. `integer_sign` interpreter/native behavior and authority
+evidence remained green. The canonical `programs/hello_world.hum` program
+produced exactly the source-derived 13 UTF-8 bytes `Hello, world!` through both
+interpreter and native execution, with no newline, empty per-execution stderr,
+and exit `0`. Source-literal mutation changed the v2 artifact identity and both
+observable outputs, then restored every affected byte exactly.
+
+The physical-path H0634 control and all three layout-valid H0635 controls
+passed with zero fallback or false success evidence. Exactly six backend probes
+and fifteen ordered GO/readiness rows passed; explicit successful backend
+evidence established `ir_ready=1` and `backend_ready=1`. Text hygiene and
+public readiness passed for 565 committed-tree files. Alpha claims and release
+readiness `0.0.1` passed. Exactly one terminal full-preflight success marker
+appeared per platform, and no unexpected stage executed.
 
 Ubuntu Exhaustive passed F1 `630`, F2 `4,950`, and F3/F4 `8,646`, totaling all
 `14,226` pairs with seed `0x48554D5F5345414C`. Windows skipped only the
 duplicate Exhaustive producer. Both platforms correctly skipped status-only
 evidence under full mode.
 
-This issuance and its CI implement no WO24 program or compiler obligation and
-earn no WO24 implementation credit. `programs/hello_world.hum`, backend-input
-v2, H0635, selectors 113-118, and N01-N08 remain unimplemented. Unit A remains
-unauthorized pending acceptance, local commit, publication through required
-fast CI, and a fresh explicit BDFL implementation signal.
+The supported milestone is narrow: the canonical
+`programs/hello_world.hum` program produces source-derived constant Text
+through interpreter and native execution on required Windows-MSVC and
+Linux-GNU configurations. Its exact output is `Hello, world!`, 13 bytes with
+no newline, authenticated through the typed feature, verified backend-input
+v2, verified lowering, and native-execution chain. Unsupported typed shapes
+reject with H0635 and never fall back.
+
+WO24 does not establish arbitrary-program compilation, general Text lowering,
+general control flow, packages, a standard library or Nectar API, macOS
+support, AOT, optimization, LLVM, another backend, self-hosting, production
+readiness, a release, or any version beyond `0.0.1`.
 
 Owner: BDFL (Ocean).
 
@@ -659,26 +715,23 @@ planning authorship or review.
 
 ## Current authorization gate
 
-WO24 is issued, published, and terminal-green. This status candidate records
-that issuance lifecycle and grants no implementation authority.
+WO24 Unit A is implemented, independently accepted, locally Fast-green,
+committed, published, and terminal-green on required Ubuntu and Windows CI.
+This candidate records that exact lifecycle and grants no further authority.
 
-The sole next action is fresh independent review of this exact WO24
-issuance-publication status candidate. Only an unqualified `ACCEPT` may
-recommend, but does not execute, a separately authorized local documentation
-commit with the frozen subject:
+The sole next action is fresh independent review of this exact WO24 Unit A
+publication-status candidate. Only an unqualified `ACCEPT` may recommend, but
+does not execute, a separately authorized local documentation commit with the
+frozen subject:
 
 ```text
-docs(workorder): record work order 24 publication
+docs(workorder): record unit a publication
 ```
 
-Review acceptance authorizes no commit or publication by itself. Staging,
-commit, push, CI, Unit A implementation, `programs/hello_world.hum`,
-backend-input v2, H0635, selectors 113-118, N01-N08, Fast, native execution,
-another program, closeout, successor work, packages, stdlib/Nectar, macOS,
-crater-like testing, optimization, AOT, another backend, LLVM, release/tag
-work, stash/archive operations, and every later action remain separately
-unauthorized. Unit A may begin only after this status record is independently
-accepted, separately committed and published through terminal required fast
-CI, and followed by a fresh explicit BDFL implementation signal.
+Review acceptance alone authorizes no staging, commit, push, CI, closeout,
+successor planning, implementation, another program, package or stdlib/Nectar
+work, optimization, AOT, macOS, another backend, LLVM, release/tag work,
+stash/archive operation, or later action. Every such action remains separately
+unauthorized.
 
 <!-- workorder-current-authorization-gate:end -->
