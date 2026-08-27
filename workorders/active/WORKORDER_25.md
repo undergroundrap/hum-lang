@@ -2,7 +2,71 @@
 
 Date: 2026-08-26
 <!-- hum-active-workorder:v1 -->
-Status: PROPOSED; AWAITING FRESH INDEPENDENT PRE-ISSUANCE REVIEW. IMPLEMENTATION UNAUTHORIZED.
+Status: ISSUED, PUBLISHED, AND TERMINAL-GREEN; PUBLICATION STATUS RECORD AWAITS FRESH INDEPENDENT REVIEW. UNIT A UNAUTHORIZED.
+
+WO25 was issued by commit
+`124641c80d557740469a2fdc07e9a7500929d981` with parent
+`57349868aa40e625ce5b95d7ad578da2b68d9154`, tree
+`4427c55c078401310a060a2319b0d343d1bd9087`, and subject
+`docs(workorder): issue work order 25`. Author and committer were
+authenticated as Ocean Bennett using the configured no-reply identity. The
+normal hook passed without bypass.
+
+The rename-disabled issuance inventory was exactly:
+
+```text
+D  workorders/active/WORKORDER_24.md
+A  workorders/active/WORKORDER_25.md
+A  workorders/closed/WORKORDER_24.md
+```
+
+Its accounting was exactly `+1752/-737`, raw and whitespace-insensitive.
+
+Publication used exactly one successful normal, non-force push with refspec
+`refs/heads/main:refs/heads/main`. The published range was
+`57349868aa40e625ce5b95d7ad578da2b68d9154..124641c80d557740469a2fdc07e9a7500929d981`.
+The remote named-ref count remained 11; the sole remote delta was
+`refs/heads/main`; all ten archive refs retained their exact OIDs.
+
+Terminal publication evidence is workflow `ci` run `33041886370`, attempt
+`1`, event `push`, tested SHA
+`124641c80d557740469a2fdc07e9a7500929d981`, conclusion `success`. The
+workflow started at `2026-08-27T05:14:39Z` and completed at
+`2026-08-27T05:50:10Z`. Ubuntu job `98417100168` succeeded in `15m27s`;
+Windows job `98417100339` succeeded in `35m26s`.
+
+Both platforms selected exactly:
+
+```text
+mode=full
+reason=no_status_transition
+anchor=
+run_id=0
+run_attempt=0
+ubuntu_job_id=0
+windows_job_id=0
+transitions=
+```
+
+Both platforms passed all 151 ordered, case-sensitive classifier cases twice
+deterministically and emitted exactly one full-preflight success marker. Text
+hygiene and public readiness passed for 566 files. Alpha claims and release
+readiness `0.0.1` passed. Ubuntu Exhaustive passed all `14,226` pairs with
+seed `0x48554D5F5345414C`; Windows skipped only the duplicate Exhaustive
+producer. Both platforms correctly skipped status-only evidence, and no
+unexpected stage ran.
+
+This terminal-green CI validates only the WO25 planning and issuance tree. It
+earned no WO25 implementation credit. `hum-dev`, `hum-sha256`, evidence-summary
+v1, portable commit checking, authenticated status transport, change-aware
+reuse, cleanup migration, and PowerShell-authority retirement remain
+unimplemented.
+
+Unit A remains unauthorized pending fresh independent review of this status
+record, its separately authorized commit and publication lifecycle, and a
+later explicit BDFL signal. The Zero comparison, cost intelligence, assurance
+taxonomy, and construct-generic compiler-growth advisories remain future
+planning inputs, not implementation authorization.
 
 Owner: BDFL (Ocean).
 
@@ -964,23 +1028,24 @@ archive code, or stash operation.
 
 ## Current authorization gate
 
-This uncommitted package closes terminal WO24 and proposes WO25. The sole next
-action is fresh independent architect-review of the exact two-path package.
-The author issues no verdict.
+The WO25 issuance commit is published and terminal-green. This uncommitted
+status candidate records only that publication lifecycle. The sole next
+action is fresh independent architect-review of the exact mutable Status body
+and Current authorization gate. The author issues no verdict.
 
 Only an unqualified `ACCEPT` may recommend, but does not execute, a separately
 authorized local documentation commit with exact subject:
 
 ```text
-docs(workorder): issue work order 25
+docs(workorder): record work order 25 publication
 ```
 
-Review acceptance authorizes no staging, commit, push, CI, status record,
-machine-global hook update, historical cleanup, or Unit A implementation.
-After any separately authorized issuance publication and required terminal CI,
-Unit A still requires a fresh explicit BDFL signal. Units B-E, successor work,
-language work, package/stdlib/Nectar work, optimization, another backend,
-release/tag work, stashes, archives, and historical-artifact deletion remain
+Review acceptance authorizes no staging, commit, push, CI, Unit A
+implementation, machine-global hook update, or historical cleanup. After any
+separately authorized status commit and publication lifecycle, Unit A still
+requires a fresh explicit BDFL signal. Units B-E, successor work, language
+work, package/stdlib/Nectar work, optimization, another backend, release/tag
+work, stashes, archives, and historical-artifact deletion remain
 unauthorized.
 
 <!-- workorder-current-authorization-gate:end -->
