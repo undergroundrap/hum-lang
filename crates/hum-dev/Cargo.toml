@@ -1,0 +1,12 @@
+[package]
+name = "hum-dev"
+version = "0.0.1"
+edition = "2024"
+license = "Apache-2.0"
+
+[[bin]]
+name = "hum-dev"
+path = "src/main.rs"
+
+[dependencies]
+hum-sha256 = { path = "../hum-sha256" }

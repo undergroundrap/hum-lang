@@ -1,0 +1,38 @@
+{
+  "schema": "hum.candidate_identity.v1",
+  "commit": "1111111111111111111111111111111111111111",
+  "parents": [],
+  "tree": "2222222222222222222222222222222222222222",
+  "head_state": "detached",
+  "head_ref": null,
+  "state_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "refs": [
+    {
+      "name": "refs/heads/main",
+      "oid": "1111111111111111111111111111111111111111"
+    }
+  ],
+  "index": [
+    {
+      "path": "docs/example.md",
+      "mode": "100644",
+      "oid": "4444444444444444444444444444444444444444",
+      "stage": 0,
+      "intent_to_add": false
+    }
+  ],
+  "raw": { "additions": 3, "deletions": 1 },
+  "whitespace": { "additions": 2, "deletions": 0 },
+  "paths": [
+    {
+      "path": "docs/example.md",
+      "head_mode": "100644",
+      "head_oid": "5555555555555555555555555555555555555555",
+      "worktree_kind": "file",
+      "worktree_mode": null,
+      "worktree_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "bytes": 17,
+      "untracked": false
+    }
+  ]
+}

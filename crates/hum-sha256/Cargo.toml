@@ -1,0 +1,8 @@
+[package]
+name = "hum-sha256"
+version = "0.0.1"
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+path = "src/lib.rs"

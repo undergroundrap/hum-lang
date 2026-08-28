@@ -1,0 +1,29 @@
+# input|expected|value
+subject|accept|feat(program): add typed evidence
+subject|accept|fix(cli)!: fail closed
+subject|accept|docs(workorder): record publication
+subject|accept|test(evidence.v1): cover exact corpus
+subject|accept|build(dev_tool): add workspace package
+subject|accept|Merge branch main
+subject|accept|Revert previous change
+subject|accept|fixup! docs(workorder): record publication
+subject|accept|squash! feat(program): add typed evidence
+subject|reject|
+subject|reject|feat: missing scope
+subject|reject|unknown(scope): summary
+subject|reject|Feat(scope): summary
+subject|reject|feat(): summary
+subject|reject|feat(UPPER): summary
+subject|reject|feat(scope with space): summary
+subject|reject|feat(scope)
+subject|reject|feat(scope):
+subject|reject|feat(scope):<SP>
+subject|reject|feat(scope) : summary
+subject|reject|feat(scope)?: summary
+subject|reject|Merge<SP>
+subject|reject|Revert<SP>
+message|accept|docs(workorder): subject<LF><LF>body<LF>
+message|accept|feat(cli): unicode ✓<LF>body<LF>
+message|reject|docs(workorder): subject<CR><LF>body<CR><LF>
+message|reject|docs(workorder): subject<NUL><LF>body<LF>
+message|reject|<LF>body<LF>
