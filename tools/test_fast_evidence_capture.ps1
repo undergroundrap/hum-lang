@@ -715,6 +715,35 @@ function Assert-LaunchedCapture {
   }
 }
 
+function Assert-LaunchedTimeoutCapture {
+  param([object] $Capture, [int] $ExpectedDeadlineSeconds)
+  $Capture = Assert-LaunchedCapture $Capture
+  $ExpectedDeadlineTicks = [Int64] $ExpectedDeadlineSeconds * [Int64] $Capture.StopwatchFrequency
+  Assert-True ($Capture.DeadlineTicks -eq $ExpectedDeadlineTicks) 'launched-timeout absolute deadline'
+  Assert-True ($Capture.ProcessCreationAttempted -and $Capture.ProcessCreationSucceeded -and
+    $Capture.Launched -and $Capture.PrimaryExitObserved -and
+    $Capture.StdoutCompletionObserved -and $Capture.StderrCompletionObserved -and
+    $Capture.JobQuiescenceObserved -and $Capture.FinalActiveProcessCount -eq 0) 'launched-timeout lifecycle'
+  Assert-True ($Capture.TimedOut -and $Capture.DeadlineDisposition -ceq 'deadline_expired' -and
+    $Capture.TerminationRequested -and $Capture.TerminationCount -eq 1 -and
+    $Capture.KillAttemptCount -eq 1 -and
+    $Capture.TerminationDisposition -ceq 'tree_termination_confirmed' -and
+    $Capture.FinalDescendantTree -ceq 'terminated_quiescent') 'launched-timeout disposition'
+  if ($env:OS -eq 'Windows_NT') {
+    Assert-WindowsContainmentLifecycle $Capture 'launched-timeout'
+  }
+  $Capture
+}
+
+function Test-LaunchedTimeoutCaptureDirectory {
+  param([string] $CaptureDirectory, [int] $ExpectedDeadlineSeconds)
+  try {
+    $Capture = Read-HumCaptureRecord $CaptureDirectory
+    $null = Assert-LaunchedTimeoutCapture $Capture $ExpectedDeadlineSeconds
+    $true
+  } catch { $false }
+}
+
 function Assert-PrelaunchDiagnostic {
   param([object] $Capture, [string] $Diagnostic)
   $LaunchIdentity = Get-HumFileIdentity $Capture.LaunchErrorPath
@@ -1011,8 +1040,8 @@ try {
   $Nonzero = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'nonzero-marker')) $BeforeDirectory (Join-Path $ScratchRoot 'nonzero-marker') 30 -CaseName 'nonzero-marker')
   Assert-True ($Nonzero.ExitCode -eq 9 -and $Nonzero.SuccessMarkerCount -eq 1 -and $Nonzero.TerminalStdoutLine -ceq $SuccessMarker) 'nonzero marker case'
 
-  $Timeout = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'timeout')) $BeforeDirectory (Join-Path $ScratchRoot 'timeout') 2 -CaseName 'timeout')
-  Assert-True ($Timeout.TimedOut -and $Timeout.KillAttemptCount -eq 1 -and $Timeout.TerminationDisposition -ceq 'tree_termination_confirmed') 'timeout tree termination'
+  $LaunchedTimeoutDeadlineSeconds = 10
+  $Timeout = Assert-LaunchedTimeoutCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'timeout')) $BeforeDirectory (Join-Path $ScratchRoot 'timeout') $LaunchedTimeoutDeadlineSeconds -CaseName 'timeout') $LaunchedTimeoutDeadlineSeconds
   $TimeoutOut = [Text.Encoding]::UTF8.GetString((Read-Bytes $Timeout.StdoutPath))
   $TimeoutErr = [Text.Encoding]::UTF8.GetString((Read-Bytes $Timeout.StderrPath))
   Assert-True ($TimeoutOut -match 'parent_alive=([0-9]+)' -and $TimeoutOut -match 'descendant_pid=([0-9]+)' -and $TimeoutOut.Contains('parent_partial_stdout')) 'timeout PID and stdout witnesses'
@@ -1151,6 +1180,11 @@ try {
   $ContainmentOmission = Copy-CaptureForMutation $Success.CaptureDirectory (Join-Path $ScratchRoot 'mutation-containment-omission')
   Remove-Item -LiteralPath (Join-Path $ContainmentOmission 'job_assignment_succeeded.txt')
   Assert-CaptureRejected $ContainmentOmission 'containment record omission accepted'
+
+  $TimeoutDeadlineMismatch = Copy-CaptureForMutation $Timeout.CaptureDirectory (Join-Path $ScratchRoot 'mutation-timeout-deadline')
+  Set-HumDurableText (Join-Path $TimeoutDeadlineMismatch 'deadline_ticks.txt') ([string] ($Timeout.DeadlineTicks + $Timeout.StopwatchFrequency))
+  Rewrite-Manifest $TimeoutDeadlineMismatch
+  Assert-True (-not (Test-LaunchedTimeoutCaptureDirectory $TimeoutDeadlineMismatch $LaunchedTimeoutDeadlineSeconds)) 'launched-timeout deadline corruption accepted'
 
   if ($env:OS -eq 'Windows_NT') {
     $ContainmentInconsistent = Copy-CaptureForMutation $Success.CaptureDirectory (Join-Path $ScratchRoot 'mutation-containment-inconsistent')
