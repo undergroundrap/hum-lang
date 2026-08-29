@@ -20,6 +20,7 @@ $script:WorkOrderBoundaryActiveMarker = '<!-- hum-active-workorder:v1 -->'
 $script:WorkOrderBoundaryLegacyPattern = '^WORKORDER(?:_[1-9][0-9]*)?\.md$'
 $script:WorkOrderBoundaryCanonicalActivePattern = '^workorders/active/WORKORDER_[1-9][0-9]*\.md$'
 $script:WorkOrderBoundaryCanonicalClosedPattern = '^workorders/closed/WORKORDER_[1-9][0-9]*\.md$'
+$script:WorkOrderBoundaryTopologyScopePattern = '^(?:WORKORDER(?![A-Za-z]).*|workorders(?:[/\\]|$))'
 $script:WorkOrderBoundaryLikePattern = '(?:^|[/\\])WORKORDER(?![A-Za-z]).*$'
 
 function Throw-WorkOrderBoundaryFailure {
@@ -418,7 +419,12 @@ function Resolve-ActiveWorkOrderBlob {
       [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor
       [System.Text.RegularExpressions.RegexOptions]::CultureInvariant
     )
-    $IsWorkOrderLike = [regex]::IsMatch(
+    $IsWithinWorkOrderTopology = [regex]::IsMatch(
+      $Path,
+      $script:WorkOrderBoundaryTopologyScopePattern,
+      $LikeOptions
+    )
+    $IsWorkOrderLike = $IsWithinWorkOrderTopology -and [regex]::IsMatch(
       $Path,
       $script:WorkOrderBoundaryLikePattern,
       $LikeOptions

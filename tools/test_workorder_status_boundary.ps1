@@ -750,11 +750,31 @@ function Assert-ProductionSeamIsClosed {
     '^WORKORDER(?:_[1-9][0-9]*)?\.md$',
     '^workorders/active/WORKORDER_[1-9][0-9]*\.md$',
     '^workorders/closed/WORKORDER_[1-9][0-9]*\.md$',
+    '^(?:WORKORDER(?![A-Za-z]).*|workorders(?:[/\\]|$))',
     '(?:^|[/\\])WORKORDER(?![A-Za-z]).*$',
     "'ls-tree', '-r', '-z', '--full-tree'"
   )) {
     Assert-BoundaryTest $Classifier.Contains($RequiredText) "classifier is missing history-rewrite defense $RequiredText"
   }
+
+  $ScopeAssignment = "`$script:WorkOrderBoundaryTopologyScopePattern = '^(?:WORKORDER(?![A-Za-z]).*|workorders(?:[/\\]|`$))'"
+  $ScopeUse = '$IsWorkOrderLike = $IsWithinWorkOrderTopology -and [regex]::IsMatch('
+  Assert-BoundaryTest ([regex]::Matches($Classifier, [regex]::Escape($ScopeAssignment)).Count -eq 1) 'classifier topology-scope owner is missing or duplicated'
+  Assert-BoundaryTest ([regex]::Matches($Classifier, [regex]::Escape($ScopeUse)).Count -eq 1) 'classifier topology-scope consumer is missing or duplicated'
+  foreach ($ScopeCorruption in @(
+    $Classifier.Replace($ScopeAssignment, ''),
+    $Classifier.Replace($ScopeAssignment, "`$script:WorkOrderBoundaryTopologyScopePattern = '(?:^|[/\\])WORKORDER(?![A-Za-z]).*`$'")
+  )) {
+    Assert-BoundaryTest ($ScopeCorruption -cne $Classifier) 'classifier topology-scope corruption did not initialize'
+    $ScopeRejected = (
+      [regex]::Matches($ScopeCorruption, [regex]::Escape($ScopeAssignment)).Count -ne 1 -or
+      [regex]::Matches($ScopeCorruption, [regex]::Escape($ScopeUse)).Count -ne 1
+    )
+    Assert-BoundaryTest $ScopeRejected 'classifier topology-scope corruption did not fail closed'
+  }
+
+  $ExactUnitBStatus = Test-StatusOnlyTransition $RepoRoot '4252af3310663785e7ce6bf30e3a32b0b0177373' '8478f23a9d1a0446002f1ca76d5951e9d39f45e1'
+  Assert-BoundaryTest $ExactUnitBStatus.IsValid 'exact Unit B publication-status transition was not recognized'
 
   $CheckAll = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'tools/check_all.ps1'))
   Assert-BoundaryTest ([regex]::Matches($CheckAll, "test_workorder_status_boundary\.ps1").Count -eq 1) 'full preflight must invoke the boundary matrix exactly once'
@@ -1130,9 +1150,11 @@ try {
   Write-TestText (Join-Path $AdjacentUnrelatedPath.Path 'WORKORDERING.md') (
     New-TestWorkOrderText -Status ' unrelated adjacent name' -Inactive
   )
+  Write-TestText (Join-Path $AdjacentUnrelatedPath.Path 'crates/hum-dev/src/workorder.rs') "pub fn unrelated_module() {}`n"
+  Write-TestText (Join-Path $AdjacentUnrelatedPath.Path 'src/nested/WORKORDER_99.md') "unrelated nested source module`n"
   $AdjacentUnrelatedAnchor = Commit-TestRepository $AdjacentUnrelatedPath 'add unrelated adjacent path'
   $AdjacentUnrelatedHead = Add-TestStatusCommit $AdjacentUnrelatedPath ' valid status beside unrelated path' "`nnext session remains unauthorized`n"
-  Invoke-BoundaryCase 'unrelated adjacent WORKORDERING path remains fast' $AdjacentUnrelatedPath $AdjacentUnrelatedAnchor $AdjacentUnrelatedHead (New-ValidPairFactory $AdjacentUnrelatedAnchor) 'fast' 'eligible_status_chain' $AdjacentUnrelatedAnchor
+  Invoke-BoundaryCase 'unrelated nested workorder-like source paths remain fast' $AdjacentUnrelatedPath $AdjacentUnrelatedAnchor $AdjacentUnrelatedHead (New-ValidPairFactory $AdjacentUnrelatedAnchor) 'fast' 'eligible_status_chain' $AdjacentUnrelatedAnchor
 
   foreach ($PathCase in @(
     [pscustomobject]@{ Name = 'Rust source'; Path = 'src/main.rs'; Text = ('fn main() { println!("changed"); }' + "`n") },
