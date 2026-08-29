@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 <!-- hum-active-workorder:v1 -->
-Status: UNIT A IMPLEMENTED, PUBLISHED, TERMINAL-GREEN AFTER BOUNDED RED-MAIN REPAIR, AND POST-HOC ACCEPTED; PUBLICATION STATUS CANDIDATE AWAITS FRESH INDEPENDENT REVIEW. UNITS B-E UNAUTHORIZED.
+Status: UNIT A COMPLETE, PUBLISHED, STATUS-RECORDED, SYNCHRONIZED, AND TERMINAL-GREEN; UNIT B IMPLEMENTATION STOPPED AS UNSATISFIABLE; BOUNDED UNIT B SATISFIABILITY AMENDMENT CANDIDATE AWAITS FRESH INDEPENDENT PRE-ISSUANCE REVIEW. UNITS C-E UNAUTHORIZED.
 
 WO25 Unit A was implemented by commit
 `858a11fc17755233f7e59229e94e7182b38af3c1` with parent
@@ -115,6 +115,26 @@ reuse is not complete; shell portability is not complete; and the legacy Fast
 path has not been eliminated. The Zero comparison, cost intelligence,
 assurance taxonomy, and construct-generic compiler-growth advisories remain
 future planning inputs, not implementation authorization.
+
+Unit B implementation was authorized only long enough to authenticate its
+contract and stopped before any edit, test, Fast run, staging, commit, push,
+cleanup, or other repository mutation. No Unit B implementation candidate
+exists, and the implementer touched no path. A fresh independent satisfiability
+audit reported P0 none, P1 two, P2 none, and the exact conclusion:
+
+```text
+UNSATISFIABLE — WORK ORDER AMENDMENT REQUIRED
+```
+
+The first P1 was that a fresh hosted fast job had no authorized `hum-dev`
+bootstrap while Cargo/compiler work, cache authority, tracked binaries, extra
+artifacts, alternate dependencies, and PowerShell schema ownership were all
+forbidden. The second P1 was that requiring every fast job to produce a new
+summary was circular and unnecessary because the status-chain model consumes
+the terminal full anchor. This bounded candidate repairs only those two Unit B
+planning defects. Unit A remains implemented, published, status-recorded,
+synchronized, and complete; its implementation contract is not reopened or
+rewritten.
 
 Owner: BDFL (Ocean).
 
@@ -390,10 +410,21 @@ parsing, and owned controlled-path cleanup complete. This includes `hum-dev`
 startup, repository and fixture discovery, producer work, serialization,
 parsing, and cleanup. Compilation is excluded because the exact executable is
 prebuilt and content-authenticated; when a unit changes compilation cost, that
-build is a separately named timed command with the same boundaries. For status
-review, the timed process additionally includes authenticated GitHub metadata,
-artifact transport, extraction, parsing, verification, reporting, and local
-cleanup, but excludes the earlier CI producer that created the artifact.
+build is a separately named timed command with the same boundaries.
+
+For status review, timing starts immediately before the first authenticated
+executable-artifact metadata query. It includes exact artifact resolution, the
+pinned download step, archive-digest and one-file-shape authentication,
+executable extraction and SHA-256 verification, platform pre-execution checks,
+`hum-dev` launch, summary metadata queries and downloads, complete summary
+authentication and two-platform comparison, status projection, stdout/stderr
+capture, process exit, and all bootstrap- and `hum-dev`-owned cleanup. It stops
+only after exact absence and no-survivor predicates have completed. It excludes
+only the earlier terminal full producer and that producer's build and uploads.
+The initial status-review requirement remains under two minutes, and Unit B
+records one cold and three warm predecessor samples plus one cold and three warm
+candidate samples under the frozen comparison method above. A timing miss is
+red and may not skip or weaken evidence.
 
 Each timing record identifies the exact executable, command/profile and
 arguments, start/stop events, included/excluded phases, monotonic timer and
@@ -475,50 +506,141 @@ implementation is removed.
 
 ## Unit B: fast status and publication evidence
 
-Unit B has one repository-owned transport contract with no implicit owner.
-Inside each required platform job, the exact producer is
-`hum-dev evidence summarize --output <owned-path>` after that job's underlying
-evidence reaches its authenticated terminal disposition. It writes exactly one
-canonical `hum.evidence_summary.v1` UTF-8/LF JSON file named
-`hum-evidence-summary.v1.json`. `.github/workflows/ci.yml` is the sole CI and
-transport-configuration owner: its fixed `generate_evidence_summary` step
-invokes that producer. Through `hum-dev`'s metadata adapter, the producer
-resolves the current numeric job ID exactly once from authenticated current-run
-and current-attempt job metadata and rejects zero or multiple matches. The
-workflow's fixed `upload_evidence_summary` step uploads an archive containing
-exactly that one regular file. The artifact name is
-`hum-evidence-summary-v1-<run_id>-<run_attempt>-<numeric_job_id>-<platform>`;
-retention is exactly 14 days.
+Unit B has one repository-owned transport contract with no implicit owner. It
+separates terminal full-anchor production, fast bootstrap transport, and typed
+status consumption. No one of those layers may substitute for another.
 
-The exact consumer is `hum-dev evidence status`. Its transport adapter invokes
-the already required authenticated GitHub CLI only for run, job, and artifact
-metadata plus `gh run download` byte transport into an owned temporary
-directory. The adapter may neither interpret evidence fields nor manufacture a
-disposition. Shell and PowerShell adapters own no part of generation,
-authentication, schema meaning, retention, or acceptance, and GitHub Actions
-owns only remote archive transport and expiry. `hum-dev` owns local artifact
-name/path validation, archive-shape validation, canonical JSON parsing,
-authentication, cross-platform comparison, local cleanup, and the terminal
-consumer disposition.
+Only a terminal full evidence-anchor job produces a summary. After all required
+underlying full evidence for that platform reaches its authenticated terminal
+disposition, the exact ordered full-lane steps are
+`generate_evidence_summary` (`Generate evidence summary`),
+`upload_evidence_summary` (`Upload evidence summary`), and
+`upload_hum_dev_executable` (`Upload hum-dev executable`). The producer is
+`hum-dev evidence summarize --output <owned-path>`. Through `hum-dev`'s
+metadata adapter it resolves the current numeric job ID exactly once from
+authenticated current-run/current-attempt metadata and rejects zero or multiple
+matches. A fast or status-only job never generates or uploads a replacement
+summary or executable artifact.
 
-Before any summary field is consumed as evidence, `hum-dev` authenticates the
-repository and workflow identity, event, exact commit and tree, run ID,
-attempt, numeric job ID, checkout SHA, platform/target, policy/configuration,
-generator and compiler identities, toolchain, artifact ID/name/size, GitHub
-artifact digest, canonical file SHA-256, and terminal job conclusion against
-authenticated GitHub run/job/artifact metadata and the requested candidate.
-The GitHub CLI executable path, version, and SHA-256 are recorded as a
-transport-toolchain binding. Only the two expected platform summaries are
-downloaded; normal status review never downloads full logs.
+The summary upload contains exactly one regular file named
+`hum-evidence-summary.v1.json`: one canonical `hum.evidence_summary.v1` JSON
+object encoded as UTF-8 without BOM, with LF/final-LF framing. Its exact
+artifact-name grammar remains:
 
-GitHub owns deletion at the declared 14-day retention boundary; WO25 grants no
-remote delete action. `hum-dev` owns the downloaded archive and extracted file
-through its initialized local cleanup guard. Missing, expired, stale, partial,
-malformed, duplicate, extra-file, path-traversing, cross-repository,
-cross-workflow, cross-attempt, cross-job, cross-platform, cross-commit,
-digest-mismatched, terminal-red/incomplete, or unauthenticated artifacts fail
-closed before projection. Transport failure never falls back to logs, a stale
-local copy, or an inferred success.
+```text
+hum-evidence-summary-v1-<run_id>-<run_attempt>-<numeric_job_id>-<platform>
+```
+
+`run_id`, `run_attempt`, and `numeric_job_id` are positive canonical decimal
+integers with no sign or leading zero; `platform` is exactly `ubuntu` or
+`windows`. Retention is exactly 14 days. The archive may contain no executable,
+manifest sidecar, directory entry, link, reparse point, or extra file.
+
+Each terminal full Ubuntu job also publishes one separate artifact archive
+containing exactly one regular executable named `hum-dev`; each terminal full
+Windows job publishes the same contract with exactly one regular executable
+named `hum-dev.exe`. The exact executable artifact-name grammar is:
+
+```text
+hum-dev-executable-transport-v1-<run_id>-<run_attempt>-<numeric_job_id>-<platform>-<lowercase_sha256>
+```
+
+The three numeric fields and platform use the canonical values above, and
+`lowercase_sha256` is exactly 64 lowercase hexadecimal characters over the
+unmodified executable bytes. The grammar is identical on both platforms except
+for the explicit platform value. Retention is exactly 14 days. This artifact is
+transport/bootstrap data only: it is not evidence authority, cache authority,
+a release asset, package distribution, installer, or substitute for source or
+summary facts. Fast jobs never publish it.
+
+The current PowerShell classifier remains only the temporary fail-closed lane
+selector until its later authorized migration. It may return the exact
+terminal-green full anchor, run ID, attempt, Ubuntu job ID, and Windows job ID
+that it already authenticates, but it may not generate, parse, authenticate,
+compare, or accept `hum.evidence_summary.v1`. Multiple consecutive recognized
+status commits may retain that same authenticated full anchor while all required
+summary and executable artifacts remain valid. This changes no classifier
+trust, topology, transition, or fail-closed rule.
+
+After fast classification selects one exact terminal-green full anchor, the
+exact ordered fast bootstrap steps are
+`start_status_review_and_resolve_hum_dev` (`Resolve status executable`),
+`download_hum_dev_executable` (`Download hum-dev executable`), and
+`authenticate_and_run_status_only_evidence` (`Run status-only evidence`). The
+bootstrap resolves exactly one artifact ID for only the current platform's
+exact executable artifact, downloads that artifact by ID from the selected
+repository/run into a newly initialized owned directory with the pinned
+download action and no implicit current-run or name-pattern fallback, and keeps
+the raw archive unexpanded until its own checks run.
+
+Before any process creation, the thin workflow bootstrap authenticates the
+repository, workflow name/path, event, anchor commit and tree, run ID, attempt,
+numeric producing job ID, producing job status/conclusion, platform and target,
+artifact ID/name/size/GitHub SHA-256 digest, the exact artifact-name grammar,
+the archive's exact one-file shape, absence of directory/absolute/parent or
+separator traversal, regular-file/no-link/no-reparse properties, exact
+executable filename, and the lowercase executable SHA-256 embedded in the
+artifact name. It independently hashes the raw archive against the GitHub
+digest and the extracted executable against the name-bound SHA-256, requiring
+exact equality. These checks use only fixed-workflow platform primitives and
+may not interpret summary fields, synthesize an evidence disposition, use full
+logs, trust ambient PATH, reuse a cache or local copy, or fall back.
+
+The Windows and Ubuntu branches remain explicit. Windows launches only after
+the exact regular-file/no-reparse checks and performs executable cleanup after
+process exit, stream completion, handle disposal, and child/process quiescence.
+Because GitHub's archived artifact transport does not preserve POSIX executable
+mode bits, Ubuntu sets execute permission only on the already shape-, digest-,
+and byte-authenticated owned file by an already-available platform primitive,
+then proves the required executable bit, regular-file/no-link identity, and
+unchanged SHA-256 before launch. No ambient `chmod` lookup is authority. Only
+after every pre-execution predicate passes may the executable launch.
+
+The exact semantic consumer is the authenticated bootstrapped executable
+running `hum-dev evidence status`. That command retains ownership of GitHub
+run, job, and summary-artifact metadata queries; exact `gh run download`
+summary byte transport into its initialized owned directory; canonical parsing;
+complete field authentication; Ubuntu/Windows agreement; status projection;
+terminal disposition; and local summary cleanup. It binds and reports the exact
+GitHub CLI executable path, version, and SHA-256. Before consuming evidence it
+authenticates both platform summaries. Its running platform-specific executable
+SHA-256, toolchain, and target must equal only the corresponding producer fields
+in the authenticated summary for the current platform. Each platform-specific
+producer executable SHA-256, toolchain, and target is authenticated against its
+corresponding platform summary. The running executable's platform-neutral source
+commit, tree, and Cargo/dependency-closure identities must equal the corresponding
+platform-neutral fields in both authenticated summaries. The two summaries must
+agree exactly on every field the schema defines as platform-neutral, including
+source commit, tree, Cargo/dependency closure, run ID, attempt, and every other
+shared anchor identity. No single platform executable, toolchain, or target is
+required to equal both platform-specific values.
+
+The bootstrap's pre-execution transport check and `hum-dev`'s self/summary
+cross-check are distinct load-bearing predicates; neither substitutes for the
+other. Summary artifacts continue to bind the full-anchor producer executable
+identity. They need not and cannot self-assert artifact IDs or GitHub digests
+created only after serialization; the consumer authenticates those later
+transport facts directly from GitHub metadata before field consumption. Shell
+and PowerShell own no schema meaning or evidence acceptance, and GitHub Actions
+owns only the authenticated remote transport and expiry.
+
+GitHub owns remote expiry at 14 days, and no remote delete action is authorized.
+The workflow bootstrap owns only its downloaded executable archive/extraction
+directory and removes it after `hum-dev` exits on normal and handled-failure
+paths, proving exact absence and no process, stream, or handle survivor.
+`hum-dev`'s initialized cleanup guard separately owns downloaded summary
+archives and extracted JSON and retains the existing fail-closed cleanup
+contract.
+
+Missing, expired, ambiguous, duplicate, stale, extra-file, wrong-platform,
+wrong-job/run/attempt, wrong repository/workflow/event, malformed-name,
+path-traversal, link/reparse, size/digest/hash mismatch, same-length corruption,
+terminal-red/incomplete, mixed-binding, cleanup failure, or unavailable
+executable or summary artifacts fail closed before projection. Artifact expiry
+or transport failure never triggers Cargo/rustc, cache or local-copy reuse,
+logs, a new workflow dispatch, a rerun, inferred success, or PowerShell semantic
+fallback. The terminal report names every individual failed predicate and
+requires separate authority for any later full producer.
 
 `hum-dev workorder status-facts` produces a deterministic proposed projection
 for the recognized mutable Work Order regions. Human review remains required
@@ -531,34 +653,55 @@ It runs no Cargo, Rust selector, compiler, interpreter, native, Fast, or
 Exhaustive stage when all changed bytes are inside recognized mutable Work
 Order regions and the authenticated summary chain is terminal-green.
 
+Unit B permanently preserves selectors 125-128 and I05-I07 ownership, the
+frozen 124-selector prefix, the complete ordered 128-selector ledger, all 151
+classifier cases twice deterministically, the complete summary corruption
+matrix and S01-S06, immutable Work Order reconstruction, and the no-full-log
+and no-Cargo/compiler/Fast sentinels. Focused evidence additionally covers both
+immutable action pins; both artifact-name grammars; exact one-file shape;
+platform/name/hash substitution; cross-run, attempt, job, and platform swaps;
+wrong GitHub digest; same-length executable corruption; absent, expired, and
+duplicate artifacts; pre-execution rejection; running-self-hash/summary
+disagreement; cleanup on every controlled terminal path; Windows post-exit
+handle/process quiescence; Ubuntu regular-file/executable-bit handling; forbidden
+cache, local, log, build, and PowerShell-owner fallbacks; and consecutive status
+chains consuming one still-valid full anchor. Every aggregate failure emits
+each individual predicate. None of these checks belongs to Unit C shell
+portability or Unit D generalized cache/reuse authority: permitted same-anchor
+artifact consumption is authenticated transport of the exact full producer.
+
 ### Unit B exact path envelope
 
-| Path | Max + | Max - | Purpose |
+Each listed ceiling applies independently to both raw and
+whitespace-insensitive accounting and is non-borrowable by another path or
+category.
+
+| Path | Max + (raw/WS) | Max - (raw/WS) | Purpose |
 | --- | ---: | ---: | --- |
-| `.github/workflows/ci.yml` | 100 | 40 | per-job summary generation/upload and compact retrieval contract |
+| `.github/workflows/ci.yml` | 340 | 100 | full-only summary/executable uploads plus fixed fast download, pre-execution authentication, launch, timing, and cleanup bootstrap |
 | `crates/hum-dev/src/main.rs` | 80 | 20 | status and Work Order command routing |
 | `crates/hum-dev/src/command.rs` | 100 | 20 | typed status arguments |
-| `crates/hum-dev/src/summary.rs` | 220 | 60 | authenticated CI fields and agreement checks |
-| `crates/hum-dev/src/status.rs` | 360 | 0 | summary classification and artifact authentication |
+| `crates/hum-dev/src/summary.rs` | 360 | 80 | full-anchor producer/executable identities, authenticated CI fields, canonical parsing, and agreement checks |
+| `crates/hum-dev/src/status.rs` | 700 | 0 | authenticated metadata transport, self/summary cross-check, status projection, and summary cleanup |
 | `crates/hum-dev/src/workorder.rs` | 300 | 0 | immutable-region projection and status facts |
-| `crates/hum-dev/tests/cli.rs` | 180 | 20 | process and no-log-download evidence |
+| `crates/hum-dev/tests/cli.rs` | 320 | 30 | process, bootstrap boundary, no-fallback, cleanup, and no-log-download evidence |
 | `fixtures/evidence/job_summary_ubuntu.v1.json` | 120 | 0 | canonical Ubuntu summary |
 | `fixtures/evidence/job_summary_windows.v1.json` | 120 | 0 | canonical Windows summary |
-| `fixtures/evidence/summary_corruption_cases.v1.json` | 180 | 0 | field and cross-job substitution matrix |
-| `docs/HUM_EVIDENCE_SUMMARY_SCHEMA.md` | 160 | 40 | CI artifact and status projection contract |
-| `tools/check_workorder_status_boundary.ps1` | 120 | 80 | temporary legacy adapter only |
-| `tools/test_workorder_status_boundary.ps1` | 160 | 80 | old/new equivalence corpus |
-| `tools/check_all.ps1` | 80 | 50 | integrated summary checks |
-| **Unit B total** | **2,280** | **410** | **14 non-borrowable paths** |
+| `fixtures/evidence/summary_corruption_cases.v1.json` | 420 | 0 | complete summary, executable transport, substitution, and cleanup corruption matrix |
+| `docs/HUM_EVIDENCE_SUMMARY_SCHEMA.md` | 300 | 60 | full-anchor production, producer identity, artifact, consumer, ownership, and status projection contract |
+| `tools/check_workorder_status_boundary.ps1` | 220 | 100 | temporary lane/anchor selector and exact terminal full-step authentication only |
+| `tools/test_workorder_status_boundary.ps1` | 280 | 100 | unchanged 151-case trust corpus, terminal-step obligations, and same-anchor chain controls |
+| `tools/check_all.ps1` | 200 | 80 | integrated 128-ledger, mutation, artifact, fallback, cleanup, and timing evidence |
+| **Unit B total** | **3,860** | **590** | **14 non-borrowable paths** |
 
 | Unit B category | Paths | Max + | Max - |
 | --- | ---: | ---: | ---: |
-| `hum-dev` Rust and tests | 6 | 1,240 | 120 |
-| Permanent fixtures | 3 | 420 | 0 |
-| Schema documentation | 1 | 160 | 40 |
-| Workflow | 1 | 100 | 40 |
-| PowerShell integration/tests | 3 | 360 | 210 |
-| **Unit B category total** | **14** | **2,280** | **410** |
+| `hum-dev` Rust and tests | 6 | 1,860 | 150 |
+| Permanent fixtures | 3 | 660 | 0 |
+| Schema documentation | 1 | 300 | 60 |
+| Workflow | 1 | 340 | 100 |
+| PowerShell integration/tests | 3 | 700 | 280 |
+| **Unit B category total** | **14** | **3,860** | **590** |
 
 ## Unit C: shell and hook portability
 
@@ -735,7 +878,7 @@ semantic owners or no owner.
 | **Unit E category total** | **14** | **1,320** | **5,400** |
 
 The five unit tables contain 70 authorized path occurrences with aggregate
-telemetry `+9,165/-7,558`. This sum is not a cross-unit borrowing pool. Every
+telemetry `+10,745/-7,738`. This sum is not a cross-unit borrowing pool. Every
 unit and category ceiling is independently non-borrowable, and a path may be
 edited in a later unit only where it is listed again.
 
@@ -803,6 +946,16 @@ terminal disposition, timing, stdout hash, stderr hash, event-stream hash, and
 cleanup disposition. Single-field, same-length substitution and cross-platform
 swaps must reject independently.
 
+Unit B executable-bootstrap corruption additionally covers immutable
+upload/download pin identity, artifact grammar and cardinality, artifact ID and
+GitHub digest, archive shape and entry path, regular/link/reparse type,
+platform/executable name, run/attempt/job substitution, embedded executable
+SHA-256, same-length executable byte corruption, producer-summary executable
+identity, running self-hash, Ubuntu execute permission, Windows post-exit handle
+quiescence, and bootstrap-owned cleanup. Each corruption must reject before
+process creation when its predicate is pre-execution; no later summary failure
+may receive credit for a missing bootstrap rejection.
+
 The summary corruption corpus has these non-degenerate stage-closure rows:
 
 | ID | Corruption | Required result |
@@ -855,17 +1008,44 @@ owned historical residue while leaving foreign or ambiguous paths untouched.
 
 - No unit authorizes a third-party Cargo dependency. A network library, parser,
   serializer, regex engine, async runtime, or GitHub SDK requires a substantive
-  Work Order amendment. Unit B alone may add one workflow transport dependency,
-  `actions/upload-artifact`, solely in the fixed upload step and pinned to an
-  immutable full commit SHA that Unit B records and authenticates in focused
-  evidence and independent review. Its sole justification is GitHub's supported
-  authenticated artifact upload/retention protocol; no tag-only reference,
-  download action, mutable indirection, or other workflow dependency is
-  authorized. The consumer uses the existing authenticated GitHub CLI only
-  through the exact metadata and `gh run download` transport adapter above;
-  its executable path, version, and SHA-256 are invocation-bound, absence or
-  drift fails closed, and WO25 neither installs nor modifies it. Neither
-  transport dependency owns schema meaning or evidence disposition.
+  Work Order amendment. Unit B's sole workflow-dependency exception is exactly
+  these two official actions at these literal immutable full commit SHAs:
+
+  ```text
+  actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+  actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+  ```
+
+  `actions/upload-artifact` is authorized only in the fixed
+  `upload_evidence_summary` and `upload_hum_dev_executable` steps. Both use
+  exact one-file paths, archived transport, `if-no-files-found: error`,
+  `retention-days: 14`, `overwrite: false`, and no hidden-file inclusion.
+  `actions/download-artifact` is authorized only in the fixed
+  `download_hum_dev_executable` fast bootstrap step, by the one authenticated
+  artifact ID, repository, and selected anchor run ID, with the GitHub token,
+  `skip-decompress: true`, `digest-mismatch: error`, and the exact initialized
+  owned path. Name, pattern, multi-artifact, implicit current-run, and extracted
+  fallback forms are forbidden.
+
+  Read-only official GitHub release, tag-ref, and commit inspection on
+  2026-08-28 authenticated `actions/upload-artifact` release/tag `v7.0.1`
+  directly to verified commit
+  `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`, and
+  `actions/download-artifact` release/tag `v8.0.1` directly to verified commit
+  `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`. The Work Order freezes only
+  those SHAs; the release tags are provenance, not workflow authority. Unit B
+  focused evidence and independent review must reauthenticate the literal pins.
+  No tag, mutable ref, action use outside those exact steps, other action or
+  dependency, Cargo dependency, SDK, installer, cache, or network library is
+  authorized, and WO25 neither installs nor invokes either action locally.
+
+  The summary consumer uses the existing authenticated GitHub CLI only through
+  the exact metadata and `gh run download` adapter above; its executable path,
+  version, and SHA-256 are invocation-bound, absence or drift fails closed, and
+  WO25 neither installs nor modifies it. The bootstrap uses only already
+  available fixed-workflow platform primitives for its metadata and archive
+  trust checks. Neither action, GitHub CLI, workflow, nor PowerShell owns schema
+  meaning or evidence disposition.
 - `hum-sha256` is the sole shared hash owner. Extraction must preserve every
   existing vector, API result, and caller behavior.
 - `hum.evidence_summary.v1` is owned by `hum-dev`; Hum compiler types and source
@@ -917,14 +1097,25 @@ requirements only; they are not authorized during this planning package.
   under-1-second/under-5-second timing gates. Because it changes validation
   tooling, a fresh reviewer may consume one exact Fast allowance only after
   focused evidence is green.
-- Unit B proves selectors 7-10, I05-I07, every summary corruption row, exact
-  S01-S06 stage-closure case, artifact transport/authentication substitution,
-  Ubuntu/Windows agreement, immutable-region Work Order reconstruction, and a
-  sentinel that fails on any full-log download or Cargo/compiler/Fast stage in
-  status mode. Missing, stale, partial, malformed, duplicate, cross-boundary,
-  or unauthenticated artifacts must fail before projection. The complete
-  151-case classifier suite runs twice deterministically. One
-  reviewer-adjudicated Fast is allowed only after all focused evidence is green.
+- Unit B proves selectors 7-10 at exact ledger positions 125-128, the
+  byte-identical frozen 124-selector prefix and complete 128-selector ledger,
+  I05-I07, every summary corruption row, exact S01-S06 stage closure,
+  Ubuntu/Windows agreement, immutable-region Work Order reconstruction, and
+  sentinels that fail on any full-log download or Cargo/compiler/Fast stage in
+  status mode. It also proves both immutable action pins; exact summary and
+  executable artifact grammars; one-file/no-link/no-reparse/no-traversal shape;
+  platform, name, hash, run, attempt, job, digest, and same-length executable
+  substitutions; absent/expired/duplicate artifacts; pre-execution rejection;
+  running-self-hash/summary disagreement; distinct bootstrap and summary
+  cleanup ownership; Windows post-exit handle/process quiescence; Ubuntu
+  regular-file and executable-bit handling; cache/local/log/build/PowerShell
+  fallback rejection; and consecutive recognized status commits consuming one
+  still-valid full anchor. Missing, stale, partial, malformed, duplicate,
+  cross-boundary, mixed-binding, cleanup-failed, or unauthenticated artifacts
+  fail before projection, with every individual predicate emitted. The complete
+  151-case classifier suite runs twice deterministically without changing
+  classifier trust. One reviewer-adjudicated Fast is allowed only after all
+  focused evidence is green.
 - Unit C proves selectors 11-13 and I08 through Windows PS5.1/PowerShell 7 and
   Ubuntu PowerShell 7 legacy-equivalence matrices. The new path itself supports
   only PowerShell 7. PATH, `PSModulePath`, quoting, missing-shell, invalid UTF-8,
@@ -1054,45 +1245,59 @@ None of the four is implementation authority under WO25.
 Authorship and fresh independent pre-issuance review run only:
 
 - `git diff --check`;
-- raw and whitespace-insensitive accounting for the deleted tracked endpoint
-  and both untracked topology endpoints;
-- exact changed-region projection and reconstruction of published WO24 blob
-  `be166df6a4d765f0927dc26dfb9537a964c8253b`;
-- exact SHA-256 and non-writing Git blob identities for both resulting files;
-- exact-one-marker, line-4, regular-file, UTF-8/no-BOM/LF/final-LF, and
-  one-active/sixteen-closed/zero-root topology checks;
-- exact unit path uniqueness, category membership, row/category arithmetic,
-  selector/mutation inventory, performance fixtures, exclusions, supported
-  platforms, commit subjects, gates, and stop anchors;
+- raw and whitespace-insensitive diff accounting for the sole modified WO25
+  path;
+- exact changed-region/path authentication and reconstruction proving every
+  byte outside the mutable Status/current-gate bodies and exact amended Unit B
+  clauses remains identical to base blob
+  `c592785c4187dff35d15830f02e2bc08b931f9da`;
+- exact WO25 mode, non-writing Git blob identity, SHA-256, byte size,
+  regular-file kind, UTF-8/no-BOM/LF/final-LF framing, exact-one marker at line
+  4, and one-active/sixteen-closed/zero-root topology;
+- internal row/category/overall arithmetic, complete 14-path uniqueness and
+  order, category membership, non-borrowable raw/whitespace ceilings, and
+  aggregate five-unit telemetry;
+- exact selector/mutation/S01-S06 inventories, frozen 124 prefix and complete
+  128 ledger, summary/executable artifact grammars, full/fast workflow step
+  uniqueness and order, dependency pins, platform obligations, cleanup owners,
+  performance boundary, exclusions, gates, and stop anchors;
+- read-only official GitHub release/tag/commit provenance for the two frozen
+  action SHAs;
 - the repository-required 151-case classifier planning suite twice
-  deterministically, including successor issuance classification;
-- text hygiene and public readiness for the resulting inventory;
+  deterministically, including same-anchor consecutive status classification;
+- text hygiene and public readiness for the candidate;
 - alpha claims; and
 - release readiness `0.0.1`.
 
 Planning authorship/review runs no Cargo, Rust selector, compiler, interpreter,
 native execution, Fast, full preflight, Exhaustive, CI, workflow dispatch,
-archive code, or stash operation.
+artifact action, artifact upload/download, archive code, or stash operation.
 
 ## Current authorization gate
 
-WO25 Unit A and its bounded red-main capture-harness repair are published,
-terminal-green, and independently accepted. This uncommitted candidate records
-only that Unit A publication lifecycle. The sole next action is fresh
-independent architect-review of the exact mutable Status body and Current
-authorization gate. The author issues no verdict.
+WO25 Unit A is implemented, published, status-recorded, synchronized,
+terminal-green, complete, and closed to further work. Unit B implementation
+stopped without a candidate after its independently reviewed satisfiability
+failure. This uncommitted amendment candidate repairs only Unit B's full-anchor
+summary production and authenticated platform-executable transport/bootstrap
+contract. The sole next action is fresh independent pre-issuance
+architect-review of the exact WO25 amendment. The author issues no verdict.
 
 Only an unqualified `ACCEPT` may recommend, but does not execute, a separately
 authorized local documentation commit with exact subject:
 
 ```text
-docs(workorder): record unit a publication
+docs(workorder): repair unit b transport bootstrap
 ```
 
-Review acceptance authorizes no staging, commit, push, CI, Unit A
-implementation, Unit B implementation, machine-global hook update, or
-historical cleanup. Units B-E, successor work, language work,
-package/stdlib/Nectar work, optimization, another backend, release/tag work,
-stashes, archives, and historical-artifact deletion remain unauthorized.
+Review acceptance alone authorizes no staging, commit, push, CI, implementation,
+Fast, historical cleanup, hook edit, or later unit. Unit B implementation
+remains unauthorized until this amendment is independently accepted, committed
+under separate BDFL authority, separately published under separate BDFL
+authority, terminal-green on required Ubuntu and Windows CI, and followed by a
+fresh explicit BDFL Unit B-only implementation signal. Units C-E, successor
+work, language work, package/stdlib/Nectar work, optimization, another backend,
+release/tag work, stashes, archives, and historical-artifact deletion remain
+unauthorized.
 
 <!-- workorder-current-authorization-gate:end -->
