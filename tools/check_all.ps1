@@ -1179,18 +1179,67 @@ function Assert-Wo25EvidenceTierDispatcherContract { param([string] $Source, [sw
   $Required = @($Validate, $Exhaustive, ($Dollar + "env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'exhaustive'"), "  return`n}`n`n$Dispatch", "$Dispatch`n  $FailClosed`n}", "  $Wo25Return`n  $Wo25UnitBReturn`n  $FastStart", $Audit, ("Write-" + "Host 'All Hum preflight checks passed.'"))
   foreach ($Needle in $Required) { if ((& $Count $Source $Needle) -ne 1) { throw "Work Order 25 evidence-tier dispatcher contract drifted: $Needle" } }
   if ((& $Count $Source ('[Validate' + 'Set(')) -ne 1 -or (& $Count $Source $StaleAudit) -ne 0 -or (& $Count $Source $BoundaryScript) -ne 1) { throw 'Work Order 25 evidence-tier dispatcher retained a stale or additional admission rule or boundary invocation' }
-  $FocusedOwner = 'function Invoke-Wo25UnitA' + 'FocusedEvidence {'; $FocusedEndOwner = 'function Invoke-Wo25UnitB' + 'SelectorWithoutCredit {'; $FocusedStart = $Source.IndexOf($FocusedOwner, [System.StringComparison]::Ordinal); $FocusedEnd = $Source.IndexOf($FocusedEndOwner, $FocusedStart, [System.StringComparison]::Ordinal); $Focused = $Source.Substring($FocusedStart, $FocusedEnd - $FocusedStart)
+  $Tokens = $null; $ParseErrors = $null
+  $Ast = [Management.Automation.Language.Parser]::ParseInput($Source, [ref] $Tokens, [ref] $ParseErrors)
+  if ($ParseErrors.Count -ne 0) { throw "Work Order 25 evidence-tier dispatcher source has $($ParseErrors.Count) parser errors" }
+  $GetOwnedFunction = {
+    param([string] $Name)
+    $Definitions = @($Ast.FindAll({ param($Node) $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq $Name }, $true))
+    if ($Definitions.Count -ne 1) { throw "Work Order 25 evidence-tier dispatcher owned function $Name must have exactly one case-sensitive definition, found $($Definitions.Count)" }
+    $Definitions[0]
+  }
+  $FocusedFunction = & $GetOwnedFunction 'Invoke-Wo25UnitAFocusedEvidence'
+  $MutationFunction = & $GetOwnedFunction 'Invoke-Wo25UnitAProductionMutationEvidence'
+  $Focused = $FocusedFunction.Body.Extent.Text; $FocusedDefinition = $FocusedFunction.Extent.Text
   $Selectors = @('commit_message::tests::canonical_rule_is_portable_and_exact', 'identity::tests::candidate_identity_binds_commit_tree_index_and_paths', 'summary::tests::evidence_summary_v1_is_canonical_and_hash_bound', 'cleanup::tests::owned_resources_close_on_every_controlled_terminal_path', 'command::tests::evidence_profiles_are_typed_and_fail_closed', 'cli::legacy_equivalence_preserves_exit_stages_and_stream_hashes')
-  foreach ($Selector in $Selectors) { if ((& $Count $Focused $Selector) -ne 1) { throw "Work Order 25 focused dispatcher selector drifted: $Selector" } }; if ((& $Count $Focused 'Invoke-') -ne 3 -or (& $Count $Focused 'Invoke-ExactRustTest') -ne 1 -or (& $Count $Focused 'Invoke-Wo25UnitAProductionMutationEvidence') -ne 1) { throw 'Work Order 25 focused dispatcher gained an evidence route' }
-  $MutationOwner = 'function Invoke-Wo25UnitAProduction' + 'MutationEvidence {'; $MutationStart = $Source.IndexOf($MutationOwner, [System.StringComparison]::Ordinal); $Mutation = $Source.Substring($MutationStart, $FocusedStart - $MutationStart); foreach ($Id in @('I01', 'I02', 'I03', 'I04')) { if ((& $Count $Mutation "Id = '$Id'") -ne 1) { throw "Work Order 25 focused mutation dispatcher drifted: $Id" } }; if ((& $Count $Mutation ("Id = '" + 'I')) -ne 4) { throw 'Work Order 25 focused mutation dispatcher must contain exactly I01-I04' }
+  foreach ($Selector in $Selectors) { if ((& $Count $Focused $Selector) -ne 1) { throw "Work Order 25 focused dispatcher selector drifted: $Selector" } }; if ((& $Count $FocusedDefinition 'Invoke-') -ne 3 -or (& $Count $Focused 'Invoke-ExactRustTest') -ne 1 -or (& $Count $Focused 'Invoke-Wo25UnitAProductionMutationEvidence') -ne 1) { throw 'Work Order 25 focused dispatcher gained an evidence route' }
+  $Mutation = $MutationFunction.Body.Extent.Text; foreach ($Id in @('I01', 'I02', 'I03', 'I04')) { if ((& $Count $Mutation "Id = '$Id'") -ne 1) { throw "Work Order 25 focused mutation dispatcher drifted: $Id" } }; if ((& $Count $Mutation ("Id = '" + 'I')) -ne 4) { throw 'Work Order 25 focused mutation dispatcher must contain exactly I01-I04' }
   if (-not $SkipStaleControl) {
-    $Cases = @(@('removed boundary invocation', $Source.Replace($FastStart, '')), @('duplicated boundary invocation', $Source.Replace($FastStart, "$FastStart`n  $FastStart")), @('stale Fast-only audit expectation', $Source.Replace($Audit, $StaleAudit)))
+    $OriginalHash = Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Source))
+    $ReplaceOwned = {
+      param([string] $InputSource, [string] $Owned, [string] $Replacement)
+      if ((& $Count $InputSource $Owned) -ne 1) { throw 'Work Order 25 evidence-tier dispatcher corruption owner is missing or duplicate' }
+      $InputSource.Replace($Owned, $Replacement)
+    }
+    $FocusedExtent = $FocusedFunction.Extent.Text; $MutationExtent = $MutationFunction.Extent.Text
+    $MalformedSource = $Source + "`nfunction Invoke-Wo25Malformed { @(`n"
+    if ($MalformedSource -ceq $Source) { throw 'Work Order 25 malformed dispatcher source corruption did not initialize' }
+    $Cases = @(
+      @('malformed dispatcher source', $MalformedSource),
+      @('removed boundary invocation', $Source.Replace($FastStart, '')),
+      @('duplicated boundary invocation', $Source.Replace($FastStart, "$FastStart`n  $FastStart")),
+      @('stale Fast-only audit expectation', $Source.Replace($Audit, $StaleAudit)),
+      @('missing Unit A focused function', (& $ReplaceOwned $Source $FocusedExtent '')),
+      @('duplicate Unit A focused function', ($Source + "`n" + $FocusedExtent + "`n")),
+      @('renamed Unit A focused function', (& $ReplaceOwned $Source $FocusedExtent ($FocusedExtent.Replace('Invoke-Wo25UnitAFocusedEvidence', 'Invoke-Wo25UnitAFocusedEvidenceRenamed')))),
+      @('missing Unit A mutation function', (& $ReplaceOwned $Source $MutationExtent '')),
+      @('duplicate Unit A mutation function', ($Source + "`n" + $MutationExtent + "`n"))
+    )
+    foreach ($Selector in $Selectors) {
+      $Cases += ,@("focused selector removal $Selector", (& $ReplaceOwned $Source $FocusedExtent ($FocusedExtent.Replace($Selector, ''))))
+      $Cases += ,@("focused selector substitution $Selector", (& $ReplaceOwned $Source $FocusedExtent ($FocusedExtent.Replace($Selector, 'substituted::owned_selector'))))
+    }
+    foreach ($Id in @('I01', 'I02', 'I03', 'I04')) {
+      $Needle = "Id = '$Id'"
+      $Cases += ,@("mutation $Id removal", (& $ReplaceOwned $Source $MutationExtent ($MutationExtent.Replace($Needle, ''))))
+      $Cases += ,@("mutation $Id duplication", (& $ReplaceOwned $Source $MutationExtent ($MutationExtent.Replace($Needle, "$Needle; $Needle"))))
+      $Cases += ,@("mutation $Id substitution", (& $ReplaceOwned $Source $MutationExtent ($MutationExtent.Replace($Needle, "Id = '${Id}X'"))))
+    }
+    if ($Cases.Count -ne 33) { throw "Work Order 25 dispatcher ownership rejection matrix must contain exactly 33 controls, found $($Cases.Count)" }
     foreach ($Case in $Cases) {
       $Failure = $null
       try { Assert-Wo25EvidenceTierDispatcherContract -Source $Case[1] -SkipStaleControl } catch { $Failure = $_ }
-      if ($null -eq $Failure -or -not $Failure.Exception.Message.StartsWith('Work Order 25 evidence-tier dispatcher', [System.StringComparison]::Ordinal)) { throw "Work Order 25 $($Case[0]) did not fail closed" }
+      if ($null -eq $Failure -or -not $Failure.Exception.Message.StartsWith('Work Order 25', [System.StringComparison]::Ordinal)) { throw "Work Order 25 $($Case[0]) did not fail closed" }
+      if ($Case[0] -ceq 'malformed dispatcher source' -and $Failure.Exception.Message -cne 'Work Order 25 evidence-tier dispatcher source has 2 parser errors') { throw "Work Order 25 malformed dispatcher source reached the wrong failure: $($Failure.Exception.Message)" }
+      if ((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Source))) -cne $OriginalHash) { throw "Work Order 25 $($Case[0]) did not restore exact dispatcher source bytes" }
       Write-Host "ok - Work Order 25 $($Case[0]) rejected in memory"
     }
+    $Unrelated = $Source + "`nfunction Invoke-Wo25UnrelatedEvidence { 'ignored' }`n"
+    Assert-Wo25EvidenceTierDispatcherContract -Source $Unrelated -SkipStaleControl
+    $Reordered = (& $ReplaceOwned $Source $FocusedExtent '') + "`n" + $FocusedExtent + "`n"
+    Assert-Wo25EvidenceTierDispatcherContract -Source $Reordered -SkipStaleControl
+    if ((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Source))) -cne $OriginalHash) { throw 'Work Order 25 ownership controls did not restore exact dispatcher source bytes' }
+    Write-Host 'ok - Work Order 25 unrelated function insertion and safe function reordering preserved AST ownership'
   }
 }
 function Invoke-Wo25UnitAFocusedEvidence { param([string] $Cargo)
