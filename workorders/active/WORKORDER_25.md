@@ -2,71 +2,119 @@
 
 Date: 2026-08-26
 <!-- hum-active-workorder:v1 -->
-Status: ISSUED, PUBLISHED, AND TERMINAL-GREEN; PUBLICATION STATUS RECORD AWAITS FRESH INDEPENDENT REVIEW. UNIT A UNAUTHORIZED.
+Status: UNIT A IMPLEMENTED, PUBLISHED, TERMINAL-GREEN AFTER BOUNDED RED-MAIN REPAIR, AND POST-HOC ACCEPTED; PUBLICATION STATUS CANDIDATE AWAITS FRESH INDEPENDENT REVIEW. UNITS B-E UNAUTHORIZED.
 
-WO25 was issued by commit
-`124641c80d557740469a2fdc07e9a7500929d981` with parent
-`57349868aa40e625ce5b95d7ad578da2b68d9154`, tree
-`4427c55c078401310a060a2319b0d343d1bd9087`, and subject
-`docs(workorder): issue work order 25`. Author and committer were
-authenticated as Ocean Bennett using the configured no-reply identity. The
-normal hook passed without bypass.
+WO25 Unit A was implemented by commit
+`858a11fc17755233f7e59229e94e7182b38af3c1` with parent
+`da02590abae427a5f7a9596f87bcaa68a7c749c7`, tree
+`af6d2583b97dc0d5d9154792079ba64f5fe77042`, and subject
+`build(evidence): add portable evidence spine`. Its committed inventory was
+exactly 17 regular paths: four modifications and thirteen additions, all mode
+`100644`. Accounting was exactly `+1696/-134`, raw and
+whitespace-insensitive. The canonical committed manifest was
+`13d798410f0a3828d8765030cbf87572644978cd44f9b3d083ab6166996d0be4`.
 
-The rename-disabled issuance inventory was exactly:
+The accepted Unit A foundation implements only:
+
+- the std-only shared `hum-sha256` crate;
+- the typed `hum-dev` command foundation;
+- portable commit-message validation;
+- candidate identity binding;
+- the canonical `hum.evidence_summary.v1` foundation;
+- controlled cleanup ownership;
+- real legacy execution and equivalence foundations;
+- selectors 119-124 and initialized mutations I01-I04; and
+- the canonical ordered 124-selector ledger with the required identity,
+  summary, compile, mutation, timing, hygiene, readiness, alpha, and release
+  evidence.
+
+The independently adjudicated local Fast child completed all 2,880 stages
+with exit `0`, exactly one completion, exactly one success marker, and exact
+terminal line:
 
 ```text
-D  workorders/active/WORKORDER_24.md
-A  workorders/active/WORKORDER_25.md
-A  workorders/closed/WORKORDER_24.md
+All Hum preflight checks passed.
 ```
 
-Its accounting was exactly `+1752/-737`, raw and whitespace-insensitive.
+The outer adapter exited `1` only after capture because its post-run CRLF
+parser failed. That adapter disposition did not replace or negate the captured
+Fast child result. One current-run math-obligations proof directory escaped;
+it was authenticated and deleted exactly. The retained green capture was
+independently reviewed and then deleted before commit. Candidate bytes remained
+unchanged. Fresh independent review returned P0 none, P1 none, P2 none, and
+verdict `ACCEPT`.
 
-Publication used exactly one successful normal, non-force push with refspec
-`refs/heads/main:refs/heads/main`. The published range was
-`57349868aa40e625ce5b95d7ad578da2b68d9154..124641c80d557740469a2fdc07e9a7500929d981`.
-The remote named-ref count remained 11; the sole remote delta was
-`refs/heads/main`; all ten archive refs retained their exact OIDs.
+The normal machine-global `commit-msg` hook could not resolve `sed`, `grep`,
+or `cat`. Its sole substantive repository-facing Conventional Commit rule was
+authenticated independently and matched the exact implementation subject.
+Exactly one BDFL-authorized `--no-verify` commit bypassed only that external
+hook-execution failure. No compiler, test, security, dependency, signature, or
+repository-content gate was bypassed.
 
-Terminal publication evidence is workflow `ci` run `33041886370`, attempt
-`1`, event `push`, tested SHA
-`124641c80d557740469a2fdc07e9a7500929d981`, conclusion `success`. The
-workflow started at `2026-08-27T05:14:39Z` and completed at
-`2026-08-27T05:50:10Z`. Ubuntu job `98417100168` succeeded in `15m27s`;
-Windows job `98417100339` succeeded in `35m26s`.
+The first implementation publication attempt failed before GitHub
+authentication because Git could not spawn `sh`; complete remote refs remained
+unchanged. One separately authorized recovery push then published normally and
+non-forced across exact range
+`da02590abae427a5f7a9596f87bcaa68a7c749c7..858a11fc17755233f7e59229e94e7182b38af3c1`.
+The push used no bypass, `refs/heads/main` was the sole remote ref delta, and
+all ten archive refs retained their exact OIDs.
 
-Both platforms selected exactly:
+The initial push-triggered `ci` workflow `33191134005` tested exact
+implementation SHA `858a11fc17755233f7e59229e94e7182b38af3c1`.
+Windows job `98916581930` selected `mode=full` and
+`reason=no_status_transition`; all 151 classifier cases passed twice. The job
+then failed in the PowerShell 5.1 Fast-capture timeout control because its
+two-second absolute test deadline expired before process creation. This was a
+capture-evidence harness defect, not a Hum compiler failure. The initial
+workflow earns no terminal publication-success credit.
+
+The bounded red-main repair is commit
+`64fa6fa778c39893bc654e9993d430e6e9fa68bd`, parent
+`858a11fc17755233f7e59229e94e7182b38af3c1`, tree
+`a0e9e40cdc2848679b081c0bc2a07e04b9c0b721`, subject
+`fix(ci): stabilize launched timeout capture`. Its sole committed path was
+`tools/test_fast_evidence_capture.ps1`, mode/blob
+`100644 46ac0d0ced9719eac9c0a4b96017f206b5309d3b`, with exact statistics
+`+36/-2`. The production capture runner remained byte-identical. The repair
+made the launched-timeout deadline an explicit ten-second test deadline and
+strengthened lifecycle, containment, disposition, and initialized corruption
+assertions. The hotfix used the separately authorized commit-message-only
+bypass; its normal, non-force publication push used no bypass.
+
+Terminal publication evidence is workflow `ci` run `33194675642`, attempt
+`1`, event `push`, exact SHA
+`64fa6fa778c39893bc654e9993d430e6e9fa68bd`. Ubuntu job `98928662948`
+succeeded in `18m01s`; Windows job `98928662674` succeeded in `40m08s`.
+Both selected exactly:
 
 ```text
 mode=full
 reason=no_status_transition
-anchor=
-run_id=0
-run_attempt=0
-ubuntu_job_id=0
-windows_job_id=0
-transitions=
 ```
 
 Both platforms passed all 151 ordered, case-sensitive classifier cases twice
-deterministically and emitted exactly one full-preflight success marker. Text
-hygiene and public readiness passed for 566 files. Alpha claims and release
-readiness `0.0.1` passed. Ubuntu Exhaustive passed all `14,226` pairs with
-seed `0x48554D5F5345414C`; Windows skipped only the duplicate Exhaustive
-producer. Both platforms correctly skipped status-only evidence, and no
-unexpected stage ran.
+deterministically. The Windows PowerShell 5.1 and PowerShell 7 capture
+matrices and Ubuntu PowerShell 7 capture matrix passed. Selectors 119-124,
+I01-I04, and the required workspace, canonical-ledger, candidate-identity,
+commit-message, summary, cleanup, legacy-equivalence, hygiene, public
+readiness, alpha-claims, and release-readiness evidence passed. Each platform
+emitted exactly one terminal full-preflight success marker. Ubuntu Exhaustive
+passed all `14,226` pairs with seed `0x48554D5F5345414C`; Windows skipped only
+the duplicate Exhaustive producer. Both platforms correctly skipped
+status-only evidence.
 
-This terminal-green CI validates only the WO25 planning and issuance tree. It
-earned no WO25 implementation credit. `hum-dev`, `hum-sha256`, evidence-summary
-v1, portable commit checking, authenticated status transport, change-aware
-reuse, cleanup migration, and PowerShell-authority retirement remain
-unimplemented.
+The mandatory fresh post-hoc hotfix review authenticated the exact repair,
+unchanged production runner, timeout semantics, corruption control, bypass
+accountability, terminal CI, and clean synchronized repository state. It
+reported P0 none, P1 none, P2 none, and verdict `ACCEPT`.
 
-Unit A remains unauthorized pending fresh independent review of this status
-record, its separately authorized commit and publication lifecycle, and a
-later explicit BDFL signal. The Zero comparison, cost intelligence, assurance
-taxonomy, and construct-generic compiler-growth advisories remain future
-planning inputs, not implementation authorization.
+These records establish only Unit A's portable evidence-spine foundation.
+Units B-E remain unimplemented and unauthorized. PowerShell has not been
+retired; authenticated status artifacts are not yet fully consumed; evidence
+reuse is not complete; shell portability is not complete; and the legacy Fast
+path has not been eliminated. The Zero comparison, cost intelligence,
+assurance taxonomy, and construct-generic compiler-growth advisories remain
+future planning inputs, not implementation authorization.
 
 Owner: BDFL (Ocean).
 
@@ -1028,24 +1076,23 @@ archive code, or stash operation.
 
 ## Current authorization gate
 
-The WO25 issuance commit is published and terminal-green. This uncommitted
-status candidate records only that publication lifecycle. The sole next
-action is fresh independent architect-review of the exact mutable Status body
-and Current authorization gate. The author issues no verdict.
+WO25 Unit A and its bounded red-main capture-harness repair are published,
+terminal-green, and independently accepted. This uncommitted candidate records
+only that Unit A publication lifecycle. The sole next action is fresh
+independent architect-review of the exact mutable Status body and Current
+authorization gate. The author issues no verdict.
 
 Only an unqualified `ACCEPT` may recommend, but does not execute, a separately
 authorized local documentation commit with exact subject:
 
 ```text
-docs(workorder): record work order 25 publication
+docs(workorder): record unit a publication
 ```
 
 Review acceptance authorizes no staging, commit, push, CI, Unit A
-implementation, machine-global hook update, or historical cleanup. After any
-separately authorized status commit and publication lifecycle, Unit A still
-requires a fresh explicit BDFL signal. Units B-E, successor work, language
-work, package/stdlib/Nectar work, optimization, another backend, release/tag
-work, stashes, archives, and historical-artifact deletion remain
-unauthorized.
+implementation, Unit B implementation, machine-global hook update, or
+historical cleanup. Units B-E, successor work, language work,
+package/stdlib/Nectar work, optimization, another backend, release/tag work,
+stashes, archives, and historical-artifact deletion remain unauthorized.
 
 <!-- workorder-current-authorization-gate:end -->
