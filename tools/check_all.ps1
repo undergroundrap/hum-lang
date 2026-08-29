@@ -1201,9 +1201,33 @@ function Invoke-Wo25UnitAFocusedEvidence { param([string] $Cargo)
   Invoke-Wo25UnitAProductionMutationEvidence -Cargo $Cargo
 }
 
-function Invoke-Wo25UnitBSelectorWithoutCredit { param([string]$Cargo,[string]$Label,[string]$Selector)
-  $Before = @(Get-ExactRustSelectorCredits); try { Invoke-ExactRustTest $Label $Cargo $Selector } finally { $After = @(Get-ExactRustSelectorCredits); if ($After.Count -eq $Before.Count + 1 -and $After[-1] -ceq $Selector) { $script:ExactRustSelectorCredits.RemoveAt($After.Count - 1) } }
-  if ([string]::Join("`n", @(Get-ExactRustSelectorCredits)) -cne [string]::Join("`n", $Before)) { throw "$Label selector credit restoration failed" }
+function Assert-Wo25UnitBMutationSelectorContract {
+  param([string]$Source,[switch]$SkipCorruptionControl)
+  $Tokens=$null;$ParseErrors=$null;$Ast=[System.Management.Automation.Language.Parser]::ParseInput($Source,[ref]$Tokens,[ref]$ParseErrors)
+  $Functions=@($Ast.FindAll({param($Node)$Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq 'Invoke-Wo25UnitBProductionMutationEvidence'},$true))
+  if($ParseErrors.Count -ne 0 -or $Functions.Count -ne 1){throw 'Work Order 25 Unit B mutation selector contract syntax or identity drifted'}
+  $Commands=@($Functions[0].Body.FindAll({param($Node)$Node -is [System.Management.Automation.Language.CommandAst]},$true))
+  $Guarded=@($Commands|Where-Object{$_.GetCommandName() -ceq 'Invoke-ExactRustTest'})
+  $NativeBypasses=@($Commands|Where-Object{$_.GetCommandName() -ceq 'Invoke-ExactRustNativeCapture'})
+  $DirectCargo=@($Commands|Where-Object{$_.InvocationOperator -eq [System.Management.Automation.Language.TokenKind]::Ampersand -and $_.CommandElements.Count -gt 0 -and $_.CommandElements[0].Extent.Text -ceq '$Cargo'})
+  $ExactFlag='--'+'exact'
+  $LiteralBypasses=@($Functions[0].Body.FindAll({param($Node)$Node -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $Node.Value -ceq $ExactFlag},$true))
+  $Expected=@(
+    ('Invoke-'+'ExactRustTest $HonestBeforeLabel $Cargo $Row.Selector'),
+    ('Invoke-'+'ExactRustTest $MutationExecutionLabel $Cargo $Row.Selector'),
+    ('Invoke-'+'ExactRustTest $HonestAfterLabel $Cargo $Row.Selector')
+  )
+  if($Guarded.Count -ne 3 -or $NativeBypasses.Count -ne 0 -or $DirectCargo.Count -ne 0 -or $LiteralBypasses.Count -ne 0){throw 'Work Order 25 Unit B mutation selector contract requires three guarded routes and zero direct or bypass routes'}
+  foreach($Call in $Expected){if(@($Guarded|Where-Object{$_.Extent.Text -ceq $Call}).Count -ne 1){throw "Work Order 25 Unit B guarded selector route drifted: $Call"}}
+  if(-not $SkipCorruptionControl){
+    $DirectForm='& $Cargo test -p hum-dev $Row.Selector -- --'+'exact 2>&1 | Out-String'
+    if(([regex]::Matches($Source,[regex]::Escape($Expected[1]))).Count -ne 1){throw 'Work Order 25 Unit B guarded mutation corruption owner is missing or duplicate'}
+    $Corrupt=$Source.Replace($Expected[1],$DirectForm)
+    if($Corrupt -ceq $Source){throw 'Work Order 25 Unit B direct-launch corruption did not initialize'}
+    $Failure=$null;try{Assert-Wo25UnitBMutationSelectorContract -Source $Corrupt -SkipCorruptionControl}catch{$Failure=$_}
+    if($null -eq $Failure -or -not $Failure.Exception.Message.StartsWith('Work Order 25 Unit B mutation selector contract',[System.StringComparison]::Ordinal)){throw 'Work Order 25 Unit B direct Cargo exact-test corruption did not fail closed'}
+    Write-Host 'ok - Work Order 25 Unit B direct Cargo exact-test corruption rejected in memory'
+  }
 }
 function Invoke-Wo25UnitBProductionMutationEvidence { param([string]$Cargo)
   $Rows = @(
@@ -1212,7 +1236,36 @@ function Invoke-Wo25UnitBProductionMutationEvidence { param([string]$Cargo)
     [pscustomobject]@{Id='I07';Selector='status::tests::status_review_consumes_summaries_without_full_logs';Needle='call.contains("cargo")';Replacement='false';Disposition='a forbidden stage appears without rejection'}
   )
   $Path = Join-Path $RepoRoot 'crates/hum-dev/src/status.rs'; $Utf8 = New-Object Text.UTF8Encoding($false,$true)
-  foreach($Row in $Rows){$Original=[IO.File]::ReadAllBytes($Path);$Text=$Utf8.GetString($Original);if(([regex]::Matches($Text,[regex]::Escape($Row.Needle))).Count -ne 1){throw "$($Row.Id) predicate is not unique"};Invoke-Wo25UnitBSelectorWithoutCredit $Cargo "$($Row.Id) honest before" $Row.Selector;$Failure=$null;$Output='';try{[IO.File]::WriteAllText($Path,$Text.Replace($Row.Needle,$Row.Replacement),$Utf8);try{$Output=(& $Cargo test -p hum-dev $Row.Selector -- --exact 2>&1|Out-String)}catch{$Failure=$_}}finally{[IO.File]::WriteAllBytes($Path,$Original)};if($LASTEXITCODE -ne 101 -or -not $Output.Contains($Row.Disposition) -or -not (Test-Wo22ByteArraysEqual $Original ([IO.File]::ReadAllBytes($Path)))){throw "$($Row.Id) did not escape its exact owned disposition and restore"};$script:Wo25MutationRecords.Add("$($Row.Id)|rejected|$(Get-Wo25Sha256 $Original)");Invoke-Wo25UnitBSelectorWithoutCredit $Cargo "$($Row.Id) honest after" $Row.Selector;Write-Host "ok - $($Row.Id) rejected and restored"}
+  foreach($Row in $Rows){
+    $Original=[IO.File]::ReadAllBytes($Path);$Text=$Utf8.GetString($Original)
+    if(([regex]::Matches($Text,[regex]::Escape($Row.Needle))).Count -ne 1){throw "$($Row.Id) predicate is not unique"}
+    $HonestBeforeLabel="Work Order 25 $($Row.Id) honest selector before mutation"
+    $HonestBeforeCredits=@(Get-ExactRustSelectorCredits)
+    Invoke-ExactRustTest $HonestBeforeLabel $Cargo $Row.Selector
+    $HonestBeforeAppended=@(Get-ExactRustSelectorCredits)
+    [string[]]$HonestBeforePrefix=@(if($HonestBeforeCredits.Count -ne 0){$HonestBeforeAppended[0..($HonestBeforeCredits.Count-1)]})
+    if($HonestBeforeAppended.Count -ne $HonestBeforeCredits.Count+1 -or $HonestBeforePrefix.Count -ne $HonestBeforeCredits.Count -or [string]::Join("`n",$HonestBeforePrefix) -cne [string]::Join("`n",$HonestBeforeCredits) -or $HonestBeforeAppended[-1] -cne $Row.Selector){throw "$($Row.Id) honest-before selector credit append drifted"}
+    $script:ExactRustSelectorCredits.RemoveAt($HonestBeforeAppended.Count-1)
+    if([string]::Join("`n",@(Get-ExactRustSelectorCredits)) -cne [string]::Join("`n",$HonestBeforeCredits)){throw "$($Row.Id) honest-before selector credit restoration failed"}
+    $CreditsBefore=@(Get-ExactRustSelectorCredits);$Failure=$null;$Output=New-Object 'System.Collections.Generic.List[string]';$MutationExecutionLabel="Work Order 25 $($Row.Id) initialized mutation"
+    try{
+      [IO.File]::WriteAllText($Path,$Text.Replace($Row.Needle,$Row.Replacement),$Utf8)
+      try{& { Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Row.Selector } 6>&1|ForEach-Object{$Output.Add($_.ToString())}}catch{$Failure=$_}
+    }finally{[IO.File]::WriteAllBytes($Path,$Original)}
+    $CreditsAfter=@(Get-ExactRustSelectorCredits);$OutputText=[string]::Join("`n",$Output)
+    $RunningCounts=@($Output|ForEach-Object{if($_ -match '^running (?<count>[0-9]+) tests?$'){[int]$Matches['count']}})
+    $Named=@($Output|Where-Object{$_ -match '^test .+ \.\.\. (?:ok|FAILED|ignored)$'});$NamedFailure=@($Named|Where-Object{$_ -ceq "test $($Row.Selector) ... FAILED"})
+    $FailureSummary=@($Output|Where-Object{$_ -match '^test result: FAILED\. 0 passed; 1 failed; 0 ignored; 0 measured; [0-9]+ filtered out;'});$CompileErrors=@($Output|Where-Object{$_ -match '^error\[E[0-9]+\]' -or $_ -match '^error: could not compile '})
+    if($null -eq $Failure -or $Failure.Exception.Message -cne "$MutationExecutionLabel failed with exit code 101" -or $RunningCounts.Count -eq 0 -or ($RunningCounts|Measure-Object -Sum).Sum -ne 1 -or $Named.Count -ne 1 -or $NamedFailure.Count -ne 1 -or $FailureSummary.Count -ne 1 -or $CompileErrors.Count -ne 0 -or ([regex]::Matches($OutputText,[regex]::Escape($Row.Disposition))).Count -ne 1 -or $CreditsAfter.Count -ne $CreditsBefore.Count -or [string]::Join("`n",$CreditsAfter) -cne [string]::Join("`n",$CreditsBefore) -or -not (Test-Wo22ByteArraysEqual $Original ([IO.File]::ReadAllBytes($Path)))){$Output|ForEach-Object{Write-Host $_};throw "$($Row.Id) did not escape its exact owned disposition and restore"}
+    $script:Wo25MutationRecords.Add("$($Row.Id)|rejected|$(Get-Wo25Sha256 $Original)")
+    $HonestAfterLabel="Work Order 25 $($Row.Id) honest selector after restoration";$HonestAfterCredits=@(Get-ExactRustSelectorCredits)
+    Invoke-ExactRustTest $HonestAfterLabel $Cargo $Row.Selector
+    $HonestAfterAppended=@(Get-ExactRustSelectorCredits);[string[]]$HonestAfterPrefix=@(if($HonestAfterCredits.Count -ne 0){$HonestAfterAppended[0..($HonestAfterCredits.Count-1)]})
+    if($HonestAfterAppended.Count -ne $HonestAfterCredits.Count+1 -or $HonestAfterPrefix.Count -ne $HonestAfterCredits.Count -or [string]::Join("`n",$HonestAfterPrefix) -cne [string]::Join("`n",$HonestAfterCredits) -or $HonestAfterAppended[-1] -cne $Row.Selector){throw "$($Row.Id) honest-after selector credit append drifted"}
+    $script:ExactRustSelectorCredits.RemoveAt($HonestAfterAppended.Count-1)
+    if([string]::Join("`n",@(Get-ExactRustSelectorCredits)) -cne [string]::Join("`n",$HonestAfterCredits) -or -not (Test-Wo22ByteArraysEqual $Original ([IO.File]::ReadAllBytes($Path)))){throw "$($Row.Id) honest-after selector credit or byte restoration failed"}
+    Write-Host "ok - $($Row.Id) rejected and restored"
+  }
 }
 function Assert-Wo25UnitBTransportContract {
   $Workflow=[IO.File]::ReadAllText((Join-Path $RepoRoot '.github/workflows/ci.yml'));foreach($Pin in @('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a','actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c')){if(([regex]::Matches($Workflow,[regex]::Escape($Pin))).Count -lt 1){throw "missing immutable action pin $Pin"}};foreach($Step in @('generate_evidence_summary','upload_evidence_summary','upload_hum_dev_executable','start_status_review_and_resolve_hum_dev','download_hum_dev_executable','authenticate_and_run_status_only_evidence')){if(([regex]::Matches($Workflow,"(?m)^\s*id:\s*"+[regex]::Escape($Step)+"\s*$" )).Count -ne 1){throw "Unit B workflow step identity drifted: $Step"}}
@@ -1226,6 +1279,7 @@ function Assert-Wo25UnitBTransportContract {
   $Status=[IO.File]::ReadAllText((Join-Path $RepoRoot 'crates/hum-dev/src/status.rs'));foreach($Forbidden in @('"--log"','call.contains("cargo")','"rustc"','"check_all"','"workflow run"','"local-copy"','running executable and producer summary disagree')){if(-not $Status.Contains($Forbidden)){throw "Unit B status sentinel missing: $Forbidden"}}
 }
 function Invoke-Wo25UnitBFocusedEvidence { param([string]$Cargo)
+  Assert-Wo25UnitBMutationSelectorContract -Source ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1')))
   Assert-Wo25UnitBTransportContract
   $Selectors=@('status::tests::job_summary_binds_run_attempt_job_sha_tree_and_platform','status::tests::status_review_consumes_summaries_without_full_logs','workorder::tests::status_facts_touch_only_authenticated_mutable_regions','summary::tests::cross_platform_status_agreement_is_exact')
   Push-Location (Join-Path $RepoRoot 'crates/hum-dev');try{foreach($Selector in $Selectors){Invoke-ExactRustTest "Work Order 25 Unit B $Selector" $Cargo $Selector};Invoke-Wo25UnitBProductionMutationEvidence -Cargo $Cargo}finally{Pop-Location}
@@ -1302,6 +1356,7 @@ try {
   $CheckAllTokens = $null
   $CheckAllParseErrors = $null
   $CheckAllAst = [System.Management.Automation.Language.Parser]::ParseInput($CheckAllSource, [ref] $CheckAllTokens, [ref] $CheckAllParseErrors)
+  Assert-Wo25UnitBMutationSelectorContract -Source $CheckAllSource
   $MutationFunctions = @($CheckAllAst.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq 'Invoke-Wo22BackendPredicateMutationEvidence' }, $true))
   if ($CheckAllParseErrors.Count -ne 0 -or $MutationFunctions.Count -ne 1) { throw 'Work Order 22 mutation runner syntax or identity drifted' }
   $MutationCommands = @($MutationFunctions[0].Body.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.CommandAst] }, $true))
